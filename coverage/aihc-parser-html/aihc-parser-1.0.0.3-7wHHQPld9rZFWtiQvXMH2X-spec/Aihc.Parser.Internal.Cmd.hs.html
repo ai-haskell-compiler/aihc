@@ -1,0 +1,242 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>module Aihc.Parser.Internal.Cmd
+<span class="lineno">    4 </span>  ( cmdParser,
+<span class="lineno">    5 </span>  )
+<span class="lineno">    6 </span>where
+<span class="lineno">    7 </span>
+<span class="lineno">    8 </span>import Aihc.Parser.Internal.CheckPattern (checkPattern)
+<span class="lineno">    9 </span>import Aihc.Parser.Internal.Common
+<span class="lineno">   10 </span>import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, caseRhsParserWithBodyParser, cmdArrAppLhsParser, exprParser, parseLetDeclsParser, parseLetDeclsStmtParser)
+<span class="lineno">   11 </span>import Aihc.Parser.Internal.Pattern (apatParser, caseAltPatternParser, patternParser)
+<span class="lineno">   12 </span>import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
+<span class="lineno">   13 </span>import Aihc.Parser.Syntax
+<span class="lineno">   14 </span>import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
+<span class="lineno">   15 </span>import Text.Megaparsec (anySingle, lookAhead, (&lt;|&gt;))
+<span class="lineno">   16 </span>import Text.Megaparsec qualified as MP
+<span class="lineno">   17 </span>
+<span class="lineno">   18 </span>-- | Parse a command (the body of a @proc@ abstraction).
+<span class="lineno">   19 </span>--
+<span class="lineno">   20 </span>-- Grammar (simplified):
+<span class="lineno">   21 </span>--
+<span class="lineno">   22 </span>-- @
+<span class="lineno">   23 </span>-- cmd   = exp10 -\&lt; exp | exp10 -\&lt;\&lt; exp | cmd0
+<span class="lineno">   24 </span>-- cmd0  = cmd10 (op cmd10)*
+<span class="lineno">   25 </span>-- cmd10 = do { cstmts } | if … | case … | let … | \\pats -&gt; cmd | fcmd
+<span class="lineno">   26 </span>-- fcmd  = fcmd aexp | (cmd)
+<span class="lineno">   27 </span>-- @
+<span class="lineno">   28 </span>cmdParser :: TokParser Cmd
+<span class="lineno">   29 </span><span class="decl"><span class="istickedoff">cmdParser = do</span>
+<span class="lineno">   30 </span><span class="spaces">  </span><span class="istickedoff">tok &lt;- lookAhead anySingle</span>
+<span class="lineno">   31 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">   32 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordDo -&gt; cmd0Parser</span>
+<span class="lineno">   33 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordIf -&gt; cmd0Parser</span>
+<span class="lineno">   34 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordCase -&gt; cmd0Parser</span>
+<span class="lineno">   35 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordLet -&gt; cmd0Parser</span>
+<span class="lineno">   36 </span><span class="spaces">    </span><span class="istickedoff">TkReservedBackslash -&gt; cmd0Parser</span>
+<span class="lineno">   37 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialLParen -&gt; MP.try cmd0Parser &lt;|&gt; cmdArrAppParser</span>
+<span class="lineno">   38 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; MP.try cmdArrAppParser &lt;|&gt; cmd0Parser</span></span>
+<span class="lineno">   39 </span>
+<span class="lineno">   40 </span>cmd0Parser :: TokParser Cmd
+<span class="lineno">   41 </span><span class="decl"><span class="istickedoff">cmd0Parser = do</span>
+<span class="lineno">   42 </span><span class="spaces">  </span><span class="istickedoff">lhs &lt;- cmd10Parser</span>
+<span class="lineno">   43 </span><span class="spaces">  </span><span class="istickedoff">rest &lt;-</span>
+<span class="lineno">   44 </span><span class="spaces">    </span><span class="istickedoff">MP.many</span>
+<span class="lineno">   45 </span><span class="spaces">      </span><span class="istickedoff">( (,)</span>
+<span class="lineno">   46 </span><span class="spaces">          </span><span class="istickedoff">&lt;$&gt; infixOperatorParser</span>
+<span class="lineno">   47 </span><span class="spaces">          </span><span class="istickedoff">&lt;*&gt; cmd10Parser</span>
+<span class="lineno">   48 </span><span class="spaces">      </span><span class="istickedoff">)</span>
+<span class="lineno">   49 </span><span class="spaces">  </span><span class="istickedoff">pure (foldl buildCmdInfix lhs rest)</span>
+<span class="lineno">   50 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   51 </span><span class="spaces">    </span><span class="istickedoff">buildCmdInfix l (op, r) = CmdInfix l op r</span></span>
+<span class="lineno">   52 </span>
+<span class="lineno">   53 </span>cmd10Parser :: TokParser Cmd
+<span class="lineno">   54 </span><span class="decl"><span class="istickedoff">cmd10Parser = do</span>
+<span class="lineno">   55 </span><span class="spaces">  </span><span class="istickedoff">tok &lt;- lookAhead anySingle</span>
+<span class="lineno">   56 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">   57 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordDo -&gt; cmdDoParser</span>
+<span class="lineno">   58 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordIf -&gt; cmdIfParser</span>
+<span class="lineno">   59 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordCase -&gt; cmdCaseParser</span>
+<span class="lineno">   60 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordLet -&gt;</span>
+<span class="lineno">   61 </span><span class="spaces">      </span><span class="istickedoff">-- 'let decls in cmd' is a command; 'let decls' (without 'in') inside</span>
+<span class="lineno">   62 </span><span class="spaces">      </span><span class="istickedoff">-- a do-block is a statement, not handled here.</span>
+<span class="lineno">   63 </span><span class="spaces">      </span><span class="istickedoff">cmdLetParser</span>
+<span class="lineno">   64 </span><span class="spaces">    </span><span class="istickedoff">TkReservedBackslash -&gt; cmdLamParser</span>
+<span class="lineno">   65 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; cmdFcmdParser</span></span>
+<span class="lineno">   66 </span>
+<span class="lineno">   67 </span>cmdArrAppParser :: TokParser Cmd
+<span class="lineno">   68 </span><span class="decl"><span class="istickedoff">cmdArrAppParser = do</span>
+<span class="lineno">   69 </span><span class="spaces">  </span><span class="istickedoff">expr &lt;- cmdArrAppLhsParser</span>
+<span class="lineno">   70 </span><span class="spaces">  </span><span class="istickedoff">(appType, rhs) &lt;- cmdArrTailParser</span>
+<span class="lineno">   71 </span><span class="spaces">  </span><span class="istickedoff">pure (CmdArrApp expr appType rhs)</span></span>
+<span class="lineno">   72 </span>
+<span class="lineno">   73 </span>cmdFcmdParser :: TokParser Cmd
+<span class="lineno">   74 </span><span class="decl"><span class="istickedoff">cmdFcmdParser = do</span>
+<span class="lineno">   75 </span><span class="spaces">  </span><span class="istickedoff">headCmd &lt;- cmdParenParser</span>
+<span class="lineno">   76 </span><span class="spaces">  </span><span class="istickedoff">args &lt;- MP.many atomExprParser</span>
+<span class="lineno">   77 </span><span class="spaces">  </span><span class="istickedoff">pure (foldl <span class="nottickedoff">CmdApp</span> headCmd args)</span></span>
+<span class="lineno">   78 </span>
+<span class="lineno">   79 </span>-- | Parse an arrow tail operator in command context, returning the
+<span class="lineno">   80 </span>-- application type and the right-hand expression.
+<span class="lineno">   81 </span>cmdArrTailParser :: TokParser (ArrAppType, Expr)
+<span class="lineno">   82 </span><span class="decl"><span class="istickedoff">cmdArrTailParser = do</span>
+<span class="lineno">   83 </span><span class="spaces">  </span><span class="istickedoff">appType &lt;- tokenSatisfy <span class="nottickedoff">&quot;arrow operator&quot;</span> $ \tok -&gt;</span>
+<span class="lineno">   84 </span><span class="spaces">    </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">   85 </span><span class="spaces">      </span><span class="istickedoff">TkArrowTail -&gt; Just HsFirstOrderApp</span>
+<span class="lineno">   86 </span><span class="spaces">      </span><span class="istickedoff">TkDoubleArrowTail -&gt; Just HsHigherOrderApp</span>
+<span class="lineno">   87 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; Nothing</span>
+<span class="lineno">   88 </span><span class="spaces">  </span><span class="istickedoff">rhs &lt;- exprParser</span>
+<span class="lineno">   89 </span><span class="spaces">  </span><span class="istickedoff">pure (appType, rhs)</span></span>
+<span class="lineno">   90 </span>
+<span class="lineno">   91 </span>-- | Parse a command do-block: @do { cstmt ; ... }@
+<span class="lineno">   92 </span>cmdDoParser :: TokParser Cmd
+<span class="lineno">   93 </span><span class="decl"><span class="istickedoff">cmdDoParser = withSpanAnn (CmdAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">   94 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordDo</span>
+<span class="lineno">   95 </span><span class="spaces">  </span><span class="istickedoff">CmdDo &lt;$&gt; bracedSemiSep1 cmdStmtParser</span></span>
+<span class="lineno">   96 </span>
+<span class="lineno">   97 </span>-- | Parse a command if-then-else: @if exp then cmd else cmd@
+<span class="lineno">   98 </span>cmdIfParser :: TokParser Cmd
+<span class="lineno">   99 </span><span class="decl"><span class="istickedoff">cmdIfParser = withSpanAnn (CmdAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  100 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordIf</span>
+<span class="lineno">  101 </span><span class="spaces">  </span><span class="istickedoff">cond &lt;- exprParser</span>
+<span class="lineno">  102 </span><span class="spaces">  </span><span class="istickedoff">skipSemicolons</span>
+<span class="lineno">  103 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordThen</span>
+<span class="lineno">  104 </span><span class="spaces">  </span><span class="istickedoff">yes &lt;- cmdParser</span>
+<span class="lineno">  105 </span><span class="spaces">  </span><span class="istickedoff">skipSemicolons</span>
+<span class="lineno">  106 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordElse</span>
+<span class="lineno">  107 </span><span class="spaces">  </span><span class="istickedoff">CmdIf cond yes &lt;$&gt; cmdParser</span></span>
+<span class="lineno">  108 </span>
+<span class="lineno">  109 </span>-- | Parse a command case: @case exp of { calts }@
+<span class="lineno">  110 </span>cmdCaseParser :: TokParser Cmd
+<span class="lineno">  111 </span><span class="decl"><span class="istickedoff">cmdCaseParser = withSpanAnn (CmdAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  112 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordCase</span>
+<span class="lineno">  113 </span><span class="spaces">  </span><span class="istickedoff">scrut &lt;- region <span class="nottickedoff">&quot;while parsing case scrutinee&quot;</span> exprParser</span>
+<span class="lineno">  114 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordOf</span>
+<span class="lineno">  115 </span><span class="spaces">  </span><span class="istickedoff">alts &lt;- bracedSemiSep1 cmdCaseAltParser</span>
+<span class="lineno">  116 </span><span class="spaces">  </span><span class="istickedoff">pure (CmdCase scrut alts)</span></span>
+<span class="lineno">  117 </span>
+<span class="lineno">  118 </span>cmdCaseAltParser :: TokParser (CaseAlt Cmd)
+<span class="lineno">  119 </span><span class="decl"><span class="istickedoff">cmdCaseAltParser = withSpan $ do</span>
+<span class="lineno">  120 </span><span class="spaces">  </span><span class="istickedoff">pat &lt;- caseAltPatternParser</span>
+<span class="lineno">  121 </span><span class="spaces">  </span><span class="istickedoff">rhs &lt;- caseRhsParserWithBodyParser cmdParser</span>
+<span class="lineno">  122 </span><span class="spaces">  </span><span class="istickedoff">pure (\span' -&gt; CaseAlt <span class="nottickedoff">[mkAnnotation span']</span> pat rhs)</span></span>
+<span class="lineno">  123 </span>
+<span class="lineno">  124 </span>-- | Parse a command let: @let decls in cmd@
+<span class="lineno">  125 </span>cmdLetParser :: TokParser Cmd
+<span class="lineno">  126 </span><span class="decl"><span class="istickedoff">cmdLetParser = withSpanAnn (CmdAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  127 </span><span class="spaces">  </span><span class="istickedoff">decls &lt;- parseLetDeclsParser</span>
+<span class="lineno">  128 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordIn</span>
+<span class="lineno">  129 </span><span class="spaces">  </span><span class="istickedoff">CmdLet decls &lt;$&gt; cmdParser</span></span>
+<span class="lineno">  130 </span>
+<span class="lineno">  131 </span>-- | Parse a command lambda: @\\pats -&gt; cmd@
+<span class="lineno">  132 </span>cmdLamParser :: TokParser Cmd
+<span class="lineno">  133 </span><span class="decl"><span class="istickedoff">cmdLamParser = withSpanAnn (CmdAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  134 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkReservedBackslash</span>
+<span class="lineno">  135 </span><span class="spaces">  </span><span class="istickedoff">pats &lt;- MP.some apatParser</span>
+<span class="lineno">  136 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkReservedRightArrow</span>
+<span class="lineno">  137 </span><span class="spaces">  </span><span class="istickedoff">CmdLam pats &lt;$&gt; cmdParser</span></span>
+<span class="lineno">  138 </span>
+<span class="lineno">  139 </span>-- | Parse a parenthesised command: @( cmd )@
+<span class="lineno">  140 </span>cmdParenParser :: TokParser Cmd
+<span class="lineno">  141 </span><span class="decl"><span class="istickedoff">cmdParenParser =</span>
+<span class="lineno">  142 </span><span class="spaces">  </span><span class="istickedoff">withSpanAnn (CmdAnn . <span class="nottickedoff">mkAnnotation</span>) $</span>
+<span class="lineno">  143 </span><span class="spaces">    </span><span class="istickedoff">CmdPar &lt;$&gt; parens cmdParser</span></span>
+<span class="lineno">  144 </span>
+<span class="lineno">  145 </span>-- | Parse a do-statement in command context (arrow do).
+<span class="lineno">  146 </span>cmdStmtParser :: TokParser (DoStmt Cmd)
+<span class="lineno">  147 </span><span class="decl"><span class="istickedoff">cmdStmtParser = do</span>
+<span class="lineno">  148 </span><span class="spaces">  </span><span class="istickedoff">tok &lt;- lookAhead anySingle</span>
+<span class="lineno">  149 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  150 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordLet -&gt; MP.try cmdLetStmtParser &lt;|&gt; <span class="nottickedoff">cmdBodyStmtParser</span></span>
+<span class="lineno">  151 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordRec -&gt; cmdRecStmtParser</span>
+<span class="lineno">  152 </span><span class="spaces">    </span><span class="istickedoff">-- Keyword commands: parse as command body statements.</span>
+<span class="lineno">  153 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordDo -&gt; cmdBodyStmtParser</span>
+<span class="lineno">  154 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordIf -&gt; cmdBodyStmtParser</span>
+<span class="lineno">  155 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordCase -&gt; cmdBodyStmtParser</span>
+<span class="lineno">  156 </span><span class="spaces">    </span><span class="istickedoff">TkReservedBackslash -&gt; <span class="nottickedoff">cmdBodyStmtParser</span></span>
+<span class="lineno">  157 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialLParen -&gt; MP.try cmdBindOrBodyStmtParser &lt;|&gt; MP.try cmdBindStmtParser &lt;|&gt; cmdBodyStmtParser</span>
+<span class="lineno">  158 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; do</span>
+<span class="lineno">  159 </span><span class="spaces">      </span><span class="istickedoff">isPatternBind &lt;- startsWithPatternBind</span>
+<span class="lineno">  160 </span><span class="spaces">      </span><span class="istickedoff">if isPatternBind</span>
+<span class="lineno">  161 </span><span class="spaces">        </span><span class="istickedoff">then cmdBindStmtParser</span>
+<span class="lineno">  162 </span><span class="spaces">        </span><span class="istickedoff">else cmdBindOrBodyStmtParser</span></span>
+<span class="lineno">  163 </span>
+<span class="lineno">  164 </span>startsWithPatternBind :: TokParser Bool
+<span class="lineno">  165 </span><span class="decl"><span class="istickedoff">startsWithPatternBind =</span>
+<span class="lineno">  166 </span><span class="spaces">  </span><span class="istickedoff">fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do</span>
+<span class="lineno">  167 </span><span class="spaces">    </span><span class="istickedoff">_ &lt;- patternParser</span>
+<span class="lineno">  168 </span><span class="spaces">    </span><span class="istickedoff">expectedTok TkReservedLeftArrow</span></span>
+<span class="lineno">  169 </span>
+<span class="lineno">  170 </span>-- | Parse a command do-statement: @cmd@ or @pat &lt;- cmd@.
+<span class="lineno">  171 </span>-- Uses the expression-first approach: parse as expression, check for @&lt;-@.
+<span class="lineno">  172 </span>cmdBindOrBodyStmtParser :: TokParser (DoStmt Cmd)
+<span class="lineno">  173 </span><span class="decl"><span class="istickedoff">cmdBindOrBodyStmtParser = withSpanAnn (DoAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  174 </span><span class="spaces">  </span><span class="istickedoff">-- Arrow tails (-&lt;, -&lt;&lt;) belong to the command level, not the expression.</span>
+<span class="lineno">  175 </span><span class="spaces">  </span><span class="istickedoff">expr &lt;- exprParser</span>
+<span class="lineno">  176 </span><span class="spaces">  </span><span class="istickedoff">mArrow &lt;- MP.optional (expectedTok TkReservedLeftArrow)</span>
+<span class="lineno">  177 </span><span class="spaces">  </span><span class="istickedoff">case mArrow of</span>
+<span class="lineno">  178 </span><span class="spaces">    </span><span class="istickedoff">Just () -&gt; DoBind &lt;$&gt; liftCheck (checkPattern expr) &lt;*&gt; cmdParser</span>
+<span class="lineno">  179 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; do</span>
+<span class="lineno">  180 </span><span class="spaces">      </span><span class="istickedoff">-- No bind arrow: this is a body statement.  Check for arrow tail.</span>
+<span class="lineno">  181 </span><span class="spaces">      </span><span class="istickedoff">mArrTail &lt;- MP.optional cmdArrTailParser</span>
+<span class="lineno">  182 </span><span class="spaces">      </span><span class="istickedoff">case mArrTail of</span>
+<span class="lineno">  183 </span><span class="spaces">        </span><span class="istickedoff">Just (appType, rhs) -&gt;</span>
+<span class="lineno">  184 </span><span class="spaces">          </span><span class="istickedoff">pure (DoExpr (CmdArrApp expr appType rhs))</span>
+<span class="lineno">  185 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">do</span></span>
+<span class="lineno">  186 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">mTok &lt;- MP.optional (lookAhead anySingle)</span></span>
+<span class="lineno">  187 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">MP.customFailure</span></span>
+<span class="lineno">  188 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">UnexpectedTokenExpecting</span></span>
+<span class="lineno">  189 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">{ unexpectedFound = mkFoundToken &lt;$&gt; mTok,</span></span>
+<span class="lineno">  190 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">unexpectedExpecting = &quot;arrow command (-&lt; or -&lt;&lt;) in do statement&quot;,</span></span>
+<span class="lineno">  191 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">unexpectedContext = []</span></span>
+<span class="lineno">  192 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">}</span></span></span>
+<span class="lineno">  193 </span>
+<span class="lineno">  194 </span>-- | Parse a command bind statement where the pattern is unambiguously a
+<span class="lineno">  195 </span>-- pattern (starts with !, ~, or x@).
+<span class="lineno">  196 </span>cmdBindStmtParser :: TokParser (DoStmt Cmd)
+<span class="lineno">  197 </span><span class="decl"><span class="istickedoff">cmdBindStmtParser = withSpanAnn (DoAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  198 </span><span class="spaces">  </span><span class="istickedoff">pat &lt;- patternParser</span>
+<span class="lineno">  199 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkReservedLeftArrow</span>
+<span class="lineno">  200 </span><span class="spaces">  </span><span class="istickedoff">cmd &lt;- region <span class="nottickedoff">&quot;while parsing '&lt;-' binding&quot;</span> cmdParser</span>
+<span class="lineno">  201 </span><span class="spaces">  </span><span class="istickedoff">pure (DoBind pat cmd)</span></span>
+<span class="lineno">  202 </span>
+<span class="lineno">  203 </span>-- | Parse a body-only command statement (fallback from cmdStmtParser).
+<span class="lineno">  204 </span>cmdBodyStmtParser :: TokParser (DoStmt Cmd)
+<span class="lineno">  205 </span><span class="decl"><span class="istickedoff">cmdBodyStmtParser =</span>
+<span class="lineno">  206 </span><span class="spaces">  </span><span class="istickedoff">withSpanAnn (DoAnn . <span class="nottickedoff">mkAnnotation</span>) $</span>
+<span class="lineno">  207 </span><span class="spaces">    </span><span class="istickedoff">DoExpr &lt;$&gt; cmdParser</span></span>
+<span class="lineno">  208 </span>
+<span class="lineno">  209 </span>-- | Parse a command let-statement: @let decls@
+<span class="lineno">  210 </span>cmdLetStmtParser :: TokParser (DoStmt Cmd)
+<span class="lineno">  211 </span><span class="decl"><span class="istickedoff">cmdLetStmtParser =</span>
+<span class="lineno">  212 </span><span class="spaces">  </span><span class="istickedoff">withSpanAnn (DoAnn . <span class="nottickedoff">mkAnnotation</span>) $</span>
+<span class="lineno">  213 </span><span class="spaces">    </span><span class="istickedoff">DoLetDecls &lt;$&gt; parseLetDeclsStmtParser</span></span>
+<span class="lineno">  214 </span>
+<span class="lineno">  215 </span>-- | Parse a command rec-statement: @rec { cstmts }@
+<span class="lineno">  216 </span>cmdRecStmtParser :: TokParser (DoStmt Cmd)
+<span class="lineno">  217 </span><span class="decl"><span class="istickedoff">cmdRecStmtParser = withSpanAnn (DoAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  218 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordRec</span>
+<span class="lineno">  219 </span><span class="spaces">  </span><span class="istickedoff">DoRecStmt &lt;$&gt; bracedSemiSep1 cmdStmtParser</span></span>
+
+</pre>
+</body>
+</html>

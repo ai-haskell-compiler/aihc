@@ -1,0 +1,289 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>-- |
+<span class="lineno">    4 </span>-- Module      : Aihc.Parser
+<span class="lineno">    5 </span>-- Description : Haskell parser for the AIHC compiler
+<span class="lineno">    6 </span>-- License     : Unlicense
+<span class="lineno">    7 </span>--
+<span class="lineno">    8 </span>-- This module provides parsing functions for Haskell source code.
+<span class="lineno">    9 </span>-- The main entry point is 'parseModule' for parsing complete Haskell modules.
+<span class="lineno">   10 </span>-- Additional functions are provided for parsing individual expressions,
+<span class="lineno">   11 </span>-- patterns, and types.
+<span class="lineno">   12 </span>module Aihc.Parser
+<span class="lineno">   13 </span>  ( -- * Parsing modules
+<span class="lineno">   14 </span>    parseModule,
+<span class="lineno">   15 </span>
+<span class="lineno">   16 </span>    -- * Configuration
+<span class="lineno">   17 </span>    ParserConfig (..),
+<span class="lineno">   18 </span>    defaultConfig,
+<span class="lineno">   19 </span>
+<span class="lineno">   20 </span>    -- * Parse results
+<span class="lineno">   21 </span>    ParseResult (..),
+<span class="lineno">   22 </span>    formatParseErrors,
+<span class="lineno">   23 </span>
+<span class="lineno">   24 </span>    -- * Parsing expressions, patterns, types, and declarations
+<span class="lineno">   25 </span>    parseExpr,
+<span class="lineno">   26 </span>    parseSignatureType,
+<span class="lineno">   27 </span>    parseType,
+<span class="lineno">   28 </span>    parsePattern,
+<span class="lineno">   29 </span>    parseDecl,
+<span class="lineno">   30 </span>  )
+<span class="lineno">   31 </span>where
+<span class="lineno">   32 </span>
+<span class="lineno">   33 </span>import Aihc.Parser.Internal.Common (drainParseErrors, eofTok)
+<span class="lineno">   34 </span>import Aihc.Parser.Internal.Decl (declParser)
+<span class="lineno">   35 </span>import Aihc.Parser.Internal.Errors (parseErrorBundleToSpannedText, parseErrorsToSpannedText)
+<span class="lineno">   36 </span>import Aihc.Parser.Internal.Expr (exprParser)
+<span class="lineno">   37 </span>import Aihc.Parser.Internal.Module (moduleParser)
+<span class="lineno">   38 </span>import Aihc.Parser.Internal.Pattern (patternParser)
+<span class="lineno">   39 </span>import Aihc.Parser.Internal.Type (typeParser, typeSignatureParser)
+<span class="lineno">   40 </span>import Aihc.Parser.Pretty ()
+<span class="lineno">   41 </span>import Aihc.Parser.Syntax (Decl, Expr, Module (..), Pattern, SourceSpan (..), Type, applyImpliedExtensions)
+<span class="lineno">   42 </span>import Aihc.Parser.Types
+<span class="lineno">   43 </span>import Data.ByteString qualified as BS
+<span class="lineno">   44 </span>import Data.List qualified as List
+<span class="lineno">   45 </span>import Data.Text (Text)
+<span class="lineno">   46 </span>import Data.Text qualified as T
+<span class="lineno">   47 </span>import Data.Text.Encoding qualified as TE
+<span class="lineno">   48 </span>import Data.Word (Word8)
+<span class="lineno">   49 </span>import Prettyprinter (Doc, colon, defaultLayoutOptions, layoutPretty, pretty, vcat)
+<span class="lineno">   50 </span>import Prettyprinter.Render.String (renderString)
+<span class="lineno">   51 </span>import Text.Megaparsec (runParser)
+<span class="lineno">   52 </span>
+<span class="lineno">   53 </span>-- $setup
+<span class="lineno">   54 </span>-- &gt;&gt;&gt; :set -XOverloadedStrings
+<span class="lineno">   55 </span>-- &gt;&gt;&gt; import Aihc.Parser
+<span class="lineno">   56 </span>-- &gt;&gt;&gt; import Aihc.Parser.Syntax (moduleName)
+<span class="lineno">   57 </span>-- &gt;&gt;&gt; import Aihc.Parser.Shorthand (Shorthand(..))
+<span class="lineno">   58 </span>
+<span class="lineno">   59 </span>-- | Default parser configuration.
+<span class="lineno">   60 </span>--
+<span class="lineno">   61 </span>-- * 'parserSourceName' is set to @\&quot;\&lt;input\&gt;\&quot;@
+<span class="lineno">   62 </span>-- * 'parserExtensions' is empty (no extensions enabled by default)
+<span class="lineno">   63 </span>--
+<span class="lineno">   64 </span>-- &gt;&gt;&gt; parserSourceName defaultConfig
+<span class="lineno">   65 </span>-- &quot;&lt;input&gt;&quot;
+<span class="lineno">   66 </span>--
+<span class="lineno">   67 </span>-- &gt;&gt;&gt; parserExtensions defaultConfig
+<span class="lineno">   68 </span>-- []
+<span class="lineno">   69 </span>defaultConfig :: ParserConfig
+<span class="lineno">   70 </span><span class="decl"><span class="istickedoff">defaultConfig =</span>
+<span class="lineno">   71 </span><span class="spaces">  </span><span class="istickedoff">ParserConfig</span>
+<span class="lineno">   72 </span><span class="spaces">    </span><span class="istickedoff">{ parserSourceName = &quot;&lt;input&gt;&quot;,</span>
+<span class="lineno">   73 </span><span class="spaces">      </span><span class="istickedoff">parserExtensions = []</span>
+<span class="lineno">   74 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">   75 </span>
+<span class="lineno">   76 </span>-- | Parse a Haskell expression.
+<span class="lineno">   77 </span>--
+<span class="lineno">   78 </span>-- &gt;&gt;&gt; shorthand $ parseExpr defaultConfig &quot;1 + 2&quot;
+<span class="lineno">   79 </span>-- ParseOk (EInfix (EInt 1 TInteger) &quot;+&quot; (EInt 2 TInteger))
+<span class="lineno">   80 </span>--
+<span class="lineno">   81 </span>-- &gt;&gt;&gt; shorthand $ parseExpr defaultConfig &quot;\\x -&gt; x + 1&quot;
+<span class="lineno">   82 </span>-- ParseOk (ELambdaPats [PVar &quot;x&quot;] (EInfix (EVar &quot;x&quot;) &quot;+&quot; (EInt 1 TInteger)))
+<span class="lineno">   83 </span>--
+<span class="lineno">   84 </span>-- Parse errors are returned as 'ParseErr':
+<span class="lineno">   85 </span>--
+<span class="lineno">   86 </span>-- &gt;&gt;&gt; case parseExpr defaultConfig &quot;1 +&quot; of { ParseErr _ -&gt; &quot;error&quot;; ParseOk _ -&gt; &quot;ok&quot; }
+<span class="lineno">   87 </span>-- &quot;error&quot;
+<span class="lineno">   88 </span>parseExpr :: ParserConfig -&gt; Text -&gt; ParseResult Expr
+<span class="lineno">   89 </span><span class="decl"><span class="istickedoff">parseExpr cfg input =</span>
+<span class="lineno">   90 </span><span class="spaces">  </span><span class="istickedoff">let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input</span>
+<span class="lineno">   91 </span><span class="spaces">   </span><span class="istickedoff">in case runParser (exprParser &lt;* eofTok) <span class="nottickedoff">(parserSourceName cfg)</span> ts of</span>
+<span class="lineno">   92 </span><span class="spaces">        </span><span class="istickedoff">Left bundle -&gt; ParseErr <span class="nottickedoff">(parseErrorBundleToSpannedText bundle)</span></span>
+<span class="lineno">   93 </span><span class="spaces">        </span><span class="istickedoff">Right expr -&gt; ParseOk expr</span></span>
+<span class="lineno">   94 </span>
+<span class="lineno">   95 </span>-- | Parse a Haskell pattern.
+<span class="lineno">   96 </span>--
+<span class="lineno">   97 </span>-- &gt;&gt;&gt; shorthand $ parsePattern defaultConfig &quot;(x, y)&quot;
+<span class="lineno">   98 </span>-- ParseOk (PTuple [PVar &quot;x&quot;, PVar &quot;y&quot;])
+<span class="lineno">   99 </span>--
+<span class="lineno">  100 </span>-- &gt;&gt;&gt; shorthand $ parsePattern defaultConfig &quot;Just x&quot;
+<span class="lineno">  101 </span>-- ParseOk (PCon &quot;Just&quot; [PVar &quot;x&quot;])
+<span class="lineno">  102 </span>parsePattern :: ParserConfig -&gt; Text -&gt; ParseResult Pattern
+<span class="lineno">  103 </span><span class="decl"><span class="istickedoff">parsePattern cfg input =</span>
+<span class="lineno">  104 </span><span class="spaces">  </span><span class="istickedoff">let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input</span>
+<span class="lineno">  105 </span><span class="spaces">   </span><span class="istickedoff">in case runParser (patternParser &lt;* eofTok) <span class="nottickedoff">(parserSourceName cfg)</span> ts of</span>
+<span class="lineno">  106 </span><span class="spaces">        </span><span class="istickedoff">Left bundle -&gt; ParseErr <span class="nottickedoff">(parseErrorBundleToSpannedText bundle)</span></span>
+<span class="lineno">  107 </span><span class="spaces">        </span><span class="istickedoff">Right pat -&gt; ParseOk pat</span></span>
+<span class="lineno">  108 </span>
+<span class="lineno">  109 </span>-- | Parse a Haskell signature type.
+<span class="lineno">  110 </span>--
+<span class="lineno">  111 </span>-- This is the context used by top-level type signatures. Unlike 'parseType',
+<span class="lineno">  112 </span>-- it rejects an unparenthesized outer kind signature:
+<span class="lineno">  113 </span>--
+<span class="lineno">  114 </span>-- &gt;&gt;&gt; case parseSignatureType defaultConfig &quot;_ :: _&quot; of { ParseErr _ -&gt; &quot;error&quot;; ParseOk _ -&gt; &quot;ok&quot; }
+<span class="lineno">  115 </span>-- &quot;error&quot;
+<span class="lineno">  116 </span>parseSignatureType :: ParserConfig -&gt; Text -&gt; ParseResult Type
+<span class="lineno">  117 </span><span class="decl"><span class="istickedoff">parseSignatureType cfg input =</span>
+<span class="lineno">  118 </span><span class="spaces">  </span><span class="istickedoff">let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input</span>
+<span class="lineno">  119 </span><span class="spaces">   </span><span class="istickedoff">in case runParser (typeSignatureParser &lt;* eofTok) <span class="nottickedoff">(parserSourceName cfg)</span> ts of</span>
+<span class="lineno">  120 </span><span class="spaces">        </span><span class="istickedoff">Left bundle -&gt; ParseErr <span class="nottickedoff">(parseErrorBundleToSpannedText bundle)</span></span>
+<span class="lineno">  121 </span><span class="spaces">        </span><span class="istickedoff">Right ty -&gt; ParseOk ty</span></span>
+<span class="lineno">  122 </span>
+<span class="lineno">  123 </span>-- | Parse a Haskell type in the general declaration RHS context.
+<span class="lineno">  124 </span>--
+<span class="lineno">  125 </span>-- &gt;&gt;&gt; shorthand $ parseType defaultConfig &quot;Int -&gt; Bool&quot;
+<span class="lineno">  126 </span>-- ParseOk (TFun (TCon &quot;Int&quot;) (TCon &quot;Bool&quot;))
+<span class="lineno">  127 </span>--
+<span class="lineno">  128 </span>-- &gt;&gt;&gt; shorthand $ parseType defaultConfig &quot;Maybe a&quot;
+<span class="lineno">  129 </span>-- ParseOk (TApp (TCon &quot;Maybe&quot;) (TVar &quot;a&quot;))
+<span class="lineno">  130 </span>--
+<span class="lineno">  131 </span>-- &gt;&gt;&gt; shorthand $ parseType defaultConfig &quot;_ :: _&quot;
+<span class="lineno">  132 </span>-- ParseOk (TKindSig (TWildcard) (TWildcard))
+<span class="lineno">  133 </span>parseType :: ParserConfig -&gt; Text -&gt; ParseResult Type
+<span class="lineno">  134 </span><span class="decl"><span class="istickedoff">parseType cfg input =</span>
+<span class="lineno">  135 </span><span class="spaces">  </span><span class="istickedoff">let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input</span>
+<span class="lineno">  136 </span><span class="spaces">   </span><span class="istickedoff">in case runParser (typeParser &lt;* eofTok) <span class="nottickedoff">(parserSourceName cfg)</span> ts of</span>
+<span class="lineno">  137 </span><span class="spaces">        </span><span class="istickedoff">Left bundle -&gt; ParseErr <span class="nottickedoff">(parseErrorBundleToSpannedText bundle)</span></span>
+<span class="lineno">  138 </span><span class="spaces">        </span><span class="istickedoff">Right ty -&gt; ParseOk ty</span></span>
+<span class="lineno">  139 </span>
+<span class="lineno">  140 </span>-- | Parse a single Haskell declaration.
+<span class="lineno">  141 </span>--
+<span class="lineno">  142 </span>-- &gt;&gt;&gt; shorthand $ parseDecl defaultConfig &quot;f x = x + 1&quot;
+<span class="lineno">  143 </span>-- ParseOk (DeclValue (FunctionBind &quot;f&quot; [Match {MatchHeadPrefix, [PVar &quot;x&quot;], EInfix (EVar &quot;x&quot;) &quot;+&quot; (EInt 1 TInteger)}]))
+<span class="lineno">  144 </span>parseDecl :: ParserConfig -&gt; Text -&gt; ParseResult Decl
+<span class="lineno">  145 </span><span class="decl"><span class="istickedoff">parseDecl cfg input =</span>
+<span class="lineno">  146 </span><span class="spaces">  </span><span class="istickedoff">let ts = mkTokStream (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input</span>
+<span class="lineno">  147 </span><span class="spaces">   </span><span class="istickedoff">in case runParser (declParser &lt;* eofTok) <span class="nottickedoff">(parserSourceName cfg)</span> ts of</span>
+<span class="lineno">  148 </span><span class="spaces">        </span><span class="istickedoff">Left bundle -&gt; ParseErr <span class="nottickedoff">(parseErrorBundleToSpannedText bundle)</span></span>
+<span class="lineno">  149 </span><span class="spaces">        </span><span class="istickedoff">Right decl -&gt; ParseOk decl</span></span>
+<span class="lineno">  150 </span>
+<span class="lineno">  151 </span>-- | Parse a complete Haskell module.
+<span class="lineno">  152 </span>--
+<span class="lineno">  153 </span>-- Returns any recovered parse errors alongside a (possibly partial) 'Module'.
+<span class="lineno">  154 </span>-- When individual declarations fail to parse, the parser recovers and continues,
+<span class="lineno">  155 </span>-- returning the error and the successfully parsed declarations.
+<span class="lineno">  156 </span>--
+<span class="lineno">  157 </span>-- &gt;&gt;&gt; shorthand $ snd $ parseModule defaultConfig &quot;module Main where\nmain = putStrLn \&quot;Hello\&quot;&quot;
+<span class="lineno">  158 </span>-- Module {ModuleHead {&quot;Main&quot;}, [DeclValue (PatternBind (PVar &quot;main&quot;) (EApp (EVar &quot;putStrLn&quot;) (EString &quot;Hello&quot;)))]}
+<span class="lineno">  159 </span>--
+<span class="lineno">  160 </span>-- Modules without a header are also supported:
+<span class="lineno">  161 </span>--
+<span class="lineno">  162 </span>-- &gt;&gt;&gt; case parseModule defaultConfig &quot;x = 1&quot; of { (_, m) -&gt; moduleName m }
+<span class="lineno">  163 </span>-- Nothing
+<span class="lineno">  164 </span>parseModule :: ParserConfig -&gt; Text -&gt; ([(SourceSpan, Text)], Module)
+<span class="lineno">  165 </span><span class="decl"><span class="istickedoff">parseModule cfg input =</span>
+<span class="lineno">  166 </span><span class="spaces">  </span><span class="istickedoff">let ts = mkTokStreamModule (parserSourceName cfg) (applyImpliedExtensions (parserExtensions cfg)) input</span>
+<span class="lineno">  167 </span><span class="spaces">      </span><span class="istickedoff">parser = do</span>
+<span class="lineno">  168 </span><span class="spaces">        </span><span class="istickedoff">modu &lt;- moduleParser</span>
+<span class="lineno">  169 </span><span class="spaces">        </span><span class="istickedoff">_ &lt;- eofTok</span>
+<span class="lineno">  170 </span><span class="spaces">        </span><span class="istickedoff">errs &lt;- drainParseErrors</span>
+<span class="lineno">  171 </span><span class="spaces">        </span><span class="istickedoff">pure (errs, modu)</span>
+<span class="lineno">  172 </span><span class="spaces">   </span><span class="istickedoff">in case runParser parser <span class="nottickedoff">(parserSourceName cfg)</span> ts of</span>
+<span class="lineno">  173 </span><span class="spaces">        </span><span class="istickedoff">Left bundle -&gt;</span>
+<span class="lineno">  174 </span><span class="spaces">          </span><span class="istickedoff">( parseErrorBundleToSpannedText bundle,</span>
+<span class="lineno">  175 </span><span class="spaces">            </span><span class="istickedoff">Module</span>
+<span class="lineno">  176 </span><span class="spaces">              </span><span class="istickedoff">{ moduleAnns = [],</span>
+<span class="lineno">  177 </span><span class="spaces">                </span><span class="istickedoff">moduleHead = Nothing,</span>
+<span class="lineno">  178 </span><span class="spaces">                </span><span class="istickedoff">moduleLanguagePragmas = [],</span>
+<span class="lineno">  179 </span><span class="spaces">                </span><span class="istickedoff">moduleImports = [],</span>
+<span class="lineno">  180 </span><span class="spaces">                </span><span class="istickedoff">moduleDecls = []</span>
+<span class="lineno">  181 </span><span class="spaces">              </span><span class="istickedoff">}</span>
+<span class="lineno">  182 </span><span class="spaces">          </span><span class="istickedoff">)</span>
+<span class="lineno">  183 </span><span class="spaces">        </span><span class="istickedoff">Right (errs, modu) -&gt;</span>
+<span class="lineno">  184 </span><span class="spaces">          </span><span class="istickedoff">(parseErrorsToSpannedText errs, modu)</span></span>
+<span class="lineno">  185 </span>
+<span class="lineno">  186 </span>-- | Pretty-print a list of spanned parse errors with source context.
+<span class="lineno">  187 </span>formatParseErrors :: FilePath -&gt; Maybe Text -&gt; [(SourceSpan, Text)] -&gt; String
+<span class="lineno">  188 </span><span class="decl"><span class="istickedoff">formatParseErrors sourceName mSource errs =</span>
+<span class="lineno">  189 </span><span class="spaces">  </span><span class="istickedoff">let opts = defaultLayoutOptions</span>
+<span class="lineno">  190 </span><span class="spaces">      </span><span class="istickedoff">blocks =</span>
+<span class="lineno">  191 </span><span class="spaces">        </span><span class="istickedoff">map</span>
+<span class="lineno">  192 </span><span class="spaces">          </span><span class="istickedoff">( \(srcSpan, msg) -&gt;</span>
+<span class="lineno">  193 </span><span class="spaces">              </span><span class="istickedoff">renderString</span>
+<span class="lineno">  194 </span><span class="spaces">                </span><span class="istickedoff">( layoutPretty opts $</span>
+<span class="lineno">  195 </span><span class="spaces">                    </span><span class="istickedoff">case (srcSpan, mSource) of</span>
+<span class="lineno">  196 </span><span class="spaces">                      </span><span class="istickedoff">(ss@SourceSpan {}, Just source) -&gt;</span>
+<span class="lineno">  197 </span><span class="spaces">                        </span><span class="istickedoff">vcat [renderSourceReference <span class="nottickedoff">sourceName</span> source ss, pretty msg]</span>
+<span class="lineno">  198 </span><span class="spaces">                      </span><span class="istickedoff">_ -&gt;</span>
+<span class="lineno">  199 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">vcat [pretty sourceName, pretty msg]</span></span>
+<span class="lineno">  200 </span><span class="spaces">                </span><span class="istickedoff">)</span>
+<span class="lineno">  201 </span><span class="spaces">          </span><span class="istickedoff">)</span>
+<span class="lineno">  202 </span><span class="spaces">          </span><span class="istickedoff">errs</span>
+<span class="lineno">  203 </span><span class="spaces">   </span><span class="istickedoff">in List.intercalate &quot;\n\n&quot; blocks</span></span>
+<span class="lineno">  204 </span>
+<span class="lineno">  205 </span>-- renderSourceReference &quot;&lt;input&gt;&quot; &quot;x = 1&quot; (SourceSpan 1 5 1 6) = &quot;&quot;&quot;
+<span class="lineno">  206 </span>-- &lt;input&gt;:1:5:
+<span class="lineno">  207 </span>-- 1 | x = 1
+<span class="lineno">  208 </span>--   |     ^
+<span class="lineno">  209 </span>-- &quot;&quot;&quot;
+<span class="lineno">  210 </span>-- renderSourceReference &quot;&lt;input&gt;&quot; &quot;module where&quot; (SourceSpan 1 8 1 13) = &quot;&quot;&quot;
+<span class="lineno">  211 </span>-- &lt;input&gt;:1:5:
+<span class="lineno">  212 </span>-- 1 | module where
+<span class="lineno">  213 </span>--   |        ^^^^^
+<span class="lineno">  214 </span>-- &quot;&quot;&quot;
+<span class="lineno">  215 </span>renderSourceReference :: String -&gt; Text -&gt; SourceSpan -&gt; Doc ann
+<span class="lineno">  216 </span><span class="decl"><span class="istickedoff">renderSourceReference origin source srcSpan =</span>
+<span class="lineno">  217 </span><span class="spaces">  </span><span class="istickedoff">let (renderedOrigin, lineNo, colNo, endCol, srcLine) = case srcSpan of</span>
+<span class="lineno">  218 </span><span class="spaces">        </span><span class="istickedoff">SourceSpan {sourceSpanSourceName, sourceSpanStartLine, sourceSpanStartCol, sourceSpanEndCol, sourceSpanStartOffset} -&gt;</span>
+<span class="lineno">  219 </span><span class="spaces">          </span><span class="istickedoff">( sourceSpanSourceName,</span>
+<span class="lineno">  220 </span><span class="spaces">            </span><span class="istickedoff">sourceSpanStartLine,</span>
+<span class="lineno">  221 </span><span class="spaces">            </span><span class="istickedoff">sourceSpanStartCol,</span>
+<span class="lineno">  222 </span><span class="spaces">            </span><span class="istickedoff">sourceSpanEndCol,</span>
+<span class="lineno">  223 </span><span class="spaces">            </span><span class="istickedoff">extractSourceLineByOffset source sourceSpanStartOffset</span>
+<span class="lineno">  224 </span><span class="spaces">          </span><span class="istickedoff">)</span>
+<span class="lineno">  225 </span><span class="spaces">        </span><span class="istickedoff">NoSourceSpan -&gt; <span class="nottickedoff">(origin, 1, 1, 1, &quot;&quot;)</span></span>
+<span class="lineno">  226 </span><span class="spaces">      </span><span class="istickedoff">lineNoText = show lineNo</span>
+<span class="lineno">  227 </span><span class="spaces">      </span><span class="istickedoff">markerPrefix = replicate (length lineNoText) ' ' ++ &quot; | &quot;</span>
+<span class="lineno">  228 </span><span class="spaces">      </span><span class="istickedoff">markerStart = max 0 (colNo - 1)</span>
+<span class="lineno">  229 </span><span class="spaces">      </span><span class="istickedoff">markerLen = max 1 (endCol - colNo)</span>
+<span class="lineno">  230 </span><span class="spaces">      </span><span class="istickedoff">marker = replicate markerStart ' ' ++ replicate markerLen '^'</span>
+<span class="lineno">  231 </span><span class="spaces">      </span><span class="istickedoff">header =</span>
+<span class="lineno">  232 </span><span class="spaces">        </span><span class="istickedoff">pretty renderedOrigin &lt;&gt; colon &lt;&gt; pretty lineNo &lt;&gt; colon &lt;&gt; pretty colNo &lt;&gt; colon</span>
+<span class="lineno">  233 </span><span class="spaces">   </span><span class="istickedoff">in vcat</span>
+<span class="lineno">  234 </span><span class="spaces">        </span><span class="istickedoff">[ header,</span>
+<span class="lineno">  235 </span><span class="spaces">          </span><span class="istickedoff">pretty (lineNoText ++ &quot; | &quot; ++ srcLine),</span>
+<span class="lineno">  236 </span><span class="spaces">          </span><span class="istickedoff">pretty (markerPrefix ++ marker)</span>
+<span class="lineno">  237 </span><span class="spaces">        </span><span class="istickedoff">]</span></span>
+<span class="lineno">  238 </span>
+<span class="lineno">  239 </span>extractSourceLineByOffset :: Text -&gt; Int -&gt; String
+<span class="lineno">  240 </span><span class="decl"><span class="istickedoff">extractSourceLineByOffset source offset =</span>
+<span class="lineno">  241 </span><span class="spaces">  </span><span class="istickedoff">let bytes = TE.encodeUtf8 source</span>
+<span class="lineno">  242 </span><span class="spaces">      </span><span class="istickedoff">len = BS.length bytes</span>
+<span class="lineno">  243 </span><span class="spaces">      </span><span class="istickedoff">anchor = max 0 (min len offset)</span>
+<span class="lineno">  244 </span><span class="spaces">      </span><span class="istickedoff">lineStart = scanBackward bytes anchor</span>
+<span class="lineno">  245 </span><span class="spaces">      </span><span class="istickedoff">lineEnd = scanForward bytes anchor</span>
+<span class="lineno">  246 </span><span class="spaces">   </span><span class="istickedoff">in T.unpack (TE.decodeUtf8 (BS.take (lineEnd - lineStart) (BS.drop lineStart bytes)))</span></span>
+<span class="lineno">  247 </span>
+<span class="lineno">  248 </span>scanBackward :: BS.ByteString -&gt; Int -&gt; Int
+<span class="lineno">  249 </span><span class="decl"><span class="istickedoff">scanBackward bytes = go</span>
+<span class="lineno">  250 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  251 </span><span class="spaces">    </span><span class="istickedoff">go idx</span>
+<span class="lineno">  252 </span><span class="spaces">      </span><span class="istickedoff">| idx &lt;= 0 = 0</span>
+<span class="lineno">  253 </span><span class="spaces">      </span><span class="istickedoff">| isLineBreak (BS.index bytes (idx - 1)) = idx</span>
+<span class="lineno">  254 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = go (idx - 1)</span></span>
+<span class="lineno">  255 </span>
+<span class="lineno">  256 </span>scanForward :: BS.ByteString -&gt; Int -&gt; Int
+<span class="lineno">  257 </span><span class="decl"><span class="istickedoff">scanForward bytes = go</span>
+<span class="lineno">  258 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  259 </span><span class="spaces">    </span><span class="istickedoff">len = BS.length bytes</span>
+<span class="lineno">  260 </span><span class="spaces">    </span><span class="istickedoff">go idx</span>
+<span class="lineno">  261 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlyfalse">idx &gt;= len</span> = <span class="nottickedoff">len</span></span>
+<span class="lineno">  262 </span><span class="spaces">      </span><span class="istickedoff">| isLineBreak (BS.index bytes idx) = idx</span>
+<span class="lineno">  263 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = go (idx + 1)</span></span>
+<span class="lineno">  264 </span>
+<span class="lineno">  265 </span>isLineBreak :: Word8 -&gt; Bool
+<span class="lineno">  266 </span><span class="decl"><span class="istickedoff">isLineBreak w = w == 10 || w == 13</span></span>
+
+</pre>
+</body>
+</html>

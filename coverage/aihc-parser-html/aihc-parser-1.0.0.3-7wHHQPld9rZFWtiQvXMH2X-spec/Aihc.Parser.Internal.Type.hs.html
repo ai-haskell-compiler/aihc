@@ -1,0 +1,617 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>module Aihc.Parser.Internal.Type
+<span class="lineno">    4 </span>  ( typeParser,
+<span class="lineno">    5 </span>    typeSignatureParser,
+<span class="lineno">    6 </span>    forallTelescopeParser,
+<span class="lineno">    7 </span>    typeInfixParser,
+<span class="lineno">    8 </span>    typeInfixOperatorParser,
+<span class="lineno">    9 </span>    typeHeadInfixParser,
+<span class="lineno">   10 </span>    typeAppParser,
+<span class="lineno">   11 </span>    buildTypeApp,
+<span class="lineno">   12 </span>    buildInfixType,
+<span class="lineno">   13 </span>    typeAtomParser,
+<span class="lineno">   14 </span>    contextItemsParser,
+<span class="lineno">   15 </span>    thSpliceTypeParser,
+<span class="lineno">   16 </span>    arrowKindParser,
+<span class="lineno">   17 </span>  )
+<span class="lineno">   18 </span>where
+<span class="lineno">   19 </span>
+<span class="lineno">   20 </span>import Aihc.Parser.Internal.Common
+<span class="lineno">   21 </span>import {-# SOURCE #-} Aihc.Parser.Internal.Expr (exprParser)
+<span class="lineno">   22 </span>import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
+<span class="lineno">   23 </span>import Aihc.Parser.Syntax
+<span class="lineno">   24 </span>import Data.Char (isLower)
+<span class="lineno">   25 </span>import Data.Functor (($&gt;))
+<span class="lineno">   26 </span>import Data.Text qualified as T
+<span class="lineno">   27 </span>import Text.Megaparsec ((&lt;|&gt;))
+<span class="lineno">   28 </span>import Text.Megaparsec qualified as MP
+<span class="lineno">   29 </span>
+<span class="lineno">   30 </span>-- | Parse a Template Haskell type splice: $typ or $(typ)
+<span class="lineno">   31 </span>thSpliceTypeParser :: TokParser Type
+<span class="lineno">   32 </span><span class="decl"><span class="istickedoff">thSpliceTypeParser = withSpanAnn (TAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">   33 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkTHSplice</span>
+<span class="lineno">   34 </span><span class="spaces">  </span><span class="istickedoff">body &lt;- parenSpliceBody &lt;|&gt; bareSpliceBody</span>
+<span class="lineno">   35 </span><span class="spaces">  </span><span class="istickedoff">pure (TSplice body)</span>
+<span class="lineno">   36 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   37 </span><span class="spaces">    </span><span class="istickedoff">parenSpliceBody = withSpanAnn (EAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">   38 </span><span class="spaces">      </span><span class="istickedoff">body &lt;- parens exprParser</span>
+<span class="lineno">   39 </span><span class="spaces">      </span><span class="istickedoff">pure (EParen body)</span>
+<span class="lineno">   40 </span><span class="spaces">    </span><span class="istickedoff">bareSpliceBody = withSpanAnn (EAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">   41 </span><span class="spaces">      </span><span class="istickedoff">EVar &lt;$&gt; identifierNameParser</span></span>
+<span class="lineno">   42 </span>
+<span class="lineno">   43 </span>-- | Report core plus outer extension forms:
+<span class="lineno">   44 </span>--
+<span class="lineno">   45 </span>-- &gt; type -&gt; btype ['-&gt;' type]
+<span class="lineno">   46 </span>typeParser :: TokParser Type
+<span class="lineno">   47 </span><span class="decl"><span class="istickedoff">typeParser = label &quot;type&quot; $ forallTypeParser &lt;|&gt; contextOrKindSigTypeParser</span></span>
+<span class="lineno">   48 </span>
+<span class="lineno">   49 </span>-- | Type syntax accepted after expression signatures. This keeps the same
+<span class="lineno">   50 </span>-- report core while allowing outer @forall@ and context forms.
+<span class="lineno">   51 </span>typeSignatureParser :: TokParser Type
+<span class="lineno">   52 </span><span class="decl"><span class="istickedoff">typeSignatureParser = label &quot;type&quot; $ forallSignatureTypeParser &lt;|&gt; contextOrFunSignatureTypeParser</span></span>
+<span class="lineno">   53 </span>
+<span class="lineno">   54 </span>-- | Extension form wrapping the report core with a kind annotation.
+<span class="lineno">   55 </span>kindSigTypeParser :: TokParser Type
+<span class="lineno">   56 </span><span class="decl"><span class="istickedoff">kindSigTypeParser =</span>
+<span class="lineno">   57 </span><span class="spaces">  </span><span class="istickedoff">optionalSuffix</span>
+<span class="lineno">   58 </span><span class="spaces">    </span><span class="istickedoff">(expectedTok TkReservedDoubleColon *&gt; typeSignatureParser)</span>
+<span class="lineno">   59 </span><span class="spaces">    </span><span class="istickedoff">TKindSig</span>
+<span class="lineno">   60 </span><span class="spaces">    </span><span class="istickedoff">typeFunParser</span></span>
+<span class="lineno">   61 </span>
+<span class="lineno">   62 </span>-- | Extension form:
+<span class="lineno">   63 </span>--
+<span class="lineno">   64 </span>-- &gt; forall a_1 ... a_n . type
+<span class="lineno">   65 </span>forallSignatureTypeParser :: TokParser Type
+<span class="lineno">   66 </span><span class="decl"><span class="istickedoff">forallSignatureTypeParser = withSpanAnn (TAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">   67 </span><span class="spaces">  </span><span class="istickedoff">telescope &lt;- forallTelescopeParser</span>
+<span class="lineno">   68 </span><span class="spaces">  </span><span class="istickedoff">attachForallBody telescope &lt;$&gt; typeSignatureParser</span></span>
+<span class="lineno">   69 </span>
+<span class="lineno">   70 </span>contextOrFunSignatureTypeParser :: TokParser Type
+<span class="lineno">   71 </span><span class="decl"><span class="istickedoff">contextOrFunSignatureTypeParser = do</span>
+<span class="lineno">   72 </span><span class="spaces">  </span><span class="istickedoff">isContextType &lt;- startsWithContextType</span>
+<span class="lineno">   73 </span><span class="spaces">  </span><span class="istickedoff">if isContextType then contextSignatureTypeParser else typeFunSignatureParser</span></span>
+<span class="lineno">   74 </span>
+<span class="lineno">   75 </span>contextSignatureTypeParser :: TokParser Type
+<span class="lineno">   76 </span><span class="decl"><span class="istickedoff">contextSignatureTypeParser = do</span>
+<span class="lineno">   77 </span><span class="spaces">  </span><span class="istickedoff">constraints &lt;- contextItemsParserWith typeSignatureParser typeSignatureContextAtomParser</span>
+<span class="lineno">   78 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkReservedDoubleArrow</span>
+<span class="lineno">   79 </span><span class="spaces">  </span><span class="istickedoff">TContext constraints &lt;$&gt; typeSignatureParser</span></span>
+<span class="lineno">   80 </span>
+<span class="lineno">   81 </span>-- | Report core plus extension infix-type support:
+<span class="lineno">   82 </span>--
+<span class="lineno">   83 </span>-- &gt; type -&gt; btype ['-&gt;' type]
+<span class="lineno">   84 </span>typeFunSignatureParser :: TokParser Type
+<span class="lineno">   85 </span><span class="decl"><span class="istickedoff">typeFunSignatureParser = do</span>
+<span class="lineno">   86 </span><span class="spaces">  </span><span class="istickedoff">lhs &lt;- typeSignatureInfixParser</span>
+<span class="lineno">   87 </span><span class="spaces">  </span><span class="istickedoff">mArrow &lt;- MP.optional arrowKindParser</span>
+<span class="lineno">   88 </span><span class="spaces">  </span><span class="istickedoff">case mArrow of</span>
+<span class="lineno">   89 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; pure lhs</span>
+<span class="lineno">   90 </span><span class="spaces">    </span><span class="istickedoff">Just arrowKind -&gt; TFun arrowKind lhs &lt;$&gt; typeSignatureParser</span></span>
+<span class="lineno">   91 </span>
+<span class="lineno">   92 </span>contextOrKindSigTypeParser :: TokParser Type
+<span class="lineno">   93 </span><span class="decl"><span class="istickedoff">contextOrKindSigTypeParser = do</span>
+<span class="lineno">   94 </span><span class="spaces">  </span><span class="istickedoff">isContextType &lt;- startsWithContextType</span>
+<span class="lineno">   95 </span><span class="spaces">  </span><span class="istickedoff">if isContextType then contextTypeParser else kindSigTypeParser</span></span>
+<span class="lineno">   96 </span>
+<span class="lineno">   97 </span>-- | Extension form:
+<span class="lineno">   98 </span>--
+<span class="lineno">   99 </span>-- &gt; forall a_1 ... a_n . type
+<span class="lineno">  100 </span>forallTypeParser :: TokParser Type
+<span class="lineno">  101 </span><span class="decl"><span class="istickedoff">forallTypeParser = withSpanAnn (TAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  102 </span><span class="spaces">  </span><span class="istickedoff">telescope &lt;- forallTelescopeParser</span>
+<span class="lineno">  103 </span><span class="spaces">  </span><span class="istickedoff">attachForallBody telescope &lt;$&gt; typeParser</span></span>
+<span class="lineno">  104 </span>
+<span class="lineno">  105 </span>attachForallBody :: ForallTelescope -&gt; Type -&gt; Type
+<span class="lineno">  106 </span><span class="decl"><span class="istickedoff">attachForallBody telescope body =</span>
+<span class="lineno">  107 </span><span class="spaces">  </span><span class="istickedoff">case body of</span>
+<span class="lineno">  108 </span><span class="spaces">    </span><span class="istickedoff">TAnn ann (TKindSig ty kind) -&gt; TAnn <span class="nottickedoff">ann</span> (TKindSig (TForall telescope ty) kind)</span>
+<span class="lineno">  109 </span><span class="spaces">    </span><span class="istickedoff">TKindSig ty kind -&gt; TKindSig (TForall telescope ty) kind</span>
+<span class="lineno">  110 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; TForall telescope body</span></span>
+<span class="lineno">  111 </span>
+<span class="lineno">  112 </span>-- | Extension form:
+<span class="lineno">  113 </span>--
+<span class="lineno">  114 </span>-- &gt; forall -&gt; 'forall' binder_1 ... binder_n ('.' | '-&gt;')
+<span class="lineno">  115 </span>forallTelescopeParser :: TokParser ForallTelescope
+<span class="lineno">  116 </span><span class="decl"><span class="istickedoff">forallTelescopeParser = do</span>
+<span class="lineno">  117 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordForall</span>
+<span class="lineno">  118 </span><span class="spaces">  </span><span class="istickedoff">binders &lt;- MP.some forallBinderParser</span>
+<span class="lineno">  119 </span><span class="spaces">  </span><span class="istickedoff">visibility &lt;-</span>
+<span class="lineno">  120 </span><span class="spaces">    </span><span class="istickedoff">(expectedTok (TkVarSym &quot;.&quot;) $&gt; ForallInvisible)</span>
+<span class="lineno">  121 </span><span class="spaces">      </span><span class="istickedoff">&lt;|&gt; (expectedTok TkReservedRightArrow $&gt; ForallVisible)</span>
+<span class="lineno">  122 </span><span class="spaces">  </span><span class="istickedoff">pure (ForallTelescope visibility binders)</span></span>
+<span class="lineno">  123 </span>
+<span class="lineno">  124 </span>-- | Parse a single forall binder: {k} | (k :: *) | k
+<span class="lineno">  125 </span>forallBinderParser :: TokParser TyVarBinder
+<span class="lineno">  126 </span><span class="decl"><span class="istickedoff">forallBinderParser =</span>
+<span class="lineno">  127 </span><span class="spaces">  </span><span class="istickedoff">withSpan $</span>
+<span class="lineno">  128 </span><span class="spaces">    </span><span class="istickedoff">-- Inferred binder: {k} | {k :: Type}</span>
+<span class="lineno">  129 </span><span class="spaces">    </span><span class="istickedoff">( do</span>
+<span class="lineno">  130 </span><span class="spaces">        </span><span class="istickedoff">expectedTok TkSpecialLBrace</span>
+<span class="lineno">  131 </span><span class="spaces">        </span><span class="istickedoff">ident &lt;- tyVarNameParser</span>
+<span class="lineno">  132 </span><span class="spaces">        </span><span class="istickedoff">mKind &lt;- MP.optional (expectedTok TkReservedDoubleColon *&gt; typeParser)</span>
+<span class="lineno">  133 </span><span class="spaces">        </span><span class="istickedoff">expectedTok TkSpecialRBrace</span>
+<span class="lineno">  134 </span><span class="spaces">        </span><span class="istickedoff">pure (\span' -&gt; TyVarBinder <span class="nottickedoff">[mkAnnotation span']</span> ident mKind TyVarBInferred TyVarBVisible)</span>
+<span class="lineno">  135 </span><span class="spaces">    </span><span class="istickedoff">)</span>
+<span class="lineno">  136 </span><span class="spaces">      </span><span class="istickedoff">&lt;|&gt; ( do</span>
+<span class="lineno">  137 </span><span class="spaces">              </span><span class="istickedoff">expectedTok TkSpecialLParen</span>
+<span class="lineno">  138 </span><span class="spaces">              </span><span class="istickedoff">ident &lt;- tyVarNameParser</span>
+<span class="lineno">  139 </span><span class="spaces">              </span><span class="istickedoff">expectedTok TkReservedDoubleColon</span>
+<span class="lineno">  140 </span><span class="spaces">              </span><span class="istickedoff">kind &lt;- typeParser</span>
+<span class="lineno">  141 </span><span class="spaces">              </span><span class="istickedoff">expectedTok TkSpecialRParen</span>
+<span class="lineno">  142 </span><span class="spaces">              </span><span class="istickedoff">pure (\span' -&gt; TyVarBinder <span class="nottickedoff">[mkAnnotation span']</span> ident (Just kind) TyVarBSpecified TyVarBVisible)</span>
+<span class="lineno">  143 </span><span class="spaces">          </span><span class="istickedoff">)</span>
+<span class="lineno">  144 </span><span class="spaces">      </span><span class="istickedoff">&lt;|&gt; ( do</span>
+<span class="lineno">  145 </span><span class="spaces">              </span><span class="istickedoff">ident &lt;- tyVarNameParser</span>
+<span class="lineno">  146 </span><span class="spaces">              </span><span class="istickedoff">pure (\span' -&gt; TyVarBinder <span class="nottickedoff">[mkAnnotation span']</span> ident Nothing TyVarBSpecified TyVarBVisible)</span>
+<span class="lineno">  147 </span><span class="spaces">          </span><span class="istickedoff">)</span></span>
+<span class="lineno">  148 </span>
+<span class="lineno">  149 </span>contextTypeParser :: TokParser Type
+<span class="lineno">  150 </span><span class="decl"><span class="istickedoff">contextTypeParser = contextTypeParserWith typeParser</span></span>
+<span class="lineno">  151 </span>
+<span class="lineno">  152 </span>contextItemsParser :: TokParser [Type]
+<span class="lineno">  153 </span><span class="decl"><span class="nottickedoff">contextItemsParser = contextItemsParserWith typeParser typeAtomParser</span></span>
+<span class="lineno">  154 </span>
+<span class="lineno">  155 </span>contextTypeParserWith :: TokParser Type -&gt; TokParser Type
+<span class="lineno">  156 </span><span class="decl"><span class="istickedoff">contextTypeParserWith rhsParser = do</span>
+<span class="lineno">  157 </span><span class="spaces">  </span><span class="istickedoff">constraints &lt;- contextItemsParserWith <span class="nottickedoff">rhsParser</span> typeAtomParser</span>
+<span class="lineno">  158 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkReservedDoubleArrow</span>
+<span class="lineno">  159 </span><span class="spaces">  </span><span class="istickedoff">rhs &lt;- rhsParser</span>
+<span class="lineno">  160 </span><span class="spaces">  </span><span class="istickedoff">pure $</span>
+<span class="lineno">  161 </span><span class="spaces">    </span><span class="istickedoff">case rhs of</span>
+<span class="lineno">  162 </span><span class="spaces">      </span><span class="istickedoff">TAnn ann (TKindSig ty kind) -&gt; TAnn <span class="nottickedoff">ann</span> (TKindSig (TContext constraints ty) kind)</span>
+<span class="lineno">  163 </span><span class="spaces">      </span><span class="istickedoff">TKindSig ty kind -&gt; TKindSig (TContext constraints ty) kind</span>
+<span class="lineno">  164 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; TContext constraints rhs</span></span>
+<span class="lineno">  165 </span>
+<span class="lineno">  166 </span>-- | Report core plus extension infix-type support:
+<span class="lineno">  167 </span>--
+<span class="lineno">  168 </span>-- &gt; type -&gt; btype ['-&gt;' type]
+<span class="lineno">  169 </span>-- &gt; btype -&gt; [btype] atype
+<span class="lineno">  170 </span>typeFunParser :: TokParser Type
+<span class="lineno">  171 </span><span class="decl"><span class="istickedoff">typeFunParser = typeFunParserWith typeSignatureParser</span></span>
+<span class="lineno">  172 </span>
+<span class="lineno">  173 </span>typeFunParserWith :: TokParser Type -&gt; TokParser Type
+<span class="lineno">  174 </span><span class="decl"><span class="istickedoff">typeFunParserWith rhsParser = do</span>
+<span class="lineno">  175 </span><span class="spaces">  </span><span class="istickedoff">lhs &lt;- typeInfixParser</span>
+<span class="lineno">  176 </span><span class="spaces">  </span><span class="istickedoff">mArrow &lt;- MP.optional arrowKindParser</span>
+<span class="lineno">  177 </span><span class="spaces">  </span><span class="istickedoff">case mArrow of</span>
+<span class="lineno">  178 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; pure lhs</span>
+<span class="lineno">  179 </span><span class="spaces">    </span><span class="istickedoff">Just arrowKind -&gt; TFun arrowKind lhs &lt;$&gt; rhsParser</span></span>
+<span class="lineno">  180 </span>
+<span class="lineno">  181 </span>-- | Parse an arrow annotation and consume the @-&gt;@ token.
+<span class="lineno">  182 </span>-- Handles @-&gt;@ (unrestricted), @⊸@ (linear), @%1 -&gt;@ (linear), and @%m -&gt;@
+<span class="lineno">  183 </span>-- (explicit multiplicity).  The @%@-prefixed forms are only attempted when
+<span class="lineno">  184 </span>-- @LinearTypes@ is enabled.
+<span class="lineno">  185 </span>arrowKindParser :: TokParser ArrowKind
+<span class="lineno">  186 </span><span class="decl"><span class="istickedoff">arrowKindParser = do</span>
+<span class="lineno">  187 </span><span class="spaces">  </span><span class="istickedoff">linearEnabled &lt;- isExtensionEnabled LinearTypes</span>
+<span class="lineno">  188 </span><span class="spaces">  </span><span class="istickedoff">(expectedTok TkReservedRightArrow $&gt; ArrowUnrestricted)</span>
+<span class="lineno">  189 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; (if linearEnabled then linearArrowKindParser else MP.empty)</span></span>
+<span class="lineno">  190 </span>
+<span class="lineno">  191 </span>linearArrowKindParser :: TokParser ArrowKind
+<span class="lineno">  192 </span><span class="decl"><span class="istickedoff">linearArrowKindParser =</span>
+<span class="lineno">  193 </span><span class="spaces">  </span><span class="istickedoff">(expectedTok TkLinearArrow $&gt; ArrowLinear)</span>
+<span class="lineno">  194 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; MP.try multiplicityAnnotatedArrowParser</span></span>
+<span class="lineno">  195 </span>
+<span class="lineno">  196 </span>-- | Parse @%&lt;mult&gt; -&gt;@, consuming all three tokens.
+<span class="lineno">  197 </span>-- Only matches when @%@ is a prefix operator (no space between @%@ and the
+<span class="lineno">  198 </span>-- multiplicity expression), which is how GHC distinguishes @a %1 -&gt; b@ (linear)
+<span class="lineno">  199 </span>-- from @a % 1 -&gt; b@ (type operator applied to @a@ and @1@, then unrestricted arrow).
+<span class="lineno">  200 </span>multiplicityAnnotatedArrowParser :: TokParser ArrowKind
+<span class="lineno">  201 </span><span class="decl"><span class="istickedoff">multiplicityAnnotatedArrowParser = do</span>
+<span class="lineno">  202 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkPrefixPercent</span>
+<span class="lineno">  203 </span><span class="spaces">  </span><span class="istickedoff">mult &lt;- typeAtomParser</span>
+<span class="lineno">  204 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkReservedRightArrow</span>
+<span class="lineno">  205 </span><span class="spaces">  </span><span class="istickedoff">pure (multiplicityToArrowKind mult)</span></span>
+<span class="lineno">  206 </span>
+<span class="lineno">  207 </span>multiplicityToArrowKind :: Type -&gt; ArrowKind
+<span class="lineno">  208 </span><span class="decl"><span class="istickedoff">multiplicityToArrowKind ty =</span>
+<span class="lineno">  209 </span><span class="spaces">  </span><span class="istickedoff">case peelTypeAnn ty of</span>
+<span class="lineno">  210 </span><span class="spaces">    </span><span class="istickedoff">TTypeLit (TypeLitInteger 1 _) -&gt; ArrowLinear</span>
+<span class="lineno">  211 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; ArrowExplicit ty</span></span>
+<span class="lineno">  212 </span>
+<span class="lineno">  213 </span>-- | Extension layer over the report's @btype@ chain:
+<span class="lineno">  214 </span>--
+<span class="lineno">  215 </span>-- &gt; btype -&gt; [btype] atype
+<span class="lineno">  216 </span>typeInfixParser :: TokParser Type
+<span class="lineno">  217 </span><span class="decl"><span class="istickedoff">typeInfixParser = do</span>
+<span class="lineno">  218 </span><span class="spaces">  </span><span class="istickedoff">lhs &lt;- typeAppParser</span>
+<span class="lineno">  219 </span><span class="spaces">  </span><span class="istickedoff">rest &lt;- MP.many ((,) &lt;$&gt; typeInfixOperatorParser &lt;*&gt; typeInfixRhsParser)</span>
+<span class="lineno">  220 </span><span class="spaces">  </span><span class="istickedoff">pure (foldInfixR buildInfixType lhs rest)</span></span>
+<span class="lineno">  221 </span>
+<span class="lineno">  222 </span>typeInfixRhsParser :: TokParser Type
+<span class="lineno">  223 </span><span class="decl"><span class="istickedoff">typeInfixRhsParser = do</span>
+<span class="lineno">  224 </span><span class="spaces">  </span><span class="istickedoff">rhs &lt;- typeAppParser</span>
+<span class="lineno">  225 </span><span class="spaces">  </span><span class="istickedoff">rejectBareTypeImplicitParam rhs</span></span>
+<span class="lineno">  226 </span>
+<span class="lineno">  227 </span>typeSignatureInfixParser :: TokParser Type
+<span class="lineno">  228 </span><span class="decl"><span class="istickedoff">typeSignatureInfixParser = do</span>
+<span class="lineno">  229 </span><span class="spaces">  </span><span class="istickedoff">lhs &lt;- typeSignatureAppParser</span>
+<span class="lineno">  230 </span><span class="spaces">  </span><span class="istickedoff">rest &lt;- MP.many ((,) &lt;$&gt; typeInfixOperatorParser &lt;*&gt; typeSignatureInfixRhsParser)</span>
+<span class="lineno">  231 </span><span class="spaces">  </span><span class="istickedoff">pure (foldInfixR buildInfixType lhs rest)</span></span>
+<span class="lineno">  232 </span>
+<span class="lineno">  233 </span>typeSignatureInfixRhsParser :: TokParser Type
+<span class="lineno">  234 </span><span class="decl"><span class="istickedoff">typeSignatureInfixRhsParser = do</span>
+<span class="lineno">  235 </span><span class="spaces">  </span><span class="istickedoff">rhs &lt;- typeSignatureAppParser</span>
+<span class="lineno">  236 </span><span class="spaces">  </span><span class="istickedoff">rejectBareSignatureImplicitParam rhs</span></span>
+<span class="lineno">  237 </span>
+<span class="lineno">  238 </span>-- | Parse a type head that may contain infix operators but NOT type applications.
+<span class="lineno">  239 </span>-- Used for type family heads like @type family l `And` r@ where the head is
+<span class="lineno">  240 </span>-- an infix type, but we don't want to consume trailing type parameters.
+<span class="lineno">  241 </span>typeHeadInfixParser :: TokParser Type
+<span class="lineno">  242 </span><span class="decl"><span class="nottickedoff">typeHeadInfixParser = do</span>
+<span class="lineno">  243 </span><span class="spaces">  </span><span class="nottickedoff">lhs &lt;- typeAtomParser</span>
+<span class="lineno">  244 </span><span class="spaces">  </span><span class="nottickedoff">foldInfixR buildInfixType lhs &lt;$&gt; typeHeadInfixLoopParser</span></span>
+<span class="lineno">  245 </span>
+<span class="lineno">  246 </span>typeHeadInfixLoopParser :: TokParser [((Name, TypePromotion), Type)]
+<span class="lineno">  247 </span><span class="decl"><span class="nottickedoff">typeHeadInfixLoopParser = MP.many $ MP.try $ do</span>
+<span class="lineno">  248 </span><span class="spaces">  </span><span class="nottickedoff">op &lt;- typeInfixOperatorParser</span>
+<span class="lineno">  249 </span><span class="spaces">  </span><span class="nottickedoff">atom &lt;- typeAtomParser</span>
+<span class="lineno">  250 </span><span class="spaces">  </span><span class="nottickedoff">pure (op, atom)</span></span>
+<span class="lineno">  251 </span>
+<span class="lineno">  252 </span>buildInfixType :: Type -&gt; ((Name, TypePromotion), Type) -&gt; Type
+<span class="lineno">  253 </span><span class="decl"><span class="istickedoff">buildInfixType lhs ((op, promoted), rhs) = TInfix lhs op promoted rhs</span></span>
+<span class="lineno">  254 </span>
+<span class="lineno">  255 </span>typeInfixOperatorParser :: TokParser (Name, TypePromotion)
+<span class="lineno">  256 </span><span class="decl"><span class="istickedoff">typeInfixOperatorParser =</span>
+<span class="lineno">  257 </span><span class="spaces">  </span><span class="istickedoff">promotedInfixOperatorParser</span>
+<span class="lineno">  258 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; backtickTypeOperatorParser</span>
+<span class="lineno">  259 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; unpromotedInfixOperatorParser</span>
+<span class="lineno">  260 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  261 </span><span class="spaces">    </span><span class="istickedoff">unpromotedInfixOperatorParser =</span>
+<span class="lineno">  262 </span><span class="spaces">      </span><span class="istickedoff">tokenSatisfy &quot;type infix operator&quot; $ \tok -&gt;</span>
+<span class="lineno">  263 </span><span class="spaces">        </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  264 </span><span class="spaces">          </span><span class="istickedoff">TkReservedColon -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym &quot;:&quot;), Unpromoted)</span>
+<span class="lineno">  265 </span><span class="spaces">          </span><span class="istickedoff">TkVarSym op</span>
+<span class="lineno">  266 </span><span class="spaces">            </span><span class="istickedoff">| op /= &quot;.&quot;</span>
+<span class="lineno">  267 </span><span class="spaces">                </span><span class="istickedoff">&amp;&amp; op /= &quot;!&quot;</span>
+<span class="lineno">  268 </span><span class="spaces">                </span><span class="istickedoff">&amp;&amp; op /= &quot;'&quot; -&gt;</span>
+<span class="lineno">  269 </span><span class="spaces">                </span><span class="istickedoff">Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameVarSym op), Unpromoted)</span>
+<span class="lineno">  270 </span><span class="spaces">          </span><span class="istickedoff">TkConSym op -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym op), Unpromoted)</span>
+<span class="lineno">  271 </span><span class="spaces">          </span><span class="istickedoff">TkQVarSym modName op -&gt; Just <span class="nottickedoff">(mkNameAt tok (Just modName) NameVarSym op, Unpromoted)</span></span>
+<span class="lineno">  272 </span><span class="spaces">          </span><span class="istickedoff">TkQConSym modName op -&gt; Just (mkNameAt <span class="nottickedoff">tok</span> (Just modName) NameConSym op, Unpromoted)</span>
+<span class="lineno">  273 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt; Nothing</span>
+<span class="lineno">  274 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  275 </span><span class="spaces">    </span><span class="istickedoff">backtickTypeOperatorParser = MP.try $ do</span>
+<span class="lineno">  276 </span><span class="spaces">      </span><span class="istickedoff">expectedTok TkSpecialBacktick</span>
+<span class="lineno">  277 </span><span class="spaces">      </span><span class="istickedoff">op &lt;- typeOperatorIdentifierParser</span>
+<span class="lineno">  278 </span><span class="spaces">      </span><span class="istickedoff">expectedTok TkSpecialBacktick</span>
+<span class="lineno">  279 </span><span class="spaces">      </span><span class="istickedoff">pure (op, Unpromoted)</span>
+<span class="lineno">  280 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  281 </span><span class="spaces">    </span><span class="istickedoff">typeOperatorIdentifierParser =</span>
+<span class="lineno">  282 </span><span class="spaces">      </span><span class="istickedoff">tokenSatisfy <span class="nottickedoff">&quot;type operator identifier&quot;</span> $ \tok -&gt;</span>
+<span class="lineno">  283 </span><span class="spaces">        </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  284 </span><span class="spaces">          </span><span class="istickedoff">TkVarId name -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarId name))</span></span>
+<span class="lineno">  285 </span><span class="spaces">          </span><span class="istickedoff">TkConId name -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConId name))</span>
+<span class="lineno">  286 </span><span class="spaces">          </span><span class="istickedoff">TkQVarId modName name -&gt; Just <span class="nottickedoff">(mkNameAt tok (Just modName) NameVarId name)</span></span>
+<span class="lineno">  287 </span><span class="spaces">          </span><span class="istickedoff">TkQConId modName name -&gt; Just (mkNameAt <span class="nottickedoff">tok</span> (Just modName) NameConId name)</span>
+<span class="lineno">  288 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt; Nothing</span>
+<span class="lineno">  289 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  290 </span><span class="spaces">    </span><span class="istickedoff">promotedInfixOperatorParser = MP.try $ do</span>
+<span class="lineno">  291 </span><span class="spaces">      </span><span class="istickedoff">-- Accept both TkVarSym &quot;'&quot; and TkTHQuoteTick for promoted operators</span>
+<span class="lineno">  292 </span><span class="spaces">      </span><span class="istickedoff">expectedTok (TkVarSym &quot;'&quot;) &lt;|&gt; expectedTok TkTHQuoteTick</span>
+<span class="lineno">  293 </span><span class="spaces">      </span><span class="istickedoff">-- After the quote, accept any symbolic infix operator (e.g., ': for promoted cons,</span>
+<span class="lineno">  294 </span><span class="spaces">      </span><span class="istickedoff">-- or ':$$: for a promoted user-defined type operator)</span>
+<span class="lineno">  295 </span><span class="spaces">      </span><span class="istickedoff">tokenSatisfy <span class="nottickedoff">&quot;promoted type infix operator&quot;</span> $ \tok -&gt;</span>
+<span class="lineno">  296 </span><span class="spaces">        </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  297 </span><span class="spaces">          </span><span class="istickedoff">TkReservedColon -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym &quot;:&quot;), Promoted)</span>
+<span class="lineno">  298 </span><span class="spaces">          </span><span class="istickedoff">TkVarSym sym</span>
+<span class="lineno">  299 </span><span class="spaces">            </span><span class="istickedoff">| <span class="tickonlytrue">sym /= &quot;.&quot; &amp;&amp; sym /= &quot;!&quot;</span> -&gt;</span>
+<span class="lineno">  300 </span><span class="spaces">                </span><span class="istickedoff">Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameVarSym sym), Promoted)</span>
+<span class="lineno">  301 </span><span class="spaces">          </span><span class="istickedoff">TkConSym sym -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym sym), Promoted)</span>
+<span class="lineno">  302 </span><span class="spaces">          </span><span class="istickedoff">TkQVarSym modQual sym -&gt; <span class="nottickedoff">Just (mkNameAt tok (Just modQual) NameVarSym sym, Promoted)</span></span>
+<span class="lineno">  303 </span><span class="spaces">          </span><span class="istickedoff">TkQConSym modQual sym -&gt; <span class="nottickedoff">Just (mkNameAt tok (Just modQual) NameConSym sym, Promoted)</span></span>
+<span class="lineno">  304 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  305 </span>
+<span class="lineno">  306 </span>-- | Report core:
+<span class="lineno">  307 </span>--
+<span class="lineno">  308 </span>-- &gt; btype -&gt; [btype] atype
+<span class="lineno">  309 </span>typeAppParser :: TokParser Type
+<span class="lineno">  310 </span><span class="decl"><span class="istickedoff">typeAppParser = do</span>
+<span class="lineno">  311 </span><span class="spaces">  </span><span class="istickedoff">first &lt;- typeAtomParser</span>
+<span class="lineno">  312 </span><span class="spaces">  </span><span class="istickedoff">rest &lt;- MP.many typeAppArgParser</span>
+<span class="lineno">  313 </span><span class="spaces">  </span><span class="istickedoff">pure (foldl applyTypeAppArg first rest)</span></span>
+<span class="lineno">  314 </span>
+<span class="lineno">  315 </span>typeSignatureAppParser :: TokParser Type
+<span class="lineno">  316 </span><span class="decl"><span class="istickedoff">typeSignatureAppParser = do</span>
+<span class="lineno">  317 </span><span class="spaces">  </span><span class="istickedoff">first &lt;- typeSignatureAtomParser</span>
+<span class="lineno">  318 </span><span class="spaces">  </span><span class="istickedoff">rest &lt;- MP.many typeSignatureAppArgParser</span>
+<span class="lineno">  319 </span><span class="spaces">  </span><span class="istickedoff">pure (foldl applyTypeAppArg first rest)</span></span>
+<span class="lineno">  320 </span>
+<span class="lineno">  321 </span>buildTypeApp :: Type -&gt; Type -&gt; Type
+<span class="lineno">  322 </span><span class="decl"><span class="nottickedoff">buildTypeApp = TApp</span></span>
+<span class="lineno">  323 </span>
+<span class="lineno">  324 </span>typeAppArgParser :: TokParser (Either Type Type)
+<span class="lineno">  325 </span><span class="decl"><span class="istickedoff">typeAppArgParser =</span>
+<span class="lineno">  326 </span><span class="spaces">  </span><span class="istickedoff">(Left &lt;$&gt; MP.try invisibleTypeAppParser)</span>
+<span class="lineno">  327 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; (Right &lt;$&gt; (typeAtomParser &gt;&gt;= rejectBareTypeImplicitParam))</span></span>
+<span class="lineno">  328 </span>
+<span class="lineno">  329 </span>invisibleTypeAppParser :: TokParser Type
+<span class="lineno">  330 </span><span class="decl"><span class="istickedoff">invisibleTypeAppParser = do</span>
+<span class="lineno">  331 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkTypeApp</span>
+<span class="lineno">  332 </span><span class="spaces">  </span><span class="istickedoff">typeAtomParser &gt;&gt;= rejectBareTypeImplicitParam</span></span>
+<span class="lineno">  333 </span>
+<span class="lineno">  334 </span>typeSignatureAppArgParser :: TokParser (Either Type Type)
+<span class="lineno">  335 </span><span class="decl"><span class="istickedoff">typeSignatureAppArgParser =</span>
+<span class="lineno">  336 </span><span class="spaces">  </span><span class="istickedoff">(Left &lt;$&gt; MP.try invisibleSignatureTypeAppParser)</span>
+<span class="lineno">  337 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; (Right &lt;$&gt; (typeSignatureAtomParser &gt;&gt;= rejectBareSignatureImplicitParam))</span></span>
+<span class="lineno">  338 </span>
+<span class="lineno">  339 </span>typeSignatureContextAtomParser :: TokParser Type
+<span class="lineno">  340 </span><span class="decl"><span class="istickedoff">typeSignatureContextAtomParser = typeSignatureAtomParser &gt;&gt;= rejectBareSignatureImplicitParam</span></span>
+<span class="lineno">  341 </span>
+<span class="lineno">  342 </span>rejectBareSignatureImplicitParam :: Type -&gt; TokParser Type
+<span class="lineno">  343 </span><span class="decl"><span class="istickedoff">rejectBareSignatureImplicitParam = rejectBareTypeImplicitParam</span></span>
+<span class="lineno">  344 </span>
+<span class="lineno">  345 </span>rejectBareTypeImplicitParam :: Type -&gt; TokParser Type
+<span class="lineno">  346 </span><span class="decl"><span class="istickedoff">rejectBareTypeImplicitParam ty =</span>
+<span class="lineno">  347 </span><span class="spaces">  </span><span class="istickedoff">case peelTypeAnn ty of</span>
+<span class="lineno">  348 </span><span class="spaces">    </span><span class="istickedoff">TImplicitParam {} -&gt; fail <span class="nottickedoff">&quot;implicit parameter type must be parenthesized&quot;</span></span>
+<span class="lineno">  349 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; pure ty</span></span>
+<span class="lineno">  350 </span>
+<span class="lineno">  351 </span>invisibleSignatureTypeAppParser :: TokParser Type
+<span class="lineno">  352 </span><span class="decl"><span class="istickedoff">invisibleSignatureTypeAppParser = do</span>
+<span class="lineno">  353 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkTypeApp</span>
+<span class="lineno">  354 </span><span class="spaces">  </span><span class="istickedoff">typeSignatureAtomParser &gt;&gt;= rejectBareSignatureImplicitParam</span></span>
+<span class="lineno">  355 </span>
+<span class="lineno">  356 </span>applyTypeAppArg :: Type -&gt; Either Type Type -&gt; Type
+<span class="lineno">  357 </span><span class="decl"><span class="istickedoff">applyTypeAppArg fn (Left ty) = TTypeApp fn ty</span>
+<span class="lineno">  358 </span><span class="spaces"></span><span class="istickedoff">applyTypeAppArg fn (Right ty) = TApp fn ty</span></span>
+<span class="lineno">  359 </span>
+<span class="lineno">  360 </span>-- | Report core:
+<span class="lineno">  361 </span>--
+<span class="lineno">  362 </span>-- &gt; atype -&gt; gtycon
+<span class="lineno">  363 </span>-- &gt;       | tyvar
+<span class="lineno">  364 </span>-- &gt;       | '(' type_1 ',' ... ',' type_k ')'
+<span class="lineno">  365 </span>-- &gt;       | '[' type ']'
+<span class="lineno">  366 </span>-- &gt;       | '(' type ')'
+<span class="lineno">  367 </span>--
+<span class="lineno">  368 </span>-- This parser also admits extension atoms such as promoted types,
+<span class="lineno">  369 </span>-- quasi-quotes, splices, wildcards, and implicit-parameter types.
+<span class="lineno">  370 </span>typeAtomParser :: TokParser Type
+<span class="lineno">  371 </span><span class="decl"><span class="istickedoff">typeAtomParser = typeAtomParserByToken</span></span>
+<span class="lineno">  372 </span>
+<span class="lineno">  373 </span>typeSignatureAtomParser :: TokParser Type
+<span class="lineno">  374 </span><span class="decl"><span class="istickedoff">typeSignatureAtomParser = typeAtomParserByToken</span></span>
+<span class="lineno">  375 </span>
+<span class="lineno">  376 </span>typeAtomParserByToken :: TokParser Type
+<span class="lineno">  377 </span><span class="decl"><span class="istickedoff">typeAtomParserByToken = do</span>
+<span class="lineno">  378 </span><span class="spaces">  </span><span class="istickedoff">tok &lt;- MP.lookAhead MP.anySingle</span>
+<span class="lineno">  379 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  380 </span><span class="spaces">    </span><span class="istickedoff">TkInteger {} -&gt; typeLiteralTypeParser</span>
+<span class="lineno">  381 </span><span class="spaces">    </span><span class="istickedoff">TkString {} -&gt; typeLiteralTypeParser</span>
+<span class="lineno">  382 </span><span class="spaces">    </span><span class="istickedoff">TkChar {} -&gt; typeLiteralTypeParser</span>
+<span class="lineno">  383 </span><span class="spaces">    </span><span class="istickedoff">TkQuasiQuote {} -&gt; typeQuasiQuoteParser</span>
+<span class="lineno">  384 </span><span class="spaces">    </span><span class="istickedoff">TkTHSplice -&gt; do</span>
+<span class="lineno">  385 </span><span class="spaces">      </span><span class="istickedoff">thAny &lt;- thAnyEnabled</span>
+<span class="lineno">  386 </span><span class="spaces">      </span><span class="istickedoff">if thAny then thSpliceTypeParser else typeAtomParserAlternatives False False</span>
+<span class="lineno">  387 </span><span class="spaces">    </span><span class="istickedoff">TkImplicitParam {} -&gt; do</span>
+<span class="lineno">  388 </span><span class="spaces">      </span><span class="istickedoff">ipEnabled &lt;- isExtensionEnabled ImplicitParams</span>
+<span class="lineno">  389 </span><span class="spaces">      </span><span class="istickedoff">if ipEnabled then typeImplicitParamParser else typeAtomParserAlternatives False False</span>
+<span class="lineno">  390 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialLBracket -&gt; typeListParser</span>
+<span class="lineno">  391 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialLParen -&gt; MP.try typeParenOperatorParser &lt;|&gt; typeParenOrTupleParser</span>
+<span class="lineno">  392 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialUnboxedLParen -&gt; typeParenOrTupleParser</span>
+<span class="lineno">  393 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordUnderscore -&gt; typeWildcardParser</span>
+<span class="lineno">  394 </span><span class="spaces">    </span><span class="istickedoff">TkVarId {} -&gt; typeIdentifierParser</span>
+<span class="lineno">  395 </span><span class="spaces">    </span><span class="istickedoff">TkConId {} -&gt; typeIdentifierParser</span>
+<span class="lineno">  396 </span><span class="spaces">    </span><span class="istickedoff">TkQVarId {} -&gt; typeIdentifierParser</span>
+<span class="lineno">  397 </span><span class="spaces">    </span><span class="istickedoff">TkQConId {} -&gt; typeIdentifierParser</span>
+<span class="lineno">  398 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; do</span>
+<span class="lineno">  399 </span><span class="spaces">      </span><span class="istickedoff">thAny &lt;- thAnyEnabled</span>
+<span class="lineno">  400 </span><span class="spaces">      </span><span class="istickedoff">ipEnabled &lt;- isExtensionEnabled ImplicitParams</span>
+<span class="lineno">  401 </span><span class="spaces">      </span><span class="istickedoff">typeAtomParserAlternatives thAny ipEnabled</span></span>
+<span class="lineno">  402 </span>
+<span class="lineno">  403 </span>typeAtomParserAlternatives :: Bool -&gt; Bool -&gt; TokParser Type
+<span class="lineno">  404 </span><span class="decl"><span class="istickedoff">typeAtomParserAlternatives thAny ipEnabled =</span>
+<span class="lineno">  405 </span><span class="spaces">  </span><span class="istickedoff">MP.try promotedTypeParser</span>
+<span class="lineno">  406 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; typeLiteralTypeParser</span>
+<span class="lineno">  407 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; typeQuasiQuoteParser</span>
+<span class="lineno">  408 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; (if thAny then thSpliceTypeParser else MP.empty)</span>
+<span class="lineno">  409 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; (if ipEnabled then typeImplicitParamParser else MP.empty)</span>
+<span class="lineno">  410 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; typeListParser</span>
+<span class="lineno">  411 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; MP.try typeParenOperatorParser</span>
+<span class="lineno">  412 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; typeParenOrTupleParser</span>
+<span class="lineno">  413 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; typeStarParser</span>
+<span class="lineno">  414 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; typeWildcardParser</span>
+<span class="lineno">  415 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; typeIdentifierParser</span></span>
+<span class="lineno">  416 </span>
+<span class="lineno">  417 </span>-- | Parse an implicit parameter type.
+<span class="lineno">  418 </span>--
+<span class="lineno">  419 </span>-- The body uses 'typeSignatureParser' so @?x :: (T :: K)@ is accepted
+<span class="lineno">  420 </span>-- through the parenthesized atom grammar, but @?x :: T :: K@ is left for an
+<span class="lineno">  421 </span>-- outer kind-signature parser in a plain type context and rejected in a
+<span class="lineno">  422 </span>-- signature context.
+<span class="lineno">  423 </span>typeImplicitParamParser :: TokParser Type
+<span class="lineno">  424 </span><span class="decl"><span class="istickedoff">typeImplicitParamParser = withSpanAnn (TAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  425 </span><span class="spaces">  </span><span class="istickedoff">name &lt;- implicitParamNameParser</span>
+<span class="lineno">  426 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkReservedDoubleColon</span>
+<span class="lineno">  427 </span><span class="spaces">  </span><span class="istickedoff">TImplicitParam name &lt;$&gt; typeSignatureParser</span></span>
+<span class="lineno">  428 </span>
+<span class="lineno">  429 </span>typeWildcardParser :: TokParser Type
+<span class="lineno">  430 </span><span class="decl"><span class="istickedoff">typeWildcardParser =</span>
+<span class="lineno">  431 </span><span class="spaces">  </span><span class="istickedoff">tokenSatisfy &quot;wildcard&quot; $ \tok -&gt;</span>
+<span class="lineno">  432 </span><span class="spaces">    </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  433 </span><span class="spaces">      </span><span class="istickedoff">TkKeywordUnderscore -&gt; Just (TAnn (mkAnnotation (lexTokenSpan tok)) TWildcard)</span>
+<span class="lineno">  434 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  435 </span>
+<span class="lineno">  436 </span>typeLiteralTypeParser :: TokParser Type
+<span class="lineno">  437 </span><span class="decl"><span class="istickedoff">typeLiteralTypeParser =</span>
+<span class="lineno">  438 </span><span class="spaces">  </span><span class="istickedoff">tokenSatisfy &quot;type literal&quot; $ \tok -&gt;</span>
+<span class="lineno">  439 </span><span class="spaces">    </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  440 </span><span class="spaces">      </span><span class="istickedoff">TkInteger n _ -&gt; Just (TAnn (mkAnnotation (lexTokenSpan tok)) (TTypeLit (TypeLitInteger n (lexTokenText tok))))</span>
+<span class="lineno">  441 </span><span class="spaces">      </span><span class="istickedoff">TkString s -&gt; Just (TAnn (mkAnnotation (lexTokenSpan tok)) (TTypeLit (TypeLitSymbol s (lexTokenText tok))))</span>
+<span class="lineno">  442 </span><span class="spaces">      </span><span class="istickedoff">TkChar c -&gt; Just (TAnn (mkAnnotation (lexTokenSpan tok)) (TTypeLit (TypeLitChar c (lexTokenText tok))))</span>
+<span class="lineno">  443 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  444 </span>
+<span class="lineno">  445 </span>promotedTypeParser :: TokParser Type
+<span class="lineno">  446 </span><span class="decl"><span class="istickedoff">promotedTypeParser = withSpanAnn (TAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  447 </span><span class="spaces">  </span><span class="istickedoff">-- Accept both TkVarSym &quot;'&quot; and TkTHQuoteTick for promoted types</span>
+<span class="lineno">  448 </span><span class="spaces">  </span><span class="istickedoff">-- This handles ambiguity between TH value quotes and promoted types</span>
+<span class="lineno">  449 </span><span class="spaces">  </span><span class="istickedoff">expectedTok (TkVarSym &quot;'&quot;) &lt;|&gt; expectedTok TkTHQuoteTick</span>
+<span class="lineno">  450 </span><span class="spaces">  </span><span class="istickedoff">ty &lt;- typeAtomParser</span>
+<span class="lineno">  451 </span><span class="spaces">  </span><span class="istickedoff">maybe (fail &quot;promoted type&quot;) pure (markTypePromoted ty)</span></span>
+<span class="lineno">  452 </span>
+<span class="lineno">  453 </span>typeParenOperatorParser :: TokParser Type
+<span class="lineno">  454 </span><span class="decl"><span class="istickedoff">typeParenOperatorParser = withSpanAnn (TAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  455 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkSpecialLParen</span>
+<span class="lineno">  456 </span><span class="spaces">  </span><span class="istickedoff">starIsType &lt;- isExtensionEnabled StarIsType</span>
+<span class="lineno">  457 </span><span class="spaces">  </span><span class="istickedoff">unicodeSyntax &lt;- isExtensionEnabled UnicodeSyntax</span>
+<span class="lineno">  458 </span><span class="spaces">  </span><span class="istickedoff">op &lt;- tokenSatisfy <span class="nottickedoff">&quot;type operator&quot;</span> $ \tok -&gt;</span>
+<span class="lineno">  459 </span><span class="spaces">    </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  460 </span><span class="spaces">      </span><span class="istickedoff">TkVarSym sym | not (isStarTypeSymbol starIsType unicodeSyntax sym) -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameVarSym sym))</span>
+<span class="lineno">  461 </span><span class="spaces">      </span><span class="istickedoff">TkConSym sym | <span class="tickonlytrue">not (isStarTypeSymbol starIsType unicodeSyntax sym)</span> -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym sym))</span>
+<span class="lineno">  462 </span><span class="spaces">      </span><span class="istickedoff">TkQVarSym modQual sym -&gt; Just (mkNameAt <span class="nottickedoff">tok</span> (Just <span class="nottickedoff">modQual</span>) <span class="nottickedoff">NameVarSym</span> <span class="nottickedoff">sym</span>)</span>
+<span class="lineno">  463 </span><span class="spaces">      </span><span class="istickedoff">TkQConSym modQual sym -&gt; Just (mkNameAt <span class="nottickedoff">tok</span> (Just modQual) NameConSym sym)</span>
+<span class="lineno">  464 </span><span class="spaces">      </span><span class="istickedoff">-- Handle reserved operators that can be used as type constructors</span>
+<span class="lineno">  465 </span><span class="spaces">      </span><span class="istickedoff">TkReservedRightArrow -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameVarSym &quot;-&gt;&quot;))</span>
+<span class="lineno">  466 </span><span class="spaces">      </span><span class="istickedoff">TkReservedColon -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym &quot;:&quot;))</span>
+<span class="lineno">  467 </span><span class="spaces">      </span><span class="istickedoff">-- Note: ~ is now lexed as TkVarSym &quot;~&quot; so TkVarSym case handles it</span>
+<span class="lineno">  468 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; Nothing</span>
+<span class="lineno">  469 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkSpecialRParen</span>
+<span class="lineno">  470 </span><span class="spaces">  </span><span class="istickedoff">pure $</span>
+<span class="lineno">  471 </span><span class="spaces">    </span><span class="istickedoff">case (nameQualifier op, nameType op, nameText op) of</span>
+<span class="lineno">  472 </span><span class="spaces">      </span><span class="istickedoff">(Nothing, NameVarSym, &quot;-&gt;&quot;) -&gt; TBuiltinCon TBuiltinArrow</span>
+<span class="lineno">  473 </span><span class="spaces">      </span><span class="istickedoff">(Nothing, NameConSym, &quot;:&quot;) -&gt; TBuiltinCon TBuiltinCons</span>
+<span class="lineno">  474 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; TCon op Unpromoted</span></span>
+<span class="lineno">  475 </span>
+<span class="lineno">  476 </span>typeQuasiQuoteParser :: TokParser Type
+<span class="lineno">  477 </span><span class="decl"><span class="istickedoff">typeQuasiQuoteParser =</span>
+<span class="lineno">  478 </span><span class="spaces">  </span><span class="istickedoff">tokenSatisfy &quot;type quasi quote&quot; $ \tok -&gt;</span>
+<span class="lineno">  479 </span><span class="spaces">    </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  480 </span><span class="spaces">      </span><span class="istickedoff">TkQuasiQuote quoter body -&gt; Just (typeAnnSpan (lexTokenSpan tok) (TQuasiQuote quoter body))</span>
+<span class="lineno">  481 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  482 </span>
+<span class="lineno">  483 </span>typeIdentifierParser :: TokParser Type
+<span class="lineno">  484 </span><span class="decl"><span class="istickedoff">typeIdentifierParser = do</span>
+<span class="lineno">  485 </span><span class="spaces">  </span><span class="istickedoff">(tok, name) &lt;- identifierNameWithTokenParser</span>
+<span class="lineno">  486 </span><span class="spaces">  </span><span class="istickedoff">pure $</span>
+<span class="lineno">  487 </span><span class="spaces">    </span><span class="istickedoff">TAnn (mkAnnotation (lexTokenSpan tok)) $</span>
+<span class="lineno">  488 </span><span class="spaces">      </span><span class="istickedoff">case (nameQualifier name, nameType name, T.uncons (nameText name)) of</span>
+<span class="lineno">  489 </span><span class="spaces">        </span><span class="istickedoff">(Nothing, NameVarId, Just (c, _))</span>
+<span class="lineno">  490 </span><span class="spaces">          </span><span class="istickedoff">| isLower c || c == '_' -&gt;</span>
+<span class="lineno">  491 </span><span class="spaces">              </span><span class="istickedoff">TVar (nameToUnqualified name)</span>
+<span class="lineno">  492 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; TCon name Unpromoted</span></span>
+<span class="lineno">  493 </span>
+<span class="lineno">  494 </span>typeStarParser :: TokParser Type
+<span class="lineno">  495 </span><span class="decl"><span class="istickedoff">typeStarParser = do</span>
+<span class="lineno">  496 </span><span class="spaces">  </span><span class="istickedoff">starIsType &lt;- isExtensionEnabled StarIsType</span>
+<span class="lineno">  497 </span><span class="spaces">  </span><span class="istickedoff">unicodeSyntax &lt;- isExtensionEnabled UnicodeSyntax</span>
+<span class="lineno">  498 </span><span class="spaces">  </span><span class="istickedoff">if starIsType</span>
+<span class="lineno">  499 </span><span class="spaces">    </span><span class="istickedoff">then tokenSatisfy <span class="nottickedoff">&quot;star kind&quot;</span> $ \tok -&gt;</span>
+<span class="lineno">  500 </span><span class="spaces">      </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  501 </span><span class="spaces">        </span><span class="istickedoff">TkVarSym sym | isStarTypeSymbol starIsType unicodeSyntax sym -&gt; Just (TAnn <span class="nottickedoff">(mkAnnotation (lexTokenSpan tok))</span> (TStar (lexTokenText tok)))</span>
+<span class="lineno">  502 </span><span class="spaces">        </span><span class="istickedoff">TkConSym sym | <span class="tickonlyfalse">isStarTypeSymbol starIsType unicodeSyntax sym</span> -&gt; <span class="nottickedoff">Just (TAnn (mkAnnotation (lexTokenSpan tok)) (TStar (lexTokenText tok)))</span></span>
+<span class="lineno">  503 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; Nothing</span>
+<span class="lineno">  504 </span><span class="spaces">    </span><span class="istickedoff">else MP.empty</span></span>
+<span class="lineno">  505 </span>
+<span class="lineno">  506 </span>isStarTypeSymbol :: Bool -&gt; Bool -&gt; T.Text -&gt; Bool
+<span class="lineno">  507 </span><span class="decl"><span class="istickedoff">isStarTypeSymbol starIsType unicodeSyntax sym =</span>
+<span class="lineno">  508 </span><span class="spaces">  </span><span class="istickedoff">starIsType &amp;&amp; (sym == &quot;*&quot; || (unicodeSyntax &amp;&amp; sym == &quot;★&quot;))</span></span>
+<span class="lineno">  509 </span>
+<span class="lineno">  510 </span>typeListParser :: TokParser Type
+<span class="lineno">  511 </span><span class="decl"><span class="istickedoff">typeListParser = withSpanAnn (TAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  512 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkSpecialLBracket</span>
+<span class="lineno">  513 </span><span class="spaces">  </span><span class="istickedoff">mClosed &lt;- MP.optional (expectedTok TkSpecialRBracket)</span>
+<span class="lineno">  514 </span><span class="spaces">  </span><span class="istickedoff">case mClosed of</span>
+<span class="lineno">  515 </span><span class="spaces">    </span><span class="istickedoff">Just () -&gt; pure (TBuiltinCon TBuiltinList)</span>
+<span class="lineno">  516 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; do</span>
+<span class="lineno">  517 </span><span class="spaces">      </span><span class="istickedoff">elems &lt;- typeParser `MP.sepBy1` expectedTok TkSpecialComma</span>
+<span class="lineno">  518 </span><span class="spaces">      </span><span class="istickedoff">expectedTok TkSpecialRBracket</span>
+<span class="lineno">  519 </span><span class="spaces">      </span><span class="istickedoff">pure (TList Unpromoted elems)</span></span>
+<span class="lineno">  520 </span>
+<span class="lineno">  521 </span>typeParenOrTupleParser :: TokParser Type
+<span class="lineno">  522 </span><span class="decl"><span class="istickedoff">typeParenOrTupleParser = withSpanAnn (TAnn . mkAnnotation) $ do</span>
+<span class="lineno">  523 </span><span class="spaces">  </span><span class="istickedoff">(tupleFlavor, closeTok) &lt;- tupleDelimsParser</span>
+<span class="lineno">  524 </span><span class="spaces">  </span><span class="istickedoff">mClosed &lt;- MP.optional (expectedTok closeTok)</span>
+<span class="lineno">  525 </span><span class="spaces">  </span><span class="istickedoff">case mClosed of</span>
+<span class="lineno">  526 </span><span class="spaces">    </span><span class="istickedoff">Just () -&gt; pure (TTuple tupleFlavor Unpromoted [])</span>
+<span class="lineno">  527 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; do</span>
+<span class="lineno">  528 </span><span class="spaces">      </span><span class="istickedoff">MP.try (tupleConstructorParser tupleFlavor closeTok) &lt;|&gt; parenthesizedTypeOrTupleParser tupleFlavor closeTok</span>
+<span class="lineno">  529 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  530 </span><span class="spaces">    </span><span class="istickedoff">tupleConstructorParser tupleFlavor closeTok = do</span>
+<span class="lineno">  531 </span><span class="spaces">      </span><span class="istickedoff">_ &lt;- expectedTok TkSpecialComma</span>
+<span class="lineno">  532 </span><span class="spaces">      </span><span class="istickedoff">moreCommas &lt;- MP.many (expectedTok TkSpecialComma)</span>
+<span class="lineno">  533 </span><span class="spaces">      </span><span class="istickedoff">expectedTok closeTok</span>
+<span class="lineno">  534 </span><span class="spaces">      </span><span class="istickedoff">let arity = 2 + length moreCommas</span>
+<span class="lineno">  535 </span><span class="spaces">      </span><span class="istickedoff">case tupleFlavor of</span>
+<span class="lineno">  536 </span><span class="spaces">        </span><span class="istickedoff">Boxed -&gt; pure (TBuiltinCon (TBuiltinTuple arity))</span>
+<span class="lineno">  537 </span><span class="spaces">        </span><span class="istickedoff">Unboxed -&gt; <span class="nottickedoff">do</span></span>
+<span class="lineno">  538 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">let tupleConName = &quot;(#&quot; &lt;&gt; T.replicate (arity - 1) &quot;,&quot; &lt;&gt; &quot;#)&quot;</span></span>
+<span class="lineno">  539 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId tupleConName)) Unpromoted)</span></span>
+<span class="lineno">  540 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  541 </span><span class="spaces">    </span><span class="istickedoff">parenthesizedTypeOrTupleParser tupleFlavor closeTok = do</span>
+<span class="lineno">  542 </span><span class="spaces">      </span><span class="istickedoff">first &lt;- typeParser</span>
+<span class="lineno">  543 </span><span class="spaces">      </span><span class="istickedoff">mKind &lt;- if tupleFlavor == Boxed then MP.optional (expectedTok TkReservedDoubleColon *&gt; typeParser) else pure Nothing</span>
+<span class="lineno">  544 </span><span class="spaces">      </span><span class="istickedoff">case mKind of</span>
+<span class="lineno">  545 </span><span class="spaces">        </span><span class="istickedoff">Just kind -&gt; do</span>
+<span class="lineno">  546 </span><span class="spaces">          </span><span class="istickedoff">expectedTok closeTok</span>
+<span class="lineno">  547 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">pure (TParen (TKindSig first kind))</span></span>
+<span class="lineno">  548 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; do</span>
+<span class="lineno">  549 </span><span class="spaces">          </span><span class="istickedoff">mComma &lt;- MP.optional (expectedTok TkSpecialComma)</span>
+<span class="lineno">  550 </span><span class="spaces">          </span><span class="istickedoff">case mComma of</span>
+<span class="lineno">  551 </span><span class="spaces">            </span><span class="istickedoff">Nothing -&gt; do</span>
+<span class="lineno">  552 </span><span class="spaces">              </span><span class="istickedoff">-- Check for pipe (unboxed sum type)</span>
+<span class="lineno">  553 </span><span class="spaces">              </span><span class="istickedoff">mPipe &lt;- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing</span>
+<span class="lineno">  554 </span><span class="spaces">              </span><span class="istickedoff">case mPipe of</span>
+<span class="lineno">  555 </span><span class="spaces">                </span><span class="istickedoff">Just () -&gt; do</span>
+<span class="lineno">  556 </span><span class="spaces">                  </span><span class="istickedoff">-- (# Type1 | Type2 | ... #) - unboxed sum type</span>
+<span class="lineno">  557 </span><span class="spaces">                  </span><span class="istickedoff">rest &lt;- typeParser `MP.sepBy1` expectedTok TkReservedPipe</span>
+<span class="lineno">  558 </span><span class="spaces">                  </span><span class="istickedoff">expectedTok closeTok</span>
+<span class="lineno">  559 </span><span class="spaces">                  </span><span class="istickedoff">pure (TUnboxedSum (first : rest))</span>
+<span class="lineno">  560 </span><span class="spaces">                </span><span class="istickedoff">Nothing -&gt; do</span>
+<span class="lineno">  561 </span><span class="spaces">                  </span><span class="istickedoff">expectedTok closeTok</span>
+<span class="lineno">  562 </span><span class="spaces">                  </span><span class="istickedoff">case tupleFlavor of</span>
+<span class="lineno">  563 </span><span class="spaces">                    </span><span class="istickedoff">Boxed -&gt; pure (TParen first)</span>
+<span class="lineno">  564 </span><span class="spaces">                    </span><span class="istickedoff">Unboxed -&gt; pure (TTuple Unboxed Unpromoted [first])</span>
+<span class="lineno">  565 </span><span class="spaces">            </span><span class="istickedoff">Just () -&gt; do</span>
+<span class="lineno">  566 </span><span class="spaces">              </span><span class="istickedoff">second &lt;- typeParser</span>
+<span class="lineno">  567 </span><span class="spaces">              </span><span class="istickedoff">more &lt;- MP.many (expectedTok TkSpecialComma *&gt; typeParser)</span>
+<span class="lineno">  568 </span><span class="spaces">              </span><span class="istickedoff">expectedTok closeTok</span>
+<span class="lineno">  569 </span><span class="spaces">              </span><span class="istickedoff">pure (TTuple tupleFlavor Unpromoted (first : second : more))</span></span>
+<span class="lineno">  570 </span>
+<span class="lineno">  571 </span>markTypePromoted :: Type -&gt; Maybe Type
+<span class="lineno">  572 </span><span class="decl"><span class="istickedoff">markTypePromoted ty =</span>
+<span class="lineno">  573 </span><span class="spaces">  </span><span class="istickedoff">case ty of</span>
+<span class="lineno">  574 </span><span class="spaces">    </span><span class="istickedoff">TAnn ann sub</span>
+<span class="lineno">  575 </span><span class="spaces">      </span><span class="istickedoff">| Just inner &lt;- markTypePromoted sub -&gt;</span>
+<span class="lineno">  576 </span><span class="spaces">          </span><span class="istickedoff">Just (TAnn <span class="nottickedoff">ann</span> inner)</span>
+<span class="lineno">  577 </span><span class="spaces">    </span><span class="istickedoff">TCon name _ -&gt; Just (TCon name Promoted)</span>
+<span class="lineno">  578 </span><span class="spaces">    </span><span class="istickedoff">TBuiltinCon con -&gt; Just (promoteBuiltinCon con)</span>
+<span class="lineno">  579 </span><span class="spaces">    </span><span class="istickedoff">TList _ elems -&gt; Just (TList Promoted elems)</span>
+<span class="lineno">  580 </span><span class="spaces">    </span><span class="istickedoff">TTuple tupleFlavor _ elems -&gt; Just (TTuple tupleFlavor Promoted elems)</span>
+<span class="lineno">  581 </span><span class="spaces">    </span><span class="istickedoff">TTypeApp fn arg -&gt; <span class="nottickedoff">TTypeApp &lt;$&gt; markTypePromoted fn &lt;*&gt; pure arg</span></span>
+<span class="lineno">  582 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  583 </span>
+<span class="lineno">  584 </span>promoteBuiltinCon :: TypeBuiltinCon -&gt; Type
+<span class="lineno">  585 </span><span class="decl"><span class="istickedoff">promoteBuiltinCon con =</span>
+<span class="lineno">  586 </span><span class="spaces">  </span><span class="istickedoff">TCon</span>
+<span class="lineno">  587 </span><span class="spaces">    </span><span class="istickedoff">( qualifyName Nothing $</span>
+<span class="lineno">  588 </span><span class="spaces">        </span><span class="istickedoff">case con of</span>
+<span class="lineno">  589 </span><span class="spaces">          </span><span class="istickedoff">TBuiltinTuple arity -&gt; <span class="nottickedoff">mkUnqualifiedName NameConId (&quot;(&quot; &lt;&gt; T.replicate (max 0 (arity - 1)) &quot;,&quot; &lt;&gt; &quot;)&quot;)</span></span>
+<span class="lineno">  590 </span><span class="spaces">          </span><span class="istickedoff">TBuiltinArrow -&gt; <span class="nottickedoff">mkUnqualifiedName NameVarSym &quot;-&gt;&quot;</span></span>
+<span class="lineno">  591 </span><span class="spaces">          </span><span class="istickedoff">TBuiltinList -&gt; mkUnqualifiedName NameConId &quot;[]&quot;</span>
+<span class="lineno">  592 </span><span class="spaces">          </span><span class="istickedoff">TBuiltinCons -&gt; <span class="nottickedoff">mkUnqualifiedName NameConSym &quot;:&quot;</span></span>
+<span class="lineno">  593 </span><span class="spaces">    </span><span class="istickedoff">)</span>
+<span class="lineno">  594 </span><span class="spaces">    </span><span class="istickedoff">Promoted</span></span>
+
+</pre>
+</body>
+</html>

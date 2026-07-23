@@ -1,0 +1,654 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>module Aihc.Cpp.Evaluator
+<span class="lineno">    4 </span>  ( expandMacros,
+<span class="lineno">    5 </span>    expandMacrosMultiline,
+<span class="lineno">    6 </span>    substituteParams,
+<span class="lineno">    7 </span>    evalCondition,
+<span class="lineno">    8 </span>    evalNumeric,
+<span class="lineno">    9 </span>    Token (..),
+<span class="lineno">   10 </span>    tokenize,
+<span class="lineno">   11 </span>    parseExpr,
+<span class="lineno">   12 </span>    parseOr,
+<span class="lineno">   13 </span>    parseAnd,
+<span class="lineno">   14 </span>    parseEq,
+<span class="lineno">   15 </span>    parseRel,
+<span class="lineno">   16 </span>    parseAdd,
+<span class="lineno">   17 </span>    parseMul,
+<span class="lineno">   18 </span>    parseUnary,
+<span class="lineno">   19 </span>    parseAtom,
+<span class="lineno">   20 </span>    replaceDefined,
+<span class="lineno">   21 </span>    replaceRemainingWithZero,
+<span class="lineno">   22 </span>  )
+<span class="lineno">   23 </span>where
+<span class="lineno">   24 </span>
+<span class="lineno">   25 </span>import Aihc.Cpp.Parser (isIdentChar, isIdentStart, isOpChar)
+<span class="lineno">   26 </span>import Aihc.Cpp.Types (EngineState (..), MacroDef (..))
+<span class="lineno">   27 </span>import Data.Char (isDigit, isSpace)
+<span class="lineno">   28 </span>import Data.Map.Strict (Map)
+<span class="lineno">   29 </span>import qualified Data.Map.Strict as M
+<span class="lineno">   30 </span>import Data.Set (Set)
+<span class="lineno">   31 </span>import qualified Data.Set as S
+<span class="lineno">   32 </span>import Data.Text (Text)
+<span class="lineno">   33 </span>import qualified Data.Text as T
+<span class="lineno">   34 </span>import qualified Data.Text.Lazy as TL
+<span class="lineno">   35 </span>import qualified Data.Text.Lazy.Builder as TB
+<span class="lineno">   36 </span>import qualified Data.Text.Read as TR
+<span class="lineno">   37 </span>
+<span class="lineno">   38 </span>-- | Expand macros in a single piece of text using the blue-paint algorithm.
+<span class="lineno">   39 </span>-- A single pass with a suppression set replaces the previous iterate-up-to-32
+<span class="lineno">   40 </span>-- fixpoint approach.
+<span class="lineno">   41 </span>expandMacros :: EngineState -&gt; Text -&gt; Text
+<span class="lineno">   42 </span><span class="decl"><span class="istickedoff">expandMacros st txt =</span>
+<span class="lineno">   43 </span><span class="spaces">  </span><span class="istickedoff">builderToText (expandBlue st S.empty False False <span class="nottickedoff">False</span> (TB.fromText txt))</span></span>
+<span class="lineno">   44 </span>
+<span class="lineno">   45 </span>-- | Expand macros with multi-line support. When a function-like macro call
+<span class="lineno">   46 </span>-- spans multiple lines, continuation lines are consumed from @moreLines@.
+<span class="lineno">   47 </span>-- Returns the expanded text and the number of extra lines consumed.
+<span class="lineno">   48 </span>expandMacrosMultiline :: EngineState -&gt; Text -&gt; [Text] -&gt; (Text, Int)
+<span class="lineno">   49 </span><span class="decl"><span class="istickedoff">expandMacrosMultiline st txt moreLines =</span>
+<span class="lineno">   50 </span><span class="spaces">  </span><span class="istickedoff">let extraNeeded = countExtraLinesConsumed st txt moreLines</span>
+<span class="lineno">   51 </span><span class="spaces">   </span><span class="istickedoff">in if extraNeeded == 0</span>
+<span class="lineno">   52 </span><span class="spaces">        </span><span class="istickedoff">then (expandMacros st txt, 0)</span>
+<span class="lineno">   53 </span><span class="spaces">        </span><span class="istickedoff">else</span>
+<span class="lineno">   54 </span><span class="spaces">          </span><span class="istickedoff">let combinedLines = txt : take extraNeeded moreLines</span>
+<span class="lineno">   55 </span><span class="spaces">              </span><span class="istickedoff">combined = T.intercalate &quot;\n&quot; combinedLines</span>
+<span class="lineno">   56 </span><span class="spaces">              </span><span class="istickedoff">expanded = expandMacros st combined</span>
+<span class="lineno">   57 </span><span class="spaces">           </span><span class="istickedoff">in (expanded, extraNeeded)</span></span>
+<span class="lineno">   58 </span>
+<span class="lineno">   59 </span>-- | Count how many extra lines a function macro call consumes.
+<span class="lineno">   60 </span>-- Scans the first line for an identifier that matches a function macro,
+<span class="lineno">   61 </span>-- then checks if parseCallArgs needs to span into continuation lines.
+<span class="lineno">   62 </span>countExtraLinesConsumed :: EngineState -&gt; Text -&gt; [Text] -&gt; Int
+<span class="lineno">   63 </span><span class="decl"><span class="istickedoff">countExtraLinesConsumed st txt moreLines = scanForFunctionMacro False False <span class="nottickedoff">False</span> txt</span>
+<span class="lineno">   64 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   65 </span><span class="spaces">    </span><span class="istickedoff">macros = stMacros st</span>
+<span class="lineno">   66 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   67 </span><span class="spaces">    </span><span class="istickedoff">scanForFunctionMacro :: Bool -&gt; Bool -&gt; Bool -&gt; Text -&gt; Int</span>
+<span class="lineno">   68 </span><span class="spaces">    </span><span class="istickedoff">scanForFunctionMacro _ _ _ t | T.null t = 0</span>
+<span class="lineno">   69 </span><span class="spaces">    </span><span class="istickedoff">scanForFunctionMacro inString inChar escaped t =</span>
+<span class="lineno">   70 </span><span class="spaces">      </span><span class="istickedoff">case T.uncons t of</span>
+<span class="lineno">   71 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">0</span></span>
+<span class="lineno">   72 </span><span class="spaces">        </span><span class="istickedoff">Just (c, rest)</span>
+<span class="lineno">   73 </span><span class="spaces">          </span><span class="istickedoff">| inString -&gt;</span>
+<span class="lineno">   74 </span><span class="spaces">              </span><span class="istickedoff">let escaped' = c == '\\' &amp;&amp; not escaped</span>
+<span class="lineno">   75 </span><span class="spaces">                  </span><span class="istickedoff">inString' = not (c == '&quot;' &amp;&amp; not escaped)</span>
+<span class="lineno">   76 </span><span class="spaces">               </span><span class="istickedoff">in scanForFunctionMacro inString' False escaped' rest</span>
+<span class="lineno">   77 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlyfalse">inChar</span> -&gt;</span>
+<span class="lineno">   78 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">let escaped' = c == '\\' &amp;&amp; not escaped</span></span>
+<span class="lineno">   79 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">inChar' = not (c == '\'' &amp;&amp; not escaped)</span></span>
+<span class="lineno">   80 </span><span class="spaces">               </span><span class="istickedoff"><span class="nottickedoff">in scanForFunctionMacro False inChar' escaped' rest</span></span>
+<span class="lineno">   81 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlyfalse">startsHsBlockComment t</span> -&gt;</span>
+<span class="lineno">   82 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">let (_, remaining) = consumeHsBlockComment t</span></span>
+<span class="lineno">   83 </span><span class="spaces">               </span><span class="istickedoff"><span class="nottickedoff">in scanForFunctionMacro False False False remaining</span></span>
+<span class="lineno">   84 </span><span class="spaces">          </span><span class="istickedoff">| c == '&quot;' -&gt; scanForFunctionMacro True <span class="nottickedoff">False</span> <span class="nottickedoff">False</span> rest</span>
+<span class="lineno">   85 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlyfalse">c == '\''</span> -&gt; <span class="nottickedoff">scanForFunctionMacro False True False rest</span></span>
+<span class="lineno">   86 </span><span class="spaces">          </span><span class="istickedoff">| isIdentStart c -&gt;</span>
+<span class="lineno">   87 </span><span class="spaces">              </span><span class="istickedoff">let (ident, rest') = T.span isIdentChar t</span>
+<span class="lineno">   88 </span><span class="spaces">               </span><span class="istickedoff">in case M.lookup ident macros of</span>
+<span class="lineno">   89 </span><span class="spaces">                    </span><span class="istickedoff">Just (FunctionMacro _ _) -&gt;</span>
+<span class="lineno">   90 </span><span class="spaces">                      </span><span class="istickedoff">case tryMultilineCallArgs rest' of</span>
+<span class="lineno">   91 </span><span class="spaces">                        </span><span class="istickedoff">Just n -&gt; n</span>
+<span class="lineno">   92 </span><span class="spaces">                        </span><span class="istickedoff">Nothing -&gt; scanForFunctionMacro False False <span class="nottickedoff">False</span> rest'</span>
+<span class="lineno">   93 </span><span class="spaces">                    </span><span class="istickedoff">_ -&gt; scanForFunctionMacro False False <span class="nottickedoff">False</span> rest'</span>
+<span class="lineno">   94 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; scanForFunctionMacro False False <span class="nottickedoff">False</span> rest</span>
+<span class="lineno">   95 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   96 </span><span class="spaces">    </span><span class="istickedoff">-- Try to parse function call args, potentially spanning multiple lines.</span>
+<span class="lineno">   97 </span><span class="spaces">    </span><span class="istickedoff">-- Returns Just n if the call spans n extra lines, Nothing if no call.</span>
+<span class="lineno">   98 </span><span class="spaces">    </span><span class="istickedoff">tryMultilineCallArgs :: Text -&gt; Maybe Int</span>
+<span class="lineno">   99 </span><span class="spaces">    </span><span class="istickedoff">tryMultilineCallArgs rest = seekOpenParen (T.dropWhile isSpace rest) 0</span>
+<span class="lineno">  100 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  101 </span><span class="spaces">    </span><span class="istickedoff">seekOpenParen :: Text -&gt; Int -&gt; Maybe Int</span>
+<span class="lineno">  102 </span><span class="spaces">    </span><span class="istickedoff">seekOpenParen remaining extraLines =</span>
+<span class="lineno">  103 </span><span class="spaces">      </span><span class="istickedoff">case T.uncons remaining of</span>
+<span class="lineno">  104 </span><span class="spaces">        </span><span class="istickedoff">Just ('(', afterOpen) -&gt;</span>
+<span class="lineno">  105 </span><span class="spaces">          </span><span class="istickedoff">findClosingParen 0 afterOpen extraLines</span>
+<span class="lineno">  106 </span><span class="spaces">        </span><span class="istickedoff">Just _ -&gt;</span>
+<span class="lineno">  107 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  108 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt;</span>
+<span class="lineno">  109 </span><span class="spaces">          </span><span class="istickedoff">case drop extraLines moreLines of</span>
+<span class="lineno">  110 </span><span class="spaces">            </span><span class="istickedoff">[] -&gt; <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  111 </span><span class="spaces">            </span><span class="istickedoff">(nextLine : _) -&gt;</span>
+<span class="lineno">  112 </span><span class="spaces">              </span><span class="istickedoff">seekOpenParen (T.dropWhile isSpace nextLine) (extraLines + 1)</span>
+<span class="lineno">  113 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  114 </span><span class="spaces">    </span><span class="istickedoff">findClosingParen :: Int -&gt; Text -&gt; Int -&gt; Maybe Int</span>
+<span class="lineno">  115 </span><span class="spaces">    </span><span class="istickedoff">findClosingParen = goClosing False False <span class="nottickedoff">False</span></span>
+<span class="lineno">  116 </span><span class="spaces">      </span><span class="istickedoff">where</span>
+<span class="lineno">  117 </span><span class="spaces">        </span><span class="istickedoff">goClosing :: Bool -&gt; Bool -&gt; Bool -&gt; Int -&gt; Text -&gt; Int -&gt; Maybe Int</span>
+<span class="lineno">  118 </span><span class="spaces">        </span><span class="istickedoff">goClosing inString inChar escaped depth remaining extraLines =</span>
+<span class="lineno">  119 </span><span class="spaces">          </span><span class="istickedoff">case T.uncons remaining of</span>
+<span class="lineno">  120 </span><span class="spaces">            </span><span class="istickedoff">Nothing -&gt;</span>
+<span class="lineno">  121 </span><span class="spaces">              </span><span class="istickedoff">-- Need more lines</span>
+<span class="lineno">  122 </span><span class="spaces">              </span><span class="istickedoff">case drop extraLines moreLines of</span>
+<span class="lineno">  123 </span><span class="spaces">                </span><span class="istickedoff">[] -&gt; Nothing -- No more lines, unclosed call</span>
+<span class="lineno">  124 </span><span class="spaces">                </span><span class="istickedoff">(nextLine : _) -&gt;</span>
+<span class="lineno">  125 </span><span class="spaces">                  </span><span class="istickedoff">goClosing inString inChar <span class="nottickedoff">escaped</span> depth (T.cons '\n' nextLine) (extraLines + 1)</span>
+<span class="lineno">  126 </span><span class="spaces">            </span><span class="istickedoff">Just (ch, rest)</span>
+<span class="lineno">  127 </span><span class="spaces">              </span><span class="istickedoff">| inString -&gt;</span>
+<span class="lineno">  128 </span><span class="spaces">                  </span><span class="istickedoff">let escaped' = ch == '\\' &amp;&amp; <span class="nottickedoff">not escaped</span></span>
+<span class="lineno">  129 </span><span class="spaces">                      </span><span class="istickedoff">inString' = not (ch == '&quot;' &amp;&amp; not escaped)</span>
+<span class="lineno">  130 </span><span class="spaces">                   </span><span class="istickedoff">in goClosing inString' False escaped' depth rest extraLines</span>
+<span class="lineno">  131 </span><span class="spaces">              </span><span class="istickedoff">| <span class="tickonlyfalse">inChar</span> -&gt;</span>
+<span class="lineno">  132 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">let escaped' = ch == '\\' &amp;&amp; not escaped</span></span>
+<span class="lineno">  133 </span><span class="spaces">                      </span><span class="istickedoff"><span class="nottickedoff">inChar' = not (ch == '\'' &amp;&amp; not escaped)</span></span>
+<span class="lineno">  134 </span><span class="spaces">                   </span><span class="istickedoff"><span class="nottickedoff">in goClosing False inChar' escaped' depth rest extraLines</span></span>
+<span class="lineno">  135 </span><span class="spaces">              </span><span class="istickedoff">| <span class="tickonlyfalse">startsHsBlockComment remaining</span> -&gt;</span>
+<span class="lineno">  136 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">let (_, afterComment) = consumeHsBlockComment remaining</span></span>
+<span class="lineno">  137 </span><span class="spaces">                   </span><span class="istickedoff"><span class="nottickedoff">in goClosing False False False depth afterComment extraLines</span></span>
+<span class="lineno">  138 </span><span class="spaces">              </span><span class="istickedoff">| ch == '&quot;' -&gt; goClosing True <span class="nottickedoff">False</span> <span class="nottickedoff">False</span> depth rest extraLines</span>
+<span class="lineno">  139 </span><span class="spaces">              </span><span class="istickedoff">| <span class="tickonlyfalse">ch == '\''</span> -&gt; <span class="nottickedoff">goClosing False True False depth rest extraLines</span></span>
+<span class="lineno">  140 </span><span class="spaces">              </span><span class="istickedoff">| ch == '(' -&gt; goClosing False False <span class="nottickedoff">False</span> (depth + 1) rest extraLines</span>
+<span class="lineno">  141 </span><span class="spaces">              </span><span class="istickedoff">| ch == ')' &amp;&amp; depth &gt; 0 -&gt; goClosing False False <span class="nottickedoff">False</span> (depth - 1) rest extraLines</span>
+<span class="lineno">  142 </span><span class="spaces">              </span><span class="istickedoff">| ch == ')' -&gt; Just extraLines</span>
+<span class="lineno">  143 </span><span class="spaces">              </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; goClosing False False <span class="nottickedoff">False</span> depth rest extraLines</span></span>
+<span class="lineno">  144 </span>
+<span class="lineno">  145 </span>-- | Blue-paint macro expansion engine. Uses a suppression set (@painted@)
+<span class="lineno">  146 </span>-- to prevent infinite recursion instead of iterating to a fixpoint.
+<span class="lineno">  147 </span>-- Output is accumulated via a lazy 'TB.Builder' for amortized O(n).
+<span class="lineno">  148 </span>expandBlue :: EngineState -&gt; Set Text -&gt; Bool -&gt; Bool -&gt; Bool -&gt; TB.Builder -&gt; TB.Builder
+<span class="lineno">  149 </span><span class="decl"><span class="istickedoff">expandBlue st painted inString inChar escaped input =</span>
+<span class="lineno">  150 </span><span class="spaces">  </span><span class="istickedoff">let txt = builderToText input</span>
+<span class="lineno">  151 </span><span class="spaces">   </span><span class="istickedoff">in goText st painted inString inChar <span class="nottickedoff">escaped</span> txt mempty</span></span>
+<span class="lineno">  152 </span>
+<span class="lineno">  153 </span>-- | Walk the input text, expanding macros with blue-paint suppression.
+<span class="lineno">  154 </span>goText :: EngineState -&gt; Set Text -&gt; Bool -&gt; Bool -&gt; Bool -&gt; Text -&gt; TB.Builder -&gt; TB.Builder
+<span class="lineno">  155 </span><span class="decl"><span class="istickedoff">goText _ _ _ _ _ txt acc | T.null txt = acc</span>
+<span class="lineno">  156 </span><span class="spaces"></span><span class="istickedoff">goText st painted inString inChar escaped txt acc =</span>
+<span class="lineno">  157 </span><span class="spaces">  </span><span class="istickedoff">case T.uncons txt of</span>
+<span class="lineno">  158 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">acc</span></span>
+<span class="lineno">  159 </span><span class="spaces">    </span><span class="istickedoff">Just (c, rest)</span>
+<span class="lineno">  160 </span><span class="spaces">      </span><span class="istickedoff">| inString -&gt;</span>
+<span class="lineno">  161 </span><span class="spaces">          </span><span class="istickedoff">let escaped' = c == '\\' &amp;&amp; not escaped</span>
+<span class="lineno">  162 </span><span class="spaces">              </span><span class="istickedoff">inString' = not (c == '&quot;' &amp;&amp; not escaped)</span>
+<span class="lineno">  163 </span><span class="spaces">           </span><span class="istickedoff">in goText st painted inString' False escaped' rest (acc &lt;&gt; TB.singleton c)</span>
+<span class="lineno">  164 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlyfalse">inChar</span> -&gt;</span>
+<span class="lineno">  165 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">let escaped' = c == '\\' &amp;&amp; not escaped</span></span>
+<span class="lineno">  166 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">inChar' = not (c == '\'' &amp;&amp; not escaped)</span></span>
+<span class="lineno">  167 </span><span class="spaces">           </span><span class="istickedoff"><span class="nottickedoff">in goText st painted False inChar' escaped' rest (acc &lt;&gt; TB.singleton c)</span></span>
+<span class="lineno">  168 </span><span class="spaces">      </span><span class="istickedoff">| startsHsBlockComment txt -&gt;</span>
+<span class="lineno">  169 </span><span class="spaces">          </span><span class="istickedoff">let (commentText, remaining) = consumeHsBlockComment txt</span>
+<span class="lineno">  170 </span><span class="spaces">           </span><span class="istickedoff">in goText st painted False False <span class="nottickedoff">False</span> remaining (acc &lt;&gt; TB.fromText commentText)</span>
+<span class="lineno">  171 </span><span class="spaces">      </span><span class="istickedoff">| c == '&quot;' -&gt;</span>
+<span class="lineno">  172 </span><span class="spaces">          </span><span class="istickedoff">goText st painted True <span class="nottickedoff">False</span> <span class="nottickedoff">False</span> rest (acc &lt;&gt; TB.singleton c)</span>
+<span class="lineno">  173 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlyfalse">c == '\''</span> -&gt;</span>
+<span class="lineno">  174 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">goText st painted False True False rest (acc &lt;&gt; TB.singleton c)</span></span>
+<span class="lineno">  175 </span><span class="spaces">      </span><span class="istickedoff">| isIdentStart c -&gt;</span>
+<span class="lineno">  176 </span><span class="spaces">          </span><span class="istickedoff">expandIdentBlue st painted txt acc</span>
+<span class="lineno">  177 </span><span class="spaces">      </span><span class="istickedoff">| c == '-',</span>
+<span class="lineno">  178 </span><span class="spaces">        </span><span class="istickedoff">Just ('-', _) &lt;- T.uncons rest -&gt;</span>
+<span class="lineno">  179 </span><span class="spaces">          </span><span class="istickedoff">-- Haskell line comment: copy remainder verbatim without macro expansion</span>
+<span class="lineno">  180 </span><span class="spaces">          </span><span class="istickedoff">acc &lt;&gt; TB.fromText txt</span>
+<span class="lineno">  181 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  182 </span><span class="spaces">          </span><span class="istickedoff">goText st painted False False <span class="nottickedoff">False</span> rest (acc &lt;&gt; TB.singleton c)</span></span>
+<span class="lineno">  183 </span>
+<span class="lineno">  184 </span>-- | Handle an identifier during blue-paint expansion.
+<span class="lineno">  185 </span>expandIdentBlue :: EngineState -&gt; Set Text -&gt; Text -&gt; TB.Builder -&gt; TB.Builder
+<span class="lineno">  186 </span><span class="decl"><span class="istickedoff">expandIdentBlue st painted txt acc =</span>
+<span class="lineno">  187 </span><span class="spaces">  </span><span class="istickedoff">let (ident, rest) = T.span isIdentChar txt</span>
+<span class="lineno">  188 </span><span class="spaces">   </span><span class="istickedoff">in if <span class="tickonlyfalse">S.member ident painted</span></span>
+<span class="lineno">  189 </span><span class="spaces">        </span><span class="istickedoff">then -- Blue-painted: copy verbatim, don't expand</span>
+<span class="lineno">  190 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">goText st painted False False False rest (acc &lt;&gt; TB.fromText ident)</span></span>
+<span class="lineno">  191 </span><span class="spaces">        </span><span class="istickedoff">else case ident of</span>
+<span class="lineno">  192 </span><span class="spaces">          </span><span class="istickedoff">&quot;__LINE__&quot; -&gt;</span>
+<span class="lineno">  193 </span><span class="spaces">            </span><span class="istickedoff">goText <span class="nottickedoff">st</span> <span class="nottickedoff">painted</span> <span class="nottickedoff">False</span> <span class="nottickedoff">False</span> <span class="nottickedoff">False</span> rest (acc &lt;&gt; TB.fromString (show (stCurrentLine st)))</span>
+<span class="lineno">  194 </span><span class="spaces">          </span><span class="istickedoff">&quot;__FILE__&quot; -&gt;</span>
+<span class="lineno">  195 </span><span class="spaces">            </span><span class="istickedoff">goText <span class="nottickedoff">st</span> <span class="nottickedoff">painted</span> <span class="nottickedoff">False</span> <span class="nottickedoff">False</span> <span class="nottickedoff">False</span> rest (acc &lt;&gt; TB.fromString (show (stCurrentFile st)))</span>
+<span class="lineno">  196 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt;</span>
+<span class="lineno">  197 </span><span class="spaces">            </span><span class="istickedoff">case M.lookup ident (stMacros st) of</span>
+<span class="lineno">  198 </span><span class="spaces">              </span><span class="istickedoff">Just (ObjectMacro replacement) -&gt;</span>
+<span class="lineno">  199 </span><span class="spaces">                </span><span class="istickedoff">let painted' = S.insert ident painted</span>
+<span class="lineno">  200 </span><span class="spaces">                    </span><span class="istickedoff">replacement' = normalizeObjectReplacement replacement</span>
+<span class="lineno">  201 </span><span class="spaces">                    </span><span class="istickedoff">expanded = builderToText (goText st painted' False False <span class="nottickedoff">False</span> replacement' mempty)</span>
+<span class="lineno">  202 </span><span class="spaces">                 </span><span class="istickedoff">in goText st painted False False <span class="nottickedoff">False</span> rest (acc &lt;&gt; TB.fromText expanded)</span>
+<span class="lineno">  203 </span><span class="spaces">              </span><span class="istickedoff">Just (FunctionMacro params body) -&gt;</span>
+<span class="lineno">  204 </span><span class="spaces">                </span><span class="istickedoff">case parseCallArgs rest of</span>
+<span class="lineno">  205 </span><span class="spaces">                  </span><span class="istickedoff">Nothing -&gt;</span>
+<span class="lineno">  206 </span><span class="spaces">                    </span><span class="istickedoff">goText <span class="nottickedoff">st</span> <span class="nottickedoff">painted</span> False False <span class="nottickedoff">False</span> rest (acc &lt;&gt; TB.fromText ident)</span>
+<span class="lineno">  207 </span><span class="spaces">                  </span><span class="istickedoff">Just (args, restAfter)</span>
+<span class="lineno">  208 </span><span class="spaces">                    </span><span class="istickedoff">| <span class="tickonlytrue">length args == length params</span> -&gt;</span>
+<span class="lineno">  209 </span><span class="spaces">                        </span><span class="istickedoff">let body' = substituteParamsBuilder (M.fromList (zip params args)) body</span>
+<span class="lineno">  210 </span><span class="spaces">                            </span><span class="istickedoff">painted' = S.insert ident painted</span>
+<span class="lineno">  211 </span><span class="spaces">                            </span><span class="istickedoff">expanded = builderToText (goText st painted' False False <span class="nottickedoff">False</span> body' mempty)</span>
+<span class="lineno">  212 </span><span class="spaces">                         </span><span class="istickedoff">in goText st painted False False <span class="nottickedoff">False</span> restAfter (acc &lt;&gt; TB.fromText expanded)</span>
+<span class="lineno">  213 </span><span class="spaces">                    </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> -&gt;</span>
+<span class="lineno">  214 </span><span class="spaces">                        </span><span class="istickedoff"><span class="nottickedoff">goText st painted False False False rest (acc &lt;&gt; TB.fromText ident)</span></span>
+<span class="lineno">  215 </span><span class="spaces">              </span><span class="istickedoff">Nothing -&gt;</span>
+<span class="lineno">  216 </span><span class="spaces">                </span><span class="istickedoff">goText st painted False False <span class="nottickedoff">False</span> rest (acc &lt;&gt; TB.fromText ident)</span></span>
+<span class="lineno">  217 </span>
+<span class="lineno">  218 </span>-- | Normalize comments inside object-like macro replacement text while
+<span class="lineno">  219 </span>-- preserving string and char literals. cpphs replaces @/* ... */@ with spaces
+<span class="lineno">  220 </span>-- matching the width of the comment body, but treats empty @/**/@ as a token
+<span class="lineno">  221 </span>-- pasting hack with zero width.
+<span class="lineno">  222 </span>normalizeObjectReplacement :: Text -&gt; Text
+<span class="lineno">  223 </span><span class="decl"><span class="istickedoff">normalizeObjectReplacement = T.stripEnd . go False False <span class="nottickedoff">False</span> mempty</span>
+<span class="lineno">  224 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  225 </span><span class="spaces">    </span><span class="istickedoff">go :: Bool -&gt; Bool -&gt; Bool -&gt; TB.Builder -&gt; Text -&gt; Text</span>
+<span class="lineno">  226 </span><span class="spaces">    </span><span class="istickedoff">go _ _ _ acc txt | T.null txt = builderToText acc</span>
+<span class="lineno">  227 </span><span class="spaces">    </span><span class="istickedoff">go inString inChar escaped acc txt =</span>
+<span class="lineno">  228 </span><span class="spaces">      </span><span class="istickedoff">case T.uncons txt of</span>
+<span class="lineno">  229 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">builderToText acc</span></span>
+<span class="lineno">  230 </span><span class="spaces">        </span><span class="istickedoff">Just (c, rest)</span>
+<span class="lineno">  231 </span><span class="spaces">          </span><span class="istickedoff">| inString -&gt;</span>
+<span class="lineno">  232 </span><span class="spaces">              </span><span class="istickedoff">let <span class="nottickedoff">escaped' = c == '\\' &amp;&amp; not escaped</span></span>
+<span class="lineno">  233 </span><span class="spaces">                  </span><span class="istickedoff">inString' = not (c == '&quot;' &amp;&amp; <span class="nottickedoff">not escaped</span>)</span>
+<span class="lineno">  234 </span><span class="spaces">               </span><span class="istickedoff">in go inString' <span class="nottickedoff">False</span> <span class="nottickedoff">escaped'</span> (acc &lt;&gt; TB.singleton c) rest</span>
+<span class="lineno">  235 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlyfalse">inChar</span> -&gt;</span>
+<span class="lineno">  236 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">let escaped' = c == '\\' &amp;&amp; not escaped</span></span>
+<span class="lineno">  237 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">inChar' = not (c == '\'' &amp;&amp; not escaped)</span></span>
+<span class="lineno">  238 </span><span class="spaces">               </span><span class="istickedoff"><span class="nottickedoff">in go False inChar' escaped' (acc &lt;&gt; TB.singleton c) rest</span></span>
+<span class="lineno">  239 </span><span class="spaces">          </span><span class="istickedoff">| c == '&quot;' -&gt; go True <span class="nottickedoff">False</span> <span class="nottickedoff">False</span> (acc &lt;&gt; TB.singleton c) rest</span>
+<span class="lineno">  240 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlyfalse">c == '\''</span> -&gt; <span class="nottickedoff">go False True False (acc &lt;&gt; TB.singleton c) rest</span></span>
+<span class="lineno">  241 </span><span class="spaces">          </span><span class="istickedoff">| &quot;/*&quot; `T.isPrefixOf` txt -&gt;</span>
+<span class="lineno">  242 </span><span class="spaces">              </span><span class="istickedoff">let (commentText, remaining) = consumeCBlockComment txt</span>
+<span class="lineno">  243 </span><span class="spaces">                  </span><span class="istickedoff">replacement = commentReplacement commentText</span>
+<span class="lineno">  244 </span><span class="spaces">               </span><span class="istickedoff">in go <span class="nottickedoff">False</span> <span class="nottickedoff">False</span> <span class="nottickedoff">False</span> (acc &lt;&gt; TB.fromText replacement) remaining</span>
+<span class="lineno">  245 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  246 </span><span class="spaces">              </span><span class="istickedoff">go False False <span class="nottickedoff">False</span> (acc &lt;&gt; TB.singleton c) rest</span></span>
+<span class="lineno">  247 </span>
+<span class="lineno">  248 </span>consumeCBlockComment :: Text -&gt; (Text, Text)
+<span class="lineno">  249 </span><span class="decl"><span class="istickedoff">consumeCBlockComment txt =</span>
+<span class="lineno">  250 </span><span class="spaces">  </span><span class="istickedoff">let afterOpen = T.drop 2 txt</span>
+<span class="lineno">  251 </span><span class="spaces">      </span><span class="istickedoff">(inside, suffix) = T.breakOn &quot;*/&quot; afterOpen</span>
+<span class="lineno">  252 </span><span class="spaces">   </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null suffix</span></span>
+<span class="lineno">  253 </span><span class="spaces">        </span><span class="istickedoff">then <span class="nottickedoff">(txt, &quot;&quot;)</span></span>
+<span class="lineno">  254 </span><span class="spaces">        </span><span class="istickedoff">else (&quot;/*&quot; &lt;&gt; inside &lt;&gt; &quot;*/&quot;, T.drop 2 suffix)</span></span>
+<span class="lineno">  255 </span>
+<span class="lineno">  256 </span>commentReplacement :: Text -&gt; Text
+<span class="lineno">  257 </span><span class="decl"><span class="istickedoff">commentReplacement commentText</span>
+<span class="lineno">  258 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlyfalse">commentText == &quot;/**/&quot;</span> = <span class="nottickedoff">&quot;&quot;</span></span>
+<span class="lineno">  259 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = T.replicate (T.length (commentBody commentText)) &quot; &quot;</span></span>
+<span class="lineno">  260 </span>
+<span class="lineno">  261 </span>commentBody :: Text -&gt; Text
+<span class="lineno">  262 </span><span class="decl"><span class="istickedoff">commentBody commentText =</span>
+<span class="lineno">  263 </span><span class="spaces">  </span><span class="istickedoff">if <span class="tickonlytrue">&quot;/*&quot; `T.isPrefixOf` commentText &amp;&amp; &quot;*/&quot; `T.isSuffixOf` commentText</span></span>
+<span class="lineno">  264 </span><span class="spaces">    </span><span class="istickedoff">then T.dropEnd 2 (T.drop 2 commentText)</span>
+<span class="lineno">  265 </span><span class="spaces">    </span><span class="istickedoff">else <span class="nottickedoff">T.drop 2 commentText</span></span></span>
+<span class="lineno">  266 </span>
+<span class="lineno">  267 </span>-- | Parse function-like macro call arguments.
+<span class="lineno">  268 </span>parseCallArgs :: Text -&gt; Maybe ([Text], Text)
+<span class="lineno">  269 </span><span class="decl"><span class="istickedoff">parseCallArgs input = do</span>
+<span class="lineno">  270 </span><span class="spaces">  </span><span class="istickedoff">('(', rest) &lt;- T.uncons (T.dropWhile isSpace input)</span>
+<span class="lineno">  271 </span><span class="spaces">  </span><span class="istickedoff">parseArgs False False <span class="nottickedoff">False</span> 0 [] mempty rest</span></span>
+<span class="lineno">  272 </span>
+<span class="lineno">  273 </span>parseArgs :: Bool -&gt; Bool -&gt; Bool -&gt; Int -&gt; [Text] -&gt; TB.Builder -&gt; Text -&gt; Maybe ([Text], Text)
+<span class="lineno">  274 </span><span class="decl"><span class="istickedoff">parseArgs inString inChar escaped depth argsRev current remaining =</span>
+<span class="lineno">  275 </span><span class="spaces">  </span><span class="istickedoff">case T.uncons remaining of</span>
+<span class="lineno">  276 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; Nothing</span>
+<span class="lineno">  277 </span><span class="spaces">    </span><span class="istickedoff">Just (ch, rest)</span>
+<span class="lineno">  278 </span><span class="spaces">      </span><span class="istickedoff">| inString -&gt;</span>
+<span class="lineno">  279 </span><span class="spaces">          </span><span class="istickedoff">let escaped' = ch == '\\' &amp;&amp; <span class="nottickedoff">not escaped</span></span>
+<span class="lineno">  280 </span><span class="spaces">              </span><span class="istickedoff">inString' = not (ch == '&quot;' &amp;&amp; not escaped)</span>
+<span class="lineno">  281 </span><span class="spaces">           </span><span class="istickedoff">in parseArgs inString' False escaped' depth argsRev (current &lt;&gt; TB.singleton ch) rest</span>
+<span class="lineno">  282 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlyfalse">inChar</span> -&gt;</span>
+<span class="lineno">  283 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">let escaped' = ch == '\\' &amp;&amp; not escaped</span></span>
+<span class="lineno">  284 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">inChar' = not (ch == '\'' &amp;&amp; not escaped)</span></span>
+<span class="lineno">  285 </span><span class="spaces">           </span><span class="istickedoff"><span class="nottickedoff">in parseArgs False inChar' escaped' depth argsRev (current &lt;&gt; TB.singleton ch) rest</span></span>
+<span class="lineno">  286 </span><span class="spaces">      </span><span class="istickedoff">| startsHsBlockComment remaining -&gt;</span>
+<span class="lineno">  287 </span><span class="spaces">          </span><span class="istickedoff">let (commentText, afterComment) = consumeHsBlockComment remaining</span>
+<span class="lineno">  288 </span><span class="spaces">           </span><span class="istickedoff">in parseArgs False False <span class="nottickedoff">False</span> depth argsRev (current &lt;&gt; TB.fromText commentText) afterComment</span>
+<span class="lineno">  289 </span><span class="spaces">      </span><span class="istickedoff">| ch == '&quot;' -&gt;</span>
+<span class="lineno">  290 </span><span class="spaces">          </span><span class="istickedoff">parseArgs True <span class="nottickedoff">False</span> <span class="nottickedoff">False</span> depth argsRev (current &lt;&gt; TB.singleton ch) rest</span>
+<span class="lineno">  291 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlyfalse">ch == '\''</span> -&gt;</span>
+<span class="lineno">  292 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">parseArgs False True False depth argsRev (current &lt;&gt; TB.singleton ch) rest</span></span>
+<span class="lineno">  293 </span><span class="spaces">      </span><span class="istickedoff">| ch == '(' -&gt;</span>
+<span class="lineno">  294 </span><span class="spaces">          </span><span class="istickedoff">parseArgs False False <span class="nottickedoff">False</span> (depth + 1) argsRev (current &lt;&gt; TB.singleton ch) rest</span>
+<span class="lineno">  295 </span><span class="spaces">      </span><span class="istickedoff">| ch == ')' &amp;&amp; depth &gt; 0 -&gt;</span>
+<span class="lineno">  296 </span><span class="spaces">          </span><span class="istickedoff">parseArgs False False <span class="nottickedoff">False</span> (depth - 1) argsRev (current &lt;&gt; TB.singleton ch) rest</span>
+<span class="lineno">  297 </span><span class="spaces">      </span><span class="istickedoff">| ch == ')' &amp;&amp; depth == 0 -&gt;</span>
+<span class="lineno">  298 </span><span class="spaces">          </span><span class="istickedoff">let arg = trimSpacesText (builderToText current)</span>
+<span class="lineno">  299 </span><span class="spaces">              </span><span class="istickedoff">argsRev' =</span>
+<span class="lineno">  300 </span><span class="spaces">                </span><span class="istickedoff">if T.null arg &amp;&amp; null argsRev</span>
+<span class="lineno">  301 </span><span class="spaces">                  </span><span class="istickedoff">then [&quot;&quot;]</span>
+<span class="lineno">  302 </span><span class="spaces">                  </span><span class="istickedoff">else arg : argsRev</span>
+<span class="lineno">  303 </span><span class="spaces">           </span><span class="istickedoff">in Just (reverse argsRev', rest)</span>
+<span class="lineno">  304 </span><span class="spaces">      </span><span class="istickedoff">| ch == ',' &amp;&amp; depth == 0 -&gt;</span>
+<span class="lineno">  305 </span><span class="spaces">          </span><span class="istickedoff">let arg = trimSpacesText (builderToText current)</span>
+<span class="lineno">  306 </span><span class="spaces">           </span><span class="istickedoff">in parseArgs False False <span class="nottickedoff">False</span> depth (arg : argsRev) mempty rest</span>
+<span class="lineno">  307 </span><span class="spaces">      </span><span class="istickedoff">| ch == '-' &amp;&amp; depth == 0,</span>
+<span class="lineno">  308 </span><span class="spaces">        </span><span class="istickedoff">Just ('-', afterDash) &lt;- T.uncons rest -&gt;</span>
+<span class="lineno">  309 </span><span class="spaces">          </span><span class="istickedoff">-- Haskell line comment inside arg list: close the arg, find ')' in comment</span>
+<span class="lineno">  310 </span><span class="spaces">          </span><span class="istickedoff">let commentText = &quot;--&quot; &lt;&gt; afterDash</span>
+<span class="lineno">  311 </span><span class="spaces">           </span><span class="istickedoff">in case findLastCloseParen commentText of</span>
+<span class="lineno">  312 </span><span class="spaces">                </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  313 </span><span class="spaces">                </span><span class="istickedoff">Just (commentPrefix, afterClose) -&gt;</span>
+<span class="lineno">  314 </span><span class="spaces">                  </span><span class="istickedoff">let currentText = builderToText current</span>
+<span class="lineno">  315 </span><span class="spaces">                      </span><span class="istickedoff">arg = trimSpacesText currentText</span>
+<span class="lineno">  316 </span><span class="spaces">                      </span><span class="istickedoff">trailingWS = T.takeWhileEnd isSpace currentText</span>
+<span class="lineno">  317 </span><span class="spaces">                      </span><span class="istickedoff">argsRev' = if <span class="tickonlyfalse">T.null arg &amp;&amp; <span class="nottickedoff">null argsRev</span></span> then <span class="nottickedoff">[&quot;&quot;]</span> else arg : argsRev</span>
+<span class="lineno">  318 </span><span class="spaces">                   </span><span class="istickedoff">in Just (reverse argsRev', trailingWS &lt;&gt; commentPrefix &lt;&gt; afterClose)</span>
+<span class="lineno">  319 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  320 </span><span class="spaces">          </span><span class="istickedoff">parseArgs False False <span class="nottickedoff">False</span> depth argsRev (current &lt;&gt; TB.singleton ch) rest</span></span>
+<span class="lineno">  321 </span>
+<span class="lineno">  322 </span>-- | Find the last ')' in text and split before it.
+<span class="lineno">  323 </span>findLastCloseParen :: Text -&gt; Maybe (Text, Text)
+<span class="lineno">  324 </span><span class="decl"><span class="istickedoff">findLastCloseParen txt =</span>
+<span class="lineno">  325 </span><span class="spaces">  </span><span class="istickedoff">case T.findIndex (== ')') (T.reverse txt) of</span>
+<span class="lineno">  326 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  327 </span><span class="spaces">    </span><span class="istickedoff">Just revIdx -&gt;</span>
+<span class="lineno">  328 </span><span class="spaces">      </span><span class="istickedoff">let idx = T.length txt - revIdx - 1</span>
+<span class="lineno">  329 </span><span class="spaces">       </span><span class="istickedoff">in Just (T.take idx txt, T.drop (idx + 1) txt)</span></span>
+<span class="lineno">  330 </span>
+<span class="lineno">  331 </span>startsHsBlockComment :: Text -&gt; Bool
+<span class="lineno">  332 </span><span class="decl"><span class="istickedoff">startsHsBlockComment txt =</span>
+<span class="lineno">  333 </span><span class="spaces">  </span><span class="istickedoff">case T.uncons txt of</span>
+<span class="lineno">  334 </span><span class="spaces">    </span><span class="istickedoff">Just ('{', rest) -&gt;</span>
+<span class="lineno">  335 </span><span class="spaces">      </span><span class="istickedoff">case T.uncons rest of</span>
+<span class="lineno">  336 </span><span class="spaces">        </span><span class="istickedoff">Just ('-', rest') -&gt;</span>
+<span class="lineno">  337 </span><span class="spaces">          </span><span class="istickedoff">case T.uncons rest' of</span>
+<span class="lineno">  338 </span><span class="spaces">            </span><span class="istickedoff">Just ('#', _) -&gt; False</span>
+<span class="lineno">  339 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; True</span>
+<span class="lineno">  340 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; False</span>
+<span class="lineno">  341 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; False</span></span>
+<span class="lineno">  342 </span>
+<span class="lineno">  343 </span>consumeHsBlockComment :: Text -&gt; (Text, Text)
+<span class="lineno">  344 </span><span class="decl"><span class="istickedoff">consumeHsBlockComment = go 0 mempty</span>
+<span class="lineno">  345 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  346 </span><span class="spaces">    </span><span class="istickedoff">go :: Int -&gt; TB.Builder -&gt; Text -&gt; (Text, Text)</span>
+<span class="lineno">  347 </span><span class="spaces">    </span><span class="istickedoff">go depth acc txt =</span>
+<span class="lineno">  348 </span><span class="spaces">      </span><span class="istickedoff">case T.uncons txt of</span>
+<span class="lineno">  349 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; (builderToText acc, &quot;&quot;)</span>
+<span class="lineno">  350 </span><span class="spaces">        </span><span class="istickedoff">Just (c, rest) -&gt;</span>
+<span class="lineno">  351 </span><span class="spaces">          </span><span class="istickedoff">case T.uncons rest of</span>
+<span class="lineno">  352 </span><span class="spaces">            </span><span class="istickedoff">Just ('-', rest')</span>
+<span class="lineno">  353 </span><span class="spaces">              </span><span class="istickedoff">| c == '{' -&gt;</span>
+<span class="lineno">  354 </span><span class="spaces">                  </span><span class="istickedoff">go (depth + 1) (acc &lt;&gt; TB.fromText &quot;{-&quot;) rest'</span>
+<span class="lineno">  355 </span><span class="spaces">            </span><span class="istickedoff">Just ('}', rest')</span>
+<span class="lineno">  356 </span><span class="spaces">              </span><span class="istickedoff">| <span class="tickonlytrue">c == '-' &amp;&amp; depth &lt;= 1</span> -&gt;</span>
+<span class="lineno">  357 </span><span class="spaces">                  </span><span class="istickedoff">(builderToText (acc &lt;&gt; TB.fromText &quot;-}&quot;), rest')</span>
+<span class="lineno">  358 </span><span class="spaces">            </span><span class="istickedoff">Just ('}', rest')</span>
+<span class="lineno">  359 </span><span class="spaces">              </span><span class="istickedoff">| <span class="nottickedoff">c == '-'</span> -&gt;</span>
+<span class="lineno">  360 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">go (depth - 1) (acc &lt;&gt; TB.fromText &quot;-}&quot;) rest'</span></span>
+<span class="lineno">  361 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt;</span>
+<span class="lineno">  362 </span><span class="spaces">              </span><span class="istickedoff">go depth (acc &lt;&gt; TB.singleton c) rest</span></span>
+<span class="lineno">  363 </span>
+<span class="lineno">  364 </span>data Piece
+<span class="lineno">  365 </span>  = PieceWhitespace !Text
+<span class="lineno">  366 </span>  | PiecePaste
+<span class="lineno">  367 </span>  | PieceRaw !Text
+<span class="lineno">  368 </span>  | PieceParam !Text
+<span class="lineno">  369 </span>
+<span class="lineno">  370 </span>substituteParams :: Map Text Text -&gt; Text -&gt; Text
+<span class="lineno">  371 </span><span class="decl"><span class="nottickedoff">substituteParams = substituteParamsBuilder</span></span>
+<span class="lineno">  372 </span>
+<span class="lineno">  373 </span>-- | Builder-based parameter substitution. Replaces identifiers found
+<span class="lineno">  374 </span>-- in the substitution map, respecting string and char literals.
+<span class="lineno">  375 </span>substituteParamsBuilder :: Map Text Text -&gt; Text -&gt; Text
+<span class="lineno">  376 </span><span class="decl"><span class="istickedoff">substituteParamsBuilder subs = renderPieces . collapseTokenPastes . collapseStringizing . tokenizeReplacementList</span>
+<span class="lineno">  377 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  378 </span><span class="spaces">    </span><span class="istickedoff">tokenizeReplacementList :: Text -&gt; [Piece]</span>
+<span class="lineno">  379 </span><span class="spaces">    </span><span class="istickedoff">tokenizeReplacementList txt =</span>
+<span class="lineno">  380 </span><span class="spaces">      </span><span class="istickedoff">case T.uncons txt of</span>
+<span class="lineno">  381 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; []</span>
+<span class="lineno">  382 </span><span class="spaces">        </span><span class="istickedoff">Just (c, rest)</span>
+<span class="lineno">  383 </span><span class="spaces">          </span><span class="istickedoff">| isSpace c -&gt;</span>
+<span class="lineno">  384 </span><span class="spaces">              </span><span class="istickedoff">let (spaces, remaining) = T.span isSpace txt</span>
+<span class="lineno">  385 </span><span class="spaces">               </span><span class="istickedoff">in PieceWhitespace spaces : tokenizeReplacementList remaining</span>
+<span class="lineno">  386 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlyfalse">c == '&quot;'</span> -&gt;</span>
+<span class="lineno">  387 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">let (literal, remaining) = scanQuoted '&quot;' txt</span></span>
+<span class="lineno">  388 </span><span class="spaces">               </span><span class="istickedoff"><span class="nottickedoff">in PieceRaw literal : tokenizeReplacementList remaining</span></span>
+<span class="lineno">  389 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlyfalse">c == '\''</span> -&gt;</span>
+<span class="lineno">  390 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">let (literal, remaining) = scanQuoted '\'' txt</span></span>
+<span class="lineno">  391 </span><span class="spaces">               </span><span class="istickedoff"><span class="nottickedoff">in PieceRaw literal : tokenizeReplacementList remaining</span></span>
+<span class="lineno">  392 </span><span class="spaces">          </span><span class="istickedoff">| &quot;/*&quot; `T.isPrefixOf` txt -&gt;</span>
+<span class="lineno">  393 </span><span class="spaces">              </span><span class="istickedoff">let (commentText, remaining) = consumeCBlockComment txt</span>
+<span class="lineno">  394 </span><span class="spaces">                  </span><span class="istickedoff">piece = if commentText == &quot;/**/&quot; then PiecePaste else PieceWhitespace (commentReplacement commentText)</span>
+<span class="lineno">  395 </span><span class="spaces">               </span><span class="istickedoff">in piece : tokenizeReplacementList remaining</span>
+<span class="lineno">  396 </span><span class="spaces">          </span><span class="istickedoff">| &quot;##&quot; `T.isPrefixOf` txt -&gt;</span>
+<span class="lineno">  397 </span><span class="spaces">              </span><span class="istickedoff">PiecePaste : tokenizeReplacementList (T.drop 2 txt)</span>
+<span class="lineno">  398 </span><span class="spaces">          </span><span class="istickedoff">| isIdentStart c -&gt;</span>
+<span class="lineno">  399 </span><span class="spaces">              </span><span class="istickedoff">let (ident, remaining) = T.span isIdentChar txt</span>
+<span class="lineno">  400 </span><span class="spaces">                  </span><span class="istickedoff">piece = if M.member ident subs then PieceParam ident else PieceRaw ident</span>
+<span class="lineno">  401 </span><span class="spaces">               </span><span class="istickedoff">in piece : tokenizeReplacementList remaining</span>
+<span class="lineno">  402 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  403 </span><span class="spaces">              </span><span class="istickedoff">PieceRaw (T.singleton c) : tokenizeReplacementList rest</span>
+<span class="lineno">  404 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  405 </span><span class="spaces">    </span><span class="istickedoff">scanQuoted :: Char -&gt; Text -&gt; (Text, Text)</span>
+<span class="lineno">  406 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">scanQuoted quote = go False mempty</span></span>
+<span class="lineno">  407 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">where</span></span>
+<span class="lineno">  408 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">go escaped acc remaining =</span></span>
+<span class="lineno">  409 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">case T.uncons remaining of</span></span>
+<span class="lineno">  410 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">Nothing -&gt; (builderToText acc, &quot;&quot;)</span></span>
+<span class="lineno">  411 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">Just (c, rest)</span></span>
+<span class="lineno">  412 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">| c == quote &amp;&amp; not escaped -&gt;</span></span>
+<span class="lineno">  413 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">(builderToText (acc &lt;&gt; TB.singleton c), rest)</span></span>
+<span class="lineno">  414 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">| c == '\\' -&gt;</span></span>
+<span class="lineno">  415 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">go (not escaped) (acc &lt;&gt; TB.singleton c) rest</span></span>
+<span class="lineno">  416 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">| otherwise -&gt;</span></span>
+<span class="lineno">  417 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">go False (acc &lt;&gt; TB.singleton c) rest</span></span>
+<span class="lineno">  418 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  419 </span><span class="spaces">    </span><span class="istickedoff">collapseStringizing :: [Piece] -&gt; [Piece]</span>
+<span class="lineno">  420 </span><span class="spaces">    </span><span class="istickedoff">collapseStringizing [] = []</span>
+<span class="lineno">  421 </span><span class="spaces">    </span><span class="istickedoff">collapseStringizing (PieceRaw &quot;#&quot; : PieceParam name : rest) =</span>
+<span class="lineno">  422 </span><span class="spaces">      </span><span class="istickedoff">PieceRaw (stringizeArgument (lookupParam name)) : collapseStringizing rest</span>
+<span class="lineno">  423 </span><span class="spaces">    </span><span class="istickedoff">collapseStringizing (PieceRaw &quot;#&quot; : rest) =</span>
+<span class="lineno">  424 </span><span class="spaces">      </span><span class="istickedoff">PieceRaw &quot;#&quot; : collapseStringizing rest</span>
+<span class="lineno">  425 </span><span class="spaces">    </span><span class="istickedoff">collapseStringizing (piece : rest) = piece : collapseStringizing rest</span>
+<span class="lineno">  426 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  427 </span><span class="spaces">    </span><span class="istickedoff">collapseTokenPastes :: [Piece] -&gt; [Piece]</span>
+<span class="lineno">  428 </span><span class="spaces">    </span><span class="istickedoff">collapseTokenPastes = go []</span>
+<span class="lineno">  429 </span><span class="spaces">      </span><span class="istickedoff">where</span>
+<span class="lineno">  430 </span><span class="spaces">        </span><span class="istickedoff">go acc [] = acc</span>
+<span class="lineno">  431 </span><span class="spaces">        </span><span class="istickedoff">go acc (piece : rest) =</span>
+<span class="lineno">  432 </span><span class="spaces">          </span><span class="istickedoff">case piece of</span>
+<span class="lineno">  433 </span><span class="spaces">            </span><span class="istickedoff">PiecePaste -&gt;</span>
+<span class="lineno">  434 </span><span class="spaces">              </span><span class="istickedoff">let (accNoSpace, _) = trimTrailingWhitespace acc</span>
+<span class="lineno">  435 </span><span class="spaces">                  </span><span class="istickedoff">(leadingSpace, restAfterSpace) = span isWhitespacePiece rest</span>
+<span class="lineno">  436 </span><span class="spaces">               </span><span class="istickedoff">in case (unsnoc accNoSpace, restAfterSpace) of</span>
+<span class="lineno">  437 </span><span class="spaces">                    </span><span class="istickedoff">(Just (accInit, leftPiece), rightPiece : remaining) -&gt;</span>
+<span class="lineno">  438 </span><span class="spaces">                      </span><span class="istickedoff">go (accInit &lt;&gt; [PieceRaw (renderPiece leftPiece &lt;&gt; renderPiece rightPiece)]) remaining</span>
+<span class="lineno">  439 </span><span class="spaces">                    </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">go (acc &lt;&gt; [PieceRaw &quot;##&quot;] &lt;&gt; leadingSpace) restAfterSpace</span></span>
+<span class="lineno">  440 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; go (acc &lt;&gt; [piece]) rest</span>
+<span class="lineno">  441 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  442 </span><span class="spaces">    </span><span class="istickedoff">trimTrailingWhitespace :: [Piece] -&gt; ([Piece], [Piece])</span>
+<span class="lineno">  443 </span><span class="spaces">    </span><span class="istickedoff">trimTrailingWhitespace pieces =</span>
+<span class="lineno">  444 </span><span class="spaces">      </span><span class="istickedoff">let (trailingRev, restRev) = span isWhitespacePiece (reverse pieces)</span>
+<span class="lineno">  445 </span><span class="spaces">       </span><span class="istickedoff">in (reverse restRev, <span class="nottickedoff">reverse trailingRev</span>)</span>
+<span class="lineno">  446 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  447 </span><span class="spaces">    </span><span class="istickedoff">unsnoc :: [a] -&gt; Maybe ([a], a)</span>
+<span class="lineno">  448 </span><span class="spaces">    </span><span class="istickedoff">unsnoc [] = <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  449 </span><span class="spaces">    </span><span class="istickedoff">unsnoc [x] = Just ([], x)</span>
+<span class="lineno">  450 </span><span class="spaces">    </span><span class="istickedoff">unsnoc (x : xs) = do</span>
+<span class="lineno">  451 </span><span class="spaces">      </span><span class="istickedoff">(init', last') &lt;- unsnoc xs</span>
+<span class="lineno">  452 </span><span class="spaces">      </span><span class="istickedoff">pure (x : init', last')</span>
+<span class="lineno">  453 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  454 </span><span class="spaces">    </span><span class="istickedoff">isWhitespacePiece :: Piece -&gt; Bool</span>
+<span class="lineno">  455 </span><span class="spaces">    </span><span class="istickedoff">isWhitespacePiece (PieceWhitespace _) = <span class="nottickedoff">True</span></span>
+<span class="lineno">  456 </span><span class="spaces">    </span><span class="istickedoff">isWhitespacePiece _ = False</span>
+<span class="lineno">  457 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  458 </span><span class="spaces">    </span><span class="istickedoff">lookupParam :: Text -&gt; Text</span>
+<span class="lineno">  459 </span><span class="spaces">    </span><span class="istickedoff">lookupParam name = M.findWithDefault <span class="nottickedoff">name</span> name subs</span>
+<span class="lineno">  460 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  461 </span><span class="spaces">    </span><span class="istickedoff">renderPieces :: [Piece] -&gt; Text</span>
+<span class="lineno">  462 </span><span class="spaces">    </span><span class="istickedoff">renderPieces = T.concat . map renderPiece</span>
+<span class="lineno">  463 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  464 </span><span class="spaces">    </span><span class="istickedoff">renderPiece :: Piece -&gt; Text</span>
+<span class="lineno">  465 </span><span class="spaces">    </span><span class="istickedoff">renderPiece piece =</span>
+<span class="lineno">  466 </span><span class="spaces">      </span><span class="istickedoff">case piece of</span>
+<span class="lineno">  467 </span><span class="spaces">        </span><span class="istickedoff">PieceWhitespace txt -&gt; txt</span>
+<span class="lineno">  468 </span><span class="spaces">        </span><span class="istickedoff">PiecePaste -&gt; <span class="nottickedoff">&quot;##&quot;</span></span>
+<span class="lineno">  469 </span><span class="spaces">        </span><span class="istickedoff">PieceRaw txt -&gt; txt</span>
+<span class="lineno">  470 </span><span class="spaces">        </span><span class="istickedoff">PieceParam name -&gt; lookupParam name</span>
+<span class="lineno">  471 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  472 </span><span class="spaces">    </span><span class="istickedoff">stringizeArgument :: Text -&gt; Text</span>
+<span class="lineno">  473 </span><span class="spaces">    </span><span class="istickedoff">stringizeArgument arg =</span>
+<span class="lineno">  474 </span><span class="spaces">      </span><span class="istickedoff">let normalized = normalizeWhitespace arg</span>
+<span class="lineno">  475 </span><span class="spaces">          </span><span class="istickedoff">escaped = T.concatMap escapeStringChar normalized</span>
+<span class="lineno">  476 </span><span class="spaces">       </span><span class="istickedoff">in T.cons '&quot;' (T.snoc escaped '&quot;')</span>
+<span class="lineno">  477 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  478 </span><span class="spaces">    </span><span class="istickedoff">normalizeWhitespace :: Text -&gt; Text</span>
+<span class="lineno">  479 </span><span class="spaces">    </span><span class="istickedoff">normalizeWhitespace = T.unwords . T.words</span>
+<span class="lineno">  480 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  481 </span><span class="spaces">    </span><span class="istickedoff">escapeStringChar :: Char -&gt; Text</span>
+<span class="lineno">  482 </span><span class="spaces">    </span><span class="istickedoff">escapeStringChar '&quot;' = <span class="nottickedoff">&quot;\\\&quot;&quot;</span></span>
+<span class="lineno">  483 </span><span class="spaces">    </span><span class="istickedoff">escapeStringChar '\\' = <span class="nottickedoff">&quot;\\\\&quot;</span></span>
+<span class="lineno">  484 </span><span class="spaces">    </span><span class="istickedoff">escapeStringChar c = T.singleton c</span></span>
+<span class="lineno">  485 </span>
+<span class="lineno">  486 </span>evalCondition :: EngineState -&gt; Text -&gt; Bool
+<span class="lineno">  487 </span><span class="decl"><span class="istickedoff">evalCondition st expr = eval expr /= 0</span>
+<span class="lineno">  488 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  489 </span><span class="spaces">    </span><span class="istickedoff">macros = stMacros st</span>
+<span class="lineno">  490 </span><span class="spaces">    </span><span class="istickedoff">eval = evalNumeric . replaceRemainingWithZero . expandMacros st . replaceDefined macros</span></span>
+<span class="lineno">  491 </span>
+<span class="lineno">  492 </span>evalNumeric :: Text -&gt; Integer
+<span class="lineno">  493 </span><span class="decl"><span class="istickedoff">evalNumeric input =</span>
+<span class="lineno">  494 </span><span class="spaces">  </span><span class="istickedoff">let tokens = tokenize input</span>
+<span class="lineno">  495 </span><span class="spaces">   </span><span class="istickedoff">in case parseExpr tokens of</span>
+<span class="lineno">  496 </span><span class="spaces">        </span><span class="istickedoff">(val, _) -&gt; val</span></span>
+<span class="lineno">  497 </span>
+<span class="lineno">  498 </span>data Token = TOp Text | TNum Integer | TIdent Text | TOpenParen | TCloseParen deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  499 </span>
+<span class="lineno">  500 </span>tokenize :: Text -&gt; [Token]
+<span class="lineno">  501 </span><span class="decl"><span class="istickedoff">tokenize input =</span>
+<span class="lineno">  502 </span><span class="spaces">  </span><span class="istickedoff">case T.uncons input of</span>
+<span class="lineno">  503 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; []</span>
+<span class="lineno">  504 </span><span class="spaces">    </span><span class="istickedoff">Just (c, rest)</span>
+<span class="lineno">  505 </span><span class="spaces">      </span><span class="istickedoff">| isSpace c -&gt;</span>
+<span class="lineno">  506 </span><span class="spaces">          </span><span class="istickedoff">tokenize (T.dropWhile isSpace rest)</span>
+<span class="lineno">  507 </span><span class="spaces">      </span><span class="istickedoff">| isDigit c -&gt;</span>
+<span class="lineno">  508 </span><span class="spaces">          </span><span class="istickedoff">let (num, remaining) = T.span isDigit input</span>
+<span class="lineno">  509 </span><span class="spaces">           </span><span class="istickedoff">in case TR.decimal num of</span>
+<span class="lineno">  510 </span><span class="spaces">                </span><span class="istickedoff">Right (value, _) -&gt; TNum value : tokenize remaining</span>
+<span class="lineno">  511 </span><span class="spaces">                </span><span class="istickedoff">Left _ -&gt; <span class="nottickedoff">tokenize remaining</span></span>
+<span class="lineno">  512 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlyfalse">isIdentStart c</span> -&gt;</span>
+<span class="lineno">  513 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">let (ident, remaining) = T.span isIdentChar input</span></span>
+<span class="lineno">  514 </span><span class="spaces">           </span><span class="istickedoff"><span class="nottickedoff">in TIdent ident : tokenize remaining</span></span>
+<span class="lineno">  515 </span><span class="spaces">      </span><span class="istickedoff">| c == '(' -&gt;</span>
+<span class="lineno">  516 </span><span class="spaces">          </span><span class="istickedoff">TOpenParen : tokenize rest</span>
+<span class="lineno">  517 </span><span class="spaces">      </span><span class="istickedoff">| c == ')' -&gt;</span>
+<span class="lineno">  518 </span><span class="spaces">          </span><span class="istickedoff">TCloseParen : tokenize rest</span>
+<span class="lineno">  519 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  520 </span><span class="spaces">          </span><span class="istickedoff">let (op, remaining) = T.span isOpChar input</span>
+<span class="lineno">  521 </span><span class="spaces">           </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null op</span></span>
+<span class="lineno">  522 </span><span class="spaces">                </span><span class="istickedoff">then <span class="nottickedoff">tokenize rest</span></span>
+<span class="lineno">  523 </span><span class="spaces">                </span><span class="istickedoff">else TOp op : tokenize remaining</span></span>
+<span class="lineno">  524 </span>
+<span class="lineno">  525 </span>parseExpr :: [Token] -&gt; (Integer, [Token])
+<span class="lineno">  526 </span><span class="decl"><span class="istickedoff">parseExpr = parseOr</span></span>
+<span class="lineno">  527 </span>
+<span class="lineno">  528 </span>binary :: ([Token] -&gt; (Integer, [Token])) -&gt; [Text] -&gt; [Token] -&gt; (Integer, [Token])
+<span class="lineno">  529 </span><span class="decl"><span class="istickedoff">binary next ops ts =</span>
+<span class="lineno">  530 </span><span class="spaces">  </span><span class="istickedoff">let (v1, ts1) = next ts</span>
+<span class="lineno">  531 </span><span class="spaces">   </span><span class="istickedoff">in go v1 ts1</span>
+<span class="lineno">  532 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  533 </span><span class="spaces">    </span><span class="istickedoff">go v1 (TOp op : ts2)</span>
+<span class="lineno">  534 </span><span class="spaces">      </span><span class="istickedoff">| op `elem` ops =</span>
+<span class="lineno">  535 </span><span class="spaces">          </span><span class="istickedoff">let (v2, ts3) = next ts2</span>
+<span class="lineno">  536 </span><span class="spaces">           </span><span class="istickedoff">in go (apply op v1 v2) ts3</span>
+<span class="lineno">  537 </span><span class="spaces">    </span><span class="istickedoff">go v1 ts2 = (v1, ts2)</span>
+<span class="lineno">  538 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  539 </span><span class="spaces">    </span><span class="istickedoff">apply &quot;||&quot; a b = <span class="nottickedoff">if a /= 0 || b /= 0 then 1 else 0</span></span>
+<span class="lineno">  540 </span><span class="spaces">    </span><span class="istickedoff">apply &quot;&amp;&amp;&quot; a b = if <span class="tickonlytrue">a /= 0 &amp;&amp; b /= 0</span> then 1 else <span class="nottickedoff">0</span></span>
+<span class="lineno">  541 </span><span class="spaces">    </span><span class="istickedoff">apply &quot;==&quot; a b = if <span class="tickonlytrue">a == b</span> then 1 else <span class="nottickedoff">0</span></span>
+<span class="lineno">  542 </span><span class="spaces">    </span><span class="istickedoff">apply &quot;!=&quot; a b = <span class="nottickedoff">if a /= b then 1 else 0</span></span>
+<span class="lineno">  543 </span><span class="spaces">    </span><span class="istickedoff">apply &quot;&lt;&quot; a b = <span class="nottickedoff">if a &lt; b then 1 else 0</span></span>
+<span class="lineno">  544 </span><span class="spaces">    </span><span class="istickedoff">apply &quot;&gt;&quot; a b = if <span class="tickonlyfalse">a &gt; b</span> then <span class="nottickedoff">1</span> else 0</span>
+<span class="lineno">  545 </span><span class="spaces">    </span><span class="istickedoff">apply &quot;&lt;=&quot; a b = <span class="nottickedoff">if a &lt;= b then 1 else 0</span></span>
+<span class="lineno">  546 </span><span class="spaces">    </span><span class="istickedoff">apply &quot;&gt;=&quot; a b = if <span class="tickonlytrue">a &gt;= b</span> then 1 else <span class="nottickedoff">0</span></span>
+<span class="lineno">  547 </span><span class="spaces">    </span><span class="istickedoff">apply &quot;+&quot; a b = a + b</span>
+<span class="lineno">  548 </span><span class="spaces">    </span><span class="istickedoff">apply &quot;-&quot; a b = <span class="nottickedoff">a - b</span></span>
+<span class="lineno">  549 </span><span class="spaces">    </span><span class="istickedoff">apply &quot;*&quot; a b = a * b</span>
+<span class="lineno">  550 </span><span class="spaces">    </span><span class="istickedoff">apply &quot;/&quot; a b = <span class="nottickedoff">if b == 0 then 0 else a `div` b</span></span>
+<span class="lineno">  551 </span><span class="spaces">    </span><span class="istickedoff">apply &quot;%&quot; a b = <span class="nottickedoff">if b == 0 then 0 else a `mod` b</span></span>
+<span class="lineno">  552 </span><span class="spaces">    </span><span class="istickedoff">apply _ a _ = <span class="nottickedoff">a</span></span></span>
+<span class="lineno">  553 </span>
+<span class="lineno">  554 </span>parseOr, parseAnd, parseEq, parseRel, parseAdd, parseMul :: [Token] -&gt; (Integer, [Token])
+<span class="lineno">  555 </span><span class="decl"><span class="istickedoff">parseOr = binary parseAnd <span class="nottickedoff">[&quot;||&quot;]</span></span></span>
+<span class="lineno">  556 </span><span class="decl"><span class="istickedoff">parseAnd = binary parseEq [&quot;&amp;&amp;&quot;]</span></span>
+<span class="lineno">  557 </span><span class="decl"><span class="istickedoff">parseEq = binary parseRel [&quot;==&quot;, &quot;!=&quot;]</span></span>
+<span class="lineno">  558 </span><span class="decl"><span class="istickedoff">parseRel = binary parseAdd [&quot;&lt;&quot;, &quot;&gt;&quot;, &quot;&lt;=&quot;, &quot;&gt;=&quot;]</span></span>
+<span class="lineno">  559 </span><span class="decl"><span class="istickedoff">parseAdd = binary parseMul [&quot;+&quot;, &quot;-&quot;]</span></span>
+<span class="lineno">  560 </span><span class="decl"><span class="istickedoff">parseMul = binary parseUnary [&quot;*&quot;, &quot;/&quot;, &quot;%&quot;]</span></span>
+<span class="lineno">  561 </span>
+<span class="lineno">  562 </span>parseUnary :: [Token] -&gt; (Integer, [Token])
+<span class="lineno">  563 </span><span class="decl"><span class="istickedoff">parseUnary (TOp &quot;!&quot; : ts) = <span class="nottickedoff">let (v, ts') = parseUnary ts in (if v == 0 then 1 else 0, ts')</span></span>
+<span class="lineno">  564 </span><span class="spaces"></span><span class="istickedoff">parseUnary (TOp &quot;-&quot; : ts) = <span class="nottickedoff">let (v, ts') = parseUnary ts in (-v, ts')</span></span>
+<span class="lineno">  565 </span><span class="spaces"></span><span class="istickedoff">parseUnary ts = parseAtom ts</span></span>
+<span class="lineno">  566 </span>
+<span class="lineno">  567 </span>parseAtom :: [Token] -&gt; (Integer, [Token])
+<span class="lineno">  568 </span><span class="decl"><span class="istickedoff">parseAtom (TNum n : ts) = (n, ts)</span>
+<span class="lineno">  569 </span><span class="spaces"></span><span class="istickedoff">parseAtom (TIdent _ : ts) = <span class="nottickedoff">(0, ts)</span></span>
+<span class="lineno">  570 </span><span class="spaces"></span><span class="istickedoff">parseAtom (TOpenParen : ts) =</span>
+<span class="lineno">  571 </span><span class="spaces">  </span><span class="istickedoff">let (v, ts1) = parseExpr ts</span>
+<span class="lineno">  572 </span><span class="spaces">   </span><span class="istickedoff">in case ts1 of</span>
+<span class="lineno">  573 </span><span class="spaces">        </span><span class="istickedoff">TCloseParen : ts2 -&gt; (v, ts2)</span>
+<span class="lineno">  574 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">(v, ts1)</span></span>
+<span class="lineno">  575 </span><span class="spaces"></span><span class="istickedoff">parseAtom ts = <span class="nottickedoff">(0, ts)</span></span></span>
+<span class="lineno">  576 </span>
+<span class="lineno">  577 </span>replaceDefined :: Map Text MacroDef -&gt; Text -&gt; Text
+<span class="lineno">  578 </span><span class="decl"><span class="istickedoff">replaceDefined macros = go</span>
+<span class="lineno">  579 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  580 </span><span class="spaces">    </span><span class="istickedoff">go txt =</span>
+<span class="lineno">  581 </span><span class="spaces">      </span><span class="istickedoff">case T.uncons txt of</span>
+<span class="lineno">  582 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; &quot;&quot;</span>
+<span class="lineno">  583 </span><span class="spaces">        </span><span class="istickedoff">Just (c, rest)</span>
+<span class="lineno">  584 </span><span class="spaces">          </span><span class="istickedoff">| &quot;defined&quot; `T.isPrefixOf` txt &amp;&amp; not (nextCharIsIdent (T.drop 7 txt)) -&gt;</span>
+<span class="lineno">  585 </span><span class="spaces">              </span><span class="istickedoff">expandDefined (T.dropWhile isSpace (T.drop 7 txt))</span>
+<span class="lineno">  586 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  587 </span><span class="spaces">              </span><span class="istickedoff">T.cons c (go rest)</span>
+<span class="lineno">  588 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  589 </span><span class="spaces">    </span><span class="istickedoff">expandDefined rest =</span>
+<span class="lineno">  590 </span><span class="spaces">      </span><span class="istickedoff">case T.uncons rest of</span>
+<span class="lineno">  591 </span><span class="spaces">        </span><span class="istickedoff">Just ('(', restAfterOpen) -&gt;</span>
+<span class="lineno">  592 </span><span class="spaces">          </span><span class="istickedoff">let rest' = T.dropWhile isSpace restAfterOpen</span>
+<span class="lineno">  593 </span><span class="spaces">              </span><span class="istickedoff">(name, restAfterName0) = T.span isIdentChar rest'</span>
+<span class="lineno">  594 </span><span class="spaces">              </span><span class="istickedoff">restAfterName = T.dropWhile isSpace restAfterName0</span>
+<span class="lineno">  595 </span><span class="spaces">           </span><span class="istickedoff">in case T.uncons restAfterName of</span>
+<span class="lineno">  596 </span><span class="spaces">                </span><span class="istickedoff">Just (')', restAfterClose) -&gt;</span>
+<span class="lineno">  597 </span><span class="spaces">                  </span><span class="istickedoff">boolLiteral (M.member name macros) &lt;&gt; go restAfterClose</span>
+<span class="lineno">  598 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt;</span>
+<span class="lineno">  599 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">boolLiteral False &lt;&gt; go restAfterName</span></span>
+<span class="lineno">  600 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt;</span>
+<span class="lineno">  601 </span><span class="spaces">          </span><span class="istickedoff">let (name, restAfterName) = T.span isIdentChar rest</span>
+<span class="lineno">  602 </span><span class="spaces">           </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null name</span></span>
+<span class="lineno">  603 </span><span class="spaces">                </span><span class="istickedoff">then <span class="nottickedoff">boolLiteral False &lt;&gt; go rest</span></span>
+<span class="lineno">  604 </span><span class="spaces">                </span><span class="istickedoff">else boolLiteral (M.member name macros) &lt;&gt; go restAfterName</span>
+<span class="lineno">  605 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  606 </span><span class="spaces">    </span><span class="istickedoff">boolLiteral True = &quot; 1 &quot;</span>
+<span class="lineno">  607 </span><span class="spaces">    </span><span class="istickedoff">boolLiteral False = <span class="nottickedoff">&quot; 0 &quot;</span></span>
+<span class="lineno">  608 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  609 </span><span class="spaces">    </span><span class="istickedoff">nextCharIsIdent remaining =</span>
+<span class="lineno">  610 </span><span class="spaces">      </span><span class="istickedoff">case T.uncons remaining of</span>
+<span class="lineno">  611 </span><span class="spaces">        </span><span class="istickedoff">Just (c, _) -&gt; isIdentChar c</span>
+<span class="lineno">  612 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">False</span></span></span>
+<span class="lineno">  613 </span>
+<span class="lineno">  614 </span>replaceRemainingWithZero :: Text -&gt; Text
+<span class="lineno">  615 </span><span class="decl"><span class="istickedoff">replaceRemainingWithZero = go</span>
+<span class="lineno">  616 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  617 </span><span class="spaces">    </span><span class="istickedoff">go txt =</span>
+<span class="lineno">  618 </span><span class="spaces">      </span><span class="istickedoff">case T.uncons txt of</span>
+<span class="lineno">  619 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; &quot;&quot;</span>
+<span class="lineno">  620 </span><span class="spaces">        </span><span class="istickedoff">Just (c, rest)</span>
+<span class="lineno">  621 </span><span class="spaces">          </span><span class="istickedoff">| isIdentStart c -&gt;</span>
+<span class="lineno">  622 </span><span class="spaces">              </span><span class="istickedoff">let (_, remaining) = T.span isIdentChar txt</span>
+<span class="lineno">  623 </span><span class="spaces">               </span><span class="istickedoff">in &quot; 0 &quot; &lt;&gt; go remaining</span>
+<span class="lineno">  624 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  625 </span><span class="spaces">              </span><span class="istickedoff">T.cons c (go rest)</span></span>
+<span class="lineno">  626 </span>
+<span class="lineno">  627 </span>builderToText :: TB.Builder -&gt; Text
+<span class="lineno">  628 </span><span class="decl"><span class="istickedoff">builderToText = TL.toStrict . TB.toLazyText</span></span>
+<span class="lineno">  629 </span>
+<span class="lineno">  630 </span>trimSpacesText :: Text -&gt; Text
+<span class="lineno">  631 </span><span class="decl"><span class="istickedoff">trimSpacesText = T.dropWhileEnd isSpace . T.dropWhile isSpace</span></span>
+
+</pre>
+</body>
+</html>

@@ -1,0 +1,1230 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE BangPatterns #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-3"></span><span>
+</span><span id="line-4"></span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="Aihc.Cpp.Scanner.html"><span class="hs-identifier">Aihc.Cpp.Scanner</span></a></span><span>
+</span><span id="line-5"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier">LineSpan</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-6"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineScan"><span class="hs-identifier">LineScan</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-7"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Scanner.html#scanLine"><span class="hs-identifier">scanLine</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-8"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Scanner.html#scanLineDepthOnly"><span class="hs-identifier">scanLineDepthOnly</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-9"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Scanner.html#expandLineBySpanMultiline"><span class="hs-identifier">expandLineBySpanMultiline</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-10"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html"><span class="hs-identifier">Aihc.Cpp.Cursor</span></a></span><span>
+</span><span id="line-14"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier">Cursor</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-15"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier">advance</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-16"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#advance2"><span class="hs-identifier">advance2</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-17"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#bufLength"><span class="hs-identifier">bufLength</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-18"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#findNewline"><span class="hs-identifier">findNewline</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-19"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#null"><span class="hs-identifier">null</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-20"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#peekByte"><span class="hs-identifier">peekByte</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-21"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#peekByte2"><span class="hs-identifier">peekByte2</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-22"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#skipNewline"><span class="hs-identifier">skipNewline</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-23"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#skipToInteresting"><span class="hs-identifier">skipToInteresting</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-24"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#sliceText"><span class="hs-identifier">sliceText</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-25"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Cpp.Evaluator.html"><span class="hs-identifier">Aihc.Cpp.Evaluator</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Evaluator.html#expandMacros"><span class="hs-identifier">expandMacros</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Cpp.Evaluator.html#expandMacrosMultiline"><span class="hs-identifier">expandMacrosMultiline</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html"><span class="hs-identifier">Aihc.Cpp.Types</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Types.html#EngineState"><span class="hs-identifier">EngineState</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Text</span></span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Prelude</span></span><span> </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">null</span></span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span>
+</span><span id="line-32"></span><span class="hs-keyword">data</span><span> </span><span id="LineSpan"><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-var">LineSpan</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="LineSpan"><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-var">LineSpan</span></a></span></span><span>
+</span><span id="line-33"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="lineSpanInBlockComment"><span class="annot"><span class="annottext">LineSpan -&gt; Bool
+</span><a href="Aihc.Cpp.Scanner.html#lineSpanInBlockComment"><span class="hs-identifier hs-var hs-var">lineSpanInBlockComment</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span class="hs-special">,</span><span>
+</span><span id="line-34"></span><span>    </span><span id="lineSpanText"><span class="annot"><span class="annottext">LineSpan -&gt; Text
+</span><a href="Aihc.Cpp.Scanner.html#lineSpanText"><span class="hs-identifier hs-var hs-var">lineSpanText</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-35"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-36"></span><span>
+</span><span id="line-37"></span><span class="hs-keyword">data</span><span> </span><span id="LineScan"><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineScan"><span class="hs-identifier hs-var">LineScan</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="LineScan"><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineScan"><span class="hs-identifier hs-var">LineScan</span></a></span></span><span>
+</span><span id="line-38"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="lineScanSpans"><span class="annot"><span class="annottext">LineScan -&gt; [LineSpan]
+</span><a href="Aihc.Cpp.Scanner.html#lineScanSpans"><span class="hs-identifier hs-var hs-var">lineScanSpans</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-type">LineSpan</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-39"></span><span>    </span><span id="lineScanFinalHsDepth"><span class="annot"><span class="annottext">LineScan -&gt; Int
+</span><a href="Aihc.Cpp.Scanner.html#lineScanFinalHsDepth"><span class="hs-identifier hs-var hs-var">lineScanFinalHsDepth</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span>
+</span><span id="line-40"></span><span>    </span><span id="lineScanFinalCDepth"><span class="annot"><span class="annottext">LineScan -&gt; Int
+</span><a href="Aihc.Cpp.Scanner.html#lineScanFinalCDepth"><span class="hs-identifier hs-var hs-var">lineScanFinalCDepth</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span>
+</span><span id="line-41"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-42"></span><span>
+</span><span id="line-43"></span><span class="annot"><span class="hs-comment">-- | Expand macros in a list of line spans (single-line, no lookahead).</span></span><span>
+</span><span id="line-44"></span><span class="annot"><a href="Aihc.Cpp.Scanner.html#expandLineBySpan"><span class="hs-identifier hs-type">expandLineBySpan</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#EngineState"><span class="hs-identifier hs-type">EngineState</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-type">LineSpan</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-45"></span><span id="expandLineBySpan"><span class="annot"><span class="annottext">expandLineBySpan :: EngineState -&gt; [LineSpan] -&gt; Text
+</span><a href="Aihc.Cpp.Scanner.html#expandLineBySpan"><span class="hs-identifier hs-var hs-var">expandLineBySpan</span></a></span></span><span> </span><span id="local-6989586621679079454"><span class="annot"><span class="annottext">EngineState
+</span><a href="#local-6989586621679079454"><span class="hs-identifier hs-var">st</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-46"></span><span>  </span><span class="annot"><span class="annottext">[Text] -&gt; Text
+</span><span class="hs-identifier hs-var">T.concat</span></span><span> </span><span class="annot"><span class="annottext">([Text] -&gt; Text) -&gt; ([LineSpan] -&gt; [Text]) -&gt; [LineSpan] -&gt; Text
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">(LineSpan -&gt; Text) -&gt; [LineSpan] -&gt; [Text]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="annot"><span class="annottext">LineSpan -&gt; Text
+</span><a href="#local-6989586621679079457"><span class="hs-identifier hs-var">expandSpan</span></a></span><span>
+</span><span id="line-47"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-48"></span><span>    </span><span id="local-6989586621679079457"><span class="annot"><span class="annottext">expandSpan :: LineSpan -&gt; Text
+</span><a href="#local-6989586621679079457"><span class="hs-identifier hs-var hs-var">expandSpan</span></a></span></span><span> </span><span id="local-6989586621679079458"><span class="annot"><span class="annottext">LineSpan
+</span><a href="#local-6989586621679079458"><span class="hs-identifier hs-var">lineChunk</span></a></span></span><span>
+</span><span id="line-49"></span><span>      </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">LineSpan -&gt; Bool
+</span><a href="Aihc.Cpp.Scanner.html#lineSpanInBlockComment"><span class="hs-identifier hs-var">lineSpanInBlockComment</span></a></span><span> </span><span class="annot"><span class="annottext">LineSpan
+</span><a href="#local-6989586621679079458"><span class="hs-identifier hs-var">lineChunk</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LineSpan -&gt; Text
+</span><a href="Aihc.Cpp.Scanner.html#lineSpanText"><span class="hs-identifier hs-var">lineSpanText</span></a></span><span> </span><span class="annot"><span class="annottext">LineSpan
+</span><a href="#local-6989586621679079458"><span class="hs-identifier hs-var">lineChunk</span></a></span><span>
+</span><span id="line-50"></span><span>      </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">EngineState -&gt; Text -&gt; Text
+</span><a href="Aihc.Cpp.Evaluator.html#expandMacros"><span class="hs-identifier hs-var">expandMacros</span></a></span><span> </span><span class="annot"><span class="annottext">EngineState
+</span><a href="#local-6989586621679079454"><span class="hs-identifier hs-var">st</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LineSpan -&gt; Text
+</span><a href="Aihc.Cpp.Scanner.html#lineSpanText"><span class="hs-identifier hs-var">lineSpanText</span></a></span><span> </span><span class="annot"><span class="annottext">LineSpan
+</span><a href="#local-6989586621679079458"><span class="hs-identifier hs-var">lineChunk</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-51"></span><span>
+</span><span id="line-52"></span><span class="hs-comment">-- | Expand macros in a list of line spans with multi-line lookahead.</span><span>
+</span><span id="line-53"></span><span class="hs-comment">-- When a function macro call spans multiple lines, continuation lines</span><span>
+</span><span id="line-54"></span><span class="hs-comment">-- are consumed from the @futureCursor@ (positioned after the current line).</span><span>
+</span><span id="line-55"></span><span class="hs-comment">-- Returns (expanded text, number of extra lines consumed).</span><span>
+</span><span id="line-56"></span><span class="hs-comment">--</span><span>
+</span><span id="line-57"></span><span class="hs-comment">-- Multi-line expansion is only attempted for lines that consist entirely</span><span>
+</span><span id="line-58"></span><span class="hs-comment">-- of code spans (no inline comments). Mixed code/comment lines use</span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- single-line expansion to preserve comment span positions.</span><span>
+</span><span id="line-60"></span><span class="annot"><a href="Aihc.Cpp.Scanner.html#expandLineBySpanMultiline"><span class="hs-identifier hs-type">expandLineBySpanMultiline</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#EngineState"><span class="hs-identifier hs-type">EngineState</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-type">LineSpan</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">)</span><span>
+</span><span id="line-61"></span><span id="expandLineBySpanMultiline"><span class="annot"><span class="annottext">expandLineBySpanMultiline :: EngineState -&gt; [LineSpan] -&gt; Cursor -&gt; (Text, Int)
+</span><a href="Aihc.Cpp.Scanner.html#expandLineBySpanMultiline"><span class="hs-identifier hs-var hs-var">expandLineBySpanMultiline</span></a></span></span><span> </span><span id="local-6989586621679079459"><span class="annot"><span class="annottext">EngineState
+</span><a href="#local-6989586621679079459"><span class="hs-identifier hs-var">st</span></a></span></span><span> </span><span id="local-6989586621679079460"><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079460"><span class="hs-identifier hs-var">spans</span></a></span></span><span> </span><span id="local-6989586621679079461"><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079461"><span class="hs-identifier hs-var">futureCursor</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-62"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079462"><span class="annot"><span class="annottext">commentSpans :: [LineSpan]
+</span><a href="#local-6989586621679079462"><span class="hs-identifier hs-var hs-var">commentSpans</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(LineSpan -&gt; Bool) -&gt; [LineSpan] -&gt; [LineSpan]
+forall a. (a -&gt; Bool) -&gt; [a] -&gt; [a]
+</span><span class="hs-identifier hs-var">filter</span></span><span> </span><span class="annot"><span class="annottext">LineSpan -&gt; Bool
+</span><a href="Aihc.Cpp.Scanner.html#lineSpanInBlockComment"><span class="hs-identifier hs-var">lineSpanInBlockComment</span></a></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079460"><span class="hs-identifier hs-var">spans</span></a></span><span>
+</span><span id="line-63"></span><span>      </span><span id="local-6989586621679079466"><span class="annot"><span class="annottext">hasLineComment :: Bool
+</span><a href="#local-6989586621679079466"><span class="hs-identifier hs-var hs-var">hasLineComment</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(LineSpan -&gt; Bool) -&gt; [LineSpan] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; (a -&gt; Bool) -&gt; t a -&gt; Bool
+</span><span class="hs-identifier hs-var">any</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679079468"><span class="annot"><span class="annottext">LineSpan
+</span><a href="#local-6989586621679079468"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;--&quot;</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Bool
+</span><span class="hs-operator hs-var">`T.isPrefixOf`</span></span><span> </span><span class="annot"><span class="annottext">LineSpan -&gt; Text
+</span><a href="Aihc.Cpp.Scanner.html#lineSpanText"><span class="hs-identifier hs-var">lineSpanText</span></a></span><span> </span><span class="annot"><span class="annottext">LineSpan
+</span><a href="#local-6989586621679079468"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079462"><span class="hs-identifier hs-var">commentSpans</span></a></span><span>
+</span><span id="line-64"></span><span>      </span><span id="local-6989586621679079473"><span class="annot"><span class="annottext">hasCBlockComment :: Bool
+</span><a href="#local-6989586621679079473"><span class="hs-identifier hs-var hs-var">hasCBlockComment</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(LineSpan -&gt; Bool) -&gt; [LineSpan] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; (a -&gt; Bool) -&gt; t a -&gt; Bool
+</span><span class="hs-identifier hs-var">any</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Char -&gt; Bool) -&gt; Text -&gt; Bool
+</span><span class="hs-identifier hs-var">T.all</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">' '</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Bool) -&gt; (LineSpan -&gt; Text) -&gt; LineSpan -&gt; Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">LineSpan -&gt; Text
+</span><a href="Aihc.Cpp.Scanner.html#lineSpanText"><span class="hs-identifier hs-var">lineSpanText</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079462"><span class="hs-identifier hs-var">commentSpans</span></a></span><span>
+</span><span id="line-65"></span><span>      </span><span id="local-6989586621679079475"><span class="annot"><span class="annottext">hasHsComment :: Bool
+</span><a href="#local-6989586621679079475"><span class="hs-identifier hs-var hs-var">hasHsComment</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079462"><span class="hs-identifier hs-var">commentSpans</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-66"></span><span>        </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-67"></span><span>        </span><span class="annot"><span class="annottext">[LineSpan]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><span class="hs-identifier hs-var">not</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079473"><span class="hs-identifier hs-var">hasCBlockComment</span></a></span><span>
+</span><span id="line-68"></span><span>   </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079466"><span class="hs-identifier hs-var">hasLineComment</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079475"><span class="hs-identifier hs-var">hasHsComment</span></a></span><span>
+</span><span id="line-69"></span><span>        </span><span class="hs-keyword">then</span><span> </span><span class="hs-comment">-- Haskell comments stay in the token stream, so expand the full line.</span><span>
+</span><span id="line-70"></span><span>          </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079478"><span class="annot"><span class="annottext">fullText :: Text
+</span><a href="#local-6989586621679079478"><span class="hs-identifier hs-var hs-var">fullText</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Text] -&gt; Text
+</span><span class="hs-identifier hs-var">T.concat</span></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">LineSpan -&gt; Text
+</span><a href="Aihc.Cpp.Scanner.html#lineSpanText"><span class="hs-identifier hs-var">lineSpanText</span></a></span><span> </span><span class="annot"><span class="annottext">LineSpan
+</span><a href="#local-6989586621679079479"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="hs-glyph">|</span><span> </span><span id="local-6989586621679079479"><span class="annot"><span class="annottext">LineSpan
+</span><a href="#local-6989586621679079479"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079460"><span class="hs-identifier hs-var">spans</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-71"></span><span>           </span><span class="hs-keyword">in</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">EngineState -&gt; Text -&gt; Text
+</span><a href="Aihc.Cpp.Evaluator.html#expandMacros"><span class="hs-identifier hs-var">expandMacros</span></a></span><span> </span><span class="annot"><span class="annottext">EngineState
+</span><a href="#local-6989586621679079459"><span class="hs-identifier hs-var">st</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679079478"><span class="hs-identifier hs-var">fullText</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span>
+</span><span id="line-72"></span><span>        </span><span class="hs-keyword">else</span><span>
+</span><span id="line-73"></span><span>          </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079473"><span class="hs-identifier hs-var">hasCBlockComment</span></a></span><span>
+</span><span id="line-74"></span><span>            </span><span class="hs-keyword">then</span><span> </span><span class="hs-comment">-- C comments are stripped to spaces, so preserve per-span handling.</span><span>
+</span><span id="line-75"></span><span>              </span><span class="hs-special">(</span><span class="annot"><span class="annottext">EngineState -&gt; [LineSpan] -&gt; Text
+</span><a href="Aihc.Cpp.Scanner.html#expandLineBySpan"><span class="hs-identifier hs-var">expandLineBySpan</span></a></span><span> </span><span class="annot"><span class="annottext">EngineState
+</span><a href="#local-6989586621679079459"><span class="hs-identifier hs-var">st</span></a></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079460"><span class="hs-identifier hs-var">spans</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span>
+</span><span id="line-76"></span><span>            </span><span class="hs-keyword">else</span><span> </span><span class="hs-comment">-- Pure code line: try multi-line expansion</span><span>
+</span><span id="line-77"></span><span>              </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079480"><span class="annot"><span class="annottext">codeText :: Text
+</span><a href="#local-6989586621679079480"><span class="hs-identifier hs-var hs-var">codeText</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Text] -&gt; Text
+</span><span class="hs-identifier hs-var">T.concat</span></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">LineSpan -&gt; Text
+</span><a href="Aihc.Cpp.Scanner.html#lineSpanText"><span class="hs-identifier hs-var">lineSpanText</span></a></span><span> </span><span class="annot"><span class="annottext">LineSpan
+</span><a href="#local-6989586621679079481"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="hs-glyph">|</span><span> </span><span id="local-6989586621679079481"><span class="annot"><span class="annottext">LineSpan
+</span><a href="#local-6989586621679079481"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079460"><span class="hs-identifier hs-var">spans</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-78"></span><span>                  </span><span id="local-6989586621679079482"><span class="annot"><span class="annottext">futureCodeLines :: [Text]
+</span><a href="#local-6989586621679079482"><span class="hs-identifier hs-var hs-var">futureCodeLines</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; [Text]
+</span><a href="Aihc.Cpp.Scanner.html#cursorToLines"><span class="hs-identifier hs-var">cursorToLines</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079461"><span class="hs-identifier hs-var">futureCursor</span></a></span><span>
+</span><span id="line-79"></span><span>               </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">EngineState -&gt; Text -&gt; [Text] -&gt; (Text, Int)
+</span><a href="Aihc.Cpp.Evaluator.html#expandMacrosMultiline"><span class="hs-identifier hs-var">expandMacrosMultiline</span></a></span><span> </span><span class="annot"><span class="annottext">EngineState
+</span><a href="#local-6989586621679079459"><span class="hs-identifier hs-var">st</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679079480"><span class="hs-identifier hs-var">codeText</span></a></span><span> </span><span class="annot"><span class="annottext">[Text]
+</span><a href="#local-6989586621679079482"><span class="hs-identifier hs-var">futureCodeLines</span></a></span><span>
+</span><span id="line-80"></span><span>
+</span><span id="line-81"></span><span class="hs-comment">-- | Extract lines from a cursor as a lazy list of Text values.</span><span>
+</span><span id="line-82"></span><span class="hs-comment">-- Each line is the text up to the next newline (or EOF).</span><span>
+</span><span id="line-83"></span><span class="annot"><a href="Aihc.Cpp.Scanner.html#cursorToLines"><span class="hs-identifier hs-type">cursorToLines</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">]</span><span>
+</span><span id="line-84"></span><span id="cursorToLines"><span class="annot"><span class="annottext">cursorToLines :: Cursor -&gt; [Text]
+</span><a href="Aihc.Cpp.Scanner.html#cursorToLines"><span class="hs-identifier hs-var hs-var">cursorToLines</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679079484"><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079484"><span class="hs-identifier hs-var">cur</span></a></span></span><span>
+</span><span id="line-85"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Bool
+</span><a href="Aihc.Cpp.Cursor.html#null"><span class="hs-identifier hs-var">null</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079484"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-86"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-87"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079485"><span class="annot"><span class="annottext">eol :: Cursor
+</span><a href="#local-6989586621679079485"><span class="hs-identifier hs-var hs-var">eol</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#findNewline"><span class="hs-identifier hs-var">findNewline</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079484"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-88"></span><span>          </span><span id="local-6989586621679079486"><span class="annot"><span class="annottext">lineText :: Text
+</span><a href="#local-6989586621679079486"><span class="hs-identifier hs-var hs-var">lineText</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Cursor -&gt; Text
+</span><a href="Aihc.Cpp.Cursor.html#sliceText"><span class="hs-identifier hs-var">sliceText</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079484"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079485"><span class="hs-identifier hs-var">eol</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079484"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-89"></span><span>       </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679079486"><span class="hs-identifier hs-var">lineText</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; [Text] -&gt; [Text]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[Text] -&gt; (Cursor -&gt; [Text]) -&gt; Maybe Cursor -&gt; [Text]
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><span class="hs-identifier hs-var">maybe</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; [Text]
+</span><a href="Aihc.Cpp.Scanner.html#cursorToLines"><span class="hs-identifier hs-var">cursorToLines</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Maybe Cursor
+</span><a href="Aihc.Cpp.Cursor.html#skipNewline"><span class="hs-identifier hs-var">skipNewline</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079485"><span class="hs-identifier hs-var">eol</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-90"></span><span>
+</span><span id="line-91"></span><span class="hs-comment">-- | Lightweight scan that only tracks block comment depth changes.</span><span>
+</span><span id="line-92"></span><span class="hs-comment">-- Does not build 'LineSpan' segments or track string/char literals.</span><span>
+</span><span id="line-93"></span><span class="hs-comment">-- Used for inactive conditional branches where only comment depth</span><span>
+</span><span id="line-94"></span><span class="hs-comment">-- tracking is needed (no macro expansion or span splitting).</span><span>
+</span><span id="line-95"></span><span class="hs-comment">--</span><span>
+</span><span id="line-96"></span><span class="hs-comment">-- Accepts a 'Cursor' positioned at the start of the line content.</span><span>
+</span><span id="line-97"></span><span class="hs-comment">-- The cursor should be bounded to the line (e.g., via 'lineSlice').</span><span>
+</span><span id="line-98"></span><span class="annot"><a href="Aihc.Cpp.Scanner.html#scanLineDepthOnly"><span class="hs-identifier hs-type">scanLineDepthOnly</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">)</span><span>
+</span><span id="line-99"></span><span id="scanLineDepthOnly"><span class="annot"><span class="annottext">scanLineDepthOnly :: Int -&gt; Int -&gt; Cursor -&gt; (Int, Int)
+</span><a href="Aihc.Cpp.Scanner.html#scanLineDepthOnly"><span class="hs-identifier hs-var hs-var">scanLineDepthOnly</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Cursor -&gt; (Int, Int)
+</span><a href="#local-6989586621679079490"><span class="hs-identifier hs-var">goDepth</span></a></span><span>
+</span><span id="line-100"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-101"></span><span>    </span><span class="annot"><a href="#local-6989586621679079490"><span class="hs-identifier hs-type">goDepth</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">)</span><span>
+</span><span id="line-102"></span><span>    </span><span id="local-6989586621679079490"><span class="annot"><span class="annottext">goDepth :: Int -&gt; Int -&gt; Cursor -&gt; (Int, Int)
+</span><a href="#local-6989586621679079490"><span class="hs-identifier hs-var hs-var">goDepth</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679079491"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679079492"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079492"><span class="hs-identifier hs-var">cDepth</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679079493"><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079493"><span class="hs-identifier hs-var">cur</span></a></span></span><span>
+</span><span id="line-103"></span><span>      </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Bool
+</span><a href="Aihc.Cpp.Cursor.html#null"><span class="hs-identifier hs-var">null</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079493"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079492"><span class="hs-identifier hs-var">cDepth</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-104"></span><span>      </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-105"></span><span>          </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Maybe (Word8, Word8)
+</span><a href="Aihc.Cpp.Cursor.html#peekByte2"><span class="hs-identifier hs-var">peekByte2</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079493"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-106"></span><span>            </span><span class="annot"><span class="annottext">Maybe (Word8, Word8)
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-107"></span><span>              </span><span class="hs-comment">-- One byte left, no two-char sequence possible</span><span>
+</span><span id="line-108"></span><span>              </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079492"><span class="hs-identifier hs-var">cDepth</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-109"></span><span>            </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679079494"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079494"><span class="hs-identifier hs-var">b1</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679079495"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079495"><span class="hs-identifier hs-var">b2</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-110"></span><span>              </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079492"><span class="hs-identifier hs-var">cDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-111"></span><span>                  </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079494"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2A</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079495"><span class="hs-identifier hs-var">b2</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2F</span></span><span> </span><span class="hs-comment">-- '*/'</span><span>
+</span><span id="line-112"></span><span>                    </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Cursor -&gt; (Int, Int)
+</span><a href="#local-6989586621679079490"><span class="hs-identifier hs-var">goDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance2"><span class="hs-identifier hs-var">advance2</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079493"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-113"></span><span>                    </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Cursor -&gt; (Int, Int)
+</span><a href="#local-6989586621679079490"><span class="hs-identifier hs-var">goDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079492"><span class="hs-identifier hs-var">cDepth</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079493"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-114"></span><span>              </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079494"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2D</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079495"><span class="hs-identifier hs-var">b2</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x7D</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-comment">-- '-}'</span><span>
+</span><span id="line-115"></span><span>                  </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Cursor -&gt; (Int, Int)
+</span><a href="#local-6989586621679079490"><span class="hs-identifier hs-var">goDepth</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-glyph hs-var">-</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079492"><span class="hs-identifier hs-var">cDepth</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance2"><span class="hs-identifier hs-var">advance2</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079493"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-116"></span><span>              </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079494"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x7B</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079495"><span class="hs-identifier hs-var">b2</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2D</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-comment">-- '{-'</span><span>
+</span><span id="line-117"></span><span>                  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079498"><span class="annot"><span class="annottext">cur' :: Cursor
+</span><a href="#local-6989586621679079498"><span class="hs-identifier hs-var hs-var">cur'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance2"><span class="hs-identifier hs-var">advance2</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079493"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-118"></span><span>                   </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Maybe Word8
+</span><a href="Aihc.Cpp.Cursor.html#peekByte"><span class="hs-identifier hs-var">peekByte</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079498"><span class="hs-identifier hs-var">cur'</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-119"></span><span>                        </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x23</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-120"></span><span>                          </span><span class="hs-comment">-- {-# is a pragma, not a comment</span><span>
+</span><span id="line-121"></span><span>                          </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Cursor -&gt; (Int, Int)
+</span><a href="#local-6989586621679079490"><span class="hs-identifier hs-var">goDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079492"><span class="hs-identifier hs-var">cDepth</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079493"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-122"></span><span>                        </span><span class="annot"><span class="annottext">Maybe Word8
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-123"></span><span>                          </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Cursor -&gt; (Int, Int)
+</span><a href="#local-6989586621679079490"><span class="hs-identifier hs-var">goDepth</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079492"><span class="hs-identifier hs-var">cDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079498"><span class="hs-identifier hs-var">cur'</span></a></span><span>
+</span><span id="line-124"></span><span>              </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079494"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2F</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079495"><span class="hs-identifier hs-var">b2</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2A</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-comment">-- '/*'</span><span>
+</span><span id="line-125"></span><span>                  </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Cursor -&gt; (Int, Int)
+</span><a href="#local-6989586621679079490"><span class="hs-identifier hs-var">goDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance2"><span class="hs-identifier hs-var">advance2</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079493"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-126"></span><span>              </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079494"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2D</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079495"><span class="hs-identifier hs-var">b2</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2D</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-comment">-- '--' line comment</span><span>
+</span><span id="line-127"></span><span>                  </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079492"><span class="hs-identifier hs-var">cDepth</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-128"></span><span>              </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-129"></span><span>                  </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Cursor -&gt; (Int, Int)
+</span><a href="#local-6989586621679079490"><span class="hs-identifier hs-var">goDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079491"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079492"><span class="hs-identifier hs-var">cDepth</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079493"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-130"></span><span>
+</span><span id="line-131"></span><span class="hs-comment">-- | Scan a line, tracking comment depths and splitting into spans that are</span><span>
+</span><span id="line-132"></span><span class="hs-comment">-- either inside or outside block comments. Uses a byte-level cursor for</span><span>
+</span><span id="line-133"></span><span class="hs-comment">-- efficient scanning instead of character-by-character T.uncons/T.cons.</span><span>
+</span><span id="line-134"></span><span class="hs-comment">--</span><span>
+</span><span id="line-135"></span><span class="hs-comment">-- Accepts a 'Cursor' positioned at the start of the line content.</span><span>
+</span><span id="line-136"></span><span class="hs-comment">-- The cursor should be bounded to the line (e.g., via 'lineSlice').</span><span>
+</span><span id="line-137"></span><span class="hs-comment">--</span><span>
+</span><span id="line-138"></span><span class="hs-comment">-- The scanner splits the line into 'LineSpan' segments. Each segment is</span><span>
+</span><span id="line-139"></span><span class="hs-comment">-- tagged with whether it is inside a block comment. Code spans (outside</span><span>
+</span><span id="line-140"></span><span class="hs-comment">-- comments) are zero-copy slices of the UTF-8 encoded input. C89 comment</span><span>
+</span><span id="line-141"></span><span class="hs-comment">-- content is replaced with spaces to preserve column alignment.</span><span>
+</span><span id="line-142"></span><span class="annot"><a href="Aihc.Cpp.Scanner.html#scanLine"><span class="hs-identifier hs-type">scanLine</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineScan"><span class="hs-identifier hs-type">LineScan</span></a></span><span>
+</span><span id="line-143"></span><span id="scanLine"><span class="annot"><span class="annottext">scanLine :: Int -&gt; Int -&gt; Cursor -&gt; LineScan
+</span><a href="Aihc.Cpp.Scanner.html#scanLine"><span class="hs-identifier hs-var hs-var">scanLine</span></a></span></span><span> </span><span id="local-6989586621679079500"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079500"><span class="hs-identifier hs-var">hsDepth0</span></a></span></span><span> </span><span id="local-6989586621679079501"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079501"><span class="hs-identifier hs-var">cDepth0</span></a></span></span><span> </span><span id="local-6989586621679079502"><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079502"><span class="hs-identifier hs-var">cursor0</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-144"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679079507"><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079507"><span class="hs-identifier hs-var">spans</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679079508"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079508"><span class="hs-identifier hs-var">finalHsDepth</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679079509"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079509"><span class="hs-identifier hs-var">finalCDepth</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-145"></span><span>        </span><span class="annot"><span class="annottext">Int
+-&gt; Int
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; [LineSpan]
+-&gt; Int
+-&gt; Bool
+-&gt; Cursor
+-&gt; ([LineSpan], Int, Int)
+</span><a href="#local-6989586621679079510"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-146"></span><span>          </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079500"><span class="hs-identifier hs-var">hsDepth0</span></a></span><span>
+</span><span id="line-147"></span><span>          </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079501"><span class="hs-identifier hs-var">cDepth0</span></a></span><span>
+</span><span id="line-148"></span><span>          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-149"></span><span>          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-150"></span><span>          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-151"></span><span>          </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-152"></span><span>          </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079502"><span class="hs-identifier hs-var">cursor0</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-153"></span><span>          </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079500"><span class="hs-identifier hs-var">hsDepth0</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079501"><span class="hs-identifier hs-var">cDepth0</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span>
+</span><span id="line-154"></span><span>          </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079502"><span class="hs-identifier hs-var">cursor0</span></a></span><span>
+</span><span id="line-155"></span><span>   </span><span class="hs-keyword">in</span><span> </span><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineScan"><span class="hs-identifier hs-type">LineScan</span></a></span><span>
+</span><span id="line-156"></span><span>        </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">lineScanSpans :: [LineSpan]
+</span><a href="Aihc.Cpp.Scanner.html#lineScanSpans"><span class="hs-identifier hs-var">lineScanSpans</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LineSpan] -&gt; [LineSpan]
+forall a. [a] -&gt; [a]
+</span><span class="hs-identifier hs-var">reverse</span></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079507"><span class="hs-identifier hs-var">spans</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-157"></span><span>          </span><span class="annot"><span class="annottext">lineScanFinalHsDepth :: Int
+</span><a href="Aihc.Cpp.Scanner.html#lineScanFinalHsDepth"><span class="hs-identifier hs-var">lineScanFinalHsDepth</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079508"><span class="hs-identifier hs-var">finalHsDepth</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-158"></span><span>          </span><span class="annot"><span class="annottext">lineScanFinalCDepth :: Int
+</span><a href="Aihc.Cpp.Scanner.html#lineScanFinalCDepth"><span class="hs-identifier hs-var">lineScanFinalCDepth</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079509"><span class="hs-identifier hs-var">finalCDepth</span></a></span><span>
+</span><span id="line-159"></span><span>        </span><span class="hs-special">}</span><span>
+</span><span id="line-160"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-161"></span><span>    </span><span class="hs-comment">-- \| Emit a span from @start@ to @end@ if non-empty, prepending to @acc@.</span><span>
+</span><span id="line-162"></span><span>    </span><span class="annot"><a href="#local-6989586621679079512"><span class="hs-identifier hs-type">emit</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-type">LineSpan</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-type">LineSpan</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-163"></span><span>    </span><span id="local-6989586621679079512"><span class="annot"><span class="annottext">emit :: [LineSpan] -&gt; Int -&gt; Int -&gt; Cursor -&gt; Bool -&gt; [LineSpan]
+</span><a href="#local-6989586621679079512"><span class="hs-identifier hs-var hs-var">emit</span></a></span></span><span> </span><span id="local-6989586621679079513"><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079513"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span id="local-6989586621679079514"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079514"><span class="hs-identifier hs-var">start</span></a></span></span><span> </span><span id="local-6989586621679079515"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079515"><span class="hs-identifier hs-var">end</span></a></span></span><span> </span><span id="local-6989586621679079516"><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079516"><span class="hs-identifier hs-var">cur</span></a></span></span><span> </span><span id="local-6989586621679079517"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079517"><span class="hs-identifier hs-var">inComment</span></a></span></span><span>
+</span><span id="line-164"></span><span>      </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079514"><span class="hs-identifier hs-var">start</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;=</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079515"><span class="hs-identifier hs-var">end</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079513"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-165"></span><span>      </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Text -&gt; LineSpan
+</span><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-var">LineSpan</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079517"><span class="hs-identifier hs-var">inComment</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Cursor -&gt; Text
+</span><a href="Aihc.Cpp.Cursor.html#sliceText"><span class="hs-identifier hs-var">sliceText</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079514"><span class="hs-identifier hs-var">start</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079515"><span class="hs-identifier hs-var">end</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079516"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">LineSpan -&gt; [LineSpan] -&gt; [LineSpan]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079513"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-166"></span><span>    </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="#local-6989586621679079512"><span class="hs-pragma hs-type">emit</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-167"></span><span>
+</span><span id="line-168"></span><span>    </span><span class="annot"><a href="#local-6989586621679079510"><span class="hs-identifier hs-type">go</span></a></span><span> </span><span class="hs-glyph">::</span><span>
+</span><span id="line-169"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-170"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-171"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-172"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-173"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-174"></span><span>      </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-type">LineSpan</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-175"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-176"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-177"></span><span>      </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-178"></span><span>      </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-type">LineSpan</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">)</span><span>
+</span><span id="line-179"></span><span>    </span><span id="local-6989586621679079510"><span class="annot"><span class="annottext">go :: Int
+-&gt; Int
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; [LineSpan]
+-&gt; Int
+-&gt; Bool
+-&gt; Cursor
+-&gt; ([LineSpan], Int, Int)
+</span><a href="#local-6989586621679079510"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span>
+</span><span id="line-180"></span><span>      </span><span class="hs-glyph">!</span><span id="local-6989586621679079518"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span></span><span>
+</span><span id="line-181"></span><span>      </span><span class="hs-glyph">!</span><span id="local-6989586621679079519"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span></span><span>
+</span><span id="line-182"></span><span>      </span><span class="hs-glyph">!</span><span id="local-6989586621679079520"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079520"><span class="hs-identifier hs-var">inString</span></a></span></span><span>
+</span><span id="line-183"></span><span>      </span><span class="hs-glyph">!</span><span id="local-6989586621679079521"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079521"><span class="hs-identifier hs-var">inChar</span></a></span></span><span>
+</span><span id="line-184"></span><span>      </span><span class="hs-glyph">!</span><span id="local-6989586621679079522"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079522"><span class="hs-identifier hs-var">escaped</span></a></span></span><span>
+</span><span id="line-185"></span><span>      </span><span class="hs-glyph">!</span><span id="local-6989586621679079523"><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span></span><span>
+</span><span id="line-186"></span><span>      </span><span class="hs-glyph">!</span><span id="local-6989586621679079524"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span></span><span>
+</span><span id="line-187"></span><span>      </span><span class="hs-glyph">!</span><span id="local-6989586621679079525"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span></span><span>
+</span><span id="line-188"></span><span>      </span><span class="hs-glyph">!</span><span id="local-6989586621679079526"><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span></span><span>
+</span><span id="line-189"></span><span>        </span><span class="hs-comment">-- End of input: flush the accumulated span</span><span>
+</span><span id="line-190"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Bool
+</span><a href="Aihc.Cpp.Cursor.html#null"><span class="hs-identifier hs-var">null</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-191"></span><span>            </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[LineSpan] -&gt; Int -&gt; Int -&gt; Cursor -&gt; Bool -&gt; [LineSpan]
+</span><a href="#local-6989586621679079512"><span class="hs-identifier hs-var">emit</span></a></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-192"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-193"></span><span>            </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Maybe (Word8, Word8)
+</span><a href="Aihc.Cpp.Cursor.html#peekByte2"><span class="hs-identifier hs-var">peekByte2</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-194"></span><span>              </span><span class="annot"><span class="annottext">Maybe (Word8, Word8)
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-195"></span><span>                </span><span class="hs-comment">-- === Only one byte left ===</span><span>
+</span><span id="line-196"></span><span>                </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-197"></span><span>                  </span><span class="hs-keyword">then</span><span>
+</span><span id="line-198"></span><span>                    </span><span class="hs-comment">-- In C comment: flush accumulated, emit space</span><span>
+</span><span id="line-199"></span><span>                    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079527"><span class="annot"><span class="annottext">acc' :: [LineSpan]
+</span><a href="#local-6989586621679079527"><span class="hs-identifier hs-var hs-var">acc'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LineSpan] -&gt; Int -&gt; Int -&gt; Cursor -&gt; Bool -&gt; [LineSpan]
+</span><a href="#local-6989586621679079512"><span class="hs-identifier hs-var">emit</span></a></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span><span>
+</span><span id="line-200"></span><span>                     </span><span class="hs-keyword">in</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Text -&gt; LineSpan
+</span><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-var">LineSpan</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot; &quot;</span></span><span> </span><span class="annot"><span class="annottext">LineSpan -&gt; [LineSpan] -&gt; [LineSpan]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079527"><span class="hs-identifier hs-var">acc'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-201"></span><span>                  </span><span class="hs-keyword">else</span><span>
+</span><span id="line-202"></span><span>                    </span><span class="hs-comment">-- Include this last byte in the accumulated span</span><span>
+</span><span id="line-203"></span><span>                    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079530"><span class="annot"><span class="annottext">inCommentNow :: Bool
+</span><a href="#local-6989586621679079530"><span class="hs-identifier hs-var hs-var">inCommentNow</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-204"></span><span>                        </span><span id="local-6989586621679079531"><span class="annot"><span class="annottext">cur' :: Cursor
+</span><a href="#local-6989586621679079531"><span class="hs-identifier hs-var hs-var">cur'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-205"></span><span>                     </span><span class="hs-keyword">in</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[LineSpan] -&gt; Int -&gt; Int -&gt; Cursor -&gt; Bool -&gt; [LineSpan]
+</span><a href="#local-6989586621679079512"><span class="hs-identifier hs-var">emit</span></a></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079531"><span class="hs-identifier hs-var">cur'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079530"><span class="hs-identifier hs-var">inCommentNow</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-206"></span><span>              </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679079532"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079532"><span class="hs-identifier hs-var">b1</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679079533"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079533"><span class="hs-identifier hs-var">b2</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-207"></span><span>                </span><span class="hs-comment">-- === C block comment mode ===</span><span>
+</span><span id="line-208"></span><span>                </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-209"></span><span>                  </span><span class="hs-keyword">then</span><span>
+</span><span id="line-210"></span><span>                    </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079532"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2A</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079533"><span class="hs-identifier hs-var">b2</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2F</span></span><span> </span><span class="hs-comment">-- '*/'</span><span>
+</span><span id="line-211"></span><span>                      </span><span class="hs-keyword">then</span><span>
+</span><span id="line-212"></span><span>                        </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079534"><span class="annot"><span class="annottext">acc' :: [LineSpan]
+</span><a href="#local-6989586621679079534"><span class="hs-identifier hs-var hs-var">acc'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LineSpan] -&gt; Int -&gt; Int -&gt; Cursor -&gt; Bool -&gt; [LineSpan]
+</span><a href="#local-6989586621679079512"><span class="hs-identifier hs-var">emit</span></a></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span><span>
+</span><span id="line-213"></span><span>                            </span><span id="local-6989586621679079535"><span class="annot"><span class="annottext">cur' :: Cursor
+</span><a href="#local-6989586621679079535"><span class="hs-identifier hs-var hs-var">cur'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance2"><span class="hs-identifier hs-var">advance2</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-214"></span><span>                         </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Int
+-&gt; Int
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; [LineSpan]
+-&gt; Int
+-&gt; Bool
+-&gt; Cursor
+-&gt; ([LineSpan], Int, Int)
+</span><a href="#local-6989586621679079510"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-215"></span><span>                              </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span>
+</span><span id="line-216"></span><span>                              </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-217"></span><span>                              </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-218"></span><span>                              </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-219"></span><span>                              </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-220"></span><span>                              </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Text -&gt; LineSpan
+</span><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-var">LineSpan</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;  &quot;</span></span><span> </span><span class="annot"><span class="annottext">LineSpan -&gt; [LineSpan] -&gt; [LineSpan]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079534"><span class="hs-identifier hs-var">acc'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-221"></span><span>                              </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079535"><span class="hs-identifier hs-var">cur'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-222"></span><span>                              </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-223"></span><span>                              </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079535"><span class="hs-identifier hs-var">cur'</span></a></span><span>
+</span><span id="line-224"></span><span>                      </span><span class="hs-keyword">else</span><span>
+</span><span id="line-225"></span><span>                        </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079536"><span class="annot"><span class="annottext">acc' :: [LineSpan]
+</span><a href="#local-6989586621679079536"><span class="hs-identifier hs-var hs-var">acc'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LineSpan] -&gt; Int -&gt; Int -&gt; Cursor -&gt; Bool -&gt; [LineSpan]
+</span><a href="#local-6989586621679079512"><span class="hs-identifier hs-var">emit</span></a></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span><span>
+</span><span id="line-226"></span><span>                            </span><span id="local-6989586621679079537"><span class="annot"><span class="annottext">cur' :: Cursor
+</span><a href="#local-6989586621679079537"><span class="hs-identifier hs-var hs-var">cur'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-227"></span><span>                         </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Int
+-&gt; Int
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; [LineSpan]
+-&gt; Int
+-&gt; Bool
+-&gt; Cursor
+-&gt; ([LineSpan], Int, Int)
+</span><a href="#local-6989586621679079510"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-228"></span><span>                              </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span>
+</span><span id="line-229"></span><span>                              </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span>
+</span><span id="line-230"></span><span>                              </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-231"></span><span>                              </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-232"></span><span>                              </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-233"></span><span>                              </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Text -&gt; LineSpan
+</span><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-var">LineSpan</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot; &quot;</span></span><span> </span><span class="annot"><span class="annottext">LineSpan -&gt; [LineSpan] -&gt; [LineSpan]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079536"><span class="hs-identifier hs-var">acc'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-234"></span><span>                              </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079537"><span class="hs-identifier hs-var">cur'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-235"></span><span>                              </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span>
+</span><span id="line-236"></span><span>                              </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079537"><span class="hs-identifier hs-var">cur'</span></a></span><span>
+</span><span id="line-237"></span><span>                  </span><span class="hs-comment">-- === Line comment: -- (outside strings and hs comments) ===</span><span>
+</span><span id="line-238"></span><span>                  </span><span class="hs-keyword">else</span><span>
+</span><span id="line-239"></span><span>                    </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><span class="hs-identifier hs-var">not</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079520"><span class="hs-identifier hs-var">inString</span></a></span><span>
+</span><span id="line-240"></span><span>                      </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><span class="hs-identifier hs-var">not</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079521"><span class="hs-identifier hs-var">inChar</span></a></span><span>
+</span><span id="line-241"></span><span>                      </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-242"></span><span>                      </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079532"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2D</span></span><span>
+</span><span id="line-243"></span><span>                      </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079533"><span class="hs-identifier hs-var">b2</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2D</span></span><span> </span><span class="hs-comment">-- '--'</span><span>
+</span><span id="line-244"></span><span>                      </span><span class="hs-keyword">then</span><span>
+</span><span id="line-245"></span><span>                        </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079538"><span class="annot"><span class="annottext">acc' :: [LineSpan]
+</span><a href="#local-6989586621679079538"><span class="hs-identifier hs-var hs-var">acc'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LineSpan] -&gt; Int -&gt; Int -&gt; Cursor -&gt; Bool -&gt; [LineSpan]
+</span><a href="#local-6989586621679079512"><span class="hs-identifier hs-var">emit</span></a></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span><span>
+</span><span id="line-246"></span><span>                            </span><span id="local-6989586621679079539"><span class="annot"><span class="annottext">restText :: Text
+</span><a href="#local-6989586621679079539"><span class="hs-identifier hs-var hs-var">restText</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Cursor -&gt; Text
+</span><a href="Aihc.Cpp.Cursor.html#sliceText"><span class="hs-identifier hs-var">sliceText</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#bufLength"><span class="hs-identifier hs-var">bufLength</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-247"></span><span>                         </span><span class="hs-keyword">in</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Text -&gt; LineSpan
+</span><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-var">LineSpan</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679079539"><span class="hs-identifier hs-var">restText</span></a></span><span> </span><span class="annot"><span class="annottext">LineSpan -&gt; [LineSpan] -&gt; [LineSpan]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079538"><span class="hs-identifier hs-var">acc'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-248"></span><span>                      </span><span class="hs-comment">-- === Inside string literal ===</span><span>
+</span><span id="line-249"></span><span>                      </span><span class="hs-keyword">else</span><span>
+</span><span id="line-250"></span><span>                        </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079520"><span class="hs-identifier hs-var">inString</span></a></span><span>
+</span><span id="line-251"></span><span>                          </span><span class="hs-keyword">then</span><span>
+</span><span id="line-252"></span><span>                            </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079542"><span class="annot"><span class="annottext">escaped' :: Bool
+</span><a href="#local-6989586621679079542"><span class="hs-identifier hs-var hs-var">escaped'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><span class="hs-identifier hs-var">not</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079522"><span class="hs-identifier hs-var">escaped</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079532"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x5C</span></span><span> </span><span class="hs-comment">-- '\\'</span><span>
+</span><span id="line-253"></span><span>                                </span><span id="local-6989586621679079545"><span class="annot"><span class="annottext">inString' :: Bool
+</span><a href="#local-6989586621679079545"><span class="hs-identifier hs-var hs-var">inString'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079522"><span class="hs-identifier hs-var">escaped</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079532"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">/=</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x22</span></span><span> </span><span class="hs-comment">-- '&quot;'</span><span>
+</span><span id="line-254"></span><span>                             </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Int
+-&gt; Int
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; [LineSpan]
+-&gt; Int
+-&gt; Bool
+-&gt; Cursor
+-&gt; ([LineSpan], Int, Int)
+</span><a href="#local-6989586621679079510"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-255"></span><span>                                  </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span>
+</span><span id="line-256"></span><span>                                  </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span>
+</span><span id="line-257"></span><span>                                  </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079545"><span class="hs-identifier hs-var">inString'</span></a></span><span>
+</span><span id="line-258"></span><span>                                  </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-259"></span><span>                                  </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079542"><span class="hs-identifier hs-var">escaped'</span></a></span><span>
+</span><span id="line-260"></span><span>                                  </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-261"></span><span>                                  </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span>
+</span><span id="line-262"></span><span>                                  </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span><span>
+</span><span id="line-263"></span><span>                                  </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-264"></span><span>                          </span><span class="hs-comment">-- === Inside char literal ===</span><span>
+</span><span id="line-265"></span><span>                          </span><span class="hs-keyword">else</span><span>
+</span><span id="line-266"></span><span>                            </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079521"><span class="hs-identifier hs-var">inChar</span></a></span><span>
+</span><span id="line-267"></span><span>                              </span><span class="hs-keyword">then</span><span>
+</span><span id="line-268"></span><span>                                </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079549"><span class="annot"><span class="annottext">escaped' :: Bool
+</span><a href="#local-6989586621679079549"><span class="hs-identifier hs-var hs-var">escaped'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><span class="hs-identifier hs-var">not</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079522"><span class="hs-identifier hs-var">escaped</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079532"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x5C</span></span><span> </span><span class="hs-comment">-- '\\'</span><span>
+</span><span id="line-269"></span><span>                                    </span><span id="local-6989586621679079552"><span class="annot"><span class="annottext">inChar' :: Bool
+</span><a href="#local-6989586621679079552"><span class="hs-identifier hs-var hs-var">inChar'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079522"><span class="hs-identifier hs-var">escaped</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079532"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">/=</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x27</span></span><span> </span><span class="hs-comment">-- '\''</span><span>
+</span><span id="line-270"></span><span>                                 </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Int
+-&gt; Int
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; [LineSpan]
+-&gt; Int
+-&gt; Bool
+-&gt; Cursor
+-&gt; ([LineSpan], Int, Int)
+</span><a href="#local-6989586621679079510"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-271"></span><span>                                      </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span>
+</span><span id="line-272"></span><span>                                      </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span>
+</span><span id="line-273"></span><span>                                      </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-274"></span><span>                                      </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079552"><span class="hs-identifier hs-var">inChar'</span></a></span><span>
+</span><span id="line-275"></span><span>                                      </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079549"><span class="hs-identifier hs-var">escaped'</span></a></span><span>
+</span><span id="line-276"></span><span>                                      </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-277"></span><span>                                      </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span>
+</span><span id="line-278"></span><span>                                      </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span><span>
+</span><span id="line-279"></span><span>                                      </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-280"></span><span>                              </span><span class="hs-comment">-- === Start of string literal ===</span><span>
+</span><span id="line-281"></span><span>                              </span><span class="hs-keyword">else</span><span>
+</span><span id="line-282"></span><span>                                </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079532"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x22</span></span><span> </span><span class="hs-comment">-- '&quot;'</span><span>
+</span><span id="line-283"></span><span>                                  </span><span class="hs-keyword">then</span><span>
+</span><span id="line-284"></span><span>                                    </span><span class="annot"><span class="annottext">Int
+-&gt; Int
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; [LineSpan]
+-&gt; Int
+-&gt; Bool
+-&gt; Cursor
+-&gt; ([LineSpan], Int, Int)
+</span><a href="#local-6989586621679079510"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-285"></span><span>                                      </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span>
+</span><span id="line-286"></span><span>                                      </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span>
+</span><span id="line-287"></span><span>                                      </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span>
+</span><span id="line-288"></span><span>                                      </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-289"></span><span>                                      </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-290"></span><span>                                      </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-291"></span><span>                                      </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span>
+</span><span id="line-292"></span><span>                                      </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span><span>
+</span><span id="line-293"></span><span>                                      </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-294"></span><span>                                  </span><span class="hs-comment">-- === Start of char literal ===</span><span>
+</span><span id="line-295"></span><span>                                  </span><span class="hs-keyword">else</span><span>
+</span><span id="line-296"></span><span>                                    </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079532"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x27</span></span><span> </span><span class="hs-comment">-- '\''</span><span>
+</span><span id="line-297"></span><span>                                      </span><span class="hs-keyword">then</span><span>
+</span><span id="line-298"></span><span>                                        </span><span class="annot"><span class="annottext">Int
+-&gt; Int
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; [LineSpan]
+-&gt; Int
+-&gt; Bool
+-&gt; Cursor
+-&gt; ([LineSpan], Int, Int)
+</span><a href="#local-6989586621679079510"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-299"></span><span>                                          </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span>
+</span><span id="line-300"></span><span>                                          </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span>
+</span><span id="line-301"></span><span>                                          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-302"></span><span>                                          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span>
+</span><span id="line-303"></span><span>                                          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-304"></span><span>                                          </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-305"></span><span>                                          </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span>
+</span><span id="line-306"></span><span>                                          </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span><span>
+</span><span id="line-307"></span><span>                                          </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-308"></span><span>                                      </span><span class="hs-comment">-- === End of Haskell block comment: -} ===</span><span>
+</span><span id="line-309"></span><span>                                      </span><span class="hs-keyword">else</span><span>
+</span><span id="line-310"></span><span>                                        </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079532"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2D</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079533"><span class="hs-identifier hs-var">b2</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x7D</span></span><span> </span><span class="hs-comment">-- '-}'</span><span>
+</span><span id="line-311"></span><span>                                          </span><span class="hs-keyword">then</span><span>
+</span><span id="line-312"></span><span>                                            </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079553"><span class="annot"><span class="annottext">cur' :: Cursor
+</span><a href="#local-6989586621679079553"><span class="hs-identifier hs-var hs-var">cur'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance2"><span class="hs-identifier hs-var">advance2</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-313"></span><span>                                                </span><span id="local-6989586621679079556"><span class="annot"><span class="annottext">hsDepth' :: Int
+</span><a href="#local-6989586621679079556"><span class="hs-identifier hs-var hs-var">hsDepth'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-glyph hs-var">-</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-314"></span><span>                                                </span><span class="hs-comment">-- Flush everything up to and including -} as a comment span</span><span>
+</span><span id="line-315"></span><span>                                                </span><span id="local-6989586621679079557"><span class="annot"><span class="annottext">acc' :: [LineSpan]
+</span><a href="#local-6989586621679079557"><span class="hs-identifier hs-var hs-var">acc'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LineSpan] -&gt; Int -&gt; Int -&gt; Cursor -&gt; Bool -&gt; [LineSpan]
+</span><a href="#local-6989586621679079512"><span class="hs-identifier hs-var">emit</span></a></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079553"><span class="hs-identifier hs-var">cur'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span>
+</span><span id="line-316"></span><span>                                                </span><span id="local-6989586621679079560"><span class="annot"><span class="annottext">inCommentAfter :: Bool
+</span><a href="#local-6989586621679079560"><span class="hs-identifier hs-var hs-var">inCommentAfter</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079556"><span class="hs-identifier hs-var">hsDepth'</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-317"></span><span>                                             </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Int
+-&gt; Int
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; [LineSpan]
+-&gt; Int
+-&gt; Bool
+-&gt; Cursor
+-&gt; ([LineSpan], Int, Int)
+</span><a href="#local-6989586621679079510"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-318"></span><span>                                                  </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079556"><span class="hs-identifier hs-var">hsDepth'</span></a></span><span>
+</span><span id="line-319"></span><span>                                                  </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span>
+</span><span id="line-320"></span><span>                                                  </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-321"></span><span>                                                  </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-322"></span><span>                                                  </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-323"></span><span>                                                  </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079557"><span class="hs-identifier hs-var">acc'</span></a></span><span>
+</span><span id="line-324"></span><span>                                                  </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079553"><span class="hs-identifier hs-var">cur'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-325"></span><span>                                                  </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079560"><span class="hs-identifier hs-var">inCommentAfter</span></a></span><span>
+</span><span id="line-326"></span><span>                                                  </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079553"><span class="hs-identifier hs-var">cur'</span></a></span><span>
+</span><span id="line-327"></span><span>                                          </span><span class="hs-comment">-- === Start of Haskell block comment: {- (but not {-#) ===</span><span>
+</span><span id="line-328"></span><span>                                          </span><span class="hs-keyword">else</span><span>
+</span><span id="line-329"></span><span>                                            </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079532"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x7B</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079533"><span class="hs-identifier hs-var">b2</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2D</span></span><span> </span><span class="hs-comment">-- '{-'</span><span>
+</span><span id="line-330"></span><span>                                              </span><span class="hs-keyword">then</span><span>
+</span><span id="line-331"></span><span>                                                </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079561"><span class="annot"><span class="annottext">cur' :: Cursor
+</span><a href="#local-6989586621679079561"><span class="hs-identifier hs-var hs-var">cur'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance2"><span class="hs-identifier hs-var">advance2</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-332"></span><span>                                                 </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Maybe Word8
+</span><a href="Aihc.Cpp.Cursor.html#peekByte"><span class="hs-identifier hs-var">peekByte</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079561"><span class="hs-identifier hs-var">cur'</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-333"></span><span>                                                      </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x23</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-334"></span><span>                                                        </span><span class="hs-comment">-- '#' =&gt; pragma {-#, not a block comment</span><span>
+</span><span id="line-335"></span><span>                                                        </span><span class="hs-comment">-- Advance past '{' only, continue in same mode</span><span>
+</span><span id="line-336"></span><span>                                                        </span><span class="annot"><span class="annottext">Int
+-&gt; Int
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; [LineSpan]
+-&gt; Int
+-&gt; Bool
+-&gt; Cursor
+-&gt; ([LineSpan], Int, Int)
+</span><a href="#local-6989586621679079510"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-337"></span><span>                                                          </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span>
+</span><span id="line-338"></span><span>                                                          </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span>
+</span><span id="line-339"></span><span>                                                          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-340"></span><span>                                                          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-341"></span><span>                                                          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-342"></span><span>                                                          </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-343"></span><span>                                                          </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span>
+</span><span id="line-344"></span><span>                                                          </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span><span>
+</span><span id="line-345"></span><span>                                                          </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-346"></span><span>                                                      </span><span class="annot"><span class="annottext">Maybe Word8
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-347"></span><span>                                                        </span><span class="hs-comment">-- Flush any text before {-, emit {- as comment</span><span>
+</span><span id="line-348"></span><span>                                                        </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079562"><span class="annot"><span class="annottext">acc' :: [LineSpan]
+</span><a href="#local-6989586621679079562"><span class="hs-identifier hs-var hs-var">acc'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LineSpan] -&gt; Int -&gt; Int -&gt; Cursor -&gt; Bool -&gt; [LineSpan]
+</span><a href="#local-6989586621679079512"><span class="hs-identifier hs-var">emit</span></a></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span><span>
+</span><span id="line-349"></span><span>                                                            </span><span id="local-6989586621679079564"><span class="annot"><span class="annottext">acc'' :: [LineSpan]
+</span><a href="#local-6989586621679079564"><span class="hs-identifier hs-var hs-var">acc''</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Text -&gt; LineSpan
+</span><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-var">LineSpan</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;{-&quot;</span></span><span> </span><span class="annot"><span class="annottext">LineSpan -&gt; [LineSpan] -&gt; [LineSpan]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079562"><span class="hs-identifier hs-var">acc'</span></a></span><span>
+</span><span id="line-350"></span><span>                                                         </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Int
+-&gt; Int
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; [LineSpan]
+-&gt; Int
+-&gt; Bool
+-&gt; Cursor
+-&gt; ([LineSpan], Int, Int)
+</span><a href="#local-6989586621679079510"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-351"></span><span>                                                              </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-352"></span><span>                                                              </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span>
+</span><span id="line-353"></span><span>                                                              </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-354"></span><span>                                                              </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-355"></span><span>                                                              </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-356"></span><span>                                                              </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079564"><span class="hs-identifier hs-var">acc''</span></a></span><span>
+</span><span id="line-357"></span><span>                                                              </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079561"><span class="hs-identifier hs-var">cur'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-358"></span><span>                                                              </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span>
+</span><span id="line-359"></span><span>                                                              </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079561"><span class="hs-identifier hs-var">cur'</span></a></span><span>
+</span><span id="line-360"></span><span>                                              </span><span class="hs-comment">-- === Start of C block comment: /* ===</span><span>
+</span><span id="line-361"></span><span>                                              </span><span class="hs-keyword">else</span><span>
+</span><span id="line-362"></span><span>                                                </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079532"><span class="hs-identifier hs-var">b1</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2F</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679079533"><span class="hs-identifier hs-var">b2</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2A</span></span><span> </span><span class="hs-comment">-- '/*'</span><span>
+</span><span id="line-363"></span><span>                                                  </span><span class="hs-keyword">then</span><span>
+</span><span id="line-364"></span><span>                                                    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079565"><span class="annot"><span class="annottext">acc' :: [LineSpan]
+</span><a href="#local-6989586621679079565"><span class="hs-identifier hs-var hs-var">acc'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LineSpan] -&gt; Int -&gt; Int -&gt; Cursor -&gt; Bool -&gt; [LineSpan]
+</span><a href="#local-6989586621679079512"><span class="hs-identifier hs-var">emit</span></a></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span><span>
+</span><span id="line-365"></span><span>                                                        </span><span id="local-6989586621679079566"><span class="annot"><span class="annottext">cur' :: Cursor
+</span><a href="#local-6989586621679079566"><span class="hs-identifier hs-var hs-var">cur'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance2"><span class="hs-identifier hs-var">advance2</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-366"></span><span>                                                     </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Int
+-&gt; Int
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; [LineSpan]
+-&gt; Int
+-&gt; Bool
+-&gt; Cursor
+-&gt; ([LineSpan], Int, Int)
+</span><a href="#local-6989586621679079510"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-367"></span><span>                                                          </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span>
+</span><span id="line-368"></span><span>                                                          </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-369"></span><span>                                                          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-370"></span><span>                                                          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-371"></span><span>                                                          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-372"></span><span>                                                          </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Text -&gt; LineSpan
+</span><a href="Aihc.Cpp.Scanner.html#LineSpan"><span class="hs-identifier hs-var">LineSpan</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;  &quot;</span></span><span> </span><span class="annot"><span class="annottext">LineSpan -&gt; [LineSpan] -&gt; [LineSpan]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079565"><span class="hs-identifier hs-var">acc'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-373"></span><span>                                                          </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079566"><span class="hs-identifier hs-var">cur'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-374"></span><span>                                                          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span>
+</span><span id="line-375"></span><span>                                                          </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079566"><span class="hs-identifier hs-var">cur'</span></a></span><span>
+</span><span id="line-376"></span><span>                                                  </span><span class="hs-comment">-- === Normal byte: bulk-skip non-interesting bytes ===</span><span>
+</span><span id="line-377"></span><span>                                                  </span><span class="hs-keyword">else</span><span>
+</span><span id="line-378"></span><span>                                                    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679079567"><span class="annot"><span class="annottext">cur' :: Cursor
+</span><a href="#local-6989586621679079567"><span class="hs-identifier hs-var hs-var">cur'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#skipToInteresting"><span class="hs-identifier hs-var">skipToInteresting</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079526"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-379"></span><span>                                                     </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">Int
+-&gt; Int
+-&gt; Bool
+-&gt; Bool
+-&gt; Bool
+-&gt; [LineSpan]
+-&gt; Int
+-&gt; Bool
+-&gt; Cursor
+-&gt; ([LineSpan], Int, Int)
+</span><a href="#local-6989586621679079510"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-380"></span><span>                                                          </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079518"><span class="hs-identifier hs-var">hsDepth</span></a></span><span>
+</span><span id="line-381"></span><span>                                                          </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079519"><span class="hs-identifier hs-var">cDepth</span></a></span><span>
+</span><span id="line-382"></span><span>                                                          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-383"></span><span>                                                          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-384"></span><span>                                                          </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-385"></span><span>                                                          </span><span class="annot"><span class="annottext">[LineSpan]
+</span><a href="#local-6989586621679079523"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-386"></span><span>                                                          </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679079524"><span class="hs-identifier hs-var">spanStart</span></a></span><span>
+</span><span id="line-387"></span><span>                                                          </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679079525"><span class="hs-identifier hs-var">spanInComment</span></a></span><span>
+</span><span id="line-388"></span><span>                                                          </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679079567"><span class="hs-identifier hs-var">cur'</span></a></span><span>
+</span><span id="line-389"></span></pre></body></html>

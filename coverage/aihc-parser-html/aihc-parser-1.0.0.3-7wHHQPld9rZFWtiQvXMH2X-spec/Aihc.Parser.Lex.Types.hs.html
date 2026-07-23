@@ -1,0 +1,490 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE BangPatterns #-}
+<span class="lineno">    2 </span>{-# LANGUAGE DeriveAnyClass #-}
+<span class="lineno">    3 </span>{-# LANGUAGE DeriveDataTypeable #-}
+<span class="lineno">    4 </span>{-# LANGUAGE DeriveGeneric #-}
+<span class="lineno">    5 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    6 </span>{-# LANGUAGE PatternSynonyms #-}
+<span class="lineno">    7 </span>
+<span class="lineno">    8 </span>module Aihc.Parser.Lex.Types
+<span class="lineno">    9 </span>  ( LexTokenKind (..),
+<span class="lineno">   10 </span>    pattern TkVarRole,
+<span class="lineno">   11 </span>    pattern TkVarFamily,
+<span class="lineno">   12 </span>    pattern TkVarAs,
+<span class="lineno">   13 </span>    pattern TkVarHiding,
+<span class="lineno">   14 </span>    pattern TkVarQualified,
+<span class="lineno">   15 </span>    pattern TkVarSafe,
+<span class="lineno">   16 </span>    TokenOrigin (..),
+<span class="lineno">   17 </span>    LexToken (..),
+<span class="lineno">   18 </span>    LexerEnv (..),
+<span class="lineno">   19 </span>    hasExt,
+<span class="lineno">   20 </span>    LexerState (..),
+<span class="lineno">   21 </span>    LayoutContext (..),
+<span class="lineno">   22 </span>    LayoutFrame (..),
+<span class="lineno">   23 </span>    LayoutSemicolons (..),
+<span class="lineno">   24 </span>    LayoutIndentPolicy (..),
+<span class="lineno">   25 </span>    LayoutBaseline (..),
+<span class="lineno">   26 </span>    ImplicitLayoutSpec (..),
+<span class="lineno">   27 </span>    PendingLayout (..),
+<span class="lineno">   28 </span>    ModuleLayoutMode (..),
+<span class="lineno">   29 </span>    LayoutState (..),
+<span class="lineno">   30 </span>    DirectiveUpdate (..),
+<span class="lineno">   31 </span>    HashLineTrivia (..),
+<span class="lineno">   32 </span>    mkLexerEnv,
+<span class="lineno">   33 </span>    mkInitialLexerState,
+<span class="lineno">   34 </span>    mkInitialLayoutState,
+<span class="lineno">   35 </span>    mkToken,
+<span class="lineno">   36 </span>    mkErrorToken,
+<span class="lineno">   37 </span>    mkSpan,
+<span class="lineno">   38 </span>    advanceChars,
+<span class="lineno">   39 </span>    advanceN,
+<span class="lineno">   40 </span>    consumeWhile,
+<span class="lineno">   41 </span>    tokenStartCol,
+<span class="lineno">   42 </span>    virtualSymbolToken,
+<span class="lineno">   43 </span>    isSymbolicOpChar,
+<span class="lineno">   44 </span>    isUnicodeSymbol,
+<span class="lineno">   45 </span>    isUnicodeSymbolCategory,
+<span class="lineno">   46 </span>  )
+<span class="lineno">   47 </span>where
+<span class="lineno">   48 </span>
+<span class="lineno">   49 </span>import Aihc.Parser.Syntax
+<span class="lineno">   50 </span>import Aihc.Parser.Syntax qualified as Syntax
+<span class="lineno">   51 </span>import Control.DeepSeq (NFData)
+<span class="lineno">   52 </span>import Data.Char (GeneralCategory (..), generalCategory, isAscii, isSpace, ord)
+<span class="lineno">   53 </span>import Data.Data (Data)
+<span class="lineno">   54 </span>import Data.Text (Text)
+<span class="lineno">   55 </span>import Data.Text qualified as T
+<span class="lineno">   56 </span>import GHC.Generics (Generic)
+<span class="lineno">   57 </span>
+<span class="lineno">   58 </span>data LexTokenKind
+<span class="lineno">   59 </span>  = -- Keywords (reserved identifiers per Haskell Report Section 2.4)
+<span class="lineno">   60 </span>    TkKeywordCase
+<span class="lineno">   61 </span>  | TkKeywordClass
+<span class="lineno">   62 </span>  | TkKeywordData
+<span class="lineno">   63 </span>  | TkKeywordDefault
+<span class="lineno">   64 </span>  | TkKeywordDeriving
+<span class="lineno">   65 </span>  | TkKeywordDo
+<span class="lineno">   66 </span>  | TkKeywordElse
+<span class="lineno">   67 </span>  | TkKeywordForall
+<span class="lineno">   68 </span>  | TkKeywordForeign
+<span class="lineno">   69 </span>  | TkKeywordIf
+<span class="lineno">   70 </span>  | TkKeywordImport
+<span class="lineno">   71 </span>  | TkKeywordIn
+<span class="lineno">   72 </span>  | TkKeywordInfix
+<span class="lineno">   73 </span>  | TkKeywordInfixl
+<span class="lineno">   74 </span>  | TkKeywordInfixr
+<span class="lineno">   75 </span>  | TkKeywordInstance
+<span class="lineno">   76 </span>  | TkKeywordLet
+<span class="lineno">   77 </span>  | TkKeywordModule
+<span class="lineno">   78 </span>  | TkKeywordNewtype
+<span class="lineno">   79 </span>  | TkKeywordOf
+<span class="lineno">   80 </span>  | TkKeywordThen
+<span class="lineno">   81 </span>  | TkKeywordType
+<span class="lineno">   82 </span>  | TkKeywordWhere
+<span class="lineno">   83 </span>  | TkKeywordUnderscore
+<span class="lineno">   84 </span>  | -- Extension-conditional keywords
+<span class="lineno">   85 </span>    TkKeywordProc
+<span class="lineno">   86 </span>  | TkKeywordRec
+<span class="lineno">   87 </span>  | TkKeywordMdo
+<span class="lineno">   88 </span>  | TkKeywordPattern
+<span class="lineno">   89 </span>  | TkKeywordBy
+<span class="lineno">   90 </span>  | TkKeywordUsing
+<span class="lineno">   91 </span>  | -- QualifiedDo tokens (extension-conditional)
+<span class="lineno">   92 </span>
+<span class="lineno">   93 </span>    -- | @M.do@ — carries the module qualifier
+<span class="lineno">   94 </span>    TkQualifiedDo Text
+<span class="lineno">   95 </span>  | -- | @M.mdo@ — carries the module qualifier
+<span class="lineno">   96 </span>    TkQualifiedMdo Text
+<span class="lineno">   97 </span>  | -- Reserved operators (per Haskell Report Section 2.4)
+<span class="lineno">   98 </span>    TkReservedDotDot
+<span class="lineno">   99 </span>  | TkReservedColon
+<span class="lineno">  100 </span>  | TkReservedDoubleColon
+<span class="lineno">  101 </span>  | TkReservedEquals
+<span class="lineno">  102 </span>  | TkReservedBackslash
+<span class="lineno">  103 </span>  | TkReservedPipe
+<span class="lineno">  104 </span>  | TkReservedLeftArrow
+<span class="lineno">  105 </span>  | TkReservedRightArrow
+<span class="lineno">  106 </span>  | TkReservedAt
+<span class="lineno">  107 </span>  | TkReservedDoubleArrow
+<span class="lineno">  108 </span>  | -- LinearTypes multiplicity prefix (e.g. @%1@, @%m@, @%'Many@)
+<span class="lineno">  109 </span>    TkPrefixPercent
+<span class="lineno">  110 </span>  | -- LinearTypes arrow operator
+<span class="lineno">  111 </span>    TkLinearArrow
+<span class="lineno">  112 </span>  | -- Arrow notation reserved operators (Arrows extension)
+<span class="lineno">  113 </span>    TkArrowTail
+<span class="lineno">  114 </span>  | TkArrowTailReverse
+<span class="lineno">  115 </span>  | TkDoubleArrowTail
+<span class="lineno">  116 </span>  | TkDoubleArrowTailReverse
+<span class="lineno">  117 </span>  | TkBananaOpen
+<span class="lineno">  118 </span>  | TkBananaClose
+<span class="lineno">  119 </span>  | -- Identifiers (per Haskell Report Section 2.4)
+<span class="lineno">  120 </span>    TkVarId Text
+<span class="lineno">  121 </span>  | TkConId Text
+<span class="lineno">  122 </span>  | TkQVarId Text Text
+<span class="lineno">  123 </span>  | TkQConId Text Text
+<span class="lineno">  124 </span>  | TkImplicitParam Text
+<span class="lineno">  125 </span>  | -- Operators (per Haskell Report Section 2.4)
+<span class="lineno">  126 </span>    TkVarSym Text
+<span class="lineno">  127 </span>  | TkConSym Text
+<span class="lineno">  128 </span>  | TkQVarSym Text Text
+<span class="lineno">  129 </span>  | TkQConSym Text Text
+<span class="lineno">  130 </span>  | -- Literals
+<span class="lineno">  131 </span>    TkInteger Integer NumericType
+<span class="lineno">  132 </span>  | TkFloat Rational FloatType
+<span class="lineno">  133 </span>  | TkChar Char
+<span class="lineno">  134 </span>  | TkCharHash Char Text
+<span class="lineno">  135 </span>  | TkString Text
+<span class="lineno">  136 </span>  | TkStringHash Text Text
+<span class="lineno">  137 </span>  | TkOverloadedLabel Text Text
+<span class="lineno">  138 </span>  | -- Special characters (per Haskell Report Section 2.2)
+<span class="lineno">  139 </span>    TkSpecialLParen
+<span class="lineno">  140 </span>  | TkSpecialRParen
+<span class="lineno">  141 </span>  | TkSpecialUnboxedLParen
+<span class="lineno">  142 </span>  | TkSpecialUnboxedRParen
+<span class="lineno">  143 </span>  | TkSpecialComma
+<span class="lineno">  144 </span>  | TkSpecialSemicolon
+<span class="lineno">  145 </span>  | TkSpecialLBracket
+<span class="lineno">  146 </span>  | TkSpecialRBracket
+<span class="lineno">  147 </span>  | TkSpecialBacktick
+<span class="lineno">  148 </span>  | TkSpecialLBrace
+<span class="lineno">  149 </span>  | TkSpecialRBrace
+<span class="lineno">  150 </span>  | -- LexicalNegation support
+<span class="lineno">  151 </span>    TkMinusOperator
+<span class="lineno">  152 </span>  | TkPrefixMinus
+<span class="lineno">  153 </span>  | -- Whitespace-sensitive operator support (GHC proposal 0229)
+<span class="lineno">  154 </span>    TkPrefixBang
+<span class="lineno">  155 </span>  | TkPrefixTilde
+<span class="lineno">  156 </span>  | -- OverloadedRecordDot: '.' immediately after an expression, before a lowercase ident
+<span class="lineno">  157 </span>    TkRecordDot
+<span class="lineno">  158 </span>  | -- TypeApplications support
+<span class="lineno">  159 </span>    TkTypeApp
+<span class="lineno">  160 </span>  | -- Pragmas
+<span class="lineno">  161 </span>    TkPragma Pragma
+<span class="lineno">  162 </span>  | -- TemplateHaskellQuotes bracket tokens
+<span class="lineno">  163 </span>    TkTHExpQuoteOpen
+<span class="lineno">  164 </span>  | TkTHExpQuoteClose
+<span class="lineno">  165 </span>  | TkTHTypedQuoteOpen
+<span class="lineno">  166 </span>  | TkTHTypedQuoteClose
+<span class="lineno">  167 </span>  | TkTHDeclQuoteOpen
+<span class="lineno">  168 </span>  | TkTHTypeQuoteOpen
+<span class="lineno">  169 </span>  | TkTHPatQuoteOpen
+<span class="lineno">  170 </span>  | TkTHQuoteTick
+<span class="lineno">  171 </span>  | TkTHTypeQuoteTick
+<span class="lineno">  172 </span>  | -- TemplateHaskell splice tokens (prefix $ and $$)
+<span class="lineno">  173 </span>    TkTHSplice
+<span class="lineno">  174 </span>  | TkTHTypedSplice
+<span class="lineno">  175 </span>  | -- Other
+<span class="lineno">  176 </span>    TkQuasiQuote Text Text
+<span class="lineno">  177 </span>  | TkLineComment
+<span class="lineno">  178 </span>  | TkBlockComment
+<span class="lineno">  179 </span>  | TkError Text
+<span class="lineno">  180 </span>  | TkEOF
+<span class="lineno">  181 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="istickedoff"><span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Data</span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="istickedoff">Eq</span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Ord</span></span></span></span></span></span></span></span></span></span></span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Read</span></span></span></span></span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="istickedoff">NFData</span></span>)
+<span class="lineno">  182 </span>
+<span class="lineno">  183 </span>pattern TkVarRole :: LexTokenKind
+<span class="lineno">  184 </span>pattern TkVarRole = <span class="istickedoff">TkVarId &quot;role&quot;</span>
+<span class="lineno">  185 </span>
+<span class="lineno">  186 </span>pattern TkVarFamily :: LexTokenKind
+<span class="lineno">  187 </span>pattern TkVarFamily = <span class="istickedoff">TkVarId &quot;family&quot;</span>
+<span class="lineno">  188 </span>
+<span class="lineno">  189 </span>pattern TkVarAs :: LexTokenKind
+<span class="lineno">  190 </span>pattern TkVarAs = <span class="nottickedoff"><span class="istickedoff">TkVarId &quot;as&quot;</span></span>
+<span class="lineno">  191 </span>
+<span class="lineno">  192 </span>pattern TkVarHiding :: LexTokenKind
+<span class="lineno">  193 </span>pattern TkVarHiding = <span class="nottickedoff"><span class="istickedoff">TkVarId &quot;hiding&quot;</span></span>
+<span class="lineno">  194 </span>
+<span class="lineno">  195 </span>pattern TkVarQualified :: LexTokenKind
+<span class="lineno">  196 </span>pattern TkVarQualified = <span class="nottickedoff"><span class="istickedoff">TkVarId &quot;qualified&quot;</span></span>
+<span class="lineno">  197 </span>
+<span class="lineno">  198 </span>pattern TkVarSafe :: LexTokenKind
+<span class="lineno">  199 </span>pattern TkVarSafe = <span class="nottickedoff"><span class="istickedoff">TkVarId &quot;safe&quot;</span></span>
+<span class="lineno">  200 </span>
+<span class="lineno">  201 </span>data TokenOrigin
+<span class="lineno">  202 </span>  = FromSource
+<span class="lineno">  203 </span>  | InsertedLayout
+<span class="lineno">  204 </span>  deriving (<span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Ord</span></span></span></span></span></span></span></span></span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Read</span></span></span></span></span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="istickedoff">NFData</span></span>)
+<span class="lineno">  205 </span>
+<span class="lineno">  206 </span>data LexToken = LexToken
+<span class="lineno">  207 </span>  { <span class="istickedoff"><span class="decl"><span class="istickedoff">lexTokenKind</span></span></span> :: !LexTokenKind,
+<span class="lineno">  208 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lexTokenText</span></span></span> :: !Text,
+<span class="lineno">  209 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lexTokenSpan</span></span></span> :: !SourceSpan,
+<span class="lineno">  210 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lexTokenOrigin</span></span></span> :: !TokenOrigin,
+<span class="lineno">  211 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lexTokenAtLineStart</span></span></span> :: !Bool
+<span class="lineno">  212 </span>  }
+<span class="lineno">  213 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Ord</span></span></span></span></span></span></span></span></span></span></span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="istickedoff">NFData</span></span>)
+<span class="lineno">  214 </span>
+<span class="lineno">  215 </span>newtype LexerEnv = LexerEnv
+<span class="lineno">  216 </span>  { <span class="istickedoff"><span class="decl"><span class="istickedoff">lexerExtensions</span></span></span> :: ExtensionSet
+<span class="lineno">  217 </span>  }
+<span class="lineno">  218 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  219 </span>
+<span class="lineno">  220 </span>hasExt :: Extension -&gt; LexerEnv -&gt; Bool
+<span class="lineno">  221 </span><span class="decl"><span class="istickedoff">hasExt ext env = memberExtension ext (lexerExtensions env)</span></span>
+<span class="lineno">  222 </span>{-# INLINE hasExt #-}
+<span class="lineno">  223 </span>
+<span class="lineno">  224 </span>data LexerState = LexerState
+<span class="lineno">  225 </span>  { <span class="istickedoff"><span class="decl"><span class="istickedoff">lexerInput</span></span></span> :: !Text,
+<span class="lineno">  226 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lexerLogicalSourceName</span></span></span> :: !FilePath,
+<span class="lineno">  227 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lexerLine</span></span></span> :: !Int,
+<span class="lineno">  228 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lexerCol</span></span></span> :: !Int,
+<span class="lineno">  229 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lexerByteOffset</span></span></span> :: !Int,
+<span class="lineno">  230 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lexerAtLineStart</span></span></span> :: !Bool,
+<span class="lineno">  231 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lexerPrevTokenKind</span></span></span> :: !(Maybe LexTokenKind),
+<span class="lineno">  232 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lexerHadTrivia</span></span></span> :: !Bool
+<span class="lineno">  233 </span>  }
+<span class="lineno">  234 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  235 </span>
+<span class="lineno">  236 </span>data LayoutContext
+<span class="lineno">  237 </span>  = LayoutExplicit
+<span class="lineno">  238 </span>  | LayoutImplicit !LayoutFrame
+<span class="lineno">  239 </span>  | LayoutDelimiter
+<span class="lineno">  240 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  241 </span>
+<span class="lineno">  242 </span>data LayoutFrame = LayoutFrame
+<span class="lineno">  243 </span>  { <span class="istickedoff"><span class="decl"><span class="istickedoff">layoutFrameIndent</span></span></span> :: !Int,
+<span class="lineno">  244 </span>    <span class="nottickedoff"><span class="decl"><span class="nottickedoff">layoutFrameSemicolons</span></span></span> :: !LayoutSemicolons,
+<span class="lineno">  245 </span>    <span class="nottickedoff"><span class="decl"><span class="nottickedoff">layoutFrameChildBaseline</span></span></span> :: !LayoutBaseline,
+<span class="lineno">  246 </span>    -- do-block opened directly by a preceding 'then'/'else'; tracks nested
+<span class="lineno">  247 </span>    -- classic ifs inside the block while the lexer still approximates this
+<span class="lineno">  248 </span>    -- parse-error close.
+<span class="lineno">  249 </span>    <span class="nottickedoff"><span class="decl"><span class="nottickedoff">layoutFrameThenElseDepth</span></span></span> :: !(Maybe Int)
+<span class="lineno">  250 </span>  }
+<span class="lineno">  251 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  252 </span>
+<span class="lineno">  253 </span>data LayoutSemicolons
+<span class="lineno">  254 </span>  = LayoutEmitSemicolons
+<span class="lineno">  255 </span>  | LayoutSuppressSemicolons
+<span class="lineno">  256 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  257 </span>
+<span class="lineno">  258 </span>data LayoutIndentPolicy
+<span class="lineno">  259 </span>  = LayoutStrictIndent
+<span class="lineno">  260 </span>  | LayoutAllowNondecreasingIndent
+<span class="lineno">  261 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  262 </span>
+<span class="lineno">  263 </span>data LayoutBaseline
+<span class="lineno">  264 </span>  = LayoutCurrentIndent
+<span class="lineno">  265 </span>  | LayoutColumnZero
+<span class="lineno">  266 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  267 </span>
+<span class="lineno">  268 </span>data ImplicitLayoutSpec = ImplicitLayoutSpec
+<span class="lineno">  269 </span>  { <span class="istickedoff"><span class="decl"><span class="istickedoff">implicitLayoutSemicolons</span></span></span> :: !LayoutSemicolons,
+<span class="lineno">  270 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">implicitLayoutIndentPolicy</span></span></span> :: !LayoutIndentPolicy,
+<span class="lineno">  271 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">implicitLayoutBaseline</span></span></span> :: !LayoutBaseline,
+<span class="lineno">  272 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">implicitLayoutChildBaseline</span></span></span> :: !LayoutBaseline,
+<span class="lineno">  273 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">implicitLayoutThenElseDepth</span></span></span> :: !(Maybe Int),
+<span class="lineno">  274 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">implicitLayoutFlushEmptyAtEOF</span></span></span> :: !Bool
+<span class="lineno">  275 </span>  }
+<span class="lineno">  276 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  277 </span>
+<span class="lineno">  278 </span>data PendingLayout
+<span class="lineno">  279 </span>  = PendingImplicitLayout !ImplicitLayoutSpec
+<span class="lineno">  280 </span>  | PendingMaybeMultiWayIf
+<span class="lineno">  281 </span>  | PendingMaybeLambdaCases
+<span class="lineno">  282 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  283 </span>
+<span class="lineno">  284 </span>data ModuleLayoutMode
+<span class="lineno">  285 </span>  = ModuleLayoutOff
+<span class="lineno">  286 </span>  | ModuleLayoutSeekStart
+<span class="lineno">  287 </span>  | ModuleLayoutAwaitWhere
+<span class="lineno">  288 </span>  | ModuleLayoutAwaitBody
+<span class="lineno">  289 </span>  | ModuleLayoutDone
+<span class="lineno">  290 </span>  deriving (<span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  291 </span>
+<span class="lineno">  292 </span>data LayoutState = LayoutState
+<span class="lineno">  293 </span>  { <span class="istickedoff"><span class="decl"><span class="istickedoff">layoutContexts</span></span></span> :: [LayoutContext],
+<span class="lineno">  294 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">layoutPendingLayout</span></span></span> :: !(Maybe PendingLayout),
+<span class="lineno">  295 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">layoutPrevTokenKind</span></span></span> :: !(Maybe LexTokenKind),
+<span class="lineno">  296 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">layoutModuleMode</span></span></span> :: !ModuleLayoutMode,
+<span class="lineno">  297 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">layoutPrevTokenEndSpan</span></span></span> :: !(Maybe SourceSpan),
+<span class="lineno">  298 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">layoutBuffer</span></span></span> :: [LexToken],
+<span class="lineno">  299 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">layoutNondecreasingIndent</span></span></span> :: !Bool,
+<span class="lineno">  300 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">layoutLambdaCase</span></span></span> :: !Bool
+<span class="lineno">  301 </span>  }
+<span class="lineno">  302 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  303 </span>
+<span class="lineno">  304 </span>data DirectiveUpdate = DirectiveUpdate
+<span class="lineno">  305 </span>  { <span class="istickedoff"><span class="decl"><span class="istickedoff">directiveLine</span></span></span> :: !(Maybe Int),
+<span class="lineno">  306 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">directiveCol</span></span></span> :: !(Maybe Int),
+<span class="lineno">  307 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">directiveSourceName</span></span></span> :: !(Maybe FilePath)
+<span class="lineno">  308 </span>  }
+<span class="lineno">  309 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  310 </span>
+<span class="lineno">  311 </span>data HashLineTrivia
+<span class="lineno">  312 </span>  = HashLineDirective !DirectiveUpdate
+<span class="lineno">  313 </span>  | HashLineShebang
+<span class="lineno">  314 </span>  | HashLineMalformed
+<span class="lineno">  315 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">  316 </span>
+<span class="lineno">  317 </span>mkLexerEnv :: [Extension] -&gt; LexerEnv
+<span class="lineno">  318 </span><span class="decl"><span class="istickedoff">mkLexerEnv exts = LexerEnv {lexerExtensions = mkExtensionSet exts}</span></span>
+<span class="lineno">  319 </span>
+<span class="lineno">  320 </span>mkInitialLexerState :: FilePath -&gt; [Extension] -&gt; Text -&gt; (LexerEnv, LexerState)
+<span class="lineno">  321 </span><span class="decl"><span class="istickedoff">mkInitialLexerState sourceName exts input =</span>
+<span class="lineno">  322 </span><span class="spaces">  </span><span class="istickedoff">( mkLexerEnv exts,</span>
+<span class="lineno">  323 </span><span class="spaces">    </span><span class="istickedoff">LexerState</span>
+<span class="lineno">  324 </span><span class="spaces">      </span><span class="istickedoff">{ lexerInput = input,</span>
+<span class="lineno">  325 </span><span class="spaces">        </span><span class="istickedoff">lexerLogicalSourceName = sourceName,</span>
+<span class="lineno">  326 </span><span class="spaces">        </span><span class="istickedoff">lexerLine = 1,</span>
+<span class="lineno">  327 </span><span class="spaces">        </span><span class="istickedoff">lexerCol = 1,</span>
+<span class="lineno">  328 </span><span class="spaces">        </span><span class="istickedoff">lexerByteOffset = 0,</span>
+<span class="lineno">  329 </span><span class="spaces">        </span><span class="istickedoff">lexerAtLineStart = True,</span>
+<span class="lineno">  330 </span><span class="spaces">        </span><span class="istickedoff">lexerPrevTokenKind = Nothing,</span>
+<span class="lineno">  331 </span><span class="spaces">        </span><span class="istickedoff">lexerHadTrivia = True</span>
+<span class="lineno">  332 </span><span class="spaces">      </span><span class="istickedoff">}</span>
+<span class="lineno">  333 </span><span class="spaces">  </span><span class="istickedoff">)</span></span>
+<span class="lineno">  334 </span>
+<span class="lineno">  335 </span>mkInitialLayoutState :: Bool -&gt; [Extension] -&gt; LayoutState
+<span class="lineno">  336 </span><span class="decl"><span class="istickedoff">mkInitialLayoutState enableModuleLayout exts =</span>
+<span class="lineno">  337 </span><span class="spaces">  </span><span class="istickedoff">LayoutState</span>
+<span class="lineno">  338 </span><span class="spaces">    </span><span class="istickedoff">{ layoutContexts = [],</span>
+<span class="lineno">  339 </span><span class="spaces">      </span><span class="istickedoff">layoutPendingLayout = Nothing,</span>
+<span class="lineno">  340 </span><span class="spaces">      </span><span class="istickedoff">layoutPrevTokenKind = Nothing,</span>
+<span class="lineno">  341 </span><span class="spaces">      </span><span class="istickedoff">layoutModuleMode =</span>
+<span class="lineno">  342 </span><span class="spaces">        </span><span class="istickedoff">if enableModuleLayout</span>
+<span class="lineno">  343 </span><span class="spaces">          </span><span class="istickedoff">then ModuleLayoutSeekStart</span>
+<span class="lineno">  344 </span><span class="spaces">          </span><span class="istickedoff">else ModuleLayoutOff,</span>
+<span class="lineno">  345 </span><span class="spaces">      </span><span class="istickedoff">layoutPrevTokenEndSpan = Nothing,</span>
+<span class="lineno">  346 </span><span class="spaces">      </span><span class="istickedoff">layoutBuffer = <span class="nottickedoff">[]</span>,</span>
+<span class="lineno">  347 </span><span class="spaces">      </span><span class="istickedoff">layoutNondecreasingIndent = Syntax.NondecreasingIndentation `elem` exts,</span>
+<span class="lineno">  348 </span><span class="spaces">      </span><span class="istickedoff">layoutLambdaCase = Syntax.LambdaCase `elem` exts</span>
+<span class="lineno">  349 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">  350 </span>
+<span class="lineno">  351 </span>mkToken :: LexerState -&gt; LexerState -&gt; Text -&gt; LexTokenKind -&gt; LexToken
+<span class="lineno">  352 </span><span class="decl"><span class="istickedoff">mkToken start end tokTxt kind =</span>
+<span class="lineno">  353 </span><span class="spaces">  </span><span class="istickedoff">LexToken</span>
+<span class="lineno">  354 </span><span class="spaces">    </span><span class="istickedoff">{ lexTokenKind = kind,</span>
+<span class="lineno">  355 </span><span class="spaces">      </span><span class="istickedoff">lexTokenText = tokTxt,</span>
+<span class="lineno">  356 </span><span class="spaces">      </span><span class="istickedoff">lexTokenSpan = mkSpan start end,</span>
+<span class="lineno">  357 </span><span class="spaces">      </span><span class="istickedoff">lexTokenOrigin = FromSource,</span>
+<span class="lineno">  358 </span><span class="spaces">      </span><span class="istickedoff">lexTokenAtLineStart = lexerAtLineStart start</span>
+<span class="lineno">  359 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">  360 </span>
+<span class="lineno">  361 </span>mkErrorToken :: LexerState -&gt; LexerState -&gt; Text -&gt; Text -&gt; LexToken
+<span class="lineno">  362 </span><span class="decl"><span class="istickedoff">mkErrorToken start end rawTxt msg = mkToken start end rawTxt (TkError msg)</span></span>
+<span class="lineno">  363 </span>
+<span class="lineno">  364 </span>mkSpan :: LexerState -&gt; LexerState -&gt; SourceSpan
+<span class="lineno">  365 </span><span class="decl"><span class="istickedoff">mkSpan start end =</span>
+<span class="lineno">  366 </span><span class="spaces">  </span><span class="istickedoff">SourceSpan</span>
+<span class="lineno">  367 </span><span class="spaces">    </span><span class="istickedoff">{ sourceSpanSourceName = lexerLogicalSourceName start,</span>
+<span class="lineno">  368 </span><span class="spaces">      </span><span class="istickedoff">sourceSpanStartLine = lexerLine start,</span>
+<span class="lineno">  369 </span><span class="spaces">      </span><span class="istickedoff">sourceSpanStartCol = lexerCol start,</span>
+<span class="lineno">  370 </span><span class="spaces">      </span><span class="istickedoff">sourceSpanEndLine = lexerLine end,</span>
+<span class="lineno">  371 </span><span class="spaces">      </span><span class="istickedoff">sourceSpanEndCol = lexerCol end,</span>
+<span class="lineno">  372 </span><span class="spaces">      </span><span class="istickedoff">sourceSpanStartOffset = lexerByteOffset start,</span>
+<span class="lineno">  373 </span><span class="spaces">      </span><span class="istickedoff">sourceSpanEndOffset = lexerByteOffset end</span>
+<span class="lineno">  374 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">  375 </span>
+<span class="lineno">  376 </span>advanceChars :: Text -&gt; LexerState -&gt; LexerState
+<span class="lineno">  377 </span><span class="decl"><span class="istickedoff">advanceChars consumed st =</span>
+<span class="lineno">  378 </span><span class="spaces">  </span><span class="istickedoff">let !n = T.length consumed</span>
+<span class="lineno">  379 </span><span class="spaces">      </span><span class="istickedoff">go (!line, !col, !byteOff, !atLineStart) ch =</span>
+<span class="lineno">  380 </span><span class="spaces">        </span><span class="istickedoff">case ch of</span>
+<span class="lineno">  381 </span><span class="spaces">          </span><span class="istickedoff">'\n' -&gt; (line + 1, 1, byteOff + 1, True)</span>
+<span class="lineno">  382 </span><span class="spaces">          </span><span class="istickedoff">'\t' -&gt;</span>
+<span class="lineno">  383 </span><span class="spaces">            </span><span class="istickedoff">let nextTabStop = 8 - ((col - 1) `mod` 8)</span>
+<span class="lineno">  384 </span><span class="spaces">             </span><span class="istickedoff">in (line, col + nextTabStop, byteOff + 1, atLineStart)</span>
+<span class="lineno">  385 </span><span class="spaces">          </span><span class="istickedoff">' ' -&gt; (line, col + 1, byteOff + 1, atLineStart)</span>
+<span class="lineno">  386 </span><span class="spaces">          </span><span class="istickedoff">_</span>
+<span class="lineno">  387 </span><span class="spaces">            </span><span class="istickedoff">| isSpace ch -&gt; (line, col + 1, byteOff + utf8CharWidth ch, atLineStart)</span>
+<span class="lineno">  388 </span><span class="spaces">            </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; (line, col + 1, byteOff + utf8CharWidth ch, False)</span>
+<span class="lineno">  389 </span><span class="spaces">      </span><span class="istickedoff">(!finalLine, !finalCol, !finalByteOff, !finalAtLineStart) =</span>
+<span class="lineno">  390 </span><span class="spaces">        </span><span class="istickedoff">T.foldl' go (lexerLine st, lexerCol st, lexerByteOffset st, lexerAtLineStart st) consumed</span>
+<span class="lineno">  391 </span><span class="spaces">   </span><span class="istickedoff">in st</span>
+<span class="lineno">  392 </span><span class="spaces">        </span><span class="istickedoff">{ lexerInput = T.drop n (lexerInput st),</span>
+<span class="lineno">  393 </span><span class="spaces">          </span><span class="istickedoff">lexerLine = finalLine,</span>
+<span class="lineno">  394 </span><span class="spaces">          </span><span class="istickedoff">lexerCol = finalCol,</span>
+<span class="lineno">  395 </span><span class="spaces">          </span><span class="istickedoff">lexerByteOffset = finalByteOff,</span>
+<span class="lineno">  396 </span><span class="spaces">          </span><span class="istickedoff">lexerAtLineStart = finalAtLineStart</span>
+<span class="lineno">  397 </span><span class="spaces">        </span><span class="istickedoff">}</span></span>
+<span class="lineno">  398 </span>
+<span class="lineno">  399 </span>advanceN :: Int -&gt; LexerState -&gt; LexerState
+<span class="lineno">  400 </span><span class="decl"><span class="istickedoff">advanceN n st = advanceChars (T.take n (lexerInput st)) st</span></span>
+<span class="lineno">  401 </span>
+<span class="lineno">  402 </span>consumeWhile :: (Char -&gt; Bool) -&gt; LexerState -&gt; LexerState
+<span class="lineno">  403 </span><span class="decl"><span class="istickedoff">consumeWhile f st =</span>
+<span class="lineno">  404 </span><span class="spaces">  </span><span class="istickedoff">let consumed = T.takeWhile f (lexerInput st)</span>
+<span class="lineno">  405 </span><span class="spaces">   </span><span class="istickedoff">in advanceChars consumed st</span></span>
+<span class="lineno">  406 </span>
+<span class="lineno">  407 </span>tokenStartCol :: LexToken -&gt; Int
+<span class="lineno">  408 </span><span class="decl"><span class="istickedoff">tokenStartCol tok =</span>
+<span class="lineno">  409 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenSpan tok of</span>
+<span class="lineno">  410 </span><span class="spaces">    </span><span class="istickedoff">SourceSpan {sourceSpanStartCol = col} -&gt; col</span>
+<span class="lineno">  411 </span><span class="spaces">    </span><span class="istickedoff">NoSourceSpan -&gt; <span class="nottickedoff">1</span></span></span>
+<span class="lineno">  412 </span>
+<span class="lineno">  413 </span>virtualSymbolToken :: Text -&gt; SourceSpan -&gt; LexToken
+<span class="lineno">  414 </span><span class="decl"><span class="istickedoff">virtualSymbolToken sym span' =</span>
+<span class="lineno">  415 </span><span class="spaces">  </span><span class="istickedoff">LexToken</span>
+<span class="lineno">  416 </span><span class="spaces">    </span><span class="istickedoff">{ lexTokenKind = case sym of</span>
+<span class="lineno">  417 </span><span class="spaces">        </span><span class="istickedoff">&quot;{&quot; -&gt; TkSpecialLBrace</span>
+<span class="lineno">  418 </span><span class="spaces">        </span><span class="istickedoff">&quot;}&quot; -&gt; TkSpecialRBrace</span>
+<span class="lineno">  419 </span><span class="spaces">        </span><span class="istickedoff">&quot;;&quot; -&gt; TkSpecialSemicolon</span>
+<span class="lineno">  420 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">error (&quot;virtualSymbolToken: unknown symbol: &quot; ++ show sym)</span>,</span>
+<span class="lineno">  421 </span><span class="spaces">      </span><span class="istickedoff">lexTokenText = sym,</span>
+<span class="lineno">  422 </span><span class="spaces">      </span><span class="istickedoff">lexTokenSpan = span',</span>
+<span class="lineno">  423 </span><span class="spaces">      </span><span class="istickedoff">lexTokenOrigin = InsertedLayout,</span>
+<span class="lineno">  424 </span><span class="spaces">      </span><span class="istickedoff">lexTokenAtLineStart = False</span>
+<span class="lineno">  425 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">  426 </span>
+<span class="lineno">  427 </span>utf8CharWidth :: Char -&gt; Int
+<span class="lineno">  428 </span><span class="decl"><span class="istickedoff">utf8CharWidth ch =</span>
+<span class="lineno">  429 </span><span class="spaces">  </span><span class="istickedoff">case ord ch of</span>
+<span class="lineno">  430 </span><span class="spaces">    </span><span class="istickedoff">code</span>
+<span class="lineno">  431 </span><span class="spaces">      </span><span class="istickedoff">| code &lt;= 0x7F -&gt; 1</span>
+<span class="lineno">  432 </span><span class="spaces">      </span><span class="istickedoff">| code &lt;= 0x7FF -&gt; 2</span>
+<span class="lineno">  433 </span><span class="spaces">      </span><span class="istickedoff">| code &lt;= 0xFFFF -&gt; 3</span>
+<span class="lineno">  434 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; 4</span></span>
+<span class="lineno">  435 </span>
+<span class="lineno">  436 </span>isSymbolicOpChar :: Char -&gt; Bool
+<span class="lineno">  437 </span><span class="decl"><span class="istickedoff">isSymbolicOpChar c = c `elem` (&quot;:!#$%&amp;*+./&lt;=&gt;?@\\^|-~&quot; :: String) || isUnicodeSymbol c</span></span>
+<span class="lineno">  438 </span>
+<span class="lineno">  439 </span>isUnicodeSymbol :: Char -&gt; Bool
+<span class="lineno">  440 </span><span class="decl"><span class="istickedoff">isUnicodeSymbol c =</span>
+<span class="lineno">  441 </span><span class="spaces">  </span><span class="istickedoff">isUnicodeSymbolCategory c</span>
+<span class="lineno">  442 </span><span class="spaces">    </span><span class="istickedoff">|| c == '∷'</span>
+<span class="lineno">  443 </span><span class="spaces">    </span><span class="istickedoff">|| c == '⇒'</span>
+<span class="lineno">  444 </span><span class="spaces">    </span><span class="istickedoff">|| c == '→'</span>
+<span class="lineno">  445 </span><span class="spaces">    </span><span class="istickedoff">|| c == '←'</span>
+<span class="lineno">  446 </span><span class="spaces">    </span><span class="istickedoff">|| c == '∀'</span>
+<span class="lineno">  447 </span><span class="spaces">    </span><span class="istickedoff">|| c == '⤙'</span>
+<span class="lineno">  448 </span><span class="spaces">    </span><span class="istickedoff">|| c == '⤚'</span>
+<span class="lineno">  449 </span><span class="spaces">    </span><span class="istickedoff">|| c == '⤛'</span>
+<span class="lineno">  450 </span><span class="spaces">    </span><span class="istickedoff">|| c == '⤜'</span>
+<span class="lineno">  451 </span><span class="spaces">    </span><span class="istickedoff">|| c == '⦇'</span>
+<span class="lineno">  452 </span><span class="spaces">    </span><span class="istickedoff">|| c == '⦈'</span>
+<span class="lineno">  453 </span><span class="spaces">    </span><span class="istickedoff">|| c == '⟦'</span>
+<span class="lineno">  454 </span><span class="spaces">    </span><span class="istickedoff">|| c == '⟧'</span>
+<span class="lineno">  455 </span><span class="spaces">    </span><span class="istickedoff">|| c == '⊸'</span></span>
+<span class="lineno">  456 </span>
+<span class="lineno">  457 </span>isUnicodeSymbolCategory :: Char -&gt; Bool
+<span class="lineno">  458 </span><span class="decl"><span class="istickedoff">isUnicodeSymbolCategory c =</span>
+<span class="lineno">  459 </span><span class="spaces">  </span><span class="istickedoff">case generalCategory c of</span>
+<span class="lineno">  460 </span><span class="spaces">    </span><span class="istickedoff">MathSymbol -&gt; True</span>
+<span class="lineno">  461 </span><span class="spaces">    </span><span class="istickedoff">CurrencySymbol -&gt; True</span>
+<span class="lineno">  462 </span><span class="spaces">    </span><span class="istickedoff">ModifierSymbol -&gt; not (isAscii c)</span>
+<span class="lineno">  463 </span><span class="spaces">    </span><span class="istickedoff">OtherSymbol -&gt; True</span>
+<span class="lineno">  464 </span><span class="spaces">    </span><span class="istickedoff">ConnectorPunctuation -&gt; not (isAscii c)</span>
+<span class="lineno">  465 </span><span class="spaces">    </span><span class="istickedoff">DashPunctuation -&gt; not (isAscii c)</span>
+<span class="lineno">  466 </span><span class="spaces">    </span><span class="istickedoff">OtherPunctuation -&gt; not (isAscii c)</span>
+<span class="lineno">  467 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; False</span></span>
+
+</pre>
+</body>
+</html>

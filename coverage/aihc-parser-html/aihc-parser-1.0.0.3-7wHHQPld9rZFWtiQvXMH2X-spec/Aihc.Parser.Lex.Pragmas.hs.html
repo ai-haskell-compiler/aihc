@@ -1,0 +1,384 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>{-# LANGUAGE PatternSynonyms #-}
+<span class="lineno">    3 </span>
+<span class="lineno">    4 </span>module Aihc.Parser.Lex.Pragmas
+<span class="lineno">    5 </span>  ( tryParsePragma,
+<span class="lineno">    6 </span>    parsePragmaType,
+<span class="lineno">    7 </span>    parseControlPragma,
+<span class="lineno">    8 </span>  )
+<span class="lineno">    9 </span>where
+<span class="lineno">   10 </span>
+<span class="lineno">   11 </span>import Aihc.Parser.Lex.Types
+<span class="lineno">   12 </span>  ( DirectiveUpdate (..),
+<span class="lineno">   13 </span>    LexToken (..),
+<span class="lineno">   14 </span>    LexTokenKind (..),
+<span class="lineno">   15 </span>    LexerState (..),
+<span class="lineno">   16 </span>    advanceN,
+<span class="lineno">   17 </span>    mkToken,
+<span class="lineno">   18 </span>  )
+<span class="lineno">   19 </span>import Aihc.Parser.Syntax
+<span class="lineno">   20 </span>import Data.Char (isDigit, isSpace)
+<span class="lineno">   21 </span>import Data.Maybe (mapMaybe)
+<span class="lineno">   22 </span>import Data.Text (Text, pattern Empty, pattern (:&lt;))
+<span class="lineno">   23 </span>import Data.Text qualified as T
+<span class="lineno">   24 </span>import Text.Read (readMaybe)
+<span class="lineno">   25 </span>
+<span class="lineno">   26 </span>-- | Single entry point for pragma parsing.
+<span class="lineno">   27 </span>-- Scans &quot;{-# ... #-}&quot; once, then parses the body to determine which Pragma it is.
+<span class="lineno">   28 </span>tryParsePragma :: LexerState -&gt; Maybe (LexToken, LexerState)
+<span class="lineno">   29 </span><span class="decl"><span class="istickedoff">tryParsePragma st = do</span>
+<span class="lineno">   30 </span><span class="spaces">  </span><span class="istickedoff">(rawBody, consumedLen) &lt;- extractPragmaBody (lexerInput st)</span>
+<span class="lineno">   31 </span><span class="spaces">  </span><span class="istickedoff">let fullText = &quot;{-#&quot; &lt;&gt; rawBody &lt;&gt; &quot;#-}&quot;</span>
+<span class="lineno">   32 </span><span class="spaces">      </span><span class="istickedoff">pragma = Pragma {pragmaType = parsePragmaType rawBody, pragmaRawText = fullText}</span>
+<span class="lineno">   33 </span><span class="spaces">      </span><span class="istickedoff">st' = advanceN consumedLen st</span>
+<span class="lineno">   34 </span><span class="spaces">  </span><span class="istickedoff">Just (mkToken st st' fullText (TkPragma pragma), st')</span></span>
+<span class="lineno">   35 </span>
+<span class="lineno">   36 </span>-- | Extract the raw body text between &quot;{-#&quot; and &quot;#-}&quot;.
+<span class="lineno">   37 </span>-- Returns (body_text, total_consumed_length) where total includes &quot;{-#&quot; and &quot;#-}&quot;.
+<span class="lineno">   38 </span>extractPragmaBody :: Text -&gt; Maybe (Text, Int)
+<span class="lineno">   39 </span><span class="decl"><span class="istickedoff">extractPragmaBody input = do</span>
+<span class="lineno">   40 </span><span class="spaces">  </span><span class="istickedoff">rest0 &lt;- T.stripPrefix &quot;{-#&quot; input</span>
+<span class="lineno">   41 </span><span class="spaces">  </span><span class="istickedoff">let (body, marker) = T.breakOn &quot;#-}&quot; rest0</span>
+<span class="lineno">   42 </span><span class="spaces">  </span><span class="istickedoff">if <span class="tickonlyfalse">T.null marker</span></span>
+<span class="lineno">   43 </span><span class="spaces">    </span><span class="istickedoff">then <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">   44 </span><span class="spaces">    </span><span class="istickedoff">else</span>
+<span class="lineno">   45 </span><span class="spaces">      </span><span class="istickedoff">let consumedLen = T.length input - T.length (T.drop 3 marker)</span>
+<span class="lineno">   46 </span><span class="spaces">       </span><span class="istickedoff">in Just (body, consumedLen)</span></span>
+<span class="lineno">   47 </span>
+<span class="lineno">   48 </span>-- | Parse pragma body text into a structured PragmaType.
+<span class="lineno">   49 </span>-- The body is the text between &quot;{-#&quot; and &quot;#-}&quot; (not including the delimiters).
+<span class="lineno">   50 </span>parsePragmaType :: Text -&gt; PragmaType
+<span class="lineno">   51 </span><span class="decl"><span class="istickedoff">parsePragmaType rawBody =</span>
+<span class="lineno">   52 </span><span class="spaces">  </span><span class="istickedoff">let trimmed = T.strip rawBody</span>
+<span class="lineno">   53 </span><span class="spaces">      </span><span class="istickedoff">upperBody = T.toUpper trimmed</span>
+<span class="lineno">   54 </span><span class="spaces">   </span><span class="istickedoff">in case tryParseNamedPragma trimmed upperBody of</span>
+<span class="lineno">   55 </span><span class="spaces">        </span><span class="istickedoff">Just pt -&gt; pt</span>
+<span class="lineno">   56 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; PragmaUnknown (&quot;{-#&quot; &lt;&gt; rawBody &lt;&gt; &quot;#-}&quot;)</span></span>
+<span class="lineno">   57 </span>
+<span class="lineno">   58 </span>tryParseNamedPragma :: Text -&gt; Text -&gt; Maybe PragmaType
+<span class="lineno">   59 </span><span class="decl"><span class="istickedoff">tryParseNamedPragma body upperBody</span>
+<span class="lineno">   60 </span><span class="spaces">  </span><span class="istickedoff">| Just pt &lt;- parseLanguagePragma body upperBody = Just pt</span>
+<span class="lineno">   61 </span><span class="spaces">  </span><span class="istickedoff">| Just pt &lt;- parseInstanceOverlapPragma <span class="nottickedoff">body</span> upperBody = Just pt</span>
+<span class="lineno">   62 </span><span class="spaces">  </span><span class="istickedoff">| Just pt &lt;- parseOptionsPragma body upperBody = Just pt</span>
+<span class="lineno">   63 </span><span class="spaces">  </span><span class="istickedoff">| Just pt &lt;- parseWarningPragma body upperBody = Just pt</span>
+<span class="lineno">   64 </span><span class="spaces">  </span><span class="istickedoff">| Just pt &lt;- parseDeprecatedPragma body upperBody = Just pt</span>
+<span class="lineno">   65 </span><span class="spaces">  </span><span class="istickedoff">| Just pt &lt;- parseInlinePragma body upperBody = Just pt</span>
+<span class="lineno">   66 </span><span class="spaces">  </span><span class="istickedoff">| Just pt &lt;- parseUnpackPragma <span class="nottickedoff">body</span> upperBody = Just pt</span>
+<span class="lineno">   67 </span><span class="spaces">  </span><span class="istickedoff">| Just pt &lt;- parseSourcePragma <span class="nottickedoff">body</span> upperBody = Just pt</span>
+<span class="lineno">   68 </span><span class="spaces">  </span><span class="istickedoff">| Just pt &lt;- parseSCCPragma body upperBody = Just pt</span>
+<span class="lineno">   69 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Nothing</span></span>
+<span class="lineno">   70 </span>
+<span class="lineno">   71 </span>parseLanguagePragma :: Text -&gt; Text -&gt; Maybe PragmaType
+<span class="lineno">   72 </span><span class="decl"><span class="istickedoff">parseLanguagePragma body upperBody</span>
+<span class="lineno">   73 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;LANGUAGE&quot; upperBody,</span>
+<span class="lineno">   74 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">   75 </span><span class="spaces">      </span><span class="istickedoff">let names = parseLanguagePragmaNames (dropPragmaName &quot;LANGUAGE&quot; body)</span>
+<span class="lineno">   76 </span><span class="spaces">       </span><span class="istickedoff">in Just (PragmaLanguage names)</span>
+<span class="lineno">   77 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Nothing</span></span>
+<span class="lineno">   78 </span>
+<span class="lineno">   79 </span>parseInstanceOverlapPragma :: Text -&gt; Text -&gt; Maybe PragmaType
+<span class="lineno">   80 </span><span class="decl"><span class="istickedoff">parseInstanceOverlapPragma _body upperBody</span>
+<span class="lineno">   81 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;OVERLAPPING&quot; upperBody,</span>
+<span class="lineno">   82 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">   83 </span><span class="spaces">      </span><span class="istickedoff">Just (PragmaInstanceOverlap <span class="nottickedoff">Overlapping</span>)</span>
+<span class="lineno">   84 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;OVERLAPPABLE&quot; upperBody,</span>
+<span class="lineno">   85 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">   86 </span><span class="spaces">      </span><span class="istickedoff">Just (PragmaInstanceOverlap <span class="nottickedoff">Overlappable</span>)</span>
+<span class="lineno">   87 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;OVERLAPS&quot; upperBody,</span>
+<span class="lineno">   88 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">   89 </span><span class="spaces">      </span><span class="istickedoff">Just (PragmaInstanceOverlap <span class="nottickedoff">Overlaps</span>)</span>
+<span class="lineno">   90 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;INCOHERENT&quot; upperBody,</span>
+<span class="lineno">   91 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">   92 </span><span class="spaces">      </span><span class="istickedoff">Just (PragmaInstanceOverlap <span class="nottickedoff">Incoherent</span>)</span>
+<span class="lineno">   93 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Nothing</span></span>
+<span class="lineno">   94 </span>
+<span class="lineno">   95 </span>parseOptionsPragma :: Text -&gt; Text -&gt; Maybe PragmaType
+<span class="lineno">   96 </span><span class="decl"><span class="istickedoff">parseOptionsPragma body upperBody</span>
+<span class="lineno">   97 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;OPTIONS_GHC&quot; upperBody,</span>
+<span class="lineno">   98 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">   99 </span><span class="spaces">      </span><span class="istickedoff">let settings = parseOptionsPragmaSettings (dropPragmaName &quot;OPTIONS_GHC&quot; body)</span>
+<span class="lineno">  100 </span><span class="spaces">       </span><span class="istickedoff">in Just (PragmaLanguage settings)</span>
+<span class="lineno">  101 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;OPTIONS&quot; upperBody,</span>
+<span class="lineno">  102 </span><span class="spaces">    </span><span class="istickedoff">isPragmaBodyEnd rest =</span>
+<span class="lineno">  103 </span><span class="spaces">      </span><span class="istickedoff">let settings = parseOptionsPragmaSettings (dropPragmaName &quot;OPTIONS&quot; body)</span>
+<span class="lineno">  104 </span><span class="spaces">       </span><span class="istickedoff">in Just (PragmaLanguage settings)</span>
+<span class="lineno">  105 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Nothing</span></span>
+<span class="lineno">  106 </span>
+<span class="lineno">  107 </span>parseWarningPragma :: Text -&gt; Text -&gt; Maybe PragmaType
+<span class="lineno">  108 </span><span class="decl"><span class="istickedoff">parseWarningPragma body upperBody</span>
+<span class="lineno">  109 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;WARNING&quot; upperBody,</span>
+<span class="lineno">  110 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">  111 </span><span class="spaces">      </span><span class="istickedoff">let msgBody = dropPragmaName &quot;WARNING&quot; body</span>
+<span class="lineno">  112 </span><span class="spaces">          </span><span class="istickedoff">txt = T.strip msgBody</span>
+<span class="lineno">  113 </span><span class="spaces">          </span><span class="istickedoff">msg = extractPragmaMessage txt</span>
+<span class="lineno">  114 </span><span class="spaces">       </span><span class="istickedoff">in Just (PragmaWarning msg)</span>
+<span class="lineno">  115 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Nothing</span></span>
+<span class="lineno">  116 </span>
+<span class="lineno">  117 </span>parseDeprecatedPragma :: Text -&gt; Text -&gt; Maybe PragmaType
+<span class="lineno">  118 </span><span class="decl"><span class="istickedoff">parseDeprecatedPragma body upperBody</span>
+<span class="lineno">  119 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;DEPRECATED&quot; upperBody,</span>
+<span class="lineno">  120 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">  121 </span><span class="spaces">      </span><span class="istickedoff">let msgBody = dropPragmaName &quot;DEPRECATED&quot; body</span>
+<span class="lineno">  122 </span><span class="spaces">          </span><span class="istickedoff">txt = T.strip msgBody</span>
+<span class="lineno">  123 </span><span class="spaces">          </span><span class="istickedoff">msg = extractPragmaMessage txt</span>
+<span class="lineno">  124 </span><span class="spaces">       </span><span class="istickedoff">in Just (PragmaDeprecated msg)</span>
+<span class="lineno">  125 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Nothing</span></span>
+<span class="lineno">  126 </span>
+<span class="lineno">  127 </span>parseInlinePragma :: Text -&gt; Text -&gt; Maybe PragmaType
+<span class="lineno">  128 </span><span class="decl"><span class="istickedoff">parseInlinePragma body upperBody</span>
+<span class="lineno">  129 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;INLINEABLE&quot; upperBody,</span>
+<span class="lineno">  130 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">  131 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">let fullBody = T.strip (dropPragmaName &quot;INLINEABLE&quot; body)</span></span>
+<span class="lineno">  132 </span><span class="spaces">       </span><span class="istickedoff"><span class="nottickedoff">in Just (PragmaInline &quot;INLINEABLE&quot; fullBody)</span></span>
+<span class="lineno">  133 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;INLINABLE&quot; upperBody,</span>
+<span class="lineno">  134 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">  135 </span><span class="spaces">      </span><span class="istickedoff">let fullBody = T.strip (dropPragmaName &quot;INLINABLE&quot; body)</span>
+<span class="lineno">  136 </span><span class="spaces">       </span><span class="istickedoff">in Just (PragmaInline &quot;INLINABLE&quot; fullBody)</span>
+<span class="lineno">  137 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;NOINLINEABLE&quot; upperBody,</span>
+<span class="lineno">  138 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">  139 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">let fullBody = T.strip (dropPragmaName &quot;NOINLINEABLE&quot; body)</span></span>
+<span class="lineno">  140 </span><span class="spaces">       </span><span class="istickedoff"><span class="nottickedoff">in Just (PragmaInline &quot;NOINLINEABLE&quot; fullBody)</span></span>
+<span class="lineno">  141 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;NOINLINABLE&quot; upperBody,</span>
+<span class="lineno">  142 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">  143 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">let fullBody = T.strip (dropPragmaName &quot;NOINLINABLE&quot; body)</span></span>
+<span class="lineno">  144 </span><span class="spaces">       </span><span class="istickedoff"><span class="nottickedoff">in Just (PragmaInline &quot;NOINLINABLE&quot; fullBody)</span></span>
+<span class="lineno">  145 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;INLINE&quot; upperBody,</span>
+<span class="lineno">  146 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">  147 </span><span class="spaces">      </span><span class="istickedoff">let fullBody = T.strip (dropPragmaName &quot;INLINE&quot; body)</span>
+<span class="lineno">  148 </span><span class="spaces">       </span><span class="istickedoff">in Just (PragmaInline &quot;INLINE&quot; fullBody)</span>
+<span class="lineno">  149 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;NOINLINE&quot; upperBody,</span>
+<span class="lineno">  150 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">  151 </span><span class="spaces">      </span><span class="istickedoff">let fullBody = T.strip (dropPragmaName &quot;NOINLINE&quot; body)</span>
+<span class="lineno">  152 </span><span class="spaces">       </span><span class="istickedoff">in Just (PragmaInline &quot;NOINLINE&quot; fullBody)</span>
+<span class="lineno">  153 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;CONLIKE&quot; upperBody,</span>
+<span class="lineno">  154 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">  155 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">let fullBody = T.strip (dropPragmaName &quot;CONLIKE&quot; body)</span></span>
+<span class="lineno">  156 </span><span class="spaces">       </span><span class="istickedoff"><span class="nottickedoff">in Just (PragmaInline &quot;CONLIKE&quot; fullBody)</span></span>
+<span class="lineno">  157 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Nothing</span></span>
+<span class="lineno">  158 </span>
+<span class="lineno">  159 </span>parseUnpackPragma :: Text -&gt; Text -&gt; Maybe PragmaType
+<span class="lineno">  160 </span><span class="decl"><span class="istickedoff">parseUnpackPragma _body upperBody</span>
+<span class="lineno">  161 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;UNPACK&quot; upperBody,</span>
+<span class="lineno">  162 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">  163 </span><span class="spaces">      </span><span class="istickedoff">Just (PragmaUnpack UnpackPragma)</span>
+<span class="lineno">  164 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;NOUNPACK&quot; upperBody,</span>
+<span class="lineno">  165 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">  166 </span><span class="spaces">      </span><span class="istickedoff">Just (PragmaUnpack NoUnpackPragma)</span>
+<span class="lineno">  167 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Nothing</span></span>
+<span class="lineno">  168 </span>
+<span class="lineno">  169 </span>parseSourcePragma :: Text -&gt; Text -&gt; Maybe PragmaType
+<span class="lineno">  170 </span><span class="decl"><span class="istickedoff">parseSourcePragma body upperBody</span>
+<span class="lineno">  171 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;SOURCE&quot; upperBody,</span>
+<span class="lineno">  172 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">  173 </span><span class="spaces">      </span><span class="istickedoff">let <span class="nottickedoff">fullBody = T.strip (dropPragmaName &quot;SOURCE&quot; body)</span></span>
+<span class="lineno">  174 </span><span class="spaces">       </span><span class="istickedoff">in Just (PragmaSource <span class="nottickedoff">fullBody</span> <span class="nottickedoff">fullBody</span>)</span>
+<span class="lineno">  175 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Nothing</span></span>
+<span class="lineno">  176 </span>
+<span class="lineno">  177 </span>parseSCCPragma :: Text -&gt; Text -&gt; Maybe PragmaType
+<span class="lineno">  178 </span><span class="decl"><span class="istickedoff">parseSCCPragma body upperBody</span>
+<span class="lineno">  179 </span><span class="spaces">  </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;SCC&quot; upperBody,</span>
+<span class="lineno">  180 </span><span class="spaces">    </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> =</span>
+<span class="lineno">  181 </span><span class="spaces">      </span><span class="istickedoff">let label = T.strip (dropPragmaName &quot;SCC&quot; body)</span>
+<span class="lineno">  182 </span><span class="spaces">       </span><span class="istickedoff">in Just (PragmaSCC label)</span>
+<span class="lineno">  183 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Nothing</span></span>
+<span class="lineno">  184 </span>
+<span class="lineno">  185 </span>dropPragmaName :: Text -&gt; Text -&gt; Text
+<span class="lineno">  186 </span><span class="decl"><span class="istickedoff">dropPragmaName name = T.drop (T.length name)</span></span>
+<span class="lineno">  187 </span>
+<span class="lineno">  188 </span>-- | Check if the remaining text after a pragma name is valid (whitespace or end).
+<span class="lineno">  189 </span>isPragmaBodyEnd :: Text -&gt; Bool
+<span class="lineno">  190 </span><span class="decl"><span class="istickedoff">isPragmaBodyEnd text =</span>
+<span class="lineno">  191 </span><span class="spaces">  </span><span class="istickedoff">case text of</span>
+<span class="lineno">  192 </span><span class="spaces">    </span><span class="istickedoff">Empty -&gt; True</span>
+<span class="lineno">  193 </span><span class="spaces">    </span><span class="istickedoff">c :&lt; _ -&gt; isSpace c</span></span>
+<span class="lineno">  194 </span>
+<span class="lineno">  195 </span>-- | Extract message text from pragma body, handling quoted strings.
+<span class="lineno">  196 </span>extractPragmaMessage :: Text -&gt; Text
+<span class="lineno">  197 </span><span class="decl"><span class="istickedoff">extractPragmaMessage txt =</span>
+<span class="lineno">  198 </span><span class="spaces">  </span><span class="istickedoff">case txt of</span>
+<span class="lineno">  199 </span><span class="spaces">    </span><span class="istickedoff">'&quot;' :&lt; _ -&gt;</span>
+<span class="lineno">  200 </span><span class="spaces">      </span><span class="istickedoff">case reads (T.unpack txt) of</span>
+<span class="lineno">  201 </span><span class="spaces">        </span><span class="istickedoff">[(decoded, &quot;&quot;)] -&gt; T.pack decoded</span>
+<span class="lineno">  202 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">txt</span></span>
+<span class="lineno">  203 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">txt</span></span></span>
+<span class="lineno">  204 </span>
+<span class="lineno">  205 </span>-- | Parse the body of a LANGUAGE pragma into extension settings.
+<span class="lineno">  206 </span>parseLanguagePragmaNames :: Text -&gt; [ExtensionSetting]
+<span class="lineno">  207 </span><span class="decl"><span class="istickedoff">parseLanguagePragmaNames body =</span>
+<span class="lineno">  208 </span><span class="spaces">  </span><span class="istickedoff">mapMaybe (parseExtensionSettingName . T.strip . T.takeWhile (/= '#')) (T.splitOn &quot;,&quot; body)</span></span>
+<span class="lineno">  209 </span>
+<span class="lineno">  210 </span>-- | Parse the body of an OPTIONS pragma into extension settings.
+<span class="lineno">  211 </span>parseOptionsPragmaSettings :: Text -&gt; [ExtensionSetting]
+<span class="lineno">  212 </span><span class="decl"><span class="istickedoff">parseOptionsPragmaSettings body = go (pragmaWords body)</span>
+<span class="lineno">  213 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  214 </span><span class="spaces">    </span><span class="istickedoff">go ws =</span>
+<span class="lineno">  215 </span><span class="spaces">      </span><span class="istickedoff">case ws of</span>
+<span class="lineno">  216 </span><span class="spaces">        </span><span class="istickedoff">[] -&gt; []</span>
+<span class="lineno">  217 </span><span class="spaces">        </span><span class="istickedoff">&quot;-cpp&quot; : rest -&gt; <span class="nottickedoff">EnableExtension CPP : go rest</span></span>
+<span class="lineno">  218 </span><span class="spaces">        </span><span class="istickedoff">&quot;-fffi&quot; : rest -&gt; <span class="nottickedoff">EnableExtension ForeignFunctionInterface : go rest</span></span>
+<span class="lineno">  219 </span><span class="spaces">        </span><span class="istickedoff">&quot;-fglasgow-exts&quot; : rest -&gt; glasgowExtsSettings &lt;&gt; go rest</span>
+<span class="lineno">  220 </span><span class="spaces">        </span><span class="istickedoff">opt : rest</span>
+<span class="lineno">  221 </span><span class="spaces">          </span><span class="istickedoff">| Just ext &lt;- T.stripPrefix &quot;-X&quot; opt,</span>
+<span class="lineno">  222 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">not (T.null ext)</span> -&gt;</span>
+<span class="lineno">  223 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">case parseExtensionSettingName ext of</span></span>
+<span class="lineno">  224 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">Just setting -&gt; setting : go rest</span></span>
+<span class="lineno">  225 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">Nothing -&gt; go rest</span></span>
+<span class="lineno">  226 </span><span class="spaces">        </span><span class="istickedoff">_ : rest -&gt; go rest</span></span>
+<span class="lineno">  227 </span>
+<span class="lineno">  228 </span>glasgowExtsSettings :: [ExtensionSetting]
+<span class="lineno">  229 </span><span class="decl"><span class="istickedoff">glasgowExtsSettings =</span>
+<span class="lineno">  230 </span><span class="spaces">  </span><span class="istickedoff">map</span>
+<span class="lineno">  231 </span><span class="spaces">    </span><span class="istickedoff">EnableExtension</span>
+<span class="lineno">  232 </span><span class="spaces">    </span><span class="istickedoff">[ ConstrainedClassMethods,</span>
+<span class="lineno">  233 </span><span class="spaces">      </span><span class="istickedoff">DeriveDataTypeable,</span>
+<span class="lineno">  234 </span><span class="spaces">      </span><span class="istickedoff">DeriveFoldable,</span>
+<span class="lineno">  235 </span><span class="spaces">      </span><span class="istickedoff">DeriveFunctor,</span>
+<span class="lineno">  236 </span><span class="spaces">      </span><span class="istickedoff">DeriveGeneric,</span>
+<span class="lineno">  237 </span><span class="spaces">      </span><span class="istickedoff">DeriveTraversable,</span>
+<span class="lineno">  238 </span><span class="spaces">      </span><span class="istickedoff">EmptyDataDecls,</span>
+<span class="lineno">  239 </span><span class="spaces">      </span><span class="istickedoff">ExistentialQuantification,</span>
+<span class="lineno">  240 </span><span class="spaces">      </span><span class="istickedoff">ExplicitNamespaces,</span>
+<span class="lineno">  241 </span><span class="spaces">      </span><span class="istickedoff">FlexibleContexts,</span>
+<span class="lineno">  242 </span><span class="spaces">      </span><span class="istickedoff">FlexibleInstances,</span>
+<span class="lineno">  243 </span><span class="spaces">      </span><span class="istickedoff">ForeignFunctionInterface,</span>
+<span class="lineno">  244 </span><span class="spaces">      </span><span class="istickedoff">FunctionalDependencies,</span>
+<span class="lineno">  245 </span><span class="spaces">      </span><span class="istickedoff">GeneralizedNewtypeDeriving,</span>
+<span class="lineno">  246 </span><span class="spaces">      </span><span class="istickedoff">ImplicitParams,</span>
+<span class="lineno">  247 </span><span class="spaces">      </span><span class="istickedoff">InterruptibleFFI,</span>
+<span class="lineno">  248 </span><span class="spaces">      </span><span class="istickedoff">KindSignatures,</span>
+<span class="lineno">  249 </span><span class="spaces">      </span><span class="istickedoff">LiberalTypeSynonyms,</span>
+<span class="lineno">  250 </span><span class="spaces">      </span><span class="istickedoff">MagicHash,</span>
+<span class="lineno">  251 </span><span class="spaces">      </span><span class="istickedoff">MultiParamTypeClasses,</span>
+<span class="lineno">  252 </span><span class="spaces">      </span><span class="istickedoff">ParallelListComp,</span>
+<span class="lineno">  253 </span><span class="spaces">      </span><span class="istickedoff">PatternGuards,</span>
+<span class="lineno">  254 </span><span class="spaces">      </span><span class="istickedoff">PostfixOperators,</span>
+<span class="lineno">  255 </span><span class="spaces">      </span><span class="istickedoff">RankNTypes,</span>
+<span class="lineno">  256 </span><span class="spaces">      </span><span class="istickedoff">RecursiveDo,</span>
+<span class="lineno">  257 </span><span class="spaces">      </span><span class="istickedoff">ScopedTypeVariables,</span>
+<span class="lineno">  258 </span><span class="spaces">      </span><span class="istickedoff">StandaloneDeriving,</span>
+<span class="lineno">  259 </span><span class="spaces">      </span><span class="istickedoff">TypeOperators,</span>
+<span class="lineno">  260 </span><span class="spaces">      </span><span class="istickedoff">TypeSynonymInstances,</span>
+<span class="lineno">  261 </span><span class="spaces">      </span><span class="istickedoff">UnboxedTuples,</span>
+<span class="lineno">  262 </span><span class="spaces">      </span><span class="istickedoff">UnicodeSyntax,</span>
+<span class="lineno">  263 </span><span class="spaces">      </span><span class="istickedoff">UnliftedFFITypes</span>
+<span class="lineno">  264 </span><span class="spaces">    </span><span class="istickedoff">]</span></span>
+<span class="lineno">  265 </span>
+<span class="lineno">  266 </span>-- | Split pragma text into words, respecting quoted strings.
+<span class="lineno">  267 </span>pragmaWords :: Text -&gt; [Text]
+<span class="lineno">  268 </span><span class="decl"><span class="istickedoff">pragmaWords txt = go [] [] Nothing (T.unpack txt)</span>
+<span class="lineno">  269 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  270 </span><span class="spaces">    </span><span class="istickedoff">go acc current quote chars =</span>
+<span class="lineno">  271 </span><span class="spaces">      </span><span class="istickedoff">case chars of</span>
+<span class="lineno">  272 </span><span class="spaces">        </span><span class="istickedoff">[] -&gt;</span>
+<span class="lineno">  273 </span><span class="spaces">          </span><span class="istickedoff">let acc' = pushCurrent acc current</span>
+<span class="lineno">  274 </span><span class="spaces">           </span><span class="istickedoff">in reverse acc'</span>
+<span class="lineno">  275 </span><span class="spaces">        </span><span class="istickedoff">c : rest -&gt;</span>
+<span class="lineno">  276 </span><span class="spaces">          </span><span class="istickedoff">case quote of</span>
+<span class="lineno">  277 </span><span class="spaces">            </span><span class="istickedoff">Just q</span>
+<span class="lineno">  278 </span><span class="spaces">              </span><span class="istickedoff">| <span class="nottickedoff">c == q</span> -&gt; <span class="nottickedoff">go acc current Nothing rest</span></span>
+<span class="lineno">  279 </span><span class="spaces">              </span><span class="istickedoff">| <span class="nottickedoff">c == '\\'</span> -&gt;</span>
+<span class="lineno">  280 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">case rest of</span></span>
+<span class="lineno">  281 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">escaped : rest' -&gt; go acc (escaped : current) quote rest'</span></span>
+<span class="lineno">  282 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">[] -&gt; go acc current quote []</span></span>
+<span class="lineno">  283 </span><span class="spaces">              </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> -&gt; <span class="nottickedoff">go acc (c : current) quote rest</span></span>
+<span class="lineno">  284 </span><span class="spaces">            </span><span class="istickedoff">Nothing</span>
+<span class="lineno">  285 </span><span class="spaces">              </span><span class="istickedoff">| <span class="tickonlyfalse">c == '&quot;' || c == '\''</span> -&gt; <span class="nottickedoff">go acc current (Just c) rest</span></span>
+<span class="lineno">  286 </span><span class="spaces">              </span><span class="istickedoff">| <span class="tickonlyfalse">c == '\\'</span> -&gt;</span>
+<span class="lineno">  287 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">case rest of</span></span>
+<span class="lineno">  288 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">escaped : rest' -&gt; go acc (escaped : current) Nothing rest'</span></span>
+<span class="lineno">  289 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">[] -&gt; go acc current Nothing []</span></span>
+<span class="lineno">  290 </span><span class="spaces">              </span><span class="istickedoff">| c `elem` [' ', '\n', '\r', '\t'] -&gt;</span>
+<span class="lineno">  291 </span><span class="spaces">                  </span><span class="istickedoff">let acc' = pushCurrent acc current</span>
+<span class="lineno">  292 </span><span class="spaces">                   </span><span class="istickedoff">in go acc' [] Nothing rest</span>
+<span class="lineno">  293 </span><span class="spaces">              </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; go acc (c : current) Nothing rest</span>
+<span class="lineno">  294 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  295 </span><span class="spaces">    </span><span class="istickedoff">pushCurrent acc current =</span>
+<span class="lineno">  296 </span><span class="spaces">      </span><span class="istickedoff">case reverse current of</span>
+<span class="lineno">  297 </span><span class="spaces">        </span><span class="istickedoff">[] -&gt; acc</span>
+<span class="lineno">  298 </span><span class="spaces">        </span><span class="istickedoff">token -&gt; T.pack token : acc</span></span>
+<span class="lineno">  299 </span>
+<span class="lineno">  300 </span>parseControlPragma :: Text -&gt; Maybe (Text, Either Text DirectiveUpdate)
+<span class="lineno">  301 </span><span class="decl"><span class="istickedoff">parseControlPragma input = do</span>
+<span class="lineno">  302 </span><span class="spaces">  </span><span class="istickedoff">(body, _) &lt;- extractPragmaBody input</span>
+<span class="lineno">  303 </span><span class="spaces">  </span><span class="istickedoff">let trimmed = T.strip body</span>
+<span class="lineno">  304 </span><span class="spaces">      </span><span class="istickedoff">upperBody = T.toUpper trimmed</span>
+<span class="lineno">  305 </span><span class="spaces">  </span><span class="istickedoff">case <span class="nottickedoff">()</span> of</span>
+<span class="lineno">  306 </span><span class="spaces">    </span><span class="istickedoff">_</span>
+<span class="lineno">  307 </span><span class="spaces">      </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;LINE&quot; upperBody,</span>
+<span class="lineno">  308 </span><span class="spaces">        </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> -&gt;</span>
+<span class="lineno">  309 </span><span class="spaces">          </span><span class="istickedoff">let bodyAfter = dropPragmaName &quot;LINE&quot; trimmed</span>
+<span class="lineno">  310 </span><span class="spaces">              </span><span class="istickedoff">ws = T.words bodyAfter</span>
+<span class="lineno">  311 </span><span class="spaces">           </span><span class="istickedoff">in case ws of</span>
+<span class="lineno">  312 </span><span class="spaces">                </span><span class="istickedoff">lineNo : _</span>
+<span class="lineno">  313 </span><span class="spaces">                  </span><span class="istickedoff">| <span class="tickonlytrue">T.all isDigit lineNo</span> -&gt;</span>
+<span class="lineno">  314 </span><span class="spaces">                      </span><span class="istickedoff">case readBoundedInt lineNo of</span>
+<span class="lineno">  315 </span><span class="spaces">                        </span><span class="istickedoff">Just parsedLine -&gt;</span>
+<span class="lineno">  316 </span><span class="spaces">                          </span><span class="istickedoff">Just</span>
+<span class="lineno">  317 </span><span class="spaces">                            </span><span class="istickedoff">( &quot;{-#&quot; &lt;&gt; body &lt;&gt; &quot;#-}&quot;,</span>
+<span class="lineno">  318 </span><span class="spaces">                              </span><span class="istickedoff">Right</span>
+<span class="lineno">  319 </span><span class="spaces">                                </span><span class="istickedoff">DirectiveUpdate</span>
+<span class="lineno">  320 </span><span class="spaces">                                  </span><span class="istickedoff">{ directiveLine = Just parsedLine,</span>
+<span class="lineno">  321 </span><span class="spaces">                                    </span><span class="istickedoff">directiveCol = Just <span class="nottickedoff">1</span>,</span>
+<span class="lineno">  322 </span><span class="spaces">                                    </span><span class="istickedoff">directiveSourceName = parseDirectiveSourceName (T.dropWhile isSpace (T.drop (T.length lineNo) bodyAfter))</span>
+<span class="lineno">  323 </span><span class="spaces">                                  </span><span class="istickedoff">}</span>
+<span class="lineno">  324 </span><span class="spaces">                            </span><span class="istickedoff">)</span>
+<span class="lineno">  325 </span><span class="spaces">                        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">Just (&quot;{-#&quot; &lt;&gt; body &lt;&gt; &quot;#-}&quot;, Left &quot;malformed LINE pragma&quot;)</span></span>
+<span class="lineno">  326 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Just (&quot;{-#&quot; &lt;&gt; body &lt;&gt; &quot;#-}&quot;, Left &quot;malformed LINE pragma&quot;)</span></span>
+<span class="lineno">  327 </span><span class="spaces">    </span><span class="istickedoff">_</span>
+<span class="lineno">  328 </span><span class="spaces">      </span><span class="istickedoff">| Just rest &lt;- T.stripPrefix &quot;COLUMN&quot; upperBody,</span>
+<span class="lineno">  329 </span><span class="spaces">        </span><span class="istickedoff"><span class="tickonlytrue">isPragmaBodyEnd rest</span> -&gt;</span>
+<span class="lineno">  330 </span><span class="spaces">          </span><span class="istickedoff">let bodyAfter = dropPragmaName &quot;COLUMN&quot; trimmed</span>
+<span class="lineno">  331 </span><span class="spaces">              </span><span class="istickedoff">ws = T.words bodyAfter</span>
+<span class="lineno">  332 </span><span class="spaces">           </span><span class="istickedoff">in case ws of</span>
+<span class="lineno">  333 </span><span class="spaces">                </span><span class="istickedoff">colNo : _</span>
+<span class="lineno">  334 </span><span class="spaces">                  </span><span class="istickedoff">| <span class="tickonlytrue">T.all isDigit colNo</span> -&gt;</span>
+<span class="lineno">  335 </span><span class="spaces">                      </span><span class="istickedoff">case readBoundedInt colNo of</span>
+<span class="lineno">  336 </span><span class="spaces">                        </span><span class="istickedoff">Just parsedCol -&gt;</span>
+<span class="lineno">  337 </span><span class="spaces">                          </span><span class="istickedoff">Just</span>
+<span class="lineno">  338 </span><span class="spaces">                            </span><span class="istickedoff">( &quot;{-#&quot; &lt;&gt; body &lt;&gt; &quot;#-}&quot;,</span>
+<span class="lineno">  339 </span><span class="spaces">                              </span><span class="istickedoff">Right DirectiveUpdate {directiveLine = Nothing, directiveCol = Just parsedCol, directiveSourceName = Nothing}</span>
+<span class="lineno">  340 </span><span class="spaces">                            </span><span class="istickedoff">)</span>
+<span class="lineno">  341 </span><span class="spaces">                        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">Just (&quot;{-#&quot; &lt;&gt; body &lt;&gt; &quot;#-}&quot;, Left &quot;malformed COLUMN pragma&quot;)</span></span>
+<span class="lineno">  342 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Just (&quot;{-#&quot; &lt;&gt; body &lt;&gt; &quot;#-}&quot;, Left &quot;malformed COLUMN pragma&quot;)</span></span>
+<span class="lineno">  343 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  344 </span>
+<span class="lineno">  345 </span>parseDirectiveSourceName :: Text -&gt; Maybe FilePath
+<span class="lineno">  346 </span><span class="decl"><span class="istickedoff">parseDirectiveSourceName rest =</span>
+<span class="lineno">  347 </span><span class="spaces">  </span><span class="istickedoff">let rest' = T.dropWhile isSpace rest</span>
+<span class="lineno">  348 </span><span class="spaces">   </span><span class="istickedoff">in case rest' of</span>
+<span class="lineno">  349 </span><span class="spaces">        </span><span class="istickedoff">'&quot;' :&lt; more -&gt;</span>
+<span class="lineno">  350 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">let (name, trailing) = T.break (== '&quot;') more</span></span>
+<span class="lineno">  351 </span><span class="spaces">           </span><span class="istickedoff"><span class="nottickedoff">in case trailing of</span></span>
+<span class="lineno">  352 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">'&quot;' :&lt; _ -&gt; Just (T.unpack name)</span></span>
+<span class="lineno">  353 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  354 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  355 </span>
+<span class="lineno">  356 </span>readBoundedInt :: Text -&gt; Maybe Int
+<span class="lineno">  357 </span><span class="decl"><span class="istickedoff">readBoundedInt txt = do</span>
+<span class="lineno">  358 </span><span class="spaces">  </span><span class="istickedoff">n &lt;- readMaybe (T.unpack txt) :: Maybe Integer</span>
+<span class="lineno">  359 </span><span class="spaces">  </span><span class="istickedoff">if <span class="tickonlytrue">n &gt;= fromIntegral (minBound :: Int) &amp;&amp; n &lt;= fromIntegral (maxBound :: Int)</span></span>
+<span class="lineno">  360 </span><span class="spaces">    </span><span class="istickedoff">then Just (fromInteger n)</span>
+<span class="lineno">  361 </span><span class="spaces">    </span><span class="istickedoff">else <span class="nottickedoff">Nothing</span></span></span>
+
+</pre>
+</body>
+</html>

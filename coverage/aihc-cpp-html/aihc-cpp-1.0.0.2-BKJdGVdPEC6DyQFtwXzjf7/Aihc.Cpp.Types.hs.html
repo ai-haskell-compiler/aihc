@@ -1,0 +1,220 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE DeriveAnyClass #-}
+<span class="lineno">    2 </span>{-# LANGUAGE DeriveGeneric #-}
+<span class="lineno">    3 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    4 </span>
+<span class="lineno">    5 </span>module Aihc.Cpp.Types
+<span class="lineno">    6 </span>  ( Config (..),
+<span class="lineno">    7 </span>    MacroDef (..),
+<span class="lineno">    8 </span>    defaultConfig,
+<span class="lineno">    9 </span>    IncludeKind (..),
+<span class="lineno">   10 </span>    IncludeRequest (..),
+<span class="lineno">   11 </span>    Severity (..),
+<span class="lineno">   12 </span>    Diagnostic (..),
+<span class="lineno">   13 </span>    Result (..),
+<span class="lineno">   14 </span>    Step (..),
+<span class="lineno">   15 </span>    EngineState (..),
+<span class="lineno">   16 </span>    emptyState,
+<span class="lineno">   17 </span>    CondFrame (..),
+<span class="lineno">   18 </span>    currentActive,
+<span class="lineno">   19 </span>    mkFrame,
+<span class="lineno">   20 </span>    Continuation,
+<span class="lineno">   21 </span>    LineContext (..),
+<span class="lineno">   22 </span>  )
+<span class="lineno">   23 </span>where
+<span class="lineno">   24 </span>
+<span class="lineno">   25 </span>import Aihc.Cpp.Cursor (Cursor)
+<span class="lineno">   26 </span>import Control.DeepSeq (NFData)
+<span class="lineno">   27 </span>import Data.ByteString (ByteString)
+<span class="lineno">   28 </span>import Data.Map.Strict (Map)
+<span class="lineno">   29 </span>import qualified Data.Map.Strict as M
+<span class="lineno">   30 </span>import Data.Set (Set)
+<span class="lineno">   31 </span>import qualified Data.Set as S
+<span class="lineno">   32 </span>import Data.Text (Text)
+<span class="lineno">   33 </span>import qualified Data.Text.Lazy.Builder as TB
+<span class="lineno">   34 </span>import GHC.Generics (Generic)
+<span class="lineno">   35 </span>
+<span class="lineno">   36 </span>-- $setup
+<span class="lineno">   37 </span>-- &gt;&gt;&gt; :set -XOverloadedStrings
+<span class="lineno">   38 </span>-- &gt;&gt;&gt; import qualified Data.Map.Strict as M
+<span class="lineno">   39 </span>
+<span class="lineno">   40 </span>-- | Configuration for the C preprocessor.
+<span class="lineno">   41 </span>data Config = Config
+<span class="lineno">   42 </span>  { -- | The name of the input file, used in @#line@ directives and
+<span class="lineno">   43 </span>    -- @__FILE__@ expansion.
+<span class="lineno">   44 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">configInputFile</span></span></span> :: FilePath,
+<span class="lineno">   45 </span>    -- | User-defined macros. These are expanded as object-like macros.
+<span class="lineno">   46 </span>    -- Note that the values should include any necessary quoting. For
+<span class="lineno">   47 </span>    -- example, to define a string macro, use @&quot;\&quot;value\&quot;&quot;@.
+<span class="lineno">   48 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">configMacros</span></span></span> :: !(Map Text Text)
+<span class="lineno">   49 </span>  }
+<span class="lineno">   50 </span>
+<span class="lineno">   51 </span>data MacroDef
+<span class="lineno">   52 </span>  = ObjectMacro !Text
+<span class="lineno">   53 </span>  | FunctionMacro ![Text] !Text
+<span class="lineno">   54 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>)
+<span class="lineno">   55 </span>
+<span class="lineno">   56 </span>-- | Default configuration with sensible defaults.
+<span class="lineno">   57 </span>--
+<span class="lineno">   58 </span>-- * 'configInputFile' is set to @\&quot;\&lt;input\&gt;\&quot;@
+<span class="lineno">   59 </span>-- * 'configMacros' includes @__DATE__@ and @__TIME__@ set to the Unix epoch
+<span class="lineno">   60 </span>--
+<span class="lineno">   61 </span>-- To customize the date and time macros:
+<span class="lineno">   62 </span>--
+<span class="lineno">   63 </span>-- &gt;&gt;&gt; import qualified Data.Map.Strict as M
+<span class="lineno">   64 </span>-- &gt;&gt;&gt; let cfg = defaultConfig { configMacros = M.fromList [(&quot;__DATE__&quot;, &quot;\&quot;Mar 15 2026\&quot;&quot;), (&quot;__TIME__&quot;, &quot;\&quot;14:30:00\&quot;&quot;)] }
+<span class="lineno">   65 </span>-- &gt;&gt;&gt; configMacros cfg
+<span class="lineno">   66 </span>-- fromList [(&quot;__DATE__&quot;,&quot;\&quot;Mar 15 2026\&quot;&quot;),(&quot;__TIME__&quot;,&quot;\&quot;14:30:00\&quot;&quot;)]
+<span class="lineno">   67 </span>--
+<span class="lineno">   68 </span>-- To add additional macros while keeping the defaults:
+<span class="lineno">   69 </span>--
+<span class="lineno">   70 </span>-- &gt;&gt;&gt; import qualified Data.Map.Strict as M
+<span class="lineno">   71 </span>-- &gt;&gt;&gt; let cfg = defaultConfig { configMacros = M.insert &quot;VERSION&quot; &quot;42&quot; (configMacros defaultConfig) }
+<span class="lineno">   72 </span>-- &gt;&gt;&gt; M.lookup &quot;VERSION&quot; (configMacros cfg)
+<span class="lineno">   73 </span>-- Just &quot;42&quot;
+<span class="lineno">   74 </span>defaultConfig :: Config
+<span class="lineno">   75 </span><span class="decl"><span class="istickedoff">defaultConfig =</span>
+<span class="lineno">   76 </span><span class="spaces">  </span><span class="istickedoff">Config</span>
+<span class="lineno">   77 </span><span class="spaces">    </span><span class="istickedoff">{ configInputFile = &quot;&lt;input&gt;&quot;,</span>
+<span class="lineno">   78 </span><span class="spaces">      </span><span class="istickedoff">configMacros =</span>
+<span class="lineno">   79 </span><span class="spaces">        </span><span class="istickedoff">M.fromList</span>
+<span class="lineno">   80 </span><span class="spaces">          </span><span class="istickedoff">[ (&quot;__DATE__&quot;, &quot;\&quot;Jan  1 1970\&quot;&quot;),</span>
+<span class="lineno">   81 </span><span class="spaces">            </span><span class="istickedoff">(&quot;__TIME__&quot;, &quot;\&quot;00:00:00\&quot;&quot;)</span>
+<span class="lineno">   82 </span><span class="spaces">          </span><span class="istickedoff">]</span>
+<span class="lineno">   83 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">   84 </span>
+<span class="lineno">   85 </span>-- | The kind of @#include@ directive.
+<span class="lineno">   86 </span>data IncludeKind = IncludeLocal | IncludeSystem deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>)
+<span class="lineno">   87 </span>
+<span class="lineno">   88 </span>-- | Information about a pending @#include@ that needs to be resolved.
+<span class="lineno">   89 </span>data IncludeRequest = IncludeRequest
+<span class="lineno">   90 </span>  { -- | The path specified in the include directive.
+<span class="lineno">   91 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">includePath</span></span></span> :: !FilePath,
+<span class="lineno">   92 </span>    -- | Whether this is a local (@\&quot;...\&quot;@) or system (@\&lt;...\&gt;@) include.
+<span class="lineno">   93 </span>    <span class="nottickedoff"><span class="decl"><span class="nottickedoff">includeKind</span></span></span> :: !IncludeKind,
+<span class="lineno">   94 </span>    -- | The file that contains the @#include@ directive.
+<span class="lineno">   95 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">includeFrom</span></span></span> :: !FilePath,
+<span class="lineno">   96 </span>    -- | The line number of the @#include@ directive.
+<span class="lineno">   97 </span>    <span class="nottickedoff"><span class="decl"><span class="nottickedoff">includeLine</span></span></span> :: !Int
+<span class="lineno">   98 </span>  }
+<span class="lineno">   99 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>)
+<span class="lineno">  100 </span>
+<span class="lineno">  101 </span>-- | Severity level for diagnostics.
+<span class="lineno">  102 </span>data Severity = Warning | Error deriving (<span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>)
+<span class="lineno">  103 </span>
+<span class="lineno">  104 </span>-- | A diagnostic message emitted during preprocessing.
+<span class="lineno">  105 </span>data Diagnostic = Diagnostic
+<span class="lineno">  106 </span>  { -- | The severity of the diagnostic.
+<span class="lineno">  107 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">diagSeverity</span></span></span> :: !Severity,
+<span class="lineno">  108 </span>    -- | The diagnostic message text.
+<span class="lineno">  109 </span>    <span class="nottickedoff"><span class="decl"><span class="nottickedoff">diagMessage</span></span></span> :: !Text,
+<span class="lineno">  110 </span>    -- | The file where the diagnostic occurred.
+<span class="lineno">  111 </span>    <span class="nottickedoff"><span class="decl"><span class="nottickedoff">diagFile</span></span></span> :: !FilePath,
+<span class="lineno">  112 </span>    -- | The line number where the diagnostic occurred.
+<span class="lineno">  113 </span>    <span class="nottickedoff"><span class="decl"><span class="nottickedoff">diagLine</span></span></span> :: !Int
+<span class="lineno">  114 </span>  }
+<span class="lineno">  115 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>)
+<span class="lineno">  116 </span>
+<span class="lineno">  117 </span>-- | The result of preprocessing.
+<span class="lineno">  118 </span>data Result = Result
+<span class="lineno">  119 </span>  { -- | The preprocessed output text.
+<span class="lineno">  120 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">resultOutput</span></span></span> :: !Text,
+<span class="lineno">  121 </span>    -- | Any diagnostics (warnings or errors) emitted during preprocessing.
+<span class="lineno">  122 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">resultDiagnostics</span></span></span> :: ![Diagnostic]
+<span class="lineno">  123 </span>  }
+<span class="lineno">  124 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>)
+<span class="lineno">  125 </span>
+<span class="lineno">  126 </span>-- | A step in the preprocessing process. Either preprocessing is complete
+<span class="lineno">  127 </span>-- ('Done') or an @#include@ directive needs to be resolved ('NeedInclude').
+<span class="lineno">  128 </span>data Step
+<span class="lineno">  129 </span>  = -- | Preprocessing is complete.
+<span class="lineno">  130 </span>    Done !Result
+<span class="lineno">  131 </span>  | -- | An @#include@ directive was encountered. The caller must provide
+<span class="lineno">  132 </span>    -- the contents of the included file (or 'Nothing' if not found),
+<span class="lineno">  133 </span>    -- and preprocessing will continue.
+<span class="lineno">  134 </span>    NeedInclude !IncludeRequest !(Maybe ByteString -&gt; Step)
+<span class="lineno">  135 </span>
+<span class="lineno">  136 </span>data EngineState = EngineState
+<span class="lineno">  137 </span>  { <span class="istickedoff"><span class="decl"><span class="istickedoff">stMacros</span></span></span> :: !(Map Text MacroDef),
+<span class="lineno">  138 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">stOutput</span></span></span> :: !TB.Builder,
+<span class="lineno">  139 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">stOutputLineCount</span></span></span> :: {-# UNPACK #-} !Int,
+<span class="lineno">  140 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">stDiagnosticsRev</span></span></span> :: ![Diagnostic],
+<span class="lineno">  141 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">stPragmaOnceFiles</span></span></span> :: !(Set FilePath),
+<span class="lineno">  142 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">stSkippingDanglingElse</span></span></span> :: !Bool,
+<span class="lineno">  143 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">stHsBlockCommentDepth</span></span></span> :: !Int,
+<span class="lineno">  144 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">stCBlockCommentDepth</span></span></span> :: !Int,
+<span class="lineno">  145 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">stCurrentFile</span></span></span> :: !FilePath,
+<span class="lineno">  146 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">stCurrentLine</span></span></span> :: !Int
+<span class="lineno">  147 </span>  }
+<span class="lineno">  148 </span>
+<span class="lineno">  149 </span>emptyState :: FilePath -&gt; EngineState
+<span class="lineno">  150 </span><span class="decl"><span class="istickedoff">emptyState filePath =</span>
+<span class="lineno">  151 </span><span class="spaces">  </span><span class="istickedoff">EngineState</span>
+<span class="lineno">  152 </span><span class="spaces">    </span><span class="istickedoff">{ stMacros = M.empty,</span>
+<span class="lineno">  153 </span><span class="spaces">      </span><span class="istickedoff">stOutput = mempty,</span>
+<span class="lineno">  154 </span><span class="spaces">      </span><span class="istickedoff">stOutputLineCount = 0,</span>
+<span class="lineno">  155 </span><span class="spaces">      </span><span class="istickedoff">stDiagnosticsRev = [],</span>
+<span class="lineno">  156 </span><span class="spaces">      </span><span class="istickedoff">stPragmaOnceFiles = S.empty,</span>
+<span class="lineno">  157 </span><span class="spaces">      </span><span class="istickedoff">stSkippingDanglingElse = False,</span>
+<span class="lineno">  158 </span><span class="spaces">      </span><span class="istickedoff">stHsBlockCommentDepth = 0,</span>
+<span class="lineno">  159 </span><span class="spaces">      </span><span class="istickedoff">stCBlockCommentDepth = 0,</span>
+<span class="lineno">  160 </span><span class="spaces">      </span><span class="istickedoff">stCurrentFile = filePath,</span>
+<span class="lineno">  161 </span><span class="spaces">      </span><span class="istickedoff">stCurrentLine = 1</span>
+<span class="lineno">  162 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">  163 </span>
+<span class="lineno">  164 </span>data CondFrame = CondFrame
+<span class="lineno">  165 </span>  { <span class="istickedoff"><span class="decl"><span class="istickedoff">frameOuterActive</span></span></span> :: !Bool,
+<span class="lineno">  166 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">frameConditionTrue</span></span></span> :: !Bool,
+<span class="lineno">  167 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">frameInElse</span></span></span> :: !Bool,
+<span class="lineno">  168 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">frameCurrentActive</span></span></span> :: !Bool
+<span class="lineno">  169 </span>  }
+<span class="lineno">  170 </span>
+<span class="lineno">  171 </span>currentActive :: [CondFrame] -&gt; Bool
+<span class="lineno">  172 </span><span class="decl"><span class="istickedoff">currentActive [] = True</span>
+<span class="lineno">  173 </span><span class="spaces"></span><span class="istickedoff">currentActive (f : _) = frameCurrentActive f</span></span>
+<span class="lineno">  174 </span>
+<span class="lineno">  175 </span>mkFrame :: Bool -&gt; Bool -&gt; CondFrame
+<span class="lineno">  176 </span><span class="decl"><span class="istickedoff">mkFrame outer cond =</span>
+<span class="lineno">  177 </span><span class="spaces">  </span><span class="istickedoff">CondFrame</span>
+<span class="lineno">  178 </span><span class="spaces">    </span><span class="istickedoff">{ frameOuterActive = outer,</span>
+<span class="lineno">  179 </span><span class="spaces">      </span><span class="istickedoff">frameConditionTrue = cond,</span>
+<span class="lineno">  180 </span><span class="spaces">      </span><span class="istickedoff">frameInElse = False,</span>
+<span class="lineno">  181 </span><span class="spaces">      </span><span class="istickedoff">frameCurrentActive = outer &amp;&amp; cond</span>
+<span class="lineno">  182 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">  183 </span>
+<span class="lineno">  184 </span>type Continuation = EngineState -&gt; Step
+<span class="lineno">  185 </span>
+<span class="lineno">  186 </span>data LineContext = LineContext
+<span class="lineno">  187 </span>  { <span class="istickedoff"><span class="decl"><span class="istickedoff">lcFilePath</span></span></span> :: !FilePath,
+<span class="lineno">  188 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lcLineNo</span></span></span> :: !Int,
+<span class="lineno">  189 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lcLineSpan</span></span></span> :: !Int,
+<span class="lineno">  190 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lcNextLineNo</span></span></span> :: !Int,
+<span class="lineno">  191 </span>    -- | Cursor positioned after the current line (past its newline).
+<span class="lineno">  192 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lcRestCursor</span></span></span> :: !Cursor,
+<span class="lineno">  193 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lcStack</span></span></span> :: ![CondFrame],
+<span class="lineno">  194 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lcContinue</span></span></span> :: EngineState -&gt; Step,
+<span class="lineno">  195 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lcContinueWith</span></span></span> :: [CondFrame] -&gt; EngineState -&gt; Step,
+<span class="lineno">  196 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">lcDone</span></span></span> :: Continuation
+<span class="lineno">  197 </span>  }
+
+</pre>
+</body>
+</html>

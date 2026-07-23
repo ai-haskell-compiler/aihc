@@ -1,0 +1,1270 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>-- |
+<span class="lineno">    4 </span>--
+<span class="lineno">    5 </span>-- Module      : Aihc.Parser.Shorthand
+<span class="lineno">    6 </span>-- Description : Compact pretty-printing for debugging/inspection
+<span class="lineno">    7 </span>--
+<span class="lineno">    8 </span>-- This module provides a compact, human-readable representation of parsed
+<span class="lineno">    9 </span>-- AST structures via the 'Shorthand' typeclass. Key features:
+<span class="lineno">   10 </span>--
+<span class="lineno">   11 </span>-- * Source spans are omitted to reduce noise
+<span class="lineno">   12 </span>-- * Empty fields (Nothing, [], False, etc.) and field labels are omitted
+<span class="lineno">   13 </span>-- * Remaining constructor/value tokens are a subsequence of the derived 'Show' output
+<span class="lineno">   14 </span>-- * Output is on a single line by default
+<span class="lineno">   15 </span>-- * Uses the prettyprinter library for consistent formatting
+<span class="lineno">   16 </span>--
+<span class="lineno">   17 </span>-- Example:
+<span class="lineno">   18 </span>--
+<span class="lineno">   19 </span>-- &gt;&gt;&gt; shorthand $ snd $ parseModule defaultConfig &quot;module Demo where x = 1&quot;
+<span class="lineno">   20 </span>-- Module {ModuleHead {&quot;Demo&quot;}, [DeclValue (PatternBind (PVar &quot;x&quot;) (EInt 1 TInteger))]}
+<span class="lineno">   21 </span>module Aihc.Parser.Shorthand
+<span class="lineno">   22 </span>  ( Shorthand (..),
+<span class="lineno">   23 </span>  )
+<span class="lineno">   24 </span>where
+<span class="lineno">   25 </span>
+<span class="lineno">   26 </span>import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
+<span class="lineno">   27 </span>import Aihc.Parser.Syntax
+<span class="lineno">   28 </span>import Aihc.Parser.Types (ParseResult (..))
+<span class="lineno">   29 </span>import Data.Text (Text)
+<span class="lineno">   30 </span>import Prettyprinter
+<span class="lineno">   31 </span>  ( Doc,
+<span class="lineno">   32 </span>    Pretty (..),
+<span class="lineno">   33 </span>    braces,
+<span class="lineno">   34 </span>    brackets,
+<span class="lineno">   35 </span>    comma,
+<span class="lineno">   36 </span>    hsep,
+<span class="lineno">   37 </span>    parens,
+<span class="lineno">   38 </span>    punctuate,
+<span class="lineno">   39 </span>    (&lt;+&gt;),
+<span class="lineno">   40 </span>  )
+<span class="lineno">   41 </span>
+<span class="lineno">   42 </span>-- $setup
+<span class="lineno">   43 </span>-- &gt;&gt;&gt; :set -XOverloadedStrings
+<span class="lineno">   44 </span>-- &gt;&gt;&gt; import Aihc.Parser
+<span class="lineno">   45 </span>
+<span class="lineno">   46 </span>-- | Typeclass for compact, human-readable AST representations.
+<span class="lineno">   47 </span>--
+<span class="lineno">   48 </span>-- The 'shorthand' method produces a 'Doc' that can be rendered to text
+<span class="lineno">   49 </span>-- or shown as a string. This is useful for debugging and golden tests.
+<span class="lineno">   50 </span>--
+<span class="lineno">   51 </span>-- Use 'show' on the result of 'shorthand' to get a 'String':
+<span class="lineno">   52 </span>--
+<span class="lineno">   53 </span>-- @
+<span class="lineno">   54 </span>-- show (shorthand expr) :: String
+<span class="lineno">   55 </span>-- @
+<span class="lineno">   56 </span>class Shorthand a where
+<span class="lineno">   57 </span>  shorthand :: a -&gt; Doc ()
+<span class="lineno">   58 </span>
+<span class="lineno">   59 </span>-- ParseResult
+<span class="lineno">   60 </span>
+<span class="lineno">   61 </span>instance (Shorthand a) =&gt; Shorthand (ParseResult a) where
+<span class="lineno">   62 </span>  <span class="decl"><span class="nottickedoff">shorthand (ParseOk a) = &quot;ParseOk&quot; &lt;+&gt; parens (shorthand a)</span>
+<span class="lineno">   63 </span><span class="spaces">  </span><span class="nottickedoff">shorthand (ParseErr _) = &quot;ParseErr&quot;</span></span>
+<span class="lineno">   64 </span>
+<span class="lineno">   65 </span>-- Module
+<span class="lineno">   66 </span>
+<span class="lineno">   67 </span>instance Shorthand Module where
+<span class="lineno">   68 </span>  <span class="decl"><span class="istickedoff">shorthand modu =</span>
+<span class="lineno">   69 </span><span class="spaces">    </span><span class="istickedoff">&quot;Module&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">   70 </span><span class="spaces">    </span><span class="istickedoff">where</span>
+<span class="lineno">   71 </span><span class="spaces">      </span><span class="istickedoff">fields =</span>
+<span class="lineno">   72 </span><span class="spaces">        </span><span class="istickedoff">optionalField docModuleHead (moduleHead modu)</span>
+<span class="lineno">   73 </span><span class="spaces">          </span><span class="istickedoff">&lt;&gt; listField docExtensionSetting (moduleLanguagePragmas modu)</span>
+<span class="lineno">   74 </span><span class="spaces">          </span><span class="istickedoff">&lt;&gt; listField docImportDecl (moduleImports modu)</span>
+<span class="lineno">   75 </span><span class="spaces">          </span><span class="istickedoff">&lt;&gt; listField docDecl (moduleDecls modu)</span></span>
+<span class="lineno">   76 </span>
+<span class="lineno">   77 </span>instance Shorthand Decl where
+<span class="lineno">   78 </span>  <span class="decl"><span class="istickedoff">shorthand = docDecl</span></span>
+<span class="lineno">   79 </span>
+<span class="lineno">   80 </span>instance Shorthand Expr where
+<span class="lineno">   81 </span>  <span class="decl"><span class="istickedoff">shorthand = docExpr</span></span>
+<span class="lineno">   82 </span>
+<span class="lineno">   83 </span>instance Shorthand Pattern where
+<span class="lineno">   84 </span>  <span class="decl"><span class="istickedoff">shorthand = docPattern</span></span>
+<span class="lineno">   85 </span>
+<span class="lineno">   86 </span>instance Shorthand Type where
+<span class="lineno">   87 </span>  <span class="decl"><span class="istickedoff">shorthand = docType</span></span>
+<span class="lineno">   88 </span>
+<span class="lineno">   89 </span>instance Shorthand LexToken where
+<span class="lineno">   90 </span>  <span class="decl"><span class="istickedoff">shorthand = docToken</span></span>
+<span class="lineno">   91 </span>
+<span class="lineno">   92 </span>instance Shorthand LexTokenKind where
+<span class="lineno">   93 </span>  <span class="decl"><span class="nottickedoff">shorthand = docTokenKind</span></span>
+<span class="lineno">   94 </span>
+<span class="lineno">   95 </span>docModuleHead :: ModuleHead -&gt; Doc ann
+<span class="lineno">   96 </span><span class="decl"><span class="istickedoff">docModuleHead head' =</span>
+<span class="lineno">   97 </span><span class="spaces">  </span><span class="istickedoff">&quot;ModuleHead&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">   98 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   99 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  100 </span><span class="spaces">      </span><span class="istickedoff">[docText (moduleHeadName head')]</span>
+<span class="lineno">  101 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField docPragma (moduleHeadWarningPragma head')</span>
+<span class="lineno">  102 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField (brackets . hsep . punctuate comma . map docExportSpec) (moduleHeadExports head')</span></span>
+<span class="lineno">  103 </span>
+<span class="lineno">  104 </span>docExtensionSetting :: ExtensionSetting -&gt; Doc ann
+<span class="lineno">  105 </span><span class="decl"><span class="istickedoff">docExtensionSetting setting =</span>
+<span class="lineno">  106 </span><span class="spaces">  </span><span class="istickedoff">case setting of</span>
+<span class="lineno">  107 </span><span class="spaces">    </span><span class="istickedoff">EnableExtension ext -&gt; pretty (extensionName ext)</span>
+<span class="lineno">  108 </span><span class="spaces">    </span><span class="istickedoff">DisableExtension ext -&gt; &quot;DisableExtension&quot; &lt;+&gt; pretty (extensionName ext)</span></span>
+<span class="lineno">  109 </span>
+<span class="lineno">  110 </span>docExportSpec :: ExportSpec -&gt; Doc ann
+<span class="lineno">  111 </span><span class="decl"><span class="istickedoff">docExportSpec spec =</span>
+<span class="lineno">  112 </span><span class="spaces">  </span><span class="istickedoff">case spec of</span>
+<span class="lineno">  113 </span><span class="spaces">    </span><span class="istickedoff">ExportAnn _ sub -&gt; docExportSpec sub</span>
+<span class="lineno">  114 </span><span class="spaces">    </span><span class="istickedoff">ExportModule mWarning name -&gt;</span>
+<span class="lineno">  115 </span><span class="spaces">      </span><span class="istickedoff">&quot;ExportModule&quot; &lt;&gt; braces (hsep (punctuate comma (optionalField docPragma mWarning &lt;&gt; [docText name])))</span>
+<span class="lineno">  116 </span><span class="spaces">    </span><span class="istickedoff">ExportVar mWarning mNamespace name -&gt;</span>
+<span class="lineno">  117 </span><span class="spaces">      </span><span class="istickedoff">&quot;ExportVar&quot; &lt;&gt; braces (hsep (punctuate comma (optionalField docPragma mWarning &lt;&gt; optionalField <span class="nottickedoff">docIENamespace</span> mNamespace &lt;&gt; [docName name])))</span>
+<span class="lineno">  118 </span><span class="spaces">    </span><span class="istickedoff">ExportAbs mWarning mNamespace name -&gt;</span>
+<span class="lineno">  119 </span><span class="spaces">      </span><span class="istickedoff">&quot;ExportAbs&quot; &lt;&gt; braces (hsep (punctuate comma (optionalField docPragma mWarning &lt;&gt; optionalField docIENamespace mNamespace &lt;&gt; [docName name])))</span>
+<span class="lineno">  120 </span><span class="spaces">    </span><span class="istickedoff">ExportAll mWarning mNamespace name -&gt;</span>
+<span class="lineno">  121 </span><span class="spaces">      </span><span class="istickedoff">&quot;ExportAll&quot; &lt;&gt; braces (hsep (punctuate comma (optionalField docPragma mWarning &lt;&gt; optionalField <span class="nottickedoff">docIENamespace</span> mNamespace &lt;&gt; [docName name])))</span>
+<span class="lineno">  122 </span><span class="spaces">    </span><span class="istickedoff">ExportWith mWarning mNamespace name members -&gt;</span>
+<span class="lineno">  123 </span><span class="spaces">      </span><span class="istickedoff">&quot;ExportWith&quot; &lt;&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  124 </span><span class="spaces">      </span><span class="istickedoff">where</span>
+<span class="lineno">  125 </span><span class="spaces">        </span><span class="istickedoff">fields =</span>
+<span class="lineno">  126 </span><span class="spaces">          </span><span class="istickedoff">optionalField docPragma mWarning</span>
+<span class="lineno">  127 </span><span class="spaces">            </span><span class="istickedoff">&lt;&gt; optionalField <span class="nottickedoff">docIENamespace</span> mNamespace</span>
+<span class="lineno">  128 </span><span class="spaces">            </span><span class="istickedoff">&lt;&gt; [docName name, brackets (hsep (punctuate comma (map docExportMember members)))]</span>
+<span class="lineno">  129 </span><span class="spaces">    </span><span class="istickedoff">ExportWithAll mWarning mNamespace name wildcardIndex members -&gt;</span>
+<span class="lineno">  130 </span><span class="spaces">      </span><span class="istickedoff">&quot;ExportWithAll&quot; &lt;&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  131 </span><span class="spaces">      </span><span class="istickedoff">where</span>
+<span class="lineno">  132 </span><span class="spaces">        </span><span class="istickedoff">fields =</span>
+<span class="lineno">  133 </span><span class="spaces">          </span><span class="istickedoff">optionalField docPragma mWarning</span>
+<span class="lineno">  134 </span><span class="spaces">            </span><span class="istickedoff">&lt;&gt; optionalField <span class="nottickedoff">docIENamespace</span> mNamespace</span>
+<span class="lineno">  135 </span><span class="spaces">            </span><span class="istickedoff">&lt;&gt; [docName name, pretty wildcardIndex, brackets (hsep (punctuate comma (map docExportMember members)))]</span></span>
+<span class="lineno">  136 </span>
+<span class="lineno">  137 </span>docImportDecl :: ImportDecl -&gt; Doc ann
+<span class="lineno">  138 </span><span class="decl"><span class="istickedoff">docImportDecl decl =</span>
+<span class="lineno">  139 </span><span class="spaces">  </span><span class="istickedoff">&quot;ImportDecl&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  140 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  141 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  142 </span><span class="spaces">      </span><span class="istickedoff">[docText (importDeclModule decl)]</span>
+<span class="lineno">  143 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField <span class="nottickedoff">docPragma</span> (importDeclSourcePragma decl)</span>
+<span class="lineno">  144 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; boolField (importDeclSafe decl)</span>
+<span class="lineno">  145 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; boolField (importDeclQualified decl)</span>
+<span class="lineno">  146 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; boolField (importDeclQualifiedPost decl)</span>
+<span class="lineno">  147 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField <span class="nottickedoff">docImportLevel</span> (importDeclLevel decl)</span>
+<span class="lineno">  148 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField <span class="nottickedoff">docText</span> (importDeclPackage decl)</span>
+<span class="lineno">  149 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField docText (importDeclAs decl)</span>
+<span class="lineno">  150 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField docImportSpec (importDeclSpec decl)</span></span>
+<span class="lineno">  151 </span>
+<span class="lineno">  152 </span>docImportLevel :: ImportLevel -&gt; Doc ann
+<span class="lineno">  153 </span><span class="decl"><span class="nottickedoff">docImportLevel level =</span>
+<span class="lineno">  154 </span><span class="spaces">  </span><span class="nottickedoff">case level of</span>
+<span class="lineno">  155 </span><span class="spaces">    </span><span class="nottickedoff">ImportLevelQuote -&gt; &quot;ImportLevelQuote&quot;</span>
+<span class="lineno">  156 </span><span class="spaces">    </span><span class="nottickedoff">ImportLevelSplice -&gt; &quot;ImportLevelSplice&quot;</span></span>
+<span class="lineno">  157 </span>
+<span class="lineno">  158 </span>docImportSpec :: ImportSpec -&gt; Doc ann
+<span class="lineno">  159 </span><span class="decl"><span class="istickedoff">docImportSpec spec =</span>
+<span class="lineno">  160 </span><span class="spaces">  </span><span class="istickedoff">&quot;ImportSpec&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  161 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  162 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  163 </span><span class="spaces">      </span><span class="istickedoff">boolField (importSpecHiding spec)</span>
+<span class="lineno">  164 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [brackets (hsep (punctuate comma (map docImportItem (importSpecItems spec))))]</span></span>
+<span class="lineno">  165 </span>
+<span class="lineno">  166 </span>docImportItem :: ImportItem -&gt; Doc ann
+<span class="lineno">  167 </span><span class="decl"><span class="istickedoff">docImportItem item =</span>
+<span class="lineno">  168 </span><span class="spaces">  </span><span class="istickedoff">case item of</span>
+<span class="lineno">  169 </span><span class="spaces">    </span><span class="istickedoff">ImportAnn _ sub -&gt; docImportItem sub</span>
+<span class="lineno">  170 </span><span class="spaces">    </span><span class="istickedoff">ImportItemVar mNamespace name -&gt;</span>
+<span class="lineno">  171 </span><span class="spaces">      </span><span class="istickedoff">&quot;ImportItemVar&quot; &lt;&gt; braces (hsep (punctuate <span class="nottickedoff">comma</span> (optionalField <span class="nottickedoff">docIENamespace</span> mNamespace &lt;&gt; [docUnqualifiedName name])))</span>
+<span class="lineno">  172 </span><span class="spaces">    </span><span class="istickedoff">ImportItemAbs mNamespace name -&gt;</span>
+<span class="lineno">  173 </span><span class="spaces">      </span><span class="istickedoff">&quot;ImportItemAbs&quot; &lt;&gt; braces (hsep (punctuate comma (optionalField docIENamespace mNamespace &lt;&gt; [docUnqualifiedName name])))</span>
+<span class="lineno">  174 </span><span class="spaces">    </span><span class="istickedoff">ImportItemAll mNamespace name -&gt;</span>
+<span class="lineno">  175 </span><span class="spaces">      </span><span class="istickedoff">&quot;ImportItemAll&quot; &lt;&gt; braces (hsep (punctuate comma (optionalField docIENamespace mNamespace &lt;&gt; [docUnqualifiedName name])))</span>
+<span class="lineno">  176 </span><span class="spaces">    </span><span class="istickedoff">ImportItemWith mNamespace name members -&gt;</span>
+<span class="lineno">  177 </span><span class="spaces">      </span><span class="istickedoff">&quot;ImportItemWith&quot; &lt;&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  178 </span><span class="spaces">      </span><span class="istickedoff">where</span>
+<span class="lineno">  179 </span><span class="spaces">        </span><span class="istickedoff">fields =</span>
+<span class="lineno">  180 </span><span class="spaces">          </span><span class="istickedoff">optionalField docIENamespace mNamespace</span>
+<span class="lineno">  181 </span><span class="spaces">            </span><span class="istickedoff">&lt;&gt; [docUnqualifiedName name, brackets (hsep (punctuate comma (map docExportMember members)))]</span>
+<span class="lineno">  182 </span><span class="spaces">    </span><span class="istickedoff">ImportItemAllWith mNamespace name wildcardIndex members -&gt;</span>
+<span class="lineno">  183 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">&quot;ImportItemAllWith&quot; &lt;&gt; braces (hsep (punctuate comma fields))</span></span>
+<span class="lineno">  184 </span><span class="spaces">      </span><span class="istickedoff">where</span>
+<span class="lineno">  185 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">fields =</span></span>
+<span class="lineno">  186 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">optionalField docIENamespace mNamespace</span></span>
+<span class="lineno">  187 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">&lt;&gt; [docUnqualifiedName name, pretty wildcardIndex, brackets (hsep (punctuate comma (map docExportMember members)))]</span></span></span>
+<span class="lineno">  188 </span>
+<span class="lineno">  189 </span>docIENamespace :: IEEntityNamespace -&gt; Doc ann
+<span class="lineno">  190 </span><span class="decl"><span class="istickedoff">docIENamespace namespace =</span>
+<span class="lineno">  191 </span><span class="spaces">  </span><span class="istickedoff">case namespace of</span>
+<span class="lineno">  192 </span><span class="spaces">    </span><span class="istickedoff">IEEntityNamespaceType -&gt; &quot;IEEntityNamespaceType&quot;</span>
+<span class="lineno">  193 </span><span class="spaces">    </span><span class="istickedoff">IEEntityNamespacePattern -&gt; &quot;IEEntityNamespacePattern&quot;</span>
+<span class="lineno">  194 </span><span class="spaces">    </span><span class="istickedoff">IEEntityNamespaceData -&gt; &quot;IEEntityNamespaceData&quot;</span></span>
+<span class="lineno">  195 </span>
+<span class="lineno">  196 </span>docIEBundledNamespace :: IEBundledNamespace -&gt; Doc ann
+<span class="lineno">  197 </span><span class="decl"><span class="istickedoff">docIEBundledNamespace namespace =</span>
+<span class="lineno">  198 </span><span class="spaces">  </span><span class="istickedoff">case namespace of</span>
+<span class="lineno">  199 </span><span class="spaces">    </span><span class="istickedoff">IEBundledNamespaceType -&gt; &quot;IEBundledNamespaceType&quot;</span>
+<span class="lineno">  200 </span><span class="spaces">    </span><span class="istickedoff">IEBundledNamespaceData -&gt; &quot;IEBundledNamespaceData&quot;</span></span>
+<span class="lineno">  201 </span>
+<span class="lineno">  202 </span>docExportMember :: IEBundledMember -&gt; Doc ann
+<span class="lineno">  203 </span><span class="decl"><span class="istickedoff">docExportMember (IEBundledMember mNamespace name) =</span>
+<span class="lineno">  204 </span><span class="spaces">  </span><span class="istickedoff">&quot;IEBundledMember&quot; &lt;&gt; braces (hsep (punctuate comma (optionalField docIEBundledNamespace mNamespace &lt;&gt; [docName name])))</span></span>
+<span class="lineno">  205 </span>
+<span class="lineno">  206 </span>-- Declarations
+<span class="lineno">  207 </span>
+<span class="lineno">  208 </span>docDecl :: Decl -&gt; Doc ann
+<span class="lineno">  209 </span><span class="decl"><span class="istickedoff">docDecl decl =</span>
+<span class="lineno">  210 </span><span class="spaces">  </span><span class="istickedoff">case decl of</span>
+<span class="lineno">  211 </span><span class="spaces">    </span><span class="istickedoff">DeclAnn _ sub -&gt; docDecl sub</span>
+<span class="lineno">  212 </span><span class="spaces">    </span><span class="istickedoff">DeclValue vdecl -&gt; &quot;DeclValue&quot; &lt;+&gt; parens (docValueDecl vdecl)</span>
+<span class="lineno">  213 </span><span class="spaces">    </span><span class="istickedoff">DeclTypeSig names ty -&gt; &quot;DeclTypeSig&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docUnqualifiedNameText names))) &lt;+&gt; parens (docType ty)</span>
+<span class="lineno">  214 </span><span class="spaces">    </span><span class="istickedoff">DeclPatSyn ps -&gt; &quot;DeclPatSyn&quot; &lt;+&gt; parens (docPatSynDecl ps)</span>
+<span class="lineno">  215 </span><span class="spaces">    </span><span class="istickedoff">DeclPatSynSig names ty -&gt; &quot;DeclPatSynSig&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docUnqualifiedName names))) &lt;+&gt; parens (docType ty)</span>
+<span class="lineno">  216 </span><span class="spaces">    </span><span class="istickedoff">DeclStandaloneKindSig name kind -&gt; &quot;DeclStandaloneKindSig&quot; &lt;+&gt; parens (docUnqualifiedName name) &lt;+&gt; parens (docType kind)</span>
+<span class="lineno">  217 </span><span class="spaces">    </span><span class="istickedoff">DeclFixity assoc mNamespace mPrec ops -&gt; &quot;DeclFixity&quot; &lt;+&gt; docFixityAssoc assoc &lt;+&gt; maybe &quot;Nothing&quot; <span class="nottickedoff">docIENamespace</span> mNamespace &lt;+&gt; maybe &quot;Nothing&quot; pretty mPrec &lt;+&gt; brackets (hsep (punctuate comma (map docUnqualifiedName ops)))</span>
+<span class="lineno">  218 </span><span class="spaces">    </span><span class="istickedoff">DeclRoleAnnotation ann -&gt; &quot;DeclRoleAnnotation&quot; &lt;+&gt; parens (docRoleAnnotation ann)</span>
+<span class="lineno">  219 </span><span class="spaces">    </span><span class="istickedoff">DeclTypeSyn syn -&gt; &quot;DeclTypeSyn&quot; &lt;+&gt; parens (docTypeSynDecl syn)</span>
+<span class="lineno">  220 </span><span class="spaces">    </span><span class="istickedoff">DeclData dd -&gt; &quot;DeclData&quot; &lt;+&gt; parens (docDataDecl dd)</span>
+<span class="lineno">  221 </span><span class="spaces">    </span><span class="istickedoff">DeclTypeData dd -&gt; &quot;DeclTypeData&quot; &lt;+&gt; parens (docDataDecl dd)</span>
+<span class="lineno">  222 </span><span class="spaces">    </span><span class="istickedoff">DeclNewtype nd -&gt; &quot;DeclNewtype&quot; &lt;+&gt; parens (docNewtypeDecl nd)</span>
+<span class="lineno">  223 </span><span class="spaces">    </span><span class="istickedoff">DeclClass cd -&gt; &quot;DeclClass&quot; &lt;+&gt; parens (docClassDecl cd)</span>
+<span class="lineno">  224 </span><span class="spaces">    </span><span class="istickedoff">DeclInstance inst -&gt; &quot;DeclInstance&quot; &lt;+&gt; parens (docInstanceDecl inst)</span>
+<span class="lineno">  225 </span><span class="spaces">    </span><span class="istickedoff">DeclStandaloneDeriving sd -&gt; &quot;DeclStandaloneDeriving&quot; &lt;+&gt; parens (docStandaloneDerivingDecl sd)</span>
+<span class="lineno">  226 </span><span class="spaces">    </span><span class="istickedoff">DeclDefault tys -&gt; &quot;DeclDefault&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docType tys)))</span>
+<span class="lineno">  227 </span><span class="spaces">    </span><span class="istickedoff">DeclForeign fd -&gt; &quot;DeclForeign&quot; &lt;+&gt; parens (docForeignDecl fd)</span>
+<span class="lineno">  228 </span><span class="spaces">    </span><span class="istickedoff">DeclSplice body -&gt; &quot;DeclSplice&quot; &lt;+&gt; parens (docExpr body)</span>
+<span class="lineno">  229 </span><span class="spaces">    </span><span class="istickedoff">DeclTypeFamilyDecl tf -&gt; &quot;DeclTypeFamilyDecl&quot; &lt;+&gt; parens (docTypeFamilyDecl tf)</span>
+<span class="lineno">  230 </span><span class="spaces">    </span><span class="istickedoff">DeclDataFamilyDecl df -&gt; &quot;DeclDataFamilyDecl&quot; &lt;+&gt; parens (docDataFamilyDecl df)</span>
+<span class="lineno">  231 </span><span class="spaces">    </span><span class="istickedoff">DeclTypeFamilyInst tfi -&gt; &quot;DeclTypeFamilyInst&quot; &lt;+&gt; parens (docTypeFamilyInst tfi)</span>
+<span class="lineno">  232 </span><span class="spaces">    </span><span class="istickedoff">DeclDataFamilyInst dfi -&gt; &quot;DeclDataFamilyInst&quot; &lt;+&gt; parens (docDataFamilyInst dfi)</span>
+<span class="lineno">  233 </span><span class="spaces">    </span><span class="istickedoff">DeclPragma pragma -&gt; &quot;DeclPragma&quot; &lt;+&gt; docPragma pragma</span></span>
+<span class="lineno">  234 </span>
+<span class="lineno">  235 </span>docValueDecl :: ValueDecl -&gt; Doc ann
+<span class="lineno">  236 </span><span class="decl"><span class="istickedoff">docValueDecl vdecl =</span>
+<span class="lineno">  237 </span><span class="spaces">  </span><span class="istickedoff">case vdecl of</span>
+<span class="lineno">  238 </span><span class="spaces">    </span><span class="istickedoff">FunctionBind name matches -&gt; &quot;FunctionBind&quot; &lt;+&gt; docUnqualifiedNameText name &lt;+&gt; brackets (hsep (punctuate <span class="nottickedoff">comma</span> (map docMatch matches)))</span>
+<span class="lineno">  239 </span><span class="spaces">    </span><span class="istickedoff">PatternBind multTag pat rhs -&gt; &quot;PatternBind&quot; &lt;+&gt; hsep (docPatternBindFields multTag pat rhs)</span></span>
+<span class="lineno">  240 </span>
+<span class="lineno">  241 </span>docPatternBindFields :: MultiplicityTag -&gt; Pattern -&gt; Rhs Expr -&gt; [Doc ann]
+<span class="lineno">  242 </span><span class="decl"><span class="istickedoff">docPatternBindFields multTag pat rhs =</span>
+<span class="lineno">  243 </span><span class="spaces">  </span><span class="istickedoff">multiplicityFields &lt;&gt; [parens (docPattern pat), parens (docRhs rhs)]</span>
+<span class="lineno">  244 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  245 </span><span class="spaces">    </span><span class="istickedoff">multiplicityFields =</span>
+<span class="lineno">  246 </span><span class="spaces">      </span><span class="istickedoff">case multTag of</span>
+<span class="lineno">  247 </span><span class="spaces">        </span><span class="istickedoff">NoMultiplicityTag -&gt; []</span>
+<span class="lineno">  248 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; [docMultiplicityTag multTag]</span></span>
+<span class="lineno">  249 </span>
+<span class="lineno">  250 </span>docMultiplicityTag :: MultiplicityTag -&gt; Doc ann
+<span class="lineno">  251 </span><span class="decl"><span class="istickedoff">docMultiplicityTag NoMultiplicityTag = <span class="nottickedoff">&quot;NoMultiplicityTag&quot;</span></span>
+<span class="lineno">  252 </span><span class="spaces"></span><span class="istickedoff">docMultiplicityTag LinearMultiplicityTag = &quot;LinearMultiplicityTag&quot;</span>
+<span class="lineno">  253 </span><span class="spaces"></span><span class="istickedoff">docMultiplicityTag (ExplicitMultiplicityTag ty) = <span class="nottickedoff">&quot;ExplicitMultiplicityTag&quot; &lt;+&gt; parens (docType ty)</span></span></span>
+<span class="lineno">  254 </span>
+<span class="lineno">  255 </span>docArrowKind :: ArrowKind -&gt; Doc ann
+<span class="lineno">  256 </span><span class="decl"><span class="istickedoff">docArrowKind ArrowUnrestricted = <span class="nottickedoff">&quot;ArrowUnrestricted&quot;</span></span>
+<span class="lineno">  257 </span><span class="spaces"></span><span class="istickedoff">docArrowKind ArrowLinear = &quot;ArrowLinear&quot;</span>
+<span class="lineno">  258 </span><span class="spaces"></span><span class="istickedoff">docArrowKind (ArrowExplicit ty) = &quot;ArrowExplicit&quot; &lt;+&gt; parens (docType ty)</span></span>
+<span class="lineno">  259 </span>
+<span class="lineno">  260 </span>docPatSynDecl :: PatSynDecl -&gt; Doc ann
+<span class="lineno">  261 </span><span class="decl"><span class="istickedoff">docPatSynDecl ps =</span>
+<span class="lineno">  262 </span><span class="spaces">  </span><span class="istickedoff">&quot;PatSynDecl&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  263 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  264 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  265 </span><span class="spaces">      </span><span class="istickedoff">[docUnqualifiedName (patSynDeclName ps)]</span>
+<span class="lineno">  266 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docPatSynArgs (patSynDeclArgs ps)]</span>
+<span class="lineno">  267 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docPattern (patSynDeclPat ps)]</span>
+<span class="lineno">  268 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docPatSynDir (patSynDeclDir ps)]</span></span>
+<span class="lineno">  269 </span>
+<span class="lineno">  270 </span>docPatSynDir :: PatSynDir -&gt; Doc ann
+<span class="lineno">  271 </span><span class="decl"><span class="istickedoff">docPatSynDir dir =</span>
+<span class="lineno">  272 </span><span class="spaces">  </span><span class="istickedoff">case dir of</span>
+<span class="lineno">  273 </span><span class="spaces">    </span><span class="istickedoff">PatSynUnidirectional -&gt; &quot;PatSynUnidirectional&quot;</span>
+<span class="lineno">  274 </span><span class="spaces">    </span><span class="istickedoff">PatSynBidirectional -&gt; &quot;PatSynBidirectional&quot;</span>
+<span class="lineno">  275 </span><span class="spaces">    </span><span class="istickedoff">PatSynExplicitBidirectional matches -&gt;</span>
+<span class="lineno">  276 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">&quot;PatSynExplicitBidirectional&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docMatch matches)))</span></span></span>
+<span class="lineno">  277 </span>
+<span class="lineno">  278 </span>docPatSynArgs :: PatSynArgs -&gt; Doc ann
+<span class="lineno">  279 </span><span class="decl"><span class="istickedoff">docPatSynArgs args =</span>
+<span class="lineno">  280 </span><span class="spaces">  </span><span class="istickedoff">case args of</span>
+<span class="lineno">  281 </span><span class="spaces">    </span><span class="istickedoff">PatSynPrefixArgs vars -&gt; &quot;PatSynPrefixArgs&quot; &lt;+&gt; docTextList vars</span>
+<span class="lineno">  282 </span><span class="spaces">    </span><span class="istickedoff">PatSynInfixArgs lhs rhs -&gt; <span class="nottickedoff">&quot;PatSynInfixArgs&quot; &lt;+&gt; docText lhs &lt;+&gt; docText rhs</span></span>
+<span class="lineno">  283 </span><span class="spaces">    </span><span class="istickedoff">PatSynRecordArgs fields' -&gt; <span class="nottickedoff">&quot;PatSynRecordArgs&quot; &lt;+&gt; docTextList fields'</span></span></span>
+<span class="lineno">  284 </span>
+<span class="lineno">  285 </span>docMatch :: Match -&gt; Doc ann
+<span class="lineno">  286 </span><span class="decl"><span class="istickedoff">docMatch m =</span>
+<span class="lineno">  287 </span><span class="spaces">  </span><span class="istickedoff">&quot;Match&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  288 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  289 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  290 </span><span class="spaces">      </span><span class="istickedoff">[ docMatchHeadForm (matchHeadForm m)</span>
+<span class="lineno">  291 </span><span class="spaces">      </span><span class="istickedoff">]</span>
+<span class="lineno">  292 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docPattern (matchPats m)</span>
+<span class="lineno">  293 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docRhs (matchRhs m)]</span></span>
+<span class="lineno">  294 </span>
+<span class="lineno">  295 </span>docMatchHeadForm :: MatchHeadForm -&gt; Doc ann
+<span class="lineno">  296 </span><span class="decl"><span class="istickedoff">docMatchHeadForm headForm =</span>
+<span class="lineno">  297 </span><span class="spaces">  </span><span class="istickedoff">case headForm of</span>
+<span class="lineno">  298 </span><span class="spaces">    </span><span class="istickedoff">MatchHeadPrefix -&gt; &quot;MatchHeadPrefix&quot;</span>
+<span class="lineno">  299 </span><span class="spaces">    </span><span class="istickedoff">MatchHeadInfix -&gt; &quot;MatchHeadInfix&quot;</span></span>
+<span class="lineno">  300 </span>
+<span class="lineno">  301 </span>docRhsWith :: (body -&gt; Doc ann) -&gt; Rhs body -&gt; Doc ann
+<span class="lineno">  302 </span><span class="decl"><span class="istickedoff">docRhsWith docBody rhs =</span>
+<span class="lineno">  303 </span><span class="spaces">  </span><span class="istickedoff">case rhs of</span>
+<span class="lineno">  304 </span><span class="spaces">    </span><span class="istickedoff">UnguardedRhs _ body Nothing -&gt; docBody body</span>
+<span class="lineno">  305 </span><span class="spaces">    </span><span class="istickedoff">UnguardedRhs _ body (Just decls) -&gt; docBody body &lt;+&gt; &quot;Just&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docDecl decls)))</span>
+<span class="lineno">  306 </span><span class="spaces">    </span><span class="istickedoff">GuardedRhss _ grhss Nothing -&gt; &quot;GuardedRhss&quot; &lt;+&gt; brackets (hsep (punctuate comma (map (docGuardedRhsWith docBody) grhss)))</span>
+<span class="lineno">  307 </span><span class="spaces">    </span><span class="istickedoff">GuardedRhss _ grhss (Just decls) -&gt; &quot;GuardedRhss&quot; &lt;+&gt; brackets (hsep (punctuate comma (map (docGuardedRhsWith docBody) grhss))) &lt;+&gt; &quot;Just&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docDecl decls)))</span></span>
+<span class="lineno">  308 </span>
+<span class="lineno">  309 </span>docRhs :: Rhs Expr -&gt; Doc ann
+<span class="lineno">  310 </span><span class="decl"><span class="istickedoff">docRhs = docRhsWith docExpr</span></span>
+<span class="lineno">  311 </span>
+<span class="lineno">  312 </span>docGuardedRhsWith :: (body -&gt; Doc ann) -&gt; GuardedRhs body -&gt; Doc ann
+<span class="lineno">  313 </span><span class="decl"><span class="istickedoff">docGuardedRhsWith docBody grhs =</span>
+<span class="lineno">  314 </span><span class="spaces">  </span><span class="istickedoff">&quot;GuardedRhs&quot; &lt;+&gt; braces (hsep (punctuate comma [brackets (hsep (punctuate comma (map docGuardQualifier (guardedRhsGuards grhs)))), docBody (guardedRhsBody grhs)]))</span></span>
+<span class="lineno">  315 </span>
+<span class="lineno">  316 </span>docGuardedRhs :: GuardedRhs Expr -&gt; Doc ann
+<span class="lineno">  317 </span><span class="decl"><span class="istickedoff">docGuardedRhs = docGuardedRhsWith docExpr</span></span>
+<span class="lineno">  318 </span>
+<span class="lineno">  319 </span>docGuardQualifier :: GuardQualifier -&gt; Doc ann
+<span class="lineno">  320 </span><span class="decl"><span class="istickedoff">docGuardQualifier gq =</span>
+<span class="lineno">  321 </span><span class="spaces">  </span><span class="istickedoff">case gq of</span>
+<span class="lineno">  322 </span><span class="spaces">    </span><span class="istickedoff">GuardAnn _ inner -&gt; docGuardQualifier inner</span>
+<span class="lineno">  323 </span><span class="spaces">    </span><span class="istickedoff">GuardExpr expr -&gt; &quot;GuardExpr&quot; &lt;+&gt; parens (docExpr expr)</span>
+<span class="lineno">  324 </span><span class="spaces">    </span><span class="istickedoff">GuardPat pat expr -&gt; &quot;GuardPat&quot; &lt;+&gt; parens (docPattern pat) &lt;+&gt; parens (docExpr expr)</span>
+<span class="lineno">  325 </span><span class="spaces">    </span><span class="istickedoff">GuardLet decls -&gt; &quot;GuardLet&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docDecl decls)))</span></span>
+<span class="lineno">  326 </span>
+<span class="lineno">  327 </span>docTypeSynDecl :: TypeSynDecl -&gt; Doc ann
+<span class="lineno">  328 </span><span class="decl"><span class="istickedoff">docTypeSynDecl syn =</span>
+<span class="lineno">  329 </span><span class="spaces">  </span><span class="istickedoff">&quot;TypeSynDecl&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  330 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  331 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  332 </span><span class="spaces">      </span><span class="istickedoff">[docBinderHeadValue (typeSynHead syn)]</span>
+<span class="lineno">  333 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docType (typeSynBody syn)]</span></span>
+<span class="lineno">  334 </span>
+<span class="lineno">  335 </span>docRoleAnnotation :: RoleAnnotation -&gt; Doc ann
+<span class="lineno">  336 </span><span class="decl"><span class="istickedoff">docRoleAnnotation ann =</span>
+<span class="lineno">  337 </span><span class="spaces">  </span><span class="istickedoff">&quot;RoleAnnotation&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  338 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  339 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  340 </span><span class="spaces">      </span><span class="istickedoff">[docUnqualifiedName (roleAnnotationName ann)]</span>
+<span class="lineno">  341 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [brackets (hsep (punctuate comma (map docRole (roleAnnotationRoles ann))))]</span></span>
+<span class="lineno">  342 </span>
+<span class="lineno">  343 </span>docRole :: Role -&gt; Doc ann
+<span class="lineno">  344 </span><span class="decl"><span class="istickedoff">docRole role =</span>
+<span class="lineno">  345 </span><span class="spaces">  </span><span class="istickedoff">case role of</span>
+<span class="lineno">  346 </span><span class="spaces">    </span><span class="istickedoff">RoleNominal -&gt; &quot;RoleNominal&quot;</span>
+<span class="lineno">  347 </span><span class="spaces">    </span><span class="istickedoff">RoleRepresentational -&gt; &quot;RoleRepresentational&quot;</span>
+<span class="lineno">  348 </span><span class="spaces">    </span><span class="istickedoff">RolePhantom -&gt; &quot;RolePhantom&quot;</span>
+<span class="lineno">  349 </span><span class="spaces">    </span><span class="istickedoff">RoleInfer -&gt; &quot;RoleInfer&quot;</span></span>
+<span class="lineno">  350 </span>
+<span class="lineno">  351 </span>docDataDecl :: DataDecl -&gt; Doc ann
+<span class="lineno">  352 </span><span class="decl"><span class="istickedoff">docDataDecl dd =</span>
+<span class="lineno">  353 </span><span class="spaces">  </span><span class="istickedoff">&quot;DataDecl&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  354 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  355 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  356 </span><span class="spaces">      </span><span class="istickedoff">optionalField <span class="nottickedoff">docPragma</span> (dataDeclCTypePragma dd)</span>
+<span class="lineno">  357 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; take 1 binderFields</span>
+<span class="lineno">  358 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField <span class="nottickedoff">docType</span> (dataDeclContext dd)</span>
+<span class="lineno">  359 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; drop 1 binderFields</span>
+<span class="lineno">  360 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField <span class="nottickedoff">docType</span> (dataDeclKind dd)</span>
+<span class="lineno">  361 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docDataConDecl (dataDeclConstructors dd)</span>
+<span class="lineno">  362 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docDerivingClause (dataDeclDeriving dd)</span>
+<span class="lineno">  363 </span><span class="spaces">    </span><span class="istickedoff">binderFields = docBinderHead (dataDeclHead dd)</span></span>
+<span class="lineno">  364 </span>
+<span class="lineno">  365 </span>docNewtypeDecl :: NewtypeDecl -&gt; Doc ann
+<span class="lineno">  366 </span><span class="decl"><span class="istickedoff">docNewtypeDecl nd =</span>
+<span class="lineno">  367 </span><span class="spaces">  </span><span class="istickedoff">&quot;NewtypeDecl&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  368 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  369 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  370 </span><span class="spaces">      </span><span class="istickedoff">optionalField <span class="nottickedoff">docPragma</span> (newtypeDeclCTypePragma nd)</span>
+<span class="lineno">  371 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; take 1 binderFields</span>
+<span class="lineno">  372 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField <span class="nottickedoff">docType</span> (newtypeDeclContext nd)</span>
+<span class="lineno">  373 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; drop 1 binderFields</span>
+<span class="lineno">  374 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField <span class="nottickedoff">docType</span> (newtypeDeclKind nd)</span>
+<span class="lineno">  375 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField docDataConDecl (newtypeDeclConstructor nd)</span>
+<span class="lineno">  376 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docDerivingClause (newtypeDeclDeriving nd)</span>
+<span class="lineno">  377 </span><span class="spaces">    </span><span class="istickedoff">binderFields = docBinderHead (newtypeDeclHead nd)</span></span>
+<span class="lineno">  378 </span>
+<span class="lineno">  379 </span>docDataConDecl :: DataConDecl -&gt; Doc ann
+<span class="lineno">  380 </span><span class="decl"><span class="istickedoff">docDataConDecl dcd =</span>
+<span class="lineno">  381 </span><span class="spaces">  </span><span class="istickedoff">case dcd of</span>
+<span class="lineno">  382 </span><span class="spaces">    </span><span class="istickedoff">DataConAnn _ inner -&gt; docDataConDecl inner</span>
+<span class="lineno">  383 </span><span class="spaces">    </span><span class="istickedoff">PrefixCon forallVars constraints name fields' -&gt;</span>
+<span class="lineno">  384 </span><span class="spaces">      </span><span class="istickedoff">&quot;PrefixCon&quot; &lt;+&gt; braces (hsep (punctuate comma ([docUnqualifiedName name] &lt;&gt; listField <span class="nottickedoff">docTyVarBinder</span> forallVars &lt;&gt; listField <span class="nottickedoff">docType</span> constraints &lt;&gt; listField docBangType fields')))</span>
+<span class="lineno">  385 </span><span class="spaces">    </span><span class="istickedoff">InfixCon forallVars constraints lhs op rhs -&gt;</span>
+<span class="lineno">  386 </span><span class="spaces">      </span><span class="istickedoff">&quot;InfixCon&quot; &lt;+&gt; braces (hsep (punctuate comma (listField docTyVarBinder forallVars &lt;&gt; listField docType constraints &lt;&gt; [docBangType lhs, docUnqualifiedName op, docBangType rhs])))</span>
+<span class="lineno">  387 </span><span class="spaces">    </span><span class="istickedoff">RecordCon forallVars constraints name fields' -&gt;</span>
+<span class="lineno">  388 </span><span class="spaces">      </span><span class="istickedoff">&quot;RecordCon&quot; &lt;+&gt; hsep (docRecordConFields forallVars constraints name fields')</span>
+<span class="lineno">  389 </span><span class="spaces">    </span><span class="istickedoff">GadtCon forallBinders constraints names body -&gt;</span>
+<span class="lineno">  390 </span><span class="spaces">      </span><span class="istickedoff">&quot;GadtCon&quot; &lt;+&gt; braces (hsep (punctuate comma (listField <span class="nottickedoff">docForallTelescope</span> forallBinders &lt;&gt; listField docType constraints &lt;&gt; listField docUnqualifiedName names &lt;&gt; [docGadtBody body])))</span>
+<span class="lineno">  391 </span><span class="spaces">    </span><span class="istickedoff">TupleCon forallVars constraints flavor fields' -&gt;</span>
+<span class="lineno">  392 </span><span class="spaces">      </span><span class="istickedoff">&quot;TupleCon&quot; &lt;+&gt; braces (hsep (punctuate comma (listField docTyVarBinder forallVars &lt;&gt; listField docType constraints &lt;&gt; [pretty (show flavor)] &lt;&gt; listField docBangType fields')))</span>
+<span class="lineno">  393 </span><span class="spaces">    </span><span class="istickedoff">UnboxedSumCon forallVars constraints pos arity field' -&gt;</span>
+<span class="lineno">  394 </span><span class="spaces">      </span><span class="istickedoff">&quot;UnboxedSumCon&quot; &lt;+&gt; braces (hsep (punctuate comma (listField docTyVarBinder forallVars &lt;&gt; listField docType constraints &lt;&gt; [pretty (show pos), pretty (show arity), docBangType field'])))</span>
+<span class="lineno">  395 </span><span class="spaces">    </span><span class="istickedoff">ListCon forallVars constraints -&gt;</span>
+<span class="lineno">  396 </span><span class="spaces">      </span><span class="istickedoff">&quot;ListCon&quot; &lt;+&gt; braces (hsep (punctuate comma (listField docTyVarBinder forallVars &lt;&gt; listField docType constraints)))</span></span>
+<span class="lineno">  397 </span>
+<span class="lineno">  398 </span>-- | Document a GADT body
+<span class="lineno">  399 </span>docGadtBody :: GadtBody -&gt; Doc ann
+<span class="lineno">  400 </span><span class="decl"><span class="istickedoff">docGadtBody body =</span>
+<span class="lineno">  401 </span><span class="spaces">  </span><span class="istickedoff">case body of</span>
+<span class="lineno">  402 </span><span class="spaces">    </span><span class="istickedoff">GadtPrefixBody args resultTy -&gt;</span>
+<span class="lineno">  403 </span><span class="spaces">      </span><span class="istickedoff">&quot;GadtPrefixBody&quot; &lt;+&gt; braces (hsep (punctuate comma (listField docGadtArg args &lt;&gt; [docType resultTy])))</span>
+<span class="lineno">  404 </span><span class="spaces">    </span><span class="istickedoff">GadtRecordBody fields' resultTy -&gt;</span>
+<span class="lineno">  405 </span><span class="spaces">      </span><span class="istickedoff">&quot;GadtRecordBody&quot; &lt;+&gt; braces (hsep (punctuate comma (listField docFieldDecl fields' &lt;&gt; [docType resultTy])))</span></span>
+<span class="lineno">  406 </span>
+<span class="lineno">  407 </span>docGadtArg :: (BangType, ArrowKind) -&gt; Doc ann
+<span class="lineno">  408 </span><span class="decl"><span class="istickedoff">docGadtArg (bt, ArrowUnrestricted) = parens (docBangType bt)</span>
+<span class="lineno">  409 </span><span class="spaces"></span><span class="istickedoff">docGadtArg (bt, ak) = parens (docBangType bt &lt;+&gt; &quot;,&quot; &lt;+&gt; docArrowKind ak)</span></span>
+<span class="lineno">  410 </span>
+<span class="lineno">  411 </span>docBangType :: BangType -&gt; Doc ann
+<span class="lineno">  412 </span><span class="decl"><span class="istickedoff">docBangType bt =</span>
+<span class="lineno">  413 </span><span class="spaces">  </span><span class="istickedoff">&quot;BangType&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  414 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  415 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  416 </span><span class="spaces">      </span><span class="istickedoff">listField docPragma (bangPragmas bt)</span>
+<span class="lineno">  417 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; boolField (bangStrict bt)</span>
+<span class="lineno">  418 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; boolField (bangLazy bt)</span>
+<span class="lineno">  419 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docType (bangType bt)]</span></span>
+<span class="lineno">  420 </span>
+<span class="lineno">  421 </span>docFieldDecl :: FieldDecl -&gt; Doc ann
+<span class="lineno">  422 </span><span class="decl"><span class="istickedoff">docFieldDecl fd =</span>
+<span class="lineno">  423 </span><span class="spaces">  </span><span class="istickedoff">&quot;FieldDecl&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docUnqualifiedNameText (fieldNames fd)))) &lt;+&gt; parens (docFieldDeclType (fieldType fd))</span></span>
+<span class="lineno">  424 </span>
+<span class="lineno">  425 </span>docFieldDeclType :: BangType -&gt; Doc ann
+<span class="lineno">  426 </span><span class="decl"><span class="istickedoff">docFieldDeclType bt</span>
+<span class="lineno">  427 </span><span class="spaces">  </span><span class="istickedoff">| null (bangPragmas bt),</span>
+<span class="lineno">  428 </span><span class="spaces">    </span><span class="istickedoff">not (bangStrict bt),</span>
+<span class="lineno">  429 </span><span class="spaces">    </span><span class="istickedoff">not (bangLazy bt) =</span>
+<span class="lineno">  430 </span><span class="spaces">      </span><span class="istickedoff">docType (bangType bt)</span>
+<span class="lineno">  431 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = docBangType bt</span></span>
+<span class="lineno">  432 </span>
+<span class="lineno">  433 </span>docRecordConFields :: [TyVarBinder] -&gt; [Type] -&gt; UnqualifiedName -&gt; [FieldDecl] -&gt; [Doc ann]
+<span class="lineno">  434 </span><span class="decl"><span class="istickedoff">docRecordConFields forallVars constraints name fields' =</span>
+<span class="lineno">  435 </span><span class="spaces">  </span><span class="istickedoff">docUnqualifiedNameText name</span>
+<span class="lineno">  436 </span><span class="spaces">    </span><span class="istickedoff">: listField <span class="nottickedoff">docTyVarBinder</span> forallVars</span>
+<span class="lineno">  437 </span><span class="spaces">      </span><span class="istickedoff">&lt;&gt; listField <span class="nottickedoff">docType</span> constraints</span>
+<span class="lineno">  438 </span><span class="spaces">      </span><span class="istickedoff">&lt;&gt; [brackets (hsep (punctuate comma (map docFieldDecl fields')))]</span></span>
+<span class="lineno">  439 </span>
+<span class="lineno">  440 </span>docDerivingClause :: DerivingClause -&gt; Doc ann
+<span class="lineno">  441 </span><span class="decl"><span class="istickedoff">docDerivingClause dc =</span>
+<span class="lineno">  442 </span><span class="spaces">  </span><span class="istickedoff">&quot;DerivingClause&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  443 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  444 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  445 </span><span class="spaces">      </span><span class="istickedoff">optionalField docDerivingStrategy (derivingStrategy dc)</span>
+<span class="lineno">  446 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docDerivingClasses (derivingClasses dc)]</span></span>
+<span class="lineno">  447 </span>
+<span class="lineno">  448 </span>docDerivingClasses :: Either Name [Type] -&gt; Doc ann
+<span class="lineno">  449 </span><span class="decl"><span class="istickedoff">docDerivingClasses classes =</span>
+<span class="lineno">  450 </span><span class="spaces">  </span><span class="istickedoff">case classes of</span>
+<span class="lineno">  451 </span><span class="spaces">    </span><span class="istickedoff">Left name -&gt; docName name</span>
+<span class="lineno">  452 </span><span class="spaces">    </span><span class="istickedoff">Right types -&gt; brackets (hsep (punctuate comma (map docType types)))</span></span>
+<span class="lineno">  453 </span>
+<span class="lineno">  454 </span>docDerivingStrategy :: DerivingStrategy -&gt; Doc ann
+<span class="lineno">  455 </span><span class="decl"><span class="istickedoff">docDerivingStrategy ds =</span>
+<span class="lineno">  456 </span><span class="spaces">  </span><span class="istickedoff">case ds of</span>
+<span class="lineno">  457 </span><span class="spaces">    </span><span class="istickedoff">DerivingStock -&gt; &quot;DerivingStock&quot;</span>
+<span class="lineno">  458 </span><span class="spaces">    </span><span class="istickedoff">DerivingNewtype -&gt; &quot;DerivingNewtype&quot;</span>
+<span class="lineno">  459 </span><span class="spaces">    </span><span class="istickedoff">DerivingAnyclass -&gt; &quot;DerivingAnyclass&quot;</span>
+<span class="lineno">  460 </span><span class="spaces">    </span><span class="istickedoff">DerivingVia ty -&gt; &quot;DerivingVia&quot; &lt;+&gt; docType ty</span></span>
+<span class="lineno">  461 </span>
+<span class="lineno">  462 </span>docClassDecl :: ClassDecl -&gt; Doc ann
+<span class="lineno">  463 </span><span class="decl"><span class="istickedoff">docClassDecl cd =</span>
+<span class="lineno">  464 </span><span class="spaces">  </span><span class="istickedoff">&quot;ClassDecl&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  465 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  466 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  467 </span><span class="spaces">      </span><span class="istickedoff">optionalField (brackets . hsep . punctuate comma . map docType) (classDeclContext cd)</span>
+<span class="lineno">  468 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; binderFields</span>
+<span class="lineno">  469 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docFunctionalDependency (classDeclFundeps cd)</span>
+<span class="lineno">  470 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docClassDeclItem (classDeclItems cd)</span>
+<span class="lineno">  471 </span><span class="spaces">    </span><span class="istickedoff">binderFields = docBinderHead (classDeclHead cd)</span></span>
+<span class="lineno">  472 </span>
+<span class="lineno">  473 </span>docFunctionalDependency :: FunctionalDependency -&gt; Doc ann
+<span class="lineno">  474 </span><span class="decl"><span class="istickedoff">docFunctionalDependency dep =</span>
+<span class="lineno">  475 </span><span class="spaces">  </span><span class="istickedoff">&quot;FunctionalDependency&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  476 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  477 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  478 </span><span class="spaces">      </span><span class="istickedoff">listField docText (functionalDependencyDeterminers dep)</span>
+<span class="lineno">  479 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docText (functionalDependencyDetermined dep)</span></span>
+<span class="lineno">  480 </span>
+<span class="lineno">  481 </span>docTypeFamilyInjectivity :: TypeFamilyInjectivity -&gt; Doc ann
+<span class="lineno">  482 </span><span class="decl"><span class="istickedoff">docTypeFamilyInjectivity injectivity =</span>
+<span class="lineno">  483 </span><span class="spaces">  </span><span class="istickedoff">&quot;TypeFamilyInjectivity&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  484 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  485 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  486 </span><span class="spaces">      </span><span class="istickedoff">[ docText (typeFamilyInjectivityResult injectivity)</span>
+<span class="lineno">  487 </span><span class="spaces">      </span><span class="istickedoff">]</span>
+<span class="lineno">  488 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docText (typeFamilyInjectivityDetermined injectivity)</span></span>
+<span class="lineno">  489 </span>
+<span class="lineno">  490 </span>docTypeFamilyResultSig :: TypeFamilyResultSig -&gt; Doc ann
+<span class="lineno">  491 </span><span class="decl"><span class="istickedoff">docTypeFamilyResultSig sig =</span>
+<span class="lineno">  492 </span><span class="spaces">  </span><span class="istickedoff">case sig of</span>
+<span class="lineno">  493 </span><span class="spaces">    </span><span class="istickedoff">TypeFamilyKindSig kind -&gt; &quot;TypeFamilyKindSig&quot; &lt;+&gt; parens (docType kind)</span>
+<span class="lineno">  494 </span><span class="spaces">    </span><span class="istickedoff">TypeFamilyTyVarSig result -&gt;</span>
+<span class="lineno">  495 </span><span class="spaces">      </span><span class="istickedoff">&quot;TypeFamilyTyVarSig&quot; &lt;+&gt; braces (hsep (punctuate <span class="nottickedoff">comma</span> [docTyVarBinder result]))</span>
+<span class="lineno">  496 </span><span class="spaces">    </span><span class="istickedoff">TypeFamilyInjectiveSig result injectivity -&gt;</span>
+<span class="lineno">  497 </span><span class="spaces">      </span><span class="istickedoff">&quot;TypeFamilyInjectiveSig&quot; &lt;+&gt; braces (hsep (punctuate comma [docTyVarBinder result, docTypeFamilyInjectivity injectivity]))</span></span>
+<span class="lineno">  498 </span>
+<span class="lineno">  499 </span>docClassDeclItem :: ClassDeclItem -&gt; Doc ann
+<span class="lineno">  500 </span><span class="decl"><span class="istickedoff">docClassDeclItem item =</span>
+<span class="lineno">  501 </span><span class="spaces">  </span><span class="istickedoff">case item of</span>
+<span class="lineno">  502 </span><span class="spaces">    </span><span class="istickedoff">ClassItemAnn _ sub -&gt; docClassDeclItem sub</span>
+<span class="lineno">  503 </span><span class="spaces">    </span><span class="istickedoff">ClassItemTypeSig names ty -&gt; &quot;ClassItemTypeSig&quot; &lt;+&gt; braces (hsep (punctuate comma [brackets (hsep (punctuate comma (map docUnqualifiedName names))), docType ty]))</span>
+<span class="lineno">  504 </span><span class="spaces">    </span><span class="istickedoff">ClassItemDefaultSig name ty -&gt; &quot;ClassItemDefaultSig&quot; &lt;+&gt; braces (hsep (punctuate comma [docUnqualifiedName name, docType ty]))</span>
+<span class="lineno">  505 </span><span class="spaces">    </span><span class="istickedoff">ClassItemFixity assoc mNamespace mPrec ops -&gt; &quot;ClassItemFixity&quot; &lt;+&gt; braces (hsep (punctuate comma ([docFixityAssoc assoc] &lt;&gt; optionalField docIENamespace mNamespace &lt;&gt; optionalField pretty mPrec &lt;&gt; [brackets (hsep (punctuate comma (map docUnqualifiedName ops)))])))</span>
+<span class="lineno">  506 </span><span class="spaces">    </span><span class="istickedoff">ClassItemDefault vdecl -&gt; &quot;ClassItemDefault&quot; &lt;+&gt; parens (docValueDecl vdecl)</span>
+<span class="lineno">  507 </span><span class="spaces">    </span><span class="istickedoff">ClassItemTypeFamilyDecl tf -&gt; &quot;ClassItemTypeFamilyDecl&quot; &lt;+&gt; parens (docTypeFamilyDecl tf)</span>
+<span class="lineno">  508 </span><span class="spaces">    </span><span class="istickedoff">ClassItemDataFamilyDecl df -&gt; &quot;ClassItemDataFamilyDecl&quot; &lt;+&gt; parens (docDataFamilyDecl df)</span>
+<span class="lineno">  509 </span><span class="spaces">    </span><span class="istickedoff">ClassItemDefaultTypeInst tfi -&gt; &quot;ClassItemDefaultTypeInst&quot; &lt;+&gt; parens (docTypeFamilyInst tfi)</span>
+<span class="lineno">  510 </span><span class="spaces">    </span><span class="istickedoff">ClassItemPragma pragma -&gt; &quot;ClassItemPragma&quot; &lt;+&gt; docPragma pragma</span></span>
+<span class="lineno">  511 </span>
+<span class="lineno">  512 </span>docInstanceDecl :: InstanceDecl -&gt; Doc ann
+<span class="lineno">  513 </span><span class="decl"><span class="istickedoff">docInstanceDecl inst =</span>
+<span class="lineno">  514 </span><span class="spaces">  </span><span class="istickedoff">&quot;InstanceDecl&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  515 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  516 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  517 </span><span class="spaces">      </span><span class="istickedoff">listField <span class="nottickedoff">docPragma</span> (instanceDeclPragmas inst)</span>
+<span class="lineno">  518 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField <span class="nottickedoff">docPragma</span> (instanceDeclWarning inst)</span>
+<span class="lineno">  519 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField <span class="nottickedoff">docTyVarBinder</span> (instanceDeclForall inst)</span>
+<span class="lineno">  520 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docType (instanceDeclContext inst)</span>
+<span class="lineno">  521 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docType (instanceDeclHead inst)]</span>
+<span class="lineno">  522 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docInstanceDeclItem (instanceDeclItems inst)</span></span>
+<span class="lineno">  523 </span>
+<span class="lineno">  524 </span>docInstanceDeclItem :: InstanceDeclItem -&gt; Doc ann
+<span class="lineno">  525 </span><span class="decl"><span class="istickedoff">docInstanceDeclItem item =</span>
+<span class="lineno">  526 </span><span class="spaces">  </span><span class="istickedoff">case item of</span>
+<span class="lineno">  527 </span><span class="spaces">    </span><span class="istickedoff">InstanceItemAnn _ inner -&gt; docInstanceDeclItem inner</span>
+<span class="lineno">  528 </span><span class="spaces">    </span><span class="istickedoff">InstanceItemBind vdecl -&gt; &quot;InstanceItemBind&quot; &lt;+&gt; parens (docValueDecl vdecl)</span>
+<span class="lineno">  529 </span><span class="spaces">    </span><span class="istickedoff">InstanceItemTypeSig names ty -&gt; &quot;InstanceItemTypeSig&quot; &lt;+&gt; braces (hsep (punctuate comma [brackets (hsep (punctuate comma (map docUnqualifiedName names))), docType ty]))</span>
+<span class="lineno">  530 </span><span class="spaces">    </span><span class="istickedoff">InstanceItemFixity assoc mNamespace mPrec ops -&gt; &quot;InstanceItemFixity&quot; &lt;+&gt; braces (hsep (punctuate comma ([docFixityAssoc assoc] &lt;&gt; optionalField docIENamespace mNamespace &lt;&gt; optionalField pretty mPrec &lt;&gt; [brackets (hsep (punctuate comma (map docUnqualifiedName ops)))])))</span>
+<span class="lineno">  531 </span><span class="spaces">    </span><span class="istickedoff">InstanceItemTypeFamilyInst tfi -&gt; &quot;InstanceItemTypeFamilyInst&quot; &lt;+&gt; parens (docTypeFamilyInst tfi)</span>
+<span class="lineno">  532 </span><span class="spaces">    </span><span class="istickedoff">InstanceItemDataFamilyInst dfi -&gt; &quot;InstanceItemDataFamilyInst&quot; &lt;+&gt; parens (docDataFamilyInst dfi)</span>
+<span class="lineno">  533 </span><span class="spaces">    </span><span class="istickedoff">InstanceItemPragma pragma -&gt; &quot;InstanceItemPragma&quot; &lt;+&gt; docPragma pragma</span></span>
+<span class="lineno">  534 </span>
+<span class="lineno">  535 </span>docStandaloneDerivingDecl :: StandaloneDerivingDecl -&gt; Doc ann
+<span class="lineno">  536 </span><span class="decl"><span class="istickedoff">docStandaloneDerivingDecl sd =</span>
+<span class="lineno">  537 </span><span class="spaces">  </span><span class="istickedoff">&quot;StandaloneDerivingDecl&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  538 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  539 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  540 </span><span class="spaces">      </span><span class="istickedoff">optionalField docDerivingStrategy (standaloneDerivingStrategy sd)</span>
+<span class="lineno">  541 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField <span class="nottickedoff">docPragma</span> (standaloneDerivingPragmas sd)</span>
+<span class="lineno">  542 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField <span class="nottickedoff">docPragma</span> (standaloneDerivingWarning sd)</span>
+<span class="lineno">  543 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docType (standaloneDerivingContext sd)</span>
+<span class="lineno">  544 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docType (standaloneDerivingHead sd)]</span></span>
+<span class="lineno">  545 </span>
+<span class="lineno">  546 </span>docInstanceOverlapPragma :: InstanceOverlapPragma -&gt; Doc ann
+<span class="lineno">  547 </span><span class="decl"><span class="istickedoff">docInstanceOverlapPragma pragma' =</span>
+<span class="lineno">  548 </span><span class="spaces">  </span><span class="istickedoff">case pragma' of</span>
+<span class="lineno">  549 </span><span class="spaces">    </span><span class="istickedoff">Overlapping -&gt; &quot;Overlapping&quot;</span>
+<span class="lineno">  550 </span><span class="spaces">    </span><span class="istickedoff">Overlappable -&gt; &quot;Overlappable&quot;</span>
+<span class="lineno">  551 </span><span class="spaces">    </span><span class="istickedoff">Overlaps -&gt; &quot;Overlaps&quot;</span>
+<span class="lineno">  552 </span><span class="spaces">    </span><span class="istickedoff">Incoherent -&gt; &quot;Incoherent&quot;</span></span>
+<span class="lineno">  553 </span>
+<span class="lineno">  554 </span>docPragmaUnpackKind :: PragmaUnpackKind -&gt; Doc ann
+<span class="lineno">  555 </span><span class="decl"><span class="istickedoff">docPragmaUnpackKind kind =</span>
+<span class="lineno">  556 </span><span class="spaces">  </span><span class="istickedoff">case kind of</span>
+<span class="lineno">  557 </span><span class="spaces">    </span><span class="istickedoff">UnpackPragma -&gt; &quot;UnpackPragma&quot;</span>
+<span class="lineno">  558 </span><span class="spaces">    </span><span class="istickedoff">NoUnpackPragma -&gt; &quot;NoUnpackPragma&quot;</span></span>
+<span class="lineno">  559 </span>
+<span class="lineno">  560 </span>docPragmaType :: PragmaType -&gt; Doc ann
+<span class="lineno">  561 </span><span class="decl"><span class="istickedoff">docPragmaType pt =</span>
+<span class="lineno">  562 </span><span class="spaces">  </span><span class="istickedoff">case pt of</span>
+<span class="lineno">  563 </span><span class="spaces">    </span><span class="istickedoff">PragmaLanguage settings -&gt; &quot;PragmaLanguage&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docExtensionSetting settings)))</span>
+<span class="lineno">  564 </span><span class="spaces">    </span><span class="istickedoff">PragmaInstanceOverlap overlapPragma -&gt; &quot;PragmaInstanceOverlap&quot; &lt;+&gt; docInstanceOverlapPragma overlapPragma</span>
+<span class="lineno">  565 </span><span class="spaces">    </span><span class="istickedoff">PragmaWarning msg -&gt; &quot;PragmaWarning&quot; &lt;+&gt; docText msg</span>
+<span class="lineno">  566 </span><span class="spaces">    </span><span class="istickedoff">PragmaDeprecated msg -&gt; &quot;PragmaDeprecated&quot; &lt;+&gt; docText msg</span>
+<span class="lineno">  567 </span><span class="spaces">    </span><span class="istickedoff">PragmaInline kind body -&gt; &quot;PragmaInline&quot; &lt;+&gt; docText kind &lt;+&gt; docText body</span>
+<span class="lineno">  568 </span><span class="spaces">    </span><span class="istickedoff">PragmaUnpack unpackKind -&gt; &quot;PragmaUnpack&quot; &lt;+&gt; docPragmaUnpackKind unpackKind</span>
+<span class="lineno">  569 </span><span class="spaces">    </span><span class="istickedoff">PragmaSource sourceText _ -&gt; &quot;PragmaSource&quot; &lt;+&gt; docText sourceText</span>
+<span class="lineno">  570 </span><span class="spaces">    </span><span class="istickedoff">PragmaSCC label -&gt; &quot;PragmaSCC&quot; &lt;+&gt; docText label</span>
+<span class="lineno">  571 </span><span class="spaces">    </span><span class="istickedoff">PragmaUnknown text -&gt; &quot;PragmaUnknown&quot; &lt;+&gt; docText text</span></span>
+<span class="lineno">  572 </span>
+<span class="lineno">  573 </span>docPragma :: Pragma -&gt; Doc ann
+<span class="lineno">  574 </span><span class="decl"><span class="istickedoff">docPragma pragma = docPragmaType (pragmaType pragma)</span></span>
+<span class="lineno">  575 </span>
+<span class="lineno">  576 </span>docForeignDecl :: ForeignDecl -&gt; Doc ann
+<span class="lineno">  577 </span><span class="decl"><span class="istickedoff">docForeignDecl fd =</span>
+<span class="lineno">  578 </span><span class="spaces">  </span><span class="istickedoff">&quot;ForeignDecl&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  579 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  580 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  581 </span><span class="spaces">      </span><span class="istickedoff">[docForeignDirection (foreignDirection fd)]</span>
+<span class="lineno">  582 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docCallConv (foreignCallConv fd)]</span>
+<span class="lineno">  583 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField docForeignSafety (foreignSafety fd)</span>
+<span class="lineno">  584 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docForeignEntitySpec (foreignEntity fd)]</span>
+<span class="lineno">  585 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docUnqualifiedName (foreignName fd)]</span>
+<span class="lineno">  586 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docType (foreignType fd)]</span></span>
+<span class="lineno">  587 </span>
+<span class="lineno">  588 </span>docForeignDirection :: ForeignDirection -&gt; Doc ann
+<span class="lineno">  589 </span><span class="decl"><span class="istickedoff">docForeignDirection fd =</span>
+<span class="lineno">  590 </span><span class="spaces">  </span><span class="istickedoff">case fd of</span>
+<span class="lineno">  591 </span><span class="spaces">    </span><span class="istickedoff">ForeignImport -&gt; &quot;ForeignImport&quot;</span>
+<span class="lineno">  592 </span><span class="spaces">    </span><span class="istickedoff">ForeignExport -&gt; &quot;ForeignExport&quot;</span></span>
+<span class="lineno">  593 </span>
+<span class="lineno">  594 </span>docCallConv :: CallConv -&gt; Doc ann
+<span class="lineno">  595 </span><span class="decl"><span class="istickedoff">docCallConv cc =</span>
+<span class="lineno">  596 </span><span class="spaces">  </span><span class="istickedoff">case cc of</span>
+<span class="lineno">  597 </span><span class="spaces">    </span><span class="istickedoff">CCall -&gt; &quot;CCall&quot;</span>
+<span class="lineno">  598 </span><span class="spaces">    </span><span class="istickedoff">StdCall -&gt; &quot;StdCall&quot;</span>
+<span class="lineno">  599 </span><span class="spaces">    </span><span class="istickedoff">CApi -&gt; &quot;CApi&quot;</span>
+<span class="lineno">  600 </span><span class="spaces">    </span><span class="istickedoff">CPrim -&gt; <span class="nottickedoff">&quot;CPrim&quot;</span></span>
+<span class="lineno">  601 </span><span class="spaces">    </span><span class="istickedoff">JavaScript -&gt; &quot;JavaScript&quot;</span></span>
+<span class="lineno">  602 </span>
+<span class="lineno">  603 </span>docForeignSafety :: ForeignSafety -&gt; Doc ann
+<span class="lineno">  604 </span><span class="decl"><span class="istickedoff">docForeignSafety fs =</span>
+<span class="lineno">  605 </span><span class="spaces">  </span><span class="istickedoff">case fs of</span>
+<span class="lineno">  606 </span><span class="spaces">    </span><span class="istickedoff">Safe -&gt; &quot;Safe&quot;</span>
+<span class="lineno">  607 </span><span class="spaces">    </span><span class="istickedoff">Unsafe -&gt; &quot;Unsafe&quot;</span>
+<span class="lineno">  608 </span><span class="spaces">    </span><span class="istickedoff">Interruptible -&gt; &quot;Interruptible&quot;</span></span>
+<span class="lineno">  609 </span>
+<span class="lineno">  610 </span>docForeignEntitySpec :: ForeignEntitySpec -&gt; Doc ann
+<span class="lineno">  611 </span><span class="decl"><span class="istickedoff">docForeignEntitySpec spec =</span>
+<span class="lineno">  612 </span><span class="spaces">  </span><span class="istickedoff">case spec of</span>
+<span class="lineno">  613 </span><span class="spaces">    </span><span class="istickedoff">ForeignEntityDynamic -&gt; &quot;ForeignEntityDynamic&quot;</span>
+<span class="lineno">  614 </span><span class="spaces">    </span><span class="istickedoff">ForeignEntityWrapper -&gt; &quot;ForeignEntityWrapper&quot;</span>
+<span class="lineno">  615 </span><span class="spaces">    </span><span class="istickedoff">ForeignEntityStatic mName -&gt; &quot;ForeignEntityStatic&quot; &lt;&gt; optionalField' docText mName</span>
+<span class="lineno">  616 </span><span class="spaces">    </span><span class="istickedoff">ForeignEntityAddress mName -&gt; &quot;ForeignEntityAddress&quot; &lt;&gt; optionalField' docText mName</span>
+<span class="lineno">  617 </span><span class="spaces">    </span><span class="istickedoff">ForeignEntityNamed name -&gt; &quot;ForeignEntityNamed&quot; &lt;+&gt; docText name</span>
+<span class="lineno">  618 </span><span class="spaces">    </span><span class="istickedoff">ForeignEntityOmitted -&gt; &quot;ForeignEntityOmitted&quot;</span></span>
+<span class="lineno">  619 </span>
+<span class="lineno">  620 </span>docFixityAssoc :: FixityAssoc -&gt; Doc ann
+<span class="lineno">  621 </span><span class="decl"><span class="istickedoff">docFixityAssoc fa =</span>
+<span class="lineno">  622 </span><span class="spaces">  </span><span class="istickedoff">case fa of</span>
+<span class="lineno">  623 </span><span class="spaces">    </span><span class="istickedoff">Infix -&gt; &quot;Infix&quot;</span>
+<span class="lineno">  624 </span><span class="spaces">    </span><span class="istickedoff">InfixL -&gt; &quot;InfixL&quot;</span>
+<span class="lineno">  625 </span><span class="spaces">    </span><span class="istickedoff">InfixR -&gt; &quot;InfixR&quot;</span></span>
+<span class="lineno">  626 </span>
+<span class="lineno">  627 </span>-- Types
+<span class="lineno">  628 </span>
+<span class="lineno">  629 </span>docType :: Type -&gt; Doc ann
+<span class="lineno">  630 </span><span class="decl"><span class="istickedoff">docType ty =</span>
+<span class="lineno">  631 </span><span class="spaces">  </span><span class="istickedoff">case ty of</span>
+<span class="lineno">  632 </span><span class="spaces">    </span><span class="istickedoff">TVar name -&gt; &quot;TVar&quot; &lt;+&gt; docUnqualifiedNameText name</span>
+<span class="lineno">  633 </span><span class="spaces">    </span><span class="istickedoff">TCon name promoted -&gt;</span>
+<span class="lineno">  634 </span><span class="spaces">      </span><span class="istickedoff">&quot;TCon&quot;</span>
+<span class="lineno">  635 </span><span class="spaces">        </span><span class="istickedoff">&lt;+&gt; docName name</span>
+<span class="lineno">  636 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; (if promoted == Promoted then &quot; Promoted&quot; else &quot;&quot;)</span>
+<span class="lineno">  637 </span><span class="spaces">    </span><span class="istickedoff">TBuiltinCon con -&gt; &quot;TBuiltinCon&quot; &lt;+&gt; pretty (show con)</span>
+<span class="lineno">  638 </span><span class="spaces">    </span><span class="istickedoff">TImplicitParam name inner -&gt; &quot;TImplicitParam&quot; &lt;+&gt; docText name &lt;+&gt; parens (docType inner)</span>
+<span class="lineno">  639 </span><span class="spaces">    </span><span class="istickedoff">TTypeLit lit -&gt; &quot;TTypeLit&quot; &lt;+&gt; docTypeLiteral lit</span>
+<span class="lineno">  640 </span><span class="spaces">    </span><span class="istickedoff">TStar {} -&gt; &quot;TStar&quot;</span>
+<span class="lineno">  641 </span><span class="spaces">    </span><span class="istickedoff">TQuasiQuote quoter body -&gt; &quot;TQuasiQuote&quot; &lt;+&gt; docText quoter &lt;+&gt; docText body</span>
+<span class="lineno">  642 </span><span class="spaces">    </span><span class="istickedoff">TForall telescope inner -&gt;</span>
+<span class="lineno">  643 </span><span class="spaces">      </span><span class="istickedoff">case forallTelescopeVisibility telescope of</span>
+<span class="lineno">  644 </span><span class="spaces">        </span><span class="istickedoff">ForallInvisible -&gt;</span>
+<span class="lineno">  645 </span><span class="spaces">          </span><span class="istickedoff">&quot;TForall&quot;</span>
+<span class="lineno">  646 </span><span class="spaces">            </span><span class="istickedoff">&lt;+&gt; brackets (hsep (punctuate comma (map docTyVarBinder (forallTelescopeBinders telescope))))</span>
+<span class="lineno">  647 </span><span class="spaces">            </span><span class="istickedoff">&lt;+&gt; parens (docType inner)</span>
+<span class="lineno">  648 </span><span class="spaces">        </span><span class="istickedoff">ForallVisible -&gt; &quot;TForall&quot; &lt;+&gt; parens (docForallTelescope telescope) &lt;+&gt; parens (docType inner)</span>
+<span class="lineno">  649 </span><span class="spaces">    </span><span class="istickedoff">TApp f x -&gt; &quot;TApp&quot; &lt;+&gt; parens (docType f) &lt;+&gt; parens (docType x)</span>
+<span class="lineno">  650 </span><span class="spaces">    </span><span class="istickedoff">TTypeApp f x -&gt; &quot;TTypeApp&quot; &lt;+&gt; parens (docType f) &lt;+&gt; parens (docType x)</span>
+<span class="lineno">  651 </span><span class="spaces">    </span><span class="istickedoff">TInfix lhs op promoted rhs -&gt;</span>
+<span class="lineno">  652 </span><span class="spaces">      </span><span class="istickedoff">&quot;TInfix&quot;</span>
+<span class="lineno">  653 </span><span class="spaces">        </span><span class="istickedoff">&lt;+&gt; parens (docType lhs)</span>
+<span class="lineno">  654 </span><span class="spaces">        </span><span class="istickedoff">&lt;+&gt; docName op</span>
+<span class="lineno">  655 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; (if <span class="tickonlyfalse">promoted == Promoted</span> then <span class="nottickedoff">&quot; Promoted&quot;</span> else &quot;&quot;)</span>
+<span class="lineno">  656 </span><span class="spaces">        </span><span class="istickedoff">&lt;+&gt; parens (docType rhs)</span>
+<span class="lineno">  657 </span><span class="spaces">    </span><span class="istickedoff">TFun arrowKind a b -&gt; &quot;TFun&quot; &lt;+&gt; hsep (docFunctionTypeFields arrowKind a b)</span>
+<span class="lineno">  658 </span><span class="spaces">    </span><span class="istickedoff">TTuple tupleFlavor promoted elems -&gt;</span>
+<span class="lineno">  659 </span><span class="spaces">      </span><span class="istickedoff">&quot;TTuple&quot; &lt;+&gt; hsep (docTypeTupleFields tupleFlavor promoted elems)</span>
+<span class="lineno">  660 </span><span class="spaces">    </span><span class="istickedoff">TUnboxedSum elems -&gt;</span>
+<span class="lineno">  661 </span><span class="spaces">      </span><span class="istickedoff">&quot;TUnboxedSum&quot;</span>
+<span class="lineno">  662 </span><span class="spaces">        </span><span class="istickedoff">&lt;+&gt; brackets (hsep (punctuate comma (map docType elems)))</span>
+<span class="lineno">  663 </span><span class="spaces">    </span><span class="istickedoff">TList promoted elems -&gt;</span>
+<span class="lineno">  664 </span><span class="spaces">      </span><span class="istickedoff">&quot;TList&quot; &lt;+&gt; hsep (docTypeListFields promoted elems)</span>
+<span class="lineno">  665 </span><span class="spaces">    </span><span class="istickedoff">TParen inner -&gt; &quot;TParen&quot; &lt;+&gt; parens (docType inner)</span>
+<span class="lineno">  666 </span><span class="spaces">    </span><span class="istickedoff">TKindSig ty' kind -&gt; &quot;TKindSig&quot; &lt;+&gt; parens (docType ty') &lt;+&gt; parens (docType kind)</span>
+<span class="lineno">  667 </span><span class="spaces">    </span><span class="istickedoff">TContext constraints inner -&gt; &quot;TContext&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docType constraints))) &lt;+&gt; parens (docType inner)</span>
+<span class="lineno">  668 </span><span class="spaces">    </span><span class="istickedoff">TSplice body -&gt; &quot;TSplice&quot; &lt;+&gt; parens (docExpr body)</span>
+<span class="lineno">  669 </span><span class="spaces">    </span><span class="istickedoff">TWildcard -&gt; &quot;TWildcard&quot;</span>
+<span class="lineno">  670 </span><span class="spaces">    </span><span class="istickedoff">TAnn _ sub -&gt; docType sub</span></span>
+<span class="lineno">  671 </span>
+<span class="lineno">  672 </span>docTypeLiteral :: TypeLiteral -&gt; Doc ann
+<span class="lineno">  673 </span><span class="decl"><span class="istickedoff">docTypeLiteral lit =</span>
+<span class="lineno">  674 </span><span class="spaces">  </span><span class="istickedoff">case lit of</span>
+<span class="lineno">  675 </span><span class="spaces">    </span><span class="istickedoff">TypeLitInteger n _ -&gt; &quot;TypeLitInteger&quot; &lt;+&gt; pretty n</span>
+<span class="lineno">  676 </span><span class="spaces">    </span><span class="istickedoff">TypeLitSymbol s _ -&gt; &quot;TypeLitSymbol&quot; &lt;+&gt; docText s</span>
+<span class="lineno">  677 </span><span class="spaces">    </span><span class="istickedoff">TypeLitChar c _ -&gt; &quot;TypeLitChar&quot; &lt;+&gt; pretty (show c)</span></span>
+<span class="lineno">  678 </span>
+<span class="lineno">  679 </span>docFunctionTypeFields :: ArrowKind -&gt; Type -&gt; Type -&gt; [Doc ann]
+<span class="lineno">  680 </span><span class="decl"><span class="istickedoff">docFunctionTypeFields arrowKind a b =</span>
+<span class="lineno">  681 </span><span class="spaces">  </span><span class="istickedoff">arrowFields &lt;&gt; [parens (docType a), parens (docType b)]</span>
+<span class="lineno">  682 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  683 </span><span class="spaces">    </span><span class="istickedoff">arrowFields =</span>
+<span class="lineno">  684 </span><span class="spaces">      </span><span class="istickedoff">case arrowKind of</span>
+<span class="lineno">  685 </span><span class="spaces">        </span><span class="istickedoff">ArrowUnrestricted -&gt; []</span>
+<span class="lineno">  686 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; [docArrowKind arrowKind]</span></span>
+<span class="lineno">  687 </span>
+<span class="lineno">  688 </span>docTypeListFields :: TypePromotion -&gt; [Type] -&gt; [Doc ann]
+<span class="lineno">  689 </span><span class="decl"><span class="istickedoff">docTypeListFields promoted elems =</span>
+<span class="lineno">  690 </span><span class="spaces">  </span><span class="istickedoff">promotedFields &lt;&gt; [brackets (hsep (punctuate comma (map docType elems)))]</span>
+<span class="lineno">  691 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  692 </span><span class="spaces">    </span><span class="istickedoff">promotedFields =</span>
+<span class="lineno">  693 </span><span class="spaces">      </span><span class="istickedoff">case promoted of</span>
+<span class="lineno">  694 </span><span class="spaces">        </span><span class="istickedoff">Unpromoted -&gt; []</span>
+<span class="lineno">  695 </span><span class="spaces">        </span><span class="istickedoff">Promoted -&gt; [&quot;Promoted&quot;]</span></span>
+<span class="lineno">  696 </span>
+<span class="lineno">  697 </span>docTypeTupleFields :: TupleFlavor -&gt; TypePromotion -&gt; [Type] -&gt; [Doc ann]
+<span class="lineno">  698 </span><span class="decl"><span class="istickedoff">docTypeTupleFields tupleFlavor promoted elems =</span>
+<span class="lineno">  699 </span><span class="spaces">  </span><span class="istickedoff">flavorFields &lt;&gt; promotedFields &lt;&gt; [brackets (hsep (punctuate comma (map docType elems)))]</span>
+<span class="lineno">  700 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  701 </span><span class="spaces">    </span><span class="istickedoff">flavorFields =</span>
+<span class="lineno">  702 </span><span class="spaces">      </span><span class="istickedoff">case tupleFlavor of</span>
+<span class="lineno">  703 </span><span class="spaces">        </span><span class="istickedoff">Boxed -&gt; []</span>
+<span class="lineno">  704 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; [pretty (show tupleFlavor)]</span>
+<span class="lineno">  705 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  706 </span><span class="spaces">    </span><span class="istickedoff">promotedFields =</span>
+<span class="lineno">  707 </span><span class="spaces">      </span><span class="istickedoff">case promoted of</span>
+<span class="lineno">  708 </span><span class="spaces">        </span><span class="istickedoff">Unpromoted -&gt; []</span>
+<span class="lineno">  709 </span><span class="spaces">        </span><span class="istickedoff">Promoted -&gt; [&quot;Promoted&quot;]</span></span>
+<span class="lineno">  710 </span>
+<span class="lineno">  711 </span>docTyVarBinder :: TyVarBinder -&gt; Doc ann
+<span class="lineno">  712 </span><span class="decl"><span class="istickedoff">docTyVarBinder tvb =</span>
+<span class="lineno">  713 </span><span class="spaces">  </span><span class="istickedoff">&quot;TyVarBinder&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno">  714 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  715 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno">  716 </span><span class="spaces">      </span><span class="istickedoff">[docText (tyVarBinderName tvb)]</span>
+<span class="lineno">  717 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField (\kind -&gt; &quot;Just&quot; &lt;+&gt; parens (docType kind)) (tyVarBinderKind tvb)</span>
+<span class="lineno">  718 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField docTyVarBSpecificity (specificityField tvb)</span>
+<span class="lineno">  719 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField <span class="nottickedoff">docTyVarBVisibility</span> (visibilityField tvb)</span>
+<span class="lineno">  720 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  721 </span><span class="spaces">    </span><span class="istickedoff">specificityField binder =</span>
+<span class="lineno">  722 </span><span class="spaces">      </span><span class="istickedoff">case tyVarBinderSpecificity binder of</span>
+<span class="lineno">  723 </span><span class="spaces">        </span><span class="istickedoff">TyVarBSpecified -&gt; Nothing</span>
+<span class="lineno">  724 </span><span class="spaces">        </span><span class="istickedoff">specificity -&gt; Just specificity</span>
+<span class="lineno">  725 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  726 </span><span class="spaces">    </span><span class="istickedoff">visibilityField binder =</span>
+<span class="lineno">  727 </span><span class="spaces">      </span><span class="istickedoff">case tyVarBinderVisibility binder of</span>
+<span class="lineno">  728 </span><span class="spaces">        </span><span class="istickedoff">TyVarBVisible -&gt; Nothing</span>
+<span class="lineno">  729 </span><span class="spaces">        </span><span class="istickedoff">visibility -&gt; <span class="nottickedoff">Just visibility</span></span></span>
+<span class="lineno">  730 </span>
+<span class="lineno">  731 </span>docTyVarBSpecificity :: TyVarBSpecificity -&gt; Doc ann
+<span class="lineno">  732 </span><span class="decl"><span class="istickedoff">docTyVarBSpecificity specificity =</span>
+<span class="lineno">  733 </span><span class="spaces">  </span><span class="istickedoff">case specificity of</span>
+<span class="lineno">  734 </span><span class="spaces">    </span><span class="istickedoff">TyVarBInferred -&gt; &quot;TyVarBInferred&quot;</span>
+<span class="lineno">  735 </span><span class="spaces">    </span><span class="istickedoff">TyVarBSpecified -&gt; <span class="nottickedoff">&quot;TyVarBSpecified&quot;</span></span></span>
+<span class="lineno">  736 </span>
+<span class="lineno">  737 </span>docTyVarBVisibility :: TyVarBVisibility -&gt; Doc ann
+<span class="lineno">  738 </span><span class="decl"><span class="nottickedoff">docTyVarBVisibility visibility =</span>
+<span class="lineno">  739 </span><span class="spaces">  </span><span class="nottickedoff">case visibility of</span>
+<span class="lineno">  740 </span><span class="spaces">    </span><span class="nottickedoff">TyVarBVisible -&gt; &quot;TyVarBVisible&quot;</span>
+<span class="lineno">  741 </span><span class="spaces">    </span><span class="nottickedoff">TyVarBInvisible -&gt; &quot;TyVarBInvisible&quot;</span></span>
+<span class="lineno">  742 </span>
+<span class="lineno">  743 </span>docForallVis :: ForallVis -&gt; Doc ann
+<span class="lineno">  744 </span><span class="decl"><span class="istickedoff">docForallVis visibility =</span>
+<span class="lineno">  745 </span><span class="spaces">  </span><span class="istickedoff">case visibility of</span>
+<span class="lineno">  746 </span><span class="spaces">    </span><span class="istickedoff">ForallInvisible -&gt; <span class="nottickedoff">&quot;ForallInvisible&quot;</span></span>
+<span class="lineno">  747 </span><span class="spaces">    </span><span class="istickedoff">ForallVisible -&gt; &quot;ForallVisible&quot;</span></span>
+<span class="lineno">  748 </span>
+<span class="lineno">  749 </span>docForallTelescope :: ForallTelescope -&gt; Doc ann
+<span class="lineno">  750 </span><span class="decl"><span class="istickedoff">docForallTelescope telescope =</span>
+<span class="lineno">  751 </span><span class="spaces">  </span><span class="istickedoff">&quot;ForallTelescope&quot;</span>
+<span class="lineno">  752 </span><span class="spaces">    </span><span class="istickedoff">&lt;+&gt; braces</span>
+<span class="lineno">  753 </span><span class="spaces">      </span><span class="istickedoff">( hsep</span>
+<span class="lineno">  754 </span><span class="spaces">          </span><span class="istickedoff">( punctuate</span>
+<span class="lineno">  755 </span><span class="spaces">              </span><span class="istickedoff">comma</span>
+<span class="lineno">  756 </span><span class="spaces">              </span><span class="istickedoff">( [docForallVis (forallTelescopeVisibility telescope)]</span>
+<span class="lineno">  757 </span><span class="spaces">                  </span><span class="istickedoff">&lt;&gt; listField docTyVarBinder (forallTelescopeBinders telescope)</span>
+<span class="lineno">  758 </span><span class="spaces">              </span><span class="istickedoff">)</span>
+<span class="lineno">  759 </span><span class="spaces">          </span><span class="istickedoff">)</span>
+<span class="lineno">  760 </span><span class="spaces">      </span><span class="istickedoff">)</span></span>
+<span class="lineno">  761 </span>
+<span class="lineno">  762 </span>-- Patterns
+<span class="lineno">  763 </span>
+<span class="lineno">  764 </span>docPattern :: Pattern -&gt; Doc ann
+<span class="lineno">  765 </span><span class="decl"><span class="istickedoff">docPattern pat =</span>
+<span class="lineno">  766 </span><span class="spaces">  </span><span class="istickedoff">case pat of</span>
+<span class="lineno">  767 </span><span class="spaces">    </span><span class="istickedoff">PAnn _ sub -&gt; docPattern sub</span>
+<span class="lineno">  768 </span><span class="spaces">    </span><span class="istickedoff">PVar name -&gt; &quot;PVar&quot; &lt;+&gt; docUnqualifiedNameText name</span>
+<span class="lineno">  769 </span><span class="spaces">    </span><span class="istickedoff">PTypeBinder binder -&gt; <span class="nottickedoff">&quot;PTypeBinder&quot; &lt;+&gt; parens (docTyVarBinder binder)</span></span>
+<span class="lineno">  770 </span><span class="spaces">    </span><span class="istickedoff">PTypeSyntax form ty -&gt; <span class="nottickedoff">&quot;PTypeSyntax&quot; &lt;+&gt; docTypeSyntaxForm form &lt;+&gt; parens (docType ty)</span></span>
+<span class="lineno">  771 </span><span class="spaces">    </span><span class="istickedoff">PWildcard -&gt; &quot;PWildcard&quot;</span>
+<span class="lineno">  772 </span><span class="spaces">    </span><span class="istickedoff">PLit lit -&gt; &quot;PLit&quot; &lt;+&gt; parens (docLiteral lit)</span>
+<span class="lineno">  773 </span><span class="spaces">    </span><span class="istickedoff">PQuasiQuote quoter body -&gt; &quot;PQuasiQuote&quot; &lt;+&gt; docText quoter &lt;+&gt; docText body</span>
+<span class="lineno">  774 </span><span class="spaces">    </span><span class="istickedoff">PTuple tupleFlavor elems -&gt;</span>
+<span class="lineno">  775 </span><span class="spaces">      </span><span class="istickedoff">&quot;PTuple&quot; &lt;+&gt; hsep (docPatternTupleFields tupleFlavor elems)</span>
+<span class="lineno">  776 </span><span class="spaces">    </span><span class="istickedoff">PUnboxedSum altIdx arity inner -&gt;</span>
+<span class="lineno">  777 </span><span class="spaces">      </span><span class="istickedoff">&quot;PUnboxedSum&quot; &lt;+&gt; pretty altIdx &lt;+&gt; pretty arity &lt;+&gt; docPattern inner</span>
+<span class="lineno">  778 </span><span class="spaces">    </span><span class="istickedoff">PList elems -&gt; &quot;PList&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docPattern elems)))</span>
+<span class="lineno">  779 </span><span class="spaces">    </span><span class="istickedoff">PCon name typeArgs args -&gt;</span>
+<span class="lineno">  780 </span><span class="spaces">      </span><span class="istickedoff">case typeArgs of</span>
+<span class="lineno">  781 </span><span class="spaces">        </span><span class="istickedoff">[] -&gt; &quot;PCon&quot; &lt;+&gt; docName name &lt;+&gt; brackets (hsep (punctuate comma (map docPattern args)))</span>
+<span class="lineno">  782 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt;</span>
+<span class="lineno">  783 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">&quot;PCon&quot;</span></span>
+<span class="lineno">  784 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">&lt;+&gt; docName name</span></span>
+<span class="lineno">  785 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">&lt;+&gt; braces</span></span>
+<span class="lineno">  786 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">( hsep</span></span>
+<span class="lineno">  787 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">( punctuate</span></span>
+<span class="lineno">  788 </span><span class="spaces">                      </span><span class="istickedoff"><span class="nottickedoff">comma</span></span>
+<span class="lineno">  789 </span><span class="spaces">                      </span><span class="istickedoff"><span class="nottickedoff">( listField docType typeArgs</span></span>
+<span class="lineno">  790 </span><span class="spaces">                          </span><span class="istickedoff"><span class="nottickedoff">&lt;&gt; listField docPattern args</span></span>
+<span class="lineno">  791 </span><span class="spaces">                      </span><span class="istickedoff"><span class="nottickedoff">)</span></span>
+<span class="lineno">  792 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">)</span></span>
+<span class="lineno">  793 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">)</span></span>
+<span class="lineno">  794 </span><span class="spaces">    </span><span class="istickedoff">PInfix lhs op rhs -&gt; &quot;PInfix&quot; &lt;+&gt; parens (docPattern lhs) &lt;+&gt; docName op &lt;+&gt; parens (docPattern rhs)</span>
+<span class="lineno">  795 </span><span class="spaces">    </span><span class="istickedoff">PView expr inner -&gt; &quot;PView&quot; &lt;+&gt; parens (docExpr expr) &lt;+&gt; parens (docPattern inner)</span>
+<span class="lineno">  796 </span><span class="spaces">    </span><span class="istickedoff">PAs name inner -&gt; &quot;PAs&quot; &lt;+&gt; docUnqualifiedName name &lt;+&gt; parens (docPattern inner)</span>
+<span class="lineno">  797 </span><span class="spaces">    </span><span class="istickedoff">PStrict inner -&gt; &quot;PStrict&quot; &lt;+&gt; parens (docPattern inner)</span>
+<span class="lineno">  798 </span><span class="spaces">    </span><span class="istickedoff">PIrrefutable inner -&gt; &quot;PIrrefutable&quot; &lt;+&gt; parens (docPattern inner)</span>
+<span class="lineno">  799 </span><span class="spaces">    </span><span class="istickedoff">PNegLit lit -&gt; &quot;PNegLit&quot; &lt;+&gt; parens (docLiteral lit)</span>
+<span class="lineno">  800 </span><span class="spaces">    </span><span class="istickedoff">PParen inner -&gt; &quot;PParen&quot; &lt;+&gt; parens (docPattern inner)</span>
+<span class="lineno">  801 </span><span class="spaces">    </span><span class="istickedoff">PRecord name fields' hasWildcard -&gt; &quot;PRecord&quot; &lt;+&gt; docName name &lt;+&gt; braces (hsep (punctuate comma ([docPatternRecordField recordField | recordField &lt;- fields'] ++ [<span class="nottickedoff">&quot;..&quot;</span> | <span class="tickonlyfalse">hasWildcard</span>])))</span>
+<span class="lineno">  802 </span><span class="spaces">    </span><span class="istickedoff">PTypeSig inner ty -&gt; &quot;PTypeSig&quot; &lt;+&gt; parens (docPattern inner) &lt;+&gt; parens (docType ty)</span>
+<span class="lineno">  803 </span><span class="spaces">    </span><span class="istickedoff">PSplice body -&gt; &quot;PSplice&quot; &lt;+&gt; parens (docExpr body)</span></span>
+<span class="lineno">  804 </span>
+<span class="lineno">  805 </span>docPatternTupleFields :: TupleFlavor -&gt; [Pattern] -&gt; [Doc ann]
+<span class="lineno">  806 </span><span class="decl"><span class="istickedoff">docPatternTupleFields tupleFlavor elems =</span>
+<span class="lineno">  807 </span><span class="spaces">  </span><span class="istickedoff">flavorFields &lt;&gt; [brackets (hsep (punctuate comma (map docPattern elems)))]</span>
+<span class="lineno">  808 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  809 </span><span class="spaces">    </span><span class="istickedoff">flavorFields =</span>
+<span class="lineno">  810 </span><span class="spaces">      </span><span class="istickedoff">case tupleFlavor of</span>
+<span class="lineno">  811 </span><span class="spaces">        </span><span class="istickedoff">Boxed -&gt; []</span>
+<span class="lineno">  812 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; [pretty (show tupleFlavor)]</span></span>
+<span class="lineno">  813 </span>
+<span class="lineno">  814 </span>docLiteral :: Literal -&gt; Doc ann
+<span class="lineno">  815 </span><span class="decl"><span class="istickedoff">docLiteral lit =</span>
+<span class="lineno">  816 </span><span class="spaces">  </span><span class="istickedoff">case peelLiteralAnn lit of</span>
+<span class="lineno">  817 </span><span class="spaces">    </span><span class="istickedoff">LitInt n nt _ -&gt; &quot;LitInt&quot; &lt;+&gt; pretty n &lt;+&gt; docNumericType nt</span>
+<span class="lineno">  818 </span><span class="spaces">    </span><span class="istickedoff">LitFloat n ft _ -&gt; &quot;LitFloat&quot; &lt;+&gt; pretty (show n) &lt;+&gt; docFloatType ft</span>
+<span class="lineno">  819 </span><span class="spaces">    </span><span class="istickedoff">LitChar c _ -&gt; &quot;LitChar&quot; &lt;+&gt; pretty (show c)</span>
+<span class="lineno">  820 </span><span class="spaces">    </span><span class="istickedoff">LitCharHash c repr -&gt; <span class="nottickedoff">&quot;LitCharHash&quot; &lt;+&gt; pretty (show c) &lt;+&gt; docText repr</span></span>
+<span class="lineno">  821 </span><span class="spaces">    </span><span class="istickedoff">LitString s _ -&gt; &quot;LitString&quot; &lt;+&gt; docText s</span>
+<span class="lineno">  822 </span><span class="spaces">    </span><span class="istickedoff">LitStringHash s repr -&gt; <span class="nottickedoff">&quot;LitStringHash&quot; &lt;+&gt; docText s &lt;+&gt; docText repr</span></span>
+<span class="lineno">  823 </span><span class="spaces">    </span><span class="istickedoff">LitAnn {} -&gt; <span class="nottickedoff">error &quot;unreachable&quot;</span></span></span>
+<span class="lineno">  824 </span>
+<span class="lineno">  825 </span>-- Expressions
+<span class="lineno">  826 </span>
+<span class="lineno">  827 </span>docExpr :: Expr -&gt; Doc ann
+<span class="lineno">  828 </span><span class="decl"><span class="istickedoff">docExpr expr =</span>
+<span class="lineno">  829 </span><span class="spaces">  </span><span class="istickedoff">case expr of</span>
+<span class="lineno">  830 </span><span class="spaces">    </span><span class="istickedoff">EVar name -&gt; &quot;EVar&quot; &lt;+&gt; docName name</span>
+<span class="lineno">  831 </span><span class="spaces">    </span><span class="istickedoff">ETypeSyntax form ty -&gt; &quot;ETypeSyntax&quot; &lt;+&gt; docTypeSyntaxForm form &lt;+&gt; parens (docType ty)</span>
+<span class="lineno">  832 </span><span class="spaces">    </span><span class="istickedoff">EInt n nt _ -&gt; &quot;EInt&quot; &lt;+&gt; pretty n &lt;+&gt; docNumericType nt</span>
+<span class="lineno">  833 </span><span class="spaces">    </span><span class="istickedoff">EFloat n ft _ -&gt; &quot;EFloat&quot; &lt;+&gt; pretty (show n) &lt;+&gt; docFloatType ft</span>
+<span class="lineno">  834 </span><span class="spaces">    </span><span class="istickedoff">EChar c _ -&gt; &quot;EChar&quot; &lt;+&gt; pretty (show c)</span>
+<span class="lineno">  835 </span><span class="spaces">    </span><span class="istickedoff">ECharHash c repr -&gt; &quot;ECharHash&quot; &lt;+&gt; pretty (show c) &lt;+&gt; docText repr</span>
+<span class="lineno">  836 </span><span class="spaces">    </span><span class="istickedoff">EString s _ -&gt; &quot;EString&quot; &lt;+&gt; docText s</span>
+<span class="lineno">  837 </span><span class="spaces">    </span><span class="istickedoff">EStringHash s repr -&gt; &quot;EStringHash&quot; &lt;+&gt; docText s &lt;+&gt; docText repr</span>
+<span class="lineno">  838 </span><span class="spaces">    </span><span class="istickedoff">EOverloadedLabel label raw -&gt; &quot;EOverloadedLabel&quot; &lt;+&gt; docText label &lt;+&gt; docText raw</span>
+<span class="lineno">  839 </span><span class="spaces">    </span><span class="istickedoff">EQuasiQuote quoter body -&gt; &quot;EQuasiQuote&quot; &lt;+&gt; docText quoter &lt;+&gt; docText body</span>
+<span class="lineno">  840 </span><span class="spaces">    </span><span class="istickedoff">ETHExpQuote body -&gt; &quot;ETHExpQuote&quot; &lt;+&gt; parens (docExpr body)</span>
+<span class="lineno">  841 </span><span class="spaces">    </span><span class="istickedoff">ETHTypedQuote body -&gt; &quot;ETHTypedQuote&quot; &lt;+&gt; parens (docExpr body)</span>
+<span class="lineno">  842 </span><span class="spaces">    </span><span class="istickedoff">ETHDeclQuote decls -&gt; &quot;ETHDeclQuote&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docDecl decls)))</span>
+<span class="lineno">  843 </span><span class="spaces">    </span><span class="istickedoff">ETHTypeQuote ty -&gt; &quot;ETHTypeQuote&quot; &lt;+&gt; parens (docType ty)</span>
+<span class="lineno">  844 </span><span class="spaces">    </span><span class="istickedoff">ETHPatQuote pat -&gt; &quot;ETHPatQuote&quot; &lt;+&gt; parens (docPattern pat)</span>
+<span class="lineno">  845 </span><span class="spaces">    </span><span class="istickedoff">ETHNameQuote body -&gt; &quot;ETHNameQuote&quot; &lt;+&gt; parens (docExpr body)</span>
+<span class="lineno">  846 </span><span class="spaces">    </span><span class="istickedoff">ETHTypeNameQuote ty -&gt; &quot;ETHTypeNameQuote&quot; &lt;+&gt; parens (docType ty)</span>
+<span class="lineno">  847 </span><span class="spaces">    </span><span class="istickedoff">ETHSplice body -&gt; &quot;ETHSplice&quot; &lt;+&gt; parens (docExpr body)</span>
+<span class="lineno">  848 </span><span class="spaces">    </span><span class="istickedoff">ETHTypedSplice body -&gt; &quot;ETHTypedSplice&quot; &lt;+&gt; parens (docExpr body)</span>
+<span class="lineno">  849 </span><span class="spaces">    </span><span class="istickedoff">EIf cond yes no -&gt; &quot;EIf&quot; &lt;+&gt; parens (docExpr cond) &lt;+&gt; parens (docExpr yes) &lt;+&gt; parens (docExpr no)</span>
+<span class="lineno">  850 </span><span class="spaces">    </span><span class="istickedoff">EMultiWayIf rhss -&gt; &quot;EMultiWayIf&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docGuardedRhs rhss)))</span>
+<span class="lineno">  851 </span><span class="spaces">    </span><span class="istickedoff">ELambdaPats pats body -&gt; &quot;ELambdaPats&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docPattern pats))) &lt;+&gt; parens (docExpr body)</span>
+<span class="lineno">  852 </span><span class="spaces">    </span><span class="istickedoff">ELambdaCase alts -&gt; &quot;ELambdaCase&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docCaseAlt alts)))</span>
+<span class="lineno">  853 </span><span class="spaces">    </span><span class="istickedoff">ELambdaCases alts -&gt; &quot;ELambdaCases&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docLambdaCaseAlt alts)))</span>
+<span class="lineno">  854 </span><span class="spaces">    </span><span class="istickedoff">EInfix lhs op rhs -&gt; &quot;EInfix&quot; &lt;+&gt; parens (docExpr lhs) &lt;+&gt; docName op &lt;+&gt; parens (docExpr rhs)</span>
+<span class="lineno">  855 </span><span class="spaces">    </span><span class="istickedoff">ENegate inner -&gt; &quot;ENegate&quot; &lt;+&gt; parens (docExpr inner)</span>
+<span class="lineno">  856 </span><span class="spaces">    </span><span class="istickedoff">ESectionL lhs op -&gt; &quot;ESectionL&quot; &lt;+&gt; parens (docExpr lhs) &lt;+&gt; docName op</span>
+<span class="lineno">  857 </span><span class="spaces">    </span><span class="istickedoff">ESectionR op rhs -&gt; &quot;ESectionR&quot; &lt;+&gt; docName op &lt;+&gt; parens (docExpr rhs)</span>
+<span class="lineno">  858 </span><span class="spaces">    </span><span class="istickedoff">ELetDecls decls body -&gt; &quot;ELetDecls&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docDecl decls))) &lt;+&gt; parens (docExpr body)</span>
+<span class="lineno">  859 </span><span class="spaces">    </span><span class="istickedoff">ECase scrutinee alts -&gt; &quot;ECase&quot; &lt;+&gt; parens (docExpr scrutinee) &lt;+&gt; brackets (hsep (punctuate comma (map docCaseAlt alts)))</span>
+<span class="lineno">  860 </span><span class="spaces">    </span><span class="istickedoff">EDo stmts flavor -&gt; &quot;EDo&quot; &lt;+&gt; hsep (brackets (hsep (punctuate comma (map docDoStmt stmts))) : docDoFlavorFields flavor)</span>
+<span class="lineno">  861 </span><span class="spaces">    </span><span class="istickedoff">EListComp body quals -&gt; &quot;EListComp&quot; &lt;+&gt; parens (docExpr body) &lt;+&gt; brackets (hsep (punctuate comma (map docCompStmt quals)))</span>
+<span class="lineno">  862 </span><span class="spaces">    </span><span class="istickedoff">EListCompParallel body qualGroups -&gt; &quot;EListCompParallel&quot; &lt;+&gt; parens (docExpr body) &lt;+&gt; brackets (hsep (punctuate &quot;|&quot; [brackets (hsep (punctuate comma (map docCompStmt qs))) | qs &lt;- qualGroups]))</span>
+<span class="lineno">  863 </span><span class="spaces">    </span><span class="istickedoff">EArithSeq seqInfo -&gt; &quot;EArithSeq&quot; &lt;+&gt; parens (docArithSeq seqInfo)</span>
+<span class="lineno">  864 </span><span class="spaces">    </span><span class="istickedoff">ERecordCon name fields' hasWildcard -&gt; &quot;ERecordCon&quot; &lt;+&gt; docName name &lt;+&gt; braces (hsep (punctuate comma ([docExprRecordField recordField | recordField &lt;- fields'] ++ [<span class="nottickedoff">&quot;..&quot;</span> | <span class="tickonlyfalse">hasWildcard</span>])))</span>
+<span class="lineno">  865 </span><span class="spaces">    </span><span class="istickedoff">ERecordUpd base fields' -&gt; &quot;ERecordUpd&quot; &lt;+&gt; parens (docExpr base) &lt;+&gt; braces (hsep (punctuate comma [docExprRecordField recordField | recordField &lt;- fields']))</span>
+<span class="lineno">  866 </span><span class="spaces">    </span><span class="istickedoff">EGetField base fieldName -&gt; &quot;EGetField&quot; &lt;+&gt; parens (docExpr base) &lt;+&gt; docName fieldName</span>
+<span class="lineno">  867 </span><span class="spaces">    </span><span class="istickedoff">EGetFieldProjection fields -&gt; &quot;EGetFieldProjection&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docName fields)))</span>
+<span class="lineno">  868 </span><span class="spaces">    </span><span class="istickedoff">ETypeSig inner ty -&gt; &quot;ETypeSig&quot; &lt;+&gt; parens (docExpr inner) &lt;+&gt; parens (docType ty)</span>
+<span class="lineno">  869 </span><span class="spaces">    </span><span class="istickedoff">EParen inner -&gt; &quot;EParen&quot; &lt;+&gt; parens (docExpr inner)</span>
+<span class="lineno">  870 </span><span class="spaces">    </span><span class="istickedoff">EList elems -&gt; &quot;EList&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docExpr elems)))</span>
+<span class="lineno">  871 </span><span class="spaces">    </span><span class="istickedoff">ETuple tupleFlavor elems -&gt;</span>
+<span class="lineno">  872 </span><span class="spaces">      </span><span class="istickedoff">&quot;ETuple&quot; &lt;+&gt; hsep (docExprTupleFields tupleFlavor elems)</span>
+<span class="lineno">  873 </span><span class="spaces">    </span><span class="istickedoff">EUnboxedSum altIdx arity inner -&gt;</span>
+<span class="lineno">  874 </span><span class="spaces">      </span><span class="istickedoff">&quot;EUnboxedSum&quot; &lt;+&gt; pretty altIdx &lt;+&gt; pretty arity &lt;+&gt; docExpr inner</span>
+<span class="lineno">  875 </span><span class="spaces">    </span><span class="istickedoff">ETypeApp inner ty -&gt; &quot;ETypeApp&quot; &lt;+&gt; parens (docExpr inner) &lt;+&gt; parens (docType ty)</span>
+<span class="lineno">  876 </span><span class="spaces">    </span><span class="istickedoff">EApp f x -&gt; &quot;EApp&quot; &lt;+&gt; parens (docExpr f) &lt;+&gt; parens (docExpr x)</span>
+<span class="lineno">  877 </span><span class="spaces">    </span><span class="istickedoff">EProc pat body -&gt; &quot;EProc&quot; &lt;+&gt; parens (docPattern pat) &lt;+&gt; parens (docCmd body)</span>
+<span class="lineno">  878 </span><span class="spaces">    </span><span class="istickedoff">EPragma pragma inner -&gt; &quot;EPragma&quot; &lt;+&gt; parens (docPragma pragma) &lt;+&gt; parens (docExpr inner)</span>
+<span class="lineno">  879 </span><span class="spaces">    </span><span class="istickedoff">EAnn _ sub -&gt; docExpr sub</span></span>
+<span class="lineno">  880 </span>
+<span class="lineno">  881 </span>docPatternRecordField :: RecordField Pattern -&gt; Doc ann
+<span class="lineno">  882 </span><span class="decl"><span class="istickedoff">docPatternRecordField recordField =</span>
+<span class="lineno">  883 </span><span class="spaces">  </span><span class="istickedoff">docName (recordFieldName recordField)</span>
+<span class="lineno">  884 </span><span class="spaces">    </span><span class="istickedoff">&lt;+&gt; (if <span class="tickonlyfalse">recordFieldPun recordField</span> then <span class="nottickedoff">&quot;~pun&quot;</span> else &quot;=&quot;)</span>
+<span class="lineno">  885 </span><span class="spaces">    </span><span class="istickedoff">&lt;+&gt; docPattern (recordFieldValue recordField)</span></span>
+<span class="lineno">  886 </span>
+<span class="lineno">  887 </span>docExprRecordField :: RecordField Expr -&gt; Doc ann
+<span class="lineno">  888 </span><span class="decl"><span class="istickedoff">docExprRecordField recordField =</span>
+<span class="lineno">  889 </span><span class="spaces">  </span><span class="istickedoff">docName (recordFieldName recordField)</span>
+<span class="lineno">  890 </span><span class="spaces">    </span><span class="istickedoff">&lt;+&gt; (if <span class="tickonlyfalse">recordFieldPun recordField</span> then <span class="nottickedoff">&quot;~pun&quot;</span> else &quot;=&quot;)</span>
+<span class="lineno">  891 </span><span class="spaces">    </span><span class="istickedoff">&lt;+&gt; docExpr (recordFieldValue recordField)</span></span>
+<span class="lineno">  892 </span>
+<span class="lineno">  893 </span>docMaybeExpr :: Maybe Expr -&gt; Doc ann
+<span class="lineno">  894 </span><span class="decl"><span class="istickedoff">docMaybeExpr Nothing = &quot;Nothing&quot;</span>
+<span class="lineno">  895 </span><span class="spaces"></span><span class="istickedoff">docMaybeExpr (Just expr) = docExpr expr</span></span>
+<span class="lineno">  896 </span>
+<span class="lineno">  897 </span>docCaseAltWith :: (body -&gt; Doc ann) -&gt; CaseAlt body -&gt; Doc ann
+<span class="lineno">  898 </span><span class="decl"><span class="istickedoff">docCaseAltWith docBody (CaseAlt _ pat rhs) =</span>
+<span class="lineno">  899 </span><span class="spaces">  </span><span class="istickedoff">&quot;CaseAlt&quot; &lt;+&gt; parens (docPattern pat) &lt;+&gt; parens (docRhsWith docBody rhs)</span></span>
+<span class="lineno">  900 </span>
+<span class="lineno">  901 </span>docCaseAlt :: CaseAlt Expr -&gt; Doc ann
+<span class="lineno">  902 </span><span class="decl"><span class="istickedoff">docCaseAlt = docCaseAltWith docExpr</span></span>
+<span class="lineno">  903 </span>
+<span class="lineno">  904 </span>docLambdaCaseAlt :: LambdaCaseAlt -&gt; Doc ann
+<span class="lineno">  905 </span><span class="decl"><span class="istickedoff">docLambdaCaseAlt (LambdaCaseAlt _ pats rhs) =</span>
+<span class="lineno">  906 </span><span class="spaces">  </span><span class="istickedoff">&quot;LambdaCaseAlt&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docPattern pats))) &lt;+&gt; parens (docRhs rhs)</span></span>
+<span class="lineno">  907 </span>
+<span class="lineno">  908 </span>docDoFlavorFields :: DoFlavor -&gt; [Doc ann]
+<span class="lineno">  909 </span><span class="decl"><span class="istickedoff">docDoFlavorFields flavor =</span>
+<span class="lineno">  910 </span><span class="spaces">  </span><span class="istickedoff">case flavor of</span>
+<span class="lineno">  911 </span><span class="spaces">    </span><span class="istickedoff">DoPlain -&gt; []</span>
+<span class="lineno">  912 </span><span class="spaces">    </span><span class="istickedoff">DoMdo -&gt; flavorField &quot;DoMdo&quot;</span>
+<span class="lineno">  913 </span><span class="spaces">    </span><span class="istickedoff">DoQualified m -&gt; flavorField (&quot;DoQualified&quot; &lt;+&gt; docText m)</span>
+<span class="lineno">  914 </span><span class="spaces">    </span><span class="istickedoff">DoQualifiedMdo m -&gt; flavorField (&quot;DoQualifiedMdo&quot; &lt;+&gt; docText m)</span>
+<span class="lineno">  915 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  916 </span><span class="spaces">    </span><span class="istickedoff">flavorField doc = [parens doc]</span></span>
+<span class="lineno">  917 </span>
+<span class="lineno">  918 </span>docExprTupleFields :: TupleFlavor -&gt; [Maybe Expr] -&gt; [Doc ann]
+<span class="lineno">  919 </span><span class="decl"><span class="istickedoff">docExprTupleFields tupleFlavor elems =</span>
+<span class="lineno">  920 </span><span class="spaces">  </span><span class="istickedoff">flavorFields &lt;&gt; [brackets (hsep (punctuate comma (map docMaybeExpr elems)))]</span>
+<span class="lineno">  921 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  922 </span><span class="spaces">    </span><span class="istickedoff">flavorFields =</span>
+<span class="lineno">  923 </span><span class="spaces">      </span><span class="istickedoff">case tupleFlavor of</span>
+<span class="lineno">  924 </span><span class="spaces">        </span><span class="istickedoff">Boxed -&gt; []</span>
+<span class="lineno">  925 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; [pretty (show tupleFlavor)]</span></span>
+<span class="lineno">  926 </span>
+<span class="lineno">  927 </span>docDoStmt :: DoStmt Expr -&gt; Doc ann
+<span class="lineno">  928 </span><span class="decl"><span class="istickedoff">docDoStmt stmt =</span>
+<span class="lineno">  929 </span><span class="spaces">  </span><span class="istickedoff">case stmt of</span>
+<span class="lineno">  930 </span><span class="spaces">    </span><span class="istickedoff">DoAnn _ inner -&gt; docDoStmt inner</span>
+<span class="lineno">  931 </span><span class="spaces">    </span><span class="istickedoff">DoBind pat expr -&gt; &quot;DoBind&quot; &lt;+&gt; parens (docPattern pat) &lt;+&gt; parens (docExpr expr)</span>
+<span class="lineno">  932 </span><span class="spaces">    </span><span class="istickedoff">DoLetDecls decls -&gt; &quot;DoLetDecls&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docDecl decls)))</span>
+<span class="lineno">  933 </span><span class="spaces">    </span><span class="istickedoff">DoExpr expr -&gt; &quot;DoExpr&quot; &lt;+&gt; parens (docExpr expr)</span>
+<span class="lineno">  934 </span><span class="spaces">    </span><span class="istickedoff">DoRecStmt stmts -&gt; &quot;DoRecStmt&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docDoStmt stmts)))</span></span>
+<span class="lineno">  935 </span>
+<span class="lineno">  936 </span>docCompStmt :: CompStmt -&gt; Doc ann
+<span class="lineno">  937 </span><span class="decl"><span class="istickedoff">docCompStmt stmt =</span>
+<span class="lineno">  938 </span><span class="spaces">  </span><span class="istickedoff">case stmt of</span>
+<span class="lineno">  939 </span><span class="spaces">    </span><span class="istickedoff">CompAnn _ inner -&gt; docCompStmt inner</span>
+<span class="lineno">  940 </span><span class="spaces">    </span><span class="istickedoff">CompGen pat expr -&gt; &quot;CompGen&quot; &lt;+&gt; parens (docPattern pat) &lt;+&gt; parens (docExpr expr)</span>
+<span class="lineno">  941 </span><span class="spaces">    </span><span class="istickedoff">CompGuard expr -&gt; &quot;CompGuard&quot; &lt;+&gt; parens (docExpr expr)</span>
+<span class="lineno">  942 </span><span class="spaces">    </span><span class="istickedoff">CompLetDecls decls -&gt; &quot;CompLetDecls&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docDecl decls)))</span>
+<span class="lineno">  943 </span><span class="spaces">    </span><span class="istickedoff">CompThen f -&gt; &quot;CompThen&quot; &lt;+&gt; parens (docExpr f)</span>
+<span class="lineno">  944 </span><span class="spaces">    </span><span class="istickedoff">CompThenBy f e -&gt; &quot;CompThenBy&quot; &lt;+&gt; parens (docExpr f) &lt;+&gt; parens (docExpr e)</span>
+<span class="lineno">  945 </span><span class="spaces">    </span><span class="istickedoff">CompGroupUsing f -&gt; &quot;CompGroupUsing&quot; &lt;+&gt; parens (docExpr f)</span>
+<span class="lineno">  946 </span><span class="spaces">    </span><span class="istickedoff">CompGroupByUsing e f -&gt; &quot;CompGroupByUsing&quot; &lt;+&gt; parens (docExpr e) &lt;+&gt; parens (docExpr f)</span></span>
+<span class="lineno">  947 </span>
+<span class="lineno">  948 </span>docCmd :: Cmd -&gt; Doc ann
+<span class="lineno">  949 </span><span class="decl"><span class="istickedoff">docCmd cmd =</span>
+<span class="lineno">  950 </span><span class="spaces">  </span><span class="istickedoff">case cmd of</span>
+<span class="lineno">  951 </span><span class="spaces">    </span><span class="istickedoff">CmdAnn _ inner -&gt; <span class="nottickedoff">docCmd inner</span></span>
+<span class="lineno">  952 </span><span class="spaces">    </span><span class="istickedoff">CmdArrApp lhs HsFirstOrderApp rhs -&gt; &quot;CmdArrApp&quot; &lt;+&gt; parens (docExpr lhs) &lt;+&gt; &quot;HsFirstOrderApp&quot; &lt;+&gt; parens (docExpr rhs)</span>
+<span class="lineno">  953 </span><span class="spaces">    </span><span class="istickedoff">CmdArrApp lhs HsHigherOrderApp rhs -&gt; &quot;CmdArrApp&quot; &lt;+&gt; parens (docExpr lhs) &lt;+&gt; &quot;HsHigherOrderApp&quot; &lt;+&gt; parens (docExpr rhs)</span>
+<span class="lineno">  954 </span><span class="spaces">    </span><span class="istickedoff">CmdInfix l op r -&gt; &quot;CmdInfix&quot; &lt;+&gt; parens (docCmd l) &lt;+&gt; docName op &lt;+&gt; parens (docCmd r)</span>
+<span class="lineno">  955 </span><span class="spaces">    </span><span class="istickedoff">CmdDo stmts -&gt; &quot;CmdDo&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docCmdStmt stmts)))</span>
+<span class="lineno">  956 </span><span class="spaces">    </span><span class="istickedoff">CmdIf cond yes no -&gt; &quot;CmdIf&quot; &lt;+&gt; parens (docExpr cond) &lt;+&gt; parens (docCmd yes) &lt;+&gt; parens (docCmd no)</span>
+<span class="lineno">  957 </span><span class="spaces">    </span><span class="istickedoff">CmdCase scrut alts -&gt; &quot;CmdCase&quot; &lt;+&gt; parens (docExpr scrut) &lt;+&gt; brackets (hsep (punctuate comma (map docCmdCaseAlt alts)))</span>
+<span class="lineno">  958 </span><span class="spaces">    </span><span class="istickedoff">CmdLet decls body -&gt; &quot;CmdLet&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docDecl decls))) &lt;+&gt; parens (docCmd body)</span>
+<span class="lineno">  959 </span><span class="spaces">    </span><span class="istickedoff">CmdLam pats body -&gt; &quot;CmdLam&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docPattern pats))) &lt;+&gt; parens (docCmd body)</span>
+<span class="lineno">  960 </span><span class="spaces">    </span><span class="istickedoff">CmdApp c e -&gt; <span class="nottickedoff">&quot;CmdApp&quot; &lt;+&gt; parens (docCmd c) &lt;+&gt; parens (docExpr e)</span></span>
+<span class="lineno">  961 </span><span class="spaces">    </span><span class="istickedoff">CmdPar c -&gt; &quot;CmdPar&quot; &lt;+&gt; parens (docCmd c)</span></span>
+<span class="lineno">  962 </span>
+<span class="lineno">  963 </span>docCmdStmt :: DoStmt Cmd -&gt; Doc ann
+<span class="lineno">  964 </span><span class="decl"><span class="istickedoff">docCmdStmt stmt =</span>
+<span class="lineno">  965 </span><span class="spaces">  </span><span class="istickedoff">case stmt of</span>
+<span class="lineno">  966 </span><span class="spaces">    </span><span class="istickedoff">DoAnn _ inner -&gt; <span class="nottickedoff">docCmdStmt inner</span></span>
+<span class="lineno">  967 </span><span class="spaces">    </span><span class="istickedoff">DoBind pat cmd' -&gt; &quot;DoBind&quot; &lt;+&gt; parens (docPattern pat) &lt;+&gt; parens (docCmd cmd')</span>
+<span class="lineno">  968 </span><span class="spaces">    </span><span class="istickedoff">DoLetDecls decls -&gt; &quot;DoLetDecls&quot; &lt;+&gt; brackets (hsep (punctuate <span class="nottickedoff">comma</span> (map docDecl decls)))</span>
+<span class="lineno">  969 </span><span class="spaces">    </span><span class="istickedoff">DoExpr cmd' -&gt; &quot;DoExpr&quot; &lt;+&gt; parens (docCmd cmd')</span>
+<span class="lineno">  970 </span><span class="spaces">    </span><span class="istickedoff">DoRecStmt stmts -&gt; &quot;DoRecStmt&quot; &lt;+&gt; brackets (hsep (punctuate <span class="nottickedoff">comma</span> (map docCmdStmt stmts)))</span></span>
+<span class="lineno">  971 </span>
+<span class="lineno">  972 </span>docCmdCaseAlt :: CaseAlt Cmd -&gt; Doc ann
+<span class="lineno">  973 </span><span class="decl"><span class="istickedoff">docCmdCaseAlt = docCaseAltWith docCmd</span></span>
+<span class="lineno">  974 </span>
+<span class="lineno">  975 </span>docArithSeq :: ArithSeq -&gt; Doc ann
+<span class="lineno">  976 </span><span class="decl"><span class="istickedoff">docArithSeq seqInfo =</span>
+<span class="lineno">  977 </span><span class="spaces">  </span><span class="istickedoff">case seqInfo of</span>
+<span class="lineno">  978 </span><span class="spaces">    </span><span class="istickedoff">ArithSeqAnn _ inner -&gt; <span class="nottickedoff">docArithSeq inner</span></span>
+<span class="lineno">  979 </span><span class="spaces">    </span><span class="istickedoff">ArithSeqFrom from -&gt; &quot;ArithSeqFrom&quot; &lt;+&gt; parens (docExpr from)</span>
+<span class="lineno">  980 </span><span class="spaces">    </span><span class="istickedoff">ArithSeqFromThen from thn -&gt; &quot;ArithSeqFromThen&quot; &lt;+&gt; parens (docExpr from) &lt;+&gt; parens (docExpr thn)</span>
+<span class="lineno">  981 </span><span class="spaces">    </span><span class="istickedoff">ArithSeqFromTo from to -&gt; &quot;ArithSeqFromTo&quot; &lt;+&gt; parens (docExpr from) &lt;+&gt; parens (docExpr to)</span>
+<span class="lineno">  982 </span><span class="spaces">    </span><span class="istickedoff">ArithSeqFromThenTo from thn to -&gt; &quot;ArithSeqFromThenTo&quot; &lt;+&gt; parens (docExpr from) &lt;+&gt; parens (docExpr thn) &lt;+&gt; parens (docExpr to)</span></span>
+<span class="lineno">  983 </span>
+<span class="lineno">  984 </span>-- Token pretty printing
+<span class="lineno">  985 </span>
+<span class="lineno">  986 </span>docToken :: LexToken -&gt; Doc ann
+<span class="lineno">  987 </span><span class="decl"><span class="istickedoff">docToken tok = docTokenKind (lexTokenKind tok)</span></span>
+<span class="lineno">  988 </span>
+<span class="lineno">  989 </span>docTokenKind :: LexTokenKind -&gt; Doc ann
+<span class="lineno">  990 </span><span class="decl"><span class="istickedoff">docTokenKind kind =</span>
+<span class="lineno">  991 </span><span class="spaces">  </span><span class="istickedoff">case kind of</span>
+<span class="lineno">  992 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordCase -&gt; &quot;TkKeywordCase&quot;</span>
+<span class="lineno">  993 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordClass -&gt; &quot;TkKeywordClass&quot;</span>
+<span class="lineno">  994 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordData -&gt; &quot;TkKeywordData&quot;</span>
+<span class="lineno">  995 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordDefault -&gt; &quot;TkKeywordDefault&quot;</span>
+<span class="lineno">  996 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordDeriving -&gt; &quot;TkKeywordDeriving&quot;</span>
+<span class="lineno">  997 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordDo -&gt; &quot;TkKeywordDo&quot;</span>
+<span class="lineno">  998 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordElse -&gt; &quot;TkKeywordElse&quot;</span>
+<span class="lineno">  999 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordForall -&gt; &quot;TkKeywordForall&quot;</span>
+<span class="lineno"> 1000 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordForeign -&gt; &quot;TkKeywordForeign&quot;</span>
+<span class="lineno"> 1001 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordIf -&gt; &quot;TkKeywordIf&quot;</span>
+<span class="lineno"> 1002 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordImport -&gt; &quot;TkKeywordImport&quot;</span>
+<span class="lineno"> 1003 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordIn -&gt; &quot;TkKeywordIn&quot;</span>
+<span class="lineno"> 1004 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordInfix -&gt; &quot;TkKeywordInfix&quot;</span>
+<span class="lineno"> 1005 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordInfixl -&gt; &quot;TkKeywordInfixl&quot;</span>
+<span class="lineno"> 1006 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordInfixr -&gt; &quot;TkKeywordInfixr&quot;</span>
+<span class="lineno"> 1007 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordInstance -&gt; &quot;TkKeywordInstance&quot;</span>
+<span class="lineno"> 1008 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordLet -&gt; &quot;TkKeywordLet&quot;</span>
+<span class="lineno"> 1009 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordModule -&gt; &quot;TkKeywordModule&quot;</span>
+<span class="lineno"> 1010 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordNewtype -&gt; &quot;TkKeywordNewtype&quot;</span>
+<span class="lineno"> 1011 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordOf -&gt; &quot;TkKeywordOf&quot;</span>
+<span class="lineno"> 1012 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordThen -&gt; &quot;TkKeywordThen&quot;</span>
+<span class="lineno"> 1013 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordType -&gt; &quot;TkKeywordType&quot;</span>
+<span class="lineno"> 1014 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordWhere -&gt; &quot;TkKeywordWhere&quot;</span>
+<span class="lineno"> 1015 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordUnderscore -&gt; &quot;TkKeywordUnderscore&quot;</span>
+<span class="lineno"> 1016 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordProc -&gt; &quot;TkKeywordProc&quot;</span>
+<span class="lineno"> 1017 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordPattern -&gt; &quot;TkKeywordPattern&quot;</span>
+<span class="lineno"> 1018 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordRec -&gt; &quot;TkKeywordRec&quot;</span>
+<span class="lineno"> 1019 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordMdo -&gt; &quot;TkKeywordMdo&quot;</span>
+<span class="lineno"> 1020 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordBy -&gt; &quot;TkKeywordBy&quot;</span>
+<span class="lineno"> 1021 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordUsing -&gt; &quot;TkKeywordUsing&quot;</span>
+<span class="lineno"> 1022 </span><span class="spaces">    </span><span class="istickedoff">TkQualifiedDo modName -&gt; &quot;TkQualifiedDo&quot; &lt;+&gt; docText modName</span>
+<span class="lineno"> 1023 </span><span class="spaces">    </span><span class="istickedoff">TkQualifiedMdo modName -&gt; &quot;TkQualifiedMdo&quot; &lt;+&gt; docText modName</span>
+<span class="lineno"> 1024 </span><span class="spaces">    </span><span class="istickedoff">TkPrefixPercent -&gt; &quot;TkPrefixPercent&quot;</span>
+<span class="lineno"> 1025 </span><span class="spaces">    </span><span class="istickedoff">TkLinearArrow -&gt; &quot;TkLinearArrow&quot;</span>
+<span class="lineno"> 1026 </span><span class="spaces">    </span><span class="istickedoff">TkArrowTail -&gt; &quot;TkArrowTail&quot;</span>
+<span class="lineno"> 1027 </span><span class="spaces">    </span><span class="istickedoff">TkArrowTailReverse -&gt; &quot;TkArrowTailReverse&quot;</span>
+<span class="lineno"> 1028 </span><span class="spaces">    </span><span class="istickedoff">TkDoubleArrowTail -&gt; &quot;TkDoubleArrowTail&quot;</span>
+<span class="lineno"> 1029 </span><span class="spaces">    </span><span class="istickedoff">TkDoubleArrowTailReverse -&gt; &quot;TkDoubleArrowTailReverse&quot;</span>
+<span class="lineno"> 1030 </span><span class="spaces">    </span><span class="istickedoff">TkBananaOpen -&gt; &quot;TkBananaOpen&quot;</span>
+<span class="lineno"> 1031 </span><span class="spaces">    </span><span class="istickedoff">TkBananaClose -&gt; &quot;TkBananaClose&quot;</span>
+<span class="lineno"> 1032 </span><span class="spaces">    </span><span class="istickedoff">TkReservedDotDot -&gt; &quot;TkReservedDotDot&quot;</span>
+<span class="lineno"> 1033 </span><span class="spaces">    </span><span class="istickedoff">TkReservedColon -&gt; &quot;TkReservedColon&quot;</span>
+<span class="lineno"> 1034 </span><span class="spaces">    </span><span class="istickedoff">TkReservedDoubleColon -&gt; &quot;TkReservedDoubleColon&quot;</span>
+<span class="lineno"> 1035 </span><span class="spaces">    </span><span class="istickedoff">TkReservedEquals -&gt; &quot;TkReservedEquals&quot;</span>
+<span class="lineno"> 1036 </span><span class="spaces">    </span><span class="istickedoff">TkReservedBackslash -&gt; &quot;TkReservedBackslash&quot;</span>
+<span class="lineno"> 1037 </span><span class="spaces">    </span><span class="istickedoff">TkReservedPipe -&gt; &quot;TkReservedPipe&quot;</span>
+<span class="lineno"> 1038 </span><span class="spaces">    </span><span class="istickedoff">TkReservedLeftArrow -&gt; &quot;TkReservedLeftArrow&quot;</span>
+<span class="lineno"> 1039 </span><span class="spaces">    </span><span class="istickedoff">TkReservedRightArrow -&gt; &quot;TkReservedRightArrow&quot;</span>
+<span class="lineno"> 1040 </span><span class="spaces">    </span><span class="istickedoff">TkReservedAt -&gt; &quot;TkReservedAt&quot;</span>
+<span class="lineno"> 1041 </span><span class="spaces">    </span><span class="istickedoff">TkReservedDoubleArrow -&gt; &quot;TkReservedDoubleArrow&quot;</span>
+<span class="lineno"> 1042 </span><span class="spaces">    </span><span class="istickedoff">TkTypeApp -&gt; &quot;TkTypeApp&quot;</span>
+<span class="lineno"> 1043 </span><span class="spaces">    </span><span class="istickedoff">TkVarId name -&gt; &quot;TkVarId&quot; &lt;+&gt; docText name</span>
+<span class="lineno"> 1044 </span><span class="spaces">    </span><span class="istickedoff">TkConId name -&gt; &quot;TkConId&quot; &lt;+&gt; docText name</span>
+<span class="lineno"> 1045 </span><span class="spaces">    </span><span class="istickedoff">TkQVarId modName name -&gt; &quot;TkQVarId&quot; &lt;+&gt; docText modName &lt;+&gt; docText name</span>
+<span class="lineno"> 1046 </span><span class="spaces">    </span><span class="istickedoff">TkQConId modName name -&gt; &quot;TkQConId&quot; &lt;+&gt; docText modName &lt;+&gt; docText name</span>
+<span class="lineno"> 1047 </span><span class="spaces">    </span><span class="istickedoff">TkImplicitParam name -&gt; &quot;TkImplicitParam&quot; &lt;+&gt; docText name</span>
+<span class="lineno"> 1048 </span><span class="spaces">    </span><span class="istickedoff">TkVarSym name -&gt; &quot;TkVarSym&quot; &lt;+&gt; docText name</span>
+<span class="lineno"> 1049 </span><span class="spaces">    </span><span class="istickedoff">TkConSym name -&gt; &quot;TkConSym&quot; &lt;+&gt; docText name</span>
+<span class="lineno"> 1050 </span><span class="spaces">    </span><span class="istickedoff">TkQVarSym modName name -&gt; &quot;TkQVarSym&quot; &lt;+&gt; docText modName &lt;+&gt; docText name</span>
+<span class="lineno"> 1051 </span><span class="spaces">    </span><span class="istickedoff">TkQConSym modName name -&gt; &quot;TkQConSym&quot; &lt;+&gt; docText modName &lt;+&gt; docText name</span>
+<span class="lineno"> 1052 </span><span class="spaces">    </span><span class="istickedoff">TkInteger n nt -&gt; &quot;TkInteger&quot; &lt;+&gt; pretty n &lt;+&gt; docNumericType nt</span>
+<span class="lineno"> 1053 </span><span class="spaces">    </span><span class="istickedoff">TkFloat n ft -&gt; &quot;TkFloat&quot; &lt;+&gt; pretty (show n) &lt;+&gt; docFloatType ft</span>
+<span class="lineno"> 1054 </span><span class="spaces">    </span><span class="istickedoff">TkChar c -&gt; &quot;TkChar&quot; &lt;+&gt; pretty (show c)</span>
+<span class="lineno"> 1055 </span><span class="spaces">    </span><span class="istickedoff">TkCharHash c repr -&gt; &quot;TkCharHash&quot; &lt;+&gt; pretty (show c) &lt;+&gt; docText repr</span>
+<span class="lineno"> 1056 </span><span class="spaces">    </span><span class="istickedoff">TkString s -&gt; &quot;TkString&quot; &lt;+&gt; docText s</span>
+<span class="lineno"> 1057 </span><span class="spaces">    </span><span class="istickedoff">TkStringHash s repr -&gt; &quot;TkStringHash&quot; &lt;+&gt; docText s &lt;+&gt; docText repr</span>
+<span class="lineno"> 1058 </span><span class="spaces">    </span><span class="istickedoff">TkOverloadedLabel label raw -&gt; &quot;TkOverloadedLabel&quot; &lt;+&gt; docText label &lt;+&gt; docText raw</span>
+<span class="lineno"> 1059 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialLParen -&gt; &quot;TkSpecialLParen&quot;</span>
+<span class="lineno"> 1060 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialRParen -&gt; &quot;TkSpecialRParen&quot;</span>
+<span class="lineno"> 1061 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialUnboxedLParen -&gt; &quot;TkSpecialUnboxedLParen&quot;</span>
+<span class="lineno"> 1062 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialUnboxedRParen -&gt; &quot;TkSpecialUnboxedRParen&quot;</span>
+<span class="lineno"> 1063 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialComma -&gt; &quot;TkSpecialComma&quot;</span>
+<span class="lineno"> 1064 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialSemicolon -&gt; &quot;TkSpecialSemicolon&quot;</span>
+<span class="lineno"> 1065 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialLBracket -&gt; &quot;TkSpecialLBracket&quot;</span>
+<span class="lineno"> 1066 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialRBracket -&gt; &quot;TkSpecialRBracket&quot;</span>
+<span class="lineno"> 1067 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialBacktick -&gt; &quot;TkSpecialBacktick&quot;</span>
+<span class="lineno"> 1068 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialLBrace -&gt; &quot;TkSpecialLBrace&quot;</span>
+<span class="lineno"> 1069 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialRBrace -&gt; &quot;TkSpecialRBrace&quot;</span>
+<span class="lineno"> 1070 </span><span class="spaces">    </span><span class="istickedoff">TkMinusOperator -&gt; &quot;TkMinusOperator&quot;</span>
+<span class="lineno"> 1071 </span><span class="spaces">    </span><span class="istickedoff">TkPrefixMinus -&gt; &quot;TkPrefixMinus&quot;</span>
+<span class="lineno"> 1072 </span><span class="spaces">    </span><span class="istickedoff">TkPrefixBang -&gt; &quot;TkPrefixBang&quot;</span>
+<span class="lineno"> 1073 </span><span class="spaces">    </span><span class="istickedoff">TkPrefixTilde -&gt; &quot;TkPrefixTilde&quot;</span>
+<span class="lineno"> 1074 </span><span class="spaces">    </span><span class="istickedoff">TkRecordDot -&gt; &quot;TkRecordDot&quot;</span>
+<span class="lineno"> 1075 </span><span class="spaces">    </span><span class="istickedoff">TkPragma pragma' -&gt; &quot;TkPragma&quot; &lt;+&gt; docPragmaType (pragmaType pragma')</span>
+<span class="lineno"> 1076 </span><span class="spaces">    </span><span class="istickedoff">TkQuasiQuote quoter body -&gt; &quot;TkQuasiQuote&quot; &lt;+&gt; docText quoter &lt;+&gt; docText body</span>
+<span class="lineno"> 1077 </span><span class="spaces">    </span><span class="istickedoff">TkLineComment -&gt; &quot;TkLineComment&quot;</span>
+<span class="lineno"> 1078 </span><span class="spaces">    </span><span class="istickedoff">TkBlockComment -&gt; &quot;TkBlockComment&quot;</span>
+<span class="lineno"> 1079 </span><span class="spaces">    </span><span class="istickedoff">TkTHExpQuoteOpen -&gt; &quot;TkTHExpQuoteOpen&quot;</span>
+<span class="lineno"> 1080 </span><span class="spaces">    </span><span class="istickedoff">TkTHExpQuoteClose -&gt; &quot;TkTHExpQuoteClose&quot;</span>
+<span class="lineno"> 1081 </span><span class="spaces">    </span><span class="istickedoff">TkTHTypedQuoteOpen -&gt; &quot;TkTHTypedQuoteOpen&quot;</span>
+<span class="lineno"> 1082 </span><span class="spaces">    </span><span class="istickedoff">TkTHTypedQuoteClose -&gt; &quot;TkTHTypedQuoteClose&quot;</span>
+<span class="lineno"> 1083 </span><span class="spaces">    </span><span class="istickedoff">TkTHDeclQuoteOpen -&gt; &quot;TkTHDeclQuoteOpen&quot;</span>
+<span class="lineno"> 1084 </span><span class="spaces">    </span><span class="istickedoff">TkTHTypeQuoteOpen -&gt; &quot;TkTHTypeQuoteOpen&quot;</span>
+<span class="lineno"> 1085 </span><span class="spaces">    </span><span class="istickedoff">TkTHPatQuoteOpen -&gt; &quot;TkTHPatQuoteOpen&quot;</span>
+<span class="lineno"> 1086 </span><span class="spaces">    </span><span class="istickedoff">TkTHQuoteTick -&gt; &quot;TkTHQuoteTick&quot;</span>
+<span class="lineno"> 1087 </span><span class="spaces">    </span><span class="istickedoff">TkTHTypeQuoteTick -&gt; &quot;TkTHTypeQuoteTick&quot;</span>
+<span class="lineno"> 1088 </span><span class="spaces">    </span><span class="istickedoff">TkTHSplice -&gt; &quot;TkTHSplice&quot;</span>
+<span class="lineno"> 1089 </span><span class="spaces">    </span><span class="istickedoff">TkTHTypedSplice -&gt; &quot;TkTHTypedSplice&quot;</span>
+<span class="lineno"> 1090 </span><span class="spaces">    </span><span class="istickedoff">TkError msg -&gt; &quot;TkError&quot; &lt;+&gt; docText msg</span>
+<span class="lineno"> 1091 </span><span class="spaces">    </span><span class="istickedoff">TkEOF -&gt; &quot;TkEOF&quot;</span></span>
+<span class="lineno"> 1092 </span>
+<span class="lineno"> 1093 </span>docTypeSyntaxForm :: TypeSyntaxForm -&gt; Doc ann
+<span class="lineno"> 1094 </span><span class="decl"><span class="istickedoff">docTypeSyntaxForm form =</span>
+<span class="lineno"> 1095 </span><span class="spaces">  </span><span class="istickedoff">case form of</span>
+<span class="lineno"> 1096 </span><span class="spaces">    </span><span class="istickedoff">TypeSyntaxExplicitNamespace -&gt; &quot;TypeSyntaxExplicitNamespace&quot;</span>
+<span class="lineno"> 1097 </span><span class="spaces">    </span><span class="istickedoff">TypeSyntaxInTerm -&gt; <span class="nottickedoff">&quot;TypeSyntaxInTerm&quot;</span></span></span>
+<span class="lineno"> 1098 </span>
+<span class="lineno"> 1099 </span>docNumericType :: NumericType -&gt; Doc ann
+<span class="lineno"> 1100 </span><span class="decl"><span class="istickedoff">docNumericType nt =</span>
+<span class="lineno"> 1101 </span><span class="spaces">  </span><span class="istickedoff">case nt of</span>
+<span class="lineno"> 1102 </span><span class="spaces">    </span><span class="istickedoff">TInteger -&gt; &quot;TInteger&quot;</span>
+<span class="lineno"> 1103 </span><span class="spaces">    </span><span class="istickedoff">TIntHash -&gt; &quot;TIntHash&quot;</span>
+<span class="lineno"> 1104 </span><span class="spaces">    </span><span class="istickedoff">TWordHash -&gt; &quot;TWordHash&quot;</span>
+<span class="lineno"> 1105 </span><span class="spaces">    </span><span class="istickedoff">TInt8Hash -&gt; &quot;TInt8Hash&quot;</span>
+<span class="lineno"> 1106 </span><span class="spaces">    </span><span class="istickedoff">TInt16Hash -&gt; &quot;TInt16Hash&quot;</span>
+<span class="lineno"> 1107 </span><span class="spaces">    </span><span class="istickedoff">TInt32Hash -&gt; &quot;TInt32Hash&quot;</span>
+<span class="lineno"> 1108 </span><span class="spaces">    </span><span class="istickedoff">TInt64Hash -&gt; &quot;TInt64Hash&quot;</span>
+<span class="lineno"> 1109 </span><span class="spaces">    </span><span class="istickedoff">TWord8Hash -&gt; &quot;TWord8Hash&quot;</span>
+<span class="lineno"> 1110 </span><span class="spaces">    </span><span class="istickedoff">TWord16Hash -&gt; &quot;TWord16Hash&quot;</span>
+<span class="lineno"> 1111 </span><span class="spaces">    </span><span class="istickedoff">TWord32Hash -&gt; &quot;TWord32Hash&quot;</span>
+<span class="lineno"> 1112 </span><span class="spaces">    </span><span class="istickedoff">TWord64Hash -&gt; &quot;TWord64Hash&quot;</span></span>
+<span class="lineno"> 1113 </span>
+<span class="lineno"> 1114 </span>docFloatType :: FloatType -&gt; Doc ann
+<span class="lineno"> 1115 </span><span class="decl"><span class="istickedoff">docFloatType ft =</span>
+<span class="lineno"> 1116 </span><span class="spaces">  </span><span class="istickedoff">case ft of</span>
+<span class="lineno"> 1117 </span><span class="spaces">    </span><span class="istickedoff">TFractional -&gt; &quot;TFractional&quot;</span>
+<span class="lineno"> 1118 </span><span class="spaces">    </span><span class="istickedoff">TFloatHash -&gt; &quot;TFloatHash&quot;</span>
+<span class="lineno"> 1119 </span><span class="spaces">    </span><span class="istickedoff">TDoubleHash -&gt; &quot;TDoubleHash&quot;</span></span>
+<span class="lineno"> 1120 </span>
+<span class="lineno"> 1121 </span>optionalField :: (a -&gt; Doc ann) -&gt; Maybe a -&gt; [Doc ann]
+<span class="lineno"> 1122 </span><span class="decl"><span class="istickedoff">optionalField f mVal =</span>
+<span class="lineno"> 1123 </span><span class="spaces">  </span><span class="istickedoff">case mVal of</span>
+<span class="lineno"> 1124 </span><span class="spaces">    </span><span class="istickedoff">Just val -&gt; [f val]</span>
+<span class="lineno"> 1125 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; []</span></span>
+<span class="lineno"> 1126 </span>
+<span class="lineno"> 1127 </span>optionalField' :: (a -&gt; Doc ann) -&gt; Maybe a -&gt; Doc ann
+<span class="lineno"> 1128 </span><span class="decl"><span class="istickedoff">optionalField' f mVal =</span>
+<span class="lineno"> 1129 </span><span class="spaces">  </span><span class="istickedoff">case mVal of</span>
+<span class="lineno"> 1130 </span><span class="spaces">    </span><span class="istickedoff">Just val -&gt; &quot; &quot; &lt;&gt; f val</span>
+<span class="lineno"> 1131 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">&quot;&quot;</span></span></span>
+<span class="lineno"> 1132 </span>
+<span class="lineno"> 1133 </span>listField :: (a -&gt; Doc ann) -&gt; [a] -&gt; [Doc ann]
+<span class="lineno"> 1134 </span><span class="decl"><span class="istickedoff">listField _ [] = []</span>
+<span class="lineno"> 1135 </span><span class="spaces"></span><span class="istickedoff">listField f xs = [brackets (hsep (punctuate comma (map f xs)))]</span></span>
+<span class="lineno"> 1136 </span>
+<span class="lineno"> 1137 </span>boolField :: Bool -&gt; [Doc ann]
+<span class="lineno"> 1138 </span><span class="decl"><span class="istickedoff">boolField False = []</span>
+<span class="lineno"> 1139 </span><span class="spaces"></span><span class="istickedoff">boolField True = [&quot;True&quot;]</span></span>
+<span class="lineno"> 1140 </span>
+<span class="lineno"> 1141 </span>docText :: Text -&gt; Doc ann
+<span class="lineno"> 1142 </span><span class="decl"><span class="istickedoff">docText = pretty . show</span></span>
+<span class="lineno"> 1143 </span>
+<span class="lineno"> 1144 </span>docName :: Name -&gt; Doc ann
+<span class="lineno"> 1145 </span><span class="decl"><span class="istickedoff">docName name =</span>
+<span class="lineno"> 1146 </span><span class="spaces">  </span><span class="istickedoff">case nameQualifier name of</span>
+<span class="lineno"> 1147 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; docText (nameText name)</span>
+<span class="lineno"> 1148 </span><span class="spaces">    </span><span class="istickedoff">Just qualifier -&gt; docText qualifier &lt;+&gt; docText (nameText name)</span></span>
+<span class="lineno"> 1149 </span>
+<span class="lineno"> 1150 </span>docUnqualifiedName :: UnqualifiedName -&gt; Doc ann
+<span class="lineno"> 1151 </span><span class="decl"><span class="istickedoff">docUnqualifiedName name =</span>
+<span class="lineno"> 1152 </span><span class="spaces">  </span><span class="istickedoff">&quot;UnqualifiedName&quot; &lt;+&gt; braces (docText (unqualifiedNameText name))</span></span>
+<span class="lineno"> 1153 </span>
+<span class="lineno"> 1154 </span>docUnqualifiedNameText :: UnqualifiedName -&gt; Doc ann
+<span class="lineno"> 1155 </span><span class="decl"><span class="istickedoff">docUnqualifiedNameText = docText . unqualifiedNameText</span></span>
+<span class="lineno"> 1156 </span>
+<span class="lineno"> 1157 </span>docTextList :: [Text] -&gt; Doc ann
+<span class="lineno"> 1158 </span><span class="decl"><span class="istickedoff">docTextList ts = brackets (hsep (punctuate comma (map docText ts)))</span></span>
+<span class="lineno"> 1159 </span>
+<span class="lineno"> 1160 </span>docTypeFamilyDecl :: TypeFamilyDecl -&gt; Doc ann
+<span class="lineno"> 1161 </span><span class="decl"><span class="istickedoff">docTypeFamilyDecl tf =</span>
+<span class="lineno"> 1162 </span><span class="spaces">  </span><span class="istickedoff">&quot;TypeFamilyDecl&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno"> 1163 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno"> 1164 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno"> 1165 </span><span class="spaces">      </span><span class="istickedoff">[ docTypeHeadForm (typeFamilyDeclHeadForm tf),</span>
+<span class="lineno"> 1166 </span><span class="spaces">        </span><span class="istickedoff">if typeFamilyDeclExplicitFamilyKeyword tf then &quot;True&quot; else &quot;False&quot;,</span>
+<span class="lineno"> 1167 </span><span class="spaces">        </span><span class="istickedoff">docType (typeFamilyDeclHead tf)</span>
+<span class="lineno"> 1168 </span><span class="spaces">      </span><span class="istickedoff">]</span>
+<span class="lineno"> 1169 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docTyVarBinder (typeFamilyDeclParams tf)</span>
+<span class="lineno"> 1170 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField docTypeFamilyResultSig (typeFamilyDeclResultSig tf)</span>
+<span class="lineno"> 1171 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; case typeFamilyDeclEquations tf of</span>
+<span class="lineno"> 1172 </span><span class="spaces">          </span><span class="istickedoff">Nothing -&gt; []</span>
+<span class="lineno"> 1173 </span><span class="spaces">          </span><span class="istickedoff">Just eqs -&gt; [brackets (hsep (punctuate comma (map docTypeFamilyEq eqs)))]</span></span>
+<span class="lineno"> 1174 </span>
+<span class="lineno"> 1175 </span>docTypeFamilyEq :: TypeFamilyEq -&gt; Doc ann
+<span class="lineno"> 1176 </span><span class="decl"><span class="istickedoff">docTypeFamilyEq eq =</span>
+<span class="lineno"> 1177 </span><span class="spaces">  </span><span class="istickedoff">&quot;TypeFamilyEq&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno"> 1178 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno"> 1179 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno"> 1180 </span><span class="spaces">      </span><span class="istickedoff">listField docTyVarBinder (typeFamilyEqForall eq)</span>
+<span class="lineno"> 1181 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docTypeHeadForm (typeFamilyEqHeadForm eq), docType (typeFamilyEqLhs eq), docType (typeFamilyEqRhs eq)]</span></span>
+<span class="lineno"> 1182 </span>
+<span class="lineno"> 1183 </span>docDataFamilyDecl :: DataFamilyDecl -&gt; Doc ann
+<span class="lineno"> 1184 </span><span class="decl"><span class="istickedoff">docDataFamilyDecl df =</span>
+<span class="lineno"> 1185 </span><span class="spaces">  </span><span class="istickedoff">&quot;DataFamilyDecl&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno"> 1186 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno"> 1187 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno"> 1188 </span><span class="spaces">      </span><span class="istickedoff">[docBinderHeadValue (dataFamilyDeclHead df)]</span>
+<span class="lineno"> 1189 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField docType (dataFamilyDeclKind df)</span></span>
+<span class="lineno"> 1190 </span>
+<span class="lineno"> 1191 </span>docBinderHead :: BinderHead UnqualifiedName -&gt; [Doc ann]
+<span class="lineno"> 1192 </span><span class="decl"><span class="istickedoff">docBinderHead head' =</span>
+<span class="lineno"> 1193 </span><span class="spaces">  </span><span class="istickedoff">[docBinderHeadValue head']</span></span>
+<span class="lineno"> 1194 </span>
+<span class="lineno"> 1195 </span>docBinderHeadValue :: BinderHead UnqualifiedName -&gt; Doc ann
+<span class="lineno"> 1196 </span><span class="decl"><span class="istickedoff">docBinderHeadValue head' =</span>
+<span class="lineno"> 1197 </span><span class="spaces">  </span><span class="istickedoff">case head' of</span>
+<span class="lineno"> 1198 </span><span class="spaces">    </span><span class="istickedoff">PrefixBinderHead name params -&gt;</span>
+<span class="lineno"> 1199 </span><span class="spaces">      </span><span class="istickedoff">&quot;Prefix&quot; &lt;+&gt; hsep (docPrefixBinderHeadFields name params)</span>
+<span class="lineno"> 1200 </span><span class="spaces">    </span><span class="istickedoff">InfixBinderHead lhs name rhs params -&gt;</span>
+<span class="lineno"> 1201 </span><span class="spaces">      </span><span class="istickedoff">&quot;Infix&quot; &lt;+&gt; hsep (docInfixBinderHeadFields lhs name rhs params)</span></span>
+<span class="lineno"> 1202 </span>
+<span class="lineno"> 1203 </span>docPrefixBinderHeadFields :: UnqualifiedName -&gt; [TyVarBinder] -&gt; [Doc ann]
+<span class="lineno"> 1204 </span><span class="decl"><span class="istickedoff">docPrefixBinderHeadFields name params =</span>
+<span class="lineno"> 1205 </span><span class="spaces">  </span><span class="istickedoff">docUnqualifiedNameText name : docBinderHeadParams params</span></span>
+<span class="lineno"> 1206 </span>
+<span class="lineno"> 1207 </span>docInfixBinderHeadFields :: TyVarBinder -&gt; UnqualifiedName -&gt; TyVarBinder -&gt; [TyVarBinder] -&gt; [Doc ann]
+<span class="lineno"> 1208 </span><span class="decl"><span class="istickedoff">docInfixBinderHeadFields lhs name rhs params =</span>
+<span class="lineno"> 1209 </span><span class="spaces">  </span><span class="istickedoff">[docTyVarBinderShort lhs, docUnqualifiedNameText name, docTyVarBinderShort rhs] &lt;&gt; docBinderHeadParams params</span></span>
+<span class="lineno"> 1210 </span>
+<span class="lineno"> 1211 </span>docBinderHeadParams :: [TyVarBinder] -&gt; [Doc ann]
+<span class="lineno"> 1212 </span><span class="decl"><span class="istickedoff">docBinderHeadParams [] = []</span>
+<span class="lineno"> 1213 </span><span class="spaces"></span><span class="istickedoff">docBinderHeadParams params = [brackets (hsep (punctuate comma (map docTyVarBinder params)))]</span></span>
+<span class="lineno"> 1214 </span>
+<span class="lineno"> 1215 </span>docTyVarBinderShort :: TyVarBinder -&gt; Doc ann
+<span class="lineno"> 1216 </span><span class="decl"><span class="istickedoff">docTyVarBinderShort tvb</span>
+<span class="lineno"> 1217 </span><span class="spaces">  </span><span class="istickedoff">| Nothing &lt;- tyVarBinderKind tvb,</span>
+<span class="lineno"> 1218 </span><span class="spaces">    </span><span class="istickedoff">TyVarBSpecified &lt;- tyVarBinderSpecificity tvb,</span>
+<span class="lineno"> 1219 </span><span class="spaces">    </span><span class="istickedoff">TyVarBVisible &lt;- tyVarBinderVisibility tvb =</span>
+<span class="lineno"> 1220 </span><span class="spaces">      </span><span class="istickedoff">docText (tyVarBinderName tvb)</span>
+<span class="lineno"> 1221 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = parens (docTyVarBinder tvb)</span></span>
+<span class="lineno"> 1222 </span>
+<span class="lineno"> 1223 </span>docTypeFamilyInst :: TypeFamilyInst -&gt; Doc ann
+<span class="lineno"> 1224 </span><span class="decl"><span class="istickedoff">docTypeFamilyInst tfi =</span>
+<span class="lineno"> 1225 </span><span class="spaces">  </span><span class="istickedoff">&quot;TypeFamilyInst&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno"> 1226 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno"> 1227 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno"> 1228 </span><span class="spaces">      </span><span class="istickedoff">listField <span class="nottickedoff">docTyVarBinder</span> (typeFamilyInstForall tfi)</span>
+<span class="lineno"> 1229 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docTypeHeadForm (typeFamilyInstHeadForm tfi), docType (typeFamilyInstLhs tfi), docType (typeFamilyInstRhs tfi)]</span></span>
+<span class="lineno"> 1230 </span>
+<span class="lineno"> 1231 </span>docTypeHeadForm :: TypeHeadForm -&gt; Doc ann
+<span class="lineno"> 1232 </span><span class="decl"><span class="istickedoff">docTypeHeadForm headForm =</span>
+<span class="lineno"> 1233 </span><span class="spaces">  </span><span class="istickedoff">case headForm of</span>
+<span class="lineno"> 1234 </span><span class="spaces">    </span><span class="istickedoff">TypeHeadPrefix -&gt; &quot;TypeHeadPrefix&quot;</span>
+<span class="lineno"> 1235 </span><span class="spaces">    </span><span class="istickedoff">TypeHeadInfix -&gt; &quot;TypeHeadInfix&quot;</span></span>
+<span class="lineno"> 1236 </span>
+<span class="lineno"> 1237 </span>docDataFamilyInst :: DataFamilyInst -&gt; Doc ann
+<span class="lineno"> 1238 </span><span class="decl"><span class="istickedoff">docDataFamilyInst dfi =</span>
+<span class="lineno"> 1239 </span><span class="spaces">  </span><span class="istickedoff">&quot;DataFamilyInst&quot; &lt;+&gt; braces (hsep (punctuate comma fields))</span>
+<span class="lineno"> 1240 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno"> 1241 </span><span class="spaces">    </span><span class="istickedoff">fields =</span>
+<span class="lineno"> 1242 </span><span class="spaces">      </span><span class="istickedoff">boolField (dataFamilyInstIsNewtype dfi)</span>
+<span class="lineno"> 1243 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField <span class="nottickedoff">docTyVarBinder</span> (dataFamilyInstForall dfi)</span>
+<span class="lineno"> 1244 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; [docType (dataFamilyInstHead dfi)]</span>
+<span class="lineno"> 1245 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; optionalField docType (dataFamilyInstKind dfi)</span>
+<span class="lineno"> 1246 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docDataConDecl (dataFamilyInstConstructors dfi)</span>
+<span class="lineno"> 1247 </span><span class="spaces">        </span><span class="istickedoff">&lt;&gt; listField docDerivingClause (dataFamilyInstDeriving dfi)</span></span>
+
+</pre>
+</body>
+</html>

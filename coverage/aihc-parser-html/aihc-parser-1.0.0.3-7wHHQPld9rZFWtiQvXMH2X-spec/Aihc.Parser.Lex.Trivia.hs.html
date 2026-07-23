@@ -1,0 +1,253 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE BangPatterns #-}
+<span class="lineno">    2 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    3 </span>{-# LANGUAGE PatternSynonyms #-}
+<span class="lineno">    4 </span>
+<span class="lineno">    5 </span>module Aihc.Parser.Lex.Trivia
+<span class="lineno">    6 </span>  ( consumeBlockCommentTokenOrError,
+<span class="lineno">    7 </span>    consumeLineCommentToken,
+<span class="lineno">    8 </span>    isHaskellWhitespace,
+<span class="lineno">    9 </span>    isLineComment,
+<span class="lineno">   10 </span>    tryConsumeControlPragma,
+<span class="lineno">   11 </span>    tryConsumeLineDirective,
+<span class="lineno">   12 </span>  )
+<span class="lineno">   13 </span>where
+<span class="lineno">   14 </span>
+<span class="lineno">   15 </span>import Aihc.Parser.Lex.Pragmas (parseControlPragma)
+<span class="lineno">   16 </span>import Aihc.Parser.Lex.Types
+<span class="lineno">   17 </span>import Data.Char (isDigit, isSpace)
+<span class="lineno">   18 </span>import Data.Maybe (fromMaybe)
+<span class="lineno">   19 </span>import Data.Text (Text, pattern (:&lt;))
+<span class="lineno">   20 </span>import Data.Text qualified as T
+<span class="lineno">   21 </span>import Text.Read (readMaybe)
+<span class="lineno">   22 </span>
+<span class="lineno">   23 </span>isHaskellWhitespace :: Char -&gt; Bool
+<span class="lineno">   24 </span><span class="decl"><span class="istickedoff">isHaskellWhitespace c =</span>
+<span class="lineno">   25 </span><span class="spaces">  </span><span class="istickedoff">c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v' || isSpace c</span></span>
+<span class="lineno">   26 </span>
+<span class="lineno">   27 </span>tryConsumeLineDirective :: LexerState -&gt; Maybe (Maybe LexToken, LexerState)
+<span class="lineno">   28 </span><span class="decl"><span class="istickedoff">tryConsumeLineDirective st</span>
+<span class="lineno">   29 </span><span class="spaces">  </span><span class="istickedoff">| not (lexerAtLineStart st) = Nothing</span>
+<span class="lineno">   30 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">   31 </span><span class="spaces">      </span><span class="istickedoff">let inp = lexerInput st</span>
+<span class="lineno">   32 </span><span class="spaces">          </span><span class="istickedoff">(spaces, rest) = T.span (\c -&gt; c == ' ' || c == '\t') inp</span>
+<span class="lineno">   33 </span><span class="spaces">          </span><span class="istickedoff">-- CPP #line directives require '#' at column 1 (no leading</span>
+<span class="lineno">   34 </span><span class="spaces">          </span><span class="istickedoff">-- whitespace).  GHC enforces the same rule: an indented '#' is</span>
+<span class="lineno">   35 </span><span class="spaces">          </span><span class="istickedoff">-- never a line directive.  Shebangs, however, are allowed with</span>
+<span class="lineno">   36 </span><span class="spaces">          </span><span class="istickedoff">-- optional leading whitespace.</span>
+<span class="lineno">   37 </span><span class="spaces">          </span><span class="istickedoff">--</span>
+<span class="lineno">   38 </span><span class="spaces">          </span><span class="istickedoff">-- Note: skipTrivia may have already consumed leading whitespace</span>
+<span class="lineno">   39 </span><span class="spaces">          </span><span class="istickedoff">-- before calling us, so we check lexerCol rather than whether</span>
+<span class="lineno">   40 </span><span class="spaces">          </span><span class="istickedoff">-- 'spaces' is empty.  The column after consuming 'spaces' is</span>
+<span class="lineno">   41 </span><span class="spaces">          </span><span class="istickedoff">-- where '#' would sit.</span>
+<span class="lineno">   42 </span><span class="spaces">          </span><span class="istickedoff">hashCol = lexerCol st + T.length spaces</span>
+<span class="lineno">   43 </span><span class="spaces">          </span><span class="istickedoff">atColumn1 = hashCol == 1</span>
+<span class="lineno">   44 </span><span class="spaces">       </span><span class="istickedoff">in case rest of</span>
+<span class="lineno">   45 </span><span class="spaces">            </span><span class="istickedoff">'#' :&lt; more -&gt;</span>
+<span class="lineno">   46 </span><span class="spaces">              </span><span class="istickedoff">let lineText = &quot;#&quot; &lt;&gt; takeLineRemainder more</span>
+<span class="lineno">   47 </span><span class="spaces">                  </span><span class="istickedoff">consumed = spaces &lt;&gt; lineText</span>
+<span class="lineno">   48 </span><span class="spaces">                  </span><span class="istickedoff">isFirstLine = lexerLine st == 1</span>
+<span class="lineno">   49 </span><span class="spaces">               </span><span class="istickedoff">in case classifyHashLineTrivia atColumn1 isFirstLine lineText of</span>
+<span class="lineno">   50 </span><span class="spaces">                    </span><span class="istickedoff">Just (HashLineDirective update) -&gt;</span>
+<span class="lineno">   51 </span><span class="spaces">                      </span><span class="istickedoff">Just (Nothing, applyDirectiveAdvance consumed update st)</span>
+<span class="lineno">   52 </span><span class="spaces">                    </span><span class="istickedoff">Just HashLineShebang -&gt;</span>
+<span class="lineno">   53 </span><span class="spaces">                      </span><span class="istickedoff">let st' = advanceChars consumed st</span>
+<span class="lineno">   54 </span><span class="spaces">                       </span><span class="istickedoff">in Just (Nothing, st')</span>
+<span class="lineno">   55 </span><span class="spaces">                    </span><span class="istickedoff">Just HashLineMalformed -&gt;</span>
+<span class="lineno">   56 </span><span class="spaces">                      </span><span class="istickedoff"><span class="nottickedoff">let st' = advanceChars consumed st</span></span>
+<span class="lineno">   57 </span><span class="spaces">                       </span><span class="istickedoff"><span class="nottickedoff">in Just (Just (mkToken st st' consumed (TkError &quot;malformed line directive&quot;)), st')</span></span>
+<span class="lineno">   58 </span><span class="spaces">                    </span><span class="istickedoff">Nothing -&gt; Nothing</span>
+<span class="lineno">   59 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">   60 </span>
+<span class="lineno">   61 </span>tryConsumeControlPragma :: LexerState -&gt; Maybe (Maybe LexToken, LexerState)
+<span class="lineno">   62 </span><span class="decl"><span class="istickedoff">tryConsumeControlPragma st =</span>
+<span class="lineno">   63 </span><span class="spaces">  </span><span class="istickedoff">let inp = lexerInput st</span>
+<span class="lineno">   64 </span><span class="spaces">   </span><span class="istickedoff">in case parseControlPragma inp of</span>
+<span class="lineno">   65 </span><span class="spaces">        </span><span class="istickedoff">Just (consumedT, Right update0) -&gt;</span>
+<span class="lineno">   66 </span><span class="spaces">          </span><span class="istickedoff">let (consumedT', update) =</span>
+<span class="lineno">   67 </span><span class="spaces">                </span><span class="istickedoff">case directiveLine update0 of</span>
+<span class="lineno">   68 </span><span class="spaces">                  </span><span class="istickedoff">Just lineNo -&gt;</span>
+<span class="lineno">   69 </span><span class="spaces">                    </span><span class="istickedoff">case T.drop (T.length consumedT) (lexerInput st) of</span>
+<span class="lineno">   70 </span><span class="spaces">                      </span><span class="istickedoff">'\n' :&lt; _ -&gt;</span>
+<span class="lineno">   71 </span><span class="spaces">                        </span><span class="istickedoff">(consumedT &lt;&gt; &quot;\n&quot;, update0 {directiveLine = Just lineNo, directiveCol = Just 1})</span>
+<span class="lineno">   72 </span><span class="spaces">                      </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">(consumedT, update0)</span></span>
+<span class="lineno">   73 </span><span class="spaces">                  </span><span class="istickedoff">Nothing -&gt; (consumedT, update0)</span>
+<span class="lineno">   74 </span><span class="spaces">           </span><span class="istickedoff">in Just (Nothing, applyDirectiveAdvance consumedT' update st)</span>
+<span class="lineno">   75 </span><span class="spaces">        </span><span class="istickedoff">Just (consumedT, Left msg) -&gt;</span>
+<span class="lineno">   76 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">let st' = advanceChars consumedT st</span></span>
+<span class="lineno">   77 </span><span class="spaces">           </span><span class="istickedoff"><span class="nottickedoff">in Just (Just (mkToken st st' consumedT (TkError msg)), st')</span></span>
+<span class="lineno">   78 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; Nothing</span></span>
+<span class="lineno">   79 </span>
+<span class="lineno">   80 </span>consumeLineCommentToken :: LexerState -&gt; (LexToken, LexerState)
+<span class="lineno">   81 </span><span class="decl"><span class="istickedoff">consumeLineCommentToken st =</span>
+<span class="lineno">   82 </span><span class="spaces">  </span><span class="istickedoff">let inp = lexerInput st</span>
+<span class="lineno">   83 </span><span class="spaces">      </span><span class="istickedoff">rest = T.drop 2 inp</span>
+<span class="lineno">   84 </span><span class="spaces">      </span><span class="istickedoff">consumed = &quot;--&quot; &lt;&gt; T.takeWhile (/= '\n') rest</span>
+<span class="lineno">   85 </span><span class="spaces">      </span><span class="istickedoff">st' = advanceChars consumed st</span>
+<span class="lineno">   86 </span><span class="spaces">   </span><span class="istickedoff">in (mkToken st st' consumed TkLineComment, st')</span></span>
+<span class="lineno">   87 </span>
+<span class="lineno">   88 </span>consumeBlockCommentToken :: LexerState -&gt; Maybe (LexToken, LexerState)
+<span class="lineno">   89 </span><span class="decl"><span class="istickedoff">consumeBlockCommentToken st =</span>
+<span class="lineno">   90 </span><span class="spaces">  </span><span class="istickedoff">case scanNestedBlockComment 1 (T.drop 2 (lexerInput st)) of</span>
+<span class="lineno">   91 </span><span class="spaces">    </span><span class="istickedoff">Just consumedTail -&gt;</span>
+<span class="lineno">   92 </span><span class="spaces">      </span><span class="istickedoff">let consumed = &quot;{-&quot; &lt;&gt; consumedTail</span>
+<span class="lineno">   93 </span><span class="spaces">          </span><span class="istickedoff">st' = advanceChars consumed st</span>
+<span class="lineno">   94 </span><span class="spaces">          </span><span class="istickedoff">st'' =</span>
+<span class="lineno">   95 </span><span class="spaces">            </span><span class="istickedoff">if T.any (== '\n') consumed</span>
+<span class="lineno">   96 </span><span class="spaces">              </span><span class="istickedoff">then st'</span>
+<span class="lineno">   97 </span><span class="spaces">              </span><span class="istickedoff">else st' {lexerAtLineStart = lexerAtLineStart st}</span>
+<span class="lineno">   98 </span><span class="spaces">       </span><span class="istickedoff">in Just (mkToken st st'' consumed TkBlockComment, st'')</span>
+<span class="lineno">   99 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; Nothing</span></span>
+<span class="lineno">  100 </span>
+<span class="lineno">  101 </span>consumeBlockCommentTokenOrError :: LexerState -&gt; Either (LexToken, LexerState) (LexToken, LexerState)
+<span class="lineno">  102 </span><span class="decl"><span class="istickedoff">consumeBlockCommentTokenOrError st =</span>
+<span class="lineno">  103 </span><span class="spaces">  </span><span class="istickedoff">case consumeBlockCommentToken st of</span>
+<span class="lineno">  104 </span><span class="spaces">    </span><span class="istickedoff">Just result -&gt; Right result</span>
+<span class="lineno">  105 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt;</span>
+<span class="lineno">  106 </span><span class="spaces">      </span><span class="istickedoff">let consumed = lexerInput st</span>
+<span class="lineno">  107 </span><span class="spaces">          </span><span class="istickedoff">st' = advanceChars consumed st</span>
+<span class="lineno">  108 </span><span class="spaces">          </span><span class="istickedoff">tok = mkToken st st' consumed (TkError &quot;unterminated block comment&quot;)</span>
+<span class="lineno">  109 </span><span class="spaces">       </span><span class="istickedoff">in Left (tok, st')</span></span>
+<span class="lineno">  110 </span>
+<span class="lineno">  111 </span>scanNestedBlockComment :: Int -&gt; Text -&gt; Maybe Text
+<span class="lineno">  112 </span><span class="decl"><span class="istickedoff">scanNestedBlockComment depth0 input = go depth0 0 input</span>
+<span class="lineno">  113 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  114 </span><span class="spaces">    </span><span class="istickedoff">-- Skip characters that can't start a nesting change in bulk, then</span>
+<span class="lineno">  115 </span><span class="spaces">    </span><span class="istickedoff">-- inspect the stopping character.  Allocation is O(nesting changes)</span>
+<span class="lineno">  116 </span><span class="spaces">    </span><span class="istickedoff">-- instead of O(length).</span>
+<span class="lineno">  117 </span><span class="spaces">    </span><span class="istickedoff">go depth !n remaining</span>
+<span class="lineno">  118 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlyfalse">depth &lt;= 0</span> = <span class="nottickedoff">Just (T.take n input)</span></span>
+<span class="lineno">  119 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  120 </span><span class="spaces">          </span><span class="istickedoff">let (prefix, rest0) = T.span (\c -&gt; c /= '{' &amp;&amp; c /= '-') remaining</span>
+<span class="lineno">  121 </span><span class="spaces">              </span><span class="istickedoff">n' = n + T.length prefix</span>
+<span class="lineno">  122 </span><span class="spaces">           </span><span class="istickedoff">in case T.uncons rest0 of</span>
+<span class="lineno">  123 </span><span class="spaces">                </span><span class="istickedoff">Nothing -&gt; Nothing</span>
+<span class="lineno">  124 </span><span class="spaces">                </span><span class="istickedoff">Just (c, rest1) -&gt;</span>
+<span class="lineno">  125 </span><span class="spaces">                  </span><span class="istickedoff">case T.uncons rest1 of</span>
+<span class="lineno">  126 </span><span class="spaces">                    </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">Nothing</span> -- truncated escape sequence, unterminated</span>
+<span class="lineno">  127 </span><span class="spaces">                    </span><span class="istickedoff">Just (c2, rest2)</span>
+<span class="lineno">  128 </span><span class="spaces">                      </span><span class="istickedoff">| c == '{' &amp;&amp; c2 == '-' -&gt; go (depth + 1) (n' + 2) rest2</span>
+<span class="lineno">  129 </span><span class="spaces">                      </span><span class="istickedoff">| c == '-' &amp;&amp; c2 == '}' -&gt;</span>
+<span class="lineno">  130 </span><span class="spaces">                          </span><span class="istickedoff">if depth == 1</span>
+<span class="lineno">  131 </span><span class="spaces">                            </span><span class="istickedoff">then Just (T.take (n' + 2) input)</span>
+<span class="lineno">  132 </span><span class="spaces">                            </span><span class="istickedoff">else go (depth - 1) (n' + 2) rest2</span>
+<span class="lineno">  133 </span><span class="spaces">                      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  134 </span><span class="spaces">                          </span><span class="istickedoff">-- c was '{' or '-' but not a nesting pair; advance by 1</span>
+<span class="lineno">  135 </span><span class="spaces">                          </span><span class="istickedoff">-- and re-examine rest1 (which still starts with c2)</span>
+<span class="lineno">  136 </span><span class="spaces">                          </span><span class="istickedoff">go depth (n' + 1) rest1</span></span>
+<span class="lineno">  137 </span>
+<span class="lineno">  138 </span>applyDirectiveAdvance :: Text -&gt; DirectiveUpdate -&gt; LexerState -&gt; LexerState
+<span class="lineno">  139 </span><span class="decl"><span class="istickedoff">applyDirectiveAdvance consumed update st =</span>
+<span class="lineno">  140 </span><span class="spaces">  </span><span class="istickedoff">let hasTrailingNewline = T.isSuffixOf &quot;\n&quot; consumed</span>
+<span class="lineno">  141 </span><span class="spaces">      </span><span class="istickedoff">st' = advanceChars consumed st</span>
+<span class="lineno">  142 </span><span class="spaces">   </span><span class="istickedoff">in st'</span>
+<span class="lineno">  143 </span><span class="spaces">        </span><span class="istickedoff">{ lexerLogicalSourceName = fromMaybe (lexerLogicalSourceName st') (directiveSourceName update),</span>
+<span class="lineno">  144 </span><span class="spaces">          </span><span class="istickedoff">lexerLine = maybe (lexerLine st') (max 1) (directiveLine update),</span>
+<span class="lineno">  145 </span><span class="spaces">          </span><span class="istickedoff">lexerCol = maybe <span class="nottickedoff">(lexerCol st')</span> (max 1) (directiveCol update),</span>
+<span class="lineno">  146 </span><span class="spaces">          </span><span class="istickedoff">lexerAtLineStart = hasTrailingNewline || (Just 1 == directiveCol update)</span>
+<span class="lineno">  147 </span><span class="spaces">        </span><span class="istickedoff">}</span></span>
+<span class="lineno">  148 </span>
+<span class="lineno">  149 </span>-- | Classify a line beginning with @#@.
+<span class="lineno">  150 </span>--
+<span class="lineno">  151 </span>-- @atColumn1@ is 'True' when @#@ sits at column 1 of the physical source
+<span class="lineno">  152 </span>-- line (no leading whitespace).  @isFirstLine@ is 'True' on line 1.
+<span class="lineno">  153 </span>-- Shebangs are accepted at column 1 on any line (for mid-file shebangs
+<span class="lineno">  154 </span>-- as in some polyglot scripts) or anywhere on line 1 (GHC also accepts
+<span class="lineno">  155 </span>-- an optional leading space before the initial shebang).
+<span class="lineno">  156 </span>-- An indented @#!@ past line 1 is left for the operator lexer.
+<span class="lineno">  157 </span>-- CPP @#line@ directives are only recognised at column 1, matching GHC.
+<span class="lineno">  158 </span>classifyHashLineTrivia :: Bool -&gt; Bool -&gt; Text -&gt; Maybe HashLineTrivia
+<span class="lineno">  159 </span><span class="decl"><span class="istickedoff">classifyHashLineTrivia atColumn1 isFirstLine raw</span>
+<span class="lineno">  160 </span><span class="spaces">  </span><span class="istickedoff">| (atColumn1 || isFirstLine) &amp;&amp; isHashBangLine raw = Just HashLineShebang</span>
+<span class="lineno">  161 </span><span class="spaces">  </span><span class="istickedoff">| not atColumn1 = Nothing</span>
+<span class="lineno">  162 </span><span class="spaces">  </span><span class="istickedoff">| looksLikeHashLineDirective raw =</span>
+<span class="lineno">  163 </span><span class="spaces">      </span><span class="istickedoff">case parseHashLineDirective raw of</span>
+<span class="lineno">  164 </span><span class="spaces">        </span><span class="istickedoff">Just update -&gt; Just (HashLineDirective update)</span>
+<span class="lineno">  165 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">Just HashLineMalformed</span></span>
+<span class="lineno">  166 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Nothing</span></span>
+<span class="lineno">  167 </span>
+<span class="lineno">  168 </span>parseHashLineDirective :: Text -&gt; Maybe DirectiveUpdate
+<span class="lineno">  169 </span><span class="decl"><span class="istickedoff">parseHashLineDirective raw =</span>
+<span class="lineno">  170 </span><span class="spaces">  </span><span class="istickedoff">let trimmed = T.dropWhile isSpace (T.drop 1 (T.dropWhile isSpace raw))</span>
+<span class="lineno">  171 </span><span class="spaces">      </span><span class="istickedoff">trimmed' =</span>
+<span class="lineno">  172 </span><span class="spaces">        </span><span class="istickedoff">case T.stripPrefix &quot;line&quot; trimmed of</span>
+<span class="lineno">  173 </span><span class="spaces">          </span><span class="istickedoff">Just afterLine -&gt; T.dropWhile isSpace afterLine</span>
+<span class="lineno">  174 </span><span class="spaces">          </span><span class="istickedoff">Nothing -&gt; trimmed</span>
+<span class="lineno">  175 </span><span class="spaces">      </span><span class="istickedoff">(digits, rest) = T.span isDigit trimmed'</span>
+<span class="lineno">  176 </span><span class="spaces">   </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null digits</span></span>
+<span class="lineno">  177 </span><span class="spaces">        </span><span class="istickedoff">then <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  178 </span><span class="spaces">        </span><span class="istickedoff">else do</span>
+<span class="lineno">  179 </span><span class="spaces">          </span><span class="istickedoff">lineNo &lt;- readBoundedInt digits</span>
+<span class="lineno">  180 </span><span class="spaces">          </span><span class="istickedoff">Just</span>
+<span class="lineno">  181 </span><span class="spaces">            </span><span class="istickedoff">DirectiveUpdate</span>
+<span class="lineno">  182 </span><span class="spaces">              </span><span class="istickedoff">{ directiveLine = Just lineNo,</span>
+<span class="lineno">  183 </span><span class="spaces">                </span><span class="istickedoff">directiveCol = Just 1,</span>
+<span class="lineno">  184 </span><span class="spaces">                </span><span class="istickedoff">directiveSourceName = parseDirectiveSourceName rest</span>
+<span class="lineno">  185 </span><span class="spaces">              </span><span class="istickedoff">}</span></span>
+<span class="lineno">  186 </span>
+<span class="lineno">  187 </span>isHashBangLine :: Text -&gt; Bool
+<span class="lineno">  188 </span><span class="decl"><span class="istickedoff">isHashBangLine raw =</span>
+<span class="lineno">  189 </span><span class="spaces">  </span><span class="istickedoff">&quot;#!&quot; `T.isPrefixOf` T.dropWhile isSpace raw</span></span>
+<span class="lineno">  190 </span>
+<span class="lineno">  191 </span>looksLikeHashLineDirective :: Text -&gt; Bool
+<span class="lineno">  192 </span><span class="decl"><span class="istickedoff">looksLikeHashLineDirective raw =</span>
+<span class="lineno">  193 </span><span class="spaces">  </span><span class="istickedoff">let afterHash = T.dropWhile isSpace (T.drop 1 (T.dropWhile isSpace raw))</span>
+<span class="lineno">  194 </span><span class="spaces">   </span><span class="istickedoff">in case afterHash of</span>
+<span class="lineno">  195 </span><span class="spaces">        </span><span class="istickedoff">c :&lt; _ | isDigit c -&gt; True</span>
+<span class="lineno">  196 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; &quot;line&quot; `T.isPrefixOf` afterHash</span></span>
+<span class="lineno">  197 </span>
+<span class="lineno">  198 </span>parseDirectiveSourceName :: Text -&gt; Maybe FilePath
+<span class="lineno">  199 </span><span class="decl"><span class="istickedoff">parseDirectiveSourceName rest =</span>
+<span class="lineno">  200 </span><span class="spaces">  </span><span class="istickedoff">let rest' = T.dropWhile isSpace rest</span>
+<span class="lineno">  201 </span><span class="spaces">   </span><span class="istickedoff">in case rest' of</span>
+<span class="lineno">  202 </span><span class="spaces">        </span><span class="istickedoff">'&quot;' :&lt; more -&gt;</span>
+<span class="lineno">  203 </span><span class="spaces">          </span><span class="istickedoff">let (name, trailing) = T.break (== '&quot;') more</span>
+<span class="lineno">  204 </span><span class="spaces">           </span><span class="istickedoff">in case trailing of</span>
+<span class="lineno">  205 </span><span class="spaces">                </span><span class="istickedoff">'&quot;' :&lt; _ -&gt; Just (T.unpack name)</span>
+<span class="lineno">  206 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  207 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  208 </span>
+<span class="lineno">  209 </span>takeLineRemainder :: Text -&gt; Text
+<span class="lineno">  210 </span><span class="decl"><span class="istickedoff">takeLineRemainder chars =</span>
+<span class="lineno">  211 </span><span class="spaces">  </span><span class="istickedoff">let (prefix, rest) = T.break (== '\n') chars</span>
+<span class="lineno">  212 </span><span class="spaces">   </span><span class="istickedoff">in case rest of</span>
+<span class="lineno">  213 </span><span class="spaces">        </span><span class="istickedoff">'\n' :&lt; _ -&gt; prefix &lt;&gt; &quot;\n&quot;</span>
+<span class="lineno">  214 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; prefix</span></span>
+<span class="lineno">  215 </span>
+<span class="lineno">  216 </span>isLineComment :: Text -&gt; Bool
+<span class="lineno">  217 </span><span class="decl"><span class="istickedoff">isLineComment rest =</span>
+<span class="lineno">  218 </span><span class="spaces">  </span><span class="istickedoff">case rest of</span>
+<span class="lineno">  219 </span><span class="spaces">    </span><span class="istickedoff">c :&lt; _</span>
+<span class="lineno">  220 </span><span class="spaces">      </span><span class="istickedoff">| c == '-' -&gt; isLineComment (T.dropWhile (== '-') rest)</span>
+<span class="lineno">  221 </span><span class="spaces">      </span><span class="istickedoff">| isSymbolicOpChar c -&gt; False</span>
+<span class="lineno">  222 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; True</span>
+<span class="lineno">  223 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; True</span></span>
+<span class="lineno">  224 </span>
+<span class="lineno">  225 </span>readBoundedInt :: Text -&gt; Maybe Int
+<span class="lineno">  226 </span><span class="decl"><span class="istickedoff">readBoundedInt txt = do</span>
+<span class="lineno">  227 </span><span class="spaces">  </span><span class="istickedoff">n &lt;- readMaybe (T.unpack txt) :: Maybe Integer</span>
+<span class="lineno">  228 </span><span class="spaces">  </span><span class="istickedoff">if <span class="tickonlytrue">n &gt;= fromIntegral (minBound :: Int) &amp;&amp; n &lt;= fromIntegral (maxBound :: Int)</span></span>
+<span class="lineno">  229 </span><span class="spaces">    </span><span class="istickedoff">then Just (fromInteger n)</span>
+<span class="lineno">  230 </span><span class="spaces">    </span><span class="istickedoff">else <span class="nottickedoff">Nothing</span></span></span>
+
+</pre>
+</body>
+</html>

@@ -1,0 +1,352 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE DeriveAnyClass #-}
+<span class="lineno">    2 </span>{-# LANGUAGE DerivingStrategies #-}
+<span class="lineno">    3 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    4 </span>{-# LANGUAGE TypeFamilies #-}
+<span class="lineno">    5 </span>
+<span class="lineno">    6 </span>module Aihc.Parser.Types
+<span class="lineno">    7 </span>  ( TokStream (..),
+<span class="lineno">    8 </span>    mkTokStream,
+<span class="lineno">    9 </span>    mkTokStreamModule,
+<span class="lineno">   10 </span>    mkTokStreamFromTokens,
+<span class="lineno">   11 </span>    ParserErrorComponent (..),
+<span class="lineno">   12 </span>    FoundToken (..),
+<span class="lineno">   13 </span>    mkFoundToken,
+<span class="lineno">   14 </span>    ParseErrorBundle,
+<span class="lineno">   15 </span>    ParseResult (..),
+<span class="lineno">   16 </span>    ParserConfig (..),
+<span class="lineno">   17 </span>  )
+<span class="lineno">   18 </span>where
+<span class="lineno">   19 </span>
+<span class="lineno">   20 </span>import Aihc.Parser.Lex
+<span class="lineno">   21 </span>  ( LayoutState (..),
+<span class="lineno">   22 </span>    LexToken (..),
+<span class="lineno">   23 </span>    LexTokenKind (..),
+<span class="lineno">   24 </span>    Pragma,
+<span class="lineno">   25 </span>    TokenOrigin (..),
+<span class="lineno">   26 </span>    layoutTransition,
+<span class="lineno">   27 </span>    mkInitialLayoutState,
+<span class="lineno">   28 </span>    mkInitialLexerState,
+<span class="lineno">   29 </span>    readModuleHeaderExtensions,
+<span class="lineno">   30 </span>    scanAllTokens,
+<span class="lineno">   31 </span>  )
+<span class="lineno">   32 </span>import Aihc.Parser.Syntax (Extension, ExtensionSet, SourceSpan, applyExtensionSetting, applyImpliedExtensions, mkExtensionSet)
+<span class="lineno">   33 </span>import Control.DeepSeq (NFData (..))
+<span class="lineno">   34 </span>import Data.Text (Text)
+<span class="lineno">   35 </span>import Data.Text qualified as T
+<span class="lineno">   36 </span>import GHC.Generics (Generic)
+<span class="lineno">   37 </span>import Text.Megaparsec qualified as MP
+<span class="lineno">   38 </span>import Text.Megaparsec.Error qualified as MPE
+<span class="lineno">   39 </span>import Text.Megaparsec.Stream (Stream (..))
+<span class="lineno">   40 </span>
+<span class="lineno">   41 </span>-- | Raw Megaparsec parse error bundle for low-level parser entry points.
+<span class="lineno">   42 </span>type ParseErrorBundle = MPE.ParseErrorBundle TokStream ParserErrorComponent
+<span class="lineno">   43 </span>
+<span class="lineno">   44 </span>data FoundToken = FoundToken
+<span class="lineno">   45 </span>  { <span class="istickedoff"><span class="decl"><span class="istickedoff">foundTokenText</span></span></span> :: !Text,
+<span class="lineno">   46 </span>    <span class="nottickedoff"><span class="decl"><span class="nottickedoff">foundTokenKind</span></span></span> :: !(Maybe LexTokenKind),
+<span class="lineno">   47 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">foundTokenSpan</span></span></span> :: !SourceSpan,
+<span class="lineno">   48 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">foundTokenOrigin</span></span></span> :: !TokenOrigin
+<span class="lineno">   49 </span>  }
+<span class="lineno">   50 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Ord</span></span></span></span></span></span></span></span></span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>)
+<span class="lineno">   51 </span>
+<span class="lineno">   52 </span>data ParserErrorComponent
+<span class="lineno">   53 </span>  = UnexpectedTokenExpecting
+<span class="lineno">   54 </span>  { <span class="nottickedoff"><span class="decl"><span class="nottickedoff">unexpectedFound</span></span></span> :: Maybe FoundToken,
+<span class="lineno">   55 </span>    <span class="nottickedoff"><span class="decl"><span class="nottickedoff">unexpectedExpecting</span></span></span> :: Text,
+<span class="lineno">   56 </span>    <span class="nottickedoff"><span class="decl"><span class="nottickedoff">unexpectedContext</span></span></span> :: [Text]
+<span class="lineno">   57 </span>  }
+<span class="lineno">   58 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="istickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Ord</span></span></span></span></span></span></span></span></span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>)
+<span class="lineno">   59 </span>
+<span class="lineno">   60 </span>instance <span class="decl"><span class="nottickedoff">MPE.ShowErrorComponent ParserErrorComponent</span></span> where
+<span class="lineno">   61 </span>  <span class="decl"><span class="istickedoff">showErrorComponent (UnexpectedTokenExpecting _ expecting _) = &quot;expecting &quot; &lt;&gt; T.unpack expecting</span></span>
+<span class="lineno">   62 </span>
+<span class="lineno">   63 </span>mkFoundToken :: LexToken -&gt; FoundToken
+<span class="lineno">   64 </span><span class="decl"><span class="istickedoff">mkFoundToken tok =</span>
+<span class="lineno">   65 </span><span class="spaces">  </span><span class="istickedoff">FoundToken</span>
+<span class="lineno">   66 </span><span class="spaces">    </span><span class="istickedoff">{ foundTokenText = lexTokenText tok,</span>
+<span class="lineno">   67 </span><span class="spaces">      </span><span class="istickedoff">foundTokenKind = Just (lexTokenKind tok),</span>
+<span class="lineno">   68 </span><span class="spaces">      </span><span class="istickedoff">foundTokenSpan = lexTokenSpan tok,</span>
+<span class="lineno">   69 </span><span class="spaces">      </span><span class="istickedoff">foundTokenOrigin = lexTokenOrigin tok</span>
+<span class="lineno">   70 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">   71 </span>
+<span class="lineno">   72 </span>-- | Token stream backed by a shared lazy raw token list and a layout overlay.
+<span class="lineno">   73 </span>--
+<span class="lineno">   74 </span>-- The raw token list (@tokStreamRawTokens@) is produced lazily by scanning the
+<span class="lineno">   75 </span>-- input once. Backtracking never causes characters to be re-scanned — it only
+<span class="lineno">   76 </span>-- restores a pointer into this shared list. The layout overlay
+<span class="lineno">   77 </span>-- (@tokStreamLayoutState@) runs 'layoutTransition' on each raw token to produce
+<span class="lineno">   78 </span>-- virtual @{@, @;@, @}@ tokens. This allows the parser to influence layout
+<span class="lineno">   79 </span>-- decisions (e.g., by closing implicit layout contexts via
+<span class="lineno">   80 </span>-- 'closeImplicitLayoutContext').
+<span class="lineno">   81 </span>data TokStream = TokStream
+<span class="lineno">   82 </span>  { -- | Shared lazy list of raw tokens (never re-scanned on backtrack).
+<span class="lineno">   83 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">tokStreamRawTokens</span></span></span> :: [LexToken],
+<span class="lineno">   84 </span>    -- | Layout engine state (context stack and pending layout).
+<span class="lineno">   85 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">tokStreamLayoutState</span></span></span> :: LayoutState,
+<span class="lineno">   86 </span>    -- | Tokens ready for the parser, including virtual layout tokens.
+<span class="lineno">   87 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">tokStreamBuffer</span></span></span> :: [LexToken],
+<span class="lineno">   88 </span>    -- | Hidden pragmas that appeared before the next source token.
+<span class="lineno">   89 </span>    -- Parsers may inspect these explicitly, but they never participate in the
+<span class="lineno">   90 </span>    -- ordinary token stream.
+<span class="lineno">   91 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">tokStreamPendingPragmas</span></span></span> :: [Pragma],
+<span class="lineno">   92 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">tokStreamPrevToken</span></span></span> :: Maybe LexToken,
+<span class="lineno">   93 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">tokStreamExtensionSet</span></span></span> :: ExtensionSet,
+<span class="lineno">   94 </span>    -- | Whether this stream has already emitted TkEOF.
+<span class="lineno">   95 </span>    -- After EOF is emitted, 'take1_' returns Nothing.
+<span class="lineno">   96 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">tokStreamEOFEmitted</span></span></span> :: !Bool
+<span class="lineno">   97 </span>  }
+<span class="lineno">   98 </span>
+<span class="lineno">   99 </span>-- -- Manual Eq instance — we skip tokStreamRawTokens since list position is not
+<span class="lineno">  100 </span>-- -- efficiently comparable and Megaparsec tracks offset separately.
+<span class="lineno">  101 </span>-- instance Eq TokStream where
+<span class="lineno">  102 </span>--   a == b =
+<span class="lineno">  103 </span>--     tokStreamLayoutState a == tokStreamLayoutState b
+<span class="lineno">  104 </span>--       &amp;&amp; tokStreamPendingPragmas a == tokStreamPendingPragmas b
+<span class="lineno">  105 </span>--       &amp;&amp; tokStreamPrevToken a == tokStreamPrevToken b
+<span class="lineno">  106 </span>--       &amp;&amp; tokStreamExtensions a == tokStreamExtensions b
+<span class="lineno">  107 </span>--       &amp;&amp; tokStreamEOFEmitted a == tokStreamEOFEmitted b
+<span class="lineno">  108 </span>
+<span class="lineno">  109 </span>-- -- Manual Ord instance
+<span class="lineno">  110 </span>-- instance Ord TokStream where
+<span class="lineno">  111 </span>--   compare a b =
+<span class="lineno">  112 </span>--     compare (tokStreamEOFEmitted a) (tokStreamEOFEmitted b)
+<span class="lineno">  113 </span>
+<span class="lineno">  114 </span>-- Manual Show instance
+<span class="lineno">  115 </span>instance <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show TokStream</span></span></span></span> where
+<span class="lineno">  116 </span>  <span class="decl"><span class="nottickedoff">show ts =</span>
+<span class="lineno">  117 </span><span class="spaces">    </span><span class="nottickedoff">&quot;TokStream { eofEmitted = &quot;</span>
+<span class="lineno">  118 </span><span class="spaces">      </span><span class="nottickedoff">&lt;&gt; show (tokStreamEOFEmitted ts)</span>
+<span class="lineno">  119 </span><span class="spaces">      </span><span class="nottickedoff">&lt;&gt; &quot;, pendingPragmas = &quot;</span>
+<span class="lineno">  120 </span><span class="spaces">      </span><span class="nottickedoff">&lt;&gt; show (length (tokStreamPendingPragmas ts))</span>
+<span class="lineno">  121 </span><span class="spaces">      </span><span class="nottickedoff">&lt;&gt; &quot;, prevToken = &quot;</span>
+<span class="lineno">  122 </span><span class="spaces">      </span><span class="nottickedoff">&lt;&gt; show (tokStreamPrevToken ts)</span>
+<span class="lineno">  123 </span><span class="spaces">      </span><span class="nottickedoff">&lt;&gt; &quot;, extensionSet = &quot;</span>
+<span class="lineno">  124 </span><span class="spaces">      </span><span class="nottickedoff">&lt;&gt; show (tokStreamExtensionSet ts)</span>
+<span class="lineno">  125 </span><span class="spaces">      </span><span class="nottickedoff">&lt;&gt; &quot; }&quot;</span></span>
+<span class="lineno">  126 </span>
+<span class="lineno">  127 </span>-- Manual NFData instance — don't force the lazy raw token list.
+<span class="lineno">  128 </span>instance NFData TokStream where
+<span class="lineno">  129 </span>  <span class="decl"><span class="nottickedoff">rnf ts =</span>
+<span class="lineno">  130 </span><span class="spaces">    </span><span class="nottickedoff">rnf (tokStreamPendingPragmas ts) `seq`</span>
+<span class="lineno">  131 </span><span class="spaces">      </span><span class="nottickedoff">rnf (tokStreamPrevToken ts) `seq`</span>
+<span class="lineno">  132 </span><span class="spaces">        </span><span class="nottickedoff">rnf (tokStreamExtensionSet ts) `seq`</span>
+<span class="lineno">  133 </span><span class="spaces">          </span><span class="nottickedoff">rnf (tokStreamEOFEmitted ts)</span></span>
+<span class="lineno">  134 </span>
+<span class="lineno">  135 </span>-- | Create a TokStream for parsing expressions/declarations (no module layout).
+<span class="lineno">  136 </span>mkTokStream :: FilePath -&gt; [Extension] -&gt; Text -&gt; TokStream
+<span class="lineno">  137 </span><span class="decl"><span class="istickedoff">mkTokStream sourceName exts input =</span>
+<span class="lineno">  138 </span><span class="spaces">  </span><span class="istickedoff">let (env, lexSt) = mkInitialLexerState sourceName exts input</span>
+<span class="lineno">  139 </span><span class="spaces">   </span><span class="istickedoff">in normalizeTokStream</span>
+<span class="lineno">  140 </span><span class="spaces">        </span><span class="istickedoff">TokStream</span>
+<span class="lineno">  141 </span><span class="spaces">          </span><span class="istickedoff">{ tokStreamRawTokens = scanAllTokens env lexSt,</span>
+<span class="lineno">  142 </span><span class="spaces">            </span><span class="istickedoff">tokStreamLayoutState = mkInitialLayoutState False exts,</span>
+<span class="lineno">  143 </span><span class="spaces">            </span><span class="istickedoff">tokStreamBuffer = [],</span>
+<span class="lineno">  144 </span><span class="spaces">            </span><span class="istickedoff">tokStreamPendingPragmas = [],</span>
+<span class="lineno">  145 </span><span class="spaces">            </span><span class="istickedoff">tokStreamPrevToken = <span class="nottickedoff">Nothing</span>,</span>
+<span class="lineno">  146 </span><span class="spaces">            </span><span class="istickedoff">tokStreamExtensionSet = mkExtensionSet exts,</span>
+<span class="lineno">  147 </span><span class="spaces">            </span><span class="istickedoff">tokStreamEOFEmitted = False</span>
+<span class="lineno">  148 </span><span class="spaces">          </span><span class="istickedoff">}</span></span>
+<span class="lineno">  149 </span>
+<span class="lineno">  150 </span>-- | Create a TokStream for parsing full modules (with module-body layout).
+<span class="lineno">  151 </span>-- Also bootstraps LANGUAGE pragma extensions from the module header.
+<span class="lineno">  152 </span>mkTokStreamModule :: FilePath -&gt; [Extension] -&gt; Text -&gt; TokStream
+<span class="lineno">  153 </span><span class="decl"><span class="istickedoff">mkTokStreamModule sourceName baseExts input =</span>
+<span class="lineno">  154 </span><span class="spaces">  </span><span class="istickedoff">let (env, lexSt) = mkInitialLexerState sourceName effectiveExts input</span>
+<span class="lineno">  155 </span><span class="spaces">   </span><span class="istickedoff">in normalizeTokStream</span>
+<span class="lineno">  156 </span><span class="spaces">        </span><span class="istickedoff">TokStream</span>
+<span class="lineno">  157 </span><span class="spaces">          </span><span class="istickedoff">{ tokStreamRawTokens = scanAllTokens env lexSt,</span>
+<span class="lineno">  158 </span><span class="spaces">            </span><span class="istickedoff">tokStreamLayoutState = mkInitialLayoutState True effectiveExts,</span>
+<span class="lineno">  159 </span><span class="spaces">            </span><span class="istickedoff">tokStreamBuffer = [],</span>
+<span class="lineno">  160 </span><span class="spaces">            </span><span class="istickedoff">tokStreamPendingPragmas = [],</span>
+<span class="lineno">  161 </span><span class="spaces">            </span><span class="istickedoff">tokStreamPrevToken = <span class="nottickedoff">Nothing</span>,</span>
+<span class="lineno">  162 </span><span class="spaces">            </span><span class="istickedoff">tokStreamExtensionSet = mkExtensionSet effectiveExts,</span>
+<span class="lineno">  163 </span><span class="spaces">            </span><span class="istickedoff">tokStreamEOFEmitted = False</span>
+<span class="lineno">  164 </span><span class="spaces">          </span><span class="istickedoff">}</span>
+<span class="lineno">  165 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  166 </span><span class="spaces">    </span><span class="istickedoff">headerSettings = readModuleHeaderExtensions input</span>
+<span class="lineno">  167 </span><span class="spaces">    </span><span class="istickedoff">effectiveExts = applyImpliedExtensions (foldr applyExtensionSetting baseExts headerSettings)</span></span>
+<span class="lineno">  168 </span>
+<span class="lineno">  169 </span>-- | Create a TokStream from pre-lexed tokens (for testing/compatibility).
+<span class="lineno">  170 </span>-- Layout tokens must already be inserted in the token list.
+<span class="lineno">  171 </span>mkTokStreamFromTokens :: [LexToken] -&gt; TokStream
+<span class="lineno">  172 </span><span class="decl"><span class="istickedoff">mkTokStreamFromTokens toks =</span>
+<span class="lineno">  173 </span><span class="spaces">  </span><span class="istickedoff">let (env, lexSt) = mkInitialLexerState &quot;&lt;tokens&gt;&quot; <span class="nottickedoff">[]</span> &quot;&quot;</span>
+<span class="lineno">  174 </span><span class="spaces">   </span><span class="istickedoff">in normalizeTokStream</span>
+<span class="lineno">  175 </span><span class="spaces">        </span><span class="istickedoff">TokStream</span>
+<span class="lineno">  176 </span><span class="spaces">          </span><span class="istickedoff">{ tokStreamRawTokens = scanAllTokens <span class="nottickedoff">env</span> lexSt,</span>
+<span class="lineno">  177 </span><span class="spaces">            </span><span class="istickedoff">tokStreamLayoutState = mkInitialLayoutState False [],</span>
+<span class="lineno">  178 </span><span class="spaces">            </span><span class="istickedoff">tokStreamBuffer = toks,</span>
+<span class="lineno">  179 </span><span class="spaces">            </span><span class="istickedoff">tokStreamPendingPragmas = [],</span>
+<span class="lineno">  180 </span><span class="spaces">            </span><span class="istickedoff">tokStreamPrevToken = Nothing,</span>
+<span class="lineno">  181 </span><span class="spaces">            </span><span class="istickedoff">tokStreamExtensionSet = mkExtensionSet [],</span>
+<span class="lineno">  182 </span><span class="spaces">            </span><span class="istickedoff">tokStreamEOFEmitted = False</span>
+<span class="lineno">  183 </span><span class="spaces">          </span><span class="istickedoff">}</span></span>
+<span class="lineno">  184 </span>
+<span class="lineno">  185 </span>normalizeTokStream :: TokStream -&gt; TokStream
+<span class="lineno">  186 </span><span class="decl"><span class="istickedoff">normalizeTokStream ts0</span>
+<span class="lineno">  187 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlyfalse">tokStreamEOFEmitted ts0</span> = <span class="nottickedoff">ts0</span></span>
+<span class="lineno">  188 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  189 </span><span class="spaces">      </span><span class="istickedoff">normalizeTokStreamParts</span>
+<span class="lineno">  190 </span><span class="spaces">        </span><span class="istickedoff">(tokStreamRawTokens ts0)</span>
+<span class="lineno">  191 </span><span class="spaces">        </span><span class="istickedoff">(tokStreamLayoutState ts0)</span>
+<span class="lineno">  192 </span><span class="spaces">        </span><span class="istickedoff">(tokStreamBuffer ts0)</span>
+<span class="lineno">  193 </span><span class="spaces">        </span><span class="istickedoff">(tokStreamPendingPragmas ts0)</span>
+<span class="lineno">  194 </span><span class="spaces">        </span><span class="istickedoff">(tokStreamPrevToken ts0)</span>
+<span class="lineno">  195 </span><span class="spaces">        </span><span class="istickedoff">(tokStreamExtensionSet ts0)</span>
+<span class="lineno">  196 </span><span class="spaces">        </span><span class="istickedoff">False</span></span>
+<span class="lineno">  197 </span>
+<span class="lineno">  198 </span>-- | Advance through layout and hidden tokens until the stream is ready for
+<span class="lineno">  199 </span>-- 'stepOne'. Keeping the stream fields separate lets a token step normalize
+<span class="lineno">  200 </span>-- its successor without first allocating an intermediate 'TokStream'.
+<span class="lineno">  201 </span>normalizeTokStreamParts :: [LexToken] -&gt; LayoutState -&gt; [LexToken] -&gt; [Pragma] -&gt; Maybe LexToken -&gt; ExtensionSet -&gt; Bool -&gt; TokStream
+<span class="lineno">  202 </span><span class="decl"><span class="istickedoff">normalizeTokStreamParts rawTokens layoutState buffer pendingPragmas prevToken extensionSet eofEmitted</span>
+<span class="lineno">  203 </span><span class="spaces">  </span><span class="istickedoff">| eofEmitted = finish <span class="nottickedoff">rawTokens</span> layoutState <span class="nottickedoff">buffer</span> pendingPragmas</span>
+<span class="lineno">  204 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = go rawTokens layoutState buffer pendingPragmas</span>
+<span class="lineno">  205 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  206 </span><span class="spaces">    </span><span class="istickedoff">finish rawTokens' layoutState' buffer' pendingPragmas' =</span>
+<span class="lineno">  207 </span><span class="spaces">      </span><span class="istickedoff">TokStream</span>
+<span class="lineno">  208 </span><span class="spaces">        </span><span class="istickedoff">{ tokStreamRawTokens = rawTokens',</span>
+<span class="lineno">  209 </span><span class="spaces">          </span><span class="istickedoff">tokStreamLayoutState = layoutState',</span>
+<span class="lineno">  210 </span><span class="spaces">          </span><span class="istickedoff">tokStreamBuffer = buffer',</span>
+<span class="lineno">  211 </span><span class="spaces">          </span><span class="istickedoff">tokStreamPendingPragmas = pendingPragmas',</span>
+<span class="lineno">  212 </span><span class="spaces">          </span><span class="istickedoff">tokStreamPrevToken = prevToken,</span>
+<span class="lineno">  213 </span><span class="spaces">          </span><span class="istickedoff">tokStreamExtensionSet = extensionSet,</span>
+<span class="lineno">  214 </span><span class="spaces">          </span><span class="istickedoff">tokStreamEOFEmitted = eofEmitted</span>
+<span class="lineno">  215 </span><span class="spaces">        </span><span class="istickedoff">}</span>
+<span class="lineno">  216 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  217 </span><span class="spaces">    </span><span class="istickedoff">go rawTokens' layoutState' buffer' pendingPragmas' =</span>
+<span class="lineno">  218 </span><span class="spaces">      </span><span class="istickedoff">case buffer' of</span>
+<span class="lineno">  219 </span><span class="spaces">        </span><span class="istickedoff">tok : rest -&gt;</span>
+<span class="lineno">  220 </span><span class="spaces">          </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  221 </span><span class="spaces">            </span><span class="istickedoff">TkPragma pragma' -&gt;</span>
+<span class="lineno">  222 </span><span class="spaces">              </span><span class="istickedoff">go rawTokens' layoutState' rest (pendingPragmas' &lt;&gt; [pragma'])</span>
+<span class="lineno">  223 </span><span class="spaces">            </span><span class="istickedoff">TkLineComment -&gt; go rawTokens' layoutState' rest pendingPragmas'</span>
+<span class="lineno">  224 </span><span class="spaces">            </span><span class="istickedoff">TkBlockComment -&gt; go rawTokens' layoutState' rest pendingPragmas'</span>
+<span class="lineno">  225 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; finish rawTokens' layoutState' buffer' pendingPragmas'</span>
+<span class="lineno">  226 </span><span class="spaces">        </span><span class="istickedoff">[] -&gt;</span>
+<span class="lineno">  227 </span><span class="spaces">          </span><span class="istickedoff">case rawTokens' of</span>
+<span class="lineno">  228 </span><span class="spaces">            </span><span class="istickedoff">[] -&gt; <span class="nottickedoff">finish [] layoutState' [] pendingPragmas'</span></span>
+<span class="lineno">  229 </span><span class="spaces">            </span><span class="istickedoff">rawTok : rawRest -&gt;</span>
+<span class="lineno">  230 </span><span class="spaces">              </span><span class="istickedoff">let (allToks, laySt') = layoutTransition layoutState' rawTok</span>
+<span class="lineno">  231 </span><span class="spaces">               </span><span class="istickedoff">in go rawRest laySt' allToks pendingPragmas'</span></span>
+<span class="lineno">  232 </span>{-# INLINE normalizeTokStreamParts #-}
+<span class="lineno">  233 </span>
+<span class="lineno">  234 </span>-- | Step one token from the stream. This is the core primitive used by all
+<span class="lineno">  235 </span>-- Stream methods.
+<span class="lineno">  236 </span>--
+<span class="lineno">  237 </span>-- Tokens are produced in two phases:
+<span class="lineno">  238 </span>--
+<span class="lineno">  239 </span>-- 1. Drain any buffered tokens from the layout state (virtual braces/semicolons
+<span class="lineno">  240 </span>--    from 'layoutTransition' or 'closeImplicitLayoutContext').
+<span class="lineno">  241 </span>-- 2. Fetch the next raw token from the shared lazy list and run
+<span class="lineno">  242 </span>--    'layoutTransition' to produce virtual layout tokens and the raw token
+<span class="lineno">  243 </span>--    itself. The first token is returned; the rest are buffered.
+<span class="lineno">  244 </span>--
+<span class="lineno">  245 </span>-- Because the raw token list is a shared lazy list, backtracking to an earlier
+<span class="lineno">  246 </span>-- stream position is O(1) and never re-scans characters.
+<span class="lineno">  247 </span>stepOne :: TokStream -&gt; Maybe (LexToken, TokStream)
+<span class="lineno">  248 </span><span class="decl"><span class="istickedoff">stepOne ts</span>
+<span class="lineno">  249 </span><span class="spaces">  </span><span class="istickedoff">| tokStreamEOFEmitted ts = Nothing</span>
+<span class="lineno">  250 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  251 </span><span class="spaces">      </span><span class="istickedoff">case tokStreamBuffer ts of</span>
+<span class="lineno">  252 </span><span class="spaces">        </span><span class="istickedoff">-- Drain buffered tokens first (virtual braces/semicolons)</span>
+<span class="lineno">  253 </span><span class="spaces">        </span><span class="istickedoff">tok : rest -&gt;</span>
+<span class="lineno">  254 </span><span class="spaces">          </span><span class="istickedoff">let kind = lexTokenKind tok</span>
+<span class="lineno">  255 </span><span class="spaces">              </span><span class="istickedoff">isEOF = case kind of</span>
+<span class="lineno">  256 </span><span class="spaces">                </span><span class="istickedoff">TkEOF -&gt; True</span>
+<span class="lineno">  257 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; False</span>
+<span class="lineno">  258 </span><span class="spaces">              </span><span class="istickedoff">pendingPragmas =</span>
+<span class="lineno">  259 </span><span class="spaces">                </span><span class="istickedoff">case lexTokenOrigin tok of</span>
+<span class="lineno">  260 </span><span class="spaces">                  </span><span class="istickedoff">InsertedLayout -&gt; tokStreamPendingPragmas ts</span>
+<span class="lineno">  261 </span><span class="spaces">                  </span><span class="istickedoff">FromSource</span>
+<span class="lineno">  262 </span><span class="spaces">                    </span><span class="istickedoff">| TkSpecialSemicolon &lt;- kind -&gt; tokStreamPendingPragmas ts</span>
+<span class="lineno">  263 </span><span class="spaces">                    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; []</span>
+<span class="lineno">  264 </span><span class="spaces">           </span><span class="istickedoff">in Just</span>
+<span class="lineno">  265 </span><span class="spaces">                </span><span class="istickedoff">( tok,</span>
+<span class="lineno">  266 </span><span class="spaces">                  </span><span class="istickedoff">normalizeTokStreamParts</span>
+<span class="lineno">  267 </span><span class="spaces">                    </span><span class="istickedoff">(tokStreamRawTokens ts)</span>
+<span class="lineno">  268 </span><span class="spaces">                    </span><span class="istickedoff">(tokStreamLayoutState ts)</span>
+<span class="lineno">  269 </span><span class="spaces">                    </span><span class="istickedoff">rest</span>
+<span class="lineno">  270 </span><span class="spaces">                    </span><span class="istickedoff">pendingPragmas</span>
+<span class="lineno">  271 </span><span class="spaces">                    </span><span class="istickedoff">(Just tok)</span>
+<span class="lineno">  272 </span><span class="spaces">                    </span><span class="istickedoff">(tokStreamExtensionSet ts)</span>
+<span class="lineno">  273 </span><span class="spaces">                    </span><span class="istickedoff">isEOF</span>
+<span class="lineno">  274 </span><span class="spaces">                </span><span class="istickedoff">)</span>
+<span class="lineno">  275 </span><span class="spaces">        </span><span class="istickedoff">[] -&gt;</span>
+<span class="lineno">  276 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">Nothing</span></span></span>
+<span class="lineno">  277 </span>{-# INLINE stepOne #-}
+<span class="lineno">  278 </span>
+<span class="lineno">  279 </span>instance Stream TokStream where
+<span class="lineno">  280 </span>  type Token TokStream = LexToken
+<span class="lineno">  281 </span>  type Tokens TokStream = [LexToken]
+<span class="lineno">  282 </span>
+<span class="lineno">  283 </span>  <span class="decl"><span class="nottickedoff">tokenToChunk _ tok = [tok]</span></span>
+<span class="lineno">  284 </span>  <span class="decl"><span class="nottickedoff">tokensToChunk _ = id</span></span>
+<span class="lineno">  285 </span>  <span class="decl"><span class="nottickedoff">chunkToTokens _ = id</span></span>
+<span class="lineno">  286 </span>  <span class="decl"><span class="istickedoff">chunkLength _ = length</span></span>
+<span class="lineno">  287 </span>  <span class="decl"><span class="istickedoff">chunkEmpty _ = null</span></span>
+<span class="lineno">  288 </span>
+<span class="lineno">  289 </span>  <span class="decl"><span class="istickedoff">take1_ = stepOne</span></span>
+<span class="lineno">  290 </span>
+<span class="lineno">  291 </span>  <span class="decl"><span class="nottickedoff">takeN_ n ts</span>
+<span class="lineno">  292 </span><span class="spaces">    </span><span class="nottickedoff">| n &lt;= 0 = Just ([], ts)</span>
+<span class="lineno">  293 </span><span class="spaces">    </span><span class="nottickedoff">| otherwise = go n [] ts</span>
+<span class="lineno">  294 </span><span class="spaces">    </span><span class="nottickedoff">where</span>
+<span class="lineno">  295 </span><span class="spaces">      </span><span class="nottickedoff">go 0 acc s = Just (reverse acc, s)</span>
+<span class="lineno">  296 </span><span class="spaces">      </span><span class="nottickedoff">go k acc s =</span>
+<span class="lineno">  297 </span><span class="spaces">        </span><span class="nottickedoff">case stepOne s of</span>
+<span class="lineno">  298 </span><span class="spaces">          </span><span class="nottickedoff">Nothing</span>
+<span class="lineno">  299 </span><span class="spaces">            </span><span class="nottickedoff">| null acc -&gt; Nothing</span>
+<span class="lineno">  300 </span><span class="spaces">            </span><span class="nottickedoff">| otherwise -&gt; Just (reverse acc, s)</span>
+<span class="lineno">  301 </span><span class="spaces">          </span><span class="nottickedoff">Just (tok, s') -&gt; go (k - 1) (tok : acc) s'</span></span>
+<span class="lineno">  302 </span>
+<span class="lineno">  303 </span>  <span class="decl"><span class="istickedoff">takeWhile_ f =</span>
+<span class="lineno">  304 </span><span class="spaces">    </span><span class="istickedoff">go []</span>
+<span class="lineno">  305 </span><span class="spaces">    </span><span class="istickedoff">where</span>
+<span class="lineno">  306 </span><span class="spaces">      </span><span class="istickedoff">go acc s =</span>
+<span class="lineno">  307 </span><span class="spaces">        </span><span class="istickedoff">case stepOne s of</span>
+<span class="lineno">  308 </span><span class="spaces">          </span><span class="istickedoff">Nothing -&gt; (reverse acc, s)</span>
+<span class="lineno">  309 </span><span class="spaces">          </span><span class="istickedoff">Just (tok, s')</span>
+<span class="lineno">  310 </span><span class="spaces">            </span><span class="istickedoff">| f tok -&gt; go (<span class="nottickedoff">tok</span> : acc) s'</span>
+<span class="lineno">  311 </span><span class="spaces">            </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  312 </span><span class="spaces">                </span><span class="istickedoff">-- Put the non-matching token back by using the pre-step state</span>
+<span class="lineno">  313 </span><span class="spaces">                </span><span class="istickedoff">(reverse acc, s)</span></span>
+<span class="lineno">  314 </span>
+<span class="lineno">  315 </span>data ParserConfig = ParserConfig
+<span class="lineno">  316 </span>  { <span class="istickedoff"><span class="decl"><span class="istickedoff">parserSourceName</span></span></span> :: FilePath,
+<span class="lineno">  317 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">parserExtensions</span></span></span> :: [Extension]
+<span class="lineno">  318 </span>  }
+<span class="lineno">  319 </span>  deriving (<span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Eq</span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Show</span></span></span></span></span></span>, <span class="decl"><span class="nottickedoff"><span class="decl"><span class="nottickedoff">Generic</span></span></span></span>, <span class="decl"><span class="nottickedoff">NFData</span></span>)
+<span class="lineno">  320 </span>
+<span class="lineno">  321 </span>data ParseResult a
+<span class="lineno">  322 </span>  = ParseOk a
+<span class="lineno">  323 </span>  | ParseErr [(SourceSpan, Text)]
+<span class="lineno">  324 </span>
+<span class="lineno">  325 </span>instance (NFData a) =&gt; NFData (ParseResult a) where
+<span class="lineno">  326 </span>  <span class="decl"><span class="istickedoff">rnf parseResult =</span>
+<span class="lineno">  327 </span><span class="spaces">    </span><span class="istickedoff">case parseResult of</span>
+<span class="lineno">  328 </span><span class="spaces">      </span><span class="istickedoff">ParseOk parsed -&gt; rnf parsed</span>
+<span class="lineno">  329 </span><span class="spaces">      </span><span class="istickedoff">ParseErr errs -&gt; rnf errs</span></span>
+
+</pre>
+</body>
+</html>

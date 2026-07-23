@@ -1,0 +1,264 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE LambdaCase #-}
+<span class="lineno">    2 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    3 </span>{-# LANGUAGE PatternSynonyms #-}
+<span class="lineno">    4 </span>
+<span class="lineno">    5 </span>module Aihc.Parser.Internal.Import
+<span class="lineno">    6 </span>  ( languagePragmaParser,
+<span class="lineno">    7 </span>    moduleHeaderParser,
+<span class="lineno">    8 </span>    importDeclParser,
+<span class="lineno">    9 </span>    warningPragmaParser,
+<span class="lineno">   10 </span>  )
+<span class="lineno">   11 </span>where
+<span class="lineno">   12 </span>
+<span class="lineno">   13 </span>import Aihc.Parser.Internal.Common
+<span class="lineno">   14 </span>import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarAs, pattern TkVarHiding, pattern TkVarQualified, pattern TkVarSafe)
+<span class="lineno">   15 </span>import Aihc.Parser.Syntax
+<span class="lineno">   16 </span>import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
+<span class="lineno">   17 </span>import Control.Monad (when)
+<span class="lineno">   18 </span>import Data.Char (isUpper)
+<span class="lineno">   19 </span>import Data.Maybe (isJust)
+<span class="lineno">   20 </span>import Data.Text (Text)
+<span class="lineno">   21 </span>import Data.Text qualified as T
+<span class="lineno">   22 </span>import Text.Megaparsec ((&lt;|&gt;))
+<span class="lineno">   23 </span>import Text.Megaparsec qualified as MP
+<span class="lineno">   24 </span>
+<span class="lineno">   25 </span>languagePragmaParser :: TokParser [ExtensionSetting]
+<span class="lineno">   26 </span><span class="decl"><span class="istickedoff">languagePragmaParser =</span>
+<span class="lineno">   27 </span><span class="spaces">  </span><span class="istickedoff">hiddenPragma <span class="nottickedoff">&quot;LANGUAGE pragma&quot;</span> $ \p -&gt; case pragmaType p of</span>
+<span class="lineno">   28 </span><span class="spaces">    </span><span class="istickedoff">PragmaLanguage names -&gt; Just names</span>
+<span class="lineno">   29 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">   30 </span>
+<span class="lineno">   31 </span>moduleHeaderParser :: TokParser ModuleHead
+<span class="lineno">   32 </span><span class="decl"><span class="istickedoff">moduleHeaderParser = withSpan $ do</span>
+<span class="lineno">   33 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordModule</span>
+<span class="lineno">   34 </span><span class="spaces">  </span><span class="istickedoff">name &lt;- moduleNameParser</span>
+<span class="lineno">   35 </span><span class="spaces">  </span><span class="istickedoff">mWarning &lt;- MP.optional warningPragmaParser</span>
+<span class="lineno">   36 </span><span class="spaces">  </span><span class="istickedoff">exports &lt;- MP.optional exportSpecListParser</span>
+<span class="lineno">   37 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordWhere</span>
+<span class="lineno">   38 </span><span class="spaces">  </span><span class="istickedoff">pure $ \span' -&gt;</span>
+<span class="lineno">   39 </span><span class="spaces">    </span><span class="istickedoff">ModuleHead</span>
+<span class="lineno">   40 </span><span class="spaces">      </span><span class="istickedoff">{ moduleHeadAnns = [mkAnnotation span'],</span>
+<span class="lineno">   41 </span><span class="spaces">        </span><span class="istickedoff">moduleHeadName = name,</span>
+<span class="lineno">   42 </span><span class="spaces">        </span><span class="istickedoff">moduleHeadWarningPragma = mWarning,</span>
+<span class="lineno">   43 </span><span class="spaces">        </span><span class="istickedoff">moduleHeadExports = exports</span>
+<span class="lineno">   44 </span><span class="spaces">      </span><span class="istickedoff">}</span></span>
+<span class="lineno">   45 </span>
+<span class="lineno">   46 </span>warningPragmaParser :: TokParser Pragma
+<span class="lineno">   47 </span><span class="decl"><span class="istickedoff">warningPragmaParser =</span>
+<span class="lineno">   48 </span><span class="spaces">  </span><span class="istickedoff">hiddenPragma <span class="nottickedoff">&quot;warning pragma&quot;</span> $ \p -&gt; case pragmaType p of</span>
+<span class="lineno">   49 </span><span class="spaces">    </span><span class="istickedoff">PragmaWarning _ -&gt; Just p</span>
+<span class="lineno">   50 </span><span class="spaces">    </span><span class="istickedoff">PragmaDeprecated _ -&gt; Just p</span>
+<span class="lineno">   51 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">   52 </span>
+<span class="lineno">   53 </span>exportSpecListParser :: TokParser [ExportSpec]
+<span class="lineno">   54 </span><span class="decl"><span class="istickedoff">exportSpecListParser = parens $ exportSpecParser `MP.sepEndBy` expectedTok TkSpecialComma</span></span>
+<span class="lineno">   55 </span>
+<span class="lineno">   56 </span>exportSpecParser :: TokParser ExportSpec
+<span class="lineno">   57 </span><span class="decl"><span class="istickedoff">exportSpecParser = withSpanAnn (ExportAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">   58 </span><span class="spaces">  </span><span class="istickedoff">mWarning &lt;- MP.optional warningPragmaParser</span>
+<span class="lineno">   59 </span><span class="spaces">  </span><span class="istickedoff">exportModuleParser mWarning &lt;|&gt; exportNameParser mWarning</span></span>
+<span class="lineno">   60 </span>
+<span class="lineno">   61 </span>exportModuleParser :: Maybe Pragma -&gt; TokParser ExportSpec
+<span class="lineno">   62 </span><span class="decl"><span class="istickedoff">exportModuleParser mWarning = do</span>
+<span class="lineno">   63 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordModule</span>
+<span class="lineno">   64 </span><span class="spaces">  </span><span class="istickedoff">ExportModule mWarning &lt;$&gt; moduleNameParser</span></span>
+<span class="lineno">   65 </span>
+<span class="lineno">   66 </span>exportNameParser :: Maybe Pragma -&gt; TokParser ExportSpec
+<span class="lineno">   67 </span><span class="decl"><span class="istickedoff">exportNameParser mWarning = do</span>
+<span class="lineno">   68 </span><span class="spaces">  </span><span class="istickedoff">namespace &lt;- MP.optional exportImportNamespaceParser</span>
+<span class="lineno">   69 </span><span class="spaces">  </span><span class="istickedoff">name &lt;- identifierNameParser &lt;|&gt; parens operatorNameParser</span>
+<span class="lineno">   70 </span><span class="spaces">  </span><span class="istickedoff">members &lt;- MP.optional exportMembersParser</span>
+<span class="lineno">   71 </span><span class="spaces">  </span><span class="istickedoff">pure $</span>
+<span class="lineno">   72 </span><span class="spaces">    </span><span class="istickedoff">case members of</span>
+<span class="lineno">   73 </span><span class="spaces">      </span><span class="istickedoff">Just MembersAll -&gt; ExportAll mWarning namespace name</span>
+<span class="lineno">   74 </span><span class="spaces">      </span><span class="istickedoff">Just (MembersList names) -&gt; ExportWith mWarning namespace name names</span>
+<span class="lineno">   75 </span><span class="spaces">      </span><span class="istickedoff">Just (MembersListAll wildcardIndex names) -&gt; ExportWithAll mWarning namespace name wildcardIndex names</span>
+<span class="lineno">   76 </span><span class="spaces">      </span><span class="istickedoff">Nothing</span>
+<span class="lineno">   77 </span><span class="spaces">        </span><span class="istickedoff">| namespace == Just IEEntityNamespaceType || isTypeName name -&gt;</span>
+<span class="lineno">   78 </span><span class="spaces">            </span><span class="istickedoff">ExportAbs mWarning namespace name</span>
+<span class="lineno">   79 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">   80 </span><span class="spaces">            </span><span class="istickedoff">ExportVar mWarning namespace name</span></span>
+<span class="lineno">   81 </span>
+<span class="lineno">   82 </span>data MembersResult
+<span class="lineno">   83 </span>  = MembersAll
+<span class="lineno">   84 </span>  | MembersList [IEBundledMember]
+<span class="lineno">   85 </span>  | MembersListAll Int [IEBundledMember]
+<span class="lineno">   86 </span>
+<span class="lineno">   87 </span>exportMembersParser :: TokParser MembersResult
+<span class="lineno">   88 </span><span class="decl"><span class="istickedoff">exportMembersParser = membersParser</span></span>
+<span class="lineno">   89 </span>
+<span class="lineno">   90 </span>importMembersParser :: TokParser MembersResult
+<span class="lineno">   91 </span><span class="decl"><span class="istickedoff">importMembersParser = membersParser</span></span>
+<span class="lineno">   92 </span>
+<span class="lineno">   93 </span>membersParser :: TokParser MembersResult
+<span class="lineno">   94 </span><span class="decl"><span class="istickedoff">membersParser =</span>
+<span class="lineno">   95 </span><span class="spaces">  </span><span class="istickedoff">parens (parseDotDotFirst &lt;|&gt; parseMemberList &lt;|&gt; emptyMembers)</span>
+<span class="lineno">   96 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   97 </span><span class="spaces">    </span><span class="istickedoff">emptyMembers = pure (MembersList [])</span>
+<span class="lineno">   98 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">   99 </span><span class="spaces">    </span><span class="istickedoff">parseDotDotFirst = do</span>
+<span class="lineno">  100 </span><span class="spaces">      </span><span class="istickedoff">expectedTok TkReservedDotDot</span>
+<span class="lineno">  101 </span><span class="spaces">      </span><span class="istickedoff">MP.optional (expectedTok TkSpecialComma) &gt;&gt;= \case</span>
+<span class="lineno">  102 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; pure MembersAll</span>
+<span class="lineno">  103 </span><span class="spaces">        </span><span class="istickedoff">Just _ -&gt; do</span>
+<span class="lineno">  104 </span><span class="spaces">          </span><span class="istickedoff">trailingMembers &lt;- memberNameParser `MP.sepBy` expectedTok TkSpecialComma</span>
+<span class="lineno">  105 </span><span class="spaces">          </span><span class="istickedoff">pure (MembersListAll 0 trailingMembers)</span>
+<span class="lineno">  106 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  107 </span><span class="spaces">    </span><span class="istickedoff">parseMemberList = do</span>
+<span class="lineno">  108 </span><span class="spaces">      </span><span class="istickedoff">firstMember &lt;- memberNameParser</span>
+<span class="lineno">  109 </span><span class="spaces">      </span><span class="istickedoff">parseMemberSegments [firstMember]</span>
+<span class="lineno">  110 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  111 </span><span class="spaces">    </span><span class="istickedoff">parseMemberSegments members =</span>
+<span class="lineno">  112 </span><span class="spaces">      </span><span class="istickedoff">MP.optional (expectedTok TkSpecialComma) &gt;&gt;= \case</span>
+<span class="lineno">  113 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; pure (MembersList members)</span>
+<span class="lineno">  114 </span><span class="spaces">        </span><span class="istickedoff">Just _ -&gt;</span>
+<span class="lineno">  115 </span><span class="spaces">          </span><span class="istickedoff">(expectedTok TkReservedDotDot &gt;&gt; parseWildcardTail members)</span>
+<span class="lineno">  116 </span><span class="spaces">            </span><span class="istickedoff">&lt;|&gt; do</span>
+<span class="lineno">  117 </span><span class="spaces">              </span><span class="istickedoff">nextMember &lt;- memberNameParser</span>
+<span class="lineno">  118 </span><span class="spaces">              </span><span class="istickedoff">parseMemberSegments (members &lt;&gt; [nextMember])</span>
+<span class="lineno">  119 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  120 </span><span class="spaces">    </span><span class="istickedoff">parseWildcardTail members =</span>
+<span class="lineno">  121 </span><span class="spaces">      </span><span class="istickedoff">MP.optional (expectedTok TkSpecialComma) &gt;&gt;= \case</span>
+<span class="lineno">  122 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; pure (MembersListAll (length members) members)</span>
+<span class="lineno">  123 </span><span class="spaces">        </span><span class="istickedoff">Just _ -&gt; do</span>
+<span class="lineno">  124 </span><span class="spaces">          </span><span class="istickedoff">trailingMembers &lt;- memberNameParser `MP.sepBy` expectedTok TkSpecialComma</span>
+<span class="lineno">  125 </span><span class="spaces">          </span><span class="istickedoff">pure (MembersListAll (length members) (members &lt;&gt; trailingMembers))</span>
+<span class="lineno">  126 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  127 </span><span class="spaces">    </span><span class="istickedoff">memberNameParser = do</span>
+<span class="lineno">  128 </span><span class="spaces">      </span><span class="istickedoff">namespace &lt;- MP.optional bundledNamespaceParser</span>
+<span class="lineno">  129 </span><span class="spaces">      </span><span class="istickedoff">name &lt;- identifierNameParser &lt;|&gt; parens operatorNameParser</span>
+<span class="lineno">  130 </span><span class="spaces">      </span><span class="istickedoff">pure (IEBundledMember namespace name)</span></span>
+<span class="lineno">  131 </span>
+<span class="lineno">  132 </span>-- | Checks if a name refers to a type/class (as opposed to a variable/function).
+<span class="lineno">  133 </span>-- In Haskell:
+<span class="lineno">  134 </span>-- - Identifiers starting with uppercase letters are type constructors/classes
+<span class="lineno">  135 </span>-- - Symbolic operators starting with ':' are constructor operators (type-level)
+<span class="lineno">  136 </span>isTypeName :: Name -&gt; Bool
+<span class="lineno">  137 </span><span class="decl"><span class="istickedoff">isTypeName name =</span>
+<span class="lineno">  138 </span><span class="spaces">  </span><span class="istickedoff">case T.uncons (nameText name) of</span>
+<span class="lineno">  139 </span><span class="spaces">    </span><span class="istickedoff">Just (c, _) -&gt; isUpper c || c == ':'</span>
+<span class="lineno">  140 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">False</span></span></span>
+<span class="lineno">  141 </span>
+<span class="lineno">  142 </span>importDeclParser :: TokParser ImportDecl
+<span class="lineno">  143 </span><span class="decl"><span class="istickedoff">importDeclParser = withSpan $ do</span>
+<span class="lineno">  144 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordImport</span>
+<span class="lineno">  145 </span><span class="spaces">  </span><span class="istickedoff">importedSafe &lt;-</span>
+<span class="lineno">  146 </span><span class="spaces">    </span><span class="istickedoff">MP.option False (expectedTok TkVarSafe &gt;&gt; pure True)</span>
+<span class="lineno">  147 </span><span class="spaces">  </span><span class="istickedoff">importedSource &lt;- optionalHiddenPragma $ \p -&gt; case pragmaType p of</span>
+<span class="lineno">  148 </span><span class="spaces">    </span><span class="istickedoff">PragmaSource {} -&gt; Just p</span>
+<span class="lineno">  149 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span>
+<span class="lineno">  150 </span><span class="spaces">  </span><span class="istickedoff">preQualified &lt;-</span>
+<span class="lineno">  151 </span><span class="spaces">    </span><span class="istickedoff">MP.option False (expectedTok TkVarQualified &gt;&gt; pure True)</span>
+<span class="lineno">  152 </span><span class="spaces">  </span><span class="istickedoff">importedLevel &lt;- MP.optional importLevelParser</span>
+<span class="lineno">  153 </span><span class="spaces">  </span><span class="istickedoff">importedPackage &lt;- MP.optional packageNameParser</span>
+<span class="lineno">  154 </span><span class="spaces">  </span><span class="istickedoff">importedModule &lt;- moduleNameParser</span>
+<span class="lineno">  155 </span><span class="spaces">  </span><span class="istickedoff">postQualified &lt;-</span>
+<span class="lineno">  156 </span><span class="spaces">    </span><span class="istickedoff">MP.optional $</span>
+<span class="lineno">  157 </span><span class="spaces">      </span><span class="istickedoff">tokenSatisfy &quot;'qualified'&quot; $ \tok -&gt;</span>
+<span class="lineno">  158 </span><span class="spaces">        </span><span class="istickedoff">if lexTokenKind tok == TkVarQualified then Just (mkFoundToken tok) else Nothing</span>
+<span class="lineno">  159 </span><span class="spaces">  </span><span class="istickedoff">when (preQualified &amp;&amp; isJust postQualified) $</span>
+<span class="lineno">  160 </span><span class="spaces">    </span><span class="istickedoff">MP.customFailure</span>
+<span class="lineno">  161 </span><span class="spaces">      </span><span class="istickedoff">UnexpectedTokenExpecting</span>
+<span class="lineno">  162 </span><span class="spaces">        </span><span class="istickedoff">{ unexpectedFound = postQualified,</span>
+<span class="lineno">  163 </span><span class="spaces">          </span><span class="istickedoff">unexpectedExpecting = &quot;import declaration without duplicate 'qualified'&quot;,</span>
+<span class="lineno">  164 </span><span class="spaces">          </span><span class="istickedoff">unexpectedContext = []</span>
+<span class="lineno">  165 </span><span class="spaces">        </span><span class="istickedoff">}</span>
+<span class="lineno">  166 </span><span class="spaces">  </span><span class="istickedoff">importAlias &lt;- MP.optional (expectedTok TkVarAs *&gt; moduleNameParser)</span>
+<span class="lineno">  167 </span><span class="spaces">  </span><span class="istickedoff">importSpec &lt;- MP.optional importSpecParser</span>
+<span class="lineno">  168 </span><span class="spaces">  </span><span class="istickedoff">let isQualified = preQualified || isJust postQualified</span>
+<span class="lineno">  169 </span><span class="spaces">  </span><span class="istickedoff">pure $ \span' -&gt;</span>
+<span class="lineno">  170 </span><span class="spaces">    </span><span class="istickedoff">ImportDecl</span>
+<span class="lineno">  171 </span><span class="spaces">      </span><span class="istickedoff">{ importDeclAnns = <span class="nottickedoff">[mkAnnotation span']</span>,</span>
+<span class="lineno">  172 </span><span class="spaces">        </span><span class="istickedoff">importDeclLevel = importedLevel,</span>
+<span class="lineno">  173 </span><span class="spaces">        </span><span class="istickedoff">importDeclPackage = importedPackage,</span>
+<span class="lineno">  174 </span><span class="spaces">        </span><span class="istickedoff">importDeclSourcePragma = importedSource,</span>
+<span class="lineno">  175 </span><span class="spaces">        </span><span class="istickedoff">importDeclSafe = importedSafe,</span>
+<span class="lineno">  176 </span><span class="spaces">        </span><span class="istickedoff">importDeclQualified = isQualified,</span>
+<span class="lineno">  177 </span><span class="spaces">        </span><span class="istickedoff">importDeclQualifiedPost = isJust postQualified,</span>
+<span class="lineno">  178 </span><span class="spaces">        </span><span class="istickedoff">importDeclModule = importedModule,</span>
+<span class="lineno">  179 </span><span class="spaces">        </span><span class="istickedoff">importDeclAs = importAlias,</span>
+<span class="lineno">  180 </span><span class="spaces">        </span><span class="istickedoff">importDeclSpec = importSpec</span>
+<span class="lineno">  181 </span><span class="spaces">      </span><span class="istickedoff">}</span></span>
+<span class="lineno">  182 </span>
+<span class="lineno">  183 </span>importLevelParser :: TokParser ImportLevel
+<span class="lineno">  184 </span><span class="decl"><span class="istickedoff">importLevelParser =</span>
+<span class="lineno">  185 </span><span class="spaces">  </span><span class="istickedoff">(varIdTok &quot;quote&quot; &gt;&gt; pure ImportLevelQuote)</span>
+<span class="lineno">  186 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; (varIdTok &quot;splice&quot; &gt;&gt; pure ImportLevelSplice)</span></span>
+<span class="lineno">  187 </span>
+<span class="lineno">  188 </span>packageNameParser :: TokParser Text
+<span class="lineno">  189 </span><span class="decl"><span class="istickedoff">packageNameParser = stringTextParser</span></span>
+<span class="lineno">  190 </span>
+<span class="lineno">  191 </span>importSpecParser :: TokParser ImportSpec
+<span class="lineno">  192 </span><span class="decl"><span class="istickedoff">importSpecParser = withSpan $ do</span>
+<span class="lineno">  193 </span><span class="spaces">  </span><span class="istickedoff">isHiding &lt;-</span>
+<span class="lineno">  194 </span><span class="spaces">    </span><span class="istickedoff">MP.option False (expectedTok TkVarHiding &gt;&gt; pure True)</span>
+<span class="lineno">  195 </span><span class="spaces">  </span><span class="istickedoff">items &lt;- parens $ importItemParser `MP.sepEndBy` expectedTok TkSpecialComma</span>
+<span class="lineno">  196 </span><span class="spaces">  </span><span class="istickedoff">pure $ \span' -&gt;</span>
+<span class="lineno">  197 </span><span class="spaces">    </span><span class="istickedoff">ImportSpec</span>
+<span class="lineno">  198 </span><span class="spaces">      </span><span class="istickedoff">{ importSpecAnns = <span class="nottickedoff">[mkAnnotation span']</span>,</span>
+<span class="lineno">  199 </span><span class="spaces">        </span><span class="istickedoff">importSpecHiding = isHiding,</span>
+<span class="lineno">  200 </span><span class="spaces">        </span><span class="istickedoff">importSpecItems = items</span>
+<span class="lineno">  201 </span><span class="spaces">      </span><span class="istickedoff">}</span></span>
+<span class="lineno">  202 </span>
+<span class="lineno">  203 </span>importItemParser :: TokParser ImportItem
+<span class="lineno">  204 </span><span class="decl"><span class="istickedoff">importItemParser = withSpanAnn (ImportAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  205 </span><span class="spaces">  </span><span class="istickedoff">namespace &lt;- MP.optional exportImportNamespaceParser</span>
+<span class="lineno">  206 </span><span class="spaces">  </span><span class="istickedoff">itemName &lt;- identifierUnqualifiedNameParser &lt;|&gt; parens importOperatorParser</span>
+<span class="lineno">  207 </span><span class="spaces">  </span><span class="istickedoff">-- When there's no explicit namespace, we still need to try parsing members</span>
+<span class="lineno">  208 </span><span class="spaces">  </span><span class="istickedoff">-- for type constructors and type classes (uppercase names or parenthesized operators)</span>
+<span class="lineno">  209 </span><span class="spaces">  </span><span class="istickedoff">let shouldTryMembers = case namespace of</span>
+<span class="lineno">  210 </span><span class="spaces">        </span><span class="istickedoff">Just _ -&gt; True</span>
+<span class="lineno">  211 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; isTypeName (qualifyName <span class="nottickedoff">Nothing</span> itemName)</span>
+<span class="lineno">  212 </span><span class="spaces">  </span><span class="istickedoff">members &lt;- if shouldTryMembers then MP.optional importMembersParser else pure Nothing</span>
+<span class="lineno">  213 </span><span class="spaces">  </span><span class="istickedoff">let effectiveNamespace = namespace</span>
+<span class="lineno">  214 </span><span class="spaces">  </span><span class="istickedoff">pure $</span>
+<span class="lineno">  215 </span><span class="spaces">    </span><span class="istickedoff">case members of</span>
+<span class="lineno">  216 </span><span class="spaces">      </span><span class="istickedoff">Just MembersAll -&gt; ImportItemAll effectiveNamespace itemName</span>
+<span class="lineno">  217 </span><span class="spaces">      </span><span class="istickedoff">Just (MembersList names) -&gt; ImportItemWith effectiveNamespace itemName names</span>
+<span class="lineno">  218 </span><span class="spaces">      </span><span class="istickedoff">Just (MembersListAll wildcardIndex names) -&gt; <span class="nottickedoff">ImportItemAllWith effectiveNamespace itemName wildcardIndex names</span></span>
+<span class="lineno">  219 </span><span class="spaces">      </span><span class="istickedoff">Nothing</span>
+<span class="lineno">  220 </span><span class="spaces">        </span><span class="istickedoff">| effectiveNamespace == Just IEEntityNamespaceType || isTypeName (qualifyName <span class="nottickedoff">Nothing</span> itemName) -&gt; ImportItemAbs effectiveNamespace itemName</span>
+<span class="lineno">  221 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; ImportItemVar effectiveNamespace itemName</span></span>
+<span class="lineno">  222 </span>
+<span class="lineno">  223 </span>importOperatorParser :: TokParser UnqualifiedName
+<span class="lineno">  224 </span><span class="decl"><span class="istickedoff">importOperatorParser = operatorUnqualifiedNameParser</span></span>
+<span class="lineno">  225 </span>
+<span class="lineno">  226 </span>exportImportNamespaceParser :: TokParser IEEntityNamespace
+<span class="lineno">  227 </span><span class="decl"><span class="istickedoff">exportImportNamespaceParser =</span>
+<span class="lineno">  228 </span><span class="spaces">  </span><span class="istickedoff">(expectedTok TkKeywordType &gt;&gt; pure IEEntityNamespaceType)</span>
+<span class="lineno">  229 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; (expectedTok TkKeywordData &gt;&gt; pure IEEntityNamespaceData)</span>
+<span class="lineno">  230 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; patternNamespaceParser</span>
+<span class="lineno">  231 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  232 </span><span class="spaces">    </span><span class="istickedoff">patternNamespaceParser = do</span>
+<span class="lineno">  233 </span><span class="spaces">      </span><span class="istickedoff">patSynEnabled &lt;- isExtensionEnabled PatternSynonyms</span>
+<span class="lineno">  234 </span><span class="spaces">      </span><span class="istickedoff">if patSynEnabled</span>
+<span class="lineno">  235 </span><span class="spaces">        </span><span class="istickedoff">then expectedTok TkKeywordPattern &gt;&gt; pure IEEntityNamespacePattern</span>
+<span class="lineno">  236 </span><span class="spaces">        </span><span class="istickedoff">else MP.empty</span></span>
+<span class="lineno">  237 </span>
+<span class="lineno">  238 </span>bundledNamespaceParser :: TokParser IEBundledNamespace
+<span class="lineno">  239 </span><span class="decl"><span class="istickedoff">bundledNamespaceParser =</span>
+<span class="lineno">  240 </span><span class="spaces">  </span><span class="istickedoff">(expectedTok TkKeywordType &gt;&gt; pure IEBundledNamespaceType)</span>
+<span class="lineno">  241 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; (expectedTok TkKeywordData &gt;&gt; pure IEBundledNamespaceData)</span></span>
+
+</pre>
+</body>
+</html>

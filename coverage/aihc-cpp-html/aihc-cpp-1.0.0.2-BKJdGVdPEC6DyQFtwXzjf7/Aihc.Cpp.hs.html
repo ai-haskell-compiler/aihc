@@ -1,0 +1,760 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE BangPatterns #-}
+<span class="lineno">    2 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    3 </span>
+<span class="lineno">    4 </span>-- |
+<span class="lineno">    5 </span>-- Module      : Aihc.Cpp
+<span class="lineno">    6 </span>-- Description : Pure Haskell C preprocessor for Haskell source files
+<span class="lineno">    7 </span>-- License     : Unlicense
+<span class="lineno">    8 </span>--
+<span class="lineno">    9 </span>-- This module provides a C preprocessor implementation designed for
+<span class="lineno">   10 </span>-- preprocessing Haskell source files that use CPP extensions.
+<span class="lineno">   11 </span>--
+<span class="lineno">   12 </span>-- The main entry point is 'preprocess', which takes a 'Config' and
+<span class="lineno">   13 </span>-- source 'ByteString', returning a 'Step' that either completes with a
+<span class="lineno">   14 </span>-- 'Result' or requests an include file to be resolved.
+<span class="lineno">   15 </span>module Aihc.Cpp
+<span class="lineno">   16 </span>  ( -- * Preprocessing
+<span class="lineno">   17 </span>    preprocess,
+<span class="lineno">   18 </span>
+<span class="lineno">   19 </span>    -- * Configuration
+<span class="lineno">   20 </span>    Config (..),
+<span class="lineno">   21 </span>    defaultConfig,
+<span class="lineno">   22 </span>
+<span class="lineno">   23 </span>    -- * Results
+<span class="lineno">   24 </span>    Step (..),
+<span class="lineno">   25 </span>    Result (..),
+<span class="lineno">   26 </span>
+<span class="lineno">   27 </span>    -- * Include Handling
+<span class="lineno">   28 </span>    IncludeRequest (..),
+<span class="lineno">   29 </span>    IncludeKind (..),
+<span class="lineno">   30 </span>
+<span class="lineno">   31 </span>    -- * Diagnostics
+<span class="lineno">   32 </span>    Diagnostic (..),
+<span class="lineno">   33 </span>    Severity (..),
+<span class="lineno">   34 </span>  )
+<span class="lineno">   35 </span>where
+<span class="lineno">   36 </span>
+<span class="lineno">   37 </span>import Aihc.Cpp.Cursor
+<span class="lineno">   38 </span>  ( Cursor (..),
+<span class="lineno">   39 </span>    atEnd,
+<span class="lineno">   40 </span>    findNewline,
+<span class="lineno">   41 </span>    fromByteString,
+<span class="lineno">   42 </span>    lineSlice,
+<span class="lineno">   43 </span>    peekByte,
+<span class="lineno">   44 </span>    peekByteAt,
+<span class="lineno">   45 </span>    skipNewline,
+<span class="lineno">   46 </span>    skipWhile,
+<span class="lineno">   47 </span>    sliceText,
+<span class="lineno">   48 </span>    toText,
+<span class="lineno">   49 </span>  )
+<span class="lineno">   50 </span>import Aihc.Cpp.Evaluator (evalCondition)
+<span class="lineno">   51 </span>import Aihc.Cpp.Parser (Directive (..), parseDirective)
+<span class="lineno">   52 </span>import Aihc.Cpp.Scanner (expandLineBySpanMultiline, lineScanFinalCDepth, lineScanFinalHsDepth, lineScanSpans, scanLine, scanLineDepthOnly)
+<span class="lineno">   53 </span>import Aihc.Cpp.Types
+<span class="lineno">   54 </span>  ( CondFrame (..),
+<span class="lineno">   55 </span>    Config (..),
+<span class="lineno">   56 </span>    Continuation,
+<span class="lineno">   57 </span>    Diagnostic (..),
+<span class="lineno">   58 </span>    EngineState (..),
+<span class="lineno">   59 </span>    IncludeKind (..),
+<span class="lineno">   60 </span>    IncludeRequest (..),
+<span class="lineno">   61 </span>    LineContext (..),
+<span class="lineno">   62 </span>    MacroDef (..),
+<span class="lineno">   63 </span>    Result (..),
+<span class="lineno">   64 </span>    Severity (..),
+<span class="lineno">   65 </span>    Step (..),
+<span class="lineno">   66 </span>    currentActive,
+<span class="lineno">   67 </span>    defaultConfig,
+<span class="lineno">   68 </span>    emptyState,
+<span class="lineno">   69 </span>    mkFrame,
+<span class="lineno">   70 </span>  )
+<span class="lineno">   71 </span>import Data.ByteString (ByteString)
+<span class="lineno">   72 </span>import qualified Data.ByteString as BS
+<span class="lineno">   73 </span>import qualified Data.ByteString.Builder as BSB
+<span class="lineno">   74 </span>import qualified Data.ByteString.Lazy as BSL
+<span class="lineno">   75 </span>import Data.Char (isSpace)
+<span class="lineno">   76 </span>import Data.Map.Strict (Map)
+<span class="lineno">   77 </span>import qualified Data.Map.Strict as M
+<span class="lineno">   78 </span>import Data.Maybe (fromMaybe)
+<span class="lineno">   79 </span>import qualified Data.Set as S
+<span class="lineno">   80 </span>import Data.Text (Text)
+<span class="lineno">   81 </span>import qualified Data.Text as T
+<span class="lineno">   82 </span>import qualified Data.Text.Lazy as TL
+<span class="lineno">   83 </span>import qualified Data.Text.Lazy.Builder as TB
+<span class="lineno">   84 </span>import System.FilePath (takeDirectory, (&lt;/&gt;))
+<span class="lineno">   85 </span>
+<span class="lineno">   86 </span>-- $setup
+<span class="lineno">   87 </span>-- &gt;&gt;&gt; :set -XOverloadedStrings
+<span class="lineno">   88 </span>-- &gt;&gt;&gt; import qualified Data.Map.Strict as M
+<span class="lineno">   89 </span>-- &gt;&gt;&gt; import qualified Data.Text as T
+<span class="lineno">   90 </span>-- &gt;&gt;&gt; import qualified Data.Text.IO as T
+<span class="lineno">   91 </span>
+<span class="lineno">   92 </span>-- | Preprocess C preprocessor directives in the input.
+<span class="lineno">   93 </span>--
+<span class="lineno">   94 </span>-- This function handles:
+<span class="lineno">   95 </span>--
+<span class="lineno">   96 </span>-- * Macro definitions (@#define@) and expansion
+<span class="lineno">   97 </span>-- * Conditional compilation (@#if@, @#ifdef@, @#ifndef@, @#elif@, @#else@, @#endif@)
+<span class="lineno">   98 </span>-- * File inclusion (@#include@)
+<span class="lineno">   99 </span>-- * Diagnostics (@#warning@, @#error@)
+<span class="lineno">  100 </span>-- * Line control (@#line@)
+<span class="lineno">  101 </span>-- * Predefined macros (@__FILE__@, @__LINE__@, @__DATE__@, @__TIME__@)
+<span class="lineno">  102 </span>--
+<span class="lineno">  103 </span>-- === Macro expansion
+<span class="lineno">  104 </span>--
+<span class="lineno">  105 </span>-- Object-like macros are expanded in the output:
+<span class="lineno">  106 </span>--
+<span class="lineno">  107 </span>-- &gt;&gt;&gt; let Done r = preprocess defaultConfig &quot;#define FOO 42\nThe answer is FOO&quot;
+<span class="lineno">  108 </span>-- &gt;&gt;&gt; T.putStr (resultOutput r)
+<span class="lineno">  109 </span>-- #line 1 &quot;&lt;input&gt;&quot;
+<span class="lineno">  110 </span>-- &lt;BLANKLINE&gt;
+<span class="lineno">  111 </span>-- The answer is 42
+<span class="lineno">  112 </span>--
+<span class="lineno">  113 </span>-- Function-like macros are also supported:
+<span class="lineno">  114 </span>--
+<span class="lineno">  115 </span>-- &gt;&gt;&gt; let Done r = preprocess defaultConfig &quot;#define MAX(a,b) ((a) &gt; (b) ? (a) : (b))\nMAX(3, 5)&quot;
+<span class="lineno">  116 </span>-- &gt;&gt;&gt; T.putStr (resultOutput r)
+<span class="lineno">  117 </span>-- #line 1 &quot;&lt;input&gt;&quot;
+<span class="lineno">  118 </span>-- &lt;BLANKLINE&gt;
+<span class="lineno">  119 </span>-- ((3) &gt; (5) ? (3) : (5))
+<span class="lineno">  120 </span>--
+<span class="lineno">  121 </span>-- === Conditional compilation
+<span class="lineno">  122 </span>--
+<span class="lineno">  123 </span>-- Conditional directives control which sections of code are included:
+<span class="lineno">  124 </span>--
+<span class="lineno">  125 </span>-- &gt;&gt;&gt; :{
+<span class="lineno">  126 </span>-- let Done r = preprocess defaultConfig
+<span class="lineno">  127 </span>--       &quot;#define DEBUG 1\n#if DEBUG\ndebug mode\n#else\nrelease mode\n#endif&quot;
+<span class="lineno">  128 </span>-- in T.putStr (resultOutput r)
+<span class="lineno">  129 </span>-- :}
+<span class="lineno">  130 </span>-- #line 1 &quot;&lt;input&gt;&quot;
+<span class="lineno">  131 </span>-- &lt;BLANKLINE&gt;
+<span class="lineno">  132 </span>-- &lt;BLANKLINE&gt;
+<span class="lineno">  133 </span>-- debug mode
+<span class="lineno">  134 </span>-- &lt;BLANKLINE&gt;
+<span class="lineno">  135 </span>-- &lt;BLANKLINE&gt;
+<span class="lineno">  136 </span>-- &lt;BLANKLINE&gt;
+<span class="lineno">  137 </span>--
+<span class="lineno">  138 </span>-- === Include handling
+<span class="lineno">  139 </span>--
+<span class="lineno">  140 </span>-- When an @#include@ directive is encountered, 'preprocess' returns a
+<span class="lineno">  141 </span>-- 'NeedInclude' step. The caller must provide the contents of the included
+<span class="lineno">  142 </span>-- file as a 'ByteString':
+<span class="lineno">  143 </span>--
+<span class="lineno">  144 </span>-- &gt;&gt;&gt; :{
+<span class="lineno">  145 </span>-- let NeedInclude req k = preprocess defaultConfig &quot;#include \&quot;header.h\&quot;\nmain code&quot;
+<span class="lineno">  146 </span>--     Done r = k (Just &quot;-- header content&quot;)
+<span class="lineno">  147 </span>-- in T.putStr (resultOutput r)
+<span class="lineno">  148 </span>-- :}
+<span class="lineno">  149 </span>-- #line 1 &quot;&lt;input&gt;&quot;
+<span class="lineno">  150 </span>-- #line 1 &quot;./header.h&quot;
+<span class="lineno">  151 </span>-- -- header content
+<span class="lineno">  152 </span>-- #line 2 &quot;&lt;input&gt;&quot;
+<span class="lineno">  153 </span>-- main code
+<span class="lineno">  154 </span>--
+<span class="lineno">  155 </span>-- If the include file is not found, pass 'Nothing' to emit an error:
+<span class="lineno">  156 </span>--
+<span class="lineno">  157 </span>-- &gt;&gt;&gt; :{
+<span class="lineno">  158 </span>-- let NeedInclude _ k = preprocess defaultConfig &quot;#include \&quot;missing.h\&quot;&quot;
+<span class="lineno">  159 </span>--     Done r = k Nothing
+<span class="lineno">  160 </span>-- in do
+<span class="lineno">  161 </span>--   T.putStr (resultOutput r)
+<span class="lineno">  162 </span>--   mapM_ print (resultDiagnostics r)
+<span class="lineno">  163 </span>-- :}
+<span class="lineno">  164 </span>-- #line 1 &quot;&lt;input&gt;&quot;
+<span class="lineno">  165 </span>-- Diagnostic {diagSeverity = Error, diagMessage = &quot;missing include: missing.h&quot;, diagFile = &quot;&lt;input&gt;&quot;, diagLine = 1}
+<span class="lineno">  166 </span>--
+<span class="lineno">  167 </span>-- === Diagnostics
+<span class="lineno">  168 </span>--
+<span class="lineno">  169 </span>-- The @#warning@ directive emits a warning:
+<span class="lineno">  170 </span>--
+<span class="lineno">  171 </span>-- &gt;&gt;&gt; :{
+<span class="lineno">  172 </span>-- let Done r = preprocess defaultConfig &quot;#warning This is a warning&quot;
+<span class="lineno">  173 </span>-- in do
+<span class="lineno">  174 </span>--   T.putStr (resultOutput r)
+<span class="lineno">  175 </span>--   mapM_ print (resultDiagnostics r)
+<span class="lineno">  176 </span>-- :}
+<span class="lineno">  177 </span>-- #line 1 &quot;&lt;input&gt;&quot;
+<span class="lineno">  178 </span>-- &lt;BLANKLINE&gt;
+<span class="lineno">  179 </span>-- Diagnostic {diagSeverity = Warning, diagMessage = &quot;This is a warning&quot;, diagFile = &quot;&lt;input&gt;&quot;, diagLine = 1}
+<span class="lineno">  180 </span>--
+<span class="lineno">  181 </span>-- The @#error@ directive emits an error and stops preprocessing:
+<span class="lineno">  182 </span>--
+<span class="lineno">  183 </span>-- &gt;&gt;&gt; :{
+<span class="lineno">  184 </span>-- let Done r = preprocess defaultConfig &quot;#error Build failed\nthis line is not processed&quot;
+<span class="lineno">  185 </span>-- in do
+<span class="lineno">  186 </span>--   T.putStr (resultOutput r)
+<span class="lineno">  187 </span>--   mapM_ print (resultDiagnostics r)
+<span class="lineno">  188 </span>-- :}
+<span class="lineno">  189 </span>-- #line 1 &quot;&lt;input&gt;&quot;
+<span class="lineno">  190 </span>-- &lt;BLANKLINE&gt;
+<span class="lineno">  191 </span>-- Diagnostic {diagSeverity = Error, diagMessage = &quot;Build failed&quot;, diagFile = &quot;&lt;input&gt;&quot;, diagLine = 1}
+<span class="lineno">  192 </span>preprocess :: Config -&gt; ByteString -&gt; Step
+<span class="lineno">  193 </span><span class="decl"><span class="istickedoff">preprocess cfg input =</span>
+<span class="lineno">  194 </span><span class="spaces">  </span><span class="istickedoff">let cursor = fromByteString input</span>
+<span class="lineno">  195 </span><span class="spaces">   </span><span class="istickedoff">in processFile (configInputFile cfg) cursor False [] 1 initialState finish</span>
+<span class="lineno">  196 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  197 </span><span class="spaces">    </span><span class="istickedoff">initialState =</span>
+<span class="lineno">  198 </span><span class="spaces">      </span><span class="istickedoff">let st0 = emitLine (linePragma 1 (configInputFile cfg)) (emptyState (configInputFile cfg))</span>
+<span class="lineno">  199 </span><span class="spaces">       </span><span class="istickedoff">in st0</span>
+<span class="lineno">  200 </span><span class="spaces">            </span><span class="istickedoff">{ stMacros = M.map ObjectMacro (configMacros cfg)</span>
+<span class="lineno">  201 </span><span class="spaces">            </span><span class="istickedoff">}</span>
+<span class="lineno">  202 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  203 </span><span class="spaces">    </span><span class="istickedoff">finish st =</span>
+<span class="lineno">  204 </span><span class="spaces">      </span><span class="istickedoff">let out = TL.toStrict (TB.toLazyText (stOutput st))</span>
+<span class="lineno">  205 </span><span class="spaces">          </span><span class="istickedoff">outWithTrailingNewline =</span>
+<span class="lineno">  206 </span><span class="spaces">            </span><span class="istickedoff">if <span class="tickonlyfalse">T.null out</span></span>
+<span class="lineno">  207 </span><span class="spaces">              </span><span class="istickedoff">then <span class="nottickedoff">out</span></span>
+<span class="lineno">  208 </span><span class="spaces">              </span><span class="istickedoff">else out &lt;&gt; &quot;\n&quot;</span>
+<span class="lineno">  209 </span><span class="spaces">       </span><span class="istickedoff">in Done</span>
+<span class="lineno">  210 </span><span class="spaces">            </span><span class="istickedoff">Result</span>
+<span class="lineno">  211 </span><span class="spaces">              </span><span class="istickedoff">{ resultOutput = outWithTrailingNewline,</span>
+<span class="lineno">  212 </span><span class="spaces">                </span><span class="istickedoff">resultDiagnostics = reverse (stDiagnosticsRev st)</span>
+<span class="lineno">  213 </span><span class="spaces">              </span><span class="istickedoff">}</span></span>
+<span class="lineno">  214 </span>
+<span class="lineno">  215 </span>-- | Find the next line in the cursor, handling backslash-continuation
+<span class="lineno">  216 </span>-- for directive lines. Returns (lineCursor, lineSpan, restCursor) where:
+<span class="lineno">  217 </span>--   * lineCursor is a sub-cursor bounded to the logical line content
+<span class="lineno">  218 </span>--   * lineSpan is the number of physical lines consumed (&gt;= 1)
+<span class="lineno">  219 </span>--   * restCursor is positioned after the line (past the newline)
+<span class="lineno">  220 </span>--
+<span class="lineno">  221 </span>-- Backslash-continuation is only applied when the line starts with '#'
+<span class="lineno">  222 </span>-- (after optional whitespace), matching CPP semantics.
+<span class="lineno">  223 </span>-- For continuation lines, a new ByteString is allocated with the
+<span class="lineno">  224 </span>-- backslash-newline sequences removed.
+<span class="lineno">  225 </span>nextLine :: Cursor -&gt; (Cursor, Int, Cursor)
+<span class="lineno">  226 </span><span class="decl"><span class="istickedoff">nextLine cur =</span>
+<span class="lineno">  227 </span><span class="spaces">  </span><span class="istickedoff">let eol = findNewline cur</span>
+<span class="lineno">  228 </span><span class="spaces">      </span><span class="istickedoff">lineStart = curPos cur</span>
+<span class="lineno">  229 </span><span class="spaces">      </span><span class="istickedoff">lineEnd = curPos eol</span>
+<span class="lineno">  230 </span><span class="spaces">      </span><span class="istickedoff">rest = fromMaybe eol (skipNewline eol)</span>
+<span class="lineno">  231 </span><span class="spaces">   </span><span class="istickedoff">in if lineEnd &gt; lineStart</span>
+<span class="lineno">  232 </span><span class="spaces">        </span><span class="istickedoff">&amp;&amp; peekByteAt (lineEnd - 1) cur == Just 0x5C -- '\' at end</span>
+<span class="lineno">  233 </span><span class="spaces">        </span><span class="istickedoff">&amp;&amp; isDirectiveLine cur lineEnd</span>
+<span class="lineno">  234 </span><span class="spaces">        </span><span class="istickedoff">then -- Backslash continuation: join lines, stripping '\' and '\n'</span>
+<span class="lineno">  235 </span><span class="spaces">          </span><span class="istickedoff">joinContinuationLines cur lineStart lineEnd rest</span>
+<span class="lineno">  236 </span><span class="spaces">        </span><span class="istickedoff">else</span>
+<span class="lineno">  237 </span><span class="spaces">          </span><span class="istickedoff">let lineText = sliceText lineStart lineEnd cur</span>
+<span class="lineno">  238 </span><span class="spaces">           </span><span class="istickedoff">in if hasGccStringContinuation emptyQuoteState lineText</span>
+<span class="lineno">  239 </span><span class="spaces">                </span><span class="istickedoff">then joinStringContinuationLines cur lineStart lineEnd rest</span>
+<span class="lineno">  240 </span><span class="spaces">                </span><span class="istickedoff">else (lineSlice lineEnd cur, 1, rest)</span></span>
+<span class="lineno">  241 </span>
+<span class="lineno">  242 </span>-- | Check if the bytes from curPos to lineEnd start with '#' after
+<span class="lineno">  243 </span>-- optional whitespace. This determines whether backslash-continuation
+<span class="lineno">  244 </span>-- applies.
+<span class="lineno">  245 </span>isDirectiveLine :: Cursor -&gt; Int -&gt; Bool
+<span class="lineno">  246 </span><span class="decl"><span class="istickedoff">isDirectiveLine cur lineEnd =</span>
+<span class="lineno">  247 </span><span class="spaces">  </span><span class="istickedoff">let trimmed = skipWhile isSpaceOrTab cur</span>
+<span class="lineno">  248 </span><span class="spaces">   </span><span class="istickedoff">in curPos trimmed &lt; lineEnd</span>
+<span class="lineno">  249 </span><span class="spaces">        </span><span class="istickedoff">&amp;&amp; peekByte trimmed == Just 0x23 -- '#'</span>
+<span class="lineno">  250 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  251 </span><span class="spaces">    </span><span class="istickedoff">isSpaceOrTab b = b == 0x20 || b == 0x09</span></span>
+<span class="lineno">  252 </span>
+<span class="lineno">  253 </span>-- | Join backslash-continuation lines into a single logical line.
+<span class="lineno">  254 </span>-- Builds a new ByteString with '\&lt;newline&gt;' sequences removed.
+<span class="lineno">  255 </span>-- Returns (joinedCursor, physicalLineCount, restCursor).
+<span class="lineno">  256 </span>joinContinuationLines :: Cursor -&gt; Int -&gt; Int -&gt; Cursor -&gt; (Cursor, Int, Cursor)
+<span class="lineno">  257 </span><span class="decl"><span class="istickedoff">joinContinuationLines origCur lineStart firstLineEnd firstRest =</span>
+<span class="lineno">  258 </span><span class="spaces">  </span><span class="istickedoff">let buf = curBuf origCur</span>
+<span class="lineno">  259 </span><span class="spaces">      </span><span class="istickedoff">-- First segment: from lineStart to firstLineEnd - 1 (exclude '\')</span>
+<span class="lineno">  260 </span><span class="spaces">      </span><span class="istickedoff">firstSegment = BSB.byteString (sliceBS lineStart (firstLineEnd - 1) buf)</span>
+<span class="lineno">  261 </span><span class="spaces">   </span><span class="istickedoff">in go firstSegment 1 firstRest</span>
+<span class="lineno">  262 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  263 </span><span class="spaces">    </span><span class="istickedoff">go !acc !spanCount !rest</span>
+<span class="lineno">  264 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlyfalse">atEnd rest</span> =</span>
+<span class="lineno">  265 </span><span class="spaces">          </span><span class="istickedoff">-- No more input; finalize</span>
+<span class="lineno">  266 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">let joined = BSL.toStrict (BSB.toLazyByteString acc)</span></span>
+<span class="lineno">  267 </span><span class="spaces">           </span><span class="istickedoff"><span class="nottickedoff">in (fromByteString joined, spanCount, rest)</span></span>
+<span class="lineno">  268 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  269 </span><span class="spaces">          </span><span class="istickedoff">let eol = findNewline rest</span>
+<span class="lineno">  270 </span><span class="spaces">              </span><span class="istickedoff">segStart = curPos rest</span>
+<span class="lineno">  271 </span><span class="spaces">              </span><span class="istickedoff">segEnd = curPos eol</span>
+<span class="lineno">  272 </span><span class="spaces">              </span><span class="istickedoff">rest' = fromMaybe <span class="nottickedoff">eol</span> (skipNewline eol)</span>
+<span class="lineno">  273 </span><span class="spaces">           </span><span class="istickedoff">in if segEnd &gt; segStart</span>
+<span class="lineno">  274 </span><span class="spaces">                </span><span class="istickedoff">&amp;&amp; peekByteAt (segEnd - 1) origCur == Just 0x5C -- ends with '\'</span>
+<span class="lineno">  275 </span><span class="spaces">                </span><span class="istickedoff">then</span>
+<span class="lineno">  276 </span><span class="spaces">                  </span><span class="istickedoff">-- Another continuation line: append without the trailing '\'</span>
+<span class="lineno">  277 </span><span class="spaces">                  </span><span class="istickedoff">let segment = BSB.byteString (sliceBS segStart (segEnd - 1) (curBuf origCur))</span>
+<span class="lineno">  278 </span><span class="spaces">                   </span><span class="istickedoff">in go (acc &lt;&gt; segment) (spanCount + 1) rest'</span>
+<span class="lineno">  279 </span><span class="spaces">                </span><span class="istickedoff">else</span>
+<span class="lineno">  280 </span><span class="spaces">                  </span><span class="istickedoff">-- Last line of continuation</span>
+<span class="lineno">  281 </span><span class="spaces">                  </span><span class="istickedoff">let segment = BSB.byteString (sliceBS segStart segEnd (curBuf origCur))</span>
+<span class="lineno">  282 </span><span class="spaces">                      </span><span class="istickedoff">joined = BSL.toStrict (BSB.toLazyByteString (acc &lt;&gt; segment))</span>
+<span class="lineno">  283 </span><span class="spaces">                   </span><span class="istickedoff">in (fromByteString joined, spanCount + 1, rest')</span></span>
+<span class="lineno">  284 </span>
+<span class="lineno">  285 </span>-- | Slice a ByteString from position @start@ to @end@ (exclusive).
+<span class="lineno">  286 </span>sliceBS :: Int -&gt; Int -&gt; ByteString -&gt; ByteString
+<span class="lineno">  287 </span><span class="decl"><span class="istickedoff">sliceBS start end bs = BS.take (end - start) (BS.drop start bs)</span></span>
+<span class="lineno">  288 </span>{-# INLINE sliceBS #-}
+<span class="lineno">  289 </span>
+<span class="lineno">  290 </span>data QuoteState = QuoteState
+<span class="lineno">  291 </span>  { <span class="istickedoff"><span class="decl"><span class="istickedoff">qsInString</span></span></span> :: !Bool,
+<span class="lineno">  292 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">qsInChar</span></span></span> :: !Bool,
+<span class="lineno">  293 </span>    <span class="istickedoff"><span class="decl"><span class="istickedoff">qsEscaped</span></span></span> :: !Bool
+<span class="lineno">  294 </span>  }
+<span class="lineno">  295 </span>
+<span class="lineno">  296 </span>emptyQuoteState :: QuoteState
+<span class="lineno">  297 </span><span class="decl"><span class="istickedoff">emptyQuoteState = QuoteState False False False</span></span>
+<span class="lineno">  298 </span>
+<span class="lineno">  299 </span>-- | GCC removes @\&lt;newline&gt;@ before the Haskell lexer sees the file.  Some
+<span class="lineno">  300 </span>-- Haskell packages rely on that inside string gaps by writing lines that end
+<span class="lineno">  301 </span>-- in @\\@: one backslash remains as the Haskell string-gap opener and the
+<span class="lineno">  302 </span>-- final backslash is the CPP continuation marker.  GHC's default CPP-like
+<span class="lineno">  303 </span>-- handling also accepts the single-backslash spelling, so only the double
+<span class="lineno">  304 </span>-- spelling is spliced here.
+<span class="lineno">  305 </span>hasGccStringContinuation :: QuoteState -&gt; Text -&gt; Bool
+<span class="lineno">  306 </span><span class="decl"><span class="istickedoff">hasGccStringContinuation st lineText =</span>
+<span class="lineno">  307 </span><span class="spaces">  </span><span class="istickedoff">qsInString (scanQuoteState st lineText) &amp;&amp; &quot;\\\\&quot; `T.isSuffixOf` lineText</span></span>
+<span class="lineno">  308 </span>
+<span class="lineno">  309 </span>joinStringContinuationLines :: Cursor -&gt; Int -&gt; Int -&gt; Cursor -&gt; (Cursor, Int, Cursor)
+<span class="lineno">  310 </span><span class="decl"><span class="istickedoff">joinStringContinuationLines origCur lineStart firstLineEnd firstRest =</span>
+<span class="lineno">  311 </span><span class="spaces">  </span><span class="istickedoff">let buf = curBuf origCur</span>
+<span class="lineno">  312 </span><span class="spaces">      </span><span class="istickedoff">firstSegment = sliceText lineStart (firstLineEnd - 1) origCur</span>
+<span class="lineno">  313 </span><span class="spaces">      </span><span class="istickedoff">firstBytes = BSB.byteString (sliceBS lineStart (firstLineEnd - 1) buf)</span>
+<span class="lineno">  314 </span><span class="spaces">   </span><span class="istickedoff">in go firstBytes 1 firstRest (scanQuoteState emptyQuoteState firstSegment)</span>
+<span class="lineno">  315 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  316 </span><span class="spaces">    </span><span class="istickedoff">go !acc !spanCount !rest !quoteState</span>
+<span class="lineno">  317 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlyfalse">atEnd rest</span> =</span>
+<span class="lineno">  318 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">let joined = BSL.toStrict (BSB.toLazyByteString acc)</span></span>
+<span class="lineno">  319 </span><span class="spaces">           </span><span class="istickedoff"><span class="nottickedoff">in (fromByteString joined, spanCount, rest)</span></span>
+<span class="lineno">  320 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  321 </span><span class="spaces">          </span><span class="istickedoff">let eol = findNewline rest</span>
+<span class="lineno">  322 </span><span class="spaces">              </span><span class="istickedoff">segStart = curPos rest</span>
+<span class="lineno">  323 </span><span class="spaces">              </span><span class="istickedoff">segEnd = curPos eol</span>
+<span class="lineno">  324 </span><span class="spaces">              </span><span class="istickedoff">rest' = fromMaybe <span class="nottickedoff">eol</span> (skipNewline eol)</span>
+<span class="lineno">  325 </span><span class="spaces">              </span><span class="istickedoff">segmentText = sliceText segStart segEnd origCur</span>
+<span class="lineno">  326 </span><span class="spaces">           </span><span class="istickedoff">in if hasGccStringContinuation quoteState segmentText</span>
+<span class="lineno">  327 </span><span class="spaces">                </span><span class="istickedoff">then</span>
+<span class="lineno">  328 </span><span class="spaces">                  </span><span class="istickedoff">let segmentBytes = BSB.byteString (sliceBS segStart (segEnd - 1) (curBuf origCur))</span>
+<span class="lineno">  329 </span><span class="spaces">                      </span><span class="istickedoff">scannedText = sliceText segStart (segEnd - 1) origCur</span>
+<span class="lineno">  330 </span><span class="spaces">                   </span><span class="istickedoff">in go (acc &lt;&gt; segmentBytes) (spanCount + 1) rest' (scanQuoteState quoteState scannedText)</span>
+<span class="lineno">  331 </span><span class="spaces">                </span><span class="istickedoff">else</span>
+<span class="lineno">  332 </span><span class="spaces">                  </span><span class="istickedoff">let segmentBytes = BSB.byteString (sliceBS segStart segEnd (curBuf origCur))</span>
+<span class="lineno">  333 </span><span class="spaces">                      </span><span class="istickedoff">joined = BSL.toStrict (BSB.toLazyByteString (acc &lt;&gt; segmentBytes))</span>
+<span class="lineno">  334 </span><span class="spaces">                   </span><span class="istickedoff">in (fromByteString joined, spanCount + 1, rest')</span></span>
+<span class="lineno">  335 </span>
+<span class="lineno">  336 </span>scanQuoteState :: QuoteState -&gt; Text -&gt; QuoteState
+<span class="lineno">  337 </span><span class="decl"><span class="istickedoff">scanQuoteState = go</span>
+<span class="lineno">  338 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  339 </span><span class="spaces">    </span><span class="istickedoff">go st txt =</span>
+<span class="lineno">  340 </span><span class="spaces">      </span><span class="istickedoff">case T.uncons txt of</span>
+<span class="lineno">  341 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; st</span>
+<span class="lineno">  342 </span><span class="spaces">        </span><span class="istickedoff">Just (c, rest)</span>
+<span class="lineno">  343 </span><span class="spaces">          </span><span class="istickedoff">| qsInString st -&gt;</span>
+<span class="lineno">  344 </span><span class="spaces">              </span><span class="istickedoff">if qsEscaped st &amp;&amp; isSpace c</span>
+<span class="lineno">  345 </span><span class="spaces">                </span><span class="istickedoff">then go st {qsEscaped = False} (dropStringGapClose rest)</span>
+<span class="lineno">  346 </span><span class="spaces">                </span><span class="istickedoff">else</span>
+<span class="lineno">  347 </span><span class="spaces">                  </span><span class="istickedoff">go</span>
+<span class="lineno">  348 </span><span class="spaces">                    </span><span class="istickedoff">st</span>
+<span class="lineno">  349 </span><span class="spaces">                      </span><span class="istickedoff">{ qsInString = qsEscaped st || c /= '&quot;',</span>
+<span class="lineno">  350 </span><span class="spaces">                        </span><span class="istickedoff">qsEscaped = c == '\\' &amp;&amp; not (qsEscaped st)</span>
+<span class="lineno">  351 </span><span class="spaces">                      </span><span class="istickedoff">}</span>
+<span class="lineno">  352 </span><span class="spaces">                    </span><span class="istickedoff">rest</span>
+<span class="lineno">  353 </span><span class="spaces">          </span><span class="istickedoff">| qsInChar st -&gt;</span>
+<span class="lineno">  354 </span><span class="spaces">              </span><span class="istickedoff">go</span>
+<span class="lineno">  355 </span><span class="spaces">                </span><span class="istickedoff">st</span>
+<span class="lineno">  356 </span><span class="spaces">                  </span><span class="istickedoff">{ qsInChar = qsEscaped st || c /= '\'',</span>
+<span class="lineno">  357 </span><span class="spaces">                    </span><span class="istickedoff">qsEscaped = c == '\\' &amp;&amp; <span class="nottickedoff">not (qsEscaped st)</span></span>
+<span class="lineno">  358 </span><span class="spaces">                  </span><span class="istickedoff">}</span>
+<span class="lineno">  359 </span><span class="spaces">                </span><span class="istickedoff">rest</span>
+<span class="lineno">  360 </span><span class="spaces">          </span><span class="istickedoff">| c == '&quot;' -&gt; go (QuoteState True False False) rest</span>
+<span class="lineno">  361 </span><span class="spaces">          </span><span class="istickedoff">| c == '\'' -&gt; go (QuoteState False True False) rest</span>
+<span class="lineno">  362 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; go st {qsEscaped = False} rest</span>
+<span class="lineno">  363 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  364 </span><span class="spaces">    </span><span class="istickedoff">dropStringGapClose txt =</span>
+<span class="lineno">  365 </span><span class="spaces">      </span><span class="istickedoff">let afterSpace = T.dropWhile isSpace txt</span>
+<span class="lineno">  366 </span><span class="spaces">       </span><span class="istickedoff">in case T.uncons afterSpace of</span>
+<span class="lineno">  367 </span><span class="spaces">            </span><span class="istickedoff">Just ('\\', rest) -&gt; rest</span>
+<span class="lineno">  368 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">afterSpace</span></span></span>
+<span class="lineno">  369 </span>
+<span class="lineno">  370 </span>-- | Process a file from a cursor. The @trailingNewline@ flag controls
+<span class="lineno">  371 </span>-- whether a trailing newline in the input produces an extra empty line
+<span class="lineno">  372 </span>-- (used for include files to match @splitOn \&quot;\\n\&quot;@ semantics).
+<span class="lineno">  373 </span>processFile :: FilePath -&gt; Cursor -&gt; Bool -&gt; [CondFrame] -&gt; Int -&gt; EngineState -&gt; Continuation -&gt; Step
+<span class="lineno">  374 </span><span class="decl"><span class="istickedoff">processFile _ cursor trailingNl _ _ st k</span>
+<span class="lineno">  375 </span><span class="spaces">  </span><span class="istickedoff">| atEnd cursor =</span>
+<span class="lineno">  376 </span><span class="spaces">      </span><span class="istickedoff">if trailingNl</span>
+<span class="lineno">  377 </span><span class="spaces">        </span><span class="istickedoff">then -- Include file: trailing newline produces one more empty line</span>
+<span class="lineno">  378 </span><span class="spaces">          </span><span class="istickedoff">k (emitBlankLines 1 st)</span>
+<span class="lineno">  379 </span><span class="spaces">        </span><span class="istickedoff">else k st</span>
+<span class="lineno">  380 </span><span class="spaces"></span><span class="istickedoff">processFile filePath cursor trailingNl stack !lineNo st k =</span>
+<span class="lineno">  381 </span><span class="spaces">  </span><span class="istickedoff">let (lineCur, lineSpan, restCursor) = nextLine cursor</span>
+<span class="lineno">  382 </span><span class="spaces">      </span><span class="istickedoff">-- Detect if this line was followed by a newline (vs EOF).</span>
+<span class="lineno">  383 </span><span class="spaces">      </span><span class="istickedoff">-- If so and restCursor is at EOF, the file had a trailing newline.</span>
+<span class="lineno">  384 </span><span class="spaces">      </span><span class="istickedoff">hasTrailingNl = trailingNl &amp;&amp; not (atEnd restCursor) || (trailingNl &amp;&amp; atEnd restCursor)</span>
+<span class="lineno">  385 </span><span class="spaces">      </span><span class="istickedoff">-- Actually: trailingNl flag is set at processFile entry for includes.</span>
+<span class="lineno">  386 </span><span class="spaces">      </span><span class="istickedoff">-- We just propagate it. The check at atEnd above handles the final empty line.</span>
+<span class="lineno">  387 </span><span class="spaces">      </span><span class="istickedoff">lineText = toText lineCur</span>
+<span class="lineno">  388 </span><span class="spaces">      </span><span class="istickedoff">startsInBlockComment = stHsBlockCommentDepth st &gt; 0 || stCBlockCommentDepth st &gt; 0</span>
+<span class="lineno">  389 </span><span class="spaces">      </span><span class="istickedoff">parsedDirective =</span>
+<span class="lineno">  390 </span><span class="spaces">        </span><span class="istickedoff">if startsInBlockComment</span>
+<span class="lineno">  391 </span><span class="spaces">          </span><span class="istickedoff">then Nothing</span>
+<span class="lineno">  392 </span><span class="spaces">          </span><span class="istickedoff">else parseDirective lineText</span>
+<span class="lineno">  393 </span><span class="spaces">      </span><span class="istickedoff">isActive = currentActive stack</span>
+<span class="lineno">  394 </span><span class="spaces">      </span><span class="istickedoff">nextLineNo = lineNo + lineSpan</span>
+<span class="lineno">  395 </span><span class="spaces">   </span><span class="istickedoff">in if not isActive &amp;&amp; not (stSkippingDanglingElse st)</span>
+<span class="lineno">  396 </span><span class="spaces">        </span><span class="istickedoff">then -- === Fast path for inactive branches ===</span>
+<span class="lineno">  397 </span><span class="spaces">        </span><span class="istickedoff">-- Only track comment depth; skip full span scanning and macro expansion.</span>
+<span class="lineno">  398 </span><span class="spaces">          </span><span class="istickedoff">let (finalHs, finalC) = scanLineDepthOnly (stHsBlockCommentDepth st) (stCBlockCommentDepth st) lineCur</span>
+<span class="lineno">  399 </span><span class="spaces">              </span><span class="istickedoff">advanceSt st' =</span>
+<span class="lineno">  400 </span><span class="spaces">                </span><span class="istickedoff">st'</span>
+<span class="lineno">  401 </span><span class="spaces">                  </span><span class="istickedoff">{ stCurrentLine = nextLineNo,</span>
+<span class="lineno">  402 </span><span class="spaces">                    </span><span class="istickedoff">stHsBlockCommentDepth = finalHs,</span>
+<span class="lineno">  403 </span><span class="spaces">                    </span><span class="istickedoff">stCBlockCommentDepth = finalC</span>
+<span class="lineno">  404 </span><span class="spaces">                  </span><span class="istickedoff">}</span>
+<span class="lineno">  405 </span><span class="spaces">              </span><span class="istickedoff">continueInactive st' = processFile filePath restCursor hasTrailingNl stack nextLineNo (advanceSt st') k</span>
+<span class="lineno">  406 </span><span class="spaces">              </span><span class="istickedoff">continueInactiveWith stack' st' = processFile filePath restCursor hasTrailingNl stack' nextLineNo (advanceSt st') k</span>
+<span class="lineno">  407 </span><span class="spaces">           </span><span class="istickedoff">in case parsedDirective of</span>
+<span class="lineno">  408 </span><span class="spaces">                </span><span class="istickedoff">Nothing -&gt;</span>
+<span class="lineno">  409 </span><span class="spaces">                  </span><span class="istickedoff">continueInactive (emitBlankLines lineSpan st)</span>
+<span class="lineno">  410 </span><span class="spaces">                </span><span class="istickedoff">Just directive -&gt;</span>
+<span class="lineno">  411 </span><span class="spaces">                  </span><span class="istickedoff">let ctx =</span>
+<span class="lineno">  412 </span><span class="spaces">                        </span><span class="istickedoff">LineContext</span>
+<span class="lineno">  413 </span><span class="spaces">                          </span><span class="istickedoff">{ lcFilePath = filePath,</span>
+<span class="lineno">  414 </span><span class="spaces">                            </span><span class="istickedoff">lcLineNo = lineNo,</span>
+<span class="lineno">  415 </span><span class="spaces">                            </span><span class="istickedoff">lcLineSpan = lineSpan,</span>
+<span class="lineno">  416 </span><span class="spaces">                            </span><span class="istickedoff">lcNextLineNo = nextLineNo,</span>
+<span class="lineno">  417 </span><span class="spaces">                            </span><span class="istickedoff">lcRestCursor = restCursor,</span>
+<span class="lineno">  418 </span><span class="spaces">                            </span><span class="istickedoff">lcStack = stack,</span>
+<span class="lineno">  419 </span><span class="spaces">                            </span><span class="istickedoff">lcContinue = <span class="nottickedoff">continueInactive</span>,</span>
+<span class="lineno">  420 </span><span class="spaces">                            </span><span class="istickedoff">lcContinueWith = continueInactiveWith,</span>
+<span class="lineno">  421 </span><span class="spaces">                            </span><span class="istickedoff">lcDone = <span class="nottickedoff">k</span></span>
+<span class="lineno">  422 </span><span class="spaces">                          </span><span class="istickedoff">}</span>
+<span class="lineno">  423 </span><span class="spaces">                   </span><span class="istickedoff">in handleDirective ctx st directive</span>
+<span class="lineno">  424 </span><span class="spaces">        </span><span class="istickedoff">else -- === Normal path: full scan + expansion ===</span>
+<span class="lineno">  425 </span><span class="spaces">          </span><span class="istickedoff">let lineScan = scanLine (stHsBlockCommentDepth st) (stCBlockCommentDepth st) lineCur</span>
+<span class="lineno">  426 </span><span class="spaces">              </span><span class="istickedoff">advanceLineState st' =</span>
+<span class="lineno">  427 </span><span class="spaces">                </span><span class="istickedoff">st'</span>
+<span class="lineno">  428 </span><span class="spaces">                  </span><span class="istickedoff">{ stCurrentLine = nextLineNo,</span>
+<span class="lineno">  429 </span><span class="spaces">                    </span><span class="istickedoff">stHsBlockCommentDepth = lineScanFinalHsDepth lineScan,</span>
+<span class="lineno">  430 </span><span class="spaces">                    </span><span class="istickedoff">stCBlockCommentDepth = lineScanFinalCDepth lineScan</span>
+<span class="lineno">  431 </span><span class="spaces">                  </span><span class="istickedoff">}</span>
+<span class="lineno">  432 </span><span class="spaces">              </span><span class="istickedoff">continue st' = processFile filePath restCursor hasTrailingNl stack nextLineNo (advanceLineState st') k</span>
+<span class="lineno">  433 </span><span class="spaces">              </span><span class="istickedoff">continueWith stack' st' = processFile filePath restCursor hasTrailingNl stack' nextLineNo (advanceLineState st') k</span>
+<span class="lineno">  434 </span><span class="spaces">              </span><span class="istickedoff">ctx =</span>
+<span class="lineno">  435 </span><span class="spaces">                </span><span class="istickedoff">LineContext</span>
+<span class="lineno">  436 </span><span class="spaces">                  </span><span class="istickedoff">{ lcFilePath = filePath,</span>
+<span class="lineno">  437 </span><span class="spaces">                    </span><span class="istickedoff">lcLineNo = lineNo,</span>
+<span class="lineno">  438 </span><span class="spaces">                    </span><span class="istickedoff">lcLineSpan = lineSpan,</span>
+<span class="lineno">  439 </span><span class="spaces">                    </span><span class="istickedoff">lcNextLineNo = nextLineNo,</span>
+<span class="lineno">  440 </span><span class="spaces">                    </span><span class="istickedoff">lcRestCursor = restCursor,</span>
+<span class="lineno">  441 </span><span class="spaces">                    </span><span class="istickedoff">lcStack = stack,</span>
+<span class="lineno">  442 </span><span class="spaces">                    </span><span class="istickedoff">lcContinue = continue,</span>
+<span class="lineno">  443 </span><span class="spaces">                    </span><span class="istickedoff">lcContinueWith = continueWith,</span>
+<span class="lineno">  444 </span><span class="spaces">                    </span><span class="istickedoff">lcDone = k</span>
+<span class="lineno">  445 </span><span class="spaces">                  </span><span class="istickedoff">}</span>
+<span class="lineno">  446 </span><span class="spaces">           </span><span class="istickedoff">in if stSkippingDanglingElse st</span>
+<span class="lineno">  447 </span><span class="spaces">                </span><span class="istickedoff">then recoverDanglingElse ctx parsedDirective st</span>
+<span class="lineno">  448 </span><span class="spaces">                </span><span class="istickedoff">else case parsedDirective of</span>
+<span class="lineno">  449 </span><span class="spaces">                  </span><span class="istickedoff">Nothing -&gt;</span>
+<span class="lineno">  450 </span><span class="spaces">                    </span><span class="istickedoff">-- Try multi-line expansion: look ahead at future lines via cursor</span>
+<span class="lineno">  451 </span><span class="spaces">                    </span><span class="istickedoff">let (expanded, extraConsumed) =</span>
+<span class="lineno">  452 </span><span class="spaces">                          </span><span class="istickedoff">expandLineBySpanMultiline st (lineScanSpans lineScan) restCursor</span>
+<span class="lineno">  453 </span><span class="spaces">                     </span><span class="istickedoff">in if extraConsumed &gt; 0</span>
+<span class="lineno">  454 </span><span class="spaces">                          </span><span class="istickedoff">then</span>
+<span class="lineno">  455 </span><span class="spaces">                            </span><span class="istickedoff">-- Skip consumed continuation lines by advancing the cursor</span>
+<span class="lineno">  456 </span><span class="spaces">                            </span><span class="istickedoff">let (remainingCursor, totalExtraSpan) =</span>
+<span class="lineno">  457 </span><span class="spaces">                                  </span><span class="istickedoff">skipNLines extraConsumed restCursor</span>
+<span class="lineno">  458 </span><span class="spaces">                                </span><span class="istickedoff">-- Scan consumed lines to update comment depths</span>
+<span class="lineno">  459 </span><span class="spaces">                                </span><span class="istickedoff">(finalHs, finalC) =</span>
+<span class="lineno">  460 </span><span class="spaces">                                  </span><span class="istickedoff">scanConsumedLines</span>
+<span class="lineno">  461 </span><span class="spaces">                                    </span><span class="istickedoff">(lineScanFinalHsDepth lineScan)</span>
+<span class="lineno">  462 </span><span class="spaces">                                    </span><span class="istickedoff">(lineScanFinalCDepth lineScan)</span>
+<span class="lineno">  463 </span><span class="spaces">                                    </span><span class="istickedoff">restCursor</span>
+<span class="lineno">  464 </span><span class="spaces">                                    </span><span class="istickedoff">extraConsumed</span>
+<span class="lineno">  465 </span><span class="spaces">                                </span><span class="istickedoff">nextLineNo' = nextLineNo + totalExtraSpan</span>
+<span class="lineno">  466 </span><span class="spaces">                                </span><span class="istickedoff">st' =</span>
+<span class="lineno">  467 </span><span class="spaces">                                  </span><span class="istickedoff">(emitLine expanded st)</span>
+<span class="lineno">  468 </span><span class="spaces">                                    </span><span class="istickedoff">{ stCurrentLine = nextLineNo',</span>
+<span class="lineno">  469 </span><span class="spaces">                                      </span><span class="istickedoff">stHsBlockCommentDepth = finalHs,</span>
+<span class="lineno">  470 </span><span class="spaces">                                      </span><span class="istickedoff">stCBlockCommentDepth = finalC</span>
+<span class="lineno">  471 </span><span class="spaces">                                    </span><span class="istickedoff">}</span>
+<span class="lineno">  472 </span><span class="spaces">                             </span><span class="istickedoff">in processFile <span class="nottickedoff">filePath</span> remainingCursor hasTrailingNl stack nextLineNo' st' k</span>
+<span class="lineno">  473 </span><span class="spaces">                          </span><span class="istickedoff">else continue (emitLine expanded st)</span>
+<span class="lineno">  474 </span><span class="spaces">                  </span><span class="istickedoff">Just directive -&gt;</span>
+<span class="lineno">  475 </span><span class="spaces">                    </span><span class="istickedoff">handleDirective ctx st directive</span></span>
+<span class="lineno">  476 </span>
+<span class="lineno">  477 </span>-- | Skip N lines from a cursor, returning (rest cursor, total lines skipped).
+<span class="lineno">  478 </span>skipNLines :: Int -&gt; Cursor -&gt; (Cursor, Int)
+<span class="lineno">  479 </span><span class="decl"><span class="istickedoff">skipNLines 0 cur = <span class="nottickedoff">(cur, 0)</span></span>
+<span class="lineno">  480 </span><span class="spaces"></span><span class="istickedoff">skipNLines n cur = go 0 0 cur</span>
+<span class="lineno">  481 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  482 </span><span class="spaces">    </span><span class="istickedoff">go !count !consumed !c</span>
+<span class="lineno">  483 </span><span class="spaces">      </span><span class="istickedoff">| count &gt;= n = (c, consumed)</span>
+<span class="lineno">  484 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlyfalse">atEnd c</span> = <span class="nottickedoff">(c, consumed)</span></span>
+<span class="lineno">  485 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  486 </span><span class="spaces">          </span><span class="istickedoff">let eol = findNewline c</span>
+<span class="lineno">  487 </span><span class="spaces">              </span><span class="istickedoff">rest = fromMaybe <span class="nottickedoff">eol</span> (skipNewline eol)</span>
+<span class="lineno">  488 </span><span class="spaces">           </span><span class="istickedoff">in go (count + 1) (consumed + 1) rest</span></span>
+<span class="lineno">  489 </span>
+<span class="lineno">  490 </span>-- | Scan consumed lines to update comment depths.
+<span class="lineno">  491 </span>scanConsumedLines :: Int -&gt; Int -&gt; Cursor -&gt; Int -&gt; (Int, Int)
+<span class="lineno">  492 </span><span class="decl"><span class="istickedoff">scanConsumedLines !hsDepth !cDepth _cur 0 = (hsDepth, cDepth)</span>
+<span class="lineno">  493 </span><span class="spaces"></span><span class="istickedoff">scanConsumedLines !hsDepth !cDepth cur remaining</span>
+<span class="lineno">  494 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlyfalse">atEnd cur</span> = <span class="nottickedoff">(hsDepth, cDepth)</span></span>
+<span class="lineno">  495 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  496 </span><span class="spaces">      </span><span class="istickedoff">let eol = findNewline cur</span>
+<span class="lineno">  497 </span><span class="spaces">          </span><span class="istickedoff">lineCur = lineSlice (curPos eol) cur</span>
+<span class="lineno">  498 </span><span class="spaces">          </span><span class="istickedoff">(hsDepth', cDepth') = scanLineDepthOnly hsDepth cDepth lineCur</span>
+<span class="lineno">  499 </span><span class="spaces">          </span><span class="istickedoff">rest = fromMaybe <span class="nottickedoff">eol</span> (skipNewline eol)</span>
+<span class="lineno">  500 </span><span class="spaces">       </span><span class="istickedoff">in scanConsumedLines hsDepth' cDepth' rest (remaining - 1)</span></span>
+<span class="lineno">  501 </span>
+<span class="lineno">  502 </span>recoverDanglingElse :: LineContext -&gt; Maybe Directive -&gt; EngineState -&gt; Step
+<span class="lineno">  503 </span><span class="decl"><span class="istickedoff">recoverDanglingElse ctx parsedDirective st =</span>
+<span class="lineno">  504 </span><span class="spaces">  </span><span class="istickedoff">case parsedDirective of</span>
+<span class="lineno">  505 </span><span class="spaces">    </span><span class="istickedoff">Just DirEndIf -&gt;</span>
+<span class="lineno">  506 </span><span class="spaces">      </span><span class="istickedoff">lcContinue</span>
+<span class="lineno">  507 </span><span class="spaces">        </span><span class="istickedoff">ctx</span>
+<span class="lineno">  508 </span><span class="spaces">        </span><span class="istickedoff">( addDiag</span>
+<span class="lineno">  509 </span><span class="spaces">            </span><span class="istickedoff">Warning</span>
+<span class="lineno">  510 </span><span class="spaces">            </span><span class="istickedoff">&quot;unmatched #endif&quot;</span>
+<span class="lineno">  511 </span><span class="spaces">            </span><span class="istickedoff">(lcFilePath ctx)</span>
+<span class="lineno">  512 </span><span class="spaces">            </span><span class="istickedoff">(lcLineNo ctx)</span>
+<span class="lineno">  513 </span><span class="spaces">            </span><span class="istickedoff">(st {stSkippingDanglingElse = False})</span>
+<span class="lineno">  514 </span><span class="spaces">        </span><span class="istickedoff">)</span>
+<span class="lineno">  515 </span><span class="spaces">    </span><span class="istickedoff">Just _ -&gt;</span>
+<span class="lineno">  516 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">lcContinue ctx st</span></span>
+<span class="lineno">  517 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt;</span>
+<span class="lineno">  518 </span><span class="spaces">      </span><span class="istickedoff">lcContinue ctx (emitDirectiveBlank ctx st)</span></span>
+<span class="lineno">  519 </span>
+<span class="lineno">  520 </span>handleDirective :: LineContext -&gt; EngineState -&gt; Directive -&gt; Step
+<span class="lineno">  521 </span><span class="decl"><span class="istickedoff">handleDirective ctx st directive =</span>
+<span class="lineno">  522 </span><span class="spaces">  </span><span class="istickedoff">case directive of</span>
+<span class="lineno">  523 </span><span class="spaces">    </span><span class="istickedoff">DirDefineObject name value -&gt;</span>
+<span class="lineno">  524 </span><span class="spaces">      </span><span class="istickedoff">mutateMacrosWhenActive ctx st (M.insert name (ObjectMacro value))</span>
+<span class="lineno">  525 </span><span class="spaces">    </span><span class="istickedoff">DirDefineFunction name params body -&gt;</span>
+<span class="lineno">  526 </span><span class="spaces">      </span><span class="istickedoff">mutateMacrosWhenActive ctx st (M.insert name (FunctionMacro params body))</span>
+<span class="lineno">  527 </span><span class="spaces">    </span><span class="istickedoff">DirUndef name -&gt;</span>
+<span class="lineno">  528 </span><span class="spaces">      </span><span class="istickedoff">mutateMacrosWhenActive ctx st (M.delete name)</span>
+<span class="lineno">  529 </span><span class="spaces">    </span><span class="istickedoff">DirInclude kind includeTarget -&gt;</span>
+<span class="lineno">  530 </span><span class="spaces">      </span><span class="istickedoff">handleIncludeDirective ctx st kind includeTarget</span>
+<span class="lineno">  531 </span><span class="spaces">    </span><span class="istickedoff">DirIf expr -&gt;</span>
+<span class="lineno">  532 </span><span class="spaces">      </span><span class="istickedoff">pushConditionalFrame ctx st (evalCondition st expr)</span>
+<span class="lineno">  533 </span><span class="spaces">    </span><span class="istickedoff">DirIfDef name -&gt;</span>
+<span class="lineno">  534 </span><span class="spaces">      </span><span class="istickedoff">pushConditionalFrame ctx st (M.member name (stMacros st))</span>
+<span class="lineno">  535 </span><span class="spaces">    </span><span class="istickedoff">DirIfNDef name -&gt;</span>
+<span class="lineno">  536 </span><span class="spaces">      </span><span class="istickedoff">pushConditionalFrame ctx st (not (M.member name (stMacros st)))</span>
+<span class="lineno">  537 </span><span class="spaces">    </span><span class="istickedoff">DirElif expr -&gt;</span>
+<span class="lineno">  538 </span><span class="spaces">      </span><span class="istickedoff">handleElifDirective ctx st expr</span>
+<span class="lineno">  539 </span><span class="spaces">    </span><span class="istickedoff">DirElse -&gt;</span>
+<span class="lineno">  540 </span><span class="spaces">      </span><span class="istickedoff">handleElseDirective ctx st</span>
+<span class="lineno">  541 </span><span class="spaces">    </span><span class="istickedoff">DirEndIf -&gt;</span>
+<span class="lineno">  542 </span><span class="spaces">      </span><span class="istickedoff">case lcStack ctx of</span>
+<span class="lineno">  543 </span><span class="spaces">        </span><span class="istickedoff">[] -&gt;</span>
+<span class="lineno">  544 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">lcContinue</span></span>
+<span class="lineno">  545 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">ctx</span></span>
+<span class="lineno">  546 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">(addDiag Warning &quot;unmatched #endif&quot; (lcFilePath ctx) (lcLineNo ctx) st)</span></span>
+<span class="lineno">  547 </span><span class="spaces">        </span><span class="istickedoff">_ : rest -&gt;</span>
+<span class="lineno">  548 </span><span class="spaces">          </span><span class="istickedoff">continueBlankWithStack ctx rest st</span>
+<span class="lineno">  549 </span><span class="spaces">    </span><span class="istickedoff">DirWarning msg -&gt;</span>
+<span class="lineno">  550 </span><span class="spaces">      </span><span class="istickedoff">addDiagnosticWhenActive ctx Warning msg st</span>
+<span class="lineno">  551 </span><span class="spaces">    </span><span class="istickedoff">DirError msg -&gt;</span>
+<span class="lineno">  552 </span><span class="spaces">      </span><span class="istickedoff">if <span class="tickonlytrue">currentActive (lcStack ctx)</span></span>
+<span class="lineno">  553 </span><span class="spaces">        </span><span class="istickedoff">then</span>
+<span class="lineno">  554 </span><span class="spaces">          </span><span class="istickedoff">lcDone</span>
+<span class="lineno">  555 </span><span class="spaces">            </span><span class="istickedoff">ctx</span>
+<span class="lineno">  556 </span><span class="spaces">            </span><span class="istickedoff">(emitDirectiveBlank ctx (addDiag Error msg (lcFilePath ctx) (lcLineNo ctx) st))</span>
+<span class="lineno">  557 </span><span class="spaces">        </span><span class="istickedoff">else <span class="nottickedoff">continueBlank ctx st</span></span>
+<span class="lineno">  558 </span><span class="spaces">    </span><span class="istickedoff">DirLine n mPath -&gt;</span>
+<span class="lineno">  559 </span><span class="spaces">      </span><span class="istickedoff">handleLineDirective ctx st n mPath</span>
+<span class="lineno">  560 </span><span class="spaces">    </span><span class="istickedoff">DirPragmaOnce -&gt;</span>
+<span class="lineno">  561 </span><span class="spaces">      </span><span class="istickedoff">handlePragmaOnceDirective ctx st</span>
+<span class="lineno">  562 </span><span class="spaces">    </span><span class="istickedoff">DirUnsupported name -&gt;</span>
+<span class="lineno">  563 </span><span class="spaces">      </span><span class="istickedoff">addDiagnosticWhenActive ctx Warning (&quot;unsupported directive: &quot; &lt;&gt; name) st</span></span>
+<span class="lineno">  564 </span>
+<span class="lineno">  565 </span>emitDirectiveBlank :: LineContext -&gt; EngineState -&gt; EngineState
+<span class="lineno">  566 </span><span class="decl"><span class="istickedoff">emitDirectiveBlank ctx = emitBlankLines (lcLineSpan ctx)</span></span>
+<span class="lineno">  567 </span>
+<span class="lineno">  568 </span>continueBlank :: LineContext -&gt; EngineState -&gt; Step
+<span class="lineno">  569 </span><span class="decl"><span class="istickedoff">continueBlank ctx st = lcContinue ctx (emitDirectiveBlank ctx st)</span></span>
+<span class="lineno">  570 </span>
+<span class="lineno">  571 </span>continueBlankWithStack :: LineContext -&gt; [CondFrame] -&gt; EngineState -&gt; Step
+<span class="lineno">  572 </span><span class="decl"><span class="istickedoff">continueBlankWithStack ctx stack st = lcContinueWith ctx stack (emitDirectiveBlank ctx st)</span></span>
+<span class="lineno">  573 </span>
+<span class="lineno">  574 </span>mutateMacrosWhenActive :: LineContext -&gt; EngineState -&gt; (Map Text MacroDef -&gt; Map Text MacroDef) -&gt; Step
+<span class="lineno">  575 </span><span class="decl"><span class="istickedoff">mutateMacrosWhenActive ctx st mutate =</span>
+<span class="lineno">  576 </span><span class="spaces">  </span><span class="istickedoff">if <span class="tickonlytrue">currentActive (lcStack ctx)</span></span>
+<span class="lineno">  577 </span><span class="spaces">    </span><span class="istickedoff">then continueBlank ctx (st {stMacros = mutate (stMacros st)})</span>
+<span class="lineno">  578 </span><span class="spaces">    </span><span class="istickedoff">else <span class="nottickedoff">continueBlank ctx st</span></span></span>
+<span class="lineno">  579 </span>
+<span class="lineno">  580 </span>addDiagnosticWhenActive :: LineContext -&gt; Severity -&gt; Text -&gt; EngineState -&gt; Step
+<span class="lineno">  581 </span><span class="decl"><span class="istickedoff">addDiagnosticWhenActive ctx severity message st =</span>
+<span class="lineno">  582 </span><span class="spaces">  </span><span class="istickedoff">if <span class="tickonlytrue">currentActive (lcStack ctx)</span></span>
+<span class="lineno">  583 </span><span class="spaces">    </span><span class="istickedoff">then continueBlank ctx (addDiag severity message (lcFilePath ctx) (lcLineNo ctx) st)</span>
+<span class="lineno">  584 </span><span class="spaces">    </span><span class="istickedoff">else <span class="nottickedoff">continueBlank ctx st</span></span></span>
+<span class="lineno">  585 </span>
+<span class="lineno">  586 </span>handlePragmaOnceDirective :: LineContext -&gt; EngineState -&gt; Step
+<span class="lineno">  587 </span><span class="decl"><span class="istickedoff">handlePragmaOnceDirective ctx st =</span>
+<span class="lineno">  588 </span><span class="spaces">  </span><span class="istickedoff">if <span class="tickonlytrue">currentActive (lcStack ctx)</span></span>
+<span class="lineno">  589 </span><span class="spaces">    </span><span class="istickedoff">then continueBlank ctx (st {stPragmaOnceFiles = S.insert (lcFilePath ctx) (stPragmaOnceFiles st)})</span>
+<span class="lineno">  590 </span><span class="spaces">    </span><span class="istickedoff">else <span class="nottickedoff">continueBlank ctx st</span></span></span>
+<span class="lineno">  591 </span>
+<span class="lineno">  592 </span>pushConditionalFrame :: LineContext -&gt; EngineState -&gt; Bool -&gt; Step
+<span class="lineno">  593 </span><span class="decl"><span class="istickedoff">pushConditionalFrame ctx st cond =</span>
+<span class="lineno">  594 </span><span class="spaces">  </span><span class="istickedoff">let frame = mkFrame (currentActive (lcStack ctx)) cond</span>
+<span class="lineno">  595 </span><span class="spaces">   </span><span class="istickedoff">in continueBlankWithStack ctx (frame : lcStack ctx) st</span></span>
+<span class="lineno">  596 </span>
+<span class="lineno">  597 </span>handleElifDirective :: LineContext -&gt; EngineState -&gt; Text -&gt; Step
+<span class="lineno">  598 </span><span class="decl"><span class="istickedoff">handleElifDirective ctx st expr =</span>
+<span class="lineno">  599 </span><span class="spaces">  </span><span class="istickedoff">case lcStack ctx of</span>
+<span class="lineno">  600 </span><span class="spaces">    </span><span class="istickedoff">[] -&gt;</span>
+<span class="lineno">  601 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">continueBlank</span></span>
+<span class="lineno">  602 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">ctx</span></span>
+<span class="lineno">  603 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">(addDiag Error &quot;#elif without matching #if&quot; (lcFilePath ctx) (lcLineNo ctx) st)</span></span>
+<span class="lineno">  604 </span><span class="spaces">    </span><span class="istickedoff">f : rest -&gt;</span>
+<span class="lineno">  605 </span><span class="spaces">      </span><span class="istickedoff">if <span class="tickonlyfalse">frameInElse f</span></span>
+<span class="lineno">  606 </span><span class="spaces">        </span><span class="istickedoff">then</span>
+<span class="lineno">  607 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">continueBlank</span></span>
+<span class="lineno">  608 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">ctx</span></span>
+<span class="lineno">  609 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">(addDiag Error &quot;#elif after #else&quot; (lcFilePath ctx) (lcLineNo ctx) st)</span></span>
+<span class="lineno">  610 </span><span class="spaces">        </span><span class="istickedoff">else</span>
+<span class="lineno">  611 </span><span class="spaces">          </span><span class="istickedoff">let anyTaken = frameConditionTrue f</span>
+<span class="lineno">  612 </span><span class="spaces">              </span><span class="istickedoff">newCond = not anyTaken &amp;&amp; evalCondition st expr</span>
+<span class="lineno">  613 </span><span class="spaces">              </span><span class="istickedoff">f' =</span>
+<span class="lineno">  614 </span><span class="spaces">                </span><span class="istickedoff">f</span>
+<span class="lineno">  615 </span><span class="spaces">                  </span><span class="istickedoff">{ frameConditionTrue = anyTaken || newCond,</span>
+<span class="lineno">  616 </span><span class="spaces">                    </span><span class="istickedoff">frameCurrentActive = frameOuterActive f &amp;&amp; newCond</span>
+<span class="lineno">  617 </span><span class="spaces">                  </span><span class="istickedoff">}</span>
+<span class="lineno">  618 </span><span class="spaces">           </span><span class="istickedoff">in continueBlankWithStack ctx (f' : <span class="nottickedoff">rest</span>) st</span></span>
+<span class="lineno">  619 </span>
+<span class="lineno">  620 </span>handleElseDirective :: LineContext -&gt; EngineState -&gt; Step
+<span class="lineno">  621 </span><span class="decl"><span class="istickedoff">handleElseDirective ctx st =</span>
+<span class="lineno">  622 </span><span class="spaces">  </span><span class="istickedoff">case lcStack ctx of</span>
+<span class="lineno">  623 </span><span class="spaces">    </span><span class="istickedoff">[] -&gt;</span>
+<span class="lineno">  624 </span><span class="spaces">      </span><span class="istickedoff">lcContinue ctx (st {stSkippingDanglingElse = True})</span>
+<span class="lineno">  625 </span><span class="spaces">    </span><span class="istickedoff">f : rest -&gt;</span>
+<span class="lineno">  626 </span><span class="spaces">      </span><span class="istickedoff">if <span class="tickonlyfalse">frameInElse f</span></span>
+<span class="lineno">  627 </span><span class="spaces">        </span><span class="istickedoff">then</span>
+<span class="lineno">  628 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">continueBlank</span></span>
+<span class="lineno">  629 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">ctx</span></span>
+<span class="lineno">  630 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">(addDiag Error &quot;duplicate #else in conditional block&quot; (lcFilePath ctx) (lcLineNo ctx) st)</span></span>
+<span class="lineno">  631 </span><span class="spaces">        </span><span class="istickedoff">else</span>
+<span class="lineno">  632 </span><span class="spaces">          </span><span class="istickedoff">let newCurrent = frameOuterActive f &amp;&amp; not (frameConditionTrue f)</span>
+<span class="lineno">  633 </span><span class="spaces">              </span><span class="istickedoff">f' =</span>
+<span class="lineno">  634 </span><span class="spaces">                </span><span class="istickedoff">f</span>
+<span class="lineno">  635 </span><span class="spaces">                  </span><span class="istickedoff">{ frameInElse = True,</span>
+<span class="lineno">  636 </span><span class="spaces">                    </span><span class="istickedoff">frameCurrentActive = newCurrent</span>
+<span class="lineno">  637 </span><span class="spaces">                  </span><span class="istickedoff">}</span>
+<span class="lineno">  638 </span><span class="spaces">           </span><span class="istickedoff">in continueBlankWithStack ctx (f' : rest) st</span></span>
+<span class="lineno">  639 </span>
+<span class="lineno">  640 </span>handleIncludeDirective :: LineContext -&gt; EngineState -&gt; IncludeKind -&gt; Text -&gt; Step
+<span class="lineno">  641 </span><span class="decl"><span class="istickedoff">handleIncludeDirective ctx st kind includeTarget</span>
+<span class="lineno">  642 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlyfalse">not (currentActive (lcStack ctx))</span> = <span class="nottickedoff">continueBlank ctx st</span></span>
+<span class="lineno">  643 </span><span class="spaces">  </span><span class="istickedoff">| S.member includeFilePath (stPragmaOnceFiles st) = continueBlank ctx st</span>
+<span class="lineno">  644 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = NeedInclude includeReq nextStep</span>
+<span class="lineno">  645 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  646 </span><span class="spaces">    </span><span class="istickedoff">includePathText = T.unpack includeTarget</span>
+<span class="lineno">  647 </span><span class="spaces">    </span><span class="istickedoff">includeFilePath =</span>
+<span class="lineno">  648 </span><span class="spaces">      </span><span class="istickedoff">case kind of</span>
+<span class="lineno">  649 </span><span class="spaces">        </span><span class="istickedoff">IncludeLocal -&gt; takeDirectory (lcFilePath ctx) &lt;/&gt; includePathText</span>
+<span class="lineno">  650 </span><span class="spaces">        </span><span class="istickedoff">IncludeSystem -&gt; <span class="nottickedoff">includePathText</span></span>
+<span class="lineno">  651 </span><span class="spaces">    </span><span class="istickedoff">includeReq =</span>
+<span class="lineno">  652 </span><span class="spaces">      </span><span class="istickedoff">IncludeRequest</span>
+<span class="lineno">  653 </span><span class="spaces">        </span><span class="istickedoff">{ includePath = includePathText,</span>
+<span class="lineno">  654 </span><span class="spaces">          </span><span class="istickedoff">includeKind = kind,</span>
+<span class="lineno">  655 </span><span class="spaces">          </span><span class="istickedoff">includeFrom = lcFilePath ctx,</span>
+<span class="lineno">  656 </span><span class="spaces">          </span><span class="istickedoff">includeLine = lcLineNo ctx</span>
+<span class="lineno">  657 </span><span class="spaces">        </span><span class="istickedoff">}</span>
+<span class="lineno">  658 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  659 </span><span class="spaces">    </span><span class="istickedoff">nextStep Nothing =</span>
+<span class="lineno">  660 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">lcContinue</span></span>
+<span class="lineno">  661 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">ctx</span></span>
+<span class="lineno">  662 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">(addDiag Error (&quot;missing include: &quot; &lt;&gt; includeTarget) (lcFilePath ctx) (lcLineNo ctx) st)</span></span>
+<span class="lineno">  663 </span><span class="spaces">    </span><span class="istickedoff">nextStep (Just includeBytes) =</span>
+<span class="lineno">  664 </span><span class="spaces">      </span><span class="istickedoff">let includeCursor = fromByteString includeBytes</span>
+<span class="lineno">  665 </span><span class="spaces">          </span><span class="istickedoff">-- Include files treat trailing newlines as producing an extra</span>
+<span class="lineno">  666 </span><span class="spaces">          </span><span class="istickedoff">-- empty line (matching splitOn &quot;\n&quot; semantics).</span>
+<span class="lineno">  667 </span><span class="spaces">          </span><span class="istickedoff">includeHasTrailingNl = not (BS.null includeBytes) &amp;&amp; BS.last includeBytes == 0x0A</span>
+<span class="lineno">  668 </span><span class="spaces">          </span><span class="istickedoff">stWithIncludePragma =</span>
+<span class="lineno">  669 </span><span class="spaces">            </span><span class="istickedoff">emitLine (linePragma 1 includeFilePath) (st {stCurrentFile = includeFilePath, stCurrentLine = 1})</span>
+<span class="lineno">  670 </span><span class="spaces">          </span><span class="istickedoff">resumeParent stAfterInclude =</span>
+<span class="lineno">  671 </span><span class="spaces">            </span><span class="istickedoff">processFile</span>
+<span class="lineno">  672 </span><span class="spaces">              </span><span class="istickedoff">(lcFilePath ctx)</span>
+<span class="lineno">  673 </span><span class="spaces">              </span><span class="istickedoff">(lcRestCursor ctx)</span>
+<span class="lineno">  674 </span><span class="spaces">              </span><span class="istickedoff">False</span>
+<span class="lineno">  675 </span><span class="spaces">              </span><span class="istickedoff">(lcStack ctx)</span>
+<span class="lineno">  676 </span><span class="spaces">              </span><span class="istickedoff">(lcNextLineNo ctx)</span>
+<span class="lineno">  677 </span><span class="spaces">              </span><span class="istickedoff">( emitLine</span>
+<span class="lineno">  678 </span><span class="spaces">                  </span><span class="istickedoff">(linePragma (lcNextLineNo ctx) (lcFilePath ctx))</span>
+<span class="lineno">  679 </span><span class="spaces">                  </span><span class="istickedoff">(stAfterInclude {stCurrentFile = lcFilePath ctx, stCurrentLine = lcNextLineNo ctx})</span>
+<span class="lineno">  680 </span><span class="spaces">              </span><span class="istickedoff">)</span>
+<span class="lineno">  681 </span><span class="spaces">              </span><span class="istickedoff">(lcDone ctx)</span>
+<span class="lineno">  682 </span><span class="spaces">       </span><span class="istickedoff">in processFile includeFilePath includeCursor includeHasTrailingNl [] 1 stWithIncludePragma resumeParent</span></span>
+<span class="lineno">  683 </span>
+<span class="lineno">  684 </span>handleLineDirective :: LineContext -&gt; EngineState -&gt; Int -&gt; Maybe FilePath -&gt; Step
+<span class="lineno">  685 </span><span class="decl"><span class="istickedoff">handleLineDirective ctx st lineNumber maybePath</span>
+<span class="lineno">  686 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlyfalse">not (currentActive (lcStack ctx))</span> = <span class="nottickedoff">continueBlank ctx st</span></span>
+<span class="lineno">  687 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  688 </span><span class="spaces">      </span><span class="istickedoff">let stWithFile =</span>
+<span class="lineno">  689 </span><span class="spaces">            </span><span class="istickedoff">case maybePath of</span>
+<span class="lineno">  690 </span><span class="spaces">              </span><span class="istickedoff">Just path -&gt; st {stCurrentFile = path}</span>
+<span class="lineno">  691 </span><span class="spaces">              </span><span class="istickedoff">Nothing -&gt; st</span>
+<span class="lineno">  692 </span><span class="spaces">          </span><span class="istickedoff">stWithLinePragma =</span>
+<span class="lineno">  693 </span><span class="spaces">            </span><span class="istickedoff">emitLine</span>
+<span class="lineno">  694 </span><span class="spaces">              </span><span class="istickedoff">(linePragma lineNumber (stCurrentFile stWithFile))</span>
+<span class="lineno">  695 </span><span class="spaces">              </span><span class="istickedoff">(stWithFile {stCurrentLine = lineNumber})</span>
+<span class="lineno">  696 </span><span class="spaces">       </span><span class="istickedoff">in processFile</span>
+<span class="lineno">  697 </span><span class="spaces">            </span><span class="istickedoff">(lcFilePath ctx)</span>
+<span class="lineno">  698 </span><span class="spaces">            </span><span class="istickedoff">(lcRestCursor ctx)</span>
+<span class="lineno">  699 </span><span class="spaces">            </span><span class="istickedoff">False</span>
+<span class="lineno">  700 </span><span class="spaces">            </span><span class="istickedoff">(lcStack ctx)</span>
+<span class="lineno">  701 </span><span class="spaces">            </span><span class="istickedoff">lineNumber</span>
+<span class="lineno">  702 </span><span class="spaces">            </span><span class="istickedoff">(stWithLinePragma {stCurrentLine = lineNumber})</span>
+<span class="lineno">  703 </span><span class="spaces">            </span><span class="istickedoff">(lcDone ctx)</span></span>
+<span class="lineno">  704 </span>
+<span class="lineno">  705 </span>emitLine :: Text -&gt; EngineState -&gt; EngineState
+<span class="lineno">  706 </span><span class="decl"><span class="istickedoff">emitLine line st =</span>
+<span class="lineno">  707 </span><span class="spaces">  </span><span class="istickedoff">let sep = if stOutputLineCount st &gt; 0 then TB.singleton '\n' else mempty</span>
+<span class="lineno">  708 </span><span class="spaces">   </span><span class="istickedoff">in st</span>
+<span class="lineno">  709 </span><span class="spaces">        </span><span class="istickedoff">{ stOutput = stOutput st &lt;&gt; sep &lt;&gt; TB.fromText line,</span>
+<span class="lineno">  710 </span><span class="spaces">          </span><span class="istickedoff">stOutputLineCount = stOutputLineCount st + 1</span>
+<span class="lineno">  711 </span><span class="spaces">        </span><span class="istickedoff">}</span></span>
+<span class="lineno">  712 </span>
+<span class="lineno">  713 </span>emitBlankLines :: Int -&gt; EngineState -&gt; EngineState
+<span class="lineno">  714 </span><span class="decl"><span class="istickedoff">emitBlankLines n st</span>
+<span class="lineno">  715 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlyfalse">n &lt;= 0</span> = <span class="nottickedoff">st</span></span>
+<span class="lineno">  716 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  717 </span><span class="spaces">      </span><span class="istickedoff">let newlines = mconcat (replicate n (TB.singleton '\n'))</span>
+<span class="lineno">  718 </span><span class="spaces">       </span><span class="istickedoff">in st</span>
+<span class="lineno">  719 </span><span class="spaces">            </span><span class="istickedoff">{ stOutput = stOutput st &lt;&gt; newlines,</span>
+<span class="lineno">  720 </span><span class="spaces">              </span><span class="istickedoff">stOutputLineCount = stOutputLineCount st + n</span>
+<span class="lineno">  721 </span><span class="spaces">            </span><span class="istickedoff">}</span></span>
+<span class="lineno">  722 </span>
+<span class="lineno">  723 </span>addDiag :: Severity -&gt; Text -&gt; FilePath -&gt; Int -&gt; EngineState -&gt; EngineState
+<span class="lineno">  724 </span><span class="decl"><span class="istickedoff">addDiag sev msg filePath lineNo st =</span>
+<span class="lineno">  725 </span><span class="spaces">  </span><span class="istickedoff">st</span>
+<span class="lineno">  726 </span><span class="spaces">    </span><span class="istickedoff">{ stDiagnosticsRev =</span>
+<span class="lineno">  727 </span><span class="spaces">        </span><span class="istickedoff">Diagnostic</span>
+<span class="lineno">  728 </span><span class="spaces">          </span><span class="istickedoff">{ diagSeverity = sev,</span>
+<span class="lineno">  729 </span><span class="spaces">            </span><span class="istickedoff">diagMessage = msg,</span>
+<span class="lineno">  730 </span><span class="spaces">            </span><span class="istickedoff">diagFile = filePath,</span>
+<span class="lineno">  731 </span><span class="spaces">            </span><span class="istickedoff">diagLine = lineNo</span>
+<span class="lineno">  732 </span><span class="spaces">          </span><span class="istickedoff">}</span>
+<span class="lineno">  733 </span><span class="spaces">          </span><span class="istickedoff">: stDiagnosticsRev st</span>
+<span class="lineno">  734 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">  735 </span>
+<span class="lineno">  736 </span>linePragma :: Int -&gt; FilePath -&gt; Text
+<span class="lineno">  737 </span><span class="decl"><span class="istickedoff">linePragma n path = &quot;#line &quot; &lt;&gt; T.pack (show n) &lt;&gt; &quot; \&quot;&quot; &lt;&gt; T.pack path &lt;&gt; &quot;\&quot;&quot;</span></span>
+
+</pre>
+</body>
+</html>

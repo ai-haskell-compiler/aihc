@@ -1,0 +1,750 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html"><span class="hs-identifier">Aihc.Parser.Internal.Cmd</span></a></span><span>
+</span><span id="line-4"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdParser"><span class="hs-identifier">cmdParser</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-5"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-6"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-7"></span><span>
+</span><span id="line-8"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html"><span class="hs-identifier">Aihc.Parser.Internal.CheckPattern</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier">checkPattern</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-9"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html"><span class="hs-identifier">Aihc.Parser.Internal.Common</span></a></span><span>
+</span><span id="line-10"></span><span class="hs-keyword">import</span><span> </span><span class="hs-pragma">{-# SOURCE</span><span> </span><span class="hs-pragma">#-}</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Expr.html"><span class="hs-identifier">Aihc.Parser.Internal.Expr</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Internal.Expr.html#atomExprParser"><span class="hs-identifier">atomExprParser</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Expr.html#caseRhsParserWithBodyParser"><span class="hs-identifier">caseRhsParserWithBodyParser</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Expr.html#cmdArrAppLhsParser"><span class="hs-identifier">cmdArrAppLhsParser</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Expr.html#exprParser"><span class="hs-identifier">exprParser</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Expr.html#parseLetDeclsParser"><span class="hs-identifier">parseLetDeclsParser</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Expr.html#parseLetDeclsStmtParser"><span class="hs-identifier">parseLetDeclsStmtParser</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Pattern.html"><span class="hs-identifier">Aihc.Parser.Internal.Pattern</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Internal.Pattern.html#apatParser"><span class="hs-identifier">apatParser</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Pattern.html#caseAltPatternParser"><span class="hs-identifier">caseAltPatternParser</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Pattern.html#patternParser"><span class="hs-identifier">patternParser</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-12"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.html"><span class="hs-identifier">Aihc.Parser.Lex</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexTokenKind"><span class="hs-identifier">LexTokenKind</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#lexTokenKind"><span class="hs-identifier">lexTokenKind</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html"><span class="hs-identifier">Aihc.Parser.Syntax</span></a></span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html"><span class="hs-identifier">Aihc.Parser.Types</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier">ParserErrorComponent</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#mkFoundToken"><span class="hs-identifier">mkFoundToken</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Text.Megaparsec</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">anySingle</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">lookAhead</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-operator">(&lt;|&gt;)</span></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Text.Megaparsec</span></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">MP</span></span><span>
+</span><span id="line-17"></span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- | Parse a command (the body of a @proc@ abstraction).</span><span>
+</span><span id="line-19"></span><span class="hs-comment">--</span><span>
+</span><span id="line-20"></span><span class="hs-comment">-- Grammar (simplified):</span><span>
+</span><span id="line-21"></span><span class="hs-comment">--</span><span>
+</span><span id="line-22"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-23"></span><span class="hs-comment">-- cmd   = exp10 -\&lt; exp | exp10 -\&lt;\&lt; exp | cmd0</span><span>
+</span><span id="line-24"></span><span class="hs-comment">-- cmd0  = cmd10 (op cmd10)*</span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- cmd10 = do { cstmts } | if &#8230; | case &#8230; | let &#8230; | \\pats -&gt; cmd | fcmd</span><span>
+</span><span id="line-26"></span><span class="hs-comment">-- fcmd  = fcmd aexp | (cmd)</span><span>
+</span><span id="line-27"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-28"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdParser"><span class="hs-identifier hs-type">cmdParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span>
+</span><span id="line-29"></span><span id="cmdParser"><span class="annot"><span class="annottext">cmdParser :: TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdParser"><span class="hs-identifier hs-var hs-var">cmdParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-30"></span><span>  </span><span id="local-6989586621679413544"><span class="annot"><a href="#local-6989586621679413544"><span class="hs-identifier hs-var">tok</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity LexToken
+-&gt; ParsecT ParserErrorComponent TokStream Identity LexToken
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall e s (m :: * -&gt; *) a. MonadParsec e s m =&gt; m a -&gt; m a
+</span><span class="hs-identifier hs-var">lookAhead</span></span><span> </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity LexToken
+ParsecT ParserErrorComponent TokStream Identity (Token TokStream)
+forall e s (m :: * -&gt; *). MonadParsec e s m =&gt; m (Token s)
+</span><span class="hs-identifier hs-var">anySingle</span></span><span>
+</span><span id="line-31"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#lexTokenKind"><span class="hs-identifier hs-var">lexTokenKind</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413544"><span class="hs-identifier hs-type">tok</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-32"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordDo"><span class="hs-identifier hs-var">TkKeywordDo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmd0Parser"><span class="hs-identifier hs-var">cmd0Parser</span></a></span><span>
+</span><span id="line-33"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordIf"><span class="hs-identifier hs-var">TkKeywordIf</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmd0Parser"><span class="hs-identifier hs-var">cmd0Parser</span></a></span><span>
+</span><span id="line-34"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordCase"><span class="hs-identifier hs-var">TkKeywordCase</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmd0Parser"><span class="hs-identifier hs-var">cmd0Parser</span></a></span><span>
+</span><span id="line-35"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordLet"><span class="hs-identifier hs-var">TkKeywordLet</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmd0Parser"><span class="hs-identifier hs-var">cmd0Parser</span></a></span><span>
+</span><span id="line-36"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkReservedBackslash"><span class="hs-identifier hs-var">TkReservedBackslash</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmd0Parser"><span class="hs-identifier hs-var">cmd0Parser</span></a></span><span>
+</span><span id="line-37"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkSpecialLParen"><span class="hs-identifier hs-var">TkSpecialLParen</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd -&gt; TokParser Cmd
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall e s (m :: * -&gt; *) a. MonadParsec e s m =&gt; m a -&gt; m a
+</span><span class="hs-identifier hs-var">MP.try</span></span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmd0Parser"><span class="hs-identifier hs-var">cmd0Parser</span></a></span><span> </span><span class="annot"><span class="annottext">TokParser Cmd -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><span class="hs-operator hs-var">&lt;|&gt;</span></span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdArrAppParser"><span class="hs-identifier hs-var">cmdArrAppParser</span></a></span><span>
+</span><span id="line-38"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd -&gt; TokParser Cmd
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall e s (m :: * -&gt; *) a. MonadParsec e s m =&gt; m a -&gt; m a
+</span><span class="hs-identifier hs-var">MP.try</span></span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdArrAppParser"><span class="hs-identifier hs-var">cmdArrAppParser</span></a></span><span> </span><span class="annot"><span class="annottext">TokParser Cmd -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><span class="hs-operator hs-var">&lt;|&gt;</span></span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmd0Parser"><span class="hs-identifier hs-var">cmd0Parser</span></a></span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmd0Parser"><span class="hs-identifier hs-type">cmd0Parser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span>
+</span><span id="line-41"></span><span id="cmd0Parser"><span class="annot"><span class="annottext">cmd0Parser :: TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmd0Parser"><span class="hs-identifier hs-var hs-var">cmd0Parser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-42"></span><span>  </span><span id="local-6989586621679413554"><span class="annot"><a href="#local-6989586621679413554"><span class="hs-identifier hs-var">lhs</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmd10Parser"><span class="hs-identifier hs-var">cmd10Parser</span></a></span><span>
+</span><span id="line-43"></span><span>  </span><span id="local-6989586621679413556"><span class="annot"><a href="#local-6989586621679413556"><span class="hs-identifier hs-var">rest</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-44"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">MP.many</span></span><span>
+</span><span id="line-45"></span><span>      </span><span class="hs-special">(</span><span> </span><span class="hs-special">(</span><span class="hs-special">,</span><span class="hs-special">)</span><span>
+</span><span id="line-46"></span><span>          </span><span class="annot"><span class="hs-operator hs-type">&lt;$&gt;</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#infixOperatorParser"><span class="hs-identifier hs-type">infixOperatorParser</span></a></span><span>
+</span><span id="line-47"></span><span>          </span><span class="annot"><span class="hs-operator hs-type">&lt;*&gt;</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmd10Parser"><span class="hs-identifier hs-type">cmd10Parser</span></a></span><span>
+</span><span id="line-48"></span><span>      </span><span class="hs-special">)</span><span>
+</span><span id="line-49"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">pure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">foldl</span></span><span> </span><span class="annot"><a href="#local-6989586621679413561"><span class="hs-identifier hs-type">buildCmdInfix</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413554"><span class="hs-identifier hs-type">lhs</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413556"><span class="hs-identifier hs-type">rest</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-50"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-51"></span><span>    </span><span id="local-6989586621679413561"><span class="annot"><span class="annottext">buildCmdInfix :: Cmd -&gt; (Name, Cmd) -&gt; Cmd
+</span><a href="#local-6989586621679413561"><span class="hs-identifier hs-var hs-var">buildCmdInfix</span></a></span></span><span> </span><span id="local-6989586621679413562"><span class="annot"><span class="annottext">Cmd
+</span><a href="#local-6989586621679413562"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679413563"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679413563"><span class="hs-identifier hs-var">op</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679413564"><span class="annot"><span class="annottext">Cmd
+</span><a href="#local-6989586621679413564"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cmd -&gt; Name -&gt; Cmd -&gt; Cmd
+</span><a href="Aihc.Parser.Syntax.html#CmdInfix"><span class="hs-identifier hs-var">CmdInfix</span></a></span><span> </span><span class="annot"><span class="annottext">Cmd
+</span><a href="#local-6989586621679413562"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679413563"><span class="hs-identifier hs-var">op</span></a></span><span> </span><span class="annot"><span class="annottext">Cmd
+</span><a href="#local-6989586621679413564"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-52"></span><span>
+</span><span id="line-53"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmd10Parser"><span class="hs-identifier hs-type">cmd10Parser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span>
+</span><span id="line-54"></span><span id="cmd10Parser"><span class="annot"><span class="annottext">cmd10Parser :: TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmd10Parser"><span class="hs-identifier hs-var hs-var">cmd10Parser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-55"></span><span>  </span><span id="local-6989586621679413566"><span class="annot"><a href="#local-6989586621679413566"><span class="hs-identifier hs-var">tok</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity LexToken
+-&gt; ParsecT ParserErrorComponent TokStream Identity LexToken
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall e s (m :: * -&gt; *) a. MonadParsec e s m =&gt; m a -&gt; m a
+</span><span class="hs-identifier hs-var">lookAhead</span></span><span> </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity LexToken
+ParsecT ParserErrorComponent TokStream Identity (Token TokStream)
+forall e s (m :: * -&gt; *). MonadParsec e s m =&gt; m (Token s)
+</span><span class="hs-identifier hs-var">anySingle</span></span><span>
+</span><span id="line-56"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#lexTokenKind"><span class="hs-identifier hs-var">lexTokenKind</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413566"><span class="hs-identifier hs-type">tok</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-57"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordDo"><span class="hs-identifier hs-var">TkKeywordDo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdDoParser"><span class="hs-identifier hs-var">cmdDoParser</span></a></span><span>
+</span><span id="line-58"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordIf"><span class="hs-identifier hs-var">TkKeywordIf</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdIfParser"><span class="hs-identifier hs-var">cmdIfParser</span></a></span><span>
+</span><span id="line-59"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordCase"><span class="hs-identifier hs-var">TkKeywordCase</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdCaseParser"><span class="hs-identifier hs-var">cmdCaseParser</span></a></span><span>
+</span><span id="line-60"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordLet"><span class="hs-identifier hs-var">TkKeywordLet</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-61"></span><span>      </span><span class="hs-comment">-- 'let decls in cmd' is a command; 'let decls' (without 'in') inside</span><span>
+</span><span id="line-62"></span><span>      </span><span class="hs-comment">-- a do-block is a statement, not handled here.</span><span>
+</span><span id="line-63"></span><span>      </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdLetParser"><span class="hs-identifier hs-var">cmdLetParser</span></a></span><span>
+</span><span id="line-64"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkReservedBackslash"><span class="hs-identifier hs-var">TkReservedBackslash</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdLamParser"><span class="hs-identifier hs-var">cmdLamParser</span></a></span><span>
+</span><span id="line-65"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdFcmdParser"><span class="hs-identifier hs-var">cmdFcmdParser</span></a></span><span>
+</span><span id="line-66"></span><span>
+</span><span id="line-67"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdArrAppParser"><span class="hs-identifier hs-type">cmdArrAppParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span>
+</span><span id="line-68"></span><span id="cmdArrAppParser"><span class="annot"><span class="annottext">cmdArrAppParser :: TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdArrAppParser"><span class="hs-identifier hs-var hs-var">cmdArrAppParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-69"></span><span>  </span><span id="local-6989586621679413573"><span class="annot"><a href="#local-6989586621679413573"><span class="hs-identifier hs-var">expr</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser Expr
+</span><a href="Aihc.Parser.Internal.Expr.html#cmdArrAppLhsParser"><span class="hs-identifier hs-var">cmdArrAppLhsParser</span></a></span><span>
+</span><span id="line-70"></span><span>  </span><span class="hs-special">(</span><span id="local-6989586621679413574"><span class="annot"><a href="#local-6989586621679413574"><span class="hs-identifier hs-var">appType</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679413575"><span class="annot"><a href="#local-6989586621679413575"><span class="hs-identifier hs-var">rhs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdArrTailParser"><span class="hs-identifier hs-type">cmdArrTailParser</span></a></span><span>
+</span><span id="line-71"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">pure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#CmdArrApp"><span class="hs-identifier hs-type">CmdArrApp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413573"><span class="hs-identifier hs-type">expr</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413574"><span class="hs-identifier hs-type">appType</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413575"><span class="hs-identifier hs-type">rhs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-72"></span><span>
+</span><span id="line-73"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdFcmdParser"><span class="hs-identifier hs-type">cmdFcmdParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span>
+</span><span id="line-74"></span><span id="cmdFcmdParser"><span class="annot"><span class="annottext">cmdFcmdParser :: TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdFcmdParser"><span class="hs-identifier hs-var hs-var">cmdFcmdParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-75"></span><span>  </span><span id="local-6989586621679413578"><span class="annot"><a href="#local-6989586621679413578"><span class="hs-identifier hs-var">headCmd</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdParenParser"><span class="hs-identifier hs-var">cmdParenParser</span></a></span><span>
+</span><span id="line-76"></span><span>  </span><span id="local-6989586621679413580"><span class="annot"><a href="#local-6989586621679413580"><span class="hs-identifier hs-var">args</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MP.many</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Expr.html#atomExprParser"><span class="hs-identifier hs-type">atomExprParser</span></a></span><span>
+</span><span id="line-77"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">pure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">foldl</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#CmdApp"><span class="hs-identifier hs-type">CmdApp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413578"><span class="hs-identifier hs-type">headCmd</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413580"><span class="hs-identifier hs-type">args</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-78"></span><span>
+</span><span id="line-79"></span><span class="hs-comment">-- | Parse an arrow tail operator in command context, returning the</span><span>
+</span><span id="line-80"></span><span class="hs-comment">-- application type and the right-hand expression.</span><span>
+</span><span id="line-81"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdArrTailParser"><span class="hs-identifier hs-type">cmdArrTailParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#ArrAppType"><span class="hs-identifier hs-type">ArrAppType</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Expr"><span class="hs-identifier hs-type">Expr</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-82"></span><span id="cmdArrTailParser"><span class="annot"><span class="annottext">cmdArrTailParser :: TokParser (ArrAppType, Expr)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdArrTailParser"><span class="hs-identifier hs-var hs-var">cmdArrTailParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-83"></span><span>  </span><span id="local-6989586621679413582"><span class="annot"><a href="#local-6989586621679413582"><span class="hs-identifier hs-var">appType</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">String -&gt; (LexToken -&gt; Maybe ArrAppType) -&gt; TokParser ArrAppType
+forall a. String -&gt; (LexToken -&gt; Maybe a) -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#tokenSatisfy"><span class="hs-identifier hs-var">tokenSatisfy</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;arrow operator&quot;</span></span><span> </span><span class="annot"><span class="annottext">((LexToken -&gt; Maybe ArrAppType) -&gt; TokParser ArrAppType)
+-&gt; (LexToken -&gt; Maybe ArrAppType) -&gt; TokParser ArrAppType
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679413584"><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679413584"><span class="hs-identifier hs-var">tok</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-84"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">LexToken -&gt; LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#lexTokenKind"><span class="hs-identifier hs-var">lexTokenKind</span></a></span><span> </span><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679413584"><span class="hs-identifier hs-var">tok</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-85"></span><span>      </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkArrowTail"><span class="hs-identifier hs-var">TkArrowTail</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ArrAppType -&gt; Maybe ArrAppType
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">ArrAppType
+</span><a href="Aihc.Parser.Syntax.html#HsFirstOrderApp"><span class="hs-identifier hs-var">HsFirstOrderApp</span></a></span><span>
+</span><span id="line-86"></span><span>      </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkDoubleArrowTail"><span class="hs-identifier hs-var">TkDoubleArrowTail</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ArrAppType -&gt; Maybe ArrAppType
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">ArrAppType
+</span><a href="Aihc.Parser.Syntax.html#HsHigherOrderApp"><span class="hs-identifier hs-var">HsHigherOrderApp</span></a></span><span>
+</span><span id="line-87"></span><span>      </span><span class="annot"><span class="annottext">LexTokenKind
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe ArrAppType
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-88"></span><span>  </span><span id="local-6989586621679413589"><span class="annot"><a href="#local-6989586621679413589"><span class="hs-identifier hs-var">rhs</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Expr.html#exprParser"><span class="hs-identifier hs-type">exprParser</span></a></span><span>
+</span><span id="line-89"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">pure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679413582"><span class="hs-identifier hs-type">appType</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679413589"><span class="hs-identifier hs-type">rhs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-90"></span><span>
+</span><span id="line-91"></span><span class="annot"><span class="hs-comment">-- | Parse a command do-block: @do { cstmt ; ... }@</span></span><span>
+</span><span id="line-92"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdDoParser"><span class="hs-identifier hs-type">cmdDoParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span>
+</span><span id="line-93"></span><span id="cmdDoParser"><span class="annot"><span class="annottext">cmdDoParser :: TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdDoParser"><span class="hs-identifier hs-var hs-var">cmdDoParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(SourceSpan -&gt; Cmd -&gt; Cmd) -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a. (SourceSpan -&gt; a -&gt; a) -&gt; TokParser a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#withSpanAnn"><span class="hs-identifier hs-var">withSpanAnn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Annotation -&gt; Cmd -&gt; Cmd
+</span><a href="Aihc.Parser.Syntax.html#CmdAnn"><span class="hs-identifier hs-var">CmdAnn</span></a></span><span> </span><span class="annot"><span class="annottext">(Annotation -&gt; Cmd -&gt; Cmd)
+-&gt; (SourceSpan -&gt; Annotation) -&gt; SourceSpan -&gt; Cmd -&gt; Cmd
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">SourceSpan -&gt; Annotation
+forall a. Typeable a =&gt; a -&gt; Annotation
+</span><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier hs-var">mkAnnotation</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(TokParser Cmd -&gt; TokParser Cmd) -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-94"></span><span>  </span><span class="annot"><span class="annottext">LexTokenKind -&gt; TokParser ()
+</span><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-var">expectedTok</span></a></span><span> </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordDo"><span class="hs-identifier hs-var">TkKeywordDo</span></a></span><span>
+</span><span id="line-95"></span><span>  </span><span class="annot"><span class="annottext">[DoStmt Cmd] -&gt; Cmd
+</span><a href="Aihc.Parser.Syntax.html#CmdDo"><span class="hs-identifier hs-var">CmdDo</span></a></span><span> </span><span class="annot"><span class="annottext">([DoStmt Cmd] -&gt; Cmd)
+-&gt; ParsecT ParserErrorComponent TokStream Identity [DoStmt Cmd]
+-&gt; TokParser Cmd
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+-&gt; ParsecT ParserErrorComponent TokStream Identity [DoStmt Cmd]
+forall a. TokParser a -&gt; TokParser [a]
+</span><a href="Aihc.Parser.Internal.Common.html#bracedSemiSep1"><span class="hs-identifier hs-var">bracedSemiSep1</span></a></span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdStmtParser"><span class="hs-identifier hs-var">cmdStmtParser</span></a></span><span>
+</span><span id="line-96"></span><span>
+</span><span id="line-97"></span><span class="annot"><span class="hs-comment">-- | Parse a command if-then-else: @if exp then cmd else cmd@</span></span><span>
+</span><span id="line-98"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdIfParser"><span class="hs-identifier hs-type">cmdIfParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span>
+</span><span id="line-99"></span><span id="cmdIfParser"><span class="annot"><span class="annottext">cmdIfParser :: TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdIfParser"><span class="hs-identifier hs-var hs-var">cmdIfParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(SourceSpan -&gt; Cmd -&gt; Cmd) -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a. (SourceSpan -&gt; a -&gt; a) -&gt; TokParser a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#withSpanAnn"><span class="hs-identifier hs-var">withSpanAnn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Annotation -&gt; Cmd -&gt; Cmd
+</span><a href="Aihc.Parser.Syntax.html#CmdAnn"><span class="hs-identifier hs-var">CmdAnn</span></a></span><span> </span><span class="annot"><span class="annottext">(Annotation -&gt; Cmd -&gt; Cmd)
+-&gt; (SourceSpan -&gt; Annotation) -&gt; SourceSpan -&gt; Cmd -&gt; Cmd
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">SourceSpan -&gt; Annotation
+forall a. Typeable a =&gt; a -&gt; Annotation
+</span><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier hs-var">mkAnnotation</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(TokParser Cmd -&gt; TokParser Cmd) -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-100"></span><span>  </span><span class="annot"><span class="annottext">LexTokenKind -&gt; TokParser ()
+</span><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-var">expectedTok</span></a></span><span> </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordIf"><span class="hs-identifier hs-var">TkKeywordIf</span></a></span><span>
+</span><span id="line-101"></span><span>  </span><span id="local-6989586621679413598"><span class="annot"><a href="#local-6989586621679413598"><span class="hs-identifier hs-var">cond</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser Expr
+</span><a href="Aihc.Parser.Internal.Expr.html#exprParser"><span class="hs-identifier hs-var">exprParser</span></a></span><span>
+</span><span id="line-102"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#skipSemicolons"><span class="hs-identifier hs-type">skipSemicolons</span></a></span><span>
+</span><span id="line-103"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-type">expectedTok</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TkKeywordThen"><span class="hs-identifier hs-type">TkKeywordThen</span></a></span><span>
+</span><span id="line-104"></span><span>  </span><span id="local-6989586621679413601"><span class="annot"><a href="#local-6989586621679413601"><span class="hs-identifier hs-var">yes</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdParser"><span class="hs-identifier hs-type">cmdParser</span></a></span><span>
+</span><span id="line-105"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#skipSemicolons"><span class="hs-identifier hs-type">skipSemicolons</span></a></span><span>
+</span><span id="line-106"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-type">expectedTok</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TkKeywordElse"><span class="hs-identifier hs-type">TkKeywordElse</span></a></span><span>
+</span><span id="line-107"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#CmdIf"><span class="hs-identifier hs-type">CmdIf</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413598"><span class="hs-identifier hs-type">cond</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413601"><span class="hs-identifier hs-type">yes</span></a></span><span> </span><span class="annot"><span class="hs-operator hs-type">&lt;$&gt;</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdParser"><span class="hs-identifier hs-type">cmdParser</span></a></span><span>
+</span><span id="line-108"></span><span>
+</span><span id="line-109"></span><span class="annot"><span class="hs-comment">-- | Parse a command case: @case exp of { calts }@</span></span><span>
+</span><span id="line-110"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdCaseParser"><span class="hs-identifier hs-type">cmdCaseParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span>
+</span><span id="line-111"></span><span id="cmdCaseParser"><span class="annot"><span class="annottext">cmdCaseParser :: TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdCaseParser"><span class="hs-identifier hs-var hs-var">cmdCaseParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(SourceSpan -&gt; Cmd -&gt; Cmd) -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a. (SourceSpan -&gt; a -&gt; a) -&gt; TokParser a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#withSpanAnn"><span class="hs-identifier hs-var">withSpanAnn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Annotation -&gt; Cmd -&gt; Cmd
+</span><a href="Aihc.Parser.Syntax.html#CmdAnn"><span class="hs-identifier hs-var">CmdAnn</span></a></span><span> </span><span class="annot"><span class="annottext">(Annotation -&gt; Cmd -&gt; Cmd)
+-&gt; (SourceSpan -&gt; Annotation) -&gt; SourceSpan -&gt; Cmd -&gt; Cmd
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">SourceSpan -&gt; Annotation
+forall a. Typeable a =&gt; a -&gt; Annotation
+</span><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier hs-var">mkAnnotation</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(TokParser Cmd -&gt; TokParser Cmd) -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-112"></span><span>  </span><span class="annot"><span class="annottext">LexTokenKind -&gt; TokParser ()
+</span><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-var">expectedTok</span></a></span><span> </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordCase"><span class="hs-identifier hs-var">TkKeywordCase</span></a></span><span>
+</span><span id="line-113"></span><span>  </span><span id="local-6989586621679413604"><span class="annot"><a href="#local-6989586621679413604"><span class="hs-identifier hs-var">scrut</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Text -&gt; TokParser Expr -&gt; TokParser Expr
+forall a. Text -&gt; TokParser a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#region"><span class="hs-identifier hs-var">region</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;while parsing case scrutinee&quot;</span></span><span> </span><span class="annot"><span class="annottext">TokParser Expr
+</span><a href="Aihc.Parser.Internal.Expr.html#exprParser"><span class="hs-identifier hs-var">exprParser</span></a></span><span>
+</span><span id="line-114"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-type">expectedTok</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TkKeywordOf"><span class="hs-identifier hs-type">TkKeywordOf</span></a></span><span>
+</span><span id="line-115"></span><span>  </span><span id="local-6989586621679413607"><span class="annot"><a href="#local-6989586621679413607"><span class="hs-identifier hs-var">alts</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#bracedSemiSep1"><span class="hs-identifier hs-type">bracedSemiSep1</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdCaseAltParser"><span class="hs-identifier hs-type">cmdCaseAltParser</span></a></span><span>
+</span><span id="line-116"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">pure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#CmdCase"><span class="hs-identifier hs-type">CmdCase</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413604"><span class="hs-identifier hs-type">scrut</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413607"><span class="hs-identifier hs-type">alts</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-117"></span><span>
+</span><span id="line-118"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdCaseAltParser"><span class="hs-identifier hs-type">cmdCaseAltParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#CaseAlt"><span class="hs-identifier hs-type">CaseAlt</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-119"></span><span id="cmdCaseAltParser"><span class="annot"><span class="annottext">cmdCaseAltParser :: TokParser (CaseAlt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdCaseAltParser"><span class="hs-identifier hs-var hs-var">cmdCaseAltParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TokParser (SourceSpan -&gt; CaseAlt Cmd) -&gt; TokParser (CaseAlt Cmd)
+forall a. TokParser (SourceSpan -&gt; a) -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#withSpan"><span class="hs-identifier hs-var">withSpan</span></a></span><span> </span><span class="annot"><span class="annottext">(TokParser (SourceSpan -&gt; CaseAlt Cmd) -&gt; TokParser (CaseAlt Cmd))
+-&gt; TokParser (SourceSpan -&gt; CaseAlt Cmd) -&gt; TokParser (CaseAlt Cmd)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-120"></span><span>  </span><span id="local-6989586621679413611"><span class="annot"><a href="#local-6989586621679413611"><span class="hs-identifier hs-var">pat</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser Pattern
+</span><a href="Aihc.Parser.Internal.Pattern.html#caseAltPatternParser"><span class="hs-identifier hs-var">caseAltPatternParser</span></a></span><span>
+</span><span id="line-121"></span><span>  </span><span id="local-6989586621679413612"><span class="annot"><a href="#local-6989586621679413612"><span class="hs-identifier hs-var">rhs</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Expr.html#caseRhsParserWithBodyParser"><span class="hs-identifier hs-type">caseRhsParserWithBodyParser</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdParser"><span class="hs-identifier hs-type">cmdParser</span></a></span><span>
+</span><span id="line-122"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">pure</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679413613"><span class="annot"><span class="annottext">SourceSpan
+</span><a href="#local-6989586621679413613"><span class="hs-identifier hs-var">span'</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[Annotation] -&gt; Pattern -&gt; Rhs Cmd -&gt; CaseAlt Cmd
+forall body. [Annotation] -&gt; Pattern -&gt; Rhs body -&gt; CaseAlt body
+</span><a href="Aihc.Parser.Syntax.html#CaseAlt"><span class="hs-identifier hs-var">CaseAlt</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">SourceSpan -&gt; Annotation
+forall a. Typeable a =&gt; a -&gt; Annotation
+</span><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier hs-var">mkAnnotation</span></a></span><span> </span><span class="annot"><span class="annottext">SourceSpan
+</span><a href="#local-6989586621679413613"><span class="hs-identifier hs-var">span'</span></a></span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">Pattern
+</span><a href="#local-6989586621679413611"><span class="hs-identifier hs-var">pat</span></a></span><span> </span><span class="annot"><span class="annottext">Rhs Cmd
+</span><a href="#local-6989586621679413612"><span class="hs-identifier hs-var">rhs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-123"></span><span>
+</span><span id="line-124"></span><span class="annot"><span class="hs-comment">-- | Parse a command let: @let decls in cmd@</span></span><span>
+</span><span id="line-125"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdLetParser"><span class="hs-identifier hs-type">cmdLetParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span>
+</span><span id="line-126"></span><span id="cmdLetParser"><span class="annot"><span class="annottext">cmdLetParser :: TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdLetParser"><span class="hs-identifier hs-var hs-var">cmdLetParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(SourceSpan -&gt; Cmd -&gt; Cmd) -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a. (SourceSpan -&gt; a -&gt; a) -&gt; TokParser a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#withSpanAnn"><span class="hs-identifier hs-var">withSpanAnn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Annotation -&gt; Cmd -&gt; Cmd
+</span><a href="Aihc.Parser.Syntax.html#CmdAnn"><span class="hs-identifier hs-var">CmdAnn</span></a></span><span> </span><span class="annot"><span class="annottext">(Annotation -&gt; Cmd -&gt; Cmd)
+-&gt; (SourceSpan -&gt; Annotation) -&gt; SourceSpan -&gt; Cmd -&gt; Cmd
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">SourceSpan -&gt; Annotation
+forall a. Typeable a =&gt; a -&gt; Annotation
+</span><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier hs-var">mkAnnotation</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(TokParser Cmd -&gt; TokParser Cmd) -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-127"></span><span>  </span><span id="local-6989586621679413615"><span class="annot"><a href="#local-6989586621679413615"><span class="hs-identifier hs-var">decls</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser [Decl]
+</span><a href="Aihc.Parser.Internal.Expr.html#parseLetDeclsParser"><span class="hs-identifier hs-var">parseLetDeclsParser</span></a></span><span>
+</span><span id="line-128"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-type">expectedTok</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TkKeywordIn"><span class="hs-identifier hs-type">TkKeywordIn</span></a></span><span>
+</span><span id="line-129"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#CmdLet"><span class="hs-identifier hs-type">CmdLet</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413615"><span class="hs-identifier hs-type">decls</span></a></span><span> </span><span class="annot"><span class="hs-operator hs-type">&lt;$&gt;</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdParser"><span class="hs-identifier hs-type">cmdParser</span></a></span><span>
+</span><span id="line-130"></span><span>
+</span><span id="line-131"></span><span class="annot"><span class="hs-comment">-- | Parse a command lambda: @\\pats -&gt; cmd@</span></span><span>
+</span><span id="line-132"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdLamParser"><span class="hs-identifier hs-type">cmdLamParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span>
+</span><span id="line-133"></span><span id="cmdLamParser"><span class="annot"><span class="annottext">cmdLamParser :: TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdLamParser"><span class="hs-identifier hs-var hs-var">cmdLamParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(SourceSpan -&gt; Cmd -&gt; Cmd) -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a. (SourceSpan -&gt; a -&gt; a) -&gt; TokParser a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#withSpanAnn"><span class="hs-identifier hs-var">withSpanAnn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Annotation -&gt; Cmd -&gt; Cmd
+</span><a href="Aihc.Parser.Syntax.html#CmdAnn"><span class="hs-identifier hs-var">CmdAnn</span></a></span><span> </span><span class="annot"><span class="annottext">(Annotation -&gt; Cmd -&gt; Cmd)
+-&gt; (SourceSpan -&gt; Annotation) -&gt; SourceSpan -&gt; Cmd -&gt; Cmd
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">SourceSpan -&gt; Annotation
+forall a. Typeable a =&gt; a -&gt; Annotation
+</span><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier hs-var">mkAnnotation</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(TokParser Cmd -&gt; TokParser Cmd) -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-134"></span><span>  </span><span class="annot"><span class="annottext">LexTokenKind -&gt; TokParser ()
+</span><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-var">expectedTok</span></a></span><span> </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkReservedBackslash"><span class="hs-identifier hs-var">TkReservedBackslash</span></a></span><span>
+</span><span id="line-135"></span><span>  </span><span id="local-6989586621679413618"><span class="annot"><a href="#local-6989586621679413618"><span class="hs-identifier hs-var">pats</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser Pattern
+-&gt; ParsecT ParserErrorComponent TokStream Identity [Pattern]
+forall (m :: * -&gt; *) a. MonadPlus m =&gt; m a -&gt; m [a]
+</span><span class="hs-identifier hs-var">MP.some</span></span><span> </span><span class="annot"><span class="annottext">TokParser Pattern
+</span><a href="Aihc.Parser.Internal.Pattern.html#apatParser"><span class="hs-identifier hs-var">apatParser</span></a></span><span>
+</span><span id="line-136"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-type">expectedTok</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TkReservedRightArrow"><span class="hs-identifier hs-type">TkReservedRightArrow</span></a></span><span>
+</span><span id="line-137"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#CmdLam"><span class="hs-identifier hs-type">CmdLam</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413618"><span class="hs-identifier hs-type">pats</span></a></span><span> </span><span class="annot"><span class="hs-operator hs-type">&lt;$&gt;</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdParser"><span class="hs-identifier hs-type">cmdParser</span></a></span><span>
+</span><span id="line-138"></span><span>
+</span><span id="line-139"></span><span class="annot"><span class="hs-comment">-- | Parse a parenthesised command: @( cmd )@</span></span><span>
+</span><span id="line-140"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdParenParser"><span class="hs-identifier hs-type">cmdParenParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span>
+</span><span id="line-141"></span><span id="cmdParenParser"><span class="annot"><span class="annottext">cmdParenParser :: TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdParenParser"><span class="hs-identifier hs-var hs-var">cmdParenParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-142"></span><span>  </span><span class="annot"><span class="annottext">(SourceSpan -&gt; Cmd -&gt; Cmd) -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a. (SourceSpan -&gt; a -&gt; a) -&gt; TokParser a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#withSpanAnn"><span class="hs-identifier hs-var">withSpanAnn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Annotation -&gt; Cmd -&gt; Cmd
+</span><a href="Aihc.Parser.Syntax.html#CmdAnn"><span class="hs-identifier hs-var">CmdAnn</span></a></span><span> </span><span class="annot"><span class="annottext">(Annotation -&gt; Cmd -&gt; Cmd)
+-&gt; (SourceSpan -&gt; Annotation) -&gt; SourceSpan -&gt; Cmd -&gt; Cmd
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">SourceSpan -&gt; Annotation
+forall a. Typeable a =&gt; a -&gt; Annotation
+</span><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier hs-var">mkAnnotation</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(TokParser Cmd -&gt; TokParser Cmd) -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-143"></span><span>    </span><span class="annot"><span class="annottext">Cmd -&gt; Cmd
+</span><a href="Aihc.Parser.Syntax.html#CmdPar"><span class="hs-identifier hs-var">CmdPar</span></a></span><span> </span><span class="annot"><span class="annottext">(Cmd -&gt; Cmd) -&gt; TokParser Cmd -&gt; TokParser Cmd
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">TokParser Cmd -&gt; TokParser Cmd
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+</span><a href="Aihc.Parser.Internal.Common.html#parens"><span class="hs-identifier hs-var">parens</span></a></span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdParser"><span class="hs-identifier hs-var">cmdParser</span></a></span><span>
+</span><span id="line-144"></span><span>
+</span><span id="line-145"></span><span class="annot"><span class="hs-comment">-- | Parse a do-statement in command context (arrow do).</span></span><span>
+</span><span id="line-146"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdStmtParser"><span class="hs-identifier hs-type">cmdStmtParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#DoStmt"><span class="hs-identifier hs-type">DoStmt</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-147"></span><span id="cmdStmtParser"><span class="annot"><span class="annottext">cmdStmtParser :: TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdStmtParser"><span class="hs-identifier hs-var hs-var">cmdStmtParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-148"></span><span>  </span><span id="local-6989586621679413624"><span class="annot"><a href="#local-6989586621679413624"><span class="hs-identifier hs-var">tok</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity LexToken
+-&gt; ParsecT ParserErrorComponent TokStream Identity LexToken
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall e s (m :: * -&gt; *) a. MonadParsec e s m =&gt; m a -&gt; m a
+</span><span class="hs-identifier hs-var">lookAhead</span></span><span> </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity LexToken
+ParsecT ParserErrorComponent TokStream Identity (Token TokStream)
+forall e s (m :: * -&gt; *). MonadParsec e s m =&gt; m (Token s)
+</span><span class="hs-identifier hs-var">anySingle</span></span><span>
+</span><span id="line-149"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#lexTokenKind"><span class="hs-identifier hs-var">lexTokenKind</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413624"><span class="hs-identifier hs-type">tok</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-150"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordLet"><span class="hs-identifier hs-var">TkKeywordLet</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall e s (m :: * -&gt; *) a. MonadParsec e s m =&gt; m a -&gt; m a
+</span><span class="hs-identifier hs-var">MP.try</span></span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdLetStmtParser"><span class="hs-identifier hs-var">cmdLetStmtParser</span></a></span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+-&gt; TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><span class="hs-operator hs-var">&lt;|&gt;</span></span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdBodyStmtParser"><span class="hs-identifier hs-var">cmdBodyStmtParser</span></a></span><span>
+</span><span id="line-151"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordRec"><span class="hs-identifier hs-var">TkKeywordRec</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdRecStmtParser"><span class="hs-identifier hs-var">cmdRecStmtParser</span></a></span><span>
+</span><span id="line-152"></span><span>    </span><span class="hs-comment">-- Keyword commands: parse as command body statements.</span><span>
+</span><span id="line-153"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordDo"><span class="hs-identifier hs-var">TkKeywordDo</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdBodyStmtParser"><span class="hs-identifier hs-var">cmdBodyStmtParser</span></a></span><span>
+</span><span id="line-154"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordIf"><span class="hs-identifier hs-var">TkKeywordIf</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdBodyStmtParser"><span class="hs-identifier hs-var">cmdBodyStmtParser</span></a></span><span>
+</span><span id="line-155"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordCase"><span class="hs-identifier hs-var">TkKeywordCase</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdBodyStmtParser"><span class="hs-identifier hs-var">cmdBodyStmtParser</span></a></span><span>
+</span><span id="line-156"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkReservedBackslash"><span class="hs-identifier hs-var">TkReservedBackslash</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdBodyStmtParser"><span class="hs-identifier hs-var">cmdBodyStmtParser</span></a></span><span>
+</span><span id="line-157"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkSpecialLParen"><span class="hs-identifier hs-var">TkSpecialLParen</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall e s (m :: * -&gt; *) a. MonadParsec e s m =&gt; m a -&gt; m a
+</span><span class="hs-identifier hs-var">MP.try</span></span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdBindOrBodyStmtParser"><span class="hs-identifier hs-var">cmdBindOrBodyStmtParser</span></a></span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+-&gt; TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><span class="hs-operator hs-var">&lt;|&gt;</span></span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall e s (m :: * -&gt; *) a. MonadParsec e s m =&gt; m a -&gt; m a
+</span><span class="hs-identifier hs-var">MP.try</span></span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdBindStmtParser"><span class="hs-identifier hs-var">cmdBindStmtParser</span></a></span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+-&gt; TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f a -&gt; f a
+</span><span class="hs-operator hs-var">&lt;|&gt;</span></span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdBodyStmtParser"><span class="hs-identifier hs-var">cmdBodyStmtParser</span></a></span><span>
+</span><span id="line-158"></span><span>    </span><span class="annot"><span class="annottext">LexTokenKind
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-159"></span><span>      </span><span id="local-6989586621679413631"><span class="annot"><a href="#local-6989586621679413631"><span class="hs-identifier hs-var">isPatternBind</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser Bool
+</span><a href="Aihc.Parser.Internal.Cmd.html#startsWithPatternBind"><span class="hs-identifier hs-var">startsWithPatternBind</span></a></span><span>
+</span><span id="line-160"></span><span>      </span><span class="hs-keyword">if</span><span> </span><span class="annot"><a href="#local-6989586621679413631"><span class="hs-identifier hs-type">isPatternBind</span></a></span><span>
+</span><span id="line-161"></span><span>        </span><span class="hs-keyword">then</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdBindStmtParser"><span class="hs-identifier hs-type">cmdBindStmtParser</span></a></span><span>
+</span><span id="line-162"></span><span>        </span><span class="hs-keyword">else</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdBindOrBodyStmtParser"><span class="hs-identifier hs-type">cmdBindOrBodyStmtParser</span></a></span><span>
+</span><span id="line-163"></span><span>
+</span><span id="line-164"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#startsWithPatternBind"><span class="hs-identifier hs-type">startsWithPatternBind</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-165"></span><span id="startsWithPatternBind"><span class="annot"><span class="annottext">startsWithPatternBind :: TokParser Bool
+</span><a href="Aihc.Parser.Internal.Cmd.html#startsWithPatternBind"><span class="hs-identifier hs-var hs-var">startsWithPatternBind</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-166"></span><span>  </span><span class="annot"><span class="annottext">(Either (ParseError TokStream ParserErrorComponent) () -&gt; Bool)
+-&gt; ParsecT
+     ParserErrorComponent
+     TokStream
+     Identity
+     (Either (ParseError TokStream ParserErrorComponent) ())
+-&gt; TokParser Bool
+forall a b.
+(a -&gt; b)
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity b
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(ParseError TokStream ParserErrorComponent -&gt; Bool)
+-&gt; (() -&gt; Bool)
+-&gt; Either (ParseError TokStream ParserErrorComponent) ()
+-&gt; Bool
+forall a c b. (a -&gt; c) -&gt; (b -&gt; c) -&gt; Either a b -&gt; c
+</span><span class="hs-identifier hs-var">either</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; ParseError TokStream ParserErrorComponent -&gt; Bool
+forall a b. a -&gt; b -&gt; a
+</span><span class="hs-identifier hs-var">const</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; () -&gt; Bool
+forall a b. a -&gt; b -&gt; a
+</span><span class="hs-identifier hs-var">const</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(ParsecT
+   ParserErrorComponent
+   TokStream
+   Identity
+   (Either (ParseError TokStream ParserErrorComponent) ())
+ -&gt; TokParser Bool)
+-&gt; (TokParser ()
+    -&gt; ParsecT
+         ParserErrorComponent
+         TokStream
+         Identity
+         (Either (ParseError TokStream ParserErrorComponent) ()))
+-&gt; TokParser ()
+-&gt; TokParser Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">TokParser ()
+-&gt; ParsecT
+     ParserErrorComponent
+     TokStream
+     Identity
+     (Either (ParseError TokStream ParserErrorComponent) ())
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT
+     ParserErrorComponent
+     TokStream
+     Identity
+     (Either (ParseError TokStream ParserErrorComponent) a)
+forall e s (m :: * -&gt; *) a.
+MonadParsec e s m =&gt;
+m a -&gt; m (Either (ParseError s e) a)
+</span><span class="hs-identifier hs-var">MP.observing</span></span><span> </span><span class="annot"><span class="annottext">(TokParser ()
+ -&gt; ParsecT
+      ParserErrorComponent
+      TokStream
+      Identity
+      (Either (ParseError TokStream ParserErrorComponent) ()))
+-&gt; (TokParser () -&gt; TokParser ())
+-&gt; TokParser ()
+-&gt; ParsecT
+     ParserErrorComponent
+     TokStream
+     Identity
+     (Either (ParseError TokStream ParserErrorComponent) ())
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">TokParser () -&gt; TokParser ()
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall e s (m :: * -&gt; *) a. MonadParsec e s m =&gt; m a -&gt; m a
+</span><span class="hs-identifier hs-var">MP.try</span></span><span> </span><span class="annot"><span class="annottext">(TokParser () -&gt; TokParser ())
+-&gt; (TokParser () -&gt; TokParser ()) -&gt; TokParser () -&gt; TokParser ()
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">TokParser () -&gt; TokParser ()
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall e s (m :: * -&gt; *) a. MonadParsec e s m =&gt; m a -&gt; m a
+</span><span class="hs-identifier hs-var">MP.lookAhead</span></span><span> </span><span class="annot"><span class="annottext">(TokParser () -&gt; TokParser Bool) -&gt; TokParser () -&gt; TokParser Bool
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-167"></span><span>    </span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser Pattern
+</span><a href="Aihc.Parser.Internal.Pattern.html#patternParser"><span class="hs-identifier hs-var">patternParser</span></a></span><span>
+</span><span id="line-168"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-type">expectedTok</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TkReservedLeftArrow"><span class="hs-identifier hs-type">TkReservedLeftArrow</span></a></span><span>
+</span><span id="line-169"></span><span>
+</span><span id="line-170"></span><span class="hs-comment">-- | Parse a command do-statement: @cmd@ or @pat &lt;- cmd@.</span><span>
+</span><span id="line-171"></span><span class="hs-comment">-- Uses the expression-first approach: parse as expression, check for @&lt;-@.</span><span>
+</span><span id="line-172"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdBindOrBodyStmtParser"><span class="hs-identifier hs-type">cmdBindOrBodyStmtParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#DoStmt"><span class="hs-identifier hs-type">DoStmt</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-173"></span><span id="cmdBindOrBodyStmtParser"><span class="annot"><span class="annottext">cmdBindOrBodyStmtParser :: TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdBindOrBodyStmtParser"><span class="hs-identifier hs-var hs-var">cmdBindOrBodyStmtParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(SourceSpan -&gt; DoStmt Cmd -&gt; DoStmt Cmd)
+-&gt; TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a. (SourceSpan -&gt; a -&gt; a) -&gt; TokParser a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#withSpanAnn"><span class="hs-identifier hs-var">withSpanAnn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Annotation -&gt; DoStmt Cmd -&gt; DoStmt Cmd
+forall body. Annotation -&gt; DoStmt body -&gt; DoStmt body
+</span><a href="Aihc.Parser.Syntax.html#DoAnn"><span class="hs-identifier hs-var">DoAnn</span></a></span><span> </span><span class="annot"><span class="annottext">(Annotation -&gt; DoStmt Cmd -&gt; DoStmt Cmd)
+-&gt; (SourceSpan -&gt; Annotation)
+-&gt; SourceSpan
+-&gt; DoStmt Cmd
+-&gt; DoStmt Cmd
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">SourceSpan -&gt; Annotation
+forall a. Typeable a =&gt; a -&gt; Annotation
+</span><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier hs-var">mkAnnotation</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd))
+-&gt; TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-174"></span><span>  </span><span class="hs-comment">-- Arrow tails (-&lt;, -&lt;&lt;) belong to the command level, not the expression.</span><span>
+</span><span id="line-175"></span><span>  </span><span id="local-6989586621679413638"><span class="annot"><a href="#local-6989586621679413638"><span class="hs-identifier hs-var">expr</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser Expr
+</span><a href="Aihc.Parser.Internal.Expr.html#exprParser"><span class="hs-identifier hs-var">exprParser</span></a></span><span>
+</span><span id="line-176"></span><span>  </span><span id="local-6989586621679413639"><span class="annot"><a href="#local-6989586621679413639"><span class="hs-identifier hs-var">mArrow</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MP.optional</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-type">expectedTok</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TkReservedLeftArrow"><span class="hs-identifier hs-type">TkReservedLeftArrow</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-177"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><a href="#local-6989586621679413639"><span class="hs-identifier hs-type">mArrow</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-178"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Cmd -&gt; DoStmt Cmd
+forall body. Pattern -&gt; body -&gt; DoStmt body
+</span><a href="Aihc.Parser.Syntax.html#DoBind"><span class="hs-identifier hs-var">DoBind</span></a></span><span> </span><span class="annot"><span class="annottext">(Pattern -&gt; Cmd -&gt; DoStmt Cmd)
+-&gt; TokParser Pattern
+-&gt; ParsecT
+     ParserErrorComponent TokStream Identity (Cmd -&gt; DoStmt Cmd)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">Either Text Pattern -&gt; TokParser Pattern
+forall a. Either Text a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#liftCheck"><span class="hs-identifier hs-var">liftCheck</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679413638"><span class="hs-identifier hs-var">expr</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity (Cmd -&gt; DoStmt Cmd)
+-&gt; TokParser Cmd -&gt; TokParser (DoStmt Cmd)
+forall a b.
+ParsecT ParserErrorComponent TokStream Identity (a -&gt; b)
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity b
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;*&gt;</span></span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdParser"><span class="hs-identifier hs-var">cmdParser</span></a></span><span>
+</span><span id="line-179"></span><span>    </span><span class="annot"><span class="annottext">Maybe ()
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-180"></span><span>      </span><span class="hs-comment">-- No bind arrow: this is a body statement.  Check for arrow tail.</span><span>
+</span><span id="line-181"></span><span>      </span><span id="local-6989586621679413643"><span class="annot"><a href="#local-6989586621679413643"><span class="hs-identifier hs-var">mArrTail</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser (ArrAppType, Expr)
+-&gt; ParsecT
+     ParserErrorComponent TokStream Identity (Maybe (ArrAppType, Expr))
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f (Maybe a)
+</span><span class="hs-identifier hs-var">MP.optional</span></span><span> </span><span class="annot"><span class="annottext">TokParser (ArrAppType, Expr)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdArrTailParser"><span class="hs-identifier hs-var">cmdArrTailParser</span></a></span><span>
+</span><span id="line-182"></span><span>      </span><span class="hs-keyword">case</span><span> </span><span class="annot"><a href="#local-6989586621679413643"><span class="hs-identifier hs-type">mArrTail</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-183"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679413644"><span class="annot"><span class="annottext">ArrAppType
+</span><a href="#local-6989586621679413644"><span class="hs-identifier hs-var">appType</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679413645"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679413645"><span class="hs-identifier hs-var">rhs</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-184"></span><span>          </span><span class="annot"><span class="annottext">DoStmt Cmd -&gt; TokParser (DoStmt Cmd)
+forall a. a -&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cmd -&gt; DoStmt Cmd
+forall body. body -&gt; DoStmt body
+</span><a href="Aihc.Parser.Syntax.html#DoExpr"><span class="hs-identifier hs-var">DoExpr</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Expr -&gt; ArrAppType -&gt; Expr -&gt; Cmd
+</span><a href="Aihc.Parser.Syntax.html#CmdArrApp"><span class="hs-identifier hs-var">CmdArrApp</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679413638"><span class="hs-identifier hs-var">expr</span></a></span><span> </span><span class="annot"><span class="annottext">ArrAppType
+</span><a href="#local-6989586621679413644"><span class="hs-identifier hs-var">appType</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679413645"><span class="hs-identifier hs-var">rhs</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-185"></span><span>        </span><span class="annot"><span class="annottext">Maybe (ArrAppType, Expr)
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-186"></span><span>          </span><span id="local-6989586621679413647"><span class="annot"><a href="#local-6989586621679413647"><span class="hs-identifier hs-var">mTok</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity LexToken
+-&gt; ParsecT ParserErrorComponent TokStream Identity (Maybe LexToken)
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f (Maybe a)
+</span><span class="hs-identifier hs-var">MP.optional</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity LexToken
+-&gt; ParsecT ParserErrorComponent TokStream Identity LexToken
+forall a.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall e s (m :: * -&gt; *) a. MonadParsec e s m =&gt; m a -&gt; m a
+</span><span class="hs-identifier hs-var">lookAhead</span></span><span> </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity LexToken
+ParsecT ParserErrorComponent TokStream Identity (Token TokStream)
+forall e s (m :: * -&gt; *). MonadParsec e s m =&gt; m (Token s)
+</span><span class="hs-identifier hs-var">anySingle</span></span><span class="hs-special">)</span><span>
+</span><span id="line-187"></span><span>          </span><span class="annot"><span class="hs-identifier hs-type">MP.customFailure</span></span><span>
+</span><span id="line-188"></span><span>            </span><span class="annot"><a href="Aihc.Parser.Types.html#UnexpectedTokenExpecting"><span class="hs-identifier hs-type">UnexpectedTokenExpecting</span></a></span><span>
+</span><span id="line-189"></span><span>              </span><span class="hs-special">{</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#unexpectedFound"><span class="hs-identifier hs-var">unexpectedFound</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#mkFoundToken"><span class="hs-identifier hs-type">mkFoundToken</span></a></span><span> </span><span class="annot"><span class="hs-operator hs-type">&lt;$&gt;</span></span><span> </span><span class="annot"><a href="#local-6989586621679413647"><span class="hs-identifier hs-type">mTok</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-190"></span><span>                </span><span class="annot"><a href="Aihc.Parser.Types.html#unexpectedExpecting"><span class="hs-identifier hs-var">unexpectedExpecting</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="hs-string">&quot;arrow command (-&lt; or -&lt;&lt;) in do statement&quot;</span></span><span class="hs-special">,</span><span>
+</span><span id="line-191"></span><span>                </span><span class="annot"><a href="Aihc.Parser.Types.html#unexpectedContext"><span class="hs-identifier hs-var">unexpectedContext</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-192"></span><span>              </span><span class="hs-special">}</span><span>
+</span><span id="line-193"></span><span>
+</span><span id="line-194"></span><span class="hs-comment">-- | Parse a command bind statement where the pattern is unambiguously a</span><span>
+</span><span id="line-195"></span><span class="hs-comment">-- pattern (starts with !, ~, or x@).</span><span>
+</span><span id="line-196"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdBindStmtParser"><span class="hs-identifier hs-type">cmdBindStmtParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#DoStmt"><span class="hs-identifier hs-type">DoStmt</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-197"></span><span id="cmdBindStmtParser"><span class="annot"><span class="annottext">cmdBindStmtParser :: TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdBindStmtParser"><span class="hs-identifier hs-var hs-var">cmdBindStmtParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(SourceSpan -&gt; DoStmt Cmd -&gt; DoStmt Cmd)
+-&gt; TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a. (SourceSpan -&gt; a -&gt; a) -&gt; TokParser a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#withSpanAnn"><span class="hs-identifier hs-var">withSpanAnn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Annotation -&gt; DoStmt Cmd -&gt; DoStmt Cmd
+forall body. Annotation -&gt; DoStmt body -&gt; DoStmt body
+</span><a href="Aihc.Parser.Syntax.html#DoAnn"><span class="hs-identifier hs-var">DoAnn</span></a></span><span> </span><span class="annot"><span class="annottext">(Annotation -&gt; DoStmt Cmd -&gt; DoStmt Cmd)
+-&gt; (SourceSpan -&gt; Annotation)
+-&gt; SourceSpan
+-&gt; DoStmt Cmd
+-&gt; DoStmt Cmd
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">SourceSpan -&gt; Annotation
+forall a. Typeable a =&gt; a -&gt; Annotation
+</span><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier hs-var">mkAnnotation</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd))
+-&gt; TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-198"></span><span>  </span><span id="local-6989586621679413653"><span class="annot"><a href="#local-6989586621679413653"><span class="hs-identifier hs-var">pat</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser Pattern
+</span><a href="Aihc.Parser.Internal.Pattern.html#patternParser"><span class="hs-identifier hs-var">patternParser</span></a></span><span>
+</span><span id="line-199"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-type">expectedTok</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TkReservedLeftArrow"><span class="hs-identifier hs-type">TkReservedLeftArrow</span></a></span><span>
+</span><span id="line-200"></span><span>  </span><span id="local-6989586621679413654"><span class="annot"><a href="#local-6989586621679413654"><span class="hs-identifier hs-var">cmd</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#region"><span class="hs-identifier hs-type">region</span></a></span><span> </span><span class="annot"><span class="hs-string">&quot;while parsing '&lt;-' binding&quot;</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdParser"><span class="hs-identifier hs-type">cmdParser</span></a></span><span>
+</span><span id="line-201"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">pure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#DoBind"><span class="hs-identifier hs-type">DoBind</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413653"><span class="hs-identifier hs-type">pat</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413654"><span class="hs-identifier hs-type">cmd</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-202"></span><span>
+</span><span id="line-203"></span><span class="annot"><span class="hs-comment">-- | Parse a body-only command statement (fallback from cmdStmtParser).</span></span><span>
+</span><span id="line-204"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdBodyStmtParser"><span class="hs-identifier hs-type">cmdBodyStmtParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#DoStmt"><span class="hs-identifier hs-type">DoStmt</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-205"></span><span id="cmdBodyStmtParser"><span class="annot"><span class="annottext">cmdBodyStmtParser :: TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdBodyStmtParser"><span class="hs-identifier hs-var hs-var">cmdBodyStmtParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-206"></span><span>  </span><span class="annot"><span class="annottext">(SourceSpan -&gt; DoStmt Cmd -&gt; DoStmt Cmd)
+-&gt; TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a. (SourceSpan -&gt; a -&gt; a) -&gt; TokParser a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#withSpanAnn"><span class="hs-identifier hs-var">withSpanAnn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Annotation -&gt; DoStmt Cmd -&gt; DoStmt Cmd
+forall body. Annotation -&gt; DoStmt body -&gt; DoStmt body
+</span><a href="Aihc.Parser.Syntax.html#DoAnn"><span class="hs-identifier hs-var">DoAnn</span></a></span><span> </span><span class="annot"><span class="annottext">(Annotation -&gt; DoStmt Cmd -&gt; DoStmt Cmd)
+-&gt; (SourceSpan -&gt; Annotation)
+-&gt; SourceSpan
+-&gt; DoStmt Cmd
+-&gt; DoStmt Cmd
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">SourceSpan -&gt; Annotation
+forall a. Typeable a =&gt; a -&gt; Annotation
+</span><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier hs-var">mkAnnotation</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd))
+-&gt; TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-207"></span><span>    </span><span class="annot"><span class="annottext">Cmd -&gt; DoStmt Cmd
+forall body. body -&gt; DoStmt body
+</span><a href="Aihc.Parser.Syntax.html#DoExpr"><span class="hs-identifier hs-var">DoExpr</span></a></span><span> </span><span class="annot"><span class="annottext">(Cmd -&gt; DoStmt Cmd) -&gt; TokParser Cmd -&gt; TokParser (DoStmt Cmd)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">TokParser Cmd
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdParser"><span class="hs-identifier hs-var">cmdParser</span></a></span><span>
+</span><span id="line-208"></span><span>
+</span><span id="line-209"></span><span class="annot"><span class="hs-comment">-- | Parse a command let-statement: @let decls@</span></span><span>
+</span><span id="line-210"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdLetStmtParser"><span class="hs-identifier hs-type">cmdLetStmtParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#DoStmt"><span class="hs-identifier hs-type">DoStmt</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-211"></span><span id="cmdLetStmtParser"><span class="annot"><span class="annottext">cmdLetStmtParser :: TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdLetStmtParser"><span class="hs-identifier hs-var hs-var">cmdLetStmtParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-212"></span><span>  </span><span class="annot"><span class="annottext">(SourceSpan -&gt; DoStmt Cmd -&gt; DoStmt Cmd)
+-&gt; TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a. (SourceSpan -&gt; a -&gt; a) -&gt; TokParser a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#withSpanAnn"><span class="hs-identifier hs-var">withSpanAnn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Annotation -&gt; DoStmt Cmd -&gt; DoStmt Cmd
+forall body. Annotation -&gt; DoStmt body -&gt; DoStmt body
+</span><a href="Aihc.Parser.Syntax.html#DoAnn"><span class="hs-identifier hs-var">DoAnn</span></a></span><span> </span><span class="annot"><span class="annottext">(Annotation -&gt; DoStmt Cmd -&gt; DoStmt Cmd)
+-&gt; (SourceSpan -&gt; Annotation)
+-&gt; SourceSpan
+-&gt; DoStmt Cmd
+-&gt; DoStmt Cmd
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">SourceSpan -&gt; Annotation
+forall a. Typeable a =&gt; a -&gt; Annotation
+</span><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier hs-var">mkAnnotation</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd))
+-&gt; TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-213"></span><span>    </span><span class="annot"><span class="annottext">[Decl] -&gt; DoStmt Cmd
+forall body. [Decl] -&gt; DoStmt body
+</span><a href="Aihc.Parser.Syntax.html#DoLetDecls"><span class="hs-identifier hs-var">DoLetDecls</span></a></span><span> </span><span class="annot"><span class="annottext">([Decl] -&gt; DoStmt Cmd)
+-&gt; TokParser [Decl] -&gt; TokParser (DoStmt Cmd)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">TokParser [Decl]
+</span><a href="Aihc.Parser.Internal.Expr.html#parseLetDeclsStmtParser"><span class="hs-identifier hs-var">parseLetDeclsStmtParser</span></a></span><span>
+</span><span id="line-214"></span><span>
+</span><span id="line-215"></span><span class="annot"><span class="hs-comment">-- | Parse a command rec-statement: @rec { cstmts }@</span></span><span>
+</span><span id="line-216"></span><span class="annot"><a href="Aihc.Parser.Internal.Cmd.html#cmdRecStmtParser"><span class="hs-identifier hs-type">cmdRecStmtParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#DoStmt"><span class="hs-identifier hs-type">DoStmt</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Cmd"><span class="hs-identifier hs-type">Cmd</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-217"></span><span id="cmdRecStmtParser"><span class="annot"><span class="annottext">cmdRecStmtParser :: TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdRecStmtParser"><span class="hs-identifier hs-var hs-var">cmdRecStmtParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(SourceSpan -&gt; DoStmt Cmd -&gt; DoStmt Cmd)
+-&gt; TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a. (SourceSpan -&gt; a -&gt; a) -&gt; TokParser a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#withSpanAnn"><span class="hs-identifier hs-var">withSpanAnn</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Annotation -&gt; DoStmt Cmd -&gt; DoStmt Cmd
+forall body. Annotation -&gt; DoStmt body -&gt; DoStmt body
+</span><a href="Aihc.Parser.Syntax.html#DoAnn"><span class="hs-identifier hs-var">DoAnn</span></a></span><span> </span><span class="annot"><span class="annottext">(Annotation -&gt; DoStmt Cmd -&gt; DoStmt Cmd)
+-&gt; (SourceSpan -&gt; Annotation)
+-&gt; SourceSpan
+-&gt; DoStmt Cmd
+-&gt; DoStmt Cmd
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">SourceSpan -&gt; Annotation
+forall a. Typeable a =&gt; a -&gt; Annotation
+</span><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier hs-var">mkAnnotation</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd))
+-&gt; TokParser (DoStmt Cmd) -&gt; TokParser (DoStmt Cmd)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-218"></span><span>  </span><span class="annot"><span class="annottext">LexTokenKind -&gt; TokParser ()
+</span><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-var">expectedTok</span></a></span><span> </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkKeywordRec"><span class="hs-identifier hs-var">TkKeywordRec</span></a></span><span>
+</span><span id="line-219"></span><span>  </span><span class="annot"><span class="annottext">[DoStmt Cmd] -&gt; DoStmt Cmd
+forall body. [DoStmt body] -&gt; DoStmt body
+</span><a href="Aihc.Parser.Syntax.html#DoRecStmt"><span class="hs-identifier hs-var">DoRecStmt</span></a></span><span> </span><span class="annot"><span class="annottext">([DoStmt Cmd] -&gt; DoStmt Cmd)
+-&gt; ParsecT ParserErrorComponent TokStream Identity [DoStmt Cmd]
+-&gt; TokParser (DoStmt Cmd)
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+-&gt; ParsecT ParserErrorComponent TokStream Identity [DoStmt Cmd]
+forall a. TokParser a -&gt; TokParser [a]
+</span><a href="Aihc.Parser.Internal.Common.html#bracedSemiSep1"><span class="hs-identifier hs-var">bracedSemiSep1</span></a></span><span> </span><span class="annot"><span class="annottext">TokParser (DoStmt Cmd)
+</span><a href="Aihc.Parser.Internal.Cmd.html#cmdStmtParser"><span class="hs-identifier hs-var">cmdStmtParser</span></a></span><span>
+</span><span id="line-220"></span></pre></body></html>

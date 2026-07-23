@@ -1,0 +1,479 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE BangPatterns #-}</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- Module      : Aihc.Cpp.Cursor</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- Description : Zero-copy cursor over ByteString for efficient scanning</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- License     : Unlicense</span><span>
+</span><span id="line-7"></span><span class="hs-comment">--</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- A lightweight cursor abstraction over a strict 'ByteString'. The cursor</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- tracks a position into a shared buffer, enabling O(1) peeking and</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- zero-copy slicing. All CPP-significant bytes are ASCII (0x00-0x7F),</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- so byte-level operations are safe; non-ASCII bytes (&gt;= 0x80) can be</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- bulk-copied without decoding.</span><span>
+</span><span id="line-13"></span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html"><span class="hs-identifier">Aihc.Cpp.Cursor</span></a></span><span>
+</span><span id="line-14"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier">Cursor</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-15"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#fromByteString"><span class="hs-identifier">fromByteString</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-16"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#fromText"><span class="hs-identifier">fromText</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-17"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#toText"><span class="hs-identifier">toText</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-18"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#null"><span class="hs-identifier">null</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-19"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#peekByte"><span class="hs-identifier">peekByte</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-20"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#peekByte2"><span class="hs-identifier">peekByte2</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-21"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier">advance</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-22"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#advance2"><span class="hs-identifier">advance2</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-23"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#sliceText"><span class="hs-identifier">sliceText</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-24"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#sliceSince"><span class="hs-identifier">sliceSince</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-25"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#skipWhile"><span class="hs-identifier">skipWhile</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-26"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#skipToInteresting"><span class="hs-identifier">skipToInteresting</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-27"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#bufLength"><span class="hs-identifier">bufLength</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-28"></span><span>
+</span><span id="line-29"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Line-oriented operations</span></span><span>
+</span><span id="line-30"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#findNewline"><span class="hs-identifier">findNewline</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-31"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#skipNewline"><span class="hs-identifier">skipNewline</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-32"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#lineSlice"><span class="hs-identifier">lineSlice</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-33"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#startsWithByte"><span class="hs-identifier">startsWithByte</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-34"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#peekByteAt"><span class="hs-identifier">peekByteAt</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-35"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#atEnd"><span class="hs-identifier">atEnd</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-36"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-38"></span><span>
+</span><span id="line-39"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.ByteString</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">ByteString</span></span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.ByteString</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BS</span></span><span>
+</span><span id="line-41"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Text</span></span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text.Encoding</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">TE</span></span><span>
+</span><span id="line-43"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Word</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Word8</span></span><span class="hs-special">)</span><span>
+</span><span id="line-44"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Prelude</span></span><span> </span><span class="hs-keyword">hiding</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">null</span></span><span class="hs-special">)</span><span>
+</span><span id="line-45"></span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- | A position-based cursor into a 'ByteString' buffer.</span><span>
+</span><span id="line-47"></span><span class="hs-comment">-- The buffer is shared across all cursors derived from the same input,</span><span>
+</span><span id="line-48"></span><span class="hs-comment">-- enabling zero-copy slicing.</span><span>
+</span><span id="line-49"></span><span class="hs-keyword">data</span><span> </span><span id="Cursor"><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-var">Cursor</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Cursor"><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-var">Cursor</span></a></span></span><span>
+</span><span id="line-50"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="curBuf"><span class="annot"><span class="annottext">Cursor -&gt; ByteString
+</span><a href="Aihc.Cpp.Cursor.html#curBuf"><span class="hs-identifier hs-var hs-var">curBuf</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-pragma">{-# UNPACK</span><span> </span><span class="hs-pragma">#-}</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">ByteString</span></span><span class="hs-special">,</span><span>
+</span><span id="line-51"></span><span>    </span><span id="curPos"><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var hs-var">curPos</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-pragma">{-# UNPACK</span><span> </span><span class="hs-pragma">#-}</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span>
+</span><span id="line-52"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-53"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679077494"><span id="local-6989586621679077501"><span id="local-6989586621679077505"><span class="annot"><span class="annottext">Int -&gt; Cursor -&gt; ShowS
+[Cursor] -&gt; ShowS
+Cursor -&gt; String
+(Int -&gt; Cursor -&gt; ShowS)
+-&gt; (Cursor -&gt; String) -&gt; ([Cursor] -&gt; ShowS) -&gt; Show Cursor
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+$cshowsPrec :: Int -&gt; Cursor -&gt; ShowS
+showsPrec :: Int -&gt; Cursor -&gt; ShowS
+$cshow :: Cursor -&gt; String
+show :: Cursor -&gt; String
+$cshowList :: [Cursor] -&gt; ShowS
+showList :: [Cursor] -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span class="annot"><span class="hs-comment">-- | Create a cursor at the start of a 'ByteString'.</span></span><span>
+</span><span id="line-56"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#fromByteString"><span class="hs-identifier hs-type">fromByteString</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">ByteString</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span>
+</span><span id="line-57"></span><span id="fromByteString"><span class="annot"><span class="annottext">fromByteString :: ByteString -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#fromByteString"><span class="hs-identifier hs-var hs-var">fromByteString</span></a></span></span><span> </span><span id="local-6989586621679077509"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077509"><span class="hs-identifier hs-var">bs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-var">Cursor</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077509"><span class="hs-identifier hs-var">bs</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-58"></span><span>
+</span><span id="line-59"></span><span class="annot"><span class="hs-comment">-- | Create a cursor from 'Text' by encoding to UTF-8.</span></span><span>
+</span><span id="line-60"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#fromText"><span class="hs-identifier hs-type">fromText</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span>
+</span><span id="line-61"></span><span id="fromText"><span class="annot"><span class="annottext">fromText :: Text -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#fromText"><span class="hs-identifier hs-var hs-var">fromText</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#fromByteString"><span class="hs-identifier hs-var">fromByteString</span></a></span><span> </span><span class="annot"><span class="annottext">(ByteString -&gt; Cursor) -&gt; (Text -&gt; ByteString) -&gt; Text -&gt; Cursor
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; ByteString
+</span><span class="hs-identifier hs-var">TE.encodeUtf8</span></span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="annot"><span class="hs-comment">-- | Decode the remaining bytes from the cursor position as UTF-8 'Text'.</span></span><span>
+</span><span id="line-64"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#toText"><span class="hs-identifier hs-type">toText</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-65"></span><span id="toText"><span class="annot"><span class="annottext">toText :: Cursor -&gt; Text
+</span><a href="Aihc.Cpp.Cursor.html#toText"><span class="hs-identifier hs-var hs-var">toText</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span id="local-6989586621679077512"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077512"><span class="hs-identifier hs-var">buf</span></a></span></span><span> </span><span id="local-6989586621679077513"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077513"><span class="hs-identifier hs-var">pos</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Text
+</span><span class="hs-identifier hs-var">TE.decodeUtf8</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; ByteString -&gt; ByteString
+</span><span class="hs-identifier hs-var">BS.drop</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077513"><span class="hs-identifier hs-var">pos</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077512"><span class="hs-identifier hs-var">buf</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-66"></span><span>
+</span><span id="line-67"></span><span class="annot"><span class="hs-comment">-- | Is the cursor at the end of input?</span></span><span>
+</span><span id="line-68"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#null"><span class="hs-identifier hs-type">null</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-69"></span><span id="null"><span class="annot"><span class="annottext">null :: Cursor -&gt; Bool
+</span><a href="Aihc.Cpp.Cursor.html#null"><span class="hs-identifier hs-var hs-var">null</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span id="local-6989586621679077516"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077516"><span class="hs-identifier hs-var">buf</span></a></span></span><span> </span><span id="local-6989586621679077517"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077517"><span class="hs-identifier hs-var">pos</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077517"><span class="hs-identifier hs-var">pos</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;=</span></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int
+</span><span class="hs-identifier hs-var">BS.length</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077516"><span class="hs-identifier hs-var">buf</span></a></span><span>
+</span><span id="line-70"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#null"><span class="hs-pragma hs-type">null</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-71"></span><span>
+</span><span id="line-72"></span><span class="annot"><span class="hs-comment">-- | Check whether the cursor is at the end of input (synonym for 'null').</span></span><span>
+</span><span id="line-73"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#atEnd"><span class="hs-identifier hs-type">atEnd</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-74"></span><span id="atEnd"><span class="annot"><span class="annottext">atEnd :: Cursor -&gt; Bool
+</span><a href="Aihc.Cpp.Cursor.html#atEnd"><span class="hs-identifier hs-var hs-var">atEnd</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Bool
+</span><a href="Aihc.Cpp.Cursor.html#null"><span class="hs-identifier hs-var">null</span></a></span><span>
+</span><span id="line-75"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#atEnd"><span class="hs-pragma hs-type">atEnd</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-76"></span><span>
+</span><span id="line-77"></span><span class="hs-comment">-- | Peek at the current byte without advancing. Returns 'Nothing' at end</span><span>
+</span><span id="line-78"></span><span class="hs-comment">-- of input.</span><span>
+</span><span id="line-79"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#peekByte"><span class="hs-identifier hs-type">peekByte</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Word8</span></span><span>
+</span><span id="line-80"></span><span id="peekByte"><span class="annot"><span class="annottext">peekByte :: Cursor -&gt; Maybe Word8
+</span><a href="Aihc.Cpp.Cursor.html#peekByte"><span class="hs-identifier hs-var hs-var">peekByte</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span id="local-6989586621679077519"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077519"><span class="hs-identifier hs-var">buf</span></a></span></span><span> </span><span id="local-6989586621679077520"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077520"><span class="hs-identifier hs-var">pos</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-81"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077520"><span class="hs-identifier hs-var">pos</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;=</span></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int
+</span><span class="hs-identifier hs-var">BS.length</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077519"><span class="hs-identifier hs-var">buf</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe Word8
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-82"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Maybe Word8
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HasCallStack =&gt; ByteString -&gt; Int -&gt; Word8
+ByteString -&gt; Int -&gt; Word8
+</span><span class="hs-identifier hs-var">BS.index</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077519"><span class="hs-identifier hs-var">buf</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077520"><span class="hs-identifier hs-var">pos</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-83"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#peekByte"><span class="hs-pragma hs-type">peekByte</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-84"></span><span>
+</span><span id="line-85"></span><span class="hs-comment">-- | Peek at the current and next byte without advancing. Returns 'Nothing'</span><span>
+</span><span id="line-86"></span><span class="hs-comment">-- if fewer than 2 bytes remain.</span><span>
+</span><span id="line-87"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#peekByte2"><span class="hs-identifier hs-type">peekByte2</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Word8</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Word8</span></span><span class="hs-special">)</span><span>
+</span><span id="line-88"></span><span id="peekByte2"><span class="annot"><span class="annottext">peekByte2 :: Cursor -&gt; Maybe (Word8, Word8)
+</span><a href="Aihc.Cpp.Cursor.html#peekByte2"><span class="hs-identifier hs-var hs-var">peekByte2</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span id="local-6989586621679077522"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077522"><span class="hs-identifier hs-var">buf</span></a></span></span><span> </span><span id="local-6989586621679077523"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077523"><span class="hs-identifier hs-var">pos</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-89"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077523"><span class="hs-identifier hs-var">pos</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;=</span></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int
+</span><span class="hs-identifier hs-var">BS.length</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077522"><span class="hs-identifier hs-var">buf</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe (Word8, Word8)
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-90"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Word8, Word8) -&gt; Maybe (Word8, Word8)
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HasCallStack =&gt; ByteString -&gt; Int -&gt; Word8
+ByteString -&gt; Int -&gt; Word8
+</span><span class="hs-identifier hs-var">BS.index</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077522"><span class="hs-identifier hs-var">buf</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077523"><span class="hs-identifier hs-var">pos</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">HasCallStack =&gt; ByteString -&gt; Int -&gt; Word8
+ByteString -&gt; Int -&gt; Word8
+</span><span class="hs-identifier hs-var">BS.index</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077522"><span class="hs-identifier hs-var">buf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077523"><span class="hs-identifier hs-var">pos</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-91"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#peekByte2"><span class="hs-pragma hs-type">peekByte2</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span class="annot"><span class="hs-comment">-- | Peek at a byte at an absolute position in the buffer.</span></span><span>
+</span><span id="line-94"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#peekByteAt"><span class="hs-identifier hs-type">peekByteAt</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Word8</span></span><span>
+</span><span id="line-95"></span><span id="peekByteAt"><span class="annot"><span class="annottext">peekByteAt :: Int -&gt; Cursor -&gt; Maybe Word8
+</span><a href="Aihc.Cpp.Cursor.html#peekByteAt"><span class="hs-identifier hs-var hs-var">peekByteAt</span></a></span></span><span> </span><span id="local-6989586621679077525"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077525"><span class="hs-identifier hs-var">absPos</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span id="local-6989586621679077526"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077526"><span class="hs-identifier hs-var">buf</span></a></span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span>
+</span><span id="line-96"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077525"><span class="hs-identifier hs-var">absPos</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&lt;</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077525"><span class="hs-identifier hs-var">absPos</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;=</span></span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int
+</span><span class="hs-identifier hs-var">BS.length</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077526"><span class="hs-identifier hs-var">buf</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe Word8
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-97"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Maybe Word8
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HasCallStack =&gt; ByteString -&gt; Int -&gt; Word8
+ByteString -&gt; Int -&gt; Word8
+</span><span class="hs-identifier hs-var">BS.index</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077526"><span class="hs-identifier hs-var">buf</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077525"><span class="hs-identifier hs-var">absPos</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-98"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#peekByteAt"><span class="hs-pragma hs-type">peekByteAt</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-99"></span><span>
+</span><span id="line-100"></span><span class="annot"><span class="hs-comment">-- | Advance the cursor by one byte.</span></span><span>
+</span><span id="line-101"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-type">advance</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span>
+</span><span id="line-102"></span><span id="advance"><span class="annot"><span class="annottext">advance :: Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var hs-var">advance</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span id="local-6989586621679077529"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077529"><span class="hs-identifier hs-var">buf</span></a></span></span><span> </span><span id="local-6989586621679077530"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077530"><span class="hs-identifier hs-var">pos</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-var">Cursor</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077529"><span class="hs-identifier hs-var">buf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077530"><span class="hs-identifier hs-var">pos</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-103"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-pragma hs-type">advance</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-104"></span><span>
+</span><span id="line-105"></span><span class="annot"><span class="hs-comment">-- | Advance the cursor by two bytes.</span></span><span>
+</span><span id="line-106"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#advance2"><span class="hs-identifier hs-type">advance2</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span>
+</span><span id="line-107"></span><span id="advance2"><span class="annot"><span class="annottext">advance2 :: Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance2"><span class="hs-identifier hs-var hs-var">advance2</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span id="local-6989586621679077531"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077531"><span class="hs-identifier hs-var">buf</span></a></span></span><span> </span><span id="local-6989586621679077532"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077532"><span class="hs-identifier hs-var">pos</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-var">Cursor</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077531"><span class="hs-identifier hs-var">buf</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077532"><span class="hs-identifier hs-var">pos</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">2</span></span><span class="hs-special">)</span><span>
+</span><span id="line-108"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#advance2"><span class="hs-pragma hs-type">advance2</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-109"></span><span>
+</span><span id="line-110"></span><span class="hs-comment">-- | Extract a zero-copy 'Text' slice from position @start@ to position</span><span>
+</span><span id="line-111"></span><span class="hs-comment">-- @end@ (exclusive) in the cursor's buffer.</span><span>
+</span><span id="line-112"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#sliceText"><span class="hs-identifier hs-type">sliceText</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-113"></span><span id="sliceText"><span class="annot"><span class="annottext">sliceText :: Int -&gt; Int -&gt; Cursor -&gt; Text
+</span><a href="Aihc.Cpp.Cursor.html#sliceText"><span class="hs-identifier hs-var hs-var">sliceText</span></a></span></span><span> </span><span id="local-6989586621679077533"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077533"><span class="hs-identifier hs-var">start</span></a></span></span><span> </span><span id="local-6989586621679077534"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077534"><span class="hs-identifier hs-var">end</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span id="local-6989586621679077535"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077535"><span class="hs-identifier hs-var">buf</span></a></span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-114"></span><span>  </span><span class="annot"><span class="annottext">ByteString -&gt; Text
+</span><span class="hs-identifier hs-var">TE.decodeUtf8</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; ByteString -&gt; ByteString
+</span><span class="hs-identifier hs-var">BS.take</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077534"><span class="hs-identifier hs-var">end</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-glyph hs-var">-</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077533"><span class="hs-identifier hs-var">start</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; ByteString -&gt; ByteString
+</span><span class="hs-identifier hs-var">BS.drop</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077533"><span class="hs-identifier hs-var">start</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077535"><span class="hs-identifier hs-var">buf</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-115"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#sliceText"><span class="hs-pragma hs-type">sliceText</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-116"></span><span>
+</span><span id="line-117"></span><span class="hs-comment">-- | Extract a zero-copy 'Text' slice from the given start position to</span><span>
+</span><span id="line-118"></span><span class="hs-comment">-- the cursor's current position.</span><span>
+</span><span id="line-119"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#sliceSince"><span class="hs-identifier hs-type">sliceSince</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-120"></span><span id="sliceSince"><span class="annot"><span class="annottext">sliceSince :: Int -&gt; Cursor -&gt; Text
+</span><a href="Aihc.Cpp.Cursor.html#sliceSince"><span class="hs-identifier hs-var hs-var">sliceSince</span></a></span></span><span> </span><span id="local-6989586621679077537"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077537"><span class="hs-identifier hs-var">start</span></a></span></span><span> </span><span id="local-6989586621679077538"><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077538"><span class="hs-identifier hs-var">cur</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Cursor -&gt; Text
+</span><a href="Aihc.Cpp.Cursor.html#sliceText"><span class="hs-identifier hs-var">sliceText</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077537"><span class="hs-identifier hs-var">start</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#curPos"><span class="hs-identifier hs-var">curPos</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077538"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077538"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-121"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#sliceSince"><span class="hs-pragma hs-type">sliceSince</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-122"></span><span>
+</span><span id="line-123"></span><span class="annot"><span class="hs-comment">-- | Advance the cursor while the predicate holds for the current byte.</span></span><span>
+</span><span id="line-124"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#skipWhile"><span class="hs-identifier hs-type">skipWhile</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Word8</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span>
+</span><span id="line-125"></span><span id="skipWhile"><span class="annot"><span class="annottext">skipWhile :: (Word8 -&gt; Bool) -&gt; Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#skipWhile"><span class="hs-identifier hs-var hs-var">skipWhile</span></a></span></span><span> </span><span id="local-6989586621679077539"><span class="annot"><span class="annottext">Word8 -&gt; Bool
+</span><a href="#local-6989586621679077539"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="#local-6989586621679077540"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-126"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-127"></span><span>    </span><span id="local-6989586621679077540"><span class="annot"><span class="annottext">go :: Cursor -&gt; Cursor
+</span><a href="#local-6989586621679077540"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679077541"><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077541"><span class="hs-identifier hs-var">cur</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Maybe Word8
+</span><a href="Aihc.Cpp.Cursor.html#peekByte"><span class="hs-identifier hs-var">peekByte</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077541"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-128"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679077542"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077542"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Bool
+</span><a href="#local-6989586621679077539"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077542"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="#local-6989586621679077540"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077541"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-129"></span><span>      </span><span class="annot"><span class="annottext">Maybe Word8
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077541"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-130"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#skipWhile"><span class="hs-pragma hs-type">skipWhile</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-131"></span><span>
+</span><span id="line-132"></span><span class="annot"><span class="hs-comment">-- | Total length of the underlying buffer.</span></span><span>
+</span><span id="line-133"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#bufLength"><span class="hs-identifier hs-type">bufLength</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span>
+</span><span id="line-134"></span><span id="bufLength"><span class="annot"><span class="annottext">bufLength :: Cursor -&gt; Int
+</span><a href="Aihc.Cpp.Cursor.html#bufLength"><span class="hs-identifier hs-var hs-var">bufLength</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span id="local-6989586621679077543"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077543"><span class="hs-identifier hs-var">buf</span></a></span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ByteString -&gt; Int
+</span><span class="hs-identifier hs-var">BS.length</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077543"><span class="hs-identifier hs-var">buf</span></a></span><span>
+</span><span id="line-135"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#bufLength"><span class="hs-pragma hs-type">bufLength</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-136"></span><span>
+</span><span id="line-137"></span><span class="hs-comment">-- | Advance the cursor past bytes that cannot start any CPP-significant</span><span>
+</span><span id="line-138"></span><span class="hs-comment">-- two-character sequence. Stops at: @\&quot;@ (0x22), @\'@ (0x27), @*@ (0x2A),</span><span>
+</span><span id="line-139"></span><span class="hs-comment">-- @-@ (0x2D), @/@ (0x2F), @\\@ (0x5C), @{@ (0x7B), @}@ (0x7D),</span><span>
+</span><span id="line-140"></span><span class="hs-comment">-- or end of input. This allows bulk-copying runs of plain text</span><span>
+</span><span id="line-141"></span><span class="hs-comment">-- (identifiers, whitespace, operators, non-ASCII UTF-8) without</span><span>
+</span><span id="line-142"></span><span class="hs-comment">-- per-byte dispatch.</span><span>
+</span><span id="line-143"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#skipToInteresting"><span class="hs-identifier hs-type">skipToInteresting</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span>
+</span><span id="line-144"></span><span id="skipToInteresting"><span class="annot"><span class="annottext">skipToInteresting :: Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#skipToInteresting"><span class="hs-identifier hs-var hs-var">skipToInteresting</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="#local-6989586621679077544"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-145"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-146"></span><span>    </span><span id="local-6989586621679077544"><span class="annot"><span class="annottext">go :: Cursor -&gt; Cursor
+</span><a href="#local-6989586621679077544"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679077545"><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077545"><span class="hs-identifier hs-var">cur</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Maybe Word8
+</span><a href="Aihc.Cpp.Cursor.html#peekByte"><span class="hs-identifier hs-var">peekByte</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077545"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-147"></span><span>      </span><span class="annot"><span class="annottext">Maybe Word8
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077545"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-148"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679077546"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077546"><span class="hs-identifier hs-var">b</span></a></span></span><span>
+</span><span id="line-149"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Bool
+</span><a href="#local-6989586621679077547"><span class="hs-identifier hs-var">isInteresting</span></a></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077546"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077545"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-150"></span><span>        </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="#local-6989586621679077544"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077545"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-151"></span><span>
+</span><span id="line-152"></span><span>    </span><span class="annot"><a href="#local-6989586621679077547"><span class="hs-identifier hs-type">isInteresting</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Word8</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-153"></span><span>    </span><span id="local-6989586621679077547"><span class="annot"><span class="annottext">isInteresting :: Word8 -&gt; Bool
+</span><a href="#local-6989586621679077547"><span class="hs-identifier hs-var hs-var">isInteresting</span></a></span></span><span> </span><span id="local-6989586621679077548"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077548"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-154"></span><span>      </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077548"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x22</span></span><span> </span><span class="hs-comment">-- '&quot;'</span><span>
+</span><span id="line-155"></span><span>        </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077548"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x27</span></span><span> </span><span class="hs-comment">-- '\''</span><span>
+</span><span id="line-156"></span><span>        </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077548"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2A</span></span><span> </span><span class="hs-comment">-- '*'</span><span>
+</span><span id="line-157"></span><span>        </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077548"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2D</span></span><span> </span><span class="hs-comment">-- '-'</span><span>
+</span><span id="line-158"></span><span>        </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077548"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x2F</span></span><span> </span><span class="hs-comment">-- '/'</span><span>
+</span><span id="line-159"></span><span>        </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077548"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x5C</span></span><span> </span><span class="hs-comment">-- '\\'</span><span>
+</span><span id="line-160"></span><span>        </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077548"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x7B</span></span><span> </span><span class="hs-comment">-- '{'</span><span>
+</span><span id="line-161"></span><span>        </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077548"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x7D</span></span><span> </span><span class="hs-comment">-- '}'</span><span>
+</span><span id="line-162"></span><span>    </span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="#local-6989586621679077547"><span class="hs-pragma hs-type">isInteresting</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-163"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#skipToInteresting"><span class="hs-pragma hs-type">skipToInteresting</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-164"></span><span>
+</span><span id="line-165"></span><span class="hs-comment">-- | Find the next newline byte (0x0A) or EOF. Returns a cursor</span><span>
+</span><span id="line-166"></span><span class="hs-comment">-- positioned at the newline (or at EOF). The bytes from the</span><span>
+</span><span id="line-167"></span><span class="hs-comment">-- original position to the returned position form the line content</span><span>
+</span><span id="line-168"></span><span class="hs-comment">-- (without the newline).</span><span>
+</span><span id="line-169"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#findNewline"><span class="hs-identifier hs-type">findNewline</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span>
+</span><span id="line-170"></span><span id="findNewline"><span class="annot"><span class="annottext">findNewline :: Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#findNewline"><span class="hs-identifier hs-var hs-var">findNewline</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="#local-6989586621679077549"><span class="hs-identifier hs-var">go</span></a></span><span>
+</span><span id="line-171"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-172"></span><span>    </span><span id="local-6989586621679077549"><span class="annot"><span class="annottext">go :: Cursor -&gt; Cursor
+</span><a href="#local-6989586621679077549"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="hs-glyph">!</span><span id="local-6989586621679077552"><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077552"><span class="hs-identifier hs-var">cur</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Maybe Word8
+</span><a href="Aihc.Cpp.Cursor.html#peekByte"><span class="hs-identifier hs-var">peekByte</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077552"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-173"></span><span>      </span><span class="annot"><span class="annottext">Maybe Word8
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077552"><span class="hs-identifier hs-var">cur</span></a></span><span>
+</span><span id="line-174"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x0A</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077552"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="hs-comment">-- '\n'</span><span>
+</span><span id="line-175"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="#local-6989586621679077549"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077552"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-176"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#findNewline"><span class="hs-pragma hs-type">findNewline</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-177"></span><span>
+</span><span id="line-178"></span><span class="hs-comment">-- | Advance past a newline byte if the cursor is currently on one.</span><span>
+</span><span id="line-179"></span><span class="hs-comment">-- Returns 'Nothing' at EOF, 'Just cursor' after the newline otherwise.</span><span>
+</span><span id="line-180"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#skipNewline"><span class="hs-identifier hs-type">skipNewline</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span>
+</span><span id="line-181"></span><span id="skipNewline"><span class="annot"><span class="annottext">skipNewline :: Cursor -&gt; Maybe Cursor
+</span><a href="Aihc.Cpp.Cursor.html#skipNewline"><span class="hs-identifier hs-var hs-var">skipNewline</span></a></span></span><span> </span><span id="local-6989586621679077553"><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077553"><span class="hs-identifier hs-var">cur</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Maybe Word8
+</span><a href="Aihc.Cpp.Cursor.html#peekByte"><span class="hs-identifier hs-var">peekByte</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077553"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-182"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><span class="hs-number">0x0A</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Maybe Cursor
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#advance"><span class="hs-identifier hs-var">advance</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077553"><span class="hs-identifier hs-var">cur</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- '\n'</span><span>
+</span><span id="line-183"></span><span>  </span><span class="annot"><span class="annottext">Maybe Word8
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe Cursor
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-184"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#skipNewline"><span class="hs-pragma hs-type">skipNewline</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-185"></span><span>
+</span><span id="line-186"></span><span class="hs-comment">-- | Create a cursor that views only the bytes from @curPos cur@ to @end@</span><span>
+</span><span id="line-187"></span><span class="hs-comment">-- (exclusive) in the same buffer. This is a logical &quot;line slice&quot; &#8212; a</span><span>
+</span><span id="line-188"></span><span class="hs-comment">-- sub-cursor bounded at @end@.</span><span>
+</span><span id="line-189"></span><span class="hs-comment">--</span><span>
+</span><span id="line-190"></span><span class="hs-comment">-- Implementation: creates a new cursor over a sub-ByteString. The</span><span>
+</span><span id="line-191"></span><span class="hs-comment">-- sub-ByteString shares the underlying memory (zero-copy via 'BS.take'</span><span>
+</span><span id="line-192"></span><span class="hs-comment">-- and 'BS.drop').</span><span>
+</span><span id="line-193"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#lineSlice"><span class="hs-identifier hs-type">lineSlice</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span>
+</span><span id="line-194"></span><span id="lineSlice"><span class="annot"><span class="annottext">lineSlice :: Int -&gt; Cursor -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#lineSlice"><span class="hs-identifier hs-var hs-var">lineSlice</span></a></span></span><span> </span><span id="local-6989586621679077554"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077554"><span class="hs-identifier hs-var">end</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span id="local-6989586621679077555"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077555"><span class="hs-identifier hs-var">buf</span></a></span></span><span> </span><span id="local-6989586621679077556"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077556"><span class="hs-identifier hs-var">start</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-195"></span><span>  </span><span class="annot"><span class="annottext">ByteString -&gt; Int -&gt; Cursor
+</span><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-var">Cursor</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; ByteString -&gt; ByteString
+</span><span class="hs-identifier hs-var">BS.take</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077554"><span class="hs-identifier hs-var">end</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-glyph hs-var">-</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077556"><span class="hs-identifier hs-var">start</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; ByteString -&gt; ByteString
+</span><span class="hs-identifier hs-var">BS.drop</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679077556"><span class="hs-identifier hs-var">start</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679077555"><span class="hs-identifier hs-var">buf</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-196"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#lineSlice"><span class="hs-pragma hs-type">lineSlice</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-197"></span><span>
+</span><span id="line-198"></span><span class="hs-comment">-- | Check if the byte at the cursor's current position matches the</span><span>
+</span><span id="line-199"></span><span class="hs-comment">-- given byte.</span><span>
+</span><span id="line-200"></span><span class="annot"><a href="Aihc.Cpp.Cursor.html#startsWithByte"><span class="hs-identifier hs-type">startsWithByte</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Word8</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-201"></span><span id="startsWithByte"><span class="annot"><span class="annottext">startsWithByte :: Word8 -&gt; Cursor -&gt; Bool
+</span><a href="Aihc.Cpp.Cursor.html#startsWithByte"><span class="hs-identifier hs-var hs-var">startsWithByte</span></a></span></span><span> </span><span id="local-6989586621679077557"><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077557"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span id="local-6989586621679077558"><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077558"><span class="hs-identifier hs-var">cur</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Cursor -&gt; Maybe Word8
+</span><a href="Aihc.Cpp.Cursor.html#peekByte"><span class="hs-identifier hs-var">peekByte</span></a></span><span> </span><span class="annot"><span class="annottext">Cursor
+</span><a href="#local-6989586621679077558"><span class="hs-identifier hs-var">cur</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Word8 -&gt; Maybe Word8 -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Word8 -&gt; Maybe Word8
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">Word8
+</span><a href="#local-6989586621679077557"><span class="hs-identifier hs-var">b</span></a></span><span>
+</span><span id="line-202"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html#startsWithByte"><span class="hs-pragma hs-type">startsWithByte</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-203"></span></pre></body></html>

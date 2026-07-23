@@ -1,0 +1,555 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="Aihc.Cpp.Parser.html"><span class="hs-identifier">Aihc.Cpp.Parser</span></a></span><span>
+</span><span id="line-4"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Aihc.Cpp.Parser.html#Directive"><span class="hs-identifier">Directive</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-5"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseDirective"><span class="hs-identifier">parseDirective</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-6"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseDirectiveBody"><span class="hs-identifier">parseDirectiveBody</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-7"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseDefine"><span class="hs-identifier">parseDefine</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-8"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseInclude"><span class="hs-identifier">parseInclude</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-9"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseLineDirective"><span class="hs-identifier">parseLineDirective</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-10"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseIdentifier"><span class="hs-identifier">parseIdentifier</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-11"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseQuotedText"><span class="hs-identifier">parseQuotedText</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-12"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseDefineParams"><span class="hs-identifier">parseDefineParams</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-13"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Parser.html#isIdentStart"><span class="hs-identifier">isIdentStart</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-14"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Parser.html#isIdentChar"><span class="hs-identifier">isIdentChar</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-15"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Parser.html#isOpChar"><span class="hs-identifier">isOpChar</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-16"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-18"></span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html"><span class="hs-identifier">Aihc.Cpp.Types</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Types.html#IncludeKind"><span class="hs-identifier">IncludeKind</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Char</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">isAlphaNum</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">isDigit</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">isLetter</span></span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Text</span></span><span class="hs-special">)</span><span>
+</span><span id="line-22"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text.Read</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">TR</span></span><span>
+</span><span id="line-24"></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">data</span><span> </span><span id="Directive"><span class="annot"><a href="Aihc.Cpp.Parser.html#Directive"><span class="hs-identifier hs-var">Directive</span></a></span></span><span>
+</span><span id="line-26"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="DirDefineObject"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirDefineObject"><span class="hs-identifier hs-var">DirDefineObject</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-27"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirDefineFunction"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirDefineFunction"><span class="hs-identifier hs-var">DirDefineFunction</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">!</span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-28"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirUndef"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirUndef"><span class="hs-identifier hs-var">DirUndef</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-29"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirInclude"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirInclude"><span class="hs-identifier hs-var">DirInclude</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Aihc.Cpp.Types.html#IncludeKind"><span class="hs-identifier hs-type">IncludeKind</span></a></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-30"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirIf"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirIf"><span class="hs-identifier hs-var">DirIf</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-31"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirIfDef"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirIfDef"><span class="hs-identifier hs-var">DirIfDef</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-32"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirIfNDef"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirIfNDef"><span class="hs-identifier hs-var">DirIfNDef</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-33"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirElif"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirElif"><span class="hs-identifier hs-var">DirElif</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-34"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirElse"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirElse"><span class="hs-identifier hs-var">DirElse</span></a></span></span><span>
+</span><span id="line-35"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirEndIf"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirEndIf"><span class="hs-identifier hs-var">DirEndIf</span></a></span></span><span>
+</span><span id="line-36"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirLine"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirLine"><span class="hs-identifier hs-var">DirLine</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirPragmaOnce"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirPragmaOnce"><span class="hs-identifier hs-var">DirPragmaOnce</span></a></span></span><span>
+</span><span id="line-38"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirWarning"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirWarning"><span class="hs-identifier hs-var">DirWarning</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-39"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirError"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirError"><span class="hs-identifier hs-var">DirError</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-40"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="DirUnsupported"><span class="annot"><a href="Aihc.Cpp.Parser.html#DirUnsupported"><span class="hs-identifier hs-var">DirUnsupported</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-41"></span><span>
+</span><span id="line-42"></span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseDirective"><span class="hs-identifier hs-type">parseDirective</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Cpp.Parser.html#Directive"><span class="hs-identifier hs-type">Directive</span></a></span><span>
+</span><span id="line-43"></span><span id="parseDirective"><span class="annot"><span class="annottext">parseDirective :: Text -&gt; Maybe Directive
+</span><a href="Aihc.Cpp.Parser.html#parseDirective"><span class="hs-identifier hs-var hs-var">parseDirective</span></a></span></span><span> </span><span id="local-6989586621679078180"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078180"><span class="hs-identifier hs-var">raw</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-44"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679078181"><span class="annot"><span class="annottext">trimmed :: Text
+</span><a href="#local-6989586621679078181"><span class="hs-identifier hs-var hs-var">trimmed</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.stripStart</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078180"><span class="hs-identifier hs-var">raw</span></a></span><span>
+</span><span id="line-45"></span><span>   </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;#&quot;</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Bool
+</span><span class="hs-operator hs-var">`T.isPrefixOf`</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078181"><span class="hs-identifier hs-var">trimmed</span></a></span><span>
+</span><span id="line-46"></span><span>        </span><span class="hs-keyword">then</span><span>
+</span><span id="line-47"></span><span>          </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679078184"><span class="annot"><span class="annottext">body :: Text
+</span><a href="#local-6989586621679078184"><span class="hs-identifier hs-var hs-var">body</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.stripStart</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.drop</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078181"><span class="hs-identifier hs-var">trimmed</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-48"></span><span>           </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe (Char, Text)
+</span><span class="hs-identifier hs-var">T.uncons</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078184"><span class="hs-identifier hs-var">body</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-49"></span><span>                </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679078187"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078187"><span class="hs-identifier hs-var">c</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><span class="hs-identifier hs-var">isLetter</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078187"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><span class="hs-identifier hs-var">isDigit</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078187"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe Directive
+</span><a href="Aihc.Cpp.Parser.html#parseDirectiveBody"><span class="hs-identifier hs-var">parseDirectiveBody</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078184"><span class="hs-identifier hs-var">body</span></a></span><span>
+</span><span id="line-50"></span><span>                </span><span class="annot"><span class="annottext">Maybe (Char, Text)
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe Directive
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-51"></span><span>        </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Maybe Directive
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-52"></span><span>
+</span><span id="line-53"></span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseDirectiveBody"><span class="hs-identifier hs-type">parseDirectiveBody</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Cpp.Parser.html#Directive"><span class="hs-identifier hs-type">Directive</span></a></span><span>
+</span><span id="line-54"></span><span id="parseDirectiveBody"><span class="annot"><span class="annottext">parseDirectiveBody :: Text -&gt; Maybe Directive
+</span><a href="Aihc.Cpp.Parser.html#parseDirectiveBody"><span class="hs-identifier hs-var hs-var">parseDirectiveBody</span></a></span></span><span> </span><span id="local-6989586621679078189"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078189"><span class="hs-identifier hs-var">body</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-55"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679078190"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078190"><span class="hs-identifier hs-var">name</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679078191"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078191"><span class="hs-identifier hs-var">rest0</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Bool) -&gt; Text -&gt; (Text, Text)
+</span><span class="hs-identifier hs-var">T.span</span></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><a href="Aihc.Cpp.Parser.html#isIdentChar"><span class="hs-identifier hs-var">isIdentChar</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078189"><span class="hs-identifier hs-var">body</span></a></span><span>
+</span><span id="line-56"></span><span>      </span><span id="local-6989586621679078193"><span class="annot"><span class="annottext">rest :: Text
+</span><a href="#local-6989586621679078193"><span class="hs-identifier hs-var hs-var">rest</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.stripStart</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078191"><span class="hs-identifier hs-var">rest0</span></a></span><span>
+</span><span id="line-57"></span><span>   </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Bool
+</span><span class="hs-identifier hs-var">T.null</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078190"><span class="hs-identifier hs-var">name</span></a></span><span>
+</span><span id="line-58"></span><span>        </span><span class="hs-keyword">then</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe (Char, Text)
+</span><span class="hs-identifier hs-var">T.uncons</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078189"><span class="hs-identifier hs-var">body</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-59"></span><span>          </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679078195"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078195"><span class="hs-identifier hs-var">c</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><span class="hs-identifier hs-var">isDigit</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078195"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe Directive
+</span><a href="Aihc.Cpp.Parser.html#parseLineDirective"><span class="hs-identifier hs-var">parseLineDirective</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078189"><span class="hs-identifier hs-var">body</span></a></span><span>
+</span><span id="line-60"></span><span>          </span><span class="annot"><span class="annottext">Maybe (Char, Text)
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe Directive
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-61"></span><span>        </span><span class="hs-keyword">else</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078190"><span class="hs-identifier hs-var">name</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-62"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;define&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe Directive
+</span><a href="Aihc.Cpp.Parser.html#parseDefine"><span class="hs-identifier hs-var">parseDefine</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078193"><span class="hs-identifier hs-var">rest</span></a></span><span>
+</span><span id="line-63"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;undef&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirUndef"><span class="hs-identifier hs-var">DirUndef</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Directive) -&gt; Maybe Text -&gt; Maybe Directive
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe Text
+</span><a href="Aihc.Cpp.Parser.html#parseIdentifier"><span class="hs-identifier hs-var">parseIdentifier</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078193"><span class="hs-identifier hs-var">rest</span></a></span><span>
+</span><span id="line-64"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;include&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe Directive
+</span><a href="Aihc.Cpp.Parser.html#parseInclude"><span class="hs-identifier hs-var">parseInclude</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078193"><span class="hs-identifier hs-var">rest</span></a></span><span>
+</span><span id="line-65"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;if&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirIf"><span class="hs-identifier hs-var">DirIf</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078193"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-66"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;ifdef&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirIfDef"><span class="hs-identifier hs-var">DirIfDef</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Directive) -&gt; Maybe Text -&gt; Maybe Directive
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe Text
+</span><a href="Aihc.Cpp.Parser.html#parseIdentifier"><span class="hs-identifier hs-var">parseIdentifier</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078193"><span class="hs-identifier hs-var">rest</span></a></span><span>
+</span><span id="line-67"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;ifndef&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirIfNDef"><span class="hs-identifier hs-var">DirIfNDef</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Directive) -&gt; Maybe Text -&gt; Maybe Directive
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe Text
+</span><a href="Aihc.Cpp.Parser.html#parseIdentifier"><span class="hs-identifier hs-var">parseIdentifier</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078193"><span class="hs-identifier hs-var">rest</span></a></span><span>
+</span><span id="line-68"></span><span>          </span><span class="hs-comment">-- Keep `#isndef` as explicitly unsupported for diagnostics on common typo input.</span><span>
+</span><span id="line-69"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;isndef&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirUnsupported"><span class="hs-identifier hs-var">DirUnsupported</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;isndef&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-70"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;elif&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirElif"><span class="hs-identifier hs-var">DirElif</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078193"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-71"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;elseif&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirElif"><span class="hs-identifier hs-var">DirElif</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078193"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-72"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;else&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">Directive
+</span><a href="Aihc.Cpp.Parser.html#DirElse"><span class="hs-identifier hs-var">DirElse</span></a></span><span>
+</span><span id="line-73"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;endif&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">Directive
+</span><a href="Aihc.Cpp.Parser.html#DirEndIf"><span class="hs-identifier hs-var">DirEndIf</span></a></span><span>
+</span><span id="line-74"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;line&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe Directive
+</span><a href="Aihc.Cpp.Parser.html#parseLineDirective"><span class="hs-identifier hs-var">parseLineDirective</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078193"><span class="hs-identifier hs-var">rest</span></a></span><span>
+</span><span id="line-75"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;pragma&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe Directive
+</span><a href="Aihc.Cpp.Parser.html#parsePragma"><span class="hs-identifier hs-var">parsePragma</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078193"><span class="hs-identifier hs-var">rest</span></a></span><span>
+</span><span id="line-76"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;warning&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirWarning"><span class="hs-identifier hs-var">DirWarning</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078193"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-77"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;error&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirError"><span class="hs-identifier hs-var">DirError</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078193"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-78"></span><span>          </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe Directive
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-79"></span><span>
+</span><span id="line-80"></span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseLineDirective"><span class="hs-identifier hs-type">parseLineDirective</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Cpp.Parser.html#Directive"><span class="hs-identifier hs-type">Directive</span></a></span><span>
+</span><span id="line-81"></span><span id="parseLineDirective"><span class="annot"><span class="annottext">parseLineDirective :: Text -&gt; Maybe Directive
+</span><a href="Aihc.Cpp.Parser.html#parseLineDirective"><span class="hs-identifier hs-var hs-var">parseLineDirective</span></a></span></span><span> </span><span id="local-6989586621679078198"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078198"><span class="hs-identifier hs-var">body</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-82"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Reader Int
+forall a. Integral a =&gt; Reader a
+</span><span class="hs-identifier hs-var">TR.decimal</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078198"><span class="hs-identifier hs-var">body</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-83"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Left</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe Directive
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-84"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679078200"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679078200"><span class="hs-identifier hs-var">lineNumber</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679078201"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078201"><span class="hs-identifier hs-var">rest0</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-85"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679078202"><span class="annot"><span class="annottext">rest :: Text
+</span><a href="#local-6989586621679078202"><span class="hs-identifier hs-var hs-var">rest</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.stripStart</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078201"><span class="hs-identifier hs-var">rest0</span></a></span><span>
+</span><span id="line-86"></span><span>       </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe Text
+</span><a href="Aihc.Cpp.Parser.html#parseQuotedText"><span class="hs-identifier hs-var">parseQuotedText</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078202"><span class="hs-identifier hs-var">rest</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-87"></span><span>            </span><span class="annot"><span class="annottext">Maybe Text
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Maybe String -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirLine"><span class="hs-identifier hs-var">DirLine</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679078200"><span class="hs-identifier hs-var">lineNumber</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe String
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span class="hs-special">)</span><span>
+</span><span id="line-88"></span><span>            </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679078203"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078203"><span class="hs-identifier hs-var">path</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Maybe String -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirLine"><span class="hs-identifier hs-var">DirLine</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679078200"><span class="hs-identifier hs-var">lineNumber</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">String -&gt; Maybe String
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; String
+</span><span class="hs-identifier hs-var">T.unpack</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078203"><span class="hs-identifier hs-var">path</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-89"></span><span>
+</span><span id="line-90"></span><span class="annot"><a href="Aihc.Cpp.Parser.html#parsePragma"><span class="hs-identifier hs-type">parsePragma</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Cpp.Parser.html#Directive"><span class="hs-identifier hs-type">Directive</span></a></span><span>
+</span><span id="line-91"></span><span id="parsePragma"><span class="annot"><span class="annottext">parsePragma :: Text -&gt; Maybe Directive
+</span><a href="Aihc.Cpp.Parser.html#parsePragma"><span class="hs-identifier hs-var hs-var">parsePragma</span></a></span></span><span> </span><span id="local-6989586621679078205"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078205"><span class="hs-identifier hs-var">body</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-92"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Text -&gt; [Text]
+</span><span class="hs-identifier hs-var">T.words</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078205"><span class="hs-identifier hs-var">body</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-93"></span><span>    </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;once&quot;</span></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">Directive
+</span><a href="Aihc.Cpp.Parser.html#DirPragmaOnce"><span class="hs-identifier hs-var">DirPragmaOnce</span></a></span><span>
+</span><span id="line-94"></span><span>    </span><span class="annot"><span class="annottext">[Text]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe Directive
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-95"></span><span>
+</span><span id="line-96"></span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseDefine"><span class="hs-identifier hs-type">parseDefine</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Cpp.Parser.html#Directive"><span class="hs-identifier hs-type">Directive</span></a></span><span>
+</span><span id="line-97"></span><span id="parseDefine"><span class="annot"><span class="annottext">parseDefine :: Text -&gt; Maybe Directive
+</span><a href="Aihc.Cpp.Parser.html#parseDefine"><span class="hs-identifier hs-var hs-var">parseDefine</span></a></span></span><span> </span><span id="local-6989586621679078207"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078207"><span class="hs-identifier hs-var">rest</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-98"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679078208"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078208"><span class="hs-identifier hs-var">name</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679078209"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078209"><span class="hs-identifier hs-var">rest0</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Bool) -&gt; Text -&gt; (Text, Text)
+</span><span class="hs-identifier hs-var">T.span</span></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><a href="Aihc.Cpp.Parser.html#isIdentChar"><span class="hs-identifier hs-var">isIdentChar</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078207"><span class="hs-identifier hs-var">rest</span></a></span><span>
+</span><span id="line-99"></span><span>  </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Bool
+</span><span class="hs-identifier hs-var">T.null</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078208"><span class="hs-identifier hs-var">name</span></a></span><span>
+</span><span id="line-100"></span><span>    </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Maybe Directive
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-101"></span><span>    </span><span class="hs-keyword">else</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe (Char, Text)
+</span><span class="hs-identifier hs-var">T.uncons</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078209"><span class="hs-identifier hs-var">rest0</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-102"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'('</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679078210"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078210"><span class="hs-identifier hs-var">afterOpen</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-103"></span><span>        </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679078211"><span class="annot"><span class="annottext">Maybe [Text]
+</span><a href="#local-6989586621679078211"><span class="hs-identifier hs-var">params</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679078212"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078212"><span class="hs-identifier hs-var">restAfterParams</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; (Maybe [Text], Text)
+</span><a href="Aihc.Cpp.Parser.html#parseDefineParams"><span class="hs-identifier hs-var">parseDefineParams</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078210"><span class="hs-identifier hs-var">afterOpen</span></a></span><span>
+</span><span id="line-104"></span><span>         </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe [Text]
+</span><a href="#local-6989586621679078211"><span class="hs-identifier hs-var">params</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-105"></span><span>              </span><span class="annot"><span class="annottext">Maybe [Text]
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirUnsupported"><span class="hs-identifier hs-var">DirUnsupported</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;define-function-macro&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-106"></span><span>              </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679078213"><span class="annot"><span class="annottext">[Text]
+</span><a href="#local-6989586621679078213"><span class="hs-identifier hs-var">names</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; [Text] -&gt; Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirDefineFunction"><span class="hs-identifier hs-var">DirDefineFunction</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078208"><span class="hs-identifier hs-var">name</span></a></span><span> </span><span class="annot"><span class="annottext">[Text]
+</span><a href="#local-6989586621679078213"><span class="hs-identifier hs-var">names</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.stripStart</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078212"><span class="hs-identifier hs-var">restAfterParams</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-107"></span><span>      </span><span class="annot"><span class="annottext">Maybe (Char, Text)
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirDefineObject"><span class="hs-identifier hs-var">DirDefineObject</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078208"><span class="hs-identifier hs-var">name</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.stripStart</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078209"><span class="hs-identifier hs-var">rest0</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-108"></span><span>
+</span><span id="line-109"></span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseDefineParams"><span class="hs-identifier hs-type">parseDefineParams</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">)</span><span>
+</span><span id="line-110"></span><span id="parseDefineParams"><span class="annot"><span class="annottext">parseDefineParams :: Text -&gt; (Maybe [Text], Text)
+</span><a href="Aihc.Cpp.Parser.html#parseDefineParams"><span class="hs-identifier hs-var hs-var">parseDefineParams</span></a></span></span><span> </span><span id="local-6989586621679078214"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078214"><span class="hs-identifier hs-var">input</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-111"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679078218"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078218"><span class="hs-identifier hs-var">inside</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679078219"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078219"><span class="hs-identifier hs-var">suffix</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">HasCallStack =&gt; Text -&gt; Text -&gt; (Text, Text)
+Text -&gt; Text -&gt; (Text, Text)
+</span><span class="hs-identifier hs-var">T.breakOn</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;)&quot;</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078214"><span class="hs-identifier hs-var">input</span></a></span><span>
+</span><span id="line-112"></span><span>   </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Bool
+</span><span class="hs-identifier hs-var">T.null</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078219"><span class="hs-identifier hs-var">suffix</span></a></span><span>
+</span><span id="line-113"></span><span>        </span><span class="hs-keyword">then</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe [Text]
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-114"></span><span>        </span><span class="hs-keyword">else</span><span>
+</span><span id="line-115"></span><span>          </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679078224"><span class="annot"><span class="annottext">rawParams :: [Text]
+</span><a href="#local-6989586621679078224"><span class="hs-identifier hs-var hs-var">rawParams</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">HasCallStack =&gt; Text -&gt; Text -&gt; [Text]
+Text -&gt; Text -&gt; [Text]
+</span><span class="hs-identifier hs-var">T.splitOn</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;,&quot;</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078218"><span class="hs-identifier hs-var">inside</span></a></span><span>
+</span><span id="line-116"></span><span>              </span><span id="local-6989586621679078226"><span class="annot"><span class="annottext">params :: [Text]
+</span><a href="#local-6989586621679078226"><span class="hs-identifier hs-var hs-var">params</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Text) -&gt; [Text] -&gt; [Text]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Char -&gt; Bool) -&gt; Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.takeWhile</span></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><a href="Aihc.Cpp.Parser.html#isIdentChar"><span class="hs-identifier hs-var">isIdentChar</span></a></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Text) -&gt; (Text -&gt; Text) -&gt; Text -&gt; Text
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.strip</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Text]
+</span><a href="#local-6989586621679078224"><span class="hs-identifier hs-var">rawParams</span></a></span><span>
+</span><span id="line-117"></span><span>           </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Bool
+</span><span class="hs-identifier hs-var">T.null</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.strip</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078218"><span class="hs-identifier hs-var">inside</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-118"></span><span>                </span><span class="hs-keyword">then</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Text] -&gt; Maybe [Text]
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.drop</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078219"><span class="hs-identifier hs-var">suffix</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-119"></span><span>                </span><span class="hs-keyword">else</span><span>
+</span><span id="line-120"></span><span>                  </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Bool) -&gt; [Text] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; (a -&gt; Bool) -&gt; t a -&gt; Bool
+</span><span class="hs-identifier hs-var">any</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Bool
+</span><span class="hs-identifier hs-var">T.null</span></span><span> </span><span class="annot"><span class="annottext">[Text]
+</span><a href="#local-6989586621679078226"><span class="hs-identifier hs-var">params</span></a></span><span>
+</span><span id="line-121"></span><span>                    </span><span class="hs-keyword">then</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe [Text]
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.drop</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078219"><span class="hs-identifier hs-var">suffix</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-122"></span><span>                    </span><span class="hs-keyword">else</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Text] -&gt; Maybe [Text]
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">[Text]
+</span><a href="#local-6989586621679078226"><span class="hs-identifier hs-var">params</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.drop</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078219"><span class="hs-identifier hs-var">suffix</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-123"></span><span>
+</span><span id="line-124"></span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseIdentifier"><span class="hs-identifier hs-type">parseIdentifier</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-125"></span><span id="parseIdentifier"><span class="annot"><span class="annottext">parseIdentifier :: Text -&gt; Maybe Text
+</span><a href="Aihc.Cpp.Parser.html#parseIdentifier"><span class="hs-identifier hs-var hs-var">parseIdentifier</span></a></span></span><span> </span><span id="local-6989586621679078231"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078231"><span class="hs-identifier hs-var">txt</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-126"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679078232"><span class="annot"><span class="annottext">ident :: Text
+</span><a href="#local-6989586621679078232"><span class="hs-identifier hs-var hs-var">ident</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Char -&gt; Bool) -&gt; Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.takeWhile</span></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><a href="Aihc.Cpp.Parser.html#isIdentChar"><span class="hs-identifier hs-var">isIdentChar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.stripStart</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078231"><span class="hs-identifier hs-var">txt</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-127"></span><span>   </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Bool
+</span><span class="hs-identifier hs-var">T.null</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078232"><span class="hs-identifier hs-var">ident</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Maybe Text
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe Text
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078232"><span class="hs-identifier hs-var">ident</span></a></span><span>
+</span><span id="line-128"></span><span>
+</span><span id="line-129"></span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseInclude"><span class="hs-identifier hs-type">parseInclude</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Cpp.Parser.html#Directive"><span class="hs-identifier hs-type">Directive</span></a></span><span>
+</span><span id="line-130"></span><span id="parseInclude"><span class="annot"><span class="annottext">parseInclude :: Text -&gt; Maybe Directive
+</span><a href="Aihc.Cpp.Parser.html#parseInclude"><span class="hs-identifier hs-var hs-var">parseInclude</span></a></span></span><span> </span><span id="local-6989586621679078233"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078233"><span class="hs-identifier hs-var">txt</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-131"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe (Char, Text)
+</span><span class="hs-identifier hs-var">T.uncons</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Text
+</span><span class="hs-identifier hs-var">T.stripStart</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078233"><span class="hs-identifier hs-var">txt</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-132"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'&quot;'</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679078234"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078234"><span class="hs-identifier hs-var">rest</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-133"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679078238"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078238"><span class="hs-identifier hs-var">path</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679078239"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078239"><span class="hs-identifier hs-var">suffix</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">HasCallStack =&gt; Text -&gt; Text -&gt; (Text, Text)
+Text -&gt; Text -&gt; (Text, Text)
+</span><span class="hs-identifier hs-var">T.breakOn</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;\&quot;&quot;</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078234"><span class="hs-identifier hs-var">rest</span></a></span><span>
+</span><span id="line-134"></span><span>       </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Bool
+</span><span class="hs-identifier hs-var">T.null</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078239"><span class="hs-identifier hs-var">suffix</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Maybe Directive
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IncludeKind -&gt; Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirInclude"><span class="hs-identifier hs-var">DirInclude</span></a></span><span> </span><span class="annot"><span class="annottext">IncludeKind
+</span><a href="Aihc.Cpp.Types.html#IncludeLocal"><span class="hs-identifier hs-var">IncludeLocal</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078238"><span class="hs-identifier hs-var">path</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-135"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'&lt;'</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679078241"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078241"><span class="hs-identifier hs-var">rest</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-136"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679078245"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078245"><span class="hs-identifier hs-var">path</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679078246"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078246"><span class="hs-identifier hs-var">suffix</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">HasCallStack =&gt; Text -&gt; Text -&gt; (Text, Text)
+Text -&gt; Text -&gt; (Text, Text)
+</span><span class="hs-identifier hs-var">T.breakOn</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;&gt;&quot;</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078241"><span class="hs-identifier hs-var">rest</span></a></span><span>
+</span><span id="line-137"></span><span>       </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Bool
+</span><span class="hs-identifier hs-var">T.null</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078246"><span class="hs-identifier hs-var">suffix</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">Maybe Directive
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Directive -&gt; Maybe Directive
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">IncludeKind -&gt; Text -&gt; Directive
+</span><a href="Aihc.Cpp.Parser.html#DirInclude"><span class="hs-identifier hs-var">DirInclude</span></a></span><span> </span><span class="annot"><span class="annottext">IncludeKind
+</span><a href="Aihc.Cpp.Types.html#IncludeSystem"><span class="hs-identifier hs-var">IncludeSystem</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078245"><span class="hs-identifier hs-var">path</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-138"></span><span>    </span><span class="annot"><span class="annottext">Maybe (Char, Text)
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe Directive
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-139"></span><span>
+</span><span id="line-140"></span><span class="annot"><a href="Aihc.Cpp.Parser.html#parseQuotedText"><span class="hs-identifier hs-type">parseQuotedText</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-141"></span><span id="parseQuotedText"><span class="annot"><span class="annottext">parseQuotedText :: Text -&gt; Maybe Text
+</span><a href="Aihc.Cpp.Parser.html#parseQuotedText"><span class="hs-identifier hs-var hs-var">parseQuotedText</span></a></span></span><span> </span><span id="local-6989586621679078248"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078248"><span class="hs-identifier hs-var">txt</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-142"></span><span>  </span><span class="hs-special">(</span><span class="annot"><span class="hs-char">'&quot;'</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679078249"><span class="annot"><a href="#local-6989586621679078249"><span class="hs-identifier hs-var">rest</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Maybe (Char, Text)
+</span><span class="hs-identifier hs-var">T.uncons</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679078248"><span class="hs-identifier hs-var">txt</span></a></span><span>
+</span><span id="line-143"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679078253"><span class="annot"><a href="#local-6989586621679078253"><span class="hs-identifier hs-var">path</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679078254"><span class="annot"><a href="#local-6989586621679078254"><span class="hs-identifier hs-var">suffix</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="hs-identifier hs-type">T.breakOn</span></span><span> </span><span class="annot"><span class="hs-string">&quot;\&quot;&quot;</span></span><span> </span><span class="annot"><a href="#local-6989586621679078249"><span class="hs-identifier hs-type">rest</span></a></span><span>
+</span><span id="line-144"></span><span>  </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="hs-identifier hs-type">T.null</span></span><span> </span><span class="annot"><a href="#local-6989586621679078254"><span class="hs-identifier hs-type">suffix</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Nothing</span></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="annot"><a href="#local-6989586621679078253"><span class="hs-identifier hs-type">path</span></a></span><span>
+</span><span id="line-145"></span><span>
+</span><span id="line-146"></span><span class="annot"><a href="Aihc.Cpp.Parser.html#isIdentStart"><span class="hs-identifier hs-type">isIdentStart</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Char</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-147"></span><span id="isIdentStart"><span class="annot"><span class="annottext">isIdentStart :: Char -&gt; Bool
+</span><a href="Aihc.Cpp.Parser.html#isIdentStart"><span class="hs-identifier hs-var hs-var">isIdentStart</span></a></span></span><span> </span><span id="local-6989586621679078255"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078255"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078255"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'_'</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><span class="hs-identifier hs-var">isLetter</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078255"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-148"></span><span>
+</span><span id="line-149"></span><span class="annot"><a href="Aihc.Cpp.Parser.html#isIdentChar"><span class="hs-identifier hs-type">isIdentChar</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Char</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-150"></span><span id="isIdentChar"><span class="annot"><span class="annottext">isIdentChar :: Char -&gt; Bool
+</span><a href="Aihc.Cpp.Parser.html#isIdentChar"><span class="hs-identifier hs-var hs-var">isIdentChar</span></a></span></span><span> </span><span id="local-6989586621679078256"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078256"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078256"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'_'</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Bool
+</span><span class="hs-identifier hs-var">isAlphaNum</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078256"><span class="hs-identifier hs-var">c</span></a></span><span>
+</span><span id="line-151"></span><span>
+</span><span id="line-152"></span><span class="annot"><a href="Aihc.Cpp.Parser.html#isOpChar"><span class="hs-identifier hs-type">isOpChar</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Char</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-153"></span><span id="isOpChar"><span class="annot"><span class="annottext">isOpChar :: Char -&gt; Bool
+</span><a href="Aihc.Cpp.Parser.html#isOpChar"><span class="hs-identifier hs-var hs-var">isOpChar</span></a></span></span><span> </span><span id="local-6989586621679078257"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078257"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-154"></span><span>  </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078257"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'+'</span></span><span>
+</span><span id="line-155"></span><span>    </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078257"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'-'</span></span><span>
+</span><span id="line-156"></span><span>    </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078257"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'*'</span></span><span>
+</span><span id="line-157"></span><span>    </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078257"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'/'</span></span><span>
+</span><span id="line-158"></span><span>    </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078257"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'%'</span></span><span>
+</span><span id="line-159"></span><span>    </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078257"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'&amp;'</span></span><span>
+</span><span id="line-160"></span><span>    </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078257"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'|'</span></span><span>
+</span><span id="line-161"></span><span>    </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078257"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'!'</span></span><span>
+</span><span id="line-162"></span><span>    </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078257"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'='</span></span><span>
+</span><span id="line-163"></span><span>    </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078257"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'&lt;'</span></span><span>
+</span><span id="line-164"></span><span>    </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679078257"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Char -&gt; Char -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'&gt;'</span></span><span>
+</span><span id="line-165"></span></pre></body></html>

@@ -1,0 +1,500 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>module Aihc.Parser.Lex.Layout
+<span class="lineno">    4 </span>  ( applyLayoutTokens,
+<span class="lineno">    5 </span>    layoutTransition,
+<span class="lineno">    6 </span>    closeImplicitLayoutContext,
+<span class="lineno">    7 </span>  )
+<span class="lineno">    8 </span>where
+<span class="lineno">    9 </span>
+<span class="lineno">   10 </span>import Aihc.Parser.Lex.Types
+<span class="lineno">   11 </span>import Aihc.Parser.Syntax (Extension, SourceSpan (..))
+<span class="lineno">   12 </span>import Data.Maybe (fromMaybe)
+<span class="lineno">   13 </span>
+<span class="lineno">   14 </span>ordinaryLayout :: ImplicitLayoutSpec
+<span class="lineno">   15 </span><span class="decl"><span class="istickedoff">ordinaryLayout =</span>
+<span class="lineno">   16 </span><span class="spaces">  </span><span class="istickedoff">ImplicitLayoutSpec</span>
+<span class="lineno">   17 </span><span class="spaces">    </span><span class="istickedoff">{ implicitLayoutSemicolons = LayoutEmitSemicolons,</span>
+<span class="lineno">   18 </span><span class="spaces">      </span><span class="istickedoff">implicitLayoutIndentPolicy = LayoutAllowNondecreasingIndent,</span>
+<span class="lineno">   19 </span><span class="spaces">      </span><span class="istickedoff">implicitLayoutBaseline = LayoutCurrentIndent,</span>
+<span class="lineno">   20 </span><span class="spaces">      </span><span class="istickedoff">implicitLayoutChildBaseline = LayoutCurrentIndent,</span>
+<span class="lineno">   21 </span><span class="spaces">      </span><span class="istickedoff">implicitLayoutThenElseDepth = Nothing,</span>
+<span class="lineno">   22 </span><span class="spaces">      </span><span class="istickedoff">implicitLayoutFlushEmptyAtEOF = False</span>
+<span class="lineno">   23 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">   24 </span>
+<span class="lineno">   25 </span>strictLayout :: ImplicitLayoutSpec
+<span class="lineno">   26 </span><span class="decl"><span class="istickedoff">strictLayout = ordinaryLayout {implicitLayoutIndentPolicy = LayoutStrictIndent}</span></span>
+<span class="lineno">   27 </span>
+<span class="lineno">   28 </span>caseAlternativeLayout :: LayoutState -&gt; ImplicitLayoutSpec
+<span class="lineno">   29 </span><span class="decl"><span class="istickedoff">caseAlternativeLayout st =</span>
+<span class="lineno">   30 </span><span class="spaces">  </span><span class="istickedoff">strictLayout</span>
+<span class="lineno">   31 </span><span class="spaces">    </span><span class="istickedoff">{ implicitLayoutBaseline = currentChildBaseline (layoutContexts st),</span>
+<span class="lineno">   32 </span><span class="spaces">      </span><span class="istickedoff">implicitLayoutFlushEmptyAtEOF = True</span>
+<span class="lineno">   33 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">   34 </span>
+<span class="lineno">   35 </span>multiWayIfLayout :: ImplicitLayoutSpec
+<span class="lineno">   36 </span><span class="decl"><span class="istickedoff">multiWayIfLayout =</span>
+<span class="lineno">   37 </span><span class="spaces">  </span><span class="istickedoff">strictLayout</span>
+<span class="lineno">   38 </span><span class="spaces">    </span><span class="istickedoff">{ implicitLayoutSemicolons = LayoutSuppressSemicolons</span>
+<span class="lineno">   39 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">   40 </span>
+<span class="lineno">   41 </span>thenElseDoLayout :: ImplicitLayoutSpec
+<span class="lineno">   42 </span><span class="decl"><span class="istickedoff">thenElseDoLayout =</span>
+<span class="lineno">   43 </span><span class="spaces">  </span><span class="istickedoff">ordinaryLayout</span>
+<span class="lineno">   44 </span><span class="spaces">    </span><span class="istickedoff">{ implicitLayoutThenElseDepth = Just 0</span>
+<span class="lineno">   45 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">   46 </span>
+<span class="lineno">   47 </span>thDeclQuoteLayout :: ImplicitLayoutSpec
+<span class="lineno">   48 </span><span class="decl"><span class="istickedoff">thDeclQuoteLayout =</span>
+<span class="lineno">   49 </span><span class="spaces">  </span><span class="istickedoff">strictLayout</span>
+<span class="lineno">   50 </span><span class="spaces">    </span><span class="istickedoff">{ implicitLayoutChildBaseline = LayoutColumnZero</span>
+<span class="lineno">   51 </span><span class="spaces">    </span><span class="istickedoff">}</span></span>
+<span class="lineno">   52 </span>
+<span class="lineno">   53 </span>applyLayoutTokens :: Bool -&gt; [Extension] -&gt; [LexToken] -&gt; [LexToken]
+<span class="lineno">   54 </span><span class="decl"><span class="istickedoff">applyLayoutTokens enableModuleLayout exts =</span>
+<span class="lineno">   55 </span><span class="spaces">  </span><span class="istickedoff">go (mkInitialLayoutState enableModuleLayout exts)</span>
+<span class="lineno">   56 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   57 </span><span class="spaces">    </span><span class="istickedoff">go st toks =</span>
+<span class="lineno">   58 </span><span class="spaces">      </span><span class="istickedoff">case toks of</span>
+<span class="lineno">   59 </span><span class="spaces">        </span><span class="istickedoff">[] -&gt;</span>
+<span class="lineno">   60 </span><span class="spaces">          </span><span class="istickedoff">let <span class="nottickedoff">eofAnchor = NoSourceSpan</span></span>
+<span class="lineno">   61 </span><span class="spaces">              </span><span class="istickedoff">(moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st <span class="nottickedoff">eofAnchor</span></span>
+<span class="lineno">   62 </span><span class="spaces">              </span><span class="istickedoff">(pendingInserted, stAfterPending) = flushPendingCaseLayoutAtEOF stAfterModule <span class="nottickedoff">eofAnchor</span></span>
+<span class="lineno">   63 </span><span class="spaces">           </span><span class="istickedoff">in moduleInserted &lt;&gt; pendingInserted &lt;&gt; closeAllImplicit (layoutContexts stAfterPending) <span class="nottickedoff">eofAnchor</span></span>
+<span class="lineno">   64 </span><span class="spaces">        </span><span class="istickedoff">tok : rest -&gt;</span>
+<span class="lineno">   65 </span><span class="spaces">          </span><span class="istickedoff">let (emitted, stNext) = layoutTransition st tok</span>
+<span class="lineno">   66 </span><span class="spaces">           </span><span class="istickedoff">in emitted &lt;&gt; go stNext rest</span></span>
+<span class="lineno">   67 </span>
+<span class="lineno">   68 </span>finalizeModuleLayoutAtEOF :: LayoutState -&gt; SourceSpan -&gt; ([LexToken], LayoutState)
+<span class="lineno">   69 </span><span class="decl"><span class="istickedoff">finalizeModuleLayoutAtEOF st anchor =</span>
+<span class="lineno">   70 </span><span class="spaces">  </span><span class="istickedoff">case layoutModuleMode st of</span>
+<span class="lineno">   71 </span><span class="spaces">    </span><span class="istickedoff">mode</span>
+<span class="lineno">   72 </span><span class="spaces">      </span><span class="istickedoff">| mode == ModuleLayoutSeekStart || mode == ModuleLayoutAwaitBody -&gt;</span>
+<span class="lineno">   73 </span><span class="spaces">          </span><span class="istickedoff">( [virtualSymbolToken &quot;{&quot; anchor, virtualSymbolToken &quot;}&quot; anchor],</span>
+<span class="lineno">   74 </span><span class="spaces">            </span><span class="istickedoff">st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Nothing}</span>
+<span class="lineno">   75 </span><span class="spaces">          </span><span class="istickedoff">)</span>
+<span class="lineno">   76 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; ([], st)</span></span>
+<span class="lineno">   77 </span>
+<span class="lineno">   78 </span>{-# INLINE noteModuleLayoutBeforeToken #-}
+<span class="lineno">   79 </span>noteModuleLayoutBeforeToken :: LayoutState -&gt; LexToken -&gt; LayoutState
+<span class="lineno">   80 </span><span class="decl"><span class="istickedoff">noteModuleLayoutBeforeToken st tok =</span>
+<span class="lineno">   81 </span><span class="spaces">  </span><span class="istickedoff">case layoutModuleMode st of</span>
+<span class="lineno">   82 </span><span class="spaces">    </span><span class="istickedoff">ModuleLayoutAwaitBody -&gt; st {layoutModuleMode = ModuleLayoutDone}</span>
+<span class="lineno">   83 </span><span class="spaces">    </span><span class="istickedoff">ModuleLayoutSeekStart -&gt;</span>
+<span class="lineno">   84 </span><span class="spaces">      </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">   85 </span><span class="spaces">        </span><span class="istickedoff">TkPragma _ -&gt; st</span>
+<span class="lineno">   86 </span><span class="spaces">        </span><span class="istickedoff">TkLineComment -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">   87 </span><span class="spaces">        </span><span class="istickedoff">TkBlockComment -&gt; <span class="nottickedoff">st</span></span>
+<span class="lineno">   88 </span><span class="spaces">        </span><span class="istickedoff">TkKeywordModule -&gt; st {layoutModuleMode = ModuleLayoutAwaitWhere}</span>
+<span class="lineno">   89 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}</span>
+<span class="lineno">   90 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; st</span></span>
+<span class="lineno">   91 </span>
+<span class="lineno">   92 </span>{-# INLINE noteModuleLayoutAfterToken #-}
+<span class="lineno">   93 </span>noteModuleLayoutAfterToken :: LayoutState -&gt; LexToken -&gt; LayoutState
+<span class="lineno">   94 </span><span class="decl"><span class="istickedoff">noteModuleLayoutAfterToken st tok =</span>
+<span class="lineno">   95 </span><span class="spaces">  </span><span class="istickedoff">case layoutModuleMode st of</span>
+<span class="lineno">   96 </span><span class="spaces">    </span><span class="istickedoff">ModuleLayoutAwaitWhere</span>
+<span class="lineno">   97 </span><span class="spaces">      </span><span class="istickedoff">| lexTokenKind tok == TkKeywordWhere -&gt;</span>
+<span class="lineno">   98 </span><span class="spaces">          </span><span class="istickedoff">st {layoutModuleMode = ModuleLayoutAwaitBody, layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}</span>
+<span class="lineno">   99 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; st</span></span>
+<span class="lineno">  100 </span>
+<span class="lineno">  101 </span>{-# INLINE openPendingLayout #-}
+<span class="lineno">  102 </span>openPendingLayout :: LayoutState -&gt; LexToken -&gt; ([LexToken], LayoutState, Bool)
+<span class="lineno">  103 </span><span class="decl"><span class="istickedoff">openPendingLayout st tok =</span>
+<span class="lineno">  104 </span><span class="spaces">  </span><span class="istickedoff">case layoutPendingLayout st of</span>
+<span class="lineno">  105 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; ([], st, False)</span>
+<span class="lineno">  106 </span><span class="spaces">    </span><span class="istickedoff">Just pending -&gt;</span>
+<span class="lineno">  107 </span><span class="spaces">      </span><span class="istickedoff">case pending of</span>
+<span class="lineno">  108 </span><span class="spaces">        </span><span class="istickedoff">PendingMaybeMultiWayIf -&gt;</span>
+<span class="lineno">  109 </span><span class="spaces">          </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  110 </span><span class="spaces">            </span><span class="istickedoff">TkReservedPipe -&gt; openImplicitLayout multiWayIfLayout st tok</span>
+<span class="lineno">  111 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; ([], noteClassicIfInAfterThenElse (st {layoutPendingLayout = Nothing}), False)</span>
+<span class="lineno">  112 </span><span class="spaces">        </span><span class="istickedoff">PendingMaybeLambdaCases -&gt;</span>
+<span class="lineno">  113 </span><span class="spaces">          </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  114 </span><span class="spaces">            </span><span class="istickedoff">TkSpecialLBrace -&gt; ([], st {layoutPendingLayout = Nothing}, False)</span>
+<span class="lineno">  115 </span><span class="spaces">            </span><span class="istickedoff">tkKind</span>
+<span class="lineno">  116 </span><span class="spaces">              </span><span class="istickedoff">| closesDelimiter tkKind -&gt;</span>
+<span class="lineno">  117 </span><span class="spaces">                  </span><span class="istickedoff">let anchor = lexTokenSpan tok</span>
+<span class="lineno">  118 </span><span class="spaces">                      </span><span class="istickedoff">openTok = virtualSymbolToken &quot;{&quot; anchor</span>
+<span class="lineno">  119 </span><span class="spaces">                      </span><span class="istickedoff">closeTok = virtualSymbolToken &quot;}&quot; anchor</span>
+<span class="lineno">  120 </span><span class="spaces">                   </span><span class="istickedoff">in ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)</span>
+<span class="lineno">  121 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; openImplicitLayout (caseAlternativeLayout st) st tok</span>
+<span class="lineno">  122 </span><span class="spaces">        </span><span class="istickedoff">PendingImplicitLayout spec -&gt;</span>
+<span class="lineno">  123 </span><span class="spaces">          </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  124 </span><span class="spaces">            </span><span class="istickedoff">TkSpecialLBrace -&gt; ([], st {layoutPendingLayout = Nothing}, False)</span>
+<span class="lineno">  125 </span><span class="spaces">            </span><span class="istickedoff">tkKind</span>
+<span class="lineno">  126 </span><span class="spaces">              </span><span class="istickedoff">| <span class="tickonlyfalse">closesDelimiter tkKind</span> -&gt;</span>
+<span class="lineno">  127 </span><span class="spaces">                  </span><span class="istickedoff">-- Closing delimiter immediately after layout-opener (e.g. [d| |])</span>
+<span class="lineno">  128 </span><span class="spaces">                  </span><span class="istickedoff">-- produces empty implicit layout {}, then the closer proceeds normally.</span>
+<span class="lineno">  129 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">let anchor = lexTokenSpan tok</span></span>
+<span class="lineno">  130 </span><span class="spaces">                      </span><span class="istickedoff"><span class="nottickedoff">openTok = virtualSymbolToken &quot;{&quot; anchor</span></span>
+<span class="lineno">  131 </span><span class="spaces">                      </span><span class="istickedoff"><span class="nottickedoff">closeTok = virtualSymbolToken &quot;}&quot; anchor</span></span>
+<span class="lineno">  132 </span><span class="spaces">                   </span><span class="istickedoff"><span class="nottickedoff">in ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)</span></span>
+<span class="lineno">  133 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; openImplicitLayout spec st tok</span></span>
+<span class="lineno">  134 </span>
+<span class="lineno">  135 </span>openImplicitLayout :: ImplicitLayoutSpec -&gt; LayoutState -&gt; LexToken -&gt; ([LexToken], LayoutState, Bool)
+<span class="lineno">  136 </span><span class="decl"><span class="istickedoff">openImplicitLayout spec st tok =</span>
+<span class="lineno">  137 </span><span class="spaces">  </span><span class="istickedoff">let col = tokenStartCol tok</span>
+<span class="lineno">  138 </span><span class="spaces">      </span><span class="istickedoff">parentIndent =</span>
+<span class="lineno">  139 </span><span class="spaces">        </span><span class="istickedoff">case implicitLayoutBaseline spec of</span>
+<span class="lineno">  140 </span><span class="spaces">          </span><span class="istickedoff">LayoutCurrentIndent -&gt; currentLayoutIndent (layoutContexts st)</span>
+<span class="lineno">  141 </span><span class="spaces">          </span><span class="istickedoff">LayoutColumnZero -&gt; 0</span>
+<span class="lineno">  142 </span><span class="spaces">      </span><span class="istickedoff">openTok = virtualSymbolToken &quot;{&quot; (lexTokenSpan tok)</span>
+<span class="lineno">  143 </span><span class="spaces">      </span><span class="istickedoff">closeTok = virtualSymbolToken &quot;}&quot; (lexTokenSpan tok)</span>
+<span class="lineno">  144 </span><span class="spaces">      </span><span class="istickedoff">newContext =</span>
+<span class="lineno">  145 </span><span class="spaces">        </span><span class="istickedoff">LayoutImplicit</span>
+<span class="lineno">  146 </span><span class="spaces">          </span><span class="istickedoff">LayoutFrame</span>
+<span class="lineno">  147 </span><span class="spaces">            </span><span class="istickedoff">{ layoutFrameIndent = col,</span>
+<span class="lineno">  148 </span><span class="spaces">              </span><span class="istickedoff">layoutFrameSemicolons = implicitLayoutSemicolons spec,</span>
+<span class="lineno">  149 </span><span class="spaces">              </span><span class="istickedoff">layoutFrameChildBaseline = implicitLayoutChildBaseline spec,</span>
+<span class="lineno">  150 </span><span class="spaces">              </span><span class="istickedoff">layoutFrameThenElseDepth = implicitLayoutThenElseDepth spec</span>
+<span class="lineno">  151 </span><span class="spaces">            </span><span class="istickedoff">}</span>
+<span class="lineno">  152 </span><span class="spaces">      </span><span class="istickedoff">opensEmpty =</span>
+<span class="lineno">  153 </span><span class="spaces">        </span><span class="istickedoff">case implicitLayoutIndentPolicy spec of</span>
+<span class="lineno">  154 </span><span class="spaces">          </span><span class="istickedoff">LayoutAllowNondecreasingIndent</span>
+<span class="lineno">  155 </span><span class="spaces">            </span><span class="istickedoff">| layoutNondecreasingIndent st -&gt; col &lt; parentIndent</span>
+<span class="lineno">  156 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt; col &lt;= parentIndent</span>
+<span class="lineno">  157 </span><span class="spaces">   </span><span class="istickedoff">in if opensEmpty</span>
+<span class="lineno">  158 </span><span class="spaces">        </span><span class="istickedoff">then ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)</span>
+<span class="lineno">  159 </span><span class="spaces">        </span><span class="istickedoff">else</span>
+<span class="lineno">  160 </span><span class="spaces">          </span><span class="istickedoff">( [openTok],</span>
+<span class="lineno">  161 </span><span class="spaces">            </span><span class="istickedoff">st</span>
+<span class="lineno">  162 </span><span class="spaces">              </span><span class="istickedoff">{ layoutPendingLayout = Nothing,</span>
+<span class="lineno">  163 </span><span class="spaces">                </span><span class="istickedoff">layoutContexts = newContext : layoutContexts st</span>
+<span class="lineno">  164 </span><span class="spaces">              </span><span class="istickedoff">},</span>
+<span class="lineno">  165 </span><span class="spaces">            </span><span class="istickedoff">True</span>
+<span class="lineno">  166 </span><span class="spaces">          </span><span class="istickedoff">)</span></span>
+<span class="lineno">  167 </span>
+<span class="lineno">  168 </span>{-# INLINE closeBeforeToken #-}
+<span class="lineno">  169 </span>closeBeforeToken :: LayoutState -&gt; LexToken -&gt; ([LexToken], LayoutState)
+<span class="lineno">  170 </span><span class="decl"><span class="istickedoff">closeBeforeToken st tok =</span>
+<span class="lineno">  171 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  172 </span><span class="spaces">    </span><span class="istickedoff">kind</span>
+<span class="lineno">  173 </span><span class="spaces">      </span><span class="istickedoff">| closesImplicitBeforeDelimiter kind -&gt;</span>
+<span class="lineno">  174 </span><span class="spaces">          </span><span class="istickedoff">let (pendingInserted, st0) = flushPendingImplicitLayout st anchor</span>
+<span class="lineno">  175 </span><span class="spaces">              </span><span class="istickedoff">(inserted, ctxs') = closeImplicitLayouts anchor (\_ _ -&gt; True) (layoutContexts st0)</span>
+<span class="lineno">  176 </span><span class="spaces">           </span><span class="istickedoff">in (pendingInserted &lt;&gt; inserted, st0 {layoutContexts = ctxs'})</span>
+<span class="lineno">  177 </span><span class="spaces">      </span><span class="istickedoff">| closesImplicitBeforeLayoutKeyword kind -&gt;</span>
+<span class="lineno">  178 </span><span class="spaces">          </span><span class="istickedoff">closeBeforeLayoutKeyword</span>
+<span class="lineno">  179 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; ([], st)</span>
+<span class="lineno">  180 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  181 </span><span class="spaces">    </span><span class="istickedoff">anchor = lexTokenSpan tok</span>
+<span class="lineno">  182 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  183 </span><span class="spaces">    </span><span class="istickedoff">closeBeforeLayoutKeyword =</span>
+<span class="lineno">  184 </span><span class="spaces">      </span><span class="istickedoff">let col = tokenStartCol tok</span>
+<span class="lineno">  185 </span><span class="spaces">          </span><span class="istickedoff">(pendingInserted, st0) = flushPendingImplicitLayout st anchor</span>
+<span class="lineno">  186 </span><span class="spaces">          </span><span class="istickedoff">(inserted, ctxs') = closeImplicitLayouts anchor (shouldClose col) (layoutContexts st0)</span>
+<span class="lineno">  187 </span><span class="spaces">       </span><span class="istickedoff">in (pendingInserted &lt;&gt; inserted, st0 {layoutContexts = ctxs'})</span>
+<span class="lineno">  188 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  189 </span><span class="spaces">    </span><span class="istickedoff">shouldClose col indent kind =</span>
+<span class="lineno">  190 </span><span class="spaces">      </span><span class="istickedoff">col &lt; indent || (col == indent &amp;&amp; closesSameColumnLayout kind)</span>
+<span class="lineno">  191 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  192 </span><span class="spaces">    </span><span class="istickedoff">closesSameColumnLayout kind =</span>
+<span class="lineno">  193 </span><span class="spaces">      </span><span class="istickedoff">case (lexTokenKind tok, kind) of</span>
+<span class="lineno">  194 </span><span class="spaces">        </span><span class="istickedoff">(TkKeywordThen, LayoutFrame {layoutFrameThenElseDepth = Just nestedIfs}) -&gt; <span class="nottickedoff">nestedIfs == 0</span></span>
+<span class="lineno">  195 </span><span class="spaces">        </span><span class="istickedoff">(TkKeywordElse, LayoutFrame {layoutFrameThenElseDepth = Just nestedIfs}) -&gt; nestedIfs == 0</span>
+<span class="lineno">  196 </span><span class="spaces">        </span><span class="istickedoff">(TkKeywordThen, _) -&gt; False</span>
+<span class="lineno">  197 </span><span class="spaces">        </span><span class="istickedoff">(TkKeywordElse, _) -&gt; False</span>
+<span class="lineno">  198 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; True</span></span>
+<span class="lineno">  199 </span>
+<span class="lineno">  200 </span>flushPendingImplicitLayout :: LayoutState -&gt; SourceSpan -&gt; ([LexToken], LayoutState)
+<span class="lineno">  201 </span><span class="decl"><span class="istickedoff">flushPendingImplicitLayout st anchor =</span>
+<span class="lineno">  202 </span><span class="spaces">  </span><span class="istickedoff">case layoutPendingLayout st of</span>
+<span class="lineno">  203 </span><span class="spaces">    </span><span class="istickedoff">Just (PendingImplicitLayout _) -&gt;</span>
+<span class="lineno">  204 </span><span class="spaces">      </span><span class="istickedoff">( [virtualSymbolToken &quot;{&quot; anchor, virtualSymbolToken &quot;}&quot; anchor],</span>
+<span class="lineno">  205 </span><span class="spaces">        </span><span class="istickedoff">st {layoutPendingLayout = Nothing}</span>
+<span class="lineno">  206 </span><span class="spaces">      </span><span class="istickedoff">)</span>
+<span class="lineno">  207 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; ([], st)</span></span>
+<span class="lineno">  208 </span>
+<span class="lineno">  209 </span>flushPendingCaseLayoutAtEOF :: LayoutState -&gt; SourceSpan -&gt; ([LexToken], LayoutState)
+<span class="lineno">  210 </span><span class="decl"><span class="istickedoff">flushPendingCaseLayoutAtEOF st anchor =</span>
+<span class="lineno">  211 </span><span class="spaces">  </span><span class="istickedoff">case layoutPendingLayout st of</span>
+<span class="lineno">  212 </span><span class="spaces">    </span><span class="istickedoff">Just (PendingImplicitLayout spec)</span>
+<span class="lineno">  213 </span><span class="spaces">      </span><span class="istickedoff">| implicitLayoutFlushEmptyAtEOF spec -&gt;</span>
+<span class="lineno">  214 </span><span class="spaces">          </span><span class="istickedoff">( [virtualSymbolToken &quot;{&quot; anchor, virtualSymbolToken &quot;}&quot; anchor],</span>
+<span class="lineno">  215 </span><span class="spaces">            </span><span class="istickedoff">st {layoutPendingLayout = Nothing}</span>
+<span class="lineno">  216 </span><span class="spaces">          </span><span class="istickedoff">)</span>
+<span class="lineno">  217 </span><span class="spaces">    </span><span class="istickedoff">Just PendingMaybeLambdaCases -&gt;</span>
+<span class="lineno">  218 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">( [virtualSymbolToken &quot;{&quot; anchor, virtualSymbolToken &quot;}&quot; anchor],</span></span>
+<span class="lineno">  219 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">st {layoutPendingLayout = Nothing}</span></span>
+<span class="lineno">  220 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">)</span></span>
+<span class="lineno">  221 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; ([], st)</span></span>
+<span class="lineno">  222 </span>
+<span class="lineno">  223 </span>{-# INLINE bolLayout #-}
+<span class="lineno">  224 </span>bolLayout :: LayoutState -&gt; LexToken -&gt; ([LexToken], LayoutState)
+<span class="lineno">  225 </span><span class="decl"><span class="istickedoff">bolLayout st tok</span>
+<span class="lineno">  226 </span><span class="spaces">  </span><span class="istickedoff">| not (isBOL <span class="nottickedoff">st</span> tok) = ([], st)</span>
+<span class="lineno">  227 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> =</span>
+<span class="lineno">  228 </span><span class="spaces">      </span><span class="istickedoff">let col = tokenStartCol tok</span>
+<span class="lineno">  229 </span><span class="spaces">          </span><span class="istickedoff">(inserted, contexts') = closeImplicitLayouts (lexTokenSpan tok) (\indent _ -&gt; col &lt; indent) (layoutContexts st)</span>
+<span class="lineno">  230 </span><span class="spaces">          </span><span class="istickedoff">semiAnchor = fromMaybe <span class="nottickedoff">(lexTokenSpan tok)</span> (layoutPrevTokenEndSpan st)</span>
+<span class="lineno">  231 </span><span class="spaces">          </span><span class="istickedoff">eqSemi =</span>
+<span class="lineno">  232 </span><span class="spaces">            </span><span class="istickedoff">case currentLayoutIndentMaybe contexts' of</span>
+<span class="lineno">  233 </span><span class="spaces">              </span><span class="istickedoff">Just indent</span>
+<span class="lineno">  234 </span><span class="spaces">                </span><span class="istickedoff">| col == indent,</span>
+<span class="lineno">  235 </span><span class="spaces">                  </span><span class="istickedoff">currentLayoutAllowsSemicolon contexts',</span>
+<span class="lineno">  236 </span><span class="spaces">                  </span><span class="istickedoff"><span class="tickonlytrue">lexTokenKind tok /= TkKeywordWhere</span> -&gt;</span>
+<span class="lineno">  237 </span><span class="spaces">                    </span><span class="istickedoff">[virtualSymbolToken &quot;;&quot; semiAnchor]</span>
+<span class="lineno">  238 </span><span class="spaces">              </span><span class="istickedoff">_ -&gt; []</span>
+<span class="lineno">  239 </span><span class="spaces">       </span><span class="istickedoff">in (inserted &lt;&gt; eqSemi, st {layoutContexts = contexts'})</span></span>
+<span class="lineno">  240 </span>
+<span class="lineno">  241 </span>currentLayoutAllowsSemicolon :: [LayoutContext] -&gt; Bool
+<span class="lineno">  242 </span><span class="decl"><span class="istickedoff">currentLayoutAllowsSemicolon contexts =</span>
+<span class="lineno">  243 </span><span class="spaces">  </span><span class="istickedoff">case contexts of</span>
+<span class="lineno">  244 </span><span class="spaces">    </span><span class="istickedoff">LayoutImplicit LayoutFrame {layoutFrameSemicolons = LayoutSuppressSemicolons} : _ -&gt; False</span>
+<span class="lineno">  245 </span><span class="spaces">    </span><span class="istickedoff">LayoutImplicit _ : _ -&gt; True</span>
+<span class="lineno">  246 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">False</span></span></span>
+<span class="lineno">  247 </span>
+<span class="lineno">  248 </span>closeImplicitLayouts :: SourceSpan -&gt; (Int -&gt; LayoutFrame -&gt; Bool) -&gt; [LayoutContext] -&gt; ([LexToken], [LayoutContext])
+<span class="lineno">  249 </span><span class="decl"><span class="istickedoff">closeImplicitLayouts anchor shouldClose = go []</span>
+<span class="lineno">  250 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  251 </span><span class="spaces">    </span><span class="istickedoff">closeTok = virtualSymbolToken &quot;}&quot; anchor</span>
+<span class="lineno">  252 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  253 </span><span class="spaces">    </span><span class="istickedoff">go acc contexts =</span>
+<span class="lineno">  254 </span><span class="spaces">      </span><span class="istickedoff">case contexts of</span>
+<span class="lineno">  255 </span><span class="spaces">        </span><span class="istickedoff">LayoutImplicit frame : rest</span>
+<span class="lineno">  256 </span><span class="spaces">          </span><span class="istickedoff">| shouldClose (layoutFrameIndent frame) frame -&gt; go (closeTok : acc) rest</span>
+<span class="lineno">  257 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; (reverse acc, contexts)</span></span>
+<span class="lineno">  258 </span>
+<span class="lineno">  259 </span>closeAllImplicit :: [LayoutContext] -&gt; SourceSpan -&gt; [LexToken]
+<span class="lineno">  260 </span><span class="decl"><span class="istickedoff">closeAllImplicit contexts anchor =</span>
+<span class="lineno">  261 </span><span class="spaces">  </span><span class="istickedoff">[virtualSymbolToken &quot;}&quot; anchor | ctx &lt;- contexts, isImplicitLayoutContext ctx]</span></span>
+<span class="lineno">  262 </span>
+<span class="lineno">  263 </span>{-# INLINE stepTokenContext #-}
+<span class="lineno">  264 </span>stepTokenContext :: LayoutState -&gt; LexToken -&gt; LayoutState
+<span class="lineno">  265 </span><span class="decl"><span class="istickedoff">stepTokenContext st tok =</span>
+<span class="lineno">  266 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  267 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordDo</span>
+<span class="lineno">  268 </span><span class="spaces">      </span><span class="istickedoff">| layoutPrevTokenKind st == Just TkKeywordThen</span>
+<span class="lineno">  269 </span><span class="spaces">          </span><span class="istickedoff">|| layoutPrevTokenKind st == Just TkKeywordElse -&gt;</span>
+<span class="lineno">  270 </span><span class="spaces">          </span><span class="istickedoff">st {layoutPendingLayout = Just (PendingImplicitLayout thenElseDoLayout)}</span>
+<span class="lineno">  271 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; st {layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}</span>
+<span class="lineno">  272 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordMdo -&gt; st {layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}</span>
+<span class="lineno">  273 </span><span class="spaces">    </span><span class="istickedoff">TkQualifiedDo {}</span>
+<span class="lineno">  274 </span><span class="spaces">      </span><span class="istickedoff">| layoutPrevTokenKind st == Just TkKeywordThen</span>
+<span class="lineno">  275 </span><span class="spaces">          </span><span class="istickedoff">|| layoutPrevTokenKind st == Just TkKeywordElse -&gt;</span>
+<span class="lineno">  276 </span><span class="spaces">          </span><span class="istickedoff">st {layoutPendingLayout = Just (PendingImplicitLayout thenElseDoLayout)}</span>
+<span class="lineno">  277 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; st {layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}</span>
+<span class="lineno">  278 </span><span class="spaces">    </span><span class="istickedoff">TkQualifiedMdo {} -&gt; st {layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}</span>
+<span class="lineno">  279 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordOf -&gt; st {layoutPendingLayout = Just (PendingImplicitLayout (caseAlternativeLayout st))}</span>
+<span class="lineno">  280 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordCase</span>
+<span class="lineno">  281 </span><span class="spaces">      </span><span class="istickedoff">| layoutPrevTokenKind st == Just TkReservedBackslash -&gt;</span>
+<span class="lineno">  282 </span><span class="spaces">          </span><span class="istickedoff">st {layoutPendingLayout = Just (PendingImplicitLayout (caseAlternativeLayout st))}</span>
+<span class="lineno">  283 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; st</span>
+<span class="lineno">  284 </span><span class="spaces">    </span><span class="istickedoff">TkVarId &quot;cases&quot;</span>
+<span class="lineno">  285 </span><span class="spaces">      </span><span class="istickedoff">| layoutLambdaCase st &amp;&amp; layoutPrevTokenKind st == Just TkReservedBackslash -&gt;</span>
+<span class="lineno">  286 </span><span class="spaces">          </span><span class="istickedoff">st {layoutPendingLayout = Just PendingMaybeLambdaCases}</span>
+<span class="lineno">  287 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; st</span>
+<span class="lineno">  288 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordLet -&gt; st {layoutPendingLayout = Just (PendingImplicitLayout strictLayout)}</span>
+<span class="lineno">  289 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordRec -&gt; st {layoutPendingLayout = Just (PendingImplicitLayout ordinaryLayout)}</span>
+<span class="lineno">  290 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordWhere -&gt; st {layoutPendingLayout = Just (PendingImplicitLayout strictLayout)}</span>
+<span class="lineno">  291 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordElse -&gt; decrementAfterThenElseClassicIfDepth st</span>
+<span class="lineno">  292 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordIf -&gt; st {layoutPendingLayout = Just PendingMaybeMultiWayIf}</span>
+<span class="lineno">  293 </span><span class="spaces">    </span><span class="istickedoff">TkTHDeclQuoteOpen -&gt;</span>
+<span class="lineno">  294 </span><span class="spaces">      </span><span class="istickedoff">st</span>
+<span class="lineno">  295 </span><span class="spaces">        </span><span class="istickedoff">{ layoutContexts = LayoutDelimiter : layoutContexts st,</span>
+<span class="lineno">  296 </span><span class="spaces">          </span><span class="istickedoff">layoutPendingLayout = Just (PendingImplicitLayout thDeclQuoteLayout)</span>
+<span class="lineno">  297 </span><span class="spaces">        </span><span class="istickedoff">}</span>
+<span class="lineno">  298 </span><span class="spaces">    </span><span class="istickedoff">kind</span>
+<span class="lineno">  299 </span><span class="spaces">      </span><span class="istickedoff">| opensDelimiter kind -&gt;</span>
+<span class="lineno">  300 </span><span class="spaces">          </span><span class="istickedoff">st {layoutContexts = LayoutDelimiter : layoutContexts st}</span>
+<span class="lineno">  301 </span><span class="spaces">    </span><span class="istickedoff">kind</span>
+<span class="lineno">  302 </span><span class="spaces">      </span><span class="istickedoff">| closesDelimiter kind -&gt;</span>
+<span class="lineno">  303 </span><span class="spaces">          </span><span class="istickedoff">st {layoutContexts = popToDelimiter (layoutContexts st)}</span>
+<span class="lineno">  304 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialLBrace -&gt; st {layoutContexts = LayoutExplicit : layoutContexts st}</span>
+<span class="lineno">  305 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialRBrace -&gt; st {layoutContexts = popOneContext (layoutContexts st)}</span>
+<span class="lineno">  306 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; st</span></span>
+<span class="lineno">  307 </span>
+<span class="lineno">  308 </span>mapAfterThenElse :: (Int -&gt; Int) -&gt; [LayoutContext] -&gt; [LayoutContext]
+<span class="lineno">  309 </span><span class="decl"><span class="istickedoff">mapAfterThenElse f = go</span>
+<span class="lineno">  310 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  311 </span><span class="spaces">    </span><span class="istickedoff">go contexts =</span>
+<span class="lineno">  312 </span><span class="spaces">      </span><span class="istickedoff">case contexts of</span>
+<span class="lineno">  313 </span><span class="spaces">        </span><span class="istickedoff">LayoutImplicit frame@LayoutFrame {layoutFrameThenElseDepth = Just nestedIfs} : rest -&gt;</span>
+<span class="lineno">  314 </span><span class="spaces">          </span><span class="istickedoff">LayoutImplicit frame {layoutFrameThenElseDepth = Just (f nestedIfs)} : rest</span>
+<span class="lineno">  315 </span><span class="spaces">        </span><span class="istickedoff">ctx : rest -&gt; ctx : go rest</span>
+<span class="lineno">  316 </span><span class="spaces">        </span><span class="istickedoff">[] -&gt; []</span></span>
+<span class="lineno">  317 </span>
+<span class="lineno">  318 </span>noteClassicIfInAfterThenElse :: LayoutState -&gt; LayoutState
+<span class="lineno">  319 </span><span class="decl"><span class="istickedoff">noteClassicIfInAfterThenElse st = st {layoutContexts = mapAfterThenElse (+ 1) (layoutContexts st)}</span></span>
+<span class="lineno">  320 </span>
+<span class="lineno">  321 </span>decrementAfterThenElseClassicIfDepth :: LayoutState -&gt; LayoutState
+<span class="lineno">  322 </span><span class="decl"><span class="istickedoff">decrementAfterThenElseClassicIfDepth st = st {layoutContexts = mapAfterThenElse (max 0 . subtract 1) (layoutContexts st)}</span></span>
+<span class="lineno">  323 </span>
+<span class="lineno">  324 </span>popToDelimiter :: [LayoutContext] -&gt; [LayoutContext]
+<span class="lineno">  325 </span><span class="decl"><span class="istickedoff">popToDelimiter contexts =</span>
+<span class="lineno">  326 </span><span class="spaces">  </span><span class="istickedoff">case contexts of</span>
+<span class="lineno">  327 </span><span class="spaces">    </span><span class="istickedoff">LayoutDelimiter : rest -&gt; rest</span>
+<span class="lineno">  328 </span><span class="spaces">    </span><span class="istickedoff">_ : rest -&gt; popToDelimiter rest</span>
+<span class="lineno">  329 </span><span class="spaces">    </span><span class="istickedoff">[] -&gt; []</span></span>
+<span class="lineno">  330 </span>
+<span class="lineno">  331 </span>popOneContext :: [LayoutContext] -&gt; [LayoutContext]
+<span class="lineno">  332 </span><span class="decl"><span class="istickedoff">popOneContext contexts =</span>
+<span class="lineno">  333 </span><span class="spaces">  </span><span class="istickedoff">case contexts of</span>
+<span class="lineno">  334 </span><span class="spaces">    </span><span class="istickedoff">_ : rest -&gt; rest</span>
+<span class="lineno">  335 </span><span class="spaces">    </span><span class="istickedoff">[] -&gt; []</span></span>
+<span class="lineno">  336 </span>
+<span class="lineno">  337 </span>currentLayoutIndent :: [LayoutContext] -&gt; Int
+<span class="lineno">  338 </span><span class="decl"><span class="istickedoff">currentLayoutIndent contexts = fromMaybe 0 (currentLayoutIndentMaybe contexts)</span></span>
+<span class="lineno">  339 </span>
+<span class="lineno">  340 </span>currentLayoutIndentMaybe :: [LayoutContext] -&gt; Maybe Int
+<span class="lineno">  341 </span><span class="decl"><span class="istickedoff">currentLayoutIndentMaybe contexts =</span>
+<span class="lineno">  342 </span><span class="spaces">  </span><span class="istickedoff">case contexts of</span>
+<span class="lineno">  343 </span><span class="spaces">    </span><span class="istickedoff">LayoutImplicit LayoutFrame {layoutFrameIndent = indent} : _ -&gt; Just indent</span>
+<span class="lineno">  344 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  345 </span>
+<span class="lineno">  346 </span>currentChildBaseline :: [LayoutContext] -&gt; LayoutBaseline
+<span class="lineno">  347 </span><span class="decl"><span class="istickedoff">currentChildBaseline contexts =</span>
+<span class="lineno">  348 </span><span class="spaces">  </span><span class="istickedoff">case contexts of</span>
+<span class="lineno">  349 </span><span class="spaces">    </span><span class="istickedoff">LayoutImplicit LayoutFrame {layoutFrameChildBaseline = baseline} : _ -&gt; baseline</span>
+<span class="lineno">  350 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; LayoutCurrentIndent</span></span>
+<span class="lineno">  351 </span>
+<span class="lineno">  352 </span>isImplicitLayoutContext :: LayoutContext -&gt; Bool
+<span class="lineno">  353 </span><span class="decl"><span class="istickedoff">isImplicitLayoutContext ctx =</span>
+<span class="lineno">  354 </span><span class="spaces">  </span><span class="istickedoff">case ctx of</span>
+<span class="lineno">  355 </span><span class="spaces">    </span><span class="istickedoff">LayoutImplicit _ -&gt; True</span>
+<span class="lineno">  356 </span><span class="spaces">    </span><span class="istickedoff">LayoutExplicit -&gt; False</span>
+<span class="lineno">  357 </span><span class="spaces">    </span><span class="istickedoff">LayoutDelimiter -&gt; False</span></span>
+<span class="lineno">  358 </span>
+<span class="lineno">  359 </span>-- | Tokens that open a delimiter context (parens, brackets, TH quotes,
+<span class="lineno">  360 </span>-- unboxed parens).  These push 'LayoutDelimiter' to suppress implicit-layout
+<span class="lineno">  361 </span>-- closures inside the delimited group.
+<span class="lineno">  362 </span>--
+<span class="lineno">  363 </span>-- Note: 'TkTHDeclQuoteOpen' is intentionally absent here because it is handled
+<span class="lineno">  364 </span>-- explicitly in 'stepTokenContext', where it both pushes 'LayoutDelimiter' and
+<span class="lineno">  365 </span>-- sets up a pending implicit layout for the declaration splice body.
+<span class="lineno">  366 </span>opensDelimiter :: LexTokenKind -&gt; Bool
+<span class="lineno">  367 </span><span class="decl"><span class="istickedoff">opensDelimiter kind =</span>
+<span class="lineno">  368 </span><span class="spaces">  </span><span class="istickedoff">case kind of</span>
+<span class="lineno">  369 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialLParen -&gt; True</span>
+<span class="lineno">  370 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialLBracket -&gt; True</span>
+<span class="lineno">  371 </span><span class="spaces">    </span><span class="istickedoff">TkTHExpQuoteOpen -&gt; True</span>
+<span class="lineno">  372 </span><span class="spaces">    </span><span class="istickedoff">TkTHTypedQuoteOpen -&gt; True</span>
+<span class="lineno">  373 </span><span class="spaces">    </span><span class="istickedoff">TkTHTypeQuoteOpen -&gt; True</span>
+<span class="lineno">  374 </span><span class="spaces">    </span><span class="istickedoff">TkTHPatQuoteOpen -&gt; True</span>
+<span class="lineno">  375 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialUnboxedLParen -&gt; True</span>
+<span class="lineno">  376 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; False</span></span>
+<span class="lineno">  377 </span>
+<span class="lineno">  378 </span>-- | Tokens that close a delimiter context (parens, brackets, TH quotes,
+<span class="lineno">  379 </span>-- unboxed parens).  These pop the context stack back to the matching
+<span class="lineno">  380 </span>-- 'LayoutDelimiter' via 'popToDelimiter' in 'stepTokenContext'.
+<span class="lineno">  381 </span>--
+<span class="lineno">  382 </span>-- Related: 'closesImplicitBeforeDelimiter' determines which closing tokens
+<span class="lineno">  383 </span>-- also force all intervening implicit layouts to emit virtual @}@ tokens
+<span class="lineno">  384 </span>-- before the delimiter is popped.  'TkSpecialRBrace' is present there (but
+<span class="lineno">  385 </span>-- absent here) because it closes 'LayoutExplicit', not 'LayoutDelimiter'.
+<span class="lineno">  386 </span>closesDelimiter :: LexTokenKind -&gt; Bool
+<span class="lineno">  387 </span><span class="decl"><span class="istickedoff">closesDelimiter kind =</span>
+<span class="lineno">  388 </span><span class="spaces">  </span><span class="istickedoff">case kind of</span>
+<span class="lineno">  389 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialRParen -&gt; True</span>
+<span class="lineno">  390 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialUnboxedRParen -&gt; True</span>
+<span class="lineno">  391 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialRBracket -&gt; True</span>
+<span class="lineno">  392 </span><span class="spaces">    </span><span class="istickedoff">TkTHExpQuoteClose -&gt; True</span>
+<span class="lineno">  393 </span><span class="spaces">    </span><span class="istickedoff">TkTHTypedQuoteClose -&gt; True</span>
+<span class="lineno">  394 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; False</span></span>
+<span class="lineno">  395 </span>
+<span class="lineno">  396 </span>-- | Tokens before which all intervening implicit layouts must be closed
+<span class="lineno">  397 </span>-- (emitting virtual @}@ tokens).  See 'closesDelimiter' for the relationship
+<span class="lineno">  398 </span>-- between these two predicates.
+<span class="lineno">  399 </span>closesImplicitBeforeDelimiter :: LexTokenKind -&gt; Bool
+<span class="lineno">  400 </span><span class="decl"><span class="istickedoff">closesImplicitBeforeDelimiter kind =</span>
+<span class="lineno">  401 </span><span class="spaces">  </span><span class="istickedoff">case kind of</span>
+<span class="lineno">  402 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialRParen -&gt; True</span>
+<span class="lineno">  403 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialUnboxedRParen -&gt; True</span>
+<span class="lineno">  404 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialRBracket -&gt; True</span>
+<span class="lineno">  405 </span><span class="spaces">    </span><span class="istickedoff">TkTHExpQuoteClose -&gt; True</span>
+<span class="lineno">  406 </span><span class="spaces">    </span><span class="istickedoff">TkTHTypedQuoteClose -&gt; True</span>
+<span class="lineno">  407 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialRBrace -&gt; True</span>
+<span class="lineno">  408 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; False</span></span>
+<span class="lineno">  409 </span>
+<span class="lineno">  410 </span>-- | Reserved words that cannot start an item in the currently open layout list.
+<span class="lineno">  411 </span>-- At the same column as that layout they trigger the report's parse-error rule:
+<span class="lineno">  412 </span>-- inserting @}@ makes the keyword legal where inserting @;@ would not.
+<span class="lineno">  413 </span>closesImplicitBeforeLayoutKeyword :: LexTokenKind -&gt; Bool
+<span class="lineno">  414 </span><span class="decl"><span class="istickedoff">closesImplicitBeforeLayoutKeyword kind =</span>
+<span class="lineno">  415 </span><span class="spaces">  </span><span class="istickedoff">case kind of</span>
+<span class="lineno">  416 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordWhere -&gt; True</span>
+<span class="lineno">  417 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordIn -&gt; True</span>
+<span class="lineno">  418 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordThen -&gt; True</span>
+<span class="lineno">  419 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordElse -&gt; True</span>
+<span class="lineno">  420 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; False</span></span>
+<span class="lineno">  421 </span>
+<span class="lineno">  422 </span>isBOL :: LayoutState -&gt; LexToken -&gt; Bool
+<span class="lineno">  423 </span><span class="decl"><span class="istickedoff">isBOL _ = lexTokenAtLineStart</span></span>
+<span class="lineno">  424 </span>
+<span class="lineno">  425 </span>layoutTransition :: LayoutState -&gt; LexToken -&gt; ([LexToken], LayoutState)
+<span class="lineno">  426 </span><span class="decl"><span class="istickedoff">layoutTransition st tok =</span>
+<span class="lineno">  427 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  428 </span><span class="spaces">    </span><span class="istickedoff">TkLineComment -&gt; ([tok], st)</span>
+<span class="lineno">  429 </span><span class="spaces">    </span><span class="istickedoff">TkBlockComment -&gt; ([tok], st)</span>
+<span class="lineno">  430 </span><span class="spaces">    </span><span class="istickedoff">TkEOF -&gt;</span>
+<span class="lineno">  431 </span><span class="spaces">      </span><span class="istickedoff">let eofAnchor = fromMaybe (lexTokenSpan tok) (layoutPrevTokenEndSpan st)</span>
+<span class="lineno">  432 </span><span class="spaces">          </span><span class="istickedoff">(moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor</span>
+<span class="lineno">  433 </span><span class="spaces">          </span><span class="istickedoff">(pendingInserted, stAfterPending) = flushPendingCaseLayoutAtEOF stAfterModule eofAnchor</span>
+<span class="lineno">  434 </span><span class="spaces">       </span><span class="istickedoff">in ( moduleInserted &lt;&gt; pendingInserted &lt;&gt; closeAllImplicit (layoutContexts stAfterPending) eofAnchor &lt;&gt; [tok],</span>
+<span class="lineno">  435 </span><span class="spaces">            </span><span class="istickedoff">stAfterPending {layoutContexts = [], layoutBuffer = <span class="nottickedoff">[]</span>}</span>
+<span class="lineno">  436 </span><span class="spaces">          </span><span class="istickedoff">)</span>
+<span class="lineno">  437 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt;</span>
+<span class="lineno">  438 </span><span class="spaces">      </span><span class="istickedoff">let stModule = noteModuleLayoutBeforeToken st tok</span>
+<span class="lineno">  439 </span><span class="spaces">          </span><span class="istickedoff">(preInserted, stBeforePending) = closeBeforeToken stModule tok</span>
+<span class="lineno">  440 </span><span class="spaces">          </span><span class="istickedoff">(pendingInserted, stAfterPending, skipBOL) = openPendingLayout stBeforePending tok</span>
+<span class="lineno">  441 </span><span class="spaces">          </span><span class="istickedoff">(bolInserted, stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok</span>
+<span class="lineno">  442 </span><span class="spaces">          </span><span class="istickedoff">stAfterToken = noteModuleLayoutAfterToken (stepTokenContext stAfterBOL tok) tok</span>
+<span class="lineno">  443 </span><span class="spaces">          </span><span class="istickedoff">newEndSpan =</span>
+<span class="lineno">  444 </span><span class="spaces">            </span><span class="istickedoff">if <span class="tickonlytrue">lexTokenOrigin tok == FromSource</span></span>
+<span class="lineno">  445 </span><span class="spaces">              </span><span class="istickedoff">then Just (lexTokenSpan tok)</span>
+<span class="lineno">  446 </span><span class="spaces">              </span><span class="istickedoff">else <span class="nottickedoff">layoutPrevTokenEndSpan stAfterToken</span></span>
+<span class="lineno">  447 </span><span class="spaces">          </span><span class="istickedoff">stNext =</span>
+<span class="lineno">  448 </span><span class="spaces">            </span><span class="istickedoff">stAfterToken</span>
+<span class="lineno">  449 </span><span class="spaces">              </span><span class="istickedoff">{ layoutPrevTokenKind = Just (lexTokenKind tok),</span>
+<span class="lineno">  450 </span><span class="spaces">                </span><span class="istickedoff">layoutPrevTokenEndSpan = newEndSpan,</span>
+<span class="lineno">  451 </span><span class="spaces">                </span><span class="istickedoff">layoutBuffer = []</span>
+<span class="lineno">  452 </span><span class="spaces">              </span><span class="istickedoff">}</span>
+<span class="lineno">  453 </span><span class="spaces">       </span><span class="istickedoff">in (preInserted &lt;&gt; pendingInserted &lt;&gt; bolInserted &lt;&gt; [tok], stNext)</span></span>
+<span class="lineno">  454 </span>{-# INLINE layoutTransition #-}
+<span class="lineno">  455 </span>
+<span class="lineno">  456 </span>closeImplicitLayoutContext :: LayoutState -&gt; Maybe LayoutState
+<span class="lineno">  457 </span><span class="decl"><span class="istickedoff">closeImplicitLayoutContext st =</span>
+<span class="lineno">  458 </span><span class="spaces">  </span><span class="istickedoff">case layoutContexts st of</span>
+<span class="lineno">  459 </span><span class="spaces">    </span><span class="istickedoff">LayoutImplicit _ : rest -&gt; Just (closeWith rest)</span>
+<span class="lineno">  460 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span>
+<span class="lineno">  461 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  462 </span><span class="spaces">    </span><span class="istickedoff">anchor = fromMaybe <span class="nottickedoff">noSpan</span> (layoutPrevTokenEndSpan st)</span>
+<span class="lineno">  463 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">noSpan =</span></span>
+<span class="lineno">  464 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">SourceSpan</span></span>
+<span class="lineno">  465 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">{ sourceSpanSourceName = &quot;&quot;,</span></span>
+<span class="lineno">  466 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">sourceSpanStartLine = 0,</span></span>
+<span class="lineno">  467 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">sourceSpanStartCol = 0,</span></span>
+<span class="lineno">  468 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">sourceSpanEndLine = 0,</span></span>
+<span class="lineno">  469 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">sourceSpanEndCol = 0,</span></span>
+<span class="lineno">  470 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">sourceSpanStartOffset = 0,</span></span>
+<span class="lineno">  471 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">sourceSpanEndOffset = 0</span></span>
+<span class="lineno">  472 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">}</span></span>
+<span class="lineno">  473 </span><span class="spaces">    </span><span class="istickedoff">closeWith rest =</span>
+<span class="lineno">  474 </span><span class="spaces">      </span><span class="istickedoff">st</span>
+<span class="lineno">  475 </span><span class="spaces">        </span><span class="istickedoff">{ layoutContexts = rest,</span>
+<span class="lineno">  476 </span><span class="spaces">          </span><span class="istickedoff">layoutBuffer = virtualSymbolToken &quot;}&quot; anchor : layoutBuffer st</span>
+<span class="lineno">  477 </span><span class="spaces">        </span><span class="istickedoff">}</span></span>
+
+</pre>
+</body>
+</html>

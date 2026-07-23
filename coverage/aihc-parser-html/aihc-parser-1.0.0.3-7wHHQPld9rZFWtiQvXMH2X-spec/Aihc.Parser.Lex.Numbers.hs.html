@@ -1,0 +1,400 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>{-# LANGUAGE PatternSynonyms #-}
+<span class="lineno">    3 </span>
+<span class="lineno">    4 </span>module Aihc.Parser.Lex.Numbers
+<span class="lineno">    5 </span>  ( lexFloat,
+<span class="lineno">    6 </span>    lexHexFloat,
+<span class="lineno">    7 </span>    lexInt,
+<span class="lineno">    8 </span>    lexIntBase,
+<span class="lineno">    9 </span>    withOptionalMagicHashSuffix,
+<span class="lineno">   10 </span>  )
+<span class="lineno">   11 </span>where
+<span class="lineno">   12 </span>
+<span class="lineno">   13 </span>import Aihc.Parser.Lex.Types
+<span class="lineno">   14 </span>import Aihc.Parser.Syntax (Extension (ExtendedLiterals, MagicHash, NumericUnderscores), FloatType (..), NumericType (..))
+<span class="lineno">   15 </span>import Data.Char (digitToInt, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit)
+<span class="lineno">   16 </span>import Data.Maybe (fromMaybe)
+<span class="lineno">   17 </span>import Data.Ratio ((%))
+<span class="lineno">   18 </span>import Data.Text (Text, pattern (:&lt;))
+<span class="lineno">   19 </span>import Data.Text qualified as T
+<span class="lineno">   20 </span>import Numeric (readHex, readInt, readOct)
+<span class="lineno">   21 </span>import Text.Read (readMaybe)
+<span class="lineno">   22 </span>
+<span class="lineno">   23 </span>lexIntBase :: LexerEnv -&gt; LexerState -&gt; Maybe (LexToken, LexerState)
+<span class="lineno">   24 </span><span class="decl"><span class="istickedoff">lexIntBase env st =</span>
+<span class="lineno">   25 </span><span class="spaces">  </span><span class="istickedoff">case lexerInput st of</span>
+<span class="lineno">   26 </span><span class="spaces">    </span><span class="istickedoff">'0' :&lt; (base :&lt; rest)</span>
+<span class="lineno">   27 </span><span class="spaces">      </span><span class="istickedoff">| base `elem` (&quot;xXoObB&quot; :: String) -&gt;</span>
+<span class="lineno">   28 </span><span class="spaces">          </span><span class="istickedoff">let allowUnderscores = hasExt NumericUnderscores env</span>
+<span class="lineno">   29 </span><span class="spaces">              </span><span class="istickedoff">isDigitChar</span>
+<span class="lineno">   30 </span><span class="spaces">                </span><span class="istickedoff">| base `elem` (&quot;xX&quot; :: String) = isHexDigit</span>
+<span class="lineno">   31 </span><span class="spaces">                </span><span class="istickedoff">| base `elem` (&quot;oO&quot; :: String) = isOctDigit</span>
+<span class="lineno">   32 </span><span class="spaces">                </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = (`elem` (&quot;01&quot; :: String))</span>
+<span class="lineno">   33 </span><span class="spaces">              </span><span class="istickedoff">(digitsRaw, _) = takeDigitsWithUnderscores allowUnderscores isDigitChar rest</span>
+<span class="lineno">   34 </span><span class="spaces">           </span><span class="istickedoff">in if T.null digitsRaw</span>
+<span class="lineno">   35 </span><span class="spaces">                </span><span class="istickedoff">then Nothing</span>
+<span class="lineno">   36 </span><span class="spaces">                </span><span class="istickedoff">else</span>
+<span class="lineno">   37 </span><span class="spaces">                  </span><span class="istickedoff">let raw = &quot;0&quot; &lt;&gt; T.singleton base &lt;&gt; digitsRaw</span>
+<span class="lineno">   38 </span><span class="spaces">                      </span><span class="istickedoff">n</span>
+<span class="lineno">   39 </span><span class="spaces">                        </span><span class="istickedoff">| base `elem` (&quot;xX&quot; :: String) = readHexLiteral raw</span>
+<span class="lineno">   40 </span><span class="spaces">                        </span><span class="istickedoff">| base `elem` (&quot;oO&quot; :: String) = readOctLiteral raw</span>
+<span class="lineno">   41 </span><span class="spaces">                        </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = readBinLiteral raw</span>
+<span class="lineno">   42 </span><span class="spaces">                      </span><span class="istickedoff">(tokTxt, tokKind, st') =</span>
+<span class="lineno">   43 </span><span class="spaces">                        </span><span class="istickedoff">lexIntSuffix env st raw n</span>
+<span class="lineno">   44 </span><span class="spaces">                   </span><span class="istickedoff">in Just (mkToken st st' tokTxt tokKind, st')</span>
+<span class="lineno">   45 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">   46 </span>
+<span class="lineno">   47 </span>lexHexFloat :: LexerEnv -&gt; LexerState -&gt; Maybe (LexToken, LexerState)
+<span class="lineno">   48 </span><span class="decl"><span class="istickedoff">lexHexFloat env st =</span>
+<span class="lineno">   49 </span><span class="spaces">  </span><span class="istickedoff">case lexerInput st of</span>
+<span class="lineno">   50 </span><span class="spaces">    </span><span class="istickedoff">'0' :&lt; (x :&lt; rest1)</span>
+<span class="lineno">   51 </span><span class="spaces">      </span><span class="istickedoff">| x `elem` (&quot;xX&quot; :: String),</span>
+<span class="lineno">   52 </span><span class="spaces">        </span><span class="istickedoff">let (intDigits, rest2) = T.span isHexDigit rest1,</span>
+<span class="lineno">   53 </span><span class="spaces">        </span><span class="istickedoff">not (T.null intDigits) -&gt; do</span>
+<span class="lineno">   54 </span><span class="spaces">          </span><span class="istickedoff">let (mFracDigits, rest3) =</span>
+<span class="lineno">   55 </span><span class="spaces">                </span><span class="istickedoff">case rest2 of</span>
+<span class="lineno">   56 </span><span class="spaces">                  </span><span class="istickedoff">'.' :&lt; more -&gt;</span>
+<span class="lineno">   57 </span><span class="spaces">                    </span><span class="istickedoff">let (frac, rest') = T.span isHexDigit more</span>
+<span class="lineno">   58 </span><span class="spaces">                     </span><span class="istickedoff">in if T.null frac</span>
+<span class="lineno">   59 </span><span class="spaces">                          </span><span class="istickedoff">then (Nothing, rest2)</span>
+<span class="lineno">   60 </span><span class="spaces">                          </span><span class="istickedoff">else (Just frac, rest')</span>
+<span class="lineno">   61 </span><span class="spaces">                  </span><span class="istickedoff">_ -&gt; (Nothing, rest2)</span>
+<span class="lineno">   62 </span><span class="spaces">          </span><span class="istickedoff">case (mFracDigits, takeHexExponent rest3) of</span>
+<span class="lineno">   63 </span><span class="spaces">            </span><span class="istickedoff">(Nothing, Nothing) -&gt; Nothing</span>
+<span class="lineno">   64 </span><span class="spaces">            </span><span class="istickedoff">(mFrac, mExpo) -&gt;</span>
+<span class="lineno">   65 </span><span class="spaces">              </span><span class="istickedoff">let dotAndFrac = maybe &quot;&quot; (&quot;.&quot; &lt;&gt;) mFrac</span>
+<span class="lineno">   66 </span><span class="spaces">                  </span><span class="istickedoff">expo = fromMaybe &quot;&quot; mExpo</span>
+<span class="lineno">   67 </span><span class="spaces">                  </span><span class="istickedoff">fracDigits = fromMaybe &quot;&quot; mFrac</span>
+<span class="lineno">   68 </span><span class="spaces">                  </span><span class="istickedoff">raw = &quot;0&quot; &lt;&gt; T.singleton x &lt;&gt; intDigits &lt;&gt; dotAndFrac &lt;&gt; expo</span>
+<span class="lineno">   69 </span><span class="spaces">                  </span><span class="istickedoff">value = parseHexFloatLiteral (T.unpack intDigits) (T.unpack fracDigits) (T.unpack expo)</span>
+<span class="lineno">   70 </span><span class="spaces">                  </span><span class="istickedoff">(tokTxt, tokKind, st') =</span>
+<span class="lineno">   71 </span><span class="spaces">                    </span><span class="istickedoff">lexFloatSuffix <span class="nottickedoff">env</span> st raw value</span>
+<span class="lineno">   72 </span><span class="spaces">               </span><span class="istickedoff">in Just (mkToken st st' tokTxt tokKind, st')</span>
+<span class="lineno">   73 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">   74 </span>
+<span class="lineno">   75 </span>lexFloat :: LexerEnv -&gt; LexerState -&gt; Maybe (LexToken, LexerState)
+<span class="lineno">   76 </span><span class="decl"><span class="istickedoff">lexFloat env st =</span>
+<span class="lineno">   77 </span><span class="spaces">  </span><span class="istickedoff">let allowUnderscores = hasExt NumericUnderscores env</span>
+<span class="lineno">   78 </span><span class="spaces">      </span><span class="istickedoff">input = lexerInput st</span>
+<span class="lineno">   79 </span><span class="spaces">      </span><span class="istickedoff">startsWithUnderscore =</span>
+<span class="lineno">   80 </span><span class="spaces">        </span><span class="istickedoff">case input of</span>
+<span class="lineno">   81 </span><span class="spaces">          </span><span class="istickedoff">'_' :&lt; _ -&gt; True</span>
+<span class="lineno">   82 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt; False</span>
+<span class="lineno">   83 </span><span class="spaces">      </span><span class="istickedoff">(lhsRaw, rest) = takeDigitsWithUnderscores allowUnderscores isDigit input</span>
+<span class="lineno">   84 </span><span class="spaces">   </span><span class="istickedoff">in if T.null lhsRaw || startsWithUnderscore</span>
+<span class="lineno">   85 </span><span class="spaces">        </span><span class="istickedoff">then Nothing</span>
+<span class="lineno">   86 </span><span class="spaces">        </span><span class="istickedoff">else case rest of</span>
+<span class="lineno">   87 </span><span class="spaces">          </span><span class="istickedoff">'.' :&lt; dotRest@(d :&lt; _)</span>
+<span class="lineno">   88 </span><span class="spaces">            </span><span class="istickedoff">| isDigit d -&gt;</span>
+<span class="lineno">   89 </span><span class="spaces">                </span><span class="istickedoff">let (rhsRaw, rest') = takeDigitsWithUnderscores allowUnderscores isDigit dotRest</span>
+<span class="lineno">   90 </span><span class="spaces">                    </span><span class="istickedoff">(expo, _) = takeExponent allowUnderscores rest'</span>
+<span class="lineno">   91 </span><span class="spaces">                    </span><span class="istickedoff">raw = lhsRaw &lt;&gt; &quot;.&quot; &lt;&gt; rhsRaw &lt;&gt; expo</span>
+<span class="lineno">   92 </span><span class="spaces">                    </span><span class="istickedoff">normalized = T.filter (/= '_') raw</span>
+<span class="lineno">   93 </span><span class="spaces">                    </span><span class="istickedoff">value = parseDecimalFloatLiteral normalized</span>
+<span class="lineno">   94 </span><span class="spaces">                    </span><span class="istickedoff">(tokTxt, tokKind, st') =</span>
+<span class="lineno">   95 </span><span class="spaces">                      </span><span class="istickedoff">lexFloatSuffix env st raw value</span>
+<span class="lineno">   96 </span><span class="spaces">                 </span><span class="istickedoff">in Just (mkToken st st' tokTxt tokKind, st')</span>
+<span class="lineno">   97 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt;</span>
+<span class="lineno">   98 </span><span class="spaces">            </span><span class="istickedoff">case takeExponent allowUnderscores rest of</span>
+<span class="lineno">   99 </span><span class="spaces">              </span><span class="istickedoff">(expo, _)</span>
+<span class="lineno">  100 </span><span class="spaces">                </span><span class="istickedoff">| T.null expo -&gt; Nothing</span>
+<span class="lineno">  101 </span><span class="spaces">                </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">  102 </span><span class="spaces">                    </span><span class="istickedoff">let raw = lhsRaw &lt;&gt; expo</span>
+<span class="lineno">  103 </span><span class="spaces">                        </span><span class="istickedoff">normalized = T.filter (/= '_') raw</span>
+<span class="lineno">  104 </span><span class="spaces">                        </span><span class="istickedoff">value = parseDecimalFloatLiteral normalized</span>
+<span class="lineno">  105 </span><span class="spaces">                        </span><span class="istickedoff">(tokTxt, tokKind, st') =</span>
+<span class="lineno">  106 </span><span class="spaces">                          </span><span class="istickedoff">lexFloatSuffix <span class="nottickedoff">env</span> st raw value</span>
+<span class="lineno">  107 </span><span class="spaces">                     </span><span class="istickedoff">in Just (mkToken st st' tokTxt tokKind, st')</span></span>
+<span class="lineno">  108 </span>
+<span class="lineno">  109 </span>lexInt :: LexerEnv -&gt; LexerState -&gt; Maybe (LexToken, LexerState)
+<span class="lineno">  110 </span><span class="decl"><span class="istickedoff">lexInt env st =</span>
+<span class="lineno">  111 </span><span class="spaces">  </span><span class="istickedoff">let allowUnderscores = hasExt NumericUnderscores env</span>
+<span class="lineno">  112 </span><span class="spaces">      </span><span class="istickedoff">input = lexerInput st</span>
+<span class="lineno">  113 </span><span class="spaces">      </span><span class="istickedoff">startsWithUnderscore =</span>
+<span class="lineno">  114 </span><span class="spaces">        </span><span class="istickedoff">case input of</span>
+<span class="lineno">  115 </span><span class="spaces">          </span><span class="istickedoff">'_' :&lt; _ -&gt; True</span>
+<span class="lineno">  116 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt; False</span>
+<span class="lineno">  117 </span><span class="spaces">      </span><span class="istickedoff">(digitsRaw, _) = takeDigitsWithUnderscores allowUnderscores isDigit input</span>
+<span class="lineno">  118 </span><span class="spaces">   </span><span class="istickedoff">in if T.null digitsRaw || startsWithUnderscore</span>
+<span class="lineno">  119 </span><span class="spaces">        </span><span class="istickedoff">then Nothing</span>
+<span class="lineno">  120 </span><span class="spaces">        </span><span class="istickedoff">else</span>
+<span class="lineno">  121 </span><span class="spaces">          </span><span class="istickedoff">let digits = T.filter (/= '_') digitsRaw</span>
+<span class="lineno">  122 </span><span class="spaces">              </span><span class="istickedoff">n = read (T.unpack digits) :: Integer</span>
+<span class="lineno">  123 </span><span class="spaces">              </span><span class="istickedoff">(tokTxt, tokKind, st') =</span>
+<span class="lineno">  124 </span><span class="spaces">                </span><span class="istickedoff">lexIntSuffix env st digitsRaw n</span>
+<span class="lineno">  125 </span><span class="spaces">           </span><span class="istickedoff">in Just (mkToken st st' tokTxt tokKind, st')</span></span>
+<span class="lineno">  126 </span>
+<span class="lineno">  127 </span>-- | Parse optional MagicHash suffix (# or ##) and return the hash text and new state.
+<span class="lineno">  128 </span>magicHashSuffix :: LexerEnv -&gt; LexerState -&gt; Maybe (Text, LexerState)
+<span class="lineno">  129 </span><span class="decl"><span class="istickedoff">magicHashSuffix env st =</span>
+<span class="lineno">  130 </span><span class="spaces">  </span><span class="istickedoff">case lexerInput st of</span>
+<span class="lineno">  131 </span><span class="spaces">    </span><span class="istickedoff">'#' :&lt; rest</span>
+<span class="lineno">  132 </span><span class="spaces">      </span><span class="istickedoff">| hasExt MagicHash env -&gt;</span>
+<span class="lineno">  133 </span><span class="spaces">          </span><span class="istickedoff">case rest of</span>
+<span class="lineno">  134 </span><span class="spaces">            </span><span class="istickedoff">'#' :&lt; _ -&gt; Just (&quot;##&quot;, advanceN 2 st)</span>
+<span class="lineno">  135 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; Just (&quot;#&quot;, advanceN 1 st)</span>
+<span class="lineno">  136 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  137 </span>
+<span class="lineno">  138 </span>-- | Parse optional MagicHash and ExtendedLiterals suffix for integers.
+<span class="lineno">  139 </span>-- Handles: (nothing), #, ##, #Int8, #Int16, #Int32, #Int64, #Int, #Word8, #Word16, #Word32, #Word64, #Word
+<span class="lineno">  140 </span>lexIntSuffix :: LexerEnv -&gt; LexerState -&gt; Text -&gt; Integer -&gt; (Text, LexTokenKind, LexerState)
+<span class="lineno">  141 </span><span class="decl"><span class="istickedoff">lexIntSuffix env st raw n =</span>
+<span class="lineno">  142 </span><span class="spaces">  </span><span class="istickedoff">let st' = advanceChars raw st</span>
+<span class="lineno">  143 </span><span class="spaces">      </span><span class="istickedoff">input = lexerInput st'</span>
+<span class="lineno">  144 </span><span class="spaces">      </span><span class="istickedoff">withMagicHash =</span>
+<span class="lineno">  145 </span><span class="spaces">        </span><span class="istickedoff">case magicHashSuffix env st' of</span>
+<span class="lineno">  146 </span><span class="spaces">          </span><span class="istickedoff">Just (&quot;##&quot;, st'') -&gt; (raw &lt;&gt; &quot;##&quot;, TkInteger n TWordHash, st'')</span>
+<span class="lineno">  147 </span><span class="spaces">          </span><span class="istickedoff">Just (&quot;#&quot;, st'') -&gt; (raw &lt;&gt; &quot;#&quot;, TkInteger n TIntHash, st'')</span>
+<span class="lineno">  148 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt; (raw, TkInteger n TInteger, st')</span>
+<span class="lineno">  149 </span><span class="spaces">   </span><span class="istickedoff">in case input of</span>
+<span class="lineno">  150 </span><span class="spaces">        </span><span class="istickedoff">'#' :&lt; rest</span>
+<span class="lineno">  151 </span><span class="spaces">          </span><span class="istickedoff">| hasExt ExtendedLiterals env -&gt;</span>
+<span class="lineno">  152 </span><span class="spaces">              </span><span class="istickedoff">case parseExtendedIntSuffix rest of</span>
+<span class="lineno">  153 </span><span class="spaces">                </span><span class="istickedoff">Just (typeName, suffixLen) -&gt;</span>
+<span class="lineno">  154 </span><span class="spaces">                  </span><span class="istickedoff">let fullRaw = raw &lt;&gt; T.take (1 + suffixLen) input</span>
+<span class="lineno">  155 </span><span class="spaces">                      </span><span class="istickedoff">st'' = advanceN (1 + suffixLen) st'</span>
+<span class="lineno">  156 </span><span class="spaces">                   </span><span class="istickedoff">in (fullRaw, TkInteger n typeName, st'')</span>
+<span class="lineno">  157 </span><span class="spaces">                </span><span class="istickedoff">Nothing -&gt; withMagicHash</span>
+<span class="lineno">  158 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; withMagicHash</span>
+<span class="lineno">  159 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; (raw, TkInteger n TInteger, st')</span></span>
+<span class="lineno">  160 </span>
+<span class="lineno">  161 </span>-- | Parse optional MagicHash and ExtendedLiterals suffix for floats.
+<span class="lineno">  162 </span>-- Handles: (nothing), #, ##
+<span class="lineno">  163 </span>lexFloatSuffix :: LexerEnv -&gt; LexerState -&gt; Text -&gt; Rational -&gt; (Text, LexTokenKind, LexerState)
+<span class="lineno">  164 </span><span class="decl"><span class="istickedoff">lexFloatSuffix env st raw value =</span>
+<span class="lineno">  165 </span><span class="spaces">  </span><span class="istickedoff">let st' = advanceChars raw st</span>
+<span class="lineno">  166 </span><span class="spaces">   </span><span class="istickedoff">in case magicHashSuffix env st' of</span>
+<span class="lineno">  167 </span><span class="spaces">        </span><span class="istickedoff">Just (&quot;##&quot;, st'') -&gt; (raw &lt;&gt; &quot;##&quot;, TkFloat value TDoubleHash, st'')</span>
+<span class="lineno">  168 </span><span class="spaces">        </span><span class="istickedoff">Just (&quot;#&quot;, st'') -&gt; (raw &lt;&gt; &quot;#&quot;, TkFloat value TFloatHash, st'')</span>
+<span class="lineno">  169 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; (raw, TkFloat value TFractional, st')</span></span>
+<span class="lineno">  170 </span>
+<span class="lineno">  171 </span>-- | Parse an ExtendedLiterals type suffix after the initial '#'.
+<span class="lineno">  172 </span>-- Returns (NumericType, length of type name without the '#').
+<span class="lineno">  173 </span>-- e.g. &quot;Word8&quot; -&gt; (TWord8Hash, 5), &quot;Int&quot; -&gt; (TIntHash, 3)
+<span class="lineno">  174 </span>parseExtendedIntSuffix :: Text -&gt; Maybe (NumericType, Int)
+<span class="lineno">  175 </span><span class="decl"><span class="istickedoff">parseExtendedIntSuffix input =</span>
+<span class="lineno">  176 </span><span class="spaces">  </span><span class="istickedoff">case matchType input of</span>
+<span class="lineno">  177 </span><span class="spaces">    </span><span class="istickedoff">Just (&quot;Int8&quot;, len) -&gt; Just (TInt8Hash, len)</span>
+<span class="lineno">  178 </span><span class="spaces">    </span><span class="istickedoff">Just (&quot;Int16&quot;, len) -&gt; Just (TInt16Hash, len)</span>
+<span class="lineno">  179 </span><span class="spaces">    </span><span class="istickedoff">Just (&quot;Int32&quot;, len) -&gt; Just (TInt32Hash, len)</span>
+<span class="lineno">  180 </span><span class="spaces">    </span><span class="istickedoff">Just (&quot;Int64&quot;, len) -&gt; Just (TInt64Hash, len)</span>
+<span class="lineno">  181 </span><span class="spaces">    </span><span class="istickedoff">Just (&quot;Int&quot;, len) -&gt; <span class="nottickedoff">Just (TIntHash, len)</span></span>
+<span class="lineno">  182 </span><span class="spaces">    </span><span class="istickedoff">Just (&quot;Word8&quot;, len) -&gt; Just (TWord8Hash, len)</span>
+<span class="lineno">  183 </span><span class="spaces">    </span><span class="istickedoff">Just (&quot;Word16&quot;, len) -&gt; Just (TWord16Hash, len)</span>
+<span class="lineno">  184 </span><span class="spaces">    </span><span class="istickedoff">Just (&quot;Word32&quot;, len) -&gt; Just (TWord32Hash, len)</span>
+<span class="lineno">  185 </span><span class="spaces">    </span><span class="istickedoff">Just (&quot;Word64&quot;, len) -&gt; Just (TWord64Hash, len)</span>
+<span class="lineno">  186 </span><span class="spaces">    </span><span class="istickedoff">Just (&quot;Word&quot;, len) -&gt; <span class="nottickedoff">Just (TWordHash, len)</span></span>
+<span class="lineno">  187 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  188 </span>
+<span class="lineno">  189 </span>-- | Try to match one of the known type names at the start of the text.
+<span class="lineno">  190 </span>-- Returns (matched name, length) if the match is followed by a non-identifier char
+<span class="lineno">  191 </span>-- or end of input.
+<span class="lineno">  192 </span>matchType :: Text -&gt; Maybe (Text, Int)
+<span class="lineno">  193 </span><span class="decl"><span class="istickedoff">matchType input =</span>
+<span class="lineno">  194 </span><span class="spaces">  </span><span class="istickedoff">let candidates = [&quot;Int8&quot;, &quot;Int16&quot;, &quot;Int32&quot;, &quot;Int64&quot;, &quot;Int&quot;, &quot;Word8&quot;, &quot;Word16&quot;, &quot;Word32&quot;, &quot;Word64&quot;, &quot;Word&quot;]</span>
+<span class="lineno">  195 </span><span class="spaces">   </span><span class="istickedoff">in firstMatch candidates input</span></span>
+<span class="lineno">  196 </span>
+<span class="lineno">  197 </span>firstMatch :: [Text] -&gt; Text -&gt; Maybe (Text, Int)
+<span class="lineno">  198 </span><span class="decl"><span class="istickedoff">firstMatch [] _ = Nothing</span>
+<span class="lineno">  199 </span><span class="spaces"></span><span class="istickedoff">firstMatch (name : rest) input =</span>
+<span class="lineno">  200 </span><span class="spaces">  </span><span class="istickedoff">let len = T.length name</span>
+<span class="lineno">  201 </span><span class="spaces">   </span><span class="istickedoff">in case T.stripPrefix name input of</span>
+<span class="lineno">  202 </span><span class="spaces">        </span><span class="istickedoff">Just remaining</span>
+<span class="lineno">  203 </span><span class="spaces">          </span><span class="istickedoff">| <span class="tickonlytrue">T.null remaining || not (isIdentChar (T.head remaining))</span> -&gt;</span>
+<span class="lineno">  204 </span><span class="spaces">              </span><span class="istickedoff">Just (name, len)</span>
+<span class="lineno">  205 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; firstMatch rest input</span></span>
+<span class="lineno">  206 </span>
+<span class="lineno">  207 </span>isIdentChar :: Char -&gt; Bool
+<span class="lineno">  208 </span><span class="decl"><span class="istickedoff">isIdentChar c = isDigit c || isAsciiUpper c || c == '_' || isAsciiLower c</span></span>
+<span class="lineno">  209 </span>
+<span class="lineno">  210 </span>-- Scan ([_]*[digit])* and return a zero-copy split.
+<span class="lineno">  211 </span>takeDigitsWithUnderscores :: Bool -&gt; (Char -&gt; Bool) -&gt; Text -&gt; (Text, Text)
+<span class="lineno">  212 </span><span class="decl"><span class="istickedoff">takeDigitsWithUnderscores False isDigitChar = T.span isDigitChar</span>
+<span class="lineno">  213 </span><span class="spaces"></span><span class="istickedoff">takeDigitsWithUnderscores True isDigitChar = \chars -&gt;</span>
+<span class="lineno">  214 </span><span class="spaces">  </span><span class="istickedoff">let (consumed, rest) = T.span (\c -&gt; isDigitChar c || c == '_') chars</span>
+<span class="lineno">  215 </span><span class="spaces">   </span><span class="istickedoff">in if T.null consumed || T.last consumed /= '_'</span>
+<span class="lineno">  216 </span><span class="spaces">        </span><span class="istickedoff">then (consumed, rest)</span>
+<span class="lineno">  217 </span><span class="spaces">        </span><span class="istickedoff">else</span>
+<span class="lineno">  218 </span><span class="spaces">          </span><span class="istickedoff">let trimmed = T.dropWhileEnd (== '_') consumed</span>
+<span class="lineno">  219 </span><span class="spaces">           </span><span class="istickedoff">in (trimmed, T.drop (T.length trimmed) chars)</span></span>
+<span class="lineno">  220 </span>
+<span class="lineno">  221 </span>takeExponent :: Bool -&gt; Text -&gt; (Text, Text)
+<span class="lineno">  222 </span><span class="decl"><span class="istickedoff">takeExponent allowUnderscores chars =</span>
+<span class="lineno">  223 </span><span class="spaces">  </span><span class="istickedoff">case chars of</span>
+<span class="lineno">  224 </span><span class="spaces">    </span><span class="istickedoff">'_' :&lt; _</span>
+<span class="lineno">  225 </span><span class="spaces">      </span><span class="istickedoff">| allowUnderscores -&gt;</span>
+<span class="lineno">  226 </span><span class="spaces">          </span><span class="istickedoff">let (_allUnderscores, rest') = T.span (== '_') chars</span>
+<span class="lineno">  227 </span><span class="spaces">           </span><span class="istickedoff">in case rest' of</span>
+<span class="lineno">  228 </span><span class="spaces">                </span><span class="istickedoff">marker :&lt; rest2</span>
+<span class="lineno">  229 </span><span class="spaces">                  </span><span class="istickedoff">| marker `elem` (&quot;eE&quot; :: String) -&gt;</span>
+<span class="lineno">  230 </span><span class="spaces">                      </span><span class="istickedoff">let (_signPart, rest3) =</span>
+<span class="lineno">  231 </span><span class="spaces">                            </span><span class="istickedoff">case rest2 of</span>
+<span class="lineno">  232 </span><span class="spaces">                              </span><span class="istickedoff">sign :&lt; more | <span class="tickonlytrue">sign `elem` (&quot;+-&quot; :: String)</span> -&gt; (<span class="nottickedoff">T.singleton sign</span>, more)</span>
+<span class="lineno">  233 </span><span class="spaces">                              </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">(&quot;&quot;, rest2)</span></span>
+<span class="lineno">  234 </span><span class="spaces">                          </span><span class="istickedoff">digitsStartWithUnderscore =</span>
+<span class="lineno">  235 </span><span class="spaces">                            </span><span class="istickedoff">case rest3 of</span>
+<span class="lineno">  236 </span><span class="spaces">                              </span><span class="istickedoff">'_' :&lt; _ -&gt; <span class="nottickedoff">True</span></span>
+<span class="lineno">  237 </span><span class="spaces">                              </span><span class="istickedoff">_ -&gt; False</span>
+<span class="lineno">  238 </span><span class="spaces">                          </span><span class="istickedoff">(digits, rest4) = takeDigitsWithUnderscores allowUnderscores isDigit rest3</span>
+<span class="lineno">  239 </span><span class="spaces">                       </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null digits || digitsStartWithUnderscore</span></span>
+<span class="lineno">  240 </span><span class="spaces">                            </span><span class="istickedoff">then <span class="nottickedoff">(&quot;&quot;, chars)</span></span>
+<span class="lineno">  241 </span><span class="spaces">                            </span><span class="istickedoff">else</span>
+<span class="lineno">  242 </span><span class="spaces">                              </span><span class="istickedoff">let consumed = T.take (T.length chars - T.length rest4) chars</span>
+<span class="lineno">  243 </span><span class="spaces">                               </span><span class="istickedoff">in (consumed, <span class="nottickedoff">rest4</span>)</span>
+<span class="lineno">  244 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; (&quot;&quot;, <span class="nottickedoff">chars</span>)</span>
+<span class="lineno">  245 </span><span class="spaces">    </span><span class="istickedoff">marker :&lt; rest</span>
+<span class="lineno">  246 </span><span class="spaces">      </span><span class="istickedoff">| marker `elem` (&quot;eE&quot; :: String) -&gt;</span>
+<span class="lineno">  247 </span><span class="spaces">          </span><span class="istickedoff">let (_signPart, rest1) =</span>
+<span class="lineno">  248 </span><span class="spaces">                </span><span class="istickedoff">case rest of</span>
+<span class="lineno">  249 </span><span class="spaces">                  </span><span class="istickedoff">sign :&lt; more | sign `elem` (&quot;+-&quot; :: String) -&gt; (<span class="nottickedoff">T.singleton sign</span>, more)</span>
+<span class="lineno">  250 </span><span class="spaces">                  </span><span class="istickedoff">_ -&gt; (<span class="nottickedoff">&quot;&quot;</span>, rest)</span>
+<span class="lineno">  251 </span><span class="spaces">              </span><span class="istickedoff">digitsStartWithUnderscore =</span>
+<span class="lineno">  252 </span><span class="spaces">                </span><span class="istickedoff">case rest1 of</span>
+<span class="lineno">  253 </span><span class="spaces">                  </span><span class="istickedoff">'_' :&lt; _ -&gt; True</span>
+<span class="lineno">  254 </span><span class="spaces">                  </span><span class="istickedoff">_ -&gt; False</span>
+<span class="lineno">  255 </span><span class="spaces">              </span><span class="istickedoff">(digits, rest2) = takeDigitsWithUnderscores allowUnderscores isDigit rest1</span>
+<span class="lineno">  256 </span><span class="spaces">           </span><span class="istickedoff">in if T.null digits || digitsStartWithUnderscore then (&quot;&quot;, <span class="nottickedoff">chars</span>) else let consumed = T.take (T.length chars - T.length rest2) chars in (consumed, <span class="nottickedoff">rest2</span>)</span>
+<span class="lineno">  257 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; (&quot;&quot;, <span class="nottickedoff">chars</span>)</span></span>
+<span class="lineno">  258 </span>
+<span class="lineno">  259 </span>takeHexExponent :: Text -&gt; Maybe Text
+<span class="lineno">  260 </span><span class="decl"><span class="istickedoff">takeHexExponent chars =</span>
+<span class="lineno">  261 </span><span class="spaces">  </span><span class="istickedoff">case chars of</span>
+<span class="lineno">  262 </span><span class="spaces">    </span><span class="istickedoff">marker :&lt; rest</span>
+<span class="lineno">  263 </span><span class="spaces">      </span><span class="istickedoff">| marker `elem` (&quot;pP&quot; :: String) -&gt;</span>
+<span class="lineno">  264 </span><span class="spaces">          </span><span class="istickedoff">let (_signPart, rest1) =</span>
+<span class="lineno">  265 </span><span class="spaces">                </span><span class="istickedoff">case rest of</span>
+<span class="lineno">  266 </span><span class="spaces">                  </span><span class="istickedoff">sign :&lt; more | sign `elem` (&quot;+-&quot; :: String) -&gt; (<span class="nottickedoff">T.singleton sign</span>, more)</span>
+<span class="lineno">  267 </span><span class="spaces">                  </span><span class="istickedoff">_ -&gt; (<span class="nottickedoff">&quot;&quot;</span>, rest)</span>
+<span class="lineno">  268 </span><span class="spaces">              </span><span class="istickedoff">(digits, _) = T.span isDigit rest1</span>
+<span class="lineno">  269 </span><span class="spaces">           </span><span class="istickedoff">in if T.null digits then Nothing else Just (T.take (T.length chars - T.length rest1 + T.length digits) chars)</span>
+<span class="lineno">  270 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  271 </span>
+<span class="lineno">  272 </span>readBaseLiteral :: String -&gt; (String -&gt; [(Integer, String)]) -&gt; Text -&gt; Integer
+<span class="lineno">  273 </span><span class="decl"><span class="istickedoff">readBaseLiteral label parser txt =</span>
+<span class="lineno">  274 </span><span class="spaces">  </span><span class="istickedoff">case parser (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of</span>
+<span class="lineno">  275 </span><span class="spaces">    </span><span class="istickedoff">[(n, &quot;&quot;)] -&gt; n</span>
+<span class="lineno">  276 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">error (&quot;invalid &quot; ++ label ++ &quot; literal: &quot; ++ T.unpack txt)</span></span></span>
+<span class="lineno">  277 </span>
+<span class="lineno">  278 </span>readHexLiteral :: Text -&gt; Integer
+<span class="lineno">  279 </span><span class="decl"><span class="istickedoff">readHexLiteral = readBaseLiteral <span class="nottickedoff">&quot;hex&quot;</span> readHex</span></span>
+<span class="lineno">  280 </span>
+<span class="lineno">  281 </span>readOctLiteral :: Text -&gt; Integer
+<span class="lineno">  282 </span><span class="decl"><span class="istickedoff">readOctLiteral = readBaseLiteral <span class="nottickedoff">&quot;octal&quot;</span> readOct</span></span>
+<span class="lineno">  283 </span>
+<span class="lineno">  284 </span>readBinLiteral :: Text -&gt; Integer
+<span class="lineno">  285 </span><span class="decl"><span class="istickedoff">readBinLiteral = readBaseLiteral <span class="nottickedoff">&quot;binary&quot;</span> (readInt 2 (`elem` (&quot;01&quot; :: String)) digitToInt)</span></span>
+<span class="lineno">  286 </span>
+<span class="lineno">  287 </span>parseDecimalFloatLiteral :: Text -&gt; Rational
+<span class="lineno">  288 </span><span class="decl"><span class="istickedoff">parseDecimalFloatLiteral txt =</span>
+<span class="lineno">  289 </span><span class="spaces">  </span><span class="istickedoff">case parseSignedDecimalRational txt of</span>
+<span class="lineno">  290 </span><span class="spaces">    </span><span class="istickedoff">Just value -&gt; value</span>
+<span class="lineno">  291 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">error (&quot;invalid decimal float literal: &quot; ++ T.unpack txt)</span></span></span>
+<span class="lineno">  292 </span>
+<span class="lineno">  293 </span>parseSignedDecimalRational :: Text -&gt; Maybe Rational
+<span class="lineno">  294 </span><span class="decl"><span class="istickedoff">parseSignedDecimalRational txt = do</span>
+<span class="lineno">  295 </span><span class="spaces">  </span><span class="istickedoff">let (sign, unsigned) =</span>
+<span class="lineno">  296 </span><span class="spaces">        </span><span class="istickedoff">case T.uncons txt of</span>
+<span class="lineno">  297 </span><span class="spaces">          </span><span class="istickedoff">Just ('-', rest) -&gt; <span class="nottickedoff">(-1, rest)</span></span>
+<span class="lineno">  298 </span><span class="spaces">          </span><span class="istickedoff">Just ('+', rest) -&gt; <span class="nottickedoff">(1, rest)</span></span>
+<span class="lineno">  299 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt; (1, txt)</span>
+<span class="lineno">  300 </span><span class="spaces">      </span><span class="istickedoff">(mantissaTxt, exponentTxt0) = T.break (`elem` ['e', 'E']) unsigned</span>
+<span class="lineno">  301 </span><span class="spaces">      </span><span class="istickedoff">exponentTxt = T.drop 1 exponentTxt0</span>
+<span class="lineno">  302 </span><span class="spaces">  </span><span class="istickedoff">mantissa &lt;- parseDecimalMantissa mantissaTxt</span>
+<span class="lineno">  303 </span><span class="spaces">  </span><span class="istickedoff">exponentN &lt;-</span>
+<span class="lineno">  304 </span><span class="spaces">    </span><span class="istickedoff">if T.null exponentTxt0</span>
+<span class="lineno">  305 </span><span class="spaces">      </span><span class="istickedoff">then Just 0</span>
+<span class="lineno">  306 </span><span class="spaces">      </span><span class="istickedoff">else parseSignedInteger exponentTxt</span>
+<span class="lineno">  307 </span><span class="spaces">  </span><span class="istickedoff">pure (applyDecimalExponent (fromInteger sign * mantissa) exponentN)</span></span>
+<span class="lineno">  308 </span>
+<span class="lineno">  309 </span>parseDecimalMantissa :: Text -&gt; Maybe Rational
+<span class="lineno">  310 </span><span class="decl"><span class="istickedoff">parseDecimalMantissa txt = do</span>
+<span class="lineno">  311 </span><span class="spaces">  </span><span class="istickedoff">let (whole, frac0) = T.break (== '.') txt</span>
+<span class="lineno">  312 </span><span class="spaces">      </span><span class="istickedoff">frac = T.drop 1 frac0</span>
+<span class="lineno">  313 </span><span class="spaces">  </span><span class="istickedoff">if <span class="tickonlyfalse">T.null whole &amp;&amp; <span class="nottickedoff">T.null frac</span></span></span>
+<span class="lineno">  314 </span><span class="spaces">    </span><span class="istickedoff">then <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  315 </span><span class="spaces">    </span><span class="istickedoff">else do</span>
+<span class="lineno">  316 </span><span class="spaces">      </span><span class="istickedoff">wholeDigits &lt;- parseDecimalDigits whole</span>
+<span class="lineno">  317 </span><span class="spaces">      </span><span class="istickedoff">fracDigits &lt;- parseDecimalDigits frac</span>
+<span class="lineno">  318 </span><span class="spaces">      </span><span class="istickedoff">let fracScale = 10 ^ T.length frac</span>
+<span class="lineno">  319 </span><span class="spaces">      </span><span class="istickedoff">pure ((wholeDigits * fracScale + fracDigits) % fracScale)</span></span>
+<span class="lineno">  320 </span>
+<span class="lineno">  321 </span>parseDecimalDigits :: Text -&gt; Maybe Integer
+<span class="lineno">  322 </span><span class="decl"><span class="istickedoff">parseDecimalDigits digits</span>
+<span class="lineno">  323 </span><span class="spaces">  </span><span class="istickedoff">| T.null digits = Just 0</span>
+<span class="lineno">  324 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">T.all isDigit digits</span> = readMaybe (T.unpack digits)</span>
+<span class="lineno">  325 </span><span class="spaces">  </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">Nothing</span></span></span>
+<span class="lineno">  326 </span>
+<span class="lineno">  327 </span>parseSignedInteger :: Text -&gt; Maybe Integer
+<span class="lineno">  328 </span><span class="decl"><span class="istickedoff">parseSignedInteger digits =</span>
+<span class="lineno">  329 </span><span class="spaces">  </span><span class="istickedoff">case T.uncons digits of</span>
+<span class="lineno">  330 </span><span class="spaces">    </span><span class="istickedoff">Just ('+', rest) -&gt; parseDecimalDigits rest</span>
+<span class="lineno">  331 </span><span class="spaces">    </span><span class="istickedoff">Just ('-', rest) -&gt; <span class="nottickedoff">negate &lt;$&gt; parseDecimalDigits rest</span></span>
+<span class="lineno">  332 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; parseDecimalDigits digits</span></span>
+<span class="lineno">  333 </span>
+<span class="lineno">  334 </span>applyDecimalExponent :: Rational -&gt; Integer -&gt; Rational
+<span class="lineno">  335 </span><span class="decl"><span class="istickedoff">applyDecimalExponent value exponentN</span>
+<span class="lineno">  336 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">exponentN &gt;= 0</span> = value * fromInteger (10 ^ exponentN)</span>
+<span class="lineno">  337 </span><span class="spaces">  </span><span class="istickedoff">| <span class="nottickedoff">otherwise</span> = <span class="nottickedoff">value / fromInteger (10 ^ negate exponentN)</span></span></span>
+<span class="lineno">  338 </span>
+<span class="lineno">  339 </span>parseHexFloatLiteral :: String -&gt; String -&gt; String -&gt; Rational
+<span class="lineno">  340 </span><span class="decl"><span class="istickedoff">parseHexFloatLiteral intDigits fracDigits expo =</span>
+<span class="lineno">  341 </span><span class="spaces">  </span><span class="istickedoff">(parseHexDigits intDigits + parseHexFraction fracDigits) * (2 ^^ exponentValue expo)</span></span>
+<span class="lineno">  342 </span>
+<span class="lineno">  343 </span>parseHexDigits :: String -&gt; Rational
+<span class="lineno">  344 </span><span class="decl"><span class="istickedoff">parseHexDigits = foldl (\acc d -&gt; acc * 16 + fromIntegral (digitToInt d)) 0</span></span>
+<span class="lineno">  345 </span>
+<span class="lineno">  346 </span>parseHexFraction :: String -&gt; Rational
+<span class="lineno">  347 </span><span class="decl"><span class="istickedoff">parseHexFraction ds =</span>
+<span class="lineno">  348 </span><span class="spaces">  </span><span class="istickedoff">sum [fromIntegral (digitToInt d) % (16 ^ i) | (d, i) &lt;- zip ds [1 :: Integer ..]]</span></span>
+<span class="lineno">  349 </span>
+<span class="lineno">  350 </span>exponentValue :: String -&gt; Int
+<span class="lineno">  351 </span><span class="decl"><span class="istickedoff">exponentValue expo =</span>
+<span class="lineno">  352 </span><span class="spaces">  </span><span class="istickedoff">case expo of</span>
+<span class="lineno">  353 </span><span class="spaces">    </span><span class="istickedoff">_ : '-' : ds | <span class="nottickedoff">not (null ds)</span> -&gt; <span class="nottickedoff">negate (fromMaybe 0 (readMaybe ds))</span></span>
+<span class="lineno">  354 </span><span class="spaces">    </span><span class="istickedoff">_ : '+' : ds | <span class="nottickedoff">not (null ds)</span> -&gt; <span class="nottickedoff">fromMaybe 0 (readMaybe ds)</span></span>
+<span class="lineno">  355 </span><span class="spaces">    </span><span class="istickedoff">_ : ds | <span class="tickonlytrue">not (null ds)</span> -&gt; fromMaybe <span class="nottickedoff">0</span> (readMaybe ds)</span>
+<span class="lineno">  356 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; 0</span></span>
+<span class="lineno">  357 </span>
+<span class="lineno">  358 </span>withOptionalMagicHashSuffix ::
+<span class="lineno">  359 </span>  Int -&gt;
+<span class="lineno">  360 </span>  LexerEnv -&gt;
+<span class="lineno">  361 </span>  LexerState -&gt;
+<span class="lineno">  362 </span>  Text -&gt;
+<span class="lineno">  363 </span>  LexTokenKind -&gt;
+<span class="lineno">  364 </span>  (Text -&gt; LexTokenKind) -&gt;
+<span class="lineno">  365 </span>  (Text, LexTokenKind, LexerState)
+<span class="lineno">  366 </span><span class="decl"><span class="istickedoff">withOptionalMagicHashSuffix maxHashes env st raw plainKind hashKind =</span>
+<span class="lineno">  367 </span><span class="spaces">  </span><span class="istickedoff">let st' = advanceChars raw st</span>
+<span class="lineno">  368 </span><span class="spaces">      </span><span class="istickedoff">hashCount =</span>
+<span class="lineno">  369 </span><span class="spaces">        </span><span class="istickedoff">if hasExt MagicHash env</span>
+<span class="lineno">  370 </span><span class="spaces">          </span><span class="istickedoff">then min maxHashes (T.length (T.takeWhile (== '#') (lexerInput st')))</span>
+<span class="lineno">  371 </span><span class="spaces">          </span><span class="istickedoff">else 0</span>
+<span class="lineno">  372 </span><span class="spaces">   </span><span class="istickedoff">in case hashCount of</span>
+<span class="lineno">  373 </span><span class="spaces">        </span><span class="istickedoff">0 -&gt; (raw, plainKind, st')</span>
+<span class="lineno">  374 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt;</span>
+<span class="lineno">  375 </span><span class="spaces">          </span><span class="istickedoff">let hashes = T.replicate hashCount &quot;#&quot;</span>
+<span class="lineno">  376 </span><span class="spaces">              </span><span class="istickedoff">rawHash = raw &lt;&gt; hashes</span>
+<span class="lineno">  377 </span><span class="spaces">           </span><span class="istickedoff">in (rawHash, hashKind rawHash, advanceChars hashes st')</span></span>
+
+</pre>
+</body>
+</html>

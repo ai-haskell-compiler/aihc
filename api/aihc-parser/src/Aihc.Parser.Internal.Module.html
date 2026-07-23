@@ -1,0 +1,243 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- |</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- Module      : Aihc.Parser.Internal.Module</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- Description : Internal module parser</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- License     : Unlicense</span><span>
+</span><span id="line-5"></span><span class="hs-comment">--</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Internal module containing the core module parser.</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- This is used by both 'Aihc.Parser' and 'Aihc.Parser.Internal.FromTokens'.</span><span>
+</span><span id="line-8"></span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Module.html"><span class="hs-identifier">Aihc.Parser.Internal.Module</span></a></span><span>
+</span><span id="line-9"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Module.html#moduleParser"><span class="hs-identifier">moduleParser</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-10"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-12"></span><span>
+</span><span id="line-13"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html"><span class="hs-identifier">Aihc.Parser.Internal.Common</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier">TokParser</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#braces"><span class="hs-identifier">braces</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier">expectedTok</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#skipSemicolons"><span class="hs-identifier">skipSemicolons</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#withSpan"><span class="hs-identifier">withSpan</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-14"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Decl.html"><span class="hs-identifier">Aihc.Parser.Internal.Decl</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Internal.Decl.html#declParser"><span class="hs-identifier">declParser</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-15"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Import.html"><span class="hs-identifier">Aihc.Parser.Internal.Import</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Internal.Import.html#importDeclParser"><span class="hs-identifier">importDeclParser</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Import.html#languagePragmaParser"><span class="hs-identifier">languagePragmaParser</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Import.html#moduleHeaderParser"><span class="hs-identifier">moduleHeaderParser</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-16"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.html"><span class="hs-identifier">Aihc.Parser.Lex</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexTokenKind"><span class="hs-identifier">LexTokenKind</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#lexTokenKind"><span class="hs-identifier">lexTokenKind</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html"><span class="hs-identifier">Aihc.Parser.Syntax</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#Decl"><span class="hs-identifier">Decl</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ImportDecl"><span class="hs-identifier">ImportDecl</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Module"><span class="hs-identifier">Module</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier">mkAnnotation</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Control.Monad</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">void</span></span><span class="hs-special">)</span><span>
+</span><span id="line-19"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Text.Megaparsec</span></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">MP</span></span><span>
+</span><span id="line-20"></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">data</span><span> </span><span id="RecoverParseStep"><span class="annot"><a href="Aihc.Parser.Internal.Module.html#RecoverParseStep"><span class="hs-identifier hs-var">RecoverParseStep</span></a></span></span><span> </span><span id="local-6989586621679413177"><span class="annot"><a href="#local-6989586621679413177"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-22"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="RecoverDone"><span class="annot"><a href="Aihc.Parser.Internal.Module.html#RecoverDone"><span class="hs-identifier hs-var">RecoverDone</span></a></span></span><span>
+</span><span id="line-23"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="RecoverParsed"><span class="annot"><a href="Aihc.Parser.Internal.Module.html#RecoverParsed"><span class="hs-identifier hs-var">RecoverParsed</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="#local-6989586621679413177"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-24"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="RecoverFailed"><span class="annot"><a href="Aihc.Parser.Internal.Module.html#RecoverFailed"><span class="hs-identifier hs-var">RecoverFailed</span></a></span></span><span>
+</span><span id="line-25"></span><span>
+</span><span id="line-26"></span><span class="annot"><a href="Aihc.Parser.Internal.Module.html#moduleParser"><span class="hs-identifier hs-type">moduleParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Module"><span class="hs-identifier hs-type">Module</span></a></span><span>
+</span><span id="line-27"></span><span id="moduleParser"><span class="annot"><span class="annottext">moduleParser :: TokParser Module
+</span><a href="Aihc.Parser.Internal.Module.html#moduleParser"><span class="hs-identifier hs-var hs-var">moduleParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TokParser (SourceSpan -&gt; Module) -&gt; TokParser Module
+forall a. TokParser (SourceSpan -&gt; a) -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#withSpan"><span class="hs-identifier hs-var">withSpan</span></a></span><span> </span><span class="annot"><span class="annottext">(TokParser (SourceSpan -&gt; Module) -&gt; TokParser Module)
+-&gt; TokParser (SourceSpan -&gt; Module) -&gt; TokParser Module
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-28"></span><span>  </span><span id="local-6989586621679413237"><span class="annot"><a href="#local-6989586621679413237"><span class="hs-identifier hs-var">languagePragmas</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity [ExtensionSetting]
+-&gt; ParsecT
+     ParserErrorComponent TokStream Identity [[ExtensionSetting]]
+forall (m :: * -&gt; *) a. MonadPlus m =&gt; m a -&gt; m [a]
+</span><span class="hs-identifier hs-var">MP.many</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity [ExtensionSetting]
+</span><a href="Aihc.Parser.Internal.Import.html#languagePragmaParser"><span class="hs-identifier hs-var">languagePragmaParser</span></a></span><span> </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity [ExtensionSetting]
+-&gt; ParsecT ParserErrorComponent TokStream Identity [()]
+-&gt; ParsecT
+     ParserErrorComponent TokStream Identity [ExtensionSetting]
+forall a b.
+ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity b
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall (f :: * -&gt; *) a b. Applicative f =&gt; f a -&gt; f b -&gt; f a
+</span><span class="hs-operator hs-var">&lt;*</span></span><span> </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity ()
+-&gt; ParsecT ParserErrorComponent TokStream Identity [()]
+forall (m :: * -&gt; *) a. MonadPlus m =&gt; m a -&gt; m [a]
+</span><span class="hs-identifier hs-var">MP.many</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LexTokenKind -&gt; ParsecT ParserErrorComponent TokStream Identity ()
+</span><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-var">expectedTok</span></a></span><span> </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkSpecialSemicolon"><span class="hs-identifier hs-var">TkSpecialSemicolon</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span>  </span><span id="local-6989586621679413241"><span class="annot"><a href="#local-6989586621679413241"><span class="hs-identifier hs-var">mHeader</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MP.optional</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Internal.Import.html#moduleHeaderParser"><span class="hs-identifier hs-type">moduleHeaderParser</span></a></span><span> </span><span class="annot"><span class="hs-operator hs-type">&lt;*</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">MP.many</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-type">expectedTok</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TkSpecialSemicolon"><span class="hs-identifier hs-type">TkSpecialSemicolon</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span>  </span><span class="hs-special">(</span><span id="local-6989586621679413243"><span class="annot"><a href="#local-6989586621679413243"><span class="hs-identifier hs-var">imports</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679413244"><span class="annot"><a href="#local-6989586621679413244"><span class="hs-identifier hs-var">decls</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Module.html#moduleBodyParser"><span class="hs-identifier hs-type">moduleBodyParser</span></a></span><span>
+</span><span id="line-31"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">pure</span></span><span> </span><span class="annot"><span class="hs-operator hs-type">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679413246"><span class="annot"><span class="annottext">SourceSpan
+</span><a href="#local-6989586621679413246"><span class="hs-identifier hs-var">span'</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-32"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Module"><span class="hs-identifier hs-type">Module</span></a></span><span>
+</span><span id="line-33"></span><span>      </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">moduleAnns :: [Annotation]
+</span><a href="Aihc.Parser.Syntax.html#moduleAnns"><span class="hs-identifier hs-var">moduleAnns</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">SourceSpan -&gt; Annotation
+forall a. Typeable a =&gt; a -&gt; Annotation
+</span><a href="Aihc.Parser.Syntax.html#mkAnnotation"><span class="hs-identifier hs-var">mkAnnotation</span></a></span><span> </span><span class="annot"><span class="annottext">SourceSpan
+</span><a href="#local-6989586621679413246"><span class="hs-identifier hs-var">span'</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-34"></span><span>        </span><span class="annot"><span class="annottext">moduleHead :: Maybe ModuleHead
+</span><a href="Aihc.Parser.Syntax.html#moduleHead"><span class="hs-identifier hs-var">moduleHead</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe ModuleHead
+</span><a href="#local-6989586621679413241"><span class="hs-identifier hs-var">mHeader</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-35"></span><span>        </span><span class="annot"><span class="annottext">moduleLanguagePragmas :: [ExtensionSetting]
+</span><a href="Aihc.Parser.Syntax.html#moduleLanguagePragmas"><span class="hs-identifier hs-var">moduleLanguagePragmas</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[[ExtensionSetting]] -&gt; [ExtensionSetting]
+forall (t :: * -&gt; *) a. Foldable t =&gt; t [a] -&gt; [a]
+</span><span class="hs-identifier hs-var">concat</span></span><span> </span><span class="annot"><span class="annottext">[[ExtensionSetting]]
+</span><a href="#local-6989586621679413237"><span class="hs-identifier hs-var">languagePragmas</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-36"></span><span>        </span><span class="annot"><span class="annottext">moduleImports :: [ImportDecl]
+</span><a href="Aihc.Parser.Syntax.html#moduleImports"><span class="hs-identifier hs-var">moduleImports</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[ImportDecl]
+</span><a href="#local-6989586621679413243"><span class="hs-identifier hs-var">imports</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-37"></span><span>        </span><span class="annot"><span class="annottext">moduleDecls :: [Decl]
+</span><a href="Aihc.Parser.Syntax.html#moduleDecls"><span class="hs-identifier hs-var">moduleDecls</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Decl]
+</span><a href="#local-6989586621679413244"><span class="hs-identifier hs-var">decls</span></a></span><span>
+</span><span id="line-38"></span><span>      </span><span class="hs-special">}</span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span class="annot"><a href="Aihc.Parser.Internal.Module.html#moduleBodyParser"><span class="hs-identifier hs-type">moduleBodyParser</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Syntax.html#ImportDecl"><span class="hs-identifier hs-type">ImportDecl</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Syntax.html#Decl"><span class="hs-identifier hs-type">Decl</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-41"></span><span id="moduleBodyParser"><span class="annot"><span class="annottext">moduleBodyParser :: TokParser ([ImportDecl], [Decl])
+</span><a href="Aihc.Parser.Internal.Module.html#moduleBodyParser"><span class="hs-identifier hs-var hs-var">moduleBodyParser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TokParser ([ImportDecl], [Decl])
+-&gt; TokParser ([ImportDecl], [Decl])
+forall a. TokParser a -&gt; TokParser a
+</span><a href="Aihc.Parser.Internal.Common.html#braces"><span class="hs-identifier hs-var">braces</span></a></span><span> </span><span class="annot"><span class="annottext">(TokParser ([ImportDecl], [Decl])
+ -&gt; TokParser ([ImportDecl], [Decl]))
+-&gt; TokParser ([ImportDecl], [Decl])
+-&gt; TokParser ([ImportDecl], [Decl])
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-42"></span><span>  </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity ()
+</span><a href="Aihc.Parser.Internal.Common.html#skipSemicolons"><span class="hs-identifier hs-var">skipSemicolons</span></a></span><span>
+</span><span id="line-43"></span><span>  </span><span id="local-6989586621679413254"><span class="annot"><a href="#local-6989586621679413254"><span class="hs-identifier hs-var">imports</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser [ImportDecl]
+</span><a href="Aihc.Parser.Internal.Module.html#importDeclsWithRecovery"><span class="hs-identifier hs-var">importDeclsWithRecovery</span></a></span><span>
+</span><span id="line-44"></span><span>  </span><span id="local-6989586621679413256"><span class="annot"><a href="#local-6989586621679413256"><span class="hs-identifier hs-var">decls</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Module.html#declsWithRecovery"><span class="hs-identifier hs-type">declsWithRecovery</span></a></span><span>
+</span><span id="line-45"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#skipSemicolons"><span class="hs-identifier hs-type">skipSemicolons</span></a></span><span>
+</span><span id="line-46"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">pure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679413254"><span class="hs-identifier hs-type">imports</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679413256"><span class="hs-identifier hs-type">decls</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-47"></span><span>
+</span><span id="line-48"></span><span class="annot"><a href="Aihc.Parser.Internal.Module.html#importDeclsWithRecovery"><span class="hs-identifier hs-type">importDeclsWithRecovery</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Syntax.html#ImportDecl"><span class="hs-identifier hs-type">ImportDecl</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-49"></span><span id="importDeclsWithRecovery"><span class="annot"><span class="annottext">importDeclsWithRecovery :: TokParser [ImportDecl]
+</span><a href="Aihc.Parser.Internal.Module.html#importDeclsWithRecovery"><span class="hs-identifier hs-var hs-var">importDeclsWithRecovery</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TokParser ImportDecl -&gt; TokParser [ImportDecl]
+forall a. TokParser a -&gt; TokParser [a]
+</span><a href="Aihc.Parser.Internal.Module.html#recoverDeclLike"><span class="hs-identifier hs-var">recoverDeclLike</span></a></span><span> </span><span class="annot"><span class="annottext">TokParser ImportDecl
+</span><a href="Aihc.Parser.Internal.Import.html#importDeclParser"><span class="hs-identifier hs-var">importDeclParser</span></a></span><span>
+</span><span id="line-50"></span><span>
+</span><span id="line-51"></span><span class="annot"><a href="Aihc.Parser.Internal.Module.html#declsWithRecovery"><span class="hs-identifier hs-type">declsWithRecovery</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Syntax.html#Decl"><span class="hs-identifier hs-type">Decl</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-52"></span><span id="declsWithRecovery"><span class="annot"><span class="annottext">declsWithRecovery :: TokParser [Decl]
+</span><a href="Aihc.Parser.Internal.Module.html#declsWithRecovery"><span class="hs-identifier hs-var hs-var">declsWithRecovery</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TokParser Decl -&gt; TokParser [Decl]
+forall a. TokParser a -&gt; TokParser [a]
+</span><a href="Aihc.Parser.Internal.Module.html#recoverDeclLike"><span class="hs-identifier hs-var">recoverDeclLike</span></a></span><span> </span><span class="annot"><span class="annottext">TokParser Decl
+</span><a href="Aihc.Parser.Internal.Decl.html#declParser"><span class="hs-identifier hs-var">declParser</span></a></span><span>
+</span><span id="line-53"></span><span>
+</span><span id="line-54"></span><span id="local-6989586621679413164"><span class="annot"><a href="Aihc.Parser.Internal.Module.html#recoverDeclLike"><span class="hs-identifier hs-type">recoverDeclLike</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413164"><span class="hs-identifier hs-type">a</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679413164"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">]</span></span><span>
+</span><span id="line-55"></span><span id="recoverDeclLike"><span class="annot"><span class="annottext">recoverDeclLike :: forall a. TokParser a -&gt; TokParser [a]
+</span><a href="Aihc.Parser.Internal.Module.html#recoverDeclLike"><span class="hs-identifier hs-var hs-var">recoverDeclLike</span></a></span></span><span> </span><span id="local-6989586621679413259"><span class="annot"><span class="annottext">TokParser a
+</span><a href="#local-6989586621679413259"><span class="hs-identifier hs-var">parser</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[a] -&gt; ParsecT ParserErrorComponent TokStream Identity [a]
+</span><a href="#local-6989586621679413260"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-56"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-57"></span><span>    </span><span id="local-6989586621679413260"><span class="annot"><span class="annottext">go :: [a] -&gt; ParsecT ParserErrorComponent TokStream Identity [a]
+</span><a href="#local-6989586621679413260"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span id="local-6989586621679413269"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679413269"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-58"></span><span>      </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity ()
+</span><a href="Aihc.Parser.Internal.Common.html#skipSemicolons"><span class="hs-identifier hs-var">skipSemicolons</span></a></span><span>
+</span><span id="line-59"></span><span>      </span><span id="local-6989586621679413270"><span class="annot"><a href="#local-6989586621679413270"><span class="hs-identifier hs-var">step</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(ParseError TokStream ParserErrorComponent
+ -&gt; ParsecT
+      ParserErrorComponent TokStream Identity (RecoverParseStep a))
+-&gt; ParsecT
+     ParserErrorComponent TokStream Identity (RecoverParseStep a)
+-&gt; ParsecT
+     ParserErrorComponent TokStream Identity (RecoverParseStep a)
+forall a.
+(ParseError TokStream ParserErrorComponent
+ -&gt; ParsecT ParserErrorComponent TokStream Identity a)
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+-&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall e s (m :: * -&gt; *) a.
+MonadParsec e s m =&gt;
+(ParseError s e -&gt; m a) -&gt; m a -&gt; m a
+</span><span class="hs-identifier hs-var">MP.withRecovery</span></span><span> </span><span class="annot"><span class="annottext">ParseError TokStream ParserErrorComponent
+-&gt; ParsecT
+     ParserErrorComponent TokStream Identity (RecoverParseStep a)
+forall {a}.
+ParseError TokStream ParserErrorComponent
+-&gt; ParsecT
+     ParserErrorComponent TokStream Identity (RecoverParseStep a)
+</span><a href="#local-6989586621679413272"><span class="hs-identifier hs-var">recoverParseError</span></a></span><span> </span><span class="annot"><span class="annottext">ParsecT
+  ParserErrorComponent TokStream Identity (RecoverParseStep a)
+</span><a href="#local-6989586621679413273"><span class="hs-identifier hs-var">parseStep</span></a></span><span>
+</span><span id="line-60"></span><span>      </span><span class="hs-keyword">case</span><span> </span><span class="annot"><a href="#local-6989586621679413270"><span class="hs-identifier hs-type">step</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-61"></span><span>        </span><span class="annot"><span class="annottext">RecoverParseStep a
+</span><a href="Aihc.Parser.Internal.Module.html#RecoverDone"><span class="hs-identifier hs-var">RecoverDone</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[a] -&gt; ParsecT ParserErrorComponent TokStream Identity [a]
+forall a. a -&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[a] -&gt; [a]
+forall a. [a] -&gt; [a]
+</span><span class="hs-identifier hs-var">reverse</span></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679413269"><span class="hs-identifier hs-var">acc</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-62"></span><span>        </span><span class="annot"><a href="Aihc.Parser.Internal.Module.html#RecoverParsed"><span class="hs-identifier hs-type">RecoverParsed</span></a></span><span> </span><span id="local-6989586621679413275"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679413275"><span class="hs-identifier hs-var">parsed</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-63"></span><span>          </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity ()
+</span><a href="Aihc.Parser.Internal.Common.html#skipSemicolons"><span class="hs-identifier hs-var">skipSemicolons</span></a></span><span>
+</span><span id="line-64"></span><span>          </span><span class="annot"><span class="annottext">[a] -&gt; ParsecT ParserErrorComponent TokStream Identity [a]
+</span><a href="#local-6989586621679413260"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679413275"><span class="hs-identifier hs-var">parsed</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; [a] -&gt; [a]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679413269"><span class="hs-identifier hs-var">acc</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-65"></span><span>        </span><span class="annot"><span class="annottext">RecoverParseStep a
+</span><a href="Aihc.Parser.Internal.Module.html#RecoverFailed"><span class="hs-identifier hs-var">RecoverFailed</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-66"></span><span>          </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity ()
+</span><a href="Aihc.Parser.Internal.Common.html#skipSemicolons"><span class="hs-identifier hs-var">skipSemicolons</span></a></span><span>
+</span><span id="line-67"></span><span>          </span><span class="annot"><span class="annottext">[a] -&gt; ParsecT ParserErrorComponent TokStream Identity [a]
+</span><a href="#local-6989586621679413260"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679413269"><span class="hs-identifier hs-var">acc</span></a></span><span>
+</span><span id="line-68"></span><span>
+</span><span id="line-69"></span><span>    </span><span id="local-6989586621679413273"><span class="annot"><span class="annottext">parseStep :: ParsecT
+  ParserErrorComponent TokStream Identity (RecoverParseStep a)
+</span><a href="#local-6989586621679413273"><span class="hs-identifier hs-var hs-var">parseStep</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-70"></span><span>      </span><span id="local-6989586621679413281"><span class="annot"><a href="#local-6989586621679413281"><span class="hs-identifier hs-var">mParsed</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TokParser a
+-&gt; ParsecT ParserErrorComponent TokStream Identity (Maybe a)
+forall (f :: * -&gt; *) a. Alternative f =&gt; f a -&gt; f (Maybe a)
+</span><span class="hs-identifier hs-var">MP.optional</span></span><span> </span><span class="annot"><span class="annottext">TokParser a
+</span><a href="#local-6989586621679413259"><span class="hs-identifier hs-var">parser</span></a></span><span>
+</span><span id="line-71"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">pure</span></span><span> </span><span class="annot"><span class="hs-operator hs-type">$</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Module.html#RecoverDone"><span class="hs-identifier hs-type">RecoverDone</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Module.html#RecoverParsed"><span class="hs-identifier hs-type">RecoverParsed</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679413281"><span class="hs-identifier hs-type">mParsed</span></a></span><span>
+</span><span id="line-72"></span><span>
+</span><span id="line-73"></span><span>    </span><span id="local-6989586621679413272"><span class="annot"><span class="annottext">recoverParseError :: ParseError TokStream ParserErrorComponent
+-&gt; ParsecT
+     ParserErrorComponent TokStream Identity (RecoverParseStep a)
+</span><a href="#local-6989586621679413272"><span class="hs-identifier hs-var hs-var">recoverParseError</span></a></span></span><span> </span><span id="local-6989586621679413289"><span class="annot"><span class="annottext">ParseError TokStream ParserErrorComponent
+</span><a href="#local-6989586621679413289"><span class="hs-identifier hs-var">err</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-74"></span><span>      </span><span class="annot"><span class="annottext">ParseError TokStream ParserErrorComponent
+-&gt; ParsecT ParserErrorComponent TokStream Identity ()
+forall e s (m :: * -&gt; *).
+MonadParsec e s m =&gt;
+ParseError s e -&gt; m ()
+</span><span class="hs-identifier hs-var">MP.registerParseError</span></span><span> </span><span class="annot"><span class="annottext">ParseError TokStream ParserErrorComponent
+</span><a href="#local-6989586621679413289"><span class="hs-identifier hs-var">err</span></a></span><span>
+</span><span id="line-75"></span><span>      </span><span class="annot"><span class="annottext">ParsecT ParserErrorComponent TokStream Identity ()
+</span><a href="Aihc.Parser.Internal.Module.html#skipUntilDeclBoundary"><span class="hs-identifier hs-var">skipUntilDeclBoundary</span></a></span><span>
+</span><span id="line-76"></span><span>      </span><span class="annot"><span class="annottext">RecoverParseStep a
+-&gt; ParsecT
+     ParserErrorComponent TokStream Identity (RecoverParseStep a)
+forall a. a -&gt; ParsecT ParserErrorComponent TokStream Identity a
+forall (f :: * -&gt; *) a. Applicative f =&gt; a -&gt; f a
+</span><span class="hs-identifier hs-var">pure</span></span><span> </span><span class="annot"><span class="annottext">RecoverParseStep a
+forall a. RecoverParseStep a
+</span><a href="Aihc.Parser.Internal.Module.html#RecoverFailed"><span class="hs-identifier hs-var">RecoverFailed</span></a></span><span>
+</span><span id="line-77"></span><span>
+</span><span id="line-78"></span><span class="annot"><a href="Aihc.Parser.Internal.Module.html#skipUntilDeclBoundary"><span class="hs-identifier hs-type">skipUntilDeclBoundary</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#TokParser"><span class="hs-identifier hs-type">TokParser</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
+</span><span id="line-79"></span><span id="skipUntilDeclBoundary"><span class="annot"><span class="annottext">skipUntilDeclBoundary :: ParsecT ParserErrorComponent TokStream Identity ()
+</span><a href="Aihc.Parser.Internal.Module.html#skipUntilDeclBoundary"><span class="hs-identifier hs-var hs-var">skipUntilDeclBoundary</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-80"></span><span>  </span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-81"></span><span>    </span><span class="annot"><span class="annottext">Maybe String
+-&gt; (Token TokStream -&gt; Bool)
+-&gt; ParsecT
+     ParserErrorComponent TokStream Identity (Tokens TokStream)
+forall e s (m :: * -&gt; *).
+MonadParsec e s m =&gt;
+Maybe String -&gt; (Token s -&gt; Bool) -&gt; m (Tokens s)
+</span><span class="hs-identifier hs-var">MP.takeWhileP</span></span><span>
+</span><span id="line-82"></span><span>      </span><span class="annot"><span class="annottext">Maybe String
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-83"></span><span>      </span><span class="hs-special">(</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679413293"><span class="annot"><span class="annottext">Token TokStream
+</span><a href="#local-6989586621679413293"><span class="hs-identifier hs-var">tok</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-84"></span><span>          </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679413294"><span class="annot"><span class="annottext">kind :: LexTokenKind
+</span><a href="#local-6989586621679413294"><span class="hs-identifier hs-var hs-var">kind</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LexToken -&gt; LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#lexTokenKind"><span class="hs-identifier hs-var">lexTokenKind</span></a></span><span> </span><span class="annot"><span class="annottext">LexToken
+Token TokStream
+</span><a href="#local-6989586621679413293"><span class="hs-identifier hs-var">tok</span></a></span><span>
+</span><span id="line-85"></span><span>           </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="#local-6989586621679413294"><span class="hs-identifier hs-var">kind</span></a></span><span> </span><span class="annot"><span class="annottext">LexTokenKind -&gt; LexTokenKind -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">/=</span></span><span> </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkSpecialSemicolon"><span class="hs-identifier hs-var">TkSpecialSemicolon</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="#local-6989586621679413294"><span class="hs-identifier hs-var">kind</span></a></span><span> </span><span class="annot"><span class="annottext">LexTokenKind -&gt; LexTokenKind -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">/=</span></span><span> </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkSpecialRBrace"><span class="hs-identifier hs-var">TkSpecialRBrace</span></a></span><span>
+</span><span id="line-86"></span><span>      </span><span class="hs-special">)</span><span>
+</span><span id="line-87"></span><span>  </span><span class="annot"><span class="hs-identifier hs-type">void</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">MP.optional</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#expectedTok"><span class="hs-identifier hs-type">expectedTok</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TkSpecialSemicolon"><span class="hs-identifier hs-type">TkSpecialSemicolon</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-88"></span></pre></body></html>

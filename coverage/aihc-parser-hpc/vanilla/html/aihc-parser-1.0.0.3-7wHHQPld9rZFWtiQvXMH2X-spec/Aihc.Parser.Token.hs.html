@@ -1,0 +1,62 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>-- |
+<span class="lineno">    2 </span>-- Module      : Aihc.Parser.Token
+<span class="lineno">    3 </span>-- Description : Public token API for inspecting lexer output
+<span class="lineno">    4 </span>--
+<span class="lineno">    5 </span>-- This module exposes the stable token-facing surface of the parser without
+<span class="lineno">    6 </span>-- making callers depend on the internal lexer implementation. It is intended
+<span class="lineno">    7 </span>-- for diagnostics, tooling, generators, and tests that need to inspect the
+<span class="lineno">    8 </span>-- token stream directly instead of parsing it into the AST.
+<span class="lineno">    9 </span>--
+<span class="lineno">   10 </span>-- A 'LexToken' records the token 'LexTokenKind', original source text, source
+<span class="lineno">   11 </span>-- span, whether it started at the beginning of a logical line, and its
+<span class="lineno">   12 </span>-- 'TokenOrigin'. Tokens with 'FromSource' come from the input text; tokens with
+<span class="lineno">   13 </span>-- 'InsertedLayout' are virtual braces or semicolons inserted by the layout
+<span class="lineno">   14 </span>-- pass.
+<span class="lineno">   15 </span>--
+<span class="lineno">   16 </span>-- The @lexTokens*@ functions scan arbitrary source fragments. The
+<span class="lineno">   17 </span>-- @lexModuleTokens*@ variants additionally read the module header first, apply
+<span class="lineno">   18 </span>-- any @LANGUAGE@ pragmas (including implied extensions), and then run layout in
+<span class="lineno">   19 </span>-- module mode so top-level declarations receive the same virtual layout tokens
+<span class="lineno">   20 </span>-- as the parser. Use the @WithSourceName@ variants when diagnostics should
+<span class="lineno">   21 </span>-- carry a caller-provided source name instead of @&quot;&lt;input&gt;&quot;@.
+<span class="lineno">   22 </span>--
+<span class="lineno">   23 </span>-- 'readModuleHeaderExtensions' returns the raw extension settings discovered in
+<span class="lineno">   24 </span>-- the leading module pragmas, while 'readModuleHeaderPragmas' separates a
+<span class="lineno">   25 </span>-- language edition from explicit extension toggles.
+<span class="lineno">   26 </span>module Aihc.Parser.Token
+<span class="lineno">   27 </span>  ( TokenOrigin (..),
+<span class="lineno">   28 </span>    LexToken (..),
+<span class="lineno">   29 </span>    LexTokenKind (..),
+<span class="lineno">   30 </span>    readModuleHeaderExtensions,
+<span class="lineno">   31 </span>    readModuleHeaderPragmas,
+<span class="lineno">   32 </span>    lexTokensWithExtensions,
+<span class="lineno">   33 </span>    lexModuleTokensWithExtensions,
+<span class="lineno">   34 </span>    lexTokensWithSourceNameAndExtensions,
+<span class="lineno">   35 </span>    lexModuleTokensWithSourceNameAndExtensions,
+<span class="lineno">   36 </span>  )
+<span class="lineno">   37 </span>where
+<span class="lineno">   38 </span>
+<span class="lineno">   39 </span>import Aihc.Parser.Lex
+
+</pre>
+</body>
+</html>

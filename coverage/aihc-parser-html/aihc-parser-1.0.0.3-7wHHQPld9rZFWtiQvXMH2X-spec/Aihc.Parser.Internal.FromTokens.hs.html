@@ -1,0 +1,89 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>-- |
+<span class="lineno">    2 </span>-- Module      : Aihc.Parser.Internal.FromTokens
+<span class="lineno">    3 </span>-- Description : Internal parsing functions from token streams
+<span class="lineno">    4 </span>-- License     : Unlicense
+<span class="lineno">    5 </span>--
+<span class="lineno">    6 </span>-- @since 0.1.0.0
+<span class="lineno">    7 </span>--
+<span class="lineno">    8 </span>-- __Warning:__ This is an internal module and is not meant to be used directly.
+<span class="lineno">    9 </span>-- The API may change without notice.
+<span class="lineno">   10 </span>--
+<span class="lineno">   11 </span>-- This module exposes parsing functions that work directly on token streams.
+<span class="lineno">   12 </span>-- These are primarily used for testing and internal purposes.
+<span class="lineno">   13 </span>module Aihc.Parser.Internal.FromTokens
+<span class="lineno">   14 </span>  ( parseExprFromTokens,
+<span class="lineno">   15 </span>    parsePatternFromTokens,
+<span class="lineno">   16 </span>    parseSignatureTypeFromTokens,
+<span class="lineno">   17 </span>    parseTypeFromTokens,
+<span class="lineno">   18 </span>    parseModuleFromTokens,
+<span class="lineno">   19 </span>    parseDeclFromTokens,
+<span class="lineno">   20 </span>    parseImportDeclFromTokens,
+<span class="lineno">   21 </span>    parseModuleHeaderFromTokens,
+<span class="lineno">   22 </span>  )
+<span class="lineno">   23 </span>where
+<span class="lineno">   24 </span>
+<span class="lineno">   25 </span>import Aihc.Parser.Internal.Common (TokParser, eofTok)
+<span class="lineno">   26 </span>import Aihc.Parser.Internal.Decl (declParser)
+<span class="lineno">   27 </span>import Aihc.Parser.Internal.Errors (parseErrorBundleToSpannedText)
+<span class="lineno">   28 </span>import Aihc.Parser.Internal.Expr (exprParser)
+<span class="lineno">   29 </span>import Aihc.Parser.Internal.Import (importDeclParser, moduleHeaderParser)
+<span class="lineno">   30 </span>import Aihc.Parser.Internal.Module (moduleParser)
+<span class="lineno">   31 </span>import Aihc.Parser.Internal.Pattern (patternParser)
+<span class="lineno">   32 </span>import Aihc.Parser.Internal.Type (typeParser, typeSignatureParser)
+<span class="lineno">   33 </span>import Aihc.Parser.Lex (LexToken)
+<span class="lineno">   34 </span>import Aihc.Parser.Syntax (Decl, Expr, ImportDecl, Module, ModuleHead, Pattern, Type)
+<span class="lineno">   35 </span>import Aihc.Parser.Types
+<span class="lineno">   36 </span>import Text.Megaparsec (runParser)
+<span class="lineno">   37 </span>
+<span class="lineno">   38 </span>parseFromTokens :: TokParser a -&gt; FilePath -&gt; [LexToken] -&gt; ParseResult a
+<span class="lineno">   39 </span><span class="decl"><span class="istickedoff">parseFromTokens parser sourceName toks =</span>
+<span class="lineno">   40 </span><span class="spaces">  </span><span class="istickedoff">case runParser (parser &lt;* eofTok) <span class="nottickedoff">sourceName</span> (mkTokStreamFromTokens toks) of</span>
+<span class="lineno">   41 </span><span class="spaces">    </span><span class="istickedoff">Left bundle -&gt; ParseErr (parseErrorBundleToSpannedText bundle)</span>
+<span class="lineno">   42 </span><span class="spaces">    </span><span class="istickedoff">Right parsed -&gt; ParseOk parsed</span></span>
+<span class="lineno">   43 </span>
+<span class="lineno">   44 </span>parseExprFromTokens :: FilePath -&gt; [LexToken] -&gt; ParseResult Expr
+<span class="lineno">   45 </span><span class="decl"><span class="istickedoff">parseExprFromTokens = parseFromTokens exprParser</span></span>
+<span class="lineno">   46 </span>
+<span class="lineno">   47 </span>parsePatternFromTokens :: FilePath -&gt; [LexToken] -&gt; ParseResult Pattern
+<span class="lineno">   48 </span><span class="decl"><span class="istickedoff">parsePatternFromTokens = parseFromTokens patternParser</span></span>
+<span class="lineno">   49 </span>
+<span class="lineno">   50 </span>parseSignatureTypeFromTokens :: FilePath -&gt; [LexToken] -&gt; ParseResult Type
+<span class="lineno">   51 </span><span class="decl"><span class="nottickedoff">parseSignatureTypeFromTokens = parseFromTokens typeSignatureParser</span></span>
+<span class="lineno">   52 </span>
+<span class="lineno">   53 </span>parseTypeFromTokens :: FilePath -&gt; [LexToken] -&gt; ParseResult Type
+<span class="lineno">   54 </span><span class="decl"><span class="istickedoff">parseTypeFromTokens = parseFromTokens typeParser</span></span>
+<span class="lineno">   55 </span>
+<span class="lineno">   56 </span>parseModuleFromTokens :: FilePath -&gt; [LexToken] -&gt; ParseResult Module
+<span class="lineno">   57 </span><span class="decl"><span class="istickedoff">parseModuleFromTokens = parseFromTokens moduleParser</span></span>
+<span class="lineno">   58 </span>
+<span class="lineno">   59 </span>parseDeclFromTokens :: FilePath -&gt; [LexToken] -&gt; ParseResult Decl
+<span class="lineno">   60 </span><span class="decl"><span class="istickedoff">parseDeclFromTokens = parseFromTokens declParser</span></span>
+<span class="lineno">   61 </span>
+<span class="lineno">   62 </span>parseImportDeclFromTokens :: FilePath -&gt; [LexToken] -&gt; ParseResult ImportDecl
+<span class="lineno">   63 </span><span class="decl"><span class="istickedoff">parseImportDeclFromTokens = parseFromTokens importDeclParser</span></span>
+<span class="lineno">   64 </span>
+<span class="lineno">   65 </span>parseModuleHeaderFromTokens :: FilePath -&gt; [LexToken] -&gt; ParseResult ModuleHead
+<span class="lineno">   66 </span><span class="decl"><span class="istickedoff">parseModuleHeaderFromTokens = parseFromTokens moduleHeaderParser</span></span>
+
+</pre>
+</body>
+</html>

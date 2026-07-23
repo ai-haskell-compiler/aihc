@@ -1,0 +1,305 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE BangPatterns #-}
+<span class="lineno">    2 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    3 </span>
+<span class="lineno">    4 </span>module Aihc.Parser.Lex.Quoted
+<span class="lineno">    5 </span>  ( decodeStringBody,
+<span class="lineno">    6 </span>    processMultilineString,
+<span class="lineno">    7 </span>    readMaybeChar,
+<span class="lineno">    8 </span>    scanMultilineString,
+<span class="lineno">    9 </span>    scanQuoted,
+<span class="lineno">   10 </span>  )
+<span class="lineno">   11 </span>where
+<span class="lineno">   12 </span>
+<span class="lineno">   13 </span>import Data.Char (chr, digitToInt, isDigit, isHexDigit, isSpace, ord)
+<span class="lineno">   14 </span>import Data.List qualified as List
+<span class="lineno">   15 </span>import Data.Maybe (mapMaybe)
+<span class="lineno">   16 </span>import Data.Text (Text)
+<span class="lineno">   17 </span>import Data.Text qualified as T
+<span class="lineno">   18 </span>import Data.Text.Lazy qualified as TL
+<span class="lineno">   19 </span>import Data.Text.Lazy.Builder qualified as TLB
+<span class="lineno">   20 </span>
+<span class="lineno">   21 </span>-- | Scan a quoted string body (after the opening delimiter) until the
+<span class="lineno">   22 </span>-- unescaped closing character.  Returns @Right (body, rest)@ on success or
+<span class="lineno">   23 </span>-- @Left body@ if the input ends without a closing delimiter.
+<span class="lineno">   24 </span>scanQuoted :: Char -&gt; Text -&gt; Either Text (Text, Text)
+<span class="lineno">   25 </span><span class="decl"><span class="istickedoff">scanQuoted endCh input = go 0 input</span>
+<span class="lineno">   26 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   27 </span><span class="spaces">    </span><span class="istickedoff">go consumed rest =</span>
+<span class="lineno">   28 </span><span class="spaces">      </span><span class="istickedoff">case T.findIndex (\c -&gt; c == '\\' || c == endCh) rest of</span>
+<span class="lineno">   29 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; Left (T.take (consumed + T.length rest) input)</span>
+<span class="lineno">   30 </span><span class="spaces">        </span><span class="istickedoff">Just i -&gt;</span>
+<span class="lineno">   31 </span><span class="spaces">          </span><span class="istickedoff">let consumed' = consumed + i</span>
+<span class="lineno">   32 </span><span class="spaces">              </span><span class="istickedoff">special = T.drop i rest</span>
+<span class="lineno">   33 </span><span class="spaces">           </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null special</span></span>
+<span class="lineno">   34 </span><span class="spaces">                </span><span class="istickedoff">then <span class="nottickedoff">Left (T.take consumed' input)</span></span>
+<span class="lineno">   35 </span><span class="spaces">                </span><span class="istickedoff">else case T.head special of</span>
+<span class="lineno">   36 </span><span class="spaces">                  </span><span class="istickedoff">c</span>
+<span class="lineno">   37 </span><span class="spaces">                    </span><span class="istickedoff">| c == endCh -&gt; Right (T.take consumed' input, <span class="nottickedoff">T.drop 1 special</span>)</span>
+<span class="lineno">   38 </span><span class="spaces">                    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt;</span>
+<span class="lineno">   39 </span><span class="spaces">                        </span><span class="istickedoff">case consumedEscapeTail (T.drop 1 special) of</span>
+<span class="lineno">   40 </span><span class="spaces">                          </span><span class="istickedoff">Just tailLen -&gt; go (consumed' + 1 + tailLen) (T.drop tailLen (T.drop 1 special))</span>
+<span class="lineno">   41 </span><span class="spaces">                          </span><span class="istickedoff">Nothing -&gt; Left (T.take (consumed' + 1) input)</span></span>
+<span class="lineno">   42 </span>
+<span class="lineno">   43 </span>-- | Scan a multiline string body (after the opening @\&quot;\&quot;\&quot;@) until an
+<span class="lineno">   44 </span>-- unescaped closing @\&quot;\&quot;\&quot;@.  Returns @Right (body, rest)@ on success or
+<span class="lineno">   45 </span>-- @Left body@ if the input ends without a closing delimiter.
+<span class="lineno">   46 </span>scanMultilineString :: Text -&gt; Either Text (Text, Text)
+<span class="lineno">   47 </span><span class="decl"><span class="istickedoff">scanMultilineString input = go 0 input</span>
+<span class="lineno">   48 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   49 </span><span class="spaces">    </span><span class="istickedoff">go consumed rest =</span>
+<span class="lineno">   50 </span><span class="spaces">      </span><span class="istickedoff">case T.findIndex (\c -&gt; c == '\\' || c == '&quot;') rest of</span>
+<span class="lineno">   51 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">Left (T.take (consumed + T.length rest) input)</span></span>
+<span class="lineno">   52 </span><span class="spaces">        </span><span class="istickedoff">Just i -&gt;</span>
+<span class="lineno">   53 </span><span class="spaces">          </span><span class="istickedoff">let consumed' = consumed + i</span>
+<span class="lineno">   54 </span><span class="spaces">              </span><span class="istickedoff">special = T.drop i rest</span>
+<span class="lineno">   55 </span><span class="spaces">           </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null special</span></span>
+<span class="lineno">   56 </span><span class="spaces">                </span><span class="istickedoff">then <span class="nottickedoff">Left (T.take consumed' input)</span></span>
+<span class="lineno">   57 </span><span class="spaces">                </span><span class="istickedoff">else case T.head special of</span>
+<span class="lineno">   58 </span><span class="spaces">                  </span><span class="istickedoff">'\\' -&gt;</span>
+<span class="lineno">   59 </span><span class="spaces">                    </span><span class="istickedoff">case consumedEscapeTail (T.drop 1 special) of</span>
+<span class="lineno">   60 </span><span class="spaces">                      </span><span class="istickedoff">Just tailLen -&gt; go (consumed' + 1 + tailLen) (T.drop tailLen (T.drop 1 special))</span>
+<span class="lineno">   61 </span><span class="spaces">                      </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">Left (T.take (consumed' + 1) input)</span></span>
+<span class="lineno">   62 </span><span class="spaces">                  </span><span class="istickedoff">'&quot;' -&gt;</span>
+<span class="lineno">   63 </span><span class="spaces">                    </span><span class="istickedoff">if &quot;\&quot;\&quot;\&quot;&quot; `T.isPrefixOf` special</span>
+<span class="lineno">   64 </span><span class="spaces">                      </span><span class="istickedoff">then Right (T.take consumed' input, <span class="nottickedoff">T.drop 3 special</span>)</span>
+<span class="lineno">   65 </span><span class="spaces">                      </span><span class="istickedoff">else</span>
+<span class="lineno">   66 </span><span class="spaces">                        </span><span class="istickedoff">if <span class="tickonlyfalse">&quot;\&quot;\&quot;&quot; `T.isPrefixOf` special</span></span>
+<span class="lineno">   67 </span><span class="spaces">                          </span><span class="istickedoff">then <span class="nottickedoff">go (consumed' + 2) (T.drop 2 special)</span></span>
+<span class="lineno">   68 </span><span class="spaces">                          </span><span class="istickedoff">else go (consumed' + 1) (T.drop 1 special)</span>
+<span class="lineno">   69 </span><span class="spaces">                  </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">error &quot;unreachable: findIndex only returns backslash or quote&quot;</span></span></span>
+<span class="lineno">   70 </span>
+<span class="lineno">   71 </span>-- | Determine how much text after a backslash belongs to the current
+<span class="lineno">   72 </span>-- escape-like sequence for delimiter scanning purposes.
+<span class="lineno">   73 </span>--
+<span class="lineno">   74 </span>-- We intentionally recognize string gaps here so a gap-closing backslash does
+<span class="lineno">   75 </span>-- not incorrectly escape the following quote.
+<span class="lineno">   76 </span>consumedEscapeTail :: Text -&gt; Maybe Int
+<span class="lineno">   77 </span><span class="decl"><span class="istickedoff">consumedEscapeTail rest = do</span>
+<span class="lineno">   78 </span><span class="spaces">  </span><span class="istickedoff">(_, _, consumed) &lt;- parseEscapeWithLength rest</span>
+<span class="lineno">   79 </span><span class="spaces">  </span><span class="istickedoff">pure consumed</span></span>
+<span class="lineno">   80 </span>
+<span class="lineno">   81 </span>-- | Decode the body of a Haskell string literal (content between the quotes,
+<span class="lineno">   82 </span>-- without the surrounding @\&quot;@ characters) natively on 'Text', avoiding the
+<span class="lineno">   83 </span>-- round-trip through 'String'.  Returns 'Nothing' if the body contains an
+<span class="lineno">   84 </span>-- invalid escape sequence, in which case the caller should fall back to the
+<span class="lineno">   85 </span>-- raw body.
+<span class="lineno">   86 </span>decodeStringBody :: Text -&gt; Maybe Text
+<span class="lineno">   87 </span><span class="decl"><span class="istickedoff">decodeStringBody inp</span>
+<span class="lineno">   88 </span><span class="spaces">  </span><span class="istickedoff">| not ('\\' `T.elem` inp) = Just inp -- fast path: no escapes, no allocation</span>
+<span class="lineno">   89 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = TL.toStrict . TLB.toLazyText &lt;$&gt; go mempty inp</span>
+<span class="lineno">   90 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   91 </span><span class="spaces">    </span><span class="istickedoff">go :: TLB.Builder -&gt; Text -&gt; Maybe TLB.Builder</span>
+<span class="lineno">   92 </span><span class="spaces">    </span><span class="istickedoff">go !acc t =</span>
+<span class="lineno">   93 </span><span class="spaces">      </span><span class="istickedoff">let (plain, rest) = T.break (== '\\') t</span>
+<span class="lineno">   94 </span><span class="spaces">          </span><span class="istickedoff">acc' = acc &lt;&gt; TLB.fromText plain</span>
+<span class="lineno">   95 </span><span class="spaces">       </span><span class="istickedoff">in case T.uncons rest of</span>
+<span class="lineno">   96 </span><span class="spaces">            </span><span class="istickedoff">Nothing -&gt; Just acc'</span>
+<span class="lineno">   97 </span><span class="spaces">            </span><span class="istickedoff">Just ('\\', after) -&gt; case parseEscape after of</span>
+<span class="lineno">   98 </span><span class="spaces">              </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">   99 </span><span class="spaces">              </span><span class="istickedoff">Just (mc, rest') -&gt;</span>
+<span class="lineno">  100 </span><span class="spaces">                </span><span class="istickedoff">go (maybe acc' (\c -&gt; acc' &lt;&gt; TLB.singleton c) mc) rest'</span>
+<span class="lineno">  101 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Just acc'</span></span></span> -- unreachable: T.break stops at '\\'
+<span class="lineno">  102 </span>
+<span class="lineno">  103 </span>isOctDigit :: Char -&gt; Bool
+<span class="lineno">  104 </span><span class="decl"><span class="istickedoff">isOctDigit c = c &gt;= '0' &amp;&amp; c &lt;= '7'</span></span>
+<span class="lineno">  105 </span>
+<span class="lineno">  106 </span>parseEscape :: Text -&gt; Maybe (Maybe Char, Text)
+<span class="lineno">  107 </span><span class="decl"><span class="istickedoff">parseEscape = fmap (\(decoded, rest, _) -&gt; (decoded, rest)) . parseEscapeWithLength</span></span>
+<span class="lineno">  108 </span>
+<span class="lineno">  109 </span>parseEscapeWithLength :: Text -&gt; Maybe (Maybe Char, Text, Int)
+<span class="lineno">  110 </span><span class="decl"><span class="istickedoff">parseEscapeWithLength t = case T.uncons t of</span>
+<span class="lineno">  111 </span><span class="spaces">  </span><span class="istickedoff">Nothing -&gt; Nothing</span>
+<span class="lineno">  112 </span><span class="spaces">  </span><span class="istickedoff">Just (c, rest) -&gt; case c of</span>
+<span class="lineno">  113 </span><span class="spaces">    </span><span class="istickedoff">'a' -&gt; consumedOne (Just '\a') rest</span>
+<span class="lineno">  114 </span><span class="spaces">    </span><span class="istickedoff">'b' -&gt; consumedOne (Just '\b') rest</span>
+<span class="lineno">  115 </span><span class="spaces">    </span><span class="istickedoff">'f' -&gt; consumedOne (Just '\f') rest</span>
+<span class="lineno">  116 </span><span class="spaces">    </span><span class="istickedoff">'n' -&gt; consumedOne (Just '\n') rest</span>
+<span class="lineno">  117 </span><span class="spaces">    </span><span class="istickedoff">'r' -&gt; consumedOne (Just '\r') rest</span>
+<span class="lineno">  118 </span><span class="spaces">    </span><span class="istickedoff">'t' -&gt; consumedOne (Just '\t') rest</span>
+<span class="lineno">  119 </span><span class="spaces">    </span><span class="istickedoff">'v' -&gt; consumedOne (Just '\v') rest</span>
+<span class="lineno">  120 </span><span class="spaces">    </span><span class="istickedoff">'\\' -&gt; consumedOne (Just '\\') rest</span>
+<span class="lineno">  121 </span><span class="spaces">    </span><span class="istickedoff">'&quot;' -&gt; consumedOne (Just '&quot;') rest</span>
+<span class="lineno">  122 </span><span class="spaces">    </span><span class="istickedoff">'\'' -&gt; consumedOne (Just '\'') rest</span>
+<span class="lineno">  123 </span><span class="spaces">    </span><span class="istickedoff">'&amp;' -&gt; consumedOne Nothing rest -- empty escape</span>
+<span class="lineno">  124 </span><span class="spaces">    </span><span class="istickedoff">'^' -&gt; case T.uncons rest of -- control character \^X</span>
+<span class="lineno">  125 </span><span class="spaces">      </span><span class="istickedoff">Just (cc, rest')</span>
+<span class="lineno">  126 </span><span class="spaces">        </span><span class="istickedoff">| cc &gt;= '@' &amp;&amp; cc &lt;= '_' -&gt;</span>
+<span class="lineno">  127 </span><span class="spaces">            </span><span class="istickedoff">Just (<span class="nottickedoff">Just (chr (ord cc - 64))</span>, <span class="nottickedoff">rest'</span>, 2)</span>
+<span class="lineno">  128 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; Nothing</span>
+<span class="lineno">  129 </span><span class="spaces">    </span><span class="istickedoff">'x' -&gt;</span>
+<span class="lineno">  130 </span><span class="spaces">      </span><span class="istickedoff">-- hex escape \xNN  (use Integer to prevent Int overflow on long inputs)</span>
+<span class="lineno">  131 </span><span class="spaces">      </span><span class="istickedoff">let (digits, rest') = T.span isHexDigit rest</span>
+<span class="lineno">  132 </span><span class="spaces">       </span><span class="istickedoff">in if T.null digits</span>
+<span class="lineno">  133 </span><span class="spaces">            </span><span class="istickedoff">then Nothing</span>
+<span class="lineno">  134 </span><span class="spaces">            </span><span class="istickedoff">else decodeNumericEscape 16 1 digits rest'</span>
+<span class="lineno">  135 </span><span class="spaces">    </span><span class="istickedoff">'o' -&gt;</span>
+<span class="lineno">  136 </span><span class="spaces">      </span><span class="istickedoff">-- octal escape \oNN  (use Integer to prevent Int overflow on long inputs)</span>
+<span class="lineno">  137 </span><span class="spaces">      </span><span class="istickedoff">let (digits, rest') = T.span isOctDigit rest</span>
+<span class="lineno">  138 </span><span class="spaces">       </span><span class="istickedoff">in if T.null digits</span>
+<span class="lineno">  139 </span><span class="spaces">            </span><span class="istickedoff">then Nothing</span>
+<span class="lineno">  140 </span><span class="spaces">            </span><span class="istickedoff">else decodeNumericEscape 8 1 digits <span class="nottickedoff">rest'</span></span>
+<span class="lineno">  141 </span><span class="spaces">    </span><span class="istickedoff">_</span>
+<span class="lineno">  142 </span><span class="spaces">      </span><span class="istickedoff">| isDigit c -&gt; -- decimal escape \NNN  (use Integer to prevent Int overflow on long inputs)</span>
+<span class="lineno">  143 </span><span class="spaces">          </span><span class="istickedoff">let (moreDigits, rest') = T.span isDigit rest</span>
+<span class="lineno">  144 </span><span class="spaces">              </span><span class="istickedoff">digits = T.cons c moreDigits</span>
+<span class="lineno">  145 </span><span class="spaces">           </span><span class="istickedoff">in decodeNumericEscape 10 0 digits rest'</span>
+<span class="lineno">  146 </span><span class="spaces">      </span><span class="istickedoff">| isSpace c -&gt; -- gap escape \ whitespace \</span>
+<span class="lineno">  147 </span><span class="spaces">          </span><span class="istickedoff">let (spaces, rest') = T.span isSpace rest</span>
+<span class="lineno">  148 </span><span class="spaces">           </span><span class="istickedoff">in case T.uncons rest' of</span>
+<span class="lineno">  149 </span><span class="spaces">                </span><span class="istickedoff">Just ('\\', rest'') -&gt; Just (Nothing, rest'', 2 + T.length spaces)</span>
+<span class="lineno">  150 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; Nothing</span>
+<span class="lineno">  151 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; parseNamedEscapeWithLength t</span>
+<span class="lineno">  152 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  153 </span><span class="spaces">    </span><span class="istickedoff">consumedOne decoded rest' = Just (decoded, rest', 1)</span>
+<span class="lineno">  154 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  155 </span><span class="spaces">    </span><span class="istickedoff">decodeNumericEscape :: Integer -&gt; Int -&gt; Text -&gt; Text -&gt; Maybe (Maybe Char, Text, Int)</span>
+<span class="lineno">  156 </span><span class="spaces">    </span><span class="istickedoff">decodeNumericEscape !base prefixLength digits rest' =</span>
+<span class="lineno">  157 </span><span class="spaces">      </span><span class="istickedoff">let n = T.foldl' (\a d -&gt; a * base + toInteger (digitToInt d)) (0 :: Integer) digits</span>
+<span class="lineno">  158 </span><span class="spaces">          </span><span class="istickedoff">consumed = prefixLength + T.length digits</span>
+<span class="lineno">  159 </span><span class="spaces">       </span><span class="istickedoff">in if <span class="tickonlyfalse">n &gt; 0x10FFFF</span> then <span class="nottickedoff">Nothing</span> else Just (Just (chr (fromIntegral n)), rest', consumed)</span></span>
+<span class="lineno">  160 </span>
+<span class="lineno">  161 </span>parseNamedEscapeWithLength :: Text -&gt; Maybe (Maybe Char, Text, Int)
+<span class="lineno">  162 </span><span class="decl"><span class="istickedoff">parseNamedEscapeWithLength t = foldr tryMatch Nothing namedEscapeTable</span>
+<span class="lineno">  163 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  164 </span><span class="spaces">    </span><span class="istickedoff">tryMatch (name, ch) fallback =</span>
+<span class="lineno">  165 </span><span class="spaces">      </span><span class="istickedoff">case T.stripPrefix name t of</span>
+<span class="lineno">  166 </span><span class="spaces">        </span><span class="istickedoff">Just rest -&gt; Just (Just ch, rest, T.length name)</span>
+<span class="lineno">  167 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; fallback</span></span>
+<span class="lineno">  168 </span>
+<span class="lineno">  169 </span>-- Named ASCII escape sequences per the Haskell 2010 report.
+<span class="lineno">  170 </span>-- SOH must appear before SO so the longest prefix wins.
+<span class="lineno">  171 </span>namedEscapeTable :: [(Text, Char)]
+<span class="lineno">  172 </span><span class="decl"><span class="istickedoff">namedEscapeTable =</span>
+<span class="lineno">  173 </span><span class="spaces">  </span><span class="istickedoff">[ (&quot;NUL&quot;, '\NUL'),</span>
+<span class="lineno">  174 </span><span class="spaces">    </span><span class="istickedoff">(&quot;SOH&quot;, '\SOH'), -- must precede SO</span>
+<span class="lineno">  175 </span><span class="spaces">    </span><span class="istickedoff">(&quot;STX&quot;, '\STX'),</span>
+<span class="lineno">  176 </span><span class="spaces">    </span><span class="istickedoff">(&quot;ETX&quot;, '\ETX'),</span>
+<span class="lineno">  177 </span><span class="spaces">    </span><span class="istickedoff">(&quot;EOT&quot;, '\EOT'),</span>
+<span class="lineno">  178 </span><span class="spaces">    </span><span class="istickedoff">(&quot;ENQ&quot;, '\ENQ'),</span>
+<span class="lineno">  179 </span><span class="spaces">    </span><span class="istickedoff">(&quot;ACK&quot;, '\ACK'),</span>
+<span class="lineno">  180 </span><span class="spaces">    </span><span class="istickedoff">(&quot;BEL&quot;, <span class="nottickedoff">'\BEL'</span>),</span>
+<span class="lineno">  181 </span><span class="spaces">    </span><span class="istickedoff">(&quot;BS&quot;, <span class="nottickedoff">'\BS'</span>),</span>
+<span class="lineno">  182 </span><span class="spaces">    </span><span class="istickedoff">(&quot;HT&quot;, <span class="nottickedoff">'\HT'</span>),</span>
+<span class="lineno">  183 </span><span class="spaces">    </span><span class="istickedoff">(&quot;LF&quot;, <span class="nottickedoff">'\LF'</span>),</span>
+<span class="lineno">  184 </span><span class="spaces">    </span><span class="istickedoff">(&quot;VT&quot;, <span class="nottickedoff">'\VT'</span>),</span>
+<span class="lineno">  185 </span><span class="spaces">    </span><span class="istickedoff">(&quot;FF&quot;, <span class="nottickedoff">'\FF'</span>),</span>
+<span class="lineno">  186 </span><span class="spaces">    </span><span class="istickedoff">(&quot;CR&quot;, <span class="nottickedoff">'\CR'</span>),</span>
+<span class="lineno">  187 </span><span class="spaces">    </span><span class="istickedoff">(&quot;SO&quot;, '\SO'),</span>
+<span class="lineno">  188 </span><span class="spaces">    </span><span class="istickedoff">(&quot;SI&quot;, '\SI'),</span>
+<span class="lineno">  189 </span><span class="spaces">    </span><span class="istickedoff">(&quot;DLE&quot;, '\DLE'),</span>
+<span class="lineno">  190 </span><span class="spaces">    </span><span class="istickedoff">(&quot;DC1&quot;, '\DC1'),</span>
+<span class="lineno">  191 </span><span class="spaces">    </span><span class="istickedoff">(&quot;DC2&quot;, '\DC2'),</span>
+<span class="lineno">  192 </span><span class="spaces">    </span><span class="istickedoff">(&quot;DC3&quot;, '\DC3'),</span>
+<span class="lineno">  193 </span><span class="spaces">    </span><span class="istickedoff">(&quot;DC4&quot;, '\DC4'),</span>
+<span class="lineno">  194 </span><span class="spaces">    </span><span class="istickedoff">(&quot;NAK&quot;, '\NAK'),</span>
+<span class="lineno">  195 </span><span class="spaces">    </span><span class="istickedoff">(&quot;SYN&quot;, '\SYN'),</span>
+<span class="lineno">  196 </span><span class="spaces">    </span><span class="istickedoff">(&quot;ETB&quot;, '\ETB'),</span>
+<span class="lineno">  197 </span><span class="spaces">    </span><span class="istickedoff">(&quot;CAN&quot;, '\CAN'),</span>
+<span class="lineno">  198 </span><span class="spaces">    </span><span class="istickedoff">(&quot;EM&quot;, '\EM'),</span>
+<span class="lineno">  199 </span><span class="spaces">    </span><span class="istickedoff">(&quot;SUB&quot;, '\SUB'),</span>
+<span class="lineno">  200 </span><span class="spaces">    </span><span class="istickedoff">(&quot;ESC&quot;, '\ESC'),</span>
+<span class="lineno">  201 </span><span class="spaces">    </span><span class="istickedoff">(&quot;FS&quot;, '\FS'),</span>
+<span class="lineno">  202 </span><span class="spaces">    </span><span class="istickedoff">(&quot;GS&quot;, '\GS'),</span>
+<span class="lineno">  203 </span><span class="spaces">    </span><span class="istickedoff">(&quot;RS&quot;, '\RS'),</span>
+<span class="lineno">  204 </span><span class="spaces">    </span><span class="istickedoff">(&quot;US&quot;, '\US'),</span>
+<span class="lineno">  205 </span><span class="spaces">    </span><span class="istickedoff">(&quot;SP&quot;, <span class="nottickedoff">'\SP'</span>),</span>
+<span class="lineno">  206 </span><span class="spaces">    </span><span class="istickedoff">(&quot;DEL&quot;, '\DEL')</span>
+<span class="lineno">  207 </span><span class="spaces">  </span><span class="istickedoff">]</span></span>
+<span class="lineno">  208 </span>
+<span class="lineno">  209 </span>processMultilineString :: String -&gt; String
+<span class="lineno">  210 </span><span class="decl"><span class="istickedoff">processMultilineString =</span>
+<span class="lineno">  211 </span><span class="spaces">  </span><span class="istickedoff">resolveEscapes</span>
+<span class="lineno">  212 </span><span class="spaces">    </span><span class="istickedoff">. stripTrailingNewline</span>
+<span class="lineno">  213 </span><span class="spaces">    </span><span class="istickedoff">. stripLeadingNewline</span>
+<span class="lineno">  214 </span><span class="spaces">    </span><span class="istickedoff">. List.intercalate &quot;\n&quot;</span>
+<span class="lineno">  215 </span><span class="spaces">    </span><span class="istickedoff">. map blankToEmpty</span>
+<span class="lineno">  216 </span><span class="spaces">    </span><span class="istickedoff">. stripCommonIndent</span>
+<span class="lineno">  217 </span><span class="spaces">    </span><span class="istickedoff">. map expandLeadingTabs</span>
+<span class="lineno">  218 </span><span class="spaces">    </span><span class="istickedoff">. splitMultilineNewlines</span>
+<span class="lineno">  219 </span><span class="spaces">    </span><span class="istickedoff">. collapseStringGaps</span></span>
+<span class="lineno">  220 </span>
+<span class="lineno">  221 </span>collapseStringGaps :: String -&gt; String
+<span class="lineno">  222 </span><span class="decl"><span class="istickedoff">collapseStringGaps [] = []</span>
+<span class="lineno">  223 </span><span class="spaces"></span><span class="istickedoff">collapseStringGaps ('\\' : rest)</span>
+<span class="lineno">  224 </span><span class="spaces">  </span><span class="istickedoff">| not (null ws), '\\' : rest'' &lt;- rest' = collapseStringGaps rest''</span>
+<span class="lineno">  225 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  226 </span><span class="spaces">    </span><span class="istickedoff">(ws, rest') = span (\c -&gt; c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f') rest</span>
+<span class="lineno">  227 </span><span class="spaces"></span><span class="istickedoff">collapseStringGaps (c : rest) = c : collapseStringGaps rest</span></span>
+<span class="lineno">  228 </span>
+<span class="lineno">  229 </span>splitMultilineNewlines :: String -&gt; [String]
+<span class="lineno">  230 </span><span class="decl"><span class="istickedoff">splitMultilineNewlines = go []</span>
+<span class="lineno">  231 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  232 </span><span class="spaces">    </span><span class="istickedoff">go acc [] = [reverse acc]</span>
+<span class="lineno">  233 </span><span class="spaces">    </span><span class="istickedoff">go acc ('\r' : '\n' : rest) = <span class="nottickedoff">reverse acc : go [] rest</span></span>
+<span class="lineno">  234 </span><span class="spaces">    </span><span class="istickedoff">go acc ('\r' : rest) = <span class="nottickedoff">reverse acc : go [] rest</span></span>
+<span class="lineno">  235 </span><span class="spaces">    </span><span class="istickedoff">go acc ('\n' : rest) = reverse acc : go [] rest</span>
+<span class="lineno">  236 </span><span class="spaces">    </span><span class="istickedoff">go acc ('\f' : rest) = <span class="nottickedoff">reverse acc : go [] rest</span></span>
+<span class="lineno">  237 </span><span class="spaces">    </span><span class="istickedoff">go acc (c : rest) = go (c : acc) rest</span></span>
+<span class="lineno">  238 </span>
+<span class="lineno">  239 </span>expandLeadingTabs :: String -&gt; String
+<span class="lineno">  240 </span><span class="decl"><span class="istickedoff">expandLeadingTabs = go 0</span>
+<span class="lineno">  241 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  242 </span><span class="spaces">    </span><span class="istickedoff">go col ('\t' : rest) =</span>
+<span class="lineno">  243 </span><span class="spaces">      </span><span class="istickedoff">let spaces = 8 - (col `mod` 8)</span>
+<span class="lineno">  244 </span><span class="spaces">       </span><span class="istickedoff">in replicate spaces ' ' ++ go <span class="nottickedoff">(col + spaces)</span> rest</span>
+<span class="lineno">  245 </span><span class="spaces">    </span><span class="istickedoff">go col (' ' : rest) = ' ' : go <span class="nottickedoff">(col + 1)</span> rest</span>
+<span class="lineno">  246 </span><span class="spaces">    </span><span class="istickedoff">go _ rest = rest</span></span>
+<span class="lineno">  247 </span>
+<span class="lineno">  248 </span>stripCommonIndent :: [String] -&gt; [String]
+<span class="lineno">  249 </span><span class="decl"><span class="istickedoff">stripCommonIndent lns =</span>
+<span class="lineno">  250 </span><span class="spaces">  </span><span class="istickedoff">case mapMaybe indentOf nonBlank of</span>
+<span class="lineno">  251 </span><span class="spaces">    </span><span class="istickedoff">[] -&gt; lns</span>
+<span class="lineno">  252 </span><span class="spaces">    </span><span class="istickedoff">indents -&gt; map (dropPrefix (minimum indents)) lns</span>
+<span class="lineno">  253 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  254 </span><span class="spaces">    </span><span class="istickedoff">nonBlank = filter (not . all isSpace) (drop 1 lns)</span>
+<span class="lineno">  255 </span><span class="spaces">    </span><span class="istickedoff">indentOf s = Just (length (takeWhile isSpace s))</span>
+<span class="lineno">  256 </span><span class="spaces">    </span><span class="istickedoff">dropPrefix = drop</span></span>
+<span class="lineno">  257 </span>
+<span class="lineno">  258 </span>blankToEmpty :: String -&gt; String
+<span class="lineno">  259 </span><span class="decl"><span class="istickedoff">blankToEmpty s</span>
+<span class="lineno">  260 </span><span class="spaces">  </span><span class="istickedoff">| all isSpace s = &quot;&quot;</span>
+<span class="lineno">  261 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = s</span></span>
+<span class="lineno">  262 </span>
+<span class="lineno">  263 </span>stripLeadingNewline :: String -&gt; String
+<span class="lineno">  264 </span><span class="decl"><span class="istickedoff">stripLeadingNewline ('\n' : rest) = rest</span>
+<span class="lineno">  265 </span><span class="spaces"></span><span class="istickedoff">stripLeadingNewline s = s</span></span>
+<span class="lineno">  266 </span>
+<span class="lineno">  267 </span>stripTrailingNewline :: String -&gt; String
+<span class="lineno">  268 </span><span class="decl"><span class="istickedoff">stripTrailingNewline s</span>
+<span class="lineno">  269 </span><span class="spaces">  </span><span class="istickedoff">| not (null s) &amp;&amp; last s == '\n' = init s</span>
+<span class="lineno">  270 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = s</span></span>
+<span class="lineno">  271 </span>
+<span class="lineno">  272 </span>resolveEscapes :: String -&gt; String
+<span class="lineno">  273 </span><span class="decl"><span class="istickedoff">resolveEscapes s =</span>
+<span class="lineno">  274 </span><span class="spaces">  </span><span class="istickedoff">case reads ('&quot;' : s ++ &quot;\&quot;&quot;) of</span>
+<span class="lineno">  275 </span><span class="spaces">    </span><span class="istickedoff">[(str, &quot;&quot;)] -&gt; str</span>
+<span class="lineno">  276 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; s</span></span>
+<span class="lineno">  277 </span>
+<span class="lineno">  278 </span>readMaybeChar :: Text -&gt; Maybe Char
+<span class="lineno">  279 </span><span class="decl"><span class="istickedoff">readMaybeChar raw =</span>
+<span class="lineno">  280 </span><span class="spaces">  </span><span class="istickedoff">case reads (T.unpack raw) of</span>
+<span class="lineno">  281 </span><span class="spaces">    </span><span class="istickedoff">[(c, &quot;&quot;)] -&gt; Just c</span>
+<span class="lineno">  282 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+
+</pre>
+</body>
+</html>

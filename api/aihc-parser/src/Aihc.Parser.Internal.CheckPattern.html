@@ -1,0 +1,687 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-2"></span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-4"></span><span class="hs-comment">--</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- Module      : Aihc.Parser.Internal.CheckPattern</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Description : Reclassify Expr trees as Pattern trees</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- License     : Unlicense</span><span>
+</span><span id="line-8"></span><span class="hs-comment">--</span><span>
+</span><span id="line-9"></span><span class="hs-comment">-- Convert an expression AST into a pattern AST. This implements the</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- \&quot;parse as expression, then reclassify\&quot; strategy described in</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- @docs\/unified-expr-pattern-parsing.md@.</span><span>
+</span><span id="line-12"></span><span class="hs-comment">--</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- The core function 'checkPattern' performs a structural recursion over</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- 'Expr', converting each expression node into its pattern counterpart.</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- Expression-only constructs (if, case, do, lambda, etc.) are rejected</span><span>
+</span><span id="line-16"></span><span class="hs-comment">-- with a descriptive error message.</span><span>
+</span><span id="line-17"></span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html"><span class="hs-identifier">Aihc.Parser.Internal.CheckPattern</span></a></span><span>
+</span><span id="line-18"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier">checkPattern</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-19"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#checkPatterns"><span class="hs-identifier">checkPatterns</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-20"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-21"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-22"></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html"><span class="hs-identifier">Aihc.Parser.Internal.Common</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#isConLikeName"><span class="hs-identifier">isConLikeName</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.Common.html#nameToUnqualified"><span class="hs-identifier">nameToUnqualified</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html"><span class="hs-identifier">Aihc.Parser.Syntax</span></a></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">isJust</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">isNothing</span></span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Text</span></span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span>
+</span><span id="line-28"></span><span class="hs-comment">-- | Convert an expression tree into a pattern.</span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- Returns @Left@ with a diagnostic message if the expression cannot be</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- interpreted as a valid pattern.</span><span>
+</span><span id="line-31"></span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-type">checkPattern</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Expr"><span class="hs-identifier hs-type">Expr</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Either</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Pattern"><span class="hs-identifier hs-type">Pattern</span></a></span><span>
+</span><span id="line-32"></span><span id="checkPattern"><span class="annot"><span class="annottext">checkPattern :: Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var hs-var">checkPattern</span></a></span></span><span> </span><span id="local-6989586621679409858"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409858"><span class="hs-identifier hs-var">expr</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409858"><span class="hs-identifier hs-var">expr</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-33"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EAnn"><span class="hs-identifier hs-type">EAnn</span></a></span><span> </span><span id="local-6989586621679409860"><span class="annot"><span class="annottext">Annotation
+</span><a href="#local-6989586621679409860"><span class="hs-identifier hs-var">ann</span></a></span></span><span> </span><span id="local-6989586621679409861"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409861"><span class="hs-identifier hs-var">sub</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(Pattern -&gt; Pattern) -&gt; Either Text Pattern -&gt; Either Text Pattern
+forall a b. (a -&gt; b) -&gt; Either Text a -&gt; Either Text b
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Annotation -&gt; Pattern -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PAnn"><span class="hs-identifier hs-var">PAnn</span></a></span><span> </span><span class="annot"><span class="annottext">Annotation
+</span><a href="#local-6989586621679409860"><span class="hs-identifier hs-var">ann</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409861"><span class="hs-identifier hs-var">sub</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EPragma"><span class="hs-identifier hs-type">EPragma</span></a></span><span> </span><span id="local-6989586621679409864"><span class="annot"><span class="annottext">Pragma
+</span><a href="#local-6989586621679409864"><span class="hs-identifier hs-var">pragma</span></a></span></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pragma -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPragmaPattern"><span class="hs-identifier hs-var">checkPragmaPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Pragma
+</span><a href="#local-6989586621679409864"><span class="hs-identifier hs-var">pragma</span></a></span><span>
+</span><span id="line-35"></span><span>  </span><span class="hs-comment">-- Variables and constructors</span><span>
+</span><span id="line-36"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EVar"><span class="hs-identifier hs-type">EVar</span></a></span><span> </span><span id="local-6989586621679409867"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409867"><span class="hs-identifier hs-var">name</span></a></span></span><span>
+</span><span id="line-37"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Name -&gt; Text
+</span><a href="Aihc.Parser.Syntax.html#nameText"><span class="hs-identifier hs-var">nameText</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409867"><span class="hs-identifier hs-var">name</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;_&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="annot"><span class="annottext">Pattern
+</span><a href="Aihc.Parser.Syntax.html#PWildcard"><span class="hs-identifier hs-var">PWildcard</span></a></span><span>
+</span><span id="line-38"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Name -&gt; Bool
+</span><a href="Aihc.Parser.Internal.Common.html#isConLikeName"><span class="hs-identifier hs-var">isConLikeName</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409867"><span class="hs-identifier hs-var">name</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Name -&gt; [Type] -&gt; [Pattern] -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PCon"><span class="hs-identifier hs-var">PCon</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409867"><span class="hs-identifier hs-var">name</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-39"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Maybe Text -&gt; Bool
+forall a. Maybe a -&gt; Bool
+</span><span class="hs-identifier hs-var">isJust</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Name -&gt; Maybe Text
+</span><a href="Aihc.Parser.Syntax.html#nameQualifier"><span class="hs-identifier hs-var">nameQualifier</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409867"><span class="hs-identifier hs-var">name</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected qualified name in pattern&quot;</span></span><span>
+</span><span id="line-40"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">UnqualifiedName -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PVar"><span class="hs-identifier hs-var">PVar</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Name -&gt; UnqualifiedName
+</span><a href="Aihc.Parser.Internal.Common.html#nameToUnqualified"><span class="hs-identifier hs-var">nameToUnqualified</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409867"><span class="hs-identifier hs-var">name</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-41"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ETypeSyntax"><span class="hs-identifier hs-type">ETypeSyntax</span></a></span><span> </span><span id="local-6989586621679409874"><span class="annot"><span class="annottext">TypeSyntaxForm
+</span><a href="#local-6989586621679409874"><span class="hs-identifier hs-var">form</span></a></span></span><span> </span><span id="local-6989586621679409875"><span class="annot"><span class="annottext">Type
+</span><a href="#local-6989586621679409875"><span class="hs-identifier hs-var">ty</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TypeSyntaxForm -&gt; Type -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PTypeSyntax"><span class="hs-identifier hs-var">PTypeSyntax</span></a></span><span> </span><span class="annot"><span class="annottext">TypeSyntaxForm
+</span><a href="#local-6989586621679409874"><span class="hs-identifier hs-var">form</span></a></span><span> </span><span class="annot"><span class="annottext">Type
+</span><a href="#local-6989586621679409875"><span class="hs-identifier hs-var">ty</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span>  </span><span class="hs-comment">-- Parenthesized expression</span><span>
+</span><span id="line-43"></span><span>  </span><span class="hs-comment">-- When the inner expression is a view-pattern arrow (@expr -&gt; expr@),</span><span>
+</span><span id="line-44"></span><span>  </span><span class="hs-comment">-- produce @PParen (PView f pat)@ to preserve the explicit parens in</span><span>
+</span><span id="line-45"></span><span>  </span><span class="hs-comment">-- the AST, matching the shape produced by the dedicated pattern parser.</span><span>
+</span><span id="line-46"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EParen"><span class="hs-identifier hs-type">EParen</span></a></span><span> </span><span id="local-6989586621679409878"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409878"><span class="hs-identifier hs-var">inner</span></a></span></span><span>
+</span><span id="line-47"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679409879"><span class="annot"><span class="annottext">Pattern
+</span><a href="#local-6989586621679409879"><span class="hs-identifier hs-var">vp</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Maybe Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#asViewPat"><span class="hs-identifier hs-var">asViewPat</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409878"><span class="hs-identifier hs-var">inner</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Pattern -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PParen"><span class="hs-identifier hs-var">PParen</span></a></span><span> </span><span class="annot"><span class="annottext">Pattern
+</span><a href="#local-6989586621679409879"><span class="hs-identifier hs-var">vp</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-48"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PParen"><span class="hs-identifier hs-var">PParen</span></a></span><span> </span><span class="annot"><span class="annottext">(Pattern -&gt; Pattern) -&gt; Either Text Pattern -&gt; Either Text Pattern
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409878"><span class="hs-identifier hs-var">inner</span></a></span><span>
+</span><span id="line-49"></span><span>  </span><span class="hs-comment">-- Tuple</span><span>
+</span><span id="line-50"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ETuple"><span class="hs-identifier hs-type">ETuple</span></a></span><span> </span><span id="local-6989586621679409884"><span class="annot"><span class="annottext">TupleFlavor
+</span><a href="#local-6989586621679409884"><span class="hs-identifier hs-var">fl</span></a></span></span><span> </span><span id="local-6989586621679409885"><span class="annot"><span class="annottext">[Maybe Expr]
+</span><a href="#local-6989586621679409885"><span class="hs-identifier hs-var">elems</span></a></span></span><span>
+</span><span id="line-51"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679409886"><span class="annot"><span class="annottext">Pattern
+</span><a href="#local-6989586621679409886"><span class="hs-identifier hs-var">tupleCon</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">TupleFlavor -&gt; [Maybe Expr] -&gt; Maybe Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#tupleConstructorPattern"><span class="hs-identifier hs-var">tupleConstructorPattern</span></a></span><span> </span><span class="annot"><span class="annottext">TupleFlavor
+</span><a href="#local-6989586621679409884"><span class="hs-identifier hs-var">fl</span></a></span><span> </span><span class="annot"><span class="annottext">[Maybe Expr]
+</span><a href="#local-6989586621679409885"><span class="hs-identifier hs-var">elems</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="annot"><span class="annottext">Pattern
+</span><a href="#local-6989586621679409886"><span class="hs-identifier hs-var">tupleCon</span></a></span><span>
+</span><span id="line-52"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-53"></span><span>        </span><span id="local-6989586621679409888"><span class="annot"><a href="#local-6989586621679409888"><span class="hs-identifier hs-var">pats</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(Maybe Expr -&gt; Either Text Pattern)
+-&gt; [Maybe Expr] -&gt; Either Text [Pattern]
+forall (t :: * -&gt; *) (f :: * -&gt; *) a b.
+(Traversable t, Applicative f) =&gt;
+(a -&gt; f b) -&gt; t a -&gt; f (t b)
+forall (f :: * -&gt; *) a b.
+Applicative f =&gt;
+(a -&gt; f b) -&gt; [a] -&gt; f [b]
+</span><span class="hs-identifier hs-var">traverse</span></span><span> </span><span class="annot"><span class="annottext">Maybe Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkTupleElement"><span class="hs-identifier hs-var">checkTupleElement</span></a></span><span> </span><span class="annot"><span class="annottext">[Maybe Expr]
+</span><a href="#local-6989586621679409885"><span class="hs-identifier hs-var">elems</span></a></span><span>
+</span><span id="line-54"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#PTuple"><span class="hs-identifier hs-type">PTuple</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409884"><span class="hs-identifier hs-type">fl</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409888"><span class="hs-identifier hs-type">pats</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-55"></span><span>  </span><span class="hs-comment">-- List</span><span>
+</span><span id="line-56"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EList"><span class="hs-identifier hs-type">EList</span></a></span><span> </span><span id="local-6989586621679409893"><span class="annot"><span class="annottext">[Expr]
+</span><a href="#local-6989586621679409893"><span class="hs-identifier hs-var">elems</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[Pattern] -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PList"><span class="hs-identifier hs-var">PList</span></a></span><span> </span><span class="annot"><span class="annottext">([Pattern] -&gt; Pattern)
+-&gt; Either Text [Pattern] -&gt; Either Text Pattern
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">(Expr -&gt; Either Text Pattern) -&gt; [Expr] -&gt; Either Text [Pattern]
+forall (t :: * -&gt; *) (f :: * -&gt; *) a b.
+(Traversable t, Applicative f) =&gt;
+(a -&gt; f b) -&gt; t a -&gt; f (t b)
+forall (f :: * -&gt; *) a b.
+Applicative f =&gt;
+(a -&gt; f b) -&gt; [a] -&gt; f [b]
+</span><span class="hs-identifier hs-var">traverse</span></span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span> </span><span class="annot"><span class="annottext">[Expr]
+</span><a href="#local-6989586621679409893"><span class="hs-identifier hs-var">elems</span></a></span><span>
+</span><span id="line-57"></span><span>  </span><span class="hs-comment">-- Unboxed sum</span><span>
+</span><span id="line-58"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EUnboxedSum"><span class="hs-identifier hs-type">EUnboxedSum</span></a></span><span> </span><span id="local-6989586621679409896"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679409896"><span class="hs-identifier hs-var">i</span></a></span></span><span> </span><span id="local-6989586621679409897"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679409897"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679409898"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409898"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Pattern -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PUnboxedSum"><span class="hs-identifier hs-var">PUnboxedSum</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679409896"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679409897"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">(Pattern -&gt; Pattern) -&gt; Either Text Pattern -&gt; Either Text Pattern
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-operator hs-var">&lt;$&gt;</span></span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409898"><span class="hs-identifier hs-var">e</span></a></span><span>
+</span><span id="line-59"></span><span>  </span><span class="hs-comment">-- Infix: only constructor operators (starting with ':') or the view-pattern</span><span>
+</span><span id="line-60"></span><span>  </span><span class="hs-comment">-- arrow @-&gt;@ are valid in patterns.</span><span>
+</span><span id="line-61"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EInfix"><span class="hs-identifier hs-type">EInfix</span></a></span><span> </span><span id="local-6989586621679409901"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409901"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679409902"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409902"><span class="hs-identifier hs-var">op</span></a></span></span><span> </span><span id="local-6989586621679409903"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409903"><span class="hs-identifier hs-var">r</span></a></span></span><span>
+</span><span id="line-62"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Name -&gt; Text
+</span><a href="Aihc.Parser.Syntax.html#renderName"><span class="hs-identifier hs-var">renderName</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409902"><span class="hs-identifier hs-var">op</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;-&gt;&quot;</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-63"></span><span>        </span><span id="local-6989586621679409905"><span class="annot"><a href="#local-6989586621679409905"><span class="hs-identifier hs-var">rPat</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409903"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-64"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#PView"><span class="hs-identifier hs-type">PView</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409901"><span class="hs-identifier hs-type">l</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409905"><span class="hs-identifier hs-type">rPat</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-65"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Name -&gt; Bool
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#isConLikeOp"><span class="hs-identifier hs-var">isConLikeOp</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409902"><span class="hs-identifier hs-var">op</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-66"></span><span>        </span><span id="local-6989586621679409908"><span class="annot"><a href="#local-6989586621679409908"><span class="hs-identifier hs-var">lPat</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409901"><span class="hs-identifier hs-var">l</span></a></span><span>
+</span><span id="line-67"></span><span>        </span><span id="local-6989586621679409909"><span class="annot"><a href="#local-6989586621679409909"><span class="hs-identifier hs-var">rPat</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-type">checkPattern</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409903"><span class="hs-identifier hs-type">r</span></a></span><span>
+</span><span id="line-68"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#PInfix"><span class="hs-identifier hs-type">PInfix</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409908"><span class="hs-identifier hs-type">lPat</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409902"><span class="hs-identifier hs-type">op</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409909"><span class="hs-identifier hs-type">rPat</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-69"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected variable operator '&quot;</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Text
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">Name -&gt; Text
+</span><a href="Aihc.Parser.Syntax.html#renderName"><span class="hs-identifier hs-var">renderName</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409902"><span class="hs-identifier hs-var">op</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Text
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;' in pattern&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-70"></span><span>  </span><span class="hs-comment">-- Type signature</span><span>
+</span><span id="line-71"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ETypeSig"><span class="hs-identifier hs-type">ETypeSig</span></a></span><span> </span><span id="local-6989586621679409912"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409912"><span class="hs-identifier hs-var">e</span></a></span></span><span> </span><span id="local-6989586621679409913"><span class="annot"><span class="annottext">Type
+</span><a href="#local-6989586621679409913"><span class="hs-identifier hs-var">ty</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-72"></span><span>    </span><span id="local-6989586621679409914"><span class="annot"><a href="#local-6989586621679409914"><span class="hs-identifier hs-var">pat</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409912"><span class="hs-identifier hs-var">e</span></a></span><span>
+</span><span id="line-73"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#PTypeSig"><span class="hs-identifier hs-type">PTypeSig</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409914"><span class="hs-identifier hs-type">pat</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409913"><span class="hs-identifier hs-type">ty</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-74"></span><span>  </span><span class="hs-comment">-- Negation (must be a literal)</span><span>
+</span><span id="line-75"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ENegate"><span class="hs-identifier hs-type">ENegate</span></a></span><span> </span><span id="local-6989586621679409917"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409917"><span class="hs-identifier hs-var">inner</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkNegLitPattern"><span class="hs-identifier hs-var">checkNegLitPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409917"><span class="hs-identifier hs-var">inner</span></a></span><span>
+</span><span id="line-76"></span><span>  </span><span class="hs-comment">-- Application: accumulate arguments into PCon</span><span>
+</span><span id="line-77"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EApp"><span class="hs-identifier hs-type">EApp</span></a></span><span> </span><span id="local-6989586621679409920"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409920"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span id="local-6989586621679409921"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409921"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-78"></span><span>    </span><span id="local-6989586621679409922"><span class="annot"><a href="#local-6989586621679409922"><span class="hs-identifier hs-var">fPat</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409920"><span class="hs-identifier hs-var">f</span></a></span><span>
+</span><span id="line-79"></span><span>    </span><span id="local-6989586621679409923"><span class="annot"><a href="#local-6989586621679409923"><span class="hs-identifier hs-var">xPat</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-type">checkPattern</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409921"><span class="hs-identifier hs-type">x</span></a></span><span>
+</span><span id="line-80"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#peelPatternAnn"><span class="hs-identifier hs-type">peelPatternAnn</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409922"><span class="hs-identifier hs-type">fPat</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-81"></span><span>      </span><span class="annot"><a href="Aihc.Parser.Syntax.html#PCon"><span class="hs-identifier hs-type">PCon</span></a></span><span> </span><span id="local-6989586621679409925"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409925"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span id="local-6989586621679409926"><span class="annot"><span class="annottext">[Type]
+</span><a href="#local-6989586621679409926"><span class="hs-identifier hs-var">typeArgs</span></a></span></span><span> </span><span id="local-6989586621679409927"><span class="annot"><span class="annottext">[Pattern]
+</span><a href="#local-6989586621679409927"><span class="hs-identifier hs-var">args</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Name -&gt; [Type] -&gt; [Pattern] -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PCon"><span class="hs-identifier hs-var">PCon</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409925"><span class="hs-identifier hs-var">name</span></a></span><span> </span><span class="annot"><span class="annottext">[Type]
+</span><a href="#local-6989586621679409926"><span class="hs-identifier hs-var">typeArgs</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Pattern]
+</span><a href="#local-6989586621679409927"><span class="hs-identifier hs-var">args</span></a></span><span> </span><span class="annot"><span class="annottext">[Pattern] -&gt; [Pattern] -&gt; [Pattern]
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><span class="hs-operator hs-var">++</span></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Pattern
+</span><a href="#local-6989586621679409923"><span class="hs-identifier hs-var">xPat</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-82"></span><span>      </span><span class="annot"><span class="annottext">Pattern
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;invalid pattern: application of non-constructor&quot;</span></span><span>
+</span><span id="line-83"></span><span>  </span><span class="hs-comment">-- Record construction -&gt; record pattern</span><span>
+</span><span id="line-84"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ERecordCon"><span class="hs-identifier hs-type">ERecordCon</span></a></span><span> </span><span id="local-6989586621679409929"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409929"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span id="local-6989586621679409930"><span class="annot"><span class="annottext">[RecordField Expr]
+</span><a href="#local-6989586621679409930"><span class="hs-identifier hs-var">fields</span></a></span></span><span> </span><span id="local-6989586621679409931"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679409931"><span class="hs-identifier hs-var">wc</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-85"></span><span>    </span><span id="local-6989586621679409932"><span class="annot"><a href="#local-6989586621679409932"><span class="hs-identifier hs-var">patFields</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span>
+</span><span id="line-86"></span><span>      </span><span class="annot"><span class="annottext">(RecordField Expr -&gt; Either Text (RecordField Pattern))
+-&gt; [RecordField Expr] -&gt; Either Text [RecordField Pattern]
+forall (t :: * -&gt; *) (f :: * -&gt; *) a b.
+(Traversable t, Applicative f) =&gt;
+(a -&gt; f b) -&gt; t a -&gt; f (t b)
+forall (f :: * -&gt; *) a b.
+Applicative f =&gt;
+(a -&gt; f b) -&gt; [a] -&gt; f [b]
+</span><span class="hs-identifier hs-var">traverse</span></span><span>
+</span><span id="line-87"></span><span>        </span><span class="hs-special">(</span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679409933"><span class="annot"><span class="annottext">RecordField Expr
+</span><a href="#local-6989586621679409933"><span class="hs-identifier hs-var">field</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-88"></span><span>            </span><span id="local-6989586621679409934"><span class="annot"><a href="#local-6989586621679409934"><span class="hs-identifier hs-var">pat</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">RecordField Expr -&gt; Expr
+forall a. RecordField a -&gt; a
+</span><a href="Aihc.Parser.Syntax.html#recordFieldValue"><span class="hs-identifier hs-var">recordFieldValue</span></a></span><span> </span><span class="annot"><span class="annottext">RecordField Expr
+</span><a href="#local-6989586621679409933"><span class="hs-identifier hs-var">field</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-89"></span><span>            </span><span class="annot"><span class="hs-identifier hs-type">pure</span></span><span> </span><span class="annot"><a href="#local-6989586621679409933"><span class="hs-identifier hs-type">field</span></a></span><span> </span><span class="hs-special">{</span><span class="annot"><a href="Aihc.Parser.Syntax.html#recordFieldValue"><span class="hs-identifier hs-var">recordFieldValue</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="#local-6989586621679409934"><span class="hs-identifier hs-type">pat</span></a></span><span class="hs-special">}</span><span>
+</span><span id="line-90"></span><span>        </span><span class="hs-special">)</span><span>
+</span><span id="line-91"></span><span>        </span><span class="annot"><span class="annottext">[RecordField Expr]
+</span><a href="#local-6989586621679409930"><span class="hs-identifier hs-var">fields</span></a></span><span>
+</span><span id="line-92"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#PRecord"><span class="hs-identifier hs-type">PRecord</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409929"><span class="hs-identifier hs-type">name</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409932"><span class="hs-identifier hs-type">patFields</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409931"><span class="hs-identifier hs-type">wc</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-93"></span><span>  </span><span class="hs-comment">-- Literals</span><span>
+</span><span id="line-94"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EInt"><span class="hs-identifier hs-type">EInt</span></a></span><span> </span><span id="local-6989586621679409938"><span class="annot"><span class="annottext">Integer
+</span><a href="#local-6989586621679409938"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679409939"><span class="annot"><span class="annottext">NumericType
+</span><a href="#local-6989586621679409939"><span class="hs-identifier hs-var">nt</span></a></span></span><span> </span><span id="local-6989586621679409940"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409940"><span class="hs-identifier hs-var">repr</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Literal -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PLit"><span class="hs-identifier hs-var">PLit</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Integer -&gt; NumericType -&gt; Text -&gt; Literal
+</span><a href="Aihc.Parser.Syntax.html#LitInt"><span class="hs-identifier hs-var">LitInt</span></a></span><span> </span><span class="annot"><span class="annottext">Integer
+</span><a href="#local-6989586621679409938"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">NumericType
+</span><a href="#local-6989586621679409939"><span class="hs-identifier hs-var">nt</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409940"><span class="hs-identifier hs-var">repr</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-95"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EFloat"><span class="hs-identifier hs-type">EFloat</span></a></span><span> </span><span id="local-6989586621679409944"><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679409944"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679409945"><span class="annot"><span class="annottext">FloatType
+</span><a href="#local-6989586621679409945"><span class="hs-identifier hs-var">ft</span></a></span></span><span> </span><span id="local-6989586621679409946"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409946"><span class="hs-identifier hs-var">repr</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Literal -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PLit"><span class="hs-identifier hs-var">PLit</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational -&gt; FloatType -&gt; Text -&gt; Literal
+</span><a href="Aihc.Parser.Syntax.html#LitFloat"><span class="hs-identifier hs-var">LitFloat</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679409944"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">FloatType
+</span><a href="#local-6989586621679409945"><span class="hs-identifier hs-var">ft</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409946"><span class="hs-identifier hs-var">repr</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-96"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EChar"><span class="hs-identifier hs-type">EChar</span></a></span><span> </span><span id="local-6989586621679409949"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679409949"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span id="local-6989586621679409950"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409950"><span class="hs-identifier hs-var">repr</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Literal -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PLit"><span class="hs-identifier hs-var">PLit</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char -&gt; Text -&gt; Literal
+</span><a href="Aihc.Parser.Syntax.html#LitChar"><span class="hs-identifier hs-var">LitChar</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679409949"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409950"><span class="hs-identifier hs-var">repr</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-97"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ECharHash"><span class="hs-identifier hs-type">ECharHash</span></a></span><span> </span><span id="local-6989586621679409953"><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679409953"><span class="hs-identifier hs-var">c</span></a></span></span><span> </span><span id="local-6989586621679409954"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409954"><span class="hs-identifier hs-var">repr</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Literal -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PLit"><span class="hs-identifier hs-var">PLit</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char -&gt; Text -&gt; Literal
+</span><a href="Aihc.Parser.Syntax.html#LitCharHash"><span class="hs-identifier hs-var">LitCharHash</span></a></span><span> </span><span class="annot"><span class="annottext">Char
+</span><a href="#local-6989586621679409953"><span class="hs-identifier hs-var">c</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409954"><span class="hs-identifier hs-var">repr</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-98"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EString"><span class="hs-identifier hs-type">EString</span></a></span><span> </span><span id="local-6989586621679409957"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409957"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span id="local-6989586621679409958"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409958"><span class="hs-identifier hs-var">repr</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Literal -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PLit"><span class="hs-identifier hs-var">PLit</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Literal
+</span><a href="Aihc.Parser.Syntax.html#LitString"><span class="hs-identifier hs-var">LitString</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409957"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409958"><span class="hs-identifier hs-var">repr</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-99"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EStringHash"><span class="hs-identifier hs-type">EStringHash</span></a></span><span> </span><span id="local-6989586621679409961"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409961"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span id="local-6989586621679409962"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409962"><span class="hs-identifier hs-var">repr</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Literal -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PLit"><span class="hs-identifier hs-var">PLit</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Literal
+</span><a href="Aihc.Parser.Syntax.html#LitStringHash"><span class="hs-identifier hs-var">LitStringHash</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409961"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409962"><span class="hs-identifier hs-var">repr</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-100"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EOverloadedLabel"><span class="hs-identifier hs-type">EOverloadedLabel</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected overloaded label in pattern&quot;</span></span><span>
+</span><span id="line-101"></span><span>  </span><span class="hs-comment">-- TH splice</span><span>
+</span><span id="line-102"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ETHSplice"><span class="hs-identifier hs-type">ETHSplice</span></a></span><span> </span><span id="local-6989586621679409966"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409966"><span class="hs-identifier hs-var">body</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Expr -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PSplice"><span class="hs-identifier hs-var">PSplice</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409966"><span class="hs-identifier hs-var">body</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-103"></span><span>  </span><span class="hs-comment">-- Quasi-quote</span><span>
+</span><span id="line-104"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EQuasiQuote"><span class="hs-identifier hs-type">EQuasiQuote</span></a></span><span> </span><span id="local-6989586621679409969"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409969"><span class="hs-identifier hs-var">q</span></a></span></span><span> </span><span id="local-6989586621679409970"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409970"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PQuasiQuote"><span class="hs-identifier hs-var">PQuasiQuote</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409969"><span class="hs-identifier hs-var">q</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679409970"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-105"></span><span>  </span><span class="hs-comment">-- Expression-only constructs: clear errors</span><span>
+</span><span id="line-106"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EIf"><span class="hs-identifier hs-type">EIf</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected if-then-else in pattern&quot;</span></span><span>
+</span><span id="line-107"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EMultiWayIf"><span class="hs-identifier hs-type">EMultiWayIf</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected multi-way if in pattern&quot;</span></span><span>
+</span><span id="line-108"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ECase"><span class="hs-identifier hs-type">ECase</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected case expression in pattern&quot;</span></span><span>
+</span><span id="line-109"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EDo"><span class="hs-identifier hs-type">EDo</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected do expression in pattern&quot;</span></span><span>
+</span><span id="line-110"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ELambdaPats"><span class="hs-identifier hs-type">ELambdaPats</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected lambda in pattern&quot;</span></span><span>
+</span><span id="line-111"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ELambdaCase"><span class="hs-identifier hs-type">ELambdaCase</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected lambda-case in pattern&quot;</span></span><span>
+</span><span id="line-112"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ELambdaCases"><span class="hs-identifier hs-type">ELambdaCases</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected lambda-cases in pattern&quot;</span></span><span>
+</span><span id="line-113"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ELetDecls"><span class="hs-identifier hs-type">ELetDecls</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected let expression in pattern&quot;</span></span><span>
+</span><span id="line-114"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EArithSeq"><span class="hs-identifier hs-type">EArithSeq</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected arithmetic sequence in pattern&quot;</span></span><span>
+</span><span id="line-115"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EListComp"><span class="hs-identifier hs-type">EListComp</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected list comprehension in pattern&quot;</span></span><span>
+</span><span id="line-116"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EListCompParallel"><span class="hs-identifier hs-type">EListCompParallel</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected parallel list comprehension in pattern&quot;</span></span><span>
+</span><span id="line-117"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ESectionL"><span class="hs-identifier hs-type">ESectionL</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected left section in pattern&quot;</span></span><span>
+</span><span id="line-118"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ESectionR"><span class="hs-identifier hs-type">ESectionR</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected right section in pattern&quot;</span></span><span>
+</span><span id="line-119"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ERecordUpd"><span class="hs-identifier hs-type">ERecordUpd</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected record update in pattern&quot;</span></span><span>
+</span><span id="line-120"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EGetField"><span class="hs-identifier hs-type">EGetField</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected record field access in pattern&quot;</span></span><span>
+</span><span id="line-121"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EGetFieldProjection"><span class="hs-identifier hs-type">EGetFieldProjection</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected projection section in pattern&quot;</span></span><span>
+</span><span id="line-122"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ETypeApp"><span class="hs-identifier hs-type">ETypeApp</span></a></span><span> </span><span id="local-6989586621679409989"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409989"><span class="hs-identifier hs-var">fun</span></a></span></span><span> </span><span id="local-6989586621679409990"><span class="annot"><span class="annottext">Type
+</span><a href="#local-6989586621679409990"><span class="hs-identifier hs-var">ty</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-123"></span><span>    </span><span id="local-6989586621679409991"><span class="annot"><a href="#local-6989586621679409991"><span class="hs-identifier hs-var">funPat</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679409989"><span class="hs-identifier hs-var">fun</span></a></span><span>
+</span><span id="line-124"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#peelPatternAnn"><span class="hs-identifier hs-type">peelPatternAnn</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679409991"><span class="hs-identifier hs-type">funPat</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-125"></span><span>      </span><span class="annot"><a href="Aihc.Parser.Syntax.html#PCon"><span class="hs-identifier hs-type">PCon</span></a></span><span> </span><span id="local-6989586621679409992"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409992"><span class="hs-identifier hs-var">name</span></a></span></span><span> </span><span id="local-6989586621679409993"><span class="annot"><span class="annottext">[Type]
+</span><a href="#local-6989586621679409993"><span class="hs-identifier hs-var">typeArgs</span></a></span></span><span> </span><span id="local-6989586621679409994"><span class="annot"><span class="annottext">[Pattern]
+</span><a href="#local-6989586621679409994"><span class="hs-identifier hs-var">args</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Name -&gt; [Type] -&gt; [Pattern] -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PCon"><span class="hs-identifier hs-var">PCon</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679409992"><span class="hs-identifier hs-var">name</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Type]
+</span><a href="#local-6989586621679409993"><span class="hs-identifier hs-var">typeArgs</span></a></span><span> </span><span class="annot"><span class="annottext">[Type] -&gt; [Type] -&gt; [Type]
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><span class="hs-operator hs-var">++</span></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Type
+</span><a href="#local-6989586621679409990"><span class="hs-identifier hs-var">ty</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[Pattern]
+</span><a href="#local-6989586621679409994"><span class="hs-identifier hs-var">args</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-126"></span><span>      </span><span class="annot"><span class="annottext">Pattern
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected type application in pattern&quot;</span></span><span>
+</span><span id="line-127"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ETHExpQuote"><span class="hs-identifier hs-type">ETHExpQuote</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected Template Haskell expression quote in pattern&quot;</span></span><span>
+</span><span id="line-128"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ETHTypedQuote"><span class="hs-identifier hs-type">ETHTypedQuote</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected Template Haskell typed quote in pattern&quot;</span></span><span>
+</span><span id="line-129"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ETHDeclQuote"><span class="hs-identifier hs-type">ETHDeclQuote</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected Template Haskell declaration quote in pattern&quot;</span></span><span>
+</span><span id="line-130"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ETHTypeQuote"><span class="hs-identifier hs-type">ETHTypeQuote</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected Template Haskell type quote in pattern&quot;</span></span><span>
+</span><span id="line-131"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ETHPatQuote"><span class="hs-identifier hs-type">ETHPatQuote</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected Template Haskell pattern quote in pattern&quot;</span></span><span>
+</span><span id="line-132"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ETHNameQuote"><span class="hs-identifier hs-type">ETHNameQuote</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected Template Haskell name quote in pattern&quot;</span></span><span>
+</span><span id="line-133"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ETHTypeNameQuote"><span class="hs-identifier hs-type">ETHTypeNameQuote</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected Template Haskell type name quote in pattern&quot;</span></span><span>
+</span><span id="line-134"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ETHTypedSplice"><span class="hs-identifier hs-type">ETHTypedSplice</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected typed Template Haskell splice in pattern&quot;</span></span><span>
+</span><span id="line-135"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EProc"><span class="hs-identifier hs-type">EProc</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected proc expression in pattern&quot;</span></span><span>
+</span><span id="line-136"></span><span>
+</span><span id="line-137"></span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#checkPragmaPattern"><span class="hs-identifier hs-type">checkPragmaPattern</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Pragma"><span class="hs-identifier hs-type">Pragma</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Either</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Pattern"><span class="hs-identifier hs-type">Pattern</span></a></span><span>
+</span><span id="line-138"></span><span id="checkPragmaPattern"><span class="annot"><span class="annottext">checkPragmaPattern :: Pragma -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPragmaPattern"><span class="hs-identifier hs-var hs-var">checkPragmaPattern</span></a></span></span><span> </span><span id="local-6989586621679410004"><span class="annot"><span class="annottext">Pragma
+</span><a href="#local-6989586621679410004"><span class="hs-identifier hs-var">pragma</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-139"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Pragma -&gt; PragmaType
+</span><a href="Aihc.Parser.Syntax.html#pragmaType"><span class="hs-identifier hs-var">pragmaType</span></a></span><span> </span><span class="annot"><span class="annottext">Pragma
+</span><a href="#local-6989586621679410004"><span class="hs-identifier hs-var">pragma</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-140"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Syntax.html#PragmaSCC"><span class="hs-identifier hs-type">PragmaSCC</span></a></span><span> </span><span class="hs-special">{</span><span class="hs-special">}</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected SCC pragma in pattern&quot;</span></span><span>
+</span><span id="line-141"></span><span>    </span><span class="annot"><span class="annottext">PragmaType
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected pragma in pattern&quot;</span></span><span>
+</span><span id="line-142"></span><span>
+</span><span id="line-143"></span><span class="annot"><span class="hs-comment">-- | Convert a list of expressions into patterns.</span></span><span>
+</span><span id="line-144"></span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#checkPatterns"><span class="hs-identifier hs-type">checkPatterns</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Syntax.html#Expr"><span class="hs-identifier hs-type">Expr</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Either</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Syntax.html#Pattern"><span class="hs-identifier hs-type">Pattern</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-145"></span><span id="checkPatterns"><span class="annot"><span class="annottext">checkPatterns :: [Expr] -&gt; Either Text [Pattern]
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPatterns"><span class="hs-identifier hs-var hs-var">checkPatterns</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(Expr -&gt; Either Text Pattern) -&gt; [Expr] -&gt; Either Text [Pattern]
+forall (t :: * -&gt; *) (f :: * -&gt; *) a b.
+(Traversable t, Applicative f) =&gt;
+(a -&gt; f b) -&gt; t a -&gt; f (t b)
+forall (f :: * -&gt; *) a b.
+Applicative f =&gt;
+(a -&gt; f b) -&gt; [a] -&gt; f [b]
+</span><span class="hs-identifier hs-var">traverse</span></span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span>
+</span><span id="line-146"></span><span>
+</span><span id="line-147"></span><span class="annot"><span class="hs-comment">-- | Check that a tuple element is not a tuple section (Nothing).</span></span><span>
+</span><span id="line-148"></span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#checkTupleElement"><span class="hs-identifier hs-type">checkTupleElement</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Expr"><span class="hs-identifier hs-type">Expr</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Either</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Pattern"><span class="hs-identifier hs-type">Pattern</span></a></span><span>
+</span><span id="line-149"></span><span id="checkTupleElement"><span class="annot"><span class="annottext">checkTupleElement :: Maybe Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkTupleElement"><span class="hs-identifier hs-var hs-var">checkTupleElement</span></a></span></span><span> </span><span class="annot"><span class="annottext">Maybe Expr
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;unexpected tuple section in pattern&quot;</span></span><span>
+</span><span id="line-150"></span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#checkTupleElement"><span class="hs-identifier hs-var">checkTupleElement</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679410007"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679410007"><span class="hs-identifier hs-var">e</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679410007"><span class="hs-identifier hs-var">e</span></a></span><span>
+</span><span id="line-151"></span><span>
+</span><span id="line-152"></span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#tupleConstructorPattern"><span class="hs-identifier hs-type">tupleConstructorPattern</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#TupleFlavor"><span class="hs-identifier hs-type">TupleFlavor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Expr"><span class="hs-identifier hs-type">Expr</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Pattern"><span class="hs-identifier hs-type">Pattern</span></a></span><span>
+</span><span id="line-153"></span><span id="tupleConstructorPattern"><span class="annot"><span class="annottext">tupleConstructorPattern :: TupleFlavor -&gt; [Maybe Expr] -&gt; Maybe Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#tupleConstructorPattern"><span class="hs-identifier hs-var hs-var">tupleConstructorPattern</span></a></span></span><span> </span><span id="local-6989586621679410008"><span class="annot"><span class="annottext">TupleFlavor
+</span><a href="#local-6989586621679410008"><span class="hs-identifier hs-var">fl</span></a></span></span><span> </span><span id="local-6989586621679410009"><span class="annot"><span class="annottext">[Maybe Expr]
+</span><a href="#local-6989586621679410009"><span class="hs-identifier hs-var">elems</span></a></span></span><span>
+</span><span id="line-154"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">[Maybe Expr] -&gt; Bool
+forall a. [a] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Bool
+</span><span class="hs-identifier hs-var">null</span></span><span> </span><span class="annot"><span class="annottext">[Maybe Expr]
+</span><a href="#local-6989586621679410009"><span class="hs-identifier hs-var">elems</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe Pattern
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-155"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">(Maybe Expr -&gt; Bool) -&gt; [Maybe Expr] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; (a -&gt; Bool) -&gt; t a -&gt; Bool
+</span><span class="hs-identifier hs-var">all</span></span><span> </span><span class="annot"><span class="annottext">Maybe Expr -&gt; Bool
+forall a. Maybe a -&gt; Bool
+</span><span class="hs-identifier hs-var">isNothing</span></span><span> </span><span class="annot"><span class="annottext">[Maybe Expr]
+</span><a href="#local-6989586621679410009"><span class="hs-identifier hs-var">elems</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Maybe Pattern
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Name -&gt; [Type] -&gt; [Pattern] -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PCon"><span class="hs-identifier hs-var">PCon</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TupleFlavor -&gt; Int -&gt; Name
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#tupleConstructorName"><span class="hs-identifier hs-var">tupleConstructorName</span></a></span><span> </span><span class="annot"><span class="annottext">TupleFlavor
+</span><a href="#local-6989586621679410008"><span class="hs-identifier hs-var">fl</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Maybe Expr] -&gt; Int
+forall a. [a] -&gt; Int
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Int
+</span><span class="hs-identifier hs-var">length</span></span><span> </span><span class="annot"><span class="annottext">[Maybe Expr]
+</span><a href="#local-6989586621679410009"><span class="hs-identifier hs-var">elems</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-156"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe Pattern
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-157"></span><span>
+</span><span id="line-158"></span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#tupleConstructorName"><span class="hs-identifier hs-type">tupleConstructorName</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#TupleFlavor"><span class="hs-identifier hs-type">TupleFlavor</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Name"><span class="hs-identifier hs-type">Name</span></a></span><span>
+</span><span id="line-159"></span><span id="tupleConstructorName"><span class="annot"><span class="annottext">tupleConstructorName :: TupleFlavor -&gt; Int -&gt; Name
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#tupleConstructorName"><span class="hs-identifier hs-var hs-var">tupleConstructorName</span></a></span></span><span> </span><span id="local-6989586621679410014"><span class="annot"><span class="annottext">TupleFlavor
+</span><a href="#local-6989586621679410014"><span class="hs-identifier hs-var">fl</span></a></span></span><span> </span><span id="local-6989586621679410015"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679410015"><span class="hs-identifier hs-var">arity</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-160"></span><span>  </span><span class="annot"><span class="annottext">Maybe Text -&gt; UnqualifiedName -&gt; Name
+</span><a href="Aihc.Parser.Syntax.html#qualifyName"><span class="hs-identifier hs-var">qualifyName</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe Text
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">NameType -&gt; Text -&gt; UnqualifiedName
+</span><a href="Aihc.Parser.Syntax.html#mkUnqualifiedName"><span class="hs-identifier hs-var">mkUnqualifiedName</span></a></span><span> </span><span class="annot"><span class="annottext">NameType
+</span><a href="Aihc.Parser.Syntax.html#NameConSym"><span class="hs-identifier hs-var">NameConSym</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679410019"><span class="hs-identifier hs-var">symbol</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-161"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-162"></span><span>    </span><span id="local-6989586621679410019"><span class="annot"><span class="annottext">symbol :: Text
+</span><a href="#local-6989586621679410019"><span class="hs-identifier hs-var hs-var">symbol</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">TupleFlavor
+</span><a href="#local-6989586621679410014"><span class="hs-identifier hs-var">fl</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-163"></span><span>      </span><span class="annot"><span class="annottext">TupleFlavor
+</span><a href="Aihc.Parser.Syntax.html#Boxed"><span class="hs-identifier hs-var">Boxed</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679410025"><span class="hs-identifier hs-var">tupleCommas</span></a></span><span>
+</span><span id="line-164"></span><span>      </span><span class="annot"><span class="annottext">TupleFlavor
+</span><a href="Aihc.Parser.Syntax.html#Unboxed"><span class="hs-identifier hs-var">Unboxed</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;#&quot;</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Text
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679410025"><span class="hs-identifier hs-var">tupleCommas</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Text
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;#&quot;</span></span><span>
+</span><span id="line-165"></span><span>    </span><span id="local-6989586621679410025"><span class="annot"><span class="annottext">tupleCommas :: Text
+</span><a href="#local-6989586621679410025"><span class="hs-identifier hs-var hs-var">tupleCommas</span></a></span></span><span>
+</span><span id="line-166"></span><span>      </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679410015"><span class="hs-identifier hs-var">arity</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;&quot;</span></span><span>
+</span><span id="line-167"></span><span>      </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Text] -&gt; Text
+forall a. Monoid a =&gt; [a] -&gt; a
+</span><span class="hs-identifier hs-var">mconcat</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int -&gt; Text -&gt; [Text]
+forall a. Int -&gt; a -&gt; [a]
+</span><span class="hs-identifier hs-var">replicate</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679410015"><span class="hs-identifier hs-var">arity</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-glyph hs-var">-</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;,&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-168"></span><span>
+</span><span id="line-169"></span><span class="annot"><span class="hs-comment">-- | Check that a negated expression is a literal (for PNegLit patterns).</span></span><span>
+</span><span id="line-170"></span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#checkNegLitPattern"><span class="hs-identifier hs-type">checkNegLitPattern</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Expr"><span class="hs-identifier hs-type">Expr</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Either</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Pattern"><span class="hs-identifier hs-type">Pattern</span></a></span><span>
+</span><span id="line-171"></span><span id="checkNegLitPattern"><span class="annot"><span class="annottext">checkNegLitPattern :: Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkNegLitPattern"><span class="hs-identifier hs-var hs-var">checkNegLitPattern</span></a></span></span><span> </span><span id="local-6989586621679410039"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679410039"><span class="hs-identifier hs-var">inner</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679410039"><span class="hs-identifier hs-var">inner</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-172"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EInt"><span class="hs-identifier hs-type">EInt</span></a></span><span> </span><span id="local-6989586621679410040"><span class="annot"><span class="annottext">Integer
+</span><a href="#local-6989586621679410040"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679410041"><span class="annot"><span class="annottext">NumericType
+</span><a href="#local-6989586621679410041"><span class="hs-identifier hs-var">nt</span></a></span></span><span> </span><span id="local-6989586621679410042"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679410042"><span class="hs-identifier hs-var">repr</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Literal -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PNegLit"><span class="hs-identifier hs-var">PNegLit</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Integer -&gt; NumericType -&gt; Text -&gt; Literal
+</span><a href="Aihc.Parser.Syntax.html#LitInt"><span class="hs-identifier hs-var">LitInt</span></a></span><span> </span><span class="annot"><span class="annottext">Integer
+</span><a href="#local-6989586621679410040"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">NumericType
+</span><a href="#local-6989586621679410041"><span class="hs-identifier hs-var">nt</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679410042"><span class="hs-identifier hs-var">repr</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-173"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EFloat"><span class="hs-identifier hs-type">EFloat</span></a></span><span> </span><span id="local-6989586621679410044"><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679410044"><span class="hs-identifier hs-var">x</span></a></span></span><span> </span><span id="local-6989586621679410045"><span class="annot"><span class="annottext">FloatType
+</span><a href="#local-6989586621679410045"><span class="hs-identifier hs-var">ft</span></a></span></span><span> </span><span id="local-6989586621679410046"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679410046"><span class="hs-identifier hs-var">repr</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Either Text Pattern
+forall a b. b -&gt; Either a b
+</span><span class="hs-identifier hs-var">Right</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Literal -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PNegLit"><span class="hs-identifier hs-var">PNegLit</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Rational -&gt; FloatType -&gt; Text -&gt; Literal
+</span><a href="Aihc.Parser.Syntax.html#LitFloat"><span class="hs-identifier hs-var">LitFloat</span></a></span><span> </span><span class="annot"><span class="annottext">Rational
+</span><a href="#local-6989586621679410044"><span class="hs-identifier hs-var">x</span></a></span><span> </span><span class="annot"><span class="annottext">FloatType
+</span><a href="#local-6989586621679410045"><span class="hs-identifier hs-var">ft</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679410046"><span class="hs-identifier hs-var">repr</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-174"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Syntax.html#EAnn"><span class="hs-identifier hs-type">EAnn</span></a></span><span> </span><span id="local-6989586621679410047"><span class="annot"><span class="annottext">Annotation
+</span><a href="#local-6989586621679410047"><span class="hs-identifier hs-var">ann</span></a></span></span><span> </span><span id="local-6989586621679410048"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679410048"><span class="hs-identifier hs-var">sub</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(Pattern -&gt; Pattern) -&gt; Either Text Pattern -&gt; Either Text Pattern
+forall a b. (a -&gt; b) -&gt; Either Text a -&gt; Either Text b
+forall (f :: * -&gt; *) a b. Functor f =&gt; (a -&gt; b) -&gt; f a -&gt; f b
+</span><span class="hs-identifier hs-var">fmap</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Annotation -&gt; Pattern -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PAnn"><span class="hs-identifier hs-var">PAnn</span></a></span><span> </span><span class="annot"><span class="annottext">Annotation
+</span><a href="#local-6989586621679410047"><span class="hs-identifier hs-var">ann</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkNegLitPattern"><span class="hs-identifier hs-var">checkNegLitPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679410048"><span class="hs-identifier hs-var">sub</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-175"></span><span>  </span><span class="annot"><span class="annottext">Expr
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Either Text Pattern
+forall a b. a -&gt; Either a b
+</span><span class="hs-identifier hs-var">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;negation in pattern requires a numeric literal&quot;</span></span><span>
+</span><span id="line-176"></span><span>
+</span><span id="line-177"></span><span class="hs-comment">-- | Check whether an operator is a constructor operator (starts with ':').</span><span>
+</span><span id="line-178"></span><span class="hs-comment">-- Constructor operators and backtick-quoted constructors are valid in patterns;</span><span>
+</span><span id="line-179"></span><span class="hs-comment">-- variable operators like @+@ or @*@ are not.</span><span>
+</span><span id="line-180"></span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#isConLikeOp"><span class="hs-identifier hs-type">isConLikeOp</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Name"><span class="hs-identifier hs-type">Name</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-181"></span><span id="isConLikeOp"><span class="annot"><span class="annottext">isConLikeOp :: Name -&gt; Bool
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#isConLikeOp"><span class="hs-identifier hs-var hs-var">isConLikeOp</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Name -&gt; Bool
+</span><a href="Aihc.Parser.Internal.Common.html#isConLikeName"><span class="hs-identifier hs-var">isConLikeName</span></a></span><span>
+</span><span id="line-182"></span><span>
+</span><span id="line-183"></span><span class="hs-comment">-- | Try to interpret an expression as a view pattern @expr -&gt; expr@.</span><span>
+</span><span id="line-184"></span><span class="hs-comment">-- Returns 'Just' the corresponding 'PView' when the expression is an</span><span>
+</span><span id="line-185"></span><span class="hs-comment">-- 'EInfix' with @-&gt;@; 'Nothing' otherwise.  Used by the 'EParen' case of</span><span>
+</span><span id="line-186"></span><span class="hs-comment">-- 'checkPattern' to strip the outer parentheses and produce @PView@</span><span>
+</span><span id="line-187"></span><span class="hs-comment">-- directly (matching the AST shape that the dedicated pattern parser</span><span>
+</span><span id="line-188"></span><span class="hs-comment">-- produces).</span><span>
+</span><span id="line-189"></span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#asViewPat"><span class="hs-identifier hs-type">asViewPat</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Expr"><span class="hs-identifier hs-type">Expr</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Pattern"><span class="hs-identifier hs-type">Pattern</span></a></span><span>
+</span><span id="line-190"></span><span id="asViewPat"><span class="annot"><span class="annottext">asViewPat :: Expr -&gt; Maybe Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#asViewPat"><span class="hs-identifier hs-var hs-var">asViewPat</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#EInfix"><span class="hs-identifier hs-type">EInfix</span></a></span><span> </span><span id="local-6989586621679410049"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679410049"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span id="local-6989586621679410050"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679410050"><span class="hs-identifier hs-var">op</span></a></span></span><span> </span><span id="local-6989586621679410051"><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679410051"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-191"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Name -&gt; Text
+</span><a href="Aihc.Parser.Syntax.html#renderName"><span class="hs-identifier hs-var">renderName</span></a></span><span> </span><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621679410050"><span class="hs-identifier hs-var">op</span></a></span><span> </span><span class="annot"><span class="annottext">Text -&gt; Text -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;-&gt;&quot;</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Expr -&gt; Either Text Pattern
+</span><a href="Aihc.Parser.Internal.CheckPattern.html#checkPattern"><span class="hs-identifier hs-var">checkPattern</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679410051"><span class="hs-identifier hs-var">r</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-192"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Right</span></span><span> </span><span id="local-6989586621679410052"><span class="annot"><span class="annottext">Pattern
+</span><a href="#local-6989586621679410052"><span class="hs-identifier hs-var">rPat</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Pattern -&gt; Maybe Pattern
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Expr -&gt; Pattern -&gt; Pattern
+</span><a href="Aihc.Parser.Syntax.html#PView"><span class="hs-identifier hs-var">PView</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><a href="#local-6989586621679410049"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">Pattern
+</span><a href="#local-6989586621679410052"><span class="hs-identifier hs-var">rPat</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-193"></span><span>      </span><span class="annot"><span class="hs-identifier hs-type">Left</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe Pattern
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-194"></span><span class="annot"><a href="Aihc.Parser.Internal.CheckPattern.html#asViewPat"><span class="hs-identifier hs-var">asViewPat</span></a></span><span> </span><span class="annot"><span class="annottext">Expr
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe Pattern
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-195"></span></pre></body></html>

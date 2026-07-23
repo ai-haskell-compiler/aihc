@@ -1,0 +1,217 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>-- |
+<span class="lineno">    4 </span>--
+<span class="lineno">    5 </span>-- Module      : Aihc.Parser.Internal.CheckPattern
+<span class="lineno">    6 </span>-- Description : Reclassify Expr trees as Pattern trees
+<span class="lineno">    7 </span>-- License     : Unlicense
+<span class="lineno">    8 </span>--
+<span class="lineno">    9 </span>-- Convert an expression AST into a pattern AST. This implements the
+<span class="lineno">   10 </span>-- \&quot;parse as expression, then reclassify\&quot; strategy described in
+<span class="lineno">   11 </span>-- @docs\/unified-expr-pattern-parsing.md@.
+<span class="lineno">   12 </span>--
+<span class="lineno">   13 </span>-- The core function 'checkPattern' performs a structural recursion over
+<span class="lineno">   14 </span>-- 'Expr', converting each expression node into its pattern counterpart.
+<span class="lineno">   15 </span>-- Expression-only constructs (if, case, do, lambda, etc.) are rejected
+<span class="lineno">   16 </span>-- with a descriptive error message.
+<span class="lineno">   17 </span>module Aihc.Parser.Internal.CheckPattern
+<span class="lineno">   18 </span>  ( checkPattern,
+<span class="lineno">   19 </span>    checkPatterns,
+<span class="lineno">   20 </span>  )
+<span class="lineno">   21 </span>where
+<span class="lineno">   22 </span>
+<span class="lineno">   23 </span>import Aihc.Parser.Internal.Common (isConLikeName, nameToUnqualified)
+<span class="lineno">   24 </span>import Aihc.Parser.Syntax
+<span class="lineno">   25 </span>import Data.Maybe (isJust, isNothing)
+<span class="lineno">   26 </span>import Data.Text (Text)
+<span class="lineno">   27 </span>
+<span class="lineno">   28 </span>-- | Convert an expression tree into a pattern.
+<span class="lineno">   29 </span>-- Returns @Left@ with a diagnostic message if the expression cannot be
+<span class="lineno">   30 </span>-- interpreted as a valid pattern.
+<span class="lineno">   31 </span>checkPattern :: Expr -&gt; Either Text Pattern
+<span class="lineno">   32 </span><span class="decl"><span class="istickedoff">checkPattern expr = case expr of</span>
+<span class="lineno">   33 </span><span class="spaces">  </span><span class="istickedoff">EAnn ann sub -&gt; fmap (PAnn ann) (checkPattern sub)</span>
+<span class="lineno">   34 </span><span class="spaces">  </span><span class="istickedoff">EPragma pragma _ -&gt; checkPragmaPattern pragma</span>
+<span class="lineno">   35 </span><span class="spaces">  </span><span class="istickedoff">-- Variables and constructors</span>
+<span class="lineno">   36 </span><span class="spaces">  </span><span class="istickedoff">EVar name</span>
+<span class="lineno">   37 </span><span class="spaces">    </span><span class="istickedoff">| nameText name == &quot;_&quot; -&gt; Right PWildcard</span>
+<span class="lineno">   38 </span><span class="spaces">    </span><span class="istickedoff">| isConLikeName name -&gt; Right (PCon name [] [])</span>
+<span class="lineno">   39 </span><span class="spaces">    </span><span class="istickedoff">| isJust (nameQualifier name) -&gt; Left <span class="nottickedoff">&quot;unexpected qualified name in pattern&quot;</span></span>
+<span class="lineno">   40 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; Right (PVar (nameToUnqualified name))</span>
+<span class="lineno">   41 </span><span class="spaces">  </span><span class="istickedoff">ETypeSyntax form ty -&gt; Right (PTypeSyntax form ty)</span>
+<span class="lineno">   42 </span><span class="spaces">  </span><span class="istickedoff">-- Parenthesized expression</span>
+<span class="lineno">   43 </span><span class="spaces">  </span><span class="istickedoff">-- When the inner expression is a view-pattern arrow (@expr -&gt; expr@),</span>
+<span class="lineno">   44 </span><span class="spaces">  </span><span class="istickedoff">-- produce @PParen (PView f pat)@ to preserve the explicit parens in</span>
+<span class="lineno">   45 </span><span class="spaces">  </span><span class="istickedoff">-- the AST, matching the shape produced by the dedicated pattern parser.</span>
+<span class="lineno">   46 </span><span class="spaces">  </span><span class="istickedoff">EParen inner</span>
+<span class="lineno">   47 </span><span class="spaces">    </span><span class="istickedoff">| Just vp &lt;- asViewPat inner -&gt; Right (PParen vp)</span>
+<span class="lineno">   48 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; PParen &lt;$&gt; checkPattern inner</span>
+<span class="lineno">   49 </span><span class="spaces">  </span><span class="istickedoff">-- Tuple</span>
+<span class="lineno">   50 </span><span class="spaces">  </span><span class="istickedoff">ETuple fl elems</span>
+<span class="lineno">   51 </span><span class="spaces">    </span><span class="istickedoff">| Just tupleCon &lt;- tupleConstructorPattern fl elems -&gt; Right tupleCon</span>
+<span class="lineno">   52 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; do</span>
+<span class="lineno">   53 </span><span class="spaces">        </span><span class="istickedoff">pats &lt;- traverse checkTupleElement elems</span>
+<span class="lineno">   54 </span><span class="spaces">        </span><span class="istickedoff">Right (PTuple fl pats)</span>
+<span class="lineno">   55 </span><span class="spaces">  </span><span class="istickedoff">-- List</span>
+<span class="lineno">   56 </span><span class="spaces">  </span><span class="istickedoff">EList elems -&gt; PList &lt;$&gt; traverse checkPattern elems</span>
+<span class="lineno">   57 </span><span class="spaces">  </span><span class="istickedoff">-- Unboxed sum</span>
+<span class="lineno">   58 </span><span class="spaces">  </span><span class="istickedoff">EUnboxedSum i n e -&gt; PUnboxedSum i n &lt;$&gt; checkPattern e</span>
+<span class="lineno">   59 </span><span class="spaces">  </span><span class="istickedoff">-- Infix: only constructor operators (starting with ':') or the view-pattern</span>
+<span class="lineno">   60 </span><span class="spaces">  </span><span class="istickedoff">-- arrow @-&gt;@ are valid in patterns.</span>
+<span class="lineno">   61 </span><span class="spaces">  </span><span class="istickedoff">EInfix l op r</span>
+<span class="lineno">   62 </span><span class="spaces">    </span><span class="istickedoff">| renderName op == &quot;-&gt;&quot; -&gt; do</span>
+<span class="lineno">   63 </span><span class="spaces">        </span><span class="istickedoff">rPat &lt;- checkPattern r</span>
+<span class="lineno">   64 </span><span class="spaces">        </span><span class="istickedoff">Right (PView l rPat)</span>
+<span class="lineno">   65 </span><span class="spaces">    </span><span class="istickedoff">| isConLikeOp op -&gt; do</span>
+<span class="lineno">   66 </span><span class="spaces">        </span><span class="istickedoff">lPat &lt;- checkPattern l</span>
+<span class="lineno">   67 </span><span class="spaces">        </span><span class="istickedoff">rPat &lt;- checkPattern r</span>
+<span class="lineno">   68 </span><span class="spaces">        </span><span class="istickedoff">Right (PInfix lPat op rPat)</span>
+<span class="lineno">   69 </span><span class="spaces">    </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> -&gt; Left <span class="nottickedoff">(&quot;unexpected variable operator '&quot; &lt;&gt; renderName op &lt;&gt; &quot;' in pattern&quot;)</span></span>
+<span class="lineno">   70 </span><span class="spaces">  </span><span class="istickedoff">-- Type signature</span>
+<span class="lineno">   71 </span><span class="spaces">  </span><span class="istickedoff">ETypeSig e ty -&gt; do</span>
+<span class="lineno">   72 </span><span class="spaces">    </span><span class="istickedoff">pat &lt;- checkPattern e</span>
+<span class="lineno">   73 </span><span class="spaces">    </span><span class="istickedoff">Right (PTypeSig pat ty)</span>
+<span class="lineno">   74 </span><span class="spaces">  </span><span class="istickedoff">-- Negation (must be a literal)</span>
+<span class="lineno">   75 </span><span class="spaces">  </span><span class="istickedoff">ENegate inner -&gt; checkNegLitPattern inner</span>
+<span class="lineno">   76 </span><span class="spaces">  </span><span class="istickedoff">-- Application: accumulate arguments into PCon</span>
+<span class="lineno">   77 </span><span class="spaces">  </span><span class="istickedoff">EApp f x -&gt; do</span>
+<span class="lineno">   78 </span><span class="spaces">    </span><span class="istickedoff">fPat &lt;- checkPattern f</span>
+<span class="lineno">   79 </span><span class="spaces">    </span><span class="istickedoff">xPat &lt;- checkPattern x</span>
+<span class="lineno">   80 </span><span class="spaces">    </span><span class="istickedoff">case peelPatternAnn fPat of</span>
+<span class="lineno">   81 </span><span class="spaces">      </span><span class="istickedoff">PCon name typeArgs args -&gt; Right (PCon name typeArgs (args ++ [xPat]))</span>
+<span class="lineno">   82 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; Left <span class="nottickedoff">&quot;invalid pattern: application of non-constructor&quot;</span></span>
+<span class="lineno">   83 </span><span class="spaces">  </span><span class="istickedoff">-- Record construction -&gt; record pattern</span>
+<span class="lineno">   84 </span><span class="spaces">  </span><span class="istickedoff">ERecordCon name fields wc -&gt; do</span>
+<span class="lineno">   85 </span><span class="spaces">    </span><span class="istickedoff">patFields &lt;-</span>
+<span class="lineno">   86 </span><span class="spaces">      </span><span class="istickedoff">traverse</span>
+<span class="lineno">   87 </span><span class="spaces">        </span><span class="istickedoff">( \field -&gt; do</span>
+<span class="lineno">   88 </span><span class="spaces">            </span><span class="istickedoff">pat &lt;- checkPattern (recordFieldValue field)</span>
+<span class="lineno">   89 </span><span class="spaces">            </span><span class="istickedoff">pure field {recordFieldValue = pat}</span>
+<span class="lineno">   90 </span><span class="spaces">        </span><span class="istickedoff">)</span>
+<span class="lineno">   91 </span><span class="spaces">        </span><span class="istickedoff">fields</span>
+<span class="lineno">   92 </span><span class="spaces">    </span><span class="istickedoff">Right (PRecord name patFields wc)</span>
+<span class="lineno">   93 </span><span class="spaces">  </span><span class="istickedoff">-- Literals</span>
+<span class="lineno">   94 </span><span class="spaces">  </span><span class="istickedoff">EInt n nt repr -&gt; Right (PLit (LitInt n nt repr))</span>
+<span class="lineno">   95 </span><span class="spaces">  </span><span class="istickedoff">EFloat x ft repr -&gt; Right (PLit (LitFloat x ft repr))</span>
+<span class="lineno">   96 </span><span class="spaces">  </span><span class="istickedoff">EChar c repr -&gt; Right (PLit (LitChar c repr))</span>
+<span class="lineno">   97 </span><span class="spaces">  </span><span class="istickedoff">ECharHash c repr -&gt; Right (PLit <span class="nottickedoff">(LitCharHash c repr)</span>)</span>
+<span class="lineno">   98 </span><span class="spaces">  </span><span class="istickedoff">EString s repr -&gt; Right (PLit (LitString s repr))</span>
+<span class="lineno">   99 </span><span class="spaces">  </span><span class="istickedoff">EStringHash s repr -&gt; Right (PLit <span class="nottickedoff">(LitStringHash s repr)</span>)</span>
+<span class="lineno">  100 </span><span class="spaces">  </span><span class="istickedoff">EOverloadedLabel {} -&gt; Left <span class="nottickedoff">&quot;unexpected overloaded label in pattern&quot;</span></span>
+<span class="lineno">  101 </span><span class="spaces">  </span><span class="istickedoff">-- TH splice</span>
+<span class="lineno">  102 </span><span class="spaces">  </span><span class="istickedoff">ETHSplice body -&gt; Right (PSplice body)</span>
+<span class="lineno">  103 </span><span class="spaces">  </span><span class="istickedoff">-- Quasi-quote</span>
+<span class="lineno">  104 </span><span class="spaces">  </span><span class="istickedoff">EQuasiQuote q b -&gt; Right (PQuasiQuote q b)</span>
+<span class="lineno">  105 </span><span class="spaces">  </span><span class="istickedoff">-- Expression-only constructs: clear errors</span>
+<span class="lineno">  106 </span><span class="spaces">  </span><span class="istickedoff">EIf {} -&gt; Left <span class="nottickedoff">&quot;unexpected if-then-else in pattern&quot;</span></span>
+<span class="lineno">  107 </span><span class="spaces">  </span><span class="istickedoff">EMultiWayIf {} -&gt; Left <span class="nottickedoff">&quot;unexpected multi-way if in pattern&quot;</span></span>
+<span class="lineno">  108 </span><span class="spaces">  </span><span class="istickedoff">ECase {} -&gt; Left <span class="nottickedoff">&quot;unexpected case expression in pattern&quot;</span></span>
+<span class="lineno">  109 </span><span class="spaces">  </span><span class="istickedoff">EDo {} -&gt; Left <span class="nottickedoff">&quot;unexpected do expression in pattern&quot;</span></span>
+<span class="lineno">  110 </span><span class="spaces">  </span><span class="istickedoff">ELambdaPats {} -&gt; Left <span class="nottickedoff">&quot;unexpected lambda in pattern&quot;</span></span>
+<span class="lineno">  111 </span><span class="spaces">  </span><span class="istickedoff">ELambdaCase {} -&gt; Left <span class="nottickedoff">&quot;unexpected lambda-case in pattern&quot;</span></span>
+<span class="lineno">  112 </span><span class="spaces">  </span><span class="istickedoff">ELambdaCases {} -&gt; Left <span class="nottickedoff">&quot;unexpected lambda-cases in pattern&quot;</span></span>
+<span class="lineno">  113 </span><span class="spaces">  </span><span class="istickedoff">ELetDecls {} -&gt; Left <span class="nottickedoff">&quot;unexpected let expression in pattern&quot;</span></span>
+<span class="lineno">  114 </span><span class="spaces">  </span><span class="istickedoff">EArithSeq {} -&gt; Left <span class="nottickedoff">&quot;unexpected arithmetic sequence in pattern&quot;</span></span>
+<span class="lineno">  115 </span><span class="spaces">  </span><span class="istickedoff">EListComp {} -&gt; Left <span class="nottickedoff">&quot;unexpected list comprehension in pattern&quot;</span></span>
+<span class="lineno">  116 </span><span class="spaces">  </span><span class="istickedoff">EListCompParallel {} -&gt; Left <span class="nottickedoff">&quot;unexpected parallel list comprehension in pattern&quot;</span></span>
+<span class="lineno">  117 </span><span class="spaces">  </span><span class="istickedoff">ESectionL {} -&gt; Left <span class="nottickedoff">&quot;unexpected left section in pattern&quot;</span></span>
+<span class="lineno">  118 </span><span class="spaces">  </span><span class="istickedoff">ESectionR {} -&gt; Left <span class="nottickedoff">&quot;unexpected right section in pattern&quot;</span></span>
+<span class="lineno">  119 </span><span class="spaces">  </span><span class="istickedoff">ERecordUpd {} -&gt; Left <span class="nottickedoff">&quot;unexpected record update in pattern&quot;</span></span>
+<span class="lineno">  120 </span><span class="spaces">  </span><span class="istickedoff">EGetField {} -&gt; Left <span class="nottickedoff">&quot;unexpected record field access in pattern&quot;</span></span>
+<span class="lineno">  121 </span><span class="spaces">  </span><span class="istickedoff">EGetFieldProjection {} -&gt; Left <span class="nottickedoff">&quot;unexpected projection section in pattern&quot;</span></span>
+<span class="lineno">  122 </span><span class="spaces">  </span><span class="istickedoff">ETypeApp fun ty -&gt; do</span>
+<span class="lineno">  123 </span><span class="spaces">    </span><span class="istickedoff">funPat &lt;- checkPattern fun</span>
+<span class="lineno">  124 </span><span class="spaces">    </span><span class="istickedoff">case peelPatternAnn funPat of</span>
+<span class="lineno">  125 </span><span class="spaces">      </span><span class="istickedoff">PCon name typeArgs args -&gt; Right (PCon name (typeArgs ++ [ty]) args)</span>
+<span class="lineno">  126 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; Left <span class="nottickedoff">&quot;unexpected type application in pattern&quot;</span></span>
+<span class="lineno">  127 </span><span class="spaces">  </span><span class="istickedoff">ETHExpQuote {} -&gt; Left <span class="nottickedoff">&quot;unexpected Template Haskell expression quote in pattern&quot;</span></span>
+<span class="lineno">  128 </span><span class="spaces">  </span><span class="istickedoff">ETHTypedQuote {} -&gt; Left <span class="nottickedoff">&quot;unexpected Template Haskell typed quote in pattern&quot;</span></span>
+<span class="lineno">  129 </span><span class="spaces">  </span><span class="istickedoff">ETHDeclQuote {} -&gt; Left <span class="nottickedoff">&quot;unexpected Template Haskell declaration quote in pattern&quot;</span></span>
+<span class="lineno">  130 </span><span class="spaces">  </span><span class="istickedoff">ETHTypeQuote {} -&gt; Left <span class="nottickedoff">&quot;unexpected Template Haskell type quote in pattern&quot;</span></span>
+<span class="lineno">  131 </span><span class="spaces">  </span><span class="istickedoff">ETHPatQuote {} -&gt; Left <span class="nottickedoff">&quot;unexpected Template Haskell pattern quote in pattern&quot;</span></span>
+<span class="lineno">  132 </span><span class="spaces">  </span><span class="istickedoff">ETHNameQuote {} -&gt; Left <span class="nottickedoff">&quot;unexpected Template Haskell name quote in pattern&quot;</span></span>
+<span class="lineno">  133 </span><span class="spaces">  </span><span class="istickedoff">ETHTypeNameQuote {} -&gt; Left <span class="nottickedoff">&quot;unexpected Template Haskell type name quote in pattern&quot;</span></span>
+<span class="lineno">  134 </span><span class="spaces">  </span><span class="istickedoff">ETHTypedSplice {} -&gt; Left <span class="nottickedoff">&quot;unexpected typed Template Haskell splice in pattern&quot;</span></span>
+<span class="lineno">  135 </span><span class="spaces">  </span><span class="istickedoff">EProc {} -&gt; Left <span class="nottickedoff">&quot;unexpected proc expression in pattern&quot;</span></span></span>
+<span class="lineno">  136 </span>
+<span class="lineno">  137 </span>checkPragmaPattern :: Pragma -&gt; Either Text Pattern
+<span class="lineno">  138 </span><span class="decl"><span class="istickedoff">checkPragmaPattern pragma =</span>
+<span class="lineno">  139 </span><span class="spaces">  </span><span class="istickedoff">case pragmaType pragma of</span>
+<span class="lineno">  140 </span><span class="spaces">    </span><span class="istickedoff">PragmaSCC {} -&gt; Left <span class="nottickedoff">&quot;unexpected SCC pragma in pattern&quot;</span></span>
+<span class="lineno">  141 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Left &quot;unexpected pragma in pattern&quot;</span></span></span>
+<span class="lineno">  142 </span>
+<span class="lineno">  143 </span>-- | Convert a list of expressions into patterns.
+<span class="lineno">  144 </span>checkPatterns :: [Expr] -&gt; Either Text [Pattern]
+<span class="lineno">  145 </span><span class="decl"><span class="nottickedoff">checkPatterns = traverse checkPattern</span></span>
+<span class="lineno">  146 </span>
+<span class="lineno">  147 </span>-- | Check that a tuple element is not a tuple section (Nothing).
+<span class="lineno">  148 </span>checkTupleElement :: Maybe Expr -&gt; Either Text Pattern
+<span class="lineno">  149 </span><span class="decl"><span class="istickedoff">checkTupleElement Nothing = Left <span class="nottickedoff">&quot;unexpected tuple section in pattern&quot;</span></span>
+<span class="lineno">  150 </span><span class="spaces"></span><span class="istickedoff">checkTupleElement (Just e) = checkPattern e</span></span>
+<span class="lineno">  151 </span>
+<span class="lineno">  152 </span>tupleConstructorPattern :: TupleFlavor -&gt; [Maybe Expr] -&gt; Maybe Pattern
+<span class="lineno">  153 </span><span class="decl"><span class="istickedoff">tupleConstructorPattern fl elems</span>
+<span class="lineno">  154 </span><span class="spaces">  </span><span class="istickedoff">| null elems = Nothing</span>
+<span class="lineno">  155 </span><span class="spaces">  </span><span class="istickedoff">| all isNothing elems = Just (PCon (tupleConstructorName fl (length elems)) [] [])</span>
+<span class="lineno">  156 </span><span class="spaces">  </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = Nothing</span></span>
+<span class="lineno">  157 </span>
+<span class="lineno">  158 </span>tupleConstructorName :: TupleFlavor -&gt; Int -&gt; Name
+<span class="lineno">  159 </span><span class="decl"><span class="istickedoff">tupleConstructorName fl arity =</span>
+<span class="lineno">  160 </span><span class="spaces">  </span><span class="istickedoff">qualifyName Nothing (mkUnqualifiedName NameConSym symbol)</span>
+<span class="lineno">  161 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  162 </span><span class="spaces">    </span><span class="istickedoff">symbol = case fl of</span>
+<span class="lineno">  163 </span><span class="spaces">      </span><span class="istickedoff">Boxed -&gt; tupleCommas</span>
+<span class="lineno">  164 </span><span class="spaces">      </span><span class="istickedoff">Unboxed -&gt; <span class="nottickedoff">&quot;#&quot; &lt;&gt; tupleCommas &lt;&gt; &quot;#&quot;</span></span>
+<span class="lineno">  165 </span><span class="spaces">    </span><span class="istickedoff">tupleCommas</span>
+<span class="lineno">  166 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlyfalse">arity == 1</span> = <span class="nottickedoff">&quot;&quot;</span></span>
+<span class="lineno">  167 </span><span class="spaces">      </span><span class="istickedoff">| <span class="tickonlytrue">otherwise</span> = mconcat (replicate (arity - 1) &quot;,&quot;)</span></span>
+<span class="lineno">  168 </span>
+<span class="lineno">  169 </span>-- | Check that a negated expression is a literal (for PNegLit patterns).
+<span class="lineno">  170 </span>checkNegLitPattern :: Expr -&gt; Either Text Pattern
+<span class="lineno">  171 </span><span class="decl"><span class="istickedoff">checkNegLitPattern inner = case inner of</span>
+<span class="lineno">  172 </span><span class="spaces">  </span><span class="istickedoff">EInt n nt repr -&gt; Right (PNegLit (LitInt n nt repr))</span>
+<span class="lineno">  173 </span><span class="spaces">  </span><span class="istickedoff">EFloat x ft repr -&gt; Right (PNegLit (LitFloat x ft repr))</span>
+<span class="lineno">  174 </span><span class="spaces">  </span><span class="istickedoff">EAnn ann sub -&gt; fmap (PAnn <span class="nottickedoff">ann</span>) (checkNegLitPattern sub)</span>
+<span class="lineno">  175 </span><span class="spaces">  </span><span class="istickedoff">_ -&gt; Left <span class="nottickedoff">&quot;negation in pattern requires a numeric literal&quot;</span></span></span>
+<span class="lineno">  176 </span>
+<span class="lineno">  177 </span>-- | Check whether an operator is a constructor operator (starts with ':').
+<span class="lineno">  178 </span>-- Constructor operators and backtick-quoted constructors are valid in patterns;
+<span class="lineno">  179 </span>-- variable operators like @+@ or @*@ are not.
+<span class="lineno">  180 </span>isConLikeOp :: Name -&gt; Bool
+<span class="lineno">  181 </span><span class="decl"><span class="istickedoff">isConLikeOp = isConLikeName</span></span>
+<span class="lineno">  182 </span>
+<span class="lineno">  183 </span>-- | Try to interpret an expression as a view pattern @expr -&gt; expr@.
+<span class="lineno">  184 </span>-- Returns 'Just' the corresponding 'PView' when the expression is an
+<span class="lineno">  185 </span>-- 'EInfix' with @-&gt;@; 'Nothing' otherwise.  Used by the 'EParen' case of
+<span class="lineno">  186 </span>-- 'checkPattern' to strip the outer parentheses and produce @PView@
+<span class="lineno">  187 </span>-- directly (matching the AST shape that the dedicated pattern parser
+<span class="lineno">  188 </span>-- produces).
+<span class="lineno">  189 </span>asViewPat :: Expr -&gt; Maybe Pattern
+<span class="lineno">  190 </span><span class="decl"><span class="istickedoff">asViewPat (EInfix l op r)</span>
+<span class="lineno">  191 </span><span class="spaces">  </span><span class="istickedoff">| renderName op == &quot;-&gt;&quot; = case checkPattern r of</span>
+<span class="lineno">  192 </span><span class="spaces">      </span><span class="istickedoff">Right rPat -&gt; Just (PView l rPat)</span>
+<span class="lineno">  193 </span><span class="spaces">      </span><span class="istickedoff">Left _ -&gt; <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  194 </span><span class="spaces"></span><span class="istickedoff">asViewPat _ = Nothing</span></span>
+
+</pre>
+</body>
+</html>

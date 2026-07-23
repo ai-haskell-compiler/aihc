@@ -1,0 +1,495 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DeriveAnyClass #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE DeriveGeneric #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-4"></span><span>
+</span><span id="line-5"></span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html"><span class="hs-identifier">Aihc.Cpp.Types</span></a></span><span>
+</span><span id="line-6"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#Config"><span class="hs-identifier">Config</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-7"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#MacroDef"><span class="hs-identifier">MacroDef</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-8"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#defaultConfig"><span class="hs-identifier">defaultConfig</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-9"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#IncludeKind"><span class="hs-identifier">IncludeKind</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-10"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#IncludeRequest"><span class="hs-identifier">IncludeRequest</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-11"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#Severity"><span class="hs-identifier">Severity</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-12"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#Diagnostic"><span class="hs-identifier">Diagnostic</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-13"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#Result"><span class="hs-identifier">Result</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-14"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#Step"><span class="hs-identifier">Step</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-15"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#EngineState"><span class="hs-identifier">EngineState</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-16"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#emptyState"><span class="hs-identifier">emptyState</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-17"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#CondFrame"><span class="hs-identifier">CondFrame</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-18"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#currentActive"><span class="hs-identifier">currentActive</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-19"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#mkFrame"><span class="hs-identifier">mkFrame</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-20"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#Continuation"><span class="hs-identifier">Continuation</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-21"></span><span>    </span><span class="annot"><a href="Aihc.Cpp.Types.html#LineContext"><span class="hs-identifier">LineContext</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-22"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-23"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-24"></span><span>
+</span><span id="line-25"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Cpp.Cursor.html"><span class="hs-identifier">Aihc.Cpp.Cursor</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier">Cursor</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Control.DeepSeq</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">NFData</span></span><span class="hs-special">)</span><span>
+</span><span id="line-27"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.ByteString</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">ByteString</span></span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Map.Strict</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Map</span></span><span class="hs-special">)</span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Map.Strict</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">M</span></span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Set</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Set</span></span><span class="hs-special">)</span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Set</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">S</span></span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Text</span></span><span class="hs-special">)</span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text.Lazy.Builder</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">TB</span></span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">GHC.Generics</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Generic</span></span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span>
+</span><span id="line-36"></span><span class="hs-comment">-- $setup</span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- &gt;&gt;&gt; :set -XOverloadedStrings</span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- &gt;&gt;&gt; import qualified Data.Map.Strict as M</span><span>
+</span><span id="line-39"></span><span>
+</span><span id="line-40"></span><span class="annot"><span class="hs-comment">-- | Configuration for the C preprocessor.</span></span><span>
+</span><span id="line-41"></span><span class="hs-keyword">data</span><span> </span><span id="Config"><span class="annot"><a href="Aihc.Cpp.Types.html#Config"><span class="hs-identifier hs-var">Config</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Config"><span class="annot"><a href="Aihc.Cpp.Types.html#Config"><span class="hs-identifier hs-var">Config</span></a></span></span><span>
+</span><span id="line-42"></span><span>  </span><span class="hs-special">{</span><span> </span><span class="hs-comment">-- | The name of the input file, used in @#line@ directives and</span><span>
+</span><span id="line-43"></span><span>    </span><span class="hs-comment">-- @__FILE__@ expansion.</span><span>
+</span><span id="line-44"></span><span>    </span><span id="configInputFile"><span class="annot"><span class="annottext">Config -&gt; FilePath
+</span><a href="Aihc.Cpp.Types.html#configInputFile"><span class="hs-identifier hs-var hs-var">configInputFile</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">,</span><span>
+</span><span id="line-45"></span><span>    </span><span class="hs-comment">-- | User-defined macros. These are expanded as object-like macros.</span><span>
+</span><span id="line-46"></span><span>    </span><span class="hs-comment">-- Note that the values should include any necessary quoting. For</span><span>
+</span><span id="line-47"></span><span>    </span><span class="hs-comment">-- example, to define a string macro, use @&quot;\&quot;value\&quot;&quot;@.</span><span>
+</span><span id="line-48"></span><span>    </span><span id="configMacros"><span class="annot"><span class="annottext">Config -&gt; Map Text Text
+</span><a href="Aihc.Cpp.Types.html#configMacros"><span class="hs-identifier hs-var hs-var">configMacros</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Map</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">)</span><span>
+</span><span id="line-49"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-50"></span><span>
+</span><span id="line-51"></span><span class="hs-keyword">data</span><span> </span><span id="MacroDef"><span class="annot"><a href="Aihc.Cpp.Types.html#MacroDef"><span class="hs-identifier hs-var">MacroDef</span></a></span></span><span>
+</span><span id="line-52"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="ObjectMacro"><span class="annot"><a href="Aihc.Cpp.Types.html#ObjectMacro"><span class="hs-identifier hs-var">ObjectMacro</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-53"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="FunctionMacro"><span class="annot"><a href="Aihc.Cpp.Types.html#FunctionMacro"><span class="hs-identifier hs-var">FunctionMacro</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span>
+</span><span id="line-54"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679077663"><span id="local-6989586621679077673"><span class="annot"><span class="annottext">MacroDef -&gt; MacroDef -&gt; Bool
+(MacroDef -&gt; MacroDef -&gt; Bool)
+-&gt; (MacroDef -&gt; MacroDef -&gt; Bool) -&gt; Eq MacroDef
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+$c== :: MacroDef -&gt; MacroDef -&gt; Bool
+== :: MacroDef -&gt; MacroDef -&gt; Bool
+$c/= :: MacroDef -&gt; MacroDef -&gt; Bool
+/= :: MacroDef -&gt; MacroDef -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077678"><span id="local-6989586621679077688"><span id="local-6989586621679077692"><span class="annot"><span class="annottext">Int -&gt; MacroDef -&gt; ShowS
+[MacroDef] -&gt; ShowS
+MacroDef -&gt; FilePath
+(Int -&gt; MacroDef -&gt; ShowS)
+-&gt; (MacroDef -&gt; FilePath) -&gt; ([MacroDef] -&gt; ShowS) -&gt; Show MacroDef
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; FilePath) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+$cshowsPrec :: Int -&gt; MacroDef -&gt; ShowS
+showsPrec :: Int -&gt; MacroDef -&gt; ShowS
+$cshow :: MacroDef -&gt; FilePath
+show :: MacroDef -&gt; FilePath
+$cshowList :: [MacroDef] -&gt; ShowS
+showList :: [MacroDef] -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-55"></span><span>
+</span><span id="line-56"></span><span class="hs-comment">-- | Default configuration with sensible defaults.</span><span>
+</span><span id="line-57"></span><span class="hs-comment">--</span><span>
+</span><span id="line-58"></span><span class="hs-comment">-- * 'configInputFile' is set to @\&quot;\&lt;input\&gt;\&quot;@</span><span>
+</span><span id="line-59"></span><span class="hs-comment">-- * 'configMacros' includes @__DATE__@ and @__TIME__@ set to the Unix epoch</span><span>
+</span><span id="line-60"></span><span class="hs-comment">--</span><span>
+</span><span id="line-61"></span><span class="hs-comment">-- To customize the date and time macros:</span><span>
+</span><span id="line-62"></span><span class="hs-comment">--</span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- &gt;&gt;&gt; import qualified Data.Map.Strict as M</span><span>
+</span><span id="line-64"></span><span class="hs-comment">-- &gt;&gt;&gt; let cfg = defaultConfig { configMacros = M.fromList [(&quot;__DATE__&quot;, &quot;\&quot;Mar 15 2026\&quot;&quot;), (&quot;__TIME__&quot;, &quot;\&quot;14:30:00\&quot;&quot;)] }</span><span>
+</span><span id="line-65"></span><span class="hs-comment">-- &gt;&gt;&gt; configMacros cfg</span><span>
+</span><span id="line-66"></span><span class="hs-comment">-- fromList [(&quot;__DATE__&quot;,&quot;\&quot;Mar 15 2026\&quot;&quot;),(&quot;__TIME__&quot;,&quot;\&quot;14:30:00\&quot;&quot;)]</span><span>
+</span><span id="line-67"></span><span class="hs-comment">--</span><span>
+</span><span id="line-68"></span><span class="hs-comment">-- To add additional macros while keeping the defaults:</span><span>
+</span><span id="line-69"></span><span class="hs-comment">--</span><span>
+</span><span id="line-70"></span><span class="hs-comment">-- &gt;&gt;&gt; import qualified Data.Map.Strict as M</span><span>
+</span><span id="line-71"></span><span class="hs-comment">-- &gt;&gt;&gt; let cfg = defaultConfig { configMacros = M.insert &quot;VERSION&quot; &quot;42&quot; (configMacros defaultConfig) }</span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- &gt;&gt;&gt; M.lookup &quot;VERSION&quot; (configMacros cfg)</span><span>
+</span><span id="line-73"></span><span class="hs-comment">-- Just &quot;42&quot;</span><span>
+</span><span id="line-74"></span><span class="annot"><a href="Aihc.Cpp.Types.html#defaultConfig"><span class="hs-identifier hs-type">defaultConfig</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#Config"><span class="hs-identifier hs-type">Config</span></a></span><span>
+</span><span id="line-75"></span><span id="defaultConfig"><span class="annot"><span class="annottext">defaultConfig :: Config
+</span><a href="Aihc.Cpp.Types.html#defaultConfig"><span class="hs-identifier hs-var hs-var">defaultConfig</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-76"></span><span>  </span><span class="annot"><a href="Aihc.Cpp.Types.html#Config"><span class="hs-identifier hs-type">Config</span></a></span><span>
+</span><span id="line-77"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">configInputFile :: FilePath
+</span><a href="Aihc.Cpp.Types.html#configInputFile"><span class="hs-identifier hs-var">configInputFile</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;&lt;input&gt;&quot;</span></span><span class="hs-special">,</span><span>
+</span><span id="line-78"></span><span>      </span><span class="annot"><span class="annottext">configMacros :: Map Text Text
+</span><a href="Aihc.Cpp.Types.html#configMacros"><span class="hs-identifier hs-var">configMacros</span></a></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-79"></span><span>        </span><span class="annot"><span class="annottext">[(Text, Text)] -&gt; Map Text Text
+forall k a. Ord k =&gt; [(k, a)] -&gt; Map k a
+</span><span class="hs-identifier hs-var">M.fromList</span></span><span>
+</span><span id="line-80"></span><span>          </span><span class="hs-special">[</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;__DATE__&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;\&quot;Jan  1 1970\&quot;&quot;</span></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-81"></span><span>            </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;__TIME__&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;\&quot;00:00:00\&quot;&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-82"></span><span>          </span><span class="hs-special">]</span><span>
+</span><span id="line-83"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-84"></span><span>
+</span><span id="line-85"></span><span class="annot"><span class="hs-comment">-- | The kind of @#include@ directive.</span></span><span>
+</span><span id="line-86"></span><span class="hs-keyword">data</span><span> </span><span id="IncludeKind"><span class="annot"><a href="Aihc.Cpp.Types.html#IncludeKind"><span class="hs-identifier hs-var">IncludeKind</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="IncludeLocal"><span class="annot"><a href="Aihc.Cpp.Types.html#IncludeLocal"><span class="hs-identifier hs-var">IncludeLocal</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span id="IncludeSystem"><span class="annot"><a href="Aihc.Cpp.Types.html#IncludeSystem"><span class="hs-identifier hs-var">IncludeSystem</span></a></span></span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679077700"><span id="local-6989586621679077704"><span class="annot"><span class="annottext">IncludeKind -&gt; IncludeKind -&gt; Bool
+(IncludeKind -&gt; IncludeKind -&gt; Bool)
+-&gt; (IncludeKind -&gt; IncludeKind -&gt; Bool) -&gt; Eq IncludeKind
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+$c== :: IncludeKind -&gt; IncludeKind -&gt; Bool
+== :: IncludeKind -&gt; IncludeKind -&gt; Bool
+$c/= :: IncludeKind -&gt; IncludeKind -&gt; Bool
+/= :: IncludeKind -&gt; IncludeKind -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077708"><span id="local-6989586621679077710"><span id="local-6989586621679077714"><span class="annot"><span class="annottext">Int -&gt; IncludeKind -&gt; ShowS
+[IncludeKind] -&gt; ShowS
+IncludeKind -&gt; FilePath
+(Int -&gt; IncludeKind -&gt; ShowS)
+-&gt; (IncludeKind -&gt; FilePath)
+-&gt; ([IncludeKind] -&gt; ShowS)
+-&gt; Show IncludeKind
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; FilePath) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+$cshowsPrec :: Int -&gt; IncludeKind -&gt; ShowS
+showsPrec :: Int -&gt; IncludeKind -&gt; ShowS
+$cshow :: IncludeKind -&gt; FilePath
+show :: IncludeKind -&gt; FilePath
+$cshowList :: [IncludeKind] -&gt; ShowS
+showList :: [IncludeKind] -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077717"><span id="local-6989586621679077719"><span class="annot"><span class="annottext">(forall x. IncludeKind -&gt; Rep IncludeKind x)
+-&gt; (forall x. Rep IncludeKind x -&gt; IncludeKind)
+-&gt; Generic IncludeKind
+forall x. Rep IncludeKind x -&gt; IncludeKind
+forall x. IncludeKind -&gt; Rep IncludeKind x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+$cfrom :: forall x. IncludeKind -&gt; Rep IncludeKind x
+from :: forall x. IncludeKind -&gt; Rep IncludeKind x
+$cto :: forall x. Rep IncludeKind x -&gt; IncludeKind
+to :: forall x. Rep IncludeKind x -&gt; IncludeKind
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Generic</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077725"><span class="annot"><span class="annottext">IncludeKind -&gt; ()
+(IncludeKind -&gt; ()) -&gt; NFData IncludeKind
+forall a. (a -&gt; ()) -&gt; NFData a
+$crnf :: IncludeKind -&gt; ()
+rnf :: IncludeKind -&gt; ()
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">NFData</span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-87"></span><span>
+</span><span id="line-88"></span><span class="annot"><span class="hs-comment">-- | Information about a pending @#include@ that needs to be resolved.</span></span><span>
+</span><span id="line-89"></span><span class="hs-keyword">data</span><span> </span><span id="IncludeRequest"><span class="annot"><a href="Aihc.Cpp.Types.html#IncludeRequest"><span class="hs-identifier hs-var">IncludeRequest</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="IncludeRequest"><span class="annot"><a href="Aihc.Cpp.Types.html#IncludeRequest"><span class="hs-identifier hs-var">IncludeRequest</span></a></span></span><span>
+</span><span id="line-90"></span><span>  </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="hs-comment">-- | The path specified in the include directive.</span></span><span>
+</span><span id="line-91"></span><span>    </span><span id="includePath"><span class="annot"><span class="annottext">IncludeRequest -&gt; FilePath
+</span><a href="Aihc.Cpp.Types.html#includePath"><span class="hs-identifier hs-var hs-var">includePath</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">,</span><span>
+</span><span id="line-92"></span><span>    </span><span class="annot"><span class="hs-comment">-- | Whether this is a local (@\&quot;...\&quot;@) or system (@\&lt;...\&gt;@) include.</span></span><span>
+</span><span id="line-93"></span><span>    </span><span id="includeKind"><span class="annot"><span class="annottext">IncludeRequest -&gt; IncludeKind
+</span><a href="Aihc.Cpp.Types.html#includeKind"><span class="hs-identifier hs-var hs-var">includeKind</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Aihc.Cpp.Types.html#IncludeKind"><span class="hs-identifier hs-type">IncludeKind</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-94"></span><span>    </span><span class="annot"><span class="hs-comment">-- | The file that contains the @#include@ directive.</span></span><span>
+</span><span id="line-95"></span><span>    </span><span id="includeFrom"><span class="annot"><span class="annottext">IncludeRequest -&gt; FilePath
+</span><a href="Aihc.Cpp.Types.html#includeFrom"><span class="hs-identifier hs-var hs-var">includeFrom</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">,</span><span>
+</span><span id="line-96"></span><span>    </span><span class="annot"><span class="hs-comment">-- | The line number of the @#include@ directive.</span></span><span>
+</span><span id="line-97"></span><span>    </span><span id="includeLine"><span class="annot"><span class="annottext">IncludeRequest -&gt; Int
+</span><a href="Aihc.Cpp.Types.html#includeLine"><span class="hs-identifier hs-var hs-var">includeLine</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span>
+</span><span id="line-98"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-99"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679077745"><span id="local-6989586621679077753"><span class="annot"><span class="annottext">IncludeRequest -&gt; IncludeRequest -&gt; Bool
+(IncludeRequest -&gt; IncludeRequest -&gt; Bool)
+-&gt; (IncludeRequest -&gt; IncludeRequest -&gt; Bool) -&gt; Eq IncludeRequest
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+$c== :: IncludeRequest -&gt; IncludeRequest -&gt; Bool
+== :: IncludeRequest -&gt; IncludeRequest -&gt; Bool
+$c/= :: IncludeRequest -&gt; IncludeRequest -&gt; Bool
+/= :: IncludeRequest -&gt; IncludeRequest -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077758"><span id="local-6989586621679077767"><span id="local-6989586621679077771"><span class="annot"><span class="annottext">Int -&gt; IncludeRequest -&gt; ShowS
+[IncludeRequest] -&gt; ShowS
+IncludeRequest -&gt; FilePath
+(Int -&gt; IncludeRequest -&gt; ShowS)
+-&gt; (IncludeRequest -&gt; FilePath)
+-&gt; ([IncludeRequest] -&gt; ShowS)
+-&gt; Show IncludeRequest
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; FilePath) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+$cshowsPrec :: Int -&gt; IncludeRequest -&gt; ShowS
+showsPrec :: Int -&gt; IncludeRequest -&gt; ShowS
+$cshow :: IncludeRequest -&gt; FilePath
+show :: IncludeRequest -&gt; FilePath
+$cshowList :: [IncludeRequest] -&gt; ShowS
+showList :: [IncludeRequest] -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077775"><span id="local-6989586621679077777"><span class="annot"><span class="annottext">(forall x. IncludeRequest -&gt; Rep IncludeRequest x)
+-&gt; (forall x. Rep IncludeRequest x -&gt; IncludeRequest)
+-&gt; Generic IncludeRequest
+forall x. Rep IncludeRequest x -&gt; IncludeRequest
+forall x. IncludeRequest -&gt; Rep IncludeRequest x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+$cfrom :: forall x. IncludeRequest -&gt; Rep IncludeRequest x
+from :: forall x. IncludeRequest -&gt; Rep IncludeRequest x
+$cto :: forall x. Rep IncludeRequest x -&gt; IncludeRequest
+to :: forall x. Rep IncludeRequest x -&gt; IncludeRequest
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Generic</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077780"><span class="annot"><span class="annottext">IncludeRequest -&gt; ()
+(IncludeRequest -&gt; ()) -&gt; NFData IncludeRequest
+forall a. (a -&gt; ()) -&gt; NFData a
+$crnf :: IncludeRequest -&gt; ()
+rnf :: IncludeRequest -&gt; ()
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">NFData</span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-100"></span><span>
+</span><span id="line-101"></span><span class="annot"><span class="hs-comment">-- | Severity level for diagnostics.</span></span><span>
+</span><span id="line-102"></span><span class="hs-keyword">data</span><span> </span><span id="Severity"><span class="annot"><a href="Aihc.Cpp.Types.html#Severity"><span class="hs-identifier hs-var">Severity</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Warning"><span class="annot"><a href="Aihc.Cpp.Types.html#Warning"><span class="hs-identifier hs-var">Warning</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span id="Error"><span class="annot"><a href="Aihc.Cpp.Types.html#Error"><span class="hs-identifier hs-var">Error</span></a></span></span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679077809"><span id="local-6989586621679077813"><span class="annot"><span class="annottext">Severity -&gt; Severity -&gt; Bool
+(Severity -&gt; Severity -&gt; Bool)
+-&gt; (Severity -&gt; Severity -&gt; Bool) -&gt; Eq Severity
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+$c== :: Severity -&gt; Severity -&gt; Bool
+== :: Severity -&gt; Severity -&gt; Bool
+$c/= :: Severity -&gt; Severity -&gt; Bool
+/= :: Severity -&gt; Severity -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077817"><span id="local-6989586621679077819"><span id="local-6989586621679077823"><span class="annot"><span class="annottext">Int -&gt; Severity -&gt; ShowS
+[Severity] -&gt; ShowS
+Severity -&gt; FilePath
+(Int -&gt; Severity -&gt; ShowS)
+-&gt; (Severity -&gt; FilePath) -&gt; ([Severity] -&gt; ShowS) -&gt; Show Severity
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; FilePath) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+$cshowsPrec :: Int -&gt; Severity -&gt; ShowS
+showsPrec :: Int -&gt; Severity -&gt; ShowS
+$cshow :: Severity -&gt; FilePath
+show :: Severity -&gt; FilePath
+$cshowList :: [Severity] -&gt; ShowS
+showList :: [Severity] -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077826"><span id="local-6989586621679077828"><span class="annot"><span class="annottext">(forall x. Severity -&gt; Rep Severity x)
+-&gt; (forall x. Rep Severity x -&gt; Severity) -&gt; Generic Severity
+forall x. Rep Severity x -&gt; Severity
+forall x. Severity -&gt; Rep Severity x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+$cfrom :: forall x. Severity -&gt; Rep Severity x
+from :: forall x. Severity -&gt; Rep Severity x
+$cto :: forall x. Rep Severity x -&gt; Severity
+to :: forall x. Rep Severity x -&gt; Severity
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Generic</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077831"><span class="annot"><span class="annottext">Severity -&gt; ()
+(Severity -&gt; ()) -&gt; NFData Severity
+forall a. (a -&gt; ()) -&gt; NFData a
+$crnf :: Severity -&gt; ()
+rnf :: Severity -&gt; ()
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">NFData</span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-103"></span><span>
+</span><span id="line-104"></span><span class="annot"><span class="hs-comment">-- | A diagnostic message emitted during preprocessing.</span></span><span>
+</span><span id="line-105"></span><span class="hs-keyword">data</span><span> </span><span id="Diagnostic"><span class="annot"><a href="Aihc.Cpp.Types.html#Diagnostic"><span class="hs-identifier hs-var">Diagnostic</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Diagnostic"><span class="annot"><a href="Aihc.Cpp.Types.html#Diagnostic"><span class="hs-identifier hs-var">Diagnostic</span></a></span></span><span>
+</span><span id="line-106"></span><span>  </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="hs-comment">-- | The severity of the diagnostic.</span></span><span>
+</span><span id="line-107"></span><span>    </span><span id="diagSeverity"><span class="annot"><span class="annottext">Diagnostic -&gt; Severity
+</span><a href="Aihc.Cpp.Types.html#diagSeverity"><span class="hs-identifier hs-var hs-var">diagSeverity</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Aihc.Cpp.Types.html#Severity"><span class="hs-identifier hs-type">Severity</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-108"></span><span>    </span><span class="annot"><span class="hs-comment">-- | The diagnostic message text.</span></span><span>
+</span><span id="line-109"></span><span>    </span><span id="diagMessage"><span class="annot"><span class="annottext">Diagnostic -&gt; Text
+</span><a href="Aihc.Cpp.Types.html#diagMessage"><span class="hs-identifier hs-var hs-var">diagMessage</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">,</span><span>
+</span><span id="line-110"></span><span>    </span><span class="annot"><span class="hs-comment">-- | The file where the diagnostic occurred.</span></span><span>
+</span><span id="line-111"></span><span>    </span><span id="diagFile"><span class="annot"><span class="annottext">Diagnostic -&gt; FilePath
+</span><a href="Aihc.Cpp.Types.html#diagFile"><span class="hs-identifier hs-var hs-var">diagFile</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">,</span><span>
+</span><span id="line-112"></span><span>    </span><span class="annot"><span class="hs-comment">-- | The line number where the diagnostic occurred.</span></span><span>
+</span><span id="line-113"></span><span>    </span><span id="diagLine"><span class="annot"><span class="annottext">Diagnostic -&gt; Int
+</span><a href="Aihc.Cpp.Types.html#diagLine"><span class="hs-identifier hs-var hs-var">diagLine</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span>
+</span><span id="line-114"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-115"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679077847"><span id="local-6989586621679077854"><span class="annot"><span class="annottext">Diagnostic -&gt; Diagnostic -&gt; Bool
+(Diagnostic -&gt; Diagnostic -&gt; Bool)
+-&gt; (Diagnostic -&gt; Diagnostic -&gt; Bool) -&gt; Eq Diagnostic
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+$c== :: Diagnostic -&gt; Diagnostic -&gt; Bool
+== :: Diagnostic -&gt; Diagnostic -&gt; Bool
+$c/= :: Diagnostic -&gt; Diagnostic -&gt; Bool
+/= :: Diagnostic -&gt; Diagnostic -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077858"><span id="local-6989586621679077866"><span id="local-6989586621679077870"><span class="annot"><span class="annottext">Int -&gt; Diagnostic -&gt; ShowS
+[Diagnostic] -&gt; ShowS
+Diagnostic -&gt; FilePath
+(Int -&gt; Diagnostic -&gt; ShowS)
+-&gt; (Diagnostic -&gt; FilePath)
+-&gt; ([Diagnostic] -&gt; ShowS)
+-&gt; Show Diagnostic
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; FilePath) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+$cshowsPrec :: Int -&gt; Diagnostic -&gt; ShowS
+showsPrec :: Int -&gt; Diagnostic -&gt; ShowS
+$cshow :: Diagnostic -&gt; FilePath
+show :: Diagnostic -&gt; FilePath
+$cshowList :: [Diagnostic] -&gt; ShowS
+showList :: [Diagnostic] -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077873"><span id="local-6989586621679077875"><span class="annot"><span class="annottext">(forall x. Diagnostic -&gt; Rep Diagnostic x)
+-&gt; (forall x. Rep Diagnostic x -&gt; Diagnostic) -&gt; Generic Diagnostic
+forall x. Rep Diagnostic x -&gt; Diagnostic
+forall x. Diagnostic -&gt; Rep Diagnostic x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+$cfrom :: forall x. Diagnostic -&gt; Rep Diagnostic x
+from :: forall x. Diagnostic -&gt; Rep Diagnostic x
+$cto :: forall x. Rep Diagnostic x -&gt; Diagnostic
+to :: forall x. Rep Diagnostic x -&gt; Diagnostic
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Generic</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077878"><span class="annot"><span class="annottext">Diagnostic -&gt; ()
+(Diagnostic -&gt; ()) -&gt; NFData Diagnostic
+forall a. (a -&gt; ()) -&gt; NFData a
+$crnf :: Diagnostic -&gt; ()
+rnf :: Diagnostic -&gt; ()
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">NFData</span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-116"></span><span>
+</span><span id="line-117"></span><span class="annot"><span class="hs-comment">-- | The result of preprocessing.</span></span><span>
+</span><span id="line-118"></span><span class="hs-keyword">data</span><span> </span><span id="Result"><span class="annot"><a href="Aihc.Cpp.Types.html#Result"><span class="hs-identifier hs-var">Result</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Result"><span class="annot"><a href="Aihc.Cpp.Types.html#Result"><span class="hs-identifier hs-var">Result</span></a></span></span><span>
+</span><span id="line-119"></span><span>  </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="hs-comment">-- | The preprocessed output text.</span></span><span>
+</span><span id="line-120"></span><span>    </span><span id="resultOutput"><span class="annot"><span class="annottext">Result -&gt; Text
+</span><a href="Aihc.Cpp.Types.html#resultOutput"><span class="hs-identifier hs-var hs-var">resultOutput</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">,</span><span>
+</span><span id="line-121"></span><span>    </span><span class="annot"><span class="hs-comment">-- | Any diagnostics (warnings or errors) emitted during preprocessing.</span></span><span>
+</span><span id="line-122"></span><span>    </span><span id="resultDiagnostics"><span class="annot"><span class="annottext">Result -&gt; [Diagnostic]
+</span><a href="Aihc.Cpp.Types.html#resultDiagnostics"><span class="hs-identifier hs-var hs-var">resultDiagnostics</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Cpp.Types.html#Diagnostic"><span class="hs-identifier hs-type">Diagnostic</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-123"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-124"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679077906"><span id="local-6989586621679077911"><span class="annot"><span class="annottext">Result -&gt; Result -&gt; Bool
+(Result -&gt; Result -&gt; Bool)
+-&gt; (Result -&gt; Result -&gt; Bool) -&gt; Eq Result
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+$c== :: Result -&gt; Result -&gt; Bool
+== :: Result -&gt; Result -&gt; Bool
+$c/= :: Result -&gt; Result -&gt; Bool
+/= :: Result -&gt; Result -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077915"><span id="local-6989586621679077921"><span id="local-6989586621679077925"><span class="annot"><span class="annottext">Int -&gt; Result -&gt; ShowS
+[Result] -&gt; ShowS
+Result -&gt; FilePath
+(Int -&gt; Result -&gt; ShowS)
+-&gt; (Result -&gt; FilePath) -&gt; ([Result] -&gt; ShowS) -&gt; Show Result
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; FilePath) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+$cshowsPrec :: Int -&gt; Result -&gt; ShowS
+showsPrec :: Int -&gt; Result -&gt; ShowS
+$cshow :: Result -&gt; FilePath
+show :: Result -&gt; FilePath
+$cshowList :: [Result] -&gt; ShowS
+showList :: [Result] -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077928"><span id="local-6989586621679077930"><span class="annot"><span class="annottext">(forall x. Result -&gt; Rep Result x)
+-&gt; (forall x. Rep Result x -&gt; Result) -&gt; Generic Result
+forall x. Rep Result x -&gt; Result
+forall x. Result -&gt; Rep Result x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+$cfrom :: forall x. Result -&gt; Rep Result x
+from :: forall x. Result -&gt; Rep Result x
+$cto :: forall x. Rep Result x -&gt; Result
+to :: forall x. Rep Result x -&gt; Result
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Generic</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679077933"><span class="annot"><span class="annottext">Result -&gt; ()
+(Result -&gt; ()) -&gt; NFData Result
+forall a. (a -&gt; ()) -&gt; NFData a
+$crnf :: Result -&gt; ()
+rnf :: Result -&gt; ()
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">NFData</span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-125"></span><span>
+</span><span id="line-126"></span><span class="hs-comment">-- | A step in the preprocessing process. Either preprocessing is complete</span><span>
+</span><span id="line-127"></span><span class="hs-comment">-- ('Done') or an @#include@ directive needs to be resolved ('NeedInclude').</span><span>
+</span><span id="line-128"></span><span class="hs-keyword">data</span><span> </span><span id="Step"><span class="annot"><a href="Aihc.Cpp.Types.html#Step"><span class="hs-identifier hs-var">Step</span></a></span></span><span>
+</span><span id="line-129"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="hs-comment">-- | Preprocessing is complete.</span></span><span>
+</span><span id="line-130"></span><span>    </span><span id="Done"><span class="annot"><a href="Aihc.Cpp.Types.html#Done"><span class="hs-identifier hs-var">Done</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Aihc.Cpp.Types.html#Result"><span class="hs-identifier hs-type">Result</span></a></span><span>
+</span><span id="line-131"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="hs-comment">-- | An @#include@ directive was encountered. The caller must provide</span><span>
+</span><span id="line-132"></span><span>    </span><span class="hs-comment">-- the contents of the included file (or 'Nothing' if not found),</span><span>
+</span><span id="line-133"></span><span>    </span><span class="hs-comment">-- and preprocessing will continue.</span><span>
+</span><span id="line-134"></span><span>    </span><span id="NeedInclude"><span class="annot"><a href="Aihc.Cpp.Types.html#NeedInclude"><span class="hs-identifier hs-var">NeedInclude</span></a></span></span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Aihc.Cpp.Types.html#IncludeRequest"><span class="hs-identifier hs-type">IncludeRequest</span></a></span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">ByteString</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#Step"><span class="hs-identifier hs-type">Step</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-135"></span><span>
+</span><span id="line-136"></span><span class="hs-keyword">data</span><span> </span><span id="EngineState"><span class="annot"><a href="Aihc.Cpp.Types.html#EngineState"><span class="hs-identifier hs-var">EngineState</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="EngineState"><span class="annot"><a href="Aihc.Cpp.Types.html#EngineState"><span class="hs-identifier hs-var">EngineState</span></a></span></span><span>
+</span><span id="line-137"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="stMacros"><span class="annot"><span class="annottext">EngineState -&gt; Map Text MacroDef
+</span><a href="Aihc.Cpp.Types.html#stMacros"><span class="hs-identifier hs-var hs-var">stMacros</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Map</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#MacroDef"><span class="hs-identifier hs-type">MacroDef</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-138"></span><span>    </span><span id="stOutput"><span class="annot"><span class="annottext">EngineState -&gt; Builder
+</span><a href="Aihc.Cpp.Types.html#stOutput"><span class="hs-identifier hs-var hs-var">stOutput</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">TB.Builder</span></span><span class="hs-special">,</span><span>
+</span><span id="line-139"></span><span>    </span><span id="stOutputLineCount"><span class="annot"><span class="annottext">EngineState -&gt; Int
+</span><a href="Aihc.Cpp.Types.html#stOutputLineCount"><span class="hs-identifier hs-var hs-var">stOutputLineCount</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-pragma">{-# UNPACK</span><span> </span><span class="hs-pragma">#-}</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span>
+</span><span id="line-140"></span><span>    </span><span id="stDiagnosticsRev"><span class="annot"><span class="annottext">EngineState -&gt; [Diagnostic]
+</span><a href="Aihc.Cpp.Types.html#stDiagnosticsRev"><span class="hs-identifier hs-var hs-var">stDiagnosticsRev</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Cpp.Types.html#Diagnostic"><span class="hs-identifier hs-type">Diagnostic</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-141"></span><span>    </span><span id="stPragmaOnceFiles"><span class="annot"><span class="annottext">EngineState -&gt; Set FilePath
+</span><a href="Aihc.Cpp.Types.html#stPragmaOnceFiles"><span class="hs-identifier hs-var hs-var">stPragmaOnceFiles</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Set</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-142"></span><span>    </span><span id="stSkippingDanglingElse"><span class="annot"><span class="annottext">EngineState -&gt; Bool
+</span><a href="Aihc.Cpp.Types.html#stSkippingDanglingElse"><span class="hs-identifier hs-var hs-var">stSkippingDanglingElse</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span class="hs-special">,</span><span>
+</span><span id="line-143"></span><span>    </span><span id="stHsBlockCommentDepth"><span class="annot"><span class="annottext">EngineState -&gt; Int
+</span><a href="Aihc.Cpp.Types.html#stHsBlockCommentDepth"><span class="hs-identifier hs-var hs-var">stHsBlockCommentDepth</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span>
+</span><span id="line-144"></span><span>    </span><span id="stCBlockCommentDepth"><span class="annot"><span class="annottext">EngineState -&gt; Int
+</span><a href="Aihc.Cpp.Types.html#stCBlockCommentDepth"><span class="hs-identifier hs-var hs-var">stCBlockCommentDepth</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span>
+</span><span id="line-145"></span><span>    </span><span id="stCurrentFile"><span class="annot"><span class="annottext">EngineState -&gt; FilePath
+</span><a href="Aihc.Cpp.Types.html#stCurrentFile"><span class="hs-identifier hs-var hs-var">stCurrentFile</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">,</span><span>
+</span><span id="line-146"></span><span>    </span><span id="stCurrentLine"><span class="annot"><span class="annottext">EngineState -&gt; Int
+</span><a href="Aihc.Cpp.Types.html#stCurrentLine"><span class="hs-identifier hs-var hs-var">stCurrentLine</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span>
+</span><span id="line-147"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-148"></span><span>
+</span><span id="line-149"></span><span class="annot"><a href="Aihc.Cpp.Types.html#emptyState"><span class="hs-identifier hs-type">emptyState</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#EngineState"><span class="hs-identifier hs-type">EngineState</span></a></span><span>
+</span><span id="line-150"></span><span id="emptyState"><span class="annot"><span class="annottext">emptyState :: FilePath -&gt; EngineState
+</span><a href="Aihc.Cpp.Types.html#emptyState"><span class="hs-identifier hs-var hs-var">emptyState</span></a></span></span><span> </span><span id="local-6989586621679077961"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679077961"><span class="hs-identifier hs-var">filePath</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-151"></span><span>  </span><span class="annot"><a href="Aihc.Cpp.Types.html#EngineState"><span class="hs-identifier hs-type">EngineState</span></a></span><span>
+</span><span id="line-152"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">stMacros :: Map Text MacroDef
+</span><a href="Aihc.Cpp.Types.html#stMacros"><span class="hs-identifier hs-var">stMacros</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Map Text MacroDef
+forall k a. Map k a
+</span><span class="hs-identifier hs-var">M.empty</span></span><span class="hs-special">,</span><span>
+</span><span id="line-153"></span><span>      </span><span class="annot"><span class="annottext">stOutput :: Builder
+</span><a href="Aihc.Cpp.Types.html#stOutput"><span class="hs-identifier hs-var">stOutput</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Builder
+forall a. Monoid a =&gt; a
+</span><span class="hs-identifier hs-var">mempty</span></span><span class="hs-special">,</span><span>
+</span><span id="line-154"></span><span>      </span><span class="annot"><span class="annottext">stOutputLineCount :: Int
+</span><a href="Aihc.Cpp.Types.html#stOutputLineCount"><span class="hs-identifier hs-var">stOutputLineCount</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span>
+</span><span id="line-155"></span><span>      </span><span class="annot"><span class="annottext">stDiagnosticsRev :: [Diagnostic]
+</span><a href="Aihc.Cpp.Types.html#stDiagnosticsRev"><span class="hs-identifier hs-var">stDiagnosticsRev</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-156"></span><span>      </span><span class="annot"><span class="annottext">stPragmaOnceFiles :: Set FilePath
+</span><a href="Aihc.Cpp.Types.html#stPragmaOnceFiles"><span class="hs-identifier hs-var">stPragmaOnceFiles</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Set FilePath
+forall a. Set a
+</span><span class="hs-identifier hs-var">S.empty</span></span><span class="hs-special">,</span><span>
+</span><span id="line-157"></span><span>      </span><span class="annot"><span class="annottext">stSkippingDanglingElse :: Bool
+</span><a href="Aihc.Cpp.Types.html#stSkippingDanglingElse"><span class="hs-identifier hs-var">stSkippingDanglingElse</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span class="hs-special">,</span><span>
+</span><span id="line-158"></span><span>      </span><span class="annot"><span class="annottext">stHsBlockCommentDepth :: Int
+</span><a href="Aihc.Cpp.Types.html#stHsBlockCommentDepth"><span class="hs-identifier hs-var">stHsBlockCommentDepth</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span>
+</span><span id="line-159"></span><span>      </span><span class="annot"><span class="annottext">stCBlockCommentDepth :: Int
+</span><a href="Aihc.Cpp.Types.html#stCBlockCommentDepth"><span class="hs-identifier hs-var">stCBlockCommentDepth</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span>
+</span><span id="line-160"></span><span>      </span><span class="annot"><span class="annottext">stCurrentFile :: FilePath
+</span><a href="Aihc.Cpp.Types.html#stCurrentFile"><span class="hs-identifier hs-var">stCurrentFile</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679077961"><span class="hs-identifier hs-var">filePath</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-161"></span><span>      </span><span class="annot"><span class="annottext">stCurrentLine :: Int
+</span><a href="Aihc.Cpp.Types.html#stCurrentLine"><span class="hs-identifier hs-var">stCurrentLine</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-162"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-163"></span><span>
+</span><span id="line-164"></span><span class="hs-keyword">data</span><span> </span><span id="CondFrame"><span class="annot"><a href="Aihc.Cpp.Types.html#CondFrame"><span class="hs-identifier hs-var">CondFrame</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="CondFrame"><span class="annot"><a href="Aihc.Cpp.Types.html#CondFrame"><span class="hs-identifier hs-var">CondFrame</span></a></span></span><span>
+</span><span id="line-165"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="frameOuterActive"><span class="annot"><span class="annottext">CondFrame -&gt; Bool
+</span><a href="Aihc.Cpp.Types.html#frameOuterActive"><span class="hs-identifier hs-var hs-var">frameOuterActive</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span class="hs-special">,</span><span>
+</span><span id="line-166"></span><span>    </span><span id="frameConditionTrue"><span class="annot"><span class="annottext">CondFrame -&gt; Bool
+</span><a href="Aihc.Cpp.Types.html#frameConditionTrue"><span class="hs-identifier hs-var hs-var">frameConditionTrue</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span class="hs-special">,</span><span>
+</span><span id="line-167"></span><span>    </span><span id="frameInElse"><span class="annot"><span class="annottext">CondFrame -&gt; Bool
+</span><a href="Aihc.Cpp.Types.html#frameInElse"><span class="hs-identifier hs-var hs-var">frameInElse</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span class="hs-special">,</span><span>
+</span><span id="line-168"></span><span>    </span><span id="frameCurrentActive"><span class="annot"><span class="annottext">CondFrame -&gt; Bool
+</span><a href="Aihc.Cpp.Types.html#frameCurrentActive"><span class="hs-identifier hs-var hs-var">frameCurrentActive</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-169"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-170"></span><span>
+</span><span id="line-171"></span><span class="annot"><a href="Aihc.Cpp.Types.html#currentActive"><span class="hs-identifier hs-type">currentActive</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Cpp.Types.html#CondFrame"><span class="hs-identifier hs-type">CondFrame</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-172"></span><span id="currentActive"><span class="annot"><span class="annottext">currentActive :: [CondFrame] -&gt; Bool
+</span><a href="Aihc.Cpp.Types.html#currentActive"><span class="hs-identifier hs-var hs-var">currentActive</span></a></span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span>
+</span><span id="line-173"></span><span class="annot"><a href="Aihc.Cpp.Types.html#currentActive"><span class="hs-identifier hs-var">currentActive</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679077969"><span class="annot"><span class="annottext">CondFrame
+</span><a href="#local-6989586621679077969"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span class="annot"><span class="annottext">[CondFrame]
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">CondFrame -&gt; Bool
+</span><a href="Aihc.Cpp.Types.html#frameCurrentActive"><span class="hs-identifier hs-var">frameCurrentActive</span></a></span><span> </span><span class="annot"><span class="annottext">CondFrame
+</span><a href="#local-6989586621679077969"><span class="hs-identifier hs-var">f</span></a></span><span>
+</span><span id="line-174"></span><span>
+</span><span id="line-175"></span><span class="annot"><a href="Aihc.Cpp.Types.html#mkFrame"><span class="hs-identifier hs-type">mkFrame</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#CondFrame"><span class="hs-identifier hs-type">CondFrame</span></a></span><span>
+</span><span id="line-176"></span><span id="mkFrame"><span class="annot"><span class="annottext">mkFrame :: Bool -&gt; Bool -&gt; CondFrame
+</span><a href="Aihc.Cpp.Types.html#mkFrame"><span class="hs-identifier hs-var hs-var">mkFrame</span></a></span></span><span> </span><span id="local-6989586621679077970"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679077970"><span class="hs-identifier hs-var">outer</span></a></span></span><span> </span><span id="local-6989586621679077971"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679077971"><span class="hs-identifier hs-var">cond</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-177"></span><span>  </span><span class="annot"><a href="Aihc.Cpp.Types.html#CondFrame"><span class="hs-identifier hs-type">CondFrame</span></a></span><span>
+</span><span id="line-178"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">frameOuterActive :: Bool
+</span><a href="Aihc.Cpp.Types.html#frameOuterActive"><span class="hs-identifier hs-var">frameOuterActive</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679077970"><span class="hs-identifier hs-var">outer</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-179"></span><span>      </span><span class="annot"><span class="annottext">frameConditionTrue :: Bool
+</span><a href="Aihc.Cpp.Types.html#frameConditionTrue"><span class="hs-identifier hs-var">frameConditionTrue</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679077971"><span class="hs-identifier hs-var">cond</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-180"></span><span>      </span><span class="annot"><span class="annottext">frameInElse :: Bool
+</span><a href="Aihc.Cpp.Types.html#frameInElse"><span class="hs-identifier hs-var">frameInElse</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span class="hs-special">,</span><span>
+</span><span id="line-181"></span><span>      </span><span class="annot"><span class="annottext">frameCurrentActive :: Bool
+</span><a href="Aihc.Cpp.Types.html#frameCurrentActive"><span class="hs-identifier hs-var">frameCurrentActive</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679077970"><span class="hs-identifier hs-var">outer</span></a></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679077971"><span class="hs-identifier hs-var">cond</span></a></span><span>
+</span><span id="line-182"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-183"></span><span>
+</span><span id="line-184"></span><span class="hs-keyword">type</span><span> </span><span id="Continuation"><span class="annot"><a href="Aihc.Cpp.Types.html#Continuation"><span class="hs-identifier hs-var">Continuation</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#EngineState"><span class="hs-identifier hs-type">EngineState</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#Step"><span class="hs-identifier hs-type">Step</span></a></span><span>
+</span><span id="line-185"></span><span>
+</span><span id="line-186"></span><span class="hs-keyword">data</span><span> </span><span id="LineContext"><span class="annot"><a href="Aihc.Cpp.Types.html#LineContext"><span class="hs-identifier hs-var">LineContext</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="LineContext"><span class="annot"><a href="Aihc.Cpp.Types.html#LineContext"><span class="hs-identifier hs-var">LineContext</span></a></span></span><span>
+</span><span id="line-187"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="lcFilePath"><span class="annot"><span class="annottext">LineContext -&gt; FilePath
+</span><a href="Aihc.Cpp.Types.html#lcFilePath"><span class="hs-identifier hs-var hs-var">lcFilePath</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">,</span><span>
+</span><span id="line-188"></span><span>    </span><span id="lcLineNo"><span class="annot"><span class="annottext">LineContext -&gt; Int
+</span><a href="Aihc.Cpp.Types.html#lcLineNo"><span class="hs-identifier hs-var hs-var">lcLineNo</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span>
+</span><span id="line-189"></span><span>    </span><span id="lcLineSpan"><span class="annot"><span class="annottext">LineContext -&gt; Int
+</span><a href="Aihc.Cpp.Types.html#lcLineSpan"><span class="hs-identifier hs-var hs-var">lcLineSpan</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span>
+</span><span id="line-190"></span><span>    </span><span id="lcNextLineNo"><span class="annot"><span class="annottext">LineContext -&gt; Int
+</span><a href="Aihc.Cpp.Types.html#lcNextLineNo"><span class="hs-identifier hs-var hs-var">lcNextLineNo</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Int</span></span><span class="hs-special">,</span><span>
+</span><span id="line-191"></span><span>    </span><span class="annot"><span class="hs-comment">-- | Cursor positioned after the current line (past its newline).</span></span><span>
+</span><span id="line-192"></span><span>    </span><span id="lcRestCursor"><span class="annot"><span class="annottext">LineContext -&gt; Cursor
+</span><a href="Aihc.Cpp.Types.html#lcRestCursor"><span class="hs-identifier hs-var hs-var">lcRestCursor</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Aihc.Cpp.Cursor.html#Cursor"><span class="hs-identifier hs-type">Cursor</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-193"></span><span>    </span><span id="lcStack"><span class="annot"><span class="annottext">LineContext -&gt; [CondFrame]
+</span><a href="Aihc.Cpp.Types.html#lcStack"><span class="hs-identifier hs-var hs-var">lcStack</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Cpp.Types.html#CondFrame"><span class="hs-identifier hs-type">CondFrame</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-194"></span><span>    </span><span id="lcContinue"><span class="annot"><span class="annottext">LineContext -&gt; EngineState -&gt; Step
+</span><a href="Aihc.Cpp.Types.html#lcContinue"><span class="hs-identifier hs-var hs-var">lcContinue</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#EngineState"><span class="hs-identifier hs-type">EngineState</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#Step"><span class="hs-identifier hs-type">Step</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-195"></span><span>    </span><span id="lcContinueWith"><span class="annot"><span class="annottext">LineContext -&gt; [CondFrame] -&gt; EngineState -&gt; Step
+</span><a href="Aihc.Cpp.Types.html#lcContinueWith"><span class="hs-identifier hs-var hs-var">lcContinueWith</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Cpp.Types.html#CondFrame"><span class="hs-identifier hs-type">CondFrame</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#EngineState"><span class="hs-identifier hs-type">EngineState</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#Step"><span class="hs-identifier hs-type">Step</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-196"></span><span>    </span><span id="lcDone"><span class="annot"><span class="annottext">LineContext -&gt; EngineState -&gt; Step
+</span><a href="Aihc.Cpp.Types.html#lcDone"><span class="hs-identifier hs-var hs-var">lcDone</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Cpp.Types.html#Continuation"><span class="hs-identifier hs-type">Continuation</span></a></span><span>
+</span><span id="line-197"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-198"></span></pre></body></html>

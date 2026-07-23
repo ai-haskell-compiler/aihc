@@ -1,0 +1,587 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>module Aihc.Parser.Internal.Pattern
+<span class="lineno">    4 </span>  ( patternParser,
+<span class="lineno">    5 </span>    patternParserWithTypeSigParser,
+<span class="lineno">    6 </span>    caseAltPatternParser,
+<span class="lineno">    7 </span>    patParser,
+<span class="lineno">    8 </span>    lpatParser,
+<span class="lineno">    9 </span>    apatParser,
+<span class="lineno">   10 </span>    literalParser,
+<span class="lineno">   11 </span>  )
+<span class="lineno">   12 </span>where
+<span class="lineno">   13 </span>
+<span class="lineno">   14 </span>import Aihc.Parser.Internal.CheckPattern (checkPattern)
+<span class="lineno">   15 </span>import Aihc.Parser.Internal.Common
+<span class="lineno">   16 </span>import {-# SOURCE #-} Aihc.Parser.Internal.Expr (atomExprParser, exprParser)
+<span class="lineno">   17 </span>import Aihc.Parser.Internal.Type (typeParser)
+<span class="lineno">   18 </span>import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
+<span class="lineno">   19 </span>import Aihc.Parser.Syntax
+<span class="lineno">   20 </span>import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
+<span class="lineno">   21 </span>import Text.Megaparsec (anySingle, lookAhead, (&lt;|&gt;))
+<span class="lineno">   22 </span>import Text.Megaparsec qualified as MP
+<span class="lineno">   23 </span>
+<span class="lineno">   24 </span>-- | Report core:
+<span class="lineno">   25 </span>--
+<span class="lineno">   26 </span>-- &gt; pat -&gt; lpat qconop pat
+<span class="lineno">   27 </span>-- &gt;     | lpat
+<span class="lineno">   28 </span>patternParser :: TokParser Pattern
+<span class="lineno">   29 </span><span class="decl"><span class="istickedoff">patternParser = patternParserWithTypeSigParser typeParser</span></span>
+<span class="lineno">   30 </span>
+<span class="lineno">   31 </span>patternParserWithTypeSigParser :: TokParser Type -&gt; TokParser Pattern
+<span class="lineno">   32 </span><span class="decl"><span class="istickedoff">patternParserWithTypeSigParser typeSigParser =</span>
+<span class="lineno">   33 </span><span class="spaces">  </span><span class="istickedoff">label &quot;pattern&quot; $</span>
+<span class="lineno">   34 </span><span class="spaces">    </span><span class="istickedoff">optionalSuffix</span>
+<span class="lineno">   35 </span><span class="spaces">      </span><span class="istickedoff">(expectedTok TkReservedDoubleColon *&gt; typeSigParser)</span>
+<span class="lineno">   36 </span><span class="spaces">      </span><span class="istickedoff">PTypeSig</span>
+<span class="lineno">   37 </span><span class="spaces">      </span><span class="istickedoff">patParser</span></span>
+<span class="lineno">   38 </span>
+<span class="lineno">   39 </span>-- | Parse the pattern position of a case alternative.
+<span class="lineno">   40 </span>--
+<span class="lineno">   41 </span>-- GHC does not accept a top-level pattern type signature before the alternative
+<span class="lineno">   42 </span>-- arrow: @case x of _ :: T -&gt; rhs@ is rejected, while @case x of (_ :: T) -&gt;
+<span class="lineno">   43 </span>-- rhs@ is accepted because the signature is parenthesized into an atomic
+<span class="lineno">   44 </span>-- pattern.  Use the report @pat@ level here so the outer @::@ is left for the
+<span class="lineno">   45 </span>-- case RHS parser, which then rejects it.
+<span class="lineno">   46 </span>-- | Case alternatives intentionally use the report @pat@ level rather than
+<span class="lineno">   47 </span>-- the outer typed-pattern wrapper.
+<span class="lineno">   48 </span>caseAltPatternParser :: TokParser Pattern
+<span class="lineno">   49 </span><span class="decl"><span class="istickedoff">caseAltPatternParser = patParser</span></span>
+<span class="lineno">   50 </span>
+<span class="lineno">   51 </span>-- | Parse a pattern (@pat@ in the Haskell Report).
+<span class="lineno">   52 </span>--
+<span class="lineno">   53 </span>-- @
+<span class="lineno">   54 </span>-- pat → lpat qconop pat
+<span class="lineno">   55 </span>--     | lpat
+<span class="lineno">   56 </span>-- @
+<span class="lineno">   57 </span>patParser :: TokParser Pattern
+<span class="lineno">   58 </span><span class="decl"><span class="istickedoff">patParser = do</span>
+<span class="lineno">   59 </span><span class="spaces">  </span><span class="istickedoff">lhs &lt;- lpatParser</span>
+<span class="lineno">   60 </span><span class="spaces">  </span><span class="istickedoff">rest &lt;- MP.many ((,) &lt;$&gt; conOperatorParser &lt;*&gt; lpatParser)</span>
+<span class="lineno">   61 </span><span class="spaces">  </span><span class="istickedoff">pure (foldInfixL buildInfixPattern lhs rest)</span></span>
+<span class="lineno">   62 </span>
+<span class="lineno">   63 </span>buildInfixPattern :: Pattern -&gt; (Name, Pattern) -&gt; Pattern
+<span class="lineno">   64 </span><span class="decl"><span class="istickedoff">buildInfixPattern lhs (op, rhs) =</span>
+<span class="lineno">   65 </span><span class="spaces">  </span><span class="istickedoff">PInfix lhs op rhs</span></span>
+<span class="lineno">   66 </span>
+<span class="lineno">   67 </span>conOperatorParser :: TokParser Name
+<span class="lineno">   68 </span><span class="decl"><span class="istickedoff">conOperatorParser =</span>
+<span class="lineno">   69 </span><span class="spaces">  </span><span class="istickedoff">symbolicConOp &lt;|&gt; backtickConOp</span>
+<span class="lineno">   70 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">   71 </span><span class="spaces">    </span><span class="istickedoff">symbolicConOp =</span>
+<span class="lineno">   72 </span><span class="spaces">      </span><span class="istickedoff">tokenSatisfy &quot;constructor operator&quot; $ \tok -&gt;</span>
+<span class="lineno">   73 </span><span class="spaces">        </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">   74 </span><span class="spaces">          </span><span class="istickedoff">TkConSym op -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym op))</span>
+<span class="lineno">   75 </span><span class="spaces">          </span><span class="istickedoff">TkQConSym modName op -&gt; Just (mkNameAt <span class="nottickedoff">tok</span> (Just modName) NameConSym op)</span>
+<span class="lineno">   76 </span><span class="spaces">          </span><span class="istickedoff">TkReservedColon -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym &quot;:&quot;))</span>
+<span class="lineno">   77 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt; Nothing</span>
+<span class="lineno">   78 </span><span class="spaces">    </span><span class="istickedoff">backtickConOp =</span>
+<span class="lineno">   79 </span><span class="spaces">      </span><span class="istickedoff">MP.try $</span>
+<span class="lineno">   80 </span><span class="spaces">        </span><span class="istickedoff">expectedTok TkSpecialBacktick *&gt; constructorNameParser &lt;* expectedTok TkSpecialBacktick</span></span>
+<span class="lineno">   81 </span>
+<span class="lineno">   82 </span>-- | Parse a left pattern (@lpat@ in the Haskell Report).
+<span class="lineno">   83 </span>--
+<span class="lineno">   84 </span>-- @
+<span class="lineno">   85 </span>-- lpat → apat
+<span class="lineno">   86 </span>--      | - (integer | float)       (negative literal)
+<span class="lineno">   87 </span>--      | gcon apat₁ … apatₖ       (arity gcon = k, k ≥ 1)
+<span class="lineno">   88 </span>-- @
+<span class="lineno">   89 </span>--
+<span class="lineno">   90 </span>-- Negative literals and constructor application live here, not in
+<span class="lineno">   91 </span>-- 'apatParser' (@apat@).  This distinction is critical: since
+<span class="lineno">   92 </span>-- constructor arguments are @apat@s, @Con - 0@ cannot be misparsed as
+<span class="lineno">   93 </span>-- @Con (-0)@ — the @-@ is not valid inside an @apat@.
+<span class="lineno">   94 </span>lpatParser :: TokParser Pattern
+<span class="lineno">   95 </span><span class="decl"><span class="istickedoff">lpatParser =</span>
+<span class="lineno">   96 </span><span class="spaces">  </span><span class="istickedoff">negativeLiteralPatternParser &lt;|&gt; do</span>
+<span class="lineno">   97 </span><span class="spaces">    </span><span class="istickedoff">first &lt;- apatParser</span>
+<span class="lineno">   98 </span><span class="spaces">    </span><span class="istickedoff">if isPatternAppHead first</span>
+<span class="lineno">   99 </span><span class="spaces">      </span><span class="istickedoff">then foldl buildPatternApp first &lt;$&gt; MP.many apatParser</span>
+<span class="lineno">  100 </span><span class="spaces">      </span><span class="istickedoff">else pure first</span></span>
+<span class="lineno">  101 </span>
+<span class="lineno">  102 </span>buildPatternApp :: Pattern -&gt; Pattern -&gt; Pattern
+<span class="lineno">  103 </span><span class="decl"><span class="istickedoff">buildPatternApp lhs rhs =</span>
+<span class="lineno">  104 </span><span class="spaces">  </span><span class="istickedoff">case peelPatternAnn lhs of</span>
+<span class="lineno">  105 </span><span class="spaces">    </span><span class="istickedoff">PCon name typeArgs args -&gt;</span>
+<span class="lineno">  106 </span><span class="spaces">      </span><span class="istickedoff">PAnn</span>
+<span class="lineno">  107 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">(mkAnnotation NoSourceSpan)</span></span>
+<span class="lineno">  108 </span><span class="spaces">        </span><span class="istickedoff">(PCon name typeArgs (args &lt;&gt; [rhs]))</span>
+<span class="lineno">  109 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">lhs</span></span></span>
+<span class="lineno">  110 </span>
+<span class="lineno">  111 </span>-- | Parse an atomic pattern (@apat@ in the Haskell Report).
+<span class="lineno">  112 </span>--
+<span class="lineno">  113 </span>-- This intentionally does NOT handle negative literals (@- integer@),
+<span class="lineno">  114 </span>-- which belong to the @lpat@ level ('lpatParser').
+<span class="lineno">  115 </span>apatParser :: TokParser Pattern
+<span class="lineno">  116 </span><span class="decl"><span class="istickedoff">apatParser =</span>
+<span class="lineno">  117 </span><span class="spaces">  </span><span class="istickedoff">label &quot;pattern atom&quot; $</span>
+<span class="lineno">  118 </span><span class="spaces">    </span><span class="istickedoff">asApatParser &lt;|&gt; nonAsApatParser</span></span>
+<span class="lineno">  119 </span>
+<span class="lineno">  120 </span>-- | Parse an as-pattern as an atomic pattern: @binder\@apat@.
+<span class="lineno">  121 </span>--
+<span class="lineno">  122 </span>-- The binder may be a parenthesized operator, e.g. @(+)\@C@.  Trying this
+<span class="lineno">  123 </span>-- before the parenthesized-pattern parser keeps @(+)\@(+)@C@ in the as-pattern
+<span class="lineno">  124 </span>-- grammar instead of prematurely committing to the bare operator pattern @(+)@.
+<span class="lineno">  125 </span>asApatParser :: TokParser Pattern
+<span class="lineno">  126 </span><span class="decl"><span class="istickedoff">asApatParser =</span>
+<span class="lineno">  127 </span><span class="spaces">  </span><span class="istickedoff">asPatternParser apatParser</span></span>
+<span class="lineno">  128 </span>
+<span class="lineno">  129 </span>nonAsApatParser :: TokParser Pattern
+<span class="lineno">  130 </span><span class="decl"><span class="istickedoff">nonAsApatParser = do</span>
+<span class="lineno">  131 </span><span class="spaces">  </span><span class="istickedoff">thAny &lt;- thAnyEnabled</span>
+<span class="lineno">  132 </span><span class="spaces">  </span><span class="istickedoff">explicitNamespacesEnabled &lt;- isExtensionEnabled ExplicitNamespaces</span>
+<span class="lineno">  133 </span><span class="spaces">  </span><span class="istickedoff">requiredTypeArgumentsEnabled &lt;- isExtensionEnabled RequiredTypeArguments</span>
+<span class="lineno">  134 </span><span class="spaces">  </span><span class="istickedoff">typeAbstractionsEnabled &lt;- isExtensionEnabled TypeAbstractions</span>
+<span class="lineno">  135 </span><span class="spaces">  </span><span class="istickedoff">tok &lt;- lookAhead anySingle</span>
+<span class="lineno">  136 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  137 </span><span class="spaces">    </span><span class="istickedoff">TkTypeApp</span>
+<span class="lineno">  138 </span><span class="spaces">      </span><span class="istickedoff">| typeAbstractionsEnabled -&gt; typeBinderPatternParser</span>
+<span class="lineno">  139 </span><span class="spaces">    </span><span class="istickedoff">TkPrefixBang -&gt; strictPatternParser</span>
+<span class="lineno">  140 </span><span class="spaces">    </span><span class="istickedoff">TkPrefixTilde -&gt; irrefutablePatternParser</span>
+<span class="lineno">  141 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordType</span>
+<span class="lineno">  142 </span><span class="spaces">      </span><span class="istickedoff">| explicitNamespacesEnabled || requiredTypeArgumentsEnabled -&gt; explicitTypePatternParser</span>
+<span class="lineno">  143 </span><span class="spaces">    </span><span class="istickedoff">TkQuasiQuote {} -&gt; quasiQuotePatternParser</span>
+<span class="lineno">  144 </span><span class="spaces">    </span><span class="istickedoff">TkTHSplice | thAny -&gt; thSplicePatternParser</span>
+<span class="lineno">  145 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordUnderscore -&gt; wildcardPatternParser</span>
+<span class="lineno">  146 </span><span class="spaces">    </span><span class="istickedoff">TkInteger {} -&gt; literalPatternParser</span>
+<span class="lineno">  147 </span><span class="spaces">    </span><span class="istickedoff">TkFloat {} -&gt; literalPatternParser</span>
+<span class="lineno">  148 </span><span class="spaces">    </span><span class="istickedoff">TkChar {} -&gt; literalPatternParser</span>
+<span class="lineno">  149 </span><span class="spaces">    </span><span class="istickedoff">TkCharHash {} -&gt; literalPatternParser</span>
+<span class="lineno">  150 </span><span class="spaces">    </span><span class="istickedoff">TkString {} -&gt; literalPatternParser</span>
+<span class="lineno">  151 </span><span class="spaces">    </span><span class="istickedoff">TkStringHash {} -&gt; literalPatternParser</span>
+<span class="lineno">  152 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialLBracket -&gt; listPatternParser</span>
+<span class="lineno">  153 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialLParen -&gt; parenOrTuplePatternParser</span>
+<span class="lineno">  154 </span><span class="spaces">    </span><span class="istickedoff">TkSpecialUnboxedLParen -&gt; parenOrTuplePatternParser</span>
+<span class="lineno">  155 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; varOrConPatternParser</span></span>
+<span class="lineno">  156 </span>
+<span class="lineno">  157 </span>typeBinderPatternParser :: TokParser Pattern
+<span class="lineno">  158 </span><span class="decl"><span class="istickedoff">typeBinderPatternParser = withSpanAnn <span class="nottickedoff">(PAnn . mkAnnotation)</span> $ do</span>
+<span class="lineno">  159 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkTypeApp</span>
+<span class="lineno">  160 </span><span class="spaces">  </span><span class="istickedoff"><span class="nottickedoff">PTypeBinder</span> &lt;$&gt; visibleTypeBinderCoreParser</span></span>
+<span class="lineno">  161 </span>
+<span class="lineno">  162 </span>explicitTypePatternParser :: TokParser Pattern
+<span class="lineno">  163 </span><span class="decl"><span class="istickedoff">explicitTypePatternParser = withSpanAnn (PAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  164 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkKeywordType</span>
+<span class="lineno">  165 </span><span class="spaces">  </span><span class="istickedoff">PTypeSyntax <span class="nottickedoff">TypeSyntaxExplicitNamespace</span> &lt;$&gt; typeParser</span></span>
+<span class="lineno">  166 </span>
+<span class="lineno">  167 </span>strictPatternParser :: TokParser Pattern
+<span class="lineno">  168 </span><span class="decl"><span class="istickedoff">strictPatternParser = withSpanAnn (PAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  169 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkPrefixBang</span>
+<span class="lineno">  170 </span><span class="spaces">  </span><span class="istickedoff">PStrict &lt;$&gt; apatParser</span></span>
+<span class="lineno">  171 </span>
+<span class="lineno">  172 </span>irrefutablePatternParser :: TokParser Pattern
+<span class="lineno">  173 </span><span class="decl"><span class="istickedoff">irrefutablePatternParser = withSpanAnn (PAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  174 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkPrefixTilde</span>
+<span class="lineno">  175 </span><span class="spaces">  </span><span class="istickedoff">PIrrefutable &lt;$&gt; apatParser</span></span>
+<span class="lineno">  176 </span>
+<span class="lineno">  177 </span>negativeLiteralPatternParser :: TokParser Pattern
+<span class="lineno">  178 </span><span class="decl"><span class="istickedoff">negativeLiteralPatternParser = MP.try $ withSpanAnn (PAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  179 </span><span class="spaces">  </span><span class="istickedoff">expectedTok (TkVarSym &quot;-&quot;)</span>
+<span class="lineno">  180 </span><span class="spaces">  </span><span class="istickedoff">PNegLit &lt;$&gt; numericLiteralParser</span></span>
+<span class="lineno">  181 </span>
+<span class="lineno">  182 </span>-- | Parse only numeric literals (integer or float), used for negative literal
+<span class="lineno">  183 </span>-- patterns where GHC only allows @-@ before numeric literals, not strings or chars.
+<span class="lineno">  184 </span>numericLiteralParser :: TokParser Literal
+<span class="lineno">  185 </span><span class="decl"><span class="istickedoff">numericLiteralParser = intLiteralParser &lt;|&gt; floatLiteralParser</span></span>
+<span class="lineno">  186 </span>
+<span class="lineno">  187 </span>wildcardPatternParser :: TokParser Pattern
+<span class="lineno">  188 </span><span class="decl"><span class="istickedoff">wildcardPatternParser =</span>
+<span class="lineno">  189 </span><span class="spaces">  </span><span class="istickedoff">tokenSatisfy <span class="nottickedoff">&quot;wildcard&quot;</span> $ \tok -&gt;</span>
+<span class="lineno">  190 </span><span class="spaces">    </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  191 </span><span class="spaces">      </span><span class="istickedoff">TkKeywordUnderscore -&gt; Just (PAnn (mkAnnotation (lexTokenSpan tok)) PWildcard)</span>
+<span class="lineno">  192 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Nothing</span></span></span>
+<span class="lineno">  193 </span>
+<span class="lineno">  194 </span>literalPatternParser :: TokParser Pattern
+<span class="lineno">  195 </span><span class="decl"><span class="istickedoff">literalPatternParser =</span>
+<span class="lineno">  196 </span><span class="spaces">  </span><span class="istickedoff">tokenSatisfy <span class="nottickedoff">&quot;literal&quot;</span> $ \tok -&gt; do</span>
+<span class="lineno">  197 </span><span class="spaces">    </span><span class="istickedoff">lit &lt;- literalFromToken tok</span>
+<span class="lineno">  198 </span><span class="spaces">    </span><span class="istickedoff">let ann = mkAnnotation (lexTokenSpan tok)</span>
+<span class="lineno">  199 </span><span class="spaces">    </span><span class="istickedoff">pure (PAnn ann (PLit (LitAnn ann lit)))</span></span>
+<span class="lineno">  200 </span>
+<span class="lineno">  201 </span>quasiQuotePatternParser :: TokParser Pattern
+<span class="lineno">  202 </span><span class="decl"><span class="istickedoff">quasiQuotePatternParser =</span>
+<span class="lineno">  203 </span><span class="spaces">  </span><span class="istickedoff">tokenSatisfy <span class="nottickedoff">&quot;quasi quote&quot;</span> $ \tok -&gt;</span>
+<span class="lineno">  204 </span><span class="spaces">    </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  205 </span><span class="spaces">      </span><span class="istickedoff">TkQuasiQuote quoter body -&gt; Just (PAnn (mkAnnotation (lexTokenSpan tok)) (PQuasiQuote quoter body))</span>
+<span class="lineno">  206 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Nothing</span></span></span>
+<span class="lineno">  207 </span>
+<span class="lineno">  208 </span>literalParser :: TokParser Literal
+<span class="lineno">  209 </span><span class="decl"><span class="nottickedoff">literalParser = intLiteralParser &lt;|&gt; floatLiteralParser &lt;|&gt; charLiteralParser &lt;|&gt; stringLiteralParser</span></span>
+<span class="lineno">  210 </span>
+<span class="lineno">  211 </span>tokenLiteralParser :: String -&gt; (LexToken -&gt; Maybe Literal) -&gt; TokParser Literal
+<span class="lineno">  212 </span><span class="decl"><span class="istickedoff">tokenLiteralParser expected matchToken =</span>
+<span class="lineno">  213 </span><span class="spaces">  </span><span class="istickedoff">tokenSatisfy <span class="nottickedoff">expected</span> $ \tok -&gt;</span>
+<span class="lineno">  214 </span><span class="spaces">    </span><span class="istickedoff">LitAnn <span class="nottickedoff">(mkAnnotation (lexTokenSpan tok))</span> &lt;$&gt; matchToken tok</span></span>
+<span class="lineno">  215 </span>
+<span class="lineno">  216 </span>literalFromToken :: LexToken -&gt; Maybe Literal
+<span class="lineno">  217 </span><span class="decl"><span class="istickedoff">literalFromToken tok =</span>
+<span class="lineno">  218 </span><span class="spaces">  </span><span class="istickedoff">intLiteralFromToken tok</span>
+<span class="lineno">  219 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; floatLiteralFromToken tok</span>
+<span class="lineno">  220 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; charLiteralFromToken tok</span>
+<span class="lineno">  221 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; stringLiteralFromToken tok</span></span>
+<span class="lineno">  222 </span>
+<span class="lineno">  223 </span>intLiteralParser :: TokParser Literal
+<span class="lineno">  224 </span><span class="decl"><span class="istickedoff">intLiteralParser =</span>
+<span class="lineno">  225 </span><span class="spaces">  </span><span class="istickedoff">tokenLiteralParser <span class="nottickedoff">&quot;integer literal&quot;</span> intLiteralFromToken</span></span>
+<span class="lineno">  226 </span>
+<span class="lineno">  227 </span>intLiteralFromToken :: LexToken -&gt; Maybe Literal
+<span class="lineno">  228 </span><span class="decl"><span class="istickedoff">intLiteralFromToken tok =</span>
+<span class="lineno">  229 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  230 </span><span class="spaces">    </span><span class="istickedoff">TkInteger i nt -&gt; Just (LitInt i nt (lexTokenText tok))</span>
+<span class="lineno">  231 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  232 </span>
+<span class="lineno">  233 </span>floatLiteralParser :: TokParser Literal
+<span class="lineno">  234 </span><span class="decl"><span class="istickedoff">floatLiteralParser =</span>
+<span class="lineno">  235 </span><span class="spaces">  </span><span class="istickedoff">tokenLiteralParser <span class="nottickedoff">&quot;floating literal&quot;</span> floatLiteralFromToken</span></span>
+<span class="lineno">  236 </span>
+<span class="lineno">  237 </span>floatLiteralFromToken :: LexToken -&gt; Maybe Literal
+<span class="lineno">  238 </span><span class="decl"><span class="istickedoff">floatLiteralFromToken tok =</span>
+<span class="lineno">  239 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  240 </span><span class="spaces">    </span><span class="istickedoff">TkFloat x ft -&gt; Just (LitFloat x ft (lexTokenText tok))</span>
+<span class="lineno">  241 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  242 </span>
+<span class="lineno">  243 </span>charLiteralParser :: TokParser Literal
+<span class="lineno">  244 </span><span class="decl"><span class="nottickedoff">charLiteralParser =</span>
+<span class="lineno">  245 </span><span class="spaces">  </span><span class="nottickedoff">tokenLiteralParser &quot;character literal&quot; charLiteralFromToken</span></span>
+<span class="lineno">  246 </span>
+<span class="lineno">  247 </span>charLiteralFromToken :: LexToken -&gt; Maybe Literal
+<span class="lineno">  248 </span><span class="decl"><span class="istickedoff">charLiteralFromToken tok =</span>
+<span class="lineno">  249 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  250 </span><span class="spaces">    </span><span class="istickedoff">TkChar x -&gt; Just (LitChar x (lexTokenText tok))</span>
+<span class="lineno">  251 </span><span class="spaces">    </span><span class="istickedoff">TkCharHash x txt -&gt; Just (LitCharHash x txt)</span>
+<span class="lineno">  252 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">  253 </span>
+<span class="lineno">  254 </span>stringLiteralParser :: TokParser Literal
+<span class="lineno">  255 </span><span class="decl"><span class="nottickedoff">stringLiteralParser =</span>
+<span class="lineno">  256 </span><span class="spaces">  </span><span class="nottickedoff">tokenLiteralParser &quot;string literal&quot; stringLiteralFromToken</span></span>
+<span class="lineno">  257 </span>
+<span class="lineno">  258 </span>stringLiteralFromToken :: LexToken -&gt; Maybe Literal
+<span class="lineno">  259 </span><span class="decl"><span class="istickedoff">stringLiteralFromToken tok =</span>
+<span class="lineno">  260 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  261 </span><span class="spaces">    </span><span class="istickedoff">TkString x -&gt; Just (LitString x (lexTokenText tok))</span>
+<span class="lineno">  262 </span><span class="spaces">    </span><span class="istickedoff">TkStringHash x txt -&gt; Just (LitStringHash x txt)</span>
+<span class="lineno">  263 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Nothing</span></span></span>
+<span class="lineno">  264 </span>
+<span class="lineno">  265 </span>-- | Parse Template Haskell pattern splice: $pat or $(pat)
+<span class="lineno">  266 </span>thSplicePatternParser :: TokParser Pattern
+<span class="lineno">  267 </span><span class="decl"><span class="istickedoff">thSplicePatternParser = withSpanAnn (PAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  268 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkTHSplice</span>
+<span class="lineno">  269 </span><span class="spaces">  </span><span class="istickedoff">tok &lt;- lookAhead anySingle</span>
+<span class="lineno">  270 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  271 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordType -&gt; MP.empty</span>
+<span class="lineno">  272 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; PSplice &lt;$&gt; atomExprParser</span></span>
+<span class="lineno">  273 </span>
+<span class="lineno">  274 </span>visibleTypeBinderCoreParser :: TokParser TyVarBinder
+<span class="lineno">  275 </span><span class="decl"><span class="istickedoff">visibleTypeBinderCoreParser =</span>
+<span class="lineno">  276 </span><span class="spaces">  </span><span class="istickedoff">withSpan $</span>
+<span class="lineno">  277 </span><span class="spaces">    </span><span class="istickedoff">( do</span>
+<span class="lineno">  278 </span><span class="spaces">        </span><span class="istickedoff">ident &lt;- tyVarNameParser</span>
+<span class="lineno">  279 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">pure (\span' -&gt; TyVarBinder [mkAnnotation span'] ident Nothing TyVarBSpecified TyVarBInvisible)</span></span>
+<span class="lineno">  280 </span><span class="spaces">    </span><span class="istickedoff">)</span>
+<span class="lineno">  281 </span><span class="spaces">      </span><span class="istickedoff">&lt;|&gt; ( do</span>
+<span class="lineno">  282 </span><span class="spaces">              </span><span class="istickedoff">expectedTok TkSpecialLParen</span>
+<span class="lineno">  283 </span><span class="spaces">              </span><span class="istickedoff">ident &lt;- <span class="nottickedoff">tyVarNameParser</span></span>
+<span class="lineno">  284 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">expectedTok TkReservedDoubleColon</span></span>
+<span class="lineno">  285 </span><span class="spaces">              </span><span class="istickedoff">kind &lt;- <span class="nottickedoff">typeParser</span></span>
+<span class="lineno">  286 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">expectedTok TkSpecialRParen</span></span>
+<span class="lineno">  287 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">pure (\span' -&gt; TyVarBinder [mkAnnotation span'] ident (Just kind) TyVarBSpecified TyVarBInvisible)</span></span>
+<span class="lineno">  288 </span><span class="spaces">          </span><span class="istickedoff">)</span></span>
+<span class="lineno">  289 </span>
+<span class="lineno">  290 </span>varOrConPatternParser :: TokParser Pattern
+<span class="lineno">  291 </span><span class="decl"><span class="istickedoff">varOrConPatternParser = do</span>
+<span class="lineno">  292 </span><span class="spaces">  </span><span class="istickedoff">(tok, name) &lt;- identifierNameWithTokenParser</span>
+<span class="lineno">  293 </span><span class="spaces">  </span><span class="istickedoff">mNextTok &lt;- MP.optional (lookAhead anySingle)</span>
+<span class="lineno">  294 </span><span class="spaces">  </span><span class="istickedoff">let ann = mkAnnotation (lexTokenSpan tok)</span>
+<span class="lineno">  295 </span><span class="spaces">  </span><span class="istickedoff">case mNextTok of</span>
+<span class="lineno">  296 </span><span class="spaces">    </span><span class="istickedoff">Just nextTok</span>
+<span class="lineno">  297 </span><span class="spaces">      </span><span class="istickedoff">| isConLikeName name &amp;&amp; lexTokenKind nextTok == TkSpecialLBrace -&gt; do</span>
+<span class="lineno">  298 </span><span class="spaces">          </span><span class="istickedoff">(fields, hasWildcard) &lt;- braces recordPatternFieldListParser</span>
+<span class="lineno">  299 </span><span class="spaces">          </span><span class="istickedoff">endInput &lt;- MP.getInput</span>
+<span class="lineno">  300 </span><span class="spaces">          </span><span class="istickedoff">let <span class="nottickedoff">endSpan = maybe noSourceSpan lexTokenSpan (tokStreamPrevToken endInput)</span></span>
+<span class="lineno">  301 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">recordSpan = mergeSourceSpans (lexTokenSpan tok) endSpan</span></span>
+<span class="lineno">  302 </span><span class="spaces">          </span><span class="istickedoff">pure (PAnn <span class="nottickedoff">(mkAnnotation recordSpan)</span> (PRecord name fields hasWildcard))</span>
+<span class="lineno">  303 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt;</span>
+<span class="lineno">  304 </span><span class="spaces">      </span><span class="istickedoff">pure $</span>
+<span class="lineno">  305 </span><span class="spaces">        </span><span class="istickedoff">PAnn ann $</span>
+<span class="lineno">  306 </span><span class="spaces">          </span><span class="istickedoff">if isConLikeName name</span>
+<span class="lineno">  307 </span><span class="spaces">            </span><span class="istickedoff">then PCon name [] []</span>
+<span class="lineno">  308 </span><span class="spaces">            </span><span class="istickedoff">else PVar (nameToUnqualified name)</span></span>
+<span class="lineno">  309 </span>
+<span class="lineno">  310 </span>recordFieldPatternParser :: TokParser (RecordField Pattern)
+<span class="lineno">  311 </span><span class="decl"><span class="istickedoff">recordFieldPatternParser = do</span>
+<span class="lineno">  312 </span><span class="spaces">  </span><span class="istickedoff">field &lt;- recordFieldNameParser</span>
+<span class="lineno">  313 </span><span class="spaces">  </span><span class="istickedoff">mEq &lt;- MP.optional (expectedTok TkReservedEquals)</span>
+<span class="lineno">  314 </span><span class="spaces">  </span><span class="istickedoff">case mEq of</span>
+<span class="lineno">  315 </span><span class="spaces">    </span><span class="istickedoff">Just () -&gt; do</span>
+<span class="lineno">  316 </span><span class="spaces">      </span><span class="istickedoff">pat &lt;- subpatternWithBareViewParser</span>
+<span class="lineno">  317 </span><span class="spaces">      </span><span class="istickedoff">pure (RecordField field pat False)</span>
+<span class="lineno">  318 </span><span class="spaces">    </span><span class="istickedoff">Nothing -&gt; do</span>
+<span class="lineno">  319 </span><span class="spaces">      </span><span class="istickedoff">-- NamedFieldPuns: just &quot;field&quot; means &quot;field = field&quot;</span>
+<span class="lineno">  320 </span><span class="spaces">      </span><span class="istickedoff">pure (RecordField field <span class="nottickedoff">(PVar (nameToUnqualified field))</span> True)</span></span>
+<span class="lineno">  321 </span>
+<span class="lineno">  322 </span>-- | Parse the contents of record pattern braces, supporting RecordWildCards &quot;..&quot;
+<span class="lineno">  323 </span>recordPatternFieldListParser :: TokParser ([RecordField Pattern], Bool)
+<span class="lineno">  324 </span><span class="decl"><span class="istickedoff">recordPatternFieldListParser =</span>
+<span class="lineno">  325 </span><span class="spaces">  </span><span class="istickedoff">recordFieldsWithWildcardsParser (recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma)</span></span>
+<span class="lineno">  326 </span>
+<span class="lineno">  327 </span>listPatternParser :: TokParser Pattern
+<span class="lineno">  328 </span><span class="decl"><span class="istickedoff">listPatternParser = withSpanAnn (PAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
+<span class="lineno">  329 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkSpecialLBracket</span>
+<span class="lineno">  330 </span><span class="spaces">  </span><span class="istickedoff">elems &lt;- listPatternElementParser `MP.sepBy` expectedTok TkSpecialComma</span>
+<span class="lineno">  331 </span><span class="spaces">  </span><span class="istickedoff">expectedTok TkSpecialRBracket</span>
+<span class="lineno">  332 </span><span class="spaces">  </span><span class="istickedoff">pure (PList elems)</span>
+<span class="lineno">  333 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  334 </span><span class="spaces">    </span><span class="istickedoff">-- List elements can contain bare view patterns such as [id -&gt; x].</span>
+<span class="lineno">  335 </span><span class="spaces">    </span><span class="istickedoff">-- Try the expr -&gt; pattern form first, then fall back to normal patterns.</span>
+<span class="lineno">  336 </span><span class="spaces">    </span><span class="istickedoff">listPatternElementParser :: TokParser Pattern</span>
+<span class="lineno">  337 </span><span class="spaces">    </span><span class="istickedoff">listPatternElementParser = subpatternWithBareViewParser</span></span>
+<span class="lineno">  338 </span>
+<span class="lineno">  339 </span>-- | Parse a subpattern position that admits a bare view pattern @expr -&gt; pat@.
+<span class="lineno">  340 </span>-- This is needed in delimited pattern contexts like list elements and record
+<span class="lineno">  341 </span>-- fields, where there is no surrounding pair of parens to disambiguate the
+<span class="lineno">  342 </span>-- view-pattern arrow from the enclosing syntax.
+<span class="lineno">  343 </span>--
+<span class="lineno">  344 </span>-- This parser is recursive so that deeply nested view patterns such as
+<span class="lineno">  345 </span>-- @expr1 -&gt; expr2 -&gt; pat@ are accepted without requiring explicit parentheses
+<span class="lineno">  346 </span>-- around each intermediate view pattern.
+<span class="lineno">  347 </span>subpatternWithBareViewParser :: TokParser Pattern
+<span class="lineno">  348 </span><span class="decl"><span class="istickedoff">subpatternWithBareViewParser = do</span>
+<span class="lineno">  349 </span><span class="spaces">  </span><span class="istickedoff">mView &lt;- MP.optional . MP.try $ do</span>
+<span class="lineno">  350 </span><span class="spaces">    </span><span class="istickedoff">expr &lt;- exprParser</span>
+<span class="lineno">  351 </span><span class="spaces">    </span><span class="istickedoff">expectedTok TkReservedRightArrow</span>
+<span class="lineno">  352 </span><span class="spaces">    </span><span class="istickedoff">PView expr &lt;$&gt; subpatternWithBareViewParser</span>
+<span class="lineno">  353 </span><span class="spaces">  </span><span class="istickedoff">maybe patternParser pure mView</span></span>
+<span class="lineno">  354 </span>
+<span class="lineno">  355 </span>parenOrTuplePatternParser :: TokParser Pattern
+<span class="lineno">  356 </span><span class="decl"><span class="istickedoff">parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do</span>
+<span class="lineno">  357 </span><span class="spaces">  </span><span class="istickedoff">(tupleFlavor, closeTok) &lt;- tupleDelimsParser</span>
+<span class="lineno">  358 </span><span class="spaces">  </span><span class="istickedoff">mNextTok &lt;- MP.optional (lookAhead anySingle)</span>
+<span class="lineno">  359 </span><span class="spaces">  </span><span class="istickedoff">case fmap lexTokenKind mNextTok of</span>
+<span class="lineno">  360 </span><span class="spaces">    </span><span class="istickedoff">Just nextKind</span>
+<span class="lineno">  361 </span><span class="spaces">      </span><span class="istickedoff">| nextKind == closeTok -&gt; unitPatternParser tupleFlavor closeTok</span>
+<span class="lineno">  362 </span><span class="spaces">      </span><span class="istickedoff">| tupleFlavor == Unboxed &amp;&amp; nextKind == TkReservedPipe -&gt; parseUnboxedSumPatLeadingBars closeTok</span>
+<span class="lineno">  363 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; do</span>
+<span class="lineno">  364 </span><span class="spaces">      </span><span class="istickedoff">-- For boxed parens, try parsing as a top-level view pattern first.</span>
+<span class="lineno">  365 </span><span class="spaces">      </span><span class="istickedoff">-- View patterns like (expr -&gt; pat) produce PParen(PView(...)) so that</span>
+<span class="lineno">  366 </span><span class="spaces">      </span><span class="istickedoff">-- the explicit source parens are faithfully represented in the AST.</span>
+<span class="lineno">  367 </span><span class="spaces">      </span><span class="istickedoff">mView &lt;-</span>
+<span class="lineno">  368 </span><span class="spaces">        </span><span class="istickedoff">if tupleFlavor == Boxed</span>
+<span class="lineno">  369 </span><span class="spaces">          </span><span class="istickedoff">then viewPatternParser closeTok</span>
+<span class="lineno">  370 </span><span class="spaces">          </span><span class="istickedoff">else pure Nothing</span>
+<span class="lineno">  371 </span><span class="spaces">      </span><span class="istickedoff">case mView of</span>
+<span class="lineno">  372 </span><span class="spaces">        </span><span class="istickedoff">Just mkView -&gt; pure mkView</span>
+<span class="lineno">  373 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; tupleOrParenPatternParser tupleFlavor closeTok</span>
+<span class="lineno">  374 </span><span class="spaces">  </span><span class="istickedoff">where</span>
+<span class="lineno">  375 </span><span class="spaces">    </span><span class="istickedoff">-- When a bare operator like + or :+ appears directly inside parens, the</span>
+<span class="lineno">  376 </span><span class="spaces">    </span><span class="istickedoff">-- parens serve as prefix notation (e.g. (+), (:+)), not grouping.</span>
+<span class="lineno">  377 </span><span class="spaces">    </span><span class="istickedoff">-- prettyPrefixName already adds parens when printing symbolic names, so</span>
+<span class="lineno">  378 </span><span class="spaces">    </span><span class="istickedoff">-- wrapping with PParen would produce double parens.</span>
+<span class="lineno">  379 </span><span class="spaces">    </span><span class="istickedoff">--</span>
+<span class="lineno">  380 </span><span class="spaces">    </span><span class="istickedoff">-- However, when the inner pattern came from expression reclassification</span>
+<span class="lineno">  381 </span><span class="spaces">    </span><span class="istickedoff">-- (e.g. ((:+)) where the expression parser already consumed the inner</span>
+<span class="lineno">  382 </span><span class="spaces">    </span><span class="istickedoff">-- prefix-notation parens), the outer parens ARE grouping and must produce</span>
+<span class="lineno">  383 </span><span class="spaces">    </span><span class="istickedoff">-- PParen.</span>
+<span class="lineno">  384 </span><span class="spaces">    </span><span class="istickedoff">--</span>
+<span class="lineno">  385 </span><span class="spaces">    </span><span class="istickedoff">-- The @isBareOperator@ flag distinguishes these two cases:</span>
+<span class="lineno">  386 </span><span class="spaces">    </span><span class="istickedoff">--   True  -&gt; parens are prefix notation, strip PParen</span>
+<span class="lineno">  387 </span><span class="spaces">    </span><span class="istickedoff">--   False -&gt; parens are grouping, wrap with PParen</span>
+<span class="lineno">  388 </span><span class="spaces">    </span><span class="istickedoff">parenOrSymConParser isBareOperator inner = do</span>
+<span class="lineno">  389 </span><span class="spaces">      </span><span class="istickedoff">case peelPatternAnn inner of</span>
+<span class="lineno">  390 </span><span class="spaces">        </span><span class="istickedoff">PVar name</span>
+<span class="lineno">  391 </span><span class="spaces">          </span><span class="istickedoff">| isBareOperator,</span>
+<span class="lineno">  392 </span><span class="spaces">            </span><span class="istickedoff"><span class="tickonlytrue">unqualifiedNameType name == NameVarSym</span> -&gt;</span>
+<span class="lineno">  393 </span><span class="spaces">              </span><span class="istickedoff">pure inner</span>
+<span class="lineno">  394 </span><span class="spaces">        </span><span class="istickedoff">PCon con [] []</span>
+<span class="lineno">  395 </span><span class="spaces">          </span><span class="istickedoff">| isBareOperator,</span>
+<span class="lineno">  396 </span><span class="spaces">            </span><span class="istickedoff"><span class="tickonlytrue">nameType con == NameConSym</span> -&gt; do</span>
+<span class="lineno">  397 </span><span class="spaces">              </span><span class="istickedoff">mBrace &lt;- MP.optional . lookAhead $ anySingle</span>
+<span class="lineno">  398 </span><span class="spaces">              </span><span class="istickedoff">case fmap lexTokenKind mBrace of</span>
+<span class="lineno">  399 </span><span class="spaces">                </span><span class="istickedoff">Just TkSpecialLBrace -&gt; do</span>
+<span class="lineno">  400 </span><span class="spaces">                  </span><span class="istickedoff">(fields, hasWildcard) &lt;- braces recordPatternFieldListParser</span>
+<span class="lineno">  401 </span><span class="spaces">                  </span><span class="istickedoff">pure (PRecord con fields hasWildcard)</span>
+<span class="lineno">  402 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; pure inner</span>
+<span class="lineno">  403 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; pure (PParen inner)</span>
+<span class="lineno">  404 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  405 </span><span class="spaces">    </span><span class="istickedoff">unitPatternParser tupleFlavor closeTok = do</span>
+<span class="lineno">  406 </span><span class="spaces">      </span><span class="istickedoff">expectedTok closeTok</span>
+<span class="lineno">  407 </span><span class="spaces">      </span><span class="istickedoff">pure (PTuple tupleFlavor [])</span>
+<span class="lineno">  408 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  409 </span><span class="spaces">    </span><span class="istickedoff">-- Try to parse the paren content as a view pattern: expr -&gt; pat.</span>
+<span class="lineno">  410 </span><span class="spaces">    </span><span class="istickedoff">-- Uses exprParser which stops before '-&gt;', then checks for the arrow.</span>
+<span class="lineno">  411 </span><span class="spaces">    </span><span class="istickedoff">-- Returns Nothing if the content is not a view pattern.</span>
+<span class="lineno">  412 </span><span class="spaces">    </span><span class="istickedoff">viewPatternParser :: LexTokenKind -&gt; TokParser (Maybe Pattern)</span>
+<span class="lineno">  413 </span><span class="spaces">    </span><span class="istickedoff">viewPatternParser closeTok = MP.optional . MP.try $ do</span>
+<span class="lineno">  414 </span><span class="spaces">      </span><span class="istickedoff">expr &lt;- exprParser &lt;* lookAhead (expectedTok TkReservedRightArrow)</span>
+<span class="lineno">  415 </span><span class="spaces">      </span><span class="istickedoff">expectedTok TkReservedRightArrow</span>
+<span class="lineno">  416 </span><span class="spaces">      </span><span class="istickedoff">inner &lt;- subpatternWithBareViewParser</span>
+<span class="lineno">  417 </span><span class="spaces">      </span><span class="istickedoff">expectedTok closeTok</span>
+<span class="lineno">  418 </span><span class="spaces">      </span><span class="istickedoff">pure (PParen (PView expr inner))</span>
+<span class="lineno">  419 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  420 </span><span class="spaces">    </span><span class="istickedoff">-- Parse a single element inside a paren/tuple/unboxed-sum pattern.</span>
+<span class="lineno">  421 </span><span class="spaces">    </span><span class="istickedoff">-- Uses &quot;parse as expression, then reclassify&quot; to avoid backtracking</span>
+<span class="lineno">  422 </span><span class="spaces">    </span><span class="istickedoff">-- for the common case. Pattern-only prefixes (!, ~, @) are dispatched</span>
+<span class="lineno">  423 </span><span class="spaces">    </span><span class="istickedoff">-- to patternParser directly. When exprParser fails (e.g., nested parens</span>
+<span class="lineno">  424 </span><span class="spaces">    </span><span class="istickedoff">-- containing pattern-only syntax like as-patterns or view patterns),</span>
+<span class="lineno">  425 </span><span class="spaces">    </span><span class="istickedoff">-- we fall back to patternParser.</span>
+<span class="lineno">  426 </span><span class="spaces">    </span><span class="istickedoff">--</span>
+<span class="lineno">  427 </span><span class="spaces">    </span><span class="istickedoff">-- Operator tokens (TkVarSym, TkConSym, etc.) are handled directly here</span>
+<span class="lineno">  428 </span><span class="spaces">    </span><span class="istickedoff">-- because they are valid patterns (binding the operator as a variable or</span>
+<span class="lineno">  429 </span><span class="spaces">    </span><span class="istickedoff">-- constructor) but may not parse as expressions on their own.</span>
+<span class="lineno">  430 </span><span class="spaces">    </span><span class="istickedoff">--</span>
+<span class="lineno">  431 </span><span class="spaces">    </span><span class="istickedoff">-- Returns (isBareOperator, pattern) where isBareOperator indicates the</span>
+<span class="lineno">  432 </span><span class="spaces">    </span><span class="istickedoff">-- pattern was parsed as a bare operator token (e.g. :+ in (:+)), meaning</span>
+<span class="lineno">  433 </span><span class="spaces">    </span><span class="istickedoff">-- the surrounding parens serve as prefix notation rather than grouping.</span>
+<span class="lineno">  434 </span><span class="spaces">    </span><span class="istickedoff">parenPatElementParser :: TokParser (Bool, Pattern)</span>
+<span class="lineno">  435 </span><span class="spaces">    </span><span class="istickedoff">parenPatElementParser = do</span>
+<span class="lineno">  436 </span><span class="spaces">      </span><span class="istickedoff">tok &lt;- lookAhead anySingle</span>
+<span class="lineno">  437 </span><span class="spaces">      </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  438 </span><span class="spaces">        </span><span class="istickedoff">TkPrefixBang -&gt; (<span class="nottickedoff">False</span>,) &lt;$&gt; patternParser</span>
+<span class="lineno">  439 </span><span class="spaces">        </span><span class="istickedoff">TkPrefixTilde -&gt; (<span class="nottickedoff">False</span>,) &lt;$&gt; patternParser</span>
+<span class="lineno">  440 </span><span class="spaces">        </span><span class="istickedoff">-- Operator tokens can be valid patterns when they appear alone in parentheses.</span>
+<span class="lineno">  441 </span><span class="spaces">        </span><span class="istickedoff">-- Examples: (+) in &quot;f (+) = ...&quot;, (??) in &quot;foldl' (??) z xs = ...&quot;</span>
+<span class="lineno">  442 </span><span class="spaces">        </span><span class="istickedoff">-- We detect this by checking if an operator is followed by a closing delimiter.</span>
+<span class="lineno">  443 </span><span class="spaces">        </span><span class="istickedoff">TkVarSym {} -&gt; operatorOrExprPatternParser</span>
+<span class="lineno">  444 </span><span class="spaces">        </span><span class="istickedoff">TkConSym {} -&gt; operatorOrExprPatternParser</span>
+<span class="lineno">  445 </span><span class="spaces">        </span><span class="istickedoff">TkQConSym {} -&gt; operatorOrExprPatternParser</span>
+<span class="lineno">  446 </span><span class="spaces">        </span><span class="istickedoff">TkReservedColon -&gt; operatorOrExprPatternParser</span>
+<span class="lineno">  447 </span><span class="spaces">        </span><span class="istickedoff">TkReservedAt -&gt; operatorOrExprPatternParser</span>
+<span class="lineno">  448 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; do</span>
+<span class="lineno">  449 </span><span class="spaces">          </span><span class="istickedoff">isAs &lt;- startsWithAsPattern</span>
+<span class="lineno">  450 </span><span class="spaces">          </span><span class="istickedoff">if isAs</span>
+<span class="lineno">  451 </span><span class="spaces">            </span><span class="istickedoff">then (<span class="nottickedoff">False</span>,) &lt;$&gt; patternParser</span>
+<span class="lineno">  452 </span><span class="spaces">            </span><span class="istickedoff">else (False,) &lt;$&gt; exprThenReclassify</span>
+<span class="lineno">  453 </span><span class="spaces">      </span><span class="istickedoff">where</span>
+<span class="lineno">  454 </span><span class="spaces">        </span><span class="istickedoff">-- Try to parse an operator as a pattern if it's alone (followed by closing delim),</span>
+<span class="lineno">  455 </span><span class="spaces">        </span><span class="istickedoff">-- otherwise fall back to parsing as an expression.</span>
+<span class="lineno">  456 </span><span class="spaces">        </span><span class="istickedoff">operatorOrExprPatternParser :: TokParser (Bool, Pattern)</span>
+<span class="lineno">  457 </span><span class="spaces">        </span><span class="istickedoff">operatorOrExprPatternParser = do</span>
+<span class="lineno">  458 </span><span class="spaces">          </span><span class="istickedoff">-- Look ahead to check what comes after the operator</span>
+<span class="lineno">  459 </span><span class="spaces">          </span><span class="istickedoff">mNext &lt;- MP.optional . lookAhead . MP.try $ do</span>
+<span class="lineno">  460 </span><span class="spaces">            </span><span class="istickedoff">_ &lt;- anySingle -- skip the operator token itself</span>
+<span class="lineno">  461 </span><span class="spaces">            </span><span class="istickedoff">lookAhead anySingle</span>
+<span class="lineno">  462 </span><span class="spaces">          </span><span class="istickedoff">case fmap lexTokenKind mNext of</span>
+<span class="lineno">  463 </span><span class="spaces">            </span><span class="istickedoff">-- If followed by closing delimiters, parse as operator pattern</span>
+<span class="lineno">  464 </span><span class="spaces">            </span><span class="istickedoff">Just TkSpecialRParen -&gt; (True,) &lt;$&gt; operatorPatternParser</span>
+<span class="lineno">  465 </span><span class="spaces">            </span><span class="istickedoff">Just TkSpecialUnboxedRParen -&gt; <span class="nottickedoff">(True,) &lt;$&gt; operatorPatternParser</span></span>
+<span class="lineno">  466 </span><span class="spaces">            </span><span class="istickedoff">Just TkSpecialComma -&gt; <span class="nottickedoff">(True,) &lt;$&gt; operatorPatternParser</span></span>
+<span class="lineno">  467 </span><span class="spaces">            </span><span class="istickedoff">Just TkReservedPipe -&gt; <span class="nottickedoff">(True,) &lt;$&gt; operatorPatternParser</span></span>
+<span class="lineno">  468 </span><span class="spaces">            </span><span class="istickedoff">-- Otherwise, try parsing as expression (for cases like (x + y))</span>
+<span class="lineno">  469 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; (<span class="nottickedoff">False</span>,) &lt;$&gt; exprThenReclassify</span>
+<span class="lineno">  470 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  471 </span><span class="spaces">        </span><span class="istickedoff">-- Parse an operator token as a variable or constructor pattern.</span>
+<span class="lineno">  472 </span><span class="spaces">        </span><span class="istickedoff">operatorPatternParser :: TokParser Pattern</span>
+<span class="lineno">  473 </span><span class="spaces">        </span><span class="istickedoff">operatorPatternParser = do</span>
+<span class="lineno">  474 </span><span class="spaces">          </span><span class="istickedoff">tok' &lt;- anySingle</span>
+<span class="lineno">  475 </span><span class="spaces">          </span><span class="istickedoff">let <span class="nottickedoff">ann = mkAnnotation (lexTokenSpan tok')</span></span>
+<span class="lineno">  476 </span><span class="spaces">          </span><span class="istickedoff">case lexTokenKind tok' of</span>
+<span class="lineno">  477 </span><span class="spaces">            </span><span class="istickedoff">TkVarSym op -&gt; pure (PAnn <span class="nottickedoff">ann</span> (PVar (mkUnqualifiedNameAt <span class="nottickedoff">tok'</span> NameVarSym op)))</span>
+<span class="lineno">  478 </span><span class="spaces">            </span><span class="istickedoff">TkConSym op -&gt; pure (PAnn <span class="nottickedoff">ann</span> (PCon (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok'</span> NameConSym op)) [] []))</span>
+<span class="lineno">  479 </span><span class="spaces">            </span><span class="istickedoff">TkQConSym modName op -&gt; pure (PAnn <span class="nottickedoff">ann</span> (PCon (mkNameAt <span class="nottickedoff">tok'</span> (Just modName) NameConSym op) [] []))</span>
+<span class="lineno">  480 </span><span class="spaces">            </span><span class="istickedoff">TkReservedColon -&gt; pure (PAnn <span class="nottickedoff">ann</span> (PCon (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok'</span> NameConSym &quot;:&quot;)) [] []))</span>
+<span class="lineno">  481 </span><span class="spaces">            </span><span class="istickedoff">TkReservedAt -&gt; pure (PAnn <span class="nottickedoff">ann</span> (PVar (mkUnqualifiedNameAt <span class="nottickedoff">tok'</span> NameVarSym &quot;@&quot;)))</span>
+<span class="lineno">  482 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt;</span>
+<span class="lineno">  483 </span><span class="spaces">              </span><span class="istickedoff"><span class="nottickedoff">MP.customFailure</span></span>
+<span class="lineno">  484 </span><span class="spaces">                </span><span class="istickedoff"><span class="nottickedoff">UnexpectedTokenExpecting</span></span>
+<span class="lineno">  485 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">{ unexpectedFound = Just (mkFoundToken tok'),</span></span>
+<span class="lineno">  486 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">unexpectedExpecting = &quot;operator token&quot;,</span></span>
+<span class="lineno">  487 </span><span class="spaces">                    </span><span class="istickedoff"><span class="nottickedoff">unexpectedContext = []</span></span>
+<span class="lineno">  488 </span><span class="spaces">                  </span><span class="istickedoff"><span class="nottickedoff">}</span></span>
+<span class="lineno">  489 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  490 </span><span class="spaces">    </span><span class="istickedoff">-- Try to parse as expression, then reclassify via checkPattern.</span>
+<span class="lineno">  491 </span><span class="spaces">    </span><span class="istickedoff">-- When exprParser fails, does not consume the full element (e.g.,</span>
+<span class="lineno">  492 </span><span class="spaces">    </span><span class="istickedoff">-- '@' from an as-pattern), or checkPattern rejects it (e.g., variable</span>
+<span class="lineno">  493 </span><span class="spaces">    </span><span class="istickedoff">-- operator in infix position), fall back to patternParser.</span>
+<span class="lineno">  494 </span><span class="spaces">    </span><span class="istickedoff">--</span>
+<span class="lineno">  495 </span><span class="spaces">    </span><span class="istickedoff">-- View patterns within tuple elements are also handled here: if '-&gt;'</span>
+<span class="lineno">  496 </span><span class="spaces">    </span><span class="istickedoff">-- follows the parsed expression, it is a view pattern.</span>
+<span class="lineno">  497 </span><span class="spaces">    </span><span class="istickedoff">exprThenReclassify :: TokParser Pattern</span>
+<span class="lineno">  498 </span><span class="spaces">    </span><span class="istickedoff">exprThenReclassify = do</span>
+<span class="lineno">  499 </span><span class="spaces">      </span><span class="istickedoff">mResult &lt;- MP.optional . MP.try $ do</span>
+<span class="lineno">  500 </span><span class="spaces">        </span><span class="istickedoff">expr &lt;- exprParser</span>
+<span class="lineno">  501 </span><span class="spaces">        </span><span class="istickedoff">-- Verify the expression consumed the full element: the next token</span>
+<span class="lineno">  502 </span><span class="spaces">        </span><span class="istickedoff">-- must be a valid delimiter in paren/tuple/sum context. If not</span>
+<span class="lineno">  503 </span><span class="spaces">        </span><span class="istickedoff">-- (e.g., '@' from an as-pattern), the expression parser stopped</span>
+<span class="lineno">  504 </span><span class="spaces">        </span><span class="istickedoff">-- too early and we should backtrack to patternParser.</span>
+<span class="lineno">  505 </span><span class="spaces">        </span><span class="istickedoff">tok &lt;- lookAhead anySingle</span>
+<span class="lineno">  506 </span><span class="spaces">        </span><span class="istickedoff">case lexTokenKind tok of</span>
+<span class="lineno">  507 </span><span class="spaces">          </span><span class="istickedoff">TkReservedRightArrow -&gt; pure (Left expr) -- view pattern: defer arrow handling</span>
+<span class="lineno">  508 </span><span class="spaces">          </span><span class="istickedoff">TkSpecialComma -&gt; Right &lt;$&gt; liftCheck (checkPattern expr)</span>
+<span class="lineno">  509 </span><span class="spaces">          </span><span class="istickedoff">TkSpecialRParen -&gt; Right &lt;$&gt; liftCheck (checkPattern expr)</span>
+<span class="lineno">  510 </span><span class="spaces">          </span><span class="istickedoff">TkSpecialUnboxedRParen -&gt; Right &lt;$&gt; liftCheck (checkPattern expr)</span>
+<span class="lineno">  511 </span><span class="spaces">          </span><span class="istickedoff">TkReservedPipe -&gt; Right &lt;$&gt; liftCheck (checkPattern expr)</span>
+<span class="lineno">  512 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt; fail <span class="nottickedoff">&quot;incomplete element parse&quot;</span></span>
+<span class="lineno">  513 </span><span class="spaces">      </span><span class="istickedoff">case mResult of</span>
+<span class="lineno">  514 </span><span class="spaces">        </span><span class="istickedoff">Just (Left expr) -&gt; do</span>
+<span class="lineno">  515 </span><span class="spaces">          </span><span class="istickedoff">-- View pattern: expr -&gt; pattern</span>
+<span class="lineno">  516 </span><span class="spaces">          </span><span class="istickedoff">expectedTok TkReservedRightArrow</span>
+<span class="lineno">  517 </span><span class="spaces">          </span><span class="istickedoff">PView expr &lt;$&gt; subpatternWithBareViewParser</span>
+<span class="lineno">  518 </span><span class="spaces">        </span><span class="istickedoff">Just (Right pat) -&gt;</span>
+<span class="lineno">  519 </span><span class="spaces">          </span><span class="istickedoff">pure pat</span>
+<span class="lineno">  520 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt;</span>
+<span class="lineno">  521 </span><span class="spaces">          </span><span class="istickedoff">patternParser</span>
+<span class="lineno">  522 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  523 </span><span class="spaces">    </span><span class="istickedoff">tupleOrParenPatternParser tupleFlavor closeTok = do</span>
+<span class="lineno">  524 </span><span class="spaces">      </span><span class="istickedoff">(isBareOp, first) &lt;- parenPatElementParser</span>
+<span class="lineno">  525 </span><span class="spaces">      </span><span class="istickedoff">mComma &lt;- MP.optional (expectedTok TkSpecialComma)</span>
+<span class="lineno">  526 </span><span class="spaces">      </span><span class="istickedoff">case mComma of</span>
+<span class="lineno">  527 </span><span class="spaces">        </span><span class="istickedoff">Nothing -&gt; do</span>
+<span class="lineno">  528 </span><span class="spaces">          </span><span class="istickedoff">-- Check for pipe (unboxed sum: pattern in first slot)</span>
+<span class="lineno">  529 </span><span class="spaces">          </span><span class="istickedoff">mPipe &lt;- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing</span>
+<span class="lineno">  530 </span><span class="spaces">          </span><span class="istickedoff">case mPipe of</span>
+<span class="lineno">  531 </span><span class="spaces">            </span><span class="istickedoff">Just () -&gt; do</span>
+<span class="lineno">  532 </span><span class="spaces">              </span><span class="istickedoff">-- (# pat | ... #) - pattern in first slot of sum</span>
+<span class="lineno">  533 </span><span class="spaces">              </span><span class="istickedoff">trailingBars &lt;- MP.many (expectedTok TkReservedPipe)</span>
+<span class="lineno">  534 </span><span class="spaces">              </span><span class="istickedoff">expectedTok closeTok</span>
+<span class="lineno">  535 </span><span class="spaces">              </span><span class="istickedoff">let arity = 2 + length trailingBars</span>
+<span class="lineno">  536 </span><span class="spaces">              </span><span class="istickedoff">pure (PUnboxedSum 0 arity first)</span>
+<span class="lineno">  537 </span><span class="spaces">            </span><span class="istickedoff">Nothing -&gt; do</span>
+<span class="lineno">  538 </span><span class="spaces">              </span><span class="istickedoff">expectedTok closeTok</span>
+<span class="lineno">  539 </span><span class="spaces">              </span><span class="istickedoff">if tupleFlavor == Boxed</span>
+<span class="lineno">  540 </span><span class="spaces">                </span><span class="istickedoff">then parenOrSymConParser isBareOp first</span>
+<span class="lineno">  541 </span><span class="spaces">                </span><span class="istickedoff">else pure (PTuple Unboxed [first])</span>
+<span class="lineno">  542 </span><span class="spaces">        </span><span class="istickedoff">Just () -&gt; do</span>
+<span class="lineno">  543 </span><span class="spaces">          </span><span class="istickedoff">(_, second) &lt;- parenPatElementParser</span>
+<span class="lineno">  544 </span><span class="spaces">          </span><span class="istickedoff">more &lt;- MP.many (expectedTok TkSpecialComma *&gt; (snd &lt;$&gt; parenPatElementParser))</span>
+<span class="lineno">  545 </span><span class="spaces">          </span><span class="istickedoff">expectedTok closeTok</span>
+<span class="lineno">  546 </span><span class="spaces">          </span><span class="istickedoff">pure (PTuple tupleFlavor (first : second : more))</span>
+<span class="lineno">  547 </span><span class="spaces"></span><span class="istickedoff"></span>
+<span class="lineno">  548 </span><span class="spaces">    </span><span class="istickedoff">parseUnboxedSumPatLeadingBars closeTok = do</span>
+<span class="lineno">  549 </span><span class="spaces">      </span><span class="istickedoff">-- Parse (# | | ... | pat | ... | #) where pattern is not in first slot</span>
+<span class="lineno">  550 </span><span class="spaces">      </span><span class="istickedoff">_ &lt;- expectedTok TkReservedPipe</span>
+<span class="lineno">  551 </span><span class="spaces">      </span><span class="istickedoff">leadingBars &lt;- MP.many (MP.try (expectedTok TkReservedPipe))</span>
+<span class="lineno">  552 </span><span class="spaces">      </span><span class="istickedoff">let altIdx = 1 + length leadingBars</span>
+<span class="lineno">  553 </span><span class="spaces">      </span><span class="istickedoff">(_, inner) &lt;- parenPatElementParser</span>
+<span class="lineno">  554 </span><span class="spaces">      </span><span class="istickedoff">trailingBars &lt;- MP.many (expectedTok TkReservedPipe)</span>
+<span class="lineno">  555 </span><span class="spaces">      </span><span class="istickedoff">expectedTok closeTok</span>
+<span class="lineno">  556 </span><span class="spaces">      </span><span class="istickedoff">let arity = altIdx + 1 + length trailingBars</span>
+<span class="lineno">  557 </span><span class="spaces">      </span><span class="istickedoff">pure (PUnboxedSum altIdx arity inner)</span></span>
+<span class="lineno">  558 </span>
+<span class="lineno">  559 </span>isPatternAppHead :: Pattern -&gt; Bool
+<span class="lineno">  560 </span><span class="decl"><span class="istickedoff">isPatternAppHead pat =</span>
+<span class="lineno">  561 </span><span class="spaces">  </span><span class="istickedoff">case peelPatternAnn pat of</span>
+<span class="lineno">  562 </span><span class="spaces">    </span><span class="istickedoff">PCon {} -&gt; True</span>
+<span class="lineno">  563 </span><span class="spaces">    </span><span class="istickedoff">PVar name -&gt; isConLikeNameType (unqualifiedNameType name)</span>
+<span class="lineno">  564 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; False</span></span>
+
+</pre>
+</body>
+</html>

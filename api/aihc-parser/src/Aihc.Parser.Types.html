@@ -1,0 +1,1039 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE DeriveAnyClass #-}</span><span>
+</span><span id="line-2"></span><span class="hs-pragma">{-# LANGUAGE DerivingStrategies #-}</span><span>
+</span><span id="line-3"></span><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-4"></span><span class="hs-pragma">{-# LANGUAGE TypeFamilies #-}</span><span>
+</span><span id="line-5"></span><span>
+</span><span id="line-6"></span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html"><span class="hs-identifier">Aihc.Parser.Types</span></a></span><span>
+</span><span id="line-7"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier">TokStream</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-8"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Types.html#mkTokStream"><span class="hs-identifier">mkTokStream</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-9"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Types.html#mkTokStreamModule"><span class="hs-identifier">mkTokStreamModule</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-10"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Types.html#mkTokStreamFromTokens"><span class="hs-identifier">mkTokStreamFromTokens</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-11"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier">ParserErrorComponent</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-12"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Types.html#FoundToken"><span class="hs-identifier">FoundToken</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-13"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Types.html#mkFoundToken"><span class="hs-identifier">mkFoundToken</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-14"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Types.html#ParseErrorBundle"><span class="hs-identifier">ParseErrorBundle</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-15"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Types.html#ParseResult"><span class="hs-identifier">ParseResult</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-16"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Types.html#ParserConfig"><span class="hs-identifier">ParserConfig</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-17"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-18"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-19"></span><span>
+</span><span id="line-20"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.html"><span class="hs-identifier">Aihc.Parser.Lex</span></a></span><span>
+</span><span id="line-21"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LayoutState"><span class="hs-identifier">LayoutState</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-22"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier">LexToken</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-23"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexTokenKind"><span class="hs-identifier">LexTokenKind</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-24"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Syntax.html#Pragma"><span class="hs-identifier">Pragma</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-25"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TokenOrigin"><span class="hs-identifier">TokenOrigin</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-26"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.Layout.html#layoutTransition"><span class="hs-identifier">layoutTransition</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-27"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#mkInitialLayoutState"><span class="hs-identifier">mkInitialLayoutState</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-28"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#mkInitialLexerState"><span class="hs-identifier">mkInitialLexerState</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-29"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.html#readModuleHeaderExtensions"><span class="hs-identifier">readModuleHeaderExtensions</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-30"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.html#scanAllTokens"><span class="hs-identifier">scanAllTokens</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-31"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html"><span class="hs-identifier">Aihc.Parser.Syntax</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#Extension"><span class="hs-identifier">Extension</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ExtensionSet"><span class="hs-identifier">ExtensionSet</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#SourceSpan"><span class="hs-identifier">SourceSpan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#applyExtensionSetting"><span class="hs-identifier">applyExtensionSetting</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#applyImpliedExtensions"><span class="hs-identifier">applyImpliedExtensions</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#mkExtensionSet"><span class="hs-identifier">mkExtensionSet</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Control.DeepSeq</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">NFData</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-34"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Text</span></span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-36"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">GHC.Generics</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Generic</span></span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Text.Megaparsec</span></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">MP</span></span><span>
+</span><span id="line-38"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Text.Megaparsec.Error</span></span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">MPE</span></span><span>
+</span><span id="line-39"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Text.Megaparsec.Stream</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">Stream</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span>
+</span><span id="line-41"></span><span class="annot"><span class="hs-comment">-- | Raw Megaparsec parse error bundle for low-level parser entry points.</span></span><span>
+</span><span id="line-42"></span><span class="hs-keyword">type</span><span> </span><span id="ParseErrorBundle"><span class="annot"><a href="Aihc.Parser.Types.html#ParseErrorBundle"><span class="hs-identifier hs-var">ParseErrorBundle</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MPE.ParseErrorBundle</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier hs-type">ParserErrorComponent</span></a></span><span>
+</span><span id="line-43"></span><span>
+</span><span id="line-44"></span><span class="hs-keyword">data</span><span> </span><span id="FoundToken"><span class="annot"><a href="Aihc.Parser.Types.html#FoundToken"><span class="hs-identifier hs-var">FoundToken</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="FoundToken"><span class="annot"><a href="Aihc.Parser.Types.html#FoundToken"><span class="hs-identifier hs-var">FoundToken</span></a></span></span><span>
+</span><span id="line-45"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="foundTokenText"><span class="annot"><span class="annottext">FoundToken -&gt; Text
+</span><a href="Aihc.Parser.Types.html#foundTokenText"><span class="hs-identifier hs-var hs-var">foundTokenText</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">,</span><span>
+</span><span id="line-46"></span><span>    </span><span id="foundTokenKind"><span class="annot"><span class="annottext">FoundToken -&gt; Maybe LexTokenKind
+</span><a href="Aihc.Parser.Types.html#foundTokenKind"><span class="hs-identifier hs-var hs-var">foundTokenKind</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexTokenKind"><span class="hs-identifier hs-type">LexTokenKind</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-47"></span><span>    </span><span id="foundTokenSpan"><span class="annot"><span class="annottext">FoundToken -&gt; SourceSpan
+</span><a href="Aihc.Parser.Types.html#foundTokenSpan"><span class="hs-identifier hs-var hs-var">foundTokenSpan</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Aihc.Parser.Syntax.html#SourceSpan"><span class="hs-identifier hs-type">SourceSpan</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-48"></span><span>    </span><span id="foundTokenOrigin"><span class="annot"><span class="annottext">FoundToken -&gt; TokenOrigin
+</span><a href="Aihc.Parser.Types.html#foundTokenOrigin"><span class="hs-identifier hs-var hs-var">foundTokenOrigin</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TokenOrigin"><span class="hs-identifier hs-type">TokenOrigin</span></a></span><span>
+</span><span id="line-49"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-50"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679403634"><span id="local-6989586621679403645"><span class="annot"><span class="annottext">FoundToken -&gt; FoundToken -&gt; Bool
+(FoundToken -&gt; FoundToken -&gt; Bool)
+-&gt; (FoundToken -&gt; FoundToken -&gt; Bool) -&gt; Eq FoundToken
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+$c== :: FoundToken -&gt; FoundToken -&gt; Bool
+== :: FoundToken -&gt; FoundToken -&gt; Bool
+$c/= :: FoundToken -&gt; FoundToken -&gt; Bool
+/= :: FoundToken -&gt; FoundToken -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679403653"><span id="local-6989586621679403664"><span id="local-6989586621679403671"><span id="local-6989586621679403675"><span id="local-6989586621679403678"><span id="local-6989586621679403681"><span id="local-6989586621679403684"><span class="annot"><span class="annottext">Eq FoundToken
+Eq FoundToken =&gt;
+(FoundToken -&gt; FoundToken -&gt; Ordering)
+-&gt; (FoundToken -&gt; FoundToken -&gt; Bool)
+-&gt; (FoundToken -&gt; FoundToken -&gt; Bool)
+-&gt; (FoundToken -&gt; FoundToken -&gt; Bool)
+-&gt; (FoundToken -&gt; FoundToken -&gt; Bool)
+-&gt; (FoundToken -&gt; FoundToken -&gt; FoundToken)
+-&gt; (FoundToken -&gt; FoundToken -&gt; FoundToken)
+-&gt; Ord FoundToken
+FoundToken -&gt; FoundToken -&gt; Bool
+FoundToken -&gt; FoundToken -&gt; Ordering
+FoundToken -&gt; FoundToken -&gt; FoundToken
+forall a.
+Eq a =&gt;
+(a -&gt; a -&gt; Ordering)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; Ord a
+$ccompare :: FoundToken -&gt; FoundToken -&gt; Ordering
+compare :: FoundToken -&gt; FoundToken -&gt; Ordering
+$c&lt; :: FoundToken -&gt; FoundToken -&gt; Bool
+&lt; :: FoundToken -&gt; FoundToken -&gt; Bool
+$c&lt;= :: FoundToken -&gt; FoundToken -&gt; Bool
+&lt;= :: FoundToken -&gt; FoundToken -&gt; Bool
+$c&gt; :: FoundToken -&gt; FoundToken -&gt; Bool
+&gt; :: FoundToken -&gt; FoundToken -&gt; Bool
+$c&gt;= :: FoundToken -&gt; FoundToken -&gt; Bool
+&gt;= :: FoundToken -&gt; FoundToken -&gt; Bool
+$cmax :: FoundToken -&gt; FoundToken -&gt; FoundToken
+max :: FoundToken -&gt; FoundToken -&gt; FoundToken
+$cmin :: FoundToken -&gt; FoundToken -&gt; FoundToken
+min :: FoundToken -&gt; FoundToken -&gt; FoundToken
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Ord</span></span></span></span></span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679403693"><span id="local-6989586621679403706"><span id="local-6989586621679403710"><span class="annot"><span class="annottext">Int -&gt; FoundToken -&gt; ShowS
+[FoundToken] -&gt; ShowS
+FoundToken -&gt; String
+(Int -&gt; FoundToken -&gt; ShowS)
+-&gt; (FoundToken -&gt; String)
+-&gt; ([FoundToken] -&gt; ShowS)
+-&gt; Show FoundToken
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+$cshowsPrec :: Int -&gt; FoundToken -&gt; ShowS
+showsPrec :: Int -&gt; FoundToken -&gt; ShowS
+$cshow :: FoundToken -&gt; String
+show :: FoundToken -&gt; String
+$cshowList :: [FoundToken] -&gt; ShowS
+showList :: [FoundToken] -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679403716"><span id="local-6989586621679403718"><span class="annot"><span class="annottext">(forall x. FoundToken -&gt; Rep FoundToken x)
+-&gt; (forall x. Rep FoundToken x -&gt; FoundToken) -&gt; Generic FoundToken
+forall x. Rep FoundToken x -&gt; FoundToken
+forall x. FoundToken -&gt; Rep FoundToken x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+$cfrom :: forall x. FoundToken -&gt; Rep FoundToken x
+from :: forall x. FoundToken -&gt; Rep FoundToken x
+$cto :: forall x. Rep FoundToken x -&gt; FoundToken
+to :: forall x. Rep FoundToken x -&gt; FoundToken
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Generic</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679403724"><span class="annot"><span class="annottext">FoundToken -&gt; ()
+(FoundToken -&gt; ()) -&gt; NFData FoundToken
+forall a. (a -&gt; ()) -&gt; NFData a
+$crnf :: FoundToken -&gt; ()
+rnf :: FoundToken -&gt; ()
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">NFData</span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-51"></span><span>
+</span><span id="line-52"></span><span class="hs-keyword">data</span><span> </span><span id="ParserErrorComponent"><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier hs-var">ParserErrorComponent</span></a></span></span><span>
+</span><span id="line-53"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="UnexpectedTokenExpecting"><span class="annot"><a href="Aihc.Parser.Types.html#UnexpectedTokenExpecting"><span class="hs-identifier hs-var">UnexpectedTokenExpecting</span></a></span></span><span>
+</span><span id="line-54"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="unexpectedFound"><span class="annot"><span class="annottext">ParserErrorComponent -&gt; Maybe FoundToken
+</span><a href="Aihc.Parser.Types.html#unexpectedFound"><span class="hs-identifier hs-var hs-var">unexpectedFound</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#FoundToken"><span class="hs-identifier hs-type">FoundToken</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-55"></span><span>    </span><span id="unexpectedExpecting"><span class="annot"><span class="annottext">ParserErrorComponent -&gt; Text
+</span><a href="Aihc.Parser.Types.html#unexpectedExpecting"><span class="hs-identifier hs-var hs-var">unexpectedExpecting</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">,</span><span>
+</span><span id="line-56"></span><span>    </span><span id="unexpectedContext"><span class="annot"><span class="annottext">ParserErrorComponent -&gt; [Text]
+</span><a href="Aihc.Parser.Types.html#unexpectedContext"><span class="hs-identifier hs-var hs-var">unexpectedContext</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">]</span><span>
+</span><span id="line-57"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-58"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679403761"><span id="local-6989586621679403768"><span class="annot"><span class="annottext">ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+(ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool)
+-&gt; (ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool)
+-&gt; Eq ParserErrorComponent
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+$c== :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+== :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+$c/= :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+/= :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679403774"><span id="local-6989586621679403781"><span id="local-6989586621679403787"><span id="local-6989586621679403791"><span id="local-6989586621679403794"><span id="local-6989586621679403797"><span id="local-6989586621679403800"><span class="annot"><span class="annottext">Eq ParserErrorComponent
+Eq ParserErrorComponent =&gt;
+(ParserErrorComponent -&gt; ParserErrorComponent -&gt; Ordering)
+-&gt; (ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool)
+-&gt; (ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool)
+-&gt; (ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool)
+-&gt; (ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool)
+-&gt; (ParserErrorComponent
+    -&gt; ParserErrorComponent -&gt; ParserErrorComponent)
+-&gt; (ParserErrorComponent
+    -&gt; ParserErrorComponent -&gt; ParserErrorComponent)
+-&gt; Ord ParserErrorComponent
+ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+ParserErrorComponent -&gt; ParserErrorComponent -&gt; Ordering
+ParserErrorComponent
+-&gt; ParserErrorComponent -&gt; ParserErrorComponent
+forall a.
+Eq a =&gt;
+(a -&gt; a -&gt; Ordering)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; Bool)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; (a -&gt; a -&gt; a)
+-&gt; Ord a
+$ccompare :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Ordering
+compare :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Ordering
+$c&lt; :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+&lt; :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+$c&lt;= :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+&lt;= :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+$c&gt; :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+&gt; :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+$c&gt;= :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+&gt;= :: ParserErrorComponent -&gt; ParserErrorComponent -&gt; Bool
+$cmax :: ParserErrorComponent
+-&gt; ParserErrorComponent -&gt; ParserErrorComponent
+max :: ParserErrorComponent
+-&gt; ParserErrorComponent -&gt; ParserErrorComponent
+$cmin :: ParserErrorComponent
+-&gt; ParserErrorComponent -&gt; ParserErrorComponent
+min :: ParserErrorComponent
+-&gt; ParserErrorComponent -&gt; ParserErrorComponent
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Ord</span></span></span></span></span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679403803"><span id="local-6989586621679403811"><span id="local-6989586621679403815"><span class="annot"><span class="annottext">Int -&gt; ParserErrorComponent -&gt; ShowS
+[ParserErrorComponent] -&gt; ShowS
+ParserErrorComponent -&gt; String
+(Int -&gt; ParserErrorComponent -&gt; ShowS)
+-&gt; (ParserErrorComponent -&gt; String)
+-&gt; ([ParserErrorComponent] -&gt; ShowS)
+-&gt; Show ParserErrorComponent
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+$cshowsPrec :: Int -&gt; ParserErrorComponent -&gt; ShowS
+showsPrec :: Int -&gt; ParserErrorComponent -&gt; ShowS
+$cshow :: ParserErrorComponent -&gt; String
+show :: ParserErrorComponent -&gt; String
+$cshowList :: [ParserErrorComponent] -&gt; ShowS
+showList :: [ParserErrorComponent] -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679403818"><span id="local-6989586621679403820"><span class="annot"><span class="annottext">(forall x. ParserErrorComponent -&gt; Rep ParserErrorComponent x)
+-&gt; (forall x. Rep ParserErrorComponent x -&gt; ParserErrorComponent)
+-&gt; Generic ParserErrorComponent
+forall x. Rep ParserErrorComponent x -&gt; ParserErrorComponent
+forall x. ParserErrorComponent -&gt; Rep ParserErrorComponent x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+$cfrom :: forall x. ParserErrorComponent -&gt; Rep ParserErrorComponent x
+from :: forall x. ParserErrorComponent -&gt; Rep ParserErrorComponent x
+$cto :: forall x. Rep ParserErrorComponent x -&gt; ParserErrorComponent
+to :: forall x. Rep ParserErrorComponent x -&gt; ParserErrorComponent
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Generic</span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-59"></span><span>
+</span><span id="line-60"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679403826"><span class="annot"><span class="hs-identifier hs-type">MPE.ShowErrorComponent</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#ParserErrorComponent"><span class="hs-identifier hs-type">ParserErrorComponent</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-61"></span><span>  </span><span id="local-6989586621679403834"><span class="annot"><span class="annottext">showErrorComponent :: ParserErrorComponent -&gt; String
+</span><a href="#local-6989586621679403834"><span class="hs-identifier hs-var hs-var hs-var">showErrorComponent</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Types.html#UnexpectedTokenExpecting"><span class="hs-identifier hs-type">UnexpectedTokenExpecting</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe FoundToken
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679403836"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679403836"><span class="hs-identifier hs-var">expecting</span></a></span></span><span> </span><span class="annot"><span class="annottext">[Text]
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;expecting &quot;</span></span><span> </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; String
+</span><span class="hs-identifier hs-var">T.unpack</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679403836"><span class="hs-identifier hs-var">expecting</span></a></span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="annot"><a href="Aihc.Parser.Types.html#mkFoundToken"><span class="hs-identifier hs-type">mkFoundToken</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#FoundToken"><span class="hs-identifier hs-type">FoundToken</span></a></span><span>
+</span><span id="line-64"></span><span id="mkFoundToken"><span class="annot"><span class="annottext">mkFoundToken :: LexToken -&gt; FoundToken
+</span><a href="Aihc.Parser.Types.html#mkFoundToken"><span class="hs-identifier hs-var hs-var">mkFoundToken</span></a></span></span><span> </span><span id="local-6989586621679403838"><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403838"><span class="hs-identifier hs-var">tok</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-65"></span><span>  </span><span class="annot"><a href="Aihc.Parser.Types.html#FoundToken"><span class="hs-identifier hs-type">FoundToken</span></a></span><span>
+</span><span id="line-66"></span><span>    </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">foundTokenText :: Text
+</span><a href="Aihc.Parser.Types.html#foundTokenText"><span class="hs-identifier hs-var">foundTokenText</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LexToken -&gt; Text
+</span><a href="Aihc.Parser.Lex.Types.html#lexTokenText"><span class="hs-identifier hs-var">lexTokenText</span></a></span><span> </span><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403838"><span class="hs-identifier hs-var">tok</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-67"></span><span>      </span><span class="annot"><span class="annottext">foundTokenKind :: Maybe LexTokenKind
+</span><a href="Aihc.Parser.Types.html#foundTokenKind"><span class="hs-identifier hs-var">foundTokenKind</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LexTokenKind -&gt; Maybe LexTokenKind
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LexToken -&gt; LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#lexTokenKind"><span class="hs-identifier hs-var">lexTokenKind</span></a></span><span> </span><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403838"><span class="hs-identifier hs-var">tok</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-68"></span><span>      </span><span class="annot"><span class="annottext">foundTokenSpan :: SourceSpan
+</span><a href="Aihc.Parser.Types.html#foundTokenSpan"><span class="hs-identifier hs-var">foundTokenSpan</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LexToken -&gt; SourceSpan
+</span><a href="Aihc.Parser.Lex.Types.html#lexTokenSpan"><span class="hs-identifier hs-var">lexTokenSpan</span></a></span><span> </span><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403838"><span class="hs-identifier hs-var">tok</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-69"></span><span>      </span><span class="annot"><span class="annottext">foundTokenOrigin :: TokenOrigin
+</span><a href="Aihc.Parser.Types.html#foundTokenOrigin"><span class="hs-identifier hs-var">foundTokenOrigin</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LexToken -&gt; TokenOrigin
+</span><a href="Aihc.Parser.Lex.Types.html#lexTokenOrigin"><span class="hs-identifier hs-var">lexTokenOrigin</span></a></span><span> </span><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403838"><span class="hs-identifier hs-var">tok</span></a></span><span>
+</span><span id="line-70"></span><span>    </span><span class="hs-special">}</span><span>
+</span><span id="line-71"></span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- | Token stream backed by a shared lazy raw token list and a layout overlay.</span><span>
+</span><span id="line-73"></span><span class="hs-comment">--</span><span>
+</span><span id="line-74"></span><span class="hs-comment">-- The raw token list (@tokStreamRawTokens@) is produced lazily by scanning the</span><span>
+</span><span id="line-75"></span><span class="hs-comment">-- input once. Backtracking never causes characters to be re-scanned &#8212; it only</span><span>
+</span><span id="line-76"></span><span class="hs-comment">-- restores a pointer into this shared list. The layout overlay</span><span>
+</span><span id="line-77"></span><span class="hs-comment">-- (@tokStreamLayoutState@) runs 'layoutTransition' on each raw token to produce</span><span>
+</span><span id="line-78"></span><span class="hs-comment">-- virtual @{@, @;@, @}@ tokens. This allows the parser to influence layout</span><span>
+</span><span id="line-79"></span><span class="hs-comment">-- decisions (e.g., by closing implicit layout contexts via</span><span>
+</span><span id="line-80"></span><span class="hs-comment">-- 'closeImplicitLayoutContext').</span><span>
+</span><span id="line-81"></span><span class="hs-keyword">data</span><span> </span><span id="TokStream"><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-var">TokStream</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="TokStream"><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-var">TokStream</span></a></span></span><span>
+</span><span id="line-82"></span><span>  </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="hs-comment">-- | Shared lazy list of raw tokens (never re-scanned on backtrack).</span></span><span>
+</span><span id="line-83"></span><span>    </span><span id="tokStreamRawTokens"><span class="annot"><span class="annottext">TokStream -&gt; [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamRawTokens"><span class="hs-identifier hs-var hs-var">tokStreamRawTokens</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-84"></span><span>    </span><span class="annot"><span class="hs-comment">-- | Layout engine state (context stack and pending layout).</span></span><span>
+</span><span id="line-85"></span><span>    </span><span id="tokStreamLayoutState"><span class="annot"><span class="annottext">TokStream -&gt; LayoutState
+</span><a href="Aihc.Parser.Types.html#tokStreamLayoutState"><span class="hs-identifier hs-var hs-var">tokStreamLayoutState</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LayoutState"><span class="hs-identifier hs-type">LayoutState</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-86"></span><span>    </span><span class="annot"><span class="hs-comment">-- | Tokens ready for the parser, including virtual layout tokens.</span></span><span>
+</span><span id="line-87"></span><span>    </span><span id="tokStreamBuffer"><span class="annot"><span class="annottext">TokStream -&gt; [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamBuffer"><span class="hs-identifier hs-var hs-var">tokStreamBuffer</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-88"></span><span>    </span><span class="hs-comment">-- | Hidden pragmas that appeared before the next source token.</span><span>
+</span><span id="line-89"></span><span>    </span><span class="hs-comment">-- Parsers may inspect these explicitly, but they never participate in the</span><span>
+</span><span id="line-90"></span><span>    </span><span class="hs-comment">-- ordinary token stream.</span><span>
+</span><span id="line-91"></span><span>    </span><span id="tokStreamPendingPragmas"><span class="annot"><span class="annottext">TokStream -&gt; [Pragma]
+</span><a href="Aihc.Parser.Types.html#tokStreamPendingPragmas"><span class="hs-identifier hs-var hs-var">tokStreamPendingPragmas</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Syntax.html#Pragma"><span class="hs-identifier hs-type">Pragma</span></a></span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-92"></span><span>    </span><span id="tokStreamPrevToken"><span class="annot"><span class="annottext">TokStream -&gt; Maybe LexToken
+</span><a href="Aihc.Parser.Types.html#tokStreamPrevToken"><span class="hs-identifier hs-var hs-var">tokStreamPrevToken</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-93"></span><span>    </span><span id="tokStreamExtensionSet"><span class="annot"><span class="annottext">TokStream -&gt; ExtensionSet
+</span><a href="Aihc.Parser.Types.html#tokStreamExtensionSet"><span class="hs-identifier hs-var hs-var">tokStreamExtensionSet</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ExtensionSet"><span class="hs-identifier hs-type">ExtensionSet</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-94"></span><span>    </span><span class="hs-comment">-- | Whether this stream has already emitted TkEOF.</span><span>
+</span><span id="line-95"></span><span>    </span><span class="hs-comment">-- After EOF is emitted, 'take1_' returns Nothing.</span><span>
+</span><span id="line-96"></span><span>    </span><span id="tokStreamEOFEmitted"><span class="annot"><span class="annottext">TokStream -&gt; Bool
+</span><a href="Aihc.Parser.Types.html#tokStreamEOFEmitted"><span class="hs-identifier hs-var hs-var">tokStreamEOFEmitted</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-97"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-98"></span><span>
+</span><span id="line-99"></span><span class="hs-comment">-- -- Manual Eq instance &#8212; we skip tokStreamRawTokens since list position is not</span><span>
+</span><span id="line-100"></span><span class="hs-comment">-- -- efficiently comparable and Megaparsec tracks offset separately.</span><span>
+</span><span id="line-101"></span><span class="hs-comment">-- instance Eq TokStream where</span><span>
+</span><span id="line-102"></span><span class="hs-comment">--   a == b =</span><span>
+</span><span id="line-103"></span><span class="hs-comment">--     tokStreamLayoutState a == tokStreamLayoutState b</span><span>
+</span><span id="line-104"></span><span class="hs-comment">--       &amp;&amp; tokStreamPendingPragmas a == tokStreamPendingPragmas b</span><span>
+</span><span id="line-105"></span><span class="hs-comment">--       &amp;&amp; tokStreamPrevToken a == tokStreamPrevToken b</span><span>
+</span><span id="line-106"></span><span class="hs-comment">--       &amp;&amp; tokStreamExtensions a == tokStreamExtensions b</span><span>
+</span><span id="line-107"></span><span class="hs-comment">--       &amp;&amp; tokStreamEOFEmitted a == tokStreamEOFEmitted b</span><span>
+</span><span id="line-108"></span><span>
+</span><span id="line-109"></span><span class="hs-comment">-- -- Manual Ord instance</span><span>
+</span><span id="line-110"></span><span class="hs-comment">-- instance Ord TokStream where</span><span>
+</span><span id="line-111"></span><span class="hs-comment">--   compare a b =</span><span>
+</span><span id="line-112"></span><span class="hs-comment">--     compare (tokStreamEOFEmitted a) (tokStreamEOFEmitted b)</span><span>
+</span><span id="line-113"></span><span>
+</span><span id="line-114"></span><span class="hs-comment">-- Manual Show instance</span><span>
+</span><span id="line-115"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679403853"><span id="local-6989586621679403858"><span class="annot"><span class="hs-identifier hs-type">Show</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-116"></span><span>  </span><span id="local-6989586621679403884"><span class="annot"><span class="annottext">show :: TokStream -&gt; String
+</span><a href="#local-6989586621679403884"><span class="hs-identifier hs-var hs-var hs-var">show</span></a></span></span><span> </span><span id="local-6989586621679403886"><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403886"><span class="hs-identifier hs-var">ts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-117"></span><span>    </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;TokStream { eofEmitted = &quot;</span></span><span>
+</span><span id="line-118"></span><span>      </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><span class="hs-identifier hs-var">show</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; Bool
+</span><a href="Aihc.Parser.Types.html#tokStreamEOFEmitted"><span class="hs-identifier hs-var">tokStreamEOFEmitted</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403886"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-119"></span><span>      </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;, pendingPragmas = &quot;</span></span><span>
+</span><span id="line-120"></span><span>      </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">Int -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><span class="hs-identifier hs-var">show</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Pragma] -&gt; Int
+forall a. [a] -&gt; Int
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Int
+</span><span class="hs-identifier hs-var">length</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; [Pragma]
+</span><a href="Aihc.Parser.Types.html#tokStreamPendingPragmas"><span class="hs-identifier hs-var">tokStreamPendingPragmas</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403886"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-121"></span><span>      </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;, prevToken = &quot;</span></span><span>
+</span><span id="line-122"></span><span>      </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">Maybe LexToken -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><span class="hs-identifier hs-var">show</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; Maybe LexToken
+</span><a href="Aihc.Parser.Types.html#tokStreamPrevToken"><span class="hs-identifier hs-var">tokStreamPrevToken</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403886"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-123"></span><span>      </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;, extensionSet = &quot;</span></span><span>
+</span><span id="line-124"></span><span>      </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">ExtensionSet -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><span class="hs-identifier hs-var">show</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; ExtensionSet
+</span><a href="Aihc.Parser.Types.html#tokStreamExtensionSet"><span class="hs-identifier hs-var">tokStreamExtensionSet</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403886"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-125"></span><span>      </span><span class="annot"><span class="annottext">String -&gt; ShowS
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot; }&quot;</span></span><span>
+</span><span id="line-126"></span><span>
+</span><span id="line-127"></span><span class="hs-comment">-- Manual NFData instance &#8212; don't force the lazy raw token list.</span><span>
+</span><span id="line-128"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><span class="hs-identifier hs-type">NFData</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-129"></span><span>  </span><span id="local-6989586621679403901"><span class="annot"><span class="annottext">rnf :: TokStream -&gt; ()
+</span><a href="#local-6989586621679403901"><span class="hs-identifier hs-var hs-var hs-var">rnf</span></a></span></span><span> </span><span id="local-6989586621679403903"><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403903"><span class="hs-identifier hs-var">ts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-130"></span><span>    </span><span class="annot"><span class="annottext">[Pragma] -&gt; ()
+forall a. NFData a =&gt; a -&gt; ()
+</span><span class="hs-identifier hs-var">rnf</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; [Pragma]
+</span><a href="Aihc.Parser.Types.html#tokStreamPendingPragmas"><span class="hs-identifier hs-var">tokStreamPendingPragmas</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403903"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">() -&gt; () -&gt; ()
+forall a b. a -&gt; b -&gt; b
+</span><span class="hs-operator hs-var">`seq`</span></span><span>
+</span><span id="line-131"></span><span>      </span><span class="annot"><span class="annottext">Maybe LexToken -&gt; ()
+forall a. NFData a =&gt; a -&gt; ()
+</span><span class="hs-identifier hs-var">rnf</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; Maybe LexToken
+</span><a href="Aihc.Parser.Types.html#tokStreamPrevToken"><span class="hs-identifier hs-var">tokStreamPrevToken</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403903"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">() -&gt; () -&gt; ()
+forall a b. a -&gt; b -&gt; b
+</span><span class="hs-operator hs-var">`seq`</span></span><span>
+</span><span id="line-132"></span><span>        </span><span class="annot"><span class="annottext">ExtensionSet -&gt; ()
+forall a. NFData a =&gt; a -&gt; ()
+</span><span class="hs-identifier hs-var">rnf</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; ExtensionSet
+</span><a href="Aihc.Parser.Types.html#tokStreamExtensionSet"><span class="hs-identifier hs-var">tokStreamExtensionSet</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403903"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">() -&gt; () -&gt; ()
+forall a b. a -&gt; b -&gt; b
+</span><span class="hs-operator hs-var">`seq`</span></span><span>
+</span><span id="line-133"></span><span>          </span><span class="annot"><span class="annottext">Bool -&gt; ()
+forall a. NFData a =&gt; a -&gt; ()
+</span><span class="hs-identifier hs-var">rnf</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; Bool
+</span><a href="Aihc.Parser.Types.html#tokStreamEOFEmitted"><span class="hs-identifier hs-var">tokStreamEOFEmitted</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403903"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-134"></span><span>
+</span><span id="line-135"></span><span class="annot"><span class="hs-comment">-- | Create a TokStream for parsing expressions/declarations (no module layout).</span></span><span>
+</span><span id="line-136"></span><span class="annot"><a href="Aihc.Parser.Types.html#mkTokStream"><span class="hs-identifier hs-type">mkTokStream</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Syntax.html#Extension"><span class="hs-identifier hs-type">Extension</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span>
+</span><span id="line-137"></span><span id="mkTokStream"><span class="annot"><span class="annottext">mkTokStream :: String -&gt; [Extension] -&gt; Text -&gt; TokStream
+</span><a href="Aihc.Parser.Types.html#mkTokStream"><span class="hs-identifier hs-var hs-var">mkTokStream</span></a></span></span><span> </span><span id="local-6989586621679403905"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679403905"><span class="hs-identifier hs-var">sourceName</span></a></span></span><span> </span><span id="local-6989586621679403906"><span class="annot"><span class="annottext">[Extension]
+</span><a href="#local-6989586621679403906"><span class="hs-identifier hs-var">exts</span></a></span></span><span> </span><span id="local-6989586621679403907"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679403907"><span class="hs-identifier hs-var">input</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-138"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679403908"><span class="annot"><span class="annottext">LexerEnv
+</span><a href="#local-6989586621679403908"><span class="hs-identifier hs-var">env</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679403909"><span class="annot"><span class="annottext">LexerState
+</span><a href="#local-6989586621679403909"><span class="hs-identifier hs-var">lexSt</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; [Extension] -&gt; Text -&gt; (LexerEnv, LexerState)
+</span><a href="Aihc.Parser.Lex.Types.html#mkInitialLexerState"><span class="hs-identifier hs-var">mkInitialLexerState</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679403905"><span class="hs-identifier hs-var">sourceName</span></a></span><span> </span><span class="annot"><span class="annottext">[Extension]
+</span><a href="#local-6989586621679403906"><span class="hs-identifier hs-var">exts</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679403907"><span class="hs-identifier hs-var">input</span></a></span><span>
+</span><span id="line-139"></span><span>   </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">TokStream -&gt; TokStream
+</span><a href="Aihc.Parser.Types.html#normalizeTokStream"><span class="hs-identifier hs-var">normalizeTokStream</span></a></span><span>
+</span><span id="line-140"></span><span>        </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span>
+</span><span id="line-141"></span><span>          </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">tokStreamRawTokens :: [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamRawTokens"><span class="hs-identifier hs-var">tokStreamRawTokens</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LexerEnv -&gt; LexerState -&gt; [LexToken]
+</span><a href="Aihc.Parser.Lex.html#scanAllTokens"><span class="hs-identifier hs-var">scanAllTokens</span></a></span><span> </span><span class="annot"><span class="annottext">LexerEnv
+</span><a href="#local-6989586621679403908"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="annot"><span class="annottext">LexerState
+</span><a href="#local-6989586621679403909"><span class="hs-identifier hs-var">lexSt</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-142"></span><span>            </span><span class="annot"><span class="annottext">tokStreamLayoutState :: LayoutState
+</span><a href="Aihc.Parser.Types.html#tokStreamLayoutState"><span class="hs-identifier hs-var">tokStreamLayoutState</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; [Extension] -&gt; LayoutState
+</span><a href="Aihc.Parser.Lex.Types.html#mkInitialLayoutState"><span class="hs-identifier hs-var">mkInitialLayoutState</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span> </span><span class="annot"><span class="annottext">[Extension]
+</span><a href="#local-6989586621679403906"><span class="hs-identifier hs-var">exts</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-143"></span><span>            </span><span class="annot"><span class="annottext">tokStreamBuffer :: [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamBuffer"><span class="hs-identifier hs-var">tokStreamBuffer</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-144"></span><span>            </span><span class="annot"><span class="annottext">tokStreamPendingPragmas :: [Pragma]
+</span><a href="Aihc.Parser.Types.html#tokStreamPendingPragmas"><span class="hs-identifier hs-var">tokStreamPendingPragmas</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-145"></span><span>            </span><span class="annot"><span class="annottext">tokStreamPrevToken :: Maybe LexToken
+</span><a href="Aihc.Parser.Types.html#tokStreamPrevToken"><span class="hs-identifier hs-var">tokStreamPrevToken</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe LexToken
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span class="hs-special">,</span><span>
+</span><span id="line-146"></span><span>            </span><span class="annot"><span class="annottext">tokStreamExtensionSet :: ExtensionSet
+</span><a href="Aihc.Parser.Types.html#tokStreamExtensionSet"><span class="hs-identifier hs-var">tokStreamExtensionSet</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Extension] -&gt; ExtensionSet
+</span><a href="Aihc.Parser.Syntax.html#mkExtensionSet"><span class="hs-identifier hs-var">mkExtensionSet</span></a></span><span> </span><span class="annot"><span class="annottext">[Extension]
+</span><a href="#local-6989586621679403906"><span class="hs-identifier hs-var">exts</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-147"></span><span>            </span><span class="annot"><span class="annottext">tokStreamEOFEmitted :: Bool
+</span><a href="Aihc.Parser.Types.html#tokStreamEOFEmitted"><span class="hs-identifier hs-var">tokStreamEOFEmitted</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-148"></span><span>          </span><span class="hs-special">}</span><span>
+</span><span id="line-149"></span><span>
+</span><span id="line-150"></span><span class="hs-comment">-- | Create a TokStream for parsing full modules (with module-body layout).</span><span>
+</span><span id="line-151"></span><span class="hs-comment">-- Also bootstraps LANGUAGE pragma extensions from the module header.</span><span>
+</span><span id="line-152"></span><span class="annot"><a href="Aihc.Parser.Types.html#mkTokStreamModule"><span class="hs-identifier hs-type">mkTokStreamModule</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Syntax.html#Extension"><span class="hs-identifier hs-type">Extension</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span>
+</span><span id="line-153"></span><span id="mkTokStreamModule"><span class="annot"><span class="annottext">mkTokStreamModule :: String -&gt; [Extension] -&gt; Text -&gt; TokStream
+</span><a href="Aihc.Parser.Types.html#mkTokStreamModule"><span class="hs-identifier hs-var hs-var">mkTokStreamModule</span></a></span></span><span> </span><span id="local-6989586621679403911"><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679403911"><span class="hs-identifier hs-var">sourceName</span></a></span></span><span> </span><span id="local-6989586621679403912"><span class="annot"><span class="annottext">[Extension]
+</span><a href="#local-6989586621679403912"><span class="hs-identifier hs-var">baseExts</span></a></span></span><span> </span><span id="local-6989586621679403913"><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679403913"><span class="hs-identifier hs-var">input</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-154"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679403914"><span class="annot"><span class="annottext">LexerEnv
+</span><a href="#local-6989586621679403914"><span class="hs-identifier hs-var">env</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679403915"><span class="annot"><span class="annottext">LexerState
+</span><a href="#local-6989586621679403915"><span class="hs-identifier hs-var">lexSt</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; [Extension] -&gt; Text -&gt; (LexerEnv, LexerState)
+</span><a href="Aihc.Parser.Lex.Types.html#mkInitialLexerState"><span class="hs-identifier hs-var">mkInitialLexerState</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><a href="#local-6989586621679403911"><span class="hs-identifier hs-var">sourceName</span></a></span><span> </span><span class="annot"><span class="annottext">[Extension]
+</span><a href="#local-6989586621679403916"><span class="hs-identifier hs-var">effectiveExts</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679403913"><span class="hs-identifier hs-var">input</span></a></span><span>
+</span><span id="line-155"></span><span>   </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">TokStream -&gt; TokStream
+</span><a href="Aihc.Parser.Types.html#normalizeTokStream"><span class="hs-identifier hs-var">normalizeTokStream</span></a></span><span>
+</span><span id="line-156"></span><span>        </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span>
+</span><span id="line-157"></span><span>          </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">tokStreamRawTokens :: [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamRawTokens"><span class="hs-identifier hs-var">tokStreamRawTokens</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LexerEnv -&gt; LexerState -&gt; [LexToken]
+</span><a href="Aihc.Parser.Lex.html#scanAllTokens"><span class="hs-identifier hs-var">scanAllTokens</span></a></span><span> </span><span class="annot"><span class="annottext">LexerEnv
+</span><a href="#local-6989586621679403914"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="annot"><span class="annottext">LexerState
+</span><a href="#local-6989586621679403915"><span class="hs-identifier hs-var">lexSt</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-158"></span><span>            </span><span class="annot"><span class="annottext">tokStreamLayoutState :: LayoutState
+</span><a href="Aihc.Parser.Types.html#tokStreamLayoutState"><span class="hs-identifier hs-var">tokStreamLayoutState</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; [Extension] -&gt; LayoutState
+</span><a href="Aihc.Parser.Lex.Types.html#mkInitialLayoutState"><span class="hs-identifier hs-var">mkInitialLayoutState</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span> </span><span class="annot"><span class="annottext">[Extension]
+</span><a href="#local-6989586621679403916"><span class="hs-identifier hs-var">effectiveExts</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-159"></span><span>            </span><span class="annot"><span class="annottext">tokStreamBuffer :: [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamBuffer"><span class="hs-identifier hs-var">tokStreamBuffer</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-160"></span><span>            </span><span class="annot"><span class="annottext">tokStreamPendingPragmas :: [Pragma]
+</span><a href="Aihc.Parser.Types.html#tokStreamPendingPragmas"><span class="hs-identifier hs-var">tokStreamPendingPragmas</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-161"></span><span>            </span><span class="annot"><span class="annottext">tokStreamPrevToken :: Maybe LexToken
+</span><a href="Aihc.Parser.Types.html#tokStreamPrevToken"><span class="hs-identifier hs-var">tokStreamPrevToken</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe LexToken
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span class="hs-special">,</span><span>
+</span><span id="line-162"></span><span>            </span><span class="annot"><span class="annottext">tokStreamExtensionSet :: ExtensionSet
+</span><a href="Aihc.Parser.Types.html#tokStreamExtensionSet"><span class="hs-identifier hs-var">tokStreamExtensionSet</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Extension] -&gt; ExtensionSet
+</span><a href="Aihc.Parser.Syntax.html#mkExtensionSet"><span class="hs-identifier hs-var">mkExtensionSet</span></a></span><span> </span><span class="annot"><span class="annottext">[Extension]
+</span><a href="#local-6989586621679403916"><span class="hs-identifier hs-var">effectiveExts</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-163"></span><span>            </span><span class="annot"><span class="annottext">tokStreamEOFEmitted :: Bool
+</span><a href="Aihc.Parser.Types.html#tokStreamEOFEmitted"><span class="hs-identifier hs-var">tokStreamEOFEmitted</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-164"></span><span>          </span><span class="hs-special">}</span><span>
+</span><span id="line-165"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-166"></span><span>    </span><span id="local-6989586621679403917"><span class="annot"><span class="annottext">headerSettings :: [ExtensionSetting]
+</span><a href="#local-6989586621679403917"><span class="hs-identifier hs-var hs-var">headerSettings</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; [ExtensionSetting]
+</span><a href="Aihc.Parser.Lex.html#readModuleHeaderExtensions"><span class="hs-identifier hs-var">readModuleHeaderExtensions</span></a></span><span> </span><span class="annot"><span class="annottext">Text
+</span><a href="#local-6989586621679403913"><span class="hs-identifier hs-var">input</span></a></span><span>
+</span><span id="line-167"></span><span>    </span><span id="local-6989586621679403916"><span class="annot"><span class="annottext">effectiveExts :: [Extension]
+</span><a href="#local-6989586621679403916"><span class="hs-identifier hs-var hs-var">effectiveExts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Extension] -&gt; [Extension]
+</span><a href="Aihc.Parser.Syntax.html#applyImpliedExtensions"><span class="hs-identifier hs-var">applyImpliedExtensions</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(ExtensionSetting -&gt; [Extension] -&gt; [Extension])
+-&gt; [Extension] -&gt; [ExtensionSetting] -&gt; [Extension]
+forall a b. (a -&gt; b -&gt; b) -&gt; b -&gt; [a] -&gt; b
+forall (t :: * -&gt; *) a b.
+Foldable t =&gt;
+(a -&gt; b -&gt; b) -&gt; b -&gt; t a -&gt; b
+</span><span class="hs-identifier hs-var">foldr</span></span><span> </span><span class="annot"><span class="annottext">ExtensionSetting -&gt; [Extension] -&gt; [Extension]
+</span><a href="Aihc.Parser.Syntax.html#applyExtensionSetting"><span class="hs-identifier hs-var">applyExtensionSetting</span></a></span><span> </span><span class="annot"><span class="annottext">[Extension]
+</span><a href="#local-6989586621679403912"><span class="hs-identifier hs-var">baseExts</span></a></span><span> </span><span class="annot"><span class="annottext">[ExtensionSetting]
+</span><a href="#local-6989586621679403917"><span class="hs-identifier hs-var">headerSettings</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-168"></span><span>
+</span><span id="line-169"></span><span class="hs-comment">-- | Create a TokStream from pre-lexed tokens (for testing/compatibility).</span><span>
+</span><span id="line-170"></span><span class="hs-comment">-- Layout tokens must already be inserted in the token list.</span><span>
+</span><span id="line-171"></span><span class="annot"><a href="Aihc.Parser.Types.html#mkTokStreamFromTokens"><span class="hs-identifier hs-type">mkTokStreamFromTokens</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span>
+</span><span id="line-172"></span><span id="mkTokStreamFromTokens"><span class="annot"><span class="annottext">mkTokStreamFromTokens :: [LexToken] -&gt; TokStream
+</span><a href="Aihc.Parser.Types.html#mkTokStreamFromTokens"><span class="hs-identifier hs-var hs-var">mkTokStreamFromTokens</span></a></span></span><span> </span><span id="local-6989586621679403919"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403919"><span class="hs-identifier hs-var">toks</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-173"></span><span>  </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679403922"><span class="annot"><span class="annottext">LexerEnv
+</span><a href="#local-6989586621679403922"><span class="hs-identifier hs-var">env</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679403923"><span class="annot"><span class="annottext">LexerState
+</span><a href="#local-6989586621679403923"><span class="hs-identifier hs-var">lexSt</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">String -&gt; [Extension] -&gt; Text -&gt; (LexerEnv, LexerState)
+</span><a href="Aihc.Parser.Lex.Types.html#mkInitialLexerState"><span class="hs-identifier hs-var">mkInitialLexerState</span></a></span><span> </span><span class="annot"><span class="annottext">String
+</span><span class="hs-string">&quot;&lt;tokens&gt;&quot;</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;&quot;</span></span><span>
+</span><span id="line-174"></span><span>   </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">TokStream -&gt; TokStream
+</span><a href="Aihc.Parser.Types.html#normalizeTokStream"><span class="hs-identifier hs-var">normalizeTokStream</span></a></span><span>
+</span><span id="line-175"></span><span>        </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span>
+</span><span id="line-176"></span><span>          </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">tokStreamRawTokens :: [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamRawTokens"><span class="hs-identifier hs-var">tokStreamRawTokens</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LexerEnv -&gt; LexerState -&gt; [LexToken]
+</span><a href="Aihc.Parser.Lex.html#scanAllTokens"><span class="hs-identifier hs-var">scanAllTokens</span></a></span><span> </span><span class="annot"><span class="annottext">LexerEnv
+</span><a href="#local-6989586621679403922"><span class="hs-identifier hs-var">env</span></a></span><span> </span><span class="annot"><span class="annottext">LexerState
+</span><a href="#local-6989586621679403923"><span class="hs-identifier hs-var">lexSt</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-177"></span><span>            </span><span class="annot"><span class="annottext">tokStreamLayoutState :: LayoutState
+</span><a href="Aihc.Parser.Types.html#tokStreamLayoutState"><span class="hs-identifier hs-var">tokStreamLayoutState</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; [Extension] -&gt; LayoutState
+</span><a href="Aihc.Parser.Lex.Types.html#mkInitialLayoutState"><span class="hs-identifier hs-var">mkInitialLayoutState</span></a></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-178"></span><span>            </span><span class="annot"><span class="annottext">tokStreamBuffer :: [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamBuffer"><span class="hs-identifier hs-var">tokStreamBuffer</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403919"><span class="hs-identifier hs-var">toks</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-179"></span><span>            </span><span class="annot"><span class="annottext">tokStreamPendingPragmas :: [Pragma]
+</span><a href="Aihc.Parser.Types.html#tokStreamPendingPragmas"><span class="hs-identifier hs-var">tokStreamPendingPragmas</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-180"></span><span>            </span><span class="annot"><span class="annottext">tokStreamPrevToken :: Maybe LexToken
+</span><a href="Aihc.Parser.Types.html#tokStreamPrevToken"><span class="hs-identifier hs-var">tokStreamPrevToken</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe LexToken
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span class="hs-special">,</span><span>
+</span><span id="line-181"></span><span>            </span><span class="annot"><span class="annottext">tokStreamExtensionSet :: ExtensionSet
+</span><a href="Aihc.Parser.Types.html#tokStreamExtensionSet"><span class="hs-identifier hs-var">tokStreamExtensionSet</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Extension] -&gt; ExtensionSet
+</span><a href="Aihc.Parser.Syntax.html#mkExtensionSet"><span class="hs-identifier hs-var">mkExtensionSet</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span>
+</span><span id="line-182"></span><span>            </span><span class="annot"><span class="annottext">tokStreamEOFEmitted :: Bool
+</span><a href="Aihc.Parser.Types.html#tokStreamEOFEmitted"><span class="hs-identifier hs-var">tokStreamEOFEmitted</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-183"></span><span>          </span><span class="hs-special">}</span><span>
+</span><span id="line-184"></span><span>
+</span><span id="line-185"></span><span class="annot"><a href="Aihc.Parser.Types.html#normalizeTokStream"><span class="hs-identifier hs-type">normalizeTokStream</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span>
+</span><span id="line-186"></span><span id="normalizeTokStream"><span class="annot"><span class="annottext">normalizeTokStream :: TokStream -&gt; TokStream
+</span><a href="Aihc.Parser.Types.html#normalizeTokStream"><span class="hs-identifier hs-var hs-var">normalizeTokStream</span></a></span></span><span> </span><span id="local-6989586621679403924"><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403924"><span class="hs-identifier hs-var">ts0</span></a></span></span><span>
+</span><span id="line-187"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">TokStream -&gt; Bool
+</span><a href="Aihc.Parser.Types.html#tokStreamEOFEmitted"><span class="hs-identifier hs-var">tokStreamEOFEmitted</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403924"><span class="hs-identifier hs-var">ts0</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403924"><span class="hs-identifier hs-var">ts0</span></a></span><span>
+</span><span id="line-188"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-189"></span><span>      </span><span class="annot"><span class="annottext">[LexToken]
+-&gt; LayoutState
+-&gt; [LexToken]
+-&gt; [Pragma]
+-&gt; Maybe LexToken
+-&gt; ExtensionSet
+-&gt; Bool
+-&gt; TokStream
+</span><a href="Aihc.Parser.Types.html#normalizeTokStreamParts"><span class="hs-identifier hs-var">normalizeTokStreamParts</span></a></span><span>
+</span><span id="line-190"></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamRawTokens"><span class="hs-identifier hs-var">tokStreamRawTokens</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403924"><span class="hs-identifier hs-var">ts0</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-191"></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; LayoutState
+</span><a href="Aihc.Parser.Types.html#tokStreamLayoutState"><span class="hs-identifier hs-var">tokStreamLayoutState</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403924"><span class="hs-identifier hs-var">ts0</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-192"></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamBuffer"><span class="hs-identifier hs-var">tokStreamBuffer</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403924"><span class="hs-identifier hs-var">ts0</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-193"></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; [Pragma]
+</span><a href="Aihc.Parser.Types.html#tokStreamPendingPragmas"><span class="hs-identifier hs-var">tokStreamPendingPragmas</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403924"><span class="hs-identifier hs-var">ts0</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-194"></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; Maybe LexToken
+</span><a href="Aihc.Parser.Types.html#tokStreamPrevToken"><span class="hs-identifier hs-var">tokStreamPrevToken</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403924"><span class="hs-identifier hs-var">ts0</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-195"></span><span>        </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; ExtensionSet
+</span><a href="Aihc.Parser.Types.html#tokStreamExtensionSet"><span class="hs-identifier hs-var">tokStreamExtensionSet</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403924"><span class="hs-identifier hs-var">ts0</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-196"></span><span>        </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-197"></span><span>
+</span><span id="line-198"></span><span class="hs-comment">-- | Advance through layout and hidden tokens until the stream is ready for</span><span>
+</span><span id="line-199"></span><span class="hs-comment">-- 'stepOne'. Keeping the stream fields separate lets a token step normalize</span><span>
+</span><span id="line-200"></span><span class="hs-comment">-- its successor without first allocating an intermediate 'TokStream'.</span><span>
+</span><span id="line-201"></span><span class="annot"><a href="Aihc.Parser.Types.html#normalizeTokStreamParts"><span class="hs-identifier hs-type">normalizeTokStreamParts</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LayoutState"><span class="hs-identifier hs-type">LayoutState</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Syntax.html#Pragma"><span class="hs-identifier hs-type">Pragma</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Parser.Syntax.html#ExtensionSet"><span class="hs-identifier hs-type">ExtensionSet</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span>
+</span><span id="line-202"></span><span id="normalizeTokStreamParts"><span class="annot"><span class="annottext">normalizeTokStreamParts :: [LexToken]
+-&gt; LayoutState
+-&gt; [LexToken]
+-&gt; [Pragma]
+-&gt; Maybe LexToken
+-&gt; ExtensionSet
+-&gt; Bool
+-&gt; TokStream
+</span><a href="Aihc.Parser.Types.html#normalizeTokStreamParts"><span class="hs-identifier hs-var hs-var">normalizeTokStreamParts</span></a></span></span><span> </span><span id="local-6989586621679403927"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403927"><span class="hs-identifier hs-var">rawTokens</span></a></span></span><span> </span><span id="local-6989586621679403928"><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403928"><span class="hs-identifier hs-var">layoutState</span></a></span></span><span> </span><span id="local-6989586621679403929"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403929"><span class="hs-identifier hs-var">buffer</span></a></span></span><span> </span><span id="local-6989586621679403930"><span class="annot"><span class="annottext">[Pragma]
+</span><a href="#local-6989586621679403930"><span class="hs-identifier hs-var">pendingPragmas</span></a></span></span><span> </span><span id="local-6989586621679403931"><span class="annot"><span class="annottext">Maybe LexToken
+</span><a href="#local-6989586621679403931"><span class="hs-identifier hs-var">prevToken</span></a></span></span><span> </span><span id="local-6989586621679403932"><span class="annot"><span class="annottext">ExtensionSet
+</span><a href="#local-6989586621679403932"><span class="hs-identifier hs-var">extensionSet</span></a></span></span><span> </span><span id="local-6989586621679403933"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679403933"><span class="hs-identifier hs-var">eofEmitted</span></a></span></span><span>
+</span><span id="line-203"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679403933"><span class="hs-identifier hs-var">eofEmitted</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LexToken] -&gt; LayoutState -&gt; [LexToken] -&gt; [Pragma] -&gt; TokStream
+</span><a href="#local-6989586621679403934"><span class="hs-identifier hs-var">finish</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403927"><span class="hs-identifier hs-var">rawTokens</span></a></span><span> </span><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403928"><span class="hs-identifier hs-var">layoutState</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403929"><span class="hs-identifier hs-var">buffer</span></a></span><span> </span><span class="annot"><span class="annottext">[Pragma]
+</span><a href="#local-6989586621679403930"><span class="hs-identifier hs-var">pendingPragmas</span></a></span><span>
+</span><span id="line-204"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LexToken] -&gt; LayoutState -&gt; [LexToken] -&gt; [Pragma] -&gt; TokStream
+</span><a href="#local-6989586621679403935"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403927"><span class="hs-identifier hs-var">rawTokens</span></a></span><span> </span><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403928"><span class="hs-identifier hs-var">layoutState</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403929"><span class="hs-identifier hs-var">buffer</span></a></span><span> </span><span class="annot"><span class="annottext">[Pragma]
+</span><a href="#local-6989586621679403930"><span class="hs-identifier hs-var">pendingPragmas</span></a></span><span>
+</span><span id="line-205"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-206"></span><span>    </span><span id="local-6989586621679403934"><span class="annot"><span class="annottext">finish :: [LexToken] -&gt; LayoutState -&gt; [LexToken] -&gt; [Pragma] -&gt; TokStream
+</span><a href="#local-6989586621679403934"><span class="hs-identifier hs-var hs-var">finish</span></a></span></span><span> </span><span id="local-6989586621679403936"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403936"><span class="hs-identifier hs-var">rawTokens'</span></a></span></span><span> </span><span id="local-6989586621679403937"><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403937"><span class="hs-identifier hs-var">layoutState'</span></a></span></span><span> </span><span id="local-6989586621679403938"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403938"><span class="hs-identifier hs-var">buffer'</span></a></span></span><span> </span><span id="local-6989586621679403939"><span class="annot"><span class="annottext">[Pragma]
+</span><a href="#local-6989586621679403939"><span class="hs-identifier hs-var">pendingPragmas'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-207"></span><span>      </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span>
+</span><span id="line-208"></span><span>        </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">tokStreamRawTokens :: [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamRawTokens"><span class="hs-identifier hs-var">tokStreamRawTokens</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403936"><span class="hs-identifier hs-var">rawTokens'</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-209"></span><span>          </span><span class="annot"><span class="annottext">tokStreamLayoutState :: LayoutState
+</span><a href="Aihc.Parser.Types.html#tokStreamLayoutState"><span class="hs-identifier hs-var">tokStreamLayoutState</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403937"><span class="hs-identifier hs-var">layoutState'</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-210"></span><span>          </span><span class="annot"><span class="annottext">tokStreamBuffer :: [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamBuffer"><span class="hs-identifier hs-var">tokStreamBuffer</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403938"><span class="hs-identifier hs-var">buffer'</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-211"></span><span>          </span><span class="annot"><span class="annottext">tokStreamPendingPragmas :: [Pragma]
+</span><a href="Aihc.Parser.Types.html#tokStreamPendingPragmas"><span class="hs-identifier hs-var">tokStreamPendingPragmas</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[Pragma]
+</span><a href="#local-6989586621679403939"><span class="hs-identifier hs-var">pendingPragmas'</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-212"></span><span>          </span><span class="annot"><span class="annottext">tokStreamPrevToken :: Maybe LexToken
+</span><a href="Aihc.Parser.Types.html#tokStreamPrevToken"><span class="hs-identifier hs-var">tokStreamPrevToken</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe LexToken
+</span><a href="#local-6989586621679403931"><span class="hs-identifier hs-var">prevToken</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-213"></span><span>          </span><span class="annot"><span class="annottext">tokStreamExtensionSet :: ExtensionSet
+</span><a href="Aihc.Parser.Types.html#tokStreamExtensionSet"><span class="hs-identifier hs-var">tokStreamExtensionSet</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExtensionSet
+</span><a href="#local-6989586621679403932"><span class="hs-identifier hs-var">extensionSet</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-214"></span><span>          </span><span class="annot"><span class="annottext">tokStreamEOFEmitted :: Bool
+</span><a href="Aihc.Parser.Types.html#tokStreamEOFEmitted"><span class="hs-identifier hs-var">tokStreamEOFEmitted</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679403933"><span class="hs-identifier hs-var">eofEmitted</span></a></span><span>
+</span><span id="line-215"></span><span>        </span><span class="hs-special">}</span><span>
+</span><span id="line-216"></span><span>
+</span><span id="line-217"></span><span>    </span><span id="local-6989586621679403935"><span class="annot"><span class="annottext">go :: [LexToken] -&gt; LayoutState -&gt; [LexToken] -&gt; [Pragma] -&gt; TokStream
+</span><a href="#local-6989586621679403935"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span id="local-6989586621679403940"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403940"><span class="hs-identifier hs-var">rawTokens'</span></a></span></span><span> </span><span id="local-6989586621679403941"><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403941"><span class="hs-identifier hs-var">layoutState'</span></a></span></span><span> </span><span id="local-6989586621679403942"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403942"><span class="hs-identifier hs-var">buffer'</span></a></span></span><span> </span><span id="local-6989586621679403943"><span class="annot"><span class="annottext">[Pragma]
+</span><a href="#local-6989586621679403943"><span class="hs-identifier hs-var">pendingPragmas'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-218"></span><span>      </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403942"><span class="hs-identifier hs-var">buffer'</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-219"></span><span>        </span><span id="local-6989586621679403944"><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403944"><span class="hs-identifier hs-var">tok</span></a></span></span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span id="local-6989586621679403945"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403945"><span class="hs-identifier hs-var">rest</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-220"></span><span>          </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">LexToken -&gt; LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#lexTokenKind"><span class="hs-identifier hs-var">lexTokenKind</span></a></span><span> </span><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403944"><span class="hs-identifier hs-var">tok</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-221"></span><span>            </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TkPragma"><span class="hs-identifier hs-type">TkPragma</span></a></span><span> </span><span id="local-6989586621679403947"><span class="annot"><span class="annottext">Pragma
+</span><a href="#local-6989586621679403947"><span class="hs-identifier hs-var">pragma'</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-222"></span><span>              </span><span class="annot"><span class="annottext">[LexToken] -&gt; LayoutState -&gt; [LexToken] -&gt; [Pragma] -&gt; TokStream
+</span><a href="#local-6989586621679403935"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403940"><span class="hs-identifier hs-var">rawTokens'</span></a></span><span> </span><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403941"><span class="hs-identifier hs-var">layoutState'</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403945"><span class="hs-identifier hs-var">rest</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[Pragma]
+</span><a href="#local-6989586621679403943"><span class="hs-identifier hs-var">pendingPragmas'</span></a></span><span> </span><span class="annot"><span class="annottext">[Pragma] -&gt; [Pragma] -&gt; [Pragma]
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">&lt;&gt;</span></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Pragma
+</span><a href="#local-6989586621679403947"><span class="hs-identifier hs-var">pragma'</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-223"></span><span>            </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkLineComment"><span class="hs-identifier hs-var">TkLineComment</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[LexToken] -&gt; LayoutState -&gt; [LexToken] -&gt; [Pragma] -&gt; TokStream
+</span><a href="#local-6989586621679403935"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403940"><span class="hs-identifier hs-var">rawTokens'</span></a></span><span> </span><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403941"><span class="hs-identifier hs-var">layoutState'</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403945"><span class="hs-identifier hs-var">rest</span></a></span><span> </span><span class="annot"><span class="annottext">[Pragma]
+</span><a href="#local-6989586621679403943"><span class="hs-identifier hs-var">pendingPragmas'</span></a></span><span>
+</span><span id="line-224"></span><span>            </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkBlockComment"><span class="hs-identifier hs-var">TkBlockComment</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[LexToken] -&gt; LayoutState -&gt; [LexToken] -&gt; [Pragma] -&gt; TokStream
+</span><a href="#local-6989586621679403935"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403940"><span class="hs-identifier hs-var">rawTokens'</span></a></span><span> </span><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403941"><span class="hs-identifier hs-var">layoutState'</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403945"><span class="hs-identifier hs-var">rest</span></a></span><span> </span><span class="annot"><span class="annottext">[Pragma]
+</span><a href="#local-6989586621679403943"><span class="hs-identifier hs-var">pendingPragmas'</span></a></span><span>
+</span><span id="line-225"></span><span>            </span><span class="annot"><span class="annottext">LexTokenKind
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[LexToken] -&gt; LayoutState -&gt; [LexToken] -&gt; [Pragma] -&gt; TokStream
+</span><a href="#local-6989586621679403934"><span class="hs-identifier hs-var">finish</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403940"><span class="hs-identifier hs-var">rawTokens'</span></a></span><span> </span><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403941"><span class="hs-identifier hs-var">layoutState'</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403942"><span class="hs-identifier hs-var">buffer'</span></a></span><span> </span><span class="annot"><span class="annottext">[Pragma]
+</span><a href="#local-6989586621679403943"><span class="hs-identifier hs-var">pendingPragmas'</span></a></span><span>
+</span><span id="line-226"></span><span>        </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-227"></span><span>          </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403940"><span class="hs-identifier hs-var">rawTokens'</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-228"></span><span>            </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[LexToken] -&gt; LayoutState -&gt; [LexToken] -&gt; [Pragma] -&gt; TokStream
+</span><a href="#local-6989586621679403934"><span class="hs-identifier hs-var">finish</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403941"><span class="hs-identifier hs-var">layoutState'</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">[Pragma]
+</span><a href="#local-6989586621679403943"><span class="hs-identifier hs-var">pendingPragmas'</span></a></span><span>
+</span><span id="line-229"></span><span>            </span><span id="local-6989586621679403950"><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403950"><span class="hs-identifier hs-var">rawTok</span></a></span></span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span id="local-6989586621679403951"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403951"><span class="hs-identifier hs-var">rawRest</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-230"></span><span>              </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679403952"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403952"><span class="hs-identifier hs-var">allToks</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679403953"><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403953"><span class="hs-identifier hs-var">laySt'</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LayoutState -&gt; LexToken -&gt; ([LexToken], LayoutState)
+</span><a href="Aihc.Parser.Lex.Layout.html#layoutTransition"><span class="hs-identifier hs-var">layoutTransition</span></a></span><span> </span><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403941"><span class="hs-identifier hs-var">layoutState'</span></a></span><span> </span><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403950"><span class="hs-identifier hs-var">rawTok</span></a></span><span>
+</span><span id="line-231"></span><span>               </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">[LexToken] -&gt; LayoutState -&gt; [LexToken] -&gt; [Pragma] -&gt; TokStream
+</span><a href="#local-6989586621679403935"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403951"><span class="hs-identifier hs-var">rawRest</span></a></span><span> </span><span class="annot"><span class="annottext">LayoutState
+</span><a href="#local-6989586621679403953"><span class="hs-identifier hs-var">laySt'</span></a></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403952"><span class="hs-identifier hs-var">allToks</span></a></span><span> </span><span class="annot"><span class="annottext">[Pragma]
+</span><a href="#local-6989586621679403943"><span class="hs-identifier hs-var">pendingPragmas'</span></a></span><span>
+</span><span id="line-232"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#normalizeTokStreamParts"><span class="hs-pragma hs-type">normalizeTokStreamParts</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-233"></span><span>
+</span><span id="line-234"></span><span class="hs-comment">-- | Step one token from the stream. This is the core primitive used by all</span><span>
+</span><span id="line-235"></span><span class="hs-comment">-- Stream methods.</span><span>
+</span><span id="line-236"></span><span class="hs-comment">--</span><span>
+</span><span id="line-237"></span><span class="hs-comment">-- Tokens are produced in two phases:</span><span>
+</span><span id="line-238"></span><span class="hs-comment">--</span><span>
+</span><span id="line-239"></span><span class="hs-comment">-- 1. Drain any buffered tokens from the layout state (virtual braces/semicolons</span><span>
+</span><span id="line-240"></span><span class="hs-comment">--    from 'layoutTransition' or 'closeImplicitLayoutContext').</span><span>
+</span><span id="line-241"></span><span class="hs-comment">-- 2. Fetch the next raw token from the shared lazy list and run</span><span>
+</span><span id="line-242"></span><span class="hs-comment">--    'layoutTransition' to produce virtual layout tokens and the raw token</span><span>
+</span><span id="line-243"></span><span class="hs-comment">--    itself. The first token is returned; the rest are buffered.</span><span>
+</span><span id="line-244"></span><span class="hs-comment">--</span><span>
+</span><span id="line-245"></span><span class="hs-comment">-- Because the raw token list is a shared lazy list, backtracking to an earlier</span><span>
+</span><span id="line-246"></span><span class="hs-comment">-- stream position is O(1) and never re-scans characters.</span><span>
+</span><span id="line-247"></span><span class="annot"><a href="Aihc.Parser.Types.html#stepOne"><span class="hs-identifier hs-type">stepOne</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-248"></span><span id="stepOne"><span class="annot"><span class="annottext">stepOne :: TokStream -&gt; Maybe (LexToken, TokStream)
+</span><a href="Aihc.Parser.Types.html#stepOne"><span class="hs-identifier hs-var hs-var">stepOne</span></a></span></span><span> </span><span id="local-6989586621679403954"><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403954"><span class="hs-identifier hs-var">ts</span></a></span></span><span>
+</span><span id="line-249"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">TokStream -&gt; Bool
+</span><a href="Aihc.Parser.Types.html#tokStreamEOFEmitted"><span class="hs-identifier hs-var">tokStreamEOFEmitted</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403954"><span class="hs-identifier hs-var">ts</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Maybe (LexToken, TokStream)
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-250"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-251"></span><span>      </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">TokStream -&gt; [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamBuffer"><span class="hs-identifier hs-var">tokStreamBuffer</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403954"><span class="hs-identifier hs-var">ts</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-252"></span><span>        </span><span class="hs-comment">-- Drain buffered tokens first (virtual braces/semicolons)</span><span>
+</span><span id="line-253"></span><span>        </span><span id="local-6989586621679403955"><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403955"><span class="hs-identifier hs-var">tok</span></a></span></span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span id="local-6989586621679403956"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403956"><span class="hs-identifier hs-var">rest</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-254"></span><span>          </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679403957"><span class="annot"><span class="annottext">kind :: LexTokenKind
+</span><a href="#local-6989586621679403957"><span class="hs-identifier hs-var hs-var">kind</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">LexToken -&gt; LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#lexTokenKind"><span class="hs-identifier hs-var">lexTokenKind</span></a></span><span> </span><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403955"><span class="hs-identifier hs-var">tok</span></a></span><span>
+</span><span id="line-255"></span><span>              </span><span id="local-6989586621679403958"><span class="annot"><span class="annottext">isEOF :: Bool
+</span><a href="#local-6989586621679403958"><span class="hs-identifier hs-var hs-var">isEOF</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="#local-6989586621679403957"><span class="hs-identifier hs-var">kind</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-256"></span><span>                </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkEOF"><span class="hs-identifier hs-var">TkEOF</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span>
+</span><span id="line-257"></span><span>                </span><span class="annot"><span class="annottext">LexTokenKind
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span>
+</span><span id="line-258"></span><span>              </span><span id="local-6989586621679403960"><span class="annot"><span class="annottext">pendingPragmas :: [Pragma]
+</span><a href="#local-6989586621679403960"><span class="hs-identifier hs-var hs-var">pendingPragmas</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-259"></span><span>                </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">LexToken -&gt; TokenOrigin
+</span><a href="Aihc.Parser.Lex.Types.html#lexTokenOrigin"><span class="hs-identifier hs-var">lexTokenOrigin</span></a></span><span> </span><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403955"><span class="hs-identifier hs-var">tok</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-260"></span><span>                  </span><span class="annot"><span class="annottext">TokenOrigin
+</span><a href="Aihc.Parser.Lex.Types.html#InsertedLayout"><span class="hs-identifier hs-var">InsertedLayout</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokStream -&gt; [Pragma]
+</span><a href="Aihc.Parser.Types.html#tokStreamPendingPragmas"><span class="hs-identifier hs-var">tokStreamPendingPragmas</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403954"><span class="hs-identifier hs-var">ts</span></a></span><span>
+</span><span id="line-261"></span><span>                  </span><span class="annot"><span class="annottext">TokenOrigin
+</span><a href="Aihc.Parser.Lex.Types.html#FromSource"><span class="hs-identifier hs-var">FromSource</span></a></span><span>
+</span><span id="line-262"></span><span>                    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="Aihc.Parser.Lex.Types.html#TkSpecialSemicolon"><span class="hs-identifier hs-var">TkSpecialSemicolon</span></a></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">LexTokenKind
+</span><a href="#local-6989586621679403957"><span class="hs-identifier hs-var">kind</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">TokStream -&gt; [Pragma]
+</span><a href="Aihc.Parser.Types.html#tokStreamPendingPragmas"><span class="hs-identifier hs-var">tokStreamPendingPragmas</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403954"><span class="hs-identifier hs-var">ts</span></a></span><span>
+</span><span id="line-263"></span><span>                    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-264"></span><span>           </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">(LexToken, TokStream) -&gt; Maybe (LexToken, TokStream)
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span>
+</span><span id="line-265"></span><span>                </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403955"><span class="hs-identifier hs-var">tok</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-266"></span><span>                  </span><span class="annot"><span class="annottext">[LexToken]
+-&gt; LayoutState
+-&gt; [LexToken]
+-&gt; [Pragma]
+-&gt; Maybe LexToken
+-&gt; ExtensionSet
+-&gt; Bool
+-&gt; TokStream
+</span><a href="Aihc.Parser.Types.html#normalizeTokStreamParts"><span class="hs-identifier hs-var">normalizeTokStreamParts</span></a></span><span>
+</span><span id="line-267"></span><span>                    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; [LexToken]
+</span><a href="Aihc.Parser.Types.html#tokStreamRawTokens"><span class="hs-identifier hs-var">tokStreamRawTokens</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403954"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-268"></span><span>                    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; LayoutState
+</span><a href="Aihc.Parser.Types.html#tokStreamLayoutState"><span class="hs-identifier hs-var">tokStreamLayoutState</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403954"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-269"></span><span>                    </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679403956"><span class="hs-identifier hs-var">rest</span></a></span><span>
+</span><span id="line-270"></span><span>                    </span><span class="annot"><span class="annottext">[Pragma]
+</span><a href="#local-6989586621679403960"><span class="hs-identifier hs-var">pendingPragmas</span></a></span><span>
+</span><span id="line-271"></span><span>                    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LexToken -&gt; Maybe LexToken
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679403955"><span class="hs-identifier hs-var">tok</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-272"></span><span>                    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TokStream -&gt; ExtensionSet
+</span><a href="Aihc.Parser.Types.html#tokStreamExtensionSet"><span class="hs-identifier hs-var">tokStreamExtensionSet</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679403954"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-273"></span><span>                    </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679403958"><span class="hs-identifier hs-var">isEOF</span></a></span><span>
+</span><span id="line-274"></span><span>                </span><span class="hs-special">)</span><span>
+</span><span id="line-275"></span><span>        </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-276"></span><span>          </span><span class="annot"><span class="annottext">Maybe (LexToken, TokStream)
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-277"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#stepOne"><span class="hs-pragma hs-type">stepOne</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-278"></span><span>
+</span><span id="line-279"></span><span class="hs-keyword">instance</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Stream</span></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-280"></span><span>  </span><span class="hs-keyword">type</span><span> </span><span id="Token"><span class="annot"><span class="hs-identifier hs-var">Token</span></span></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span>
+</span><span id="line-281"></span><span>  </span><span class="hs-keyword">type</span><span> </span><span id="Tokens"><span class="annot"><span class="hs-identifier hs-var">Tokens</span></span></span><span> </span><span class="annot"><a href="Aihc.Parser.Types.html#TokStream"><span class="hs-identifier hs-type">TokStream</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier hs-type">LexToken</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-282"></span><span>
+</span><span id="line-283"></span><span>  </span><span id="local-6989586621679403982"><span class="annot"><span class="annottext">tokenToChunk :: Proxy TokStream -&gt; Token TokStream -&gt; Tokens TokStream
+</span><a href="#local-6989586621679403982"><span class="hs-identifier hs-var hs-var hs-var">tokenToChunk</span></a></span></span><span> </span><span class="annot"><span class="annottext">Proxy TokStream
+</span><span class="hs-identifier">_</span></span><span> </span><span id="local-6989586621679403984"><span class="annot"><span class="annottext">Token TokStream
+</span><a href="#local-6989586621679403984"><span class="hs-identifier hs-var">tok</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">LexToken
+Token TokStream
+</span><a href="#local-6989586621679403984"><span class="hs-identifier hs-var">tok</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-284"></span><span>  </span><span id="local-6989586621679403985"><span class="annot"><span class="annottext">tokensToChunk :: Proxy TokStream -&gt; [Token TokStream] -&gt; Tokens TokStream
+</span><a href="#local-6989586621679403985"><span class="hs-identifier hs-var hs-var hs-var">tokensToChunk</span></a></span></span><span> </span><span class="annot"><span class="annottext">Proxy TokStream
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LexToken] -&gt; [LexToken]
+[Token TokStream] -&gt; Tokens TokStream
+forall a. a -&gt; a
+</span><span class="hs-identifier hs-var">id</span></span><span>
+</span><span id="line-285"></span><span>  </span><span id="local-6989586621679403988"><span class="annot"><span class="annottext">chunkToTokens :: Proxy TokStream -&gt; Tokens TokStream -&gt; [Token TokStream]
+</span><a href="#local-6989586621679403988"><span class="hs-identifier hs-var hs-var hs-var">chunkToTokens</span></a></span></span><span> </span><span class="annot"><span class="annottext">Proxy TokStream
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LexToken] -&gt; [LexToken]
+Tokens TokStream -&gt; [Token TokStream]
+forall a. a -&gt; a
+</span><span class="hs-identifier hs-var">id</span></span><span>
+</span><span id="line-286"></span><span>  </span><span id="local-6989586621679403991"><span class="annot"><span class="annottext">chunkLength :: Proxy TokStream -&gt; Tokens TokStream -&gt; Int
+</span><a href="#local-6989586621679403991"><span class="hs-identifier hs-var hs-var hs-var">chunkLength</span></a></span></span><span> </span><span class="annot"><span class="annottext">Proxy TokStream
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LexToken] -&gt; Int
+Tokens TokStream -&gt; Int
+forall a. [a] -&gt; Int
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Int
+</span><span class="hs-identifier hs-var">length</span></span><span>
+</span><span id="line-287"></span><span>  </span><span id="local-6989586621679403994"><span class="annot"><span class="annottext">chunkEmpty :: Proxy TokStream -&gt; Tokens TokStream -&gt; Bool
+</span><a href="#local-6989586621679403994"><span class="hs-identifier hs-var hs-var hs-var">chunkEmpty</span></a></span></span><span> </span><span class="annot"><span class="annottext">Proxy TokStream
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[LexToken] -&gt; Bool
+Tokens TokStream -&gt; Bool
+forall a. [a] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Bool
+</span><span class="hs-identifier hs-var">null</span></span><span>
+</span><span id="line-288"></span><span>
+</span><span id="line-289"></span><span>  </span><span id="local-6989586621679403997"><span class="annot"><span class="annottext">take1_ :: TokStream -&gt; Maybe (Token TokStream, TokStream)
+</span><span class="hs-identifier hs-var hs-var hs-var">take1_</span></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">TokStream -&gt; Maybe (LexToken, TokStream)
+TokStream -&gt; Maybe (Token TokStream, TokStream)
+</span><a href="Aihc.Parser.Types.html#stepOne"><span class="hs-identifier hs-var">stepOne</span></a></span><span>
+</span><span id="line-290"></span><span>
+</span><span id="line-291"></span><span>  </span><span id="local-6989586621679404004"><span class="annot"><span class="annottext">takeN_ :: Int -&gt; TokStream -&gt; Maybe (Tokens TokStream, TokStream)
+</span><a href="#local-6989586621679404004"><span class="hs-identifier hs-var hs-var hs-var">takeN_</span></a></span></span><span> </span><span id="local-6989586621679404006"><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679404006"><span class="hs-identifier hs-var">n</span></a></span></span><span> </span><span id="local-6989586621679404007"><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404007"><span class="hs-identifier hs-var">ts</span></a></span></span><span>
+</span><span id="line-292"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679404006"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&lt;=</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([LexToken], TokStream) -&gt; Maybe ([LexToken], TokStream)
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404007"><span class="hs-identifier hs-var">ts</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-293"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Int -&gt; [LexToken] -&gt; TokStream -&gt; Maybe ([LexToken], TokStream)
+forall {t}.
+(Eq t, Num t) =&gt;
+t -&gt; [LexToken] -&gt; TokStream -&gt; Maybe ([LexToken], TokStream)
+</span><a href="#local-6989586621679404008"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="annot"><span class="annottext">Int
+</span><a href="#local-6989586621679404006"><span class="hs-identifier hs-var">n</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404007"><span class="hs-identifier hs-var">ts</span></a></span><span>
+</span><span id="line-294"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-295"></span><span>      </span><span id="local-6989586621679404008"><span class="annot"><span class="annottext">go :: t -&gt; [LexToken] -&gt; TokStream -&gt; Maybe ([LexToken], TokStream)
+</span><a href="#local-6989586621679404008"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span class="annot"><span class="annottext">t
+</span><span class="hs-number">0</span></span><span> </span><span id="local-6989586621679404016"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679404016"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span id="local-6989586621679404017"><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404017"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([LexToken], TokStream) -&gt; Maybe ([LexToken], TokStream)
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[LexToken] -&gt; [LexToken]
+forall a. [a] -&gt; [a]
+</span><span class="hs-identifier hs-var">reverse</span></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679404016"><span class="hs-identifier hs-var">acc</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404017"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-296"></span><span>      </span><span class="annot"><a href="#local-6989586621679404008"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span id="local-6989586621679404019"><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679404019"><span class="hs-identifier hs-var">k</span></a></span></span><span> </span><span id="local-6989586621679404020"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679404020"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span id="local-6989586621679404021"><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404021"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-297"></span><span>        </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">TokStream -&gt; Maybe (LexToken, TokStream)
+</span><a href="Aihc.Parser.Types.html#stepOne"><span class="hs-identifier hs-var">stepOne</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404021"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-298"></span><span>          </span><span class="annot"><span class="annottext">Maybe (LexToken, TokStream)
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-299"></span><span>            </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">[LexToken] -&gt; Bool
+forall a. [a] -&gt; Bool
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; Bool
+</span><span class="hs-identifier hs-var">null</span></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679404020"><span class="hs-identifier hs-var">acc</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe ([LexToken], TokStream)
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-300"></span><span>            </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">([LexToken], TokStream) -&gt; Maybe ([LexToken], TokStream)
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[LexToken] -&gt; [LexToken]
+forall a. [a] -&gt; [a]
+</span><span class="hs-identifier hs-var">reverse</span></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679404020"><span class="hs-identifier hs-var">acc</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404021"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-301"></span><span>          </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679404022"><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679404022"><span class="hs-identifier hs-var">tok</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679404023"><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404023"><span class="hs-identifier hs-var">s'</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">t -&gt; [LexToken] -&gt; TokStream -&gt; Maybe ([LexToken], TokStream)
+</span><a href="#local-6989586621679404008"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679404019"><span class="hs-identifier hs-var">k</span></a></span><span> </span><span class="annot"><span class="annottext">t -&gt; t -&gt; t
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-glyph hs-var">-</span></span><span> </span><span class="annot"><span class="annottext">t
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679404022"><span class="hs-identifier hs-var">tok</span></a></span><span> </span><span class="annot"><span class="annottext">LexToken -&gt; [LexToken] -&gt; [LexToken]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679404020"><span class="hs-identifier hs-var">acc</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404023"><span class="hs-identifier hs-var">s'</span></a></span><span>
+</span><span id="line-302"></span><span>
+</span><span id="line-303"></span><span>  </span><span id="local-6989586621679404024"><span class="annot"><span class="annottext">takeWhile_ :: (Token TokStream -&gt; Bool)
+-&gt; TokStream -&gt; (Tokens TokStream, TokStream)
+</span><a href="#local-6989586621679404024"><span class="hs-identifier hs-var hs-var hs-var">takeWhile_</span></a></span></span><span> </span><span id="local-6989586621679404026"><span class="annot"><span class="annottext">Token TokStream -&gt; Bool
+</span><a href="#local-6989586621679404026"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-304"></span><span>    </span><span class="annot"><span class="annottext">[LexToken] -&gt; TokStream -&gt; ([LexToken], TokStream)
+</span><a href="#local-6989586621679404027"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-305"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-306"></span><span>      </span><span id="local-6989586621679404027"><span class="annot"><span class="annottext">go :: [LexToken] -&gt; TokStream -&gt; ([LexToken], TokStream)
+</span><a href="#local-6989586621679404027"><span class="hs-identifier hs-var hs-var">go</span></a></span></span><span> </span><span id="local-6989586621679404028"><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679404028"><span class="hs-identifier hs-var">acc</span></a></span></span><span> </span><span id="local-6989586621679404029"><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404029"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-307"></span><span>        </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">TokStream -&gt; Maybe (LexToken, TokStream)
+</span><a href="Aihc.Parser.Types.html#stepOne"><span class="hs-identifier hs-var">stepOne</span></a></span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404029"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-308"></span><span>          </span><span class="annot"><span class="annottext">Maybe (LexToken, TokStream)
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[LexToken] -&gt; [LexToken]
+forall a. [a] -&gt; [a]
+</span><span class="hs-identifier hs-var">reverse</span></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679404028"><span class="hs-identifier hs-var">acc</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404029"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-309"></span><span>          </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679404030"><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679404030"><span class="hs-identifier hs-var">tok</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679404031"><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404031"><span class="hs-identifier hs-var">s'</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-310"></span><span>            </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Token TokStream -&gt; Bool
+</span><a href="#local-6989586621679404026"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">LexToken
+Token TokStream
+</span><a href="#local-6989586621679404030"><span class="hs-identifier hs-var">tok</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[LexToken] -&gt; TokStream -&gt; ([LexToken], TokStream)
+</span><a href="#local-6989586621679404027"><span class="hs-identifier hs-var">go</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">LexToken
+</span><a href="#local-6989586621679404030"><span class="hs-identifier hs-var">tok</span></a></span><span> </span><span class="annot"><span class="annottext">LexToken -&gt; [LexToken] -&gt; [LexToken]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679404028"><span class="hs-identifier hs-var">acc</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404031"><span class="hs-identifier hs-var">s'</span></a></span><span>
+</span><span id="line-311"></span><span>            </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-312"></span><span>                </span><span class="hs-comment">-- Put the non-matching token back by using the pre-step state</span><span>
+</span><span id="line-313"></span><span>                </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[LexToken] -&gt; [LexToken]
+forall a. [a] -&gt; [a]
+</span><span class="hs-identifier hs-var">reverse</span></span><span> </span><span class="annot"><span class="annottext">[LexToken]
+</span><a href="#local-6989586621679404028"><span class="hs-identifier hs-var">acc</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TokStream
+</span><a href="#local-6989586621679404029"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-314"></span><span>
+</span><span id="line-315"></span><span class="hs-keyword">data</span><span> </span><span id="ParserConfig"><span class="annot"><a href="Aihc.Parser.Types.html#ParserConfig"><span class="hs-identifier hs-var">ParserConfig</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="ParserConfig"><span class="annot"><a href="Aihc.Parser.Types.html#ParserConfig"><span class="hs-identifier hs-var">ParserConfig</span></a></span></span><span>
+</span><span id="line-316"></span><span>  </span><span class="hs-special">{</span><span> </span><span id="parserSourceName"><span class="annot"><span class="annottext">ParserConfig -&gt; String
+</span><a href="Aihc.Parser.Types.html#parserSourceName"><span class="hs-identifier hs-var hs-var">parserSourceName</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span class="hs-special">,</span><span>
+</span><span id="line-317"></span><span>    </span><span id="parserExtensions"><span class="annot"><span class="annottext">ParserConfig -&gt; [Extension]
+</span><a href="Aihc.Parser.Types.html#parserExtensions"><span class="hs-identifier hs-var hs-var">parserExtensions</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="Aihc.Parser.Syntax.html#Extension"><span class="hs-identifier hs-type">Extension</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-318"></span><span>  </span><span class="hs-special">}</span><span>
+</span><span id="line-319"></span><span>  </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679404036"><span id="local-6989586621679404042"><span class="annot"><span class="annottext">ParserConfig -&gt; ParserConfig -&gt; Bool
+(ParserConfig -&gt; ParserConfig -&gt; Bool)
+-&gt; (ParserConfig -&gt; ParserConfig -&gt; Bool) -&gt; Eq ParserConfig
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+$c== :: ParserConfig -&gt; ParserConfig -&gt; Bool
+== :: ParserConfig -&gt; ParserConfig -&gt; Bool
+$c/= :: ParserConfig -&gt; ParserConfig -&gt; Bool
+/= :: ParserConfig -&gt; ParserConfig -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679404048"><span id="local-6989586621679404055"><span id="local-6989586621679404059"><span class="annot"><span class="annottext">Int -&gt; ParserConfig -&gt; ShowS
+[ParserConfig] -&gt; ShowS
+ParserConfig -&gt; String
+(Int -&gt; ParserConfig -&gt; ShowS)
+-&gt; (ParserConfig -&gt; String)
+-&gt; ([ParserConfig] -&gt; ShowS)
+-&gt; Show ParserConfig
+forall a.
+(Int -&gt; a -&gt; ShowS) -&gt; (a -&gt; String) -&gt; ([a] -&gt; ShowS) -&gt; Show a
+$cshowsPrec :: Int -&gt; ParserConfig -&gt; ShowS
+showsPrec :: Int -&gt; ParserConfig -&gt; ShowS
+$cshow :: ParserConfig -&gt; String
+show :: ParserConfig -&gt; String
+$cshowList :: [ParserConfig] -&gt; ShowS
+showList :: [ParserConfig] -&gt; ShowS
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679404064"><span id="local-6989586621679404066"><span class="annot"><span class="annottext">(forall x. ParserConfig -&gt; Rep ParserConfig x)
+-&gt; (forall x. Rep ParserConfig x -&gt; ParserConfig)
+-&gt; Generic ParserConfig
+forall x. Rep ParserConfig x -&gt; ParserConfig
+forall x. ParserConfig -&gt; Rep ParserConfig x
+forall a.
+(forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
+$cfrom :: forall x. ParserConfig -&gt; Rep ParserConfig x
+from :: forall x. ParserConfig -&gt; Rep ParserConfig x
+$cto :: forall x. Rep ParserConfig x -&gt; ParserConfig
+to :: forall x. Rep ParserConfig x -&gt; ParserConfig
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Generic</span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679404069"><span class="annot"><span class="annottext">ParserConfig -&gt; ()
+(ParserConfig -&gt; ()) -&gt; NFData ParserConfig
+forall a. (a -&gt; ()) -&gt; NFData a
+$crnf :: ParserConfig -&gt; ()
+rnf :: ParserConfig -&gt; ()
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">NFData</span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-320"></span><span>
+</span><span id="line-321"></span><span class="hs-keyword">data</span><span> </span><span id="ParseResult"><span class="annot"><a href="Aihc.Parser.Types.html#ParseResult"><span class="hs-identifier hs-var">ParseResult</span></a></span></span><span> </span><span id="local-6989586621679404087"><span class="annot"><a href="#local-6989586621679404087"><span class="hs-identifier hs-type">a</span></a></span></span><span>
+</span><span id="line-322"></span><span>  </span><span class="hs-glyph">=</span><span> </span><span id="ParseOk"><span class="annot"><a href="Aihc.Parser.Types.html#ParseOk"><span class="hs-identifier hs-var">ParseOk</span></a></span></span><span> </span><span class="annot"><a href="#local-6989586621679404087"><span class="hs-identifier hs-type">a</span></a></span><span>
+</span><span id="line-323"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span id="ParseErr"><span class="annot"><a href="Aihc.Parser.Types.html#ParseErr"><span class="hs-identifier hs-var">ParseErr</span></a></span></span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Syntax.html#SourceSpan"><span class="hs-identifier hs-type">SourceSpan</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Text</span></span><span class="hs-special">)</span><span class="hs-special">]</span><span>
+</span><span id="line-324"></span><span>
+</span><span id="line-325"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679403607"><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">NFData</span></span><span> </span><span class="annot"><a href="#local-6989586621679403607"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">NFData</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Aihc.Parser.Types.html#ParseResult"><span class="hs-identifier hs-type">ParseResult</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679403607"><span class="hs-identifier hs-type">a</span></a></span><span class="hs-special">)</span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-326"></span><span>  </span><span id="local-6989586621679404099"><span class="annot"><span class="annottext">rnf :: ParseResult a -&gt; ()
+</span><span class="hs-identifier hs-var hs-var hs-var">rnf</span></span></span><span> </span><span id="local-6989586621679404100"><span class="annot"><span class="annottext">ParseResult a
+</span><a href="#local-6989586621679404100"><span class="hs-identifier hs-var">parseResult</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-327"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">ParseResult a
+</span><a href="#local-6989586621679404100"><span class="hs-identifier hs-var">parseResult</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-328"></span><span>      </span><span class="annot"><a href="Aihc.Parser.Types.html#ParseOk"><span class="hs-identifier hs-type">ParseOk</span></a></span><span> </span><span id="local-6989586621679404101"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679404101"><span class="hs-identifier hs-var">parsed</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">a -&gt; ()
+forall a. NFData a =&gt; a -&gt; ()
+</span><span class="hs-identifier hs-var">rnf</span></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679404101"><span class="hs-identifier hs-var">parsed</span></a></span><span>
+</span><span id="line-329"></span><span>      </span><span class="annot"><a href="Aihc.Parser.Types.html#ParseErr"><span class="hs-identifier hs-type">ParseErr</span></a></span><span> </span><span id="local-6989586621679404102"><span class="annot"><span class="annottext">[(SourceSpan, Text)]
+</span><a href="#local-6989586621679404102"><span class="hs-identifier hs-var">errs</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">[(SourceSpan, Text)] -&gt; ()
+forall a. NFData a =&gt; a -&gt; ()
+</span><span class="hs-identifier hs-var">rnf</span></span><span> </span><span class="annot"><span class="annottext">[(SourceSpan, Text)]
+</span><a href="#local-6989586621679404102"><span class="hs-identifier hs-var">errs</span></a></span><span>
+</span><span id="line-330"></span></pre></body></html>

@@ -1,0 +1,187 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<style type="text/css">
+span.lineno { color: white; background: #aaaaaa; border-right: solid white 12px }
+span.nottickedoff { background: yellow}
+span.istickedoff { background: white }
+span.tickonlyfalse { margin: -1px; border: 1px solid #f20913; background: #f20913 }
+span.tickonlytrue  { margin: -1px; border: 1px solid #60de51; background: #60de51 }
+span.funcount { font-size: small; color: orange; z-index: 2; position: absolute; right: 20 }
+span.decl { font-weight: bold }
+span.spaces    { background: white }
+</style>
+</head>
+<body>
+<pre>
+<span class="decl"><span class="nottickedoff">never executed</span> <span class="tickonlytrue">always true</span> <span class="tickonlyfalse">always false</span></span>
+</pre>
+<pre>
+<span class="lineno">    1 </span>{-# LANGUAGE OverloadedStrings #-}
+<span class="lineno">    2 </span>
+<span class="lineno">    3 </span>module Aihc.Cpp.Parser
+<span class="lineno">    4 </span>  ( Directive (..),
+<span class="lineno">    5 </span>    parseDirective,
+<span class="lineno">    6 </span>    parseDirectiveBody,
+<span class="lineno">    7 </span>    parseDefine,
+<span class="lineno">    8 </span>    parseInclude,
+<span class="lineno">    9 </span>    parseLineDirective,
+<span class="lineno">   10 </span>    parseIdentifier,
+<span class="lineno">   11 </span>    parseQuotedText,
+<span class="lineno">   12 </span>    parseDefineParams,
+<span class="lineno">   13 </span>    isIdentStart,
+<span class="lineno">   14 </span>    isIdentChar,
+<span class="lineno">   15 </span>    isOpChar,
+<span class="lineno">   16 </span>  )
+<span class="lineno">   17 </span>where
+<span class="lineno">   18 </span>
+<span class="lineno">   19 </span>import Aihc.Cpp.Types (IncludeKind (..))
+<span class="lineno">   20 </span>import Data.Char (isAlphaNum, isDigit, isLetter)
+<span class="lineno">   21 </span>import Data.Text (Text)
+<span class="lineno">   22 </span>import qualified Data.Text as T
+<span class="lineno">   23 </span>import qualified Data.Text.Read as TR
+<span class="lineno">   24 </span>
+<span class="lineno">   25 </span>data Directive
+<span class="lineno">   26 </span>  = DirDefineObject !Text !Text
+<span class="lineno">   27 </span>  | DirDefineFunction !Text ![Text] !Text
+<span class="lineno">   28 </span>  | DirUndef !Text
+<span class="lineno">   29 </span>  | DirInclude !IncludeKind !Text
+<span class="lineno">   30 </span>  | DirIf !Text
+<span class="lineno">   31 </span>  | DirIfDef !Text
+<span class="lineno">   32 </span>  | DirIfNDef !Text
+<span class="lineno">   33 </span>  | DirElif !Text
+<span class="lineno">   34 </span>  | DirElse
+<span class="lineno">   35 </span>  | DirEndIf
+<span class="lineno">   36 </span>  | DirLine !Int !(Maybe FilePath)
+<span class="lineno">   37 </span>  | DirPragmaOnce
+<span class="lineno">   38 </span>  | DirWarning !Text
+<span class="lineno">   39 </span>  | DirError !Text
+<span class="lineno">   40 </span>  | DirUnsupported !Text
+<span class="lineno">   41 </span>
+<span class="lineno">   42 </span>parseDirective :: Text -&gt; Maybe Directive
+<span class="lineno">   43 </span><span class="decl"><span class="istickedoff">parseDirective raw =</span>
+<span class="lineno">   44 </span><span class="spaces">  </span><span class="istickedoff">let trimmed = T.stripStart raw</span>
+<span class="lineno">   45 </span><span class="spaces">   </span><span class="istickedoff">in if &quot;#&quot; `T.isPrefixOf` trimmed</span>
+<span class="lineno">   46 </span><span class="spaces">        </span><span class="istickedoff">then</span>
+<span class="lineno">   47 </span><span class="spaces">          </span><span class="istickedoff">let body = T.stripStart (T.drop 1 trimmed)</span>
+<span class="lineno">   48 </span><span class="spaces">           </span><span class="istickedoff">in case T.uncons body of</span>
+<span class="lineno">   49 </span><span class="spaces">                </span><span class="istickedoff">Just (c, _) | isLetter c || isDigit c -&gt; parseDirectiveBody body</span>
+<span class="lineno">   50 </span><span class="spaces">                </span><span class="istickedoff">_ -&gt; Nothing</span>
+<span class="lineno">   51 </span><span class="spaces">        </span><span class="istickedoff">else Nothing</span></span>
+<span class="lineno">   52 </span>
+<span class="lineno">   53 </span>parseDirectiveBody :: Text -&gt; Maybe Directive
+<span class="lineno">   54 </span><span class="decl"><span class="istickedoff">parseDirectiveBody body =</span>
+<span class="lineno">   55 </span><span class="spaces">  </span><span class="istickedoff">let (name, rest0) = T.span isIdentChar body</span>
+<span class="lineno">   56 </span><span class="spaces">      </span><span class="istickedoff">rest = T.stripStart rest0</span>
+<span class="lineno">   57 </span><span class="spaces">   </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null name</span></span>
+<span class="lineno">   58 </span><span class="spaces">        </span><span class="istickedoff">then <span class="nottickedoff">case T.uncons body of</span></span>
+<span class="lineno">   59 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">Just (c, _) | isDigit c -&gt; parseLineDirective body</span></span>
+<span class="lineno">   60 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">   61 </span><span class="spaces">        </span><span class="istickedoff">else case name of</span>
+<span class="lineno">   62 </span><span class="spaces">          </span><span class="istickedoff">&quot;define&quot; -&gt; parseDefine rest</span>
+<span class="lineno">   63 </span><span class="spaces">          </span><span class="istickedoff">&quot;undef&quot; -&gt; DirUndef &lt;$&gt; parseIdentifier rest</span>
+<span class="lineno">   64 </span><span class="spaces">          </span><span class="istickedoff">&quot;include&quot; -&gt; parseInclude rest</span>
+<span class="lineno">   65 </span><span class="spaces">          </span><span class="istickedoff">&quot;if&quot; -&gt; Just (DirIf rest)</span>
+<span class="lineno">   66 </span><span class="spaces">          </span><span class="istickedoff">&quot;ifdef&quot; -&gt; DirIfDef &lt;$&gt; parseIdentifier rest</span>
+<span class="lineno">   67 </span><span class="spaces">          </span><span class="istickedoff">&quot;ifndef&quot; -&gt; DirIfNDef &lt;$&gt; parseIdentifier rest</span>
+<span class="lineno">   68 </span><span class="spaces">          </span><span class="istickedoff">-- Keep `#isndef` as explicitly unsupported for diagnostics on common typo input.</span>
+<span class="lineno">   69 </span><span class="spaces">          </span><span class="istickedoff">&quot;isndef&quot; -&gt; Just (DirUnsupported &quot;isndef&quot;)</span>
+<span class="lineno">   70 </span><span class="spaces">          </span><span class="istickedoff">&quot;elif&quot; -&gt; Just (DirElif rest)</span>
+<span class="lineno">   71 </span><span class="spaces">          </span><span class="istickedoff">&quot;elseif&quot; -&gt; <span class="nottickedoff">Just (DirElif rest)</span></span>
+<span class="lineno">   72 </span><span class="spaces">          </span><span class="istickedoff">&quot;else&quot; -&gt; Just DirElse</span>
+<span class="lineno">   73 </span><span class="spaces">          </span><span class="istickedoff">&quot;endif&quot; -&gt; Just DirEndIf</span>
+<span class="lineno">   74 </span><span class="spaces">          </span><span class="istickedoff">&quot;line&quot; -&gt; parseLineDirective rest</span>
+<span class="lineno">   75 </span><span class="spaces">          </span><span class="istickedoff">&quot;pragma&quot; -&gt; parsePragma rest</span>
+<span class="lineno">   76 </span><span class="spaces">          </span><span class="istickedoff">&quot;warning&quot; -&gt; Just (DirWarning rest)</span>
+<span class="lineno">   77 </span><span class="spaces">          </span><span class="istickedoff">&quot;error&quot; -&gt; Just (DirError rest)</span>
+<span class="lineno">   78 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt; Nothing</span></span>
+<span class="lineno">   79 </span>
+<span class="lineno">   80 </span>parseLineDirective :: Text -&gt; Maybe Directive
+<span class="lineno">   81 </span><span class="decl"><span class="istickedoff">parseLineDirective body =</span>
+<span class="lineno">   82 </span><span class="spaces">  </span><span class="istickedoff">case TR.decimal body of</span>
+<span class="lineno">   83 </span><span class="spaces">    </span><span class="istickedoff">Left _ -&gt; <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">   84 </span><span class="spaces">    </span><span class="istickedoff">Right (lineNumber, rest0) -&gt;</span>
+<span class="lineno">   85 </span><span class="spaces">      </span><span class="istickedoff">let rest = T.stripStart rest0</span>
+<span class="lineno">   86 </span><span class="spaces">       </span><span class="istickedoff">in case parseQuotedText rest of</span>
+<span class="lineno">   87 </span><span class="spaces">            </span><span class="istickedoff">Nothing -&gt; Just (DirLine lineNumber Nothing)</span>
+<span class="lineno">   88 </span><span class="spaces">            </span><span class="istickedoff">Just path -&gt; Just (DirLine lineNumber (Just (T.unpack path)))</span></span>
+<span class="lineno">   89 </span>
+<span class="lineno">   90 </span>parsePragma :: Text -&gt; Maybe Directive
+<span class="lineno">   91 </span><span class="decl"><span class="istickedoff">parsePragma body =</span>
+<span class="lineno">   92 </span><span class="spaces">  </span><span class="istickedoff">case T.words body of</span>
+<span class="lineno">   93 </span><span class="spaces">    </span><span class="istickedoff">[&quot;once&quot;] -&gt; Just DirPragmaOnce</span>
+<span class="lineno">   94 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Nothing</span></span></span>
+<span class="lineno">   95 </span>
+<span class="lineno">   96 </span>parseDefine :: Text -&gt; Maybe Directive
+<span class="lineno">   97 </span><span class="decl"><span class="istickedoff">parseDefine rest = do</span>
+<span class="lineno">   98 </span><span class="spaces">  </span><span class="istickedoff">let (name, rest0) = T.span isIdentChar rest</span>
+<span class="lineno">   99 </span><span class="spaces">  </span><span class="istickedoff">if <span class="tickonlyfalse">T.null name</span></span>
+<span class="lineno">  100 </span><span class="spaces">    </span><span class="istickedoff">then <span class="nottickedoff">Nothing</span></span>
+<span class="lineno">  101 </span><span class="spaces">    </span><span class="istickedoff">else case T.uncons rest0 of</span>
+<span class="lineno">  102 </span><span class="spaces">      </span><span class="istickedoff">Just ('(', afterOpen) -&gt;</span>
+<span class="lineno">  103 </span><span class="spaces">        </span><span class="istickedoff">let (params, restAfterParams) = parseDefineParams afterOpen</span>
+<span class="lineno">  104 </span><span class="spaces">         </span><span class="istickedoff">in case params of</span>
+<span class="lineno">  105 </span><span class="spaces">              </span><span class="istickedoff">Nothing -&gt; <span class="nottickedoff">Just (DirUnsupported &quot;define-function-macro&quot;)</span></span>
+<span class="lineno">  106 </span><span class="spaces">              </span><span class="istickedoff">Just names -&gt; Just (DirDefineFunction name names (T.stripStart restAfterParams))</span>
+<span class="lineno">  107 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; Just (DirDefineObject name (T.stripStart rest0))</span></span>
+<span class="lineno">  108 </span>
+<span class="lineno">  109 </span>parseDefineParams :: Text -&gt; (Maybe [Text], Text)
+<span class="lineno">  110 </span><span class="decl"><span class="istickedoff">parseDefineParams input =</span>
+<span class="lineno">  111 </span><span class="spaces">  </span><span class="istickedoff">let (inside, suffix) = T.breakOn &quot;)&quot; input</span>
+<span class="lineno">  112 </span><span class="spaces">   </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null suffix</span></span>
+<span class="lineno">  113 </span><span class="spaces">        </span><span class="istickedoff">then <span class="nottickedoff">(Nothing, &quot;&quot;)</span></span>
+<span class="lineno">  114 </span><span class="spaces">        </span><span class="istickedoff">else</span>
+<span class="lineno">  115 </span><span class="spaces">          </span><span class="istickedoff">let rawParams = T.splitOn &quot;,&quot; inside</span>
+<span class="lineno">  116 </span><span class="spaces">              </span><span class="istickedoff">params = map (T.takeWhile isIdentChar . T.strip) rawParams</span>
+<span class="lineno">  117 </span><span class="spaces">           </span><span class="istickedoff">in if T.null (T.strip inside)</span>
+<span class="lineno">  118 </span><span class="spaces">                </span><span class="istickedoff">then (Just [], T.drop 1 suffix)</span>
+<span class="lineno">  119 </span><span class="spaces">                </span><span class="istickedoff">else</span>
+<span class="lineno">  120 </span><span class="spaces">                  </span><span class="istickedoff">if <span class="tickonlyfalse">any T.null params</span></span>
+<span class="lineno">  121 </span><span class="spaces">                    </span><span class="istickedoff">then <span class="nottickedoff">(Nothing, T.drop 1 suffix)</span></span>
+<span class="lineno">  122 </span><span class="spaces">                    </span><span class="istickedoff">else (Just params, T.drop 1 suffix)</span></span>
+<span class="lineno">  123 </span>
+<span class="lineno">  124 </span>parseIdentifier :: Text -&gt; Maybe Text
+<span class="lineno">  125 </span><span class="decl"><span class="istickedoff">parseIdentifier txt =</span>
+<span class="lineno">  126 </span><span class="spaces">  </span><span class="istickedoff">let ident = T.takeWhile isIdentChar (T.stripStart txt)</span>
+<span class="lineno">  127 </span><span class="spaces">   </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null ident</span> then <span class="nottickedoff">Nothing</span> else Just ident</span></span>
+<span class="lineno">  128 </span>
+<span class="lineno">  129 </span>parseInclude :: Text -&gt; Maybe Directive
+<span class="lineno">  130 </span><span class="decl"><span class="istickedoff">parseInclude txt =</span>
+<span class="lineno">  131 </span><span class="spaces">  </span><span class="istickedoff">case T.uncons (T.stripStart txt) of</span>
+<span class="lineno">  132 </span><span class="spaces">    </span><span class="istickedoff">Just ('&quot;', rest) -&gt;</span>
+<span class="lineno">  133 </span><span class="spaces">      </span><span class="istickedoff">let (path, suffix) = T.breakOn &quot;\&quot;&quot; rest</span>
+<span class="lineno">  134 </span><span class="spaces">       </span><span class="istickedoff">in if <span class="tickonlyfalse">T.null suffix</span> then <span class="nottickedoff">Nothing</span> else Just (DirInclude IncludeLocal path)</span>
+<span class="lineno">  135 </span><span class="spaces">    </span><span class="istickedoff">Just ('&lt;', rest) -&gt;</span>
+<span class="lineno">  136 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">let (path, suffix) = T.breakOn &quot;&gt;&quot; rest</span></span>
+<span class="lineno">  137 </span><span class="spaces">       </span><span class="istickedoff"><span class="nottickedoff">in if T.null suffix then Nothing else Just (DirInclude IncludeSystem path)</span></span>
+<span class="lineno">  138 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt; <span class="nottickedoff">Nothing</span></span></span>
+<span class="lineno">  139 </span>
+<span class="lineno">  140 </span>parseQuotedText :: Text -&gt; Maybe Text
+<span class="lineno">  141 </span><span class="decl"><span class="istickedoff">parseQuotedText txt = do</span>
+<span class="lineno">  142 </span><span class="spaces">  </span><span class="istickedoff">('&quot;', rest) &lt;- T.uncons txt</span>
+<span class="lineno">  143 </span><span class="spaces">  </span><span class="istickedoff">let (path, suffix) = T.breakOn &quot;\&quot;&quot; rest</span>
+<span class="lineno">  144 </span><span class="spaces">  </span><span class="istickedoff">if <span class="tickonlyfalse">T.null suffix</span> then <span class="nottickedoff">Nothing</span> else Just path</span></span>
+<span class="lineno">  145 </span>
+<span class="lineno">  146 </span>isIdentStart :: Char -&gt; Bool
+<span class="lineno">  147 </span><span class="decl"><span class="istickedoff">isIdentStart c = c == '_' || isLetter c</span></span>
+<span class="lineno">  148 </span>
+<span class="lineno">  149 </span>isIdentChar :: Char -&gt; Bool
+<span class="lineno">  150 </span><span class="decl"><span class="istickedoff">isIdentChar c = c == '_' || isAlphaNum c</span></span>
+<span class="lineno">  151 </span>
+<span class="lineno">  152 </span>isOpChar :: Char -&gt; Bool
+<span class="lineno">  153 </span><span class="decl"><span class="istickedoff">isOpChar c =</span>
+<span class="lineno">  154 </span><span class="spaces">  </span><span class="istickedoff">c == '+'</span>
+<span class="lineno">  155 </span><span class="spaces">    </span><span class="istickedoff">|| c == '-'</span>
+<span class="lineno">  156 </span><span class="spaces">    </span><span class="istickedoff">|| c == '*'</span>
+<span class="lineno">  157 </span><span class="spaces">    </span><span class="istickedoff">|| c == '/'</span>
+<span class="lineno">  158 </span><span class="spaces">    </span><span class="istickedoff">|| c == '%'</span>
+<span class="lineno">  159 </span><span class="spaces">    </span><span class="istickedoff">|| c == '&amp;'</span>
+<span class="lineno">  160 </span><span class="spaces">    </span><span class="istickedoff">|| c == '|'</span>
+<span class="lineno">  161 </span><span class="spaces">    </span><span class="istickedoff">|| c == '!'</span>
+<span class="lineno">  162 </span><span class="spaces">    </span><span class="istickedoff">|| c == '='</span>
+<span class="lineno">  163 </span><span class="spaces">    </span><span class="istickedoff">|| c == '&lt;'</span>
+<span class="lineno">  164 </span><span class="spaces">    </span><span class="istickedoff">|| c == '&gt;'</span></span>
+
+</pre>
+</body>
+</html>

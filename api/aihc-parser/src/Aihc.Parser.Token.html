@@ -1,0 +1,40 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-comment">-- |</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- Module      : Aihc.Parser.Token</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- Description : Public token API for inspecting lexer output</span><span>
+</span><span id="line-4"></span><span class="hs-comment">--</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- This module exposes the stable token-facing surface of the parser without</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- making callers depend on the internal lexer implementation. It is intended</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- for diagnostics, tooling, generators, and tests that need to inspect the</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- token stream directly instead of parsing it into the AST.</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- A 'LexToken' records the token 'LexTokenKind', original source text, source</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- span, whether it started at the beginning of a logical line, and its</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- 'TokenOrigin'. Tokens with 'FromSource' come from the input text; tokens with</span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- 'InsertedLayout' are virtual braces or semicolons inserted by the layout</span><span>
+</span><span id="line-14"></span><span class="hs-comment">-- pass.</span><span>
+</span><span id="line-15"></span><span class="hs-comment">--</span><span>
+</span><span id="line-16"></span><span class="hs-comment">-- The @lexTokens*@ functions scan arbitrary source fragments. The</span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- @lexModuleTokens*@ variants additionally read the module header first, apply</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- any @LANGUAGE@ pragmas (including implied extensions), and then run layout in</span><span>
+</span><span id="line-19"></span><span class="hs-comment">-- module mode so top-level declarations receive the same virtual layout tokens</span><span>
+</span><span id="line-20"></span><span class="hs-comment">-- as the parser. Use the @WithSourceName@ variants when diagnostics should</span><span>
+</span><span id="line-21"></span><span class="hs-comment">-- carry a caller-provided source name instead of @&quot;&lt;input&gt;&quot;@.</span><span>
+</span><span id="line-22"></span><span class="hs-comment">--</span><span>
+</span><span id="line-23"></span><span class="hs-comment">-- 'readModuleHeaderExtensions' returns the raw extension settings discovered in</span><span>
+</span><span id="line-24"></span><span class="hs-comment">-- the leading module pragmas, while 'readModuleHeaderPragmas' separates a</span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- language edition from explicit extension toggles.</span><span>
+</span><span id="line-26"></span><span class="hs-keyword">module</span><span> </span><span class="annot"><a href="Aihc.Parser.Token.html"><span class="hs-identifier">Aihc.Parser.Token</span></a></span><span>
+</span><span id="line-27"></span><span>  </span><span class="hs-special">(</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#TokenOrigin"><span class="hs-identifier">TokenOrigin</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-28"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexToken"><span class="hs-identifier">LexToken</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-29"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.Types.html#LexTokenKind"><span class="hs-identifier">LexTokenKind</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-30"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.html#readModuleHeaderExtensions"><span class="hs-identifier">readModuleHeaderExtensions</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-31"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.html#readModuleHeaderPragmas"><span class="hs-identifier">readModuleHeaderPragmas</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-32"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.html#lexTokensWithExtensions"><span class="hs-identifier">lexTokensWithExtensions</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-33"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.html#lexModuleTokensWithExtensions"><span class="hs-identifier">lexModuleTokensWithExtensions</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-34"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.html#lexTokensWithSourceNameAndExtensions"><span class="hs-identifier">lexTokensWithSourceNameAndExtensions</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-35"></span><span>    </span><span class="annot"><a href="Aihc.Parser.Lex.html#lexModuleTokensWithSourceNameAndExtensions"><span class="hs-identifier">lexModuleTokensWithSourceNameAndExtensions</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-36"></span><span>  </span><span class="hs-special">)</span><span>
+</span><span id="line-37"></span><span class="hs-keyword">where</span><span>
+</span><span id="line-38"></span><span>
+</span><span id="line-39"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Aihc.Parser.Lex.html"><span class="hs-identifier">Aihc.Parser.Lex</span></a></span><span>
+</span><span id="line-40"></span></pre></body></html>
