@@ -509,11 +509,13 @@ compileBackendModule target layout initializer program =
     AppleArm64 -> either (Left . show) Right (Arm64.compileModule layout initializer program)
     LinuxAmd64 -> either (Left . show) Right (Amd64.compileModule layout initializer program)
     PortableC -> compileC
+    Wasm32Wasip3 -> Left "WASI P3 backend supports whole-program code generation only"
   where
     compileC = either (Left . show) Right (C.compileModule layout initializer program)
 
 backendSourceExtension :: NativeTarget -> String
 backendSourceExtension PortableC = ".c"
+backendSourceExtension Wasm32Wasip3 = ".s"
 backendSourceExtension _ = ".s"
 
 objectCompiler :: NativeTarget -> FilePath -> FilePath -> IO (FilePath, [String])
@@ -523,6 +525,7 @@ objectCompiler target sourcePath objectPath = do
     PortableC -> cCompiler compiler targetArguments
     AppleArm64 -> pure (compiler, nativeArguments targetArguments)
     LinuxAmd64 -> pure (compiler, nativeArguments targetArguments)
+    Wasm32Wasip3 -> pure (compiler, nativeArguments targetArguments)
   where
     nativeArguments targetArguments = targetArguments <> ["-c", sourcePath, "-o", objectPath]
     cCompiler compiler targetArguments = do

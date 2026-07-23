@@ -61,8 +61,9 @@ import Aihc.Parser.Syntax (Extension (ImplicitPrelude), LanguageEdition (Haskell
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithFullEnv)
+import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -82,12 +83,14 @@ data CompileError
   | CompileBackendError !BackendError
   | CompileTargetError !String
   | CompileClangError !ExitCode !String
+  | CompileToolError !FilePath !ExitCode !String
   deriving (Eq, Show)
 
 data BackendError
   = BackendArm64Error !Arm64.Arm64Error
   | BackendAmd64Error !Amd64.Amd64Error
   | BackendCError !C.CError
+  | BackendWasmError !Wasm.WasmError
   deriving (Eq, Show)
 
 data CompileArtifacts = CompileArtifacts
@@ -129,7 +132,7 @@ runCompileWithEnvironment environment options = do
           pure
           hostNativeTarget
   source <- TIO.readFile (compileSourceFile options)
-  artifactsResult <- compileSourceToArtifactsWithDependencies target (compileWholeProgram options) environment (compileSourceFile options) source
+  artifactsResult <- compileSourceToArtifactsWithDependencies target (compileWholeProgram options || target == Wasm32Wasip3) environment (compileSourceFile options) source
   artifacts <- either (ioError . userError . renderCompileError) pure artifactsResult
   let output = compileOutputPath options
   writeIntermediateArtifacts output options artifacts
@@ -219,10 +222,11 @@ compileSourceToArtifactsWithDependencies target wholeProgram environment sourceN
   case parseCompileModule sourceName source of
     Left err -> pure (Left err)
     Right parsed -> do
-      dependencies <- buildDependencies target environment (ImplicitPrelude `elem` sourceExtensions source) (not wholeProgram) parsed
+      let effectiveWholeProgram = wholeProgram || target == Wasm32Wasip3
+      dependencies <- buildDependencies target environment (ImplicitPrelude `elem` sourceExtensions source) (not effectiveWholeProgram) parsed
       pure $ do
         artifact <- either (Left . CompileDependencyError) Right dependencies
-        compileWithDependencies target wholeProgram artifact parsed
+        compileWithDependencies target effectiveWholeProgram artifact parsed
 
 compileWithDependencies :: NativeTarget -> Bool -> DependencyArtifact -> Module -> Either CompileError CompileArtifacts
 compileWithDependencies target wholeProgram dependencies parsed =
@@ -342,6 +346,7 @@ validateBackendPrimitiveNames target names =
     AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.validatePrimitiveNames names)
     LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.validatePrimitiveNames names)
     PortableC -> validateC
+    Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.validatePrimitiveNames names)
   where
     validateC = either (Left . BackendCError) Right (C.validatePrimitiveNames names)
 
@@ -351,6 +356,7 @@ compileBackendProgram target entry program =
     AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.compileProgram entry program)
     LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileProgram entry program)
     PortableC -> compileC
+    Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.compileProgram entry program)
   where
     compileC = either (Left . BackendCError) Right (C.compileProgram entry program)
 
@@ -360,6 +366,7 @@ compileBackendProgramWithDependencies target layout initializers entry program =
     AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.compileProgramWithDependencies layout initializers entry program)
     LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileProgramWithDependencies layout initializers entry program)
     PortableC -> compileC
+    Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.compileProgram entry program)
   where
     compileC = either (Left . BackendCError) Right (C.compileProgramWithDependencies layout initializers entry program)
 
@@ -487,11 +494,14 @@ renderCompileError compileError =
     CompileBackendError err -> "backend code generation error: " <> show err
     CompileTargetError err -> "target error: " <> err
     CompileClangError exitCode err -> "clang failed (" <> show exitCode <> "): " <> err
+    CompileToolError tool exitCode err -> tool <> " failed (" <> show exitCode <> "): " <> err
 
 defaultCompileTarget :: NativeTarget
 defaultCompileTarget = fromMaybe AppleArm64 hostNativeTarget
 
 assemble :: NativeTarget -> GarbageCollector -> FilePath -> FilePath -> [FilePath] -> IO ()
+assemble Wasm32Wasip3 garbageCollector output assemblyPath archives =
+  assembleWasip3 garbageCollector output assemblyPath archives
 assemble target garbageCollector output assemblyPath archives = do
   runtime <- runtimeSourcePath
   (compiler, targetArguments) <- backendCompiler target
@@ -516,8 +526,69 @@ assemble target garbageCollector output assemblyPath archives = do
     ExitSuccess -> pure ()
     ExitFailure _ -> ioError (userError (renderCompileError (CompileClangError exitCode stderr)))
 
+assembleWasip3 :: GarbageCollector -> FilePath -> FilePath -> [FilePath] -> IO ()
+assembleWasip3 garbageCollector output assemblyPath archives = do
+  unless (null archives) $ ioError (userError "WASI P3 compilation requires whole-program code generation")
+  nativeRuntime <- runtimeSourcePath
+  driver <- Wasm.wasip3RuntimeSourcePath
+  world <- Wasm.wasip3WorldPath
+  withTemporaryDirectory "aihc-wasip3-link" $ \directory -> do
+    let bindingsSource = directory </> "command.c"
+        bindingsObject = directory </> "bindings.o"
+        componentTypeObject = directory </> "command_component_type.o"
+        programObject = directory </> "program.o"
+        runtimeObject = directory </> "runtime.o"
+        driverObject = directory </> "driver.o"
+        coreModule = directory </> "core.wasm"
+        includeArguments =
+          [ "-I" <> (takeDirectory driver </> "include"),
+            "-I" <> takeDirectory nativeRuntime,
+            "-I" <> directory
+          ]
+        cArguments =
+          [ "-O2",
+            "-std=c11",
+            "-ffreestanding",
+            "-fno-builtin",
+            "-nostdlib",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-DAIHC_WASIP3",
+            garbageCollectorDefine garbageCollector
+          ]
+            <> includeArguments
+    runTool "wit-bindgen" ["c", "--world", "command", "--out-dir", directory, world]
+    runTool "wasm32-clang" ["-c", assemblyPath, "-o", programObject]
+    runTool "wasm32-clang" (cArguments <> ["-c", nativeRuntime, "-o", runtimeObject])
+    runTool "wasm32-clang" (cArguments <> ["-c", driver, "-o", driverObject])
+    runTool "wasm32-clang" (cArguments <> ["-c", bindingsSource, "-o", bindingsObject])
+    runTool
+      "wasm-ld"
+      [ "--no-entry",
+        "--export-memory",
+        "--allow-undefined",
+        programObject,
+        runtimeObject,
+        driverObject,
+        bindingsObject,
+        componentTypeObject,
+        "-o",
+        coreModule
+      ]
+    runTool "wasm-tools" ["component", "new", coreModule, "-o", output]
+    runTool "wasm-tools" ["validate", output]
+
+runTool :: FilePath -> [String] -> IO ()
+runTool tool arguments = do
+  (exitCode, _stdout, stderr) <- readProcessWithExitCode tool arguments ""
+  case exitCode of
+    ExitSuccess -> pure ()
+    ExitFailure _ -> ioError (userError (renderCompileError (CompileToolError tool exitCode stderr)))
+
 backendSourceExtension :: NativeTarget -> String
 backendSourceExtension PortableC = ".c"
+backendSourceExtension Wasm32Wasip3 = ".s"
 backendSourceExtension _ = ".s"
 
 garbageCollectorDefine :: GarbageCollector -> String

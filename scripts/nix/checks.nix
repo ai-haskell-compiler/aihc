@@ -4,6 +4,12 @@
   mkHsPkgsForChecks,
 }: pkgs: let
   hsPkgs = mkHsPkgsForChecks pkgs;
+  wasm32Clang = pkgs.writeShellScriptBin "wasm32-clang" ''
+    exec ${pkgs.llvmPackages.clang-unwrapped}/bin/clang --target=wasm32-unknown-unknown "$@"
+  '';
+  wasmLd = pkgs.writeShellScriptBin "wasm-ld" ''
+    exec ${pkgs.lld}/bin/wasm-ld "$@"
+  '';
   cTidyCompilerFlags =
     ["-std=c11" "-Wall" "-Wextra" "-Wpedantic"]
     ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
@@ -141,6 +147,7 @@
     })
   );
   nativeTests = mkPackageTest hsPkgs.aihc-native;
+  wasmTests = mkPackageTest hsPkgs.aihc-wasm;
   fcTests = mkEvalPackageTest hsPkgs.aihc-fc;
   grinTests = mkEvalPackageTest hsPkgs.aihc-grin;
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
@@ -183,9 +190,22 @@
       | xargs -0 -r ormolu --mode check
   '';
 
-  cLint = mkSourceCheck "aihc-c-lint" (sources.cSrc pkgs) [pkgs.clang-tools pkgs.findutils] ''
+  cLint = mkSourceCheck "aihc-c-lint" (sources.cSrc pkgs) [pkgs.clang-tools pkgs.findutils pkgs.wit-bindgen] ''
+    bindings_directory="$TMPDIR/aihc-wasip3-bindings"
+    mkdir -p "$bindings_directory"
+    wit-bindgen c --world command --out-dir "$bindings_directory" components/aihc-wasm/runtime/wit
     while IFS= read -r -d "" file; do
-      clang-tidy --quiet "$file" -- ${pkgs.lib.escapeShellArgs cTidyCompilerFlags}
+      if [[ "$file" == *components/aihc-wasm/runtime/aihc_wasip3.c ]]; then
+        clang-tidy --quiet "$file" -- \
+          --target=wasm32-unknown-unknown \
+          -std=c11 -Wall -Wextra -Wpedantic \
+          -DAIHC_WASIP3 \
+          -Icomponents/aihc-wasm/runtime/include \
+          -Icomponents/aihc-native/runtime \
+          -isystem "$bindings_directory"
+      else
+        clang-tidy --quiet "$file" -- ${pkgs.lib.escapeShellArgs cTidyCompilerFlags}
+      fi
     done < <(find . -type f -name '*.c' -print0)
   '';
 
@@ -218,6 +238,24 @@
       ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest compilationMatrix}
     done < <(find examples -mindepth 2 -maxdepth 2 -name Main.hs -print0 | sort -z)
   '';
+
+  wasip3ExampleTest =
+    mkSourceCheck "aihc-wasip3-example-test" (sources.examplesSrc pkgs) [
+      pkgs.diffutils
+      pkgs.wasm-tools
+      pkgs.wasmtime
+      pkgs.wit-bindgen
+      wasm32Clang
+      wasmLd
+    ] ''
+      export XDG_CACHE_HOME="$TMPDIR/cache"
+      executable="$TMPDIR/async-hello-world.wasm"
+      ${aihcExe} compile examples/async-hello-world/Main.hs \
+        --target wasm32-wasip3 \
+        --output "$executable"
+      wasmtime run -C cache=n -S cli "$executable" > "$executable.stdout"
+      diff --unified examples/async-hello-world/stdout "$executable.stdout"
+    '';
 
   parserProgressStrict = mkSourceCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) [] ''
     ${parserProgressExe} --strict
@@ -268,6 +306,7 @@ in {
   arm64-tests = arm64Tests;
   c-tests = cBackendTests;
   native-tests = nativeTests;
+  wasm-tests = wasmTests;
   fc-tests = fcTests;
   grin-tests = grinTests;
   resolve-tests = resolveTests;
@@ -291,6 +330,7 @@ in {
   c-format = cFormat;
   cabal-format = cabalFormat;
   examples-tests = examplesTests;
+  wasip3-example-test = wasip3ExampleTest;
 
   all-tests = pkgs.linkFarm "aihc-all-tests" [
     {
@@ -316,6 +356,10 @@ in {
     {
       name = "native-tests";
       path = nativeTests;
+    }
+    {
+      name = "wasm-tests";
+      path = wasmTests;
     }
     {
       name = "fc-tests";
@@ -408,6 +452,10 @@ in {
     {
       name = "examples-tests";
       path = examplesTests;
+    }
+    {
+      name = "wasip3-example-test";
+      path = wasip3ExampleTest;
     }
   ];
 }

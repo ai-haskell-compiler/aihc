@@ -1,13 +1,15 @@
 #include "aihc_runtime.h"
 
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#ifndef AIHC_WASIP3
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
-#include <stddef.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
+#endif
 
 typedef struct AihcBlackholeWaiter AihcBlackholeWaiter;
 
@@ -81,10 +83,8 @@ struct AihcIoBackend {
   void (*poll)(AihcMachine *machine, int may_block);
 };
 
-static AihcIoHandle aihc_standard_input = {(uintptr_t)STDIN_FILENO,
-                                           AIHC_IO_READABLE};
-static AihcIoHandle aihc_standard_output = {(uintptr_t)STDOUT_FILENO,
-                                            AIHC_IO_WRITABLE};
+static AihcIoHandle aihc_standard_input = {(uintptr_t)0, AIHC_IO_READABLE};
+static AihcIoHandle aihc_standard_output = {(uintptr_t)1, AIHC_IO_WRITABLE};
 
 #if UINTPTR_MAX == UINT64_MAX
 _Static_assert(offsetof(AihcMachine, globals) == 0, "machine globals ABI");
@@ -102,8 +102,13 @@ _Static_assert(offsetof(AihcResume, count) == 32, "resume count ABI");
 #endif
 
 static _Noreturn void aihc_fail(const char *message) {
+#ifdef AIHC_WASIP3
+  (void)message;
+  __builtin_trap();
+#else
   fprintf(stderr, "aihc runtime: %s\n", message);
   abort();
+#endif
 }
 
 static const AihcResume *aihc_schedule(AihcMachine *machine);
@@ -700,6 +705,20 @@ static int32_t aihc_io_error(int error) {
   return (int32_t)(-((int64_t)error) - 1);
 }
 
+static void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
+                                   int32_t result) {
+  AihcThread *thread = request->thread;
+  AihcValue *continuation = request->continuation;
+  request->state = AIHC_IO_COMPLETED;
+  request->result = result;
+  request->thread = NULL;
+  request->continuation = NULL;
+  request->next = NULL;
+  aihc_suspend_continue(thread, continuation, 0, 0);
+  aihc_enqueue_thread(machine, thread);
+}
+
+#ifndef AIHC_WASIP3
 static int aihc_posix_descriptor(const AihcIoHandle *handle) {
   return (int)handle->backend_token;
 }
@@ -741,19 +760,6 @@ static int aihc_posix_try_request(AihcIoRequest *request, int32_t *result) {
     *result = aihc_io_error(errno);
     return 1;
   }
-}
-
-static void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
-                                   int32_t result) {
-  AihcThread *thread = request->thread;
-  AihcValue *continuation = request->continuation;
-  request->state = AIHC_IO_COMPLETED;
-  request->result = result;
-  request->thread = NULL;
-  request->continuation = NULL;
-  request->next = NULL;
-  aihc_suspend_continue(thread, continuation, 0, 0);
-  aihc_enqueue_thread(machine, thread);
 }
 
 static void aihc_complete_all_io_with_error(AihcMachine *machine, int error) {
@@ -833,6 +839,44 @@ static const AihcIoBackend aihc_posix_io_backend = {
 static const AihcIoBackend *aihc_default_io_backend(void) {
   return &aihc_posix_io_backend;
 }
+#else
+extern int32_t aihc_wasip3_start_write(const unsigned char *bytes,
+                                       size_t length);
+
+static int aihc_wasip3_prepare(AihcIoRequest *request) {
+  (void)request;
+  return 0;
+}
+
+static int aihc_wasip3_try_request(AihcIoRequest *request, int32_t *result) {
+  if (request->kind != AIHC_IO_WRITE || request->handle->backend_token != 1) {
+    *result = aihc_io_error(1);
+    return 1;
+  }
+  int32_t status = aihc_wasip3_start_write(
+      request->buffer->bytes + request->offset, request->length);
+  if (status == INT32_MIN) {
+    return 0;
+  }
+  *result = status;
+  return 1;
+}
+
+static void aihc_wasip3_poll(AihcMachine *machine, int may_block) {
+  (void)machine;
+  (void)may_block;
+}
+
+static const AihcIoBackend aihc_wasip3_io_backend = {
+    aihc_wasip3_prepare,
+    aihc_wasip3_try_request,
+    aihc_wasip3_poll,
+};
+
+static const AihcIoBackend *aihc_default_io_backend(void) {
+  return &aihc_wasip3_io_backend;
+}
+#endif
 
 static const AihcResume *aihc_schedule(AihcMachine *machine) {
   for (;;) {
@@ -842,7 +886,11 @@ static const AihcResume *aihc_schedule(AihcMachine *machine) {
     }
     if (machine->io_request_count != 0) {
       machine->io_backend->poll(machine, 1);
+#ifdef AIHC_WASIP3
+      return NULL;
+#else
       continue;
+#endif
     }
     aihc_fail("no runnable threads");
   }
@@ -1015,6 +1063,9 @@ const AihcResume *aihc_block_on_blackhole(AihcMachine *machine,
 static AihcPortableTransfer aihc_portable_resume(AihcMachine *machine,
                                                  AihcSlot *buffer,
                                                  const AihcResume *resume) {
+  if (resume == NULL) {
+    return (AihcPortableTransfer){0};
+  }
   AihcPortableTransfer transfer;
   switch (resume->kind) {
   case AIHC_RESUME_APPLY:
@@ -1032,6 +1083,33 @@ static AihcPortableTransfer aihc_portable_resume(AihcMachine *machine,
   machine->selected_resume = (AihcResume){0};
   return transfer;
 }
+
+#ifdef AIHC_WASIP3
+AihcPortableTransfer aihc_wasip3_complete_io(AihcMachine *machine,
+                                             AihcSlot *buffer, int32_t result) {
+  AihcIoRequest *request = machine->io_requests_head;
+  if (request == NULL) {
+    aihc_fail("WASI P3 completion has no pending request");
+  }
+  machine->io_requests_head = request->next;
+  --machine->io_request_count;
+  aihc_resume_io_request(machine, request, result);
+
+  while (machine->io_requests_head != NULL) {
+    request = machine->io_requests_head;
+    if (!machine->io_backend->try_request(request, &result)) {
+      break;
+    }
+    machine->io_requests_head = request->next;
+    --machine->io_request_count;
+    aihc_resume_io_request(machine, request, result);
+  }
+  if (machine->io_requests_head == NULL) {
+    machine->io_requests_tail = NULL;
+  }
+  return aihc_portable_resume(machine, buffer, aihc_schedule(machine));
+}
+#endif
 
 AihcPortableTransfer aihc_portable_eval_cps(AihcMachine *machine,
                                             AihcSlot *buffer, AihcValue *value,

@@ -221,6 +221,10 @@ AihcPortableTransfer
 aihc_portable_start(AihcMachine *machine, AihcSlot *buffer, AihcValue *root,
                     AihcValue *continuation, AihcValue *update_continuation,
                     AihcValue *thread_done_continuation, AihcEntry exit_code);
+#ifdef AIHC_WASIP3
+AihcPortableTransfer aihc_wasip3_complete_io(AihcMachine *machine,
+                                             AihcSlot *buffer, int32_t result);
+#endif
 
 typedef enum {
   AIHC_SNAPSHOT_POINTER,
