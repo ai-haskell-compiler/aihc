@@ -32,6 +32,11 @@ source-repository head
   location: https://github.com/ai-haskell-compiler/aihc.git
   subdir: components/aihc-parser
 
+flag fuzz
+  description: Build the developer-only QuickCheck property registry
+  default: False
+  manual: True
+
 library
   exposed-modules:
     Aihc.Parser
@@ -78,6 +83,8 @@ library
   default-language: GHC2021
 
 library fuzz
+  if !flag(fuzz)
+    buildable: False
   visibility: public
   hs-source-dirs:
     fuzz

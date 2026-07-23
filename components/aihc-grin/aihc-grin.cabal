@@ -9,6 +9,11 @@ maintainer: lemmih@gmail.com
 category: Development
 synopsis: Strict graph-reduction intermediate language for AIHC
 
+flag fuzz
+  description: Build the developer-only QuickCheck property registry
+  default: False
+  manual: True
+
 library
   exposed-modules:
     Aihc.Grin
@@ -42,6 +47,8 @@ library
   default-language: GHC2021
 
 library fuzz
+  if !flag(fuzz)
+    buildable: False
   visibility: public
   hs-source-dirs:
     fuzz
