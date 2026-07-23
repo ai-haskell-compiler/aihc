@@ -59,7 +59,7 @@ struct AihcIoHandle {
 
 typedef struct {
   size_t size;
-  unsigned char *contents;
+  uint8_t *contents;
   uint8_t pinned;
   size_t alignment;
 } AihcByteArray;
@@ -68,7 +68,7 @@ struct AihcIoRequest {
   AihcIoKind kind;
   AihcIoState state;
   AihcIoHandle *handle;
-  unsigned char *buffer;
+  uint8_t *buffer;
   size_t offset;
   size_t length;
   AihcThread *thread;
@@ -722,7 +722,7 @@ static int aihc_posix_prepare(AihcIoRequest *request) {
 static int aihc_posix_try_request(AihcIoRequest *request, int32_t *result) {
   for (;;) {
     ssize_t transferred;
-    unsigned char *bytes = request->buffer + request->offset;
+    uint8_t *bytes = request->buffer + request->offset;
     if (request->kind == AIHC_IO_READ) {
       transferred =
           read(aihc_posix_descriptor(request->handle), bytes, request->length);
@@ -851,7 +851,7 @@ static const AihcResume *aihc_schedule(AihcMachine *machine) {
 }
 
 static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcIoHandle *handle,
-                                     unsigned char *buffer, int32_t offset,
+                                     uint8_t *buffer, int32_t offset,
                                      int32_t length) {
   if (handle == NULL) {
     aihc_fail("attempted IO with a null handle");
@@ -904,10 +904,10 @@ static AihcByteArray *aihc_byte_array_allocate(int64_t requested_size,
     aihc_fail("byte array allocation is too large");
   }
   AihcByteArray *array = aihc_allocate_zeroed(sizeof(*array));
-  unsigned char *raw = aihc_allocate_zeroed(allocation_size + alignment - 1);
+  uint8_t *raw = aihc_allocate_zeroed(allocation_size + alignment - 1);
   uintptr_t aligned = ((uintptr_t)raw + alignment - 1) & ~(alignment - 1);
   array->size = size;
-  array->contents = (unsigned char *)aligned;
+  array->contents = (uint8_t *)aligned;
   array->pinned = pinned;
   array->alignment = alignment;
   return array;
