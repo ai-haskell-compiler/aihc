@@ -5,6 +5,7 @@ module Aihc.Dev.Fuzz
   ( batchSize,
     cycleProperties,
     dashboardRefreshMicroseconds,
+    isQuitKey,
     resolveJobCount,
     runCommand,
     selectProperties,
@@ -18,7 +19,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel, race, waitAnyCatch)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, bracket_, displayException, finally, onException)
-import Control.Monad (forM, forM_, unless, when)
+import Control.Monad (forM, forM_, unless, void, when)
 import Data.Char (toLower)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
@@ -28,7 +29,9 @@ import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
 import GHC.Conc (getNumCapabilities)
 import System.Console.Terminal.Size qualified as Terminal
 import System.Exit (exitFailure)
-import System.IO (BufferMode (NoBuffering), hFlush, hGetBuffering, hIsTerminalDevice, hPutStr, hPutStrLn, hSetBuffering, stderr)
+import System.IO (BufferMode (NoBuffering), hFlush, hGetBuffering, hIsTerminalDevice, hPutStr, hPutStrLn, hReady, hSetBuffering, stderr, stdin)
+import System.Posix.IO (stdInput)
+import System.Posix.Terminal qualified as Posix
 import Test.QuickCheck qualified as QC
 import Test.QuickCheck.Property qualified as QCP
 
@@ -99,12 +102,14 @@ runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit} = do
   scheduler <- newTVarIO (cycleProperties selected)
   stats <- Stats <$> newTVarIO IntMap.empty <*> newTVarIO 0 <*> newTVarIO 0
   startedAt <- getCurrentTime
-  workers <- forM [1 .. jobs] $ \workerId -> async (worker scheduler stats workerId)
   interactive <- hIsTerminalDevice stderr
-  let run = awaitOutcome optionsTimeLimit workers
+  keyboardEnabled <- (interactive &&) <$> hIsTerminalDevice stdin
+  quitSignal <- newEmptyTMVarIO
+  workers <- forM [1 .. jobs] $ \workerId -> async (worker scheduler stats workerId)
+  let run = awaitOutcome optionsTimeLimit workers quitSignal
   outcome <-
     ( if interactive
-        then withDashboard startedAt (length selected) jobs stats run
+        then withDashboard keyboardEnabled quitSignal startedAt (length selected) jobs stats run
         else do
           hPutStrLn stderr ("Fuzzing " <> show (length selected) <> " properties with " <> show jobs <> " jobs (10,000 cases per batch)")
           run
@@ -115,6 +120,8 @@ runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit} = do
   case outcome of
     TimeLimitReached ->
       putStrLn ("Time limit reached after " <> formatInteger successfulCases <> " successful QuickCheck cases.")
+    UserQuit ->
+      putStrLn ("Stopped after " <> formatInteger successfulCases <> " successful QuickCheck cases.")
     PropertyFailed WorkerFailure {workerFailureProperty, workerFailureResult} -> do
       hPutStrLn stderr ("Fuzz failure in " <> fuzzPropertyId workerFailureProperty)
       hPutStr stderr (QC.output workerFailureResult)
@@ -125,19 +132,25 @@ runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit} = do
 
 data Outcome
   = TimeLimitReached
+  | UserQuit
   | PropertyFailed WorkerFailure
   | WorkerCrashed SomeException
 
-awaitOutcome :: Maybe NominalDiffTime -> [Async WorkerFailure] -> IO Outcome
-awaitOutcome maybeTimeLimit workers =
+awaitOutcome :: Maybe NominalDiffTime -> [Async WorkerFailure] -> TMVar () -> IO Outcome
+awaitOutcome maybeTimeLimit workers quitSignal =
   case maybeTimeLimit of
-    Nothing -> waitForWorker
+    Nothing -> waitForStop
     Just timeLimit -> do
-      result <- race (threadDelay (durationMicroseconds timeLimit)) waitForWorker
+      result <- race (threadDelay (durationMicroseconds timeLimit)) waitForStop
       pure $ case result of
         Left () -> TimeLimitReached
         Right outcome -> outcome
   where
+    waitForStop = do
+      result <- race (atomically (takeTMVar quitSignal)) waitForWorker
+      pure $ case result of
+        Left () -> UserQuit
+        Right outcome -> outcome
     waitForWorker = do
       (_, result) <- waitAnyCatch workers
       pure $ case result of
@@ -196,16 +209,71 @@ runBatch stats workerId FuzzProperty {fuzzPropertyValue} =
     increment active =
       active {activeSuccessfulCases = activeSuccessfulCases active + 1}
 
-withDashboard :: UTCTime -> Int -> Int -> Stats -> IO Outcome -> IO Outcome
-withDashboard startedAt propertyCount jobs stats action = do
+withDashboard :: Bool -> TMVar () -> UTCTime -> Int -> Int -> Stats -> IO Outcome -> IO Outcome
+withDashboard keyboardEnabled quitSignal startedAt propertyCount jobs stats action = do
   originalBuffering <- hGetBuffering stderr
   bracket_
     enterDashboard
     (leaveDashboard originalBuffering)
+    (if keyboardEnabled then withKeyboard quitSignal run else run)
+  where
+    run = do
+      renderer <- async (renderLoop startedAt propertyCount jobs stats)
+      action `finally` cancel renderer
+
+withKeyboard :: TMVar () -> IO Outcome -> IO Outcome
+withKeyboard quitSignal action = do
+  originalBuffering <- hGetBuffering stdin
+  originalAttributes <- Posix.getTerminalAttributes stdInput
+  bracket_
+    (enterKeyboardMode originalBuffering originalAttributes)
+    (leaveKeyboardMode originalBuffering originalAttributes)
     ( do
-        renderer <- async (renderLoop startedAt propertyCount jobs stats)
-        action `finally` cancel renderer
+        watcher <- async (watchKeyboard quitSignal)
+        action `finally` cancel watcher
     )
+
+enterKeyboardMode :: BufferMode -> Posix.TerminalAttributes -> IO ()
+enterKeyboardMode originalBuffering originalAttributes = do
+  let immediateInput =
+        Posix.withTime
+          (Posix.withMinInput (Posix.withoutMode (Posix.withoutMode originalAttributes Posix.EnableEcho) Posix.ProcessInput) 1)
+          0
+  hSetBuffering stdin NoBuffering
+  Posix.setTerminalAttributes stdInput immediateInput Posix.Immediately
+    `onException` hSetBuffering stdin originalBuffering
+
+leaveKeyboardMode :: BufferMode -> Posix.TerminalAttributes -> IO ()
+leaveKeyboardMode originalBuffering originalAttributes =
+  Posix.setTerminalAttributes stdInput originalAttributes Posix.Immediately
+    `finally` hSetBuffering stdin originalBuffering
+
+watchKeyboard :: TMVar () -> IO ()
+watchKeyboard quitSignal = go
+  where
+    go = do
+      key <- getChar
+      quit <-
+        if key == '\ESC'
+          then do
+            threadDelay 50000
+            hasContinuation <- hReady stdin
+            if hasContinuation
+              then drainAvailableInput >> pure False
+              else pure True
+          else pure (isQuitKey key)
+      if quit
+        then atomically (void (tryPutTMVar quitSignal ()))
+        else go
+
+drainAvailableInput :: IO ()
+drainAvailableInput = do
+  available <- hReady stdin
+  when available (getChar >> drainAvailableInput)
+
+-- | Keys that request an immediate, successful stop.
+isQuitKey :: Char -> Bool
+isQuitKey key = key == 'q' || key == 'Q' || key == '\ESC'
 
 enterDashboard :: IO ()
 enterDashboard = do

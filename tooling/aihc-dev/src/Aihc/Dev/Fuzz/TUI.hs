@@ -43,7 +43,7 @@ fullDashboard rows width dashboard@Dashboard {dashboardActive, dashboardBatches,
         <> " batches  ·  "
         <> show dashboardProperties
         <> " properties",
-      " " <> show dashboardJobs <> " workers  ·  10,000 cases per batch",
+      " " <> show dashboardJobs <> " workers  ·  10,000 cases per batch  ·  q/esc quit",
       "",
       " ACTIVE  " <> show (length dashboardActive)
     ]

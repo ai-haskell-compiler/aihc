@@ -168,6 +168,7 @@ library fuzz
     stm >=2.5 && <2.6,
     terminal-size >=0.3.2 && <0.4,
     time >=1.9 && <1.15,
+    unix >=2.7 && <2.9,
 
   ghc-options: -Wall
   default-language: GHC2021

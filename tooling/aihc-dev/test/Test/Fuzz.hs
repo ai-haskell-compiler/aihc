@@ -3,7 +3,7 @@ module Test.Fuzz
   )
 where
 
-import Aihc.Dev.Fuzz (batchSize, cycleProperties, dashboardRefreshMicroseconds, resolveJobCount, selectProperties)
+import Aihc.Dev.Fuzz (batchSize, cycleProperties, dashboardRefreshMicroseconds, isQuitKey, resolveJobCount, selectProperties)
 import Aihc.Dev.Fuzz.CLI (Command (..), Selection (..), commandParser, parseDuration)
 import Aihc.Dev.Fuzz.Registry (FuzzProperty (..), fuzzProperties, fuzzPropertyId)
 import Aihc.Dev.Fuzz.TUI (Dashboard (..), renderDashboard, renderFrameUpdate)
@@ -30,6 +30,11 @@ fuzzTests =
           (take 7 (cycleProperties ["one", "two", "three"])),
       testCase "does not cap jobs at the selected property count" $
         assertEqual "jobs" 10 (resolveJobCount 4 (Just 10)),
+      testCase "recognizes q and escape as quit keys" $ do
+        assertBool "lowercase q" (isQuitKey 'q')
+        assertBool "uppercase q" (isQuitKey 'Q')
+        assertBool "escape" (isQuitKey '\ESC')
+        assertBool "other key" (not (isQuitKey 'x')),
       testCase "parses supported time-limit units" $ do
         assertEqual "milliseconds" (Right 0.25) (parseDuration "250ms")
         assertEqual "seconds" (Right 30) (parseDuration "30s")
