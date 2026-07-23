@@ -18,7 +18,7 @@ import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Control.Monad.Trans.State.Strict (State, StateT, execState, get, gets, modify', runState, runStateT)
-import Data.Bits ((.&.))
+import Data.Bits (complement, countLeadingZeros, countTrailingZeros, popCount, shiftL, shiftR, xor, (.&.), (.|.))
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
@@ -37,6 +37,7 @@ import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
 import Foreign.Marshal.Utils (copyBytes, fillBytes)
 import Foreign.Ptr (FunPtr, Ptr, alignPtr, castPtr, plusPtr)
+import Foreign.Storable (peekByteOff, pokeByteOff)
 import System.IO (Handle, hFlush, stdin, stdout)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
@@ -592,6 +593,55 @@ evalPrimitive :: Text -> [RuntimeValue] -> EvalM [RuntimeValue]
 evalPrimitive "+#" [left, right] = evalIntPrimitive "+#" (+) left right
 evalPrimitive "-#" [left, right] = evalIntPrimitive "-#" (-) left right
 evalPrimitive "*#" [left, right] = evalIntPrimitive "*#" (*) left right
+evalPrimitive "addIntC#" [left, right] = evalIntCarryPrimitive "addIntC#" (+) left right
+evalPrimitive "subIntC#" [left, right] = evalIntCarryPrimitive "subIntC#" (-) left right
+evalPrimitive "plusWord#" [left, right] = evalWordPrimitive "plusWord#" (+) left right
+evalPrimitive "minusWord#" [left, right] = evalWordPrimitive "minusWord#" (-) left right
+evalPrimitive "timesWord#" [left, right] = evalWordPrimitive "timesWord#" (*) left right
+evalPrimitive "addWordC#" [left, right] = evalWordCarryPrimitive "addWordC#" left right
+evalPrimitive "subWordC#" [left, right] = evalWordBorrowPrimitive "subWordC#" left right
+evalPrimitive "timesWord2#" [left, right] = do
+  leftWord <- expectWordPrimitiveArgument "timesWord2#" left
+  rightWord <- expectWordPrimitiveArgument "timesWord2#" right
+  let productValue = leftWord * rightWord
+  pure [wordRuntimeValue (productValue `shiftR` wordBits), wordRuntimeValue productValue]
+evalPrimitive "quotWord#" [left, right] = evalWordPrimitive "quotWord#" quot left right
+evalPrimitive "remWord#" [left, right] = evalWordPrimitive "remWord#" rem left right
+evalPrimitive "quotRemWord#" [left, right] = do
+  leftWord <- expectWordPrimitiveArgument "quotRemWord#" left
+  rightWord <- expectWordPrimitiveArgument "quotRemWord#" right
+  let (quotient, remainder) = leftWord `quotRem` rightWord
+  pure [wordRuntimeValue quotient, wordRuntimeValue remainder]
+evalPrimitive "quotRemWord2#" [high, low, divisor] = do
+  highWord <- expectWordPrimitiveArgument "quotRemWord2#" high
+  lowWord <- expectWordPrimitiveArgument "quotRemWord2#" low
+  divisorWord <- expectWordPrimitiveArgument "quotRemWord2#" divisor
+  let dividend = highWord `shiftL` wordBits .|. lowWord
+      (quotient, remainder) = dividend `quotRem` divisorWord
+  pure [wordRuntimeValue quotient, wordRuntimeValue remainder]
+evalPrimitive "and#" [left, right] = evalWordPrimitive "and#" (.&.) left right
+evalPrimitive "or#" [left, right] = evalWordPrimitive "or#" (.|.) left right
+evalPrimitive "xor#" [left, right] = evalWordPrimitive "xor#" xor left right
+evalPrimitive "not#" [value] = do
+  word <- expectWordPrimitiveArgument "not#" value
+  pure [wordRuntimeValue (complement word)]
+evalPrimitive "uncheckedShiftL#" [value, amount] = evalWordShift "uncheckedShiftL#" shiftL value amount
+evalPrimitive "uncheckedShiftRL#" [value, amount] = evalWordShift "uncheckedShiftRL#" shiftR value amount
+evalPrimitive "int2Word#" [value] = do
+  int <- expectIntPrimitiveArgument "int2Word#" value
+  pure [wordRuntimeValue int]
+evalPrimitive "word2Int#" [value] = do
+  word <- expectWordPrimitiveArgument "word2Int#" value
+  pure [intRuntimeValue word]
+evalPrimitive "eqWord#" [left, right] = evalWordComparison "eqWord#" (==) left right
+evalPrimitive "neWord#" [left, right] = evalWordComparison "neWord#" (/=) left right
+evalPrimitive "ltWord#" [left, right] = evalWordComparison "ltWord#" (<) left right
+evalPrimitive "leWord#" [left, right] = evalWordComparison "leWord#" (<=) left right
+evalPrimitive "gtWord#" [left, right] = evalWordComparison "gtWord#" (>) left right
+evalPrimitive "geWord#" [left, right] = evalWordComparison "geWord#" (>=) left right
+evalPrimitive "clz#" [value] = evalWordCount "clz#" countLeadingZeros value
+evalPrimitive "ctz#" [value] = evalWordCount "ctz#" countTrailingZeros value
+evalPrimitive "popCnt#" [value] = evalWordCount "popCnt#" popCount value
 evalPrimitive "compareInt#" [left, right] = evalIntPrimitive "compareInt#" compareInts left right
 evalPrimitive "<#" [left, right] =
   evalIntPrimitive "<#" (\leftInt rightInt -> if leftInt < rightInt then 1 else 0) left right
@@ -672,6 +722,40 @@ evalPrimitive "getSizeofMutableByteArray#" [value] = do
   byteArray <- expectByteArrayPrimitiveArgument "getSizeofMutableByteArray#" value
   size <- liftEvalIO (readIORef (grinByteArraySize byteArray))
   pure [RuntimeLit (GrinLitInt IntRep (toInteger size))]
+evalPrimitive "indexWordArray#" [value, index] = do
+  byteArray <- expectByteArrayPrimitiveArgument "indexWordArray#" value
+  wordIndex <- expectIntPrimitiveArgument "indexWordArray#" index
+  byteOffset <- checkedWordArrayIndex "indexWordArray#" byteArray wordIndex
+  word <- liftEvalIO (peekByteOff (grinByteArrayContents byteArray) byteOffset :: IO Word64)
+  pure [wordRuntimeValue (toInteger word)]
+evalPrimitive "readWordArray#" [value, index] = do
+  byteArray <- expectByteArrayPrimitiveArgument "readWordArray#" value
+  wordIndex <- expectIntPrimitiveArgument "readWordArray#" index
+  byteOffset <- checkedWordArrayIndex "readWordArray#" byteArray wordIndex
+  word <- liftEvalIO (peekByteOff (grinByteArrayContents byteArray) byteOffset :: IO Word64)
+  pure [wordRuntimeValue (toInteger word)]
+evalPrimitive "writeWordArray#" [value, index, wordValue] = do
+  byteArray <- expectByteArrayPrimitiveArgument "writeWordArray#" value
+  wordIndex <- expectIntPrimitiveArgument "writeWordArray#" index
+  word <- expectWordPrimitiveArgument "writeWordArray#" wordValue
+  byteOffset <- checkedWordArrayIndex "writeWordArray#" byteArray wordIndex
+  liftEvalIO (pokeByteOff (grinByteArrayContents byteArray) byteOffset (fromInteger word :: Word64))
+  pure []
+evalPrimitive "copyByteArray#" [sourceValue, sourceOffset, destinationValue, destinationOffset, byteCount] = do
+  source <- expectByteArrayPrimitiveArgument "copyByteArray#" sourceValue
+  destination <- expectByteArrayPrimitiveArgument "copyByteArray#" destinationValue
+  checkedSourceOffset <- expectIntPrimitiveArgument "copyByteArray#" sourceOffset
+  checkedDestinationOffset <- expectIntPrimitiveArgument "copyByteArray#" destinationOffset
+  checkedLength <- expectIntPrimitiveArgument "copyByteArray#" byteCount
+  (sourceStart, sourceLength) <- checkedByteArrayRange "copyByteArray#" source checkedSourceOffset checkedLength
+  (destinationStart, destinationLength) <- checkedByteArrayRange "copyByteArray#" destination checkedDestinationOffset checkedLength
+  liftEvalIO
+    ( copyBytes
+        (grinByteArrayContents destination `plusPtr` destinationStart)
+        (grinByteArrayContents source `plusPtr` sourceStart)
+        (min sourceLength destinationLength)
+    )
+  pure []
 evalPrimitive "copyAddrToByteArray#" [source, value, offset, byteCount] = do
   byteArray <- expectByteArrayPrimitiveArgument "copyAddrToByteArray#" value
   checkedOffset <- expectIntPrimitiveArgument "copyAddrToByteArray#" offset
@@ -731,17 +815,98 @@ checkedByteArrayRange symbol byteArray offset byteCount = do
     then throwInterpret (InterpretInvalidByteArrayRange symbol offset byteCount size)
     else pure (fromInteger offset, fromInteger byteCount)
 
+checkedWordArrayIndex :: Text -> GrinByteArray -> Integer -> EvalM Int
+checkedWordArrayIndex symbol byteArray index = do
+  (offset, _) <- checkedByteArrayRange symbol byteArray (index * 8) 8
+  pure offset
+
 evalIntPrimitive :: Text -> (Integer -> Integer -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
 evalIntPrimitive name operation left right = do
   leftInt <- expectIntPrimitiveArgument name left
   rightInt <- expectIntPrimitiveArgument name right
   pure [RuntimeLit (GrinLitInt IntRep (operation leftInt rightInt))]
 
+evalIntCarryPrimitive :: Text -> (Integer -> Integer -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalIntCarryPrimitive name operation left right = do
+  leftInt <- expectIntPrimitiveArgument name left
+  rightInt <- expectIntPrimitiveArgument name right
+  let exactResult = operation (normalizeInt leftInt) (normalizeInt rightInt)
+      overflow = exactResult < intMin || exactResult > intMax
+  pure [intRuntimeValue exactResult, intRuntimeValue (if overflow then 1 else 0)]
+
+evalWordPrimitive :: Text -> (Integer -> Integer -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalWordPrimitive name operation left right = do
+  leftWord <- expectWordPrimitiveArgument name left
+  rightWord <- expectWordPrimitiveArgument name right
+  pure [wordRuntimeValue (operation leftWord rightWord)]
+
+evalWordCarryPrimitive :: Text -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalWordCarryPrimitive name left right = do
+  leftWord <- expectWordPrimitiveArgument name left
+  rightWord <- expectWordPrimitiveArgument name right
+  let exactResult = leftWord + rightWord
+  pure [wordRuntimeValue exactResult, intRuntimeValue (if exactResult >= wordModulus then 1 else 0)]
+
+evalWordBorrowPrimitive :: Text -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalWordBorrowPrimitive name left right = do
+  leftWord <- expectWordPrimitiveArgument name left
+  rightWord <- expectWordPrimitiveArgument name right
+  pure [wordRuntimeValue (leftWord - rightWord), intRuntimeValue (if leftWord < rightWord then 1 else 0)]
+
+evalWordComparison :: Text -> (Integer -> Integer -> Bool) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalWordComparison name comparison left right = do
+  leftWord <- expectWordPrimitiveArgument name left
+  rightWord <- expectWordPrimitiveArgument name right
+  pure [intRuntimeValue (if comparison leftWord rightWord then 1 else 0)]
+
+evalWordShift :: Text -> (Integer -> Int -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
+evalWordShift name operation value amount = do
+  word <- expectWordPrimitiveArgument name value
+  shiftAmount <- expectIntPrimitiveArgument name amount
+  pure [wordRuntimeValue (operation word (fromInteger shiftAmount))]
+
+evalWordCount :: Text -> (Word64 -> Int) -> RuntimeValue -> EvalM [RuntimeValue]
+evalWordCount name operation value = do
+  word <- expectWordPrimitiveArgument name value
+  pure [wordRuntimeValue (toInteger (operation (fromInteger word)))]
+
+wordRuntimeValue :: Integer -> RuntimeValue
+wordRuntimeValue = RuntimeLit . GrinLitInt WordRep . normalizeWord
+
+intRuntimeValue :: Integer -> RuntimeValue
+intRuntimeValue = RuntimeLit . GrinLitInt IntRep . normalizeInt
+
+wordBits :: Int
+wordBits = 64
+
+wordModulus :: Integer
+wordModulus = 1 `shiftL` wordBits
+
+wordMask :: Integer
+wordMask = wordModulus - 1
+
+intMin :: Integer
+intMin = negate (1 `shiftL` (wordBits - 1))
+
+intMax :: Integer
+intMax = (1 `shiftL` (wordBits - 1)) - 1
+
+normalizeWord :: Integer -> Integer
+normalizeWord value = value .&. wordMask
+
+normalizeInt :: Integer -> Integer
+normalizeInt value =
+  let word = normalizeWord value
+   in if word > intMax then word - wordModulus else word
+
 expectIntPrimitiveArgument :: Text -> RuntimeValue -> EvalM Integer
 expectIntPrimitiveArgument name value =
   case value of
     RuntimeLit (GrinLitInt _ intValue) -> pure intValue
     other -> throwInterpret (InterpretPrimitiveTypeError name other)
+
+expectWordPrimitiveArgument :: Text -> RuntimeValue -> EvalM Integer
+expectWordPrimitiveArgument name value = normalizeWord <$> expectIntPrimitiveArgument name value
 
 expectCharPrimitiveArgument :: Text -> RuntimeValue -> EvalM Char
 expectCharPrimitiveArgument name value =

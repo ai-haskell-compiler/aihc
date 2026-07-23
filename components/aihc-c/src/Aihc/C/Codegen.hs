@@ -445,15 +445,136 @@ compileDirectBinding env vars expression =
           rootSlots <- mapM (localSlot env) vars
           pure (rootLines <> ["aihc_ensure_heap(aihc_machine, " <> tshow requiredWords <> ", " <> tshow (length roots) <> ", " <> slotPointer rootSlots <> ");"])
     GrinStoreUnchecked node -> materializeNode True node >>= storeOne
-    GrinFetch _ pointer -> liftEither (materializeValue env pointer) >>= storeOne . pure
+    GrinFetch _ pointer -> liftEither (materializeValue env pointer) >>= storeExpression
     GrinUpdate pointer value -> update "aihc_update" False pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_update_blackhole" True pointer value
-    GrinPrimitiveCall IntRep "+#" [left, right] -> binaryIntPrimitive "+" left right
+    GrinPrimitiveCall IntRep name [left, right]
+      | Just operator <- lookup name [("+#", "+"), ("-#", "-"), ("*#", "*")] ->
+          binaryPrimitive operator left right
+    GrinPrimitiveCall WordRep name [left, right]
+      | Just operator <- lookup name [("plusWord#", "+"), ("minusWord#", "-"), ("timesWord#", "*"), ("quotWord#", "/"), ("remWord#", "%"), ("and#", "&"), ("or#", "|"), ("xor#", "^")] ->
+          binaryPrimitive operator left right
+    GrinPrimitiveCall _ name [left, right]
+      | name `elem` ["<#", "==#", "eqWord#", "neWord#", "ltWord#", "leWord#", "gtWord#", "geWord#"] ->
+          comparisonPrimitive name left right
+    GrinPrimitiveCall _ name [left, right]
+      | name `elem` ["addIntC#", "subIntC#", "addWordC#", "subWordC#"] ->
+          carryPrimitive name left right
+    GrinPrimitiveCall _ "timesWord2#" [left, right] -> do
+      stored <- materializeIntoFresh env [left, right]
+      case snd stored of
+        [leftSlot, rightSlot] -> do
+          leftLow <- freshSlot
+          leftHigh <- freshSlot
+          rightLow <- freshSlot
+          rightHigh <- freshSlot
+          product00 <- freshSlot
+          product01 <- freshSlot
+          product10 <- freshSlot
+          product11 <- freshSlot
+          lowPartial <- freshSlot
+          lowResult <- freshSlot
+          let leftRef = localRef leftSlot
+              rightRef = localRef rightSlot
+              ref = localRef
+          storePair
+            vars
+            ( fst stored
+                <> [ ref leftLow <> " = (uint32_t)" <> leftRef <> ";",
+                     ref leftHigh <> " = (uint64_t)" <> leftRef <> " >> 32;",
+                     ref rightLow <> " = (uint32_t)" <> rightRef <> ";",
+                     ref rightHigh <> " = (uint64_t)" <> rightRef <> " >> 32;",
+                     ref product00 <> " = " <> ref leftLow <> " * " <> ref rightLow <> ";",
+                     ref product01 <> " = " <> ref leftLow <> " * " <> ref rightHigh <> ";",
+                     ref product10 <> " = " <> ref leftHigh <> " * " <> ref rightLow <> ";",
+                     ref product11 <> " = " <> ref leftHigh <> " * " <> ref rightHigh <> ";",
+                     ref lowPartial <> " = " <> ref product00 <> " + (" <> ref product01 <> " << 32);",
+                     ref lowResult <> " = " <> ref lowPartial <> " + (" <> ref product10 <> " << 32);"
+                   ]
+            )
+            ( "(AihcSlot)("
+                <> ref product11
+                <> " + ("
+                <> ref product01
+                <> " >> 32) + ("
+                <> ref product10
+                <> " >> 32) + ("
+                <> ref lowPartial
+                <> " < "
+                <> ref product00
+                <> ") + ("
+                <> ref lowResult
+                <> " < "
+                <> ref lowPartial
+                <> "))"
+            )
+            (ref lowResult)
+        _ -> lift (Left (CUnsupportedExpression "internal timesWord2# arity"))
+    GrinPrimitiveCall _ "quotRemWord#" [left, right] -> do
+      stored <- materializeIntoFresh env [left, right]
+      case snd stored of
+        [leftSlot, rightSlot] ->
+          storePair
+            vars
+            (fst stored)
+            ("(AihcSlot)((uint64_t)" <> localRef leftSlot <> " / (uint64_t)" <> localRef rightSlot <> ")")
+            ("(AihcSlot)((uint64_t)" <> localRef leftSlot <> " % (uint64_t)" <> localRef rightSlot <> ")")
+        _ -> lift (Left (CUnsupportedExpression "internal quotRemWord# arity"))
+    GrinPrimitiveCall _ "quotRemWord2#" [high, low, divisor] -> do
+      stored <- materializeIntoFresh env [high, low, divisor]
+      case snd stored of
+        [highSlot, lowSlot, divisorSlot] -> do
+          quotient <- freshSlot
+          remainder <- freshSlot
+          bits <- freshSlot
+          count <- freshSlot
+          overflow <- freshSlot
+          nextBit <- freshSlot
+          let ref = localRef
+          storePair
+            vars
+            ( fst stored
+                <> [ ref quotient <> " = 0;",
+                     ref remainder <> " = " <> ref highSlot <> ";",
+                     ref bits <> " = " <> ref lowSlot <> ";",
+                     ref count <> " = 64;",
+                     "while (" <> ref count <> " != 0) {",
+                     "  " <> ref overflow <> " = " <> ref remainder <> " >> 63;",
+                     "  " <> ref nextBit <> " = " <> ref bits <> " >> 63;",
+                     "  " <> ref remainder <> " = (" <> ref remainder <> " << 1) | " <> ref nextBit <> ";",
+                     "  " <> ref bits <> " <<= 1;",
+                     "  " <> ref quotient <> " <<= 1;",
+                     "  if (" <> ref overflow <> " != 0 || " <> ref remainder <> " >= " <> ref divisorSlot <> ") {",
+                     "    " <> ref remainder <> " -= " <> ref divisorSlot <> ";",
+                     "    " <> ref quotient <> " |= 1;",
+                     "  }",
+                     "  " <> ref count <> "--;",
+                     "}"
+                   ]
+            )
+            (ref quotient)
+            (ref remainder)
+        _ -> lift (Left (CUnsupportedExpression "internal quotRemWord2# arity"))
+    GrinPrimitiveCall _ "not#" [value] -> do
+      source <- liftEither (materializeValue env value)
+      storeExpression ("(AihcSlot)(~(uint64_t)" <> source <> ")")
+    GrinPrimitiveCall _ name [value, amount]
+      | Just operator <- lookup name [("uncheckedShiftL#", "<<"), ("uncheckedShiftRL#", ">>")] -> do
+          stored <- materializeIntoFresh env [value, amount]
+          case snd stored of
+            [valueSlot, amountSlot] ->
+              storeExpressionWith
+                (fst stored)
+                ("(AihcSlot)((uint64_t)" <> localRef valueSlot <> " " <> operator <> " (uint64_t)" <> localRef amountSlot <> ")")
+            _ -> lift (Left (CUnsupportedExpression "internal shift primitive arity"))
+    GrinPrimitiveCall _ name [value]
+      | name `elem` ["int2Word#", "word2Int#"] ->
+          liftEither (materializeValue env value) >>= storeExpression
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
     GrinPrimitiveCall _ name [value]
       | name `elem` ["unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
-          liftEither (materializeValue env value) >>= storeOne . pure
+          liftEither (materializeValue env value) >>= storeExpression
     GrinPrimitiveCall _ name arguments
       | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
           lines' <- compileForeignCall env foreignCall arguments
@@ -477,6 +598,8 @@ compileDirectBinding env vars expression =
           destination <- localSlot env var
           pure (lines' <> [localRef destination <> " = aihc_scratch;"])
         _ -> lift (Left (CUnsupportedExpression "direct expression result arity"))
+    storeExpression valueExpression = storeOne ["aihc_scratch = " <> valueExpression <> ";"]
+    storeExpressionWith lines' valueExpression = storeOne (lines' <> ["aihc_scratch = " <> valueExpression <> ";"])
     materializeNode unchecked node = do
       scratch <- freshSlot
       (tag, info) <- liftEither (nodeHeader (valueCompileEnv env) node)
@@ -490,7 +613,7 @@ compileDirectBinding env vars expression =
           result <- storeOne [function <> "(" <> callArguments <> ");", "aihc_scratch = " <> localRef valueSlot <> ";"]
           pure (fst stored <> result)
         _ -> lift (Left (CUnsupportedExpression "internal update slot arity"))
-    binaryIntPrimitive operator left right = do
+    binaryPrimitive operator left right = do
       stored <- materializeIntoFresh env [left, right]
       case snd stored of
         [leftSlot, rightSlot] ->
@@ -506,6 +629,69 @@ compileDirectBinding env vars expression =
                    ]
             )
         _ -> lift (Left (CUnsupportedExpression "internal binary Int# primitive arity"))
+    comparisonPrimitive name left right = do
+      stored <- materializeIntoFresh env [left, right]
+      case snd stored of
+        [leftSlot, rightSlot] -> do
+          let (operandType, operator) =
+                case name of
+                  "<#" -> ("int64_t", "<")
+                  "==#" -> ("uint64_t", "==")
+                  "eqWord#" -> ("uint64_t", "==")
+                  "neWord#" -> ("uint64_t", "!=")
+                  "ltWord#" -> ("uint64_t", "<")
+                  "leWord#" -> ("uint64_t", "<=")
+                  "gtWord#" -> ("uint64_t", ">")
+                  _ -> ("uint64_t", ">=")
+          storeOne
+            ( fst stored
+                <> [ "aihc_scratch = (AihcSlot)(("
+                       <> operandType
+                       <> ")"
+                       <> localRef leftSlot
+                       <> " "
+                       <> operator
+                       <> " ("
+                       <> operandType
+                       <> ")"
+                       <> localRef rightSlot
+                       <> ");"
+                   ]
+            )
+        _ -> lift (Left (CUnsupportedExpression "internal comparison primitive arity"))
+    carryPrimitive name left right = do
+      stored <- materializeIntoFresh env [left, right]
+      case snd stored of
+        [leftSlot, rightSlot] -> do
+          resultSlot <- freshSlot
+          let leftRef = localRef leftSlot
+              rightRef = localRef rightSlot
+              resultRef = localRef resultSlot
+              operator = if name `elem` ["addIntC#", "addWordC#"] then "+" else "-"
+              flag =
+                case name of
+                  "addIntC#" -> "(((" <> resultRef <> " ^ " <> leftRef <> ") & (" <> resultRef <> " ^ " <> rightRef <> ")) >> 63)"
+                  "subIntC#" -> "(((" <> leftRef <> " ^ " <> rightRef <> ") & (" <> leftRef <> " ^ " <> resultRef <> ")) >> 63)"
+                  "addWordC#" -> "(" <> resultRef <> " < " <> leftRef <> ")"
+                  _ -> "(" <> leftRef <> " < " <> rightRef <> ")"
+          storePair
+            vars
+            (fst stored <> [resultRef <> " = (AihcSlot)((uint64_t)" <> leftRef <> " " <> operator <> " (uint64_t)" <> rightRef <> ");"])
+            resultRef
+            ("(AihcSlot)" <> flag)
+        _ -> lift (Left (CUnsupportedExpression "internal carry primitive arity"))
+    storePair resultVars lines' firstExpression secondExpression =
+      case resultVars of
+        [first, second] -> do
+          firstSlot <- localSlot env first
+          secondSlot <- localSlot env second
+          pure
+            ( lines'
+                <> [ localRef firstSlot <> " = " <> firstExpression <> ";",
+                     localRef secondSlot <> " = " <> secondExpression <> ";"
+                   ]
+            )
+        _ -> lift (Left (CUnsupportedExpression "direct expression pair result arity"))
 
 compileForeignCall :: ValueEnv -> GrinForeignCall -> [GrinValue] -> FunctionM [Text]
 compileForeignCall env foreignCall arguments = do

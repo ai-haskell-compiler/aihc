@@ -31,7 +31,11 @@ tests =
       testCase "accepts the complete byte-array API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          (map fst byteArrayRuntimeSymbols <> ["unsafeFreezeByteArray#", "unsafeThawByteArray#"])
+          (map fst byteArrayRuntimeSymbols <> ["unsafeFreezeByteArray#", "unsafeThawByteArray#"]),
+      testCase "accepts the Integer arithmetic primitive API" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          integerPrimitiveNames
     ]
 
 byteArrayRuntimeSymbols :: [(Text, Text)]
@@ -47,5 +51,29 @@ byteArrayRuntimeSymbols =
     ("resizeMutableByteArray#", "aihc_byte_array_resize"),
     ("sizeofByteArray#", "aihc_byte_array_get_size"),
     ("getSizeofMutableByteArray#", "aihc_byte_array_get_size"),
-    ("copyAddrToByteArray#", "aihc_byte_array_copy_from_addr")
+    ("copyAddrToByteArray#", "aihc_byte_array_copy_from_addr"),
+    ("indexWordArray#", "aihc_byte_array_index_word"),
+    ("readWordArray#", "aihc_byte_array_read_word"),
+    ("writeWordArray#", "aihc_byte_array_write_word"),
+    ("copyByteArray#", "aihc_byte_array_copy")
+  ]
+
+integerPrimitiveNames :: [Text]
+integerPrimitiveNames =
+  [ "+#",
+    "-#",
+    "*#",
+    "<#",
+    "==#",
+    "addIntC#",
+    "subIntC#",
+    "plusWord#",
+    "addWordC#",
+    "subWordC#",
+    "timesWord2#",
+    "quotWord#",
+    "int2Word#",
+    "word2Int#",
+    "eqWord#",
+    "ltWord#"
   ]

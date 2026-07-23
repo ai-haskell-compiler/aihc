@@ -860,15 +860,93 @@ compileDirectBinding env vars expression =
       storeSingleResult vars pointerLines
     GrinUpdate pointer value -> compileUpdateBinding False "_aihc_update" pointer value
     GrinUpdateBlackhole pointer value -> compileUpdateBinding True "_aihc_update_blackhole" pointer value
-    GrinPrimitiveCall IntRep "+#" [left, right] -> do
+    GrinPrimitiveCall IntRep name [left, right]
+      | Just operator <- lookup name [("+#", "add"), ("-#", "sub"), ("*#", "mul")] ->
+          binaryPrimitive operator left right
+    GrinPrimitiveCall WordRep name [left, right]
+      | Just operator <- lookup name [("plusWord#", "add"), ("minusWord#", "sub"), ("timesWord#", "mul"), ("and#", "and"), ("or#", "orr"), ("xor#", "eor")] ->
+          binaryPrimitive operator left right
+    GrinPrimitiveCall _ name [left, right]
+      | Just condition <- lookup name [("<#", "lt"), ("==#", "eq"), ("eqWord#", "eq"), ("neWord#", "ne"), ("ltWord#", "lo"), ("leWord#", "ls"), ("gtWord#", "hi"), ("geWord#", "hs")] ->
+          comparisonPrimitive condition left right
+    GrinPrimitiveCall _ name [left, right]
+      | name `elem` ["addIntC#", "subIntC#", "addWordC#", "subWordC#"] ->
+          carryPrimitive name left right
+    GrinPrimitiveCall _ "timesWord2#" [left, right] -> do
       leftLines <- liftEither (materializeValueTo env "x9" left)
       rightLines <- liftEither (materializeValue env right)
-      storeSingleResult
-        vars
-        ( leftLines
-            <> rightLines
-            <> ["  add x0, x9, x0"]
-        )
+      storeTwoResults vars "x10" "x11" (leftLines <> rightLines <> ["  umulh x10, x9, x0", "  mul x11, x9, x0"])
+    GrinPrimitiveCall _ "quotWord#" [left, right] -> do
+      leftLines <- liftEither (materializeValueTo env "x9" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  udiv x0, x9, x0"])
+    GrinPrimitiveCall _ "remWord#" [left, right] -> do
+      leftLines <- liftEither (materializeValueTo env "x9" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  udiv x10, x9, x0", "  msub x0, x10, x0, x9"])
+    GrinPrimitiveCall _ "quotRemWord#" [left, right] -> do
+      leftLines <- liftEither (materializeValueTo env "x9" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeTwoResults vars "x10" "x11" (leftLines <> rightLines <> ["  udiv x10, x9, x0", "  msub x11, x10, x0, x9"])
+    GrinPrimitiveCall _ "quotRemWord2#" arguments@[_, _, _] -> do
+      (argumentLines, argumentSlots) <- materializeToSlots arguments
+      savedRegisters <- freshSlots 4
+      loopLabel <- freshLabel (valueLabelPrefix env) "quot_word2_loop"
+      subtractLabel <- freshLabel (valueLabelPrefix env) "quot_word2_subtract"
+      nextLabel <- freshLabel (valueLabelPrefix env) "quot_word2_next"
+      case (argumentSlots, savedRegisters) of
+        ([highSlot, lowSlot, divisorSlot], [saved12, saved13, saved14, saved15]) ->
+          storeTwoResults
+            vars
+            "x9"
+            "x10"
+            ( argumentLines
+                <> [ storeAt "x12" "x19" saved12,
+                     storeAt "x13" "x19" saved13,
+                     storeAt "x14" "x19" saved14,
+                     storeAt "x15" "x19" saved15,
+                     loadAt "x9" "x19" highSlot,
+                     loadAt "x10" "x19" lowSlot,
+                     loadAt "x11" "x19" divisorSlot,
+                     "  mov x12, #0",
+                     "  mov x13, #64",
+                     loopLabel <> ":",
+                     "  lsr x14, x9, #63",
+                     "  lsr x15, x10, #63",
+                     "  lsl x9, x9, #1",
+                     "  orr x9, x9, x15",
+                     "  lsl x10, x10, #1",
+                     "  lsl x12, x12, #1",
+                     "  cbnz x14, " <> subtractLabel,
+                     "  cmp x9, x11",
+                     "  b.lo " <> nextLabel,
+                     subtractLabel <> ":",
+                     "  sub x9, x9, x11",
+                     "  orr x12, x12, #1",
+                     nextLabel <> ":",
+                     "  subs x13, x13, #1",
+                     "  b.ne " <> loopLabel,
+                     "  mov x10, x9",
+                     "  mov x9, x12",
+                     loadAt "x12" "x19" saved12,
+                     loadAt "x13" "x19" saved13,
+                     loadAt "x14" "x19" saved14,
+                     loadAt "x15" "x19" saved15
+                   ]
+            )
+        _ -> lift (Left (Arm64UnsupportedExpression "internal quotRemWord2# arity"))
+    GrinPrimitiveCall _ "not#" [value] -> do
+      valueLines <- liftEither (materializeValue env value)
+      storeSingleResult vars (valueLines <> ["  mvn x0, x0"])
+    GrinPrimitiveCall _ name [value, amount]
+      | Just operator <- lookup name [("uncheckedShiftL#", "lsl"), ("uncheckedShiftRL#", "lsr")] -> do
+          valueLines <- liftEither (materializeValueTo env "x9" value)
+          amountLines <- liftEither (materializeValue env amount)
+          storeSingleResult vars (valueLines <> amountLines <> ["  " <> operator <> " x0, x9, x0"])
+    GrinPrimitiveCall _ name [value]
+      | name `elem` ["int2Word#", "word2Int#"] -> do
+          valueLines <- liftEither (materializeValue env value)
+          storeSingleResult vars valueLines
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,
@@ -900,6 +978,38 @@ compileDirectBinding env vars expression =
           location <- liftEither (variableLocation env var)
           pure (lines' <> storeLocation "x0" location)
         _ -> lift (Left (Arm64UnsupportedExpression "direct expression result arity"))
+    storeTwoResults resultVars firstRegister secondRegister lines' =
+      case resultVars of
+        [first, second] -> do
+          firstLocation <- liftEither (variableLocation env first)
+          secondLocation <- liftEither (variableLocation env second)
+          pure (lines' <> storeLocation firstRegister firstLocation <> storeLocation secondRegister secondLocation)
+        _ -> lift (Left (Arm64UnsupportedExpression "direct expression pair result arity"))
+    binaryPrimitive operator left right = do
+      leftLines <- liftEither (materializeValueTo env "x9" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  " <> operator <> " x0, x9, x0"])
+    comparisonPrimitive condition left right = do
+      leftLines <- liftEither (materializeValueTo env "x9" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  cmp x9, x0", "  cset x0, " <> condition])
+    carryPrimitive name left right = do
+      leftLines <- liftEither (materializeValueTo env "x9" left)
+      rightLines <- liftEither (materializeValue env right)
+      let (operator, condition) =
+            case name of
+              "addIntC#" -> ("adds", "vs")
+              "subIntC#" -> ("subs", "vs")
+              "addWordC#" -> ("adds", "cs")
+              _ -> ("subs", "cc")
+      storeTwoResults vars "x9" "x10" (leftLines <> rightLines <> ["  " <> operator <> " x9, x9, x0", "  cset x10, " <> condition])
+    materializeToSlots values = do
+      slots <- freshSlots (length values)
+      lines' <-
+        fmap concat . forM (zip values slots) $ \(value, slot) -> do
+          valueLines <- liftEither (materializeValue env value)
+          pure (valueLines <> [storeAt "x0" "x19" slot])
+      pure (lines', slots)
     compileUpdateBinding passMachine symbol pointer value = do
       pointerSlot <- freshSlot
       valueSlot <- freshSlot

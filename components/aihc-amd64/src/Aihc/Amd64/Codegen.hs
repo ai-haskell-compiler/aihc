@@ -881,15 +881,71 @@ compileDirectBinding env vars expression =
       storeSingleResult vars pointerLines
     GrinUpdate pointer value -> compileUpdateBinding False "aihc_update" pointer value
     GrinUpdateBlackhole pointer value -> compileUpdateBinding True "aihc_update_blackhole" pointer value
-    GrinPrimitiveCall IntRep "+#" [left, right] -> do
-      leftLines <- liftEither (materializeValueTo env "r10" left)
-      rightLines <- liftEither (materializeValue env right)
-      storeSingleResult
-        vars
-        ( leftLines
-            <> rightLines
-            <> ["  add rax, r10"]
-        )
+    GrinPrimitiveCall IntRep name [left, right]
+      | Just operator <- lookup name [("+#", "add"), ("-#", "sub"), ("*#", "imul")] ->
+          binaryPrimitive operator left right
+    GrinPrimitiveCall WordRep name [left, right]
+      | Just operator <- lookup name [("plusWord#", "add"), ("minusWord#", "sub"), ("timesWord#", "imul"), ("and#", "and"), ("or#", "or"), ("xor#", "xor")] ->
+          binaryPrimitive operator left right
+    GrinPrimitiveCall _ name [left, right]
+      | Just condition <- lookup name [("<#", "l"), ("==#", "e"), ("eqWord#", "e"), ("neWord#", "ne"), ("ltWord#", "b"), ("leWord#", "be"), ("gtWord#", "a"), ("geWord#", "ae")] ->
+          comparisonPrimitive condition left right
+    GrinPrimitiveCall _ name [left, right]
+      | name `elem` ["addIntC#", "subIntC#", "addWordC#", "subWordC#"] ->
+          carryPrimitive name left right
+    GrinPrimitiveCall _ "timesWord2#" [left, right] -> do
+      leftLines <- liftEither (materializeValue env left)
+      rightLines <- liftEither (materializeValueTo env "r10" right)
+      storeTwoResults vars "rdx" "rax" (leftLines <> rightLines <> ["  mul r10"])
+    GrinPrimitiveCall _ "quotWord#" [left, right] -> do
+      leftLines <- liftEither (materializeValue env left)
+      rightLines <- liftEither (materializeValueTo env "r10" right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  xor rdx, rdx", "  div r10"])
+    GrinPrimitiveCall _ "remWord#" [left, right] -> do
+      leftLines <- liftEither (materializeValue env left)
+      rightLines <- liftEither (materializeValueTo env "r10" right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  xor rdx, rdx", "  div r10", "  mov rax, rdx"])
+    GrinPrimitiveCall _ "quotRemWord#" [left, right] -> do
+      leftLines <- liftEither (materializeValue env left)
+      rightLines <- liftEither (materializeValueTo env "r10" right)
+      storeTwoResults vars "r10" "r11" (leftLines <> rightLines <> ["  xor rdx, rdx", "  div r10", "  mov r10, rax", "  mov r11, rdx"])
+    GrinPrimitiveCall _ "quotRemWord2#" arguments@[_, _, _] -> do
+      (argumentLines, argumentSlots) <- materializeToSlots arguments
+      case argumentSlots of
+        [highSlot, lowSlot, divisorSlot] ->
+          storeTwoResults
+            vars
+            "r10"
+            "r11"
+            ( argumentLines
+                <> [ loadAt "rdx" "r14" highSlot,
+                     loadAt "rax" "r14" lowSlot,
+                     loadAt "r10" "r14" divisorSlot,
+                     "  div r10",
+                     "  mov r10, rax",
+                     "  mov r11, rdx"
+                   ]
+            )
+        _ -> lift (Left (Amd64UnsupportedExpression "internal quotRemWord2# arity"))
+    GrinPrimitiveCall _ "not#" [value] -> do
+      valueLines <- liftEither (materializeValue env value)
+      storeSingleResult vars (valueLines <> ["  not rax"])
+    GrinPrimitiveCall _ name [value, amount]
+      | Just operator <- lookup name [("uncheckedShiftL#", "shl"), ("uncheckedShiftRL#", "shr")] -> do
+          savedCountRegister <- freshSlot
+          valueLines <- liftEither (materializeValueTo env "r10" value)
+          amountLines <- liftEither (materializeValue env amount)
+          storeSingleResult
+            vars
+            ( [storeAt "rcx" "r14" savedCountRegister]
+                <> valueLines
+                <> amountLines
+                <> ["  mov rcx, rax", "  " <> operator <> " r10, cl", "  mov rax, r10", loadAt "rcx" "r14" savedCountRegister]
+            )
+    GrinPrimitiveCall _ name [value]
+      | name `elem` ["int2Word#", "word2Int#"] -> do
+          valueLines <- liftEither (materializeValue env value)
+          storeSingleResult vars valueLines
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,
@@ -921,6 +977,42 @@ compileDirectBinding env vars expression =
           location <- liftEither (variableLocation env var)
           pure (lines' <> storeLocation "rax" location)
         _ -> lift (Left (Amd64UnsupportedExpression "direct expression result arity"))
+    storeTwoResults resultVars firstRegister secondRegister lines' =
+      case resultVars of
+        [first, second] -> do
+          firstLocation <- liftEither (variableLocation env first)
+          secondLocation <- liftEither (variableLocation env second)
+          pure (lines' <> storeLocation firstRegister firstLocation <> storeLocation secondRegister secondLocation)
+        _ -> lift (Left (Amd64UnsupportedExpression "direct expression pair result arity"))
+    binaryPrimitive operator left right = do
+      leftLines <- liftEither (materializeValueTo env "r10" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  " <> operator <> " r10, rax", "  mov rax, r10"])
+    comparisonPrimitive condition left right = do
+      leftLines <- liftEither (materializeValueTo env "r10" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  cmp r10, rax", "  set" <> condition <> " al", "  movzx rax, al"])
+    carryPrimitive name left right = do
+      leftLines <- liftEither (materializeValueTo env "r10" left)
+      rightLines <- liftEither (materializeValue env right)
+      let (operator, condition) =
+            case name of
+              "addIntC#" -> ("add", "o")
+              "subIntC#" -> ("sub", "o")
+              "addWordC#" -> ("add", "c")
+              _ -> ("sub", "c")
+      storeTwoResults
+        vars
+        "r10"
+        "r11"
+        (leftLines <> rightLines <> ["  " <> operator <> " r10, rax", "  set" <> condition <> " r11b", "  movzx r11, r11b"])
+    materializeToSlots values = do
+      slots <- freshSlots (length values)
+      lines' <-
+        fmap concat . forM (zip values slots) $ \(value, slot) -> do
+          valueLines <- liftEither (materializeValue env value)
+          pure (valueLines <> [storeAt "rax" "r14" slot])
+      pure (lines', slots)
     compileUpdateBinding passMachine symbol pointer value = do
       pointerSlot <- freshSlot
       valueSlot <- freshSlot

@@ -139,6 +139,39 @@ snapshotSourcePath = getDataFileName "runtime/aihc_snapshot.c"
 supportedNativePrimitiveNames :: [Text]
 supportedNativePrimitiveNames =
   [ "+#",
+    "-#",
+    "*#",
+    "<#",
+    "==#",
+    "addIntC#",
+    "subIntC#",
+    "plusWord#",
+    "minusWord#",
+    "timesWord#",
+    "addWordC#",
+    "subWordC#",
+    "timesWord2#",
+    "quotWord#",
+    "remWord#",
+    "quotRemWord#",
+    "quotRemWord2#",
+    "and#",
+    "or#",
+    "xor#",
+    "not#",
+    "uncheckedShiftL#",
+    "uncheckedShiftRL#",
+    "int2Word#",
+    "word2Int#",
+    "eqWord#",
+    "neWord#",
+    "ltWord#",
+    "leWord#",
+    "gtWord#",
+    "geWord#",
+    "clz#",
+    "ctz#",
+    "popCnt#",
     "awaitIO#",
     "fork#",
     "realWorld#",
@@ -156,7 +189,11 @@ supportedNativePrimitiveNames =
     "unsafeThawByteArray#",
     "sizeofByteArray#",
     "getSizeofMutableByteArray#",
-    "copyAddrToByteArray#"
+    "copyAddrToByteArray#",
+    "indexWordArray#",
+    "readWordArray#",
+    "writeWordArray#",
+    "copyByteArray#"
   ]
 
 -- | Runtime call used to implement a byte-array primitive. Freeze and thaw are
@@ -176,6 +213,13 @@ nativeRuntimePrimitiveCall name =
     "sizeofByteArray#" -> call "aihc_byte_array_get_size" [GrinForeignAddr] GrinForeignWord64
     "getSizeofMutableByteArray#" -> call "aihc_byte_array_get_size" [GrinForeignAddr] GrinForeignWord64
     "copyAddrToByteArray#" -> call "aihc_byte_array_copy_from_addr" [GrinForeignAddr, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64
+    "indexWordArray#" -> call "aihc_byte_array_index_word" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64
+    "readWordArray#" -> call "aihc_byte_array_read_word" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64
+    "writeWordArray#" -> call "aihc_byte_array_write_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64
+    "copyByteArray#" -> call "aihc_byte_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64
+    "clz#" -> call "aihc_word_clz" [GrinForeignWord64] GrinForeignWord64
+    "ctz#" -> call "aihc_word_ctz" [GrinForeignWord64] GrinForeignWord64
+    "popCnt#" -> call "aihc_word_popcount" [GrinForeignWord64] GrinForeignWord64
     _ -> Nothing
   where
     call symbol arguments result =
