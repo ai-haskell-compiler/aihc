@@ -176,6 +176,7 @@ main =
           testCase "lowers every example to portable C" test_compilePortableCExamples,
           testCase "compiles and runs the aihc-base green threads example" test_compileGreenThreadsExample,
           testCase "compiles and runs the async stdio example" test_compileAsyncStdioExample,
+          testCase "compiles and runs the async hello-world example" test_compileAsyncHelloWorldExample,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
           testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
           testCase "skips default dependencies under NoImplicitPrelude" test_compileNoImplicitPrelude,
@@ -975,6 +976,23 @@ test_compileAsyncStdioExample =
         assertEqual (show target <> " stderr: " <> T.unpack programErr) ExitSuccess exitCode
         assertEqual (show target <> " stdout") "Buffered async IO\n" programOut
 
+test_compileAsyncHelloWorldExample :: Assertion
+test_compileAsyncHelloWorldExample =
+  withTempDir "aihc-compile-async-hello-world" $ \root -> do
+    sourcePath <- asyncHelloWorldExamplePath
+    let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+        environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
+        targets =
+          [PortableC]
+            <> [AppleArm64 | arch == "aarch64" && os == "darwin"]
+            <> [LinuxAmd64 | arch == "x86_64" && os == "linux"]
+    withCurrentDirectory repositoryRoot $
+      forM_ targets $ \target -> do
+        let output = root </> ("async-hello-world-" <> show target)
+            options = CompileOptions sourcePath (Just output) False False False False (Just target) GcSemispace
+        runCompileWithEnvironment environment options
+        assertNativeOutput "Hello world!\n" output
+
 test_compilePortableCExecutable :: Assertion
 test_compilePortableCExecutable =
   withTempDir "aihc-compile-portable-c" $ \root -> do
@@ -1004,7 +1022,7 @@ test_compilePortableCExecutable =
 test_compilePortableCExamples :: Assertion
 test_compilePortableCExamples =
   withTempDir "aihc-compile-portable-c-examples" $ \root -> do
-    sourcePaths <- sequence [helloWorldExamplePath, greenThreadsExamplePath, asyncStdioExamplePath, unboxedTailRecursionExamplePath]
+    sourcePaths <- sequence [helloWorldExamplePath, greenThreadsExamplePath, asyncStdioExamplePath, asyncHelloWorldExamplePath, unboxedTailRecursionExamplePath]
     forM_ sourcePaths $ \sourcePath -> do
       source <- TIO.readFile sourcePath
       let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
@@ -1263,6 +1281,9 @@ greenThreadsExamplePath = examplePath ("green-threads" </> "Main.hs")
 
 asyncStdioExamplePath :: IO FilePath
 asyncStdioExamplePath = examplePath ("async-stdio" </> "Main.hs")
+
+asyncHelloWorldExamplePath :: IO FilePath
+asyncHelloWorldExamplePath = examplePath ("async-hello-world" </> "Main.hs")
 
 unboxedTailRecursionExamplePath :: IO FilePath
 unboxedTailRecursionExamplePath = examplePath ("unboxed-tail-recursion" </> "Main.hs")

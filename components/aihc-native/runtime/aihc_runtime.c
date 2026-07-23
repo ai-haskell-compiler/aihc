@@ -848,19 +848,16 @@ static const AihcResume *aihc_schedule(AihcMachine *machine) {
   }
 }
 
+static size_t aihc_io_buffer_range(AihcIoBuffer *buffer, int32_t offset,
+                                   int32_t length);
+
 static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcIoHandle *handle,
                                      AihcIoBuffer *buffer, int32_t offset,
                                      int32_t length) {
   if (handle == NULL) {
     aihc_fail("attempted IO with a null handle");
   }
-  if (buffer == NULL) {
-    aihc_fail("attempted IO with a null buffer");
-  }
-  if (offset < 0 || length < 0 || (size_t)offset > buffer->capacity ||
-      (size_t)length > buffer->capacity - (size_t)offset) {
-    aihc_fail("IO request is outside its buffer");
-  }
+  size_t checked_offset = aihc_io_buffer_range(buffer, offset, length);
   uint32_t required_capability =
       kind == AIHC_IO_READ ? AIHC_IO_READABLE : AIHC_IO_WRITABLE;
   if ((handle->capabilities & required_capability) == 0) {
@@ -871,7 +868,7 @@ static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcIoHandle *handle,
   request->state = AIHC_IO_SUBMITTED;
   request->handle = handle;
   request->buffer = buffer;
-  request->offset = (size_t)offset;
+  request->offset = checked_offset;
   request->length = (size_t)length;
   return request;
 }
@@ -890,26 +887,41 @@ void *aihc_io_buffer_new(int32_t capacity) {
   return buffer;
 }
 
-static size_t aihc_io_buffer_index(AihcIoBuffer *buffer, int32_t index) {
+static size_t aihc_io_buffer_range(AihcIoBuffer *buffer, int32_t offset,
+                                   int32_t length) {
   if (buffer == NULL) {
     aihc_fail("attempted to access a null IO buffer");
   }
-  if (index < 0 || (size_t)index >= buffer->capacity) {
-    aihc_fail("IO buffer index is out of bounds");
+  if (offset < 0 || length < 0 || (size_t)offset > buffer->capacity ||
+      (size_t)length > buffer->capacity - (size_t)offset) {
+    aihc_fail("IO buffer range is out of bounds");
   }
-  return (size_t)index;
+  return (size_t)offset;
 }
 
 int32_t aihc_io_buffer_get(void *opaque_buffer, int32_t index) {
   AihcIoBuffer *buffer = opaque_buffer;
-  size_t checked_index = aihc_io_buffer_index(buffer, index);
+  size_t checked_index = aihc_io_buffer_range(buffer, index, 1);
   return (int32_t)buffer->bytes[checked_index];
 }
 
 int32_t aihc_io_buffer_set(void *opaque_buffer, int32_t index, int32_t byte) {
   AihcIoBuffer *buffer = opaque_buffer;
-  size_t checked_index = aihc_io_buffer_index(buffer, index);
+  size_t checked_index = aihc_io_buffer_range(buffer, index, 1);
   buffer->bytes[checked_index] = (unsigned char)(byte & 0xffU);
+  return 0;
+}
+
+int32_t aihc_io_buffer_copy_from_addr(void *source, void *opaque_buffer,
+                                      int32_t offset, int32_t length) {
+  AihcIoBuffer *buffer = opaque_buffer;
+  size_t checked_offset = aihc_io_buffer_range(buffer, offset, length);
+  if (length != 0) {
+    if (source == NULL) {
+      aihc_fail("attempted to copy from a null address");
+    }
+    memcpy(buffer->bytes + checked_offset, source, (size_t)length);
+  }
   return 0;
 }
 

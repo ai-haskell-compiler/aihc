@@ -100,11 +100,16 @@ completion. Callers must not access the submitted slice while the request is
 pending. A later pinned `MutableByteArray#` implementation can replace this
 allocation without changing `awaitIO#` or the backend request model.
 
+`copyAddrToIOBuffer` copies an explicit number of bytes from an `Addr#` into a
+bounds-checked destination slice. It does not scan for a terminating zero. The
+source address must remain valid until the synchronous copy returns; only the
+stable `IOBuffer` is retained by later asynchronous requests.
+
 A non-negative request result is the number of transferred bytes. A non-empty
 read returns zero at end-of-file. Either operation can return fewer bytes than
 requested, so the future `Handle` layer must resubmit the remaining slice when
 it requires a complete transfer. Errors use `-(errno + 1)` in the POSIX proof
 of concept. `GHC.Event` owns only generic suspension. `GHC.IO.StdHandles`
-exposes buffer allocation, indexed byte access, handle operations, and the
-standard handles. Text encoding, locking, transfer loops, and full `Handle`
-semantics remain above this boundary.
+exposes buffer allocation, address and indexed byte access, handle operations,
+and the standard handles. Text encoding, locking, transfer loops, and full
+`Handle` semantics remain above this boundary.

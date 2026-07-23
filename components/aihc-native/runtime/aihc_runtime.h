@@ -179,6 +179,8 @@ void *aihc_io_stdout(void);
 void *aihc_io_buffer_new(int32_t capacity);
 int32_t aihc_io_buffer_get(void *buffer, int32_t index);
 int32_t aihc_io_buffer_set(void *buffer, int32_t index, int32_t byte);
+int32_t aihc_io_buffer_copy_from_addr(void *source, void *buffer,
+                                      int32_t offset, int32_t length);
 void *aihc_io_submit_read(void *handle, void *buffer, int32_t offset,
                           int32_t length);
 void *aihc_io_submit_write(void *handle, void *buffer, int32_t offset,

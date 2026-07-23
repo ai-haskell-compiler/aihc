@@ -1,4 +1,5 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 -- | Raw asynchronous IO operations and standard-stream handles used below the
@@ -11,6 +12,7 @@ module GHC.IO.StdHandles
     newIOBuffer,
     getIOBufferByte,
     setIOBufferByte,
+    copyAddrToIOBuffer,
     readIntoBuffer,
     writeFromBuffer,
   )
@@ -50,6 +52,12 @@ foreign import ccall unsafe "aihc_io_buffer_get"
 -- | Store the low eight bits at a valid buffer index. The result is zero.
 foreign import ccall unsafe "aihc_io_buffer_set"
   setIOBufferByte :: Ptr IOBuffer -> CInt -> CInt -> IO CInt
+
+-- | Copy an explicit byte range from an address into a valid buffer slice.
+-- The source address must remain valid for the duration of this call. The
+-- result is zero.
+foreign import ccall unsafe "aihc_io_buffer_copy_from_addr"
+  copyAddrToIOBuffer :: Addr# -> Ptr IOBuffer -> CInt -> CInt -> IO CInt
 
 foreign import ccall unsafe "aihc_io_submit_read"
   submitRead :: Ptr IOHandle -> Ptr IOBuffer -> CInt -> CInt -> IO (Ptr IORequest)

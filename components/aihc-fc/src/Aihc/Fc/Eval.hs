@@ -29,8 +29,8 @@ import Data.Text qualified as T
 import Data.Word (Word64)
 import Foreign.C.Types (CInt (..))
 import Foreign.LibFFI (Arg, argCInt, argPtr, argWord64, callFFI, retCInt, retPtr, retVoid, retWord64)
-import Foreign.Marshal.Array (newArray0)
-import Foreign.Ptr (FunPtr, Ptr)
+import Foreign.Marshal.Array (newArray0, peekArray, withArray0)
+import Foreign.Ptr (FunPtr, Ptr, castPtr)
 import System.IO (Handle, hFlush, stdin, stdout)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
@@ -377,6 +377,15 @@ callForeign foreignCall args
       (checkedIndex, _) <- checkedIOBufferRange symbol buffer index 1
       lift $ modifyIORef' reference $ \bytes -> BS.take checkedIndex bytes <> BS.singleton (fromInteger byte) <> BS.drop (checkedIndex + 1) bytes
       pure (VLit (LitInt Int32Rep 0))
+  | symbol == "aihc_io_buffer_copy_from_addr",
+    [sourceValue, bufferValue, offsetValue, lengthValue] <- args = do
+      buffer@(EvalIOBuffer reference) <- forceIOBufferForeignArg symbol bufferValue
+      offset <- forceInt32 symbol offsetValue
+      byteCount <- forceInt32 symbol lengthValue
+      (checkedOffset, checkedLength) <- checkedIOBufferRange symbol buffer offset byteCount
+      sourceBytes <- readAddressBytes symbol checkedLength sourceValue
+      lift $ modifyIORef' reference $ \bytes -> BS.take checkedOffset bytes <> sourceBytes <> BS.drop (checkedOffset + checkedLength) bytes
+      pure (VLit (LitInt Int32Rep 0))
   | symbol == "aihc_io_submit_read",
     [handleValue, bufferValue, offsetValue, lengthValue] <- args = do
       handle <- forceIOHandleForeignArg symbol handleValue
@@ -435,6 +444,15 @@ checkedIOBufferRange symbol (EvalIOBuffer reference) offset byteCount = do
   if offset < 0 || byteCount < 0 || offset > toInteger capacity || byteCount > toInteger capacity - offset
     then throwE (EvalInvalidIOBufferRange symbol offset byteCount capacity)
     else pure (fromInteger offset, fromInteger byteCount)
+
+readAddressBytes :: Text -> Int -> Value -> EvalM BS.ByteString
+readAddressBytes symbol byteCount value = do
+  forced <- forceValue value
+  case forced of
+    VLit (LitAddr bytes) ->
+      lift (withArray0 0 (BS.unpack bytes) (fmap BS.pack . peekArray byteCount))
+    VAddress pointer -> lift (BS.pack <$> peekArray byteCount (castPtr pointer))
+    other -> throwE (EvalForeignTypeError symbol other)
 
 takeIOResult :: Text -> Value -> EvalM Value
 takeIOResult symbol value = do

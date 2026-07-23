@@ -32,8 +32,8 @@ import Data.Text qualified as T
 import Data.Word (Word64)
 import Foreign.C.Types (CInt (..))
 import Foreign.LibFFI (Arg, argCInt, argPtr, argWord64, callFFI, retCInt, retPtr, retVoid, retWord64)
-import Foreign.Marshal.Array (newArray0)
-import Foreign.Ptr (FunPtr, Ptr)
+import Foreign.Marshal.Array (newArray0, peekArray, withArray0)
+import Foreign.Ptr (FunPtr, Ptr, castPtr)
 import System.IO (Handle, hFlush, stdin, stdout)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
@@ -687,6 +687,15 @@ callForeign foreignCall arguments
       (checkedIndex, _) <- checkedIOBufferRange symbol buffer index 1
       liftEvalIO $ modifyIORef' reference $ \bytes -> BS.take checkedIndex bytes <> BS.singleton (fromInteger byte) <> BS.drop (checkedIndex + 1) bytes
       pure (RuntimeLit (GrinLitInt Int32Rep 0))
+  | symbol == "aihc_io_buffer_copy_from_addr",
+    [sourceValue, bufferValue, offsetValue, lengthValue] <- arguments = do
+      buffer@(GrinIOBuffer reference) <- expectIOBuffer symbol bufferValue
+      offset <- expectInt32 symbol offsetValue
+      byteCount <- expectInt32 symbol lengthValue
+      (checkedOffset, checkedLength) <- checkedIOBufferRange symbol buffer offset byteCount
+      sourceBytes <- readAddressBytes symbol checkedLength sourceValue
+      liftEvalIO $ modifyIORef' reference $ \bytes -> BS.take checkedOffset bytes <> sourceBytes <> BS.drop (checkedOffset + checkedLength) bytes
+      pure (RuntimeLit (GrinLitInt Int32Rep 0))
   | symbol == "aihc_io_submit_read",
     [handleValue, bufferValue, offsetValue, lengthValue] <- arguments = do
       handle <- expectIOHandle symbol handleValue
@@ -743,6 +752,14 @@ checkedIOBufferRange symbol (GrinIOBuffer reference) offset byteCount = do
   if offset < 0 || byteCount < 0 || offset > toInteger capacity || byteCount > toInteger capacity - offset
     then throwInterpret (InterpretInvalidIOBufferRange symbol offset byteCount capacity)
     else pure (fromInteger offset, fromInteger byteCount)
+
+readAddressBytes :: Text -> Int -> RuntimeValue -> EvalM BS.ByteString
+readAddressBytes symbol byteCount value =
+  case value of
+    RuntimeLit (GrinLitAddr bytes) ->
+      liftEvalIO (withArray0 0 (BS.unpack bytes) (fmap BS.pack . peekArray byteCount))
+    RuntimeAddress pointer -> liftEvalIO (BS.pack <$> peekArray byteCount (castPtr pointer))
+    other -> throwInterpret (InterpretForeignTypeError symbol other)
 
 completeIORequest :: GrinIORequest -> EvalM ()
 completeIORequest (GrinIORequest reference) = do
