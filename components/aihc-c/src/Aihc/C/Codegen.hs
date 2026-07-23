@@ -120,7 +120,6 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
           "",
           "AihcMachine *aihc_machine;",
           "AihcPortableTransfer aihc_next_transfer;",
-          "static AihcSlot aihc_arguments[" <> tshow (portableArgumentCapacity layout) <> "];",
           ""
         ]
           <> renderForeignDeclarations program
@@ -152,7 +151,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
                "  aihc_set_field(update_continuation, 0, aihc_machine->globals[" <> tshow rootSlot <> "]);",
                "  aihc_set_field(update_continuation, 1, (AihcSlot)(uintptr_t)top_continuation);",
                "  thread_done_continuation = aihc_make_node_unchecked(aihc_machine, AIHC_TAG_CLOSURE, &aihc_thread_done_info);",
-               "  aihc_next_transfer = aihc_portable_start(aihc_machine, aihc_arguments, (AihcValue *)(uintptr_t)aihc_machine->globals[" <> tshow rootSlot <> "], top_continuation, update_continuation, thread_done_continuation, aihc_exit);",
+               "  aihc_next_transfer = aihc_portable_start(aihc_machine, (AihcValue *)(uintptr_t)aihc_machine->globals[" <> tshow rootSlot <> "], top_continuation, update_continuation, thread_done_continuation, aihc_exit);",
                "  while (aihc_next_transfer.entry != NULL) {",
                "    transfer = aihc_next_transfer;",
                "    aihc_next_transfer = (AihcPortableTransfer){0};",
@@ -180,7 +179,6 @@ compileModule layout initializerSymbol gcProgram = do
           "",
           "extern AihcMachine *aihc_machine;",
           "extern AihcPortableTransfer aihc_next_transfer;",
-          "static AihcSlot aihc_arguments[" <> tshow (portableArgumentCapacity layout) <> "];",
           ""
         ]
           <> renderForeignDeclarations program
@@ -270,9 +268,6 @@ compileEnvironment unitKind layout program =
       ]
     infoLabels = Map.fromList [(key, "aihc_function_info_" <> tshow index) | (index, key) <- zip [0 :: Int ..] infoKeys]
     third (_, _, value) = value
-
-portableArgumentCapacity :: LinkLayout -> Int
-portableArgumentCapacity layout = max 3 (linkMaximumArgumentSlots layout + 1)
 
 requiredNodeConstructorInfos :: GrinNode -> [RuntimeInfoKey]
 requiredNodeConstructorInfos node =
@@ -367,12 +362,12 @@ compileExpr env prefix label expression =
       values <- materializeIntoFresh env [value, continuation, updateContinuation]
       case snd values of
         [valueSlot, continuationSlot, updateSlot] ->
-          terminal label (prefix <> fst values <> [setNext ("aihc_portable_eval_cps(aihc_machine, aihc_arguments, " <> valuePointer (localRef valueSlot) <> ", " <> boolText (isLiftedRuntimeRep runtimeRep) <> ", " <> valuePointer (localRef continuationSlot) <> ", " <> valuePointer (localRef updateSlot) <> ")")])
+          terminal label (prefix <> fst values <> [setNext ("aihc_portable_eval_cps(aihc_machine, " <> valuePointer (localRef valueSlot) <> ", " <> boolText (isLiftedRuntimeRep runtimeRep) <> ", " <> valuePointer (localRef continuationSlot) <> ", " <> valuePointer (localRef updateSlot) <> ")")])
         _ -> unsupported "internal CPS evaluation slot arity"
     GrinCall _ functionName arguments -> do
       target <- liftEither (functionCodeLabel (valueCompileEnv env) functionName)
       values <- materializeIntoFresh env arguments
-      terminal label (prefix <> fst values <> setArguments (snd values) <> ["aihc_next_transfer = (AihcPortableTransfer){" <> target <> ", aihc_arguments};", "return;"])
+      terminal label (prefix <> fst values <> [setNext ("aihc_portable_call(aihc_machine, " <> target <> ", " <> tshow (length arguments) <> ", " <> slotPointer (snd values) <> ")")])
     GrinCpsPrimitiveCall _ name arguments continuation -> compileCpsPrimitive env prefix label name arguments continuation
     GrinCpsApply _ function arguments continuation -> do
       values <- materializeIntoFresh env (function : continuation : arguments)
@@ -380,13 +375,13 @@ compileExpr env prefix label expression =
           argumentSlots = drop 2 slots
       case slots of
         functionSlot : continuationSlot : _ ->
-          terminal label (prefix <> fst values <> [setNext ("aihc_portable_apply_cps(aihc_machine, aihc_arguments, " <> valuePointer (localRef functionSlot) <> ", " <> tshow (length arguments) <> ", " <> slotPointer argumentSlots <> ", " <> valuePointer (localRef continuationSlot) <> ")")])
+          terminal label (prefix <> fst values <> [setNext ("aihc_portable_apply_cps(aihc_machine, " <> valuePointer (localRef functionSlot) <> ", " <> tshow (length arguments) <> ", " <> slotPointer argumentSlots <> ", " <> valuePointer (localRef continuationSlot) <> ")")])
         _ -> unsupported "internal CPS application slot arity"
     GrinContinue continuation values -> do
       stored <- materializeIntoFresh env (continuation : values)
       case snd stored of
         continuationSlot : valueSlots ->
-          terminal label (prefix <> fst stored <> [setNext ("aihc_portable_continue_values(aihc_machine, aihc_arguments, " <> valuePointer (localRef continuationSlot) <> ", " <> tshow (length values) <> ", " <> slotPointer valueSlots <> ")")])
+          terminal label (prefix <> fst stored <> [setNext ("aihc_portable_continue_values(aihc_machine, " <> valuePointer (localRef continuationSlot) <> ", " <> tshow (length values) <> ", " <> slotPointer valueSlots <> ")")])
         [] -> unsupported "internal continuation slot arity"
     GrinHalt _ -> terminal label (prefix <> [setNext "aihc_halt(aihc_machine)"])
     GrinCase scrutinee binder alternatives -> compileCase env prefix label scrutinee binder alternatives
@@ -430,7 +425,7 @@ compileCpsPrimitive env prefix label name arguments continuation =
     transfer function values = do
       stored <- materializeIntoFresh env values
       let arguments' = T.intercalate ", " (map (valuePointer . localRef) (snd stored))
-      addBlock label (prefix <> fst stored <> [setNext (function <> "(aihc_machine, aihc_arguments, " <> arguments' <> ")"), "return;"])
+      addBlock label (prefix <> fst stored <> [setNext (function <> "(aihc_machine, " <> arguments' <> ")"), "return;"])
 
 compileDirectBinding :: ValueEnv -> [GrinVar] -> GrinExpr -> FunctionM [Text]
 compileDirectBinding env vars expression =
@@ -694,12 +689,12 @@ renderSpecialDeclarations =
 renderSpecialFunctions :: [Text]
 renderSpecialFunctions =
   [ "static void aihc_top_continuation(AihcSlot *arguments) {",
-    "  aihc_next_transfer = aihc_portable_apply_cps(aihc_machine, aihc_arguments, (AihcValue *)(uintptr_t)arguments[1], 0, NULL, (AihcValue *)(uintptr_t)arguments[0]);",
+    "  aihc_next_transfer = aihc_portable_apply_cps(aihc_machine, (AihcValue *)(uintptr_t)arguments[1], 0, NULL, (AihcValue *)(uintptr_t)arguments[0]);",
     "}",
     "",
     "static void aihc_thread_done_continuation(AihcSlot *arguments) {",
     "  (void)arguments;",
-    "  aihc_next_transfer = aihc_portable_thread_done(aihc_machine, aihc_arguments);",
+    "  aihc_next_transfer = aihc_portable_thread_done(aihc_machine);",
     "}",
     "",
     "static void aihc_final_continuation(AihcSlot *arguments) {",
@@ -745,10 +740,6 @@ foreignResult foreignType' call =
 allocation :: Bool -> Text -> Text -> Text
 allocation unchecked tag info =
   (if unchecked then "aihc_make_node_unchecked" else "aihc_make_node") <> "(aihc_machine, " <> tag <> ", &" <> info <> ")"
-
-setArguments :: [Int] -> [Text]
-setArguments slots =
-  ["aihc_arguments[" <> tshow index <> "] = " <> localRef slot <> ";" | (index, slot) <- zip [0 :: Int ..] slots]
 
 setNext :: Text -> Text
 setNext expression = "aihc_next_transfer = " <> expression <> ";"

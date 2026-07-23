@@ -59,11 +59,14 @@ collector's temporary forwarding marker.
 
 The cooperative scheduler keeps thread records, blackhole records, wait queues,
 and pending IO requests in auxiliary C allocations. Suspended threads retain
-ordinary action or continuation closures, which portable C expands into its
-reusable argument buffer only when selected. Native backends resume the same
-records through their register convention. The machine reuses one locals area
-because CPS transfers discard the preceding function frame; all retained
-closure values and pending-request continuations are precise collector roots.
+ordinary action or continuation closures, which portable C expands into the
+machine's growable reusable argument buffer only when selected. Native backends
+resume the same records through their register convention. The machine reuses
+one locals area because CPS transfers discard the preceding function frame; all
+retained closure values and pending-request continuations are precise collector
+roots. The argument buffer contains only transient transfers: generated entries
+copy their parameters into the locals area before reaching an allocation
+safepoint, so the collector does not scan the buffer.
 
 ## IO manager
 
