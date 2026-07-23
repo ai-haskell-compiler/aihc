@@ -1,0 +1,22 @@
+expected: |-
+  data State#
+
+  data MutVar#
+
+  foreign prim newMutVar#/2 : ∀ value domain. value → (State# domain) → (#,#) (State# domain) (MutVar# domain value)
+extensions:
+- ForeignFunctionInterface
+- GHCForeignImportPrim
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test where
+
+  data State# s
+  data MutVar# d a
+
+  foreign import prim newMutVar# ::
+    value -> State# domain -> (# State# domain, MutVar# domain value #)
+reason: primitive import types match after normalizing quantified variable names
+status: pass

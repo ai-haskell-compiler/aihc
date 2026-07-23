@@ -17,15 +17,17 @@ import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMa
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Optimize (optimizeProgram)
-import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseSignatureType)
 import Aihc.Parser.Syntax
-  ( CallConv (..),
+  ( ArrowKind (..),
+    CallConv (..),
     ClassDecl (..),
     DataConDecl,
     DataDecl (..),
     Decl (..),
     Expr,
+    Extension (..),
     ForeignDecl (..),
     ForeignDirection (..),
     ForeignEntitySpec (..),
@@ -38,13 +40,17 @@ import Aihc.Parser.Syntax
     NewtypeDecl (..),
     Pattern (..),
     Rhs,
+    TupleFlavor (..),
     TyVarBinder (..),
+    Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
     binderHeadName,
     binderHeadParams,
     fromAnnotation,
+    nameText,
     peelDeclAnn,
+    peelTypeHead,
     unqualifiedNameText,
   )
 import Aihc.Resolve (ResolveResult (..), resolve)
@@ -425,304 +431,151 @@ validatePrimitiveImport name ty =
     Just spec
       | primitiveSpecAccepts spec ty -> pure (primitiveSpecArity spec)
       | otherwise ->
-          desugarBug ("incorrect type for foreign import prim " <> T.unpack name)
+          desugarBug
+            ( "incorrect type for foreign import prim "
+                <> T.unpack name
+                <> "; expected "
+                <> T.unpack (primitiveSpecSource spec)
+            )
 
 data PrimitiveSpec = PrimitiveSpec
-  { primitiveSpecArity :: !Int,
-    primitiveSpecAccepts :: TcType -> Bool
+  { primitiveSpecSource :: !Text,
+    primitiveSpecType :: !PrimitiveType
   }
+
+primitiveSpecArity :: PrimitiveSpec -> Int
+primitiveSpecArity = primitiveTypeArity . primitiveSpecType
+
+primitiveSpecAccepts :: PrimitiveSpec -> TcType -> Bool
+primitiveSpecAccepts = matchesPrimitiveType . primitiveSpecType
 
 primitiveImportSpecs :: Map.Map Text PrimitiveSpec
 primitiveImportSpecs =
   Map.fromList
-    [ ("+#", intBinaryPrim),
-      ("-#", intBinaryPrim),
-      ("*#", intBinaryPrim),
-      ("compareInt#", intBinaryPrim),
-      ("<#", intBinaryPrim),
-      ("==#", intBinaryPrim),
-      ("charToInt#", PrimitiveSpec 1 (typesEqual charToIntPrimTy)),
-      ("intToChar#", PrimitiveSpec 1 (typesEqual intToCharPrimTy)),
-      ("raise#", PrimitiveSpec 1 isRaisePrimType),
-      ("realWorld#", PrimitiveSpec 0 (typesEqual statePrimRealWorldTy)),
-      ("catch#", PrimitiveSpec 3 isCatchPrimType),
-      ("fork#", PrimitiveSpec 2 isForkPrimType),
-      ("awaitIO#", PrimitiveSpec 2 (typesEqual awaitIOPrimTy)),
-      ("newMutVar#", PrimitiveSpec 2 isNewMutVarPrimType),
-      ("readMutVar#", PrimitiveSpec 2 isReadMutVarPrimType),
-      ("writeMutVar#", PrimitiveSpec 3 isWriteMutVarPrimType),
-      ("newByteArray#", PrimitiveSpec 2 (isNewByteArrayPrimType 1)),
-      ("newPinnedByteArray#", PrimitiveSpec 2 (isNewByteArrayPrimType 1)),
-      ("newAlignedPinnedByteArray#", PrimitiveSpec 3 (isNewByteArrayPrimType 2)),
-      ("isMutableByteArrayPinned#", PrimitiveSpec 1 isMutableByteArrayQueryPrimType),
-      ("isByteArrayPinned#", PrimitiveSpec 1 (typesEqual (TcFunTy byteArrayPrimTy intHashTy))),
-      ("byteArrayContents#", PrimitiveSpec 1 (typesEqual (TcFunTy byteArrayPrimTy addrHashTy))),
-      ("mutableByteArrayContents#", PrimitiveSpec 1 isMutableByteArrayContentsPrimType),
-      ("shrinkMutableByteArray#", PrimitiveSpec 3 isShrinkMutableByteArrayPrimType),
-      ("resizeMutableByteArray#", PrimitiveSpec 3 isResizeMutableByteArrayPrimType),
-      ("unsafeFreezeByteArray#", PrimitiveSpec 2 isUnsafeFreezeByteArrayPrimType),
-      ("unsafeThawByteArray#", PrimitiveSpec 2 isUnsafeThawByteArrayPrimType),
-      ("sizeofByteArray#", PrimitiveSpec 1 (typesEqual (TcFunTy byteArrayPrimTy intHashTy))),
-      ("getSizeofMutableByteArray#", PrimitiveSpec 2 isGetSizeofMutableByteArrayPrimType),
-      ("copyAddrToByteArray#", PrimitiveSpec 5 isCopyAddrToByteArrayPrimType),
-      ("yield#", PrimitiveSpec 1 (typesEqual yieldPrimTy))
+    [ primitive "+#" "Int# -> Int# -> Int#",
+      primitive "-#" "Int# -> Int# -> Int#",
+      primitive "*#" "Int# -> Int# -> Int#",
+      primitive "compareInt#" "Int# -> Int# -> Int#",
+      primitive "<#" "Int# -> Int# -> Int#",
+      primitive "==#" "Int# -> Int# -> Int#",
+      primitive "charToInt#" "Char# -> Int#",
+      primitive "intToChar#" "Int# -> Char#",
+      primitive "raise#" "a -> b",
+      primitive "realWorld#" "State# RealWorld",
+      primitive
+        "catch#"
+        "(State# RealWorld -> (# State# RealWorld, a #)) -> (b -> State# RealWorld -> (# State# RealWorld, a #)) -> State# RealWorld -> (# State# RealWorld, a #)",
+      primitive
+        "fork#"
+        "(State# RealWorld -> (# State# RealWorld, a #)) -> State# RealWorld -> (# State# RealWorld, ThreadId# #)",
+      primitive "awaitIO#" "Addr# -> State# RealWorld -> State# RealWorld",
+      primitive "newMutVar#" "a -> State# d -> (# State# d, MutVar# d a #)",
+      primitive "readMutVar#" "MutVar# d a -> State# d -> (# State# d, a #)",
+      primitive "writeMutVar#" "MutVar# d a -> a -> State# d -> State# d",
+      primitive "newByteArray#" "Int# -> State# d -> (# State# d, MutableByteArray# d #)",
+      primitive "newPinnedByteArray#" "Int# -> State# d -> (# State# d, MutableByteArray# d #)",
+      primitive "newAlignedPinnedByteArray#" "Int# -> Int# -> State# d -> (# State# d, MutableByteArray# d #)",
+      primitive "isMutableByteArrayPinned#" "MutableByteArray# d -> Int#",
+      primitive "isByteArrayPinned#" "ByteArray# -> Int#",
+      primitive "byteArrayContents#" "ByteArray# -> Addr#",
+      primitive "mutableByteArrayContents#" "MutableByteArray# d -> Addr#",
+      primitive "shrinkMutableByteArray#" "MutableByteArray# d -> Int# -> State# d -> State# d",
+      primitive "resizeMutableByteArray#" "MutableByteArray# d -> Int# -> State# d -> (# State# d, MutableByteArray# d #)",
+      primitive "unsafeFreezeByteArray#" "MutableByteArray# d -> State# d -> (# State# d, ByteArray# #)",
+      primitive "unsafeThawByteArray#" "ByteArray# -> State# d -> (# State# d, MutableByteArray# d #)",
+      primitive "sizeofByteArray#" "ByteArray# -> Int#",
+      primitive "getSizeofMutableByteArray#" "MutableByteArray# d -> State# d -> (# State# d, Int# #)",
+      primitive "copyAddrToByteArray#" "Addr# -> MutableByteArray# d -> Int# -> Int# -> State# d -> State# d",
+      primitive "yield#" "State# RealWorld -> State# RealWorld"
     ]
 
-intBinaryPrim :: PrimitiveSpec
-intBinaryPrim =
-  PrimitiveSpec 2 (typesEqual intHashBinaryTy)
+primitive :: Text -> Text -> (Text, PrimitiveSpec)
+primitive name source =
+  ( name,
+    PrimitiveSpec
+      { primitiveSpecSource = source,
+        primitiveSpecType = parsePrimitiveType source
+      }
+  )
 
-intHashBinaryTy :: TcType
-intHashBinaryTy = TcFunTy intHashTy (TcFunTy intHashTy intHashTy)
+data PrimitiveType
+  = PrimitiveTyVar !Text
+  | PrimitiveTyCon !Text ![PrimitiveType]
+  | PrimitiveFunTy !PrimitiveType !PrimitiveType
+  deriving (Show)
 
-intHashTy :: TcType
-intHashTy = TcTyCon (TyCon "Int#" 0) []
-
-charHashTy :: TcType
-charHashTy = TcTyCon (TyCon "Char#" 0) []
-
-charToIntPrimTy :: TcType
-charToIntPrimTy = TcFunTy charHashTy intHashTy
-
-intToCharPrimTy :: TcType
-intToCharPrimTy = TcFunTy intHashTy charHashTy
-
-isRaisePrimType :: TcType -> Bool
-isRaisePrimType ty =
-  case collectForAlls ty of
-    ([arg, result], TcFunTy (TcTyVar arg') (TcTyVar result')) ->
-      arg == arg' && result == result'
-    _ -> False
-
-isCatchPrimType :: TcType -> Bool
-isCatchPrimType ty =
-  case collectForAlls ty of
-    ([resultVar, exceptionVar], body) ->
-      isCatchPrimBody resultVar exceptionVar body
-    _ -> False
-
-isCatchPrimBody :: TyVarId -> TyVarId -> TcType -> Bool
-isCatchPrimBody resultVar exceptionVar ty =
-  case ty of
-    TcFunTy actionTy (TcFunTy handlerTy (TcFunTy stateTy resultTy)) ->
-      case (actionTy, handlerTy) of
-        (TcFunTy actionState actionResult, TcFunTy exceptionTy (TcFunTy handlerState handlerResult)) ->
-          typesEqual statePrimRealWorldTy actionState
-            && typesEqual statePrimRealWorldTy stateTy
-            && typesEqual statePrimRealWorldTy handlerState
-            && typesEqual (TcTyVar exceptionVar) exceptionTy
-            && typesEqual resultTupleTy actionResult
-            && typesEqual resultTupleTy handlerResult
-            && typesEqual resultTupleTy resultTy
-        _ -> False
-    _ -> False
+parsePrimitiveType :: Text -> PrimitiveType
+parsePrimitiveType source =
+  case parseSignatureType primitiveParserConfig source of
+    ParseOk ty ->
+      case primitiveTypeFromSurface ty of
+        Right expected -> expected
+        Left err -> invalidPrimitiveType err
+    ParseErr errs -> invalidPrimitiveType (show errs)
   where
-    resultTupleTy =
-      unboxedTupleTy [statePrimRealWorldTy, TcTyVar resultVar]
+    invalidPrimitiveType err =
+      error ("invalid primitive type specification `" <> T.unpack source <> "`: " <> err)
 
-isForkPrimType :: TcType -> Bool
-isForkPrimType ty =
-  case collectForAlls ty of
-    ([resultVar], body) ->
-      typesEqual
-        ( TcFunTy
-            (TcFunTy statePrimRealWorldTy (unboxedTupleTy [statePrimRealWorldTy, TcTyVar resultVar]))
-            (TcFunTy statePrimRealWorldTy (unboxedTupleTy [statePrimRealWorldTy, threadIdPrimTy]))
-        )
-        body
-    _ -> False
+primitiveParserConfig :: ParserConfig
+primitiveParserConfig =
+  defaultConfig
+    { parserExtensions = [MagicHash, UnboxedTuples]
+    }
 
-yieldPrimTy :: TcType
-yieldPrimTy = TcFunTy statePrimRealWorldTy statePrimRealWorldTy
+primitiveTypeFromSurface :: Type -> Either String PrimitiveType
+primitiveTypeFromSurface ty =
+  case peelTypeHead ty of
+    TVar name -> Right (PrimitiveTyVar (unqualifiedNameText name))
+    TCon name _ -> Right (PrimitiveTyCon (nameText name) [])
+    TApp function argument -> do
+      function' <- primitiveTypeFromSurface function
+      argument' <- primitiveTypeFromSurface argument
+      case function' of
+        PrimitiveTyCon name arguments -> Right (PrimitiveTyCon name (arguments <> [argument']))
+        _ -> Left ("unsupported type application in " <> show ty)
+    TFun ArrowUnrestricted argument result ->
+      PrimitiveFunTy <$> primitiveTypeFromSurface argument <*> primitiveTypeFromSurface result
+    TTuple Unboxed _ elements ->
+      PrimitiveTyCon (unboxedTupleTyConName (length elements)) <$> traverse primitiveTypeFromSurface elements
+    unsupported -> Left ("unsupported syntax in " <> show unsupported)
 
-awaitIOPrimTy :: TcType
-awaitIOPrimTy = TcFunTy addrHashTy (TcFunTy statePrimRealWorldTy statePrimRealWorldTy)
+primitiveTypeArity :: PrimitiveType -> Int
+primitiveTypeArity (PrimitiveFunTy _ result) = 1 + primitiveTypeArity result
+primitiveTypeArity _ = 0
 
-addrHashTy :: TcType
-addrHashTy = TcTyCon (TyCon "Addr#" 0) []
+matchesPrimitiveType :: PrimitiveType -> TcType -> Bool
+matchesPrimitiveType expected actual =
+  case matchPrimitiveType quantified expected body Map.empty of
+    Just bindings ->
+      let matched = Map.elems bindings
+       in length matched == length quantified && all (`elem` matched) quantified
+    Nothing -> False
+  where
+    (quantified, body) = collectForAlls actual
 
-threadIdPrimTy :: TcType
-threadIdPrimTy = TcTyCon (TyCon "ThreadId#" 0) []
-
-isNewMutVarPrimType :: TcType -> Bool
-isNewMutVarPrimType ty =
-  case collectForAlls ty of
-    (quantified, TcFunTy valueTy@(TcTyVar valueVar) (TcFunTy stateTy resultTy)) ->
-      case stateDomain stateTy of
-        Just domainVar ->
-          hasExactlyTyVars quantified [valueVar, domainVar]
-            && typesEqual
-              (unboxedTupleTy [stateTy, mutVarPrimTy domainVar valueTy])
-              resultTy
-        Nothing -> False
-    _ -> False
-
-isReadMutVarPrimType :: TcType -> Bool
-isReadMutVarPrimType ty =
-  case collectForAlls ty of
-    (quantified, TcFunTy mutVarTy (TcFunTy stateTy resultTy)) ->
-      case (mutVarArgs mutVarTy, stateDomain stateTy) of
-        (Just (domainVar, valueTy@(TcTyVar valueVar)), Just stateDomainVar) ->
-          domainVar == stateDomainVar
-            && hasExactlyTyVars quantified [domainVar, valueVar]
-            && typesEqual (unboxedTupleTy [stateTy, valueTy]) resultTy
-        _ -> False
-    _ -> False
-
-isWriteMutVarPrimType :: TcType -> Bool
-isWriteMutVarPrimType ty =
-  case collectForAlls ty of
-    (quantified, TcFunTy mutVarTy (TcFunTy valueTy (TcFunTy stateTy resultTy))) ->
-      case (mutVarArgs mutVarTy, stateDomain stateTy) of
-        (Just (domainVar, mutVarValueTy@(TcTyVar valueVar)), Just stateDomainVar) ->
-          domainVar == stateDomainVar
-            && hasExactlyTyVars quantified [domainVar, valueVar]
-            && typesEqual mutVarValueTy valueTy
-            && typesEqual stateTy resultTy
-        _ -> False
-    _ -> False
-
-stateDomain :: TcType -> Maybe TyVarId
-stateDomain (TcTyCon (TyCon "State#" 1) [TcTyVar domainVar]) = Just domainVar
-stateDomain _ = Nothing
-
-mutVarArgs :: TcType -> Maybe (TyVarId, TcType)
-mutVarArgs (TcTyCon (TyCon "MutVar#" 2) [TcTyVar domainVar, valueTy]) =
-  Just (domainVar, valueTy)
-mutVarArgs _ = Nothing
-
-mutVarPrimTy :: TyVarId -> TcType -> TcType
-mutVarPrimTy domainVar valueTy =
-  TcTyCon (TyCon "MutVar#" 2) [TcTyVar domainVar, valueTy]
-
-isNewByteArrayPrimType :: Int -> TcType -> Bool
-isNewByteArrayPrimType sizeArgumentCount ty =
-  case collectForAlls ty of
-    (quantified, body) ->
-      case splitFunctionTys body of
-        (arguments, resultTy)
-          | (sizeArguments, [stateTy]) <- splitAt sizeArgumentCount arguments,
-            all (typesEqual intHashTy) sizeArguments,
-            Just domainVar <- stateDomain stateTy ->
-              hasExactlyTyVars quantified [domainVar]
-                && typesEqual
-                  (unboxedTupleTy [stateTy, mutableByteArrayPrimTy domainVar])
-                  resultTy
-        _ -> False
-
-isMutableByteArrayQueryPrimType :: TcType -> Bool
-isMutableByteArrayQueryPrimType ty =
-  case collectForAlls ty of
-    (quantified, TcFunTy mutableTy resultTy)
-      | Just domainVar <- mutableByteArrayDomain mutableTy ->
-          hasExactlyTyVars quantified [domainVar]
-            && typesEqual intHashTy resultTy
-    _ -> False
-
-isMutableByteArrayContentsPrimType :: TcType -> Bool
-isMutableByteArrayContentsPrimType ty =
-  case collectForAlls ty of
-    (quantified, TcFunTy mutableTy resultTy)
-      | Just domainVar <- mutableByteArrayDomain mutableTy ->
-          hasExactlyTyVars quantified [domainVar]
-            && typesEqual addrHashTy resultTy
-    _ -> False
-
-isShrinkMutableByteArrayPrimType :: TcType -> Bool
-isShrinkMutableByteArrayPrimType ty =
-  case collectForAlls ty of
-    (quantified, TcFunTy mutableTy (TcFunTy sizeTy (TcFunTy stateTy resultTy)))
-      | Just domainVar <- mutableByteArrayDomain mutableTy,
-        Just stateDomainVar <- stateDomain stateTy ->
-          domainVar == stateDomainVar
-            && hasExactlyTyVars quantified [domainVar]
-            && typesEqual intHashTy sizeTy
-            && typesEqual stateTy resultTy
-    _ -> False
-
-isResizeMutableByteArrayPrimType :: TcType -> Bool
-isResizeMutableByteArrayPrimType ty =
-  case collectForAlls ty of
-    (quantified, TcFunTy mutableTy (TcFunTy sizeTy (TcFunTy stateTy resultTy)))
-      | Just domainVar <- mutableByteArrayDomain mutableTy,
-        Just stateDomainVar <- stateDomain stateTy ->
-          domainVar == stateDomainVar
-            && hasExactlyTyVars quantified [domainVar]
-            && typesEqual intHashTy sizeTy
-            && typesEqual
-              (unboxedTupleTy [stateTy, mutableByteArrayPrimTy domainVar])
-              resultTy
-    _ -> False
-
-isUnsafeFreezeByteArrayPrimType :: TcType -> Bool
-isUnsafeFreezeByteArrayPrimType ty =
-  case collectForAlls ty of
-    (quantified, TcFunTy mutableTy (TcFunTy stateTy resultTy))
-      | Just domainVar <- mutableByteArrayDomain mutableTy,
-        Just stateDomainVar <- stateDomain stateTy ->
-          domainVar == stateDomainVar
-            && hasExactlyTyVars quantified [domainVar]
-            && typesEqual (unboxedTupleTy [stateTy, byteArrayPrimTy]) resultTy
-    _ -> False
-
-isUnsafeThawByteArrayPrimType :: TcType -> Bool
-isUnsafeThawByteArrayPrimType ty =
-  case collectForAlls ty of
-    (quantified, TcFunTy byteArrayTy (TcFunTy stateTy resultTy))
-      | Just domainVar <- stateDomain stateTy ->
-          hasExactlyTyVars quantified [domainVar]
-            && typesEqual byteArrayPrimTy byteArrayTy
-            && typesEqual
-              (unboxedTupleTy [stateTy, mutableByteArrayPrimTy domainVar])
-              resultTy
-    _ -> False
-
-isGetSizeofMutableByteArrayPrimType :: TcType -> Bool
-isGetSizeofMutableByteArrayPrimType ty =
-  case collectForAlls ty of
-    (quantified, TcFunTy mutableTy (TcFunTy stateTy resultTy))
-      | Just domainVar <- mutableByteArrayDomain mutableTy,
-        Just stateDomainVar <- stateDomain stateTy ->
-          domainVar == stateDomainVar
-            && hasExactlyTyVars quantified [domainVar]
-            && typesEqual (unboxedTupleTy [stateTy, intHashTy]) resultTy
-    _ -> False
-
-isCopyAddrToByteArrayPrimType :: TcType -> Bool
-isCopyAddrToByteArrayPrimType ty =
-  case collectForAlls ty of
-    (quantified, TcFunTy sourceTy (TcFunTy mutableTy (TcFunTy offsetTy (TcFunTy lengthTy (TcFunTy stateTy resultTy)))))
-      | Just domainVar <- mutableByteArrayDomain mutableTy,
-        Just stateDomainVar <- stateDomain stateTy ->
-          domainVar == stateDomainVar
-            && hasExactlyTyVars quantified [domainVar]
-            && typesEqual addrHashTy sourceTy
-            && typesEqual intHashTy offsetTy
-            && typesEqual intHashTy lengthTy
-            && typesEqual stateTy resultTy
-    _ -> False
-
-splitFunctionTys :: TcType -> ([TcType], TcType)
-splitFunctionTys (TcFunTy argument result) =
-  let (arguments, finalResult) = splitFunctionTys result
-   in (argument : arguments, finalResult)
-splitFunctionTys ty = ([], ty)
-
-mutableByteArrayDomain :: TcType -> Maybe TyVarId
-mutableByteArrayDomain (TcTyCon (TyCon "MutableByteArray#" 1) [TcTyVar domainVar]) =
-  Just domainVar
-mutableByteArrayDomain _ = Nothing
-
-mutableByteArrayPrimTy :: TyVarId -> TcType
-mutableByteArrayPrimTy domainVar =
-  TcTyCon (TyCon "MutableByteArray#" 1) [TcTyVar domainVar]
-
-byteArrayPrimTy :: TcType
-byteArrayPrimTy = TcTyCon (TyCon "ByteArray#" 0) []
-
-hasExactlyTyVars :: [TyVarId] -> [TyVarId] -> Bool
-hasExactlyTyVars actual expected =
-  length actual == length expected && all (`elem` actual) expected
+matchPrimitiveType :: [TyVarId] -> PrimitiveType -> TcType -> Map.Map Text TyVarId -> Maybe (Map.Map Text TyVarId)
+matchPrimitiveType quantified expected actual bindings =
+  case (expected, actual) of
+    (PrimitiveTyVar name, TcTyVar actualVar)
+      | actualVar `elem` quantified ->
+          case Map.lookup name bindings of
+            Nothing -> Just (Map.insert name actualVar bindings)
+            Just expectedVar
+              | expectedVar == actualVar -> Just bindings
+            _ -> Nothing
+    (PrimitiveTyCon expectedName expectedArguments, TcTyCon actualTyCon actualArguments)
+      | expectedName == tyConName actualTyCon,
+        length expectedArguments == length actualArguments ->
+          foldM
+            ( \current (expectedArgument, actualArgument) ->
+                matchPrimitiveType quantified expectedArgument actualArgument current
+            )
+            bindings
+            (zip expectedArguments actualArguments)
+    (PrimitiveFunTy expectedArgument expectedResult, TcFunTy actualArgument actualResult) -> do
+      bindings' <- matchPrimitiveType quantified expectedArgument actualArgument bindings
+      matchPrimitiveType quantified expectedResult actualResult bindings'
+    _ -> Nothing
 
 statePrimRealWorldTy :: TcType
 statePrimRealWorldTy = TcTyCon (TyCon "State#" 1) [realWorldTy]
@@ -732,35 +585,17 @@ realWorldTy = TcTyCon (TyCon "RealWorld" 0) []
 
 unboxedTupleTy :: [TcType] -> TcType
 unboxedTupleTy tys =
-  TcTyCon (TyCon ("(#" <> T.replicate (max 0 (length tys - 1)) "," <> "#)") (length tys)) tys
+  TcTyCon (TyCon (unboxedTupleTyConName (length tys)) (length tys)) tys
+
+unboxedTupleTyConName :: Int -> Text
+unboxedTupleTyConName arity =
+  "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
 
 collectForAlls :: TcType -> ([TyVarId], TcType)
 collectForAlls (TcForAllTy tv body) =
   let (tvs, inner) = collectForAlls body
    in (tv : tvs, inner)
 collectForAlls ty = ([], ty)
-
-typesEqual :: TcType -> TcType -> Bool
-typesEqual (TcTyVar a) (TcTyVar b) = a == b
-typesEqual (TcMetaTv a) (TcMetaTv b) = a == b
-typesEqual (TcTyCon tc1 args1) (TcTyCon tc2 args2) =
-  tc1 == tc2 && length args1 == length args2 && all (uncurry typesEqual) (zip args1 args2)
-typesEqual (TcFunTy a1 b1) (TcFunTy a2 b2) =
-  typesEqual a1 a2 && typesEqual b1 b2
-typesEqual (TcForAllTy tv1 body1) (TcForAllTy tv2 body2) =
-  typesEqual body1 (substType (Map.singleton tv2 (TcTyVar tv1)) body2)
-typesEqual (TcQualTy p1 b1) (TcQualTy p2 b2) =
-  length p1 == length p2 && all (uncurry predsEqual) (zip p1 p2) && typesEqual b1 b2
-typesEqual (TcAppTy f1 a1) (TcAppTy f2 a2) =
-  typesEqual f1 f2 && typesEqual a1 a2
-typesEqual _ _ = False
-
-predsEqual :: Pred -> Pred -> Bool
-predsEqual (ClassPred c1 a1) (ClassPred c2 a2) =
-  c1 == c2 && length a1 == length a2 && all (uncurry typesEqual) (zip a1 a2)
-predsEqual (EqPred t1a t1b) (EqPred t2a t2b) =
-  typesEqual t1a t2a && typesEqual t1b t2b
-predsEqual _ _ = False
 
 dsDataConM :: DataConDecl -> DsM (Text, [TcType])
 dsDataConM con = do
