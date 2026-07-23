@@ -1207,7 +1207,7 @@ targetInitializerCall :: NativeTarget -> T.Text
 targetInitializerCall AppleArm64 = "bl _aihc_init_"
 targetInitializerCall LinuxAmd64 = "call _aihc_init_"
 targetInitializerCall PortableC = "_aihc_init_"
-targetInitializerCall Wasm32Wasip3 = "call\taihc_wasm_transfer_start"
+targetInitializerCall Wasm32Wasip3 = "call\t_aihc_init_"
 
 targetTailTransfer :: NativeTarget -> T.Text
 targetTailTransfer AppleArm64 = "br x9"

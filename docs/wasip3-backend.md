@@ -1,16 +1,17 @@
 # WASI P3 backend
 
-The `wasm32-wasip3` target consumes whole-program GC-GRIN and emits LLVM MC's
-WebAssembly assembly syntax. This is WebAssembly machine code: the backend
-selects Wasm instructions, locals, structured control flow, data objects, and
-the runtime ABI directly. Clang's integrated Wasm assembler only serializes
-those instructions and records relocations; generated Haskell code does not
-pass through C or LLVM IR.
+The `wasm32-wasip3` target consumes GC-GRIN and emits LLVM MC's WebAssembly
+assembly syntax. This is WebAssembly machine code: the backend selects Wasm
+instructions, locals, structured control flow, data objects, and the runtime
+ABI directly. Clang's integrated Wasm assembler only serializes those
+instructions and records relocations; generated Haskell code does not pass
+through C or LLVM IR.
 
 The build pipeline uses temporary linker inputs:
 
 ```text
-GC-GRIN -> WebAssembly assembly -> program.o
+dependency GC-GRIN -> WebAssembly assembly -> cached dependency objects
+main GC-GRIN       -> WebAssembly assembly -> program.o
 C runtime + P3 IO backend       -> runtime objects
 WIT C bindings                  -> binding object
 all objects -> wasm-ld -> core module -> wasm-tools -> component
@@ -42,7 +43,15 @@ writable end. When the stream or result future blocks, the exported async
 finishes the request, makes its green thread runnable, and resumes the same
 generated-code trampoline.
 
-The backend currently selects whole-program compilation. Incremental Wasm
-objects can use the same linker ABI later, but are intentionally not mixed with
-the native dependency cache until that cache records target-specific component
-metadata.
+## Incremental compilation
+
+Incremental compilation is the default. Each dependency SCC is compiled with
+the shared `LinkLayout` into a relocatable Wasm object and a uniquely named
+initializer. Objects are cached in target-specific library archives. The main
+object allocates the shared global table, installs nullary constructors, calls
+the dependency initializers, and then initializes its own globals before
+starting the program.
+
+`--whole-program` remains available. It merges reachable dependency Core before
+GRIN lowering and emits one generated-code object. Both modes compile the C
+runtime and WIT bindings only at the final link and produce one component.

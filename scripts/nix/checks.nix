@@ -242,6 +242,9 @@
   wasip3ExampleTest =
     mkSourceCheck "aihc-wasip3-example-test" (sources.examplesSrc pkgs) [
       pkgs.diffutils
+      pkgs.findutils
+      pkgs.llvmPackages.bintools
+      pkgs.llvmPackages.clang-unwrapped
       pkgs.wasm-tools
       pkgs.wasmtime
       pkgs.wit-bindgen
@@ -249,12 +252,22 @@
       wasmLd
     ] ''
       export XDG_CACHE_HOME="$TMPDIR/cache"
-      executable="$TMPDIR/async-hello-world.wasm"
+      incremental_executable="$TMPDIR/async-hello-world-incremental.wasm"
       ${aihcExe} compile examples/async-hello-world/Main.hs \
         --target wasm32-wasip3 \
-        --output "$executable"
-      wasmtime run -C cache=n -S cli "$executable" > "$executable.stdout"
-      diff --unified examples/async-hello-world/stdout "$executable.stdout"
+        --output "$incremental_executable"
+      find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.o' | grep -q .
+      find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.a' | grep -q .
+      wasmtime run -C cache=n -S cli "$incremental_executable" > "$incremental_executable.stdout"
+      diff --unified examples/async-hello-world/stdout "$incremental_executable.stdout"
+
+      whole_program_executable="$TMPDIR/async-hello-world-whole-program.wasm"
+      ${aihcExe} compile examples/async-hello-world/Main.hs \
+        --target wasm32-wasip3 \
+        --whole-program \
+        --output "$whole_program_executable"
+      wasmtime run -C cache=n -S cli "$whole_program_executable" > "$whole_program_executable.stdout"
+      diff --unified examples/async-hello-world/stdout "$whole_program_executable.stdout"
     '';
 
   parserProgressStrict = mkSourceCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) [] ''

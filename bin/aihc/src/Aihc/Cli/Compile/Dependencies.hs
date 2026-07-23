@@ -61,6 +61,7 @@ import Aihc.Tc
     tcModuleSuccess,
     typecheckModuleSccWithFullEnv,
   )
+import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket, bracketOnError)
 import Control.Monad (filterM, foldM)
 import Data.Bits (xor)
@@ -509,7 +510,7 @@ compileBackendModule target layout initializer program =
     AppleArm64 -> either (Left . show) Right (Arm64.compileModule layout initializer program)
     LinuxAmd64 -> either (Left . show) Right (Amd64.compileModule layout initializer program)
     PortableC -> compileC
-    Wasm32Wasip3 -> Left "WASI P3 backend supports whole-program code generation only"
+    Wasm32Wasip3 -> either (Left . show) Right (Wasm.compileModule layout initializer program)
   where
     compileC = either (Left . show) Right (C.compileModule layout initializer program)
 

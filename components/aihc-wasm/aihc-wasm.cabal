@@ -50,6 +50,7 @@ test-suite spec
 
   build-depends:
     aihc-grin,
+    aihc-native,
     aihc-tc,
     aihc-wasm,
     base >=4.16 && <5,

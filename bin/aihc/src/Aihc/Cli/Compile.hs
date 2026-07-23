@@ -63,7 +63,7 @@ import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithFullEnv)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
-import Control.Monad (unless, when)
+import Control.Monad (when)
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -132,7 +132,7 @@ runCompileWithEnvironment environment options = do
           pure
           hostNativeTarget
   source <- TIO.readFile (compileSourceFile options)
-  artifactsResult <- compileSourceToArtifactsWithDependencies target (compileWholeProgram options || target == Wasm32Wasip3) environment (compileSourceFile options) source
+  artifactsResult <- compileSourceToArtifactsWithDependencies target (compileWholeProgram options) environment (compileSourceFile options) source
   artifacts <- either (ioError . userError . renderCompileError) pure artifactsResult
   let output = compileOutputPath options
   writeIntermediateArtifacts output options artifacts
@@ -222,11 +222,10 @@ compileSourceToArtifactsWithDependencies target wholeProgram environment sourceN
   case parseCompileModule sourceName source of
     Left err -> pure (Left err)
     Right parsed -> do
-      let effectiveWholeProgram = wholeProgram || target == Wasm32Wasip3
-      dependencies <- buildDependencies target environment (ImplicitPrelude `elem` sourceExtensions source) (not effectiveWholeProgram) parsed
+      dependencies <- buildDependencies target environment (ImplicitPrelude `elem` sourceExtensions source) (not wholeProgram) parsed
       pure $ do
         artifact <- either (Left . CompileDependencyError) Right dependencies
-        compileWithDependencies target effectiveWholeProgram artifact parsed
+        compileWithDependencies target wholeProgram artifact parsed
 
 compileWithDependencies :: NativeTarget -> Bool -> DependencyArtifact -> Module -> Either CompileError CompileArtifacts
 compileWithDependencies target wholeProgram dependencies parsed =
@@ -366,7 +365,7 @@ compileBackendProgramWithDependencies target layout initializers entry program =
     AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.compileProgramWithDependencies layout initializers entry program)
     LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileProgramWithDependencies layout initializers entry program)
     PortableC -> compileC
-    Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.compileProgram entry program)
+    Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.compileProgramWithDependencies layout initializers entry program)
   where
     compileC = either (Left . BackendCError) Right (C.compileProgramWithDependencies layout initializers entry program)
 
@@ -528,7 +527,6 @@ assemble target garbageCollector output assemblyPath archives = do
 
 assembleWasip3 :: GarbageCollector -> FilePath -> FilePath -> [FilePath] -> IO ()
 assembleWasip3 garbageCollector output assemblyPath archives = do
-  unless (null archives) $ ioError (userError "WASI P3 compilation requires whole-program code generation")
   nativeRuntime <- runtimeSourcePath
   driver <- Wasm.wasip3RuntimeSourcePath
   world <- Wasm.wasip3WorldPath
@@ -565,17 +563,18 @@ assembleWasip3 garbageCollector output assemblyPath archives = do
     runTool "wasm32-clang" (cArguments <> ["-c", bindingsSource, "-o", bindingsObject])
     runTool
       "wasm-ld"
-      [ "--no-entry",
-        "--export-memory",
-        "--allow-undefined",
-        programObject,
-        runtimeObject,
-        driverObject,
-        bindingsObject,
-        componentTypeObject,
-        "-o",
-        coreModule
-      ]
+      ( [ "--no-entry",
+          "--export-memory",
+          "--allow-undefined",
+          programObject,
+          runtimeObject,
+          driverObject,
+          bindingsObject,
+          componentTypeObject
+        ]
+          <> archives
+          <> ["-o", coreModule]
+      )
     runTool "wasm-tools" ["component", "new", coreModule, "-o", output]
     runTool "wasm-tools" ["validate", output]
 
