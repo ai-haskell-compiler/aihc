@@ -2,14 +2,28 @@ name: Deploy Documentation
 
 on:
   workflow_dispatch:
-  push:
+  pull_request:
     branches:
       - main
     paths:
+      - .github/actions/setup-nix-ci/action.yml
       - .github/workflows/deploy-docs.yml
       - docs/aihc-users-guide/**
       - flake.lock
       - flake.nix
+      - scripts/nix/coverage.nix
+      - scripts/nix/docs.nix
+      - scripts/nix/packages.nix
+  push:
+    branches:
+      - main
+    paths:
+      - .github/actions/setup-nix-ci/action.yml
+      - .github/workflows/deploy-docs.yml
+      - docs/aihc-users-guide/**
+      - flake.lock
+      - flake.nix
+      - scripts/nix/coverage.nix
       - scripts/nix/docs.nix
       - scripts/nix/packages.nix
 
@@ -22,6 +36,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -40,6 +55,9 @@ jobs:
           echo "=== Building Haddock documentation ==="
           nix build .#docs --print-out-paths
           cp -rL result docs-output
+          # The copied Nix output is read-only; make its root writable before
+          # adding the coverage report below.
+          chmod u+w docs-output
 
           echo "=== Building coverage report ==="
           nix build .#coverage --print-out-paths
@@ -51,7 +69,9 @@ jobs:
           echo "=== Site structure ==="
           find docs-output -type f | head -50
 
-      - name: Publish generated site
+      - name: Stage and publish generated site
+        env:
+          DRY_RUN: ${{ github.event_name == 'pull_request' }}
         run: |
           set -euo pipefail
 
@@ -86,4 +106,10 @@ jobs:
           fi
 
           git -C "$publish_dir" commit -m "docs: deploy $GITHUB_SHA"
+
+          if [[ "$DRY_RUN" == "true" ]]; then
+            echo "Dry run complete; generated site was committed locally."
+            exit 0
+          fi
+
           git -C "$publish_dir" push origin HEAD:gh-pages
