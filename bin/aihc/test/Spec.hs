@@ -115,6 +115,11 @@ main =
               "command"
               (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just PortableC) GcCalloc)))
               (parseCommandPure ["compile", "Main.hs", "--target", "portable-c"]),
+          testCase "parses the LLVM target" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just Llvm) GcCalloc)))
+              (parseCommandPure ["compile", "Main.hs", "--target", "llvm"]),
           testCase "selects the semispace collector" $
             assertEqual
               "command"
@@ -163,7 +168,7 @@ main =
               source <- TIO.readFile sourcePath
               let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
                   environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-              forM_ [AppleArm64, LinuxAmd64, PortableC] $ \target -> do
+              forM_ [AppleArm64, LinuxAmd64, PortableC, Llvm] $ \target -> do
                 result <- compileSourceToAssemblyWithDependenciesFor target environment sourcePath source
                 case result of
                   Left err -> assertFailure ("expected " <> show target <> " compile success, got: " <> show err)
@@ -173,6 +178,7 @@ main =
                     assertBool "Haskell tail transfer" (targetTailTransfer target `T.isInfixOf` assembly),
           testCase "assembles an executable and honors keep-output flags" test_compileExecutable,
           testCase "assembles an incremental portable C executable" test_compilePortableCExecutable,
+          testCase "assembles an incremental LLVM executable" test_compileLlvmExecutable,
           testCase "lowers every example to portable C" test_compilePortableCExamples,
           testCase "compiles and runs the aihc-base green threads example" test_compileGreenThreadsExample,
           testCase "compiles and runs the async stdio example" test_compileAsyncStdioExample,
@@ -951,7 +957,7 @@ test_compileAsyncStdioExample =
     let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
         environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
         targets =
-          [PortableC]
+          [PortableC, Llvm]
             <> [AppleArm64 | arch == "aarch64" && os == "darwin"]
             <> [LinuxAmd64 | arch == "x86_64" && os == "linux"]
     withCurrentDirectory repositoryRoot $
@@ -983,7 +989,7 @@ test_compileAsyncHelloWorldExample =
     let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
         environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
         targets =
-          [PortableC]
+          [PortableC, Llvm]
             <> [AppleArm64 | arch == "aarch64" && os == "darwin"]
             <> [LinuxAmd64 | arch == "x86_64" && os == "linux"]
     withCurrentDirectory repositoryRoot $
@@ -1033,6 +1039,28 @@ test_compilePortableCExamples =
         Right generatedC -> do
           assertBool "includes the portable runtime" ("#include \"aihc_runtime.h\"" `T.isInfixOf` generatedC)
           assertBool "uses trampoline dispatch" ("while (aihc_next_transfer.entry != NULL)" `T.isInfixOf` generatedC)
+
+test_compileLlvmExecutable :: Assertion
+test_compileLlvmExecutable =
+  withTempDir "aihc-compile-llvm" $ \root -> do
+    sourcePath <- helloWorldExamplePath
+    let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+        output = root </> "hello-llvm"
+        cacheRoot = root </> "cache"
+        environment = CompileEnvironment (repositoryRoot </> "core-libs") cacheRoot
+        options = CompileOptions sourcePath (Just output) False False True False (Just Llvm) GcCalloc
+    withCurrentDirectory repositoryRoot $ do
+      runCompileWithEnvironment environment options
+      assertFileExists output
+      assertFileExists (output <> ".ll")
+      generatedLlvm <- TIO.readFile (output <> ".ll")
+      assertBool "LLVM main" ("define i32 @main()" `T.isInfixOf` generatedLlvm)
+      assertBool "guaranteed tail transfer" ("musttail call tailcc void" `T.isInfixOf` generatedLlvm)
+      assertNativeOutput "Hello, world!\n" output
+      objectFiles <- compileCacheArtifacts ".o" cacheRoot
+      archiveFiles <- compileCacheArtifacts ".a" cacheRoot
+      assertBool "cached LLVM dependency objects" (not (null objectFiles))
+      assertBool "cached LLVM dependency archives" (not (null archiveFiles))
 
 isNativeCodegenHost :: String -> String -> Bool
 isNativeCodegenHost hostArch hostOs =
@@ -1196,16 +1224,19 @@ targetMainDirective :: NativeTarget -> T.Text
 targetMainDirective AppleArm64 = ".globl _main"
 targetMainDirective LinuxAmd64 = ".globl main"
 targetMainDirective PortableC = "int main(void)"
+targetMainDirective Llvm = "define i32 @main()"
 
 targetInitializerCall :: NativeTarget -> T.Text
 targetInitializerCall AppleArm64 = "bl _aihc_init_"
 targetInitializerCall LinuxAmd64 = "call _aihc_init_"
 targetInitializerCall PortableC = "_aihc_init_"
+targetInitializerCall Llvm = "call void @_aihc_init_"
 
 targetTailTransfer :: NativeTarget -> T.Text
 targetTailTransfer AppleArm64 = "br x9"
 targetTailTransfer LinuxAmd64 = "jmp r11"
 targetTailTransfer PortableC = "aihc_next_transfer"
+targetTailTransfer Llvm = "musttail call tailcc void"
 
 expectCompileArtifact :: Either CompileError T.Text -> IO T.Text
 expectCompileArtifact result =

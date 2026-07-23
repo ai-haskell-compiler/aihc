@@ -84,7 +84,7 @@
     "x86_64-linux" = "linux-amd64";
   };
   nativeBackend = nativeBackendBySystem.${pkgs.stdenv.hostPlatform.system} or null;
-  backends = ["portable-c"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
+  backends = ["portable-c" "llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
   compilationMatrix = builtins.concatLists (
     map (
       backend:
@@ -137,6 +137,11 @@
   arm64Tests = mkEvalPackageTest hsPkgs.aihc-arm64;
   cBackendTests = mkEvalPackageTest (
     pkgs.haskell.lib.overrideCabal hsPkgs.aihc-c (old: {
+      testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
+    })
+  );
+  llvmTests = mkEvalPackageTest (
+    pkgs.haskell.lib.overrideCabal hsPkgs.aihc-llvm (old: {
       testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
     })
   );
@@ -267,6 +272,7 @@ in {
   amd64-tests = amd64Tests;
   arm64-tests = arm64Tests;
   c-tests = cBackendTests;
+  llvm-tests = llvmTests;
   native-tests = nativeTests;
   fc-tests = fcTests;
   grin-tests = grinTests;
@@ -312,6 +318,10 @@ in {
     {
       name = "c-tests";
       path = cBackendTests;
+    }
+    {
+      name = "llvm-tests";
+      path = llvmTests;
     }
     {
       name = "native-tests";

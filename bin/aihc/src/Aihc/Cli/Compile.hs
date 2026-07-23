@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Compile a standalone Haskell module through System FC and GRIN to an
--- executable through an assembly or portable C backend.
+-- executable through an assembly, LLVM, or portable C backend.
 module Aihc.Cli.Compile
   ( CompileEnvironment (..),
     CompileError (..),
@@ -47,6 +47,7 @@ import Aihc.Fc
   )
 import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
+import Aihc.Llvm qualified as Llvm
 import Aihc.Native
   ( LinkLayout,
     NativeTarget (..),
@@ -88,6 +89,7 @@ data BackendError
   = BackendArm64Error !Arm64.Arm64Error
   | BackendAmd64Error !Amd64.Amd64Error
   | BackendCError !C.CError
+  | BackendLlvmError !Llvm.LlvmError
   deriving (Eq, Show)
 
 data CompileArtifacts = CompileArtifacts
@@ -342,6 +344,7 @@ validateBackendPrimitiveNames target names =
     AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.validatePrimitiveNames names)
     LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.validatePrimitiveNames names)
     PortableC -> validateC
+    Llvm -> either (Left . BackendLlvmError) Right (Llvm.validatePrimitiveNames names)
   where
     validateC = either (Left . BackendCError) Right (C.validatePrimitiveNames names)
 
@@ -351,6 +354,7 @@ compileBackendProgram target entry program =
     AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.compileProgram entry program)
     LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileProgram entry program)
     PortableC -> compileC
+    Llvm -> either (Left . BackendLlvmError) Right (Llvm.compileProgram entry program)
   where
     compileC = either (Left . BackendCError) Right (C.compileProgram entry program)
 
@@ -360,6 +364,7 @@ compileBackendProgramWithDependencies target layout initializers entry program =
     AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.compileProgramWithDependencies layout initializers entry program)
     LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileProgramWithDependencies layout initializers entry program)
     PortableC -> compileC
+    Llvm -> either (Left . BackendLlvmError) Right (Llvm.compileProgramWithDependencies layout initializers entry program)
   where
     compileC = either (Left . BackendCError) Right (C.compileProgramWithDependencies layout initializers entry program)
 
@@ -518,6 +523,7 @@ assemble target garbageCollector output assemblyPath archives = do
 
 backendSourceExtension :: NativeTarget -> String
 backendSourceExtension PortableC = ".c"
+backendSourceExtension Llvm = ".ll"
 backendSourceExtension _ = ".s"
 
 garbageCollectorDefine :: GarbageCollector -> String
