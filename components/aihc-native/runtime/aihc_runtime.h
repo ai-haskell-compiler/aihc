@@ -34,7 +34,6 @@ typedef struct AihcInfo AihcInfo;
 typedef struct AihcThread AihcThread;
 typedef struct AihcBlackhole AihcBlackhole;
 typedef struct AihcIoHandle AihcIoHandle;
-typedef struct AihcIoBuffer AihcIoBuffer;
 typedef struct AihcIoRequest AihcIoRequest;
 typedef struct AihcIoBackend AihcIoBackend;
 typedef uint64_t AihcSlot;
@@ -102,6 +101,8 @@ struct AihcMachine {
   uint64_t allocation_count;
   AihcSlot *locals;
   uint64_t locals_capacity;
+  AihcSlot *portable_arguments;
+  uint64_t portable_arguments_capacity;
   AihcResume selected_resume;
 };
 
@@ -174,13 +175,19 @@ const AihcResume *aihc_await_io(AihcMachine *machine, void *request,
 const AihcResume *aihc_thread_done(AihcMachine *machine);
 void *aihc_io_stdin(void);
 void *aihc_io_stdout(void);
-/* Proof-of-concept buffers are stable auxiliary allocations and are not
-   released. A submitted request retains its buffer through completion. */
-void *aihc_io_buffer_new(int32_t capacity);
-int32_t aihc_io_buffer_get(void *buffer, int32_t index);
-int32_t aihc_io_buffer_set(void *buffer, int32_t index, int32_t byte);
-int32_t aihc_io_buffer_copy_from_addr(void *source, void *buffer,
-                                      int32_t offset, int32_t length);
+/* Proof-of-concept byte arrays use stable auxiliary allocations and are not
+   released. Freeze and thaw are representation-preserving compiler
+   primitives. */
+void *aihc_byte_array_new(int64_t size);
+void *aihc_byte_array_new_pinned(int64_t size);
+void *aihc_byte_array_new_aligned_pinned(int64_t size, int64_t alignment);
+uint64_t aihc_byte_array_is_pinned(void *array);
+void *aihc_byte_array_contents(void *array);
+uint64_t aihc_byte_array_shrink(void *array, int64_t size);
+void *aihc_byte_array_resize(void *array, int64_t size);
+uint64_t aihc_byte_array_get_size(void *array);
+uint64_t aihc_byte_array_copy_from_addr(void *source, void *array,
+                                        int64_t offset, int64_t length);
 void *aihc_io_submit_read(void *handle, void *buffer, int32_t offset,
                           int32_t length);
 void *aihc_io_submit_write(void *handle, void *buffer, int32_t offset,
@@ -190,40 +197,42 @@ void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation);
 AihcEntry aihc_halt(AihcMachine *machine);
 
-/* Portable-C control operations. The generated backend owns and supplies the
-   reusable buffer; the machine and native backends never contain one. */
-AihcPortableTransfer
-aihc_portable_apply_cps(AihcMachine *machine, AihcSlot *buffer,
-                        AihcValue *function, uint64_t count,
-                        const AihcSlot *arguments, AihcValue *continuation);
+/* Portable-C control operations. The machine owns one reusable argument
+   vector and grows it to the width required by each transfer. */
+AihcPortableTransfer aihc_portable_call(AihcMachine *machine, AihcEntry entry,
+                                        uint64_t count,
+                                        const AihcSlot *arguments);
+AihcPortableTransfer aihc_portable_apply_cps(AihcMachine *machine,
+                                             AihcValue *function,
+                                             uint64_t count,
+                                             const AihcSlot *arguments,
+                                             AihcValue *continuation);
 AihcPortableTransfer aihc_portable_eval_cps(AihcMachine *machine,
-                                            AihcSlot *buffer, AihcValue *value,
+                                            AihcValue *value,
                                             uint64_t result_is_lifted,
                                             AihcValue *continuation,
                                             AihcValue *update_continuation);
 AihcPortableTransfer aihc_portable_continue_values(AihcMachine *machine,
-                                                   AihcSlot *buffer,
                                                    AihcValue *continuation,
                                                    uint64_t count,
                                                    const AihcSlot *values);
 AihcPortableTransfer aihc_portable_fork_cps(AihcMachine *machine,
-                                            AihcSlot *buffer, AihcValue *action,
+                                            AihcValue *action,
                                             AihcValue *continuation);
 AihcPortableTransfer aihc_portable_yield_cps(AihcMachine *machine,
-                                             AihcSlot *buffer,
                                              AihcValue *continuation);
 AihcPortableTransfer aihc_portable_await_io_cps(AihcMachine *machine,
-                                                AihcSlot *buffer, void *request,
+                                                void *request,
                                                 AihcValue *continuation);
-AihcPortableTransfer aihc_portable_thread_done(AihcMachine *machine,
-                                               AihcSlot *buffer);
-AihcPortableTransfer
-aihc_portable_start(AihcMachine *machine, AihcSlot *buffer, AihcValue *root,
-                    AihcValue *continuation, AihcValue *update_continuation,
-                    AihcValue *thread_done_continuation, AihcEntry exit_code);
+AihcPortableTransfer aihc_portable_thread_done(AihcMachine *machine);
+AihcPortableTransfer aihc_portable_start(AihcMachine *machine, AihcValue *root,
+                                         AihcValue *continuation,
+                                         AihcValue *update_continuation,
+                                         AihcValue *thread_done_continuation,
+                                         AihcEntry exit_code);
 #ifdef AIHC_WASIP3
 AihcPortableTransfer aihc_wasip3_complete_io(AihcMachine *machine,
-                                             AihcSlot *buffer, int32_t result);
+                                             int32_t result);
 #endif
 
 typedef enum {

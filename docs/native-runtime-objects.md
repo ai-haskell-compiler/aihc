@@ -59,11 +59,14 @@ collector's temporary forwarding marker.
 
 The cooperative scheduler keeps thread records, blackhole records, wait queues,
 and pending IO requests in auxiliary C allocations. Suspended threads retain
-ordinary action or continuation closures, which portable C expands into its
-reusable argument buffer only when selected. Native backends resume the same
-records through their register convention. The machine reuses one locals area
-because CPS transfers discard the preceding function frame; all retained
-closure values and pending-request continuations are precise collector roots.
+ordinary action or continuation closures, which portable C expands into the
+machine's growable reusable argument buffer only when selected. Native backends
+resume the same records through their register convention. The machine reuses
+one locals area because CPS transfers discard the preceding function frame; all
+retained closure values and pending-request continuations are precise collector
+roots. The argument buffer contains only transient transfers: generated entries
+copy their parameters into the locals area before reaching an allocation
+safepoint, so the collector does not scan the buffer.
 
 ## IO manager
 
@@ -93,17 +96,18 @@ descriptor in each handle, sets it nonblocking, and uses `poll` when buffer
 reads or writes report that they would block. Windows can instead store `HANDLE` or
 `SOCKET` resources without exposing either representation to generated code.
 
-Reads and writes operate on an offset and length within an opaque `IOBuffer`.
-The proof-of-concept runtime allocates each buffer outside the Haskell heap and
-does not release it. A request retains that stable allocation through
-completion. Callers must not access the submitted slice while the request is
-pending. A later pinned `MutableByteArray#` implementation can replace this
-allocation without changing `awaitIO#` or the backend request model.
+Reads and writes operate on an offset and length within the payload of a pinned
+`MutableByteArray#`. The proof-of-concept runtime allocates each byte array
+outside the Haskell heap and does not release it. A request retains that stable
+allocation through completion. Callers must not access the submitted slice
+while the request is pending. A future garbage collector can own the same
+descriptor and payload layout without changing `awaitIO#` or the backend
+request model.
 
-`copyAddrToIOBuffer` copies an explicit number of bytes from an `Addr#` into a
+`copyAddrToByteArray#` copies an explicit number of bytes from an `Addr#` into a
 bounds-checked destination slice. It does not scan for a terminating zero. The
 source address must remain valid until the synchronous copy returns; only the
-stable `IOBuffer` is retained by later asynchronous requests.
+stable byte-array payload is retained by later asynchronous requests.
 
 A non-negative request result is the number of transferred bytes. A non-empty
 read returns zero at end-of-file. Either operation can return fewer bytes than

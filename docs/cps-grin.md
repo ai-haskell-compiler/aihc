@@ -69,7 +69,8 @@ single tagged info-table pointer before their payload fields.
 
 `fork#`, `yield#`, and the operation-independent `awaitIO#` are CPS primitive
 calls. Concrete IO operations are ordinary foreign calls which submit opaque
-runtime requests over stable `IOBuffer` slices and later consume their results.
+runtime requests over stable pinned `MutableByteArray#` slices and later consume
+their results.
 Consequently, adding a file, socket, timer, or process operation does not
 require a new compiler primitive.
 
@@ -91,5 +92,5 @@ without changing Haskell code, System FC, or CPS-GRIN.
 Native saturated applications bypass that area: the closure's application-stage
 info table selects generated code which loads captured fields and supplied
 values into backend argument registers before tail-entering the function.
-Portable C and allocation-requiring native slow paths reuse the machine's
-argument area instead of allocating a vector for every transfer.
+Portable C grows and reuses a machine-owned argument vector instead of requiring
+a whole-program arity bound or allocating a vector for every transfer.

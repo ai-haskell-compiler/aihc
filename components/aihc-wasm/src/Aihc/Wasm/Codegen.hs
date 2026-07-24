@@ -124,7 +124,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
           <> concatMap compiledFunctionLines functions
           <> renderSpecialFunctions
           <> renderProgramInitializer (length (linkGlobalNames layout)) rootSlot dependencyInitializers functions constructorInit programInit
-          <> renderArguments layout
+          <> renderRuntimeSymbols
           <> renderAddrLiterals env
           <> renderRuntimeInfos (compileRuntimeInfos env <> specialInfos)
           <> ["\t.no_dead_strip\t__indirect_function_table", ""]
@@ -273,16 +273,16 @@ runtimeFunctionTypes =
     ("aihc_wasm_global_set", ([I32, I64, I64], [])),
     ("aihc_wasm_value_field", ([I64, I64], [I64])),
     ("aihc_wasm_value_info", ([I64], [I64])),
-    ("aihc_wasm_transfer_direct", ([I32, I32], [])),
-    ("aihc_wasm_transfer_eval", ([I32, I32, I64, I64, I64, I64], [])),
-    ("aihc_wasm_transfer_apply", ([I32, I32, I64, I64, I32, I64], [])),
-    ("aihc_wasm_transfer_continue", ([I32, I32, I64, I64, I32], [])),
-    ("aihc_wasm_transfer_fork", ([I32, I32, I64, I64], [])),
-    ("aihc_wasm_transfer_yield", ([I32, I32, I64], [])),
-    ("aihc_wasm_transfer_await_io", ([I32, I32, I64, I64], [])),
-    ("aihc_wasm_transfer_thread_done", ([I32, I32], [])),
+    ("aihc_wasm_transfer_direct", ([I32, I32, I64, I32], [])),
+    ("aihc_wasm_transfer_eval", ([I32, I64, I64, I64, I64], [])),
+    ("aihc_wasm_transfer_apply", ([I32, I64, I64, I32, I64], [])),
+    ("aihc_wasm_transfer_continue", ([I32, I64, I64, I32], [])),
+    ("aihc_wasm_transfer_fork", ([I32, I64, I64], [])),
+    ("aihc_wasm_transfer_yield", ([I32, I64], [])),
+    ("aihc_wasm_transfer_await_io", ([I32, I64, I64], [])),
+    ("aihc_wasm_transfer_thread_done", ([I32], [])),
     ("aihc_wasm_transfer_halt", ([I32], [])),
-    ("aihc_wasm_transfer_start", ([I32, I32, I64, I64, I64, I64, I32], [])),
+    ("aihc_wasm_transfer_start", ([I32, I64, I64, I64, I64, I32], [])),
     ("aihc_set_thread_done_continuation", ([I32, I32], [])),
     ("aihc_no_match", ([], [])),
     ("aihc_unsupported_primitive", ([], []))
@@ -330,7 +330,6 @@ compileExpr env expression =
     GrinCpsEval runtimeRep value continuation updateContinuation ->
       pure . terminal $
         ( machine
-            <> argumentsAddress
             <> materializeValue env value
             <> i64Const (boolInteger (isLiftedRuntimeRep runtimeRep))
             <> materializeValue env continuation
@@ -339,14 +338,14 @@ compileExpr env expression =
         )
     GrinCall _ functionName values -> do
       target <- functionCodeLabel (valueCompileEnv env) functionName
-      pure (terminal (concatMap (uncurry (argumentSet env)) (zip [0 :: Int ..] values) <> i32Symbol target <> argumentsAddress <> call "aihc_wasm_transfer_direct"))
+      scratch <- storeScratchValues env values
+      pure (terminal (machine <> i32Symbol target <> i64Const (tshow (length values)) <> scratch <> call "aihc_wasm_transfer_direct"))
     GrinCpsPrimitiveCall _ name values continuation -> compileCpsPrimitive env name values continuation
     GrinCpsApply _ function values continuation -> do
       scratch <- storeScratchValues env values
       pure
         ( terminal
             ( machine
-                <> argumentsAddress
                 <> materializeValue env function
                 <> i64Const (tshow (length values))
                 <> scratch
@@ -359,7 +358,6 @@ compileExpr env expression =
       pure
         ( terminal
             ( machine
-                <> argumentsAddress
                 <> materializeValue env continuation
                 <> i64Const (tshow (length values))
                 <> scratch
@@ -401,7 +399,7 @@ compileCpsPrimitive env name values continuation =
     _ -> Left (WasmUnsupportedExpression ("CPS primitive call " <> name))
   where
     transfer function arguments =
-      Right (machine <> argumentsAddress <> concatMap (materializeValue env) arguments <> call function <> ["return"])
+      Right (machine <> concatMap (materializeValue env) arguments <> call function <> ["return"])
 
 compileDirectBinding :: ValueEnv -> [GrinVar] -> GrinExpr -> Either WasmError Instructions
 compileDirectBinding env vars expression =
@@ -536,9 +534,6 @@ storeScratchValues env values =
 argumentGet :: Int -> Instructions
 argumentGet index = ["local.get\t0"] <> i64Const (tshow index) <> call "aihc_wasm_slot_get"
 
-argumentSet :: ValueEnv -> Int -> GrinValue -> Instructions
-argumentSet env index value = argumentsAddress <> i64Const (tshow index) <> materializeValue env value <> call "aihc_wasm_slot_set"
-
 localGet :: ValueEnv -> GrinVar -> Instructions
 localGet env var = maybe (i64Const "0") localGetSlot (Map.lookup var (valueLocalSlots env))
 
@@ -554,10 +549,9 @@ localSet slot value = locals <> i64Const (tshow slot) <> value <> call "aihc_was
 localSlot :: ValueEnv -> GrinVar -> Either WasmError Int
 localSlot env var = maybe (Left (WasmUnsupportedExpression ("missing local slot for " <> grinVarName var))) Right (Map.lookup var (valueLocalSlots env))
 
-machine, locals, argumentsAddress :: Instructions
+machine, locals :: Instructions
 machine = ["local.get\t1"]
 locals = ["local.get\t2"]
-argumentsAddress = i32Symbol "aihc_arguments"
 
 i32Const, i64Const, i32Symbol, i32Data, call :: Text -> Instructions
 i32Const value = ["i32.const\t" <> value]
@@ -601,7 +595,6 @@ renderSpecialFunctions =
   functionStart "aihc_wasm_top_continuation" []
     <> indent
       ( ["i32.const\t0", "i32.load\taihc_machine"]
-          <> argumentsAddress
           <> ["local.get\t0"]
           <> i64Const "1"
           <> call "aihc_wasm_slot_get"
@@ -615,13 +608,13 @@ renderSpecialFunctions =
       )
     <> functionEnd
     <> functionStart "aihc_wasm_thread_done_continuation" []
-    <> indent (["i32.const\t0", "i32.load\taihc_machine"] <> argumentsAddress <> call "aihc_wasm_transfer_thread_done" <> ["return"])
+    <> indent (["i32.const\t0", "i32.load\taihc_machine"] <> call "aihc_wasm_transfer_thread_done" <> ["return"])
     <> functionEnd
     <> functionStart "aihc_wasm_final_continuation" []
     <> indent (["i32.const\t0", "i32.load\taihc_machine"] <> call "aihc_wasm_transfer_halt" <> ["return"])
     <> functionEnd
     <> functionStart "aihc_wasm_exit" []
-    <> indent (i32Const "0" <> i32Const "0" <> call "aihc_wasm_transfer_direct" <> ["return"])
+    <> indent (["i32.const\t0", "i32.load\taihc_machine"] <> i32Const "0" <> i64Const "0" <> i32Const "0" <> call "aihc_wasm_transfer_direct" <> ["return"])
     <> functionEnd
 
 compileConstructorInitializers :: CompileEnv -> Either WasmError [(Int, Text)]
@@ -666,7 +659,6 @@ renderProgramInitializer globalCount rootSlot dependencyInitializers functions c
           <> concatMap (initializeGlobalFields machineValue) globals
           <> initializeSpecials
           <> ["local.get\t0"]
-          <> argumentsAddress
           <> globalGet rootSlot
           <> specialGet 1
           <> specialGet 2
@@ -751,22 +743,12 @@ initialGlobalValue machineValue value = case value of
 globalValue :: Instructions -> Int -> Instructions
 globalValue machineValue slot = machineValue <> i64Const (tshow slot) <> call "aihc_wasm_global_get"
 
-renderArguments :: LinkLayout -> [Text]
-renderArguments layout =
+renderRuntimeSymbols :: [Text]
+renderRuntimeSymbols =
   [ "\t.hidden\taihc_machine",
     "\t.hidden\taihc_next_transfer",
-    "\t.hidden\taihc_arguments",
-    "\t.type\taihc_arguments,@object",
-    "\t.section\t.bss.aihc_arguments,\"\",@",
-    "\t.globl\taihc_arguments",
-    "\t.p2align\t3, 0x0",
-    "aihc_arguments:",
-    "\t.skip\t" <> tshow (8 * argumentCapacity),
-    "\t.size\taihc_arguments, " <> tshow (8 * argumentCapacity),
     ""
   ]
-  where
-    argumentCapacity = max 3 (linkMaximumArgumentSlots layout + 1)
 
 renderAddrLiterals :: CompileEnv -> [Text]
 renderAddrLiterals env = concatMap render (Map.toAscList (compileAddrLiteralLabels env))
@@ -897,6 +879,7 @@ maximumScratchSlots expression = case expression of
   GrinBind _ value body -> max (maximumScratchSlots value) (maximumScratchSlots body)
   GrinStoreRec _ body -> maximumScratchSlots body
   GrinStoreRecUnchecked _ body -> maximumScratchSlots body
+  GrinCall _ _ values -> length values
   GrinCpsApply _ _ values _ -> length values
   GrinContinue _ values -> length values
   GrinCase _ _ alternatives -> maximum (0 : map (maximumScratchSlots . grinAltRhs) alternatives)

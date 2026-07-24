@@ -17,6 +17,7 @@ tests =
   testGroup
     "Direct WebAssembly backend"
     [ testCase "emits WebAssembly assembly without C or LLVM IR" testDirectModule,
+      testCase "passes direct-call arguments through the machine transfer vector" testDirectCallArguments,
       testCase "rejects a missing entry point" testMissingEntry,
       testCase "rejects unsupported primitives" testUnsupportedPrimitive,
       testCase "traps dormant unsupported primitives in dependency modules" testDormantPrimitive,
@@ -39,6 +40,18 @@ testDirectModule =
           assertBool "generated entry is object-local" (not (".globl\t.Laihc_wasm_function_0" `T.isInfixOf` source))
           assertBool "not portable C" (not ("#include" `T.isInfixOf` source))
           assertBool "not LLVM IR" (not ("target triple" `T.isInfixOf` source))
+
+testDirectCallArguments :: IO ()
+testDirectCallArguments =
+  case toCpsGrin directCallProgram of
+    Left err -> assertFailure (show err)
+    Right cps ->
+      case compileModule (buildLinkLayout [directCallProgram]) "_aihc_init_direct_call" (lowerGc cps) of
+        Left err -> assertFailure (show err)
+        Right source -> do
+          assertBool "direct transfer receives machine, entry, count, and values" ("\t.functype\taihc_wasm_transfer_direct (i32, i32, i64, i32) -> ()" `T.isInfixOf` source)
+          assertBool "materializes direct-call arguments in local scratch space" ("call\taihc_wasm_slot_address" `T.isInfixOf` source)
+          assertBool "does not use a fixed shared argument buffer" (not ("aihc_arguments" `T.isInfixOf` source))
 
 testMissingEntry :: IO ()
 testMissingEntry =
@@ -131,6 +144,37 @@ dependencyProgram =
 
 dependencyFunction :: FunctionName
 dependencyFunction = FunctionName "$dependency"
+
+directCallProgram :: GrinProgram
+directCallProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions =
+        [ GrinCodeInfo
+            { grinCodeSourceName = "identity",
+              grinCodeFunctionName = identityFunction,
+              grinCodeParameterLayouts = [[BoxedRep Lifted]],
+              grinCodeResultRep = BoxedRep Lifted
+            }
+        ],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "$caller",
+              grinFunctionLinkName = Just "caller",
+              grinFunctionParameters = [argument],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody = GrinCall (BoxedRep Lifted) identityFunction [GrinVarValue argument]
+            }
+        ]
+    }
+  where
+    argument = GrinVar "argument" 50 (BoxedRep Lifted)
+    identityFunction = FunctionName "$identity"
 
 dormantPrimitiveProgram :: GrinProgram
 dormantPrimitiveProgram =

@@ -198,7 +198,7 @@
       if [[ "$file" == *components/aihc-wasm/runtime/aihc_wasip3.c ]]; then
         clang-tidy --quiet "$file" -- \
           --target=wasm32-unknown-unknown \
-          -std=c11 -Wall -Wextra -Wpedantic \
+          -std=c11 -ffreestanding -Wall -Wextra -Wpedantic \
           -DAIHC_WASIP3 \
           -Icomponents/aihc-wasm/runtime/include \
           -Icomponents/aihc-native/runtime \

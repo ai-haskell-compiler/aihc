@@ -18,9 +18,10 @@ import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Control.Monad.Trans.State.Strict (State, StateT, execState, get, gets, modify', runState, runStateT)
+import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
-import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
@@ -32,8 +33,10 @@ import Data.Text qualified as T
 import Data.Word (Word64)
 import Foreign.C.Types (CInt (..))
 import Foreign.LibFFI (Arg, argCInt, argPtr, argWord64, callFFI, retCInt, retPtr, retVoid, retWord64)
-import Foreign.Marshal.Array (newArray0, peekArray, withArray0)
-import Foreign.Ptr (FunPtr, Ptr, castPtr)
+import Foreign.Marshal.Alloc (mallocBytes)
+import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
+import Foreign.Marshal.Utils (copyBytes, fillBytes)
+import Foreign.Ptr (FunPtr, Ptr, alignPtr, castPtr, plusPtr)
 import System.IO (Handle, hFlush, stdin, stdout)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
@@ -50,7 +53,7 @@ data InterpretError
   | InterpretForeignArity !Text !Int !Int
   | InterpretForeignTypeError !Text !RuntimeValue
   | InterpretForeignLookupError !Text !Text
-  | InterpretInvalidIOBufferRange !Text !Integer !Integer !Int
+  | InterpretInvalidByteArrayRange !Text !Integer !Integer !Int
   | InterpretResultArity !Int !Int
   | InterpretInvalidThunkResult ![RuntimeValue]
   | InterpretInvalidThunkResultRep !FunctionName !RuntimeRep
@@ -66,8 +69,8 @@ data InterpretError
 data RuntimeValue
   = RuntimeLit !GrinLiteral
   | RuntimeAddress !(Ptr ())
+  | RuntimeByteArray !GrinByteArray
   | RuntimeIOHandle !GrinIOHandle
-  | RuntimeIOBuffer !GrinIOBuffer
   | RuntimeIORequest !GrinIORequest
   | RuntimeNode !GrinNodeTag ![RuntimeValue]
   | RuntimeLocation !Int
@@ -83,6 +86,19 @@ instance Eq GrinMutVar where
 instance Show GrinMutVar where
   show _ = "<mutvar>"
 
+data GrinByteArray = GrinByteArray
+  { grinByteArraySize :: !(IORef Int),
+    grinByteArrayContents :: !(Ptr ()),
+    grinByteArrayPinned :: !Bool,
+    grinByteArrayAlignment :: !Int
+  }
+
+instance Eq GrinByteArray where
+  left == right = grinByteArraySize left == grinByteArraySize right
+
+instance Show GrinByteArray where
+  show _ = "<byte-array>"
+
 data GrinIOHandle = GrinIOHandle !Int !Handle
 
 instance Eq GrinIOHandle where
@@ -91,17 +107,9 @@ instance Eq GrinIOHandle where
 instance Show GrinIOHandle where
   show _ = "<io-handle>"
 
-newtype GrinIOBuffer = GrinIOBuffer (IORef BS.ByteString)
-
-instance Eq GrinIOBuffer where
-  GrinIOBuffer left == GrinIOBuffer right = left == right
-
-instance Show GrinIOBuffer where
-  show _ = "<io-buffer>"
-
 data GrinIOOperation
-  = GrinRead !GrinIOHandle !GrinIOBuffer !Int !Int
-  | GrinWrite !GrinIOHandle !GrinIOBuffer !Int !Int
+  = GrinRead !GrinIOHandle !(Ptr ()) !Int !Int
+  | GrinWrite !GrinIOHandle !(Ptr ()) !Int !Int
   deriving (Eq, Show)
 
 data GrinIOState
@@ -573,7 +581,7 @@ isLiftedRuntimeValue value =
     RuntimeLit literal -> isLiftedRuntimeRep (grinValueRuntimeRep (GrinLitValue literal))
     RuntimeAddress {} -> False
     RuntimeIOHandle {} -> False
-    RuntimeIOBuffer {} -> False
+    RuntimeByteArray {} -> False
     RuntimeIORequest {} -> False
     RuntimeNode {} -> True
     RuntimeLocation {} -> True
@@ -613,8 +621,115 @@ evalPrimitive "writeMutVar#" [mutVar, value] = do
   GrinMutVar reference <- expectMutVarPrimitiveArgument "writeMutVar#" mutVar
   liftEvalIO (writeIORef reference value)
   pure []
+evalPrimitive "newByteArray#" [size] = do
+  byteArray <- allocateByteArray "newByteArray#" False 8 =<< expectIntPrimitiveArgument "newByteArray#" size
+  pure [RuntimeByteArray byteArray]
+evalPrimitive "newPinnedByteArray#" [size] = do
+  byteArray <- allocateByteArray "newPinnedByteArray#" True 8 =<< expectIntPrimitiveArgument "newPinnedByteArray#" size
+  pure [RuntimeByteArray byteArray]
+evalPrimitive "newAlignedPinnedByteArray#" [size, alignment] = do
+  byteCount <- expectIntPrimitiveArgument "newAlignedPinnedByteArray#" size
+  byteAlignment <- expectIntPrimitiveArgument "newAlignedPinnedByteArray#" alignment
+  checkedAlignment <- checkedByteArrayAlignment "newAlignedPinnedByteArray#" byteAlignment
+  byteArray <- allocateByteArray "newAlignedPinnedByteArray#" True checkedAlignment byteCount
+  pure [RuntimeByteArray byteArray]
+evalPrimitive "isMutableByteArrayPinned#" [value] = do
+  byteArray <- expectByteArrayPrimitiveArgument "isMutableByteArrayPinned#" value
+  pure [RuntimeLit (GrinLitInt IntRep (if grinByteArrayPinned byteArray then 1 else 0))]
+evalPrimitive "isByteArrayPinned#" [value] = do
+  byteArray <- expectByteArrayPrimitiveArgument "isByteArrayPinned#" value
+  pure [RuntimeLit (GrinLitInt IntRep (if grinByteArrayPinned byteArray then 1 else 0))]
+evalPrimitive "byteArrayContents#" [value] = do
+  byteArray <- expectByteArrayPrimitiveArgument "byteArrayContents#" value
+  pure [RuntimeAddress (grinByteArrayContents byteArray)]
+evalPrimitive "mutableByteArrayContents#" [value] = do
+  byteArray <- expectByteArrayPrimitiveArgument "mutableByteArrayContents#" value
+  pure [RuntimeAddress (grinByteArrayContents byteArray)]
+evalPrimitive "shrinkMutableByteArray#" [value, newSize] = do
+  byteArray <- expectByteArrayPrimitiveArgument "shrinkMutableByteArray#" value
+  byteCount <- checkedByteArraySize "shrinkMutableByteArray#" =<< expectIntPrimitiveArgument "shrinkMutableByteArray#" newSize
+  oldSize <- liftEvalIO (readIORef (grinByteArraySize byteArray))
+  if byteCount > oldSize
+    then throwInterpret (InterpretInvalidByteArrayRange "shrinkMutableByteArray#" 0 (toInteger byteCount) oldSize)
+    else liftEvalIO (writeIORef (grinByteArraySize byteArray) byteCount)
+  pure []
+evalPrimitive "resizeMutableByteArray#" [value, newSize] = do
+  byteArray <- expectByteArrayPrimitiveArgument "resizeMutableByteArray#" value
+  byteCount <- expectIntPrimitiveArgument "resizeMutableByteArray#" newSize
+  resized <- resizeByteArray "resizeMutableByteArray#" byteArray byteCount
+  pure [RuntimeByteArray resized]
+evalPrimitive "unsafeFreezeByteArray#" [value] = do
+  byteArray <- expectByteArrayPrimitiveArgument "unsafeFreezeByteArray#" value
+  pure [RuntimeByteArray byteArray]
+evalPrimitive "unsafeThawByteArray#" [value] = do
+  byteArray <- expectByteArrayPrimitiveArgument "unsafeThawByteArray#" value
+  pure [RuntimeByteArray byteArray]
+evalPrimitive "sizeofByteArray#" [value] = do
+  byteArray <- expectByteArrayPrimitiveArgument "sizeofByteArray#" value
+  size <- liftEvalIO (readIORef (grinByteArraySize byteArray))
+  pure [RuntimeLit (GrinLitInt IntRep (toInteger size))]
+evalPrimitive "getSizeofMutableByteArray#" [value] = do
+  byteArray <- expectByteArrayPrimitiveArgument "getSizeofMutableByteArray#" value
+  size <- liftEvalIO (readIORef (grinByteArraySize byteArray))
+  pure [RuntimeLit (GrinLitInt IntRep (toInteger size))]
+evalPrimitive "copyAddrToByteArray#" [source, value, offset, byteCount] = do
+  byteArray <- expectByteArrayPrimitiveArgument "copyAddrToByteArray#" value
+  checkedOffset <- expectIntPrimitiveArgument "copyAddrToByteArray#" offset
+  checkedLength <- expectIntPrimitiveArgument "copyAddrToByteArray#" byteCount
+  (destinationOffset, destinationLength) <- checkedByteArrayRange "copyAddrToByteArray#" byteArray checkedOffset checkedLength
+  sourceBytes <- readAddressBytes "copyAddrToByteArray#" destinationLength source
+  liftEvalIO (pokeArray (castPtr (grinByteArrayContents byteArray `plusPtr` destinationOffset)) (BS.unpack sourceBytes))
+  pure []
 evalPrimitive name arguments =
   throwInterpret (InterpretPrimitiveArity name (length arguments))
+
+allocateByteArray :: Text -> Bool -> Int -> Integer -> EvalM GrinByteArray
+allocateByteArray symbol pinned alignment requestedSize = do
+  size <- checkedByteArraySize symbol requestedSize
+  raw <- liftEvalIO (mallocBytes (max 1 size + alignment - 1))
+  let contents = alignPtr raw alignment
+  liftEvalIO (fillBytes contents 0 size)
+  sizeReference <- liftEvalIO (newIORef size)
+  pure
+    GrinByteArray
+      { grinByteArraySize = sizeReference,
+        grinByteArrayContents = contents,
+        grinByteArrayPinned = pinned,
+        grinByteArrayAlignment = alignment
+      }
+
+resizeByteArray :: Text -> GrinByteArray -> Integer -> EvalM GrinByteArray
+resizeByteArray symbol byteArray requestedSize = do
+  resized <- allocateByteArray symbol (grinByteArrayPinned byteArray) (grinByteArrayAlignment byteArray) requestedSize
+  oldSize <- liftEvalIO (readIORef (grinByteArraySize byteArray))
+  newSize <- liftEvalIO (readIORef (grinByteArraySize resized))
+  liftEvalIO (copyBytes (grinByteArrayContents resized) (grinByteArrayContents byteArray) (min oldSize newSize))
+  pure resized
+
+checkedByteArraySize :: Text -> Integer -> EvalM Int
+checkedByteArraySize symbol size
+  | size < 0 || size > toInteger (maxBound :: Int) =
+      throwInterpret (InterpretInvalidByteArrayRange symbol 0 size 0)
+  | otherwise = pure (fromInteger size)
+
+checkedByteArrayAlignment :: Text -> Integer -> EvalM Int
+checkedByteArrayAlignment symbol alignment
+  | alignment <= 0 || alignment > toInteger (maxBound :: Int) || alignment .&. (alignment - 1) /= 0 =
+      throwInterpret (InterpretInvalidByteArrayRange symbol 0 alignment 0)
+  | otherwise = pure (fromInteger alignment)
+
+expectByteArrayPrimitiveArgument :: Text -> RuntimeValue -> EvalM GrinByteArray
+expectByteArrayPrimitiveArgument name value =
+  case value of
+    RuntimeByteArray byteArray -> pure byteArray
+    other -> throwInterpret (InterpretPrimitiveTypeError name other)
+
+checkedByteArrayRange :: Text -> GrinByteArray -> Integer -> Integer -> EvalM (Int, Int)
+checkedByteArrayRange symbol byteArray offset byteCount = do
+  size <- liftEvalIO (readIORef (grinByteArraySize byteArray))
+  if offset < 0 || byteCount < 0 || offset > toInteger size || byteCount > toInteger size - offset
+    then throwInterpret (InterpretInvalidByteArrayRange symbol offset byteCount size)
+    else pure (fromInteger offset, fromInteger byteCount)
 
 evalIntPrimitive :: Text -> (Integer -> Integer -> Integer) -> RuntimeValue -> RuntimeValue -> EvalM [RuntimeValue]
 evalIntPrimitive name operation left right = do
@@ -666,51 +781,21 @@ callForeign foreignCall arguments
   | symbol == "aihc_io_stdout",
     [] <- arguments =
       pure (RuntimeIOHandle (GrinIOHandle 1 stdout))
-  | symbol == "aihc_io_buffer_new",
-    [capacityValue] <- arguments = do
-      capacity <- expectInt32 symbol capacityValue
-      if capacity < 0
-        then throwInterpret (InterpretInvalidIOBufferRange symbol 0 capacity 0)
-        else RuntimeIOBuffer . GrinIOBuffer <$> liftEvalIO (newIORef (BS.replicate (fromInteger capacity) 0))
-  | symbol == "aihc_io_buffer_get",
-    [bufferValue, indexValue] <- arguments = do
-      buffer@(GrinIOBuffer reference) <- expectIOBuffer symbol bufferValue
-      index <- expectInt32 symbol indexValue
-      (checkedIndex, _) <- checkedIOBufferRange symbol buffer index 1
-      bytes <- liftEvalIO (readIORef reference)
-      pure (RuntimeLit (GrinLitInt Int32Rep (toInteger (BS.index bytes checkedIndex))))
-  | symbol == "aihc_io_buffer_set",
-    [bufferValue, indexValue, byteValue] <- arguments = do
-      buffer@(GrinIOBuffer reference) <- expectIOBuffer symbol bufferValue
-      index <- expectInt32 symbol indexValue
-      byte <- expectInt32 symbol byteValue
-      (checkedIndex, _) <- checkedIOBufferRange symbol buffer index 1
-      liftEvalIO $ modifyIORef' reference $ \bytes -> BS.take checkedIndex bytes <> BS.singleton (fromInteger byte) <> BS.drop (checkedIndex + 1) bytes
-      pure (RuntimeLit (GrinLitInt Int32Rep 0))
-  | symbol == "aihc_io_buffer_copy_from_addr",
-    [sourceValue, bufferValue, offsetValue, lengthValue] <- arguments = do
-      buffer@(GrinIOBuffer reference) <- expectIOBuffer symbol bufferValue
-      offset <- expectInt32 symbol offsetValue
-      byteCount <- expectInt32 symbol lengthValue
-      (checkedOffset, checkedLength) <- checkedIOBufferRange symbol buffer offset byteCount
-      sourceBytes <- readAddressBytes symbol checkedLength sourceValue
-      liftEvalIO $ modifyIORef' reference $ \bytes -> BS.take checkedOffset bytes <> sourceBytes <> BS.drop (checkedOffset + checkedLength) bytes
-      pure (RuntimeLit (GrinLitInt Int32Rep 0))
   | symbol == "aihc_io_submit_read",
     [handleValue, bufferValue, offsetValue, lengthValue] <- arguments = do
       handle <- expectIOHandle symbol handleValue
-      buffer <- expectIOBuffer symbol bufferValue
+      buffer <- expectAddress symbol bufferValue
       offset <- expectInt32 symbol offsetValue
       byteCount <- expectInt32 symbol lengthValue
-      (checkedOffset, checkedLength) <- checkedIOBufferRange symbol buffer offset byteCount
+      (checkedOffset, checkedLength) <- checkedAddressRange symbol offset byteCount
       RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinRead handle buffer checkedOffset checkedLength)))
   | symbol == "aihc_io_submit_write",
     [handleValue, bufferValue, offsetValue, lengthValue] <- arguments = do
       handle <- expectIOHandle symbol handleValue
-      buffer <- expectIOBuffer symbol bufferValue
+      buffer <- expectAddress symbol bufferValue
       offset <- expectInt32 symbol offsetValue
       byteCount <- expectInt32 symbol lengthValue
-      (checkedOffset, checkedLength) <- checkedIOBufferRange symbol buffer offset byteCount
+      (checkedOffset, checkedLength) <- checkedAddressRange symbol offset byteCount
       RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinWrite handle buffer checkedOffset checkedLength)))
   | symbol == "aihc_io_take_result",
     [request] <- arguments =
@@ -740,18 +825,19 @@ expectIOHandle symbol value =
     RuntimeIOHandle handle -> pure handle
     _ -> throwInterpret (InterpretForeignTypeError symbol value)
 
-expectIOBuffer :: Text -> RuntimeValue -> EvalM GrinIOBuffer
-expectIOBuffer symbol value =
+expectAddress :: Text -> RuntimeValue -> EvalM (Ptr ())
+expectAddress symbol value =
   case value of
-    RuntimeIOBuffer buffer -> pure buffer
+    RuntimeAddress address -> pure address
     _ -> throwInterpret (InterpretForeignTypeError symbol value)
 
-checkedIOBufferRange :: Text -> GrinIOBuffer -> Integer -> Integer -> EvalM (Int, Int)
-checkedIOBufferRange symbol (GrinIOBuffer reference) offset byteCount = do
-  capacity <- BS.length <$> liftEvalIO (readIORef reference)
-  if offset < 0 || byteCount < 0 || offset > toInteger capacity || byteCount > toInteger capacity - offset
-    then throwInterpret (InterpretInvalidIOBufferRange symbol offset byteCount capacity)
+checkedAddressRange :: Text -> Integer -> Integer -> EvalM (Int, Int)
+checkedAddressRange symbol offset byteCount =
+  if offset < 0 || byteCount < 0 || offset > intLimit || byteCount > intLimit - offset
+    then throwInterpret (InterpretInvalidByteArrayRange symbol offset byteCount 0)
     else pure (fromInteger offset, fromInteger byteCount)
+  where
+    intLimit = toInteger (maxBound :: Int)
 
 readAddressBytes :: Text -> Int -> RuntimeValue -> EvalM BS.ByteString
 readAddressBytes symbol byteCount value =
@@ -774,13 +860,13 @@ completeIORequest (GrinIORequest reference) = do
 performIOOperation :: GrinIOOperation -> EvalM Integer
 performIOOperation operation =
   case operation of
-    GrinRead (GrinIOHandle _ handle) (GrinIOBuffer reference) offset byteCount -> do
+    GrinRead (GrinIOHandle _ handle) buffer offset byteCount -> do
       input <- liftEvalIO (BS.hGet handle byteCount)
-      liftEvalIO $ modifyIORef' reference $ \buffer -> BS.take offset buffer <> input <> BS.drop (offset + BS.length input) buffer
+      liftEvalIO (pokeArray (castPtr (buffer `plusPtr` offset)) (BS.unpack input))
       pure (toInteger (BS.length input))
-    GrinWrite (GrinIOHandle _ handle) (GrinIOBuffer reference) offset byteCount -> do
-      buffer <- liftEvalIO (readIORef reference)
-      liftEvalIO (BS.hPut handle (BS.take byteCount (BS.drop offset buffer)) >> hFlush handle)
+    GrinWrite (GrinIOHandle _ handle) buffer offset byteCount -> do
+      bytes <- liftEvalIO (BS.pack <$> peekArray byteCount (castPtr (buffer `plusPtr` offset)))
+      liftEvalIO (BS.hPut handle bytes >> hFlush handle)
       pure (toInteger byteCount)
 
 takeIOResult :: Text -> RuntimeValue -> EvalM RuntimeValue
@@ -880,7 +966,7 @@ renderRawValueM value = do
     RuntimeLit literal -> pure (renderLiteral literal)
     RuntimeAddress address -> pure (T.pack (show address))
     RuntimeIOHandle {} -> pure "<io-handle>"
-    RuntimeIOBuffer {} -> pure "<io-buffer>"
+    RuntimeByteArray {} -> pure "<byte-array>"
     RuntimeIORequest {} -> pure "<io-request>"
     RuntimeNode (GrinConstructor "C#" 0) [char] -> renderBoxedChar char
     RuntimeNode (GrinConstructor name 0) [] -> pure name
@@ -1006,7 +1092,7 @@ snapshotRuntimeValue value =
     RuntimeLit literal -> pure (SnapshotLiteral literal)
     RuntimeAddress {} -> pure SnapshotAddress
     RuntimeIOHandle {} -> pure SnapshotAddress
-    RuntimeIOBuffer {} -> pure SnapshotAddress
+    RuntimeByteArray {} -> pure SnapshotAddress
     RuntimeIORequest {} -> pure SnapshotAddress
     RuntimeNode {} -> do
       valueSources <- gets snapshotBuildValueSources

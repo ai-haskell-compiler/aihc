@@ -6,7 +6,6 @@
 
 extern unsigned char aihc_heap_base __asm__("__heap_base");
 extern void aihc_wasm_program_initialize(void);
-extern AihcSlot aihc_arguments[];
 
 AihcMachine *aihc_machine;
 AihcPortableTransfer aihc_next_transfer;
@@ -168,73 +167,71 @@ static void aihc_set_transfer(AihcPortableTransfer transfer) {
   aihc_next_transfer = transfer;
 }
 
-void aihc_wasm_transfer_direct(AihcEntry entry, AihcSlot *arguments) {
-  aihc_next_transfer = (AihcPortableTransfer){entry, arguments};
+void aihc_wasm_transfer_direct(AihcMachine *machine, AihcEntry entry,
+                               uint64_t count, const AihcSlot *arguments) {
   if (entry == NULL) {
+    aihc_next_transfer = (AihcPortableTransfer){0};
     aihc_wasm_finished = 1;
+    return;
   }
+  aihc_set_transfer(aihc_portable_call(machine, entry, count, arguments));
 }
 
-void aihc_wasm_transfer_eval(AihcMachine *machine, AihcSlot *buffer,
-                             AihcSlot value, uint64_t lifted,
-                             AihcSlot continuation,
+void aihc_wasm_transfer_eval(AihcMachine *machine, AihcSlot value,
+                             uint64_t lifted, AihcSlot continuation,
                              AihcSlot update_continuation) {
-  aihc_set_transfer(aihc_portable_eval_cps(machine, buffer, aihc_value(value),
-                                           lifted, aihc_value(continuation),
+  aihc_set_transfer(aihc_portable_eval_cps(machine, aihc_value(value), lifted,
+                                           aihc_value(continuation),
                                            aihc_value(update_continuation)));
 }
 
-void aihc_wasm_transfer_apply(AihcMachine *machine, AihcSlot *buffer,
-                              AihcSlot function, uint64_t count,
-                              const AihcSlot *arguments,
+void aihc_wasm_transfer_apply(AihcMachine *machine, AihcSlot function,
+                              uint64_t count, const AihcSlot *arguments,
                               AihcSlot continuation) {
-  aihc_set_transfer(
-      aihc_portable_apply_cps(machine, buffer, aihc_value(function), count,
-                              arguments, aihc_value(continuation)));
+  aihc_set_transfer(aihc_portable_apply_cps(machine, aihc_value(function),
+                                            count, arguments,
+                                            aihc_value(continuation)));
 }
 
-void aihc_wasm_transfer_continue(AihcMachine *machine, AihcSlot *buffer,
-                                 AihcSlot continuation, uint64_t count,
-                                 const AihcSlot *values) {
+void aihc_wasm_transfer_continue(AihcMachine *machine, AihcSlot continuation,
+                                 uint64_t count, const AihcSlot *values) {
   aihc_set_transfer(aihc_portable_continue_values(
-      machine, buffer, aihc_value(continuation), count, values));
+      machine, aihc_value(continuation), count, values));
 }
 
-void aihc_wasm_transfer_fork(AihcMachine *machine, AihcSlot *buffer,
-                             AihcSlot action, AihcSlot continuation) {
-  aihc_set_transfer(aihc_portable_fork_cps(machine, buffer, aihc_value(action),
+void aihc_wasm_transfer_fork(AihcMachine *machine, AihcSlot action,
+                             AihcSlot continuation) {
+  aihc_set_transfer(aihc_portable_fork_cps(machine, aihc_value(action),
                                            aihc_value(continuation)));
 }
 
-void aihc_wasm_transfer_yield(AihcMachine *machine, AihcSlot *buffer,
-                              AihcSlot continuation) {
-  aihc_set_transfer(
-      aihc_portable_yield_cps(machine, buffer, aihc_value(continuation)));
+void aihc_wasm_transfer_yield(AihcMachine *machine, AihcSlot continuation) {
+  aihc_set_transfer(aihc_portable_yield_cps(machine, aihc_value(continuation)));
 }
 
-void aihc_wasm_transfer_await_io(AihcMachine *machine, AihcSlot *buffer,
-                                 AihcSlot request, AihcSlot continuation) {
+void aihc_wasm_transfer_await_io(AihcMachine *machine, AihcSlot request,
+                                 AihcSlot continuation) {
   aihc_set_transfer(aihc_portable_await_io_cps(
-      machine, buffer, (void *)(uintptr_t)request, aihc_value(continuation)));
+      machine, (void *)(uintptr_t)request, aihc_value(continuation)));
 }
 
-void aihc_wasm_transfer_thread_done(AihcMachine *machine, AihcSlot *buffer) {
-  aihc_set_transfer(aihc_portable_thread_done(machine, buffer));
+void aihc_wasm_transfer_thread_done(AihcMachine *machine) {
+  aihc_set_transfer(aihc_portable_thread_done(machine));
 }
 
 void aihc_wasm_transfer_halt(AihcMachine *machine) {
   aihc_set_transfer((AihcPortableTransfer){aihc_halt(machine), NULL});
 }
 
-void aihc_wasm_transfer_start(AihcMachine *machine, AihcSlot *buffer,
-                              AihcSlot root, AihcSlot continuation,
+void aihc_wasm_transfer_start(AihcMachine *machine, AihcSlot root,
+                              AihcSlot continuation,
                               AihcSlot update_continuation,
                               AihcSlot thread_done_continuation,
                               AihcEntry exit_code) {
-  aihc_set_transfer(aihc_portable_start(
-      machine, buffer, aihc_value(root), aihc_value(continuation),
-      aihc_value(update_continuation), aihc_value(thread_done_continuation),
-      exit_code));
+  aihc_set_transfer(
+      aihc_portable_start(machine, aihc_value(root), aihc_value(continuation),
+                          aihc_value(update_continuation),
+                          aihc_value(thread_done_continuation), exit_code));
 }
 
 static int32_t aihc_output_progress(void) {
@@ -319,7 +316,6 @@ exports_wasi_cli_run_run_callback(command_event_t *event) {
   if (result == INT32_MIN) {
     return COMMAND_CALLBACK_CODE_WAIT(aihc_output.wait_set);
   }
-  aihc_set_transfer(
-      aihc_wasip3_complete_io(aihc_machine, aihc_arguments, result));
+  aihc_set_transfer(aihc_wasip3_complete_io(aihc_machine, result));
   return aihc_pump();
 }
