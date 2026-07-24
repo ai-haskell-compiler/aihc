@@ -490,7 +490,7 @@ compileCase env scrutinee binder alternatives = do
             | pointer -> Left (WasmUnsupportedExpression "literal case on lifted value")
             | otherwise -> case normalizedLiteralInteger literal of
                 Nothing -> Left (WasmUnsupportedValue "string case alternative")
-                Just integer -> pure (["local.get\t3"] <> i64Const (renderInteger integer) <> ["i64.eq"])
+                Just integer -> pure (["local.get\t2"] <> i64Const (renderInteger integer) <> ["i64.eq"])
         accepted <- compileAlternative alternative
         rejected <- compileChoices rest
         pure (condition <> ["if"] <> indent accepted <> ["else"] <> indent rejected <> ["end_if"])

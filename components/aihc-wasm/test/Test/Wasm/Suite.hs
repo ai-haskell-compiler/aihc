@@ -18,6 +18,7 @@ tests =
     "Direct WebAssembly backend"
     [ testCase "emits WebAssembly assembly without C or LLVM IR" testDirectModule,
       testCase "keeps GRIN variables in WebAssembly locals" testWasmLocals,
+      testCase "compares literal alternatives against the case scrutinee" testLiteralCaseScrutinee,
       testCase "stages only explicit moving-GC roots in memory" testGcRootStaging,
       testCase "passes direct-call arguments through the machine transfer vector" testDirectCallArguments,
       testCase "rejects a missing entry point" testMissingEntry,
@@ -56,6 +57,18 @@ testWasmLocals =
           assertBool "assigns and reads WebAssembly locals" ("local.set\t3" `T.isInfixOf` source && "local.get\t3" `T.isInfixOf` source)
           assertBool "does not allocate runtime local storage" (not ("call\taihc_alloc_locals" `T.isInfixOf` source))
           assertBool "does not use C slot accessors" (not ("aihc_wasm_slot_" `T.isInfixOf` source))
+
+testLiteralCaseScrutinee :: IO ()
+testLiteralCaseScrutinee =
+  case toCpsGrin literalCaseProgram of
+    Left err -> assertFailure (show err)
+    Right cps ->
+      case compileModule (buildLinkLayout [literalCaseProgram]) "_aihc_init_literal_case" (lowerGc cps) of
+        Left err -> assertFailure (show err)
+        Right source ->
+          assertBool
+            "compares the saved scrutinee rather than an unrelated GRIN local"
+            ("local.get\t2\n\ti64.const\t7\n\ti64.eq" `T.isInfixOf` source)
 
 testGcRootStaging :: IO ()
 testGcRootStaging =
@@ -239,6 +252,36 @@ gcRootProgram =
     }
   where
     root = GrinVar "root" 55 (BoxedRep Lifted)
+
+literalCaseProgram :: GrinProgram
+literalCaseProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "$literal_case",
+              grinFunctionLinkName = Just "literal_case",
+              grinFunctionParameters = [input],
+              grinFunctionResultRep = IntRep,
+              grinFunctionBody =
+                GrinCase
+                  (GrinVarValue input)
+                  binder
+                  [ GrinAlt (GrinLitAlt (GrinLitInt IntRep 7)) [] (GrinConstant [GrinLitValue (GrinLitInt IntRep 1)]),
+                    GrinAlt GrinDefaultAlt [] (GrinConstant [GrinLitValue (GrinLitInt IntRep 0)])
+                  ]
+            }
+        ]
+    }
+  where
+    input = GrinVar "input" 70 IntRep
+    binder = GrinVar "binder" 71 IntRep
 
 byteArrayProgram :: GrinProgram
 byteArrayProgram =

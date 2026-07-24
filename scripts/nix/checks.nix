@@ -249,22 +249,29 @@
     ] ''
       export XDG_CACHE_HOME="$TMPDIR/cache"
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
-      incremental_executable="$TMPDIR/async-hello-world-incremental.wasm"
-      ${aihcExe} compile examples/async-hello-world/Main.hs \
-        --target wasm32-wasip3 \
-        --output "$incremental_executable"
+
+      for example in async-hello-world unboxed-tail-recursion; do
+        source="examples/$example/Main.hs"
+        expected_stdout="examples/$example/stdout"
+
+        incremental_executable="$TMPDIR/$example-incremental.wasm"
+        ${aihcExe} compile "$source" \
+          --target wasm32-wasip3 \
+          --output "$incremental_executable"
+        wasmtime run -C cache=n -S cli "$incremental_executable" > "$incremental_executable.stdout"
+        diff --unified "$expected_stdout" "$incremental_executable.stdout"
+
+        whole_program_executable="$TMPDIR/$example-whole-program.wasm"
+        ${aihcExe} compile "$source" \
+          --target wasm32-wasip3 \
+          --whole-program \
+          --output "$whole_program_executable"
+        wasmtime run -C cache=n -S cli "$whole_program_executable" > "$whole_program_executable.stdout"
+        diff --unified "$expected_stdout" "$whole_program_executable.stdout"
+      done
+
       find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.o' | grep -q .
       find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.a' | grep -q .
-      wasmtime run -C cache=n -S cli "$incremental_executable" > "$incremental_executable.stdout"
-      diff --unified examples/async-hello-world/stdout "$incremental_executable.stdout"
-
-      whole_program_executable="$TMPDIR/async-hello-world-whole-program.wasm"
-      ${aihcExe} compile examples/async-hello-world/Main.hs \
-        --target wasm32-wasip3 \
-        --whole-program \
-        --output "$whole_program_executable"
-      wasmtime run -C cache=n -S cli "$whole_program_executable" > "$whole_program_executable.stdout"
-      diff --unified examples/async-hello-world/stdout "$whole_program_executable.stdout"
     '';
 
   parserProgressStrict = mkSourceCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) [] ''
