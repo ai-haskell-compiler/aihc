@@ -13,25 +13,30 @@ module GHC.Prim
     getSizeofMutableByteArray#,
     isByteArrayPinned#,
     isMutableByteArrayPinned#,
+    MVar#,
     MutableByteArray#,
     mutableByteArrayContents#,
     MutVar#,
     newAlignedPinnedByteArray#,
     newByteArray#,
+    newMVar#,
     newMutVar#,
     newPinnedByteArray#,
     raise#,
     realWorld#,
+    readMVar#,
     readMutVar#,
     resizeMutableByteArray#,
     shrinkMutableByteArray#,
     sizeofByteArray#,
     State#,
+    takeMVar#,
     ThreadId#,
     RealWorld,
     TYPE,
     unsafeFreezeByteArray#,
     unsafeThawByteArray#,
+    putMVar#,
     writeMutVar#,
     yield#,
   )
@@ -44,6 +49,8 @@ data State# s
 data ByteArray#
 
 data MutableByteArray# d
+
+data MVar# d a
 
 data MutVar# d a
 
@@ -58,6 +65,14 @@ foreign import prim realWorld# :: State# RealWorld
 foreign import prim compareInt# :: Int# -> Int# -> Int#
 
 foreign import prim newMutVar# :: a -> State# d -> (# State# d, MutVar# d a #)
+
+foreign import prim newMVar# :: State# d -> (# State# d, MVar# d a #)
+
+foreign import prim readMVar# :: MVar# d a -> State# d -> (# State# d, a #)
+
+foreign import prim takeMVar# :: MVar# d a -> State# d -> (# State# d, a #)
+
+foreign import prim putMVar# :: MVar# d a -> a -> State# d -> State# d
 
 foreign import prim readMutVar# :: MutVar# d a -> State# d -> (# State# d, a #)
 

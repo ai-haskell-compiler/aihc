@@ -49,6 +49,7 @@ data EvalError
   | EvalForeignLookupError Text Text
   | EvalInvalidIOResult Value
   | EvalInvalidByteArrayRange Text Integer Integer Int
+  | EvalBlockedOnMVar Text
   | EvalRaisedException Value
   deriving (Eq, Show)
 
@@ -61,12 +62,21 @@ data Value
   | VByteArray EvalByteArray
   | VIOHandle EvalIOHandle
   | VIORequest EvalIORequest
+  | VMVar EvalMVar
   | VMutVar EvalMutVar
   | VStateToken
   | VThunk Env FcExpr
   deriving (Eq, Show)
 
 newtype EvalMutVar = EvalMutVar (IORef Value)
+
+newtype EvalMVar = EvalMVar (IORef (Maybe Value))
+
+instance Eq EvalMVar where
+  EvalMVar left == EvalMVar right = left == right
+
+instance Show EvalMVar where
+  show _ = "<mvar>"
 
 instance Eq EvalMutVar where
   EvalMutVar left == EvalMutVar right = left == right
@@ -264,6 +274,29 @@ evalPrimitive "catch#" [action, handler, state] =
       handlerWithException <- applyValue handler exception
       applyValue handlerWithException state
     handleRaised err = throwE err
+evalPrimitive "newMVar#" [state] = do
+  mvar <- lift (newIORef Nothing)
+  pure (VConstructor "(#,#)" [state, VMVar (EvalMVar mvar)])
+evalPrimitive "readMVar#" [mvar, state] = do
+  EvalMVar ref <- forceMVarPrimitiveArg "readMVar#" mvar
+  value <- lift (readIORef ref)
+  case value of
+    Just contents -> pure (VConstructor "(#,#)" [state, contents])
+    Nothing -> throwE (EvalBlockedOnMVar "readMVar#")
+evalPrimitive "takeMVar#" [mvar, state] = do
+  EvalMVar ref <- forceMVarPrimitiveArg "takeMVar#" mvar
+  value <- lift (readIORef ref)
+  case value of
+    Just contents -> do
+      lift (writeIORef ref Nothing)
+      pure (VConstructor "(#,#)" [state, contents])
+    Nothing -> throwE (EvalBlockedOnMVar "takeMVar#")
+evalPrimitive "putMVar#" [mvar, value, state] = do
+  EvalMVar ref <- forceMVarPrimitiveArg "putMVar#" mvar
+  contents <- lift (readIORef ref)
+  case contents of
+    Nothing -> lift (writeIORef ref (Just value)) >> pure state
+    Just _ -> throwE (EvalBlockedOnMVar "putMVar#")
 evalPrimitive "newMutVar#" [initialValue, state] = do
   mutVar <- lift (newIORef initialValue)
   pure (VConstructor "(#,#)" [state, VMutVar (EvalMutVar mutVar)])
@@ -380,6 +413,13 @@ forceByteArrayPrimitiveArg name value = do
   forced <- forceValue value
   case forced of
     VByteArray byteArray -> pure byteArray
+    other -> throwE (EvalPrimitiveTypeError name other)
+
+forceMVarPrimitiveArg :: Text -> Value -> EvalM EvalMVar
+forceMVarPrimitiveArg name value = do
+  forced <- forceValue value
+  case forced of
+    VMVar mvar -> pure mvar
     other -> throwE (EvalPrimitiveTypeError name other)
 
 checkedByteArrayRange :: Text -> EvalByteArray -> Integer -> Integer -> EvalM (Int, Int)
@@ -688,6 +728,7 @@ renderForcedValue value =
     VIOHandle {} -> pure "<io-handle>"
     VByteArray {} -> pure "<byte-array>"
     VIORequest {} -> pure "<io-request>"
+    VMVar {} -> pure "<mvar>"
     VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"
     VThunk {} -> renderValueM value
@@ -764,6 +805,7 @@ renderRawValueM value = do
     VIOHandle {} -> pure "<io-handle>"
     VByteArray {} -> pure "<byte-array>"
     VIORequest {} -> pure "<io-request>"
+    VMVar {} -> pure "<mvar>"
     VMutVar {} -> pure "<mutvar>"
     VStateToken -> pure "<state>"
     VThunk {} -> renderRawValueM forced

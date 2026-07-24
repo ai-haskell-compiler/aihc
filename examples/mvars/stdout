@@ -1,0 +1,4 @@
+both blocked readers received the put
+readMVar left the MVar full
+takeMVar received the original value
+blocked putMVar installed the next value
