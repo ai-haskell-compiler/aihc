@@ -178,6 +178,8 @@ main =
           testCase "compiles and runs the GHC-compatible MVar example" test_compileMVarsExample,
           testCase "compiles and runs the async stdio example" test_compileAsyncStdioExample,
           testCase "compiles and runs the async hello-world example" test_compileAsyncHelloWorldExample,
+          testCase "compiles and runs the binary System.IO example" test_compileSystemIOBinaryExample,
+          testCase "reports an uncaught System.IO error" test_compileSystemIOErrorExample,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
           testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
           testCase "skips default dependencies under NoImplicitPrelude" test_compileNoImplicitPrelude,
@@ -1016,6 +1018,43 @@ test_compileAsyncHelloWorldExample =
         runCompileWithEnvironment environment options
         assertNativeOutput "Hello world!\n" output
 
+test_compileSystemIOBinaryExample :: Assertion
+test_compileSystemIOBinaryExample =
+  withTempDir "aihc-compile-system-io-binary" $ \root -> do
+    sourcePath <- systemIOBinaryExamplePath
+    let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+        environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
+        targets =
+          [PortableC]
+            <> [AppleArm64 | arch == "aarch64" && os == "darwin"]
+            <> [LinuxAmd64 | arch == "x86_64" && os == "linux"]
+    withCurrentDirectory root $
+      forM_ targets $ \target -> do
+        let output = root </> ("system-io-binary-" <> show target)
+            options = CompileOptions sourcePath (Just output) False False False False (Just target) GcSemispace
+        runCompileWithEnvironment environment options
+        (exitCode, programOut, programErr) <- readProcessWithExitCode output [] "IN"
+        assertEqual (show target <> " exit; stderr: " <> programErr) ExitSuccess exitCode
+        assertEqual (show target <> " stdout") "ABCBCIN" programOut
+        assertEqual (show target <> " stderr") "E" programErr
+
+test_compileSystemIOErrorExample :: Assertion
+test_compileSystemIOErrorExample =
+  withTempDir "aihc-compile-system-io-error" $ \root -> do
+    sourcePath <- systemIOErrorExamplePath
+    let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+        environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
+        output = root </> "system-io-error"
+        options = CompileOptions sourcePath (Just output) False False False False (Just PortableC) GcSemispace
+    withCurrentDirectory root $ do
+      runCompileWithEnvironment environment options
+      (exitCode, programOut, programErr) <- readProcessWithExitCode output [] ""
+      case exitCode of
+        ExitSuccess -> assertFailure "uncaught IOError unexpectedly returned successfully"
+        ExitFailure _ -> pure ()
+      assertEqual "stdout" "" programOut
+      assertEqual "stderr" "aihc runtime: IO error 2\n" programErr
+
 test_compilePortableCExecutable :: Assertion
 test_compilePortableCExecutable =
   withTempDir "aihc-compile-portable-c" $ \root -> do
@@ -1310,6 +1349,12 @@ asyncHelloWorldExamplePath = examplePath ("async-hello-world" </> "Main.hs")
 
 mvarsExamplePath :: IO FilePath
 mvarsExamplePath = examplePath ("mvars" </> "Main.hs")
+
+systemIOBinaryExamplePath :: IO FilePath
+systemIOBinaryExamplePath = examplePath ("system-io-binary" </> "Main.hs")
+
+systemIOErrorExamplePath :: IO FilePath
+systemIOErrorExamplePath = examplePath ("system-io-error" </> "Main.hs")
 
 unboxedTailRecursionExamplePath :: IO FilePath
 unboxedTailRecursionExamplePath = examplePath ("unboxed-tail-recursion" </> "Main.hs")

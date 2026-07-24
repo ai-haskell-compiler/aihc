@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <poll.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -75,6 +76,7 @@ struct AihcMVar {
 struct AihcIoHandle {
   uintptr_t backend_token;
   uint32_t capabilities;
+  uint8_t closed;
 };
 
 typedef struct {
@@ -93,20 +95,22 @@ struct AihcIoRequest {
   size_t length;
   AihcThread *thread;
   AihcValue *continuation;
-  int32_t result;
+  int64_t result;
   AihcIoRequest *next;
 };
 
 struct AihcIoBackend {
   int (*prepare)(AihcIoRequest *request);
-  int (*try_request)(AihcIoRequest *request, int32_t *result);
+  int (*try_request)(AihcIoRequest *request, int64_t *result);
   void (*poll)(AihcMachine *machine, int may_block);
 };
 
 static AihcIoHandle aihc_standard_input = {(uintptr_t)STDIN_FILENO,
-                                           AIHC_IO_READABLE};
+                                           AIHC_IO_READABLE, 0};
 static AihcIoHandle aihc_standard_output = {(uintptr_t)STDOUT_FILENO,
-                                            AIHC_IO_WRITABLE};
+                                            AIHC_IO_WRITABLE, 0};
+static AihcIoHandle aihc_standard_error = {(uintptr_t)STDERR_FILENO,
+                                           AIHC_IO_WRITABLE, 0};
 
 #if UINTPTR_MAX == UINT64_MAX
 _Static_assert(offsetof(AihcMachine, globals) == 0, "machine globals ABI");
@@ -751,9 +755,7 @@ static const AihcResume *aihc_select_thread(AihcMachine *machine,
   return resume;
 }
 
-static int32_t aihc_io_error(int error) {
-  return (int32_t)(-((int64_t)error) - 1);
-}
+static int64_t aihc_io_error(int error) { return -((int64_t)error) - 1; }
 
 static int aihc_posix_descriptor(const AihcIoHandle *handle) {
   return (int)handle->backend_token;
@@ -772,7 +774,7 @@ static int aihc_posix_prepare(AihcIoRequest *request) {
   return 0;
 }
 
-static int aihc_posix_try_request(AihcIoRequest *request, int32_t *result) {
+static int aihc_posix_try_request(AihcIoRequest *request, int64_t *result) {
   for (;;) {
     ssize_t transferred;
     uint8_t *bytes = request->buffer + request->offset;
@@ -784,7 +786,7 @@ static int aihc_posix_try_request(AihcIoRequest *request, int32_t *result) {
           write(aihc_posix_descriptor(request->handle), bytes, request->length);
     }
     if (transferred >= 0) {
-      *result = (int32_t)transferred;
+      *result = (int64_t)transferred;
       return 1;
     }
     if (errno == EINTR) {
@@ -799,7 +801,7 @@ static int aihc_posix_try_request(AihcIoRequest *request, int32_t *result) {
 }
 
 static void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
-                                   int32_t result) {
+                                   int64_t result) {
   AihcThread *thread = request->thread;
   AihcValue *continuation = request->continuation;
   request->state = AIHC_IO_COMPLETED;
@@ -858,7 +860,7 @@ static void aihc_posix_poll(AihcMachine *machine, int may_block) {
   while (*link != NULL) {
     AihcIoRequest *request = *link;
     short events = descriptors[index++].revents;
-    int32_t result = 0;
+    int64_t result = 0;
     int complete = 0;
     if ((events & POLLNVAL) != 0) {
       result = aihc_io_error(EBADF);
@@ -904,23 +906,31 @@ static const AihcResume *aihc_schedule(AihcMachine *machine) {
 }
 
 static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcIoHandle *handle,
-                                     uint8_t *buffer, int32_t offset,
-                                     int32_t length) {
-  if (handle == NULL) {
-    aihc_fail("attempted IO with a null handle");
-  }
-  if (offset < 0 || length < 0 || (buffer == NULL && length != 0)) {
-    aihc_fail("invalid IO buffer range");
-  }
-  uint32_t required_capability =
-      kind == AIHC_IO_READ ? AIHC_IO_READABLE : AIHC_IO_WRITABLE;
-  if ((handle->capabilities & required_capability) == 0) {
-    aihc_fail("attempted unsupported operation on IO handle");
-  }
+                                     uint8_t *buffer, int64_t offset,
+                                     int64_t length) {
   AihcIoRequest *request = aihc_allocate_zeroed(sizeof(*request));
   request->kind = kind;
   request->state = AIHC_IO_SUBMITTED;
   request->handle = handle;
+  if (handle == NULL || handle->closed) {
+    request->state = AIHC_IO_COMPLETED;
+    request->result = aihc_io_error(EBADF);
+    return request;
+  }
+  if (offset < 0 || length < 0 || (uint64_t)offset > SIZE_MAX ||
+      (uint64_t)length > SIZE_MAX - (size_t)offset ||
+      (buffer == NULL && length != 0)) {
+    request->state = AIHC_IO_COMPLETED;
+    request->result = aihc_io_error(EINVAL);
+    return request;
+  }
+  uint32_t required_capability =
+      kind == AIHC_IO_READ ? AIHC_IO_READABLE : AIHC_IO_WRITABLE;
+  if ((handle->capabilities & required_capability) == 0) {
+    request->state = AIHC_IO_COMPLETED;
+    request->result = aihc_io_error(EBADF);
+    return request;
+  }
   request->buffer = buffer;
   request->offset = (size_t)offset;
   request->length = (size_t)length;
@@ -930,6 +940,97 @@ static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcIoHandle *handle,
 void *aihc_io_stdin(void) { return &aihc_standard_input; }
 
 void *aihc_io_stdout(void) { return &aihc_standard_output; }
+
+void *aihc_io_stderr(void) { return &aihc_standard_error; }
+
+static void *aihc_io_open_error(int error) {
+  return (void *)((((uintptr_t)error) << 1) | (uintptr_t)1);
+}
+
+void *aihc_io_open(void *opaque_path, int64_t requested_length,
+                   int64_t requested_mode) {
+  if (requested_length < 0 || (uint64_t)requested_length >= SIZE_MAX ||
+      (opaque_path == NULL && requested_length != 0)) {
+    return aihc_io_open_error(EINVAL);
+  }
+  size_t length = (size_t)requested_length;
+  if (length != 0 && memchr(opaque_path, 0, length) != NULL) {
+    return aihc_io_open_error(EINVAL);
+  }
+  char *path = aihc_allocate_zeroed(length + 1);
+  if (length != 0) {
+    memcpy(path, opaque_path, length);
+  }
+
+  int flags;
+  uint32_t capabilities;
+  switch (requested_mode) {
+  case 0:
+    flags = O_RDONLY;
+    capabilities = AIHC_IO_READABLE;
+    break;
+  case 1:
+    flags = O_WRONLY | O_CREAT | O_TRUNC;
+    capabilities = AIHC_IO_WRITABLE;
+    break;
+  case 2:
+    flags = O_WRONLY | O_CREAT | O_APPEND;
+    capabilities = AIHC_IO_WRITABLE;
+    break;
+  case 3:
+    flags = O_RDWR | O_CREAT;
+    capabilities = AIHC_IO_READABLE | AIHC_IO_WRITABLE;
+    break;
+  default:
+    free(path);
+    return aihc_io_open_error(EINVAL);
+  }
+
+  int descriptor;
+  do {
+    descriptor = open(path, flags | O_NONBLOCK, 0666);
+  } while (descriptor == -1 && errno == EINTR);
+  int open_error = errno;
+  free(path);
+  if (descriptor == -1) {
+    return aihc_io_open_error(open_error);
+  }
+  AihcIoHandle *handle = aihc_allocate_zeroed(sizeof(*handle));
+  handle->backend_token = (uintptr_t)descriptor;
+  handle->capabilities = capabilities;
+  return handle;
+}
+
+int64_t aihc_io_open_result_error(void *result) {
+  uintptr_t encoded = (uintptr_t)result;
+  return (encoded & (uintptr_t)1) == 0 ? 0 : (int64_t)(encoded >> 1);
+}
+
+int64_t aihc_io_close(void *opaque_handle) {
+  AihcIoHandle *handle = opaque_handle;
+  if (handle == NULL || handle->closed) {
+    return aihc_io_error(EBADF);
+  }
+  handle->closed = 1;
+  if (close(aihc_posix_descriptor(handle)) == -1) {
+    return aihc_io_error(errno);
+  }
+  return 0;
+}
+
+int64_t aihc_memory_write_byte(void *opaque_buffer, int64_t offset,
+                               int64_t value) {
+  if (opaque_buffer == NULL || offset < 0 || value < 0 || value > UINT8_MAX) {
+    return aihc_io_error(EINVAL);
+  }
+  ((uint8_t *)opaque_buffer)[(size_t)offset] = (uint8_t)value;
+  return 0;
+}
+
+_Noreturn int64_t aihc_io_raise_error(int64_t error) {
+  fprintf(stderr, "aihc runtime: IO error %" PRId64 "\n", error);
+  abort();
+}
 
 static size_t aihc_byte_array_size(int64_t requested_size) {
   if (requested_size < 0 || (uint64_t)requested_size > SIZE_MAX) {
@@ -1041,23 +1142,23 @@ uint64_t aihc_byte_array_copy_from_addr(void *source, void *opaque_array,
 }
 
 void *aihc_io_submit_read(void *opaque_handle, void *opaque_buffer,
-                          int32_t offset, int32_t length) {
+                          int64_t offset, int64_t length) {
   return aihc_io_submit(AIHC_IO_READ, opaque_handle, opaque_buffer, offset,
                         length);
 }
 
 void *aihc_io_submit_write(void *opaque_handle, void *opaque_buffer,
-                           int32_t offset, int32_t length) {
+                           int64_t offset, int64_t length) {
   return aihc_io_submit(AIHC_IO_WRITE, opaque_handle, opaque_buffer, offset,
                         length);
 }
 
-int32_t aihc_io_take_result(void *opaque_request) {
+int64_t aihc_io_take_result(void *opaque_request) {
   AihcIoRequest *request = opaque_request;
   if (request == NULL || request->state != AIHC_IO_COMPLETED) {
     aihc_fail("attempted to consume an incomplete IO request");
   }
-  int32_t result = request->result;
+  int64_t result = request->result;
   request->state = AIHC_IO_CONSUMED;
   free(request);
   return result;
@@ -1211,7 +1312,7 @@ const AihcResume *aihc_await_io(AihcMachine *machine, void *opaque_request,
     return aihc_resume_current(machine, continuation);
   }
 
-  int32_t result = 0;
+  int64_t result = 0;
   if (machine->io_backend->try_request(request, &result)) {
     request->state = AIHC_IO_COMPLETED;
     request->result = result;

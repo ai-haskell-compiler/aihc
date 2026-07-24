@@ -942,6 +942,26 @@ compileDirectBinding env vars expression =
             <> rightLines
             <> ["  add rax, r10"]
         )
+    GrinPrimitiveCall IntRep "-#" [left, right] -> do
+      leftLines <- liftEither (materializeValueTo env "r10" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  sub r10, rax", "  mov rax, r10"])
+    GrinPrimitiveCall IntRep "*#" [left, right] -> do
+      leftLines <- liftEither (materializeValueTo env "r10" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  imul rax, r10"])
+    GrinPrimitiveCall IntRep "<#" [left, right] -> do
+      leftLines <- liftEither (materializeValueTo env "r10" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  cmp r10, rax", "  setl al", "  movzx rax, al"])
+    GrinPrimitiveCall IntRep "==#" [left, right] -> do
+      leftLines <- liftEither (materializeValueTo env "r10" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  cmp r10, rax", "  sete al", "  movzx rax, al"])
+    GrinPrimitiveCall IntRep "compareInt#" [left, right] -> do
+      leftLines <- liftEither (materializeValueTo env "r10" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  cmp r10, rax", "  setg al", "  setl r10b", "  movzx rax, al", "  movzx r10, r10b", "  sub rax, r10"])
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,
@@ -949,7 +969,7 @@ compileDirectBinding env vars expression =
         null (runtimeRepComponents runtimeRep) ->
           pure []
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> do
+      | name `elem` ["charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> do
           valueLines <- liftEither (materializeValue env value)
           storeSingleResult vars valueLines
     GrinPrimitiveCall _ name arguments
@@ -1024,6 +1044,7 @@ compileForeignCallLines env foreignCall arguments = do
 normalizeForeignResult :: GrinForeignType -> [Text]
 normalizeForeignResult foreignType =
   case foreignType of
+    GrinForeignInt -> []
     GrinForeignInt32 -> ["  movsxd rax, eax"]
     GrinForeignWord64 -> []
     GrinForeignAddr -> []
