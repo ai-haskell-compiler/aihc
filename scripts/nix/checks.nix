@@ -217,7 +217,12 @@
 
       if [[ "$example_name" == mvars ]]; then
         ghc_executable="$TMPDIR/$example_name-ghc"
-        ghc -v0 -o "$ghc_executable" "$source"
+        ghc_output_directory="$TMPDIR/$example_name-ghc-output"
+        mkdir -p "$ghc_output_directory"
+        ghc -v0 \
+          -outputdir "$ghc_output_directory" \
+          -o "$ghc_executable" \
+          "$source"
         "$ghc_executable" > "$ghc_executable.stdout"
         diff --unified \
           --label "$example_name/expected" \
