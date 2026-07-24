@@ -526,6 +526,57 @@ compileCpsPrimitive env prefix label name arguments continuation =
                 <> ["  ret void"]
             )
         _ -> lift (Left (LlvmUnsupportedExpression "internal fork pointer arity"))
+    ("newMVar#", []) -> do
+      (continuationLines, continuationOperand) <- materializeValue env continuation
+      (pointerLines, pointerOperands) <- pointerArguments [continuationOperand]
+      case pointerOperands of
+        [continuationPointer] -> do
+          mvar <- freshValue
+          mvarInteger <- freshValue
+          continueLines <- compileContinueTransfer continuationPointer [mvarInteger]
+          addBlock
+            label
+            ( prefix
+                <> continuationLines
+                <> pointerLines
+                <> [ "  " <> mvar <> " = call ptr @aihc_mvar_new(ptr %machine)",
+                     "  " <> mvarInteger <> " = ptrtoint ptr " <> mvar <> " to i64"
+                   ]
+                <> continueLines
+                <> ["  ret void"]
+            )
+        _ -> lift (Left (LlvmUnsupportedExpression "internal newMVar# pointer arity"))
+    (operation, [mvar])
+      | Just runtimeFunction <- lookup operation [("readMVar#", "aihc_mvar_read"), ("takeMVar#", "aihc_mvar_take")] ->
+          resume runtimeFunction [mvar, continuation]
+    ("putMVar#", [mvar, value]) -> do
+      (lines', operands) <- materializeValues env [mvar, value, continuation]
+      case operands of
+        [mvarOperand, valueOperand, continuationOperand] -> do
+          (pointerLines, pointerOperands) <- pointerArguments [mvarOperand, continuationOperand]
+          case pointerOperands of
+            [mvarPointer, continuationPointer] -> do
+              result <- freshValue
+              addBlock
+                label
+                ( prefix
+                    <> lines'
+                    <> pointerLines
+                    <> [ "  "
+                           <> result
+                           <> " = call ptr @aihc_mvar_put(ptr %machine, ptr "
+                           <> mvarPointer
+                           <> ", i64 "
+                           <> valueOperand
+                           <> ", ptr "
+                           <> continuationPointer
+                           <> ")",
+                         "  musttail call tailcc void @aihc_llvm_resume(ptr %machine, ptr " <> result <> ")",
+                         "  ret void"
+                       ]
+                )
+            _ -> lift (Left (LlvmUnsupportedExpression "internal putMVar# pointer arity"))
+        _ -> lift (Left (LlvmUnsupportedExpression "internal putMVar# operand arity"))
     ("yield#", []) -> resume "aihc_yield" [continuation]
     _
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
@@ -1349,6 +1400,10 @@ renderRuntimeDeclarations =
     "declare void @aihc_begin_blackhole(ptr, ptr)",
     "declare ptr @aihc_block_on_blackhole(ptr, ptr, ptr)",
     "declare i64 @aihc_fork(ptr, ptr)",
+    "declare ptr @aihc_mvar_new(ptr)",
+    "declare ptr @aihc_mvar_read(ptr, ptr, ptr)",
+    "declare ptr @aihc_mvar_take(ptr, ptr, ptr)",
+    "declare ptr @aihc_mvar_put(ptr, ptr, i64, ptr)",
     "declare ptr @aihc_yield(ptr, ptr)",
     "declare ptr @aihc_await_io(ptr, ptr, ptr)",
     "declare ptr @aihc_thread_done(ptr)",
