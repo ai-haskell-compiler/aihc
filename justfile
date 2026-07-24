@@ -33,12 +33,17 @@ hlint-refactor:
 
 # Run full CI check: format, lint, then tests (warnings are errors only here, not in plain `cabal` / `just test`)
 check:
+  nix build .#user-guide --no-link
   nix develop --quiet --command bash -c 'failed=0; while IFS= read -r -d "" file; do cabal-gild --mode check --input "$file" || failed=1; done < <(find . -name "*.cabal" -not -path "*/.git/*" -not -path "*/dist-newstyle/*" -not -path "*/result/*" -print0); exit "$failed"'
   nix develop --quiet --command bash -c 'ormolu --mode check $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc test/support -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   nix develop --quiet --command bash -c 'hlint -j $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc test/support -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   nix develop --quiet --command bash -c 'find components tooling bin core-libs scripts test -type f \( -name "*.c" -o -name "*.h" \) -not -path "*/dist-newstyle/*" -print0 | xargs -0 -r clang-format --dry-run --Werror'
   nix develop --quiet --command bash -c 'while IFS= read -r -d "" file; do clang-tidy --quiet "$file" -- -std=c11 -Wall -Wextra -Wpedantic; done < <(find components tooling bin core-libs scripts test -type f -name "*.c" -not -path "*/dist-newstyle/*" -print0)'
   cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --quickcheck-tests 1000'
+
+# Preview the user guide at http://127.0.0.1:8000/.
+docs:
+  nix develop --quiet --command mkdocs serve --config-file docs/aihc-users-guide/mkdocs.yml
 
 # Generate boot package interfaces for the resolver (requires GHC dev env)
 gen-boot-ifaces:

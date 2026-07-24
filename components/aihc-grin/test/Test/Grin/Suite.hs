@@ -168,8 +168,8 @@ grinUnitTests =
           "primitive calls stay direct"
           Set.empty
           (cpsContinuationFunctions primitiveCps `Set.difference` Set.singleton (cpsUpdateFunction primitiveCps)),
-      testCase "CPS-GRIN reifies scheduler primitive continuations" $ do
-        forM_ ["fork#", "yield#"] $ \name -> do
+      testCase "CPS-GRIN reifies scheduler and generic IO continuations" $ do
+        forM_ ["awaitIO#", "fork#", "yield#", "newMVar#", "readMVar#", "takeMVar#", "putMVar#"] $ \name -> do
           cps <- expectCpsGrin (controlPrimitiveBindProgram name)
           let program = cpsGrinProgram cps
           assertEqual "transformed lint" [] (lintProgram program)
@@ -1595,7 +1595,38 @@ controlPrimitiveBindProgram name =
             [GrinVar "thread_id" 2 (BoxedRep Unlifted)],
             GrinPrimitiveCall (TupleRep [TupleRep [], BoxedRep Unlifted]) name [GrinLitValue (GrinLitString "action")]
           )
+        "awaitIO#" ->
+          ( 2,
+            [],
+            GrinPrimitiveCall
+              (TupleRep [])
+              name
+              [GrinLitValue (GrinLitAddr "request")]
+          )
+        "newMVar#" ->
+          ( 1,
+            [GrinVar "mvar" 2 (BoxedRep Unlifted)],
+            GrinPrimitiveCall (BoxedRep Unlifted) name []
+          )
+        "readMVar#" -> mvarValueOperation name
+        "takeMVar#" -> mvarValueOperation name
+        "putMVar#" ->
+          ( 3,
+            [],
+            GrinPrimitiveCall
+              (TupleRep [])
+              name
+              [ GrinLitValue (GrinLitString "mvar"),
+                GrinLitValue (GrinLitString "value")
+              ]
+          )
         _ -> (1, [], GrinPrimitiveCall (TupleRep []) name [])
+
+    mvarValueOperation operation =
+      ( 2,
+        [GrinVar "value" 2 (BoxedRep Lifted)],
+        GrinPrimitiveCall (BoxedRep Lifted) operation [GrinLitValue (GrinLitString "mvar")]
+      )
 
 containsCpsPrimitive :: Text -> GrinExpr -> Bool
 containsCpsPrimitive name expression =

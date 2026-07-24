@@ -15,13 +15,13 @@ expected: |-
   putchar : CInt → IO CInt =
     λ$ffi_arg_0 : CInt.
       let
-        $ffi_field : Int32 =
+        $ffi_arg_0_field : Int32 =
           $ffi_arg_0 ▷ <co>
       in
-        case $ffi_field as $ffi_case : Int32 of
-          I32# $ffi_field →
+        case $ffi_arg_0_field as $ffi_arg_0_case : Int32 of
+          I32# $ffi_arg_0_field →
             (λ$ffi_state : State# RealWorld.
-              case foreign-call $ffi$putchar $ffi_field $ffi_state as $ffi_result : (#,#) (State# RealWorld) Int32# of
+              case foreign-call $ffi$putchar $ffi_arg_0_field $ffi_state as $ffi_result : (#,#) (State# RealWorld) Int32# of
                 (#,#) $ffi_next_state $ffi_raw_result →
                   (#,#) $ffi_next_state ((I32# $ffi_raw_result) ▷ <co>)) ▷ <co>
 extensions:

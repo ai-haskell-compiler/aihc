@@ -40,6 +40,8 @@ import Aihc.Native
     extendLinkLayout,
     extendLinkLayoutWithInterface,
     extractLinkInterface,
+    nativeRuntimePrimitiveCall,
+    supportedNativePrimitiveNames,
   )
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..), grinExprFreeVariables)
@@ -777,6 +779,58 @@ compileCpsPrimitive env prefix label name arguments continuation = do
                ]
         )
         (BlockLayout.Jump ".Laihc_enter")
+    ("newMVar#", []) ->
+      addBlock
+        label
+        ( prefix
+            <> continuationLines
+            <> [ storeAt "x0" "x19" continuationSlot,
+                 "  mov x0, x22",
+                 "  bl _aihc_mvar_new",
+                 loadAt applyFunctionRegister "x19" continuationSlot
+               ]
+        )
+        (BlockLayout.Jump ".Laihc_enter")
+    (operation, [mvar])
+      | Just runtimeFunction <- lookup operation [("readMVar#", "_aihc_mvar_read"), ("takeMVar#", "_aihc_mvar_take")] -> do
+          mvarSlot <- freshSlot
+          mvarLines <- liftEither (materializeValue env mvar)
+          addBlock
+            label
+            ( prefix
+                <> mvarLines
+                <> [storeAt "x0" "x19" mvarSlot]
+                <> continuationLines
+                <> [ storeAt "x0" "x19" continuationSlot,
+                     loadAt "x1" "x19" mvarSlot,
+                     loadAt "x2" "x19" continuationSlot,
+                     "  mov x0, x22",
+                     "  bl " <> runtimeFunction
+                   ]
+            )
+            (BlockLayout.Jump ".Laihc_resume")
+    ("putMVar#", [mvar, value]) -> do
+      mvarSlot <- freshSlot
+      valueSlot <- freshSlot
+      mvarLines <- liftEither (materializeValue env mvar)
+      valueLines <- liftEither (materializeValue env value)
+      addBlock
+        label
+        ( prefix
+            <> mvarLines
+            <> [storeAt "x0" "x19" mvarSlot]
+            <> valueLines
+            <> [storeAt "x0" "x19" valueSlot]
+            <> continuationLines
+            <> [ storeAt "x0" "x19" continuationSlot,
+                 loadAt "x1" "x19" mvarSlot,
+                 loadAt "x2" "x19" valueSlot,
+                 loadAt "x3" "x19" continuationSlot,
+                 "  mov x0, x22",
+                 "  bl _aihc_mvar_put"
+               ]
+        )
+        (BlockLayout.Jump ".Laihc_resume")
     ("yield#", []) ->
       addBlock
         label
@@ -786,6 +840,23 @@ compileCpsPrimitive env prefix label name arguments continuation = do
                  loadAt "x1" "x19" continuationSlot,
                  "  mov x0, x22",
                  "  bl _aihc_yield"
+               ]
+        )
+        (BlockLayout.Jump ".Laihc_resume")
+    ("awaitIO#", [request]) -> do
+      requestSlot <- freshSlot
+      requestLines <- liftEither (materializeValue env request)
+      addBlock
+        label
+        ( prefix
+            <> requestLines
+            <> [storeAt "x0" "x19" requestSlot]
+            <> continuationLines
+            <> [ storeAt "x0" "x19" continuationSlot,
+                 loadAt "x1" "x19" requestSlot,
+                 loadAt "x2" "x19" continuationSlot,
+                 "  mov x0, x22",
+                 "  bl _aihc_await_io"
                ]
         )
         (BlockLayout.Jump ".Laihc_resume")
@@ -856,6 +927,17 @@ compileDirectBinding env vars expression =
         null vars,
         null (runtimeRepComponents runtimeRep) ->
           pure []
+    GrinPrimitiveCall _ name [value]
+      | name `elem` ["unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> do
+          valueLines <- liftEither (materializeValue env value)
+          storeSingleResult vars valueLines
+    GrinPrimitiveCall _ name arguments
+      | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
+          callLines <- compileForeignCallLines env foreignCall arguments
+          case vars of
+            [] -> pure callLines
+            [_] -> storeSingleResult vars callLines
+            _ -> lift (Left (Arm64UnsupportedExpression ("byte array primitive result arity " <> name)))
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
           pure ["  bl _aihc_unsupported_primitive"]
       | otherwise -> lift (Left (Arm64UnsupportedExpression ("primitive call " <> name)))
@@ -1554,7 +1636,7 @@ runtimeInfoKeyNext key =
 
 validatePrimitiveName :: Bool -> Text -> Either Arm64Error ()
 validatePrimitiveName allowUnsupported name
-  | name `elem` ["+#", "fork#", "realWorld#", "yield#"] = Right ()
+  | name `elem` supportedNativePrimitiveNames = Right ()
   | allowUnsupported = Right ()
   | otherwise = Left (Arm64UnsupportedPrimitive name)
 

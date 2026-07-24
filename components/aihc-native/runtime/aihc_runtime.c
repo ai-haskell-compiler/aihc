@@ -1,11 +1,33 @@
 #include "aihc_runtime.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 typedef struct AihcBlackholeWaiter AihcBlackholeWaiter;
+typedef struct AihcMVarWaiter AihcMVarWaiter;
+
+typedef enum {
+  AIHC_IO_READ,
+  AIHC_IO_WRITE,
+} AihcIoKind;
+
+typedef enum {
+  AIHC_IO_READABLE = 1U << 0,
+  AIHC_IO_WRITABLE = 1U << 1,
+} AihcIoCapability;
+
+typedef enum {
+  AIHC_IO_SUBMITTED,
+  AIHC_IO_PENDING,
+  AIHC_IO_COMPLETED,
+  AIHC_IO_CONSUMED,
+} AihcIoState;
 
 struct AihcThread {
   AihcSlot header;
@@ -31,6 +53,61 @@ struct AihcBlackhole {
   AihcBlackhole *next;
 };
 
+struct AihcMVarWaiter {
+  AihcThread *thread;
+  AihcValue *continuation;
+  AihcSlot value;
+  AihcMVarWaiter *next;
+};
+
+struct AihcMVar {
+  uint8_t full;
+  AihcSlot value;
+  AihcMVarWaiter *readers_head;
+  AihcMVarWaiter *readers_tail;
+  AihcMVarWaiter *takers_head;
+  AihcMVarWaiter *takers_tail;
+  AihcMVarWaiter *putters_head;
+  AihcMVarWaiter *putters_tail;
+  AihcMVar *next;
+};
+
+struct AihcIoHandle {
+  uintptr_t backend_token;
+  uint32_t capabilities;
+};
+
+typedef struct {
+  size_t size;
+  uint8_t *contents;
+  uint8_t pinned;
+  size_t alignment;
+} AihcByteArray;
+
+struct AihcIoRequest {
+  AihcIoKind kind;
+  AihcIoState state;
+  AihcIoHandle *handle;
+  uint8_t *buffer;
+  size_t offset;
+  size_t length;
+  AihcThread *thread;
+  AihcValue *continuation;
+  int32_t result;
+  AihcIoRequest *next;
+};
+
+struct AihcIoBackend {
+  int (*prepare)(AihcIoRequest *request);
+  int (*try_request)(AihcIoRequest *request, int32_t *result);
+  void (*poll)(AihcMachine *machine, int may_block);
+};
+
+static AihcIoHandle aihc_standard_input = {(uintptr_t)STDIN_FILENO,
+                                           AIHC_IO_READABLE};
+static AihcIoHandle aihc_standard_output = {(uintptr_t)STDOUT_FILENO,
+                                            AIHC_IO_WRITABLE};
+
 #if UINTPTR_MAX == UINT64_MAX
 _Static_assert(offsetof(AihcMachine, globals) == 0, "machine globals ABI");
 _Static_assert(offsetof(AihcMachine, heap_next) == 24, "machine heap-next ABI");
@@ -50,6 +127,9 @@ static _Noreturn void aihc_fail(const char *message) {
   fprintf(stderr, "aihc runtime: %s\n", message);
   abort();
 }
+
+static const AihcResume *aihc_schedule(AihcMachine *machine);
+static const AihcIoBackend *aihc_default_io_backend(void);
 
 void aihc_unsupported_primitive(void) {
   aihc_fail("primitive is not implemented by the native runtime");
@@ -213,6 +293,32 @@ static void aihc_collect(AihcMachine *machine, uint64_t required_words,
       aihc_forward_thread(machine, from_start, waiter->thread);
     }
   }
+  for (AihcMVar *mvar = machine->mvars; mvar != NULL; mvar = mvar->next) {
+    if (mvar->full) {
+      aihc_forward_slot(machine, from_start, &mvar->value);
+    }
+    for (AihcMVarWaiter *waiter = mvar->readers_head; waiter != NULL;
+         waiter = waiter->next) {
+      aihc_forward_value(machine, from_start, &waiter->continuation);
+      aihc_forward_thread(machine, from_start, waiter->thread);
+    }
+    for (AihcMVarWaiter *waiter = mvar->takers_head; waiter != NULL;
+         waiter = waiter->next) {
+      aihc_forward_value(machine, from_start, &waiter->continuation);
+      aihc_forward_thread(machine, from_start, waiter->thread);
+    }
+    for (AihcMVarWaiter *waiter = mvar->putters_head; waiter != NULL;
+         waiter = waiter->next) {
+      aihc_forward_slot(machine, from_start, &waiter->value);
+      aihc_forward_value(machine, from_start, &waiter->continuation);
+      aihc_forward_thread(machine, from_start, waiter->thread);
+    }
+  }
+  for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
+       request = request->next) {
+    aihc_forward_value(machine, from_start, &request->continuation);
+    aihc_forward_thread(machine, from_start, request->thread);
+  }
 
   uint8_t *scan = to_start;
   while (scan < machine->heap_next) {
@@ -358,8 +464,9 @@ static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
   return copy;
 }
 
-static AihcSlot *aihc_portable_arguments(AihcSlot *buffer, AihcValue *function,
-                                         uint64_t count, const AihcSlot *values,
+static AihcSlot *aihc_portable_arguments(AihcMachine *machine,
+                                         AihcValue *function, uint64_t count,
+                                         const AihcSlot *values,
                                          AihcValue *continuation) {
   uint64_t field_count = aihc_value_info_table(function)->field_count;
   size_t maximum_count = SIZE_MAX / sizeof(AihcSlot);
@@ -373,6 +480,9 @@ static AihcSlot *aihc_portable_arguments(AihcSlot *buffer, AihcValue *function,
     }
     ++total;
   }
+  AihcSlot *buffer =
+      aihc_reserve_slots(machine, &machine->portable_arguments,
+                         &machine->portable_arguments_capacity, total);
   if (count != 0) {
     memmove(buffer + field_count, values, sizeof(*values) * (size_t)count);
   }
@@ -390,6 +500,18 @@ static AihcSlot *aihc_portable_arguments(AihcSlot *buffer, AihcValue *function,
 static AihcPortableTransfer aihc_portable_transfer(AihcEntry entry,
                                                    AihcSlot *arguments) {
   return (AihcPortableTransfer){entry, arguments};
+}
+
+AihcPortableTransfer aihc_portable_call(AihcMachine *machine, AihcEntry entry,
+                                        uint64_t count,
+                                        const AihcSlot *arguments) {
+  AihcSlot *buffer =
+      aihc_reserve_slots(machine, &machine->portable_arguments,
+                         &machine->portable_arguments_capacity, count);
+  if (count != 0) {
+    memmove(buffer, arguments, sizeof(*arguments) * (size_t)count);
+  }
+  return aihc_portable_transfer(entry, buffer);
 }
 
 static AihcThread *aihc_thread_new(AihcMachine *machine) {
@@ -496,6 +618,7 @@ AihcMachine *aihc_machine_new(uint64_t global_count) {
   machine->heap_limit = machine->heap_start + machine->semispace_bytes;
 #endif
   machine->current_thread = aihc_thread_new(machine);
+  machine->io_backend = aihc_default_io_backend();
   return machine;
 }
 
@@ -507,10 +630,8 @@ AihcSlot *aihc_alloc_locals(AihcMachine *machine, uint64_t count) {
 void aihc_no_match(void) { aihc_fail("no matching case alternative"); }
 
 static AihcPortableTransfer
-aihc_portable_continue_values_now(AihcMachine *machine, AihcSlot *buffer,
-                                  AihcValue *continuation, uint64_t count,
-                                  const AihcSlot *values) {
-  (void)machine;
+aihc_portable_continue_values_now(AihcMachine *machine, AihcValue *continuation,
+                                  uint64_t count, const AihcSlot *values) {
   if (continuation == NULL ||
       aihc_value_tag(continuation) != AIHC_TAG_CLOSURE) {
     aihc_fail("attempted to invoke a non-continuation value");
@@ -521,23 +642,21 @@ aihc_portable_continue_values_now(AihcMachine *machine, AihcSlot *buffer,
   (void)aihc_next_application_info(aihc_value_info_table(continuation), count);
   return aihc_portable_transfer(
       aihc_value_entry(continuation),
-      aihc_portable_arguments(buffer, continuation, count, values, NULL));
+      aihc_portable_arguments(machine, continuation, count, values, NULL));
 }
 
 AihcPortableTransfer aihc_portable_continue_values(AihcMachine *machine,
-                                                   AihcSlot *buffer,
                                                    AihcValue *continuation,
                                                    uint64_t count,
                                                    const AihcSlot *values) {
-  return aihc_portable_continue_values_now(machine, buffer, continuation, count,
+  return aihc_portable_continue_values_now(machine, continuation, count,
                                            values);
 }
 
 static AihcPortableTransfer
-aihc_portable_continue_value(AihcMachine *machine, AihcSlot *buffer,
-                             AihcValue *continuation, AihcSlot value) {
-  return aihc_portable_continue_values_now(machine, buffer, continuation, 1,
-                                           &value);
+aihc_portable_continue_value(AihcMachine *machine, AihcValue *continuation,
+                             AihcSlot value) {
+  return aihc_portable_continue_values_now(machine, continuation, 1, &value);
 }
 
 AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
@@ -570,10 +689,11 @@ AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
   }
 }
 
-AihcPortableTransfer
-aihc_portable_apply_cps(AihcMachine *machine, AihcSlot *buffer,
-                        AihcValue *function, uint64_t count,
-                        const AihcSlot *arguments, AihcValue *continuation) {
+AihcPortableTransfer aihc_portable_apply_cps(AihcMachine *machine,
+                                             AihcValue *function,
+                                             uint64_t count,
+                                             const AihcSlot *arguments,
+                                             AihcValue *continuation) {
   if (function == NULL) {
     aihc_fail("attempted to apply null");
   }
@@ -581,14 +701,13 @@ aihc_portable_apply_cps(AihcMachine *machine, AihcSlot *buffer,
       aihc_value_arity(function) == 1) {
     (void)aihc_next_application_info(aihc_value_info_table(function), count);
     return aihc_portable_transfer(aihc_value_entry(function),
-                                  aihc_portable_arguments(buffer, function,
+                                  aihc_portable_arguments(machine, function,
                                                           count, arguments,
                                                           continuation));
   }
   AihcValue *applied =
       aihc_apply_slow(machine, function, count, arguments, &continuation);
-  return aihc_portable_continue_value(machine, buffer, continuation,
-                                      (AihcSlot)applied);
+  return aihc_portable_continue_value(machine, continuation, (AihcSlot)applied);
 }
 
 static void aihc_suspend_apply(AihcThread *thread, AihcValue *function,
@@ -632,6 +751,486 @@ static const AihcResume *aihc_select_thread(AihcMachine *machine,
   return resume;
 }
 
+static int32_t aihc_io_error(int error) {
+  return (int32_t)(-((int64_t)error) - 1);
+}
+
+static int aihc_posix_descriptor(const AihcIoHandle *handle) {
+  return (int)handle->backend_token;
+}
+
+static int aihc_posix_prepare(AihcIoRequest *request) {
+  int descriptor = aihc_posix_descriptor(request->handle);
+  int flags = fcntl(descriptor, F_GETFL);
+  if (flags == -1) {
+    return errno;
+  }
+  if ((flags & O_NONBLOCK) == 0 &&
+      fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == -1) {
+    return errno;
+  }
+  return 0;
+}
+
+static int aihc_posix_try_request(AihcIoRequest *request, int32_t *result) {
+  for (;;) {
+    ssize_t transferred;
+    uint8_t *bytes = request->buffer + request->offset;
+    if (request->kind == AIHC_IO_READ) {
+      transferred =
+          read(aihc_posix_descriptor(request->handle), bytes, request->length);
+    } else {
+      transferred =
+          write(aihc_posix_descriptor(request->handle), bytes, request->length);
+    }
+    if (transferred >= 0) {
+      *result = (int32_t)transferred;
+      return 1;
+    }
+    if (errno == EINTR) {
+      continue;
+    }
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      return 0;
+    }
+    *result = aihc_io_error(errno);
+    return 1;
+  }
+}
+
+static void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
+                                   int32_t result) {
+  AihcThread *thread = request->thread;
+  AihcValue *continuation = request->continuation;
+  request->state = AIHC_IO_COMPLETED;
+  request->result = result;
+  request->thread = NULL;
+  request->continuation = NULL;
+  request->next = NULL;
+  aihc_suspend_continue(thread, continuation, 0, 0);
+  aihc_enqueue_thread(machine, thread);
+}
+
+static void aihc_complete_all_io_with_error(AihcMachine *machine, int error) {
+  AihcIoRequest *request = machine->io_requests_head;
+  machine->io_requests_head = NULL;
+  machine->io_requests_tail = NULL;
+  machine->io_request_count = 0;
+  while (request != NULL) {
+    AihcIoRequest *next = request->next;
+    aihc_resume_io_request(machine, request, aihc_io_error(error));
+    request = next;
+  }
+}
+
+static void aihc_posix_poll(AihcMachine *machine, int may_block) {
+  if (machine->io_request_count == 0) {
+    return;
+  }
+  size_t count = (size_t)machine->io_request_count;
+  struct pollfd *descriptors =
+      aihc_allocate_auxiliary(machine, sizeof(*descriptors) * count);
+  size_t index = 0;
+  for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
+       request = request->next) {
+    descriptors[index].fd = aihc_posix_descriptor(request->handle);
+    descriptors[index].events =
+        request->kind == AIHC_IO_READ ? POLLIN : POLLOUT;
+    ++index;
+  }
+  int ready = poll(descriptors, count, may_block ? -1 : 0);
+  if (ready == -1) {
+    int error = errno;
+    free(descriptors);
+    if (error != EINTR) {
+      aihc_complete_all_io_with_error(machine, error);
+    }
+    return;
+  }
+  if (ready == 0) {
+    free(descriptors);
+    return;
+  }
+
+  AihcIoRequest **link = &machine->io_requests_head;
+  AihcIoRequest *tail = NULL;
+  index = 0;
+  while (*link != NULL) {
+    AihcIoRequest *request = *link;
+    short events = descriptors[index++].revents;
+    int32_t result = 0;
+    int complete = 0;
+    if ((events & POLLNVAL) != 0) {
+      result = aihc_io_error(EBADF);
+      complete = 1;
+    } else if (events != 0) {
+      complete = aihc_posix_try_request(request, &result);
+    }
+    if (complete) {
+      *link = request->next;
+      --machine->io_request_count;
+      aihc_resume_io_request(machine, request, result);
+    } else {
+      tail = request;
+      link = &request->next;
+    }
+  }
+  machine->io_requests_tail = tail;
+  free(descriptors);
+}
+
+static const AihcIoBackend aihc_posix_io_backend = {
+    aihc_posix_prepare,
+    aihc_posix_try_request,
+    aihc_posix_poll,
+};
+
+static const AihcIoBackend *aihc_default_io_backend(void) {
+  return &aihc_posix_io_backend;
+}
+
+static const AihcResume *aihc_schedule(AihcMachine *machine) {
+  for (;;) {
+    machine->io_backend->poll(machine, 0);
+    if (machine->run_queue_head != NULL) {
+      return aihc_select_thread(machine, aihc_dequeue_thread(machine));
+    }
+    if (machine->io_request_count != 0) {
+      machine->io_backend->poll(machine, 1);
+      continue;
+    }
+    aihc_fail("no runnable threads");
+  }
+}
+
+static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcIoHandle *handle,
+                                     uint8_t *buffer, int32_t offset,
+                                     int32_t length) {
+  if (handle == NULL) {
+    aihc_fail("attempted IO with a null handle");
+  }
+  if (offset < 0 || length < 0 || (buffer == NULL && length != 0)) {
+    aihc_fail("invalid IO buffer range");
+  }
+  uint32_t required_capability =
+      kind == AIHC_IO_READ ? AIHC_IO_READABLE : AIHC_IO_WRITABLE;
+  if ((handle->capabilities & required_capability) == 0) {
+    aihc_fail("attempted unsupported operation on IO handle");
+  }
+  AihcIoRequest *request = aihc_allocate_zeroed(sizeof(*request));
+  request->kind = kind;
+  request->state = AIHC_IO_SUBMITTED;
+  request->handle = handle;
+  request->buffer = buffer;
+  request->offset = (size_t)offset;
+  request->length = (size_t)length;
+  return request;
+}
+
+void *aihc_io_stdin(void) { return &aihc_standard_input; }
+
+void *aihc_io_stdout(void) { return &aihc_standard_output; }
+
+static size_t aihc_byte_array_size(int64_t requested_size) {
+  if (requested_size < 0 || (uint64_t)requested_size > SIZE_MAX) {
+    aihc_fail("invalid byte array size");
+  }
+  return (size_t)requested_size;
+}
+
+static size_t aihc_byte_array_alignment(int64_t requested_alignment) {
+  if (requested_alignment <= 0 || (uint64_t)requested_alignment > SIZE_MAX ||
+      ((uint64_t)requested_alignment &
+       ((uint64_t)requested_alignment - UINT64_C(1))) != 0) {
+    aihc_fail("invalid byte array alignment");
+  }
+  return (size_t)requested_alignment;
+}
+
+static AihcByteArray *aihc_byte_array_allocate(int64_t requested_size,
+                                               uint8_t pinned,
+                                               int64_t requested_alignment) {
+  size_t size = aihc_byte_array_size(requested_size);
+  size_t alignment = aihc_byte_array_alignment(requested_alignment);
+  size_t allocation_size = size == 0 ? 1 : size;
+  if (allocation_size > SIZE_MAX - (alignment - 1)) {
+    aihc_fail("byte array allocation is too large");
+  }
+  AihcByteArray *array = aihc_allocate_zeroed(sizeof(*array));
+  uint8_t *raw = aihc_allocate_zeroed(allocation_size + alignment - 1);
+  uintptr_t aligned = ((uintptr_t)raw + alignment - 1) & ~(alignment - 1);
+  array->size = size;
+  array->contents = (uint8_t *)aligned;
+  array->pinned = pinned;
+  array->alignment = alignment;
+  return array;
+}
+
+void *aihc_byte_array_new(int64_t size) {
+  return aihc_byte_array_allocate(size, 0, (int64_t)sizeof(uintptr_t));
+}
+
+void *aihc_byte_array_new_pinned(int64_t size) {
+  return aihc_byte_array_allocate(size, 1, (int64_t)sizeof(uintptr_t));
+}
+
+void *aihc_byte_array_new_aligned_pinned(int64_t size, int64_t alignment) {
+  return aihc_byte_array_allocate(size, 1, alignment);
+}
+
+uint64_t aihc_byte_array_is_pinned(void *opaque_array) {
+  AihcByteArray *array = opaque_array;
+  if (array == NULL) {
+    aihc_fail("attempted to inspect a null byte array");
+  }
+  return array->pinned;
+}
+
+void *aihc_byte_array_contents(void *opaque_array) {
+  AihcByteArray *array = opaque_array;
+  if (array == NULL) {
+    aihc_fail("attempted to inspect a null byte array");
+  }
+  return array->contents;
+}
+
+uint64_t aihc_byte_array_shrink(void *opaque_array, int64_t requested_size) {
+  AihcByteArray *array = opaque_array;
+  size_t size = aihc_byte_array_size(requested_size);
+  if (array == NULL || size > array->size) {
+    aihc_fail("invalid byte array shrink");
+  }
+  array->size = size;
+  return 0;
+}
+
+void *aihc_byte_array_resize(void *opaque_array, int64_t requested_size) {
+  AihcByteArray *array = opaque_array;
+  if (array == NULL) {
+    aihc_fail("attempted to resize a null byte array");
+  }
+  AihcByteArray *resized = aihc_byte_array_allocate(
+      requested_size, array->pinned, (int64_t)array->alignment);
+  size_t copy_size = array->size < resized->size ? array->size : resized->size;
+  memcpy(resized->contents, array->contents, copy_size);
+  return resized;
+}
+
+uint64_t aihc_byte_array_get_size(void *opaque_array) {
+  AihcByteArray *array = opaque_array;
+  if (array == NULL) {
+    aihc_fail("attempted to inspect a null byte array");
+  }
+  return (uint64_t)array->size;
+}
+
+uint64_t aihc_byte_array_copy_from_addr(void *source, void *opaque_array,
+                                        int64_t requested_offset,
+                                        int64_t requested_length) {
+  AihcByteArray *array = opaque_array;
+  size_t offset = aihc_byte_array_size(requested_offset);
+  size_t length = aihc_byte_array_size(requested_length);
+  if (array == NULL || offset > array->size || length > array->size - offset ||
+      (source == NULL && length != 0)) {
+    aihc_fail("invalid byte array copy");
+  }
+  if (length != 0) {
+    memcpy(array->contents + offset, source, length);
+  }
+  return 0;
+}
+
+void *aihc_io_submit_read(void *opaque_handle, void *opaque_buffer,
+                          int32_t offset, int32_t length) {
+  return aihc_io_submit(AIHC_IO_READ, opaque_handle, opaque_buffer, offset,
+                        length);
+}
+
+void *aihc_io_submit_write(void *opaque_handle, void *opaque_buffer,
+                           int32_t offset, int32_t length) {
+  return aihc_io_submit(AIHC_IO_WRITE, opaque_handle, opaque_buffer, offset,
+                        length);
+}
+
+int32_t aihc_io_take_result(void *opaque_request) {
+  AihcIoRequest *request = opaque_request;
+  if (request == NULL || request->state != AIHC_IO_COMPLETED) {
+    aihc_fail("attempted to consume an incomplete IO request");
+  }
+  int32_t result = request->result;
+  request->state = AIHC_IO_CONSUMED;
+  free(request);
+  return result;
+}
+
+static const AihcResume *aihc_resume_current(AihcMachine *machine,
+                                             AihcValue *continuation) {
+  aihc_suspend_continue(machine->current_thread, continuation, 0, 0);
+  return aihc_select_thread(machine, machine->current_thread);
+}
+
+static const AihcResume *aihc_resume_current_value(AihcMachine *machine,
+                                                   AihcValue *continuation,
+                                                   AihcSlot value) {
+  aihc_suspend_continue(machine->current_thread, continuation, 1, value);
+  return aihc_select_thread(machine, machine->current_thread);
+}
+
+static AihcMVarWaiter *aihc_mvar_waiter_new(AihcMachine *machine,
+                                            AihcValue *continuation,
+                                            AihcSlot value) {
+  AihcMVarWaiter *waiter = aihc_allocate_auxiliary(machine, sizeof(*waiter));
+  waiter->thread = machine->current_thread;
+  waiter->continuation = continuation;
+  waiter->value = value;
+  return waiter;
+}
+
+static void aihc_mvar_append_waiter(AihcMVarWaiter **head,
+                                    AihcMVarWaiter **tail,
+                                    AihcMVarWaiter *waiter) {
+  if (*tail == NULL) {
+    *head = waiter;
+  } else {
+    (*tail)->next = waiter;
+  }
+  *tail = waiter;
+}
+
+static AihcMVarWaiter *aihc_mvar_pop_waiter(AihcMVarWaiter **head,
+                                            AihcMVarWaiter **tail) {
+  AihcMVarWaiter *waiter = *head;
+  if (waiter == NULL) {
+    return NULL;
+  }
+  *head = waiter->next;
+  if (*head == NULL) {
+    *tail = NULL;
+  }
+  waiter->next = NULL;
+  return waiter;
+}
+
+static void aihc_mvar_wake(AihcMachine *machine, AihcMVarWaiter *waiter,
+                           uint64_t count, AihcSlot value) {
+  aihc_suspend_continue(waiter->thread, waiter->continuation, count, value);
+  aihc_enqueue_thread(machine, waiter->thread);
+  free(waiter);
+}
+
+static AihcMVar *aihc_checked_mvar(void *opaque_mvar) {
+  AihcMVar *mvar = opaque_mvar;
+  if (mvar == NULL) {
+    aihc_fail("attempted an operation on a null MVar");
+  }
+  return mvar;
+}
+
+void *aihc_mvar_new(AihcMachine *machine) {
+  AihcMVar *mvar = aihc_allocate_auxiliary(machine, sizeof(*mvar));
+  mvar->next = machine->mvars;
+  machine->mvars = mvar;
+  return mvar;
+}
+
+const AihcResume *aihc_mvar_read(AihcMachine *machine, void *opaque_mvar,
+                                 AihcValue *continuation) {
+  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  if (mvar->full) {
+    return aihc_resume_current_value(machine, continuation, mvar->value);
+  }
+  AihcMVarWaiter *waiter = aihc_mvar_waiter_new(machine, continuation, 0);
+  aihc_mvar_append_waiter(&mvar->readers_head, &mvar->readers_tail, waiter);
+  return aihc_schedule(machine);
+}
+
+const AihcResume *aihc_mvar_take(AihcMachine *machine, void *opaque_mvar,
+                                 AihcValue *continuation) {
+  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  if (!mvar->full) {
+    AihcMVarWaiter *waiter = aihc_mvar_waiter_new(machine, continuation, 0);
+    aihc_mvar_append_waiter(&mvar->takers_head, &mvar->takers_tail, waiter);
+    return aihc_schedule(machine);
+  }
+
+  AihcSlot value = mvar->value;
+  AihcMVarWaiter *putter =
+      aihc_mvar_pop_waiter(&mvar->putters_head, &mvar->putters_tail);
+  if (putter == NULL) {
+    mvar->full = 0;
+    mvar->value = 0;
+  } else {
+    mvar->value = putter->value;
+    aihc_mvar_wake(machine, putter, 0, 0);
+  }
+  return aihc_resume_current_value(machine, continuation, value);
+}
+
+const AihcResume *aihc_mvar_put(AihcMachine *machine, void *opaque_mvar,
+                                AihcSlot value, AihcValue *continuation) {
+  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  if (mvar->full) {
+    AihcMVarWaiter *waiter = aihc_mvar_waiter_new(machine, continuation, value);
+    aihc_mvar_append_waiter(&mvar->putters_head, &mvar->putters_tail, waiter);
+    return aihc_schedule(machine);
+  }
+
+  AihcMVarWaiter *reader;
+  while ((reader = aihc_mvar_pop_waiter(&mvar->readers_head,
+                                        &mvar->readers_tail)) != NULL) {
+    aihc_mvar_wake(machine, reader, 1, value);
+  }
+  AihcMVarWaiter *taker =
+      aihc_mvar_pop_waiter(&mvar->takers_head, &mvar->takers_tail);
+  if (taker == NULL) {
+    mvar->full = 1;
+    mvar->value = value;
+  } else {
+    aihc_mvar_wake(machine, taker, 1, value);
+  }
+  return aihc_resume_current(machine, continuation);
+}
+
+const AihcResume *aihc_await_io(AihcMachine *machine, void *opaque_request,
+                                AihcValue *continuation) {
+  AihcIoRequest *request = opaque_request;
+  if (request == NULL) {
+    aihc_fail("attempted to await a null IO request");
+  }
+  if (request->state == AIHC_IO_COMPLETED) {
+    return aihc_resume_current(machine, continuation);
+  }
+  if (request->state != AIHC_IO_SUBMITTED) {
+    aihc_fail("attempted to await an IO request more than once");
+  }
+
+  int error = machine->io_backend->prepare(request);
+  if (error != 0) {
+    request->state = AIHC_IO_COMPLETED;
+    request->result = aihc_io_error(error);
+    return aihc_resume_current(machine, continuation);
+  }
+
+  int32_t result = 0;
+  if (machine->io_backend->try_request(request, &result)) {
+    request->state = AIHC_IO_COMPLETED;
+    request->result = result;
+    return aihc_resume_current(machine, continuation);
+  }
+
+  request->state = AIHC_IO_PENDING;
+  request->thread = machine->current_thread;
+  request->continuation = continuation;
+  if (machine->io_requests_tail == NULL) {
+    machine->io_requests_head = request;
+  } else {
+    machine->io_requests_tail->next = request;
+  }
+  machine->io_requests_tail = request;
+  ++machine->io_request_count;
+  return aihc_schedule(machine);
+}
+
 void aihc_begin_blackhole(AihcMachine *machine, AihcValue *value) {
   if (value == NULL || aihc_value_tag(value) != AIHC_TAG_THUNK) {
     aihc_fail("attempted to blackhole a non-thunk value");
@@ -647,21 +1246,20 @@ const AihcResume *aihc_block_on_blackhole(AihcMachine *machine,
     aihc_fail("attempted to block on a value that is not blackholed");
   }
   aihc_add_blackhole_waiter(machine, value, continuation);
-  return aihc_select_thread(machine, aihc_dequeue_thread(machine));
+  return aihc_schedule(machine);
 }
 
 static AihcPortableTransfer aihc_portable_resume(AihcMachine *machine,
-                                                 AihcSlot *buffer,
                                                  const AihcResume *resume) {
   AihcPortableTransfer transfer;
   switch (resume->kind) {
   case AIHC_RESUME_APPLY:
-    transfer = aihc_portable_apply_cps(machine, buffer, resume->function, 0,
-                                       NULL, resume->continuation);
+    transfer = aihc_portable_apply_cps(machine, resume->function, 0, NULL,
+                                       resume->continuation);
     break;
   case AIHC_RESUME_CONTINUE:
     transfer = aihc_portable_continue_values_now(
-        machine, buffer, resume->function, resume->count,
+        machine, resume->function, resume->count,
         resume->count == 0 ? NULL : &resume->value);
     break;
   default:
@@ -672,7 +1270,7 @@ static AihcPortableTransfer aihc_portable_resume(AihcMachine *machine,
 }
 
 AihcPortableTransfer aihc_portable_eval_cps(AihcMachine *machine,
-                                            AihcSlot *buffer, AihcValue *value,
+                                            AihcValue *value,
                                             uint64_t result_is_lifted,
                                             AihcValue *continuation,
                                             AihcValue *update_continuation) {
@@ -682,25 +1280,23 @@ AihcPortableTransfer aihc_portable_eval_cps(AihcMachine *machine,
   switch (aihc_value_tag(value)) {
   case AIHC_TAG_THUNK: {
     AihcSlot *arguments =
-        aihc_portable_arguments(buffer, value, 0, NULL, update_continuation);
+        aihc_portable_arguments(machine, value, 0, NULL, update_continuation);
     AihcEntry entry = aihc_value_entry(value);
     aihc_begin_blackhole(machine, value);
     return aihc_portable_transfer(entry, arguments);
   }
   case AIHC_TAG_INDIRECTION:
     if (result_is_lifted) {
-      return aihc_portable_eval_cps(machine, buffer,
-                                    (AihcValue *)value->fields[0], 1,
+      return aihc_portable_eval_cps(machine, (AihcValue *)value->fields[0], 1,
                                     continuation, update_continuation);
     }
-    return aihc_portable_continue_value(machine, buffer, continuation,
+    return aihc_portable_continue_value(machine, continuation,
                                         value->fields[0]);
   case AIHC_TAG_BLACKHOLE:
     return aihc_portable_resume(
-        machine, buffer, aihc_block_on_blackhole(machine, value, continuation));
+        machine, aihc_block_on_blackhole(machine, value, continuation));
   default:
-    return aihc_portable_continue_value(machine, buffer, continuation,
-                                        (AihcSlot)value);
+    return aihc_portable_continue_value(machine, continuation, (AihcSlot)value);
   }
 }
 
@@ -748,11 +1344,11 @@ const AihcResume *aihc_yield(AihcMachine *machine, AihcValue *continuation) {
   AihcThread *current = machine->current_thread;
   aihc_suspend_continue(current, continuation, 0, 0);
   aihc_enqueue_thread(machine, current);
-  return aihc_select_thread(machine, aihc_dequeue_thread(machine));
+  return aihc_schedule(machine);
 }
 
 const AihcResume *aihc_thread_done(AihcMachine *machine) {
-  return aihc_select_thread(machine, aihc_dequeue_thread(machine));
+  return aihc_schedule(machine);
 }
 
 void aihc_set_thread_done_continuation(AihcMachine *machine,
@@ -768,30 +1364,62 @@ void aihc_set_thread_done_continuation(AihcMachine *machine,
 AihcEntry aihc_halt(AihcMachine *machine) { return machine->exit_code; }
 
 AihcPortableTransfer aihc_portable_fork_cps(AihcMachine *machine,
-                                            AihcSlot *buffer, AihcValue *action,
+                                            AihcValue *action,
                                             AihcValue *continuation) {
   AihcSlot thread_id = aihc_fork(machine, action);
-  return aihc_portable_continue_value(machine, buffer, continuation, thread_id);
+  return aihc_portable_continue_value(machine, continuation, thread_id);
+}
+
+AihcPortableTransfer aihc_portable_new_mvar_cps(AihcMachine *machine,
+                                                AihcValue *continuation) {
+  return aihc_portable_continue_value(machine, continuation,
+                                      (AihcSlot)aihc_mvar_new(machine));
+}
+
+AihcPortableTransfer aihc_portable_read_mvar_cps(AihcMachine *machine,
+                                                 void *mvar,
+                                                 AihcValue *continuation) {
+  return aihc_portable_resume(machine,
+                              aihc_mvar_read(machine, mvar, continuation));
+}
+
+AihcPortableTransfer aihc_portable_take_mvar_cps(AihcMachine *machine,
+                                                 void *mvar,
+                                                 AihcValue *continuation) {
+  return aihc_portable_resume(machine,
+                              aihc_mvar_take(machine, mvar, continuation));
+}
+
+AihcPortableTransfer aihc_portable_put_mvar_cps(AihcMachine *machine,
+                                                void *mvar, AihcValue *value,
+                                                AihcValue *continuation) {
+  return aihc_portable_resume(
+      machine, aihc_mvar_put(machine, mvar, (AihcSlot)value, continuation));
 }
 
 AihcPortableTransfer aihc_portable_yield_cps(AihcMachine *machine,
-                                             AihcSlot *buffer,
                                              AihcValue *continuation) {
-  return aihc_portable_resume(machine, buffer,
-                              aihc_yield(machine, continuation));
+  return aihc_portable_resume(machine, aihc_yield(machine, continuation));
 }
 
-AihcPortableTransfer aihc_portable_thread_done(AihcMachine *machine,
-                                               AihcSlot *buffer) {
-  return aihc_portable_resume(machine, buffer, aihc_thread_done(machine));
+AihcPortableTransfer aihc_portable_await_io_cps(AihcMachine *machine,
+                                                void *request,
+                                                AihcValue *continuation) {
+  return aihc_portable_resume(machine,
+                              aihc_await_io(machine, request, continuation));
 }
 
-AihcPortableTransfer
-aihc_portable_start(AihcMachine *machine, AihcSlot *buffer, AihcValue *root,
-                    AihcValue *continuation, AihcValue *update_continuation,
-                    AihcValue *thread_done_continuation, AihcEntry exit_code) {
+AihcPortableTransfer aihc_portable_thread_done(AihcMachine *machine) {
+  return aihc_portable_resume(machine, aihc_thread_done(machine));
+}
+
+AihcPortableTransfer aihc_portable_start(AihcMachine *machine, AihcValue *root,
+                                         AihcValue *continuation,
+                                         AihcValue *update_continuation,
+                                         AihcValue *thread_done_continuation,
+                                         AihcEntry exit_code) {
   machine->exit_code = exit_code;
   aihc_set_thread_done_continuation(machine, thread_done_continuation);
-  return aihc_portable_eval_cps(machine, buffer, root, 1, continuation,
+  return aihc_portable_eval_cps(machine, root, 1, continuation,
                                 update_continuation);
 }

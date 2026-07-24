@@ -2,7 +2,7 @@
   projectHsPackages,
   mkHsPkgsWithHaddock,
 }: let
-  mkCombinedDocsFrom = mkHsPkgsBuilder: pkgs: let
+  mkApiDocsFrom = mkHsPkgsBuilder: pkgs: let
     hsPkgsHaddock = mkHsPkgsBuilder pkgs;
     parserDoc = hsPkgsHaddock.aihc-parser.doc;
     cppDoc = hsPkgsHaddock.aihc-cpp.doc;
@@ -37,6 +37,28 @@
         --read-interface=aihc-parser,"$out/aihc-parser/aihc-parser.haddock" \
         --read-interface=aihc-cpp,"$out/aihc-cpp/aihc-cpp.haddock"
     '';
+
+  mkUserGuide = pkgs:
+    pkgs.runCommand "aihc-user-guide" {
+      nativeBuildInputs = [pkgs.python3Packages.mkdocs-material];
+    } ''
+      mkdocs build \
+        --strict \
+        --config-file ${../../docs/aihc-users-guide}/mkdocs.yml \
+        --site-dir "$out"
+    '';
+
+  mkApiDocs = mkApiDocsFrom mkHsPkgsWithHaddock;
+
+  mkCombinedDocs = pkgs: let
+    userGuide = mkUserGuide pkgs;
+    apiDocs = mkApiDocs pkgs;
+  in
+    pkgs.runCommand "aihc-documentation" {} ''
+      mkdir -p "$out/api"
+      cp -r ${userGuide}/. "$out/"
+      cp -r ${apiDocs}/. "$out/api/"
+    '';
 in {
-  mkCombinedDocs = mkCombinedDocsFrom mkHsPkgsWithHaddock;
+  inherit mkApiDocs mkCombinedDocs mkUserGuide;
 }

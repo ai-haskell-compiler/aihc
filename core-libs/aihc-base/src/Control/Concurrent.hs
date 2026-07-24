@@ -2,13 +2,20 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module Control.Concurrent
-  ( ThreadId,
+  ( MVar,
+    ThreadId,
     forkIO,
+    newEmptyMVar,
+    newMVar,
+    putMVar,
+    readMVar,
+    takeMVar,
     yield,
   )
 where
 
 import GHC.IO (IO (..))
+import GHC.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
 import GHC.Prim (ThreadId#, fork#, yield#)
 
 -- | An opaque green-thread identifier.

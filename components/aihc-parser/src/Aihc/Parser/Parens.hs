@@ -1367,6 +1367,10 @@ addCompTransformExprParens expr =
 needsCompTransformParens :: Expr -> Bool
 needsCompTransformParens = \case
   EAnn _ sub -> needsCompTransformParens sub
+  -- Transform-list contextual parsers terminate an if-expression before the
+  -- following @by@ or @using@ keyword. Parenthesizing it is not only
+  -- unnecessary: GHC preserves the grouping in its parsed fingerprint.
+  EIf {} -> False
   ETypeSig {} -> True
   EParen {} -> False
   EInfix _ _ rhs -> needsCompTransformInfixRhsParens rhs

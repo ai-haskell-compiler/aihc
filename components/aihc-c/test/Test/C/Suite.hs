@@ -27,6 +27,7 @@ tests =
   testGroup
     "Portable C backend"
     [ testCase "emits a portable trampoline" testTrampoline,
+      testCase "grows the argument buffer for wide continuations" (testProgram "WIDE" wideContinuationProgram),
       testCase "links separately compiled C units" testIncrementalProgram,
       testCase "traps dormant unsupported primitives in compiled modules" testDormantPrimitive,
       testCase "executes Int# addition" (testProgram "*" (intAddProgram 40 2 42)),
@@ -105,18 +106,65 @@ testTrampoline = do
     ]
     (\needle -> assertBool ("missing generated C fragment: " <> T.unpack needle) (needle `T.isInfixOf` source))
   assertBool "generated C does not use a machine argument field" (not ("aihc_machine->args" `T.isInfixOf` source))
-  assertBool "portable C owns a static reusable argument buffer" ("static AihcSlot aihc_arguments[" `T.isInfixOf` source)
+  assertBool "generated C does not own a fixed argument buffer" (not ("static AihcSlot aihc_arguments[" `T.isInfixOf` source))
   runtime <- readFile =<< runtimeSourcePath
   assertBool "runtime does not contain a machine argument field" (not ("machine->args" `isInfixOf` runtime))
+  assertBool "runtime owns direct-call argument transfers" ("AihcPortableTransfer aihc_portable_call" `isInfixOf` runtime)
+  assertBool "runtime owns a growable portable argument buffer" ("&machine->portable_arguments_capacity" `isInfixOf` runtime)
+
+wideContinuationProgram :: GrinProgram
+wideContinuationProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [putcharCall],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [(mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = mainFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody =
+                GrinBind characters (GrinConstant characterValues) $
+                  GrinBind [ignored] (GrinCall lifted helperFunction []) $
+                    foldr outputCharacter (GrinConstant [GrinVarValue unitValue]) characters
+            },
+          GrinFunction
+            { grinFunctionName = helperFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody = GrinConstant [GrinVarValue unitValue]
+            }
+        ]
+    }
+  where
+    lifted = BoxedRep Lifted
+    mainFunction = FunctionName "$wide_continuation_main"
+    helperFunction = FunctionName "$wide_continuation_helper"
+    mainClosure = GrinVar "main" 50 lifted
+    characters = zipWith (\index character -> GrinVar (T.singleton character) index Int32Rep) [51 ..] "WIDE"
+    characterValues = map (GrinLitValue . GrinLitInt Int32Rep . toInteger . fromEnum) "WIDE"
+    ignored = GrinVar "ignored" 55 lifted
+    unitValue = GrinVar "()" 56 lifted
+    outputCharacter character =
+      GrinBind
+        [GrinVar ("output_" <> grinVarName character) (grinVarUnique character + 10) Int32Rep]
+        (GrinForeignCallExpr putcharCall [GrinVarValue character])
 
 testIncrementalProgram :: IO ()
 testIncrementalProgram = do
   let initializer = "aihc_init_dependency"
+      dependencyLayout = buildLinkLayout [incrementalDependencyProgram]
       layout = buildLinkLayout [incrementalDependencyProgram, incrementalMainProgram]
       dependencyGc = expectGcGrin incrementalDependencyProgram
       mainGc = expectGcGrin incrementalMainProgram
   dependencySource <-
-    case compileModule layout initializer dependencyGc of
+    case compileModule dependencyLayout initializer dependencyGc of
       Right source -> pure source
       Left err -> assertFailure ("dependency C lowering failed: " <> show err)
   mainSource <-
@@ -150,7 +198,7 @@ testIncrementalProgram = do
     assertEqual ("clang rejected incremental generated C:\n" <> clangErr) ExitSuccess clangExit
     (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
     assertEqual ("incremental program stderr: " <> programErr) ExitSuccess programExit
-    assertEqual "incremental program stdout" "D" programOut
+    assertEqual "incremental program stdout" "DWIDE" programOut
 
 testDormantPrimitive :: IO ()
 testDormantPrimitive = do
@@ -214,7 +262,7 @@ incrementalMainProgram =
   GrinProgram
     { grinConstructors = [],
       grinPrimitives = [],
-      grinForeignCalls = [],
+      grinForeignCalls = [putcharCall],
       grinExternalGlobals = [],
       grinExternalFunctions =
         [ GrinCodeInfo
@@ -231,11 +279,24 @@ incrementalMainProgram =
             { grinFunctionName = incrementalMainFunction,
               grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
-              grinFunctionResultRep = BoxedRep Lifted,
-              grinFunctionBody = GrinCall (BoxedRep Lifted) incrementalDependencyFunction []
+              grinFunctionResultRep = lifted,
+              grinFunctionBody =
+                GrinBind characters (GrinConstant characterValues) $
+                  GrinBind [dependencyResult] (GrinCall lifted incrementalDependencyFunction []) $
+                    foldr outputCharacter (GrinConstant [GrinVarValue unitValue]) characters
             }
         ]
     }
+  where
+    lifted = BoxedRep Lifted
+    characters = zipWith (\index character -> GrinVar (T.singleton character) index Int32Rep) [44 ..] "WIDE"
+    characterValues = map (GrinLitValue . GrinLitInt Int32Rep . toInteger . fromEnum) "WIDE"
+    dependencyResult = GrinVar "dependency_result" 48 lifted
+    unitValue = GrinVar "()" 49 lifted
+    outputCharacter character =
+      GrinBind
+        [GrinVar ("output_" <> grinVarName character) (grinVarUnique character + 20) Int32Rep]
+        (GrinForeignCallExpr putcharCall [GrinVarValue character])
 
 incrementalDependencyFunction, incrementalMainFunction :: FunctionName
 incrementalDependencyFunction = FunctionName "$entry$dependency"
