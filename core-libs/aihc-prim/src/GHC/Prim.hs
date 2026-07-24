@@ -6,6 +6,7 @@ module GHC.Prim
   ( addIntC#,
     addWordC#,
     and#,
+    Addr#,
     awaitIO#,
     ByteArray#,
     byteArrayContents#,
@@ -73,6 +74,8 @@ where
 import GHC.Types (TYPE)
 
 data State# s
+
+data Addr#
 
 data ByteArray#
 

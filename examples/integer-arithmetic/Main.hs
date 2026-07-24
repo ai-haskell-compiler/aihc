@@ -1,21 +1,19 @@
-{-# LANGUAGE ExtendedLiterals #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnliftedFFITypes #-}
 
 module Main where
 
 import Foreign.C.Types (CInt (..))
-import GHC.Int (Int32 (..))
+import GHC.Exts (Addr#)
 
-foreign import ccall unsafe putchar :: CInt -> IO CInt
+foreign import ccall unsafe puts :: Addr# -> IO CInt
 
 power :: Integer -> Int -> Integer
 power value count =
   case count of
     0 -> 1
     _ -> value * power value (count - 1)
-
-char value = CInt (I32# value)
 
 integerLow :: Integer -> Int
 integerLow = fromInteger
@@ -36,5 +34,5 @@ main =
                 && integerLow (left * right) == negate 83810205
                 && negate left < 0
                 && abs (negate left) == left
-                then putchar (char 10#Int32)
-                else putchar (char 70#Int32)
+                then puts "ok"#
+                else puts "fail"#
