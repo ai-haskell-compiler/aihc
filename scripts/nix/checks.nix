@@ -196,7 +196,7 @@
     wit-bindgen c --world command --out-dir "$bindings_directory" components/aihc-wasm/runtime/wit
     while IFS= read -r -d "" file; do
       if [[ "$file" == *components/aihc-wasm/runtime/aihc_wasip3.c ]]; then
-        clang-tidy --quiet "$file" -- \
+        clang-tidy-unwrapped --quiet "$file" -- \
           --target=wasm32-unknown-unknown \
           -std=c11 -ffreestanding -Wall -Wextra -Wpedantic \
           -DAIHC_WASIP3 \
