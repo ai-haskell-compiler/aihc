@@ -800,6 +800,58 @@ compileCpsPrimitive env prefix label name arguments continuation = do
                ]
         )
         (BlockLayout.Jump ".Laihc_enter")
+    ("newMVar#", []) ->
+      addBlock
+        label
+        ( prefix
+            <> continuationLines
+            <> [ storeAt "rax" "r14" continuationSlot,
+                 "  mov rdi, r15",
+                 "  call aihc_mvar_new",
+                 loadAt applyFunctionRegister "r14" continuationSlot
+               ]
+        )
+        (BlockLayout.Jump ".Laihc_enter")
+    (operation, [mvar])
+      | Just runtimeFunction <- lookup operation [("readMVar#", "aihc_mvar_read"), ("takeMVar#", "aihc_mvar_take")] -> do
+          mvarSlot <- freshSlot
+          mvarLines <- liftEither (materializeValue env mvar)
+          addBlock
+            label
+            ( prefix
+                <> mvarLines
+                <> [storeAt "rax" "r14" mvarSlot]
+                <> continuationLines
+                <> [ storeAt "rax" "r14" continuationSlot,
+                     loadAt "rsi" "r14" mvarSlot,
+                     loadAt "rdx" "r14" continuationSlot,
+                     "  mov rdi, r15",
+                     "  call " <> runtimeFunction
+                   ]
+            )
+            (BlockLayout.Jump ".Laihc_resume")
+    ("putMVar#", [mvar, value]) -> do
+      mvarSlot <- freshSlot
+      valueSlot <- freshSlot
+      mvarLines <- liftEither (materializeValue env mvar)
+      valueLines <- liftEither (materializeValue env value)
+      addBlock
+        label
+        ( prefix
+            <> mvarLines
+            <> [storeAt "rax" "r14" mvarSlot]
+            <> valueLines
+            <> [storeAt "rax" "r14" valueSlot]
+            <> continuationLines
+            <> [ storeAt "rax" "r14" continuationSlot,
+                 loadAt "rsi" "r14" mvarSlot,
+                 loadAt "rdx" "r14" valueSlot,
+                 loadAt "rcx" "r14" continuationSlot,
+                 "  mov rdi, r15",
+                 "  call aihc_mvar_put"
+               ]
+        )
+        (BlockLayout.Jump ".Laihc_resume")
     ("yield#", []) ->
       addBlock
         label

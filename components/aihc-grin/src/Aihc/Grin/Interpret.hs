@@ -73,6 +73,7 @@ data RuntimeValue
   | RuntimeByteArray !GrinByteArray
   | RuntimeIOHandle !GrinIOHandle
   | RuntimeIORequest !GrinIORequest
+  | RuntimeMVar !Int
   | RuntimeNode !GrinNodeTag ![RuntimeValue]
   | RuntimeLocation !Int
   | RuntimeMutVar !GrinMutVar
@@ -142,6 +143,8 @@ data Machine = Machine
     machineGlobals :: !(Map Text RuntimeValue),
     machineHeap :: !(IntMap HeapCell),
     machineNextLocation :: !Int,
+    machineMVars :: !(IntMap GrinMVarState),
+    machineNextMVar :: !Int,
     machineRunQueue :: !(Seq ThreadAction)
   }
 
@@ -155,6 +158,15 @@ type EvalM = ExceptT EvalFailure (StateT Machine IO)
 -- interpreter action lets yield# switch threads without relying on the host
 -- call stack to represent the resumed computation.
 newtype ThreadAction = ThreadAction (EvalM [RuntimeValue])
+
+newtype MVarValueWaiter = MVarValueWaiter (RuntimeValue -> ThreadAction)
+
+data GrinMVarState = GrinMVarState
+  { grinMVarValue :: !(Maybe RuntimeValue),
+    grinMVarReaders :: !(Seq MVarValueWaiter),
+    grinMVarTakers :: !(Seq MVarValueWaiter),
+    grinMVarPutters :: !(Seq (RuntimeValue, ThreadAction))
+  }
 
 type ScheduledContinuation = [RuntimeValue] -> EvalM [RuntimeValue]
 
@@ -231,6 +243,8 @@ initialMachine program =
           | ((_, node), location) <- zip globalNodes [0 ..]
           ],
       machineNextLocation = length globalNodes,
+      machineMVars = IntMap.empty,
+      machineNextMVar = 0,
       machineRunQueue = Seq.empty
     }
   where
@@ -354,8 +368,95 @@ evalScheduledPrimitive "yield#" [] continue = do
 evalScheduledPrimitive "awaitIO#" [RuntimeIORequest request] continue = do
   completeIORequest request
   continue []
+evalScheduledPrimitive "newMVar#" [] continue = do
+  identifier <- getsMachine machineNextMVar
+  let mvar =
+        GrinMVarState
+          { grinMVarValue = Nothing,
+            grinMVarReaders = Seq.empty,
+            grinMVarTakers = Seq.empty,
+            grinMVarPutters = Seq.empty
+          }
+  modifyMachine $ \machine ->
+    machine
+      { machineMVars = IntMap.insert identifier mvar (machineMVars machine),
+        machineNextMVar = identifier + 1
+      }
+  continue [RuntimeMVar identifier]
+evalScheduledPrimitive "readMVar#" [mvarValue] continue = do
+  (identifier, mvar) <- expectMVarPrimitiveArgument "readMVar#" mvarValue
+  case grinMVarValue mvar of
+    Just value -> continue [value]
+    Nothing -> do
+      let waiter = MVarValueWaiter (\value -> ThreadAction (continue [value]))
+      writeMVarState identifier mvar {grinMVarReaders = grinMVarReaders mvar |> waiter}
+      scheduleNextThread
+evalScheduledPrimitive "takeMVar#" [mvarValue] continue = do
+  (identifier, mvar) <- expectMVarPrimitiveArgument "takeMVar#" mvarValue
+  case grinMVarValue mvar of
+    Nothing -> do
+      let waiter = MVarValueWaiter (\value -> ThreadAction (continue [value]))
+      writeMVarState identifier mvar {grinMVarTakers = grinMVarTakers mvar |> waiter}
+      scheduleNextThread
+    Just value -> do
+      case Seq.viewl (grinMVarPutters mvar) of
+        EmptyL -> writeMVarState identifier mvar {grinMVarValue = Nothing}
+        (nextValue, ThreadAction putter) :< remaining -> do
+          writeMVarState
+            identifier
+            mvar
+              { grinMVarValue = Just nextValue,
+                grinMVarPutters = remaining
+              }
+          enqueueThread putter
+      continue [value]
+evalScheduledPrimitive "putMVar#" [mvarValue, value] continue = do
+  (identifier, mvar) <- expectMVarPrimitiveArgument "putMVar#" mvarValue
+  case grinMVarValue mvar of
+    Just _ -> do
+      let putter = ThreadAction (continue [])
+      writeMVarState identifier mvar {grinMVarPutters = grinMVarPutters mvar |> (value, putter)}
+      scheduleNextThread
+    Nothing -> do
+      mapM_ (enqueueValueWaiter value) (grinMVarReaders mvar)
+      case Seq.viewl (grinMVarTakers mvar) of
+        EmptyL ->
+          writeMVarState
+            identifier
+            mvar
+              { grinMVarValue = Just value,
+                grinMVarReaders = Seq.empty
+              }
+        taker :< remaining -> do
+          enqueueValueWaiter value taker
+          writeMVarState
+            identifier
+            mvar
+              { grinMVarReaders = Seq.empty,
+                grinMVarTakers = remaining
+              }
+      continue []
 evalScheduledPrimitive name arguments continue =
   continue =<< evalPrimitive name arguments
+
+enqueueValueWaiter :: RuntimeValue -> MVarValueWaiter -> EvalM ()
+enqueueValueWaiter value (MVarValueWaiter resume) =
+  case resume value of
+    ThreadAction action -> enqueueThread action
+
+expectMVarPrimitiveArgument :: Text -> RuntimeValue -> EvalM (Int, GrinMVarState)
+expectMVarPrimitiveArgument name value =
+  case value of
+    RuntimeMVar identifier -> do
+      mvars <- getsMachine machineMVars
+      case IntMap.lookup identifier mvars of
+        Just mvar -> pure (identifier, mvar)
+        Nothing -> throwInterpret (InterpretPrimitiveTypeError name value)
+    other -> throwInterpret (InterpretPrimitiveTypeError name other)
+
+writeMVarState :: Int -> GrinMVarState -> EvalM ()
+writeMVarState identifier mvar =
+  modifyMachine $ \machine -> machine {machineMVars = IntMap.insert identifier mvar (machineMVars machine)}
 
 finishChild :: EvalFailure -> EvalM [RuntimeValue]
 finishChild failure =
@@ -584,6 +685,7 @@ isLiftedRuntimeValue value =
     RuntimeIOHandle {} -> False
     RuntimeByteArray {} -> False
     RuntimeIORequest {} -> False
+    RuntimeMVar {} -> False
     RuntimeNode {} -> True
     RuntimeLocation {} -> True
     RuntimeMutVar {} -> False
@@ -1133,6 +1235,7 @@ renderRawValueM value = do
     RuntimeIOHandle {} -> pure "<io-handle>"
     RuntimeByteArray {} -> pure "<byte-array>"
     RuntimeIORequest {} -> pure "<io-request>"
+    RuntimeMVar {} -> pure "<mvar>"
     RuntimeNode (GrinConstructor "C#" 0) [char] -> renderBoxedChar char
     RuntimeNode (GrinConstructor name 0) [] -> pure name
     RuntimeNode (GrinConstructor name 0) arguments
@@ -1259,6 +1362,7 @@ snapshotRuntimeValue value =
     RuntimeIOHandle {} -> pure SnapshotAddress
     RuntimeByteArray {} -> pure SnapshotAddress
     RuntimeIORequest {} -> pure SnapshotAddress
+    RuntimeMVar {} -> pure SnapshotMutVar
     RuntimeNode {} -> do
       valueSources <- gets snapshotBuildValueSources
       case lookup value valueSources of

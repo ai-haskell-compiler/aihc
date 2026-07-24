@@ -202,7 +202,7 @@
     test "$failed" -eq 0
   '';
 
-  examplesTests = mkSourceCheck "aihc-examples-tests" (sources.examplesSrc pkgs) [pkgs.coreutils pkgs.diffutils pkgs.findutils pkgs.llvmPackages.clang] ''
+  examplesTests = mkSourceCheck "aihc-examples-tests" (sources.examplesSrc pkgs) [pkgs.coreutils pkgs.diffutils pkgs.findutils pkgs.ghc pkgs.llvmPackages.clang] ''
     set -euo pipefail
     export XDG_CACHE_HOME="$TMPDIR/cache"
 
@@ -213,6 +213,21 @@
       if [[ ! -f "$expected_stdout" ]]; then
         echo "Missing expected stdout for $source: $expected_stdout" >&2
         exit 1
+      fi
+
+      if [[ "$example_name" == mvars ]]; then
+        ghc_executable="$TMPDIR/$example_name-ghc"
+        ghc_output_directory="$TMPDIR/$example_name-ghc-output"
+        mkdir -p "$ghc_output_directory"
+        ghc -v0 \
+          -outputdir "$ghc_output_directory" \
+          -o "$ghc_executable" \
+          "$source"
+        "$ghc_executable" > "$ghc_executable.stdout"
+        diff --unified \
+          --label "$example_name/expected" \
+          --label "$example_name/ghc-non-threaded" \
+          "$expected_stdout" "$ghc_executable.stdout"
       fi
 
       ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest compilationMatrix}

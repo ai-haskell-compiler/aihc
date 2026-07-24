@@ -35,7 +35,11 @@ tests =
       testCase "accepts the Integer arithmetic primitive API" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          integerPrimitiveNames
+          integerPrimitiveNames,
+      testCase "accepts the scheduler-aware MVar API in native programs" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          ["newMVar#", "readMVar#", "takeMVar#", "putMVar#"]
     ]
 
 byteArrayRuntimeSymbols :: [(Text, Text)]

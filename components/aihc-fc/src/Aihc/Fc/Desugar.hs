@@ -498,6 +498,10 @@ primitiveImportSpecs =
         "fork#"
         "(State# RealWorld -> (# State# RealWorld, a #)) -> State# RealWorld -> (# State# RealWorld, ThreadId# #)",
       primitive "awaitIO#" "Addr# -> State# RealWorld -> State# RealWorld",
+      primitive "newMVar#" "State# d -> (# State# d, MVar# d a #)",
+      primitive "readMVar#" "MVar# d a -> State# d -> (# State# d, a #)",
+      primitive "takeMVar#" "MVar# d a -> State# d -> (# State# d, a #)",
+      primitive "putMVar#" "MVar# d a -> a -> State# d -> State# d",
       primitive "newMutVar#" "a -> State# d -> (# State# d, MutVar# d a #)",
       primitive "readMutVar#" "MutVar# d a -> State# d -> (# State# d, a #)",
       primitive "writeMutVar#" "MutVar# d a -> a -> State# d -> State# d",

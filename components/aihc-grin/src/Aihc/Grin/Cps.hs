@@ -419,7 +419,7 @@ exprUniques expression =
 
 isControlPrimitive :: T.Text -> Bool
 isControlPrimitive name =
-  name `elem` ["awaitIO#", "fork#", "yield#"]
+  name `elem` ["awaitIO#", "fork#", "newMVar#", "putMVar#", "readMVar#", "takeMVar#", "yield#"]
 
 alternativeUniques :: GrinAlt -> [Int]
 alternativeUniques alternative =
