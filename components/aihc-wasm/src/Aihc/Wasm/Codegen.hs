@@ -54,8 +54,7 @@ data CompileEnv = CompileEnv
 
 data ValueEnv = ValueEnv
   { valueCompileEnv :: !CompileEnv,
-    valueLocalSlots :: !(Map GrinVar Int),
-    valueScratchBase :: !Int
+    valueLocals :: !(Map GrinVar Int)
   }
 
 data RuntimeInfo = RuntimeInfo
@@ -86,7 +85,7 @@ data InitialNode = InitialNode
   }
 
 data CompiledFunction = CompiledFunction
-  { compiledFunctionSlots :: !Int,
+  { compiledFunctionScratchSlots :: !Int,
     compiledFunctionLines :: ![Text]
   }
 
@@ -123,10 +122,11 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
         moduleHeader env dependencyInitializers program
           <> concatMap compiledFunctionLines functions
           <> renderSpecialFunctions
-          <> renderProgramInitializer (length (linkGlobalNames layout)) rootSlot dependencyInitializers functions constructorInit programInit
+          <> renderProgramInitializer (length (linkGlobalNames layout)) rootSlot dependencyInitializers constructorInit programInit
           <> renderRuntimeSymbols
           <> renderAddrLiterals env
           <> renderRuntimeInfos (compileRuntimeInfos env <> specialInfos)
+          <> renderScratch functions
           <> ["\t.no_dead_strip\t__indirect_function_table", ""]
   pure (T.unlines source)
   where
@@ -145,6 +145,7 @@ compileModule layout initializerSymbol gcProgram = do
           <> renderModuleInitializer initializerSymbol programInit
           <> renderAddrLiterals env
           <> renderRuntimeInfos (compileRuntimeInfos env)
+          <> renderScratch functions
           <> ["\t.no_dead_strip\t__indirect_function_table", ""]
   pure (T.unlines source)
   where
@@ -259,16 +260,12 @@ foreignValueType GrinForeignAddr = I32
 runtimeFunctionTypes :: [(Text, ([WasmValueType], [WasmValueType]))]
 runtimeFunctionTypes =
   [ ("aihc_machine_new", ([I64], [I32])),
-    ("aihc_alloc_locals", ([I32, I64], [I32])),
     ("aihc_wasm_make_node", ([I32, I64, I32], [I64])),
     ("aihc_wasm_make_node_unchecked", ([I32, I64, I32], [I64])),
     ("aihc_ensure_heap", ([I32, I64, I64, I32], [])),
     ("aihc_wasm_set_field", ([I64, I64, I64], [])),
     ("aihc_wasm_update", ([I64, I64], [])),
     ("aihc_wasm_update_blackhole", ([I32, I64, I64], [])),
-    ("aihc_wasm_slot_get", ([I32, I64], [I64])),
-    ("aihc_wasm_slot_set", ([I32, I64, I64], [])),
-    ("aihc_wasm_slot_address", ([I32, I64], [I32])),
     ("aihc_wasm_global_get", ([I32, I64], [I64])),
     ("aihc_wasm_global_set", ([I32, I64, I64], [])),
     ("aihc_wasm_value_field", ([I64, I64], [I64])),
@@ -300,29 +297,24 @@ runtimeFunctionTypes =
 compileFunction :: CompileEnv -> GrinFunction -> Either WasmError CompiledFunction
 compileFunction env function = do
   label <- functionCodeLabel env (grinFunctionName function)
-  let slots = functionLocalSlots function
+  let valueLocals = functionValueLocals function
       scratchCount = maximumScratchSlots (grinFunctionBody function)
-      slotCount = max 1 (Map.size slots + scratchCount)
-      valueEnv = ValueEnv env slots (Map.size slots)
+      valueEnv = ValueEnv env valueLocals
   body <- compileExpr valueEnv (grinFunctionBody function)
   let parameterLines = concatMap copyParameter (zip [0 :: Int ..] (grinFunctionParameters function))
       copyParameter (index, var) =
-        case Map.lookup var slots of
+        case Map.lookup var valueLocals of
           Nothing -> []
-          Just slot -> localSet slot (argumentGet index)
+          Just wasmLocal -> setWasmLocal wasmLocal (argumentGet index)
   pure
     CompiledFunction
-      { compiledFunctionSlots = slotCount,
+      { compiledFunctionScratchSlots = scratchCount,
         compiledFunctionLines =
-          functionStart label [I32, I32, I64]
+          functionStart label ([I32, I64] <> replicate (Map.size valueLocals) I64)
             <> indent
               ( [ "i32.const\t0",
                   "i32.load\taihc_machine",
-                  "local.set\t1",
-                  "local.get\t1",
-                  "i64.const\t" <> tshow slotCount,
-                  "call\taihc_alloc_locals",
-                  "local.set\t2"
+                  "local.set\t1"
                 ]
                   <> parameterLines
                   <> body
@@ -418,12 +410,10 @@ compileDirectBinding env vars expression =
     GrinStore node -> storeNode False node
     GrinEnsureHeap requiredWords roots
       | length vars == length roots -> do
-          slots <- mapM (localSlot env) vars
-          let stores = concat [localSetFor env var (materializeValue env value) | (var, value) <- zip vars roots]
-              rootsAddress = case slots of
-                [] -> i32Const "0"
-                slot : _ -> locals <> i64Const (tshow slot) <> call "aihc_wasm_slot_address"
-          pure (stores <> machine <> i64Const (tshow requiredWords) <> i64Const (tshow (length roots)) <> rootsAddress <> call "aihc_ensure_heap")
+          let stores = concat [storeScratch index (materializeValue env root) | (index, root) <- zip [0 :: Int ..] roots]
+              reloads = concat [localSetFor env var (loadScratch index) | (index, var) <- zip [0 :: Int ..] vars]
+              rootsAddress = if null roots then i32Const "0" else scratchAddress
+          pure (stores <> machine <> i64Const (tshow requiredWords) <> i64Const (tshow (length roots)) <> rootsAddress <> call "aihc_ensure_heap" <> reloads)
     GrinStoreUnchecked node -> storeNode True node
     GrinFetch _ pointer -> storeSingle (materializeValue env pointer)
     GrinUpdate pointer value -> update "aihc_wasm_update" False pointer value
@@ -483,7 +473,7 @@ compileForeignCall env foreignCall arguments = do
 compileCase :: ValueEnv -> GrinValue -> GrinVar -> [GrinAlt] -> Either WasmError Instructions
 compileCase env scrutinee binder alternatives = do
   choices <- compileChoices alternatives
-  pure (materializeValue env scrutinee <> ["local.set\t3"] <> localSetFor env binder ["local.get\t3"] <> choices)
+  pure (materializeValue env scrutinee <> ["local.set\t2"] <> localSetFor env binder ["local.get\t2"] <> choices)
   where
     pointer = isPointerRuntimeRep (grinValueRuntimeRep scrutinee)
     compileChoices [] = pure (call "aihc_no_match" <> ["unreachable"])
@@ -494,7 +484,7 @@ compileCase env scrutinee binder alternatives = do
           GrinDataAlt name
             | pointer -> do
                 identifier <- constructorId (valueCompileEnv env) name
-                pure (["local.get\t3"] <> call "aihc_wasm_value_info" <> i64Const (tshow identifier) <> ["i64.eq"])
+                pure (["local.get\t2"] <> call "aihc_wasm_value_info" <> i64Const (tshow identifier) <> ["i64.eq"])
           GrinDataAlt {} -> Left (WasmUnsupportedExpression "constructor case on unboxed value")
           GrinLitAlt literal
             | pointer -> Left (WasmUnsupportedExpression "literal case on lifted value")
@@ -507,9 +497,9 @@ compileCase env scrutinee binder alternatives = do
     compileAlternative alternative = do
       bindings <- case grinAltCon alternative of
         GrinDataAlt _ -> fmap concat . forM (zip [0 :: Int ..] (grinAltBinders alternative)) $ \(index, var) ->
-          pure (localSetFor env var (["local.get\t3"] <> i64Const (tshow index) <> call "aihc_wasm_value_field"))
+          pure (localSetFor env var (["local.get\t2"] <> i64Const (tshow index) <> call "aihc_wasm_value_field"))
         GrinLitAlt _ -> pure []
-        GrinDefaultAlt -> pure (concatMap (\var -> localSetFor env var ["local.get\t3"]) (grinAltBinders alternative))
+        GrinDefaultAlt -> pure (concatMap (\var -> localSetFor env var ["local.get\t2"]) (grinAltBinders alternative))
       (bindings <>) <$> compileExpr env (grinAltRhs alternative)
 
 allocateNodeInto :: ValueEnv -> Bool -> GrinVar -> GrinNode -> Either WasmError Instructions
@@ -529,8 +519,8 @@ initializeNodeFields env object node =
 materializeValue :: ValueEnv -> GrinValue -> Instructions
 materializeValue env value = case value of
   GrinVarValue var ->
-    case Map.lookup var (valueLocalSlots env) of
-      Just slot -> localGetSlot slot
+    case Map.lookup var (valueLocals env) of
+      Just wasmLocal -> getWasmLocal wasmLocal
       Nothing -> case Map.lookup (grinVarName var) (compileGlobalSlots (valueCompileEnv env)) of
         Just slot -> machine <> i64Const (tshow slot) <> call "aihc_wasm_global_get"
         Nothing -> call "aihc_no_match" <> ["unreachable", "i64.const\t0"]
@@ -543,33 +533,44 @@ materializeValue env value = case value of
 storeScratchValues :: ValueEnv -> [GrinValue] -> Either WasmError Instructions
 storeScratchValues env values =
   pure
-    ( concat [localSet (valueScratchBase env + index) (materializeValue env value) | (index, value) <- zip [0 :: Int ..] values]
+    ( concat [storeScratch index (materializeValue env value) | (index, value) <- zip [0 :: Int ..] values]
         <> case values of
           [] -> i32Const "0"
-          _ -> locals <> i64Const (tshow (valueScratchBase env)) <> call "aihc_wasm_slot_address"
+          _ -> scratchAddress
     )
 
 argumentGet :: Int -> Instructions
-argumentGet index = ["local.get\t0"] <> i64Const (tshow index) <> call "aihc_wasm_slot_get"
+argumentGet = loadSlot ["local.get\t0"]
 
 localGet :: ValueEnv -> GrinVar -> Instructions
-localGet env var = maybe (i64Const "0") localGetSlot (Map.lookup var (valueLocalSlots env))
+localGet env var = maybe (i64Const "0") getWasmLocal (Map.lookup var (valueLocals env))
 
-localGetSlot :: Int -> Instructions
-localGetSlot slot = locals <> i64Const (tshow slot) <> call "aihc_wasm_slot_get"
+getWasmLocal :: Int -> Instructions
+getWasmLocal wasmLocal = ["local.get\t" <> tshow wasmLocal]
 
 localSetFor :: ValueEnv -> GrinVar -> Instructions -> Instructions
-localSetFor env var value = maybe [] (`localSet` value) (Map.lookup var (valueLocalSlots env))
+localSetFor env var value = maybe [] (`setWasmLocal` value) (Map.lookup var (valueLocals env))
 
-localSet :: Int -> Instructions -> Instructions
-localSet slot value = locals <> i64Const (tshow slot) <> value <> call "aihc_wasm_slot_set"
+setWasmLocal :: Int -> Instructions -> Instructions
+setWasmLocal wasmLocal value = value <> ["local.set\t" <> tshow wasmLocal]
 
-localSlot :: ValueEnv -> GrinVar -> Either WasmError Int
-localSlot env var = maybe (Left (WasmUnsupportedExpression ("missing local slot for " <> grinVarName var))) Right (Map.lookup var (valueLocalSlots env))
+loadScratch :: Int -> Instructions
+loadScratch = loadSlot scratchAddress
 
-machine, locals :: Instructions
+storeScratch :: Int -> Instructions -> Instructions
+storeScratch = storeSlot scratchAddress
+
+scratchAddress :: Instructions
+scratchAddress = i32Data "aihc_wasm_scratch"
+
+loadSlot :: Instructions -> Int -> Instructions
+loadSlot address index = address <> ["i64.load\t" <> tshow (index * 8)]
+
+storeSlot :: Instructions -> Int -> Instructions -> Instructions
+storeSlot address index value = address <> value <> ["i64.store\t" <> tshow (index * 8)]
+
+machine :: Instructions
 machine = ["local.get\t1"]
-locals = ["local.get\t2"]
 
 i32Const, i64Const, i32Symbol, i32Data, call :: Text -> Instructions
 i32Const value = ["i32.const\t" <> value]
@@ -613,14 +614,10 @@ renderSpecialFunctions =
   functionStart "aihc_wasm_top_continuation" []
     <> indent
       ( ["i32.const\t0", "i32.load\taihc_machine"]
-          <> ["local.get\t0"]
-          <> i64Const "1"
-          <> call "aihc_wasm_slot_get"
+          <> loadSlot ["local.get\t0"] 1
           <> i64Const "0"
           <> i32Const "0"
-          <> ["local.get\t0"]
-          <> i64Const "0"
-          <> call "aihc_wasm_slot_get"
+          <> loadSlot ["local.get\t0"] 0
           <> call "aihc_wasm_transfer_apply"
           <> ["return"]
       )
@@ -661,19 +658,16 @@ compileInitializers env program = mapM withSlot (grinCafs program <> grinWhnfGlo
         GrinLitAddr bytes -> maybe (Left (WasmUnsupportedValue "unregistered initializer address")) (Right . InitialAddress) (Map.lookup bytes (compileAddrLiteralLabels env))
         _ -> maybe (Left (WasmUnsupportedValue "unsupported initializer literal")) (Right . InitialInteger) (normalizedLiteralInteger literal)
 
-renderProgramInitializer :: Int -> Int -> [Text] -> [CompiledFunction] -> [(Int, Text)] -> [InitialNode] -> [Text]
-renderProgramInitializer globalCount rootSlot dependencyInitializers functions constructors globals =
-  functionStartNoArguments "aihc_wasm_program_initialize" [I32, I32, I64]
+renderProgramInitializer :: Int -> Int -> [Text] -> [(Int, Text)] -> [InitialNode] -> [Text]
+renderProgramInitializer globalCount rootSlot dependencyInitializers constructors globals =
+  functionStartNoArguments "aihc_wasm_program_initialize" [I32, I64, I64, I64, I64, I64]
     <> indent
       ( i64Const (tshow globalCount)
           <> call "aihc_machine_new"
-          <> ["local.set\t0", "i32.const\t0", "local.get\t0", "i32.store\taihc_machine", "local.get\t0"]
-          <> i64Const (tshow maximumSlots)
-          <> call "aihc_alloc_locals"
-          <> ["local.set\t1"]
-          <> concatMap (uncurry (initializeGlobalNode machineValue 2 0)) constructors
+          <> ["local.set\t0", "i32.const\t0", "local.get\t0", "i32.store\taihc_machine"]
+          <> concatMap (uncurry (initializeGlobalNode machineValue 1 0)) constructors
           <> concatMap call dependencyInitializers
-          <> concatMap (\node -> initializeGlobalNode machineValue 2 (initialNodeTag node) (initialNodeSlot node) (initialNodeInfo node)) globals
+          <> concatMap (\node -> initializeGlobalNode machineValue 1 (initialNodeTag node) (initialNodeSlot node) (initialNodeInfo node)) globals
           <> concatMap (initializeGlobalFields machineValue) globals
           <> initializeSpecials
           <> ["local.get\t0"]
@@ -687,13 +681,12 @@ renderProgramInitializer globalCount rootSlot dependencyInitializers functions c
       )
     <> functionEnd
   where
-    maximumSlots = max 4 (maximum (1 : map compiledFunctionSlots functions))
     machineValue = ["local.get\t0"]
     globalGet = globalValue machineValue
     specialSet :: Int -> Instructions -> Instructions
-    specialSet slot value = ["local.get\t1"] <> i64Const (tshow slot) <> value <> call "aihc_wasm_slot_set"
+    specialSet slot value = value <> ["local.set\t" <> tshow (slot + 2)]
     specialGet :: Int -> Instructions
-    specialGet slot = ["local.get\t1"] <> i64Const (tshow slot) <> call "aihc_wasm_slot_get"
+    specialGet slot = ["local.get\t" <> tshow (slot + 2)]
     makeSpecial info = ["local.get\t0"] <> i64Const "1" <> i32Data info <> call "aihc_wasm_make_node"
     initializeSpecials =
       specialSet 0 (makeSpecial "aihc_wasm_final_info")
@@ -729,6 +722,20 @@ renderModuleInitializer initializerSymbol globals =
     <> functionEnd
   where
     machineValue = ["local.get\t0"]
+
+renderScratch :: [CompiledFunction] -> [Text]
+renderScratch functions =
+  [ "\t.type\t" <> dataLabel scratchLabel <> ",@object",
+    "\t.section\t.bss." <> dataLabel scratchLabel <> ",\"\",@",
+    "\t.p2align\t3, 0x0",
+    dataLabel scratchLabel <> ":",
+    "\t.skip\t" <> tshow size,
+    "\t.size\t" <> dataLabel scratchLabel <> ", " <> tshow size,
+    ""
+  ]
+  where
+    size = max 1 (maximum (0 : map compiledFunctionScratchSlots functions)) * 8
+    scratchLabel = "aihc_wasm_scratch"
 
 initializeGlobalNode :: Instructions -> Int -> Int -> Int -> Text -> Instructions
 initializeGlobalNode machineValue temporary tag slot info =
@@ -884,8 +891,8 @@ runtimeInfoKeyNext key = case key of
   ClosureRuntimeInfo {} -> Nothing
   ThunkRuntimeInfo {} -> Nothing
 
-functionLocalSlots :: GrinFunction -> Map GrinVar Int
-functionLocalSlots function = snd (foldl' assignGroup (0, Map.empty) groups)
+functionValueLocals :: GrinFunction -> Map GrinVar Int
+functionValueLocals function = snd (foldl' assignGroup (3, Map.empty) groups)
   where
     groups = grinFunctionParameters function : boundVarGroups (grinFunctionBody function)
     assignGroup = foldl' $ \(next, slots) var -> case Map.lookup var slots of
@@ -900,6 +907,7 @@ maximumScratchSlots expression = case expression of
   GrinCall _ _ values -> length values
   GrinCpsApply _ _ values _ -> length values
   GrinContinue _ values -> length values
+  GrinEnsureHeap _ roots -> length roots
   GrinCase _ _ alternatives -> maximum (0 : map (maximumScratchSlots . grinAltRhs) alternatives)
   _ -> 0
 

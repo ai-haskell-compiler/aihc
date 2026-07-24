@@ -17,6 +17,8 @@ tests =
   testGroup
     "Direct WebAssembly backend"
     [ testCase "emits WebAssembly assembly without C or LLVM IR" testDirectModule,
+      testCase "keeps GRIN variables in WebAssembly locals" testWasmLocals,
+      testCase "stages only explicit moving-GC roots in memory" testGcRootStaging,
       testCase "passes direct-call arguments through the machine transfer vector" testDirectCallArguments,
       testCase "rejects a missing entry point" testMissingEntry,
       testCase "rejects unsupported primitives" testUnsupportedPrimitive,
@@ -36,11 +38,37 @@ testDirectModule =
       case compileProgram "main" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
-          assertBool "WebAssembly instructions" ("\t.functype\t" `T.isInfixOf` source && "call\taihc_alloc_locals" `T.isInfixOf` source)
+          assertBool "WebAssembly instructions" ("\t.functype\t" `T.isInfixOf` source && "local.set\t" `T.isInfixOf` source)
           assertBool "generated entry" (".Laihc_wasm_function_0:" `T.isInfixOf` source)
           assertBool "generated entry is object-local" (not (".globl\t.Laihc_wasm_function_0" `T.isInfixOf` source))
           assertBool "not portable C" (not ("#include" `T.isInfixOf` source))
           assertBool "not LLVM IR" (not ("target triple" `T.isInfixOf` source))
+
+testWasmLocals :: IO ()
+testWasmLocals =
+  case toCpsGrin directCallProgram of
+    Left err -> assertFailure (show err)
+    Right cps ->
+      case compileModule (buildLinkLayout [directCallProgram]) "_aihc_init_wasm_locals" (lowerGc cps) of
+        Left err -> assertFailure (show err)
+        Right source -> do
+          assertBool "loads the incoming parameter directly" ("i64.load\t0" `T.isInfixOf` source)
+          assertBool "assigns and reads WebAssembly locals" ("local.set\t3" `T.isInfixOf` source && "local.get\t3" `T.isInfixOf` source)
+          assertBool "does not allocate runtime local storage" (not ("call\taihc_alloc_locals" `T.isInfixOf` source))
+          assertBool "does not use C slot accessors" (not ("aihc_wasm_slot_" `T.isInfixOf` source))
+
+testGcRootStaging :: IO ()
+testGcRootStaging =
+  case toCpsGrin gcRootProgram of
+    Left err -> assertFailure (show err)
+    Right cps ->
+      case compileModule (buildLinkLayout [gcRootProgram]) "_aihc_init_gc_roots" (lowerGc cps) of
+        Left err -> assertFailure (show err)
+        Right source -> do
+          let (beforeCollection, fromCollection) = T.breakOn "call\taihc_ensure_heap" source
+          assertBool "emits an explicit collection safepoint" (not (T.null fromCollection))
+          assertBool "stages the live root before collection" ("i64.store\t0" `T.isInfixOf` beforeCollection)
+          assertBool "reloads the relocated root after collection" ("i64.load\t0" `T.isInfixOf` fromCollection)
 
 testDirectCallArguments :: IO ()
 testDirectCallArguments =
@@ -51,7 +79,7 @@ testDirectCallArguments =
         Left err -> assertFailure (show err)
         Right source -> do
           assertBool "direct transfer receives machine, entry, count, and values" ("\t.functype\taihc_wasm_transfer_direct (i32, i32, i64, i32) -> ()" `T.isInfixOf` source)
-          assertBool "materializes direct-call arguments in local scratch space" ("call\taihc_wasm_slot_address" `T.isInfixOf` source)
+          assertBool "materializes direct-call arguments in module scratch space" (".Laihc_wasm_scratch" `T.isInfixOf` source && "i64.store\t0" `T.isInfixOf` source)
           assertBool "does not use a fixed shared argument buffer" (not ("aihc_arguments" `T.isInfixOf` source))
 
 testMissingEntry :: IO ()
@@ -188,6 +216,29 @@ directCallProgram =
   where
     argument = GrinVar "argument" 50 (BoxedRep Lifted)
     identityFunction = FunctionName "$identity"
+
+gcRootProgram :: GrinProgram
+gcRootProgram =
+  GrinProgram
+    { grinConstructors = [("Box", [[BoxedRep Lifted]])],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "$allocate_box",
+              grinFunctionLinkName = Just "allocate_box",
+              grinFunctionParameters = [root],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody = GrinStore (GrinNode (GrinConstructor "Box" 0) [GrinVarValue root])
+            }
+        ]
+    }
+  where
+    root = GrinVar "root" 55 (BoxedRep Lifted)
 
 byteArrayProgram :: GrinProgram
 byteArrayProgram =

@@ -28,6 +28,15 @@ next operation by calling one of the `aihc_wasm_transfer_*` runtime helpers;
 the P3 driver then runs the resulting trampoline until the program finishes or
 all green threads are waiting for IO.
 
+Each GRIN variable is assigned an `i64` WebAssembly local. Values are copied to
+linear memory only at ABI boundaries that require an address: outgoing runtime
+argument vectors and the live-root vector of a `GrinEnsureHeap` safepoint. Each
+generated object owns a private scratch buffer sized for its largest such
+vector. After a moving collection, generated code reloads the relocated roots
+into their result locals. Ordinary variable access therefore compiles to
+`local.get` and `local.set`, without C accessor calls or runtime-allocated local
+arrays.
+
 Runtime info tables are ordinary relocatable data objects. Function addresses
 in those tables become Wasm table indices when `wasm-ld` links the program and
 runtime. Heap pointers remain 32-bit Wasm addresses represented in the shared

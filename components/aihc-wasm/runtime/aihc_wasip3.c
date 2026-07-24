@@ -134,18 +134,6 @@ void aihc_wasm_update_blackhole(AihcMachine *machine, AihcSlot object,
   aihc_update_blackhole(machine, aihc_value(object), aihc_value(value));
 }
 
-AihcSlot aihc_wasm_slot_get(AihcSlot *slots, uint64_t index) {
-  return slots[index];
-}
-
-void aihc_wasm_slot_set(AihcSlot *slots, uint64_t index, AihcSlot value) {
-  slots[index] = value;
-}
-
-AihcSlot *aihc_wasm_slot_address(AihcSlot *slots, uint64_t index) {
-  return slots + index;
-}
-
 AihcSlot aihc_wasm_global_get(AihcMachine *machine, uint64_t index) {
   return machine->globals[index];
 }
