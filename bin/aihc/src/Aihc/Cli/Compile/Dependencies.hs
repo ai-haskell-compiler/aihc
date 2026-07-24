@@ -177,7 +177,7 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 19
+cacheSchemaVersion = 20
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
@@ -526,7 +526,7 @@ objectCompiler target sourcePath objectPath = do
     PortableC -> cCompiler compiler targetArguments
     AppleArm64 -> pure (compiler, nativeArguments targetArguments)
     LinuxAmd64 -> pure (compiler, nativeArguments targetArguments)
-    Wasm32Wasip3 -> pure (compiler, nativeArguments targetArguments)
+    Wasm32Wasip3 -> pure (compiler, targetArguments <> ["-mtail-call", "-c", sourcePath, "-o", objectPath])
   where
     nativeArguments targetArguments = targetArguments <> ["-c", sourcePath, "-o", objectPath]
     cCompiler compiler targetArguments = do

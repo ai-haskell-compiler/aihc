@@ -562,7 +562,7 @@ assembleWasip3 garbageCollector output assemblyPath archives = do
           ]
             <> includeArguments
     runTool "wit-bindgen" ["c", "--world", "command", "--out-dir", directory, world]
-    runTool clang (clangTargetArguments <> ["-c", assemblyPath, "-o", programObject])
+    runTool clang (clangTargetArguments <> ["-mtail-call", "-c", assemblyPath, "-o", programObject])
     runTool clang (clangTargetArguments <> cArguments <> ["-c", nativeRuntime, "-o", runtimeObject])
     runTool clang (clangTargetArguments <> cArguments <> ["-c", driver, "-o", driverObject])
     runTool clang (clangTargetArguments <> cArguments <> ["-c", bindingsSource, "-o", bindingsObject])

@@ -20,7 +20,8 @@ tests =
       testCase "keeps GRIN variables in WebAssembly locals" testWasmLocals,
       testCase "compares literal alternatives against the case scrutinee" testLiteralCaseScrutinee,
       testCase "stages only explicit moving-GC roots in memory" testGcRootStaging,
-      testCase "passes direct-call arguments through the machine transfer vector" testDirectCallArguments,
+      testCase "passes known direct-call arguments through typed tail calls" testDirectCallArguments,
+      testCase "loads captured values through object-entry adapters" testObjectEntryAdapters,
       testCase "rejects a missing entry point" testMissingEntry,
       testCase "rejects unsupported primitives" testUnsupportedPrimitive,
       testCase "traps dormant unsupported primitives in dependency modules" testDormantPrimitive,
@@ -53,8 +54,10 @@ testWasmLocals =
       case compileModule (buildLinkLayout [directCallProgram]) "_aihc_init_wasm_locals" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
-          assertBool "loads the incoming parameter directly" ("i64.load\t0" `T.isInfixOf` source)
-          assertBool "assigns and reads WebAssembly locals" ("local.set\t3" `T.isInfixOf` source && "local.get\t3" `T.isInfixOf` source)
+          let (_, fromFastEntry) = T.breakOn "aihc_link_63616c6c6572:" source
+              fastEntry = fst (T.breakOn "\tend_function" fromFastEntry)
+          assertBool "reads the incoming parameter directly" ("local.get\t1" `T.isInfixOf` fastEntry)
+          assertBool "does not copy fast-entry parameters from memory" (not ("i64.load" `T.isInfixOf` fastEntry))
           assertBool "does not allocate runtime local storage" (not ("call\taihc_alloc_locals" `T.isInfixOf` source))
           assertBool "does not use C slot accessors" (not ("aihc_wasm_slot_" `T.isInfixOf` source))
 
@@ -68,7 +71,7 @@ testLiteralCaseScrutinee =
         Right source ->
           assertBool
             "compares the saved scrutinee rather than an unrelated GRIN local"
-            ("local.get\t2\n\ti64.const\t7\n\ti64.eq" `T.isInfixOf` source)
+            ("local.get\t3\n\ti64.const\t7\n\ti64.eq" `T.isInfixOf` source)
 
 testGcRootStaging :: IO ()
 testGcRootStaging =
@@ -91,9 +94,23 @@ testDirectCallArguments =
       case compileModule (buildLinkLayout [directCallProgram]) "_aihc_init_direct_call" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
-          assertBool "direct transfer receives machine, entry, count, and values" ("\t.functype\taihc_wasm_transfer_direct (i32, i32, i64, i32) -> ()" `T.isInfixOf` source)
-          assertBool "materializes direct-call arguments in module scratch space" (".Laihc_wasm_scratch" `T.isInfixOf` source && "i64.store\t0" `T.isInfixOf` source)
-          assertBool "does not use a fixed shared argument buffer" (not ("aihc_arguments" `T.isInfixOf` source))
+          assertBool "declares the exact external fast-entry signature" ("\t.functype\taihc_link_6964656e74697479 (i32, i64, i64) -> ()" `T.isInfixOf` source)
+          assertBool "tail-calls the known entry" ("return_call\taihc_link_6964656e74697479" `T.isInfixOf` source)
+          assertBool "does not route known calls through C" (not ("call\taihc_wasm_transfer_direct" `T.isInfixOf` source))
+
+testObjectEntryAdapters :: IO ()
+testObjectEntryAdapters =
+  case toCpsGrin capturedThunkProgram of
+    Left err -> assertFailure (show err)
+    Right cps ->
+      case compileModule (buildLinkLayout [capturedThunkProgram]) "_aihc_init_captured_thunk" (lowerGc cps) of
+        Left err -> assertFailure (show err)
+        Right source -> do
+          assertBool "emits a uniform object entry" ("_enter:\n\t.functype" `T.isInfixOf` source && "(i32, i64, i32, i64) -> ()" `T.isInfixOf` source)
+          assertBool "loads a captured field directly from the thunk" ("local.get\t1\n\ti32.wrap_i64\n\ti64.load\t8" `T.isInfixOf` source)
+          assertBool "passes the update continuation directly" ("local.get\t3\n\treturn_call" `T.isInfixOf` source)
+          assertBool "object entry tail-calls the typed fast entry" ("return_call\t.Laihc_wasm_function_0" `T.isInfixOf` source)
+          assertBool "publishes the object entry in runtime info" ("_enter\n\t.skip\t4" `T.isInfixOf` source)
 
 testMissingEntry :: IO ()
 testMissingEntry =
@@ -198,6 +215,34 @@ dependencyProgram =
 
 dependencyFunction :: FunctionName
 dependencyFunction = FunctionName "$dependency"
+
+capturedThunkProgram :: GrinProgram
+capturedThunkProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs =
+        [ ( GrinVar "thunk" 3 (BoxedRep Lifted),
+            GrinNode (GrinThunk thunkFunction) [GrinLitValue (GrinLitInt IntRep 41)]
+          )
+        ],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = thunkFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [captured],
+              grinFunctionResultRep = IntRep,
+              grinFunctionBody = GrinConstant [GrinVarValue captured]
+            }
+        ]
+    }
+  where
+    thunkFunction = FunctionName "$captured_thunk"
+    captured = GrinVar "captured" 4 IntRep
 
 directCallProgram :: GrinProgram
 directCallProgram =

@@ -14,7 +14,7 @@ module Aihc.Wasm.Codegen
   )
 where
 
-import Aihc.Grin.Gc (GcGrinProgram, gcGrinProgram, gcUpdateFunction)
+import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
 import Aihc.Native (LinkLayout (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, supportedNativePrimitiveNames)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
@@ -46,6 +46,7 @@ data CompileEnv = CompileEnv
     compileConstructorArities :: !(Map Text Int),
     compileGlobalSlots :: !(Map Text Int),
     compileFunctionLabels :: !(Map FunctionName Text),
+    compileFunctionArities :: !(Map FunctionName Int),
     compileAddrLiteralLabels :: !(Map BS.ByteString Text),
     compileNodeInfoLabels :: !(Map RuntimeInfoKey Text),
     compileRuntimeInfos :: ![RuntimeInfo],
@@ -54,7 +55,20 @@ data CompileEnv = CompileEnv
 
 data ValueEnv = ValueEnv
   { valueCompileEnv :: !CompileEnv,
-    valueLocals :: !(Map GrinVar Int)
+    valueLocals :: !(Map GrinVar Int),
+    valueCaseLocal :: !Int
+  }
+
+data RuntimeAdapter = RuntimeAdapter
+  { runtimeAdapterTarget :: !Text,
+    runtimeAdapterArity :: !Int,
+    runtimeAdapterEnter :: !(Maybe RuntimeEnter)
+  }
+
+data RuntimeEnter = RuntimeEnter
+  { runtimeEnterStoredCount :: !Int,
+    runtimeEnterSuppliedCount :: !Int,
+    runtimeEnterPassContinuation :: !Bool
   }
 
 data RuntimeInfo = RuntimeInfo
@@ -63,7 +77,8 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoEntry :: !(Maybe Text),
     runtimeInfoFields :: ![RuntimeRep],
     runtimeInfoRemainingArity :: !Int,
-    runtimeInfoNext :: !(Maybe Text)
+    runtimeInfoNext :: !(Maybe Text),
+    runtimeInfoAdapter :: !(Maybe RuntimeAdapter)
   }
 
 data RuntimeInfoKey
@@ -105,34 +120,46 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
   validateProgramPrimitives program
   rootSlot <- maybe (Left (WasmMissingEntry entryName)) Right (Map.lookup entryName (compileGlobalSlots env))
   updateLabel <- functionCodeLabel env (gcUpdateFunction gcProgram)
+  updateArity <- functionArity env (gcUpdateFunction gcProgram)
   functions <- mapM (compileFunction env) (grinFunctions program)
   constructorInit <- compileConstructorInitializers env
   programInit <- compileInitializers env program
-  let specialInfos =
+  let specialInfo label entry fields remaining next = RuntimeInfo label Nothing (Just entry) fields remaining next Nothing
+      updateInfo label fields remaining next enter =
+        RuntimeInfo
+          label
+          Nothing
+          (Just (dataLabel label <> "_portable"))
+          fields
+          remaining
+          next
+          (Just (RuntimeAdapter updateLabel updateArity enter))
+      specialInfos =
         [ specialInfo "aihc_wasm_final_info" "aihc_wasm_final_continuation" [] 1 (Just "aihc_wasm_final_applied_info"),
           specialInfo "aihc_wasm_final_applied_info" "aihc_wasm_final_continuation" [BoxedRep Lifted] 0 Nothing,
           specialInfo "aihc_wasm_top_info" "aihc_wasm_top_continuation" [BoxedRep Lifted] 1 (Just "aihc_wasm_top_applied_info"),
           specialInfo "aihc_wasm_top_applied_info" "aihc_wasm_top_continuation" [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing,
-          specialInfo "aihc_wasm_update_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted] 1 (Just "aihc_wasm_update_applied_info"),
-          specialInfo "aihc_wasm_update_applied_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing,
+          updateInfo "aihc_wasm_update_info" [BoxedRep Lifted, BoxedRep Lifted] 1 (Just "aihc_wasm_update_applied_info") (Just (RuntimeEnter 2 1 False)),
+          updateInfo "aihc_wasm_update_applied_info" [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing Nothing,
           specialInfo "aihc_wasm_thread_done_info" "aihc_wasm_thread_done_continuation" [] 1 (Just "aihc_wasm_thread_done_applied_info"),
           specialInfo "aihc_wasm_thread_done_applied_info" "aihc_wasm_thread_done_continuation" [BoxedRep Lifted] 0 Nothing
         ]
+      runtimeInfos = compileRuntimeInfos env <> specialInfos
       source =
         moduleHeader env dependencyInitializers program
+          <> renderEntryAdapters runtimeInfos
           <> concatMap compiledFunctionLines functions
           <> renderSpecialFunctions
           <> renderProgramInitializer (length (linkGlobalNames layout)) rootSlot dependencyInitializers constructorInit programInit
           <> renderRuntimeSymbols
           <> renderAddrLiterals env
-          <> renderRuntimeInfos (compileRuntimeInfos env <> specialInfos)
+          <> renderRuntimeInfos runtimeInfos
           <> renderScratch functions
           <> ["\t.no_dead_strip\t__indirect_function_table", ""]
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment ExecutableUnit layout program
-    specialInfo label entry = RuntimeInfo label Nothing (Just entry)
+    env = compileEnvironment ExecutableUnit layout gcProgram
 
 compileModule :: LinkLayout -> Text -> GcGrinProgram -> Either WasmError Text
 compileModule layout initializerSymbol gcProgram = do
@@ -141,6 +168,7 @@ compileModule layout initializerSymbol gcProgram = do
   programInit <- compileInitializers env program
   let source =
         moduleHeader env [] program
+          <> renderEntryAdapters (compileRuntimeInfos env)
           <> concatMap compiledFunctionLines functions
           <> renderModuleInitializer initializerSymbol programInit
           <> renderAddrLiterals env
@@ -150,7 +178,7 @@ compileModule layout initializerSymbol gcProgram = do
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment LibraryUnit layout program
+    env = compileEnvironment LibraryUnit layout gcProgram
 
 validateProgramPrimitives :: GrinProgram -> Either WasmError ()
 validateProgramPrimitives = validatePrimitiveNames . map (grinVarName . fst) . grinPrimitives
@@ -161,13 +189,14 @@ validatePrimitiveNames = mapM_ $ \name ->
     then Right ()
     else Left (WasmUnsupportedPrimitive name)
 
-compileEnvironment :: CompilationUnit -> LinkLayout -> GrinProgram -> CompileEnv
-compileEnvironment unitKind layout program =
+compileEnvironment :: CompilationUnit -> LinkLayout -> GcGrinProgram -> CompileEnv
+compileEnvironment unitKind layout gcProgram =
   CompileEnv
     { compileConstructorIds = Map.fromList constructorIds,
       compileConstructorArities = Map.fromList constructors,
       compileGlobalSlots = Map.fromList (zip (linkGlobalNames layout) [0 ..]),
       compileFunctionLabels = functionLabels,
+      compileFunctionArities = functionArities,
       compileAddrLiteralLabels = Map.fromList [(bytes, "aihc_wasm_addr_" <> tshow index) | (index, (bytes, _)) <- zip [0 :: Int ..] (buildAddrLiteralPool program)],
       compileNodeInfoLabels = Map.fromList [(key, label) | (key, label, _) <- constructorEntries <> functionEntries],
       compileRuntimeInfos = map third (constructorEntries <> functionEntries),
@@ -177,6 +206,7 @@ compileEnvironment unitKind layout program =
           LibraryUnit -> True
     }
   where
+    program = gcGrinProgram gcProgram
     constructors = [(name, length layouts) | (name, layouts) <- linkConstructors layout]
     constructorIds = zip (map fst constructors) [1 ..]
     functionLabels =
@@ -188,8 +218,17 @@ compileEnvironment unitKind layout program =
                | (index, function) <- zip [0 :: Int ..] (grinFunctions program)
                ]
         )
+    functionArities =
+      Map.fromList
+        ( [ (grinCodeFunctionName info, length (concat (grinCodeParameterLayouts info)))
+          | info <- grinExternalFunctions program
+          ]
+            <> [ (grinFunctionName function, length (grinFunctionParameters function))
+               | function <- grinFunctions program
+               ]
+        )
     constructorEntries =
-      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next)
+      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing)
       | ((name, layouts), (_, identifier)) <- zip (linkConstructors layout) constructorIds,
         let arity = length layouts,
         remaining <- [arity, arity - 1 .. 0],
@@ -218,10 +257,25 @@ compileEnvironment unitKind layout program =
     functionEntries =
       [ ( key,
           label,
-          RuntimeInfo label Nothing (runtimeInfoFunctionName key >>= (`Map.lookup` functionLabels)) (runtimeInfoKeyFields key) (runtimeInfoKeyRemainingArity key) (runtimeInfoKeyNext key >>= (`Map.lookup` infoLabels))
+          RuntimeInfo
+            label
+            Nothing
+            (Just (dataLabel label <> "_portable"))
+            (runtimeInfoKeyFields key)
+            (runtimeInfoKeyRemainingArity key)
+            (runtimeInfoKeyNext key >>= (`Map.lookup` infoLabels))
+            (Just (RuntimeAdapter target arity enter))
         )
       | (index, key) <- zip [0 :: Int ..] infoKeys,
+        Just functionName <- [runtimeInfoFunctionName key],
         let label = "aihc_wasm_function_info_" <> tshow index
+            target = functionLabels Map.! functionName
+            arity = functionArities Map.! functionName
+            passContinuation = functionName `Set.notMember` gcContinuationFunctions gcProgram
+            enter = case key of
+              ClosureRuntimeInfo _ fields [supplied] -> Just (RuntimeEnter (length fields) (length supplied) passContinuation)
+              ThunkRuntimeInfo _ fields -> Just (RuntimeEnter (length fields) 0 passContinuation)
+              _ -> Nothing
       ]
     third (_, _, value) = value
 
@@ -231,7 +285,10 @@ moduleHeader env dependencyInitializers program =
     "\t.text"
   ]
     <> map renderFunctionType runtimeFunctionTypes
-    <> map (renderFunctionType . (,([I32], [])) . snd) (Map.toAscList (compileFunctionLabels env))
+    <> [ renderFunctionType (label, (I32 : replicate arity I64, []))
+       | (functionName, label) <- Map.toAscList (compileFunctionLabels env),
+         let arity = Map.findWithDefault 0 functionName (compileFunctionArities env)
+       ]
     <> map (renderFunctionType . (,([], []))) dependencyInitializers
     <> map renderForeignType (grinForeignCalls program)
     <> [""]
@@ -297,28 +354,20 @@ runtimeFunctionTypes =
 compileFunction :: CompileEnv -> GrinFunction -> Either WasmError CompiledFunction
 compileFunction env function = do
   label <- functionCodeLabel env (grinFunctionName function)
-  let valueLocals = functionValueLocals function
+  let parameters = grinFunctionParameters function
+      parameterCount = length parameters
+      caseLocal = parameterCount + 1
+      valueLocals = functionValueLocals function
+      boundLocalCount = Map.size valueLocals - parameterCount
       scratchCount = maximumScratchSlots (grinFunctionBody function)
-      valueEnv = ValueEnv env valueLocals
+      valueEnv = ValueEnv env valueLocals caseLocal
   body <- compileExpr valueEnv (grinFunctionBody function)
-  let parameterLines = concatMap copyParameter (zip [0 :: Int ..] (grinFunctionParameters function))
-      copyParameter (index, var) =
-        case Map.lookup var valueLocals of
-          Nothing -> []
-          Just wasmLocal -> setWasmLocal wasmLocal (argumentGet index)
   pure
     CompiledFunction
       { compiledFunctionScratchSlots = scratchCount,
         compiledFunctionLines =
-          functionStart label ([I32, I64] <> replicate (Map.size valueLocals) I64)
-            <> indent
-              ( [ "i32.const\t0",
-                  "i32.load\taihc_machine",
-                  "local.set\t1"
-                ]
-                  <> parameterLines
-                  <> body
-              )
+          functionStartWithParameters label (I32 : replicate parameterCount I64) (replicate (1 + boundLocalCount) I64)
+            <> indent body
             <> functionEnd
       }
 
@@ -339,8 +388,7 @@ compileExpr env expression =
         )
     GrinCall _ functionName values -> do
       target <- functionCodeLabel (valueCompileEnv env) functionName
-      scratch <- storeScratchValues env values
-      pure (terminal (machine <> i32Symbol target <> i64Const (tshow (length values)) <> scratch <> call "aihc_wasm_transfer_direct"))
+      pure (machine <> concatMap (materializeValue env) values <> ["return_call\t" <> target])
     GrinCpsPrimitiveCall _ name values continuation -> compileCpsPrimitive env name values continuation
     GrinCpsApply _ function values continuation -> do
       scratch <- storeScratchValues env values
@@ -473,8 +521,9 @@ compileForeignCall env foreignCall arguments = do
 compileCase :: ValueEnv -> GrinValue -> GrinVar -> [GrinAlt] -> Either WasmError Instructions
 compileCase env scrutinee binder alternatives = do
   choices <- compileChoices alternatives
-  pure (materializeValue env scrutinee <> ["local.set\t2"] <> localSetFor env binder ["local.get\t2"] <> choices)
+  pure (materializeValue env scrutinee <> ["local.set\t" <> caseLocal] <> localSetFor env binder ["local.get\t" <> caseLocal] <> choices)
   where
+    caseLocal = tshow (valueCaseLocal env)
     pointer = isPointerRuntimeRep (grinValueRuntimeRep scrutinee)
     compileChoices [] = pure (call "aihc_no_match" <> ["unreachable"])
     compileChoices (alternative : rest) = case grinAltCon alternative of
@@ -484,22 +533,22 @@ compileCase env scrutinee binder alternatives = do
           GrinDataAlt name
             | pointer -> do
                 identifier <- constructorId (valueCompileEnv env) name
-                pure (["local.get\t2"] <> call "aihc_wasm_value_info" <> i64Const (tshow identifier) <> ["i64.eq"])
+                pure (["local.get\t" <> caseLocal] <> call "aihc_wasm_value_info" <> i64Const (tshow identifier) <> ["i64.eq"])
           GrinDataAlt {} -> Left (WasmUnsupportedExpression "constructor case on unboxed value")
           GrinLitAlt literal
             | pointer -> Left (WasmUnsupportedExpression "literal case on lifted value")
             | otherwise -> case normalizedLiteralInteger literal of
                 Nothing -> Left (WasmUnsupportedValue "string case alternative")
-                Just integer -> pure (["local.get\t2"] <> i64Const (renderInteger integer) <> ["i64.eq"])
+                Just integer -> pure (["local.get\t" <> caseLocal] <> i64Const (renderInteger integer) <> ["i64.eq"])
         accepted <- compileAlternative alternative
         rejected <- compileChoices rest
         pure (condition <> ["if"] <> indent accepted <> ["else"] <> indent rejected <> ["end_if"])
     compileAlternative alternative = do
       bindings <- case grinAltCon alternative of
         GrinDataAlt _ -> fmap concat . forM (zip [0 :: Int ..] (grinAltBinders alternative)) $ \(index, var) ->
-          pure (localSetFor env var (["local.get\t2"] <> i64Const (tshow index) <> call "aihc_wasm_value_field"))
+          pure (localSetFor env var (["local.get\t" <> caseLocal] <> i64Const (tshow index) <> call "aihc_wasm_value_field"))
         GrinLitAlt _ -> pure []
-        GrinDefaultAlt -> pure (concatMap (\var -> localSetFor env var ["local.get\t2"]) (grinAltBinders alternative))
+        GrinDefaultAlt -> pure (concatMap (\var -> localSetFor env var ["local.get\t" <> caseLocal]) (grinAltBinders alternative))
       (bindings <>) <$> compileExpr env (grinAltRhs alternative)
 
 allocateNodeInto :: ValueEnv -> Bool -> GrinVar -> GrinNode -> Either WasmError Instructions
@@ -539,9 +588,6 @@ storeScratchValues env values =
           _ -> scratchAddress
     )
 
-argumentGet :: Int -> Instructions
-argumentGet = loadSlot ["local.get\t0"]
-
 localGet :: ValueEnv -> GrinVar -> Instructions
 localGet env var = maybe (i64Const "0") getWasmLocal (Map.lookup var (valueLocals env))
 
@@ -570,7 +616,7 @@ storeSlot :: Instructions -> Int -> Instructions -> Instructions
 storeSlot address index value = address <> value <> ["i64.store\t" <> tshow (index * 8)]
 
 machine :: Instructions
-machine = ["local.get\t1"]
+machine = ["local.get\t0"]
 
 i32Const, i64Const, i32Symbol, i32Data, call :: Text -> Instructions
 i32Const value = ["i32.const\t" <> value]
@@ -580,13 +626,16 @@ i32Data = i32Const . dataLabel
 call function = ["call\t" <> function]
 
 functionStart :: Text -> [WasmValueType] -> [Text]
-functionStart label localTypes =
+functionStart label = functionStartWithParameters label [I32]
+
+functionStartWithParameters :: Text -> [WasmValueType] -> [WasmValueType] -> [Text]
+functionStartWithParameters label parameterTypes localTypes =
   [ "\t.section\t.text." <> label <> ",\"\",@",
     "\t.type\t" <> label <> ",@function"
   ]
     <> functionVisibility label
     <> [ label <> ":",
-         "\t.functype\t" <> label <> " (i32) -> ()"
+         "\t.functype\t" <> label <> " (" <> T.intercalate ", " (map renderValueType parameterTypes) <> ") -> ()"
        ]
     <> ["\t.local\t" <> T.intercalate ", " (map renderValueType localTypes) | not (null localTypes)]
 
@@ -783,6 +832,45 @@ renderAddrLiterals env = concatMap render (Map.toAscList (compileAddrLiteralLabe
         <> map (("\t.int8\t" <>) . tshow) (BS.unpack bytes <> [0])
         <> ["\t.size\t" <> dataLabel label <> ", " <> tshow (BS.length bytes + 1), ""]
 
+-- Runtime dispatch still needs one uniform function-pointer type. The portable
+-- adapter preserves the existing scheduler ABI, while the object adapter reads
+-- captured fields directly from the closure or thunk and enters typed code.
+renderEntryAdapters :: [RuntimeInfo] -> [Text]
+renderEntryAdapters = concatMap renderAdapters
+  where
+    renderAdapters info = case runtimeInfoAdapter info of
+      Nothing -> []
+      Just adapter -> renderPortable info adapter <> maybe [] (renderObject info adapter) (runtimeAdapterEnter adapter)
+    renderPortable info adapter =
+      functionStart (portableEntryLabel info) []
+        <> indent
+          ( ["i32.const\t0", "i32.load\taihc_machine"]
+              <> concatMap (loadSlot ["local.get\t0"]) [0 .. runtimeAdapterArity adapter - 1]
+              <> ["return_call\t" <> runtimeAdapterTarget adapter]
+          )
+        <> functionEnd
+    renderObject info adapter enter =
+      functionStartWithParameters (objectEntryLabel info) [I32, I64, I32, I64] []
+        <> indent
+          ( ["local.get\t0"]
+              <> concatMap loadStored [0 .. runtimeEnterStoredCount enter - 1]
+              <> concatMap (loadSlot ["local.get\t2"]) [0 .. runtimeEnterSuppliedCount enter - 1]
+              <> ["local.get\t3" | runtimeEnterPassContinuation enter]
+              <> ["return_call\t" <> runtimeAdapterTarget adapter]
+          )
+        <> functionEnd
+    loadStored index =
+      [ "local.get\t1",
+        "i32.wrap_i64",
+        "i64.load\t" <> tshow ((index + 1) * 8)
+      ]
+
+portableEntryLabel :: RuntimeInfo -> Text
+portableEntryLabel info = dataLabel (runtimeInfoLabel info) <> "_portable"
+
+objectEntryLabel :: RuntimeInfo -> Text
+objectEntryLabel info = dataLabel (runtimeInfoLabel info) <> "_enter"
+
 renderRuntimeInfos :: [RuntimeInfo] -> [Text]
 renderRuntimeInfos infos = concatMap renderBitmap infos <> concatMap renderInfo infos
   where
@@ -802,7 +890,7 @@ renderRuntimeInfos infos = concatMap renderBitmap infos <> concatMap renderInfo 
              "\t.int64\t" <> tshow (runtimeInfoRemainingArity info),
              "\t.int32\t" <> if null (runtimeInfoFields info) then "0" else dataLabel (runtimeInfoLabel info <> "_bitmap"),
              "\t.int32\t" <> maybe "0" dataLabel (runtimeInfoNext info),
-             "\t.int32\t0",
+             "\t.int32\t" <> maybe "0" (const (objectEntryLabel info)) (runtimeInfoAdapter info >>= runtimeAdapterEnter),
              "\t.skip\t4",
              "\t.size\t" <> dataLabel (runtimeInfoLabel info) <> ", 40",
              ""
@@ -846,6 +934,9 @@ lookupRuntimeInfoLabel env key = case Map.lookup key (compileNodeInfoLabels env)
 
 functionCodeLabel :: CompileEnv -> FunctionName -> Either WasmError Text
 functionCodeLabel env name = maybe (Left (WasmMissingFunction name)) Right (Map.lookup name (compileFunctionLabels env))
+
+functionArity :: CompileEnv -> FunctionName -> Either WasmError Int
+functionArity env name = maybe (Left (WasmMissingFunction name)) Right (Map.lookup name (compileFunctionArities env))
 
 requiredNodeConstructorInfos :: GrinNode -> [RuntimeInfoKey]
 requiredNodeConstructorInfos node = case grinNodeTag node of
@@ -892,9 +983,11 @@ runtimeInfoKeyNext key = case key of
   ThunkRuntimeInfo {} -> Nothing
 
 functionValueLocals :: GrinFunction -> Map GrinVar Int
-functionValueLocals function = snd (foldl' assignGroup (3, Map.empty) groups)
+functionValueLocals function = snd (foldl' assignGroup (length parameters + 2, parameterLocals) groups)
   where
-    groups = grinFunctionParameters function : boundVarGroups (grinFunctionBody function)
+    parameters = grinFunctionParameters function
+    parameterLocals = Map.fromList (zip parameters [1 ..])
+    groups = boundVarGroups (grinFunctionBody function)
     assignGroup = foldl' $ \(next, slots) var -> case Map.lookup var slots of
       Just _ -> (next, slots)
       Nothing -> (next + 1, Map.insert var next slots)
@@ -904,7 +997,7 @@ maximumScratchSlots expression = case expression of
   GrinBind _ value body -> max (maximumScratchSlots value) (maximumScratchSlots body)
   GrinStoreRec _ body -> maximumScratchSlots body
   GrinStoreRecUnchecked _ body -> maximumScratchSlots body
-  GrinCall _ _ values -> length values
+  GrinCall {} -> 0
   GrinCpsApply _ _ values _ -> length values
   GrinContinue _ values -> length values
   GrinEnsureHeap _ roots -> length roots

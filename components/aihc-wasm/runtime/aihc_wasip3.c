@@ -10,6 +10,16 @@ extern void aihc_wasm_program_initialize(void);
 AihcMachine *aihc_machine;
 AihcPortableTransfer aihc_next_transfer;
 
+typedef struct {
+  AihcEnterEntry entry;
+  AihcMachine *machine;
+  AihcSlot object;
+  const AihcSlot *supplied;
+  AihcSlot continuation;
+} AihcWasmObjectTransfer;
+
+static AihcWasmObjectTransfer aihc_next_object_transfer;
+
 static uintptr_t aihc_heap_next;
 static int aihc_wasm_finished;
 static struct {
@@ -155,6 +165,27 @@ static void aihc_set_transfer(AihcPortableTransfer transfer) {
   aihc_next_transfer = transfer;
 }
 
+static void aihc_set_object_transfer(AihcMachine *machine, AihcValue *object,
+                                     const AihcSlot *supplied,
+                                     AihcValue *continuation) {
+  const AihcInfo *info = aihc_value_info_table(object);
+  if (info->enter_entry == NULL) {
+    abort();
+  }
+  aihc_next_object_transfer =
+      (AihcWasmObjectTransfer){info->enter_entry, machine, (AihcSlot)object,
+                               supplied, (AihcSlot)continuation};
+}
+
+static int aihc_can_enter_saturated(const AihcValue *object, uint64_t count) {
+  const AihcInfo *info = aihc_value_info_table(object);
+  const AihcInfo *next = info->next;
+  return info->enter_entry != NULL && info->remaining_arity == 1 &&
+         next != NULL && next->remaining_arity == 0 &&
+         next->field_count >= info->field_count &&
+         next->field_count - info->field_count == count;
+}
+
 void aihc_wasm_transfer_direct(AihcMachine *machine, AihcEntry entry,
                                uint64_t count, const AihcSlot *arguments) {
   if (entry == NULL) {
@@ -168,6 +199,14 @@ void aihc_wasm_transfer_direct(AihcMachine *machine, AihcEntry entry,
 void aihc_wasm_transfer_eval(AihcMachine *machine, AihcSlot value,
                              uint64_t lifted, AihcSlot continuation,
                              AihcSlot update_continuation) {
+  AihcValue *object = aihc_value(value);
+  if (object != NULL && aihc_value_tag(object) == AIHC_TAG_THUNK &&
+      aihc_value_info_table(object)->enter_entry != NULL) {
+    aihc_set_object_transfer(machine, object, NULL,
+                             aihc_value(update_continuation));
+    aihc_begin_blackhole(machine, object);
+    return;
+  }
   aihc_set_transfer(aihc_portable_eval_cps(machine, aihc_value(value), lifted,
                                            aihc_value(continuation),
                                            aihc_value(update_continuation)));
@@ -176,6 +215,13 @@ void aihc_wasm_transfer_eval(AihcMachine *machine, AihcSlot value,
 void aihc_wasm_transfer_apply(AihcMachine *machine, AihcSlot function,
                               uint64_t count, const AihcSlot *arguments,
                               AihcSlot continuation) {
+  AihcValue *object = aihc_value(function);
+  if (object != NULL && aihc_value_tag(object) == AIHC_TAG_CLOSURE &&
+      aihc_can_enter_saturated(object, count)) {
+    aihc_set_object_transfer(machine, object, arguments,
+                             aihc_value(continuation));
+    return;
+  }
   aihc_set_transfer(aihc_portable_apply_cps(machine, aihc_value(function),
                                             count, arguments,
                                             aihc_value(continuation)));
@@ -183,6 +229,12 @@ void aihc_wasm_transfer_apply(AihcMachine *machine, AihcSlot function,
 
 void aihc_wasm_transfer_continue(AihcMachine *machine, AihcSlot continuation,
                                  uint64_t count, const AihcSlot *values) {
+  AihcValue *object = aihc_value(continuation);
+  if (object != NULL && aihc_value_tag(object) == AIHC_TAG_CLOSURE &&
+      aihc_can_enter_saturated(object, count)) {
+    aihc_set_object_transfer(machine, object, values, NULL);
+    return;
+  }
   aihc_set_transfer(aihc_portable_continue_values(
       machine, aihc_value(continuation), count, values));
 }
@@ -279,10 +331,18 @@ int32_t aihc_wasip3_start_write(const unsigned char *bytes, size_t length) {
 }
 
 static command_callback_code_t aihc_pump(void) {
-  while (aihc_next_transfer.entry != NULL) {
-    AihcPortableTransfer transfer = aihc_next_transfer;
-    aihc_next_transfer = (AihcPortableTransfer){0};
-    transfer.entry(transfer.arguments);
+  while (aihc_next_object_transfer.entry != NULL ||
+         aihc_next_transfer.entry != NULL) {
+    if (aihc_next_object_transfer.entry != NULL) {
+      AihcWasmObjectTransfer transfer = aihc_next_object_transfer;
+      aihc_next_object_transfer = (AihcWasmObjectTransfer){0};
+      transfer.entry(transfer.machine, transfer.object, transfer.supplied,
+                     transfer.continuation);
+    } else {
+      AihcPortableTransfer transfer = aihc_next_transfer;
+      aihc_next_transfer = (AihcPortableTransfer){0};
+      transfer.entry(transfer.arguments);
+    }
   }
   if (aihc_wasm_finished) {
     exports_wasi_cli_run_result_void_void_t result = {0};
