@@ -5,9 +5,8 @@
 -- Generated computation and continuation entries use @tailcc@. Every CPS
 -- transfer is a @musttail@ call followed immediately by @ret void@, so LLVM
 -- verifies the no-growing-stack invariant instead of merely optimizing it by
--- convention. Runtime control helpers return an entry and an argument buffer;
--- the backend expands that buffer back into LLVM call operands before the
--- guaranteed tail transfer.
+-- convention. Dynamic entries are backend-generated stubs that unpack closure
+-- fields and perform another guaranteed tail transfer to the typed code entry.
 module Aihc.Llvm.Codegen
   ( LlvmError (..),
     compileModule,
@@ -18,7 +17,7 @@ module Aihc.Llvm.Codegen
   )
 where
 
-import Aihc.Grin.Gc (GcGrinProgram, gcGrinProgram, gcUpdateFunction)
+import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
 import Aihc.Native
   ( LinkLayout (..),
@@ -28,7 +27,7 @@ import Aihc.Native
     supportedNativePrimitiveNames,
   )
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
-import Control.Monad (forM, replicateM, zipWithM)
+import Control.Monad (forM, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify', runStateT)
 import Data.Bits (shiftL)
@@ -65,7 +64,6 @@ data CompileEnv = CompileEnv
     compileAddrLiteralLabels :: !(Map BS.ByteString Text),
     compileNodeInfoLabels :: !(Map RuntimeInfoKey Text),
     compileRuntimeInfos :: ![RuntimeInfo],
-    compileArgumentCapacity :: !Int,
     compileAllowUnsupportedPrimitives :: !Bool
   }
 
@@ -75,7 +73,15 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoEntry :: !(Maybe Text),
     runtimeInfoFields :: ![RuntimeRep],
     runtimeInfoRemainingArity :: !Int,
-    runtimeInfoNext :: !(Maybe Text)
+    runtimeInfoNext :: !(Maybe Text),
+    runtimeInfoEnter :: !(Maybe RuntimeEnter)
+  }
+
+data RuntimeEnter = RuntimeEnter
+  { runtimeEnterTarget :: !Text,
+    runtimeEnterStoredCount :: !Int,
+    runtimeEnterSuppliedCount :: !Int,
+    runtimeEnterIsContinuation :: !Bool
   }
 
 data RuntimeInfoKey
@@ -116,21 +122,18 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
     globals <- compileInitializers env program
     pure (constructors, globals)
   let specialInfos =
-        [ specialInfo "aihc_llvm_final_info" "aihc_llvm_final_continuation" [] 1 (Just "aihc_llvm_final_applied_info"),
-          specialInfo "aihc_llvm_final_applied_info" "aihc_llvm_final_continuation" [BoxedRep Lifted] 0 Nothing,
-          specialInfo "aihc_llvm_top_info" "aihc_llvm_top_continuation" [BoxedRep Lifted] 1 (Just "aihc_llvm_top_applied_info"),
-          specialInfo "aihc_llvm_top_applied_info" "aihc_llvm_top_continuation" [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing,
-          specialInfo "aihc_llvm_update_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted] 1 (Just "aihc_llvm_update_applied_info"),
-          specialInfo "aihc_llvm_update_applied_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing,
-          specialInfo "aihc_llvm_thread_done_info" "aihc_llvm_thread_done_continuation" [] 1 (Just "aihc_llvm_thread_done_applied_info"),
-          specialInfo "aihc_llvm_thread_done_applied_info" "aihc_llvm_thread_done_continuation" [BoxedRep Lifted] 0 Nothing
+        [ specialInfo "aihc_llvm_final_info" "aihc_llvm_final_continuation" [] 1 (Just "aihc_llvm_final_applied_info") (Just (continuationEnter "aihc_llvm_final_continuation" 0 1)),
+          specialInfo "aihc_llvm_final_applied_info" "aihc_llvm_final_continuation" [BoxedRep Lifted] 0 Nothing Nothing,
+          specialInfo "aihc_llvm_top_info" "aihc_llvm_top_continuation" [BoxedRep Lifted] 1 (Just "aihc_llvm_top_applied_info") (Just (continuationEnter "aihc_llvm_top_continuation" 1 1)),
+          specialInfo "aihc_llvm_top_applied_info" "aihc_llvm_top_continuation" [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing Nothing,
+          specialInfo "aihc_llvm_update_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted] 1 (Just "aihc_llvm_update_applied_info") (Just (continuationEnter updateLabel 2 1)),
+          specialInfo "aihc_llvm_update_applied_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing Nothing,
+          specialInfo "aihc_llvm_thread_done_info" "aihc_llvm_thread_done_continuation" [] 1 (Just "aihc_llvm_thread_done_applied_info") (Just (continuationEnter "aihc_llvm_thread_done_continuation" 0 1)),
+          specialInfo "aihc_llvm_thread_done_applied_info" "aihc_llvm_thread_done_continuation" [BoxedRep Lifted] 0 Nothing Nothing
         ]
       source =
         llvmPreamble
-          <> [ "@aihc_machine = global ptr null, align 8",
-               argumentBufferDefinition env,
-               ""
-             ]
+          <> ["@aihc_machine = global ptr null, align 8", ""]
           <> renderRuntimeDeclarations
           <> renderForeignDeclarations program
           <> renderExternalFunctionDeclarations env program
@@ -138,14 +141,17 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
           <> ["" | not (null dependencyInitializers)]
           <> renderAddrLiterals env
           <> renderRuntimeInfos (compileRuntimeInfos env <> specialInfos)
+          <> renderEnterStubs (compileRuntimeInfos env <> specialInfos)
           <> concatMap compiledFunctionLines functions
-          <> renderSpecialFunctions env
+          <> renderNativeControlFunctions
+          <> renderSpecialFunctions
           <> renderMain env rootSlot dependencyInitializers constructorInitialization initialization
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment ExecutableUnit layout program
+    env = compileEnvironment ExecutableUnit (gcContinuationFunctions gcProgram) layout program
     specialInfo label entry = RuntimeInfo label Nothing (Just entry)
+    continuationEnter target stored supplied = RuntimeEnter target stored supplied True
 
 compileModule :: LinkLayout -> Text -> GcGrinProgram -> Either LlvmError Text
 compileModule layout initializerSymbol gcProgram = do
@@ -154,16 +160,15 @@ compileModule layout initializerSymbol gcProgram = do
   initialization <- runInitializer (compileInitializers env program)
   let source =
         llvmPreamble
-          <> [ "@aihc_machine = external global ptr",
-               argumentBufferDefinition env,
-               ""
-             ]
+          <> ["@aihc_machine = external global ptr", ""]
           <> renderRuntimeDeclarations
           <> renderForeignDeclarations program
           <> renderExternalFunctionDeclarations env program
           <> renderAddrLiterals env
           <> renderRuntimeInfos (compileRuntimeInfos env)
+          <> renderEnterStubs (compileRuntimeInfos env)
           <> concatMap compiledFunctionLines functions
+          <> renderNativeControlFunctions
           <> [ "define void @" <> initializerSymbol <> "() {",
                "entry:",
                "  %machine = load ptr, ptr @aihc_machine, align 8"
@@ -173,7 +178,7 @@ compileModule layout initializerSymbol gcProgram = do
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment LibraryUnit layout program
+    env = compileEnvironment LibraryUnit (gcContinuationFunctions gcProgram) layout program
 
 validateProgramPrimitives :: GrinProgram -> Either LlvmError ()
 validateProgramPrimitives = validatePrimitiveNames . map (grinVarName . fst) . grinPrimitives
@@ -184,8 +189,8 @@ validatePrimitiveNames = mapM_ $ \name ->
     then Right ()
     else Left (LlvmUnsupportedPrimitive name)
 
-compileEnvironment :: CompilationUnit -> LinkLayout -> GrinProgram -> CompileEnv
-compileEnvironment unitKind layout program =
+compileEnvironment :: CompilationUnit -> Set.Set FunctionName -> LinkLayout -> GrinProgram -> CompileEnv
+compileEnvironment unitKind continuationFunctions layout program =
   CompileEnv
     { compileConstructorIds = Map.fromList (zip (map fst constructors) [1 ..]),
       compileConstructorArities = Map.fromList constructors,
@@ -194,7 +199,6 @@ compileEnvironment unitKind layout program =
       compileAddrLiteralLabels = Map.fromList [(bytes, llvmLabel label) | (bytes, label) <- buildAddrLiteralPool program],
       compileNodeInfoLabels = Map.fromList [(key, label) | (key, label, _) <- constructorEntries <> functionEntries],
       compileRuntimeInfos = map third (constructorEntries <> functionEntries),
-      compileArgumentCapacity = max 3 (linkMaximumArgumentSlots layout + 1),
       compileAllowUnsupportedPrimitives = unitKind == LibraryUnit
     }
   where
@@ -210,7 +214,7 @@ compileEnvironment unitKind layout program =
                ]
         )
     constructorEntries =
-      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next)
+      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing)
       | ((name, layouts), (_, identifier)) <- zip (linkConstructors layout) constructorIds,
         let arity = length layouts,
         remaining <- [arity, arity - 1 .. 0],
@@ -238,12 +242,40 @@ compileEnvironment unitKind layout program =
     functionEntries =
       [ ( key,
           label,
-          RuntimeInfo label Nothing (runtimeInfoFunctionName key >>= (`Map.lookup` functionLabels)) (runtimeInfoKeyFields key) (runtimeInfoKeyRemainingArity key) (runtimeInfoKeyNext key >>= (`Map.lookup` infoLabels))
+          RuntimeInfo
+            label
+            Nothing
+            (runtimeInfoFunctionName key >>= (`Map.lookup` functionLabels))
+            (runtimeInfoKeyFields key)
+            (runtimeInfoKeyRemainingArity key)
+            (runtimeInfoKeyNext key >>= (`Map.lookup` infoLabels))
+            (runtimeEnter key)
         )
       | (index, key) <- zip [0 :: Int ..] infoKeys,
         let label = "aihc_llvm_function_info_" <> tshow index
       ]
     infoLabels = Map.fromList [(key, "aihc_llvm_function_info_" <> tshow index) | (index, key) <- zip [0 :: Int ..] infoKeys]
+    runtimeEnter key =
+      case key of
+        ClosureRuntimeInfo functionName fields [supplied] -> do
+          target <- Map.lookup functionName functionLabels
+          pure
+            RuntimeEnter
+              { runtimeEnterTarget = target,
+                runtimeEnterStoredCount = length fields,
+                runtimeEnterSuppliedCount = length supplied,
+                runtimeEnterIsContinuation = functionName `Set.member` continuationFunctions
+              }
+        ThunkRuntimeInfo functionName fields -> do
+          target <- Map.lookup functionName functionLabels
+          pure
+            RuntimeEnter
+              { runtimeEnterTarget = target,
+                runtimeEnterStoredCount = length fields,
+                runtimeEnterSuppliedCount = 0,
+                runtimeEnterIsContinuation = False
+              }
+        _ -> Nothing
     third (_, _, value) = value
 
 requiredNodeConstructorInfos :: GrinNode -> [RuntimeInfoKey]
@@ -297,20 +329,20 @@ compileExpr env prefix label expression =
       (continuationLines, continuationOperand) <- materializeValue env continuation
       (updateLines, updateOperand) <- materializeValue env updateContinuation
       (pointerLines, pointerOperands) <- pointerArguments [valueOperand, continuationOperand, updateOperand]
-      transfer <-
-        case pointerOperands of
-          [valuePointer, continuationPointer, updatePointer] ->
-            callPortableTransfer
-              env
-              "aihc_portable_eval_cps"
-              [ "ptr %machine",
-                argumentBufferOperand (valueCompileEnv env),
-                "ptr " <> valuePointer,
-                "i64 " <> boolInteger (isLiftedRuntimeRep runtimeRep),
-                "ptr " <> continuationPointer,
-                "ptr " <> updatePointer
-              ]
-          _ -> lift (Left (LlvmUnsupportedExpression "internal CPS evaluation pointer arity"))
+      transfer <- case pointerOperands of
+        [valuePointer, continuationPointer, updatePointer] ->
+          pure
+            [ "  musttail call tailcc void @aihc_llvm_eval(ptr %machine, ptr "
+                <> valuePointer
+                <> ", i64 "
+                <> boolInteger (isLiftedRuntimeRep runtimeRep)
+                <> ", ptr "
+                <> continuationPointer
+                <> ", ptr "
+                <> updatePointer
+                <> ")"
+            ]
+        _ -> lift (Left (LlvmUnsupportedExpression "internal CPS evaluation pointer arity"))
       terminal label (prefix <> valueLines <> continuationLines <> updateLines <> pointerLines <> transfer)
     GrinCall _ functionName arguments -> do
       target <- liftEither (functionCodeLabel (valueCompileEnv env) functionName)
@@ -321,50 +353,31 @@ compileExpr env prefix label expression =
       (functionLines, functionOperand) <- materializeValue env function
       (continuationLines, continuationOperand) <- materializeValue env continuation
       (argumentLines, argumentOperands) <- materializeValues env arguments
-      (arrayLines, arrayOperand) <- storeOperandArray argumentOperands
       (pointerLines, pointerOperands) <- pointerArguments [functionOperand, continuationOperand]
-      transfer <-
-        case pointerOperands of
-          [functionPointer, continuationPointer] ->
-            callPortableTransfer
-              env
-              "aihc_portable_apply_cps"
-              [ "ptr %machine",
-                argumentBufferOperand (valueCompileEnv env),
-                "ptr " <> functionPointer,
-                "i64 " <> tshow (length arguments),
-                "ptr " <> arrayOperand,
-                "ptr " <> continuationPointer
-              ]
-          _ -> lift (Left (LlvmUnsupportedExpression "internal CPS apply pointer arity"))
-      terminal label (prefix <> functionLines <> continuationLines <> argumentLines <> arrayLines <> pointerLines <> transfer)
+      case pointerOperands of
+        [functionPointer, continuationPointer] ->
+          compileApplyTransfer
+            (prefix <> functionLines <> continuationLines <> argumentLines <> pointerLines)
+            label
+            functionPointer
+            argumentOperands
+            continuationPointer
+        _ -> lift (Left (LlvmUnsupportedExpression "internal CPS apply pointer arity"))
     GrinContinue continuation values -> do
       (continuationLines, continuationOperand) <- materializeValue env continuation
       (valueLines, valueOperands) <- materializeValues env values
-      (arrayLines, arrayOperand) <- storeOperandArray valueOperands
       (pointerLines, pointerOperands) <- pointerArguments [continuationOperand]
-      transfer <-
-        case pointerOperands of
-          [continuationPointer] ->
-            callPortableTransfer
-              env
-              "aihc_portable_continue_values"
-              [ "ptr %machine",
-                argumentBufferOperand (valueCompileEnv env),
-                "ptr " <> continuationPointer,
-                "i64 " <> tshow (length values),
-                "ptr " <> arrayOperand
-              ]
-          _ -> lift (Left (LlvmUnsupportedExpression "internal continuation pointer arity"))
-      terminal label (prefix <> continuationLines <> valueLines <> arrayLines <> pointerLines <> transfer)
+      transfer <- case pointerOperands of
+        [continuationPointer] -> compileContinueTransfer continuationPointer valueOperands
+        _ -> lift (Left (LlvmUnsupportedExpression "internal continuation pointer arity"))
+      terminal label (prefix <> continuationLines <> valueLines <> pointerLines <> transfer)
     GrinHalt {} -> do
       entry <- freshValue
-      let zeroArguments = replicate (compileArgumentCapacity (valueCompileEnv env)) "0"
       terminal
         label
         ( prefix
             <> ["  " <> entry <> " = call ptr @aihc_halt(ptr %machine)"]
-            <> indirectTailCall entry zeroArguments
+            <> ["  musttail call tailcc void " <> entry <> "(ptr %machine)"]
         )
     GrinCase scrutinee binder alternatives -> compileCase env prefix label scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
@@ -395,26 +408,145 @@ compileExpr env prefix label expression =
         pure (sourceLines <> fieldLines)
       compileExpr env (prefix <> allocations <> fields) label body
 
+compileApplyTransfer :: [Text] -> Text -> Text -> [Text] -> Text -> FunctionM ()
+compileApplyTransfer prefix label function arguments continuation = do
+  fastLabel <- freshLabel "apply_fast"
+  slowLabel <- freshLabel "apply_slow"
+  (infoLines, tag, info) <- loadValueInfo function
+  arityPointer <- freshValue
+  arity <- freshValue
+  isClosure <- freshValue
+  isSaturated <- freshValue
+  isFast <- freshValue
+  addBlock
+    label
+    ( prefix
+        <> infoLines
+        <> [ "  " <> arityPointer <> " = getelementptr %AihcInfo, ptr " <> info <> ", i32 0, i32 3",
+             "  " <> arity <> " = load i64, ptr " <> arityPointer <> ", align 8",
+             "  " <> isClosure <> " = icmp eq i64 " <> tag <> ", 1",
+             "  " <> isSaturated <> " = icmp eq i64 " <> arity <> ", 1",
+             "  " <> isFast <> " = and i1 " <> isClosure <> ", " <> isSaturated,
+             "  br i1 " <> isFast <> ", label %" <> fastLabel <> ", label %" <> slowLabel
+           ]
+    )
+  enterPointer <- freshValue
+  enter <- freshValue
+  addBlock
+    fastLabel
+    [ "  " <> enterPointer <> " = getelementptr %AihcInfo, ptr " <> info <> ", i32 0, i32 6",
+      "  " <> enter <> " = load ptr, ptr " <> enterPointer <> ", align 8",
+      "  musttail call tailcc void "
+        <> enter
+        <> "("
+        <> T.intercalate ", " (["ptr %machine", "ptr " <> function, "ptr " <> continuation] <> map ("i64 " <>) arguments)
+        <> ")",
+      "  ret void"
+    ]
+  (arrayLines, array) <- storeOperandArray arguments
+  continuationSlot <- freshValue
+  applied <- freshValue
+  adjustedContinuation <- freshValue
+  appliedInteger <- freshValue
+  continueLines <- compileContinueTransfer adjustedContinuation [appliedInteger]
+  addBlock
+    slowLabel
+    ( arrayLines
+        <> [ "  " <> continuationSlot <> " = alloca ptr, align 8",
+             "  store ptr " <> continuation <> ", ptr " <> continuationSlot <> ", align 8",
+             "  "
+               <> applied
+               <> " = call ptr @aihc_apply_slow(ptr %machine, ptr "
+               <> function
+               <> ", i64 "
+               <> tshow (length arguments)
+               <> ", ptr "
+               <> array
+               <> ", ptr "
+               <> continuationSlot
+               <> ")",
+             "  " <> adjustedContinuation <> " = load ptr, ptr " <> continuationSlot <> ", align 8",
+             "  " <> appliedInteger <> " = ptrtoint ptr " <> applied <> " to i64"
+           ]
+        <> continueLines
+        <> ["  ret void"]
+    )
+
+compileContinueTransfer :: Text -> [Text] -> FunctionM [Text]
+compileContinueTransfer continuation values = do
+  (infoLines, _, info) <- loadValueInfo continuation
+  enterPointer <- freshValue
+  enter <- freshValue
+  pure
+    ( infoLines
+        <> [ "  " <> enterPointer <> " = getelementptr %AihcInfo, ptr " <> info <> ", i32 0, i32 6",
+             "  " <> enter <> " = load ptr, ptr " <> enterPointer <> ", align 8",
+             "  musttail call tailcc void "
+               <> enter
+               <> "("
+               <> T.intercalate ", " (["ptr %machine", "ptr " <> continuation] <> map ("i64 " <>) values)
+               <> ")"
+           ]
+    )
+
+loadValueInfo :: Text -> FunctionM ([Text], Text, Text)
+loadValueInfo value = do
+  header <- freshValue
+  tag <- freshValue
+  infoInteger <- freshValue
+  info <- freshValue
+  pure
+    ( [ "  " <> header <> " = load i64, ptr " <> value <> ", align 8",
+        "  " <> tag <> " = and i64 " <> header <> ", 7",
+        "  " <> infoInteger <> " = and i64 " <> header <> ", -8",
+        "  " <> info <> " = inttoptr i64 " <> infoInteger <> " to ptr"
+      ],
+      tag,
+      info
+    )
+
 compileCpsPrimitive :: ValueEnv -> [Text] -> Text -> Text -> [GrinValue] -> GrinValue -> FunctionM ()
 compileCpsPrimitive env prefix label name arguments continuation =
   case (name, arguments) of
-    ("awaitIO#", [request]) -> transfer "aihc_portable_await_io_cps" [request, continuation]
-    ("fork#", [action]) -> transfer "aihc_portable_fork_cps" [action, continuation]
-    ("yield#", []) -> transfer "aihc_portable_yield_cps" [continuation]
+    ("awaitIO#", [request]) -> resume "aihc_await_io" [request, continuation]
+    ("fork#", [action]) -> do
+      (lines', operands) <- materializeValues env [action, continuation]
+      (pointerLines, pointerOperands) <- pointerArguments operands
+      case pointerOperands of
+        [actionPointer, continuationPointer] -> do
+          threadId <- freshValue
+          continueLines <- compileContinueTransfer continuationPointer [threadId]
+          addBlock
+            label
+            ( prefix
+                <> lines'
+                <> pointerLines
+                <> ["  " <> threadId <> " = call i64 @aihc_fork(ptr %machine, ptr " <> actionPointer <> ")"]
+                <> continueLines
+                <> ["  ret void"]
+            )
+        _ -> lift (Left (LlvmUnsupportedExpression "internal fork pointer arity"))
+    ("yield#", []) -> resume "aihc_yield" [continuation]
     _
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
           addBlock label (prefix <> ["  call void @aihc_unsupported_primitive()", "  unreachable"])
     _ -> lift (Left (LlvmUnsupportedExpression ("CPS primitive call " <> name)))
   where
-    transfer function values = do
+    resume function values = do
       (lines', operands) <- materializeValues env values
       (pointerLines, pointerOperands) <- pointerArguments operands
-      transferLines <-
-        callPortableTransfer
-          env
-          function
-          (["ptr %machine", argumentBufferOperand (valueCompileEnv env)] <> map ("ptr " <>) pointerOperands)
-      addBlock label (prefix <> lines' <> pointerLines <> transferLines <> ["  ret void"])
+      result <- freshValue
+      let callArguments = T.intercalate ", " ("ptr %machine" : map ("ptr " <>) pointerOperands)
+      addBlock
+        label
+        ( prefix
+            <> lines'
+            <> pointerLines
+            <> [ "  " <> result <> " = call ptr @" <> function <> "(" <> callArguments <> ")",
+                 "  musttail call tailcc void @aihc_llvm_resume(ptr %machine, ptr " <> result <> ")",
+                 "  ret void"
+               ]
+        )
 
 compileDirectBinding :: ValueEnv -> [GrinVar] -> GrinExpr -> FunctionM [Text]
 compileDirectBinding env vars expression =
@@ -763,24 +895,20 @@ renderMain env rootSlot dependencyInitializers constructorInitialization initial
          "  %top_i64 = ptrtoint ptr %top to i64",
          "  call void @aihc_set_field(ptr %update, i64 1, i64 %top_i64)",
          "  %thread_done = call ptr @aihc_make_node_unchecked(ptr %machine, i64 1, ptr @aihc_llvm_thread_done_info)",
+         "  call void @aihc_set_thread_done_continuation(ptr %machine, ptr %thread_done)",
+         "  %exit_field = getelementptr %AihcMachinePrefix, ptr %machine, i32 0, i32 2",
+         "  store ptr @aihc_llvm_exit, ptr %exit_field, align 8",
          "  %root_ptr = inttoptr i64 %root to ptr",
-         "  %transfer = call { ptr, ptr } @aihc_portable_start(ptr %machine, "
-           <> argumentBufferOperand env
-           <> ", ptr %root_ptr, ptr %top, ptr %update, ptr %thread_done, ptr @aihc_llvm_exit)",
-         "  %entry_function = extractvalue { ptr, ptr } %transfer, 0",
-         "  %entry_arguments = extractvalue { ptr, ptr } %transfer, 1"
-       ]
-    <> loadTransferArguments env "%entry_arguments" "%entry_arg_"
-    <> [ "  call tailcc void %entry_function(" <> renderCallArguments "%machine" ["%entry_arg_" <> tshow index | index <- [0 .. compileArgumentCapacity env - 1]] <> ")",
+         "  call tailcc void @aihc_llvm_eval(ptr %machine, ptr %root_ptr, i64 1, ptr %top, ptr %update)",
          "  ret i32 0",
          "}",
          ""
        ]
 
-renderSpecialFunctions :: CompileEnv -> [Text]
-renderSpecialFunctions env =
+renderSpecialFunctions :: [Text]
+renderSpecialFunctions =
   renderSpecial "aihc_llvm_top_continuation" 2 topBody
-    <> renderSpecial "aihc_llvm_thread_done_continuation" 0 threadDoneBody
+    <> renderSpecial "aihc_llvm_thread_done_continuation" 1 threadDoneBody
     <> renderSpecial "aihc_llvm_final_continuation" 1 finalBody
     <> [ "define internal tailcc void @aihc_llvm_exit(ptr %machine) {",
          "entry:",
@@ -798,75 +926,147 @@ renderSpecialFunctions env =
     topBody =
       [ "  %function = inttoptr i64 %arg_1 to ptr",
         "  %continuation = inttoptr i64 %arg_0 to ptr",
-        "  %transfer = call { ptr, ptr } @aihc_portable_apply_cps(ptr %machine, "
-          <> argumentBufferOperand env
-          <> ", ptr %function, i64 0, ptr null, ptr %continuation)"
+        "  musttail call tailcc void @aihc_llvm_apply_0(ptr %machine, ptr %function, ptr %continuation)",
+        "  ret void"
       ]
-        <> dispatchNamedTransfer env "%transfer" "%top"
-        <> ["  ret void"]
     threadDoneBody =
-      ["  %transfer = call { ptr, ptr } @aihc_portable_thread_done(ptr %machine, " <> argumentBufferOperand env <> ")"]
-        <> dispatchNamedTransfer env "%transfer" "%thread_done"
-        <> ["  ret void"]
+      [ "  %resume = call ptr @aihc_thread_done(ptr %machine)",
+        "  musttail call tailcc void @aihc_llvm_resume(ptr %machine, ptr %resume)",
+        "  ret void"
+      ]
     finalBody =
-      ["  %exit = call ptr @aihc_halt(ptr %machine)"]
-        <> indirectTailCall "%exit" (replicate (compileArgumentCapacity env) "0")
-        <> ["  ret void"]
-
-callPortableTransfer :: ValueEnv -> Text -> [Text] -> FunctionM [Text]
-callPortableTransfer env function arguments = do
-  transfer <- freshValue
-  entry <- freshValue
-  buffer <- freshValue
-  argumentNames <- replicateM (compileArgumentCapacity compileEnv) freshValue
-  let loads =
-        concat
-          [ [ "  " <> pointer <> " = getelementptr i64, ptr " <> buffer <> ", i64 " <> tshow index,
-              "  " <> argument <> " = load i64, ptr " <> pointer <> ", align 8"
-            ]
-          | (index, argument) <- zip [0 :: Int ..] argumentNames,
-            let pointer = argument <> "_ptr"
-          ]
-  pure
-    ( [ "  " <> transfer <> " = call { ptr, ptr } @" <> function <> "(" <> T.intercalate ", " arguments <> ")",
-        "  " <> entry <> " = extractvalue { ptr, ptr } " <> transfer <> ", 0",
-        "  " <> buffer <> " = extractvalue { ptr, ptr } " <> transfer <> ", 1"
+      [ "  %exit = call ptr @aihc_halt(ptr %machine)",
+        "  musttail call tailcc void %exit(ptr %machine)",
+        "  ret void"
       ]
-        <> loads
-        <> indirectTailCall entry argumentNames
-    )
-  where
-    compileEnv = valueCompileEnv env
 
-dispatchNamedTransfer :: CompileEnv -> Text -> Text -> [Text]
-dispatchNamedTransfer env transfer prefix =
-  [ "  " <> prefix <> "_entry = extractvalue { ptr, ptr } " <> transfer <> ", 0",
-    "  " <> prefix <> "_arguments = extractvalue { ptr, ptr } " <> transfer <> ", 1"
+renderNativeControlFunctions :: [Text]
+renderNativeControlFunctions =
+  [ "define internal tailcc void @aihc_llvm_continue_0(ptr %machine, ptr %continuation) {",
+    "entry:",
+    "  %header = load i64, ptr %continuation, align 8",
+    "  %info_i64 = and i64 %header, -8",
+    "  %info = inttoptr i64 %info_i64 to ptr",
+    "  %entry_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 6",
+    "  %target = load ptr, ptr %entry_slot, align 8",
+    "  musttail call tailcc void %target(ptr %machine, ptr %continuation)",
+    "  ret void",
+    "}",
+    "",
+    "define internal tailcc void @aihc_llvm_continue_1(ptr %machine, ptr %continuation, i64 %value) {",
+    "entry:",
+    "  %header = load i64, ptr %continuation, align 8",
+    "  %info_i64 = and i64 %header, -8",
+    "  %info = inttoptr i64 %info_i64 to ptr",
+    "  %entry_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 6",
+    "  %target = load ptr, ptr %entry_slot, align 8",
+    "  musttail call tailcc void %target(ptr %machine, ptr %continuation, i64 %value)",
+    "  ret void",
+    "}",
+    "",
+    "define internal tailcc void @aihc_llvm_apply_0(ptr %machine, ptr %function, ptr %continuation) {",
+    "entry:",
+    "  %header = load i64, ptr %function, align 8",
+    "  %tag = and i64 %header, 7",
+    "  %info_i64 = and i64 %header, -8",
+    "  %info = inttoptr i64 %info_i64 to ptr",
+    "  %arity_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 3",
+    "  %arity = load i64, ptr %arity_slot, align 8",
+    "  %is_closure = icmp eq i64 %tag, 1",
+    "  %is_saturated = icmp eq i64 %arity, 1",
+    "  %is_fast = and i1 %is_closure, %is_saturated",
+    "  br i1 %is_fast, label %fast, label %slow",
+    "fast:",
+    "  %entry_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 6",
+    "  %target = load ptr, ptr %entry_slot, align 8",
+    "  musttail call tailcc void %target(ptr %machine, ptr %function, ptr %continuation)",
+    "  ret void",
+    "slow:",
+    "  %continuation_slot = alloca ptr, align 8",
+    "  store ptr %continuation, ptr %continuation_slot, align 8",
+    "  %applied = call ptr @aihc_apply_slow(ptr %machine, ptr %function, i64 0, ptr null, ptr %continuation_slot)",
+    "  %adjusted_continuation = load ptr, ptr %continuation_slot, align 8",
+    "  %applied_i64 = ptrtoint ptr %applied to i64",
+    "  musttail call tailcc void @aihc_llvm_continue_1(ptr %machine, ptr %adjusted_continuation, i64 %applied_i64)",
+    "  ret void",
+    "}",
+    "",
+    "define internal tailcc void @aihc_llvm_resume(ptr %machine, ptr %resume) {",
+    "entry:",
+    "  %kind_slot = getelementptr %AihcResume, ptr %resume, i32 0, i32 0",
+    "  %function_slot = getelementptr %AihcResume, ptr %resume, i32 0, i32 1",
+    "  %continuation_slot = getelementptr %AihcResume, ptr %resume, i32 0, i32 2",
+    "  %value_slot = getelementptr %AihcResume, ptr %resume, i32 0, i32 3",
+    "  %count_slot = getelementptr %AihcResume, ptr %resume, i32 0, i32 4",
+    "  %kind = load i64, ptr %kind_slot, align 8",
+    "  %function = load ptr, ptr %function_slot, align 8",
+    "  %continuation = load ptr, ptr %continuation_slot, align 8",
+    "  %value = load i64, ptr %value_slot, align 8",
+    "  %count = load i64, ptr %count_slot, align 8",
+    "  store %AihcResume zeroinitializer, ptr %resume, align 8",
+    "  switch i64 %kind, label %invalid [ i64 1, label %apply i64 2, label %continue ]",
+    "apply:",
+    "  musttail call tailcc void @aihc_llvm_apply_0(ptr %machine, ptr %function, ptr %continuation)",
+    "  ret void",
+    "continue:",
+    "  %has_value = icmp eq i64 %count, 1",
+    "  br i1 %has_value, label %continue_one, label %continue_zero_check",
+    "continue_zero_check:",
+    "  %has_no_values = icmp eq i64 %count, 0",
+    "  br i1 %has_no_values, label %continue_zero, label %invalid",
+    "continue_zero:",
+    "  musttail call tailcc void @aihc_llvm_continue_0(ptr %machine, ptr %function)",
+    "  ret void",
+    "continue_one:",
+    "  musttail call tailcc void @aihc_llvm_continue_1(ptr %machine, ptr %function, i64 %value)",
+    "  ret void",
+    "invalid:",
+    "  call void @aihc_no_match()",
+    "  unreachable",
+    "}",
+    "",
+    "define internal tailcc void @aihc_llvm_eval(ptr %machine, ptr %value, i64 %result_is_lifted, ptr %continuation, ptr %update_continuation) {",
+    "entry:",
+    "  br label %loop",
+    "loop:",
+    "  %current = phi ptr [ %value, %entry ], [ %indirected, %indirection_lifted ]",
+    "  %header = load i64, ptr %current, align 8",
+    "  %tag = and i64 %header, 7",
+    "  switch i64 %tag, label %ready [ i64 2, label %thunk i64 4, label %indirection i64 5, label %blackhole ]",
+    "thunk:",
+    "  call void @aihc_begin_blackhole(ptr %machine, ptr %current)",
+    "  %thunk_info_i64 = and i64 %header, -8",
+    "  %thunk_info = inttoptr i64 %thunk_info_i64 to ptr",
+    "  %thunk_entry_slot = getelementptr %AihcInfo, ptr %thunk_info, i32 0, i32 6",
+    "  %thunk_entry = load ptr, ptr %thunk_entry_slot, align 8",
+    "  musttail call tailcc void %thunk_entry(ptr %machine, ptr %current, ptr %update_continuation)",
+    "  ret void",
+    "indirection:",
+    "  %field_slot = getelementptr i64, ptr %current, i64 1",
+    "  %field = load i64, ptr %field_slot, align 8",
+    "  %indirected = inttoptr i64 %field to ptr",
+    "  %is_lifted = icmp ne i64 %result_is_lifted, 0",
+    "  br i1 %is_lifted, label %indirection_lifted, label %indirection_unlifted",
+    "indirection_lifted:",
+    "  br label %loop",
+    "indirection_unlifted:",
+    "  musttail call tailcc void @aihc_llvm_continue_1(ptr %machine, ptr %continuation, i64 %field)",
+    "  ret void",
+    "blackhole:",
+    "  %resume = call ptr @aihc_block_on_blackhole(ptr %machine, ptr %current, ptr %continuation)",
+    "  musttail call tailcc void @aihc_llvm_resume(ptr %machine, ptr %resume)",
+    "  ret void",
+    "ready:",
+    "  %ready_i64 = ptrtoint ptr %current to i64",
+    "  musttail call tailcc void @aihc_llvm_continue_1(ptr %machine, ptr %continuation, i64 %ready_i64)",
+    "  ret void",
+    "}",
+    ""
   ]
-    <> loadTransferArguments env (prefix <> "_arguments") (prefix <> "_arg_")
-    <> [ "  musttail call tailcc void "
-           <> prefix
-           <> "_entry("
-           <> renderCallArguments "%machine" [prefix <> "_arg_" <> tshow index | index <- [0 .. compileArgumentCapacity env - 1]]
-           <> ")"
-       ]
-
-loadTransferArguments :: CompileEnv -> Text -> Text -> [Text]
-loadTransferArguments env buffer prefix =
-  concat
-    [ [ "  " <> prefix <> tshow index <> "_ptr = getelementptr i64, ptr " <> buffer <> ", i64 " <> tshow index,
-        "  " <> prefix <> tshow index <> " = load i64, ptr " <> prefix <> tshow index <> "_ptr, align 8"
-      ]
-    | index <- [0 .. compileArgumentCapacity env - 1]
-    ]
 
 directTailCall :: Text -> [Text] -> [Text]
 directTailCall target operands =
   ["  musttail call tailcc void @" <> target <> "(" <> renderCallArguments "%machine" operands <> ")"]
-
-indirectTailCall :: Text -> [Text] -> [Text]
-indirectTailCall target operands =
-  ["  musttail call tailcc void " <> target <> "(" <> renderCallArguments "%machine" operands <> ")"]
 
 renderCallArguments :: Text -> [Text] -> Text
 renderCallArguments machine operands = T.intercalate ", " ("ptr " <> machine : map ("i64 " <>) operands)
@@ -1002,14 +1202,47 @@ storeLocal slot operand = "  store i64 " <> operand <> ", ptr " <> localSlotRef 
 localSlotRef :: Int -> Text
 localSlotRef slot = "%slot_" <> tshow slot
 
-argumentBufferDefinition :: CompileEnv -> Text
-argumentBufferDefinition env =
-  "@aihc_llvm_arguments = internal global ["
-    <> tshow (compileArgumentCapacity env)
-    <> " x i64] zeroinitializer, align 8"
+renderEnterStubs :: [RuntimeInfo] -> [Text]
+renderEnterStubs = concatMap renderStub
+  where
+    renderStub info =
+      case runtimeInfoEnter info of
+        Nothing -> []
+        Just enter ->
+          let suppliedNames = ["%supplied_" <> tshow index | index <- [0 .. runtimeEnterSuppliedCount enter - 1]]
+              parameters =
+                ["ptr %machine", "ptr %closure"]
+                  <> ["ptr %continuation" | not (runtimeEnterIsContinuation enter)]
+                  <> map ("i64 " <>) suppliedNames
+              loadStored index =
+                [ "  %stored_" <> tshow index <> "_ptr = getelementptr i64, ptr %closure, i64 " <> tshow (index + 1),
+                  "  %stored_" <> tshow index <> " = load i64, ptr %stored_" <> tshow index <> "_ptr, align 8"
+                ]
+              storedNames = ["%stored_" <> tshow index | index <- [0 .. runtimeEnterStoredCount enter - 1]]
+              continuationConversion =
+                ["  %continuation_i64 = ptrtoint ptr %continuation to i64" | not (runtimeEnterIsContinuation enter)]
+              targetArguments = storedNames <> suppliedNames <> ["%continuation_i64" | not (runtimeEnterIsContinuation enter)]
+           in [ "define internal tailcc void @"
+                  <> enterEntryLabel info
+                  <> "("
+                  <> T.intercalate ", " parameters
+                  <> ") {",
+                "entry:"
+              ]
+                <> concatMap loadStored [0 .. runtimeEnterStoredCount enter - 1]
+                <> continuationConversion
+                <> [ "  musttail call tailcc void @"
+                       <> runtimeEnterTarget enter
+                       <> "("
+                       <> renderCallArguments "%machine" targetArguments
+                       <> ")",
+                     "  ret void",
+                     "}",
+                     ""
+                   ]
 
-argumentBufferOperand :: CompileEnv -> Text
-argumentBufferOperand _ = "ptr @aihc_llvm_arguments"
+enterEntryLabel :: RuntimeInfo -> Text
+enterEntryLabel info = runtimeInfoLabel info <> "_enter"
 
 renderRuntimeInfos :: [RuntimeInfo] -> [Text]
 renderRuntimeInfos infos = concatMap bitmap infos <> map definition infos <> [""]
@@ -1040,7 +1273,9 @@ renderRuntimeInfos infos = concatMap bitmap infos <> map definition infos <> [""
         <> (if null (runtimeInfoFields info) then "null" else "@" <> runtimeInfoLabel info <> "_bitmap")
         <> ", ptr "
         <> maybe "null" ("@" <>) (runtimeInfoNext info)
-        <> ", ptr null }, align 8"
+        <> ", ptr "
+        <> maybe "null" (const ("@" <> enterEntryLabel info)) (runtimeInfoEnter info)
+        <> " }, align 8"
 
 renderForeignDeclarations :: GrinProgram -> [Text]
 renderForeignDeclarations program =
@@ -1096,7 +1331,8 @@ llvmPreamble :: [Text]
 llvmPreamble =
   [ "; Generated by AIHC's LLVM backend.",
     "%AihcInfo = type { i64, ptr, i64, i64, ptr, ptr, ptr }",
-    "%AihcMachinePrefix = type { ptr }",
+    "%AihcResume = type { i64, ptr, ptr, i64, i64 }",
+    "%AihcMachinePrefix = type { ptr, i64, ptr }",
     ""
   ]
 
@@ -1109,17 +1345,17 @@ renderRuntimeDeclarations =
     "declare void @aihc_set_field(ptr, i64, i64)",
     "declare void @aihc_update(ptr, ptr)",
     "declare void @aihc_update_blackhole(ptr, ptr, ptr)",
+    "declare ptr @aihc_apply_slow(ptr, ptr, i64, ptr, ptr)",
+    "declare void @aihc_begin_blackhole(ptr, ptr)",
+    "declare ptr @aihc_block_on_blackhole(ptr, ptr, ptr)",
+    "declare i64 @aihc_fork(ptr, ptr)",
+    "declare ptr @aihc_yield(ptr, ptr)",
+    "declare ptr @aihc_await_io(ptr, ptr, ptr)",
+    "declare ptr @aihc_thread_done(ptr)",
+    "declare void @aihc_set_thread_done_continuation(ptr, ptr)",
     "declare ptr @aihc_halt(ptr)",
     "declare void @aihc_no_match()",
     "declare void @aihc_unsupported_primitive()",
-    "declare { ptr, ptr } @aihc_portable_apply_cps(ptr, ptr, ptr, i64, ptr, ptr)",
-    "declare { ptr, ptr } @aihc_portable_eval_cps(ptr, ptr, ptr, i64, ptr, ptr)",
-    "declare { ptr, ptr } @aihc_portable_continue_values(ptr, ptr, ptr, i64, ptr)",
-    "declare { ptr, ptr } @aihc_portable_fork_cps(ptr, ptr, ptr, ptr)",
-    "declare { ptr, ptr } @aihc_portable_yield_cps(ptr, ptr, ptr)",
-    "declare { ptr, ptr } @aihc_portable_await_io_cps(ptr, ptr, ptr, ptr)",
-    "declare { ptr, ptr } @aihc_portable_thread_done(ptr, ptr)",
-    "declare { ptr, ptr } @aihc_portable_start(ptr, ptr, ptr, ptr, ptr, ptr, ptr)",
     ""
   ]
 

@@ -524,7 +524,7 @@ objectCompiler target sourcePath objectPath = do
   (compiler, targetArguments) <- backendCompiler target
   case target of
     PortableC -> cCompiler compiler targetArguments
-    Llvm -> pure (compiler, targetArguments <> ["-Wno-override-module", "-c", sourcePath, "-o", objectPath])
+    Llvm -> pure (compiler, targetArguments <> ["-c", sourcePath, "-o", objectPath])
     AppleArm64 -> pure (compiler, nativeArguments targetArguments)
     LinuxAmd64 -> pure (compiler, nativeArguments targetArguments)
   where

@@ -79,7 +79,7 @@ backendCompiler :: NativeTarget -> IO (FilePath, [String])
 backendCompiler target =
   case target of
     PortableC -> pure ("clang", [])
-    Llvm -> pure ("clang", ["-Wno-override-module"])
+    Llvm -> pure ("clang", ["-Wno-override-module", "-O2"])
     AppleArm64 -> nativeCompiler
     LinuxAmd64 -> nativeCompiler
   where
