@@ -82,7 +82,7 @@
 | StarIsType                |   🟢    | 4/4           |
 | TemplateHaskell           |   🟢    | 68/68         |
 | TemplateHaskellQuotes     |   🟢    | 14/14         |
-| TransformListComp         |   🟢    | 17/17         |
+| TransformListComp         |   🟢    | 18/18         |
 | TupleSections             |   🟢    | 4/4           |
 | TypeAbstractions          |   🟢    | 5/5           |
 | TypeApplications          |   🟢    | 13/13         |
