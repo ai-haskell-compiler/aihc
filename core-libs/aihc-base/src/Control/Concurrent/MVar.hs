@@ -1,1 +1,11 @@
-module Control.Concurrent.MVar () where
+module Control.Concurrent.MVar
+  ( MVar,
+    newEmptyMVar,
+    newMVar,
+    putMVar,
+    readMVar,
+    takeMVar,
+  )
+where
+
+import GHC.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
