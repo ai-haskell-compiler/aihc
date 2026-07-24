@@ -4,7 +4,7 @@ module Test.Wasm.Suite (tests) where
 
 import Aihc.Grin (lowerGc, toCpsGrin)
 import Aihc.Grin.Syntax
-import Aihc.Native (LinkLayout (..), buildLinkLayout)
+import Aihc.Native (LinkLayout (..), buildLinkLayout, supportedNativePrimitiveNames)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Aihc.Wasm (WasmError (..), compileModule, compileProgram, compileProgramWithDependencies, validatePrimitiveNames, validateProgramPrimitives)
 import Data.Text qualified as T
@@ -22,6 +22,7 @@ tests =
       testCase "rejects unsupported primitives" testUnsupportedPrimitive,
       testCase "traps dormant unsupported primitives in dependency modules" testDormantPrimitive,
       testCase "emits relocatable dependency modules" testIncrementalModule,
+      testCase "lowers byte-array primitives through the runtime ABI" testByteArrayPrimitives,
       testProperty "accepts supported primitives" $
         forAll (elements supportedPrimitives) $ \name ->
           validatePrimitiveNames [name] == Right ()
@@ -94,6 +95,18 @@ testIncrementalModule =
           assertBool "uses combined global layout" (expectedAllocation `T.isInfixOf` source)
     (Left err, _) -> assertFailure (show err)
     (_, Left err) -> assertFailure (show err)
+
+testByteArrayPrimitives :: IO ()
+testByteArrayPrimitives =
+  case toCpsGrin byteArrayProgram of
+    Left err -> assertFailure (show err)
+    Right cps ->
+      case compileModule (buildLinkLayout [byteArrayProgram]) "_aihc_init_byte_array" (lowerGc cps) of
+        Left err -> assertFailure (show err)
+        Right source -> do
+          assertBool "allocates a pinned byte array" ("call\taihc_byte_array_new_pinned" `T.isInfixOf` source)
+          assertBool "copies an address into the byte array" ("call\taihc_byte_array_copy_from_addr" `T.isInfixOf` source)
+          assertBool "obtains the byte-array payload" ("call\taihc_byte_array_contents" `T.isInfixOf` source)
 
 program :: GrinProgram
 program =
@@ -176,6 +189,39 @@ directCallProgram =
     argument = GrinVar "argument" 50 (BoxedRep Lifted)
     identityFunction = FunctionName "$identity"
 
+byteArrayProgram :: GrinProgram
+byteArrayProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives =
+        [ (GrinVar "newPinnedByteArray#" 60 (BoxedRep Unlifted), 2),
+          (GrinVar "copyAddrToByteArray#" 61 (TupleRep []), 5),
+          (GrinVar "mutableByteArrayContents#" 62 AddrRep, 1)
+        ],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "$byte_array",
+              grinFunctionLinkName = Just "byte_array",
+              grinFunctionParameters = [],
+              grinFunctionResultRep = AddrRep,
+              grinFunctionBody =
+                GrinBind [array] (GrinPrimitiveCall (BoxedRep Unlifted) "newPinnedByteArray#" [intValue 1]) $
+                  GrinBind [] (GrinPrimitiveCall (TupleRep []) "copyAddrToByteArray#" [GrinLitValue (GrinLitAddr "x"), GrinVarValue array, intValue 0, intValue 1]) $
+                    GrinBind [contents] (GrinPrimitiveCall AddrRep "mutableByteArrayContents#" [GrinVarValue array]) $
+                      GrinConstant [GrinVarValue contents]
+            }
+        ]
+    }
+  where
+    array = GrinVar "array" 63 (BoxedRep Unlifted)
+    contents = GrinVar "contents" 64 AddrRep
+    intValue = GrinLitValue . GrinLitInt IntRep
+
 dormantPrimitiveProgram :: GrinProgram
 dormantPrimitiveProgram =
   GrinProgram
@@ -204,4 +250,4 @@ dormantPrimitiveProgram =
     result = GrinVar "result" 41 IntRep
 
 supportedPrimitives :: [T.Text]
-supportedPrimitives = ["+#", "awaitIO#", "fork#", "realWorld#", "yield#"]
+supportedPrimitives = supportedNativePrimitiveNames

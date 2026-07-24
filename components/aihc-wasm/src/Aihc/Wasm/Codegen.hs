@@ -16,7 +16,7 @@ where
 
 import Aihc.Grin.Gc (GcGrinProgram, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
-import Aihc.Native (LinkLayout (..), buildAddrLiteralPool, buildLinkLayout)
+import Aihc.Native (LinkLayout (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, supportedNativePrimitiveNames)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
@@ -156,7 +156,7 @@ validateProgramPrimitives = validatePrimitiveNames . map (grinVarName . fst) . g
 
 validatePrimitiveNames :: [Text] -> Either WasmError ()
 validatePrimitiveNames = mapM_ $ \name ->
-  if name `elem` ["+#", "awaitIO#", "fork#", "realWorld#", "yield#"]
+  if name `elem` supportedNativePrimitiveNames
     then Right ()
     else Left (WasmUnsupportedPrimitive name)
 
@@ -273,6 +273,15 @@ runtimeFunctionTypes =
     ("aihc_wasm_global_set", ([I32, I64, I64], [])),
     ("aihc_wasm_value_field", ([I64, I64], [I64])),
     ("aihc_wasm_value_info", ([I64], [I64])),
+    ("aihc_byte_array_new", ([I64], [I32])),
+    ("aihc_byte_array_new_pinned", ([I64], [I32])),
+    ("aihc_byte_array_new_aligned_pinned", ([I64, I64], [I32])),
+    ("aihc_byte_array_is_pinned", ([I32], [I64])),
+    ("aihc_byte_array_contents", ([I32], [I32])),
+    ("aihc_byte_array_shrink", ([I32, I64], [I64])),
+    ("aihc_byte_array_resize", ([I32, I64], [I32])),
+    ("aihc_byte_array_get_size", ([I32], [I64])),
+    ("aihc_byte_array_copy_from_addr", ([I32, I32, I64, I64], [I64])),
     ("aihc_wasm_transfer_direct", ([I32, I32, I64, I32], [])),
     ("aihc_wasm_transfer_eval", ([I32, I64, I64, I64, I64], [])),
     ("aihc_wasm_transfer_apply", ([I32, I64, I64, I32, I64], [])),
@@ -422,6 +431,15 @@ compileDirectBinding env vars expression =
     GrinPrimitiveCall IntRep "+#" [left, right] -> storeSingle (materializeValue env left <> materializeValue env right <> ["i64.add"])
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
+    GrinPrimitiveCall _ name [value]
+      | name `elem` ["unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> storeSingle (materializeValue env value)
+    GrinPrimitiveCall _ name arguments
+      | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
+          instructions <- compileForeignCall env foreignCall arguments
+          case vars of
+            [] -> pure (instructions <> ["drop"])
+            [_] -> storeSingle instructions
+            _ -> Left (WasmUnsupportedExpression ("byte array primitive result arity " <> name))
     GrinPrimitiveCall {}
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
           pure (call "aihc_unsupported_primitive" <> concatMap (\var -> localSetFor env var (i64Const "0")) vars)
