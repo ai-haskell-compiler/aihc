@@ -4,9 +4,6 @@
   mkHsPkgsForChecks,
 }: pkgs: let
   hsPkgs = mkHsPkgsForChecks pkgs;
-  wasm32Clang = pkgs.writeShellScriptBin "wasm32-clang" ''
-    exec ${pkgs.llvmPackages.clang-unwrapped}/bin/clang --target=wasm32-unknown-unknown "$@"
-  '';
   wasmLd = pkgs.writeShellScriptBin "wasm-ld" ''
     exec ${pkgs.lld}/bin/wasm-ld "$@"
   '';
@@ -248,10 +245,10 @@
       pkgs.wasm-tools
       pkgs.wasmtime
       pkgs.wit-bindgen
-      wasm32Clang
       wasmLd
     ] ''
       export XDG_CACHE_HOME="$TMPDIR/cache"
+      export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       incremental_executable="$TMPDIR/async-hello-world-incremental.wasm"
       ${aihcExe} compile examples/async-hello-world/Main.hs \
         --target wasm32-wasip3 \

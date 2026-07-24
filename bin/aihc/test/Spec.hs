@@ -14,6 +14,7 @@ import Aihc.Cli.Compile
     compileSourceToWholeCoreWithDependencies,
     defaultCompileEnvironment,
     runCompileWithEnvironment,
+    wasmClangCommand,
   )
 import Aihc.Cli.Install
   ( DependencyResolver (..),
@@ -162,7 +163,10 @@ main =
         ],
       testGroup
         "compile"
-        [ testCase "lowers the aihc-base HelloWorld example to native assembly" $
+        [ testCase "uses standard Clang for the WebAssembly target" $ do
+            assertEqual "default command" ("clang", ["--target=wasm32-unknown-unknown"]) (wasmClangCommand Nothing)
+            assertEqual "configured command" ("custom-clang", ["--target=wasm32-unknown-unknown"]) (wasmClangCommand (Just "custom-clang")),
+          testCase "lowers the aihc-base HelloWorld example to native assembly" $
             withTempDir "aihc-compile-example" $ \root -> do
               sourcePath <- helloWorldExamplePath
               source <- TIO.readFile sourcePath

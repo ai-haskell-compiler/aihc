@@ -20,6 +20,13 @@ all objects -> wasm-ld -> core module -> wasm-tools -> component
 The resulting output is one WebAssembly component. The object files and the
 intermediate core module are removed after linking.
 
+The driver invokes the standard LLVM tools directly: `clang
+--target=wasm32-unknown-unknown`, `wasm-ld`, `wasm-tools`, and `wit-bindgen`.
+They may come from any LLVM/WASI installation on `PATH`; no `wasm32-clang`
+wrapper is required. `AIHC_WASM_CLANG` can select another Clang executable
+when a host toolchain wrapper is not cross-target safe. The Nix development
+environment uses that override to select its unwrapped LLVM Clang.
+
 ## Runtime ABI
 
 Generated functions have the uniform type `(i32) -> ()`. The argument is a

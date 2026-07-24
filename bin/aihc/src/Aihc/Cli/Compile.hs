@@ -18,6 +18,7 @@ module Aihc.Cli.Compile
     renderCompileError,
     runCompile,
     runCompileWithEnvironment,
+    wasmClangCommand,
   )
 where
 
@@ -54,6 +55,7 @@ import Aihc.Native
     buildLinkLayoutFromInterfaces,
     extendLinkLayout,
     hostNativeTarget,
+    nativeTargetTriple,
     runtimeSourcePath,
   )
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
@@ -70,6 +72,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory (XdgDirectory (XdgCache), createDirectory, getCurrentDirectory, getTemporaryDirectory, getXdgDirectory, removeDirectoryRecursive, removeFile)
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, takeDirectory, (</>))
 import System.IO (hClose, openTempFile)
@@ -530,6 +533,7 @@ assembleWasip3 garbageCollector output assemblyPath archives = do
   nativeRuntime <- runtimeSourcePath
   driver <- Wasm.wasip3RuntimeSourcePath
   world <- Wasm.wasip3WorldPath
+  clangOverride <- lookupEnv "AIHC_WASM_CLANG"
   withTemporaryDirectory "aihc-wasip3-link" $ \directory -> do
     let bindingsSource = directory </> "command.c"
         bindingsObject = directory </> "bindings.o"
@@ -538,6 +542,7 @@ assembleWasip3 garbageCollector output assemblyPath archives = do
         runtimeObject = directory </> "runtime.o"
         driverObject = directory </> "driver.o"
         coreModule = directory </> "core.wasm"
+        (clang, clangTargetArguments) = wasmClangCommand clangOverride
         includeArguments =
           [ "-I" <> (takeDirectory driver </> "include"),
             "-I" <> takeDirectory nativeRuntime,
@@ -557,10 +562,10 @@ assembleWasip3 garbageCollector output assemblyPath archives = do
           ]
             <> includeArguments
     runTool "wit-bindgen" ["c", "--world", "command", "--out-dir", directory, world]
-    runTool "wasm32-clang" ["-c", assemblyPath, "-o", programObject]
-    runTool "wasm32-clang" (cArguments <> ["-c", nativeRuntime, "-o", runtimeObject])
-    runTool "wasm32-clang" (cArguments <> ["-c", driver, "-o", driverObject])
-    runTool "wasm32-clang" (cArguments <> ["-c", bindingsSource, "-o", bindingsObject])
+    runTool clang (clangTargetArguments <> ["-c", assemblyPath, "-o", programObject])
+    runTool clang (clangTargetArguments <> cArguments <> ["-c", nativeRuntime, "-o", runtimeObject])
+    runTool clang (clangTargetArguments <> cArguments <> ["-c", driver, "-o", driverObject])
+    runTool clang (clangTargetArguments <> cArguments <> ["-c", bindingsSource, "-o", bindingsObject])
     runTool
       "wasm-ld"
       ( [ "--no-entry",
@@ -577,6 +582,12 @@ assembleWasip3 garbageCollector output assemblyPath archives = do
       )
     runTool "wasm-tools" ["component", "new", coreModule, "-o", output]
     runTool "wasm-tools" ["validate", output]
+
+-- | Select the ordinary Clang driver used for WebAssembly objects. Nix can
+-- override only the executable to bypass its host-target compiler wrapper.
+wasmClangCommand :: Maybe FilePath -> (FilePath, [String])
+wasmClangCommand override =
+  (fromMaybe "clang" override, ["--target=" <> nativeTargetTriple Wasm32Wasip3])
 
 runTool :: FilePath -> [String] -> IO ()
 runTool tool arguments = do

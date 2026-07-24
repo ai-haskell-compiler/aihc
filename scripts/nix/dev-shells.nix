@@ -10,9 +10,6 @@ in {
       pkgs.alejandra
       pkgs.hlint
       pkgs.clang-tools
-      (pkgs.writeShellScriptBin "wasm32-clang" ''
-        exec ${pkgs.llvmPackages.clang-unwrapped}/bin/clang --target=wasm32-unknown-unknown "$@"
-      '')
       (pkgs.writeShellScriptBin "wasm-ld" ''
         exec ${pkgs.lld}/bin/wasm-ld "$@"
       '')
@@ -22,5 +19,6 @@ in {
       pkgs.zlib
       pkgs.python3Packages.mkdocs-material
     ];
+    AIHC_WASM_CLANG = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
   };
 }
