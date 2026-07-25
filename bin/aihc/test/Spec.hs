@@ -1054,8 +1054,8 @@ test_compileSystemIOBinaryExample =
         runCompileWithEnvironment environment options
         (exitCode, programOut, programErr) <- readProcessWithExitCode output [] "IN"
         assertEqual (show target <> " exit; stderr: " <> programErr) ExitSuccess exitCode
-        assertEqual (show target <> " stdout") "ABCBCIN" programOut
-        assertEqual (show target <> " stderr") "E" programErr
+        assertEqual (show target <> " stdout") "ABCBCIN\n" programOut
+        assertEqual (show target <> " stderr") "E\n" programErr
 
 test_compileSystemIOErrorExample :: Assertion
 test_compileSystemIOErrorExample =

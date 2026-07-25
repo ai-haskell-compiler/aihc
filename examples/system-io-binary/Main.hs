@@ -43,8 +43,9 @@ main = do
     hPutBuf stdout (Ptr (mutableByteArrayContents# buffer) :: Ptr ()) count)
   hClose updated
 
-  hPutBuf stderr (Ptr "E"# :: Ptr ()) 1
+  hPutBuf stderr (Ptr "E\n"# :: Ptr ()) 2
   withPinnedByteArray 2# (\buffer -> do
     let pointer = Ptr (mutableByteArrayContents# buffer) :: Ptr ()
     count <- hGetBuf stdin pointer 2
     hPutBuf stdout (Ptr (mutableByteArrayContents# buffer) :: Ptr ()) count)
+  hPutBuf stdout (Ptr "\n"# :: Ptr ()) 1

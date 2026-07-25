@@ -109,20 +109,53 @@
   }: ''
     executable="$TMPDIR/$example_name-${backend}-${compilation.name}-${gc}"
     actual_stdout="$executable.stdout"
+    actual_stderr="$executable.stderr"
+    run_directory="$executable.run"
     stdin_file=/dev/null
     if [[ -f "$example_directory/stdin" ]]; then
       stdin_file="$example_directory/stdin"
+    fi
+    expected_stderr="$empty_stderr"
+    if [[ -f "$example_directory/stderr" ]]; then
+      expected_stderr="$example_directory/stderr"
+    fi
+    expected_exit=0
+    if [[ -f "$example_directory/exit" ]]; then
+      expected_exit=$(<"$example_directory/exit")
     fi
     ${aihcExe} compile "$source" \
       --target ${backend} \
       --gc ${gc} \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"
-    "$executable" < "$stdin_file" > "$actual_stdout"
+    mkdir -p "$run_directory"
+    if (cd "$run_directory"; "$executable") < "$stdin_file" > "$actual_stdout" 2> "$actual_stderr"; then
+      actual_exit=0
+    else
+      actual_exit=$?
+    fi
+    if [[ "$expected_exit" == nonzero ]]; then
+      if [[ "$actual_exit" -eq 0 ]]; then
+        echo "Expected $example_name/${backend}-${compilation.name}-${gc} to fail" >&2
+        exit 1
+      fi
+    elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
+      if [[ "$actual_exit" -ne "$expected_exit" ]]; then
+        echo "Expected $example_name/${backend}-${compilation.name}-${gc} to exit with $expected_exit, got $actual_exit" >&2
+        exit 1
+      fi
+    else
+      echo "Invalid expected exit status for $example_name: $expected_exit" >&2
+      exit 1
+    fi
     diff --unified \
-      --label "$example_name/expected" \
-      --label "$example_name/${backend}-${compilation.name}-${gc}" \
+      --label "$example_name/stdout-expected" \
+      --label "$example_name/stdout-${backend}-${compilation.name}-${gc}" \
       "$expected_stdout" "$actual_stdout"
+    diff --unified \
+      --label "$example_name/stderr-expected" \
+      --label "$example_name/stderr-${backend}-${compilation.name}-${gc}" \
+      "$expected_stderr" "$actual_stderr"
   '';
 
   cppProgressEnv = hsPkgs.ghcWithPackages (p: [
@@ -226,6 +259,8 @@
   examplesTests = mkSourceCheck "aihc-examples-tests" (sources.examplesSrc pkgs) [pkgs.coreutils pkgs.diffutils pkgs.findutils pkgs.ghc pkgs.llvmPackages.clang] ''
     set -euo pipefail
     export XDG_CACHE_HOME="$TMPDIR/cache"
+    empty_stderr="$TMPDIR/empty-stderr"
+    touch "$empty_stderr"
 
     while IFS= read -r -d "" source; do
       example_directory=$(dirname "$source")
