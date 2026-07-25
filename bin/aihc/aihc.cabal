@@ -19,6 +19,7 @@ library
 
   other-modules:
     Aihc.Cli.Compile.Dependencies
+    Aihc.Cli.Utf8
 
   hs-source-dirs: src
   build-depends:

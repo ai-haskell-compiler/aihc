@@ -15,6 +15,7 @@ where
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
 import Aihc.C qualified as C
+import Aihc.Cli.Utf8 qualified as Utf8
 import Aihc.Fc (DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, optimizeProgram)
 import Aihc.Grin qualified as Grin
 import Aihc.Native
@@ -310,7 +311,7 @@ loadModuleClosure index roots = fmap (fmap snd) (go Set.empty [] roots)
 
 parseModuleFile :: ModuleSource -> IO (Either String Module)
 parseModuleFile ModuleSource {moduleSourcePath} = do
-  source <- TIO.readFile moduleSourcePath
+  source <- Utf8.readFile moduleSourcePath
   pure $
     case parseModule (parserConfig moduleSourcePath source) source of
       ([], modu) -> Right modu

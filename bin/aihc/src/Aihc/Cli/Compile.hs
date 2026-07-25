@@ -33,6 +33,7 @@ import Aihc.Cli.Compile.Dependencies
     buildDependencies,
   )
 import Aihc.Cli.Options (CompileOptions (..), GarbageCollector (..))
+import Aihc.Cli.Utf8 qualified as Utf8
 import Aihc.Fc
   ( DesugarResult (..),
     FcAlt (..),
@@ -135,7 +136,7 @@ runCompileWithEnvironment environment options = do
           (ioError (userError (renderCompileError (CompileTargetError "unsupported host; pass --target portable-c or another explicit target"))))
           pure
           hostNativeTarget
-  source <- TIO.readFile (compileSourceFile options)
+  source <- Utf8.readFile (compileSourceFile options)
   artifactsResult <- compileSourceToArtifactsWithDependencies target (compileWholeProgram options) environment (compileSourceFile options) source
   artifacts <- either (ioError . userError . renderCompileError) pure artifactsResult
   let output = compileOutputPath options
