@@ -12,6 +12,7 @@ import Aihc.Dev.Snippet
   )
 import Aihc.Parser.Syntax (Extension (TypeApplications), ExtensionSetting (..))
 import Test.ExtractHiCompare (extractHiCompareTests)
+import Test.Fuzz (fuzzTests)
 import Test.GoldenUpdate (goldenUpdateTests)
 import Test.ParserBenchReport (parserBenchReportTests)
 import Test.ParserCLI.Suite (cliTests)
@@ -73,6 +74,7 @@ main = do
         assertEqual "extension" (Right (EnableExtension TypeApplications)) (parseExtensionSettingArg "TypeApplications"),
       QC.testProperty "dummy quickcheck property" prop_dummy,
       extractHiCompareTests,
+      fuzzTests,
       resolvePackageTests,
       goldenUpdateTests,
       resolveStackagePathsModuleTests,

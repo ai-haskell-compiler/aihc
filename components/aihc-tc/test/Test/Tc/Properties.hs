@@ -2,7 +2,9 @@
 
 -- | QuickCheck property tests for the type checker.
 module Test.Tc.Properties
-  ( tcProperties,
+  ( prop_reflexiveEq,
+    prop_zonkIdempotent,
+    tcProperties,
   )
 where
 

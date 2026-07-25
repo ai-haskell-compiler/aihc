@@ -39,6 +39,12 @@ typedef struct AihcIoBackend AihcIoBackend;
 typedef struct AihcMVar AihcMVar;
 typedef uint64_t AihcSlot;
 typedef void (*AihcEntry)(AihcSlot *arguments);
+#ifdef AIHC_WASIP3
+typedef void (*AihcEnterEntry)(AihcMachine *machine, AihcSlot object,
+                               const AihcSlot *supplied, AihcSlot continuation);
+#else
+typedef AihcEntry AihcEnterEntry;
+#endif
 
 /* Only the portable-C trampoline expands a transfer into an argument array.
    Native backends enter generated code with their register convention. */
@@ -71,7 +77,7 @@ struct AihcInfo {
   const AihcInfo *next;
   /* Backend-owned dynamic entry. Native entries unpack captured fields into
      registers; portable C leaves this null and uses entry plus its buffer. */
-  AihcEntry enter_entry;
+  AihcEnterEntry enter_entry;
 };
 
 struct AihcValue {
@@ -259,6 +265,10 @@ AihcPortableTransfer aihc_portable_start(AihcMachine *machine, AihcValue *root,
                                          AihcValue *update_continuation,
                                          AihcValue *thread_done_continuation,
                                          AihcEntry exit_code);
+#ifdef AIHC_WASIP3
+AihcPortableTransfer aihc_wasip3_complete_io(AihcMachine *machine,
+                                             int32_t result);
+#endif
 
 typedef enum {
   AIHC_SNAPSHOT_POINTER,

@@ -43,8 +43,18 @@
       supportsDocs = true;
       supportsCoverage = true;
     };
+    aihc-wasm = {
+      src = sources.wasmSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-parser = {
       src = sources.parserSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--flag fuzz";
+      };
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = true;
@@ -52,6 +62,9 @@
     };
     aihc-parser-compat = {
       src = sources.parserCompatSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--flag fuzz";
+      };
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = false;
@@ -78,7 +91,7 @@
     aihc-grin = {
       src = sources.grinSrc;
       cabal2nixOptions = {
-        extraCabal2nixOptions = "--subpath components/aihc-grin";
+        extraCabal2nixOptions = "--flag fuzz --subpath components/aihc-grin";
         srcModifier = src: src;
       };
       disableProfiling = true;
@@ -95,6 +108,9 @@
     };
     aihc-tc = {
       src = sources.tcSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--flag fuzz";
+      };
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = false;

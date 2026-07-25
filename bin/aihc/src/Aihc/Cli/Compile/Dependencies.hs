@@ -61,6 +61,7 @@ import Aihc.Tc
     tcModuleSuccess,
     typecheckModuleSccWithFullEnv,
   )
+import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket, bracketOnError)
 import Control.Monad (filterM, foldM)
 import Data.Bits (xor)
@@ -176,7 +177,7 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 19
+cacheSchemaVersion = 20
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
@@ -509,11 +510,13 @@ compileBackendModule target layout initializer program =
     AppleArm64 -> either (Left . show) Right (Arm64.compileModule layout initializer program)
     LinuxAmd64 -> either (Left . show) Right (Amd64.compileModule layout initializer program)
     PortableC -> compileC
+    Wasm32Wasip3 -> either (Left . show) Right (Wasm.compileModule layout initializer program)
   where
     compileC = either (Left . show) Right (C.compileModule layout initializer program)
 
 backendSourceExtension :: NativeTarget -> String
 backendSourceExtension PortableC = ".c"
+backendSourceExtension Wasm32Wasip3 = ".s"
 backendSourceExtension _ = ".s"
 
 objectCompiler :: NativeTarget -> FilePath -> FilePath -> IO (FilePath, [String])
@@ -523,6 +526,7 @@ objectCompiler target sourcePath objectPath = do
     PortableC -> cCompiler compiler targetArguments
     AppleArm64 -> pure (compiler, nativeArguments targetArguments)
     LinuxAmd64 -> pure (compiler, nativeArguments targetArguments)
+    Wasm32Wasip3 -> pure (compiler, targetArguments <> ["-mtail-call", "-c", sourcePath, "-o", objectPath])
   where
     nativeArguments targetArguments = targetArguments <> ["-c", sourcePath, "-o", objectPath]
     cCompiler compiler targetArguments = do
