@@ -1,14 +1,16 @@
 #include "aihc_runtime.h"
 
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#ifndef AIHC_WASIP3
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
 #include <poll.h>
-#include <stddef.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
+#endif
 
 typedef struct AihcBlackholeWaiter AihcBlackholeWaiter;
 typedef struct AihcMVarWaiter AihcMVarWaiter;
@@ -22,6 +24,13 @@ typedef enum {
   AIHC_IO_READABLE = 1U << 0,
   AIHC_IO_WRITABLE = 1U << 1,
 } AihcIoCapability;
+
+typedef enum {
+  AIHC_IO_ERROR_IO = 5,
+  AIHC_IO_ERROR_BAD_DESCRIPTOR = 9,
+  AIHC_IO_ERROR_INVALID_ARGUMENT = 22,
+  AIHC_IO_ERROR_NOT_SUPPORTED = 38,
+} AihcIoError;
 
 typedef enum {
   AIHC_IO_SUBMITTED,
@@ -105,12 +114,9 @@ struct AihcIoBackend {
   void (*poll)(AihcMachine *machine, int may_block);
 };
 
-static AihcIoHandle aihc_standard_input = {(uintptr_t)STDIN_FILENO,
-                                           AIHC_IO_READABLE, 0};
-static AihcIoHandle aihc_standard_output = {(uintptr_t)STDOUT_FILENO,
-                                            AIHC_IO_WRITABLE, 0};
-static AihcIoHandle aihc_standard_error = {(uintptr_t)STDERR_FILENO,
-                                           AIHC_IO_WRITABLE, 0};
+static AihcIoHandle aihc_standard_input = {(uintptr_t)0, AIHC_IO_READABLE, 0};
+static AihcIoHandle aihc_standard_output = {(uintptr_t)1, AIHC_IO_WRITABLE, 0};
+static AihcIoHandle aihc_standard_error = {(uintptr_t)2, AIHC_IO_WRITABLE, 0};
 
 #if UINTPTR_MAX == UINT64_MAX
 _Static_assert(offsetof(AihcMachine, globals) == 0, "machine globals ABI");
@@ -128,8 +134,13 @@ _Static_assert(offsetof(AihcResume, count) == 32, "resume count ABI");
 #endif
 
 static _Noreturn void aihc_fail(const char *message) {
+#ifdef AIHC_WASIP3
+  (void)message;
+  __builtin_trap();
+#else
   fprintf(stderr, "aihc runtime: %s\n", message);
   abort();
+#endif
 }
 
 static const AihcResume *aihc_schedule(AihcMachine *machine);
@@ -757,6 +768,20 @@ static const AihcResume *aihc_select_thread(AihcMachine *machine,
 
 static int64_t aihc_io_error(int error) { return -((int64_t)error) - 1; }
 
+static void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
+                                   int64_t result) {
+  AihcThread *thread = request->thread;
+  AihcValue *continuation = request->continuation;
+  request->state = AIHC_IO_COMPLETED;
+  request->result = result;
+  request->thread = NULL;
+  request->continuation = NULL;
+  request->next = NULL;
+  aihc_suspend_continue(thread, continuation, 0, 0);
+  aihc_enqueue_thread(machine, thread);
+}
+
+#ifndef AIHC_WASIP3
 static int aihc_posix_descriptor(const AihcIoHandle *handle) {
   return (int)handle->backend_token;
 }
@@ -798,19 +823,6 @@ static int aihc_posix_try_request(AihcIoRequest *request, int64_t *result) {
     *result = aihc_io_error(errno);
     return 1;
   }
-}
-
-static void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
-                                   int64_t result) {
-  AihcThread *thread = request->thread;
-  AihcValue *continuation = request->continuation;
-  request->state = AIHC_IO_COMPLETED;
-  request->result = result;
-  request->thread = NULL;
-  request->continuation = NULL;
-  request->next = NULL;
-  aihc_suspend_continue(thread, continuation, 0, 0);
-  aihc_enqueue_thread(machine, thread);
 }
 
 static void aihc_complete_all_io_with_error(AihcMachine *machine, int error) {
@@ -890,6 +902,48 @@ static const AihcIoBackend aihc_posix_io_backend = {
 static const AihcIoBackend *aihc_default_io_backend(void) {
   return &aihc_posix_io_backend;
 }
+#else
+extern int32_t aihc_wasip3_start_write(const unsigned char *bytes,
+                                       size_t length);
+
+static int aihc_wasip3_prepare(AihcIoRequest *request) {
+  (void)request;
+  return 0;
+}
+
+static int aihc_wasip3_try_request(AihcIoRequest *request, int64_t *result) {
+  if (request->kind != AIHC_IO_WRITE || request->handle->backend_token != 1) {
+    *result = aihc_io_error(AIHC_IO_ERROR_IO);
+    return 1;
+  }
+  size_t length = request->length;
+  if (length > INT32_MAX) {
+    length = INT32_MAX;
+  }
+  int32_t status =
+      aihc_wasip3_start_write(request->buffer + request->offset, length);
+  if (status == INT32_MIN) {
+    return 0;
+  }
+  *result = status < 0 ? aihc_io_error(AIHC_IO_ERROR_IO) : status;
+  return 1;
+}
+
+static void aihc_wasip3_poll(AihcMachine *machine, int may_block) {
+  (void)machine;
+  (void)may_block;
+}
+
+static const AihcIoBackend aihc_wasip3_io_backend = {
+    aihc_wasip3_prepare,
+    aihc_wasip3_try_request,
+    aihc_wasip3_poll,
+};
+
+static const AihcIoBackend *aihc_default_io_backend(void) {
+  return &aihc_wasip3_io_backend;
+}
+#endif
 
 static const AihcResume *aihc_schedule(AihcMachine *machine) {
   for (;;) {
@@ -899,7 +953,11 @@ static const AihcResume *aihc_schedule(AihcMachine *machine) {
     }
     if (machine->io_request_count != 0) {
       machine->io_backend->poll(machine, 1);
+#ifdef AIHC_WASIP3
+      return NULL;
+#else
       continue;
+#endif
     }
     aihc_fail("no runnable threads");
   }
@@ -914,21 +972,21 @@ static AihcIoRequest *aihc_io_submit(AihcIoKind kind, AihcIoHandle *handle,
   request->handle = handle;
   if (handle == NULL || handle->closed) {
     request->state = AIHC_IO_COMPLETED;
-    request->result = aihc_io_error(EBADF);
+    request->result = aihc_io_error(AIHC_IO_ERROR_BAD_DESCRIPTOR);
     return request;
   }
   if (offset < 0 || length < 0 || (uint64_t)offset > SIZE_MAX ||
       (uint64_t)length > SIZE_MAX - (size_t)offset ||
       (buffer == NULL && length != 0)) {
     request->state = AIHC_IO_COMPLETED;
-    request->result = aihc_io_error(EINVAL);
+    request->result = aihc_io_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
     return request;
   }
   uint32_t required_capability =
       kind == AIHC_IO_READ ? AIHC_IO_READABLE : AIHC_IO_WRITABLE;
   if ((handle->capabilities & required_capability) == 0) {
     request->state = AIHC_IO_COMPLETED;
-    request->result = aihc_io_error(EBADF);
+    request->result = aihc_io_error(AIHC_IO_ERROR_BAD_DESCRIPTOR);
     return request;
   }
   request->buffer = buffer;
@@ -949,13 +1007,19 @@ static void *aihc_io_open_error(int error) {
 
 void *aihc_io_open(void *opaque_path, int64_t requested_length,
                    int64_t requested_mode) {
+#ifdef AIHC_WASIP3
+  (void)opaque_path;
+  (void)requested_length;
+  (void)requested_mode;
+  return aihc_io_open_error(AIHC_IO_ERROR_NOT_SUPPORTED);
+#else
   if (requested_length < 0 || (uint64_t)requested_length >= SIZE_MAX ||
       (opaque_path == NULL && requested_length != 0)) {
-    return aihc_io_open_error(EINVAL);
+    return aihc_io_open_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
   }
   size_t length = (size_t)requested_length;
   if (length != 0 && memchr(opaque_path, 0, length) != NULL) {
-    return aihc_io_open_error(EINVAL);
+    return aihc_io_open_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
   }
   char *path = aihc_allocate_zeroed(length + 1);
   if (length != 0) {
@@ -983,7 +1047,7 @@ void *aihc_io_open(void *opaque_path, int64_t requested_length,
     break;
   default:
     free(path);
-    return aihc_io_open_error(EINVAL);
+    return aihc_io_open_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
   }
 
   int descriptor;
@@ -999,6 +1063,7 @@ void *aihc_io_open(void *opaque_path, int64_t requested_length,
   handle->backend_token = (uintptr_t)descriptor;
   handle->capabilities = capabilities;
   return handle;
+#endif
 }
 
 int64_t aihc_io_open_result_error(void *result) {
@@ -1009,27 +1074,36 @@ int64_t aihc_io_open_result_error(void *result) {
 int64_t aihc_io_close(void *opaque_handle) {
   AihcIoHandle *handle = opaque_handle;
   if (handle == NULL || handle->closed) {
-    return aihc_io_error(EBADF);
+    return aihc_io_error(AIHC_IO_ERROR_BAD_DESCRIPTOR);
   }
   handle->closed = 1;
+#ifdef AIHC_WASIP3
+  return 0;
+#else
   if (close(aihc_posix_descriptor(handle)) == -1) {
     return aihc_io_error(errno);
   }
   return 0;
+#endif
 }
 
 int64_t aihc_memory_write_byte(void *opaque_buffer, int64_t offset,
                                int64_t value) {
   if (opaque_buffer == NULL || offset < 0 || value < 0 || value > UINT8_MAX) {
-    return aihc_io_error(EINVAL);
+    return aihc_io_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
   }
   ((uint8_t *)opaque_buffer)[(size_t)offset] = (uint8_t)value;
   return 0;
 }
 
 _Noreturn int64_t aihc_io_raise_error(int64_t error) {
+#ifdef AIHC_WASIP3
+  (void)error;
+  __builtin_trap();
+#else
   fprintf(stderr, "aihc runtime: IO error %" PRId64 "\n", error);
   abort();
+#endif
 }
 
 static size_t aihc_byte_array_size(int64_t requested_size) {
@@ -1352,6 +1426,9 @@ const AihcResume *aihc_block_on_blackhole(AihcMachine *machine,
 
 static AihcPortableTransfer aihc_portable_resume(AihcMachine *machine,
                                                  const AihcResume *resume) {
+  if (resume == NULL) {
+    return (AihcPortableTransfer){0};
+  }
   AihcPortableTransfer transfer;
   switch (resume->kind) {
   case AIHC_RESUME_APPLY:
@@ -1369,6 +1446,35 @@ static AihcPortableTransfer aihc_portable_resume(AihcMachine *machine,
   machine->selected_resume = (AihcResume){0};
   return transfer;
 }
+
+#ifdef AIHC_WASIP3
+AihcPortableTransfer aihc_wasip3_complete_io(AihcMachine *machine,
+                                             int32_t result) {
+  AihcIoRequest *request = machine->io_requests_head;
+  if (request == NULL) {
+    aihc_fail("WASI P3 completion has no pending request");
+  }
+  machine->io_requests_head = request->next;
+  --machine->io_request_count;
+  int64_t request_result =
+      result < 0 ? aihc_io_error(AIHC_IO_ERROR_IO) : result;
+  aihc_resume_io_request(machine, request, request_result);
+
+  while (machine->io_requests_head != NULL) {
+    request = machine->io_requests_head;
+    if (!machine->io_backend->try_request(request, &request_result)) {
+      break;
+    }
+    machine->io_requests_head = request->next;
+    --machine->io_request_count;
+    aihc_resume_io_request(machine, request, request_result);
+  }
+  if (machine->io_requests_head == NULL) {
+    machine->io_requests_tail = NULL;
+  }
+  return aihc_portable_resume(machine, aihc_schedule(machine));
+}
+#endif
 
 AihcPortableTransfer aihc_portable_eval_cps(AihcMachine *machine,
                                             AihcValue *value,

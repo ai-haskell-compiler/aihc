@@ -37,6 +37,7 @@ data NativeTarget
   = AppleArm64
   | LinuxAmd64
   | PortableC
+  | Wasm32Wasip3
   deriving (Bounded, Enum, Eq, Ord, Show)
 
 renderNativeTarget :: NativeTarget -> String
@@ -45,6 +46,7 @@ renderNativeTarget target =
     AppleArm64 -> "apple-arm64"
     LinuxAmd64 -> "linux-amd64"
     PortableC -> "portable-c"
+    Wasm32Wasip3 -> "wasm32-wasip3"
 
 parseNativeTarget :: String -> Either String NativeTarget
 parseNativeTarget value =
@@ -55,7 +57,9 @@ parseNativeTarget value =
     "x86_64-unknown-linux-gnu" -> Right LinuxAmd64
     "portable-c" -> Right PortableC
     "c" -> Right PortableC
-    _ -> Left "target must be apple-arm64, linux-amd64, or portable-c"
+    "wasm32-wasip3" -> Right Wasm32Wasip3
+    "wasip3" -> Right Wasm32Wasip3
+    _ -> Left "target must be apple-arm64, linux-amd64, portable-c, or wasm32-wasip3"
 
 hostNativeTarget :: Maybe NativeTarget
 hostNativeTarget
@@ -69,12 +73,14 @@ nativeTargetTriple target =
     AppleArm64 -> "arm64-apple-darwin"
     LinuxAmd64 -> "x86_64-unknown-linux-gnu"
     PortableC -> "portable-c"
+    Wasm32Wasip3 -> "wasm32-unknown-unknown"
 
 -- | Select the C or assembly compiler driver and target arguments.
 backendCompiler :: NativeTarget -> IO (FilePath, [String])
 backendCompiler target =
   case target of
     PortableC -> pure ("clang", [])
+    Wasm32Wasip3 -> pure ("clang", ["--target=wasm32-unknown-unknown"])
     AppleArm64 -> nativeCompiler
     LinuxAmd64 -> nativeCompiler
   where

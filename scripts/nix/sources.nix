@@ -89,6 +89,14 @@ in rec {
     ".h"
   ];
 
+  wasmSrc = mkComponentSrc "/components/aihc-wasm" [
+    ".hs"
+    ".cabal"
+    ".c"
+    ".h"
+    ".wit"
+  ];
+
   grinSrc = mkRootSubsetSrc ["components/aihc-grin/" "test/support/"] [
     ".hs"
     ".cabal"
@@ -243,7 +251,10 @@ in rec {
         baseName = baseNameOf path;
         relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
         isBuildOutput = relPath == "dist-newstyle" || pkgs.lib.hasPrefix "dist-newstyle/" relPath;
-        isCSource = pkgs.lib.hasSuffix ".c" baseName || pkgs.lib.hasSuffix ".h" baseName;
+        isCSource =
+          pkgs.lib.hasSuffix ".c" baseName
+          || pkgs.lib.hasSuffix ".h" baseName
+          || pkgs.lib.hasSuffix ".wit" baseName;
         isCConfig = baseName == ".clang-format" || baseName == ".clang-tidy";
       in
         !isBuildOutput && (type == "directory" || isCSource || isCConfig);

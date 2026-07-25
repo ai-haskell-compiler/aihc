@@ -1,0 +1,6 @@
+package aihc:app;
+
+world command {
+  import wasi:cli/stdout@0.3.0;
+  export wasi:cli/run@0.3.0;
+}
