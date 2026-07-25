@@ -1073,7 +1073,7 @@ test_compilePortableCExamples =
       case result of
         Left err -> assertFailure ("expected portable C compile success for " <> sourcePath <> ", got: " <> show err)
         Right generatedC -> do
-          assertBool "includes the portable runtime" ("#include \"aihc_runtime.h\"" `T.isInfixOf` generatedC)
+          assertBool "includes the trampoline runtime" ("#include \"aihc_runtime_trampoline.h\"" `T.isInfixOf` generatedC)
           assertBool "uses trampoline dispatch" ("while (aihc_next_transfer.entry != NULL)" `T.isInfixOf` generatedC)
 
 isNativeCodegenHost :: String -> String -> Bool
