@@ -180,7 +180,7 @@ span.spaces    { background: white }
 <span class="lineno">  161 </span><span class="spaces">  </span><span class="istickedoff">TkSpecialLParen -&gt; &quot;symbol '('&quot;</span>
 <span class="lineno">  162 </span><span class="spaces">  </span><span class="istickedoff">TkSpecialRParen -&gt; &quot;symbol ')'&quot;</span>
 <span class="lineno">  163 </span><span class="spaces">  </span><span class="istickedoff">TkSpecialUnboxedLParen -&gt; &quot;symbol '(#'&quot;</span>
-<span class="lineno">  164 </span><span class="spaces">  </span><span class="istickedoff">TkSpecialUnboxedRParen -&gt; <span class="nottickedoff">&quot;symbol '#)'&quot;</span></span>
+<span class="lineno">  164 </span><span class="spaces">  </span><span class="istickedoff">TkSpecialUnboxedRParen -&gt; &quot;symbol '#)'&quot;</span>
 <span class="lineno">  165 </span><span class="spaces">  </span><span class="istickedoff">TkSpecialComma -&gt; &quot;symbol ','&quot;</span>
 <span class="lineno">  166 </span><span class="spaces">  </span><span class="istickedoff">TkSpecialSemicolon -&gt; &quot;symbol ';'&quot;</span>
 <span class="lineno">  167 </span><span class="spaces">  </span><span class="istickedoff">TkSpecialLBracket -&gt; &quot;symbol '['&quot;</span>
@@ -193,7 +193,7 @@ span.spaces    { background: white }
 <span class="lineno">  174 </span><span class="spaces">  </span><span class="istickedoff">TkReservedDoubleColon -&gt; &quot;operator '::'&quot;</span>
 <span class="lineno">  175 </span><span class="spaces">  </span><span class="istickedoff">TkReservedEquals -&gt; &quot;operator '='&quot;</span>
 <span class="lineno">  176 </span><span class="spaces">  </span><span class="istickedoff">TkReservedBackslash -&gt; <span class="nottickedoff">&quot;operator '\\'&quot;</span></span>
-<span class="lineno">  177 </span><span class="spaces">  </span><span class="istickedoff">TkReservedPipe -&gt; <span class="nottickedoff">&quot;operator '|'&quot;</span></span>
+<span class="lineno">  177 </span><span class="spaces">  </span><span class="istickedoff">TkReservedPipe -&gt; &quot;operator '|'&quot;</span>
 <span class="lineno">  178 </span><span class="spaces">  </span><span class="istickedoff">TkReservedLeftArrow -&gt; <span class="nottickedoff">&quot;operator '&lt;-'&quot;</span></span>
 <span class="lineno">  179 </span><span class="spaces">  </span><span class="istickedoff">TkReservedRightArrow -&gt; &quot;operator '-&gt;'&quot;</span>
 <span class="lineno">  180 </span><span class="spaces">  </span><span class="istickedoff">TkReservedAt -&gt; <span class="nottickedoff">&quot;operator '@'&quot;</span></span>
@@ -376,27 +376,27 @@ span.spaces    { background: white }
 <span class="lineno">  357 </span>
 <span class="lineno">  358 </span>operatorNameParser :: TokParser Name
 <span class="lineno">  359 </span><span class="decl"><span class="istickedoff">operatorNameParser =</span>
-<span class="lineno">  360 </span><span class="spaces">  </span><span class="istickedoff">tokenSatisfy &quot;operator&quot; $ \tok -&gt;</span>
+<span class="lineno">  360 </span><span class="spaces">  </span><span class="istickedoff">tokenSatisfy <span class="nottickedoff">&quot;operator&quot;</span> $ \tok -&gt;</span>
 <span class="lineno">  361 </span><span class="spaces">    </span><span class="istickedoff">case lexTokenKind tok of</span>
 <span class="lineno">  362 </span><span class="spaces">      </span><span class="istickedoff">TkVarSym op -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameVarSym op))</span>
 <span class="lineno">  363 </span><span class="spaces">      </span><span class="istickedoff">TkConSym op -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym op))</span>
 <span class="lineno">  364 </span><span class="spaces">      </span><span class="istickedoff">TkQVarSym modName op -&gt; Just (mkNameAt <span class="nottickedoff">tok</span> (Just modName) NameVarSym op)</span>
 <span class="lineno">  365 </span><span class="spaces">      </span><span class="istickedoff">TkQConSym modName op -&gt; Just (mkNameAt <span class="nottickedoff">tok</span> (Just modName) NameConSym op)</span>
-<span class="lineno">  366 </span><span class="spaces">      </span><span class="istickedoff">TkReservedAt -&gt; <span class="nottickedoff">Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;@&quot;))</span></span>
+<span class="lineno">  366 </span><span class="spaces">      </span><span class="istickedoff">TkReservedAt -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameVarSym &quot;@&quot;))</span>
 <span class="lineno">  367 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; Nothing</span></span>
 <span class="lineno">  368 </span>
 <span class="lineno">  369 </span>operatorUnqualifiedNameParser :: TokParser UnqualifiedName
 <span class="lineno">  370 </span><span class="decl"><span class="istickedoff">operatorUnqualifiedNameParser =</span>
-<span class="lineno">  371 </span><span class="spaces">  </span><span class="istickedoff">tokenSatisfy &quot;unqualified operator&quot; $ \tok -&gt;</span>
+<span class="lineno">  371 </span><span class="spaces">  </span><span class="istickedoff">tokenSatisfy <span class="nottickedoff">&quot;unqualified operator&quot;</span> $ \tok -&gt;</span>
 <span class="lineno">  372 </span><span class="spaces">    </span><span class="istickedoff">case lexTokenKind tok of</span>
 <span class="lineno">  373 </span><span class="spaces">      </span><span class="istickedoff">TkVarSym op -&gt; Just (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameVarSym op)</span>
 <span class="lineno">  374 </span><span class="spaces">      </span><span class="istickedoff">TkConSym op -&gt; Just (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym op)</span>
 <span class="lineno">  375 </span><span class="spaces">      </span><span class="istickedoff">TkReservedRightArrow -&gt; Just <span class="nottickedoff">(mkUnqualifiedNameAt tok NameVarSym &quot;-&gt;&quot;)</span></span>
 <span class="lineno">  376 </span><span class="spaces">      </span><span class="istickedoff">TkReservedLeftArrow -&gt; Just <span class="nottickedoff">(mkUnqualifiedNameAt tok NameVarSym &quot;&lt;-&quot;)</span></span>
 <span class="lineno">  377 </span><span class="spaces">      </span><span class="istickedoff">TkReservedDoubleArrow -&gt; Just <span class="nottickedoff">(mkUnqualifiedNameAt tok NameVarSym &quot;=&gt;&quot;)</span></span>
-<span class="lineno">  378 </span><span class="spaces">      </span><span class="istickedoff">TkReservedEquals -&gt; Just <span class="nottickedoff">(mkUnqualifiedNameAt tok NameVarSym &quot;=&quot;)</span></span>
-<span class="lineno">  379 </span><span class="spaces">      </span><span class="istickedoff">TkReservedPipe -&gt; Just <span class="nottickedoff">(mkUnqualifiedNameAt tok NameVarSym &quot;|&quot;)</span></span>
-<span class="lineno">  380 </span><span class="spaces">      </span><span class="istickedoff">TkReservedDotDot -&gt; Just <span class="nottickedoff">(mkUnqualifiedNameAt tok NameVarSym &quot;..&quot;)</span></span>
+<span class="lineno">  378 </span><span class="spaces">      </span><span class="istickedoff">TkReservedEquals -&gt; <span class="nottickedoff">Just (mkUnqualifiedNameAt tok NameVarSym &quot;=&quot;)</span></span>
+<span class="lineno">  379 </span><span class="spaces">      </span><span class="istickedoff">TkReservedPipe -&gt; <span class="nottickedoff">Just (mkUnqualifiedNameAt tok NameVarSym &quot;|&quot;)</span></span>
+<span class="lineno">  380 </span><span class="spaces">      </span><span class="istickedoff">TkReservedDotDot -&gt; <span class="nottickedoff">Just (mkUnqualifiedNameAt tok NameVarSym &quot;..&quot;)</span></span>
 <span class="lineno">  381 </span><span class="spaces">      </span><span class="istickedoff">TkReservedDoubleColon -&gt; Just <span class="nottickedoff">(mkUnqualifiedNameAt tok NameVarSym &quot;::&quot;)</span></span>
 <span class="lineno">  382 </span><span class="spaces">      </span><span class="istickedoff">TkReservedColon -&gt; Just <span class="nottickedoff">(mkUnqualifiedNameAt tok NameConSym &quot;:&quot;)</span></span>
 <span class="lineno">  383 </span><span class="spaces">      </span><span class="istickedoff">TkReservedAt -&gt; Just (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameVarSym &quot;@&quot;)</span>
@@ -787,16 +787,16 @@ span.spaces    { background: white }
 <span class="lineno">  768 </span><span class="spaces">        </span><span class="istickedoff">TkInteger {} -&gt; True</span>
 <span class="lineno">  769 </span><span class="spaces">        </span><span class="istickedoff">TkFloat {} -&gt; True</span>
 <span class="lineno">  770 </span><span class="spaces">        </span><span class="istickedoff">TkChar {} -&gt; True</span>
-<span class="lineno">  771 </span><span class="spaces">        </span><span class="istickedoff">TkCharHash {} -&gt; True</span>
+<span class="lineno">  771 </span><span class="spaces">        </span><span class="istickedoff">TkCharHash {} -&gt; <span class="nottickedoff">True</span></span>
 <span class="lineno">  772 </span><span class="spaces">        </span><span class="istickedoff">TkString {} -&gt; True</span>
-<span class="lineno">  773 </span><span class="spaces">        </span><span class="istickedoff">TkStringHash {} -&gt; True</span>
+<span class="lineno">  773 </span><span class="spaces">        </span><span class="istickedoff">TkStringHash {} -&gt; <span class="nottickedoff">True</span></span>
 <span class="lineno">  774 </span><span class="spaces">        </span><span class="istickedoff">TkSpecialLParen -&gt; True</span>
 <span class="lineno">  775 </span><span class="spaces">        </span><span class="istickedoff">TkSpecialUnboxedLParen -&gt; True</span>
 <span class="lineno">  776 </span><span class="spaces">        </span><span class="istickedoff">TkSpecialLBracket -&gt; True</span>
 <span class="lineno">  777 </span><span class="spaces">        </span><span class="istickedoff">TkKeywordUnderscore -&gt; True</span>
 <span class="lineno">  778 </span><span class="spaces">        </span><span class="istickedoff">TkPrefixBang -&gt; True</span>
 <span class="lineno">  779 </span><span class="spaces">        </span><span class="istickedoff">TkPrefixTilde -&gt; True</span>
-<span class="lineno">  780 </span><span class="spaces">        </span><span class="istickedoff">TkPrefixMinus -&gt; <span class="nottickedoff">True</span></span>
+<span class="lineno">  780 </span><span class="spaces">        </span><span class="istickedoff">TkPrefixMinus -&gt; True</span>
 <span class="lineno">  781 </span><span class="spaces">        </span><span class="istickedoff">TkQuasiQuote {} -&gt; True</span>
 <span class="lineno">  782 </span><span class="spaces">        </span><span class="istickedoff">TkTypeApp -&gt; <span class="nottickedoff">True</span></span>
 <span class="lineno">  783 </span><span class="spaces">        </span><span class="istickedoff">TkReservedEquals -&gt; True</span>
@@ -1119,11 +1119,11 @@ span.spaces    { background: white }
 <span class="lineno"> 1100 </span><span class="spaces">    </span><span class="istickedoff">symbolicOperatorParser =</span>
 <span class="lineno"> 1101 </span><span class="spaces">      </span><span class="istickedoff">tokenSatisfy &quot;infix operator&quot; $ \tok -&gt;</span>
 <span class="lineno"> 1102 </span><span class="spaces">        </span><span class="istickedoff">case lexTokenKind tok of</span>
-<span class="lineno"> 1103 </span><span class="spaces">          </span><span class="istickedoff">TkVarSym op -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameVarSym op))</span>
-<span class="lineno"> 1104 </span><span class="spaces">          </span><span class="istickedoff">TkConSym op -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym op))</span>
+<span class="lineno"> 1103 </span><span class="spaces">          </span><span class="istickedoff">TkVarSym op -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym op))</span>
+<span class="lineno"> 1104 </span><span class="spaces">          </span><span class="istickedoff">TkConSym op -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConSym op))</span>
 <span class="lineno"> 1105 </span><span class="spaces">          </span><span class="istickedoff">TkPrefixPercent -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameVarSym &quot;%&quot;))</span>
-<span class="lineno"> 1106 </span><span class="spaces">          </span><span class="istickedoff">TkQVarSym modName op -&gt; Just (mkNameAt <span class="nottickedoff">tok</span> (Just modName) NameVarSym op)</span>
-<span class="lineno"> 1107 </span><span class="spaces">          </span><span class="istickedoff">TkQConSym modName op -&gt; Just (mkNameAt tok (Just modName) NameConSym op)</span>
+<span class="lineno"> 1106 </span><span class="spaces">          </span><span class="istickedoff">TkQVarSym modName op -&gt; Just (mkNameAt tok (Just modName) NameVarSym op)</span>
+<span class="lineno"> 1107 </span><span class="spaces">          </span><span class="istickedoff">TkQConSym modName op -&gt; Just (mkNameAt <span class="nottickedoff">tok</span> (Just modName) NameConSym op)</span>
 <span class="lineno"> 1108 </span><span class="spaces">          </span><span class="istickedoff">-- TkMinusOperator is minus when LexicalNegation is enabled but used as infix</span>
 <span class="lineno"> 1109 </span><span class="spaces">          </span><span class="istickedoff">TkMinusOperator -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;-&quot;))</span>
 <span class="lineno"> 1110 </span><span class="spaces">          </span><span class="istickedoff">-- Reserved operators that can be used as infix operators</span>

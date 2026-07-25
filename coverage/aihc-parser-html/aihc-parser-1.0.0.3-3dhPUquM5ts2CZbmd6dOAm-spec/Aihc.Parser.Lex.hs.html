@@ -577,7 +577,7 @@ span.spaces    { background: white }
 <span class="lineno">  558 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; False</span>
 <span class="lineno">  559 </span><span class="spaces">    </span><span class="istickedoff">startsWithSplice t =</span>
 <span class="lineno">  560 </span><span class="spaces">      </span><span class="istickedoff">case t of</span>
-<span class="lineno">  561 </span><span class="spaces">        </span><span class="istickedoff">'$' :&lt; ('$' :&lt; rest) -&gt; canStartSpliceAtomT rest</span>
+<span class="lineno">  561 </span><span class="spaces">        </span><span class="istickedoff">'$' :&lt; ('$' :&lt; rest) -&gt; <span class="nottickedoff">canStartSpliceAtomT rest</span></span>
 <span class="lineno">  562 </span><span class="spaces">        </span><span class="istickedoff">'$' :&lt; rest -&gt; canStartSpliceAtomT rest</span>
 <span class="lineno">  563 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; False</span>
 <span class="lineno">  564 </span><span class="spaces">    </span><span class="istickedoff">canStartSpliceAtomT t =</span>

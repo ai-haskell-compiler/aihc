@@ -984,7 +984,7 @@ span.spaces    { background: white }
 <span class="lineno">  965 </span><span class="spaces">  </span><span class="istickedoff">case stmt of</span>
 <span class="lineno">  966 </span><span class="spaces">    </span><span class="istickedoff">DoAnn _ inner -&gt; <span class="nottickedoff">docCmdStmt inner</span></span>
 <span class="lineno">  967 </span><span class="spaces">    </span><span class="istickedoff">DoBind pat cmd' -&gt; &quot;DoBind&quot; &lt;+&gt; parens (docPattern pat) &lt;+&gt; parens (docCmd cmd')</span>
-<span class="lineno">  968 </span><span class="spaces">    </span><span class="istickedoff">DoLetDecls decls -&gt; &quot;DoLetDecls&quot; &lt;+&gt; brackets (hsep (punctuate <span class="nottickedoff">comma</span> (map docDecl decls)))</span>
+<span class="lineno">  968 </span><span class="spaces">    </span><span class="istickedoff">DoLetDecls decls -&gt; &quot;DoLetDecls&quot; &lt;+&gt; brackets (hsep (punctuate comma (map docDecl decls)))</span>
 <span class="lineno">  969 </span><span class="spaces">    </span><span class="istickedoff">DoExpr cmd' -&gt; &quot;DoExpr&quot; &lt;+&gt; parens (docCmd cmd')</span>
 <span class="lineno">  970 </span><span class="spaces">    </span><span class="istickedoff">DoRecStmt stmts -&gt; &quot;DoRecStmt&quot; &lt;+&gt; brackets (hsep (punctuate <span class="nottickedoff">comma</span> (map docCmdStmt stmts)))</span></span>
 <span class="lineno">  971 </span>

@@ -73,9 +73,9 @@ span.spaces    { background: white }
 <span class="lineno">   54 </span><span class="spaces">          </span><span class="istickedoff">else valueDeclParser</span>
 <span class="lineno">   55 </span><span class="spaces">      </span><span class="istickedoff">sigOrValueDecl = do</span>
 <span class="lineno">   56 </span><span class="spaces">        </span><span class="istickedoff">typeSigPrefix &lt;- startsWithTypeSig</span>
-<span class="lineno">   57 </span><span class="spaces">        </span><span class="istickedoff">if <span class="tickonlytrue">typeSigPrefix</span></span>
+<span class="lineno">   57 </span><span class="spaces">        </span><span class="istickedoff">if typeSigPrefix</span>
 <span class="lineno">   58 </span><span class="spaces">          </span><span class="istickedoff">then typeSigOrPatternTypeSigDeclParser</span>
-<span class="lineno">   59 </span><span class="spaces">          </span><span class="istickedoff">else <span class="nottickedoff">valueDecl</span></span>
+<span class="lineno">   59 </span><span class="spaces">          </span><span class="istickedoff">else valueDecl</span>
 <span class="lineno">   60 </span><span class="spaces">      </span><span class="istickedoff">fallbackDecl = do</span>
 <span class="lineno">   61 </span><span class="spaces">        </span><span class="istickedoff">typeSigPrefix &lt;- startsWithTypeSig</span>
 <span class="lineno">   62 </span><span class="spaces">        </span><span class="istickedoff">exprFallback &lt;- exprDeclEnabled</span>
@@ -182,12 +182,12 @@ span.spaces    { background: white }
 <span class="lineno">  163 </span><span class="spaces">              </span><span class="istickedoff">typeSynBody = body</span>
 <span class="lineno">  164 </span><span class="spaces">            </span><span class="istickedoff">}</span>
 <span class="lineno">  165 </span><span class="spaces">    </span><span class="istickedoff">_ -&gt;</span>
-<span class="lineno">  166 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">MP.customFailure</span></span>
-<span class="lineno">  167 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">UnexpectedTokenExpecting</span></span>
-<span class="lineno">  168 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">{ unexpectedFound = Just (mkFoundToken nextTok),</span></span>
-<span class="lineno">  169 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">unexpectedExpecting = &quot;'::' or '=' after type declaration head&quot;,</span></span>
-<span class="lineno">  170 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">unexpectedContext = []</span></span>
-<span class="lineno">  171 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">}</span></span></span>
+<span class="lineno">  166 </span><span class="spaces">      </span><span class="istickedoff">MP.customFailure</span>
+<span class="lineno">  167 </span><span class="spaces">        </span><span class="istickedoff">UnexpectedTokenExpecting</span>
+<span class="lineno">  168 </span><span class="spaces">          </span><span class="istickedoff">{ unexpectedFound = Just (mkFoundToken nextTok),</span>
+<span class="lineno">  169 </span><span class="spaces">            </span><span class="istickedoff">unexpectedExpecting = &quot;'::' or '=' after type declaration head&quot;,</span>
+<span class="lineno">  170 </span><span class="spaces">            </span><span class="istickedoff">unexpectedContext = []</span>
+<span class="lineno">  171 </span><span class="spaces">          </span><span class="istickedoff">}</span></span>
 <span class="lineno">  172 </span>
 <span class="lineno">  173 </span>roleAnnotationDeclParser :: TokParser Decl
 <span class="lineno">  174 </span><span class="decl"><span class="istickedoff">roleAnnotationDeclParser = withSpanAnn (DeclAnn . <span class="nottickedoff">mkAnnotation</span>) $ do</span>
@@ -621,7 +621,7 @@ span.spaces    { background: white }
 <span class="lineno">  602 </span><span class="spaces">  </span><span class="istickedoff">tokenSatisfy &quot;fixity precedence&quot; $ \tok -&gt;</span>
 <span class="lineno">  603 </span><span class="spaces">    </span><span class="istickedoff">case lexTokenKind tok of</span>
 <span class="lineno">  604 </span><span class="spaces">      </span><span class="istickedoff">TkInteger n _</span>
-<span class="lineno">  605 </span><span class="spaces">        </span><span class="istickedoff">| n &lt;= 9 -&gt; Just (fromInteger n)</span>
+<span class="lineno">  605 </span><span class="spaces">        </span><span class="istickedoff">| <span class="tickonlytrue">n &lt;= 9</span> -&gt; Just (fromInteger n)</span>
 <span class="lineno">  606 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; Nothing</span></span>
 <span class="lineno">  607 </span>
 <span class="lineno">  608 </span>fixityOperatorParser :: TokParser UnqualifiedName
@@ -632,9 +632,9 @@ span.spaces    { background: white }
 <span class="lineno">  613 </span><span class="spaces">      </span><span class="istickedoff">tokenSatisfy &quot;fixity operator&quot; $ \tok -&gt;</span>
 <span class="lineno">  614 </span><span class="spaces">        </span><span class="istickedoff">case lexTokenKind tok of</span>
 <span class="lineno">  615 </span><span class="spaces">          </span><span class="istickedoff">TkVarSym op -&gt; Just (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameVarSym op)</span>
-<span class="lineno">  616 </span><span class="spaces">          </span><span class="istickedoff">TkConSym op -&gt; Just (mkUnqualifiedNameAt tok NameConSym op)</span>
-<span class="lineno">  617 </span><span class="spaces">          </span><span class="istickedoff">TkReservedColon -&gt; Just (mkUnqualifiedNameAt tok NameConSym &quot;:&quot;)</span>
-<span class="lineno">  618 </span><span class="spaces">          </span><span class="istickedoff">TkReservedRightArrow -&gt; Just (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameVarSym &quot;-&gt;&quot;)</span>
+<span class="lineno">  616 </span><span class="spaces">          </span><span class="istickedoff">TkConSym op -&gt; Just (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym op)</span>
+<span class="lineno">  617 </span><span class="spaces">          </span><span class="istickedoff">TkReservedColon -&gt; Just (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym &quot;:&quot;)</span>
+<span class="lineno">  618 </span><span class="spaces">          </span><span class="istickedoff">TkReservedRightArrow -&gt; Just (mkUnqualifiedNameAt tok NameVarSym &quot;-&gt;&quot;)</span>
 <span class="lineno">  619 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt; Nothing</span>
 <span class="lineno">  620 </span><span class="spaces">    </span><span class="istickedoff">backtickIdentifierParser = do</span>
 <span class="lineno">  621 </span><span class="spaces">      </span><span class="istickedoff">expectedTok TkSpecialBacktick</span>
@@ -1361,7 +1361,7 @@ span.spaces    { background: white }
 <span class="lineno"> 1342 </span><span class="spaces">    </span><span class="istickedoff">)</span>
 <span class="lineno"> 1343 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; do</span>
 <span class="lineno"> 1344 </span><span class="spaces">      </span><span class="istickedoff">expectedTok TkSpecialLParen</span>
-<span class="lineno"> 1345 </span><span class="spaces">      </span><span class="istickedoff">ident &lt;- <span class="nottickedoff">lowerIdentifierParser &lt;|&gt; (expectedTok TkKeywordUnderscore $&gt; &quot;_&quot;)</span></span>
+<span class="lineno"> 1345 </span><span class="spaces">      </span><span class="istickedoff">ident &lt;- lowerIdentifierParser &lt;|&gt; (expectedTok TkKeywordUnderscore $&gt; <span class="nottickedoff">&quot;_&quot;</span>)</span>
 <span class="lineno"> 1346 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">expectedTok TkReservedDoubleColon</span></span>
 <span class="lineno"> 1347 </span><span class="spaces">      </span><span class="istickedoff">kind &lt;- <span class="nottickedoff">typeParser</span></span>
 <span class="lineno"> 1348 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">expectedTok TkSpecialRParen</span></span>
@@ -1665,14 +1665,14 @@ span.spaces    { background: white }
 <span class="lineno"> 1646 </span><span class="spaces">              </span><span class="istickedoff">Nothing -&gt; pure (PatSynUnidirectional, pat)</span>
 <span class="lineno"> 1647 </span><span class="spaces">              </span><span class="istickedoff">Just matches -&gt; pure (PatSynExplicitBidirectional matches, pat)</span>
 <span class="lineno"> 1648 </span><span class="spaces">        </span><span class="istickedoff">)</span>
-<span class="lineno"> 1649 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; do</span>
-<span class="lineno"> 1650 </span><span class="spaces">      </span><span class="istickedoff">mTok &lt;- MP.optional (lookAhead anySingle)</span>
-<span class="lineno"> 1651 </span><span class="spaces">      </span><span class="istickedoff">MP.customFailure</span>
-<span class="lineno"> 1652 </span><span class="spaces">        </span><span class="istickedoff">UnexpectedTokenExpecting</span>
-<span class="lineno"> 1653 </span><span class="spaces">          </span><span class="istickedoff">{ unexpectedFound = mkFoundToken &lt;$&gt; mTok,</span>
-<span class="lineno"> 1654 </span><span class="spaces">            </span><span class="istickedoff">unexpectedExpecting = &quot;'=' or '&lt;-' in pattern synonym declaration&quot;,</span>
-<span class="lineno"> 1655 </span><span class="spaces">            </span><span class="istickedoff">unexpectedContext = []</span>
-<span class="lineno"> 1656 </span><span class="spaces">          </span><span class="istickedoff">}</span></span>
+<span class="lineno"> 1649 </span><span class="spaces">    </span><span class="istickedoff">&lt;|&gt; <span class="nottickedoff">do</span></span>
+<span class="lineno"> 1650 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">mTok &lt;- MP.optional (lookAhead anySingle)</span></span>
+<span class="lineno"> 1651 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">MP.customFailure</span></span>
+<span class="lineno"> 1652 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">UnexpectedTokenExpecting</span></span>
+<span class="lineno"> 1653 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">{ unexpectedFound = mkFoundToken &lt;$&gt; mTok,</span></span>
+<span class="lineno"> 1654 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">unexpectedExpecting = &quot;'=' or '&lt;-' in pattern synonym declaration&quot;,</span></span>
+<span class="lineno"> 1655 </span><span class="spaces">            </span><span class="istickedoff"><span class="nottickedoff">unexpectedContext = []</span></span>
+<span class="lineno"> 1656 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">}</span></span></span>
 <span class="lineno"> 1657 </span>
 <span class="lineno"> 1658 </span>-- | Parse the where clause of an explicitly bidirectional pattern synonym.
 <span class="lineno"> 1659 </span>-- @where { Name pats = expr; ... }@

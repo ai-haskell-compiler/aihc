@@ -90,7 +90,7 @@ span.spaces    { background: white }
 <span class="lineno">   71 </span><span class="spaces">    </span><span class="istickedoff">symbolicConOp =</span>
 <span class="lineno">   72 </span><span class="spaces">      </span><span class="istickedoff">tokenSatisfy &quot;constructor operator&quot; $ \tok -&gt;</span>
 <span class="lineno">   73 </span><span class="spaces">        </span><span class="istickedoff">case lexTokenKind tok of</span>
-<span class="lineno">   74 </span><span class="spaces">          </span><span class="istickedoff">TkConSym op -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameConSym op))</span>
+<span class="lineno">   74 </span><span class="spaces">          </span><span class="istickedoff">TkConSym op -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym op))</span>
 <span class="lineno">   75 </span><span class="spaces">          </span><span class="istickedoff">TkQConSym modName op -&gt; Just (mkNameAt <span class="nottickedoff">tok</span> (Just modName) NameConSym op)</span>
 <span class="lineno">   76 </span><span class="spaces">          </span><span class="istickedoff">TkReservedColon -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym &quot;:&quot;))</span>
 <span class="lineno">   77 </span><span class="spaces">          </span><span class="istickedoff">_ -&gt; Nothing</span>
@@ -481,9 +481,9 @@ span.spaces    { background: white }
 <span class="lineno">  462 </span><span class="spaces">          </span><span class="istickedoff">case fmap lexTokenKind mNext of</span>
 <span class="lineno">  463 </span><span class="spaces">            </span><span class="istickedoff">-- If followed by closing delimiters, parse as operator pattern</span>
 <span class="lineno">  464 </span><span class="spaces">            </span><span class="istickedoff">Just TkSpecialRParen -&gt; (True,) &lt;$&gt; operatorPatternParser</span>
-<span class="lineno">  465 </span><span class="spaces">            </span><span class="istickedoff">Just TkSpecialUnboxedRParen -&gt; <span class="nottickedoff">(True,) &lt;$&gt; operatorPatternParser</span></span>
+<span class="lineno">  465 </span><span class="spaces">            </span><span class="istickedoff">Just TkSpecialUnboxedRParen -&gt; (<span class="nottickedoff">True</span>,) &lt;$&gt; operatorPatternParser</span>
 <span class="lineno">  466 </span><span class="spaces">            </span><span class="istickedoff">Just TkSpecialComma -&gt; <span class="nottickedoff">(True,) &lt;$&gt; operatorPatternParser</span></span>
-<span class="lineno">  467 </span><span class="spaces">            </span><span class="istickedoff">Just TkReservedPipe -&gt; (<span class="nottickedoff">True</span>,) &lt;$&gt; operatorPatternParser</span>
+<span class="lineno">  467 </span><span class="spaces">            </span><span class="istickedoff">Just TkReservedPipe -&gt; <span class="nottickedoff">(True,) &lt;$&gt; operatorPatternParser</span></span>
 <span class="lineno">  468 </span><span class="spaces">            </span><span class="istickedoff">-- Otherwise, try parsing as expression (for cases like (x + y))</span>
 <span class="lineno">  469 </span><span class="spaces">            </span><span class="istickedoff">_ -&gt; (<span class="nottickedoff">False</span>,) &lt;$&gt; exprThenReclassify</span>
 <span class="lineno">  470 </span><span class="spaces"></span><span class="istickedoff"></span>

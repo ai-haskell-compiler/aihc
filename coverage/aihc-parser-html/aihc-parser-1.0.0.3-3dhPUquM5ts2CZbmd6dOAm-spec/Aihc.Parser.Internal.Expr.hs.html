@@ -234,10 +234,10 @@ span.spaces    { background: white }
 <span class="lineno">  215 </span><span class="spaces">    </span><span class="istickedoff">Just expr -&gt; do</span>
 <span class="lineno">  216 </span><span class="spaces">      </span><span class="istickedoff">tok &lt;- lookAhead anySingle</span>
 <span class="lineno">  217 </span><span class="spaces">      </span><span class="istickedoff">case lexTokenKind tok of</span>
-<span class="lineno">  218 </span><span class="spaces">        </span><span class="istickedoff">TkReservedAt -&gt; <span class="nottickedoff">do</span></span>
-<span class="lineno">  219 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">pat &lt;- patternParser</span></span>
+<span class="lineno">  218 </span><span class="spaces">        </span><span class="istickedoff">TkReservedAt -&gt; do</span>
+<span class="lineno">  219 </span><span class="spaces">          </span><span class="istickedoff">pat &lt;- patternParser</span>
 <span class="lineno">  220 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">expectedTok TkReservedLeftArrow</span></span>
-<span class="lineno">  221 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">rhs &lt;- region &quot;while parsing '&lt;-' binding&quot; exprParser</span></span>
+<span class="lineno">  221 </span><span class="spaces">          </span><span class="istickedoff">rhs &lt;- <span class="nottickedoff">region &quot;while parsing '&lt;-' binding&quot; exprParser</span></span>
 <span class="lineno">  222 </span><span class="spaces">          </span><span class="istickedoff"><span class="nottickedoff">pure (DoBind pat rhs)</span></span>
 <span class="lineno">  223 </span><span class="spaces">        </span><span class="istickedoff">_ -&gt; do</span>
 <span class="lineno">  224 </span><span class="spaces">          </span><span class="istickedoff">mArrow &lt;- MP.optional (expectedTok TkReservedLeftArrow)</span>
@@ -461,7 +461,7 @@ span.spaces    { background: white }
 <span class="lineno">  442 </span>-- namespace expressions stay in 'atomExprParser'; they can be record-update
 <span class="lineno">  443 </span>-- bases only after parentheses make them an @aexp@.
 <span class="lineno">  444 </span>atomOrRecordExprParser :: TokParser Expr
-<span class="lineno">  445 </span><span class="decl"><span class="istickedoff">atomOrRecordExprParser = atomOrRecordExprParserWith <span class="nottickedoff">NormalExprAtom</span></span></span>
+<span class="lineno">  445 </span><span class="decl"><span class="istickedoff">atomOrRecordExprParser = atomOrRecordExprParserWith NormalExprAtom</span></span>
 <span class="lineno">  446 </span>
 <span class="lineno">  447 </span>atomOrRecordExprParserWith :: AtomContext -&gt; TokParser Expr
 <span class="lineno">  448 </span><span class="decl"><span class="istickedoff">atomOrRecordExprParserWith atomContext =</span>
@@ -561,7 +561,7 @@ span.spaces    { background: white }
 <span class="lineno">  542 </span><span class="decl"><span class="istickedoff">atomExprParserWith atomContext = do</span>
 <span class="lineno">  543 </span><span class="spaces">  </span><span class="istickedoff">tok &lt;- lookAhead anySingle</span>
 <span class="lineno">  544 </span><span class="spaces">  </span><span class="istickedoff">case lexTokenKind tok of</span>
-<span class="lineno">  545 </span><span class="spaces">    </span><span class="istickedoff">TkImplicitParam {} -&gt; <span class="nottickedoff">implicitParamExprParser</span></span>
+<span class="lineno">  545 </span><span class="spaces">    </span><span class="istickedoff">TkImplicitParam {} -&gt; implicitParamExprParser</span>
 <span class="lineno">  546 </span><span class="spaces">    </span><span class="istickedoff">TkKeywordType -&gt; do</span>
 <span class="lineno">  547 </span><span class="spaces">      </span><span class="istickedoff">explicitNamespacesEnabled &lt;- isExtensionEnabled ExplicitNamespaces</span>
 <span class="lineno">  548 </span><span class="spaces">      </span><span class="istickedoff">requiredTypeArgumentsEnabled &lt;- isExtensionEnabled RequiredTypeArguments</span>
@@ -674,14 +674,14 @@ span.spaces    { background: white }
 <span class="lineno">  655 </span><span class="spaces">      </span><span class="istickedoff">TkConSym sym -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym sym))</span>
 <span class="lineno">  656 </span><span class="spaces">      </span><span class="istickedoff">TkQVarSym modName sym -&gt; Just (mkNameAt <span class="nottickedoff">tok</span> (Just modName) NameVarSym sym)</span>
 <span class="lineno">  657 </span><span class="spaces">      </span><span class="istickedoff">TkQConSym modName sym -&gt; Just (mkNameAt <span class="nottickedoff">tok</span> (Just modName) NameConSym sym)</span>
-<span class="lineno">  658 </span><span class="spaces">      </span><span class="istickedoff">TkReservedAt -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameVarSym &quot;@&quot;))</span>
+<span class="lineno">  658 </span><span class="spaces">      </span><span class="istickedoff">TkReservedAt -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;@&quot;))</span></span>
 <span class="lineno">  659 </span><span class="spaces">      </span><span class="istickedoff">TkMinusOperator -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;-&quot;))</span></span>
 <span class="lineno">  660 </span><span class="spaces">      </span><span class="istickedoff">TkReservedColon -&gt; Just (qualifyName Nothing (mkUnqualifiedNameAt <span class="nottickedoff">tok</span> NameConSym &quot;:&quot;))</span>
-<span class="lineno">  661 </span><span class="spaces">      </span><span class="istickedoff">TkReservedDoubleColon -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;::&quot;))</span></span>
-<span class="lineno">  662 </span><span class="spaces">      </span><span class="istickedoff">TkReservedEquals -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;=&quot;))</span></span>
+<span class="lineno">  661 </span><span class="spaces">      </span><span class="istickedoff">TkReservedDoubleColon -&gt; <span class="nottickedoff">Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;::&quot;))</span></span>
+<span class="lineno">  662 </span><span class="spaces">      </span><span class="istickedoff">TkReservedEquals -&gt; <span class="nottickedoff">Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;=&quot;))</span></span>
 <span class="lineno">  663 </span><span class="spaces">      </span><span class="istickedoff">TkReservedPipe -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;|&quot;))</span></span>
 <span class="lineno">  664 </span><span class="spaces">      </span><span class="istickedoff">TkReservedLeftArrow -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;&lt;-&quot;))</span></span>
-<span class="lineno">  665 </span><span class="spaces">      </span><span class="istickedoff">TkReservedRightArrow -&gt; <span class="nottickedoff">Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;-&gt;&quot;))</span></span>
+<span class="lineno">  665 </span><span class="spaces">      </span><span class="istickedoff">TkReservedRightArrow -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;-&gt;&quot;))</span></span>
 <span class="lineno">  666 </span><span class="spaces">      </span><span class="istickedoff">TkReservedDoubleArrow -&gt; Just <span class="nottickedoff">(qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;=&gt;&quot;))</span></span>
 <span class="lineno">  667 </span><span class="spaces">      </span><span class="istickedoff">TkReservedDotDot -&gt; <span class="nottickedoff">Just (qualifyName Nothing (mkUnqualifiedNameAt tok NameVarSym &quot;..&quot;))</span></span>
 <span class="lineno">  668 </span><span class="spaces">      </span><span class="istickedoff">_ -&gt; Nothing</span></span>
@@ -1128,8 +1128,8 @@ span.spaces    { background: white }
 <span class="lineno"> 1109 </span><span class="decl"><span class="istickedoff">compTransformExprParser =</span>
 <span class="lineno"> 1110 </span><span class="spaces">  </span><span class="istickedoff">label <span class="nottickedoff">&quot;expression&quot;</span> $</span>
 <span class="lineno"> 1111 </span><span class="spaces">    </span><span class="istickedoff">optionalSuffix</span>
-<span class="lineno"> 1112 </span><span class="spaces">      </span><span class="istickedoff">(expectedTok TkReservedDoubleColon *&gt; <span class="nottickedoff">typeSignatureParser</span>)</span>
-<span class="lineno"> 1113 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">ETypeSig</span></span>
+<span class="lineno"> 1112 </span><span class="spaces">      </span><span class="istickedoff">(expectedTok TkReservedDoubleColon *&gt; typeSignatureParser)</span>
+<span class="lineno"> 1113 </span><span class="spaces">      </span><span class="istickedoff">ETypeSig</span>
 <span class="lineno"> 1114 </span><span class="spaces">      </span><span class="istickedoff">compTransformExprWithoutTypeSigParser</span></span>
 <span class="lineno"> 1115 </span>
 <span class="lineno"> 1116 </span>-- | Parse the core of a TransformListComp expression (without type signature suffix).
@@ -1183,13 +1183,13 @@ span.spaces    { background: white }
 <span class="lineno"> 1164 </span>compTransformLambdaCaseAltParser :: TokParser LambdaCaseAlt
 <span class="lineno"> 1165 </span><span class="decl"><span class="istickedoff">compTransformLambdaCaseAltParser = withSpan $ do</span>
 <span class="lineno"> 1166 </span><span class="spaces">  </span><span class="istickedoff">pats &lt;- region <span class="nottickedoff">&quot;while parsing lambda-cases alternative&quot;</span> (MP.many apatParser)</span>
-<span class="lineno"> 1167 </span><span class="spaces">  </span><span class="istickedoff">rhs &lt;- region <span class="nottickedoff">&quot;while parsing lambda-cases alternative&quot;</span> (caseRhsParserWithBodyParser <span class="nottickedoff">compTransformExprParser</span>)</span>
-<span class="lineno"> 1168 </span><span class="spaces">  </span><span class="istickedoff"><span class="nottickedoff">pure $ \span' -&gt;</span></span>
-<span class="lineno"> 1169 </span><span class="spaces">    </span><span class="istickedoff"><span class="nottickedoff">LambdaCaseAlt</span></span>
-<span class="lineno"> 1170 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">{ lambdaCaseAltAnns = [mkAnnotation span'],</span></span>
-<span class="lineno"> 1171 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">lambdaCaseAltPats = pats,</span></span>
-<span class="lineno"> 1172 </span><span class="spaces">        </span><span class="istickedoff"><span class="nottickedoff">lambdaCaseAltRhs = rhs</span></span>
-<span class="lineno"> 1173 </span><span class="spaces">      </span><span class="istickedoff"><span class="nottickedoff">}</span></span></span>
+<span class="lineno"> 1167 </span><span class="spaces">  </span><span class="istickedoff">rhs &lt;- region <span class="nottickedoff">&quot;while parsing lambda-cases alternative&quot;</span> (caseRhsParserWithBodyParser compTransformExprParser)</span>
+<span class="lineno"> 1168 </span><span class="spaces">  </span><span class="istickedoff">pure $ \span' -&gt;</span>
+<span class="lineno"> 1169 </span><span class="spaces">    </span><span class="istickedoff">LambdaCaseAlt</span>
+<span class="lineno"> 1170 </span><span class="spaces">      </span><span class="istickedoff">{ lambdaCaseAltAnns = <span class="nottickedoff">[mkAnnotation span']</span>,</span>
+<span class="lineno"> 1171 </span><span class="spaces">        </span><span class="istickedoff">lambdaCaseAltPats = pats,</span>
+<span class="lineno"> 1172 </span><span class="spaces">        </span><span class="istickedoff">lambdaCaseAltRhs = rhs</span>
+<span class="lineno"> 1173 </span><span class="spaces">      </span><span class="istickedoff">}</span></span>
 <span class="lineno"> 1174 </span>
 <span class="lineno"> 1175 </span>compTransformAppExprParser :: TokParser Expr
 <span class="lineno"> 1176 </span><span class="decl"><span class="istickedoff">compTransformAppExprParser = appExprParserWith compTransformAtomOrRecordExprParser</span></span>
