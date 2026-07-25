@@ -2,12 +2,13 @@
 
 module Test.Compat.Decl
   ( declCompatTests,
+    prop_declCompat,
   )
 where
 
 import Aihc.Parser qualified as Aihc
 import Aihc.Parser.Compat (toGhcHsDecl)
-import Aihc.Parser.Compat.Internal.Ghc
+import Aihc.Parser.Compat.Internal.Testing
   ( compatGhcExtensions,
     normalizeGhcAst,
     parseGhcLocatedDecl,

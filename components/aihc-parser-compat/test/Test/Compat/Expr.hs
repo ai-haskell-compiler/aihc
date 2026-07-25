@@ -6,6 +6,7 @@
 module Test.Compat.Expr
   ( comparisonDump,
     exprCompatTests,
+    prop_exprCompat,
     renderGhc,
     sameStructural,
   )
@@ -13,7 +14,7 @@ where
 
 import Aihc.Parser qualified as Aihc
 import Aihc.Parser.Compat (toGhcHsExpr)
-import Aihc.Parser.Compat.Internal.Ghc
+import Aihc.Parser.Compat.Internal.Testing
   ( compatGhcExtensions,
     normalizeGhcAst,
     parseGhcLocatedExpr,
