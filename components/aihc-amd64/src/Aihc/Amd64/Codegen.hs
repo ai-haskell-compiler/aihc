@@ -1124,8 +1124,8 @@ caseChecks env resultLocation scrutineeIsPointer targets = do
               ( loadLocation "r11" resultLocation
                   <> [ loadByteOffset "r10" "r11" 0,
                        loadByteOffset "r10" "r10" 0,
-                       immediate "r9" identifier,
-                       "  cmp r10, r9",
+                       immediate "r11" identifier,
+                       "  cmp r10, r11",
                        "  je " <> target
                      ]
               )
@@ -1138,8 +1138,8 @@ caseChecks env resultLocation scrutineeIsPointer targets = do
               else
                 pure
                   ( loadLocation "r10" resultLocation
-                      <> [ immediate "r9" integer,
-                           "  cmp r10, r9",
+                      <> [ immediate "r11" integer,
+                           "  cmp r10, r11",
                            "  je " <> target
                          ]
                   )

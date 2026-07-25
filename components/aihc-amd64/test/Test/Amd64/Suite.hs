@@ -270,6 +270,12 @@ tests =
         assertBool
           "runtime apply does not enter its function"
           (not ("aihc_eval_cps(machine, function" `isInfixOf` runtime)),
+      testCase "case dispatch preserves allocatable registers" $
+        case compileModule (buildLinkLayout [caseDispatchProgram]) "_aihc_init_case_dispatch" (expectGcGrin caseDispatchProgram) of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly -> do
+            assertBool "uses the reserved scratch register" ("cmp r10, r11" `T.isInfixOf` assembly)
+            assertBool "does not clobber allocatable r9" (not ("cmp r10, r9" `T.isInfixOf` assembly)),
       testCase "dynamic CPS transfers branch to runtime-selected entries" $ do
         case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_tail_dispatch" (expectGcGrin explicitEvaluationProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
@@ -596,6 +602,51 @@ explicitEvaluationProgram =
     caseOperand = GrinVar "case_operand" 201 (BoxedRep Lifted)
     caseBinder = GrinVar "case_binder" 202 (BoxedRep Lifted)
     applyOperand = GrinVar "apply_operand" 203 (BoxedRep Lifted)
+
+caseDispatchProgram :: GrinProgram
+caseDispatchProgram =
+  GrinProgram
+    { grinConstructors = [("CaseA", [[]]), ("CaseB", [[]])],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "data_case_dispatch",
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [dataOperand],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinCase
+                  (GrinVarValue dataOperand)
+                  dataBinder
+                  [ GrinAlt (GrinDataAlt "CaseA") [] (GrinConstant [GrinVarValue dataBinder]),
+                    GrinAlt GrinDefaultAlt [] (GrinConstant [GrinVarValue dataBinder])
+                  ]
+            },
+          GrinFunction
+            { grinFunctionName = FunctionName "literal_case_dispatch",
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [literalOperand],
+              grinFunctionResultRep = IntRep,
+              grinFunctionBody =
+                GrinCase
+                  (GrinVarValue literalOperand)
+                  literalBinder
+                  [ GrinAlt (GrinLitAlt (GrinLitInt IntRep 7)) [] (GrinConstant [GrinVarValue literalBinder]),
+                    GrinAlt GrinDefaultAlt [] (GrinConstant [GrinVarValue literalBinder])
+                  ]
+            }
+        ]
+    }
+  where
+    dataOperand = GrinVar "data_operand" 204 (BoxedRep Lifted)
+    dataBinder = GrinVar "data_binder" 205 (BoxedRep Lifted)
+    literalOperand = GrinVar "literal_operand" 206 IntRep
+    literalBinder = GrinVar "literal_binder" 207 IntRep
 
 testNativeHelloWorld :: IO ()
 testNativeHelloWorld = do
