@@ -43,6 +43,13 @@
       supportsDocs = true;
       supportsCoverage = true;
     };
+    aihc-wasm = {
+      src = sources.wasmSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-parser = {
       src = sources.parserSrc;
       disableProfiling = true;
