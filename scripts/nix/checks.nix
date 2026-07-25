@@ -293,8 +293,8 @@
         diff --unified "$expected_stdout" "$whole_program_executable.stdout"
       done
 
-      find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.o' | grep -q .
-      find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.a' | grep -q .
+      test -n "$(find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.o' -print -quit)"
+      test -n "$(find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.a' -print -quit)"
       test "$(wc -l < "$AIHC_WASM_OPT_MARKER")" -eq 6
     '';
 
