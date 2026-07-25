@@ -19,6 +19,7 @@ module Aihc.Cli.Compile
     runCompile,
     runCompileWithEnvironment,
     wasmClangCommand,
+    wasmOptArguments,
   )
 where
 
@@ -65,13 +66,13 @@ import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithFullEnv)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
-import Control.Monad (when)
+import Control.Monad (forM_, when)
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import System.Directory (XdgDirectory (XdgCache), createDirectory, getCurrentDirectory, getTemporaryDirectory, getXdgDirectory, removeDirectoryRecursive, removeFile)
+import System.Directory (XdgDirectory (XdgCache), createDirectory, findExecutable, getCurrentDirectory, getTemporaryDirectory, getXdgDirectory, removeDirectoryRecursive, removeFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, takeDirectory, (</>))
@@ -143,11 +144,11 @@ runCompileWithEnvironment environment options = do
     then do
       let assemblyPath = output <> backendSourceExtension target
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
-      assemble target (compileGarbageCollector options) output assemblyPath (compiledArchives artifacts)
+      assemble target (compileGarbageCollector options) (compileUseWasmOpt options) output assemblyPath (compiledArchives artifacts)
     else withTemporaryDirectory "aihc-compile" $ \directory -> do
       let assemblyPath = directory </> "program" <> backendSourceExtension target
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
-      assemble target (compileGarbageCollector options) output assemblyPath (compiledArchives artifacts)
+      assemble target (compileGarbageCollector options) (compileUseWasmOpt options) output assemblyPath (compiledArchives artifacts)
 
 writeIntermediateArtifacts :: FilePath -> CompileOptions -> CompileArtifacts -> IO ()
 writeIntermediateArtifacts output options artifacts = do
@@ -501,10 +502,10 @@ renderCompileError compileError =
 defaultCompileTarget :: NativeTarget
 defaultCompileTarget = fromMaybe AppleArm64 hostNativeTarget
 
-assemble :: NativeTarget -> GarbageCollector -> FilePath -> FilePath -> [FilePath] -> IO ()
-assemble Wasm32Wasip3 garbageCollector output assemblyPath archives =
-  assembleWasip3 garbageCollector output assemblyPath archives
-assemble target garbageCollector output assemblyPath archives = do
+assemble :: NativeTarget -> GarbageCollector -> Bool -> FilePath -> FilePath -> [FilePath] -> IO ()
+assemble Wasm32Wasip3 garbageCollector useWasmOpt output assemblyPath archives =
+  assembleWasip3 garbageCollector useWasmOpt output assemblyPath archives
+assemble target garbageCollector _useWasmOpt output assemblyPath archives = do
   runtime <- runtimeSourcePath
   (compiler, targetArguments) <- backendCompiler target
   (exitCode, _stdout, stderr) <-
@@ -528,12 +529,13 @@ assemble target garbageCollector output assemblyPath archives = do
     ExitSuccess -> pure ()
     ExitFailure _ -> ioError (userError (renderCompileError (CompileClangError exitCode stderr)))
 
-assembleWasip3 :: GarbageCollector -> FilePath -> FilePath -> [FilePath] -> IO ()
-assembleWasip3 garbageCollector output assemblyPath archives = do
+assembleWasip3 :: GarbageCollector -> Bool -> FilePath -> FilePath -> [FilePath] -> IO ()
+assembleWasip3 garbageCollector useWasmOpt output assemblyPath archives = do
   nativeRuntime <- runtimeSourcePath
   driver <- Wasm.wasip3RuntimeSourcePath
   world <- Wasm.wasip3WorldPath
   clangOverride <- lookupEnv "AIHC_WASM_CLANG"
+  wasmOpt <- if useWasmOpt then findExecutable "wasm-opt" else pure Nothing
   withTemporaryDirectory "aihc-wasip3-link" $ \directory -> do
     let bindingsSource = directory </> "command.c"
         bindingsObject = directory </> "bindings.o"
@@ -541,7 +543,9 @@ assembleWasip3 garbageCollector output assemblyPath archives = do
         programObject = directory </> "program.o"
         runtimeObject = directory </> "runtime.o"
         driverObject = directory </> "driver.o"
+        unoptimizedCoreModule = directory </> "core.unoptimized.wasm"
         coreModule = directory </> "core.wasm"
+        linkedCoreModule = maybe coreModule (const unoptimizedCoreModule) wasmOpt
         (clang, clangTargetArguments) = wasmClangCommand clangOverride
         includeArguments =
           [ "-I" <> (takeDirectory driver </> "include"),
@@ -578,8 +582,9 @@ assembleWasip3 garbageCollector output assemblyPath archives = do
           componentTypeObject
         ]
           <> archives
-          <> ["-o", coreModule]
+          <> ["-o", linkedCoreModule]
       )
+    forM_ wasmOpt $ \tool -> runTool tool (wasmOptArguments linkedCoreModule coreModule)
     runTool "wasm-tools" ["component", "new", coreModule, "-o", output]
     runTool "wasm-tools" ["validate", output]
 
@@ -588,6 +593,10 @@ assembleWasip3 garbageCollector output assemblyPath archives = do
 wasmClangCommand :: Maybe FilePath -> (FilePath, [String])
 wasmClangCommand override =
   (fromMaybe "clang" override, ["--target=" <> nativeTargetTriple Wasm32Wasip3])
+
+wasmOptArguments :: FilePath -> FilePath -> [String]
+wasmOptArguments input output =
+  [input, "-O3", "--enable-tail-call", "--emit-target-features", "-o", output]
 
 runTool :: FilePath -> [String] -> IO ()
 runTool tool arguments = do

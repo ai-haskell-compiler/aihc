@@ -7,6 +7,10 @@
   wasmLd = pkgs.writeShellScriptBin "wasm-ld" ''
     exec ${pkgs.lld}/bin/wasm-ld "$@"
   '';
+  wasmOpt = pkgs.writeShellScriptBin "wasm-opt" ''
+    printf 'invoked\n' >> "''${AIHC_WASM_OPT_MARKER:?}"
+    exec ${pkgs.binaryen}/bin/wasm-opt "$@"
+  '';
   cTidyCompilerFlags =
     ["-std=c11" "-Wall" "-Wextra" "-Wpedantic"]
     ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
@@ -246,9 +250,11 @@
       pkgs.wasmtime
       pkgs.wit-bindgen
       wasmLd
+      wasmOpt
     ] ''
       export XDG_CACHE_HOME="$TMPDIR/cache"
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+      export AIHC_WASM_OPT_MARKER="$TMPDIR/wasm-opt-invocations"
 
       for example in async-hello-world unboxed-tail-recursion; do
         source="examples/$example/Main.hs"
@@ -257,6 +263,7 @@
         incremental_executable="$TMPDIR/$example-incremental.wasm"
         ${aihcExe} compile "$source" \
           --target wasm32-wasip3 \
+          --use-wasm-opt \
           --output "$incremental_executable"
         wasmtime run -C cache=n -S cli "$incremental_executable" > "$incremental_executable.stdout"
         diff --unified "$expected_stdout" "$incremental_executable.stdout"
@@ -264,6 +271,7 @@
         whole_program_executable="$TMPDIR/$example-whole-program.wasm"
         ${aihcExe} compile "$source" \
           --target wasm32-wasip3 \
+          --use-wasm-opt \
           --whole-program \
           --output "$whole_program_executable"
         wasmtime run -C cache=n -S cli "$whole_program_executable" > "$whole_program_executable.stdout"
@@ -272,6 +280,7 @@
 
       find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.o' | grep -q .
       find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.a' | grep -q .
+      test "$(wc -l < "$AIHC_WASM_OPT_MARKER")" -eq 4
     '';
 
   parserProgressStrict = mkSourceCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) [] ''

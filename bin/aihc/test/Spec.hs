@@ -15,6 +15,7 @@ import Aihc.Cli.Compile
     defaultCompileEnvironment,
     runCompileWithEnvironment,
     wasmClangCommand,
+    wasmOptArguments,
   )
 import Aihc.Cli.Install
   ( DependencyResolver (..),
@@ -84,51 +85,55 @@ main =
         [ testCase "parses compile source" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs"]),
           testCase "parses compile output and keep-asm" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True False Nothing GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True False Nothing GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "-o", "hello", "--keep-asm"]),
           testCase "parses keep-core" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False False Nothing GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False False Nothing GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--keep-core"]),
           testCase "parses keep-grin" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False False Nothing GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False False Nothing GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--keep-grin"]),
           testCase "parses whole-program compatibility mode" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False True Nothing GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False True Nothing GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--whole-program"]),
           testCase "parses a cross-compilation target" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just LinuxAmd64) GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just LinuxAmd64) GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--target", "linux-amd64"]),
           testCase "parses the portable C target" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just PortableC) GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just PortableC) GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--target", "portable-c"]),
           testCase "parses the WASI P3 target" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just Wasm32Wasip3) GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just Wasm32Wasip3) GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--target", "wasm32-wasip3"]),
+          testCase "parses optional wasm-opt optimization" $
+            case parseCommandPure ["compile", "Main.hs", "--target", "wasm32-wasip3", "--use-wasm-opt"] of
+              Right (CmdCompile options) -> assertBool "uses wasm-opt" (compileUseWasmOpt options)
+              result -> assertFailure ("expected compile options, got: " <> show result),
           testCase "selects the semispace collector" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcSemispace)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcSemispace False)))
               (parseCommandPure ["compile", "Main.hs", "--gc", "semispace"]),
           testCase "derives safe default compile output paths" $ do
-            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False False Nothing GcCalloc))
-            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False False Nothing GcCalloc)),
+            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False False Nothing GcCalloc False))
+            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False False Nothing GcCalloc False)),
           testCase "parses install package" $
             assertEqual
               "command"
@@ -166,6 +171,11 @@ main =
         [ testCase "uses standard Clang for the WebAssembly target" $ do
             assertEqual "default command" ("clang", ["--target=wasm32-unknown-unknown"]) (wasmClangCommand Nothing)
             assertEqual "configured command" ("custom-clang", ["--target=wasm32-unknown-unknown"]) (wasmClangCommand (Just "custom-clang")),
+          testCase "enables Binaryen optimization and tail calls" $
+            assertEqual
+              "wasm-opt arguments"
+              ["input.wasm", "-O3", "--enable-tail-call", "--emit-target-features", "-o", "output.wasm"]
+              (wasmOptArguments "input.wasm" "output.wasm"),
           testCase "lowers the aihc-base HelloWorld example to native assembly" $
             withTempDir "aihc-compile-example" $ \root -> do
               sourcePath <- helloWorldExamplePath
@@ -902,8 +912,8 @@ test_compileExecutable =
           keptOutput = root </> "kept"
           temporaryOutput = root </> "temporary"
           environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-          keptOptions = CompileOptions sourcePath (Just keptOutput) True True True False Nothing GcSemispace
-          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False False False True Nothing GcCalloc
+          keptOptions = CompileOptions sourcePath (Just keptOutput) True True True False Nothing GcSemispace False
+          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False False False True Nothing GcCalloc False
       withCurrentDirectory repositoryRoot $ do
         runCompileWithEnvironment environment keptOptions
         assertFileExists keptOutput
@@ -946,7 +956,7 @@ test_compileGreenThreadsExample =
       let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
           output = root </> "green-threads"
           environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-          options = CompileOptions sourcePath (Just output) False False False False Nothing GcCalloc
+          options = CompileOptions sourcePath (Just output) False False False False Nothing GcCalloc False
       withCurrentDirectory repositoryRoot $ do
         runCompileWithEnvironment environment options
         assertNativeOutput
@@ -966,7 +976,7 @@ test_compileAsyncStdioExample =
     withCurrentDirectory repositoryRoot $
       forM_ targets $ \target -> do
         let output = root </> ("async-stdio-" <> show target)
-            options = CompileOptions sourcePath (Just output) False False False False (Just target) GcSemispace
+            options = CompileOptions sourcePath (Just output) False False False False (Just target) GcSemispace False
         runCompileWithEnvironment environment options
         (Just childInput, Just childOutput, Just childError, processHandle) <-
           createProcess
@@ -998,7 +1008,7 @@ test_compileAsyncHelloWorldExample =
     withCurrentDirectory repositoryRoot $
       forM_ targets $ \target -> do
         let output = root </> ("async-hello-world-" <> show target)
-            options = CompileOptions sourcePath (Just output) False False False False (Just target) GcSemispace
+            options = CompileOptions sourcePath (Just output) False False False False (Just target) GcSemispace False
         runCompileWithEnvironment environment options
         assertNativeOutput "Hello world!\n" output
 
@@ -1010,7 +1020,7 @@ test_compilePortableCExecutable =
         output = root </> "hello-portable-c"
         cacheRoot = root </> "cache"
         environment = CompileEnvironment (repositoryRoot </> "core-libs") cacheRoot
-        options = CompileOptions sourcePath (Just output) False False True False (Just PortableC) GcCalloc
+        options = CompileOptions sourcePath (Just output) False False True False (Just PortableC) GcCalloc False
     withCurrentDirectory repositoryRoot $ do
       runCompileWithEnvironment environment options
       assertFileExists output

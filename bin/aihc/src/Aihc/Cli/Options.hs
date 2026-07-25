@@ -28,7 +28,8 @@ data CompileOptions = CompileOptions
     compileKeepAsm :: !Bool,
     compileWholeProgram :: !Bool,
     compileTarget :: !(Maybe NativeTarget),
-    compileGarbageCollector :: !GarbageCollector
+    compileGarbageCollector :: !GarbageCollector,
+    compileUseWasmOpt :: !Bool
   }
   deriving (Eq, Show)
 
@@ -147,6 +148,10 @@ compileOptionsParser =
           <> OA.value GcCalloc
           <> OA.showDefaultWith (const "calloc")
           <> OA.help "Select the garbage collector compiled into the executable"
+      )
+    <*> OA.switch
+      ( OA.long "use-wasm-opt"
+          <> OA.help "Optimize the linked core WebAssembly module with wasm-opt when available"
       )
 
 parseGarbageCollector :: String -> Either String GarbageCollector
