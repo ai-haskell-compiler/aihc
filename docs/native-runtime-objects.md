@@ -68,6 +68,17 @@ roots. The argument buffer contains only transient transfers: generated entries
 copy their parameters into the locals area before reaching an allocation
 safepoint, so the collector does not scan the buffer.
 
+`MVar#` uses a runtime-owned empty/full cell with separate FIFO queues for
+blocked readers, takers, and putters. Putting into an empty cell wakes every
+blocked reader with the same value and either hands the value directly to the
+oldest taker or leaves the cell full. Taking from a full cell returns its old
+value and, when a putter is waiting, installs that putter's value before waking
+it. This direct handoff prevents a newly running thread from overtaking an
+already blocked operation. Stored values, queued put values, continuations, and
+their suspended threads are collector roots. The cells themselves are
+auxiliary allocations owned for the machine's lifetime; weak pointers and
+finalization are intentionally outside the initial interface.
+
 ## IO manager
 
 The runtime ABI separates operation submission, scheduler suspension, and

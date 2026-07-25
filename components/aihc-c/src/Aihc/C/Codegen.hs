@@ -416,6 +416,10 @@ compileCpsPrimitive env prefix label name arguments continuation =
   case (name, arguments) of
     ("awaitIO#", [request]) -> transfer "aihc_portable_await_io_cps" [request, continuation]
     ("fork#", [action]) -> transfer "aihc_portable_fork_cps" [action, continuation]
+    ("newMVar#", []) -> transfer "aihc_portable_new_mvar_cps" [continuation]
+    ("readMVar#", [mvar]) -> transfer "aihc_portable_read_mvar_cps" [mvar, continuation]
+    ("takeMVar#", [mvar]) -> transfer "aihc_portable_take_mvar_cps" [mvar, continuation]
+    ("putMVar#", [mvar, value]) -> transfer "aihc_portable_put_mvar_cps" [mvar, value, continuation]
     ("yield#", []) -> transfer "aihc_portable_yield_cps" [continuation]
     _
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->

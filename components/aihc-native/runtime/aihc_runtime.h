@@ -36,6 +36,7 @@ typedef struct AihcBlackhole AihcBlackhole;
 typedef struct AihcIoHandle AihcIoHandle;
 typedef struct AihcIoRequest AihcIoRequest;
 typedef struct AihcIoBackend AihcIoBackend;
+typedef struct AihcMVar AihcMVar;
 typedef uint64_t AihcSlot;
 typedef void (*AihcEntry)(AihcSlot *arguments);
 #ifdef AIHC_WASIP3
@@ -100,6 +101,7 @@ struct AihcMachine {
   AihcThread *run_queue_head;
   AihcThread *run_queue_tail;
   AihcBlackhole *blackholes;
+  AihcMVar *mvars;
   AihcIoRequest *io_requests_head;
   AihcIoRequest *io_requests_tail;
   uint64_t io_request_count;
@@ -175,6 +177,13 @@ void aihc_update(AihcValue *object, AihcValue *value);
 void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
                            AihcValue *value);
 AihcSlot aihc_fork(AihcMachine *machine, AihcValue *action);
+void *aihc_mvar_new(AihcMachine *machine);
+const AihcResume *aihc_mvar_read(AihcMachine *machine, void *mvar,
+                                 AihcValue *continuation);
+const AihcResume *aihc_mvar_take(AihcMachine *machine, void *mvar,
+                                 AihcValue *continuation);
+const AihcResume *aihc_mvar_put(AihcMachine *machine, void *mvar,
+                                AihcSlot value, AihcValue *continuation);
 const AihcResume *aihc_yield(AihcMachine *machine, AihcValue *continuation);
 const AihcResume *aihc_await_io(AihcMachine *machine, void *request,
                                 AihcValue *continuation);
@@ -225,6 +234,17 @@ AihcPortableTransfer aihc_portable_continue_values(AihcMachine *machine,
 AihcPortableTransfer aihc_portable_fork_cps(AihcMachine *machine,
                                             AihcValue *action,
                                             AihcValue *continuation);
+AihcPortableTransfer aihc_portable_new_mvar_cps(AihcMachine *machine,
+                                                AihcValue *continuation);
+AihcPortableTransfer aihc_portable_read_mvar_cps(AihcMachine *machine,
+                                                 void *mvar,
+                                                 AihcValue *continuation);
+AihcPortableTransfer aihc_portable_take_mvar_cps(AihcMachine *machine,
+                                                 void *mvar,
+                                                 AihcValue *continuation);
+AihcPortableTransfer aihc_portable_put_mvar_cps(AihcMachine *machine,
+                                                void *mvar, AihcValue *value,
+                                                AihcValue *continuation);
 AihcPortableTransfer aihc_portable_yield_cps(AihcMachine *machine,
                                              AihcValue *continuation);
 AihcPortableTransfer aihc_portable_await_io_cps(AihcMachine *machine,

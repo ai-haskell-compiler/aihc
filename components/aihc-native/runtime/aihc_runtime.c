@@ -12,6 +12,7 @@
 #endif
 
 typedef struct AihcBlackholeWaiter AihcBlackholeWaiter;
+typedef struct AihcMVarWaiter AihcMVarWaiter;
 
 typedef enum {
   AIHC_IO_READ,
@@ -52,6 +53,25 @@ struct AihcBlackhole {
   AihcBlackholeWaiter *waiters_head;
   AihcBlackholeWaiter *waiters_tail;
   AihcBlackhole *next;
+};
+
+struct AihcMVarWaiter {
+  AihcThread *thread;
+  AihcValue *continuation;
+  AihcSlot value;
+  AihcMVarWaiter *next;
+};
+
+struct AihcMVar {
+  uint8_t full;
+  AihcSlot value;
+  AihcMVarWaiter *readers_head;
+  AihcMVarWaiter *readers_tail;
+  AihcMVarWaiter *takers_head;
+  AihcMVarWaiter *takers_tail;
+  AihcMVarWaiter *putters_head;
+  AihcMVarWaiter *putters_tail;
+  AihcMVar *next;
 };
 
 struct AihcIoHandle {
@@ -274,6 +294,27 @@ static void aihc_collect(AihcMachine *machine, uint64_t required_words,
     aihc_forward_value(machine, from_start, &blackhole->object);
     for (AihcBlackholeWaiter *waiter = blackhole->waiters_head; waiter != NULL;
          waiter = waiter->next) {
+      aihc_forward_value(machine, from_start, &waiter->continuation);
+      aihc_forward_thread(machine, from_start, waiter->thread);
+    }
+  }
+  for (AihcMVar *mvar = machine->mvars; mvar != NULL; mvar = mvar->next) {
+    if (mvar->full) {
+      aihc_forward_slot(machine, from_start, &mvar->value);
+    }
+    for (AihcMVarWaiter *waiter = mvar->readers_head; waiter != NULL;
+         waiter = waiter->next) {
+      aihc_forward_value(machine, from_start, &waiter->continuation);
+      aihc_forward_thread(machine, from_start, waiter->thread);
+    }
+    for (AihcMVarWaiter *waiter = mvar->takers_head; waiter != NULL;
+         waiter = waiter->next) {
+      aihc_forward_value(machine, from_start, &waiter->continuation);
+      aihc_forward_thread(machine, from_start, waiter->thread);
+    }
+    for (AihcMVarWaiter *waiter = mvar->putters_head; waiter != NULL;
+         waiter = waiter->next) {
+      aihc_forward_slot(machine, from_start, &waiter->value);
       aihc_forward_value(machine, from_start, &waiter->continuation);
       aihc_forward_thread(machine, from_start, waiter->thread);
     }
@@ -1076,6 +1117,128 @@ static const AihcResume *aihc_resume_current(AihcMachine *machine,
   return aihc_select_thread(machine, machine->current_thread);
 }
 
+static const AihcResume *aihc_resume_current_value(AihcMachine *machine,
+                                                   AihcValue *continuation,
+                                                   AihcSlot value) {
+  aihc_suspend_continue(machine->current_thread, continuation, 1, value);
+  return aihc_select_thread(machine, machine->current_thread);
+}
+
+static AihcMVarWaiter *aihc_mvar_waiter_new(AihcMachine *machine,
+                                            AihcValue *continuation,
+                                            AihcSlot value) {
+  AihcMVarWaiter *waiter = aihc_allocate_auxiliary(machine, sizeof(*waiter));
+  waiter->thread = machine->current_thread;
+  waiter->continuation = continuation;
+  waiter->value = value;
+  return waiter;
+}
+
+static void aihc_mvar_append_waiter(AihcMVarWaiter **head,
+                                    AihcMVarWaiter **tail,
+                                    AihcMVarWaiter *waiter) {
+  if (*tail == NULL) {
+    *head = waiter;
+  } else {
+    (*tail)->next = waiter;
+  }
+  *tail = waiter;
+}
+
+static AihcMVarWaiter *aihc_mvar_pop_waiter(AihcMVarWaiter **head,
+                                            AihcMVarWaiter **tail) {
+  AihcMVarWaiter *waiter = *head;
+  if (waiter == NULL) {
+    return NULL;
+  }
+  *head = waiter->next;
+  if (*head == NULL) {
+    *tail = NULL;
+  }
+  waiter->next = NULL;
+  return waiter;
+}
+
+static void aihc_mvar_wake(AihcMachine *machine, AihcMVarWaiter *waiter,
+                           uint64_t count, AihcSlot value) {
+  aihc_suspend_continue(waiter->thread, waiter->continuation, count, value);
+  aihc_enqueue_thread(machine, waiter->thread);
+  free(waiter);
+}
+
+static AihcMVar *aihc_checked_mvar(void *opaque_mvar) {
+  AihcMVar *mvar = opaque_mvar;
+  if (mvar == NULL) {
+    aihc_fail("attempted an operation on a null MVar");
+  }
+  return mvar;
+}
+
+void *aihc_mvar_new(AihcMachine *machine) {
+  AihcMVar *mvar = aihc_allocate_auxiliary(machine, sizeof(*mvar));
+  mvar->next = machine->mvars;
+  machine->mvars = mvar;
+  return mvar;
+}
+
+const AihcResume *aihc_mvar_read(AihcMachine *machine, void *opaque_mvar,
+                                 AihcValue *continuation) {
+  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  if (mvar->full) {
+    return aihc_resume_current_value(machine, continuation, mvar->value);
+  }
+  AihcMVarWaiter *waiter = aihc_mvar_waiter_new(machine, continuation, 0);
+  aihc_mvar_append_waiter(&mvar->readers_head, &mvar->readers_tail, waiter);
+  return aihc_schedule(machine);
+}
+
+const AihcResume *aihc_mvar_take(AihcMachine *machine, void *opaque_mvar,
+                                 AihcValue *continuation) {
+  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  if (!mvar->full) {
+    AihcMVarWaiter *waiter = aihc_mvar_waiter_new(machine, continuation, 0);
+    aihc_mvar_append_waiter(&mvar->takers_head, &mvar->takers_tail, waiter);
+    return aihc_schedule(machine);
+  }
+
+  AihcSlot value = mvar->value;
+  AihcMVarWaiter *putter =
+      aihc_mvar_pop_waiter(&mvar->putters_head, &mvar->putters_tail);
+  if (putter == NULL) {
+    mvar->full = 0;
+    mvar->value = 0;
+  } else {
+    mvar->value = putter->value;
+    aihc_mvar_wake(machine, putter, 0, 0);
+  }
+  return aihc_resume_current_value(machine, continuation, value);
+}
+
+const AihcResume *aihc_mvar_put(AihcMachine *machine, void *opaque_mvar,
+                                AihcSlot value, AihcValue *continuation) {
+  AihcMVar *mvar = aihc_checked_mvar(opaque_mvar);
+  if (mvar->full) {
+    AihcMVarWaiter *waiter = aihc_mvar_waiter_new(machine, continuation, value);
+    aihc_mvar_append_waiter(&mvar->putters_head, &mvar->putters_tail, waiter);
+    return aihc_schedule(machine);
+  }
+
+  AihcMVarWaiter *reader;
+  while ((reader = aihc_mvar_pop_waiter(&mvar->readers_head,
+                                        &mvar->readers_tail)) != NULL) {
+    aihc_mvar_wake(machine, reader, 1, value);
+  }
+  AihcMVarWaiter *taker =
+      aihc_mvar_pop_waiter(&mvar->takers_head, &mvar->takers_tail);
+  if (taker == NULL) {
+    mvar->full = 1;
+    mvar->value = value;
+  } else {
+    aihc_mvar_wake(machine, taker, 1, value);
+  }
+  return aihc_resume_current(machine, continuation);
+}
+
 const AihcResume *aihc_await_io(AihcMachine *machine, void *opaque_request,
                                 AihcValue *continuation) {
   AihcIoRequest *request = opaque_request;
@@ -1283,6 +1446,33 @@ AihcPortableTransfer aihc_portable_fork_cps(AihcMachine *machine,
                                             AihcValue *continuation) {
   AihcSlot thread_id = aihc_fork(machine, action);
   return aihc_portable_continue_value(machine, continuation, thread_id);
+}
+
+AihcPortableTransfer aihc_portable_new_mvar_cps(AihcMachine *machine,
+                                                AihcValue *continuation) {
+  return aihc_portable_continue_value(machine, continuation,
+                                      (AihcSlot)aihc_mvar_new(machine));
+}
+
+AihcPortableTransfer aihc_portable_read_mvar_cps(AihcMachine *machine,
+                                                 void *mvar,
+                                                 AihcValue *continuation) {
+  return aihc_portable_resume(machine,
+                              aihc_mvar_read(machine, mvar, continuation));
+}
+
+AihcPortableTransfer aihc_portable_take_mvar_cps(AihcMachine *machine,
+                                                 void *mvar,
+                                                 AihcValue *continuation) {
+  return aihc_portable_resume(machine,
+                              aihc_mvar_take(machine, mvar, continuation));
+}
+
+AihcPortableTransfer aihc_portable_put_mvar_cps(AihcMachine *machine,
+                                                void *mvar, AihcValue *value,
+                                                AihcValue *continuation) {
+  return aihc_portable_resume(
+      machine, aihc_mvar_put(machine, mvar, (AihcSlot)value, continuation));
 }
 
 AihcPortableTransfer aihc_portable_yield_cps(AihcMachine *machine,

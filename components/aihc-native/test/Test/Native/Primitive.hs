@@ -31,7 +31,11 @@ tests =
       testCase "accepts the complete byte-array API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          (map fst byteArrayRuntimeSymbols <> ["unsafeFreezeByteArray#", "unsafeThawByteArray#"])
+          (map fst byteArrayRuntimeSymbols <> ["unsafeFreezeByteArray#", "unsafeThawByteArray#"]),
+      testCase "accepts the scheduler-aware MVar API in native programs" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          ["newMVar#", "readMVar#", "takeMVar#", "putMVar#"]
     ]
 
 byteArrayRuntimeSymbols :: [(Text, Text)]

@@ -194,6 +194,7 @@ main =
           testCase "assembles an incremental portable C executable" test_compilePortableCExecutable,
           testCase "lowers every example to portable C" test_compilePortableCExamples,
           testCase "compiles and runs the aihc-base green threads example" test_compileGreenThreadsExample,
+          testCase "compiles and runs the GHC-compatible MVar example" test_compileMVarsExample,
           testCase "compiles and runs the async stdio example" test_compileAsyncStdioExample,
           testCase "compiles and runs the async hello-world example" test_compileAsyncHelloWorldExample,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
@@ -963,6 +964,28 @@ test_compileGreenThreadsExample =
           "Hello world main green thread\nStill in main\nHello from forked thread\nBack in main\n"
           output
 
+test_compileMVarsExample :: Assertion
+test_compileMVarsExample =
+  withTempDir "aihc-compile-mvars" $ \root -> do
+    sourcePath <- mvarsExamplePath
+    let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
+        environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
+        targets =
+          [PortableC]
+            <> [AppleArm64 | arch == "aarch64" && os == "darwin"]
+            <> [LinuxAmd64 | arch == "x86_64" && os == "linux"]
+        expected =
+          "both blocked readers received the put\n\
+          \readMVar left the MVar full\n\
+          \takeMVar received the original value\n\
+          \blocked putMVar installed the next value\n"
+    withCurrentDirectory repositoryRoot $
+      forM_ targets $ \target -> do
+        let output = root </> ("mvars-" <> show target)
+            options = CompileOptions sourcePath (Just output) False False False False (Just target) GcSemispace False
+        runCompileWithEnvironment environment options
+        assertNativeOutput expected output
+
 test_compileAsyncStdioExample :: Assertion
 test_compileAsyncStdioExample =
   withTempDir "aihc-compile-async-stdio" $ \root -> do
@@ -1041,7 +1064,7 @@ test_compilePortableCExecutable =
 test_compilePortableCExamples :: Assertion
 test_compilePortableCExamples =
   withTempDir "aihc-compile-portable-c-examples" $ \root -> do
-    sourcePaths <- sequence [helloWorldExamplePath, greenThreadsExamplePath, asyncStdioExamplePath, asyncHelloWorldExamplePath, unboxedTailRecursionExamplePath]
+    sourcePaths <- sequence [helloWorldExamplePath, greenThreadsExamplePath, mvarsExamplePath, asyncStdioExamplePath, asyncHelloWorldExamplePath, unboxedTailRecursionExamplePath]
     forM_ sourcePaths $ \sourcePath -> do
       source <- TIO.readFile sourcePath
       let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
@@ -1306,6 +1329,9 @@ asyncStdioExamplePath = examplePath ("async-stdio" </> "Main.hs")
 
 asyncHelloWorldExamplePath :: IO FilePath
 asyncHelloWorldExamplePath = examplePath ("async-hello-world" </> "Main.hs")
+
+mvarsExamplePath :: IO FilePath
+mvarsExamplePath = examplePath ("mvars" </> "Main.hs")
 
 unboxedTailRecursionExamplePath :: IO FilePath
 unboxedTailRecursionExamplePath = examplePath ("unboxed-tail-recursion" </> "Main.hs")
