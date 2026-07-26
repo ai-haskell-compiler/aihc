@@ -16,11 +16,9 @@ packages:
   tooling/aihc-testing
   tooling/aihc-resolve-tooling-common
   tooling/aihc-dev
-  https://github.com/ai-haskell-compiler/aihc-cpp/releases/download/v1.0.0.3/aihc-cpp-1.0.0.3.tar.gz
-  https://github.com/ai-haskell-compiler/aihc-parser/releases/download/v1.0.0.4/aihc-parser-1.0.0.4.tar.gz
 
 constraints:
-  aihc-cpp ==1.0.0.3,
+  aihc-cpp ==1.0.0.2,
   aihc-parser ==1.0.0.4
 
 package aihc-tc

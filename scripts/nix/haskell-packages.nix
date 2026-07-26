@@ -230,11 +230,9 @@
     )
     prev;
 
-  mkReleasedLibrary = pkgs: hsLib: final: name: url: sha256:
+  mkHackageLibrary = hsLib: drv:
     hsLib.dontCheck (hsLib.dontHaddock (
-      hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
-        final.callCabal2nix name (pkgs.fetchzip {inherit url sha256;}) {}
-      ))
+      hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling drv)
     ));
 in rec {
   # Hackage dependencies whose build settings need manual adjustment.
@@ -315,16 +313,16 @@ in rec {
         disableUpstreamChecks pkgs hsLib localPackageNames final prev
         // hackageDepTestFixes pkgs final prev
         // {
-          aihc-cpp =
-            mkReleasedLibrary pkgs hsLib final
-            "aihc-cpp"
-            "https://github.com/ai-haskell-compiler/aihc-cpp/releases/download/v1.0.0.3/aihc-cpp-1.0.0.3.tar.gz"
-            "0x76qvz2gkjrbf0dsrl9lvpr50d73gn728157dw048r95gk5kih7";
-          aihc-parser =
-            mkReleasedLibrary pkgs hsLib final
-            "aihc-parser"
-            "https://github.com/ai-haskell-compiler/aihc-parser/releases/download/v1.0.0.4/aihc-parser-1.0.0.4.tar.gz"
-            "1q9gvxd74bxhmsjglg5ijpds4qhqgg5078s5wxxfnza60y60n4ic";
+          aihc-cpp = mkHackageLibrary hsLib (final.callHackageDirect {
+            pkg = "aihc-cpp";
+            ver = "1.0.0.2";
+            sha256 = "1bsq5549wq9nz62qrij6iabac4xv57dbwcqnflgvbfimj910jcz6";
+          } {});
+          aihc-parser = mkHackageLibrary hsLib (final.callHackageDirect {
+            pkg = "aihc-parser";
+            ver = "1.0.0.4";
+            sha256 = "1q9gvxd74bxhmsjglg5ijpds4qhqgg5078s5wxxfnza60y60n4ic";
+          } {});
           aihc-hackage = hsLib.dontCheck (hsLib.dontHaddock (
             hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
               final.callCabal2nix "aihc-hackage" (sources.hackageSrc pkgs) {}

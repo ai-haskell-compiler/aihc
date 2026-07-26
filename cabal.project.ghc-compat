@@ -2,12 +2,10 @@ packages:
   components/aihc-resolve
   components/aihc-tc
   components/aihc-fc
-  https://github.com/ai-haskell-compiler/aihc-cpp/releases/download/v1.0.0.3/aihc-cpp-1.0.0.3.tar.gz
-  https://github.com/ai-haskell-compiler/aihc-parser/releases/download/v1.0.0.4/aihc-parser-1.0.0.4.tar.gz
 
 tests: False
 benchmarks: False
 
 constraints:
-  aihc-cpp ==1.0.0.3,
+  aihc-cpp ==1.0.0.2,
   aihc-parser ==1.0.0.4
