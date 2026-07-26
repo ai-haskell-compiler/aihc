@@ -6,7 +6,16 @@ module GHC.Num
 where
 
 import GHC.Int (Int (..))
-import GHC.Internal.Integer (Integer (..))
+import GHC.Internal.Integer
+  ( Integer,
+    integerAbs,
+    integerAdd,
+    integerMul,
+    integerNegate,
+    integerSignum,
+    integerSub,
+    integerToInt#,
+  )
 
 foreign import prim (+#) :: Int# -> Int# -> Int#
 
@@ -30,19 +39,12 @@ infixl 6 +, -
 infixl 7 *
 
 instance Num Integer where
-  -- TODO: Replace these Int# primitive operations with arbitrary-precision
-  -- Integer arithmetic once the real Integer representation exists.
-  IS x + IS y = IS ((+#) x y)
-  IS x - IS y = IS ((-#) x y)
-  IS x * IS y = IS ((*#) x y)
-  negate (IS x) = IS ((-#) 0# x)
-
-  -- TODO: Implement abs by testing the sign instead of returning the input.
-  abs x = x
-
-  -- TODO: Implement signum for negative and zero values.
-  signum _ = IS 1#
-
+  (+) = integerAdd
+  (-) = integerSub
+  (*) = integerMul
+  negate = integerNegate
+  abs = integerAbs
+  signum = integerSignum
   fromInteger x = x
 
 instance Num Int where
@@ -61,4 +63,4 @@ instance Num Int where
         case (<#) x 0# of
           0# -> I# 1#
           _ -> I# ((-#) 0# 1#)
-  fromInteger (IS x) = I# x
+  fromInteger x = I# (integerToInt# x)
