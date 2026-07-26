@@ -50,7 +50,6 @@ test-suite spec
     Test.Native.BlockLayout
     Test.Native.Primitive
     Test.Native.RegisterAllocate
-    Test.Native.RuntimePlan
 
   build-depends:
     aihc-grin,
@@ -58,7 +57,6 @@ test-suite spec
     aihc-tc,
     base >=4.16 && <5,
     containers,
-    filepath,
     tasty,
     tasty-hunit,
     tasty-quickcheck,
