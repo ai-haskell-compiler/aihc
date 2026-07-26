@@ -16,14 +16,7 @@ import GHC.Internal.Integer
     integerSub,
     integerToInt#,
   )
-
-foreign import prim (+#) :: Int# -> Int# -> Int#
-
-foreign import prim (-#) :: Int# -> Int# -> Int#
-
-foreign import prim (*#) :: Int# -> Int# -> Int#
-
-foreign import prim (<#) :: Int# -> Int# -> Int#
+import GHC.Prim ((*#), (+#), (-#), (<#))
 
 class Num a where
   (+) :: a -> a -> a

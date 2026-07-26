@@ -1,4 +1,3 @@
-{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 
 module Type.Reflection
@@ -14,11 +13,8 @@ module Type.Reflection
 where
 
 import Data.Proxy (Proxy (..))
+import GHC.Prim (ord#, (==#))
 import Prelude (Bool (..), Char (..), List (..), String, (&&))
-
-foreign import prim charToInt# :: Char# -> Int#
-
-foreign import prim (==#) :: Int# -> Int# -> Int#
 
 newtype TyCon = TyCon String
 
@@ -61,6 +57,6 @@ sameString (left : lefts) (right : rights) = sameChar left right && sameString l
 
 sameChar :: Char -> Char -> Bool
 sameChar (C# left) (C# right) =
-  case (==#) (charToInt# left) (charToInt# right) of
+  case (==#) (ord# left) (ord# right) of
     0# -> False
     _ -> True

@@ -187,7 +187,7 @@ supportedNativePrimitiveNames =
     "compareInt#",
     "<#",
     "==#",
-    "charToInt#",
+    "ord#",
     "intToChar#",
     "addIntC#",
     "subIntC#",
@@ -217,8 +217,7 @@ supportedNativePrimitiveNames =
     "geWord#",
     "realWorld#",
     "unsafeFreezeByteArray#",
-    "unsafeThawByteArray#",
-    "unsafeCoerce#"
+    "unsafeThawByteArray#"
   ]
     <> map fst nativeCpsPrimitiveCalls
     <> map fst nativeRuntimePrimitiveCalls

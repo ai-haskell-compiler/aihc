@@ -759,8 +759,8 @@ evalPrimitive "<#" [left, right] =
   evalIntPrimitive "<#" (\leftInt rightInt -> if leftInt < rightInt then 1 else 0) left right
 evalPrimitive "==#" [left, right] =
   evalIntPrimitive "==#" (\leftInt rightInt -> if leftInt == rightInt then 1 else 0) left right
-evalPrimitive "charToInt#" [value] = do
-  charValue <- expectCharPrimitiveArgument "charToInt#" value
+evalPrimitive "ord#" [value] = do
+  charValue <- expectCharPrimitiveArgument "ord#" value
   pure [RuntimeLit (GrinLitInt IntRep (fromIntegral (Char.ord charValue)))]
 evalPrimitive "intToChar#" [value] = do
   intValue <- expectIntPrimitiveArgument "intToChar#" value
@@ -770,8 +770,6 @@ evalPrimitive "intToChar#" [value] = do
 evalPrimitive "realWorld#" [] = pure []
 evalPrimitive "raise#" [exception] =
   throwE (EvalRaised exception)
-evalPrimitive "unsafeCoerce#" [value] =
-  pure [value]
 evalPrimitive "catch#" [action, handler] =
   applyValue action [] `catchE` handleRaised handler []
 evalPrimitive "newMutVar#" [initialValue] = do

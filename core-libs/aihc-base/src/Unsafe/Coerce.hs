@@ -1,9 +1,8 @@
-{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 
 module Unsafe.Coerce (unsafeCoerce) where
 
-foreign import prim unsafeCoerce# :: a -> b
+import GHC.Prim (unsafeCoerce#)
 
 unsafeCoerce :: a -> b
 unsafeCoerce = unsafeCoerce#

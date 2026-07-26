@@ -38,11 +38,7 @@ import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Integer (compareInteger#, eqInteger#)
 import GHC.Num (Num (..))
-import GHC.Prim (RealWorld, State#)
-
-foreign import prim (==#) :: Int# -> Int# -> Int#
-
-foreign import prim compareInt# :: Int# -> Int# -> Int#
+import GHC.Prim (RealWorld, State#, compareInt#, (==#))
 
 data Char = C# Char#
 

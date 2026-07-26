@@ -15,53 +15,36 @@ module GHC.Internal.Integer
   )
 where
 
-import GHC.Prim (ByteArray#, MutableByteArray#, RealWorld, State#)
-
-foreign import prim (+#) :: Int# -> Int# -> Int#
-
-foreign import prim (-#) :: Int# -> Int# -> Int#
-
-foreign import prim (*#) :: Int# -> Int# -> Int#
-
-foreign import prim (<#) :: Int# -> Int# -> Int#
-
-foreign import prim (==#) :: Int# -> Int# -> Int#
-
-foreign import prim addIntC# :: Int# -> Int# -> (# Int#, Int# #)
-
-foreign import prim subIntC# :: Int# -> Int# -> (# Int#, Int# #)
-
-foreign import prim addWordC# :: Word# -> Word# -> (# Word#, Int# #)
-
-foreign import prim subWordC# :: Word# -> Word# -> (# Word#, Int# #)
-
-foreign import prim timesWord2# :: Word# -> Word# -> (# Word#, Word# #)
-
-foreign import prim plusWord# :: Word# -> Word# -> Word#
-
-foreign import prim int2Word# :: Int# -> Word#
-
-foreign import prim word2Int# :: Word# -> Int#
-
-foreign import prim eqWord# :: Word# -> Word# -> Int#
-
-foreign import prim ltWord# :: Word# -> Word# -> Int#
-
-foreign import prim realWorld# :: State# RealWorld
-
-foreign import prim newByteArray# :: Int# -> State# d -> (# State# d, MutableByteArray# d #)
-
-foreign import prim shrinkMutableByteArray# :: MutableByteArray# d -> Int# -> State# d -> State# d
-
-foreign import prim unsafeFreezeByteArray# :: MutableByteArray# d -> State# d -> (# State# d, ByteArray# #)
-
-foreign import prim sizeofByteArray# :: ByteArray# -> Int#
-
-foreign import prim indexWordArray# :: ByteArray# -> Int# -> Word#
-
-foreign import prim readWordArray# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Word# #)
-
-foreign import prim writeWordArray# :: MutableByteArray# d -> Int# -> Word# -> State# d -> State# d
+import GHC.Prim
+  ( ByteArray#,
+    MutableByteArray#,
+    RealWorld,
+    State#,
+    addIntC#,
+    addWordC#,
+    eqWord#,
+    indexWordArray#,
+    int2Word#,
+    ltWord#,
+    newByteArray#,
+    plusWord#,
+    quotWord#,
+    readWordArray#,
+    realWorld#,
+    shrinkMutableByteArray#,
+    sizeofByteArray#,
+    subIntC#,
+    subWordC#,
+    timesWord2#,
+    unsafeFreezeByteArray#,
+    word2Int#,
+    writeWordArray#,
+    (*#),
+    (+#),
+    (-#),
+    (<#),
+    (==#),
+  )
 
 -- Magnitudes use canonical, little-endian 64-bit limbs.  Small values stay
 -- allocation-free in IS; IP and IN never contain a value representable by IS.
@@ -215,8 +198,6 @@ absoluteIntWord# value =
 
 wordCount# :: ByteArray# -> Int#
 wordCount# magnitude = word2Int# (quotWord# (int2Word# (sizeofByteArray# magnitude)) (int2Word# 8#))
-
-foreign import prim quotWord# :: Word# -> Word# -> Word#
 
 compareMagnitudes# :: Integer -> Integer -> Int#
 compareMagnitudes# left right =
