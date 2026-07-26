@@ -310,6 +310,7 @@ renderValueType I32 = "i32"
 renderValueType I64 = "i64"
 
 foreignValueType :: GrinForeignType -> WasmValueType
+foreignValueType GrinForeignInt = I64
 foreignValueType GrinForeignInt32 = I32
 foreignValueType GrinForeignWord64 = I64
 foreignValueType GrinForeignAddr = I32
@@ -349,6 +350,10 @@ runtimeFunctionTypes =
     ("aihc_wasm_transfer_fork", ([I32, I64, I64], [])),
     ("aihc_wasm_transfer_yield", ([I32, I64], [])),
     ("aihc_wasm_transfer_await_io", ([I32, I64, I64], [])),
+    ("aihc_wasm_transfer_new_mvar", ([I32, I64], [])),
+    ("aihc_wasm_transfer_read_mvar", ([I32, I64, I64], [])),
+    ("aihc_wasm_transfer_take_mvar", ([I32, I64, I64], [])),
+    ("aihc_wasm_transfer_put_mvar", ([I32, I64, I64, I64], [])),
     ("aihc_wasm_transfer_thread_done", ([I32], [])),
     ("aihc_wasm_transfer_halt", ([I32], [])),
     ("aihc_wasm_transfer_start", ([I32, I64, I64, I64, I64, I32], [])),
@@ -448,6 +453,10 @@ compileCpsPrimitive env name values continuation =
   case (name, values) of
     ("awaitIO#", [request]) -> transfer "aihc_wasm_transfer_await_io" [request, continuation]
     ("fork#", [action]) -> transfer "aihc_wasm_transfer_fork" [action, continuation]
+    ("newMVar#", []) -> transfer "aihc_wasm_transfer_new_mvar" [continuation]
+    ("readMVar#", [mvar]) -> transfer "aihc_wasm_transfer_read_mvar" [mvar, continuation]
+    ("takeMVar#", [mvar]) -> transfer "aihc_wasm_transfer_take_mvar" [mvar, continuation]
+    ("putMVar#", [mvar, value]) -> transfer "aihc_wasm_transfer_put_mvar" [mvar, value, continuation]
     ("yield#", []) -> transfer "aihc_wasm_transfer_yield" [continuation]
     _
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) -> Right (call "aihc_unsupported_primitive" <> ["return"])
@@ -537,10 +546,19 @@ compileDirectBinding env vars expression =
     GrinPrimitiveCall _ name [value]
       | Just operator <- lookup name [("clz#", "i64.clz"), ("ctz#", "i64.ctz"), ("popCnt#", "i64.popcnt")] ->
           storeSingle (materializeValue env value <> [operator])
+    GrinPrimitiveCall IntRep "compareInt#" [left, right] ->
+      storeSingle
+        ( materializeValue env left
+            <> materializeValue env right
+            <> ["i64.gt_s"]
+            <> materializeValue env left
+            <> materializeValue env right
+            <> ["i64.lt_s", "i32.sub", "i64.extend_i32_s"]
+        )
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> storeSingle (materializeValue env value)
+      | name `elem` ["charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> storeSingle (materializeValue env value)
     GrinPrimitiveCall _ name arguments
       | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
           instructions <- compileForeignCall env foreignCall arguments
@@ -615,10 +633,12 @@ compileForeignCall env foreignCall arguments = do
   where
     foreignArgumentInstructions kind value =
       materializeValue env value <> case kind of
+        GrinForeignInt -> []
         GrinForeignInt32 -> ["i32.wrap_i64"]
         GrinForeignWord64 -> []
         GrinForeignAddr -> ["i32.wrap_i64"]
     foreignResultInstructions kind = case kind of
+      GrinForeignInt -> []
       GrinForeignInt32 -> ["i64.extend_i32_s"]
       GrinForeignWord64 -> []
       GrinForeignAddr -> ["i64.extend_i32_u"]

@@ -1,13 +1,9 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnliftedFFITypes #-}
 
 module Main where
 
-import Foreign.C.Types (CInt (..))
-import GHC.Exts (Addr#)
-
-foreign import ccall unsafe puts :: Addr# -> IO CInt
+import GHC.Ptr (Ptr (..))
+import System.IO (hPutBuf, stdout)
 
 power :: Integer -> Int -> Integer
 power value count =
@@ -18,7 +14,7 @@ power value count =
 integerLow :: Integer -> Int
 integerLow = fromInteger
 
-main :: IO CInt
+main :: IO ()
 main =
   case power 2 80 of
     large ->
@@ -34,5 +30,5 @@ main =
                 && integerLow (left * right) == negate 83810205
                 && negate left < 0
                 && abs (negate left) == left
-                then puts "ok"#
-                else puts "fail"#
+                then hPutBuf stdout (Ptr "ok\n"# :: Ptr ()) 3
+                else hPutBuf stdout (Ptr "fail\n"# :: Ptr ()) 5

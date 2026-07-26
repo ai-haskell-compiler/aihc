@@ -98,7 +98,8 @@ data TcForeignMarshal = TcForeignMarshal
 -- | Primitive values understood by the C ABI bridge.  This is deliberately
 -- independent from lifted Haskell wrapper types.
 data TcForeignAbiType
-  = TcForeignInt32
+  = TcForeignInt
+  | TcForeignInt32
   | TcForeignWord64
   | TcForeignAddr
   deriving (Eq, Show)

@@ -156,7 +156,7 @@ genForeignEffect :: QC.Gen GrinForeignEffect
 genForeignEffect = QC.elements [GrinForeignPure, GrinForeignRealWorld]
 
 genForeignType :: QC.Gen GrinForeignType
-genForeignType = QC.elements [GrinForeignInt32, GrinForeignWord64, GrinForeignAddr]
+genForeignType = QC.elements [GrinForeignInt, GrinForeignInt32, GrinForeignWord64, GrinForeignAddr]
 
 genRuntimeRep :: QC.Gen RuntimeRep
 genRuntimeRep = QC.sized genRuntimeRepSized

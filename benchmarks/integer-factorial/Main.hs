@@ -1,13 +1,9 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnliftedFFITypes #-}
 
 module Main where
 
-import Foreign.C.Types (CInt (..))
-import GHC.Exts (Addr#)
-
-foreign import ccall unsafe puts :: Addr# -> IO CInt
+import GHC.Ptr (Ptr (..))
+import System.IO (hPutBuf, stdout)
 
 factorial :: Int -> Integer -> Integer -> Integer
 factorial count factor accumulator =
@@ -15,8 +11,8 @@ factorial count factor accumulator =
     0 -> accumulator
     _ -> factorial (count - 1) (factor + 1) (accumulator * factor)
 
-main :: IO CInt
+main :: IO ()
 main =
   if factorial 1500 1 1 > 0
-    then puts "ok"#
-    else puts "fail"#
+    then hPutBuf stdout (Ptr "ok\n"# :: Ptr ()) 3
+    else hPutBuf stdout (Ptr "fail\n"# :: Ptr ()) 5

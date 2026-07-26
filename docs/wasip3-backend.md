@@ -59,6 +59,13 @@ writable end. When the stream or result future blocks, the exported async
 finishes the request, makes its green thread runnable, and resumes the same
 generated-code trampoline.
 
+The `System.IO` `stdout` handle uses this path, including its `MVar`-serialized
+handle state and native-width `Int` FFI results. The current WIT world does not
+import stdin, stderr, or filesystem interfaces. Those fixed handles still
+exist, but unsupported operations and `openBinaryFile` report an IO error; an
+uncaught `IOException` traps because the component has no synchronous error
+stream.
+
 ## Incremental compilation
 
 Incremental compilation is the default. Each dependency SCC is compiled with

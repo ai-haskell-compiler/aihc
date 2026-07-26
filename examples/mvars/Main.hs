@@ -1,6 +1,4 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnliftedFFITypes #-}
 
 module Main where
 
@@ -13,25 +11,21 @@ import Control.Concurrent.MVar
     readMVar,
     takeMVar,
   )
-import Foreign.C.Types (CInt (..))
-import GHC.Exts (Ptr (..))
-
-foreign import ccall unsafe puts :: Ptr () -> IO CInt
+import GHC.Ptr (Ptr (..))
+import System.IO (hPutBuf, stdout)
 
 data Token = Published | First | Second
 
-puts_ :: Ptr () -> IO ()
-puts_ message = do
-  puts message
-  return ()
+puts_ :: Int -> Ptr () -> IO ()
+puts_ length message = hPutBuf stdout message length
 
 reader :: MVar Token -> MVar () -> IO ()
 reader published done = do
   value <- readMVar published
   case value of
     Published -> putMVar done ()
-    First -> puts_ (Ptr "unexpected first reader value"#)
-    Second -> puts_ (Ptr "unexpected second reader value"#)
+    First -> puts_ 30 (Ptr "unexpected first reader value\n"#)
+    Second -> puts_ 31 (Ptr "unexpected second reader value\n"#)
 
 writer :: MVar Token -> MVar () -> IO ()
 writer slot done = do
@@ -50,13 +44,13 @@ main = do
   putMVar published Published
   takeMVar firstReaderDone
   takeMVar secondReaderDone
-  puts_ (Ptr "both blocked readers received the put"#)
+  puts_ 38 (Ptr "both blocked readers received the put\n"#)
 
   stillPublished <- takeMVar published
   case stillPublished of
-    Published -> puts_ (Ptr "readMVar left the MVar full"#)
-    First -> puts_ (Ptr "unexpected first published value"#)
-    Second -> puts_ (Ptr "unexpected second published value"#)
+    Published -> puts_ 28 (Ptr "readMVar left the MVar full\n"#)
+    First -> puts_ 33 (Ptr "unexpected first published value\n"#)
+    Second -> puts_ 34 (Ptr "unexpected second published value\n"#)
 
   slot <- newMVar First
   writerDone <- newEmptyMVar
@@ -65,13 +59,13 @@ main = do
 
   oldValue <- takeMVar slot
   case oldValue of
-    First -> puts_ (Ptr "takeMVar received the original value"#)
-    Published -> puts_ (Ptr "unexpected published old value"#)
-    Second -> puts_ (Ptr "unexpected second old value"#)
+    First -> puts_ 37 (Ptr "takeMVar received the original value\n"#)
+    Published -> puts_ 31 (Ptr "unexpected published old value\n"#)
+    Second -> puts_ 28 (Ptr "unexpected second old value\n"#)
 
   takeMVar writerDone
   newValue <- takeMVar slot
   case newValue of
-    Second -> puts_ (Ptr "blocked putMVar installed the next value"#)
-    Published -> puts_ (Ptr "unexpected published new value"#)
-    First -> puts_ (Ptr "unexpected first new value"#)
+    Second -> puts_ 41 (Ptr "blocked putMVar installed the next value\n"#)
+    Published -> puts_ 31 (Ptr "unexpected published new value\n"#)
+    First -> puts_ 27 (Ptr "unexpected first new value\n"#)

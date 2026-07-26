@@ -41,13 +41,14 @@ Find more information here:
 | aihc-c             |    926 |     354 |    1280 |
 | aihc-cpp           |   1820 |     790 |    2610 |
 | aihc-fc            |   4092 |     983 |    5075 |
-| aihc-grin          |   4983 |    2218 |    7201 |
-| aihc-native        |   2365 |     246 |    2611 |
-| aihc-parser        |  13537 |   17790 |   31327 |
-| aihc-parser-compat |   1761 |     736 |    2497 |
+| aihc-grin          |   5017 |    2218 |    7235 |
+| aihc-native        |   2452 |     246 |    2698 |
+| aihc-parser        |  13668 |   17788 |   31456 |
+| aihc-parser-compat |   1818 |     738 |    2556 |
 | aihc-resolve       |   2304 |    1328 |    3632 |
-| aihc-tc            |   6100 |    2489 |    8589 |
-| **Total**          |  41946 |   28505 |   70451 |
+| aihc-tc            |   6137 |    2491 |    8628 |
+| aihc-wasm          |   1412 |     371 |    1783 |
+| **Total**          |  43704 |   28878 |   72582 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 

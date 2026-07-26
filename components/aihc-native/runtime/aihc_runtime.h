@@ -190,6 +190,11 @@ const AihcResume *aihc_await_io(AihcMachine *machine, void *request,
 const AihcResume *aihc_thread_done(AihcMachine *machine);
 void *aihc_io_stdin(void);
 void *aihc_io_stdout(void);
+void *aihc_io_stderr(void);
+int64_t aihc_io_open_result_error(void *result);
+int64_t aihc_io_close(void *handle);
+int64_t aihc_memory_write_byte(void *buffer, int64_t offset, int64_t value);
+_Noreturn int64_t aihc_io_raise_error(int64_t error);
 /* Proof-of-concept byte arrays use stable auxiliary allocations and are not
    released. Freeze and thaw are representation-preserving compiler
    primitives. */
@@ -212,11 +217,13 @@ uint64_t aihc_byte_array_copy(void *source, int64_t source_offset,
 uint64_t aihc_word_clz(uint64_t value);
 uint64_t aihc_word_ctz(uint64_t value);
 uint64_t aihc_word_popcount(uint64_t value);
-void *aihc_io_submit_read(void *handle, void *buffer, int32_t offset,
-                          int32_t length);
-void *aihc_io_submit_write(void *handle, void *buffer, int32_t offset,
-                           int32_t length);
-int32_t aihc_io_take_result(void *request);
+void *aihc_io_submit_read(void *handle, void *buffer, int64_t offset,
+                          int64_t length);
+void *aihc_io_submit_write(void *handle, void *buffer, int64_t offset,
+                           int64_t length);
+void *aihc_io_submit_open(void *path, int64_t length, int64_t mode);
+int64_t aihc_io_take_result(void *request);
+void *aihc_io_take_open_result(void *request);
 void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation);
 AihcEntry aihc_halt(AihcMachine *machine);
@@ -267,7 +274,7 @@ AihcPortableTransfer aihc_portable_start(AihcMachine *machine, AihcValue *root,
                                          AihcEntry exit_code);
 #ifdef AIHC_WASIP3
 AihcPortableTransfer aihc_wasip3_complete_io(AihcMachine *machine,
-                                             int32_t result);
+                                             int64_t result);
 #endif
 
 typedef enum {
