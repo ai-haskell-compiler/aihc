@@ -131,16 +131,31 @@
     if [[ -f "$example_directory/exit" ]]; then
       expected_exit=$(<"$example_directory/exit")
     fi
-    ${aihcExe} compile "$source" \
+    if timeout --foreground --kill-after=5s 120s ${aihcExe} compile "$source" \
       --target ${backend} \
       --gc ${gc} \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
-      --output "$executable"
+      --output "$executable"; then
+      :
+    else
+      compile_exit=$?
+      if [[ "$compile_exit" -eq 124 || "$compile_exit" -eq 137 ]]; then
+        echo "Timed out compiling $example_name/${backend}-${compilation.name}-${gc}" >&2
+      else
+        echo "Compiler failed for $example_name/${backend}-${compilation.name}-${gc} with exit $compile_exit" >&2
+      fi
+      exit "$compile_exit"
+    fi
     mkdir -p "$run_directory"
-    if (cd "$run_directory"; "$executable") < "$stdin_file" > "$actual_stdout" 2> "$actual_stderr"; then
+    if (cd "$run_directory"; timeout --foreground --kill-after=5s 10s "$executable") \
+      < "$stdin_file" > "$actual_stdout" 2> "$actual_stderr"; then
       actual_exit=0
     else
       actual_exit=$?
+    fi
+    if [[ "$actual_exit" -eq 124 || "$actual_exit" -eq 137 ]]; then
+      echo "Timed out running $example_name/${backend}-${compilation.name}-${gc}" >&2
+      exit 1
     fi
     if [[ "$expected_exit" == nonzero ]]; then
       if [[ "$actual_exit" -eq 0 ]]; then
@@ -335,15 +350,25 @@
     test "$failed" -eq 0
   '';
 
-  examplesTests = mkSourceCheck "aihc-examples-tests" (sources.examplesSrc pkgs) [pkgs.coreutils pkgs.diffutils pkgs.findutils pkgs.ghc pkgs.llvmPackages.clang] ''
-    set -euo pipefail
-    export XDG_CACHE_HOME="$TMPDIR/cache"
-    empty_stderr="$TMPDIR/empty-stderr"
-    touch "$empty_stderr"
+  exampleTestInputs = [
+    pkgs.coreutils
+    pkgs.diffutils
+    pkgs.findutils
+    pkgs.ghc
+    pkgs.llvmPackages.clang
+  ];
 
-    while IFS= read -r -d "" source; do
+  mkExampleTest = exampleName:
+    mkSourceCheck "aihc-example-${exampleName}" examplesSource exampleTestInputs ''
+      set -euo pipefail
+      export XDG_CACHE_HOME="$TMPDIR/cache"
+      export GHCRTS=-N1
+      empty_stderr="$TMPDIR/empty-stderr"
+      touch "$empty_stderr"
+
+      source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
-      example_name=$(basename "$example_directory")
+      example_name=${pkgs.lib.escapeShellArg exampleName}
       expected_stdout="$example_directory/stdout"
       if [[ ! -f "$expected_stdout" ]]; then
         echo "Missing expected stdout for $source: $expected_stdout" >&2
@@ -358,7 +383,7 @@
           -outputdir "$ghc_output_directory" \
           -o "$ghc_executable" \
           "$source"
-        "$ghc_executable" > "$ghc_executable.stdout"
+        env -u GHCRTS timeout --foreground --kill-after=5s 10s "$ghc_executable" > "$ghc_executable.stdout"
         diff --unified \
           --label "$example_name/expected" \
           --label "$example_name/ghc-non-threaded" \
@@ -366,8 +391,20 @@
       fi
 
       ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest compilationMatrix}
-    done < <(find examples -mindepth 2 -maxdepth 2 -name Main.hs -print0 | sort -z)
-  '';
+      touch "$out"
+    '';
+
+  exampleCases =
+    map (exampleName: {
+      name = exampleName;
+      path = mkExampleTest exampleName;
+    })
+    exampleNames;
+
+  # Each example keeps an isolated compiler cache and runs its target/mode/GC
+  # matrix sequentially. Nix schedules the independent examples in parallel.
+  examplesTests = assert exampleNames != [];
+    pkgs.linkFarm "aihc-examples-tests" exampleCases;
 
   wasip3ExampleInputs = [
     pkgs.coreutils
