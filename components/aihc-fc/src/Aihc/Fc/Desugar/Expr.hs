@@ -616,7 +616,33 @@ dsIntegerLiteral :: Integer -> DsM FcExpr
 dsIntegerLiteral value = do
   conTy <- lookupType "IS"
   con <- freshVar "IS" conTy
-  pure (FcApp (FcVar con) (FcLit (LitInt IntRep value)))
+  let small integer = FcApp (FcVar con) (FcLit (LitInt IntRep integer))
+  if value >= minIntLiteral && value <= maxIntLiteral
+    then pure (small value)
+    else do
+      let integerTy = TcTyCon (TyCon "Integer" 0) []
+          binaryTy = TcFunTy integerTy (TcFunTy integerTy integerTy)
+          unaryTy = TcFunTy integerTy integerTy
+      add <- freshVar "integerAdd" binaryTy
+      multiply <- freshVar "integerMul" binaryTy
+      negateInteger <- freshVar "integerNegate" unaryTy
+      let buildPositive integer
+            | integer <= maxIntLiteral = small integer
+            | otherwise =
+                let (quotient, remainder) = integer `quotRem` literalBase
+                 in FcApp
+                      (FcApp (FcVar add) (FcApp (FcApp (FcVar multiply) (buildPositive quotient)) (small literalBase)))
+                      (small remainder)
+          magnitude = buildPositive (abs value)
+      pure
+        ( if value < 0
+            then FcApp (FcVar negateInteger) magnitude
+            else magnitude
+        )
+  where
+    literalBase = 1000000000
+    minIntLiteral = -9223372036854775808
+    maxIntLiteral = 9223372036854775807
 
 resolvedAnnotationName :: ResolutionAnnotation -> Name
 resolvedAnnotationName resolution =

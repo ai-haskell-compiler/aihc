@@ -160,6 +160,42 @@ void *realloc(void *pointer, size_t size) {
   return result;
 }
 
+uint64_t aihc_wasm_times_word2_high(uint64_t left, uint64_t right) {
+  uint64_t left_low = (uint32_t)left;
+  uint64_t left_high = left >> 32;
+  uint64_t right_low = (uint32_t)right;
+  uint64_t right_high = right >> 32;
+  uint64_t product00 = left_low * right_low;
+  uint64_t product01 = left_low * right_high;
+  uint64_t product10 = left_high * right_low;
+  uint64_t product11 = left_high * right_high;
+  uint64_t low_partial = product00 + (product01 << 32);
+  uint64_t low_result = low_partial + (product10 << 32);
+  return product11 + (product01 >> 32) + (product10 >> 32) +
+         (low_partial < product00) + (low_result < low_partial);
+}
+
+uint64_t aihc_wasm_quot_rem_word2_quotient(uint64_t high, uint64_t low,
+                                           uint64_t divisor) {
+  if (divisor == 0) {
+    __builtin_trap();
+  }
+  uint64_t quotient = 0;
+  uint64_t remainder = high;
+  for (unsigned int count = 0; count < 64; ++count) {
+    uint64_t overflow = remainder >> 63;
+    uint64_t next_bit = low >> 63;
+    remainder = (remainder << 1) | next_bit;
+    low <<= 1;
+    quotient <<= 1;
+    if (overflow != 0 || remainder >= divisor) {
+      remainder -= divisor;
+      quotient |= 1;
+    }
+  }
+  return quotient;
+}
+
 static AihcValue *aihc_value(AihcSlot slot) {
   return (AihcValue *)(uintptr_t)slot;
 }

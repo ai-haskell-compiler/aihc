@@ -337,6 +337,12 @@ runtimeFunctionTypes =
     ("aihc_byte_array_resize", ([I32, I64], [I32])),
     ("aihc_byte_array_get_size", ([I32], [I64])),
     ("aihc_byte_array_copy_from_addr", ([I32, I32, I64, I64], [I64])),
+    ("aihc_byte_array_index_word", ([I32, I64], [I64])),
+    ("aihc_byte_array_read_word", ([I32, I64], [I64])),
+    ("aihc_byte_array_write_word", ([I32, I64, I64], [I64])),
+    ("aihc_byte_array_copy", ([I32, I64, I32, I64, I64], [I64])),
+    ("aihc_wasm_times_word2_high", ([I64, I64], [I64])),
+    ("aihc_wasm_quot_rem_word2_quotient", ([I64, I64, I64], [I64])),
     ("aihc_wasm_transfer_direct", ([I32, I32, I64, I32], [])),
     ("aihc_wasm_transfer_eval", ([I32, I64, I64, I64, I64], [])),
     ("aihc_wasm_transfer_apply", ([I32, I64, I64, I32, I64], [])),
@@ -475,11 +481,71 @@ compileDirectBinding env vars expression =
     GrinFetch _ pointer -> storeSingle (materializeValue env pointer)
     GrinUpdate pointer value -> update "aihc_wasm_update" False pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_wasm_update_blackhole" True pointer value
-    GrinPrimitiveCall IntRep "+#" [left, right] -> storeSingle (materializeValue env left <> materializeValue env right <> ["i64.add"])
-    GrinPrimitiveCall IntRep "-#" [left, right] -> storeSingle (materializeValue env left <> materializeValue env right <> ["i64.sub"])
-    GrinPrimitiveCall IntRep "*#" [left, right] -> storeSingle (materializeValue env left <> materializeValue env right <> ["i64.mul"])
-    GrinPrimitiveCall IntRep "<#" [left, right] -> storeSingle (materializeValue env left <> materializeValue env right <> ["i64.lt_s", "i64.extend_i32_u"])
-    GrinPrimitiveCall IntRep "==#" [left, right] -> storeSingle (materializeValue env left <> materializeValue env right <> ["i64.eq", "i64.extend_i32_u"])
+    GrinPrimitiveCall IntRep name [left, right]
+      | Just operator <- lookup name [("+#", "i64.add"), ("-#", "i64.sub"), ("*#", "i64.mul")] ->
+          binaryPrimitive operator left right
+    GrinPrimitiveCall WordRep name [left, right]
+      | Just operator <-
+          lookup
+            name
+            [ ("plusWord#", "i64.add"),
+              ("minusWord#", "i64.sub"),
+              ("timesWord#", "i64.mul"),
+              ("quotWord#", "i64.div_u"),
+              ("remWord#", "i64.rem_u"),
+              ("and#", "i64.and"),
+              ("or#", "i64.or"),
+              ("xor#", "i64.xor")
+            ] ->
+          binaryPrimitive operator left right
+    GrinPrimitiveCall _ name [left, right]
+      | Just operator <-
+          lookup
+            name
+            [ ("<#", "i64.lt_s"),
+              ("==#", "i64.eq"),
+              ("eqWord#", "i64.eq"),
+              ("neWord#", "i64.ne"),
+              ("ltWord#", "i64.lt_u"),
+              ("leWord#", "i64.le_u"),
+              ("gtWord#", "i64.gt_u"),
+              ("geWord#", "i64.ge_u")
+            ] ->
+          comparisonPrimitive operator left right
+    GrinPrimitiveCall _ name [left, right]
+      | name `elem` ["addIntC#", "subIntC#", "addWordC#", "subWordC#"] ->
+          carryPrimitive name left right
+    GrinPrimitiveCall _ "timesWord2#" [left, right] ->
+      storePair
+        (materializeValue env left <> materializeValue env right <> call "aihc_wasm_times_word2_high")
+        (materializeValue env left <> materializeValue env right <> ["i64.mul"])
+    GrinPrimitiveCall _ "quotRemWord#" [left, right] ->
+      storePair
+        (materializeValue env left <> materializeValue env right <> ["i64.div_u"])
+        (materializeValue env left <> materializeValue env right <> ["i64.rem_u"])
+    GrinPrimitiveCall _ "quotRemWord2#" [high, low, divisor] ->
+      case vars of
+        [quotient, remainder] ->
+          pure
+            ( localSetFor
+                env
+                quotient
+                (materializeValue env high <> materializeValue env low <> materializeValue env divisor <> call "aihc_wasm_quot_rem_word2_quotient")
+                <> localSetFor
+                  env
+                  remainder
+                  (materializeValue env low <> localGet env quotient <> materializeValue env divisor <> ["i64.mul", "i64.sub"])
+            )
+        _ -> Left (WasmUnsupportedExpression "direct expression pair result arity")
+    GrinPrimitiveCall _ "not#" [value] -> storeSingle (materializeValue env value <> i64Const "-1" <> ["i64.xor"])
+    GrinPrimitiveCall _ name [value, amount]
+      | Just operator <- lookup name [("uncheckedShiftL#", "i64.shl"), ("uncheckedShiftRL#", "i64.shr_u")] ->
+          binaryPrimitive operator value amount
+    GrinPrimitiveCall _ name [value]
+      | name `elem` ["int2Word#", "word2Int#"] -> storeSingle (materializeValue env value)
+    GrinPrimitiveCall _ name [value]
+      | Just operator <- lookup name [("clz#", "i64.clz"), ("ctz#", "i64.ctz"), ("popCnt#", "i64.popcnt")] ->
+          storeSingle (materializeValue env value <> [operator])
     GrinPrimitiveCall IntRep "compareInt#" [left, right] ->
       storeSingle
         ( materializeValue env left
@@ -510,6 +576,41 @@ compileDirectBinding env vars expression =
     storeSingle instructions = case vars of
       [var] -> pure (localSetFor env var instructions)
       _ -> Left (WasmUnsupportedExpression "direct expression result arity")
+    storePair firstInstructions secondInstructions = case vars of
+      [first, second] -> pure (localSetFor env first firstInstructions <> localSetFor env second secondInstructions)
+      _ -> Left (WasmUnsupportedExpression "direct expression pair result arity")
+    binaryPrimitive operator left right = storeSingle (materializeValue env left <> materializeValue env right <> [operator])
+    comparisonPrimitive operator left right =
+      storeSingle (materializeValue env left <> materializeValue env right <> [operator, "i64.extend_i32_u"])
+    carryPrimitive name left right = case vars of
+      [result, carry] ->
+        pure
+          ( localSetFor env result (materializeValue env left <> materializeValue env right <> [if name `elem` ["addIntC#", "addWordC#"] then "i64.add" else "i64.sub"])
+              <> localSetFor env carry (carryInstructions result)
+          )
+      _ -> Left (WasmUnsupportedExpression "direct expression pair result arity")
+      where
+        carryInstructions result = case name of
+          "addIntC#" ->
+            localGet env result
+              <> materializeValue env left
+              <> ["i64.xor"]
+              <> localGet env result
+              <> materializeValue env right
+              <> ["i64.xor", "i64.and"]
+              <> i64Const "63"
+              <> ["i64.shr_u"]
+          "subIntC#" ->
+            materializeValue env left
+              <> materializeValue env right
+              <> ["i64.xor"]
+              <> materializeValue env left
+              <> localGet env result
+              <> ["i64.xor", "i64.and"]
+              <> i64Const "63"
+              <> ["i64.shr_u"]
+          "addWordC#" -> localGet env result <> materializeValue env left <> ["i64.lt_u", "i64.extend_i32_u"]
+          _ -> materializeValue env left <> materializeValue env right <> ["i64.lt_u", "i64.extend_i32_u"]
     storeNode unchecked node = case vars of
       [var] -> allocateNodeInto env unchecked var node
       _ -> Left (WasmUnsupportedExpression "node result arity")
