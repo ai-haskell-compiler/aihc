@@ -2,7 +2,10 @@
 
 -- | Architecture-neutral support shared by backend code generators.
 module Aihc.Native
-  ( NativeTarget (..),
+  ( NativeCpsCall (..),
+    NativeCpsParameter (..),
+    NativeCpsTransfer (..),
+    NativeTarget (..),
     backendCompiler,
     LinkInterface (..),
     LinkLayout (..),
@@ -14,6 +17,7 @@ module Aihc.Native
     extractLinkInterface,
     hostNativeTarget,
     nativeTargetTriple,
+    nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
     parseNativeTarget,
     renderNativeTarget,
@@ -152,29 +156,65 @@ supportedNativePrimitiveNames =
     "==#",
     "charToInt#",
     "intToChar#",
-    "awaitIO#",
-    "fork#",
-    "newMVar#",
-    "putMVar#",
-    "readMVar#",
     "realWorld#",
-    "takeMVar#",
-    "yield#",
-    "newByteArray#",
-    "newPinnedByteArray#",
-    "newAlignedPinnedByteArray#",
-    "isMutableByteArrayPinned#",
-    "isByteArrayPinned#",
-    "byteArrayContents#",
-    "mutableByteArrayContents#",
-    "shrinkMutableByteArray#",
-    "resizeMutableByteArray#",
     "unsafeFreezeByteArray#",
-    "unsafeThawByteArray#",
-    "sizeofByteArray#",
-    "getSizeofMutableByteArray#",
-    "copyAddrToByteArray#"
+    "unsafeThawByteArray#"
   ]
+    <> map fst nativeCpsPrimitiveCalls
+    <> [ "newByteArray#",
+         "newPinnedByteArray#",
+         "newAlignedPinnedByteArray#",
+         "isMutableByteArrayPinned#",
+         "isByteArrayPinned#",
+         "byteArrayContents#",
+         "mutableByteArrayContents#",
+         "shrinkMutableByteArray#",
+         "resizeMutableByteArray#",
+         "sizeofByteArray#",
+         "getSizeofMutableByteArray#",
+         "copyAddrToByteArray#"
+       ]
+
+-- | A parameter in a native CPS runtime function signature. Operand entries
+-- consume source operands from left to right.
+data NativeCpsParameter
+  = NativeCpsMachine
+  | NativeCpsOperand
+  | NativeCpsContinuation
+  deriving (Eq, Show)
+
+-- | Control transfer performed after a native CPS runtime call returns.
+data NativeCpsTransfer
+  = NativeCpsEnterContinuation
+  | NativeCpsResumeScheduler
+  deriving (Eq, Show)
+
+-- | Architecture-neutral native ABI description for a CPS primitive.
+data NativeCpsCall = NativeCpsCall
+  { nativeCpsCallSymbol :: !Text,
+    nativeCpsCallParameters :: ![NativeCpsParameter],
+    nativeCpsCallTransfer :: !NativeCpsTransfer
+  }
+  deriving (Eq, Show)
+
+nativeCpsPrimitiveCall :: Text -> Maybe NativeCpsCall
+nativeCpsPrimitiveCall name = lookup name nativeCpsPrimitiveCalls
+
+nativeCpsPrimitiveCalls :: [(Text, NativeCpsCall)]
+nativeCpsPrimitiveCalls =
+  [ enters "fork#" "aihc_fork" [NativeCpsMachine, NativeCpsOperand],
+    enters "newMVar#" "aihc_mvar_new" [NativeCpsMachine],
+    resumes "readMVar#" "aihc_mvar_read" [NativeCpsMachine, NativeCpsOperand, NativeCpsContinuation],
+    resumes "takeMVar#" "aihc_mvar_take" [NativeCpsMachine, NativeCpsOperand, NativeCpsContinuation],
+    resumes "putMVar#" "aihc_mvar_put" [NativeCpsMachine, NativeCpsOperand, NativeCpsOperand, NativeCpsContinuation],
+    resumes "yield#" "aihc_yield" [NativeCpsMachine, NativeCpsContinuation],
+    resumes "awaitIO#" "aihc_await_io" [NativeCpsMachine, NativeCpsOperand, NativeCpsContinuation]
+  ]
+  where
+    enters primitive symbol parameters =
+      (primitive, NativeCpsCall symbol parameters NativeCpsEnterContinuation)
+    resumes primitive symbol parameters =
+      (primitive, NativeCpsCall symbol parameters NativeCpsResumeScheduler)
 
 -- | Runtime call used to implement a byte-array primitive. Freeze and thaw are
 -- representation-preserving and therefore deliberately have no runtime call.

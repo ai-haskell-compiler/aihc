@@ -12,7 +12,13 @@ import Aihc.Arm64.Codegen.Types
 import Aihc.Arm64.Codegen.Value
 import Aihc.Arm64.RegisterAllocate qualified as RegisterAllocate
 import Aihc.Grin.Syntax
-import Aihc.Native (nativeRuntimePrimitiveCall)
+import Aihc.Native
+  ( NativeCpsCall (..),
+    NativeCpsParameter (..),
+    NativeCpsTransfer (..),
+    nativeCpsPrimitiveCall,
+    nativeRuntimePrimitiveCall,
+  )
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..), grinExprFreeVariables)
 import Aihc.Tc.Types (RuntimeRep (..))
@@ -266,109 +272,65 @@ compileExpr env prefix label expression =
     unsupportedExpression name = lift (Left (Arm64UnsupportedExpression name))
 
 compileCpsPrimitive :: ValueEnv -> [Text] -> Text -> Text -> [GrinValue] -> GrinValue -> FunctionM ()
-compileCpsPrimitive env prefix label name arguments continuation = do
-  continuationSlot <- freshSlot
-  continuationLines <- liftEither (materializeValue env continuation)
-  case (name, arguments) of
-    ("fork#", [action]) -> do
-      actionSlot <- freshSlot
-      actionLines <- liftEither (materializeValue env action)
+compileCpsPrimitive env prefix label name arguments continuation =
+  case nativeCpsPrimitiveCall name of
+    Just runtimeCall
+      | operandCount runtimeCall == length arguments -> compileRuntimeCall runtimeCall
+    _ -> unsupportedCpsPrimitive
+  where
+    compileRuntimeCall runtimeCall = do
+      continuationSlot <- freshSlot
+      argumentSlots <- freshSlots (length arguments)
+      argumentLines <-
+        fmap concat . forM (zip arguments argumentSlots) $ \(argument, slot) -> do
+          lines' <- liftEither (materializeValue env argument)
+          pure (lines' <> [storeAt "x0" "x19" slot])
+      continuationLines <- liftEither (materializeValue env continuation)
+      callArgumentLines <-
+        liftEither $
+          renderCpsCallArguments name (nativeCpsCallParameters runtimeCall) argumentSlots continuationSlot
+      let (returnLines, successor) =
+            case nativeCpsCallTransfer runtimeCall of
+              NativeCpsEnterContinuation ->
+                ([loadAt applyFunctionRegister "x19" continuationSlot], BlockLayout.Jump ".Laihc_enter")
+              NativeCpsResumeScheduler ->
+                ([], BlockLayout.Jump ".Laihc_resume")
       addBlock
         label
         ( prefix
-            <> actionLines
-            <> [storeAt "x0" "x19" actionSlot]
+            <> argumentLines
             <> continuationLines
-            <> [ storeAt "x0" "x19" continuationSlot,
-                 loadAt "x1" "x19" actionSlot,
-                 "  mov x0, x22",
-                 "  bl _aihc_fork",
-                 loadAt applyFunctionRegister "x19" continuationSlot
-               ]
+            <> [storeAt "x0" "x19" continuationSlot]
+            <> callArgumentLines
+            <> ["  bl _" <> nativeCpsCallSymbol runtimeCall]
+            <> returnLines
         )
-        (BlockLayout.Jump ".Laihc_enter")
-    ("newMVar#", []) ->
-      addBlock
-        label
-        ( prefix
-            <> continuationLines
-            <> [ storeAt "x0" "x19" continuationSlot,
-                 "  mov x0, x22",
-                 "  bl _aihc_mvar_new",
-                 loadAt applyFunctionRegister "x19" continuationSlot
-               ]
-        )
-        (BlockLayout.Jump ".Laihc_enter")
-    (operation, [mvar])
-      | Just runtimeFunction <- lookup operation [("readMVar#", "_aihc_mvar_read"), ("takeMVar#", "_aihc_mvar_take")] -> do
-          mvarSlot <- freshSlot
-          mvarLines <- liftEither (materializeValue env mvar)
-          addBlock
-            label
-            ( prefix
-                <> mvarLines
-                <> [storeAt "x0" "x19" mvarSlot]
-                <> continuationLines
-                <> [ storeAt "x0" "x19" continuationSlot,
-                     loadAt "x1" "x19" mvarSlot,
-                     loadAt "x2" "x19" continuationSlot,
-                     "  mov x0, x22",
-                     "  bl " <> runtimeFunction
-                   ]
-            )
-            (BlockLayout.Jump ".Laihc_resume")
-    ("putMVar#", [mvar, value]) -> do
-      mvarSlot <- freshSlot
-      valueSlot <- freshSlot
-      mvarLines <- liftEither (materializeValue env mvar)
-      valueLines <- liftEither (materializeValue env value)
-      addBlock
-        label
-        ( prefix
-            <> mvarLines
-            <> [storeAt "x0" "x19" mvarSlot]
-            <> valueLines
-            <> [storeAt "x0" "x19" valueSlot]
-            <> continuationLines
-            <> [ storeAt "x0" "x19" continuationSlot,
-                 loadAt "x1" "x19" mvarSlot,
-                 loadAt "x2" "x19" valueSlot,
-                 loadAt "x3" "x19" continuationSlot,
-                 "  mov x0, x22",
-                 "  bl _aihc_mvar_put"
-               ]
-        )
-        (BlockLayout.Jump ".Laihc_resume")
-    ("yield#", []) ->
-      addBlock
-        label
-        ( prefix
-            <> continuationLines
-            <> [ storeAt "x0" "x19" continuationSlot,
-                 loadAt "x1" "x19" continuationSlot,
-                 "  mov x0, x22",
-                 "  bl _aihc_yield"
-               ]
-        )
-        (BlockLayout.Jump ".Laihc_resume")
-    ("awaitIO#", [request]) -> do
-      requestSlot <- freshSlot
-      requestLines <- liftEither (materializeValue env request)
-      addBlock
-        label
-        ( prefix
-            <> requestLines
-            <> [storeAt "x0" "x19" requestSlot]
-            <> continuationLines
-            <> [ storeAt "x0" "x19" continuationSlot,
-                 loadAt "x1" "x19" requestSlot,
-                 loadAt "x2" "x19" continuationSlot,
-                 "  mov x0, x22",
-                 "  bl _aihc_await_io"
-               ]
-        )
-        (BlockLayout.Jump ".Laihc_resume")
-    _ -> lift (Left (Arm64UnsupportedExpression ("CPS primitive call " <> name)))
+        successor
+
+    operandCount = length . filter (== NativeCpsOperand) . nativeCpsCallParameters
+    unsupportedCpsPrimitive =
+      lift (Left (Arm64UnsupportedExpression ("CPS primitive call " <> name)))
+
+renderCpsCallArguments :: Text -> [NativeCpsParameter] -> [Int] -> Int -> Either Arm64Error [Text]
+renderCpsCallArguments primitive parameters operandSlots continuationSlot =
+  go applyArgumentRegisters parameters operandSlots
+  where
+    go _ [] [] = Right []
+    go (register : registers) (parameter : rest) operands =
+      case parameter of
+        NativeCpsMachine ->
+          (("  mov " <> register <> ", x22") :) <$> go registers rest operands
+        NativeCpsOperand ->
+          case operands of
+            slot : remaining ->
+              (loadAt register "x19" slot :) <$> go registers rest remaining
+            [] -> invalidSignature
+        NativeCpsContinuation ->
+          (loadAt register "x19" continuationSlot :) <$> go registers rest operands
+    go _ _ _ = invalidSignature
+
+    invalidSignature =
+      Left (Arm64UnsupportedExpression ("invalid native CPS signature for " <> primitive))
 
 compileDirectBinding :: ValueEnv -> [GrinVar] -> GrinExpr -> FunctionM [Text]
 compileDirectBinding env vars expression =
