@@ -68,7 +68,18 @@ fcEvalTests =
         assertEqual
           "raw result"
           (Right ": 'x' []")
-          result
+          result,
+      testCase "evaluates wide Word# multiplication" $ do
+        let wordTy = ty "Word#"
+            primitive = Var "timesWord2#" (Unique 100) (TcFunTy wordTy (TcFunTy wordTy wordTy))
+            result = Var "wideProduct" (Unique 101) wordTy
+            expression =
+              FcApp
+                (FcApp (FcVar primitive) (FcLit (LitInt WordRep 0xffffffffffffffff)))
+                (FcLit (LitInt WordRep 2))
+            program = FcProgram [FcPrimitive primitive 2, FcTopBind (FcNonRec result expression)]
+        actual <- evalProgramBinding "wideProduct" program >>= traverse renderRawValue
+        assertEqual "high and low words" (Right (Right "(1,18446744073709551614)")) actual
     ]
 
 fcOptimizationTests :: TestTree

@@ -18,7 +18,6 @@ import Aihc.Native
   )
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..), grinExprFreeVariables)
-import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Monad (forM, forM_, replicateM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (execStateT, get, modify')
@@ -312,11 +311,57 @@ compileDirectBinding env vars expression =
     GrinFetch _ pointer -> liftEither (materializeValue env pointer) >>= storeSingleResult
     GrinUpdate pointer value -> compileUpdateBinding False "_aihc_update" pointer value
     GrinUpdateBlackhole pointer value -> compileUpdateBinding True "_aihc_update_blackhole" pointer value
-    GrinPrimitiveCall IntRep name [left, right]
-      | Just instructions <- lookup name binaryIntPrimitives -> do
-          leftLines <- liftEither (materializeValueTo env "x9" left)
-          rightLines <- liftEither (materializeValue env right)
-          storeSingleResult (leftLines <> rightLines <> instructions)
+    GrinPrimitiveCall _ name [left, right]
+      | Just instructions <- lookup name singleResultBinaryPrimitives ->
+          compileBinary storeSingleResult instructions left right
+      | Just (firstRegister, secondRegister, instructions) <- lookup name pairResultBinaryPrimitives ->
+          compileBinary (storeTwoResults firstRegister secondRegister) instructions left right
+    GrinPrimitiveCall _ "quotRemWord2#" arguments@[_, _, _] -> do
+      (argumentLines, argumentSlots) <- materializeIntoFreshSlots env arguments
+      savedRegisters <- freshSlots 4
+      loopLabel <- freshLabel (valueLabelPrefix env) "quot_word2_loop"
+      subtractLabel <- freshLabel (valueLabelPrefix env) "quot_word2_subtract"
+      nextLabel <- freshLabel (valueLabelPrefix env) "quot_word2_next"
+      case (argumentSlots, savedRegisters) of
+        ([highSlot, lowSlot, divisorSlot], [saved12, saved13, saved14, saved15]) ->
+          storeTwoResults
+            "x9"
+            "x10"
+            ( argumentLines
+                <> [ storeAt "x12" "x19" saved12,
+                     storeAt "x13" "x19" saved13,
+                     storeAt "x14" "x19" saved14,
+                     storeAt "x15" "x19" saved15,
+                     loadAt "x9" "x19" highSlot,
+                     loadAt "x10" "x19" lowSlot,
+                     loadAt "x11" "x19" divisorSlot,
+                     "  mov x12, #0",
+                     "  mov x13, #64",
+                     loopLabel <> ":",
+                     "  lsr x14, x9, #63",
+                     "  lsr x15, x10, #63",
+                     "  lsl x9, x9, #1",
+                     "  orr x9, x9, x15",
+                     "  lsl x10, x10, #1",
+                     "  lsl x12, x12, #1",
+                     "  cbnz x14, " <> subtractLabel,
+                     "  cmp x9, x11",
+                     "  b.lo " <> nextLabel,
+                     subtractLabel <> ":",
+                     "  sub x9, x9, x11",
+                     "  orr x12, x12, #1",
+                     nextLabel <> ":",
+                     "  subs x13, x13, #1",
+                     "  b.ne " <> loopLabel,
+                     "  mov x10, x9",
+                     "  mov x9, x12",
+                     loadAt "x12" "x19" saved12,
+                     loadAt "x13" "x19" saved13,
+                     loadAt "x14" "x19" saved14,
+                     loadAt "x15" "x19" saved15
+                   ]
+            )
+        _ -> lift (Left (Arm64UnsupportedExpression "internal quotRemWord2# arity"))
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,
@@ -324,15 +369,16 @@ compileDirectBinding env vars expression =
         null (runtimeRepComponents runtimeRep) ->
           pure []
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
-          liftEither (materializeValue env value) >>= storeSingleResult
+      | Just instructions <- lookup name unaryPrimitives -> do
+          valueLines <- liftEither (materializeValue env value)
+          storeSingleResult (valueLines <> instructions)
     GrinPrimitiveCall _ name arguments
       | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
           callLines <- compileForeignCallLines env foreignCall arguments
           case vars of
             [] -> pure callLines
             [_] -> storeSingleResult callLines
-            _ -> lift (Left (Arm64UnsupportedExpression ("byte array primitive result arity " <> name)))
+            _ -> lift (Left (Arm64UnsupportedExpression ("runtime primitive result arity " <> name)))
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
           pure ["  bl _aihc_unsupported_primitive"]
       | otherwise -> lift (Left (Arm64UnsupportedExpression ("primitive call " <> name)))
@@ -346,6 +392,17 @@ compileDirectBinding env vars expression =
           location <- liftEither (variableLocation env var)
           pure (lines' <> storeLocation "x0" location)
         _ -> lift (Left (Arm64UnsupportedExpression "direct expression result arity"))
+    storeTwoResults firstRegister secondRegister lines' =
+      case vars of
+        [first, second] -> do
+          firstLocation <- liftEither (variableLocation env first)
+          secondLocation <- liftEither (variableLocation env second)
+          pure (lines' <> storeLocation firstRegister firstLocation <> storeLocation secondRegister secondLocation)
+        _ -> lift (Left (Arm64UnsupportedExpression "direct expression pair result arity"))
+    compileBinary store instructions left right = do
+      leftLines <- liftEither (materializeValueTo env "x9" left)
+      rightLines <- liftEither (materializeValue env right)
+      store (leftLines <> rightLines <> instructions)
     compileUpdateBinding passMachine symbol pointer value = do
       pointerSlot <- freshSlot
       valueSlot <- freshSlot
@@ -362,14 +419,52 @@ compileDirectBinding env vars expression =
             <> resultLines
         )
 
-    binaryIntPrimitives =
-      [ ("+#", ["  add x0, x9, x0"]),
-        ("-#", ["  sub x0, x9, x0"]),
-        ("*#", ["  mul x0, x9, x0"]),
-        ("<#", ["  cmp x9, x0", "  cset x0, lt"]),
-        ("==#", ["  cmp x9, x0", "  cset x0, eq"]),
-        ("compareInt#", ["  cmp x9, x0", "  cset x0, gt", "  csinv x0, x0, xzr, ge"])
+    singleResultBinaryPrimitives =
+      concat
+        [ binary "add" ["+#", "plusWord#"],
+          binary "sub" ["-#", "minusWord#"],
+          binary "mul" ["*#", "timesWord#"],
+          binary "and" ["and#"],
+          binary "orr" ["or#"],
+          binary "eor" ["xor#"],
+          comparison "eq" ["==#", "eqWord#"],
+          comparison "lt" ["<#"],
+          comparison "ne" ["neWord#"],
+          comparison "lo" ["ltWord#"],
+          comparison "ls" ["leWord#"],
+          comparison "hi" ["gtWord#"],
+          comparison "hs" ["geWord#"]
+        ]
+        <> [ ("compareInt#", ["  cmp x9, x0", "  cset x0, gt", "  csinv x0, x0, xzr, ge"]),
+             ("quotWord#", ["  udiv x0, x9, x0"]),
+             ("remWord#", ["  udiv x10, x9, x0", "  msub x0, x10, x0, x9"]),
+             ("uncheckedShiftL#", ["  lsl x0, x9, x0"]),
+             ("uncheckedShiftRL#", ["  lsr x0, x9, x0"])
+           ]
+    pairResultBinaryPrimitives =
+      [ carry "addIntC#" "adds" "vs",
+        carry "subIntC#" "subs" "vs",
+        carry "addWordC#" "adds" "cs",
+        carry "subWordC#" "subs" "cc",
+        ("timesWord2#", ("x10", "x11", ["  umulh x10, x9, x0", "  mul x11, x9, x0"])),
+        ("quotRemWord#", ("x10", "x11", ["  udiv x10, x9, x0", "  msub x11, x10, x0, x9"]))
       ]
+    unaryPrimitives =
+      ("not#", ["  mvn x0, x0"])
+        : [ (name, [])
+          | name <- ["int2Word#", "word2Int#", "charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
+          ]
+    binary instruction names =
+      [(name, ["  " <> instruction <> " x0, x9, x0"]) | name <- names]
+    comparison condition names =
+      [(name, ["  cmp x9, x0", "  cset x0, " <> condition]) | name <- names]
+    carry name instruction condition =
+      ( name,
+        ( "x9",
+          "x10",
+          ["  " <> instruction <> " x9, x9, x0", "  cset x10, " <> condition]
+        )
+      )
 
 compileForeignCallLines :: ValueEnv -> GrinForeignCall -> [GrinValue] -> FunctionM [Text]
 compileForeignCallLines env foreignCall arguments = do

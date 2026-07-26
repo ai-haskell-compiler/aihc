@@ -123,6 +123,40 @@ tests =
         when (arch == "aarch64" && os == "darwin") $ do
           native <- runObservedProgram observed
           assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 0\n") native,
+      testCase "multiplies Word# values to a high/low pair" $ do
+        let entryName = FunctionName "word_mul_wide"
+            high = GrinVar "high" 2 WordRep
+            low = GrinVar "low" 3 WordRep
+            wordLiteral = GrinLitValue . GrinLitInt WordRep
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [(GrinVar "timesWord2#" 1 (TupleRep [WordRep, WordRep]), 2)],
+                  grinForeignCalls = [],
+                  grinExternalGlobals = [],
+                  grinExternalFunctions = [],
+                  grinWhnfGlobals = [],
+                  grinCafs = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = entryName,
+                          grinFunctionLinkName = Nothing,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = TupleRep [WordRep, WordRep],
+                          grinFunctionBody =
+                            GrinBind
+                              [high, low]
+                              (GrinPrimitiveCall (TupleRep [WordRep, WordRep]) "timesWord2#" [wordLiteral 0xffffffffffffffff, wordLiteral 2])
+                              (GrinConstant [GrinVarValue high, GrinVarValue low])
+                        }
+                    ]
+                }
+        observed <-
+          case compileObservedFunction entryName (expectGcGrin program) of
+            Left err -> assertFailure ("native timesWord2# compilation failed: " <> show err)
+            Right value -> pure value
+        assertBool "emits high-half multiplication" ("  umulh x10, x9, x0" `T.isInfixOf` observedAssembly observed)
+        assertBool "emits low-half multiplication" ("  mul x11, x9, x0" `T.isInfixOf` observedAssembly observed),
       testCase "canonicalizes narrow signed literals in machine-word slots" $ do
         let functionName = FunctionName "narrow_code"
             program =

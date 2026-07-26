@@ -155,24 +155,38 @@ supportedNativePrimitiveNames =
     "==#",
     "charToInt#",
     "intToChar#",
+    "addIntC#",
+    "subIntC#",
+    "plusWord#",
+    "minusWord#",
+    "timesWord#",
+    "addWordC#",
+    "subWordC#",
+    "timesWord2#",
+    "quotWord#",
+    "remWord#",
+    "quotRemWord#",
+    "quotRemWord2#",
+    "and#",
+    "or#",
+    "xor#",
+    "not#",
+    "uncheckedShiftL#",
+    "uncheckedShiftRL#",
+    "int2Word#",
+    "word2Int#",
+    "eqWord#",
+    "neWord#",
+    "ltWord#",
+    "leWord#",
+    "gtWord#",
+    "geWord#",
     "realWorld#",
     "unsafeFreezeByteArray#",
     "unsafeThawByteArray#"
   ]
     <> map fst nativeCpsPrimitiveCalls
-    <> [ "newByteArray#",
-         "newPinnedByteArray#",
-         "newAlignedPinnedByteArray#",
-         "isMutableByteArrayPinned#",
-         "isByteArrayPinned#",
-         "byteArrayContents#",
-         "mutableByteArrayContents#",
-         "shrinkMutableByteArray#",
-         "resizeMutableByteArray#",
-         "sizeofByteArray#",
-         "getSizeofMutableByteArray#",
-         "copyAddrToByteArray#"
-       ]
+    <> map fst nativeRuntimePrimitiveCalls
 
 -- | Control transfer performed after a native CPS runtime call returns.
 data NativeCpsTransfer
@@ -208,27 +222,36 @@ nativeCpsPrimitiveCalls =
     resumes primitive symbol operands =
       (primitive, NativeCpsCall symbol operands True NativeCpsResumeScheduler)
 
--- | Runtime call used to implement a byte-array primitive. Freeze and thaw are
--- representation-preserving and therefore deliberately have no runtime call.
+-- | Runtime calls shared by native backends. Representation-preserving
+-- primitives such as freeze and thaw deliberately have no entry here.
 nativeRuntimePrimitiveCall :: Text -> Maybe GrinForeignCall
-nativeRuntimePrimitiveCall name =
-  case name of
-    "newByteArray#" -> call "aihc_byte_array_new" [GrinForeignWord64] GrinForeignAddr
-    "newPinnedByteArray#" -> call "aihc_byte_array_new_pinned" [GrinForeignWord64] GrinForeignAddr
-    "newAlignedPinnedByteArray#" -> call "aihc_byte_array_new_aligned_pinned" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr
-    "isMutableByteArrayPinned#" -> call "aihc_byte_array_is_pinned" [GrinForeignAddr] GrinForeignWord64
-    "isByteArrayPinned#" -> call "aihc_byte_array_is_pinned" [GrinForeignAddr] GrinForeignWord64
-    "byteArrayContents#" -> call "aihc_byte_array_contents" [GrinForeignAddr] GrinForeignAddr
-    "mutableByteArrayContents#" -> call "aihc_byte_array_contents" [GrinForeignAddr] GrinForeignAddr
-    "shrinkMutableByteArray#" -> call "aihc_byte_array_shrink" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64
-    "resizeMutableByteArray#" -> call "aihc_byte_array_resize" [GrinForeignAddr, GrinForeignWord64] GrinForeignAddr
-    "sizeofByteArray#" -> call "aihc_byte_array_get_size" [GrinForeignAddr] GrinForeignWord64
-    "getSizeofMutableByteArray#" -> call "aihc_byte_array_get_size" [GrinForeignAddr] GrinForeignWord64
-    "copyAddrToByteArray#" -> call "aihc_byte_array_copy_from_addr" [GrinForeignAddr, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64
-    _ -> Nothing
+nativeRuntimePrimitiveCall name = lookup name nativeRuntimePrimitiveCalls
+
+nativeRuntimePrimitiveCalls :: [(Text, GrinForeignCall)]
+nativeRuntimePrimitiveCalls =
+  [ call "newByteArray#" "aihc_byte_array_new" [GrinForeignWord64] GrinForeignAddr,
+    call "newPinnedByteArray#" "aihc_byte_array_new_pinned" [GrinForeignWord64] GrinForeignAddr,
+    call "newAlignedPinnedByteArray#" "aihc_byte_array_new_aligned_pinned" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    call "isMutableByteArrayPinned#" "aihc_byte_array_is_pinned" [GrinForeignAddr] GrinForeignWord64,
+    call "isByteArrayPinned#" "aihc_byte_array_is_pinned" [GrinForeignAddr] GrinForeignWord64,
+    call "byteArrayContents#" "aihc_byte_array_contents" [GrinForeignAddr] GrinForeignAddr,
+    call "mutableByteArrayContents#" "aihc_byte_array_contents" [GrinForeignAddr] GrinForeignAddr,
+    call "shrinkMutableByteArray#" "aihc_byte_array_shrink" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "resizeMutableByteArray#" "aihc_byte_array_resize" [GrinForeignAddr, GrinForeignWord64] GrinForeignAddr,
+    call "sizeofByteArray#" "aihc_byte_array_get_size" [GrinForeignAddr] GrinForeignWord64,
+    call "getSizeofMutableByteArray#" "aihc_byte_array_get_size" [GrinForeignAddr] GrinForeignWord64,
+    call "copyAddrToByteArray#" "aihc_byte_array_copy_from_addr" [GrinForeignAddr, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "indexWordArray#" "aihc_byte_array_index_word" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "readWordArray#" "aihc_byte_array_read_word" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "writeWordArray#" "aihc_byte_array_write_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "copyByteArray#" "aihc_byte_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "clz#" "aihc_word_clz" [GrinForeignWord64] GrinForeignWord64,
+    call "ctz#" "aihc_word_ctz" [GrinForeignWord64] GrinForeignWord64,
+    call "popCnt#" "aihc_word_popcount" [GrinForeignWord64] GrinForeignWord64
+  ]
   where
-    call symbol arguments result =
-      Just
+    call primitive symbol arguments result =
+      ( primitive,
         GrinForeignCall
           { grinForeignCallName = "$runtime$" <> symbol,
             grinForeignCallSymbol = symbol,
@@ -239,6 +262,7 @@ nativeRuntimePrimitiveCall name =
                   grinForeignEffect = GrinForeignPure
                 }
           }
+      )
 
 emptyLinkLayout :: LinkLayout
 emptyLinkLayout =
