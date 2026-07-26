@@ -558,7 +558,7 @@ renderObservedMetadata env program resultReps = do
   constructors <- mapM renderConstructorDescriptor constructorEntries
   functions <- mapM renderFunctionDescriptor functionEntries
   pure . T.unlines $
-    [ "#include \"aihc_runtime.h\"",
+    [ "#include \"aihc_snapshot.h\"",
       "#include <stddef.h>",
       ""
     ]

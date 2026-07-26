@@ -50,6 +50,7 @@ test-suite spec
     aihc-amd64,
     aihc-fc,
     aihc-grin,
+    aihc-native,
     aihc-parser,
     aihc-resolve,
     aihc-tc,

@@ -5,6 +5,8 @@ module Aihc.Native
   ( NativeCpsCall (..),
     NativeCpsTransfer (..),
     NativeTarget (..),
+    RuntimeGarbageCollector (..),
+    RuntimePlan (..),
     backendCompiler,
     LinkInterface (..),
     LinkLayout (..),
@@ -20,7 +22,7 @@ module Aihc.Native
     nativeRuntimePrimitiveCall,
     parseNativeTarget,
     renderNativeTarget,
-    runtimeSourcePath,
+    runtimePlan,
     snapshotSourcePath,
     supportedNativePrimitiveNames,
   )
@@ -33,6 +35,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Paths_aihc_native (getDataFileName)
+import System.FilePath (takeDirectory)
 import System.Info qualified as System
 
 -- | A complete backend and executable target.
@@ -42,6 +45,17 @@ data NativeTarget
   | PortableC
   | Wasm32Wasip3
   deriving (Bounded, Enum, Eq, Ord, Show)
+
+data RuntimeGarbageCollector
+  = RuntimeGcCalloc
+  | RuntimeGcSemispace
+  deriving (Eq, Ord, Show)
+
+data RuntimePlan = RuntimePlan
+  { runtimeSources :: ![FilePath],
+    runtimeIncludeDirectories :: ![FilePath]
+  }
+  deriving (Eq, Show)
 
 renderNativeTarget :: NativeTarget -> String
 renderNativeTarget target =
@@ -139,6 +153,26 @@ extendLinkLayoutWithInterface layout interface =
 
 runtimeSourcePath :: IO FilePath
 runtimeSourcePath = getDataFileName "runtime/aihc_runtime.c"
+
+runtimePlan :: NativeTarget -> RuntimeGarbageCollector -> IO RuntimePlan
+runtimePlan target garbageCollector = do
+  core <- runtimeSourcePath
+  collector <-
+    getDataFileName $ case garbageCollector of
+      RuntimeGcCalloc -> "runtime/aihc_gc_calloc.c"
+      RuntimeGcSemispace -> "runtime/aihc_gc_semispace.c"
+  host <-
+    getDataFileName $ case target of
+      Wasm32Wasip3 -> "runtime/aihc_host_wasip3.c"
+      _ -> "runtime/aihc_host_posix.c"
+  trampoline <- getDataFileName "runtime/aihc_runtime_trampoline.c"
+  pure
+    RuntimePlan
+      { runtimeSources =
+          [core, collector, host]
+            <> [trampoline | target == PortableC || target == Wasm32Wasip3],
+        runtimeIncludeDirectories = [takeDirectory core]
+      }
 
 snapshotSourcePath :: IO FilePath
 snapshotSourcePath = getDataFileName "runtime/aihc_snapshot.c"
