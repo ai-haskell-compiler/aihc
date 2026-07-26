@@ -25,6 +25,15 @@
       in
         type == "directory" || (inSubset && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
     };
+
+  exampleSourceSuffixes = [
+    ".hs"
+    ".cabal"
+    "exit"
+    "stdin"
+    "stderr"
+    "stdout"
+  ];
 in rec {
   # Source filtering: only include relevant files for each component.
   # This prevents rebuilds when unrelated files change.
@@ -193,19 +202,15 @@ in rec {
         type == "directory" || ((inToolingCommon || inResolveCommon) && matchesSourceSuffix);
     };
 
-  aihcSrc = mkRootSubsetSrc ["bin/aihc/" "core-libs/" "examples/"] [
+  aihcSrc = mkRootSubsetSrc ["bin/aihc/"] [
     ".hs"
     ".cabal"
   ];
 
-  examplesSrc = mkRootSubsetSrc ["core-libs/" "examples/"] [
-    ".hs"
-    ".cabal"
-    "exit"
-    "stdin"
-    "stderr"
-    "stdout"
-  ];
+  examplesSrc = mkRootSubsetSrc ["core-libs/" "examples/"] exampleSourceSuffixes;
+
+  exampleSrc = exampleName:
+    mkRootSubsetSrc ["core-libs/" "examples/${exampleName}/"] exampleSourceSuffixes;
 
   fmtSrc = mkComponentSrc "/bin/aihc-fmt" [
     ".hs"
@@ -243,6 +248,14 @@ in rec {
         inTestSupport = pkgs.lib.hasInfix "/test/support/" pathStr;
       in
         type == "directory" || ((inComponents || inTooling || inBin || inCoreLibs || inNixHaskell || inTestSupport) && (isCabal || (isHaskell && !isFixture)));
+    };
+
+  # Cabal formatting should not be invalidated by ordinary Haskell changes.
+  cabalSrc = pkgs:
+    pkgs.lib.cleanSourceWith {
+      src = root;
+      filter = path: type:
+        type == "directory" || pkgs.lib.hasSuffix ".cabal" (baseNameOf path);
     };
 
   # Filtered source for C linting/formatting, including tool configuration.

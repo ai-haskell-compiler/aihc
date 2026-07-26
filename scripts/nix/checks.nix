@@ -27,13 +27,26 @@
     ];
 
   addHiddenSuccesses = old: {
-    # Hide passing tests so failures are visible in Nix's truncated output.
-    testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+    # Replace the package-build sentinel and hide passing test output.
+    testFlags =
+      builtins.filter
+      (flag: !builtins.elem flag ["--pattern" "__nix-build-tests-without-running__"])
+      (old.testFlags or [])
+      ++ ["--hide-successes"];
   };
+
+  addCheckSettings = drv: old:
+    addHiddenSuccesses old
+    // pkgs.lib.optionalAttrs (drv ? intermediates) {
+      # Reuse the optimized build, including its already-compiled test components.
+      doInstallIntermediates = false;
+      enableSeparateIntermediatesOutput = false;
+      previousIntermediates = drv.intermediates;
+    };
 
   mkPackageTest = drv:
     pkgs.haskell.lib.doCheck (
-      pkgs.haskell.lib.dontHaddock (pkgs.haskell.lib.overrideCabal drv addHiddenSuccesses)
+      pkgs.haskell.lib.dontHaddock (pkgs.haskell.lib.overrideCabal drv (addCheckSettings drv))
     );
 
   mkEvalPackageTest = drv:
@@ -41,7 +54,7 @@
       pkgs.haskell.lib.dontHaddock (
         pkgs.haskell.lib.overrideCabal drv (
           old:
-            addHiddenSuccesses old
+            addCheckSettings drv old
             // {
               preCheck =
                 (old.preCheck or "")
@@ -60,7 +73,7 @@
       pkgs.haskell.lib.dontHaddock (
         pkgs.haskell.lib.overrideCabal drv (
           old:
-            addHiddenSuccesses old
+            addCheckSettings drv old
             // {
               testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
               preCheck =
@@ -109,6 +122,22 @@
     )
     backends
   );
+  smokeCompilation = builtins.head compilationModes;
+  smokeCompilationMatrix = [
+    {
+      backend = "portable-c";
+      compilation = smokeCompilation;
+      gc = "calloc";
+    }
+  ];
+  exampleCompilationMatrix = exampleName:
+    if exampleName == "hello-world"
+    then compilationMatrix
+    else smokeCompilationMatrix;
+  wasip3CompilationModes = exampleName:
+    if exampleName == "hello-world"
+    then compilationModes
+    else [smokeCompilation];
 
   renderExampleTest = {
     backend,
@@ -346,7 +375,7 @@
       | xargs -0 -r clang-format --dry-run --Werror
   '';
 
-  cabalFormat = mkSourceCheck "aihc-cabal-format" (sources.haskellSrc pkgs) [pkgs.haskellPackages.cabal-gild pkgs.findutils] ''
+  cabalFormat = mkSourceCheck "aihc-cabal-format" (sources.cabalSrc pkgs) [pkgs.haskellPackages.cabal-gild pkgs.findutils] ''
     failed=0
     while IFS= read -r -d "" file; do
       cabal-gild --mode check --input "$file" || failed=1
@@ -363,7 +392,7 @@
   ];
 
   mkExampleTest = exampleName:
-    mkSourceCheck "aihc-example-${exampleName}" examplesSource exampleTestInputs ''
+    mkSourceCheck "aihc-example-${exampleName}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
       set -euo pipefail
       export XDG_CACHE_HOME="$TMPDIR/cache"
       export GHCRTS=-N1
@@ -394,7 +423,7 @@
           "$expected_stdout" "$ghc_executable.stdout"
       fi
 
-      ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest compilationMatrix}
+      ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest (exampleCompilationMatrix exampleName)}
       touch "$out"
     '';
 
@@ -405,8 +434,9 @@
     })
     exampleNames;
 
-  # Each example keeps an isolated compiler cache and runs its target/mode/GC
-  # matrix sequentially. Nix schedules the independent examples in parallel.
+  # Every example gets one portable-C smoke test. Hello World also carries the
+  # complete backend/mode/GC matrix, avoiding a cross-product for every program.
+  # Nix schedules the independent examples in parallel.
   examplesTests = assert exampleNames != [];
     pkgs.linkFarm "aihc-examples-tests" exampleCases;
 
@@ -424,7 +454,7 @@
   ];
 
   mkWasip3ExampleTest = exampleName:
-    mkSourceCheck "aihc-wasip3-example-${exampleName}" examplesSource wasip3ExampleInputs ''
+    mkSourceCheck "aihc-wasip3-example-${exampleName}" (sources.exampleSrc exampleName pkgs) wasip3ExampleInputs ''
       set -euo pipefail
       export XDG_CACHE_HOME="$TMPDIR/cache"
       export GHCRTS=-N1
@@ -442,11 +472,11 @@
         exit 1
       fi
 
-      ${pkgs.lib.concatMapStringsSep "\n" renderWasip3ExampleTest compilationModes}
+      ${pkgs.lib.concatMapStringsSep "\n" renderWasip3ExampleTest (wasip3CompilationModes exampleName)}
 
       test -n "$(find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.o' -print -quit)"
       test -n "$(find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.a' -print -quit)"
-      test "$(wc -l < "$AIHC_WASM_OPT_MARKER")" -eq ${toString (builtins.length compilationModes)}
+      test "$(wc -l < "$AIHC_WASM_OPT_MARKER")" -eq ${toString (builtins.length (wasip3CompilationModes exampleName))}
       touch "$out"
     '';
 
@@ -457,10 +487,8 @@
     })
     exampleNames;
 
-  # Keep every example in its own derivation. Nix schedules these independent
-  # compile-and-run cases in parallel and preserves the per-example result in
-  # the aggregate output, while each case safely shares its cache between the
-  # incremental and whole-program modes.
+  # Every example gets one incremental WASI smoke test. Hello World additionally
+  # covers whole-program mode. Nix schedules these derivations in parallel.
   wasip3ExampleTest = assert exampleNames != [];
     pkgs.linkFarm "aihc-wasip3-example-test" wasip3ExampleCases;
 
@@ -538,131 +566,4 @@ in {
   cabal-format = cabalFormat;
   examples-tests = examplesTests;
   wasip3-example-test = wasip3ExampleTest;
-
-  all-tests = pkgs.linkFarm "aihc-all-tests" [
-    {
-      name = "parser-tests";
-      path = parserTests;
-    }
-    {
-      name = "cpp-tests";
-      path = cppTests;
-    }
-    {
-      name = "amd64-tests";
-      path = amd64Tests;
-    }
-    {
-      name = "arm64-tests";
-      path = arm64Tests;
-    }
-    {
-      name = "c-tests";
-      path = cBackendTests;
-    }
-    {
-      name = "native-tests";
-      path = nativeTests;
-    }
-    {
-      name = "wasm-tests";
-      path = wasmTests;
-    }
-    {
-      name = "fc-tests";
-      path = fcTests;
-    }
-    {
-      name = "grin-tests";
-      path = grinTests;
-    }
-    {
-      name = "resolve-tests";
-      path = resolveTests;
-    }
-    {
-      name = "tc-tests";
-      path = tcTests;
-    }
-    {
-      name = "testing-tests";
-      path = testingTests;
-    }
-    {
-      name = "dev-tests";
-      path = devTests;
-    }
-    {
-      name = "aihc-tests";
-      path = aihcTests;
-    }
-    {
-      name = "fmt-tests";
-      path = fmtTests;
-    }
-    {
-      name = "unicode-generated";
-      path = unicodeGenerated;
-    }
-    {
-      name = "cpp-doctest";
-      path = cppDoctest;
-    }
-    {
-      name = "parser-doctest";
-      path = parserDoctest;
-    }
-    {
-      name = "parser-progress-strict";
-      path = parserProgressStrict;
-    }
-    {
-      name = "lexer-progress-strict";
-      path = lexerProgressStrict;
-    }
-    {
-      name = "parser-extension-progress-strict";
-      path = parserExtensionProgressStrict;
-    }
-    {
-      name = "cpp-progress-strict";
-      path = cppProgressStrict;
-    }
-    {
-      name = "nix-lint";
-      path = nixLint;
-    }
-    {
-      name = "nix-format";
-      path = nixFormat;
-    }
-    {
-      name = "haskell-lint";
-      path = haskellLint;
-    }
-    {
-      name = "haskell-format";
-      path = haskellFormat;
-    }
-    {
-      name = "c-lint";
-      path = cLint;
-    }
-    {
-      name = "c-format";
-      path = cFormat;
-    }
-    {
-      name = "cabal-format";
-      path = cabalFormat;
-    }
-    {
-      name = "examples-tests";
-      path = examplesTests;
-    }
-    {
-      name = "wasip3-example-test";
-      path = wasip3ExampleTest;
-    }
-  ];
 }
