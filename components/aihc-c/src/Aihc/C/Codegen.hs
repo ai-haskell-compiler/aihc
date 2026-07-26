@@ -453,11 +453,17 @@ compileDirectBinding env vars expression =
     GrinUpdate pointer value -> update "aihc_update" False pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_update_blackhole" True pointer value
     GrinPrimitiveCall IntRep "+#" [left, right] -> binaryIntPrimitive "+" left right
+    GrinPrimitiveCall IntRep "-#" [left, right] -> binaryIntPrimitive "-" left right
+    GrinPrimitiveCall IntRep "*#" [left, right] -> binaryIntPrimitive "*" left right
+    GrinPrimitiveCall IntRep "<#" [left, right] -> binaryIntComparison "<" left right
+    GrinPrimitiveCall IntRep "==#" [left, right] -> binaryIntComparison "==" left right
+    GrinPrimitiveCall IntRep "compareInt#" [left, right] -> compareInts left right
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
-          liftEither (materializeValue env value) >>= storeOne . pure
+      | name `elem` ["charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> do
+          source <- liftEither (materializeValue env value)
+          storeOne ["aihc_scratch = " <> source <> ";"]
     GrinPrimitiveCall _ name arguments
       | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
           lines' <- compileForeignCall env foreignCall arguments
@@ -510,6 +516,40 @@ compileDirectBinding env vars expression =
                    ]
             )
         _ -> lift (Left (CUnsupportedExpression "internal binary Int# primitive arity"))
+    binaryIntComparison operator left right = do
+      stored <- materializeIntoFresh env [left, right]
+      case snd stored of
+        [leftSlot, rightSlot] ->
+          storeOne
+            ( fst stored
+                <> [ "aihc_scratch = (AihcSlot)((int64_t)"
+                       <> localRef leftSlot
+                       <> " "
+                       <> operator
+                       <> " (int64_t)"
+                       <> localRef rightSlot
+                       <> " ? 1 : 0);"
+                   ]
+            )
+        _ -> lift (Left (CUnsupportedExpression "internal Int# comparison arity"))
+    compareInts left right = do
+      stored <- materializeIntoFresh env [left, right]
+      case snd stored of
+        [leftSlot, rightSlot] ->
+          storeOne
+            ( fst stored
+                <> [ "aihc_scratch = (AihcSlot)(uint64_t)(int64_t)((int64_t)"
+                       <> localRef leftSlot
+                       <> " < (int64_t)"
+                       <> localRef rightSlot
+                       <> " ? -1 : ((int64_t)"
+                       <> localRef leftSlot
+                       <> " > (int64_t)"
+                       <> localRef rightSlot
+                       <> " ? 1 : 0));"
+                   ]
+            )
+        _ -> lift (Left (CUnsupportedExpression "internal compareInt# arity"))
 
 compileForeignCall :: ValueEnv -> GrinForeignCall -> [GrinValue] -> FunctionM [Text]
 compileForeignCall env foreignCall arguments = do
@@ -723,6 +763,7 @@ renderAddrLiterals env =
 foreignType :: GrinForeignType -> Text
 foreignType foreignType' =
   case foreignType' of
+    GrinForeignInt -> "int64_t"
     GrinForeignInt32 -> "int32_t"
     GrinForeignWord64 -> "uint64_t"
     GrinForeignAddr -> "void *"
@@ -730,6 +771,7 @@ foreignType foreignType' =
 foreignArgument :: GrinForeignType -> Int -> Text
 foreignArgument foreignType' index =
   case foreignType' of
+    GrinForeignInt -> "(int64_t)" <> localRef index
     GrinForeignInt32 -> "(int32_t)" <> localRef index
     GrinForeignWord64 -> "(uint64_t)" <> localRef index
     GrinForeignAddr -> "(void *)(uintptr_t)" <> localRef index
@@ -737,6 +779,7 @@ foreignArgument foreignType' index =
 foreignResult :: GrinForeignType -> Text -> Text
 foreignResult foreignType' call =
   case foreignType' of
+    GrinForeignInt -> "(AihcSlot)(int64_t)" <> call
     GrinForeignInt32 -> "(AihcSlot)(int64_t)(int32_t)" <> call
     GrinForeignWord64 -> "(AihcSlot)" <> call
     GrinForeignAddr -> "(AihcSlot)(uintptr_t)" <> call

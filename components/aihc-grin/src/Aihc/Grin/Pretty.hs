@@ -317,6 +317,7 @@ renderForeignSignature signature =
 renderForeignType :: GrinForeignType -> String
 renderForeignType foreignType =
   case foreignType of
+    GrinForeignInt -> "int"
     GrinForeignInt32 -> "int32"
     GrinForeignWord64 -> "word64"
     GrinForeignAddr -> "addr"

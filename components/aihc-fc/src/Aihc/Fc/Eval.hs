@@ -23,18 +23,20 @@ import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Word (Word64)
+import Data.Text.Encoding qualified as TE
+import Data.Word (Word64, Word8)
 import Foreign.C.Types (CInt (..))
-import Foreign.LibFFI (Arg, argCInt, argPtr, argWord64, callFFI, retCInt, retPtr, retVoid, retWord64)
+import Foreign.LibFFI (Arg, argCInt, argInt64, argPtr, argWord64, callFFI, retCInt, retInt64, retPtr, retVoid, retWord64)
 import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
 import Foreign.Marshal.Utils (copyBytes, fillBytes)
 import Foreign.Ptr (FunPtr, Ptr, alignPtr, castPtr, plusPtr)
-import System.IO (Handle, hFlush, stdin, stdout)
+import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile, stderr, stdin, stdout)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
 data EvalError
@@ -60,6 +62,7 @@ data Value
   | VConstructor Text [Value]
   | VPrim Text Int [Value]
   | VByteArray EvalByteArray
+  | VIOError Integer
   | VIOHandle EvalIOHandle
   | VIORequest EvalIORequest
   | VMVar EvalMVar
@@ -108,11 +111,17 @@ instance Show EvalIOHandle where
 data EvalIOOperation
   = EvalRead !EvalIOHandle !(Ptr ()) !Int !Int
   | EvalWrite !EvalIOHandle !(Ptr ()) !Int !Int
+  | EvalOpen !Text !Integer
+  deriving (Eq, Show)
+
+data EvalIOResult
+  = EvalIOInt !Integer
+  | EvalIOOpenResult !(Either Integer EvalIOHandle)
   deriving (Eq, Show)
 
 data EvalIOState
   = EvalIOSubmitted !EvalIOOperation
-  | EvalIOCompleted !Integer
+  | EvalIOCompleted !EvalIOResult
   | EvalIOConsumed
   deriving (Eq, Show)
 
@@ -473,17 +482,31 @@ completeIORequest (EvalIORequest reference) = do
     EvalIOCompleted {} -> pure ()
     EvalIOConsumed -> throwE (EvalPrimitiveTypeError "awaitIO#" (VIORequest (EvalIORequest reference)))
 
-performIOOperation :: EvalIOOperation -> EvalM Integer
+performIOOperation :: EvalIOOperation -> EvalM EvalIOResult
 performIOOperation operation =
   case operation of
     EvalRead (EvalIOHandle _ handle) buffer offset byteCount -> do
-      input <- lift (BS.hGet handle byteCount)
-      lift (pokeArray (castPtr (buffer `plusPtr` offset)) (BS.unpack input))
-      pure (toInteger (BS.length input))
+      result <- lift (tryForeign (BS.hGet handle byteCount))
+      case result of
+        Left _ -> pure (EvalIOInt (-6))
+        Right input -> do
+          lift (pokeArray (castPtr (buffer `plusPtr` offset)) (BS.unpack input))
+          pure (EvalIOInt (toInteger (BS.length input)))
     EvalWrite (EvalIOHandle _ handle) buffer offset byteCount -> do
       bytes <- lift (BS.pack <$> peekArray byteCount (castPtr (buffer `plusPtr` offset)))
-      lift (BS.hPut handle bytes >> hFlush handle)
-      pure (toInteger byteCount)
+      result <- lift (tryForeign (BS.hPut handle bytes >> hFlush handle))
+      case result of
+        Left _ -> pure (EvalIOInt (-6))
+        Right () -> pure (EvalIOInt (toInteger byteCount))
+    EvalOpen path modeNumber -> do
+      result <- lift (tryForeign (openBinaryFile (T.unpack path) (hostIOMode modeNumber)))
+      pure
+        ( EvalIOOpenResult
+            ( case result of
+                Left _ -> Left 5
+                Right handle -> Right (EvalIOHandle 3 handle)
+            )
+        )
 
 executeForeignCall :: FcForeignCall -> [Value] -> EvalM Value
 executeForeignCall foreignCall arguments
@@ -511,25 +534,71 @@ callForeign foreignCall args
   | symbol == "aihc_io_stdout",
     [] <- args =
       pure (VIOHandle (EvalIOHandle 1 stdout))
+  | symbol == "aihc_io_stderr",
+    [] <- args =
+      pure (VIOHandle (EvalIOHandle 2 stderr))
+  | symbol == "aihc_memory_write_byte",
+    [bufferValue, offsetValue, byteValue] <- args = do
+      buffer <- forceAddressForeignArg symbol bufferValue
+      offset <- forceForeignInt symbol offsetValue
+      byte <- forceForeignInt symbol byteValue
+      if offset < 0 || offset > toInteger (maxBound :: Int) || byte < 0 || byte > 255
+        then pure (VLit (LitInt IntRep (-23)))
+        else do
+          lift (pokeArray (castPtr (buffer `plusPtr` fromInteger offset)) [fromInteger byte :: Word8])
+          pure (VLit (LitInt IntRep 0))
+  | symbol == "aihc_io_submit_open",
+    [pathValue, lengthValue, modeValue] <- args = do
+      pathLength <- forceForeignInt symbol lengthValue
+      modeNumber <- forceForeignInt symbol modeValue
+      if pathLength < 0 || pathLength > toInteger (maxBound :: Int)
+        then completedOpenRequest (Left 22)
+        else do
+          bytes <- readAddressBytes symbol (fromInteger pathLength) pathValue
+          case TE.decodeUtf8' bytes of
+            Left _ -> completedOpenRequest (Left 84)
+            Right path ->
+              VIORequest . EvalIORequest
+                <$> lift (newIORef (EvalIOSubmitted (EvalOpen path modeNumber)))
+  | symbol == "aihc_io_open_result_error",
+    [openResult] <- args =
+      case openResult of
+        VIOError errorNumber -> pure (VLit (LitInt IntRep errorNumber))
+        VIOHandle {} -> pure (VLit (LitInt IntRep 0))
+        _ -> throwE (EvalForeignTypeError symbol openResult)
+  | symbol == "aihc_io_close",
+    [handleValue] <- args = do
+      EvalIOHandle _ handle <- forceIOHandleForeignArg symbol handleValue
+      result <- lift (tryForeign (hClose handle))
+      case result of
+        Left _ -> pure (VLit (LitInt IntRep (-6)))
+        Right () -> pure (VLit (LitInt IntRep 0))
+  | symbol == "aihc_io_raise_error",
+    [errorValue] <- args = do
+      errorNumber <- forceForeignInt symbol errorValue
+      throwE (EvalRaisedException (VLit (LitInt IntRep errorNumber)))
   | symbol == "aihc_io_submit_read",
     [handleValue, bufferValue, offsetValue, lengthValue] <- args = do
       handle <- forceIOHandleForeignArg symbol handleValue
       buffer <- forceAddressForeignArg symbol bufferValue
-      offset <- forceInt32 symbol offsetValue
-      byteCount <- forceInt32 symbol lengthValue
+      offset <- forceForeignInt symbol offsetValue
+      byteCount <- forceForeignInt symbol lengthValue
       (checkedOffset, checkedLength) <- checkedAddressRange symbol offset byteCount
       VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted (EvalRead handle buffer checkedOffset checkedLength)))
   | symbol == "aihc_io_submit_write",
     [handleValue, bufferValue, offsetValue, lengthValue] <- args = do
       handle <- forceIOHandleForeignArg symbol handleValue
       buffer <- forceAddressForeignArg symbol bufferValue
-      offset <- forceInt32 symbol offsetValue
-      byteCount <- forceInt32 symbol lengthValue
+      offset <- forceForeignInt symbol offsetValue
+      byteCount <- forceForeignInt symbol lengthValue
       (checkedOffset, checkedLength) <- checkedAddressRange symbol offset byteCount
       VIORequest . EvalIORequest <$> lift (newIORef (EvalIOSubmitted (EvalWrite handle buffer checkedOffset checkedLength)))
   | symbol == "aihc_io_take_result",
     [request] <- args =
       takeIOResult symbol request
+  | symbol == "aihc_io_take_open_result",
+    [request] <- args =
+      takeOpenIOResult symbol request
   | otherwise = do
       marshalledArgs <-
         zipWithM
@@ -538,6 +607,9 @@ callForeign foreignCall args
           args
       functionPointer <- lookupForeignFunction foreignCall
       case fcForeignResultType (fcForeignCallSignature foreignCall) of
+        FcForeignInt -> do
+          result <- lift (callFFI functionPointer retInt64 marshalledArgs)
+          pure (VLit (LitInt IntRep (toInteger result)))
         FcForeignInt32 -> do
           CInt result <- lift (callFFI functionPointer retCInt marshalledArgs)
           pure (VLit (LitInt Int32Rep (toInteger result)))
@@ -555,6 +627,14 @@ forceIOHandleForeignArg symbol value = do
   case forced of
     VIOHandle handle -> pure handle
     _ -> throwE (EvalForeignTypeError symbol forced)
+
+hostIOMode :: Integer -> IOMode
+hostIOMode mode =
+  case mode of
+    0 -> ReadMode
+    1 -> WriteMode
+    2 -> AppendMode
+    _ -> ReadWriteMode
 
 forceAddressForeignArg :: Text -> Value -> EvalM (Ptr ())
 forceAddressForeignArg symbol value = do
@@ -587,13 +667,34 @@ takeIOResult symbol value = do
     VIORequest (EvalIORequest reference) -> do
       state <- lift (readIORef reference)
       case state of
-        EvalIOCompleted result -> do
+        EvalIOCompleted (EvalIOInt result) -> do
           lift (writeIORef reference EvalIOConsumed)
-          pure (VLit (LitInt Int32Rep result))
+          pure (VLit (LitInt IntRep result))
         _ -> throwE (EvalForeignTypeError symbol forced)
     _ -> throwE (EvalForeignTypeError symbol forced)
 
+takeOpenIOResult :: Text -> Value -> EvalM Value
+takeOpenIOResult symbol value = do
+  forced <- forceValue value
+  case forced of
+    VIORequest (EvalIORequest reference) -> do
+      state <- lift (readIORef reference)
+      case state of
+        EvalIOCompleted (EvalIOOpenResult result) -> do
+          lift (writeIORef reference EvalIOConsumed)
+          pure (either VIOError VIOHandle result)
+        _ -> throwE (EvalForeignTypeError symbol forced)
+    _ -> throwE (EvalForeignTypeError symbol forced)
+
+completedOpenRequest :: Either Integer EvalIOHandle -> EvalM Value
+completedOpenRequest result =
+  VIORequest . EvalIORequest
+    <$> lift (newIORef (EvalIOCompleted (EvalIOOpenResult result)))
+
 marshalForeignArgument :: Text -> FcForeignType -> Value -> EvalM Arg
+marshalForeignArgument symbol FcForeignInt argument = do
+  argumentValue <- forceForeignInt symbol argument
+  pure (argInt64 (fromInteger argumentValue :: Int64))
 marshalForeignArgument symbol FcForeignInt32 argument = do
   argumentValue <- forceInt32 symbol argument
   pure (argCInt (CInt (fromInteger argumentValue)))
@@ -623,6 +724,13 @@ lookupForeignFunction foreignCall = do
 
 tryForeign :: IO a -> IO (Either SomeException a)
 tryForeign = try
+
+forceForeignInt :: Text -> Value -> EvalM Integer
+forceForeignInt symbol value = do
+  forced <- forceValue value
+  case forced of
+    VLit (LitInt IntRep intValue) -> pure intValue
+    other -> throwE (EvalForeignTypeError symbol other)
 
 forceInt32 :: Text -> Value -> EvalM Integer
 forceInt32 symbol value = do
@@ -725,6 +833,7 @@ renderForcedValue value =
       pure (T.unwords (name : renderedArgs))
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
+    VIOError {} -> pure "<io-error>"
     VIOHandle {} -> pure "<io-handle>"
     VByteArray {} -> pure "<byte-array>"
     VIORequest {} -> pure "<io-request>"
@@ -802,6 +911,7 @@ renderRawValueM value = do
       pure (T.unwords (name : renderedArgs))
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
+    VIOError {} -> pure "<io-error>"
     VIOHandle {} -> pure "<io-handle>"
     VByteArray {} -> pure "<byte-array>"
     VIORequest {} -> pure "<io-request>"

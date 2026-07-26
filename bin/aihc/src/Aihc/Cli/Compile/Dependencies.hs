@@ -62,6 +62,7 @@ import Aihc.Tc
     tcModuleSuccess,
     typecheckModuleSccWithFullEnv,
   )
+import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket, bracketOnError)
 import Control.Monad (filterM, foldM)
 import Data.Bits (xor)
@@ -76,6 +77,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
 import Data.Text.IO qualified as TIO
+import Data.Text.IO.Utf8 qualified as Utf8
 import Data.Word (Word64)
 import Numeric (showHex)
 import System.Directory
@@ -177,7 +179,7 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 19
+cacheSchemaVersion = 20
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
@@ -310,7 +312,7 @@ loadModuleClosure index roots = fmap (fmap snd) (go Set.empty [] roots)
 
 parseModuleFile :: ModuleSource -> IO (Either String Module)
 parseModuleFile ModuleSource {moduleSourcePath} = do
-  source <- TIO.readFile moduleSourcePath
+  source <- Utf8.readFile moduleSourcePath
   pure $
     case parseModule (parserConfig moduleSourcePath source) source of
       ([], modu) -> Right modu
@@ -511,12 +513,14 @@ compileBackendModule target layout initializer program =
     LinuxAmd64 -> either (Left . show) Right (Amd64.compileModule layout initializer program)
     PortableC -> compileC
     Llvm -> either (Left . show) Right (Llvm.compileModule layout initializer program)
+    Wasm32Wasip3 -> either (Left . show) Right (Wasm.compileModule layout initializer program)
   where
     compileC = either (Left . show) Right (C.compileModule layout initializer program)
 
 backendSourceExtension :: NativeTarget -> String
 backendSourceExtension PortableC = ".c"
 backendSourceExtension Llvm = ".ll"
+backendSourceExtension Wasm32Wasip3 = ".s"
 backendSourceExtension _ = ".s"
 
 objectCompiler :: NativeTarget -> FilePath -> FilePath -> IO (FilePath, [String])
@@ -527,6 +531,7 @@ objectCompiler target sourcePath objectPath = do
     Llvm -> pure (compiler, targetArguments <> ["-c", sourcePath, "-o", objectPath])
     AppleArm64 -> pure (compiler, nativeArguments targetArguments)
     LinuxAmd64 -> pure (compiler, nativeArguments targetArguments)
+    Wasm32Wasip3 -> pure (compiler, targetArguments <> ["-mtail-call", "-c", sourcePath, "-o", objectPath])
   where
     nativeArguments targetArguments = targetArguments <> ["-c", sourcePath, "-o", objectPath]
     cCompiler compiler targetArguments = do

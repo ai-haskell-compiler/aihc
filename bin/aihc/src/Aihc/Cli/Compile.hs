@@ -18,6 +18,8 @@ module Aihc.Cli.Compile
     renderCompileError,
     runCompile,
     runCompileWithEnvironment,
+    wasmClangCommand,
+    wasmOptArguments,
   )
 where
 
@@ -55,6 +57,7 @@ import Aihc.Native
     buildLinkLayoutFromInterfaces,
     extendLinkLayout,
     hostNativeTarget,
+    nativeTargetTriple,
     runtimeSourcePath,
   )
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
@@ -62,14 +65,17 @@ import Aihc.Parser.Syntax (Extension (ImplicitPrelude), LanguageEdition (Haskell
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithFullEnv)
+import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
-import Control.Monad (when)
+import Control.Monad (forM_, when)
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import System.Directory (XdgDirectory (XdgCache), createDirectory, getCurrentDirectory, getTemporaryDirectory, getXdgDirectory, removeDirectoryRecursive, removeFile)
+import Data.Text.IO.Utf8 qualified as Utf8
+import System.Directory (XdgDirectory (XdgCache), createDirectory, findExecutable, getCurrentDirectory, getTemporaryDirectory, getXdgDirectory, removeDirectoryRecursive, removeFile)
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (dropExtension, takeDirectory, (</>))
 import System.IO (hClose, openTempFile)
@@ -83,6 +89,7 @@ data CompileError
   | CompileBackendError !BackendError
   | CompileTargetError !String
   | CompileClangError !ExitCode !String
+  | CompileToolError !FilePath !ExitCode !String
   deriving (Eq, Show)
 
 data BackendError
@@ -90,6 +97,7 @@ data BackendError
   | BackendAmd64Error !Amd64.Amd64Error
   | BackendCError !C.CError
   | BackendLlvmError !Llvm.LlvmError
+  | BackendWasmError !Wasm.WasmError
   deriving (Eq, Show)
 
 data CompileArtifacts = CompileArtifacts
@@ -130,7 +138,7 @@ runCompileWithEnvironment environment options = do
           (ioError (userError (renderCompileError (CompileTargetError "unsupported host; pass --target portable-c or another explicit target"))))
           pure
           hostNativeTarget
-  source <- TIO.readFile (compileSourceFile options)
+  source <- Utf8.readFile (compileSourceFile options)
   artifactsResult <- compileSourceToArtifactsWithDependencies target (compileWholeProgram options) environment (compileSourceFile options) source
   artifacts <- either (ioError . userError . renderCompileError) pure artifactsResult
   let output = compileOutputPath options
@@ -139,11 +147,11 @@ runCompileWithEnvironment environment options = do
     then do
       let assemblyPath = output <> backendSourceExtension target
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
-      assemble target (compileGarbageCollector options) output assemblyPath (compiledArchives artifacts)
+      assemble target (compileGarbageCollector options) (compileUseWasmOpt options) output assemblyPath (compiledArchives artifacts)
     else withTemporaryDirectory "aihc-compile" $ \directory -> do
       let assemblyPath = directory </> "program" <> backendSourceExtension target
       TIO.writeFile assemblyPath (compiledAssembly artifacts)
-      assemble target (compileGarbageCollector options) output assemblyPath (compiledArchives artifacts)
+      assemble target (compileGarbageCollector options) (compileUseWasmOpt options) output assemblyPath (compiledArchives artifacts)
 
 writeIntermediateArtifacts :: FilePath -> CompileOptions -> CompileArtifacts -> IO ()
 writeIntermediateArtifacts output options artifacts = do
@@ -345,6 +353,7 @@ validateBackendPrimitiveNames target names =
     LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.validatePrimitiveNames names)
     PortableC -> validateC
     Llvm -> either (Left . BackendLlvmError) Right (Llvm.validatePrimitiveNames names)
+    Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.validatePrimitiveNames names)
   where
     validateC = either (Left . BackendCError) Right (C.validatePrimitiveNames names)
 
@@ -355,6 +364,7 @@ compileBackendProgram target entry program =
     LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileProgram entry program)
     PortableC -> compileC
     Llvm -> either (Left . BackendLlvmError) Right (Llvm.compileProgram entry program)
+    Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.compileProgram entry program)
   where
     compileC = either (Left . BackendCError) Right (C.compileProgram entry program)
 
@@ -365,6 +375,7 @@ compileBackendProgramWithDependencies target layout initializers entry program =
     LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileProgramWithDependencies layout initializers entry program)
     PortableC -> compileC
     Llvm -> either (Left . BackendLlvmError) Right (Llvm.compileProgramWithDependencies layout initializers entry program)
+    Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.compileProgramWithDependencies layout initializers entry program)
   where
     compileC = either (Left . BackendCError) Right (C.compileProgramWithDependencies layout initializers entry program)
 
@@ -492,12 +503,15 @@ renderCompileError compileError =
     CompileBackendError err -> "backend code generation error: " <> show err
     CompileTargetError err -> "target error: " <> err
     CompileClangError exitCode err -> "clang failed (" <> show exitCode <> "): " <> err
+    CompileToolError tool exitCode err -> tool <> " failed (" <> show exitCode <> "): " <> err
 
 defaultCompileTarget :: NativeTarget
 defaultCompileTarget = fromMaybe AppleArm64 hostNativeTarget
 
-assemble :: NativeTarget -> GarbageCollector -> FilePath -> FilePath -> [FilePath] -> IO ()
-assemble target garbageCollector output assemblyPath archives = do
+assemble :: NativeTarget -> GarbageCollector -> Bool -> FilePath -> FilePath -> [FilePath] -> IO ()
+assemble Wasm32Wasip3 garbageCollector useWasmOpt output assemblyPath archives =
+  assembleWasip3 garbageCollector useWasmOpt output assemblyPath archives
+assemble target garbageCollector _useWasmOpt output assemblyPath archives = do
   runtime <- runtimeSourcePath
   (compiler, targetArguments) <- backendCompiler target
   (exitCode, _stdout, stderr) <-
@@ -521,9 +535,86 @@ assemble target garbageCollector output assemblyPath archives = do
     ExitSuccess -> pure ()
     ExitFailure _ -> ioError (userError (renderCompileError (CompileClangError exitCode stderr)))
 
+assembleWasip3 :: GarbageCollector -> Bool -> FilePath -> FilePath -> [FilePath] -> IO ()
+assembleWasip3 garbageCollector useWasmOpt output assemblyPath archives = do
+  nativeRuntime <- runtimeSourcePath
+  driver <- Wasm.wasip3RuntimeSourcePath
+  world <- Wasm.wasip3WorldPath
+  clangOverride <- lookupEnv "AIHC_WASM_CLANG"
+  wasmOpt <- if useWasmOpt then findExecutable "wasm-opt" else pure Nothing
+  withTemporaryDirectory "aihc-wasip3-link" $ \directory -> do
+    let bindingsSource = directory </> "command.c"
+        bindingsObject = directory </> "bindings.o"
+        componentTypeObject = directory </> "command_component_type.o"
+        programObject = directory </> "program.o"
+        runtimeObject = directory </> "runtime.o"
+        driverObject = directory </> "driver.o"
+        unoptimizedCoreModule = directory </> "core.unoptimized.wasm"
+        coreModule = directory </> "core.wasm"
+        linkedCoreModule = maybe coreModule (const unoptimizedCoreModule) wasmOpt
+        (clang, clangTargetArguments) = wasmClangCommand clangOverride
+        includeArguments =
+          [ "-I" <> (takeDirectory driver </> "include"),
+            "-I" <> takeDirectory nativeRuntime,
+            "-I" <> directory
+          ]
+        cArguments =
+          [ "-O2",
+            "-std=c11",
+            "-ffreestanding",
+            "-fno-builtin",
+            "-nostdlib",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-DAIHC_WASIP3",
+            garbageCollectorDefine garbageCollector
+          ]
+            <> includeArguments
+    runTool "wit-bindgen" ["c", "--world", "command", "--out-dir", directory, world]
+    runTool clang (clangTargetArguments <> ["-mtail-call", "-c", assemblyPath, "-o", programObject])
+    runTool clang (clangTargetArguments <> cArguments <> ["-c", nativeRuntime, "-o", runtimeObject])
+    runTool clang (clangTargetArguments <> cArguments <> ["-c", driver, "-o", driverObject])
+    runTool clang (clangTargetArguments <> cArguments <> ["-c", bindingsSource, "-o", bindingsObject])
+    runTool
+      "wasm-ld"
+      ( [ "--no-entry",
+          "--export-memory",
+          "--allow-undefined",
+          programObject,
+          runtimeObject,
+          driverObject,
+          bindingsObject,
+          componentTypeObject
+        ]
+          <> archives
+          <> ["-o", linkedCoreModule]
+      )
+    forM_ wasmOpt $ \tool -> runTool tool (wasmOptArguments linkedCoreModule coreModule)
+    runTool "wasm-tools" ["component", "new", coreModule, "-o", output]
+    runTool "wasm-tools" ["validate", output]
+
+-- | Select the ordinary Clang driver used for WebAssembly objects. Nix can
+-- override only the executable to bypass its host-target compiler wrapper.
+wasmClangCommand :: Maybe FilePath -> (FilePath, [String])
+wasmClangCommand override =
+  (fromMaybe "clang" override, ["--target=" <> nativeTargetTriple Wasm32Wasip3])
+
+wasmOptArguments :: FilePath -> FilePath -> [String]
+wasmOptArguments input output =
+  [input, "-O3", "--enable-tail-call", "--emit-target-features", "-o", output]
+
+runTool :: FilePath -> [String] -> IO ()
+runTool tool arguments = do
+  (exitCode, _stdout, stderr) <- readProcessWithExitCode tool arguments ""
+  case exitCode of
+    ExitSuccess -> pure ()
+    ExitFailure _ -> ioError (userError (renderCompileError (CompileToolError tool exitCode stderr)))
+
 backendSourceExtension :: NativeTarget -> String
 backendSourceExtension PortableC = ".c"
 backendSourceExtension Llvm = ".ll"
+backendSourceExtension Wasm32Wasip3 = ".s"
 backendSourceExtension _ = ".s"
 
 garbageCollectorDefine :: GarbageCollector -> String

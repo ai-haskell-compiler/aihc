@@ -22,7 +22,7 @@ Find more information here:
 | Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `234/3427` (`6.83%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
 | Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2937/2937` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `35/3425` (`1.02%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
-| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `132/10057` (`1.31%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
+| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `137/10057` (`1.36%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `37/38` (`97.36%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
@@ -36,18 +36,19 @@ Find more information here:
 ```
 | Component          |   Code |   Tests |   Total |
 |--------------------|--------|---------|---------|
-| aihc-amd64         |   2032 |     748 |    2780 |
-| aihc-arm64         |   1922 |     823 |    2745 |
-| aihc-c             |    922 |     354 |    1276 |
+| aihc-amd64         |   2084 |     748 |    2832 |
+| aihc-arm64         |   1974 |     823 |    2797 |
+| aihc-c             |    926 |     354 |    1280 |
 | aihc-cpp           |   1820 |     790 |    2610 |
-| aihc-fc            |   4050 |     983 |    5033 |
-| aihc-grin          |   4884 |    2196 |    7080 |
-| aihc-native        |   2169 |     242 |    2411 |
-| aihc-parser        |  13537 |   17790 |   31327 |
-| aihc-parser-compat |   1761 |     736 |    2497 |
+| aihc-fc            |   4092 |     983 |    5075 |
+| aihc-grin          |   5017 |    2218 |    7235 |
+| aihc-native        |   2452 |     246 |    2698 |
+| aihc-parser        |  13668 |   17788 |   31456 |
+| aihc-parser-compat |   1818 |     738 |    2556 |
 | aihc-resolve       |   2304 |    1328 |    3632 |
-| aihc-tc            |   6099 |    2489 |    8588 |
-| **Total**          |  41500 |   28479 |   69979 |
+| aihc-tc            |   6137 |    2491 |    8628 |
+| aihc-wasm          |   1412 |     371 |    1783 |
+| **Total**          |  43704 |   28878 |   72582 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 

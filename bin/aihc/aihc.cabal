@@ -36,6 +36,7 @@ library
     aihc-parser,
     aihc-resolve,
     aihc-tc,
+    aihc-wasm,
     base >=4.16 && <5,
     bytestring >=0.10.8 && <0.13,
     containers >=0.5 && <0.8,
@@ -45,7 +46,7 @@ library
     optparse-applicative >=0.16 && <0.19,
     prettyprinter,
     process,
-    text >=1.2.3 && <2.2,
+    text >=2.1.4 && <2.2,
 
   default-extensions: OverloadedStrings
   ghc-options: -Wall

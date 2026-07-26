@@ -1158,6 +1158,7 @@ pointerIdentity operand = do
 convertForeignArgument :: GrinForeignType -> Text -> FunctionM ([Text], Text)
 convertForeignArgument foreignType operand =
   case foreignType of
+    GrinForeignInt -> pure ([], operand)
     GrinForeignInt32 -> do
       converted <- freshValue
       pure (["  " <> converted <> " = trunc i64 " <> operand <> " to i32"], converted)
@@ -1167,6 +1168,7 @@ convertForeignArgument foreignType operand =
 convertForeignResult :: GrinForeignType -> Text -> FunctionM ([Text], Text)
 convertForeignResult foreignType operand =
   case foreignType of
+    GrinForeignInt -> pure ([], operand)
     GrinForeignInt32 -> do
       converted <- freshValue
       pure (["  " <> converted <> " = sext i32 " <> operand <> " to i64"], converted)
@@ -1417,6 +1419,7 @@ renderRuntimeDeclarations =
 llvmForeignType :: GrinForeignType -> Text
 llvmForeignType foreignType =
   case foreignType of
+    GrinForeignInt -> "i64"
     GrinForeignInt32 -> "i32"
     GrinForeignWord64 -> "i64"
     GrinForeignAddr -> "ptr"

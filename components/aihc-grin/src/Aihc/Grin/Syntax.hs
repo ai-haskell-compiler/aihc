@@ -330,7 +330,8 @@ data GrinForeignEffect
   deriving (Eq, Show, Read)
 
 data GrinForeignType
-  = GrinForeignInt32
+  = GrinForeignInt
+  | GrinForeignInt32
   | GrinForeignWord64
   | GrinForeignAddr
   deriving (Eq, Show, Read)
@@ -346,6 +347,7 @@ grinForeignCallResultReps signature =
 foreignTypeRuntimeRep :: GrinForeignType -> RuntimeRep
 foreignTypeRuntimeRep foreignType =
   case foreignType of
+    GrinForeignInt -> IntRep
     GrinForeignInt32 -> Int32Rep
     GrinForeignWord64 -> Word64Rep
     GrinForeignAddr -> AddrRep

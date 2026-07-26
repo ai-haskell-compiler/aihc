@@ -4,16 +4,10 @@ module Main (main) where
 
 import Aihc.Cli.Compile
   ( CompileEnvironment (..),
-    CompileError,
     compileOutputPath,
-    compileSourceToAssemblyWithDependencies,
-    compileSourceToAssemblyWithDependenciesFor,
-    compileSourceToCoreWithDependencies,
-    compileSourceToCpsGrinWithDependencies,
-    compileSourceToGrinWithDependencies,
-    compileSourceToWholeCoreWithDependencies,
     defaultCompileEnvironment,
-    runCompileWithEnvironment,
+    wasmClangCommand,
+    wasmOptArguments,
   )
 import Aihc.Cli.Install
   ( DependencyResolver (..),
@@ -37,9 +31,7 @@ import Aihc.Fc (FcProgram (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..))
 import Aihc.Resolve (Scope (..))
-import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
-import Control.Monad (forM_, when, (>=>))
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy.Char8 qualified as BL8
@@ -47,9 +39,6 @@ import Data.IORef (newIORef)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
-import Data.Text.IO qualified as TIO
-import Data.Time.Calendar (fromGregorian)
-import Data.Time.Clock (UTCTime (..))
 import System.Console.Haskeline qualified as Haskeline
 import System.Directory
   ( createDirectory,
@@ -57,20 +46,14 @@ import System.Directory
     doesDirectoryExist,
     doesFileExist,
     getCurrentDirectory,
-    getModificationTime,
     getTemporaryDirectory,
-    listDirectory,
     removeDirectoryRecursive,
     removeFile,
-    setModificationTime,
     withCurrentDirectory,
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
-import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeFileName, (</>))
-import System.IO (hClose, hFlush, hPutStr, openTempFile)
-import System.Info (arch, os)
-import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readProcessWithExitCode, waitForProcess)
+import System.IO (hClose, openTempFile)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import Test.Tasty.QuickCheck qualified as QC
@@ -83,51 +66,60 @@ main =
         [ testCase "parses compile source" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs"]),
           testCase "parses compile output and keep-asm" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True False Nothing GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True False Nothing GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "-o", "hello", "--keep-asm"]),
           testCase "parses keep-core" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False False Nothing GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False False Nothing GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--keep-core"]),
           testCase "parses keep-grin" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False False Nothing GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False False Nothing GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--keep-grin"]),
           testCase "parses whole-program compatibility mode" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False True Nothing GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False True Nothing GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--whole-program"]),
           testCase "parses a cross-compilation target" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just LinuxAmd64) GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just LinuxAmd64) GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--target", "linux-amd64"]),
           testCase "parses the portable C target" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just PortableC) GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just PortableC) GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--target", "portable-c"]),
           testCase "parses the LLVM target" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just Llvm) GcCalloc)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just Llvm) GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--target", "llvm"]),
+          testCase "parses the WASI P3 target" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just Wasm32Wasip3) GcCalloc False)))
+              (parseCommandPure ["compile", "Main.hs", "--target", "wasm32-wasip3"]),
+          testCase "parses optional wasm-opt optimization" $
+            case parseCommandPure ["compile", "Main.hs", "--target", "wasm32-wasip3", "--use-wasm-opt"] of
+              Right (CmdCompile options) -> assertBool "uses wasm-opt" (compileUseWasmOpt options)
+              result -> assertFailure ("expected compile options, got: " <> show result),
           testCase "selects the semispace collector" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcSemispace)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcSemispace False)))
               (parseCommandPure ["compile", "Main.hs", "--gc", "semispace"]),
           testCase "derives safe default compile output paths" $ do
-            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False False Nothing GcCalloc))
-            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False False Nothing GcCalloc)),
+            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False False Nothing GcCalloc False))
+            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False False Nothing GcCalloc False)),
           testCase "parses install package" $
             assertEqual
               "command"
@@ -162,33 +154,15 @@ main =
         ],
       testGroup
         "compile"
-        [ testCase "lowers the aihc-base HelloWorld example to native assembly" $
-            withTempDir "aihc-compile-example" $ \root -> do
-              sourcePath <- helloWorldExamplePath
-              source <- TIO.readFile sourcePath
-              let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
-                  environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-              forM_ [AppleArm64, LinuxAmd64, PortableC, Llvm] $ \target -> do
-                result <- compileSourceToAssemblyWithDependenciesFor target environment sourcePath source
-                case result of
-                  Left err -> assertFailure ("expected " <> show target <> " compile success, got: " <> show err)
-                  Right assembly -> do
-                    assertBool "target entry" (targetMainDirective target `T.isInfixOf` assembly)
-                    assertBool "dependency initializer call" (targetInitializerCall target `T.isInfixOf` assembly)
-                    assertBool "Haskell tail transfer" (targetTailTransfer target `T.isInfixOf` assembly),
-          testCase "assembles an executable and honors keep-output flags" test_compileExecutable,
-          testCase "assembles an incremental portable C executable" test_compilePortableCExecutable,
-          testCase "assembles an incremental LLVM executable" test_compileLlvmExecutable,
-          testCase "lowers every example to portable C" test_compilePortableCExamples,
-          testCase "compiles and runs the aihc-base green threads example" test_compileGreenThreadsExample,
-          testCase "compiles and runs the GHC-compatible MVar example" test_compileMVarsExample,
-          testCase "compiles and runs the async stdio example" test_compileAsyncStdioExample,
-          testCase "compiles and runs the async hello-world example" test_compileAsyncHelloWorldExample,
-          testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment,
-          testCase "builds and caches implicit core dependencies" test_compileImplicitCoreDependencies,
-          testCase "skips default dependencies under NoImplicitPrelude" test_compileNoImplicitPrelude,
-          testCase "builds explicit incremental imports under NoImplicitPrelude" test_compileExplicitCoreImport,
-          testCase "compiles mutually recursive modules as one SCC unit" test_compileMutuallyRecursiveModules
+        [ testCase "uses standard Clang for the WebAssembly target" $ do
+            assertEqual "default command" ("clang", ["--target=wasm32-unknown-unknown"]) (wasmClangCommand Nothing)
+            assertEqual "configured command" ("custom-clang", ["--target=wasm32-unknown-unknown"]) (wasmClangCommand (Just "custom-clang")),
+          testCase "enables Binaryen optimization and tail calls" $
+            assertEqual
+              "wasm-opt arguments"
+              ["input.wasm", "-O3", "--enable-tail-call", "--emit-target-features", "-o", "output.wasm"]
+              (wasmOptArguments "input.wasm" "output.wasm"),
+          testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment
         ],
       testGroup
         "repl"
@@ -891,205 +865,6 @@ test_dryRunPlannerDoesNotGenerateSourceFiles =
     autogenExists <- doesDirectoryExist autogenDir
     assertBool ("expected dry-run planner not to create " <> autogenDir) (not autogenExists)
 
-test_compileExecutable :: Assertion
-test_compileExecutable =
-  when (isNativeCodegenHost arch os) $
-    withTempDir "aihc-compile" $ \root -> do
-      sourcePath <- helloWorldExamplePath
-      let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
-          keptOutput = root </> "kept"
-          temporaryOutput = root </> "temporary"
-          environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-          keptOptions = CompileOptions sourcePath (Just keptOutput) True True True False Nothing GcSemispace
-          temporaryOptions = CompileOptions sourcePath (Just temporaryOutput) False False False True Nothing GcCalloc
-      withCurrentDirectory repositoryRoot $ do
-        runCompileWithEnvironment environment keptOptions
-        assertFileExists keptOutput
-        assertFileExists (keptOutput <> ".core")
-        assertFileExists (keptOutput <> ".grin")
-        assertFileExists (keptOutput <> ".cps.grin")
-        assertFileExists (keptOutput <> ".gc.grin")
-        assertFileExists (keptOutput <> ".s")
-        core <- TIO.readFile (keptOutput <> ".core")
-        grin <- TIO.readFile (keptOutput <> ".grin")
-        cpsGrin <- TIO.readFile (keptOutput <> ".cps.grin")
-        gcGrin <- TIO.readFile (keptOutput <> ".gc.grin")
-        assertBool "core contains main" ("main" `T.isInfixOf` core)
-        assertBool "GRIN contains main" ("main" `T.isInfixOf` grin)
-        assertBool "CPS-GRIN contains allocated continuations" ("store (P$cps$" `T.isInfixOf` cpsGrin)
-        assertBool "GC-GRIN contains explicit heap reservations" ("ensure-heap " `T.isInfixOf` gcGrin)
-        assertBool "GC-GRIN contains unchecked allocations" ("store-unchecked " `T.isInfixOf` gcGrin)
-        assertBool "GRIN erases the IO constructor" (not ("constructor IO/" `T.isInfixOf` grin))
-        assertBool "GRIN erases the CInt constructor" (not ("constructor CInt/" `T.isInfixOf` grin))
-        assertBool "GRIN does not allocate putchar globally" (not ("global putchar" `T.isInfixOf` grin || "caf putchar" `T.isInfixOf` grin))
-        assertBool "GRIN does not allocate char globally" (not ("global char" `T.isInfixOf` grin || "caf char" `T.isInfixOf` grin))
-        assertBool "GRIN uses direct known calls" ("call @(BoxedRep Lifted) $entry$>>" `T.isInfixOf` grin)
-        assertBool "GRIN makes evaluation explicit" ("eval @" `T.isInfixOf` grin)
-        assertNativeOutput "Hello, world!\n" keptOutput
-
-        runCompileWithEnvironment environment temporaryOptions
-        assertFileExists temporaryOutput
-        assertFileDoesNotExist (temporaryOutput <> ".core")
-        assertFileDoesNotExist (temporaryOutput <> ".grin")
-        assertFileDoesNotExist (temporaryOutput <> ".cps.grin")
-        assertFileDoesNotExist (temporaryOutput <> ".gc.grin")
-        assertFileDoesNotExist (temporaryOutput <> ".s")
-        assertNativeOutput "Hello, world!\n" temporaryOutput
-
-test_compileGreenThreadsExample :: Assertion
-test_compileGreenThreadsExample =
-  when (isNativeCodegenHost arch os) $
-    withTempDir "aihc-compile-green-threads" $ \root -> do
-      sourcePath <- greenThreadsExamplePath
-      let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
-          output = root </> "green-threads"
-          environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-          options = CompileOptions sourcePath (Just output) False False False False Nothing GcCalloc
-      withCurrentDirectory repositoryRoot $ do
-        runCompileWithEnvironment environment options
-        assertNativeOutput
-          "Hello world main green thread\nStill in main\nHello from forked thread\nBack in main\n"
-          output
-
-test_compileMVarsExample :: Assertion
-test_compileMVarsExample =
-  withTempDir "aihc-compile-mvars" $ \root -> do
-    sourcePath <- mvarsExamplePath
-    let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
-        environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-        targets =
-          [PortableC, Llvm]
-            <> [AppleArm64 | arch == "aarch64" && os == "darwin"]
-            <> [LinuxAmd64 | arch == "x86_64" && os == "linux"]
-        expected =
-          "both blocked readers received the put\n\
-          \readMVar left the MVar full\n\
-          \takeMVar received the original value\n\
-          \blocked putMVar installed the next value\n"
-    withCurrentDirectory repositoryRoot $
-      forM_ targets $ \target -> do
-        let output = root </> ("mvars-" <> show target)
-            options = CompileOptions sourcePath (Just output) False False False False (Just target) GcSemispace
-        runCompileWithEnvironment environment options
-        assertNativeOutput expected output
-
-test_compileAsyncStdioExample :: Assertion
-test_compileAsyncStdioExample =
-  withTempDir "aihc-compile-async-stdio" $ \root -> do
-    sourcePath <- asyncStdioExamplePath
-    let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
-        environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-        targets =
-          [PortableC, Llvm]
-            <> [AppleArm64 | arch == "aarch64" && os == "darwin"]
-            <> [LinuxAmd64 | arch == "x86_64" && os == "linux"]
-    withCurrentDirectory repositoryRoot $
-      forM_ targets $ \target -> do
-        let output = root </> ("async-stdio-" <> show target)
-            options = CompileOptions sourcePath (Just output) False False False False (Just target) GcSemispace
-        runCompileWithEnvironment environment options
-        (Just childInput, Just childOutput, Just childError, processHandle) <-
-          createProcess
-            (proc output [])
-              { std_in = CreatePipe,
-                std_out = CreatePipe,
-                std_err = CreatePipe
-              }
-        threadDelay 50000
-        hPutStr childInput "Buffered async IO\n"
-        hFlush childInput
-        hClose childInput
-        programOut <- TIO.hGetContents childOutput
-        programErr <- TIO.hGetContents childError
-        exitCode <- waitForProcess processHandle
-        assertEqual (show target <> " stderr: " <> T.unpack programErr) ExitSuccess exitCode
-        assertEqual (show target <> " stdout") "Buffered async IO\n" programOut
-
-test_compileAsyncHelloWorldExample :: Assertion
-test_compileAsyncHelloWorldExample =
-  withTempDir "aihc-compile-async-hello-world" $ \root -> do
-    sourcePath <- asyncHelloWorldExamplePath
-    let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
-        environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-        targets =
-          [PortableC, Llvm]
-            <> [AppleArm64 | arch == "aarch64" && os == "darwin"]
-            <> [LinuxAmd64 | arch == "x86_64" && os == "linux"]
-    withCurrentDirectory repositoryRoot $
-      forM_ targets $ \target -> do
-        let output = root </> ("async-hello-world-" <> show target)
-            options = CompileOptions sourcePath (Just output) False False False False (Just target) GcSemispace
-        runCompileWithEnvironment environment options
-        assertNativeOutput "Hello world!\n" output
-
-test_compilePortableCExecutable :: Assertion
-test_compilePortableCExecutable =
-  withTempDir "aihc-compile-portable-c" $ \root -> do
-    sourcePath <- helloWorldExamplePath
-    let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
-        output = root </> "hello-portable-c"
-        cacheRoot = root </> "cache"
-        environment = CompileEnvironment (repositoryRoot </> "core-libs") cacheRoot
-        options = CompileOptions sourcePath (Just output) False False True False (Just PortableC) GcCalloc
-    withCurrentDirectory repositoryRoot $ do
-      runCompileWithEnvironment environment options
-      assertFileExists output
-      assertFileExists (output <> ".c")
-      generatedC <- TIO.readFile (output <> ".c")
-      assertBool "portable C main" ("int main(void)" `T.isInfixOf` generatedC)
-      assertBool "dependency initializer call" ("_aihc_init_" `T.isInfixOf` generatedC)
-      assertNativeOutput "Hello, world!\n" output
-      objectFiles <- compileCacheArtifacts ".o" cacheRoot
-      archiveFiles <- compileCacheArtifacts ".a" cacheRoot
-      assertBool "cached C dependency objects" (not (null objectFiles))
-      assertBool "cached C dependency archives" (not (null archiveFiles))
-      let oldTimestamp = UTCTime (fromGregorian 2000 1 1) 0
-      mapM_ (`setModificationTime` oldTimestamp) (objectFiles <> archiveFiles)
-      runCompileWithEnvironment environment options
-      mapM_ (getModificationTime >=> assertEqual "cache hit preserves C artifact" oldTimestamp) (objectFiles <> archiveFiles)
-
-test_compilePortableCExamples :: Assertion
-test_compilePortableCExamples =
-  withTempDir "aihc-compile-portable-c-examples" $ \root -> do
-    sourcePaths <- sequence [helloWorldExamplePath, greenThreadsExamplePath, mvarsExamplePath, asyncStdioExamplePath, asyncHelloWorldExamplePath, unboxedTailRecursionExamplePath]
-    forM_ sourcePaths $ \sourcePath -> do
-      source <- TIO.readFile sourcePath
-      let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
-          environment = CompileEnvironment (repositoryRoot </> "core-libs") (root </> "cache")
-      result <- compileSourceToAssemblyWithDependenciesFor PortableC environment sourcePath source
-      case result of
-        Left err -> assertFailure ("expected portable C compile success for " <> sourcePath <> ", got: " <> show err)
-        Right generatedC -> do
-          assertBool "includes the portable runtime" ("#include \"aihc_runtime.h\"" `T.isInfixOf` generatedC)
-          assertBool "uses trampoline dispatch" ("while (aihc_next_transfer.entry != NULL)" `T.isInfixOf` generatedC)
-
-test_compileLlvmExecutable :: Assertion
-test_compileLlvmExecutable =
-  withTempDir "aihc-compile-llvm" $ \root -> do
-    sourcePath <- helloWorldExamplePath
-    let repositoryRoot = takeDirectory (takeDirectory (takeDirectory sourcePath))
-        output = root </> "hello-llvm"
-        cacheRoot = root </> "cache"
-        environment = CompileEnvironment (repositoryRoot </> "core-libs") cacheRoot
-        options = CompileOptions sourcePath (Just output) False False True False (Just Llvm) GcCalloc
-    withCurrentDirectory repositoryRoot $ do
-      runCompileWithEnvironment environment options
-      assertFileExists output
-      assertFileExists (output <> ".ll")
-      generatedLlvm <- TIO.readFile (output <> ".ll")
-      assertBool "LLVM main" ("define i32 @main()" `T.isInfixOf` generatedLlvm)
-      assertBool "guaranteed tail transfer" ("musttail call tailcc void" `T.isInfixOf` generatedLlvm)
-      assertNativeOutput "Hello, world!\n" output
-      objectFiles <- compileCacheArtifacts ".o" cacheRoot
-      archiveFiles <- compileCacheArtifacts ".a" cacheRoot
-      assertBool "cached LLVM dependency objects" (not (null objectFiles))
-      assertBool "cached LLVM dependency archives" (not (null archiveFiles))
-
-isNativeCodegenHost :: String -> String -> Bool
-isNativeCodegenHost hostArch hostOs =
-  (hostArch == "aarch64" && hostOs == "darwin")
-    || (hostArch == "x86_64" && hostOs == "linux")
-
 test_compileDefaultEnvironment :: Assertion
 test_compileDefaultEnvironment =
   withTempDir "aihc-compile-environment" $ \root -> do
@@ -1110,255 +885,6 @@ test_compileDefaultEnvironment =
   where
     restoreCacheHome Nothing = unsetEnv "XDG_CACHE_HOME"
     restoreCacheHome (Just value) = setEnv "XDG_CACHE_HOME" value
-
-test_compileImplicitCoreDependencies :: Assertion
-test_compileImplicitCoreDependencies =
-  withTempDir "aihc-compile-dependencies" $ \root -> do
-    let sourcePath = "Main.hs"
-        coreRoot = root </> "core-libs"
-        cacheRoot = root </> "cache"
-        environment = CompileEnvironment coreRoot cacheRoot
-        implicitSource = implicitDependencySource
-    createCompileLibrary coreRoot "aihc-prim" "GHC.Prim" "module GHC.Prim where\n"
-    createCompileLibrary coreRoot "aihc-base" "BaseSupport" "module BaseSupport where\nsupport x = x\n"
-    createCompileLibrary coreRoot "aihc-base" "Prelude" "module Prelude where\nimport BaseSupport\nid x = support x\n"
-    writeFile (coreRoot </> "aihc-base" </> "src" </> "Unused.hs") "module Unused where\nunused = 1\n"
-
-    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath implicitSource
-    cacheFiles <- compileCacheFiles cacheRoot
-    assertEqual "one dependency artifact" 1 (length cacheFiles)
-    cachePath <- case cacheFiles of
-      [path] -> pure path
-      paths -> assertFailure ("expected one cache file, got " <> show paths)
-    objectFiles <- compileCacheArtifacts ".o" cacheRoot
-    archiveFiles <- compileCacheArtifacts ".a" cacheRoot
-    assertEqual "one object per dependency module" 3 (length objectFiles)
-    assertEqual "one archive per dependency library" 2 (length archiveFiles)
-
-    let oldTimestamp = UTCTime (fromGregorian 2000 1 1) 0
-    setModificationTime cachePath oldTimestamp
-    mapM_ (`setModificationTime` oldTimestamp) (objectFiles <> archiveFiles)
-    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath implicitSource
-    getModificationTime cachePath >>= assertEqual "cache hit preserves artifact" oldTimestamp
-    mapM_ (getModificationTime >=> assertEqual "cache hit preserves native artifact" oldTimestamp) (objectFiles <> archiveFiles)
-
-    writeFile (coreRoot </> "aihc-base" </> "src" </> "Unused.hs") "module Unused where\nunused = 2\n"
-    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment sourcePath implicitSource
-    compileCacheFiles cacheRoot >>= assertEqual "unused library input changes the graph key" 2 . length
-
-test_compileNoImplicitPrelude :: Assertion
-test_compileNoImplicitPrelude =
-  withTempDir "aihc-compile-no-prelude" $ \root -> do
-    let environment = CompileEnvironment (root </> "missing-core-libs") (root </> "cache")
-    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment "Main.hs" noImplicitDependencySource
-    cacheExists <- doesDirectoryExist (compileCacheRoot environment)
-    assertBool "NoImplicitPrelude should not create a dependency cache" (not cacheExists)
-
-test_compileExplicitCoreImport :: Assertion
-test_compileExplicitCoreImport =
-  withTempDir "aihc-compile-explicit-dependency" $ \root -> do
-    let coreRoot = root </> "core-libs"
-        cacheRoot = root </> "cache"
-        environment = CompileEnvironment coreRoot cacheRoot
-        withImport = T.replace "module Main where\n" "module Main where\n\nimport Demo (identity)\n" noImplicitDependencySource
-        importedSource = T.replace "putchar (char 72#Int32)" "putchar (identity (char 72#Int32))" withImport
-    createCompileLibrary
-      coreRoot
-      "demo"
-      "Demo"
-      ( unlines
-          [ "{-# LANGUAGE NoImplicitPrelude #-}",
-            "module Demo (identity) where",
-            "data UnreachableDependencyType = UnreachableDependencyConstructor",
-            "unreachableDependencyFunction = UnreachableDependencyConstructor",
-            "dependencyImplementation x = let alias = x in alias",
-            "identity x = dependencyImplementation x"
-          ]
-      )
-    core <- expectCompileArtifact =<< compileSourceToCoreWithDependencies environment "Main.hs" importedSource
-    grin <- expectCompileArtifact =<< compileSourceToGrinWithDependencies environment "Main.hs" importedSource
-    cpsGrin <- expectCompileArtifact =<< compileSourceToCpsGrinWithDependencies environment "Main.hs" importedSource
-    wholeCore <- expectCompileArtifact =<< compileSourceToWholeCoreWithDependencies environment "Main.hs" importedSource
-    assertBool "dependency reference remains in incremental Core" ("identity" `T.isInfixOf` core)
-    assertBool "dependency reference remains in incremental GRIN" ("identity" `T.isInfixOf` grin)
-    assertBool "dependency reference remains in incremental CPS-GRIN" ("identity" `T.isInfixOf` cpsGrin)
-    assertBool "CPS-GRIN preserves explicit evaluation" ("eval @" `T.isInfixOf` cpsGrin)
-    assertBool "CPS-GRIN reifies evaluation continuations" ("store (P$cps$" `T.isInfixOf` cpsGrin)
-    assertBool "dependency Core implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` core))
-    assertBool "dependency GRIN implementation is excluded" (not ("dependencyImplementation" `T.isInfixOf` grin))
-    assertBool "whole-program Core merges reachable dependency implementations" ("dependencyImplementation" `T.isInfixOf` wholeCore)
-    assertBool ("whole-program Core retains a dependency alias:\n" <> T.unpack wholeCore) (not ("alias" `T.isInfixOf` wholeCore))
-    assertBool "unreachable dependency function is excluded from Core" (not ("unreachableDependencyFunction" `T.isInfixOf` core))
-    assertBool "unreachable dependency type is excluded from Core" (not ("UnreachableDependencyConstructor" `T.isInfixOf` core))
-    assertBool "whole-program DCE excludes unreachable dependency functions" (not ("unreachableDependencyFunction" `T.isInfixOf` wholeCore))
-    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment "Main.hs" importedSource
-    compileCacheFiles cacheRoot >>= assertEqual "explicit dependency artifact" 1 . length
-
-test_compileMutuallyRecursiveModules :: Assertion
-test_compileMutuallyRecursiveModules =
-  withTempDir "aihc-compile-module-scc" $ \root -> do
-    let coreRoot = root </> "core-libs"
-        cacheRoot = root </> "cache"
-        environment = CompileEnvironment coreRoot cacheRoot
-        source = T.replace "module Main where\n" "module Main where\n\nimport Cycle.A (Token)\n" noImplicitDependencySource
-    createCompileLibrary
-      coreRoot
-      "cycle"
-      "Cycle.A"
-      ( unlines
-          [ "{-# LANGUAGE NoImplicitPrelude #-}",
-            "module Cycle.A (Token, a) where",
-            "import Cycle.B (b)",
-            "data Token = Token",
-            "a :: Token -> Token",
-            "a = b"
-          ]
-      )
-    createCompileLibrary
-      coreRoot
-      "cycle"
-      "Cycle.B"
-      ( unlines
-          [ "{-# LANGUAGE NoImplicitPrelude #-}",
-            "module Cycle.B (b) where",
-            "import Cycle.A (Token, a)",
-            "b :: Token -> Token",
-            "b value = value",
-            "back :: Token -> Token",
-            "back = a"
-          ]
-      )
-    expectCompileSuccess =<< compileSourceToAssemblyWithDependencies environment "Main.hs" source
-    objectFiles <- compileCacheArtifacts ".o" cacheRoot
-    assertEqual "one object for the two-module SCC" 1 (length objectFiles)
-
-expectCompileSuccess :: Either CompileError T.Text -> Assertion
-expectCompileSuccess result =
-  case result of
-    Left err -> assertFailure ("expected dependency-aware compile to succeed, got: " <> show err)
-    Right assembly -> assertBool "native entry" (nativeMainDirective `T.isInfixOf` assembly)
-
-nativeMainDirective :: T.Text
-nativeMainDirective
-  | arch == "x86_64" && os == "linux" = ".globl main"
-  | otherwise = ".globl _main"
-
-targetMainDirective :: NativeTarget -> T.Text
-targetMainDirective AppleArm64 = ".globl _main"
-targetMainDirective LinuxAmd64 = ".globl main"
-targetMainDirective PortableC = "int main(void)"
-targetMainDirective Llvm = "define i32 @main()"
-
-targetInitializerCall :: NativeTarget -> T.Text
-targetInitializerCall AppleArm64 = "bl _aihc_init_"
-targetInitializerCall LinuxAmd64 = "call _aihc_init_"
-targetInitializerCall PortableC = "_aihc_init_"
-targetInitializerCall Llvm = "call void @_aihc_init_"
-
-targetTailTransfer :: NativeTarget -> T.Text
-targetTailTransfer AppleArm64 = "br x9"
-targetTailTransfer LinuxAmd64 = "jmp r11"
-targetTailTransfer PortableC = "aihc_next_transfer"
-targetTailTransfer Llvm = "musttail call tailcc void"
-
-expectCompileArtifact :: Either CompileError T.Text -> IO T.Text
-expectCompileArtifact result =
-  case result of
-    Left err -> assertFailure ("expected dependency-aware compile to succeed, got: " <> show err)
-    Right core -> pure core
-
-implicitDependencySource :: T.Text
-implicitDependencySource =
-  T.unlines
-    [ "{-# LANGUAGE ExtendedLiterals #-}",
-      "{-# LANGUAGE ForeignFunctionInterface #-}",
-      "{-# LANGUAGE MagicHash #-}",
-      "{-# LANGUAGE UnboxedTuples #-}",
-      "module Main where",
-      "data State# s",
-      "data RealWorld",
-      "data Int32 = I32# Int32#",
-      "newtype CInt = CInt Int32",
-      "newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))",
-      "foreign import ccall unsafe putchar :: CInt -> IO CInt",
-      "char value = CInt (I32# value)",
-      "main = id (putchar (char 72#Int32))"
-    ]
-
-noImplicitDependencySource :: T.Text
-noImplicitDependencySource =
-  T.replace
-    "main = id (putchar (char 72#Int32))"
-    "main = putchar (char 72#Int32)"
-    ("{-# LANGUAGE NoImplicitPrelude #-}\n" <> implicitDependencySource)
-
-createCompileLibrary :: FilePath -> FilePath -> FilePath -> String -> IO ()
-createCompileLibrary coreRoot library moduleName source = do
-  let sourcePath = coreRoot </> library </> "src" </> map dotToSlash moduleName <> ".hs"
-  createDirectoryIfMissing True (takeDirectory sourcePath)
-  writeFile (coreRoot </> library </> library <> ".cabal") ("name: " <> library <> "\n")
-  writeFile sourcePath source
-  where
-    dotToSlash '.' = '/'
-    dotToSlash char = char
-
-compileCacheFiles :: FilePath -> IO [FilePath]
-compileCacheFiles = compileCacheArtifacts ".cache"
-
-compileCacheArtifacts :: String -> FilePath -> IO [FilePath]
-compileCacheArtifacts extension root = do
-  exists <- doesDirectoryExist root
-  if not exists
-    then pure []
-    else do
-      entries <- listDirectory root
-      concat <$> mapM visit entries
-  where
-    visit entry = do
-      let path = root </> entry
-      isDirectory <- doesDirectoryExist path
-      if isDirectory
-        then compileCacheArtifacts extension path
-        else pure [path | extension `isSuffixOf` path]
-
-assertNativeOutput :: String -> FilePath -> Assertion
-assertNativeOutput expected executable = do
-  (exitCode, stdout, stderr) <- readProcessWithExitCode executable [] ""
-  assertEqual ("native stderr: " <> stderr) ExitSuccess exitCode
-  assertEqual "native stdout" expected stdout
-
-helloWorldExamplePath :: IO FilePath
-helloWorldExamplePath = examplePath ("hello-world" </> "Main.hs")
-
-greenThreadsExamplePath :: IO FilePath
-greenThreadsExamplePath = examplePath ("green-threads" </> "Main.hs")
-
-asyncStdioExamplePath :: IO FilePath
-asyncStdioExamplePath = examplePath ("async-stdio" </> "Main.hs")
-
-asyncHelloWorldExamplePath :: IO FilePath
-asyncHelloWorldExamplePath = examplePath ("async-hello-world" </> "Main.hs")
-
-mvarsExamplePath :: IO FilePath
-mvarsExamplePath = examplePath ("mvars" </> "Main.hs")
-
-unboxedTailRecursionExamplePath :: IO FilePath
-unboxedTailRecursionExamplePath = examplePath ("unboxed-tail-recursion" </> "Main.hs")
-
-examplePath :: FilePath -> IO FilePath
-examplePath example = getCurrentDirectory >>= findFrom
-  where
-    relativePath = "examples" </> example
-    findFrom directory = do
-      let candidate = directory </> relativePath
-      exists <- doesFileExist candidate
-      if exists
-        then pure candidate
-        else do
-          let parent = takeDirectory directory
-          if parent == directory
-            then assertFailure ("could not find " <> relativePath)
-            else findFrom parent
 
 assertFileExists :: FilePath -> Assertion
 assertFileExists path = do

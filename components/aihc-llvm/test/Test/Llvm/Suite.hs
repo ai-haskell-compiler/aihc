@@ -29,6 +29,7 @@ tests =
       testCase "accepts every shared native primitive" $
         assertEqual "LLVM primitive coverage" (Right ()) (validatePrimitiveNames supportedNativePrimitiveNames),
       testCase "lowers byte-array primitives" testByteArrayPrimitives,
+      testCase "executes platform Int foreign calls" (testProgram "L" foreignIntProgram),
       testCase "executes Int# addition" (testProgram "*" intAddProgram),
       testCase "executes cooperative scheduling" (testProgram "PCAB" schedulerProgram)
     ]
@@ -129,6 +130,65 @@ putcharCall =
         GrinForeignSignature
           { grinForeignArgumentTypes = [GrinForeignInt32],
             grinForeignResultType = GrinForeignInt32,
+            grinForeignEffect = GrinForeignPure
+          }
+    }
+
+foreignIntProgram :: GrinProgram
+foreignIntProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [labsCall, putcharCall],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [(mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = mainFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody =
+                GrinBind [absoluteValue] (GrinForeignCallExpr labsCall [intLiteral (-76)]) $
+                  GrinCase
+                    (GrinVarValue absoluteValue)
+                    caseBinder
+                    [ outputAlternative (GrinLitAlt (GrinLitInt IntRep 76)) 'L' successOutput,
+                      outputAlternative GrinDefaultAlt '?' failureOutput
+                    ]
+            }
+        ]
+    }
+  where
+    lifted = BoxedRep Lifted
+    mainFunction = FunctionName "$foreign_int_main"
+    mainClosure = GrinVar "main" 43 lifted
+    absoluteValue = GrinVar "absolute_value" 44 IntRep
+    caseBinder = GrinVar "case_binder" 45 IntRep
+    successOutput = GrinVar "success_output" 46 Int32Rep
+    failureOutput = GrinVar "failure_output" 47 Int32Rep
+    unitValue = GrinVar "()" 48 lifted
+    intLiteral = GrinLitValue . GrinLitInt IntRep
+    outputAlternative constructor character output =
+      GrinAlt
+        { grinAltCon = constructor,
+          grinAltBinders = [],
+          grinAltRhs =
+            GrinBind [output] (GrinForeignCallExpr putcharCall [GrinLitValue (GrinLitInt Int32Rep (toInteger (fromEnum character)))]) $
+              GrinConstant [GrinVarValue unitValue]
+        }
+
+labsCall :: GrinForeignCall
+labsCall =
+  GrinForeignCall
+    { grinForeignCallName = "$ffi$labs",
+      grinForeignCallSymbol = "labs",
+      grinForeignCallSignature =
+        GrinForeignSignature
+          { grinForeignArgumentTypes = [GrinForeignInt],
+            grinForeignResultType = GrinForeignInt,
             grinForeignEffect = GrinForeignPure
           }
     }

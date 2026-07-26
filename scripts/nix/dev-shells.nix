@@ -10,7 +10,15 @@ in {
       pkgs.alejandra
       pkgs.hlint
       pkgs.clang-tools
+      (pkgs.writeShellScriptBin "wasm-ld" ''
+        exec ${pkgs.lld}/bin/wasm-ld "$@"
+      '')
+      pkgs.wasm-tools
+      pkgs.wasmtime
+      pkgs.wit-bindgen
+      pkgs.zlib
       pkgs.python3Packages.mkdocs-material
     ];
+    AIHC_WASM_CLANG = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
   };
 }

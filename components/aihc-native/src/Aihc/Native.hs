@@ -38,6 +38,7 @@ data NativeTarget
   | LinuxAmd64
   | PortableC
   | Llvm
+  | Wasm32Wasip3
   deriving (Bounded, Enum, Eq, Ord, Show)
 
 renderNativeTarget :: NativeTarget -> String
@@ -47,6 +48,7 @@ renderNativeTarget target =
     LinuxAmd64 -> "linux-amd64"
     PortableC -> "portable-c"
     Llvm -> "llvm"
+    Wasm32Wasip3 -> "wasm32-wasip3"
 
 parseNativeTarget :: String -> Either String NativeTarget
 parseNativeTarget value =
@@ -58,7 +60,9 @@ parseNativeTarget value =
     "portable-c" -> Right PortableC
     "c" -> Right PortableC
     "llvm" -> Right Llvm
-    _ -> Left "target must be apple-arm64, linux-amd64, portable-c, or llvm"
+    "wasm32-wasip3" -> Right Wasm32Wasip3
+    "wasip3" -> Right Wasm32Wasip3
+    _ -> Left "target must be apple-arm64, linux-amd64, portable-c, llvm, or wasm32-wasip3"
 
 hostNativeTarget :: Maybe NativeTarget
 hostNativeTarget
@@ -73,6 +77,7 @@ nativeTargetTriple target =
     LinuxAmd64 -> "x86_64-unknown-linux-gnu"
     PortableC -> "portable-c"
     Llvm -> "llvm"
+    Wasm32Wasip3 -> "wasm32-unknown-unknown"
 
 -- | Select the C or assembly compiler driver and target arguments.
 backendCompiler :: NativeTarget -> IO (FilePath, [String])
@@ -80,6 +85,7 @@ backendCompiler target =
   case target of
     PortableC -> pure ("clang", [])
     Llvm -> pure ("clang", ["-Wno-override-module", "-O2"])
+    Wasm32Wasip3 -> pure ("clang", ["--target=wasm32-unknown-unknown"])
     AppleArm64 -> nativeCompiler
     LinuxAmd64 -> nativeCompiler
   where
@@ -144,6 +150,13 @@ snapshotSourcePath = getDataFileName "runtime/aihc_snapshot.c"
 supportedNativePrimitiveNames :: [Text]
 supportedNativePrimitiveNames =
   [ "+#",
+    "-#",
+    "*#",
+    "compareInt#",
+    "<#",
+    "==#",
+    "charToInt#",
+    "intToChar#",
     "awaitIO#",
     "fork#",
     "newMVar#",

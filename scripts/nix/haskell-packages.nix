@@ -2,6 +2,25 @@
   projectHsPackages,
   sources,
 }: let
+  checkedPackageNames = [
+    "aihc"
+    "aihc-amd64"
+    "aihc-arm64"
+    "aihc-c"
+    "aihc-cpp"
+    "aihc-dev"
+    "aihc-fc"
+    "aihc-fmt"
+    "aihc-grin"
+    "aihc-llvm"
+    "aihc-native"
+    "aihc-parser"
+    "aihc-resolve"
+    "aihc-tc"
+    "aihc-testing"
+    "aihc-wasm"
+  ];
+
   componentSpecs = {
     aihc-amd64 = {
       src = sources.amd64Src;
@@ -54,8 +73,18 @@
       supportsDocs = true;
       supportsCoverage = true;
     };
+    aihc-wasm = {
+      src = sources.wasmSrc;
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
     aihc-parser = {
       src = sources.parserSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--flag fuzz";
+      };
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = true;
@@ -63,6 +92,9 @@
     };
     aihc-parser-compat = {
       src = sources.parserCompatSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--flag fuzz";
+      };
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = false;
@@ -70,7 +102,7 @@
     };
     aihc-cpp = {
       src = sources.cppSrc;
-      disableProfiling = false;
+      disableProfiling = true;
       optimizeForChecks = false;
       supportsDocs = true;
       supportsCoverage = true;
@@ -89,7 +121,7 @@
     aihc-grin = {
       src = sources.grinSrc;
       cabal2nixOptions = {
-        extraCabal2nixOptions = "--subpath components/aihc-grin";
+        extraCabal2nixOptions = "--flag fuzz --subpath components/aihc-grin";
         srcModifier = src: src;
       };
       disableProfiling = true;
@@ -106,6 +138,9 @@
     };
     aihc-tc = {
       src = sources.tcSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--flag fuzz";
+      };
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = false;
@@ -256,6 +291,7 @@ in rec {
     disableOptimization ? false,
     enableDocs ? false,
     enableCoverage ? false,
+    enableSeparateIntermediates ? false,
     warningsAsErrors ? false,
   }: let
     hsLib = pkgs.haskell.lib;
@@ -269,6 +305,7 @@ in rec {
       else drv;
 
     mkComponent = final: name: spec: let
+      prepareChecks = enableSeparateIntermediates && builtins.elem name checkedPackageNames;
       baseDrv =
         final.callCabal2nixWithOptions
         name
@@ -288,7 +325,26 @@ in rec {
         then enableCoverageWithExport hsLib optimizationAdjusted
         else optimizationAdjusted;
       warningsAdjusted = enableWarningsAsErrors coverageAdjusted;
-      checksAdjusted = hsLib.dontCheck warningsAdjusted;
+      intermediatesAdjusted =
+        if prepareChecks
+        then
+          hsLib.dontHaddock (
+            hsLib.overrideCabal warningsAdjusted (_old: {
+              doInstallIntermediates = true;
+              enableSeparateIntermediatesOutput = true;
+            })
+          )
+        else warningsAdjusted;
+      checksAdjusted =
+        if prepareChecks
+        then
+          hsLib.overrideCabal intermediatesAdjusted (_old: {
+            # Build test components into the reusable intermediates, but leave
+            # execution to the independently scheduled check derivations.
+            doCheck = true;
+            testFlags = ["--pattern" "__nix-build-tests-without-running__"];
+          })
+        else hsLib.dontCheck intermediatesAdjusted;
       haddockMode =
         if enableDocs
         then
@@ -321,7 +377,7 @@ in rec {
 
   mkHsPkgsForChecks = pkgs:
     mkHsPkgsVariant pkgs {
-      disableOptimization = true;
+      enableSeparateIntermediates = true;
       warningsAsErrors = true;
     };
 
