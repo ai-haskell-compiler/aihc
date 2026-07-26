@@ -3,7 +3,6 @@
 -- | Architecture-neutral support shared by backend code generators.
 module Aihc.Native
   ( NativeCpsCall (..),
-    NativeCpsParameter (..),
     NativeCpsTransfer (..),
     NativeTarget (..),
     backendCompiler,
@@ -175,14 +174,6 @@ supportedNativePrimitiveNames =
          "copyAddrToByteArray#"
        ]
 
--- | A parameter in a native CPS runtime function signature. Operand entries
--- consume source operands from left to right.
-data NativeCpsParameter
-  = NativeCpsMachine
-  | NativeCpsOperand
-  | NativeCpsContinuation
-  deriving (Eq, Show)
-
 -- | Control transfer performed after a native CPS runtime call returns.
 data NativeCpsTransfer
   = NativeCpsEnterContinuation
@@ -192,7 +183,8 @@ data NativeCpsTransfer
 -- | Architecture-neutral native ABI description for a CPS primitive.
 data NativeCpsCall = NativeCpsCall
   { nativeCpsCallSymbol :: !Text,
-    nativeCpsCallParameters :: ![NativeCpsParameter],
+    nativeCpsCallOperandCount :: !Int,
+    nativeCpsCallPassContinuation :: !Bool,
     nativeCpsCallTransfer :: !NativeCpsTransfer
   }
   deriving (Eq, Show)
@@ -202,19 +194,19 @@ nativeCpsPrimitiveCall name = lookup name nativeCpsPrimitiveCalls
 
 nativeCpsPrimitiveCalls :: [(Text, NativeCpsCall)]
 nativeCpsPrimitiveCalls =
-  [ enters "fork#" "aihc_fork" [NativeCpsMachine, NativeCpsOperand],
-    enters "newMVar#" "aihc_mvar_new" [NativeCpsMachine],
-    resumes "readMVar#" "aihc_mvar_read" [NativeCpsMachine, NativeCpsOperand, NativeCpsContinuation],
-    resumes "takeMVar#" "aihc_mvar_take" [NativeCpsMachine, NativeCpsOperand, NativeCpsContinuation],
-    resumes "putMVar#" "aihc_mvar_put" [NativeCpsMachine, NativeCpsOperand, NativeCpsOperand, NativeCpsContinuation],
-    resumes "yield#" "aihc_yield" [NativeCpsMachine, NativeCpsContinuation],
-    resumes "awaitIO#" "aihc_await_io" [NativeCpsMachine, NativeCpsOperand, NativeCpsContinuation]
+  [ enters "fork#" "aihc_fork" 1,
+    enters "newMVar#" "aihc_mvar_new" 0,
+    resumes "readMVar#" "aihc_mvar_read" 1,
+    resumes "takeMVar#" "aihc_mvar_take" 1,
+    resumes "putMVar#" "aihc_mvar_put" 2,
+    resumes "yield#" "aihc_yield" 0,
+    resumes "awaitIO#" "aihc_await_io" 1
   ]
   where
-    enters primitive symbol parameters =
-      (primitive, NativeCpsCall symbol parameters NativeCpsEnterContinuation)
-    resumes primitive symbol parameters =
-      (primitive, NativeCpsCall symbol parameters NativeCpsResumeScheduler)
+    enters primitive symbol operands =
+      (primitive, NativeCpsCall symbol operands False NativeCpsEnterContinuation)
+    resumes primitive symbol operands =
+      (primitive, NativeCpsCall symbol operands True NativeCpsResumeScheduler)
 
 -- | Runtime call used to implement a byte-array primitive. Freeze and thaw are
 -- representation-preserving and therefore deliberately have no runtime call.

@@ -2,7 +2,18 @@
 
 -- | AArch64 assembly vocabulary and runtime information-table rendering.
 module Aihc.Arm64.Codegen.Runtime
-  ( address,
+  ( Arm64Error (..),
+    CompileEnv (..),
+    CompiledFunction (..),
+    FunctionM,
+    FunctionState (..),
+    NodeInfo (..),
+    ObservedProgram (..),
+    RuntimeEnter (..),
+    RuntimeInfo (..),
+    RuntimeInfoKey (..),
+    ValueEnv (..),
+    address,
     applyArgumentRegisters,
     applyContinuationRegister,
     applyFunctionRegister,
@@ -21,11 +32,20 @@ module Aihc.Arm64.Codegen.Runtime
     lookupRuntimeInfoLabel,
     makeNodeLines,
     makeNodeUncheckedLines,
+    materializeNode,
+    materializeNodeUnchecked,
+    materializeValue,
+    materializeValueTo,
+    normalizedLiteralInteger,
+    allocateNode,
+    allocateNodeUnchecked,
+    initializeNodeFields,
     renderAddrLiteralPool,
     renderEnterStubs,
     renderNativeControl,
     renderRuntimeInfos,
     renderRuntimeSupport,
+    restoreApplyStackLines,
     runtimeInfoFunctionName,
     runtimeInfoKeyFields,
     runtimeInfoKeyNext,
@@ -43,17 +63,98 @@ module Aihc.Arm64.Codegen.Runtime
   )
 where
 
-import Aihc.Arm64.Codegen.Types
 import Aihc.Grin.Syntax
+import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..))
-import Aihc.Tc.Types (RuntimeRep)
+import Aihc.Tc.Types (RuntimeRep (..))
+import Control.Monad (forM)
+import Control.Monad.Trans.State.Strict (StateT)
 import Data.ByteString qualified as BS
 import Data.Char (ord)
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Numeric (showHex)
+
+data Arm64Error
+  = Arm64MissingEntry !Text
+  | Arm64MissingGlobal !Text
+  | Arm64MissingFunction !FunctionName
+  | Arm64MissingConstructor !Text
+  | Arm64UnsupportedPrimitive !Text
+  | Arm64UnsupportedExpression !Text
+  | Arm64UnsupportedValue !Text
+  | Arm64UnsupportedRuntimeRep !RuntimeRep
+  deriving (Eq, Show)
+
+data CompileEnv = CompileEnv
+  { compileConstructorIds :: !(Map Text Int),
+    compileConstructorArities :: !(Map Text Int),
+    compileGlobalSlots :: !(Map Text Int),
+    compileFunctionLabels :: !(Map FunctionName Text),
+    compileAddrLiteralLabels :: !(Map BS.ByteString Text),
+    compileNodeInfoLabels :: !(Map RuntimeInfoKey Text),
+    compileRuntimeInfos :: ![RuntimeInfo],
+    compileContinuationFunctions :: !(Set.Set FunctionName),
+    compileExposeAllFunctions :: !Bool,
+    compileAllowUnsupportedPrimitives :: !Bool
+  }
+
+data ObservedProgram = ObservedProgram
+  { observedAssembly :: !Text,
+    observedMetadataSource :: !Text
+  }
+  deriving (Eq, Show)
+
+data FunctionState = FunctionState
+  { functionNextLabel :: !Int,
+    functionNextSlot :: !Int,
+    functionBlocksRev :: ![BlockLayout.Block Text Text]
+  }
+
+data CompiledFunction = CompiledFunction
+  { compiledFunctionSlots :: !Int,
+    compiledFunctionLines :: ![Text]
+  }
+
+type FunctionM = StateT FunctionState (Either Arm64Error)
+
+data ValueEnv = ValueEnv
+  { valueCompileEnv :: !CompileEnv,
+    valueLocations :: !(Map GrinVar (Location Text)),
+    valueLabelPrefix :: !Text,
+    valueFunctionName :: !FunctionName,
+    valueFunctionParameters :: ![GrinVar],
+    valueBodyLabel :: !Text
+  }
+
+data RuntimeInfo = RuntimeInfo
+  { runtimeInfoLabel :: !Text,
+    runtimeInfoIdentity :: !NodeInfo,
+    runtimeInfoFields :: ![RuntimeRep],
+    runtimeInfoRemainingArity :: !Int,
+    runtimeInfoNext :: !(Maybe Text),
+    runtimeInfoEnter :: !(Maybe RuntimeEnter)
+  }
+
+data RuntimeEnter = RuntimeEnter
+  { runtimeEnterTarget :: !Text,
+    runtimeEnterStoredCount :: !Int,
+    runtimeEnterSuppliedCount :: !Int
+  }
+
+data RuntimeInfoKey
+  = ConstructorRuntimeInfo !Text !Int
+  | ClosureRuntimeInfo !FunctionName ![RuntimeRep] ![[RuntimeRep]]
+  | ThunkRuntimeInfo !FunctionName ![RuntimeRep]
+  deriving (Eq, Ord, Show)
+
+data NodeInfo
+  = InfoImmediate !Int
+  | InfoAddress !Text
 
 makeNodeLines :: Int -> NodeInfo -> [Text]
 makeNodeLines kind info =
@@ -341,36 +442,28 @@ runtimeInfoKeyStages node =
     fields = map grinValueRuntimeRep (grinNodeFields node)
 
 runtimeInfoFunctionName :: RuntimeInfoKey -> Maybe FunctionName
-runtimeInfoFunctionName key =
-  case key of
-    ConstructorRuntimeInfo {} -> Nothing
-    ClosureRuntimeInfo functionName _ _ -> Just functionName
-    ThunkRuntimeInfo functionName _ -> Just functionName
+runtimeInfoFunctionName ConstructorRuntimeInfo {} = Nothing
+runtimeInfoFunctionName (ClosureRuntimeInfo functionName _ _) = Just functionName
+runtimeInfoFunctionName (ThunkRuntimeInfo functionName _) = Just functionName
 
 runtimeInfoKeyFields :: RuntimeInfoKey -> [RuntimeRep]
-runtimeInfoKeyFields key =
-  case key of
-    ConstructorRuntimeInfo {} -> []
-    ClosureRuntimeInfo _ fields _ -> fields
-    ThunkRuntimeInfo _ fields -> fields
+runtimeInfoKeyFields ConstructorRuntimeInfo {} = []
+runtimeInfoKeyFields (ClosureRuntimeInfo _ fields _) = fields
+runtimeInfoKeyFields (ThunkRuntimeInfo _ fields) = fields
 
 runtimeInfoKeyRemainingArity :: RuntimeInfoKey -> Int
-runtimeInfoKeyRemainingArity key =
-  case key of
-    ConstructorRuntimeInfo _ remaining -> remaining
-    ClosureRuntimeInfo _ _ argumentLayouts -> length argumentLayouts
-    ThunkRuntimeInfo {} -> 0
+runtimeInfoKeyRemainingArity (ConstructorRuntimeInfo _ remaining) = remaining
+runtimeInfoKeyRemainingArity (ClosureRuntimeInfo _ _ argumentLayouts) = length argumentLayouts
+runtimeInfoKeyRemainingArity ThunkRuntimeInfo {} = 0
 
 runtimeInfoKeyNext :: RuntimeInfoKey -> Maybe RuntimeInfoKey
-runtimeInfoKeyNext key =
-  case key of
-    ConstructorRuntimeInfo name remaining
-      | remaining > 0 -> Just (ConstructorRuntimeInfo name (remaining - 1))
-    ConstructorRuntimeInfo {} -> Nothing
-    ClosureRuntimeInfo functionName fields (layout : rest) ->
-      Just (ClosureRuntimeInfo functionName (fields <> layout) rest)
-    ClosureRuntimeInfo {} -> Nothing
-    ThunkRuntimeInfo {} -> Nothing
+runtimeInfoKeyNext (ConstructorRuntimeInfo name remaining)
+  | remaining > 0 = Just (ConstructorRuntimeInfo name (remaining - 1))
+runtimeInfoKeyNext ConstructorRuntimeInfo {} = Nothing
+runtimeInfoKeyNext (ClosureRuntimeInfo functionName fields (layout : rest)) =
+  Just (ClosureRuntimeInfo functionName (fields <> layout) rest)
+runtimeInfoKeyNext ClosureRuntimeInfo {} = Nothing
+runtimeInfoKeyNext ThunkRuntimeInfo {} = Nothing
 
 renderAddrLiteralPool :: CompileEnv -> [Text]
 renderAddrLiteralPool env =
@@ -425,3 +518,119 @@ address register label =
 
 tshow :: (Show value) => value -> Text
 tshow = T.pack . show
+
+materializeValue :: ValueEnv -> GrinValue -> Either Arm64Error [Text]
+materializeValue env = materializeValueTo env "x0"
+
+materializeValueTo :: ValueEnv -> Text -> GrinValue -> Either Arm64Error [Text]
+materializeValueTo env destination value =
+  case value of
+    GrinVarValue var ->
+      case Map.lookup var (valueLocations env) of
+        Just location -> Right (loadLocation destination location)
+        Nothing -> do
+          slot <- globalSlot (valueCompileEnv env) (grinVarName var)
+          pure ["  ldr x9, [x22, #0]", loadAt destination "x9" slot]
+    GrinLitValue literal -> materializeLiteralTo destination (valueCompileEnv env) literal
+
+materializeLiteralTo :: Text -> CompileEnv -> GrinLiteral -> Either Arm64Error [Text]
+materializeLiteralTo destination env literal =
+  case literal of
+    GrinLitAddr value -> do
+      label <-
+        maybe
+          (Left (Arm64UnsupportedValue "unregistered Addr# literal"))
+          Right
+          (Map.lookup value (compileAddrLiteralLabels env))
+      pure [address destination label]
+    _ ->
+      case normalizedLiteralInteger literal of
+        Just integer -> Right [immediate destination integer]
+        Nothing -> Left (Arm64UnsupportedValue "string literal")
+
+normalizedLiteralInteger :: GrinLiteral -> Maybe Integer
+normalizedLiteralInteger literal =
+  case literal of
+    GrinLitInt runtimeRep integer -> Just (normalizeScalar runtimeRep integer)
+    GrinLitChar _ character -> Just (normalizeUnsigned 64 (fromIntegral (ord character)))
+    GrinLitString {} -> Nothing
+    GrinLitAddr {} -> Nothing
+
+normalizeScalar :: RuntimeRep -> Integer -> Integer
+normalizeScalar runtimeRep integer =
+  case runtimeRep of
+    IntRep -> normalizeSigned 64 integer
+    Int8Rep -> normalizeSigned 8 integer
+    Int16Rep -> normalizeSigned 16 integer
+    Int32Rep -> normalizeSigned 32 integer
+    Int64Rep -> normalizeSigned 64 integer
+    WordRep -> normalizeUnsigned 64 integer
+    Word8Rep -> normalizeUnsigned 8 integer
+    Word16Rep -> normalizeUnsigned 16 integer
+    Word32Rep -> normalizeUnsigned 32 integer
+    Word64Rep -> normalizeUnsigned 64 integer
+    _ -> integer
+
+normalizeSigned :: Int -> Integer -> Integer
+normalizeSigned bits integer =
+  let modulus = 2 ^ bits
+      signBit = 2 ^ (bits - 1)
+      unsigned = integer `mod` modulus
+   in if unsigned >= signBit then unsigned - modulus else unsigned
+
+normalizeUnsigned :: Int -> Integer -> Integer
+normalizeUnsigned bits integer = integer `mod` (2 ^ bits)
+
+materializeNode :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+materializeNode = materializeNodeWith allocateNode
+
+materializeNodeUnchecked :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+materializeNodeUnchecked = materializeNodeWith allocateNodeUnchecked
+
+materializeNodeWith :: (ValueEnv -> GrinNode -> Either Arm64Error [Text]) -> ValueEnv -> GrinNode -> Either Arm64Error [Text]
+materializeNodeWith allocate env node = do
+  allocationLines <- allocate env node
+  fieldLines <- initializeNodeFields env node
+  pure $ allocationLines <> ["  mov x20, x0"] <> fieldLines <> ["  mov x0, x20"]
+
+allocateNode :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+allocateNode = allocateNodeWith makeNodeLines
+
+allocateNodeUnchecked :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+allocateNodeUnchecked = allocateNodeWith makeNodeUncheckedLines
+
+allocateNodeWith :: (Int -> NodeInfo -> [Text]) -> ValueEnv -> GrinNode -> Either Arm64Error [Text]
+allocateNodeWith make env node = do
+  (tag, info) <- nodeHeader env node
+  pure (make tag info)
+
+initializeNodeFields :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
+initializeNodeFields env node =
+  fmap concat . forM (zip [0 :: Int ..] (grinNodeFields node)) $ \(index, field) -> do
+    valueLines <- materializeValue env field
+    pure $
+      valueLines
+        <> [ "  mov x2, x0",
+             "  mov x0, x20",
+             immediate "x1" index,
+             "  bl _aihc_set_field"
+           ]
+
+nodeHeader :: ValueEnv -> GrinNode -> Either Arm64Error (Int, NodeInfo)
+nodeHeader env node =
+  case grinNodeTag node of
+    GrinConstructor name remaining -> do
+      label <- lookupRuntimeInfoLabel compileEnv (ConstructorRuntimeInfo name remaining)
+      pure
+        ( if remaining == 0 then runtimeTagNode else runtimeTagPartialConstructor,
+          InfoAddress label
+        )
+    GrinClosure functionName argumentLayouts -> do
+      label <- lookupRuntimeInfoLabel compileEnv (ClosureRuntimeInfo functionName fields argumentLayouts)
+      pure (runtimeTagClosure, InfoAddress label)
+    GrinThunk functionName -> do
+      label <- lookupRuntimeInfoLabel compileEnv (ThunkRuntimeInfo functionName fields)
+      pure (runtimeTagThunk, InfoAddress label)
+  where
+    compileEnv = valueCompileEnv env
+    fields = map grinValueRuntimeRep (grinNodeFields node)

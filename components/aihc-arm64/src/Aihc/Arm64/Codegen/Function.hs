@@ -8,13 +8,10 @@ module Aihc.Arm64.Codegen.Function
 where
 
 import Aihc.Arm64.Codegen.Runtime
-import Aihc.Arm64.Codegen.Types
-import Aihc.Arm64.Codegen.Value
 import Aihc.Arm64.RegisterAllocate qualified as RegisterAllocate
 import Aihc.Grin.Syntax
 import Aihc.Native
   ( NativeCpsCall (..),
-    NativeCpsParameter (..),
     NativeCpsTransfer (..),
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
@@ -106,30 +103,8 @@ compileExpr env prefix label expression =
     GrinStore {} -> unsupportedExpression "direct-style store return after CPS"
     GrinEnsureHeap {} -> unsupportedExpression "unbound heap reservation"
     GrinStoreUnchecked {} -> unsupportedExpression "unbound unchecked store"
-    GrinStoreRec bindings body -> do
-      allocationLines <-
-        fmap concat . forM bindings $ \(var, node) -> do
-          location <- liftEither (variableLocation env var)
-          nodeLines <- liftEither (allocateNode env node)
-          pure (nodeLines <> storeLocation "x0" location)
-      initializationLines <-
-        fmap concat . forM bindings $ \(var, node) -> do
-          location <- liftEither (variableLocation env var)
-          fieldLines <- liftEither (initializeNodeFields env node)
-          pure (loadLocation "x20" location <> fieldLines)
-      compileExpr env (prefix <> allocationLines <> initializationLines) label body
-    GrinStoreRecUnchecked bindings body -> do
-      allocationLines <-
-        fmap concat . forM bindings $ \(var, node) -> do
-          location <- liftEither (variableLocation env var)
-          nodeLines <- liftEither (allocateNodeUnchecked env node)
-          pure (nodeLines <> storeLocation "x0" location)
-      initializationLines <-
-        fmap concat . forM bindings $ \(var, node) -> do
-          location <- liftEither (variableLocation env var)
-          fieldLines <- liftEither (initializeNodeFields env node)
-          pure (loadLocation "x20" location <> fieldLines)
-      compileExpr env (prefix <> allocationLines <> initializationLines) label body
+    GrinStoreRec bindings body -> compileStoreRec allocateNode bindings body
+    GrinStoreRecUnchecked bindings body -> compileStoreRec allocateNodeUnchecked bindings body
     GrinFetch {} -> unsupportedExpression "direct-style fetch return after CPS"
     GrinUpdate {} -> unsupportedExpression "direct-style update return after CPS"
     GrinUpdateBlackhole {} -> unsupportedExpression "unbound blackhole update"
@@ -138,19 +113,13 @@ compileExpr env prefix label expression =
       valueSlot <- freshSlot
       continuationSlot <- freshSlot
       updateSlot <- freshSlot
-      valueLines <- liftEither (materializeValue env value)
-      continuationLines <- liftEither (materializeValue env continuation)
-      updateLines <- liftEither (materializeValue env updateContinuation)
+      storedLines <-
+        materializeIntoSlots env [(value, valueSlot), (continuation, continuationSlot), (updateContinuation, updateSlot)]
       addBlock
         label
         ( prefix
-            <> valueLines
-            <> [storeAt "x0" "x19" valueSlot]
-            <> continuationLines
-            <> [storeAt "x0" "x19" continuationSlot]
-            <> updateLines
-            <> [ storeAt "x0" "x19" updateSlot,
-                 loadAt applyFunctionRegister "x19" valueSlot,
+            <> storedLines
+            <> [ loadAt applyFunctionRegister "x19" valueSlot,
                  loadAt applyContinuationRegister "x19" continuationSlot,
                  loadAt "x0" "x19" updateSlot,
                  immediate "x8" (fromEnum (isLiftedRuntimeRep runtimeRep))
@@ -168,32 +137,12 @@ compileExpr env prefix label expression =
             else unsupportedExpression "self tail-call arity mismatch"
         else
           if functionName `Set.member` compileContinuationFunctions (valueCompileEnv env)
-            then do
-              overflowLines <- liftEither (saveValueOverflowLines env arguments)
-              registerLines <- liftEither (moveValuesToRegisters env arguments applyArgumentRegisters)
-              addBlock
-                label
-                ( prefix
-                    <> overflowLines
-                    <> registerLines
-                    <> moveDirectOverflowLines "x19" (length arguments)
-                )
-                (BlockLayout.Jump target)
+            then compileTransfer target arguments []
             else case reverse arguments of
               continuation : reversedValues -> do
                 let values = reverse reversedValues
-                overflowLines <- liftEither (saveValueOverflowLines env values)
                 continuationLines <- liftEither (materializeValueTo env applyContinuationRegister continuation)
-                registerLines <- liftEither (moveValuesToRegisters env values applyArgumentRegisters)
-                addBlock
-                  label
-                  ( prefix
-                      <> overflowLines
-                      <> continuationLines
-                      <> registerLines
-                      <> moveDirectOverflowLines "x19" (length values)
-                  )
-                  (BlockLayout.Jump target)
+                compileTransfer target values continuationLines
               [] -> unsupportedExpression "direct CPS call has no continuation"
     GrinPrimitiveCall {} -> unsupportedExpression "unbound primitive call after CPS"
     GrinCpsPrimitiveCall _ name arguments continuation ->
@@ -203,13 +152,10 @@ compileExpr env prefix label expression =
       scratch <- freshSlot
       continuationSlot <- freshSlot
       slowLabel <- freshLabel (valueLabelPrefix env) "apply_slow"
-      functionLines <- liftEither (materializeValue env function)
-      continuationLines <- liftEither (materializeValue env continuation)
       argumentSlots <- freshSlots (length arguments)
-      argumentLines <-
-        fmap concat . forM (zip arguments argumentSlots) $ \(argument, slot) -> do
-          lines' <- liftEither (materializeValue env argument)
-          pure (lines' <> [storeAt "x0" "x19" slot])
+      storedLines <-
+        materializeIntoSlots env $
+          zip (function : continuation : arguments) (scratch : continuationSlot : argumentSlots)
       let stackBytes = applyStackBytes (length arguments)
           stackRestoreLines = restoreApplyStackLines stackBytes
           slowApplyLines =
@@ -226,11 +172,7 @@ compileExpr env prefix label expression =
       addBlock
         label
         ( prefix
-            <> functionLines
-            <> [storeAt "x0" "x19" scratch]
-            <> continuationLines
-            <> [storeAt "x0" "x19" continuationSlot]
-            <> argumentLines
+            <> storedLines
             <> [ loadAt applyFunctionRegister "x19" scratch,
                  loadAt applyContinuationRegister "x19" continuationSlot
                ]
@@ -270,25 +212,39 @@ compileExpr env prefix label expression =
     GrinForeignCallExpr {} -> unsupportedExpression "unbound foreign call after CPS"
   where
     unsupportedExpression name = lift (Left (Arm64UnsupportedExpression name))
+    compileTransfer target values extraLines = do
+      overflowLines <- liftEither (saveValueOverflowLines env values)
+      registerLines <- liftEither (moveValuesToRegisters env values applyArgumentRegisters)
+      addBlock
+        label
+        (prefix <> overflowLines <> extraLines <> registerLines <> moveDirectOverflowLines "x19" (length values))
+        (BlockLayout.Jump target)
+    compileStoreRec allocate bindings body = do
+      allocationLines <- fmap concat . forM bindings $ \(var, node) -> do
+        location <- liftEither (variableLocation env var)
+        nodeLines <- liftEither (allocate env node)
+        pure (nodeLines <> storeLocation "x0" location)
+      initializationLines <- fmap concat . forM bindings $ \(var, node) -> do
+        location <- liftEither (variableLocation env var)
+        fieldLines <- liftEither (initializeNodeFields env node)
+        pure (loadLocation "x20" location <> fieldLines)
+      compileExpr env (prefix <> allocationLines <> initializationLines) label body
 
 compileCpsPrimitive :: ValueEnv -> [Text] -> Text -> Text -> [GrinValue] -> GrinValue -> FunctionM ()
 compileCpsPrimitive env prefix label name arguments continuation =
   case nativeCpsPrimitiveCall name of
     Just runtimeCall
-      | operandCount runtimeCall == length arguments -> compileRuntimeCall runtimeCall
+      | nativeCpsCallOperandCount runtimeCall == length arguments,
+        1 + length arguments + fromEnum (nativeCpsCallPassContinuation runtimeCall) <= length applyArgumentRegisters ->
+          compileRuntimeCall runtimeCall
     _ -> unsupportedCpsPrimitive
   where
     compileRuntimeCall runtimeCall = do
       continuationSlot <- freshSlot
       argumentSlots <- freshSlots (length arguments)
-      argumentLines <-
-        fmap concat . forM (zip arguments argumentSlots) $ \(argument, slot) -> do
-          lines' <- liftEither (materializeValue env argument)
-          pure (lines' <> [storeAt "x0" "x19" slot])
-      continuationLines <- liftEither (materializeValue env continuation)
-      callArgumentLines <-
-        liftEither $
-          renderCpsCallArguments name (nativeCpsCallParameters runtimeCall) argumentSlots continuationSlot
+      storedLines <-
+        materializeIntoSlots env $
+          zip (arguments <> [continuation]) (argumentSlots <> [continuationSlot])
       let (returnLines, successor) =
             case nativeCpsCallTransfer runtimeCall of
               NativeCpsEnterContinuation ->
@@ -298,39 +254,23 @@ compileCpsPrimitive env prefix label name arguments continuation =
       addBlock
         label
         ( prefix
-            <> argumentLines
-            <> continuationLines
-            <> [storeAt "x0" "x19" continuationSlot]
-            <> callArgumentLines
+            <> storedLines
+            <> renderCpsCallArguments runtimeCall argumentSlots continuationSlot
             <> ["  bl _" <> nativeCpsCallSymbol runtimeCall]
             <> returnLines
         )
         successor
 
-    operandCount = length . filter (== NativeCpsOperand) . nativeCpsCallParameters
     unsupportedCpsPrimitive =
       lift (Left (Arm64UnsupportedExpression ("CPS primitive call " <> name)))
 
-renderCpsCallArguments :: Text -> [NativeCpsParameter] -> [Int] -> Int -> Either Arm64Error [Text]
-renderCpsCallArguments primitive parameters operandSlots continuationSlot =
-  go applyArgumentRegisters parameters operandSlots
-  where
-    go _ [] [] = Right []
-    go (register : registers) (parameter : rest) operands =
-      case parameter of
-        NativeCpsMachine ->
-          (("  mov " <> register <> ", x22") :) <$> go registers rest operands
-        NativeCpsOperand ->
-          case operands of
-            slot : remaining ->
-              (loadAt register "x19" slot :) <$> go registers rest remaining
-            [] -> invalidSignature
-        NativeCpsContinuation ->
-          (loadAt register "x19" continuationSlot :) <$> go registers rest operands
-    go _ _ _ = invalidSignature
-
-    invalidSignature =
-      Left (Arm64UnsupportedExpression ("invalid native CPS signature for " <> primitive))
+renderCpsCallArguments :: NativeCpsCall -> [Int] -> Int -> [Text]
+renderCpsCallArguments runtimeCall operandSlots continuationSlot =
+  ["  mov x0, x22"]
+    <> [loadAt register "x19" slot | (register, slot) <- zip (drop 1 applyArgumentRegisters) operandSlots]
+    <> [ loadAt (applyArgumentRegisters !! (length operandSlots + 1)) "x19" continuationSlot
+       | nativeCpsCallPassContinuation runtimeCall
+       ]
 
 compileDirectBinding :: ValueEnv -> [GrinVar] -> GrinExpr -> FunctionM [Text]
 compileDirectBinding env vars expression =
@@ -341,16 +281,10 @@ compileDirectBinding env vars expression =
             location <- liftEither (variableLocation env var)
             valueLines <- liftEither (materializeValue env value)
             pure (valueLines <> storeLocation "x0" location)
-    GrinStore node -> do
-      nodeLines <- liftEither (materializeNode env node)
-      storeSingleResult vars nodeLines
+    GrinStore node -> liftEither (materializeNode env node) >>= storeSingleResult
     GrinEnsureHeap requiredWords roots
       | length vars == length roots -> do
-          rootSlots <- freshSlots (length roots)
-          rootLines <-
-            fmap concat . forM (zip rootSlots roots) $ \(slot, root) -> do
-              valueLines <- liftEither (materializeValue env root)
-              pure (valueLines <> [storeAt "x0" "x19" slot])
+          (rootLines, rootSlots) <- materializeIntoFreshSlots env roots
           resultLines <-
             fmap concat . forM (zip vars rootSlots) $ \(var, slot) -> do
               location <- liftEither (variableLocation env var)
@@ -374,43 +308,15 @@ compileDirectBinding env vars expression =
                 <> resultLines
             )
       | otherwise -> lift (Left (Arm64UnsupportedExpression "heap reservation result arity"))
-    GrinStoreUnchecked node -> do
-      nodeLines <- liftEither (materializeNodeUnchecked env node)
-      storeSingleResult vars nodeLines
-    GrinFetch _ pointer -> do
-      pointerLines <- liftEither (materializeValue env pointer)
-      storeSingleResult vars pointerLines
+    GrinStoreUnchecked node -> liftEither (materializeNodeUnchecked env node) >>= storeSingleResult
+    GrinFetch _ pointer -> liftEither (materializeValue env pointer) >>= storeSingleResult
     GrinUpdate pointer value -> compileUpdateBinding False "_aihc_update" pointer value
     GrinUpdateBlackhole pointer value -> compileUpdateBinding True "_aihc_update_blackhole" pointer value
-    GrinPrimitiveCall IntRep "+#" [left, right] -> do
-      leftLines <- liftEither (materializeValueTo env "x9" left)
-      rightLines <- liftEither (materializeValue env right)
-      storeSingleResult
-        vars
-        ( leftLines
-            <> rightLines
-            <> ["  add x0, x9, x0"]
-        )
-    GrinPrimitiveCall IntRep "-#" [left, right] -> do
-      leftLines <- liftEither (materializeValueTo env "x9" left)
-      rightLines <- liftEither (materializeValue env right)
-      storeSingleResult vars (leftLines <> rightLines <> ["  sub x0, x9, x0"])
-    GrinPrimitiveCall IntRep "*#" [left, right] -> do
-      leftLines <- liftEither (materializeValueTo env "x9" left)
-      rightLines <- liftEither (materializeValue env right)
-      storeSingleResult vars (leftLines <> rightLines <> ["  mul x0, x9, x0"])
-    GrinPrimitiveCall IntRep "<#" [left, right] -> do
-      leftLines <- liftEither (materializeValueTo env "x9" left)
-      rightLines <- liftEither (materializeValue env right)
-      storeSingleResult vars (leftLines <> rightLines <> ["  cmp x9, x0", "  cset x0, lt"])
-    GrinPrimitiveCall IntRep "==#" [left, right] -> do
-      leftLines <- liftEither (materializeValueTo env "x9" left)
-      rightLines <- liftEither (materializeValue env right)
-      storeSingleResult vars (leftLines <> rightLines <> ["  cmp x9, x0", "  cset x0, eq"])
-    GrinPrimitiveCall IntRep "compareInt#" [left, right] -> do
-      leftLines <- liftEither (materializeValueTo env "x9" left)
-      rightLines <- liftEither (materializeValue env right)
-      storeSingleResult vars (leftLines <> rightLines <> ["  cmp x9, x0", "  cset x0, gt", "  csinv x0, x0, xzr, ge"])
+    GrinPrimitiveCall IntRep name [left, right]
+      | Just instructions <- lookup name binaryIntPrimitives -> do
+          leftLines <- liftEither (materializeValueTo env "x9" left)
+          rightLines <- liftEither (materializeValue env right)
+          storeSingleResult (leftLines <> rightLines <> instructions)
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,
@@ -418,26 +324,24 @@ compileDirectBinding env vars expression =
         null (runtimeRepComponents runtimeRep) ->
           pure []
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> do
-          valueLines <- liftEither (materializeValue env value)
-          storeSingleResult vars valueLines
+      | name `elem` ["charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
+          liftEither (materializeValue env value) >>= storeSingleResult
     GrinPrimitiveCall _ name arguments
       | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
           callLines <- compileForeignCallLines env foreignCall arguments
           case vars of
             [] -> pure callLines
-            [_] -> storeSingleResult vars callLines
+            [_] -> storeSingleResult callLines
             _ -> lift (Left (Arm64UnsupportedExpression ("byte array primitive result arity " <> name)))
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
           pure ["  bl _aihc_unsupported_primitive"]
       | otherwise -> lift (Left (Arm64UnsupportedExpression ("primitive call " <> name)))
-    GrinForeignCallExpr foreignCall arguments -> do
-      callLines <- compileForeignCallLines env foreignCall arguments
-      storeSingleResult vars callLines
+    GrinForeignCallExpr foreignCall arguments ->
+      compileForeignCallLines env foreignCall arguments >>= storeSingleResult
     _ -> lift (Left (Arm64UnsupportedExpression "non-direct expression remained in a CPS bind"))
   where
-    storeSingleResult resultVars lines' =
-      case resultVars of
+    storeSingleResult lines' =
+      case vars of
         [var] -> do
           location <- liftEither (variableLocation env var)
           pure (lines' <> storeLocation "x0" location)
@@ -445,15 +349,11 @@ compileDirectBinding env vars expression =
     compileUpdateBinding passMachine symbol pointer value = do
       pointerSlot <- freshSlot
       valueSlot <- freshSlot
-      pointerLines <- liftEither (materializeValue env pointer)
-      valueLines <- liftEither (materializeValue env value)
-      resultLines <- storeSingleResult vars [loadAt "x0" "x19" valueSlot]
+      storedLines <- materializeIntoSlots env [(pointer, pointerSlot), (value, valueSlot)]
+      resultLines <- storeSingleResult [loadAt "x0" "x19" valueSlot]
       pure
-        ( pointerLines
-            <> [storeAt "x0" "x19" pointerSlot]
-            <> valueLines
-            <> [ storeAt "x0" "x19" valueSlot,
-                 loadAt (if passMachine then "x1" else "x0") "x19" pointerSlot,
+        ( storedLines
+            <> [ loadAt (if passMachine then "x1" else "x0") "x19" pointerSlot,
                  loadAt (if passMachine then "x2" else "x1") "x19" valueSlot
                ]
             <> ["  mov x0, x22" | passMachine]
@@ -461,6 +361,15 @@ compileDirectBinding env vars expression =
                ]
             <> resultLines
         )
+
+    binaryIntPrimitives =
+      [ ("+#", ["  add x0, x9, x0"]),
+        ("-#", ["  sub x0, x9, x0"]),
+        ("*#", ["  mul x0, x9, x0"]),
+        ("<#", ["  cmp x9, x0", "  cset x0, lt"]),
+        ("==#", ["  cmp x9, x0", "  cset x0, eq"]),
+        ("compareInt#", ["  cmp x9, x0", "  cset x0, gt", "  csinv x0, x0, xzr, ge"])
+      ]
 
 compileForeignCallLines :: ValueEnv -> GrinForeignCall -> [GrinValue] -> FunctionM [Text]
 compileForeignCallLines env foreignCall arguments = do
@@ -473,11 +382,7 @@ compileForeignCallLines env foreignCall arguments = do
       if abiArity > 8
         then lift (Left (Arm64UnsupportedExpression "foreign calls with more than eight arguments"))
         else do
-          argumentSlots <- mapM (const freshSlot) arguments
-          argumentLines <-
-            fmap concat . forM (zip arguments argumentSlots) $ \(argument, slot) -> do
-              valueLines <- liftEither (materializeValue env argument)
-              pure (valueLines <> [storeAt "x0" "x19" slot])
+          (argumentLines, argumentSlots) <- materializeIntoFreshSlots env arguments
           let abiSlots = take abiArity argumentSlots
               loadAbiArguments =
                 [ loadAt ("x" <> tshow index) "x19" slot
@@ -490,6 +395,19 @@ compileForeignCallLines env foreignCall arguments = do
                   <> normalizeForeignResult (grinForeignResultType signature)
           pure callLines
 
+materializeIntoFreshSlots :: ValueEnv -> [GrinValue] -> FunctionM ([Text], [Int])
+materializeIntoFreshSlots env values = do
+  slots <- freshSlots (length values)
+  lines' <- materializeIntoSlots env (zip values slots)
+  pure (lines', slots)
+
+materializeIntoSlots :: ValueEnv -> [(GrinValue, Int)] -> FunctionM [Text]
+materializeIntoSlots env = fmap concat . mapM store
+  where
+    store (value, slot) = do
+      lines' <- liftEither (materializeValue env value)
+      pure (lines' <> [storeAt "x0" "x19" slot])
+
 normalizeForeignResult :: GrinForeignType -> [Text]
 normalizeForeignResult foreignType =
   case foreignType of
@@ -500,13 +418,9 @@ normalizeForeignResult foreignType =
 
 compileCase :: ValueEnv -> [Text] -> Text -> GrinValue -> GrinVar -> [GrinAlt] -> FunctionM ()
 compileCase env prefix label scrutinee binder alternatives = do
-  (resultLocation, scrutineeLines) <-
-    case scrutinee of
-      GrinVarValue var ->
-        case Map.lookup var (valueLocations env) of
-          Just location -> pure (location, [])
-          Nothing -> materializedScrutinee
-      GrinLitValue {} -> materializedScrutinee
+  (resultLocation, scrutineeLines) <- case scrutinee of
+    GrinVarValue var | Just location <- Map.lookup var (valueLocations env) -> pure (location, [])
+    _ -> materializedScrutinee
   binderLocation <- liftEither (variableLocation env binder)
   let scrutineeIsPointer = isPointerRuntimeRep (grinValueRuntimeRep scrutinee)
   alternativeTargets <- forM alternatives $ \alternative -> do
@@ -537,24 +451,19 @@ compileCase env prefix label scrutinee binder alternatives = do
 alternativePrefix :: ValueEnv -> Location Text -> GrinAlt -> FunctionM [Text]
 alternativePrefix env resultLocation alternative =
   case grinAltCon alternative of
-    GrinDataAlt _ ->
-      do
-        fields <-
-          fmap concat . forM (zip [0 ..] (grinAltBinders alternative)) $ \(index, binder) -> do
-            if binder `Set.member` grinExprFreeVariables (grinAltRhs alternative)
-              then do
-                location <- liftEither (variableLocation env binder)
-                pure ([loadByteOffset "x10" "x9" (8 + index * 8)] <> storeLocation "x10" location)
-              else pure []
-        pure (if null fields then [] else loadLocation "x9" resultLocation <> fields)
+    GrinDataAlt _ -> do
+      fields <- fmap concat . forM liveIndexedBinders $ \(index, binder) -> do
+        location <- liftEither (variableLocation env binder)
+        pure ([loadByteOffset "x10" "x9" (8 + index * 8)] <> storeLocation "x10" location)
+      pure (if null fields then [] else loadLocation "x9" resultLocation <> fields)
     GrinLitAlt _ -> pure []
     GrinDefaultAlt ->
-      fmap concat . forM (grinAltBinders alternative) $ \binder -> do
-        if binder `Set.member` grinExprFreeVariables (grinAltRhs alternative)
-          then do
-            location <- liftEither (variableLocation env binder)
-            pure (loadLocation "x9" resultLocation <> storeLocation "x9" location)
-          else pure []
+      fmap concat . forM (filter isLive (grinAltBinders alternative)) $ \binder -> do
+        location <- liftEither (variableLocation env binder)
+        pure (loadLocation "x9" resultLocation <> storeLocation "x9" location)
+  where
+    isLive binder = binder `Set.member` grinExprFreeVariables (grinAltRhs alternative)
+    liveIndexedBinders = filter (isLive . snd) (zip [0 ..] (grinAltBinders alternative))
 
 caseChecks :: ValueEnv -> Location Text -> Bool -> [(GrinAlt, Text)] -> FunctionM ([Text], BlockLayout.Terminator Text)
 caseChecks env resultLocation scrutineeIsPointer targets = do
@@ -562,33 +471,28 @@ caseChecks env resultLocation scrutineeIsPointer targets = do
       defaultTarget = [label | (alternative, label) <- targets, grinAltCon alternative == GrinDefaultAlt]
   checks <- fmap concat . forM nonDefault $ \(alternative, target) ->
     case grinAltCon alternative of
+      GrinDataAlt _
+        | not scrutineeIsPointer ->
+            lift (Left (Arm64UnsupportedExpression "constructor case on an unboxed value"))
       GrinDataAlt name -> do
-        if scrutineeIsPointer
-          then do
-            identifier <- liftEither (constructorId (valueCompileEnv env) name)
-            pure
-              ( loadLocation "x9" resultLocation
-                  <> [ "  ldr x10, [x9, #0]",
-                       "  ldr x10, [x10, #0]",
-                       immediate "x11" identifier,
-                       "  cmp x10, x11",
-                       "  b.eq " <> target
-                     ]
-              )
-          else lift (Left (Arm64UnsupportedExpression "constructor case on an unboxed value"))
+        identifier <- liftEither (constructorId (valueCompileEnv env) name)
+        pure $
+          loadLocation "x9" resultLocation
+            <> [ "  ldr x10, [x9, #0]",
+                 "  ldr x10, [x10, #0]",
+                 immediate "x11" identifier,
+                 "  cmp x10, x11",
+                 "  b.eq " <> target
+               ]
+      GrinLitAlt _
+        | scrutineeIsPointer ->
+            lift (Left (Arm64UnsupportedExpression "literal case on a lifted value"))
       GrinLitAlt literal ->
         case normalizedLiteralInteger literal of
           Just integer ->
-            if scrutineeIsPointer
-              then lift (Left (Arm64UnsupportedExpression "literal case on a lifted value"))
-              else
-                pure
-                  ( loadLocation "x10" resultLocation
-                      <> [ immediate "x11" integer,
-                           "  cmp x10, x11",
-                           "  b.eq " <> target
-                         ]
-                  )
+            pure $
+              loadLocation "x10" resultLocation
+                <> [immediate "x11" integer, "  cmp x10, x11", "  b.eq " <> target]
           Nothing -> lift (Left (Arm64UnsupportedValue "string case alternative"))
       GrinDefaultAlt -> pure []
   pure $ case defaultTarget of
@@ -604,11 +508,7 @@ moveValuesToLocations :: ValueEnv -> [GrinValue] -> [Location Text] -> FunctionM
 moveValuesToLocations env values destinations
   | and (zipWith alreadyThere values destinations) = pure []
   | otherwise = do
-      slots <- freshSlots (length values)
-      stores <-
-        fmap concat . forM (zip values slots) $ \(value, slot) -> do
-          lines' <- liftEither (materializeValue env value)
-          pure (lines' <> [storeAt "x0" "x19" slot])
+      (stores, slots) <- materializeIntoFreshSlots env values
       let loads =
             concat
               [ [loadAt "x9" "x19" slot] <> storeLocation "x9" destination
@@ -644,11 +544,6 @@ saveApplyOverflowLines base slots
           ]
   where
     stackBytes = applyStackBytes (length slots)
-
-restoreApplyStackLines :: Int -> [Text]
-restoreApplyStackLines stackBytes
-  | stackBytes == 0 = []
-  | otherwise = [immediate "x8" stackBytes, "  add sp, sp, x8"]
 
 moveDirectOverflowLines :: Text -> Int -> [Text]
 moveDirectOverflowLines base valueCount

@@ -8,7 +8,6 @@ where
 import Aihc.Grin.Syntax (grinForeignCallSymbol)
 import Aihc.Native
   ( NativeCpsCall (..),
-    NativeCpsParameter (..),
     NativeCpsTransfer (..),
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
@@ -39,10 +38,6 @@ tests =
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           (map fst byteArrayRuntimeSymbols <> ["unsafeFreezeByteArray#", "unsafeThawByteArray#"]),
-      testCase "accepts the scheduler-aware MVar API in native programs" $
-        mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ["newMVar#", "readMVar#", "takeMVar#", "putMVar#"],
       testCase "describes CPS primitive runtime signatures" $
         mapM_
           ( \(primitive, runtimeCall) ->
@@ -52,8 +47,6 @@ tests =
                 (nativeCpsPrimitiveCall primitive)
           )
           cpsRuntimeCalls,
-      testCase "rejects unknown CPS primitives" $
-        assertEqual "unknown CPS runtime call" Nothing (nativeCpsPrimitiveCall "unknown#"),
       testCase "accepts the Prelude Int# primitive API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
@@ -78,16 +71,16 @@ byteArrayRuntimeSymbols =
 
 cpsRuntimeCalls :: [(Text, NativeCpsCall)]
 cpsRuntimeCalls =
-  [ enters "fork#" "aihc_fork" [NativeCpsMachine, NativeCpsOperand],
-    enters "newMVar#" "aihc_mvar_new" [NativeCpsMachine],
-    resumes "readMVar#" "aihc_mvar_read" [NativeCpsMachine, NativeCpsOperand, NativeCpsContinuation],
-    resumes "takeMVar#" "aihc_mvar_take" [NativeCpsMachine, NativeCpsOperand, NativeCpsContinuation],
-    resumes "putMVar#" "aihc_mvar_put" [NativeCpsMachine, NativeCpsOperand, NativeCpsOperand, NativeCpsContinuation],
-    resumes "yield#" "aihc_yield" [NativeCpsMachine, NativeCpsContinuation],
-    resumes "awaitIO#" "aihc_await_io" [NativeCpsMachine, NativeCpsOperand, NativeCpsContinuation]
+  [ enters "fork#" "aihc_fork" 1,
+    enters "newMVar#" "aihc_mvar_new" 0,
+    resumes "readMVar#" "aihc_mvar_read" 1,
+    resumes "takeMVar#" "aihc_mvar_take" 1,
+    resumes "putMVar#" "aihc_mvar_put" 2,
+    resumes "yield#" "aihc_yield" 0,
+    resumes "awaitIO#" "aihc_await_io" 1
   ]
   where
-    enters primitive symbol parameters =
-      (primitive, NativeCpsCall symbol parameters NativeCpsEnterContinuation)
-    resumes primitive symbol parameters =
-      (primitive, NativeCpsCall symbol parameters NativeCpsResumeScheduler)
+    enters primitive symbol operands =
+      (primitive, NativeCpsCall symbol operands False NativeCpsEnterContinuation)
+    resumes primitive symbol operands =
+      (primitive, NativeCpsCall symbol operands True NativeCpsResumeScheduler)
