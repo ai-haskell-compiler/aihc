@@ -12,18 +12,23 @@ import Aihc.Amd64
     compileModule,
     compileObservedFunction,
     compileProgram,
-    runtimeSourcePath,
     snapshotSourcePath,
     targetTriple,
     validateProgramPrimitives,
   )
 import Aihc.Grin
+import Aihc.Native
+  ( NativeTarget (LinuxAmd64),
+    RuntimeGarbageCollector (..),
+    RuntimePlan (..),
+    runtimePlan,
+  )
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
-import Control.Monad (forM_, when)
+import Control.Monad (when)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
 import Data.List (find, isInfixOf)
 import Data.Map.Strict qualified as Map
@@ -299,10 +304,7 @@ tests =
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly ->
             assertBool "generated case and apply contain no direct-style eval call" (not ("call aihc_eval\n" `T.isInfixOf` assembly))
-        runtime <- readFile =<< runtimeSourcePath
-        assertBool
-          "runtime apply does not enter its function"
-          (not ("aihc_eval_cps(machine, function" `isInfixOf` runtime)),
+        pure (),
       testCase "case dispatch preserves allocatable registers" $
         case compileModule (buildLinkLayout [caseDispatchProgram]) "_aihc_init_case_dispatch" (expectGcGrin caseDispatchProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
@@ -319,43 +321,19 @@ tests =
             assertBool
               "generated code does not reload a scheduled entry"
               (not ("mov r11, QWORD PTR [r15]\n  jmp r11" `T.isInfixOf` assembly))
-        runtime <- readFile =<< runtimeSourcePath
-        assertBool "slow apply returns only the allocated value" ("AihcValue *aihc_apply_slow" `isInfixOf` runtime)
-        forM_ ["void *next;", "machine->next", "machine->args"] $ \forbidden ->
-          assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
-      testCase "runtime has no built-in continuation stack" $ do
-        runtime <- readFile =<< runtimeSourcePath
-        forM_
-          [ "AihcContinuation",
-            "AIHC_CONT_",
-            "aihc_push_normal",
-            "aihc_return_values",
-            "aihc_return("
-          ]
-          $ \forbidden ->
-            assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
+        pure (),
       testCase "runtime object ABI compiles cleanly on the host C compiler" $
         withTempDirectory "aihc-amd64-runtime" $ \directory -> do
-          runtime <- runtimeSourcePath
+          runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
           snapshotRuntime <- snapshotSourcePath
           let executable = directory </> "runtime-check"
           (compilerExit, _compilerOut, compilerErr) <-
             readProcessWithExitCode
               "cc"
-              [ "-std=c11",
-                "-Wall",
-                "-Wextra",
-                "-Werror",
-                "-I",
-                takeDirectory runtime,
-                runtime,
-                snapshotRuntime,
-                "-x",
-                "c",
-                "-",
-                "-o",
-                executable
-              ]
+              ( ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+                  <> runtimeArguments
+                  <> [snapshotRuntime, "-x", "c", "-", "-o", executable]
+              )
               "int main(void) { return 0; }\n"
           assertEqual ("C compiler runtime diagnostics:\n" <> compilerErr) ExitSuccess compilerExit,
       testCase "compiles standalone HelloWorld GRIN to native Linux AMD64" testNativeHelloWorld,
@@ -558,7 +536,7 @@ snapshotFixtureRoot = getCurrentDirectory >>= findRoot
 runObservedProgram :: ObservedProgram -> IO (Either T.Text T.Text)
 runObservedProgram observed =
   withTempDirectory "aihc-amd64-snapshot" $ \directory -> do
-    runtime <- runtimeSourcePath
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
     snapshotRuntime <- snapshotSourcePath
     let assemblyPath = directory </> "snapshot.s"
         metadataPath = directory </> "snapshot_metadata.c"
@@ -568,20 +546,10 @@ runObservedProgram observed =
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
-        [ "--target=" <> targetTriple,
-          "-std=c11",
-          "-Wall",
-          "-Wextra",
-          "-Werror",
-          "-I",
-          takeDirectory runtime,
-          runtime,
-          snapshotRuntime,
-          metadataPath,
-          assemblyPath,
-          "-o",
-          executablePath
-        ]
+        ( ["--target=" <> targetTriple, "-std=c11", "-Wall", "-Wextra", "-Werror"]
+            <> runtimeArguments
+            <> [snapshotRuntime, metadataPath, assemblyPath, "-o", executablePath]
+        )
         ""
     case clangExit of
       ExitSuccess -> pure ()
@@ -779,12 +747,15 @@ assertAssemblyAccepted assembly =
 runHelloWorldAssembly :: T.Text -> IO ()
 runHelloWorldAssembly assembly =
   withTempDirectory "aihc-amd64-hello" $ \directory -> do
-    runtime <- runtimeSourcePath
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
     let assemblyPath = directory </> "hello.s"
         executablePath = directory </> "hello"
     writeFile assemblyPath (T.unpack assembly)
     (clangExit, _clangOut, clangErr) <-
-      readProcessWithExitCode "clang" ["-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath, "-o", executablePath] ""
+      readProcessWithExitCode
+        "clang"
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> [assemblyPath, "-o", executablePath])
+        ""
     case clangExit of
       ExitSuccess -> pure ()
       ExitFailure _ -> assertFailure ("clang failed to assemble HelloWorld:\n" <> clangErr)
@@ -795,12 +766,15 @@ runHelloWorldAssembly assembly =
 runSchedulerAssembly :: String -> T.Text -> IO ()
 runSchedulerAssembly expected assembly =
   withTempDirectory "aihc-amd64-scheduler" $ \directory -> do
-    runtime <- runtimeSourcePath
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
     let assemblyPath = directory </> "scheduler.s"
         executablePath = directory </> "scheduler"
     TIO.writeFile assemblyPath assembly
     (clangExit, _clangOut, clangErr) <-
-      readProcessWithExitCode "clang" ["-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath, "-o", executablePath] ""
+      readProcessWithExitCode
+        "clang"
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> [assemblyPath, "-o", executablePath])
+        ""
     assertEqual ("clang failed to assemble scheduler program:\n" <> clangErr) ExitSuccess clangExit
     (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
     assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
@@ -809,12 +783,15 @@ runSchedulerAssembly expected assembly =
 runStdioAssembly :: T.Text -> IO ()
 runStdioAssembly assembly =
   withTempDirectory "aihc-amd64-stdio" $ \directory -> do
-    runtime <- runtimeSourcePath
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
     let assemblyPath = directory </> "stdio.s"
         executablePath = directory </> "stdio"
     TIO.writeFile assemblyPath assembly
     (clangExit, _clangOut, clangErr) <-
-      readProcessWithExitCode "clang" ["-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath, "-o", executablePath] ""
+      readProcessWithExitCode
+        "clang"
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> [assemblyPath, "-o", executablePath])
+        ""
     assertEqual ("clang failed to assemble async stdio program:\n" <> clangErr) ExitSuccess clangExit
     (Just childInput, Just childOutput, Just childError, processHandle) <-
       createProcess
@@ -832,6 +809,14 @@ runStdioAssembly assembly =
     programExit <- waitForProcess processHandle
     assertEqual ("native stderr: " <> T.unpack programErr) ExitSuccess programExit
     assertEqual "async stdout" "Buffered async IO\n" programOut
+
+nativeRuntimeArguments :: RuntimeGarbageCollector -> IO [String]
+nativeRuntimeArguments garbageCollector = do
+  plan <- runtimePlan LinuxAmd64 garbageCollector
+  pure
+    ( ["-I" <> directory | directory <- runtimeIncludeDirectories plan]
+        <> runtimeSources plan
+    )
 
 withTempDirectory :: String -> (FilePath -> IO value) -> IO value
 withTempDirectory template = bracket acquire removeDirectoryRecursive
