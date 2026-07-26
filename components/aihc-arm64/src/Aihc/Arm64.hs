@@ -13,7 +13,6 @@ module Aihc.Arm64
     extendLinkLayout,
     extendLinkLayoutWithInterface,
     extractLinkInterface,
-    runtimeSourcePath,
     snapshotSourcePath,
     targetTriple,
     validateProgramPrimitives,
@@ -41,7 +40,6 @@ import Aihc.Native
     extendLinkLayoutWithInterface,
     extractLinkInterface,
     nativeTargetTriple,
-    runtimeSourcePath,
     snapshotSourcePath,
   )
 
