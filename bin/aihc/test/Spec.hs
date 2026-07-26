@@ -25,7 +25,7 @@ import Aihc.Cli.Install
     renderInstallFailureWithOptions,
     writeInstallScaffold,
   )
-import Aihc.Cli.Options (Command (..), CompileOptions (..), GarbageCollector (..), InstallErrorFormat (..), InstallOptions (..), ReplOptions (..), parseCommandPure)
+import Aihc.Cli.Options (Command (..), CompileBatchOptions (..), CompileOptions (..), GarbageCollector (..), InstallErrorFormat (..), InstallOptions (..), ReplOptions (..), parseCommandPure)
 import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession, replCompletion)
 import Aihc.Fc (FcProgram (..))
 import Aihc.Hackage.Types (PackageSpec (..))
@@ -107,6 +107,11 @@ main =
             case parseCommandPure ["compile", "Main.hs", "--target", "wasm32-wasip3", "--use-wasm-opt"] of
               Right (CmdCompile options) -> assertBool "uses wasm-opt" (compileUseWasmOpt options)
               result -> assertFailure ("expected compile options, got: " <> show result),
+          testCase "parses batched compilation" $
+            assertEqual
+              "command"
+              (Right (CmdCompileBatch (CompileBatchOptions ["one/Main.hs", "two/Main.hs"] "out" False (Just PortableC) GcSemispace False)))
+              (parseCommandPure ["compile-batch", "one/Main.hs", "two/Main.hs", "--output-directory", "out", "--target", "portable-c", "--gc", "semispace"]),
           testCase "selects the semispace collector" $
             assertEqual
               "command"

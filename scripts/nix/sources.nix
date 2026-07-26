@@ -209,9 +209,6 @@ in rec {
 
   examplesSrc = mkRootSubsetSrc ["core-libs/" "examples/"] exampleSourceSuffixes;
 
-  exampleSrc = exampleName:
-    mkRootSubsetSrc ["core-libs/" "examples/${exampleName}/"] exampleSourceSuffixes;
-
   fmtSrc = mkComponentSrc "/bin/aihc-fmt" [
     ".hs"
     ".cabal"

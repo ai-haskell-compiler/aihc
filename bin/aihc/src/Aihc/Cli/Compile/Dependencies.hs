@@ -9,6 +9,7 @@ module Aihc.Cli.Compile.Dependencies
     DependencyArtifact (..),
     DependencyUnit (..),
     buildDependencies,
+    buildDependenciesForModules,
   )
 where
 
@@ -181,8 +182,15 @@ cacheSchemaVersion :: Int
 cacheSchemaVersion = 20
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
-buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
-  let importedRoots = map importDeclModule (moduleImports mainModule)
+buildDependencies target environment usesImplicitPrelude buildBackend mainModule =
+  buildDependenciesForModules target environment usesImplicitPrelude buildBackend [mainModule]
+
+-- | Build one dependency artifact for a batch of main modules. Their imported
+-- roots are unioned so callers can compile the batch without repeatedly loading
+-- and decoding overlapping core-library closures.
+buildDependenciesForModules :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> [Module] -> IO (Either String DependencyArtifact)
+buildDependenciesForModules target environment usesImplicitPrelude buildBackend mainModules = do
+  let importedRoots = concatMap (map importDeclModule . moduleImports) mainModules
       defaultRoots = if usesImplicitPrelude then ["GHC.Prim", "Prelude"] else []
       initialRoots = sort (Set.toList (Set.fromList (defaultRoots <> importedRoots)))
   if null initialRoots

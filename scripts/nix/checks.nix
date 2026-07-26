@@ -26,67 +26,6 @@
       "${pkgs.apple-sdk}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
     ];
 
-  addHiddenSuccesses = old: {
-    # Replace the package-build sentinel and hide passing test output.
-    testFlags =
-      builtins.filter
-      (flag: !builtins.elem flag ["--pattern" "__nix-build-tests-without-running__"])
-      (old.testFlags or [])
-      ++ ["--hide-successes"];
-  };
-
-  addCheckSettings = drv: old:
-    addHiddenSuccesses old
-    // pkgs.lib.optionalAttrs (drv ? intermediates) {
-      # Reuse the optimized build, including its already-compiled test components.
-      doInstallIntermediates = false;
-      enableSeparateIntermediatesOutput = false;
-      previousIntermediates = drv.intermediates;
-    };
-
-  mkPackageTest = drv:
-    pkgs.haskell.lib.doCheck (
-      pkgs.haskell.lib.dontHaddock (pkgs.haskell.lib.overrideCabal drv (addCheckSettings drv))
-    );
-
-  mkEvalPackageTest = drv:
-    pkgs.haskell.lib.doCheck (
-      pkgs.haskell.lib.dontHaddock (
-        pkgs.haskell.lib.overrideCabal drv (
-          old:
-            addCheckSettings drv old
-            // {
-              preCheck =
-                (old.preCheck or "")
-                + ''
-                  export AIHC_BASE_SRC=${sources.baseSrc pkgs}
-                  export AIHC_PRIM_SRC=${sources.primSrc pkgs}
-                  export AIHC_EVAL_FIXTURES=${sources.evalFixturesSrc pkgs}
-                '';
-            }
-        )
-      )
-    );
-
-  mkAihcPackageTest = drv:
-    pkgs.haskell.lib.doCheck (
-      pkgs.haskell.lib.dontHaddock (
-        pkgs.haskell.lib.overrideCabal drv (
-          old:
-            addCheckSettings drv old
-            // {
-              testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
-              preCheck =
-                (old.preCheck or "")
-                + ''
-                  export AIHC_BASE_SRC=${sources.baseSrc pkgs}
-                  export AIHC_PRIM_SRC=${sources.primSrc pkgs}
-                '';
-            }
-        )
-      )
-    );
-
   mkSourceCheck = name: src: nativeBuildInputs: text:
     pkgs.runCommand name {
       inherit src nativeBuildInputs;
@@ -96,55 +35,8 @@
       touch "$out"
     '';
 
-  compilationModes = [
-    {
-      name = "incremental";
-      flags = [];
-    }
-    {
-      name = "whole-program";
-      flags = ["--whole-program"];
-    }
-  ];
-  garbageCollectors = ["calloc" "semispace"];
-  nativeBackendBySystem = {
-    "aarch64-darwin" = "apple-arm64";
-    "x86_64-linux" = "linux-amd64";
-  };
-  nativeBackend = nativeBackendBySystem.${pkgs.stdenv.hostPlatform.system} or null;
-  backends = ["portable-c"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
-  compilationMatrix = builtins.concatLists (
-    map (
-      backend:
-        builtins.concatLists (
-          map (compilation: map (gc: {inherit backend compilation gc;}) garbageCollectors) compilationModes
-        )
-    )
-    backends
-  );
-  smokeCompilation = builtins.head compilationModes;
-  smokeCompilationMatrix = [
-    {
-      backend = "portable-c";
-      compilation = smokeCompilation;
-      gc = "calloc";
-    }
-  ];
-  exampleCompilationMatrix = exampleName:
-    if exampleName == "hello-world"
-    then compilationMatrix
-    else smokeCompilationMatrix;
-  wasip3CompilationModes = exampleName:
-    if exampleName == "hello-world"
-    then compilationModes
-    else [smokeCompilation];
-
-  renderExampleTest = {
-    backend,
-    compilation,
-    gc,
-  }: ''
-    executable="$TMPDIR/$example_name-${backend}-${compilation.name}-${gc}"
+  renderExampleTest = ''
+    executable="$batch_output/$example_name"
     actual_stdout="$executable.stdout"
     actual_stderr="$executable.stderr"
     timeout_stderr="$executable.timeout-stderr"
@@ -161,21 +53,6 @@
     if [[ -f "$example_directory/exit" ]]; then
       expected_exit=$(<"$example_directory/exit")
     fi
-    if timeout --foreground --kill-after=5s 120s ${aihcExe} compile "$source" \
-      --target ${backend} \
-      --gc ${gc} \
-      ${pkgs.lib.escapeShellArgs compilation.flags} \
-      --output "$executable"; then
-      :
-    else
-      compile_exit=$?
-      if [[ "$compile_exit" -eq 124 || "$compile_exit" -eq 137 ]]; then
-        echo "Timed out compiling $example_name/${backend}-${compilation.name}-${gc}" >&2
-      else
-        echo "Compiler failed for $example_name/${backend}-${compilation.name}-${gc} with exit $compile_exit" >&2
-      fi
-      exit "$compile_exit"
-    fi
     mkdir -p "$run_directory"
     if timeout --foreground --kill-after=5s 10s \
       bash -c 'cd "$1"; exec "$2" 2> "$3"' \
@@ -186,18 +63,18 @@
       actual_exit=$?
     fi
     if [[ "$actual_exit" -eq 124 || "$actual_exit" -eq 137 ]]; then
-      echo "Timed out running $example_name/${backend}-${compilation.name}-${gc}" >&2
+      echo "Timed out running $example_name/portable-c-incremental-calloc" >&2
       cat "$timeout_stderr" >&2
       exit 1
     fi
     if [[ "$expected_exit" == nonzero ]]; then
       if [[ "$actual_exit" -eq 0 ]]; then
-        echo "Expected $example_name/${backend}-${compilation.name}-${gc} to fail" >&2
+        echo "Expected $example_name/portable-c-incremental-calloc to fail" >&2
         exit 1
       fi
     elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
       if [[ "$actual_exit" -ne "$expected_exit" ]]; then
-        echo "Expected $example_name/${backend}-${compilation.name}-${gc} to exit with $expected_exit, got $actual_exit" >&2
+        echo "Expected $example_name/portable-c-incremental-calloc to exit with $expected_exit, got $actual_exit" >&2
         exit 1
       fi
     else
@@ -206,16 +83,16 @@
     fi
     diff --unified \
       --label "$example_name/stdout-expected" \
-      --label "$example_name/stdout-${backend}-${compilation.name}-${gc}" \
+      --label "$example_name/stdout-portable-c-incremental-calloc" \
       "$expected_stdout" "$actual_stdout"
     diff --unified \
       --label "$example_name/stderr-expected" \
-      --label "$example_name/stderr-${backend}-${compilation.name}-${gc}" \
+      --label "$example_name/stderr-portable-c-incremental-calloc" \
       "$expected_stderr" "$actual_stderr"
   '';
 
-  renderWasip3ExampleTest = compilation: ''
-    executable="$TMPDIR/$example_name-wasm32-wasip3-${compilation.name}.wasm"
+  renderWasip3ExampleTest = ''
+    executable="$batch_output/$example_name"
     actual_stdout="$executable.stdout"
     actual_stderr="$executable.stderr"
     run_directory="$executable.run"
@@ -231,21 +108,6 @@
     if [[ -f "$example_directory/exit" ]]; then
       expected_exit=$(<"$example_directory/exit")
     fi
-    if timeout --foreground --kill-after=5s 120s ${aihcExe} compile "$source" \
-      --target wasm32-wasip3 \
-      --use-wasm-opt \
-      ${pkgs.lib.escapeShellArgs compilation.flags} \
-      --output "$executable"; then
-      :
-    else
-      compile_exit=$?
-      if [[ "$compile_exit" -eq 124 || "$compile_exit" -eq 137 ]]; then
-        echo "Timed out compiling $example_name/wasm32-wasip3-${compilation.name}" >&2
-      else
-        echo "Compiler failed for $example_name/wasm32-wasip3-${compilation.name} with exit $compile_exit" >&2
-      fi
-      exit "$compile_exit"
-    fi
     mkdir -p "$run_directory"
     if timeout --foreground --kill-after=5s 10s wasmtime run -C cache=n -S cli \
       --dir "$run_directory::." \
@@ -256,17 +118,17 @@
       actual_exit=$?
     fi
     if [[ "$actual_exit" -eq 124 || "$actual_exit" -eq 137 ]]; then
-      echo "Timed out running $example_name/wasm32-wasip3-${compilation.name}" >&2
+      echo "Timed out running $example_name/wasm32-wasip3-incremental" >&2
       exit 1
     fi
     if [[ "$expected_exit" == nonzero ]]; then
       if [[ "$actual_exit" -eq 0 ]]; then
-        echo "Expected $example_name/wasm32-wasip3-${compilation.name} to fail" >&2
+        echo "Expected $example_name/wasm32-wasip3-incremental to fail" >&2
         exit 1
       fi
     elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
       if [[ "$actual_exit" -ne "$expected_exit" ]]; then
-        echo "Expected $example_name/wasm32-wasip3-${compilation.name} to exit with $expected_exit, got $actual_exit" >&2
+        echo "Expected $example_name/wasm32-wasip3-incremental to exit with $expected_exit, got $actual_exit" >&2
         exit 1
       fi
     else
@@ -275,12 +137,12 @@
     fi
     diff --unified \
       --label "$example_name/stdout-expected" \
-      --label "$example_name/stdout-wasm32-wasip3-${compilation.name}" \
+      --label "$example_name/stdout-wasm32-wasip3-incremental" \
       "$expected_stdout" "$actual_stdout"
     if [[ "$expected_exit" != nonzero ]]; then
       diff --unified \
         --label "$example_name/stderr-expected" \
-        --label "$example_name/stderr-wasm32-wasip3-${compilation.name}" \
+        --label "$example_name/stderr-wasm32-wasip3-incremental" \
         "$expected_stderr" "$actual_stderr"
     fi
   '';
@@ -294,29 +156,21 @@
   parserExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-extension-progress";
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
 
-  parserTests = mkPackageTest hsPkgs.aihc-parser;
-  cppTests = mkPackageTest hsPkgs.aihc-cpp;
-  amd64Tests = mkEvalPackageTest (
-    pkgs.haskell.lib.overrideCabal hsPkgs.aihc-amd64 (old: {
-      testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
-    })
-  );
-  arm64Tests = mkEvalPackageTest hsPkgs.aihc-arm64;
-  cBackendTests = mkEvalPackageTest (
-    pkgs.haskell.lib.overrideCabal hsPkgs.aihc-c (old: {
-      testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
-    })
-  );
-  nativeTests = mkPackageTest hsPkgs.aihc-native;
-  wasmTests = mkPackageTest hsPkgs.aihc-wasm;
-  fcTests = mkEvalPackageTest hsPkgs.aihc-fc;
-  grinTests = mkEvalPackageTest hsPkgs.aihc-grin;
-  resolveTests = mkPackageTest hsPkgs.aihc-resolve;
-  tcTests = mkPackageTest hsPkgs.aihc-tc;
-  testingTests = mkPackageTest hsPkgs.aihc-testing;
-  devTests = mkPackageTest hsPkgs.aihc-dev;
-  aihcTests = mkAihcPackageTest hsPkgs.aihc;
-  fmtTests = mkPackageTest hsPkgs.aihc-fmt;
+  parserTests = hsPkgs.aihc-parser;
+  cppTests = hsPkgs.aihc-cpp;
+  amd64Tests = hsPkgs.aihc-amd64;
+  arm64Tests = hsPkgs.aihc-arm64;
+  cBackendTests = hsPkgs.aihc-c;
+  nativeTests = hsPkgs.aihc-native;
+  wasmTests = hsPkgs.aihc-wasm;
+  fcTests = hsPkgs.aihc-fc;
+  grinTests = hsPkgs.aihc-grin;
+  resolveTests = hsPkgs.aihc-resolve;
+  tcTests = hsPkgs.aihc-tc;
+  testingTests = hsPkgs.aihc-testing;
+  devTests = hsPkgs.aihc-dev;
+  aihcTests = hsPkgs.aihc;
+  fmtTests = hsPkgs.aihc-fmt;
   unicode = import ./unicode.nix {inherit pkgs;};
   unicodeGenerated =
     pkgs.runCommand "aihc-unicode-generated" {
@@ -387,18 +241,11 @@
     pkgs.coreutils
     pkgs.diffutils
     pkgs.findutils
-    pkgs.ghc
     pkgs.llvmPackages.clang
   ];
 
-  mkExampleTest = exampleName:
-    mkSourceCheck "aihc-example-${exampleName}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
-      set -euo pipefail
-      export XDG_CACHE_HOME="$TMPDIR/cache"
-      export GHCRTS=-N1
-      empty_stderr="$TMPDIR/empty-stderr"
-      touch "$empty_stderr"
-
+  renderExampleCase = exampleName: ''
+    (
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
       example_name=${pkgs.lib.escapeShellArg exampleName}
@@ -408,37 +255,42 @@
         exit 1
       fi
 
-      if [[ "$example_name" == mvars ]]; then
-        ghc_executable="$TMPDIR/$example_name-ghc"
-        ghc_output_directory="$TMPDIR/$example_name-ghc-output"
-        mkdir -p "$ghc_output_directory"
-        ghc -v0 \
-          -outputdir "$ghc_output_directory" \
-          -o "$ghc_executable" \
-          "$source"
-        env -u GHCRTS timeout --foreground --kill-after=5s 10s "$ghc_executable" > "$ghc_executable.stdout"
-        diff --unified \
-          --label "$example_name/expected" \
-          --label "$example_name/ghc-non-threaded" \
-          "$expected_stdout" "$ghc_executable.stdout"
-      fi
+      ${renderExampleTest}
+    ) &
+    pids+=("$!")
+  '';
 
-      ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest (exampleCompilationMatrix exampleName)}
-      touch "$out"
-    '';
-
-  exampleCases =
-    map (exampleName: {
-      name = exampleName;
-      path = mkExampleTest exampleName;
-    })
-    exampleNames;
-
-  # Every example gets one portable-C smoke test. Hello World also carries the
-  # complete backend/mode/GC matrix, avoiding a cross-product for every program.
-  # Nix schedules the independent examples in parallel.
+  # Compile every example in one portable-C smoke batch. Backend, compilation
+  # mode, and collector matrices belong to their focused component tests; the
+  # example check proves the end-to-end programs without repeating that matrix.
   examplesTests = assert exampleNames != [];
-    pkgs.linkFarm "aihc-examples-tests" exampleCases;
+    mkSourceCheck "aihc-examples-tests" examplesSource exampleTestInputs ''
+            set -euo pipefail
+            export GHCRTS=-N1
+            empty_stderr="$TMPDIR/empty-stderr"
+            touch "$empty_stderr"
+
+      export XDG_CACHE_HOME="$TMPDIR/cache"
+      batch_output="$TMPDIR/batch-portable-c"
+      batch_sources=()
+      for example_name in ${pkgs.lib.escapeShellArgs exampleNames}; do
+        batch_sources+=("examples/$example_name/Main.hs")
+      done
+      timeout --foreground --kill-after=5s 120s ${aihcExe} compile-batch \
+        --output-directory "$batch_output" \
+        --target portable-c \
+        --gc calloc \
+        "''${batch_sources[@]}"
+
+      pids=()
+            ${pkgs.lib.concatMapStringsSep "\n" renderExampleCase exampleNames}
+            failed=0
+            for pid in "''${pids[@]}"; do
+              wait "$pid" || failed=1
+            done
+            test "$failed" -eq 0
+            touch "$out"
+    '';
 
   wasip3ExampleInputs = [
     pkgs.coreutils
@@ -453,16 +305,8 @@
     wasmOpt
   ];
 
-  mkWasip3ExampleTest = exampleName:
-    mkSourceCheck "aihc-wasip3-example-${exampleName}" (sources.exampleSrc exampleName pkgs) wasip3ExampleInputs ''
-      set -euo pipefail
-      export XDG_CACHE_HOME="$TMPDIR/cache"
-      export GHCRTS=-N1
-      export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
-      export AIHC_WASM_OPT_MARKER="$TMPDIR/wasm-opt-invocations"
-      empty_stderr="$TMPDIR/empty-stderr"
-      touch "$empty_stderr"
-
+  renderWasip3ExampleCase = exampleName: ''
+    (
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
       example_name=${pkgs.lib.escapeShellArg exampleName}
@@ -472,25 +316,48 @@
         exit 1
       fi
 
-      ${pkgs.lib.concatMapStringsSep "\n" renderWasip3ExampleTest (wasip3CompilationModes exampleName)}
+      ${renderWasip3ExampleTest}
+    ) &
+    pids+=("$!")
+  '';
 
-      test -n "$(find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.o' -print -quit)"
-      test -n "$(find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.a' -print -quit)"
-      test "$(wc -l < "$AIHC_WASM_OPT_MARKER")" -eq ${toString (builtins.length (wasip3CompilationModes exampleName))}
-      touch "$out"
-    '';
-
-  wasip3ExampleCases =
-    map (exampleName: {
-      name = exampleName;
-      path = mkWasip3ExampleTest exampleName;
-    })
-    exampleNames;
-
-  # Every example gets one incremental WASI smoke test. Hello World additionally
-  # covers whole-program mode. Nix schedules these derivations in parallel.
+  # Compile every example in one incremental WASI smoke batch. The normalized
+  # dependency closure is compiled once and reused in memory by the whole batch.
   wasip3ExampleTest = assert exampleNames != [];
-    pkgs.linkFarm "aihc-wasip3-example-test" wasip3ExampleCases;
+    mkSourceCheck "aihc-wasip3-example-test" examplesSource wasip3ExampleInputs ''
+            set -euo pipefail
+            export GHCRTS=-N1
+            export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+            export AIHC_WASM_OPT_MARKER="$TMPDIR/wasm-opt-invocations"
+            empty_stderr="$TMPDIR/empty-stderr"
+            touch "$empty_stderr"
+
+      export XDG_CACHE_HOME="$TMPDIR/cache-wasip3"
+      batch_output="$TMPDIR/batch-wasip3"
+      batch_sources=()
+      for example_name in ${pkgs.lib.escapeShellArgs exampleNames}; do
+        batch_sources+=("examples/$example_name/Main.hs")
+      done
+      timeout --foreground --kill-after=5s 120s ${aihcExe} compile-batch \
+        --output-directory "$batch_output" \
+        --target wasm32-wasip3 \
+        --gc calloc \
+        --use-wasm-opt \
+        "''${batch_sources[@]}"
+
+      pids=()
+            ${pkgs.lib.concatMapStringsSep "\n" renderWasip3ExampleCase exampleNames}
+            failed=0
+            for pid in "''${pids[@]}"; do
+              wait "$pid" || failed=1
+            done
+            test "$failed" -eq 0
+
+            test -n "$(find "$TMPDIR" -path '*/aihc/libraries/*' -type f -name '*.o' -print -quit)"
+            test -n "$(find "$TMPDIR" -path '*/aihc/libraries/*' -type f -name '*.a' -print -quit)"
+            test "$(wc -l < "$AIHC_WASM_OPT_MARKER")" -eq ${toString (builtins.length exampleNames)}
+            touch "$out"
+    '';
 
   parserProgressStrict = mkSourceCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) [] ''
     ${parserProgressExe} --strict

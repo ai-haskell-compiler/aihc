@@ -17,6 +17,7 @@ module Aihc.Cli.Compile
     defaultCompileEnvironment,
     renderCompileError,
     runCompile,
+    runCompileBatch,
     runCompileWithEnvironment,
     wasmClangCommand,
     wasmOptArguments,
@@ -31,8 +32,9 @@ import Aihc.Cli.Compile.Dependencies
     DependencyArtifact (..),
     DependencyUnit (..),
     buildDependencies,
+    buildDependenciesForModules,
   )
-import Aihc.Cli.Options (CompileOptions (..), GarbageCollector (..))
+import Aihc.Cli.Options (CompileBatchOptions (..), CompileOptions (..), GarbageCollector (..))
 import Aihc.Fc
   ( DesugarResult (..),
     FcAlt (..),
@@ -65,18 +67,19 @@ import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithFullEnv)
 import Aihc.Wasm qualified as Wasm
-import Control.Exception (bracket)
-import Control.Monad (forM_, when)
+import Control.Concurrent (forkFinally, newEmptyMVar, putMVar, takeMVar)
+import Control.Exception (bracket, throwIO)
+import Control.Monad (forM, forM_, when, (>=>))
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Text.IO.Utf8 qualified as Utf8
-import System.Directory (XdgDirectory (XdgCache), createDirectory, findExecutable, getCurrentDirectory, getTemporaryDirectory, getXdgDirectory, removeDirectoryRecursive, removeFile)
+import System.Directory (XdgDirectory (XdgCache), createDirectory, createDirectoryIfMissing, findExecutable, getCurrentDirectory, getTemporaryDirectory, getXdgDirectory, removeDirectoryRecursive, removeFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, takeDirectory, (</>))
+import System.FilePath (dropExtension, takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openTempFile)
 import System.Process (readProcessWithExitCode)
 
@@ -126,19 +129,72 @@ runCompile options = do
   environment <- defaultCompileEnvironment
   runCompileWithEnvironment environment options
 
+runCompileBatch :: CompileBatchOptions -> IO ()
+runCompileBatch batch = do
+  environment <- defaultCompileEnvironment
+  target <- resolveCompileTarget (compileBatchTarget batch)
+  prepared <-
+    forM (compileBatchSourceFiles batch) $ \sourcePath -> do
+      source <- Utf8.readFile sourcePath
+      parsed <- either (ioError . userError . renderCompileError) pure (parseCompileModule sourcePath source)
+      pure (sourcePath, source, parsed)
+  dependencies <-
+    buildDependenciesForModules
+      target
+      environment
+      (any (\(_, source, _) -> ImplicitPrelude `elem` sourceExtensions source) prepared)
+      (not (compileBatchWholeProgram batch))
+      [parsed | (_, _, parsed) <- prepared]
+      >>= either (ioError . userError . renderCompileError . CompileDependencyError) pure
+  createDirectoryIfMissing True (compileBatchOutputDirectory batch)
+  forConcurrentlyIO_ prepared $ \(sourcePath, _, parsed) -> do
+    artifacts <-
+      either (ioError . userError . renderCompileError) pure $
+        compileWithDependencies target (compileBatchWholeProgram batch) dependencies parsed
+    let output = compileBatchOutputDirectory batch </> takeFileName (takeDirectory sourcePath)
+        options =
+          CompileOptions
+            sourcePath
+            (Just output)
+            False
+            False
+            False
+            (compileBatchWholeProgram batch)
+            (Just target)
+            (compileBatchGarbageCollector batch)
+            (compileBatchUseWasmOpt batch)
+    writeCompileArtifacts target options artifacts
+
+-- | Run independent IO actions concurrently and rethrow failures in input
+-- order. Dependency construction stays single-threaded; only per-output code
+-- generation and linking use separate threads.
+forConcurrentlyIO_ :: [a] -> (a -> IO ()) -> IO ()
+forConcurrentlyIO_ values action = do
+  results <-
+    forM values $ \value -> do
+      result <- newEmptyMVar
+      _ <- forkFinally (action value) (putMVar result)
+      pure result
+  forM_ results (takeMVar >=> either throwIO pure)
+
 runCompileWithEnvironment :: CompileEnvironment -> CompileOptions -> IO ()
 runCompileWithEnvironment environment options = do
-  target <-
-    case compileTarget options of
-      Just explicitTarget -> pure explicitTarget
-      Nothing ->
-        maybe
-          (ioError (userError (renderCompileError (CompileTargetError "unsupported host; pass --target portable-c or another explicit target"))))
-          pure
-          hostNativeTarget
+  target <- resolveCompileTarget (compileTarget options)
   source <- Utf8.readFile (compileSourceFile options)
   artifactsResult <- compileSourceToArtifactsWithDependencies target (compileWholeProgram options) environment (compileSourceFile options) source
   artifacts <- either (ioError . userError . renderCompileError) pure artifactsResult
+  writeCompileArtifacts target options artifacts
+
+resolveCompileTarget :: Maybe NativeTarget -> IO NativeTarget
+resolveCompileTarget (Just explicitTarget) = pure explicitTarget
+resolveCompileTarget Nothing =
+  maybe
+    (ioError (userError (renderCompileError (CompileTargetError "unsupported host; pass --target portable-c or another explicit target"))))
+    pure
+    hostNativeTarget
+
+writeCompileArtifacts :: NativeTarget -> CompileOptions -> CompileArtifacts -> IO ()
+writeCompileArtifacts target options artifacts = do
   let output = compileOutputPath options
   writeIntermediateArtifacts output options artifacts
   if compileKeepAsm options

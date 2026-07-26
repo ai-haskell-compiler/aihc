@@ -279,7 +279,7 @@ in rec {
     disableOptimization ? false,
     enableDocs ? false,
     enableCoverage ? false,
-    enableSeparateIntermediates ? false,
+    enableChecks ? false,
     warningsAsErrors ? false,
   }: let
     hsLib = pkgs.haskell.lib;
@@ -293,7 +293,7 @@ in rec {
       else drv;
 
     mkComponent = final: name: spec: let
-      prepareChecks = enableSeparateIntermediates && builtins.elem name checkedPackageNames;
+      checkPackage = enableChecks && builtins.elem name checkedPackageNames;
       baseDrv =
         final.callCabal2nixWithOptions
         name
@@ -313,28 +313,32 @@ in rec {
         then enableCoverageWithExport hsLib optimizationAdjusted
         else optimizationAdjusted;
       warningsAdjusted = enableWarningsAsErrors coverageAdjusted;
-      intermediatesAdjusted =
-        if prepareChecks
+      checksAdjusted =
+        if checkPackage
         then
           hsLib.dontHaddock (
-            hsLib.overrideCabal warningsAdjusted (_old: {
-              doInstallIntermediates = true;
-              enableSeparateIntermediatesOutput = true;
+            hsLib.overrideCabal warningsAdjusted (old: {
+              doCheck = true;
+              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+              testToolDepends =
+                (old.testToolDepends or [])
+                ++ pkgs.lib.optionals (builtins.elem name ["aihc" "aihc-amd64" "aihc-c"]) [pkgs.llvmPackages.clang];
+              preCheck =
+                (old.preCheck or "")
+                + pkgs.lib.optionalString (builtins.elem name ["aihc" "aihc-amd64" "aihc-arm64" "aihc-c" "aihc-fc" "aihc-grin"]) ''
+                  export AIHC_BASE_SRC=${sources.baseSrc pkgs}
+                  export AIHC_PRIM_SRC=${sources.primSrc pkgs}
+                ''
+                + pkgs.lib.optionalString (builtins.elem name ["aihc-amd64" "aihc-arm64" "aihc-c" "aihc-fc" "aihc-grin"]) ''
+                  export AIHC_EVAL_FIXTURES=${sources.evalFixturesSrc pkgs}
+                '';
             })
           )
-        else warningsAdjusted;
-      checksAdjusted =
-        if prepareChecks
-        then
-          hsLib.overrideCabal intermediatesAdjusted (_old: {
-            # Build test components into the reusable intermediates, but leave
-            # execution to the independently scheduled check derivations.
-            doCheck = true;
-            testFlags = ["--pattern" "__nix-build-tests-without-running__"];
-          })
-        else hsLib.dontCheck intermediatesAdjusted;
+        else hsLib.dontCheck warningsAdjusted;
       haddockMode =
-        if enableDocs
+        if enableChecks
+        then "dont"
+        else if enableDocs
         then
           if spec.supportsDocs
           then "do"
@@ -365,7 +369,7 @@ in rec {
 
   mkHsPkgsForChecks = pkgs:
     mkHsPkgsVariant pkgs {
-      enableSeparateIntermediates = true;
+      enableChecks = true;
       warningsAsErrors = true;
     };
 

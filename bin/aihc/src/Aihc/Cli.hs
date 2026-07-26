@@ -4,7 +4,7 @@ module Aihc.Cli
   )
 where
 
-import Aihc.Cli.Compile (runCompile)
+import Aihc.Cli.Compile (runCompile, runCompileBatch)
 import Aihc.Cli.Install (runInstall)
 import Aihc.Cli.Options (Command (..), ReplOptions (..), parseCommandIO)
 import Aihc.Cli.Repl (runRepl)
@@ -23,5 +23,6 @@ main = do
 
 runCommand :: Command -> IO ()
 runCommand (CmdCompile opts) = runCompile opts
+runCommand (CmdCompileBatch opts) = runCompileBatch opts
 runCommand (CmdInstall opts) = runInstall opts
 runCommand (CmdRepl opts) = runRepl (replStoreRoot opts)

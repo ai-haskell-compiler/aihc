@@ -1,5 +1,6 @@
 module Aihc.Cli.Options
   ( Command (..),
+    CompileBatchOptions (..),
     CompileOptions (..),
     GarbageCollector (..),
     InstallErrorFormat (..),
@@ -16,6 +17,7 @@ import Options.Applicative qualified as OA
 
 data Command
   = CmdCompile !CompileOptions
+  | CmdCompileBatch !CompileBatchOptions
   | CmdInstall !InstallOptions
   | CmdRepl !ReplOptions
   deriving (Eq, Show)
@@ -30,6 +32,16 @@ data CompileOptions = CompileOptions
     compileTarget :: !(Maybe NativeTarget),
     compileGarbageCollector :: !GarbageCollector,
     compileUseWasmOpt :: !Bool
+  }
+  deriving (Eq, Show)
+
+data CompileBatchOptions = CompileBatchOptions
+  { compileBatchSourceFiles :: ![FilePath],
+    compileBatchOutputDirectory :: !FilePath,
+    compileBatchWholeProgram :: !Bool,
+    compileBatchTarget :: !(Maybe NativeTarget),
+    compileBatchGarbageCollector :: !GarbageCollector,
+    compileBatchUseWasmOpt :: !Bool
   }
   deriving (Eq, Show)
 
@@ -88,6 +100,12 @@ commandParser =
             (CmdCompile <$> compileOptionsParser OA.<**> OA.helper)
             (OA.progDesc "Compile a Haskell source file to an executable")
         )
+        <> OA.command
+          "compile-batch"
+          ( OA.info
+              (CmdCompileBatch <$> compileBatchOptionsParser OA.<**> OA.helper)
+              (OA.progDesc "Compile several Haskell programs while sharing dependency state")
+          )
         <> OA.command
           "install"
           ( OA.info
@@ -152,6 +170,45 @@ compileOptionsParser =
     <*> OA.switch
       ( OA.long "use-wasm-opt"
           <> OA.help "Optimize the linked core WebAssembly module with wasm-opt when available"
+      )
+
+compileBatchOptionsParser :: OA.Parser CompileBatchOptions
+compileBatchOptionsParser =
+  CompileBatchOptions
+    <$> OA.some
+      ( OA.strArgument
+          ( OA.metavar "SOURCES..."
+              <> OA.help "Haskell source files whose parent directory names identify their outputs"
+          )
+      )
+    <*> OA.strOption
+      ( OA.long "output-directory"
+          <> OA.metavar "DIR"
+          <> OA.help "Write each executable to DIR/<source-parent-directory>"
+      )
+    <*> OA.switch
+      ( OA.long "whole-program"
+          <> OA.help "Use whole-program DCE and code generation"
+      )
+    <*> OA.optional
+      ( OA.option
+          (OA.eitherReader parseNativeTarget)
+          ( OA.long "target"
+              <> OA.metavar "TARGET"
+              <> OA.help "Target: apple-arm64, linux-amd64, portable-c, or wasm32-wasip3 (default: host)"
+          )
+      )
+    <*> OA.option
+      (OA.eitherReader parseGarbageCollector)
+      ( OA.long "gc"
+          <> OA.metavar "calloc|semispace"
+          <> OA.value GcCalloc
+          <> OA.showDefaultWith (const "calloc")
+          <> OA.help "Select the garbage collector compiled into each executable"
+      )
+    <*> OA.switch
+      ( OA.long "use-wasm-opt"
+          <> OA.help "Optimize linked core WebAssembly modules with wasm-opt"
       )
 
 parseGarbageCollector :: String -> Either String GarbageCollector
