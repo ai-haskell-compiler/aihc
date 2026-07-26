@@ -6,7 +6,13 @@ module Test.Native.Primitive
 where
 
 import Aihc.Grin.Syntax (grinForeignCallSymbol)
-import Aihc.Native (nativeRuntimePrimitiveCall, supportedNativePrimitiveNames)
+import Aihc.Native
+  ( NativeCpsCall (..),
+    NativeCpsTransfer (..),
+    nativeCpsPrimitiveCall,
+    nativeRuntimePrimitiveCall,
+    supportedNativePrimitiveNames,
+  )
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, testCase)
@@ -36,10 +42,15 @@ tests =
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           integerPrimitiveNames,
-      testCase "accepts the scheduler-aware MVar API in native programs" $
+      testCase "describes CPS primitive runtime signatures" $
         mapM_
-          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ["newMVar#", "readMVar#", "takeMVar#", "putMVar#"],
+          ( \(primitive, runtimeCall) ->
+              assertEqual
+                ("CPS runtime call for " <> show primitive)
+                (Just runtimeCall)
+                (nativeCpsPrimitiveCall primitive)
+          )
+          cpsRuntimeCalls,
       testCase "accepts the Prelude Int# primitive API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
@@ -85,3 +96,19 @@ integerPrimitiveNames =
     "eqWord#",
     "ltWord#"
   ]
+
+cpsRuntimeCalls :: [(Text, NativeCpsCall)]
+cpsRuntimeCalls =
+  [ enters "fork#" "aihc_fork" 1,
+    enters "newMVar#" "aihc_mvar_new" 0,
+    resumes "readMVar#" "aihc_mvar_read" 1,
+    resumes "takeMVar#" "aihc_mvar_take" 1,
+    resumes "putMVar#" "aihc_mvar_put" 2,
+    resumes "yield#" "aihc_yield" 0,
+    resumes "awaitIO#" "aihc_await_io" 1
+  ]
+  where
+    enters primitive symbol operands =
+      (primitive, NativeCpsCall symbol operands False NativeCpsEnterContinuation)
+    resumes primitive symbol operands =
+      (primitive, NativeCpsCall symbol operands True NativeCpsResumeScheduler)
