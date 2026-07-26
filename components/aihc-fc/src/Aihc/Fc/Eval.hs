@@ -111,11 +111,17 @@ instance Show EvalIOHandle where
 data EvalIOOperation
   = EvalRead !EvalIOHandle !(Ptr ()) !Int !Int
   | EvalWrite !EvalIOHandle !(Ptr ()) !Int !Int
+  | EvalOpen !Text !Integer
+  deriving (Eq, Show)
+
+data EvalIOResult
+  = EvalIOInt !Integer
+  | EvalIOOpenResult !(Either Integer EvalIOHandle)
   deriving (Eq, Show)
 
 data EvalIOState
   = EvalIOSubmitted !EvalIOOperation
-  | EvalIOCompleted !Integer
+  | EvalIOCompleted !EvalIOResult
   | EvalIOConsumed
   deriving (Eq, Show)
 
@@ -476,22 +482,31 @@ completeIORequest (EvalIORequest reference) = do
     EvalIOCompleted {} -> pure ()
     EvalIOConsumed -> throwE (EvalPrimitiveTypeError "awaitIO#" (VIORequest (EvalIORequest reference)))
 
-performIOOperation :: EvalIOOperation -> EvalM Integer
+performIOOperation :: EvalIOOperation -> EvalM EvalIOResult
 performIOOperation operation =
   case operation of
     EvalRead (EvalIOHandle _ handle) buffer offset byteCount -> do
       result <- lift (tryForeign (BS.hGet handle byteCount))
       case result of
-        Left _ -> pure (-6)
+        Left _ -> pure (EvalIOInt (-6))
         Right input -> do
           lift (pokeArray (castPtr (buffer `plusPtr` offset)) (BS.unpack input))
-          pure (toInteger (BS.length input))
+          pure (EvalIOInt (toInteger (BS.length input)))
     EvalWrite (EvalIOHandle _ handle) buffer offset byteCount -> do
       bytes <- lift (BS.pack <$> peekArray byteCount (castPtr (buffer `plusPtr` offset)))
       result <- lift (tryForeign (BS.hPut handle bytes >> hFlush handle))
       case result of
-        Left _ -> pure (-6)
-        Right () -> pure (toInteger byteCount)
+        Left _ -> pure (EvalIOInt (-6))
+        Right () -> pure (EvalIOInt (toInteger byteCount))
+    EvalOpen path modeNumber -> do
+      result <- lift (tryForeign (openBinaryFile (T.unpack path) (hostIOMode modeNumber)))
+      pure
+        ( EvalIOOpenResult
+            ( case result of
+                Left _ -> Left 5
+                Right handle -> Right (EvalIOHandle 3 handle)
+            )
+        )
 
 executeForeignCall :: FcForeignCall -> [Value] -> EvalM Value
 executeForeignCall foreignCall arguments
@@ -532,21 +547,19 @@ callForeign foreignCall args
         else do
           lift (pokeArray (castPtr (buffer `plusPtr` fromInteger offset)) [fromInteger byte :: Word8])
           pure (VLit (LitInt IntRep 0))
-  | symbol == "aihc_io_open",
+  | symbol == "aihc_io_submit_open",
     [pathValue, lengthValue, modeValue] <- args = do
       pathLength <- forceForeignInt symbol lengthValue
       modeNumber <- forceForeignInt symbol modeValue
       if pathLength < 0 || pathLength > toInteger (maxBound :: Int)
-        then pure (VIOError 22)
+        then completedOpenRequest (Left 22)
         else do
           bytes <- readAddressBytes symbol (fromInteger pathLength) pathValue
           case TE.decodeUtf8' bytes of
-            Left _ -> pure (VIOError 84)
-            Right path -> do
-              result <- lift (tryForeign (openBinaryFile (T.unpack path) (hostIOMode modeNumber)))
-              case result of
-                Left _ -> pure (VIOError 5)
-                Right handle -> pure (VIOHandle (EvalIOHandle 3 handle))
+            Left _ -> completedOpenRequest (Left 84)
+            Right path ->
+              VIORequest . EvalIORequest
+                <$> lift (newIORef (EvalIOSubmitted (EvalOpen path modeNumber)))
   | symbol == "aihc_io_open_result_error",
     [openResult] <- args =
       case openResult of
@@ -583,6 +596,9 @@ callForeign foreignCall args
   | symbol == "aihc_io_take_result",
     [request] <- args =
       takeIOResult symbol request
+  | symbol == "aihc_io_take_open_result",
+    [request] <- args =
+      takeOpenIOResult symbol request
   | otherwise = do
       marshalledArgs <-
         zipWithM
@@ -651,11 +667,29 @@ takeIOResult symbol value = do
     VIORequest (EvalIORequest reference) -> do
       state <- lift (readIORef reference)
       case state of
-        EvalIOCompleted result -> do
+        EvalIOCompleted (EvalIOInt result) -> do
           lift (writeIORef reference EvalIOConsumed)
           pure (VLit (LitInt IntRep result))
         _ -> throwE (EvalForeignTypeError symbol forced)
     _ -> throwE (EvalForeignTypeError symbol forced)
+
+takeOpenIOResult :: Text -> Value -> EvalM Value
+takeOpenIOResult symbol value = do
+  forced <- forceValue value
+  case forced of
+    VIORequest (EvalIORequest reference) -> do
+      state <- lift (readIORef reference)
+      case state of
+        EvalIOCompleted (EvalIOOpenResult result) -> do
+          lift (writeIORef reference EvalIOConsumed)
+          pure (either VIOError VIOHandle result)
+        _ -> throwE (EvalForeignTypeError symbol forced)
+    _ -> throwE (EvalForeignTypeError symbol forced)
+
+completedOpenRequest :: Either Integer EvalIOHandle -> EvalM Value
+completedOpenRequest result =
+  VIORequest . EvalIORequest
+    <$> lift (newIORef (EvalIOCompleted (EvalIOOpenResult result)))
 
 marshalForeignArgument :: Text -> FcForeignType -> Value -> EvalM Arg
 marshalForeignArgument symbol FcForeignInt argument = do

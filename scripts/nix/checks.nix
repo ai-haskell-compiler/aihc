@@ -158,6 +158,63 @@
       "$expected_stderr" "$actual_stderr"
   '';
 
+  renderWasip3ExampleTest = compilation: ''
+    executable="$TMPDIR/$example_name-wasm32-wasip3-${compilation.name}.wasm"
+    actual_stdout="$executable.stdout"
+    actual_stderr="$executable.stderr"
+    run_directory="$executable.run"
+    stdin_file=/dev/null
+    if [[ -f "$example_directory/stdin" ]]; then
+      stdin_file="$example_directory/stdin"
+    fi
+    expected_stderr="$empty_stderr"
+    if [[ -f "$example_directory/stderr" ]]; then
+      expected_stderr="$example_directory/stderr"
+    fi
+    expected_exit=0
+    if [[ -f "$example_directory/exit" ]]; then
+      expected_exit=$(<"$example_directory/exit")
+    fi
+    ${aihcExe} compile "$source" \
+      --target wasm32-wasip3 \
+      --use-wasm-opt \
+      ${pkgs.lib.escapeShellArgs compilation.flags} \
+      --output "$executable"
+    mkdir -p "$run_directory"
+    if wasmtime run -C cache=n -S cli \
+      --dir "$run_directory::." \
+      "$executable" \
+      < "$stdin_file" > "$actual_stdout" 2> "$actual_stderr"; then
+      actual_exit=0
+    else
+      actual_exit=$?
+    fi
+    if [[ "$expected_exit" == nonzero ]]; then
+      if [[ "$actual_exit" -eq 0 ]]; then
+        echo "Expected $example_name/wasm32-wasip3-${compilation.name} to fail" >&2
+        exit 1
+      fi
+    elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
+      if [[ "$actual_exit" -ne "$expected_exit" ]]; then
+        echo "Expected $example_name/wasm32-wasip3-${compilation.name} to exit with $expected_exit, got $actual_exit" >&2
+        exit 1
+      fi
+    else
+      echo "Invalid expected exit status for $example_name: $expected_exit" >&2
+      exit 1
+    fi
+    diff --unified \
+      --label "$example_name/stdout-expected" \
+      --label "$example_name/stdout-wasm32-wasip3-${compilation.name}" \
+      "$expected_stdout" "$actual_stdout"
+    if [[ "$expected_exit" != nonzero ]]; then
+      diff --unified \
+        --label "$example_name/stderr-expected" \
+        --label "$example_name/stderr-wasm32-wasip3-${compilation.name}" \
+        "$expected_stderr" "$actual_stderr"
+    fi
+  '';
+
   cppProgressEnv = hsPkgs.ghcWithPackages (p: [
     p.aihc-cpp
     p.cpphs
@@ -305,32 +362,26 @@
       export XDG_CACHE_HOME="$TMPDIR/cache"
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       export AIHC_WASM_OPT_MARKER="$TMPDIR/wasm-opt-invocations"
+      empty_stderr="$TMPDIR/empty-stderr"
+      touch "$empty_stderr"
+      example_count=0
 
-      for example in async-hello-world system-io-stdout unboxed-tail-recursion; do
-        source="examples/$example/Main.hs"
-        expected_stdout="examples/$example/stdout"
+      while IFS= read -r -d "" source; do
+        example_directory=$(dirname "$source")
+        example_name=$(basename "$example_directory")
+        expected_stdout="$example_directory/stdout"
+        if [[ ! -f "$expected_stdout" ]]; then
+          echo "Missing expected stdout for $source: $expected_stdout" >&2
+          exit 1
+        fi
+        example_count=$((example_count + 1))
 
-        incremental_executable="$TMPDIR/$example-incremental.wasm"
-        ${aihcExe} compile "$source" \
-          --target wasm32-wasip3 \
-          --use-wasm-opt \
-          --output "$incremental_executable"
-        wasmtime run -C cache=n -S cli "$incremental_executable" > "$incremental_executable.stdout"
-        diff --unified "$expected_stdout" "$incremental_executable.stdout"
-
-        whole_program_executable="$TMPDIR/$example-whole-program.wasm"
-        ${aihcExe} compile "$source" \
-          --target wasm32-wasip3 \
-          --use-wasm-opt \
-          --whole-program \
-          --output "$whole_program_executable"
-        wasmtime run -C cache=n -S cli "$whole_program_executable" > "$whole_program_executable.stdout"
-        diff --unified "$expected_stdout" "$whole_program_executable.stdout"
-      done
+        ${pkgs.lib.concatMapStringsSep "\n" renderWasip3ExampleTest compilationModes}
+      done < <(find examples -mindepth 2 -maxdepth 2 -name Main.hs -print0 | sort -z)
 
       test -n "$(find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.o' -print -quit)"
       test -n "$(find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.a' -print -quit)"
-      test "$(wc -l < "$AIHC_WASM_OPT_MARKER")" -eq 6
+      test "$(wc -l < "$AIHC_WASM_OPT_MARKER")" -eq "$((example_count * ${toString (builtins.length compilationModes)}))"
     '';
 
   parserProgressStrict = mkSourceCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) [] ''

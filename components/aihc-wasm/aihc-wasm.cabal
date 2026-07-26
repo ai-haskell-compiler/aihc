@@ -14,6 +14,7 @@ data-files:
   runtime/include/string.h
   runtime/wit/command.wit
   runtime/wit/deps/cli.wit
+  runtime/wit/deps/filesystem.wit
 
 library
   autogen-modules:

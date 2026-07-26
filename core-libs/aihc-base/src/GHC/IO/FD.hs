@@ -42,8 +42,8 @@ foreign import ccall unsafe "aihc_io_stdout"
 foreign import ccall unsafe "aihc_io_stderr"
   stderrHandle :: IO (Ptr IOHandle)
 
-foreign import ccall unsafe "aihc_io_open"
-  openRaw :: Addr# -> Int -> Int -> IO (Ptr IOHandle)
+foreign import ccall unsafe "aihc_io_submit_open"
+  submitOpen :: Addr# -> Int -> Int -> IO (Ptr IORequest)
 
 foreign import ccall unsafe "aihc_io_open_result_error"
   openResultError :: Ptr IOHandle -> IO Int
@@ -63,9 +63,14 @@ foreign import ccall unsafe "aihc_io_submit_write"
 foreign import ccall unsafe "aihc_io_take_result"
   takeResult :: Ptr IORequest -> IO Int
 
+foreign import ccall unsafe "aihc_io_take_open_result"
+  takeOpenResult :: Ptr IORequest -> IO (Ptr IOHandle)
+
 openIOHandle :: Addr# -> Int -> Int -> IO (Either Int (Ptr IOHandle))
 openIOHandle path length mode = do
-  result <- openRaw path length mode
+  request <- submitOpen path length mode
+  awaitIO request
+  result <- takeOpenResult request
   openCode <- openResultError result
   case openCode of
     0 -> return (Right result)

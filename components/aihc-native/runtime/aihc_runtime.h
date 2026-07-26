@@ -191,7 +191,6 @@ const AihcResume *aihc_thread_done(AihcMachine *machine);
 void *aihc_io_stdin(void);
 void *aihc_io_stdout(void);
 void *aihc_io_stderr(void);
-void *aihc_io_open(void *path, int64_t length, int64_t mode);
 int64_t aihc_io_open_result_error(void *result);
 int64_t aihc_io_close(void *handle);
 int64_t aihc_memory_write_byte(void *buffer, int64_t offset, int64_t value);
@@ -213,7 +212,9 @@ void *aihc_io_submit_read(void *handle, void *buffer, int64_t offset,
                           int64_t length);
 void *aihc_io_submit_write(void *handle, void *buffer, int64_t offset,
                            int64_t length);
+void *aihc_io_submit_open(void *path, int64_t length, int64_t mode);
 int64_t aihc_io_take_result(void *request);
+void *aihc_io_take_open_result(void *request);
 void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation);
 AihcEntry aihc_halt(AihcMachine *machine);
@@ -264,7 +265,7 @@ AihcPortableTransfer aihc_portable_start(AihcMachine *machine, AihcValue *root,
                                          AihcEntry exit_code);
 #ifdef AIHC_WASIP3
 AihcPortableTransfer aihc_wasip3_complete_io(AihcMachine *machine,
-                                             int32_t result);
+                                             int64_t result);
 #endif
 
 typedef enum {

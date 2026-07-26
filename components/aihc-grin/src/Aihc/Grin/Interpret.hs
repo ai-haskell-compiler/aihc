@@ -114,11 +114,17 @@ instance Show GrinIOHandle where
 data GrinIOOperation
   = GrinRead !GrinIOHandle !(Ptr ()) !Int !Int
   | GrinWrite !GrinIOHandle !(Ptr ()) !Int !Int
+  | GrinOpen !Text !Integer
+  deriving (Eq, Show)
+
+data GrinIOResult
+  = GrinIOInt !Integer
+  | GrinIOOpenResult !(Either Integer GrinIOHandle)
   deriving (Eq, Show)
 
 data GrinIOState
   = GrinIOSubmitted !GrinIOOperation
-  | GrinIOCompleted !Integer
+  | GrinIOCompleted !GrinIOResult
   | GrinIOConsumed
   deriving (Eq, Show)
 
@@ -900,21 +906,19 @@ callForeign foreignCall arguments
         else do
           liftEvalIO (pokeArray (castPtr (buffer `plusPtr` fromInteger offset)) [fromInteger byte :: Word8])
           pure (RuntimeLit (GrinLitInt IntRep 0))
-  | symbol == "aihc_io_open",
+  | symbol == "aihc_io_submit_open",
     [pathValue, lengthValue, modeValue] <- arguments = do
       pathLength <- expectForeignInt symbol lengthValue
       modeNumber <- expectForeignInt symbol modeValue
       if pathLength < 0 || pathLength > toInteger (maxBound :: Int)
-        then pure (RuntimeIOError 22)
+        then completedOpenRequest (Left 22)
         else do
           bytes <- readAddressBytes symbol (fromInteger pathLength) pathValue
           case TE.decodeUtf8' bytes of
-            Left _ -> pure (RuntimeIOError 84)
-            Right path -> do
-              result <- liftEvalIO (tryForeign (openBinaryFile (T.unpack path) (hostIOMode modeNumber)))
-              case result of
-                Left _ -> pure (RuntimeIOError 5)
-                Right handle -> pure (RuntimeIOHandle (GrinIOHandle 3 handle))
+            Left _ -> completedOpenRequest (Left 84)
+            Right path ->
+              RuntimeIORequest . GrinIORequest
+                <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinOpen path modeNumber)))
   | symbol == "aihc_io_open_result_error",
     [openResult] <- arguments =
       case openResult of
@@ -951,6 +955,9 @@ callForeign foreignCall arguments
   | symbol == "aihc_io_take_result",
     [request] <- arguments =
       takeIOResult symbol request
+  | symbol == "aihc_io_take_open_result",
+    [request] <- arguments =
+      takeOpenIOResult symbol request
   | otherwise = do
       marshalledArguments <-
         zipWithM
@@ -1019,22 +1026,31 @@ completeIORequest (GrinIORequest reference) = do
     GrinIOCompleted {} -> pure ()
     GrinIOConsumed -> throwInterpret (InterpretPrimitiveTypeError "awaitIO#" (RuntimeIORequest (GrinIORequest reference)))
 
-performIOOperation :: GrinIOOperation -> EvalM Integer
+performIOOperation :: GrinIOOperation -> EvalM GrinIOResult
 performIOOperation operation =
   case operation of
     GrinRead (GrinIOHandle _ handle) buffer offset byteCount -> do
       result <- liftEvalIO (tryForeign (BS.hGet handle byteCount))
       case result of
-        Left _ -> pure (-6)
+        Left _ -> pure (GrinIOInt (-6))
         Right input -> do
           liftEvalIO (pokeArray (castPtr (buffer `plusPtr` offset)) (BS.unpack input))
-          pure (toInteger (BS.length input))
+          pure (GrinIOInt (toInteger (BS.length input)))
     GrinWrite (GrinIOHandle _ handle) buffer offset byteCount -> do
       bytes <- liftEvalIO (BS.pack <$> peekArray byteCount (castPtr (buffer `plusPtr` offset)))
       result <- liftEvalIO (tryForeign (BS.hPut handle bytes >> hFlush handle))
       case result of
-        Left _ -> pure (-6)
-        Right () -> pure (toInteger byteCount)
+        Left _ -> pure (GrinIOInt (-6))
+        Right () -> pure (GrinIOInt (toInteger byteCount))
+    GrinOpen path modeNumber -> do
+      result <- liftEvalIO (tryForeign (openBinaryFile (T.unpack path) (hostIOMode modeNumber)))
+      pure
+        ( GrinIOOpenResult
+            ( case result of
+                Left _ -> Left 5
+                Right handle -> Right (GrinIOHandle 3 handle)
+            )
+        )
 
 takeIOResult :: Text -> RuntimeValue -> EvalM RuntimeValue
 takeIOResult symbol value =
@@ -1042,11 +1058,28 @@ takeIOResult symbol value =
     RuntimeIORequest (GrinIORequest reference) -> do
       state <- liftEvalIO (readIORef reference)
       case state of
-        GrinIOCompleted result -> do
+        GrinIOCompleted (GrinIOInt result) -> do
           liftEvalIO (writeIORef reference GrinIOConsumed)
           pure (RuntimeLit (GrinLitInt IntRep result))
         _ -> throwInterpret (InterpretForeignTypeError symbol value)
     _ -> throwInterpret (InterpretForeignTypeError symbol value)
+
+takeOpenIOResult :: Text -> RuntimeValue -> EvalM RuntimeValue
+takeOpenIOResult symbol value =
+  case value of
+    RuntimeIORequest (GrinIORequest reference) -> do
+      state <- liftEvalIO (readIORef reference)
+      case state of
+        GrinIOCompleted (GrinIOOpenResult result) -> do
+          liftEvalIO (writeIORef reference GrinIOConsumed)
+          pure (either RuntimeIOError RuntimeIOHandle result)
+        _ -> throwInterpret (InterpretForeignTypeError symbol value)
+    _ -> throwInterpret (InterpretForeignTypeError symbol value)
+
+completedOpenRequest :: Either Integer GrinIOHandle -> EvalM RuntimeValue
+completedOpenRequest result =
+  RuntimeIORequest . GrinIORequest
+    <$> liftEvalIO (newIORef (GrinIOCompleted (GrinIOOpenResult result)))
 
 marshalForeignArgument :: Text -> GrinForeignType -> RuntimeValue -> EvalM Arg
 marshalForeignArgument symbol GrinForeignInt argument = do

@@ -8,7 +8,17 @@ interface types {
   }
 }
 
+interface stdin {
+  use types.{error-code};
+  read-via-stream: func() -> tuple<stream<u8>, future<result<_, error-code>>>;
+}
+
 interface stdout {
+  use types.{error-code};
+  write-via-stream: func(data: stream<u8>) -> future<result<_, error-code>>;
+}
+
+interface stderr {
   use types.{error-code};
   write-via-stream: func(data: stream<u8>) -> future<result<_, error-code>>;
 }

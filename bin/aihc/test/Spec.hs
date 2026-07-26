@@ -935,10 +935,8 @@ test_compileExecutable =
         assertBool "GC-GRIN contains explicit heap reservations" ("ensure-heap " `T.isInfixOf` gcGrin)
         assertBool "GC-GRIN contains unchecked allocations" ("store-unchecked " `T.isInfixOf` gcGrin)
         assertBool "GRIN erases the IO constructor" (not ("constructor IO/" `T.isInfixOf` grin))
-        assertBool "GRIN erases the CInt constructor" (not ("constructor CInt/" `T.isInfixOf` grin))
-        assertBool "GRIN does not allocate putchar globally" (not ("global putchar" `T.isInfixOf` grin || "caf putchar" `T.isInfixOf` grin))
-        assertBool "GRIN does not allocate char globally" (not ("global char" `T.isInfixOf` grin || "caf char" `T.isInfixOf` grin))
-        assertBool "GRIN uses direct known calls" ("call @(BoxedRep Lifted) $entry$>>" `T.isInfixOf` grin)
+        assertBool "GRIN has no libc output calls" (not ("putchar" `T.isInfixOf` grin || "puts" `T.isInfixOf` grin))
+        assertBool "GRIN uses the Handle IO path" ("call @(BoxedRep Lifted) $entry$hPutBuf" `T.isInfixOf` grin)
         assertBool "GRIN makes evaluation explicit" ("eval @" `T.isInfixOf` grin)
         assertNativeOutput "Hello, world!\n" keptOutput
 
