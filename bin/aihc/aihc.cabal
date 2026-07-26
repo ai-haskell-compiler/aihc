@@ -19,7 +19,6 @@ library
 
   other-modules:
     Aihc.Cli.Compile.Dependencies
-    Aihc.Cli.Utf8
 
   hs-source-dirs: src
   build-depends:
@@ -46,7 +45,7 @@ library
     optparse-applicative >=0.16 && <0.19,
     prettyprinter,
     process,
-    text >=1.2.3 && <2.2,
+    text >=2.1.4 && <2.2,
 
   default-extensions: OverloadedStrings
   ghc-options: -Wall

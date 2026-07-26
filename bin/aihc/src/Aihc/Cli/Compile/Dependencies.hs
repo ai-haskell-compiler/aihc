@@ -15,7 +15,6 @@ where
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
 import Aihc.C qualified as C
-import Aihc.Cli.Utf8 qualified as Utf8
 import Aihc.Fc (DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, optimizeProgram)
 import Aihc.Grin qualified as Grin
 import Aihc.Native
@@ -77,6 +76,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
 import Data.Text.IO qualified as TIO
+import Data.Text.IO.Utf8 qualified as Utf8
 import Data.Word (Word64)
 import Numeric (showHex)
 import System.Directory

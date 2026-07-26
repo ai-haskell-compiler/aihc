@@ -33,7 +33,6 @@ import Aihc.Cli.Compile.Dependencies
     buildDependencies,
   )
 import Aihc.Cli.Options (CompileOptions (..), GarbageCollector (..))
-import Aihc.Cli.Utf8 qualified as Utf8
 import Aihc.Fc
   ( DesugarResult (..),
     FcAlt (..),
@@ -73,6 +72,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Data.Text.IO.Utf8 qualified as Utf8
 import System.Directory (XdgDirectory (XdgCache), createDirectory, findExecutable, getCurrentDirectory, getTemporaryDirectory, getXdgDirectory, removeDirectoryRecursive, removeFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
