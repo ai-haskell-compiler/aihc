@@ -650,18 +650,139 @@ compileDirectBinding env vars expression =
         )
     GrinUpdate pointer value -> update "aihc_update" False pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_update_blackhole" True pointer value
-    GrinPrimitiveCall IntRep "+#" [left, right] -> do
+    GrinPrimitiveCall IntRep name [left, right]
+      | Just instruction <- lookup name [("+#", "add"), ("-#", "sub"), ("*#", "mul")] ->
+          binaryPrimitive instruction left right
+    GrinPrimitiveCall WordRep name [left, right]
+      | Just instruction <-
+          lookup
+            name
+            [ ("plusWord#", "add"),
+              ("minusWord#", "sub"),
+              ("timesWord#", "mul"),
+              ("quotWord#", "udiv"),
+              ("remWord#", "urem"),
+              ("and#", "and"),
+              ("or#", "or"),
+              ("xor#", "xor")
+            ] ->
+          binaryPrimitive instruction left right
+    GrinPrimitiveCall _ name [left, right]
+      | Just predicate <-
+          lookup
+            name
+            [ ("<#", "slt"),
+              ("==#", "eq"),
+              ("eqWord#", "eq"),
+              ("neWord#", "ne"),
+              ("ltWord#", "ult"),
+              ("leWord#", "ule"),
+              ("gtWord#", "ugt"),
+              ("geWord#", "uge")
+            ] ->
+          comparisonPrimitive predicate left right
+    GrinPrimitiveCall _ name [left, right]
+      | name `elem` ["addIntC#", "subIntC#", "addWordC#", "subWordC#"] ->
+          carryPrimitive name left right
+    GrinPrimitiveCall _ "timesWord2#" [left, right] -> do
       (lines', operands) <- materializeValues env [left, right]
       case operands of
         [leftOperand, rightOperand] -> do
+          wideLeft <- freshValue
+          wideRight <- freshValue
+          wideProduct <- freshValue
+          highWide <- freshValue
+          high <- freshValue
+          low <- freshValue
+          storePair
+            ( lines'
+                <> [ "  " <> wideLeft <> " = zext i64 " <> leftOperand <> " to i128",
+                     "  " <> wideRight <> " = zext i64 " <> rightOperand <> " to i128",
+                     "  " <> wideProduct <> " = mul i128 " <> wideLeft <> ", " <> wideRight,
+                     "  " <> highWide <> " = lshr i128 " <> wideProduct <> ", 64",
+                     "  " <> high <> " = trunc i128 " <> highWide <> " to i64",
+                     "  " <> low <> " = trunc i128 " <> wideProduct <> " to i64"
+                   ]
+            )
+            high
+            low
+        _ -> internalArity "timesWord2#"
+    GrinPrimitiveCall _ "quotRemWord#" [left, right] -> do
+      (lines', operands) <- materializeValues env [left, right]
+      case operands of
+        [leftOperand, rightOperand] -> do
+          quotient <- freshValue
+          remainder <- freshValue
+          storePair
+            ( lines'
+                <> [ "  " <> quotient <> " = udiv i64 " <> leftOperand <> ", " <> rightOperand,
+                     "  " <> remainder <> " = urem i64 " <> leftOperand <> ", " <> rightOperand
+                   ]
+            )
+            quotient
+            remainder
+        _ -> internalArity "quotRemWord#"
+    GrinPrimitiveCall _ "quotRemWord2#" [high, low, divisor] -> do
+      (lines', operands) <- materializeValues env [high, low, divisor]
+      case operands of
+        [highOperand, lowOperand, divisorOperand] -> do
+          wideHigh <- freshValue
+          shiftedHigh <- freshValue
+          wideLow <- freshValue
+          dividend <- freshValue
+          wideDivisor <- freshValue
+          wideQuotient <- freshValue
+          wideRemainder <- freshValue
+          quotient <- freshValue
+          remainder <- freshValue
+          storePair
+            ( lines'
+                <> [ "  " <> wideHigh <> " = zext i64 " <> highOperand <> " to i128",
+                     "  " <> shiftedHigh <> " = shl i128 " <> wideHigh <> ", 64",
+                     "  " <> wideLow <> " = zext i64 " <> lowOperand <> " to i128",
+                     "  " <> dividend <> " = or i128 " <> shiftedHigh <> ", " <> wideLow,
+                     "  " <> wideDivisor <> " = zext i64 " <> divisorOperand <> " to i128",
+                     "  " <> wideQuotient <> " = udiv i128 " <> dividend <> ", " <> wideDivisor,
+                     "  " <> wideRemainder <> " = urem i128 " <> dividend <> ", " <> wideDivisor,
+                     "  " <> quotient <> " = trunc i128 " <> wideQuotient <> " to i64",
+                     "  " <> remainder <> " = trunc i128 " <> wideRemainder <> " to i64"
+                   ]
+            )
+            quotient
+            remainder
+        _ -> internalArity "quotRemWord2#"
+    GrinPrimitiveCall _ "not#" [value] -> do
+      (lines', operand) <- materializeValue env value
+      result <- freshValue
+      storeOne (lines' <> ["  " <> result <> " = xor i64 " <> operand <> ", -1"], result)
+    GrinPrimitiveCall _ name [value, amount]
+      | Just instruction <- lookup name [("uncheckedShiftL#", "shl"), ("uncheckedShiftRL#", "lshr")] ->
+          binaryPrimitive instruction value amount
+    GrinPrimitiveCall _ name [value]
+      | name `elem` ["int2Word#", "word2Int#", "charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
+          materializeValue env value >>= storeOne
+    GrinPrimitiveCall IntRep "compareInt#" [left, right] -> do
+      (lines', operands) <- materializeValues env [left, right]
+      case operands of
+        [leftOperand, rightOperand] -> do
+          less <- freshValue
+          greater <- freshValue
+          lessInt <- freshValue
+          greaterInt <- freshValue
           result <- freshValue
-          storeOne (lines' <> ["  " <> result <> " = add i64 " <> leftOperand <> ", " <> rightOperand], result)
-        _ -> internalArity "binary Int# primitive"
+          storeOne
+            ( lines'
+                <> [ "  " <> less <> " = icmp slt i64 " <> leftOperand <> ", " <> rightOperand,
+                     "  " <> greater <> " = icmp sgt i64 " <> leftOperand <> ", " <> rightOperand,
+                     "  " <> lessInt <> " = zext i1 " <> less <> " to i64",
+                     "  " <> greaterInt <> " = zext i1 " <> greater <> " to i64",
+                     "  " <> result <> " = sub i64 " <> greaterInt <> ", " <> lessInt
+                   ],
+              result
+            )
+        _ -> internalArity "compareInt#"
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
-    GrinPrimitiveCall _ name [value]
-      | name `elem` ["unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
-          materializeValue env value >>= storeOne
     GrinPrimitiveCall _ name arguments
       | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
           result <- compileForeignCall env foreignCall arguments
@@ -685,6 +806,95 @@ compileDirectBinding env vars expression =
           destination <- localSlot env var
           pure (lines' <> [storeLocal destination operand])
         _ -> lift (Left (LlvmUnsupportedExpression "direct expression result arity"))
+    storePair lines' firstOperand secondOperand =
+      case vars of
+        [first, second] -> do
+          firstDestination <- localSlot env first
+          secondDestination <- localSlot env second
+          pure
+            ( lines'
+                <> [ storeLocal firstDestination firstOperand,
+                     storeLocal secondDestination secondOperand
+                   ]
+            )
+        _ -> lift (Left (LlvmUnsupportedExpression "direct expression pair result arity"))
+    binaryPrimitive instruction left right = do
+      (lines', operands) <- materializeValues env [left, right]
+      case operands of
+        [leftOperand, rightOperand] -> do
+          result <- freshValue
+          storeOne (lines' <> ["  " <> result <> " = " <> instruction <> " i64 " <> leftOperand <> ", " <> rightOperand], result)
+        _ -> internalArity "binary primitive"
+    comparisonPrimitive predicate left right = do
+      (lines', operands) <- materializeValues env [left, right]
+      case operands of
+        [leftOperand, rightOperand] -> do
+          comparison <- freshValue
+          result <- freshValue
+          storeOne
+            ( lines'
+                <> [ "  " <> comparison <> " = icmp " <> predicate <> " i64 " <> leftOperand <> ", " <> rightOperand,
+                     "  " <> result <> " = zext i1 " <> comparison <> " to i64"
+                   ],
+              result
+            )
+        _ -> internalArity "comparison primitive"
+    carryPrimitive name left right = do
+      (lines', operands) <- materializeValues env [left, right]
+      case operands of
+        [leftOperand, rightOperand] -> do
+          result <- freshValue
+          let instruction = if name `elem` ["addIntC#", "addWordC#"] then "add" else "sub"
+          case name of
+            "addIntC#" -> do
+              resultLeft <- freshValue
+              resultRight <- freshValue
+              overflowBits <- freshValue
+              flag <- freshValue
+              storePair
+                ( lines'
+                    <> [ "  " <> result <> " = add i64 " <> leftOperand <> ", " <> rightOperand,
+                         "  " <> resultLeft <> " = xor i64 " <> result <> ", " <> leftOperand,
+                         "  " <> resultRight <> " = xor i64 " <> result <> ", " <> rightOperand,
+                         "  " <> overflowBits <> " = and i64 " <> resultLeft <> ", " <> resultRight,
+                         "  " <> flag <> " = lshr i64 " <> overflowBits <> ", 63"
+                       ]
+                )
+                result
+                flag
+            "subIntC#" -> do
+              leftRight <- freshValue
+              leftResult <- freshValue
+              overflowBits <- freshValue
+              flag <- freshValue
+              storePair
+                ( lines'
+                    <> [ "  " <> result <> " = sub i64 " <> leftOperand <> ", " <> rightOperand,
+                         "  " <> leftRight <> " = xor i64 " <> leftOperand <> ", " <> rightOperand,
+                         "  " <> leftResult <> " = xor i64 " <> leftOperand <> ", " <> result,
+                         "  " <> overflowBits <> " = and i64 " <> leftRight <> ", " <> leftResult,
+                         "  " <> flag <> " = lshr i64 " <> overflowBits <> ", 63"
+                       ]
+                )
+                result
+                flag
+            _ -> do
+              carry <- freshValue
+              flag <- freshValue
+              let (predicate, firstOperand, secondOperand) =
+                    if name == "addWordC#"
+                      then ("ult", result, leftOperand)
+                      else ("ult", leftOperand, rightOperand)
+              storePair
+                ( lines'
+                    <> [ "  " <> result <> " = " <> instruction <> " i64 " <> leftOperand <> ", " <> rightOperand,
+                         "  " <> carry <> " = icmp " <> predicate <> " i64 " <> firstOperand <> ", " <> secondOperand,
+                         "  " <> flag <> " = zext i1 " <> carry <> " to i64"
+                       ]
+                )
+                result
+                flag
+        _ -> internalArity "carry primitive"
     update function passMachine pointer value = do
       (lines', operands) <- materializeValues env [pointer, value]
       case operands of
