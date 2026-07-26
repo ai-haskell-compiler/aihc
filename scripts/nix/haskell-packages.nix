@@ -7,13 +7,11 @@
     "aihc-amd64"
     "aihc-arm64"
     "aihc-c"
-    "aihc-cpp"
     "aihc-dev"
     "aihc-fc"
     "aihc-fmt"
     "aihc-grin"
     "aihc-native"
-    "aihc-parser"
     "aihc-resolve"
     "aihc-tc"
     "aihc-testing"
@@ -67,33 +65,6 @@
       optimizeForChecks = true;
       supportsDocs = false;
       supportsCoverage = false;
-    };
-    aihc-parser = {
-      src = sources.parserSrc;
-      cabal2nixOptions = {
-        extraCabal2nixOptions = "--flag fuzz";
-      };
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = true;
-      supportsCoverage = true;
-    };
-    aihc-parser-compat = {
-      src = sources.parserCompatSrc;
-      cabal2nixOptions = {
-        extraCabal2nixOptions = "--flag fuzz";
-      };
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
-    aihc-cpp = {
-      src = sources.cppSrc;
-      disableProfiling = true;
-      optimizeForChecks = false;
-      supportsDocs = true;
-      supportsCoverage = true;
     };
     aihc-fc = {
       src = sources.fcSrc;
@@ -163,17 +134,6 @@
       src = sources.testingSrc;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--subpath tooling/aihc-testing";
-        srcModifier = src: src;
-      };
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
-    aihc-parser-tooling-common = {
-      src = sources.parserToolingCommonSrc;
-      cabal2nixOptions = {
-        extraCabal2nixOptions = "--subpath tooling/aihc-parser-tooling-common";
         srcModifier = src: src;
       };
       disableProfiling = true;
@@ -269,6 +229,13 @@
             (hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling drv)))
     )
     prev;
+
+  mkReleasedLibrary = pkgs: hsLib: final: name: url: sha256:
+    hsLib.dontCheck (hsLib.dontHaddock (
+      hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
+        final.callCabal2nix name (pkgs.fetchzip {inherit url sha256;}) {}
+      ))
+    ));
 in rec {
   # Hackage dependencies whose build settings need manual adjustment.
   hackageDepTestFixes = pkgs: _final: prev: {
@@ -348,10 +315,16 @@ in rec {
         disableUpstreamChecks pkgs hsLib localPackageNames final prev
         // hackageDepTestFixes pkgs final prev
         // {
-          ghc-lib-parser = hsLib.dontCheck (hsLib.dontHaddock (
-            hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling
-              final.ghc-lib-parser_9_14_1_20251220)
-          ));
+          aihc-cpp =
+            mkReleasedLibrary pkgs hsLib final
+            "aihc-cpp"
+            "https://github.com/ai-haskell-compiler/aihc-cpp/releases/download/v1.0.0.3/aihc-cpp-1.0.0.3.tar.gz"
+            "0x76qvz2gkjrbf0dsrl9lvpr50d73gn728157dw048r95gk5kih7";
+          aihc-parser =
+            mkReleasedLibrary pkgs hsLib final
+            "aihc-parser"
+            "https://github.com/ai-haskell-compiler/aihc-parser/releases/download/v1.0.0.4/aihc-parser-1.0.0.4.tar.gz"
+            "1q9gvxd74bxhmsjglg5ijpds4qhqgg5078s5wxxfnza60y60n4ic";
           aihc-hackage = hsLib.dontCheck (hsLib.dontHaddock (
             hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
               final.callCabal2nix "aihc-hackage" (sources.hackageSrc pkgs) {}
@@ -367,15 +340,5 @@ in rec {
     mkHsPkgsVariant pkgs {
       enableSeparateIntermediates = true;
       warningsAsErrors = true;
-    };
-
-  mkHsPkgsWithHaddock = pkgs:
-    mkHsPkgsVariant pkgs {
-      enableDocs = true;
-    };
-
-  mkHsPkgsWithCoverage = pkgs:
-    mkHsPkgsVariant pkgs {
-      enableCoverage = true;
     };
 }

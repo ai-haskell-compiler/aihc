@@ -1,7 +1,0 @@
-{- ORACLE_TEST pass -}
-{-# LANGUAGE TypeFamilies, PolyKinds #-}
-module PolykindedTypeFamily where
-
-type family J a :: k
-type instance J Int = Bool
-type instance J Int = Maybe

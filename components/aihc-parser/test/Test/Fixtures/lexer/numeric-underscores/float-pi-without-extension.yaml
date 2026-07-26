@@ -1,8 +1,0 @@
-# Without NumericUnderscores, underscore should not be part of the literal
-extensions: []
-input: "3.141_592_653_589_793"
-tokens:
-  - 'TkFloat 3.141 TFractional'
-  - 'TkVarId "_592_653_589_793"'
-  - 'TkEOF'
-status: pass

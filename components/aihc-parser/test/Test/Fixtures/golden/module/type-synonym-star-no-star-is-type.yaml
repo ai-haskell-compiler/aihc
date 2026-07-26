@@ -1,6 +1,0 @@
-extensions: [NoStarIsType]
-input: |
-  type X = (*)
-ast: |-
-  Module {[DeclTypeSyn (TypeSynDecl {Prefix "X", TCon "*"})]}
-status: pass

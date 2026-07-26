@@ -1,9 +1,0 @@
-extensions: [MultilineStrings]
-input: |
-  """
-  "Hello"
-  """
-tokens:
-  - 'TkString "\"Hello\""'
-  - 'TkEOF'
-status: pass

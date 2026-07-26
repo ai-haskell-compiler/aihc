@@ -1,7 +1,0 @@
-extensions:
-  - UnicodeSyntax
-input: "⊸"
-tokens:
-  - 'TkLinearArrow'
-  - 'TkEOF'
-status: pass

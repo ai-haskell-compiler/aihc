@@ -1,5 +1,0 @@
-extensions: [MagicHash, OverloadedRecordDot]
-input: |
-  x = 'a'#.a
-status: fail
-reason: GHC rejects bare record-dot access after hash-ending MagicHash literals

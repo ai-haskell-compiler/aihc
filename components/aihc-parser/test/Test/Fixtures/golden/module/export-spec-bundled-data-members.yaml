@@ -1,9 +1,0 @@
-extensions:
-  - PatternSynonyms
-  - ExplicitNamespaces
-input: |
-  module Demo (Nat (data Zero, data Succ)) where
-  x = 1
-status: pass
-ast: |-
-  Module {ModuleHead {"Demo", [ExportWith{"Nat", [IEBundledMember{IEBundledNamespaceData, "Zero"}, IEBundledMember{IEBundledNamespaceData, "Succ"}]}]}, [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}

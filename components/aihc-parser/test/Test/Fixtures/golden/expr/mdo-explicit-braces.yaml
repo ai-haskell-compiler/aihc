@@ -1,6 +1,0 @@
-extensions: [RecursiveDo]
-input: |
-  mdo { pure x }
-ast: |-
-  EDo [DoExpr (EApp (EVar "pure") (EVar "x"))] (DoMdo)
-status: pass

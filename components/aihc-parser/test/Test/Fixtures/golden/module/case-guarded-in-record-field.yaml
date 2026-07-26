@@ -1,7 +1,0 @@
-extensions: []
-input: |
-  module CaseGuardedInRecordField where
-  x = R { f = case y of A | p -> 1 | q -> 2, g = 3 }
-ast: |-
-  Module {ModuleHead {"CaseGuardedInRecordField"}, [DeclValue (PatternBind (PVar "x") (ERecordCon "R" {"f" = ECase (EVar "y") [CaseAlt (PCon "A" []) (GuardedRhss [GuardedRhs {[GuardExpr (EVar "p")], EInt 1 TInteger}, GuardedRhs {[GuardExpr (EVar "q")], EInt 2 TInteger}])], "g" = EInt 3 TInteger}))]}
-status: pass

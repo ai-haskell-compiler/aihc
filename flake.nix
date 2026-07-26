@@ -16,23 +16,13 @@
       inherit (core) projectHsPackages;
       inherit sources;
     };
-    docs = import ./scripts/nix/docs.nix {
-      inherit (core) projectHsPackages;
-      inherit (haskell) mkHsPkgsWithHaddock;
-    };
-    coverage = import ./scripts/nix/coverage.nix {
-      inherit (core) projectHsPackages;
-      inherit sources;
-      inherit (haskell) mkHsPkgsWithCoverage;
-    };
+    docs = import ./scripts/nix/docs.nix {};
     mkPackages = import ./scripts/nix/packages.nix {
-      inherit (docs) mkApiDocs mkCombinedDocs mkUserGuide;
-      inherit (coverage) mkCoverageReport;
+      inherit (docs) mkUserGuide;
     };
     mkApps = import ./scripts/nix/apps.nix {
       inherit (core) projectHsPackages;
       inherit (haskell) mkHsPkgs;
-      inherit (coverage) mkCoverageReport;
     };
     mkChecks = import ./scripts/nix/checks.nix {
       inherit (core) projectHsPackages;

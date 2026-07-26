@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  f @
-ast: |-
-status: fail
-reason: invalid token

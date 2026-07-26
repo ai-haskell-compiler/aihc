@@ -1,8 +1,0 @@
-input: "'x'"
-args: ["--lex"]
-output: |
-  TkSpecialLBrace
-  TkChar 'x'
-  TkSpecialRBrace
-  TkEOF
-status: pass

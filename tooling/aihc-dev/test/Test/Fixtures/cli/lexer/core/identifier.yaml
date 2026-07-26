@@ -1,8 +1,0 @@
-input: "foo"
-args: ["--lex"]
-output: |
-  TkSpecialLBrace
-  TkVarId "foo"
-  TkSpecialRBrace
-  TkEOF
-status: pass

@@ -3,8 +3,6 @@
 - Tools: `gh`, `cabal`, `nix` (others via `nix`)
 - A GHC developer environment is available
 - Run tests locally (fast): `cabal test -v0 all --test-options=--hide-successes`
-- Filter for specific tests: `cabal test -v0 aihc-parser:spec --test-options="--pattern test_name"`
-- Deep fuzzy testing: `cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000"`
 - Run full test suite (fast): `just check`
 - Run full test suite (slow, isolated sandbox): `nix flake check`
 
@@ -14,8 +12,8 @@ Each component owns one compiler domain. Domains must not overlap.
 
 | Component | Input | Output | Owns |
 | --- | --- | --- | --- |
-| `aihc-cpp` | Haskell source text plus CPP config/includes | preprocessed Haskell source text, include requests, diagnostics | preprocessing only |
-| `aihc-parser` | preprocessed Haskell source text | surface AST, tokens/trivia, parse diagnostics | lexing/parsing only |
+| [`aihc-cpp`](https://github.com/ai-haskell-compiler/aihc-cpp) | Haskell source text plus CPP config/includes | preprocessed Haskell source text, include requests, diagnostics | preprocessing only; external dependency |
+| [`aihc-parser`](https://github.com/ai-haskell-compiler/aihc-parser) | preprocessed Haskell source text | surface AST, tokens/trivia, parse diagnostics | lexing/parsing only; external dependency |
 | `aihc-resolve` | parsed surface modules | same surface AST annotated with binding/use resolution, exports, resolve diagnostics | name resolution only |
 | `aihc-tc` | resolved surface AST | same surface AST annotated with types, kinds, evidence, type diagnostics | Haskell type checking only |
 | `aihc-fc` | type-checked surface AST | System FC program, System FC lint/eval diagnostics | desugaring and System FC only |
@@ -70,15 +68,11 @@ This project uses [Just](https://just.systems) as a command runner. Common comma
 ## Cheatsheet
 
 - Test whether a file is accepted by GHC: `ghc -v0 -fno-code -ddump-parsed file.hs`. Return code 0 means the snippet is valid, non-zero means it is invalid.
-- Test whether a snippet is accepted by AIHC: `echo snippet | cabal run -v0 exe:aihc-dev -- parser`
-- Test how the lexer interprets a string: `echo string | cabal run -v0 exe:aihc-dev -- parser --lex`
 
 ## Gotchas
 
 - Never run `cabal test` in parallel. Use `cabal` sequentially for test execution.
 - CI checks the PR merge commit (`pull/<n>/merge`), not only the branch HEAD. If local passes but CI fails, merge or rebase `origin/main` locally and rerun `just check`.
-- Golden AST strings are sensitive to upstream AST/shorthand changes (for example, `Match` now printing `headForm = Prefix`), so new fixtures must match current `main` formatting.
-- In parser oracle suites, `pass` means both oracle acceptance and AST roundtrip-fingerprint equality. A case can parse successfully and still fail as `roundtrip mismatch against oracle AST`.
 
 ## Testing (TDD)
 
@@ -88,19 +82,9 @@ aihc is developed test-first. Run the full suite with `just check`. When working
   - Outcomes: `PASS`, `XFAIL`, `FAIL`, `XPASS`.
   - Any `FAIL` or unexpected `XPASS` should block merge until handled.
 
-- **`aihc-parser`**
-  - Golden regression tests:
-    - Parser fixtures: `components/aihc-parser/test/Test/Fixtures/golden/`.
-    - Lexer fixtures: `components/aihc-parser/test/Test/Fixtures/lexer/`.
-    - Input/output snapshots with `pass`/`xfail`/`xpass` coverage.
-  - Oracle compliance tests:
-    - Oracle test fixtures with inline comments specifying test parameters.
-    - Oracle is GHC, with parser round-trip/fingerprint validation.
-
-- **`aihc-cpp`**
-  - Oracle compliance tests:
-    - Oracle test fixtures with inline comments specifying test parameters.
-    - Oracle is `cpphs`; outputs are compared against `cpphs` behavior.
+- Parser and preprocessor changes, fixtures, fuzzing, and oracle tests belong in
+  their standalone repositories. This repository consumes only their released
+  public libraries.
 
 ## Commits
 

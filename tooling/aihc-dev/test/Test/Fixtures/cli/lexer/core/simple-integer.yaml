@@ -1,8 +1,0 @@
-input: "42"
-args: ["--lex"]
-output: |
-  TkSpecialLBrace
-  TkInteger 42 TInteger
-  TkSpecialRBrace
-  TkEOF
-status: pass

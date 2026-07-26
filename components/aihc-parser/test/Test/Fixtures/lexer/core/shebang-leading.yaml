@@ -1,7 +1,0 @@
-# GHC treats an initial #! line as whitespace.
-extensions: []
-input: "#!/usr/bin/env runghc\nmain\n"
-tokens:
-  - 'TkVarId "main"'
-  - 'TkEOF'
-status: pass

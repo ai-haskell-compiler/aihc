@@ -1,8 +1,0 @@
-extensions: []
-input: |
-  f
-    x
-    y
-ast: |-
-  EApp (EApp (EVar "f") (EVar "x")) (EVar "y")
-status: pass

@@ -1,6 +1,0 @@
-extensions: [GHC2021, BlockArguments]
-input: |
-  f = g \x@(Y a) -> z
-ast: |-
-  Module {[DeclValue (PatternBind (PVar "f") (EApp (EVar "g") (ELambdaPats [PAs UnqualifiedName {"x"} (PParen (PCon "Y" [PVar "a"]))] (EVar "z"))))]}
-status: pass

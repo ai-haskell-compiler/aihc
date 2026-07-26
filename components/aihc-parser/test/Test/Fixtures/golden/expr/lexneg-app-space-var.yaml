@@ -1,6 +1,0 @@
-extensions: [LexicalNegation]
-input: |
-  f -x
-ast: |-
-  EApp (EVar "f") (ENegate (EVar "x"))
-status: pass

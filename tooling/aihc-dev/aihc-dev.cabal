@@ -38,115 +38,6 @@ library extract-hi
   ghc-options: -Wall
   default-language: GHC2021
 
-library snippet
-  hs-source-dirs: src
-  exposed-modules:
-    Aihc.Dev.Snippet
-
-  build-depends:
-    Diff,
-    aihc-cpp,
-    aihc-hackage,
-    aihc-parser,
-    aihc-parser-compat,
-    aihc-parser-tooling-common,
-    base >=4.16 && <5,
-    bytestring >=0.10.8 && <0.13,
-    deepseq,
-    filepath >=1.3.0.1 && <1.6,
-    ghc-lib-parser,
-    prettyprinter,
-    text >=1.2.3 && <2.2,
-
-  default-extensions: OverloadedStrings
-  ghc-options: -Wall
-  default-language: GHC2021
-
-library parser-tools
-  hs-source-dirs: src
-  exposed-modules:
-    Aihc.Dev.Parser.Bench.Benchmark
-    Aihc.Dev.Parser.Bench.CLI
-    Aihc.Dev.Parser.Bench.Metrics
-    Aihc.Dev.Parser.Bench.Parsers
-    Aihc.Dev.Parser.Bench.Report
-    Aihc.Dev.Parser.Bench.Run
-    Aihc.Dev.Parser.Bench.Tarball
-    Aihc.Dev.Parser.CLI
-    Aihc.Dev.Parser.Run
-
-  build-depends:
-    Cabal-syntax >=3.14 && <3.17,
-    aeson,
-    aihc-cpp,
-    aihc-hackage,
-    aihc-parser,
-    async,
-    base >=4.16 && <5,
-    bytestring,
-    containers,
-    cpphs >=1.20 && <1.21,
-    deepseq,
-    directory,
-    filepath,
-    ghc-lib-parser,
-    haskell-src-exts,
-    http-client,
-    http-client-tls,
-    optparse-applicative,
-    prettyprinter,
-    process,
-    tar,
-    text >=1.2,
-    time,
-    zlib,
-
-  default-extensions: OverloadedStrings
-  ghc-options: -Wall
-  default-language: GHC2021
-
-library golden-tools
-  hs-source-dirs:
-    src
-    ../../components/aihc-tc/common
-    ../../components/aihc-resolve/common
-
-  exposed-modules:
-    Aihc.Dev.Golden.Update
-
-  other-modules:
-    Aihc.Dev.Parser.Run
-    ResolverGolden
-    TcAnnotatedRender
-
-  build-depends:
-    aeson >=2.0 && <2.3,
-    aihc-cpp,
-    aihc-dev:parser-tools,
-    aihc-fc,
-    aihc-fmt,
-    aihc-grin,
-    aihc-parser,
-    aihc-parser-tooling-common,
-    aihc-resolve,
-    aihc-tc,
-    aihc-testing,
-    base >=4.16 && <5,
-    bytestring >=0.10.8 && <0.13,
-    containers >=0.5 && <0.8,
-    directory >=1.2.3 && <1.5,
-    filepath >=1.3.0.1 && <1.6,
-    optparse-applicative >=0.16 && <0.19,
-    prettyprinter,
-    process >=1.6 && <1.8,
-    scientific,
-    text >=1.2.3 && <2.2,
-    yaml >=0.11 && <0.12,
-
-  default-extensions: OverloadedStrings
-  ghc-options: -Wall
-  default-language: GHC2021
-
 library fuzz
   hs-source-dirs: src
   exposed-modules:
@@ -158,8 +49,6 @@ library fuzz
   build-depends:
     QuickCheck >=2.14 && <2.19,
     aihc-grin:fuzz,
-    aihc-parser:fuzz,
-    aihc-parser-compat:fuzz,
     aihc-tc:fuzz,
     async >=2.2 && <2.3,
     base >=4.16 && <5,
@@ -177,24 +66,13 @@ executable aihc-dev
   main-is: Main.hs
   hs-source-dirs:
     exe
-    app/hackage-progress
-    app/stackage-progress
     app/resolve-stackage-progress
     app/tc-stackage-progress
 
   other-modules:
-    Aihc.Dev.HackageTester.Run
     BootInterface
-    HackageProgress.CLI
-    HackageProgress.Run
     ResolvePackage
     ResolveStackageProgress
-    StackageProgress.CLI
-    StackageProgress.FileChecker
-    StackageProgress.FileCheckerTiming
-    StackageProgress.PackageRunner
-    StackageProgress.Run
-    StackageProgress.Snapshot
     TcStackageProgress
 
   build-depends:
@@ -205,12 +83,8 @@ executable aihc-dev
     aihc-cpp,
     aihc-dev:extract-hi,
     aihc-dev:fuzz,
-    aihc-dev:golden-tools,
-    aihc-dev:parser-tools,
-    aihc-dev:snippet,
     aihc-hackage,
     aihc-parser,
-    aihc-parser-tooling-common,
     aihc-resolve,
     aihc-tc,
     async,
@@ -220,8 +94,6 @@ executable aihc-dev
     deepseq,
     directory >=1.2.3 && <1.5,
     filepath >=1.3.0.1 && <1.6,
-    ghc-lib-parser,
-    haskell-src-exts,
     optparse-applicative >=0.16 && <0.19,
     prettyprinter,
     process >=1.6 && <1.8,
@@ -242,35 +114,19 @@ test-suite spec
   type: exitcode-stdio-1.0
   hs-source-dirs:
     test
-    app/hackage-progress
-    app/stackage-progress
     app/resolve-stackage-progress
     app/tc-stackage-progress
 
   main-is: Spec.hs
   other-modules:
     BootInterface
-    HackageProgress.CLI
-    HackageProgress.Run
     ResolvePackage
     ResolveStackageProgress
-    StackageProgress.CLI
-    StackageProgress.FileChecker
-    StackageProgress.FileCheckerTiming
-    StackageProgress.PackageRunner
-    StackageProgress.Run
-    StackageProgress.Snapshot
     TcStackageProgress
     Test.ExtractHiCompare
     Test.Fuzz
-    Test.GoldenUpdate
-    Test.ParserBenchReport
-    Test.ParserCLI.Golden
-    Test.ParserCLI.Suite
     Test.ResolvePackage
     Test.ResolveStackageProgress.PathsModule
-    Test.StackageProgress.FileChecker
-    Test.StackageProgress.FileCheckerTiming
     Test.TcStackageProgress
 
   build-depends:
@@ -281,13 +137,9 @@ test-suite spec
     aihc-cpp,
     aihc-dev:extract-hi,
     aihc-dev:fuzz,
-    aihc-dev:golden-tools,
-    aihc-dev:parser-tools,
-    aihc-dev:snippet,
     aihc-hackage,
     aihc-internal,
     aihc-parser,
-    aihc-parser-tooling-common,
     aihc-resolve,
     aihc-tc,
     async,
@@ -297,7 +149,6 @@ test-suite spec
     deepseq,
     directory,
     filepath,
-    haskell-src-exts,
     optparse-applicative >=0.16 && <0.19,
     prettyprinter,
     process >=1.6 && <1.8,

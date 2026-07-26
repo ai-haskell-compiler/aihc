@@ -1,8 +1,0 @@
-input: |
-  {-# LANGUAGE CPP #-}
-  module Demo where
-  #define VALUE 42
-  x = VALUE
-output: |
-  Module {ModuleHead {"Demo"}, [CPP], [DeclValue (PatternBind (PVar "x") (EInt 42 TInteger))]}
-status: pass

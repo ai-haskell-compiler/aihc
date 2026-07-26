@@ -1,8 +1,0 @@
-# Underscore before exponent marker is valid per GHC NumericUnderscores
-extensions:
-  - NumericUnderscores
-input: "1_e+23"
-tokens:
-  - 'TkFloat 1.0e23 TFractional'
-  - 'TkEOF'
-status: pass

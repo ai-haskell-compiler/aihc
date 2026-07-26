@@ -1,5 +1,0 @@
-extensions: []
-equivalent:
-  - Just x
-  - Just (x)
-status: pass

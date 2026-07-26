@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  data C = MkC {x :: ~(*), y :: !(*)}
-ast: |-
-  Module {[DeclData (DataDecl {Prefix "C", [RecordCon "MkC" [FieldDecl ["x"] (BangType {True, TParen (TStar)}), FieldDecl ["y"] (BangType {True, TParen (TStar)})]]})]}
-status: pass

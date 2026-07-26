@@ -1,8 +1,0 @@
-input: |
-  module Demo where
-  #define VALUE 42
-  x = VALUE
-args: ["-XCPP"]
-output: |
-  Module {ModuleHead {"Demo"}, [DeclValue (PatternBind (PVar "x") (EInt 42 TInteger))]}
-status: pass

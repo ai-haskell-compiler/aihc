@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  data X = X deriving Mod.ClassName
-ast: |-
-  Module {[DeclData (DataDecl {Prefix "X", [PrefixCon {UnqualifiedName {"X"}}], [DerivingClause {"Mod" "ClassName"}]})]}
-status: pass
