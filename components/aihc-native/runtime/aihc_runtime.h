@@ -3,15 +3,8 @@
 
 #include <stdint.h>
 
-#define AIHC_GC_CALLOC 0
-#define AIHC_GC_SEMISPACE 1
-
-#ifndef AIHC_GC
-#define AIHC_GC AIHC_GC_CALLOC
-#endif
-
 #ifndef AIHC_SEMISPACE_BYTES
-#define AIHC_SEMISPACE_BYTES (1024U * 1024U)
+#define AIHC_SEMISPACE_BYTES (UINT64_C(1024) * UINT64_C(1024))
 #endif
 
 enum {
@@ -39,19 +32,9 @@ typedef struct AihcIoBackend AihcIoBackend;
 typedef struct AihcMVar AihcMVar;
 typedef uint64_t AihcSlot;
 typedef void (*AihcEntry)(AihcSlot *arguments);
-#ifdef AIHC_WASIP3
-typedef void (*AihcEnterEntry)(AihcMachine *machine, AihcSlot object,
-                               const AihcSlot *supplied, AihcSlot continuation);
-#else
-typedef AihcEntry AihcEnterEntry;
-#endif
-
-/* Only the portable-C trampoline expands a transfer into an argument array.
-   Native backends enter generated code with their register convention. */
-typedef struct {
-  AihcEntry entry;
-  AihcSlot *arguments;
-} AihcPortableTransfer;
+/* The last info-table word is interpreted by the selected code generator.
+   Common runtime code preserves it but never calls it. */
+typedef void (*AihcBackendEntry)(void);
 
 enum {
   AIHC_RESUME_NONE,
@@ -75,9 +58,9 @@ struct AihcInfo {
   uint64_t remaining_arity;
   const uint8_t *field_is_pointer;
   const AihcInfo *next;
-  /* Backend-owned dynamic entry. Native entries unpack captured fields into
-     registers; portable C leaves this null and uses entry plus its buffer. */
-  AihcEnterEntry enter_entry;
+  /* Backend-owned dynamic entry. Native and WebAssembly adapters give this
+     word their own callable type; portable C leaves it null. */
+  AihcBackendEntry backend_entry;
 };
 
 struct AihcValue {
@@ -109,8 +92,7 @@ struct AihcMachine {
   uint64_t allocation_count;
   AihcSlot *locals;
   uint64_t locals_capacity;
-  AihcSlot *portable_arguments;
-  uint64_t portable_arguments_capacity;
+  void *trampoline_state;
   AihcResume selected_resume;
 };
 
@@ -227,92 +209,4 @@ void *aihc_io_take_open_result(void *request);
 void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation);
 AihcEntry aihc_halt(AihcMachine *machine);
-
-/* Portable-C control operations. The machine owns one reusable argument
-   vector and grows it to the width required by each transfer. */
-AihcPortableTransfer aihc_portable_call(AihcMachine *machine, AihcEntry entry,
-                                        uint64_t count,
-                                        const AihcSlot *arguments);
-AihcPortableTransfer aihc_portable_apply_cps(AihcMachine *machine,
-                                             AihcValue *function,
-                                             uint64_t count,
-                                             const AihcSlot *arguments,
-                                             AihcValue *continuation);
-AihcPortableTransfer aihc_portable_eval_cps(AihcMachine *machine,
-                                            AihcValue *value,
-                                            uint64_t result_is_lifted,
-                                            AihcValue *continuation,
-                                            AihcValue *update_continuation);
-AihcPortableTransfer aihc_portable_continue_values(AihcMachine *machine,
-                                                   AihcValue *continuation,
-                                                   uint64_t count,
-                                                   const AihcSlot *values);
-AihcPortableTransfer aihc_portable_fork_cps(AihcMachine *machine,
-                                            AihcValue *action,
-                                            AihcValue *continuation);
-AihcPortableTransfer aihc_portable_new_mvar_cps(AihcMachine *machine,
-                                                AihcValue *continuation);
-AihcPortableTransfer aihc_portable_read_mvar_cps(AihcMachine *machine,
-                                                 void *mvar,
-                                                 AihcValue *continuation);
-AihcPortableTransfer aihc_portable_take_mvar_cps(AihcMachine *machine,
-                                                 void *mvar,
-                                                 AihcValue *continuation);
-AihcPortableTransfer aihc_portable_put_mvar_cps(AihcMachine *machine,
-                                                void *mvar, AihcValue *value,
-                                                AihcValue *continuation);
-AihcPortableTransfer aihc_portable_yield_cps(AihcMachine *machine,
-                                             AihcValue *continuation);
-AihcPortableTransfer aihc_portable_await_io_cps(AihcMachine *machine,
-                                                void *request,
-                                                AihcValue *continuation);
-AihcPortableTransfer aihc_portable_thread_done(AihcMachine *machine);
-AihcPortableTransfer aihc_portable_start(AihcMachine *machine, AihcValue *root,
-                                         AihcValue *continuation,
-                                         AihcValue *update_continuation,
-                                         AihcValue *thread_done_continuation,
-                                         AihcEntry exit_code);
-#ifdef AIHC_WASIP3
-AihcPortableTransfer aihc_wasip3_complete_io(AihcMachine *machine,
-                                             int64_t result);
-#endif
-
-typedef enum {
-  AIHC_SNAPSHOT_POINTER,
-  AIHC_SNAPSHOT_INT,
-  AIHC_SNAPSHOT_INT8,
-  AIHC_SNAPSHOT_INT16,
-  AIHC_SNAPSHOT_INT32,
-  AIHC_SNAPSHOT_INT64,
-  AIHC_SNAPSHOT_WORD,
-  AIHC_SNAPSHOT_WORD8,
-  AIHC_SNAPSHOT_WORD16,
-  AIHC_SNAPSHOT_WORD32,
-  AIHC_SNAPSHOT_WORD64,
-  AIHC_SNAPSHOT_ADDR,
-  AIHC_SNAPSHOT_FLOAT,
-  AIHC_SNAPSHOT_DOUBLE,
-} AihcSnapshotRep;
-
-typedef struct {
-  uintptr_t info;
-  const char *name;
-  uint64_t field_count;
-  const AihcSnapshotRep *field_reps;
-} AihcSnapshotConstructor;
-
-typedef struct {
-  uintptr_t info;
-  const char *name;
-  uint64_t parameter_count;
-  const AihcSnapshotRep *parameter_reps;
-} AihcSnapshotFunction;
-
-void aihc_snapshot_dump(uint64_t result_count, const AihcSlot *results,
-                        const AihcSnapshotRep *result_reps,
-                        uint64_t allocation_count, uint64_t constructor_count,
-                        const AihcSnapshotConstructor *constructors,
-                        uint64_t function_count,
-                        const AihcSnapshotFunction *functions);
-
 #endif

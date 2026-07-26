@@ -54,12 +54,14 @@ import Aihc.Grin qualified as Grin
 import Aihc.Native
   ( LinkLayout,
     NativeTarget (..),
+    RuntimeGarbageCollector (..),
+    RuntimePlan (..),
     backendCompiler,
     buildLinkLayoutFromInterfaces,
     extendLinkLayout,
     hostNativeTarget,
     nativeTargetTriple,
-    runtimeSourcePath,
+    runtimePlan,
   )
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension (ImplicitPrelude), LanguageEdition (Haskell98Edition), Module, effectiveExtensions, headerExtensionSettings, headerLanguageEdition)
@@ -563,21 +565,16 @@ assemble :: NativeTarget -> GarbageCollector -> Bool -> FilePath -> FilePath -> 
 assemble Wasm32Wasip3 garbageCollector useWasmOpt output assemblyPath archives =
   assembleWasip3 garbageCollector useWasmOpt output assemblyPath archives
 assemble target garbageCollector _useWasmOpt output assemblyPath archives = do
-  runtime <- runtimeSourcePath
+  plan <- runtimePlan target (runtimeGarbageCollector garbageCollector)
   (compiler, targetArguments) <- backendCompiler target
   (exitCode, _stdout, stderr) <-
     readProcessWithExitCode
       compiler
       ( targetArguments
-          <> [ "-std=c11",
-               "-Wall",
-               "-Wextra",
-               "-Werror",
-               "-I" <> takeDirectory runtime,
-               garbageCollectorDefine garbageCollector,
-               runtime,
-               assemblyPath
-             ]
+          <> ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+          <> ["-I" <> directory | directory <- runtimeIncludeDirectories plan]
+          <> runtimeSources plan
+          <> [assemblyPath]
           <> archives
           <> ["-o", output]
       )
@@ -588,7 +585,8 @@ assemble target garbageCollector _useWasmOpt output assemblyPath archives = do
 
 assembleWasip3 :: GarbageCollector -> Bool -> FilePath -> FilePath -> [FilePath] -> IO ()
 assembleWasip3 garbageCollector useWasmOpt output assemblyPath archives = do
-  nativeRuntime <- runtimeSourcePath
+  plan <- runtimePlan Wasm32Wasip3 (runtimeGarbageCollector garbageCollector)
+  wasmRuntimeSources <- Wasm.wasip3RuntimeSourcePaths
   driver <- Wasm.wasip3RuntimeSourcePath
   world <- Wasm.wasip3WorldPath
   clangOverride <- lookupEnv "AIHC_WASM_CLANG"
@@ -598,17 +596,16 @@ assembleWasip3 garbageCollector useWasmOpt output assemblyPath archives = do
         bindingsObject = directory </> "bindings.o"
         componentTypeObject = directory </> "command_component_type.o"
         programObject = directory </> "program.o"
-        runtimeObject = directory </> "runtime.o"
-        driverObject = directory </> "driver.o"
         unoptimizedCoreModule = directory </> "core.unoptimized.wasm"
         coreModule = directory </> "core.wasm"
         linkedCoreModule = maybe coreModule (const unoptimizedCoreModule) wasmOpt
         (clang, clangTargetArguments) = wasmClangCommand clangOverride
         includeArguments =
           [ "-I" <> (takeDirectory driver </> "include"),
-            "-I" <> takeDirectory nativeRuntime,
+            "-I" <> takeDirectory driver,
             "-I" <> directory
           ]
+            <> ["-I" <> includeDirectory | includeDirectory <- runtimeIncludeDirectories plan]
         cArguments =
           [ "-O2",
             "-std=c11",
@@ -617,27 +614,26 @@ assembleWasip3 garbageCollector useWasmOpt output assemblyPath archives = do
             "-nostdlib",
             "-Wall",
             "-Wextra",
-            "-Werror",
-            "-DAIHC_WASIP3",
-            garbageCollectorDefine garbageCollector
+            "-Werror"
           ]
             <> includeArguments
     runTool "wit-bindgen" ["c", "--world", "command", "--out-dir", directory, world]
     runTool clang (clangTargetArguments <> ["-mtail-call", "-c", assemblyPath, "-o", programObject])
-    runTool clang (clangTargetArguments <> cArguments <> ["-c", nativeRuntime, "-o", runtimeObject])
-    runTool clang (clangTargetArguments <> cArguments <> ["-c", driver, "-o", driverObject])
+    runtimeObjects <-
+      forM (zip [0 :: Int ..] (runtimeSources plan <> wasmRuntimeSources)) $ \(index, source) -> do
+        let object = directory </> "runtime-" <> show index <> ".o"
+        runTool clang (clangTargetArguments <> cArguments <> ["-c", source, "-o", object])
+        pure object
     runTool clang (clangTargetArguments <> cArguments <> ["-c", bindingsSource, "-o", bindingsObject])
     runTool
       "wasm-ld"
       ( [ "--no-entry",
           "--export-memory",
           "--allow-undefined",
-          programObject,
-          runtimeObject,
-          driverObject,
-          bindingsObject,
-          componentTypeObject
+          programObject
         ]
+          <> runtimeObjects
+          <> [bindingsObject, componentTypeObject]
           <> archives
           <> ["-o", linkedCoreModule]
       )
@@ -667,11 +663,11 @@ backendSourceExtension PortableC = ".c"
 backendSourceExtension Wasm32Wasip3 = ".s"
 backendSourceExtension _ = ".s"
 
-garbageCollectorDefine :: GarbageCollector -> String
-garbageCollectorDefine garbageCollector =
+runtimeGarbageCollector :: GarbageCollector -> RuntimeGarbageCollector
+runtimeGarbageCollector garbageCollector =
   case garbageCollector of
-    GcCalloc -> "-DAIHC_GC=AIHC_GC_CALLOC"
-    GcSemispace -> "-DAIHC_GC=AIHC_GC_SEMISPACE"
+    GcCalloc -> RuntimeGcCalloc
+    GcSemispace -> RuntimeGcSemispace
 
 withTemporaryDirectory :: String -> (FilePath -> IO value) -> IO value
 withTemporaryDirectory template = bracket acquire removeDirectoryRecursive

@@ -22,11 +22,13 @@ import Aihc.Native
   ( LinkInterface,
     LinkLayout,
     NativeTarget (..),
+    RuntimeGarbageCollector (RuntimeGcCalloc),
+    RuntimePlan (runtimeIncludeDirectories),
     backendCompiler,
     buildLinkLayoutFromInterfaces,
     extractLinkInterface,
     nativeTargetTriple,
-    runtimeSourcePath,
+    runtimePlan,
   )
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -179,7 +181,7 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 20
+cacheSchemaVersion = 21
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule =
@@ -539,20 +541,13 @@ objectCompiler target sourcePath objectPath = do
   where
     nativeArguments targetArguments = targetArguments <> ["-c", sourcePath, "-o", objectPath]
     cCompiler compiler targetArguments = do
-      runtime <- runtimeSourcePath
+      plan <- runtimePlan PortableC RuntimeGcCalloc
       pure
         ( compiler,
           targetArguments
-            <> [ "-std=c11",
-                 "-Wall",
-                 "-Wextra",
-                 "-Werror",
-                 "-I" <> takeDirectory runtime,
-                 "-c",
-                 sourcePath,
-                 "-o",
-                 objectPath
-               ]
+            <> ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+            <> ["-I" <> directory | directory <- runtimeIncludeDirectories plan]
+            <> ["-c", sourcePath, "-o", objectPath]
         )
 
 dependencyUnitLabel :: DependencyUnit -> String
