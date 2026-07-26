@@ -1,0 +1,46 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    import Data.Proxy (Proxy (..))
+    import Type.Reflection (Typeable, eqTypeRep, typeOf, typeRep)
+
+    data Box a = Box a
+
+    boxProxy :: Proxy a -> Proxy (Box a)
+    boxProxy _ = Proxy
+
+    samePolymorphicRepresentation :: (Typeable a) => Proxy a -> Box a -> Bool
+    samePolymorphicRepresentation proxy value =
+      eqTypeRep (typeOf value) (typeRep (boxProxy proxy))
+
+    sameListRepresentation :: Bool
+    sameListRepresentation =
+      eqTypeRep (typeOf [True, False]) (typeRep (Proxy :: Proxy [Bool]))
+
+    sameTupleRepresentation :: Bool
+    sameTupleRepresentation =
+      eqTypeRep (typeOf (True, False)) (typeRep (Proxy :: Proxy (Bool, Bool)))
+
+    distinguishesFunctionArguments :: Bool
+    distinguishesFunctionArguments =
+      case eqTypeRep
+        (typeRep (Proxy :: Proxy (Bool -> Int)))
+        (typeRep (Proxy :: Proxy (Int -> Bool))) of
+        True -> False
+        False -> True
+
+    answer :: Bool
+    answer =
+      samePolymorphicRepresentation (Proxy :: Proxy Bool) (Box True)
+        && sameListRepresentation
+        && sameTupleRepresentation
+        && distinguishesFunctionArguments
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: composes synthesized structural Typeable evidence from a polymorphic given dictionary

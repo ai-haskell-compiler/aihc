@@ -319,6 +319,8 @@ evalPrimitive "ctz#" [value] = evalWordCount "ctz#" countTrailingZeros value
 evalPrimitive "popCnt#" [value] = evalWordCount "popCnt#" popCount value
 evalPrimitive "raise#" [exception] =
   throwE . EvalRaisedException =<< forceValue exception
+evalPrimitive "unsafeCoerce#" [value] =
+  forceValue value
 evalPrimitive "realWorld#" [] =
   pure VStateToken
 evalPrimitive "catch#" [action, handler, state] =

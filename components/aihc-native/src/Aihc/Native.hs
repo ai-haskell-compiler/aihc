@@ -217,7 +217,8 @@ supportedNativePrimitiveNames =
     "geWord#",
     "realWorld#",
     "unsafeFreezeByteArray#",
-    "unsafeThawByteArray#"
+    "unsafeThawByteArray#",
+    "unsafeCoerce#"
   ]
     <> map fst nativeCpsPrimitiveCalls
     <> map fst nativeRuntimePrimitiveCalls

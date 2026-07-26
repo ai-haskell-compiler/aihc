@@ -1,0 +1,37 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Typeable (cast, eqTypeRep, typeOf, typeRep)
+    import Data.Proxy (Proxy (..))
+
+    data Box a = Box a
+
+    sameRepresentation :: Bool
+    sameRepresentation = eqTypeRep (typeOf (Box True)) (typeRep (Proxy :: Proxy (Box Bool)))
+
+    acceptsMatchingType :: Bool
+    acceptsMatchingType =
+      case (cast (Box True) :: Maybe (Box Bool)) of
+        Just boxed ->
+          case boxed of
+            Box value -> value
+        Nothing -> False
+
+    rejectsDifferentType :: Bool
+    rejectsDifferentType =
+      case (cast (Box True) :: Maybe (Box Int)) of
+        Just _ -> False
+        Nothing -> True
+
+    answer :: Bool
+    answer = sameRepresentation && acceptsMatchingType && rejectsDifferentType
+output: |
+  True
+expression: |
+  answer
+status: pass
+reason: synthesizes structural Typeable evidence for user-defined and parameterized types

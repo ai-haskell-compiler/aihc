@@ -56,6 +56,7 @@ module GHC.Prim
     putMVar#,
     uncheckedShiftL#,
     uncheckedShiftRL#,
+    unsafeCoerce#,
     word2Int#,
     writeWordArray#,
     writeMutVar#,
@@ -95,6 +96,8 @@ data ThreadId#
 data RealWorld
 
 foreign import prim raise# :: a -> b
+
+foreign import prim unsafeCoerce# :: a -> b
 
 foreign import prim realWorld# :: State# RealWorld
 

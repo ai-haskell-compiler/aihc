@@ -41,6 +41,8 @@ data EvTerm
     EvSuperClass !EvTerm !Int
   | -- | Cast evidence through a coercion.
     EvCast !EvTerm !Coercion
+  | -- | Compiler-synthesized structural runtime type representation.
+    EvTypeable !TcType ![EvTerm]
   deriving (Eq, Show, Read)
 
 -- | A binding of an evidence variable to its term.

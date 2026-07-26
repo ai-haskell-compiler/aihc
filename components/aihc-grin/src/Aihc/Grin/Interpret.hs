@@ -770,6 +770,8 @@ evalPrimitive "intToChar#" [value] = do
 evalPrimitive "realWorld#" [] = pure []
 evalPrimitive "raise#" [exception] =
   throwE (EvalRaised exception)
+evalPrimitive "unsafeCoerce#" [value] =
+  pure [value]
 evalPrimitive "catch#" [action, handler] =
   applyValue action [] `catchE` handleRaised handler []
 evalPrimitive "newMutVar#" [initialValue] = do
