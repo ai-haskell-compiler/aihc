@@ -9,6 +9,9 @@
 module Aihc.Grin.Cps
   ( CpsGrinProgram,
     CpsGrinError (..),
+    ContinuationFrameKind (..),
+    continuationFrameKindCode,
+    cpsContinuationFrames,
     cpsContinuationFunctions,
     cpsFunctionContinuations,
     cpsGrinProgram,
@@ -34,15 +37,40 @@ import Data.Text qualified as T
 data CpsGrinProgram = CpsGrinProgram
   { cpsGrinProgram :: !GrinProgram,
     cpsContinuationFunctions :: !(Set FunctionName),
+    cpsContinuationFrames :: !(Map FunctionName ContinuationFrameKind),
     cpsFunctionContinuations :: !(Map FunctionName GrinVar),
     cpsUpdateFunction :: !FunctionName
   }
   deriving (Eq, Show, Read)
 
+-- | Runtime-visible kinds of continuation frame. Field zero of every such
+-- closure is its parent continuation. The explicit kind lets exception
+-- unwinding inspect frames without relying on backend labels or code pointers.
+data ContinuationFrameKind
+  = ContinuationFrameNormal
+  | ContinuationFrameCatch
+  | ContinuationFrameUpdate
+  | ContinuationFrameRestoreMask
+  | ContinuationFrameStop
+  deriving (Eq, Ord, Show, Read, Enum, Bounded)
+
+-- | Stable value stored in the shared runtime info-table ABI. Zero is reserved
+-- for closures that are not continuation frames.
+continuationFrameKindCode :: Maybe ContinuationFrameKind -> Int
+continuationFrameKindCode frameKind =
+  case frameKind of
+    Nothing -> 0
+    Just ContinuationFrameNormal -> 1
+    Just ContinuationFrameCatch -> 2
+    Just ContinuationFrameUpdate -> 3
+    Just ContinuationFrameRestoreMask -> 4
+    Just ContinuationFrameStop -> 5
+
 data CpsGrinError
   = CpsGrinUnexpectedThrow !FunctionName
   | CpsGrinUnexpectedCatch !FunctionName
   | CpsGrinAlreadyTransformed !FunctionName
+  | CpsGrinInvalidContinuationParent !FunctionName
   deriving (Eq, Show)
 
 data CpsState = CpsState
@@ -50,7 +78,7 @@ data CpsState = CpsState
     cpsNextContinuationUnique :: !Int,
     cpsUsedFunctionNames :: !(Set FunctionName),
     cpsGeneratedFunctionsRev :: ![GrinFunction],
-    cpsContinuationNames :: !(Set FunctionName),
+    cpsContinuationFramesState :: !(Map FunctionName ContinuationFrameKind),
     cpsComputationContinuations :: !(Map FunctionName GrinVar)
   }
 
@@ -59,6 +87,8 @@ type CpsM = StateT CpsState (Either CpsGrinError)
 toCpsGrin :: GrinProgram -> Either CpsGrinError CpsGrinProgram
 toCpsGrin program = do
   ((functions, updateFunction), finalState) <- runStateT transform initialState
+  let continuationFrames =
+        Map.insert (grinFunctionName updateFunction) ContinuationFrameUpdate (cpsContinuationFramesState finalState)
   pure
     CpsGrinProgram
       { cpsGrinProgram =
@@ -69,8 +99,8 @@ toCpsGrin program = do
                   <> reverse (cpsGeneratedFunctionsRev finalState)
                   <> [updateFunction]
             },
-        cpsContinuationFunctions =
-          Set.insert (grinFunctionName updateFunction) (cpsContinuationNames finalState),
+        cpsContinuationFunctions = Map.keysSet continuationFrames,
+        cpsContinuationFrames = continuationFrames,
         cpsFunctionContinuations = cpsComputationContinuations finalState,
         cpsUpdateFunction = grinFunctionName updateFunction
       }
@@ -82,7 +112,7 @@ toCpsGrin program = do
           cpsNextContinuationUnique = 0,
           cpsUsedFunctionNames = Set.fromList (map grinFunctionName sourceFunctions),
           cpsGeneratedFunctionsRev = [],
-          cpsContinuationNames = Set.empty,
+          cpsContinuationFramesState = Map.empty,
           cpsComputationContinuations = Map.empty
         }
     transform = do
@@ -238,7 +268,12 @@ reifyContinuation updateName parent bound resultRep outerContinuation resultVars
       body
   continuationName <- freshContinuationName parent
   pointer <- freshVar "$cps_continuation" liftedRuntimeRep
-  let captures = Set.toAscList (freeExprVars transformedBody `Set.intersection` bound)
+  parentContinuation <-
+    case outerContinuation of
+      GrinVarValue var -> pure var
+      GrinLitValue {} -> lift (Left (CpsGrinInvalidContinuationParent parent))
+  let freeCaptures = freeExprVars transformedBody `Set.intersection` bound
+      captures = parentContinuation : Set.toAscList (Set.delete parentContinuation freeCaptures)
       continuationFunction =
         GrinFunction
           { grinFunctionName = continuationName,
@@ -251,7 +286,7 @@ reifyContinuation updateName parent bound resultRep outerContinuation resultVars
         GrinNode
           (GrinClosure continuationName [map grinVarRuntimeRep resultVars])
           (map GrinVarValue captures)
-  addContinuationFunction continuationFunction
+  addContinuationFunction ContinuationFrameNormal continuationFunction
   pure (pointer, continuationNode)
 
 continueDirect :: RuntimeRep -> GrinValue -> GrinExpr -> CpsM GrinExpr
@@ -269,25 +304,25 @@ makeUpdateContinuation updateName blackhole continuation = do
   pointer <- freshVar "$cps_update" liftedRuntimeRep
   pure
     ( pointer,
-      GrinNode (GrinClosure updateName [[liftedRuntimeRep]]) [blackhole, continuation]
+      GrinNode (GrinClosure updateName [[liftedRuntimeRep]]) [continuation, blackhole]
     )
 
 makeUpdateFunction :: FunctionName -> CpsM GrinFunction
 makeUpdateFunction updateName = do
-  blackhole <- freshVar "$cps_blackhole" liftedRuntimeRep
   outerContinuation <- freshVar "$cps_outer" liftedRuntimeRep
+  blackhole <- freshVar "$cps_blackhole" liftedRuntimeRep
   result <- freshVar "$cps_thunk_result" liftedRuntimeRep
   updated <- freshVar "$cps_updated" liftedRuntimeRep
   nextUpdate <- freshVar "$cps_next_update" liftedRuntimeRep
   let nextUpdateNode =
         GrinNode
           (GrinClosure updateName [[liftedRuntimeRep]])
-          [GrinVarValue result, GrinVarValue outerContinuation]
+          [GrinVarValue outerContinuation, GrinVarValue result]
   pure
     GrinFunction
       { grinFunctionName = updateName,
         grinFunctionLinkName = Nothing,
-        grinFunctionParameters = [blackhole, outerContinuation, result],
+        grinFunctionParameters = [outerContinuation, blackhole, result],
         grinFunctionResultRep = liftedRuntimeRep,
         grinFunctionBody =
           GrinBind
@@ -342,13 +377,13 @@ freshVar name runtimeRep = do
   put state {cpsNextVarUnique = unique + 1}
   pure (GrinVar name unique runtimeRep)
 
-addContinuationFunction :: GrinFunction -> CpsM ()
-addContinuationFunction function = do
+addContinuationFunction :: ContinuationFrameKind -> GrinFunction -> CpsM ()
+addContinuationFunction frameKind function = do
   addGeneratedFunction function
   modify' $ \state ->
     state
-      { cpsContinuationNames =
-          Set.insert (grinFunctionName function) (cpsContinuationNames state)
+      { cpsContinuationFramesState =
+          Map.insert (grinFunctionName function) frameKind (cpsContinuationFramesState state)
       }
 
 addGeneratedFunction :: GrinFunction -> CpsM ()

@@ -20,10 +20,13 @@ failure. `toCpsGrin` rejects both nodes, and the native and Wasm backends reject
 them as well. This is useful reference behavior, but it is not the runtime
 model.
 
-The CPS pass already reifies the rest of a computation as an ordinary closure.
-It does not yet guarantee that every such closure contains a discoverable link
-to its parent, so the first exception-runtime change is to strengthen that
-invariant.
+Structural `Typeable` evidence and checked casts are implemented. The CPS pass
+now reifies the rest of a computation as an ordinary closure whose field zero
+is always its parent continuation. CPS records a frame kind for every generated
+continuation, GC-GRIN preserves it, and every backend emits it in `AihcInfo`.
+
+`GrinThrow` and `GrinCatch` are still rejected at the CPS boundary. The next
+runtime change is to lower those nodes to continuation-chain operations.
 
 ## Continuation-chain invariant
 
@@ -290,10 +293,10 @@ checks `UserInterrupt` handling. It is not the semantic cross-backend test.
 
 ## Implementation sequence
 
-1. Land structural `Typeable`, exact comparison, and the trusted
+1. **Complete:** land structural `Typeable`, exact comparison, and the trusted
    `unsafeCoerce#` primitive as an independent change.
-2. Make the continuation parent link and frame metadata explicit without
-   changing behavior.
+2. **Complete:** make the continuation parent link and frame metadata explicit
+   without changing behavior.
 3. Lower synchronous raise/catch during CPS conversion and implement shared
    unwinding, update cleanup, `Exception`, and `SomeException`.
 4. Add masking state and restore frames, then implement the library masking and

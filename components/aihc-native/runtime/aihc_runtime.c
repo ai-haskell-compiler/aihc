@@ -12,6 +12,8 @@ _Static_assert(offsetof(AihcMachine, heap_limit) == 32,
                "machine heap-limit ABI");
 _Static_assert(offsetof(AihcInfo, backend_entry) == 48,
                "info-table backend-entry ABI");
+_Static_assert(offsetof(AihcInfo, frame_kind) == 56,
+               "info-table frame-kind ABI");
 _Static_assert(offsetof(AihcResume, kind) == 0, "resume kind ABI");
 _Static_assert(offsetof(AihcResume, function) == 8, "resume function ABI");
 _Static_assert(offsetof(AihcResume, continuation) == 16,
