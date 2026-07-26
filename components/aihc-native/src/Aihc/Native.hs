@@ -179,6 +179,13 @@ snapshotSourcePath = getDataFileName "runtime/aihc_snapshot.c"
 supportedNativePrimitiveNames :: [Text]
 supportedNativePrimitiveNames =
   [ "+#",
+    "-#",
+    "*#",
+    "compareInt#",
+    "<#",
+    "==#",
+    "charToInt#",
+    "intToChar#",
     "awaitIO#",
     "fork#",
     "newMVar#",

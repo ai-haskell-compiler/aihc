@@ -6,6 +6,6 @@
 extern AihcMachine *aihc_machine;
 
 int aihc_wasm_pump_transfers(void);
-void aihc_wasm_complete_io(int32_t result);
+void aihc_wasm_complete_io(int64_t result);
 
 #endif

@@ -6,14 +6,13 @@
 
 module Main where
 
-import Data.Int (Int32 (..))
-import Foreign.C.Types (CInt (..))
 import GHC.IO.StdHandles
   ( copyAddrToByteArray,
     stdoutHandle,
     withPinnedByteArray,
     writeFromBuffer,
   )
+import GHC.Int (Int (..))
 
 foreign import prim (+#) :: Int# -> Int# -> Int#
 
@@ -23,28 +22,28 @@ countToTenMillion current =
     10_000_000# -> current
     _ -> countToTenMillion ((+#) current 1#)
 
-main :: IO CInt
+main :: IO Int
 main =
   case countToTenMillion 0# of
     10_000_000# -> writeOk
     _ -> writeFail
 
-writeOk :: IO CInt
+writeOk :: IO Int
 writeOk =
   withPinnedByteArray 3# (\buffer -> do
     copyAddrToByteArray "ok\n"# buffer 0# 3#
     output <- stdoutHandle
     writeFromBuffer output buffer zero length)
   where
-    zero = CInt (I32# 0#Int32)
-    length = CInt (I32# 3#Int32)
+    zero = I# 0#
+    length = I# 3#
 
-writeFail :: IO CInt
+writeFail :: IO Int
 writeFail =
   withPinnedByteArray 5# (\buffer -> do
     copyAddrToByteArray "fail\n"# buffer 0# 5#
     output <- stdoutHandle
     writeFromBuffer output buffer zero length)
   where
-    zero = CInt (I32# 0#Int32)
-    length = CInt (I32# 5#Int32)
+    zero = I# 0#
+    length = I# 5#

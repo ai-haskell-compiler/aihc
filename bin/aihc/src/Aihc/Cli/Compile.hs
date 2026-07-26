@@ -74,6 +74,7 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Data.Text.IO.Utf8 qualified as Utf8
 import System.Directory (XdgDirectory (XdgCache), createDirectory, findExecutable, getCurrentDirectory, getTemporaryDirectory, getXdgDirectory, removeDirectoryRecursive, removeFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
@@ -137,7 +138,7 @@ runCompileWithEnvironment environment options = do
           (ioError (userError (renderCompileError (CompileTargetError "unsupported host; pass --target portable-c or another explicit target"))))
           pure
           hostNativeTarget
-  source <- TIO.readFile (compileSourceFile options)
+  source <- Utf8.readFile (compileSourceFile options)
   artifactsResult <- compileSourceToArtifactsWithDependencies target (compileWholeProgram options) environment (compileSourceFile options) source
   artifacts <- either (ioError . userError . renderCompileError) pure artifactsResult
   let output = compileOutputPath options

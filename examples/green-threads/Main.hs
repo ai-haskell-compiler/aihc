@@ -1,22 +1,18 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE MagicHash #-}
 
 module Main where
 
 import Control.Concurrent (forkIO, yield)
-import Foreign.C.Types (CInt)
+import GHC.Ptr (Ptr (..))
+import System.IO (hPutBuf, stdout)
 
-foreign import ccall unsafe puts :: Addr# -> IO CInt
-
-puts_ :: Addr# -> IO ()
-puts_ message = do
-  puts message
-  return ()
+writeLine :: Addr# -> Int -> IO ()
+writeLine message length = hPutBuf stdout (Ptr message :: Ptr ()) length
 
 main :: IO ()
 main = do
-  puts_ "Hello world main green thread"#
-  forkIO (puts_ "Hello from forked thread"#)
-  puts_ "Still in main"#
+  writeLine "Hello world main green thread\n"# 30
+  forkIO (writeLine "Hello from forked thread\n"# 25)
+  writeLine "Still in main\n"# 14
   yield
-  puts_ "Back in main"#
+  writeLine "Back in main\n"# 13

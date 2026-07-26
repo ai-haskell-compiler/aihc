@@ -11,12 +11,20 @@ typedef struct AihcMVarWaiter AihcMVarWaiter;
 typedef enum {
   AIHC_IO_READ,
   AIHC_IO_WRITE,
+  AIHC_IO_OPEN,
 } AihcIoKind;
 
 typedef enum {
   AIHC_IO_READABLE = 1U << 0,
   AIHC_IO_WRITABLE = 1U << 1,
 } AihcIoCapability;
+
+typedef enum {
+  AIHC_IO_ERROR_IO = 5,
+  AIHC_IO_ERROR_BAD_DESCRIPTOR = 9,
+  AIHC_IO_ERROR_INVALID_ARGUMENT = 22,
+  AIHC_IO_ERROR_NOT_SUPPORTED = 38,
+} AihcIoError;
 
 typedef enum {
   AIHC_IO_SUBMITTED,
@@ -75,7 +83,10 @@ struct AihcMVar {
 
 struct AihcIoHandle {
   uintptr_t backend_token;
+  uint64_t position;
   uint32_t capabilities;
+  uint8_t append;
+  uint8_t closed;
 };
 
 typedef struct {
@@ -92,15 +103,17 @@ struct AihcIoRequest {
   uint8_t *buffer;
   size_t offset;
   size_t length;
+  int64_t mode;
   AihcThread *thread;
   AihcValue *continuation;
-  int32_t result;
+  int64_t result;
   AihcIoRequest *next;
 };
 
 struct AihcIoBackend {
   int (*prepare)(AihcIoRequest *request);
-  int (*try_request)(AihcIoRequest *request, int32_t *result);
+  int (*try_request)(AihcIoRequest *request, int64_t *result);
+  int64_t (*finish_request)(AihcIoRequest *request, int64_t result);
   AihcIoPollOutcome (*poll)(AihcMachine *machine, int may_block);
 };
 
@@ -115,10 +128,11 @@ AihcSlot *aihc_reserve_slots(AihcMachine *machine, AihcSlot **slots,
 uint64_t aihc_object_words(uint64_t tag, const AihcInfo *info);
 const AihcInfo *aihc_next_application_info(const AihcInfo *info,
                                            uint64_t supplied_count);
-int32_t aihc_io_error(int error);
+int64_t aihc_io_error(int error);
+void *aihc_io_open_error(int error);
 void aihc_resume_io_request(AihcMachine *machine, AihcIoRequest *request,
-                            int32_t result);
-const AihcResume *aihc_complete_io(AihcMachine *machine, int32_t result);
+                            int64_t result);
+const AihcResume *aihc_complete_io(AihcMachine *machine, int64_t result);
 void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context);
 

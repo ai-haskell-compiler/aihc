@@ -166,6 +166,30 @@ void aihc_wasm_transfer_await_io(AihcMachine *machine, AihcSlot request,
       machine, (void *)(uintptr_t)request, aihc_value(continuation)));
 }
 
+void aihc_wasm_transfer_new_mvar(AihcMachine *machine, AihcSlot continuation) {
+  aihc_set_transfer(
+      aihc_trampoline_new_mvar_cps(machine, aihc_value(continuation)));
+}
+
+void aihc_wasm_transfer_read_mvar(AihcMachine *machine, AihcSlot mvar,
+                                  AihcSlot continuation) {
+  aihc_set_transfer(aihc_trampoline_read_mvar_cps(
+      machine, (void *)(uintptr_t)mvar, aihc_value(continuation)));
+}
+
+void aihc_wasm_transfer_take_mvar(AihcMachine *machine, AihcSlot mvar,
+                                  AihcSlot continuation) {
+  aihc_set_transfer(aihc_trampoline_take_mvar_cps(
+      machine, (void *)(uintptr_t)mvar, aihc_value(continuation)));
+}
+
+void aihc_wasm_transfer_put_mvar(AihcMachine *machine, AihcSlot mvar,
+                                 AihcSlot value, AihcSlot continuation) {
+  aihc_set_transfer(aihc_trampoline_put_mvar_cps(
+      machine, (void *)(uintptr_t)mvar, aihc_value(value),
+      aihc_value(continuation)));
+}
+
 void aihc_wasm_transfer_thread_done(AihcMachine *machine) {
   aihc_set_transfer(aihc_trampoline_thread_done(machine));
 }
@@ -185,7 +209,7 @@ void aihc_wasm_transfer_start(AihcMachine *machine, AihcSlot root,
                             aihc_value(thread_done_continuation), exit_code));
 }
 
-void aihc_wasm_complete_io(int32_t result) {
+void aihc_wasm_complete_io(int64_t result) {
   aihc_set_transfer(aihc_trampoline_resume(
       aihc_machine, aihc_complete_io(aihc_machine, result)));
 }

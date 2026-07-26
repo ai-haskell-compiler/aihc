@@ -11,6 +11,14 @@
     printf 'invoked\n' >> "''${AIHC_WASM_OPT_MARKER:?}"
     exec ${pkgs.binaryen}/bin/wasm-opt "$@"
   '';
+  examplesSource = sources.examplesSrc pkgs;
+  exampleEntries = builtins.readDir "${examplesSource}/examples";
+  exampleNames = builtins.filter (
+    name:
+      exampleEntries.${name}
+      == "directory"
+      && builtins.pathExists "${examplesSource}/examples/${name}/Main.hs"
+  ) (builtins.attrNames exampleEntries);
   cTidyCompilerFlags =
     ["-std=c11" "-Wall" "-Wextra" "-Wpedantic"]
     ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
@@ -109,20 +117,143 @@
   }: ''
     executable="$TMPDIR/$example_name-${backend}-${compilation.name}-${gc}"
     actual_stdout="$executable.stdout"
+    actual_stderr="$executable.stderr"
+    timeout_stderr="$executable.timeout-stderr"
+    run_directory="$executable.run"
     stdin_file=/dev/null
     if [[ -f "$example_directory/stdin" ]]; then
       stdin_file="$example_directory/stdin"
     fi
-    ${aihcExe} compile "$source" \
+    expected_stderr="$empty_stderr"
+    if [[ -f "$example_directory/stderr" ]]; then
+      expected_stderr="$example_directory/stderr"
+    fi
+    expected_exit=0
+    if [[ -f "$example_directory/exit" ]]; then
+      expected_exit=$(<"$example_directory/exit")
+    fi
+    if timeout --foreground --kill-after=5s 120s ${aihcExe} compile "$source" \
       --target ${backend} \
       --gc ${gc} \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
-      --output "$executable"
-    "$executable" < "$stdin_file" > "$actual_stdout"
+      --output "$executable"; then
+      :
+    else
+      compile_exit=$?
+      if [[ "$compile_exit" -eq 124 || "$compile_exit" -eq 137 ]]; then
+        echo "Timed out compiling $example_name/${backend}-${compilation.name}-${gc}" >&2
+      else
+        echo "Compiler failed for $example_name/${backend}-${compilation.name}-${gc} with exit $compile_exit" >&2
+      fi
+      exit "$compile_exit"
+    fi
+    mkdir -p "$run_directory"
+    if timeout --foreground --kill-after=5s 10s \
+      bash -c 'cd "$1"; exec "$2" 2> "$3"' \
+      bash "$run_directory" "$executable" "$actual_stderr" \
+      < "$stdin_file" > "$actual_stdout" 2> "$timeout_stderr"; then
+      actual_exit=0
+    else
+      actual_exit=$?
+    fi
+    if [[ "$actual_exit" -eq 124 || "$actual_exit" -eq 137 ]]; then
+      echo "Timed out running $example_name/${backend}-${compilation.name}-${gc}" >&2
+      cat "$timeout_stderr" >&2
+      exit 1
+    fi
+    if [[ "$expected_exit" == nonzero ]]; then
+      if [[ "$actual_exit" -eq 0 ]]; then
+        echo "Expected $example_name/${backend}-${compilation.name}-${gc} to fail" >&2
+        exit 1
+      fi
+    elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
+      if [[ "$actual_exit" -ne "$expected_exit" ]]; then
+        echo "Expected $example_name/${backend}-${compilation.name}-${gc} to exit with $expected_exit, got $actual_exit" >&2
+        exit 1
+      fi
+    else
+      echo "Invalid expected exit status for $example_name: $expected_exit" >&2
+      exit 1
+    fi
     diff --unified \
-      --label "$example_name/expected" \
-      --label "$example_name/${backend}-${compilation.name}-${gc}" \
+      --label "$example_name/stdout-expected" \
+      --label "$example_name/stdout-${backend}-${compilation.name}-${gc}" \
       "$expected_stdout" "$actual_stdout"
+    diff --unified \
+      --label "$example_name/stderr-expected" \
+      --label "$example_name/stderr-${backend}-${compilation.name}-${gc}" \
+      "$expected_stderr" "$actual_stderr"
+  '';
+
+  renderWasip3ExampleTest = compilation: ''
+    executable="$TMPDIR/$example_name-wasm32-wasip3-${compilation.name}.wasm"
+    actual_stdout="$executable.stdout"
+    actual_stderr="$executable.stderr"
+    run_directory="$executable.run"
+    stdin_file=/dev/null
+    if [[ -f "$example_directory/stdin" ]]; then
+      stdin_file="$example_directory/stdin"
+    fi
+    expected_stderr="$empty_stderr"
+    if [[ -f "$example_directory/stderr" ]]; then
+      expected_stderr="$example_directory/stderr"
+    fi
+    expected_exit=0
+    if [[ -f "$example_directory/exit" ]]; then
+      expected_exit=$(<"$example_directory/exit")
+    fi
+    if timeout --foreground --kill-after=5s 120s ${aihcExe} compile "$source" \
+      --target wasm32-wasip3 \
+      --use-wasm-opt \
+      ${pkgs.lib.escapeShellArgs compilation.flags} \
+      --output "$executable"; then
+      :
+    else
+      compile_exit=$?
+      if [[ "$compile_exit" -eq 124 || "$compile_exit" -eq 137 ]]; then
+        echo "Timed out compiling $example_name/wasm32-wasip3-${compilation.name}" >&2
+      else
+        echo "Compiler failed for $example_name/wasm32-wasip3-${compilation.name} with exit $compile_exit" >&2
+      fi
+      exit "$compile_exit"
+    fi
+    mkdir -p "$run_directory"
+    if timeout --foreground --kill-after=5s 10s wasmtime run -C cache=n -S cli \
+      --dir "$run_directory::." \
+      "$executable" \
+      < "$stdin_file" > "$actual_stdout" 2> "$actual_stderr"; then
+      actual_exit=0
+    else
+      actual_exit=$?
+    fi
+    if [[ "$actual_exit" -eq 124 || "$actual_exit" -eq 137 ]]; then
+      echo "Timed out running $example_name/wasm32-wasip3-${compilation.name}" >&2
+      exit 1
+    fi
+    if [[ "$expected_exit" == nonzero ]]; then
+      if [[ "$actual_exit" -eq 0 ]]; then
+        echo "Expected $example_name/wasm32-wasip3-${compilation.name} to fail" >&2
+        exit 1
+      fi
+    elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
+      if [[ "$actual_exit" -ne "$expected_exit" ]]; then
+        echo "Expected $example_name/wasm32-wasip3-${compilation.name} to exit with $expected_exit, got $actual_exit" >&2
+        exit 1
+      fi
+    else
+      echo "Invalid expected exit status for $example_name: $expected_exit" >&2
+      exit 1
+    fi
+    diff --unified \
+      --label "$example_name/stdout-expected" \
+      --label "$example_name/stdout-wasm32-wasip3-${compilation.name}" \
+      "$expected_stdout" "$actual_stdout"
+    if [[ "$expected_exit" != nonzero ]]; then
+      diff --unified \
+        --label "$example_name/stderr-expected" \
+        --label "$example_name/stderr-wasm32-wasip3-${compilation.name}" \
+        "$expected_stderr" "$actual_stderr"
+    fi
   '';
 
   cppProgressEnv = hsPkgs.ghcWithPackages (p: [
@@ -223,13 +354,25 @@
     test "$failed" -eq 0
   '';
 
-  examplesTests = mkSourceCheck "aihc-examples-tests" (sources.examplesSrc pkgs) [pkgs.coreutils pkgs.diffutils pkgs.findutils pkgs.ghc pkgs.llvmPackages.clang] ''
-    set -euo pipefail
-    export XDG_CACHE_HOME="$TMPDIR/cache"
+  exampleTestInputs = [
+    pkgs.coreutils
+    pkgs.diffutils
+    pkgs.findutils
+    pkgs.ghc
+    pkgs.llvmPackages.clang
+  ];
 
-    while IFS= read -r -d "" source; do
+  mkExampleTest = exampleName:
+    mkSourceCheck "aihc-example-${exampleName}" examplesSource exampleTestInputs ''
+      set -euo pipefail
+      export XDG_CACHE_HOME="$TMPDIR/cache"
+      export GHCRTS=-N1
+      empty_stderr="$TMPDIR/empty-stderr"
+      touch "$empty_stderr"
+
+      source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
-      example_name=$(basename "$example_directory")
+      example_name=${pkgs.lib.escapeShellArg exampleName}
       expected_stdout="$example_directory/stdout"
       if [[ ! -f "$expected_stdout" ]]; then
         echo "Missing expected stdout for $source: $expected_stdout" >&2
@@ -244,7 +387,7 @@
           -outputdir "$ghc_output_directory" \
           -o "$ghc_executable" \
           "$source"
-        "$ghc_executable" > "$ghc_executable.stdout"
+        env -u GHCRTS timeout --foreground --kill-after=5s 10s "$ghc_executable" > "$ghc_executable.stdout"
         diff --unified \
           --label "$example_name/expected" \
           --label "$example_name/ghc-non-threaded" \
@@ -252,51 +395,74 @@
       fi
 
       ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest compilationMatrix}
-    done < <(find examples -mindepth 2 -maxdepth 2 -name Main.hs -print0 | sort -z)
-  '';
+      touch "$out"
+    '';
 
-  wasip3ExampleTest =
-    mkSourceCheck "aihc-wasip3-example-test" (sources.examplesSrc pkgs) [
-      pkgs.diffutils
-      pkgs.findutils
-      pkgs.llvmPackages.bintools
-      pkgs.llvmPackages.clang-unwrapped
-      pkgs.wasm-tools
-      pkgs.wasmtime
-      pkgs.wit-bindgen
-      wasmLd
-      wasmOpt
-    ] ''
+  exampleCases =
+    map (exampleName: {
+      name = exampleName;
+      path = mkExampleTest exampleName;
+    })
+    exampleNames;
+
+  # Each example keeps an isolated compiler cache and runs its target/mode/GC
+  # matrix sequentially. Nix schedules the independent examples in parallel.
+  examplesTests = assert exampleNames != [];
+    pkgs.linkFarm "aihc-examples-tests" exampleCases;
+
+  wasip3ExampleInputs = [
+    pkgs.coreutils
+    pkgs.diffutils
+    pkgs.findutils
+    pkgs.llvmPackages.bintools
+    pkgs.llvmPackages.clang-unwrapped
+    pkgs.wasm-tools
+    pkgs.wasmtime
+    pkgs.wit-bindgen
+    wasmLd
+    wasmOpt
+  ];
+
+  mkWasip3ExampleTest = exampleName:
+    mkSourceCheck "aihc-wasip3-example-${exampleName}" examplesSource wasip3ExampleInputs ''
+      set -euo pipefail
       export XDG_CACHE_HOME="$TMPDIR/cache"
+      export GHCRTS=-N1
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       export AIHC_WASM_OPT_MARKER="$TMPDIR/wasm-opt-invocations"
+      empty_stderr="$TMPDIR/empty-stderr"
+      touch "$empty_stderr"
 
-      for example in async-hello-world unboxed-tail-recursion; do
-        source="examples/$example/Main.hs"
-        expected_stdout="examples/$example/stdout"
+      source="examples/${exampleName}/Main.hs"
+      example_directory=$(dirname "$source")
+      example_name=${pkgs.lib.escapeShellArg exampleName}
+      expected_stdout="$example_directory/stdout"
+      if [[ ! -f "$expected_stdout" ]]; then
+        echo "Missing expected stdout for $source: $expected_stdout" >&2
+        exit 1
+      fi
 
-        incremental_executable="$TMPDIR/$example-incremental.wasm"
-        ${aihcExe} compile "$source" \
-          --target wasm32-wasip3 \
-          --use-wasm-opt \
-          --output "$incremental_executable"
-        wasmtime run -C cache=n -S cli "$incremental_executable" > "$incremental_executable.stdout"
-        diff --unified "$expected_stdout" "$incremental_executable.stdout"
+      ${pkgs.lib.concatMapStringsSep "\n" renderWasip3ExampleTest compilationModes}
 
-        whole_program_executable="$TMPDIR/$example-whole-program.wasm"
-        ${aihcExe} compile "$source" \
-          --target wasm32-wasip3 \
-          --use-wasm-opt \
-          --whole-program \
-          --output "$whole_program_executable"
-        wasmtime run -C cache=n -S cli "$whole_program_executable" > "$whole_program_executable.stdout"
-        diff --unified "$expected_stdout" "$whole_program_executable.stdout"
-      done
-
-      find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.o' | grep -q .
-      find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.a' | grep -q .
-      test "$(wc -l < "$AIHC_WASM_OPT_MARKER")" -eq 4
+      test -n "$(find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.o' -print -quit)"
+      test -n "$(find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.a' -print -quit)"
+      test "$(wc -l < "$AIHC_WASM_OPT_MARKER")" -eq ${toString (builtins.length compilationModes)}
+      touch "$out"
     '';
+
+  wasip3ExampleCases =
+    map (exampleName: {
+      name = exampleName;
+      path = mkWasip3ExampleTest exampleName;
+    })
+    exampleNames;
+
+  # Keep every example in its own derivation. Nix schedules these independent
+  # compile-and-run cases in parallel and preserves the per-example result in
+  # the aggregate output, while each case safely shares its cache between the
+  # incremental and whole-program modes.
+  wasip3ExampleTest = assert exampleNames != [];
+    pkgs.linkFarm "aihc-wasip3-example-test" wasip3ExampleCases;
 
   parserProgressStrict = mkSourceCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) [] ''
     ${parserProgressExe} --strict

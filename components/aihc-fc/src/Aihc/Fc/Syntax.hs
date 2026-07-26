@@ -118,7 +118,8 @@ data FcForeignEffect
 
 -- | A value type with explicit host ABI marshalling support.
 data FcForeignType
-  = FcForeignInt32
+  = FcForeignInt
+  | FcForeignInt32
   | FcForeignWord64
   | FcForeignAddr
   deriving (Eq, Show, Read)
@@ -146,6 +147,7 @@ fcForeignCallType signature =
 foreignPrimitiveType :: FcForeignType -> TcType
 foreignPrimitiveType foreignType =
   case foreignType of
+    FcForeignInt -> TcTyCon (TyCon "Int#" 0) []
     FcForeignInt32 -> TcTyCon (TyCon "Int32#" 0) []
     FcForeignWord64 -> TcTyCon (TyCon "Word64#" 0) []
     FcForeignAddr -> TcTyCon (TyCon "Addr#" 0) []

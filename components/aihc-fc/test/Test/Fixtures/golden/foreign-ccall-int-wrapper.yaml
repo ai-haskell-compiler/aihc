@@ -1,0 +1,36 @@
+expected: |-
+  data State#
+
+  data RealWorld
+
+  data Int
+   = I# Int#
+
+  newtype IO a = IO ((State# RealWorld) → (#,#) (State# RealWorld) a)
+
+  foreign ccall "identity_int" $ffi$identityInt : Int# → (State# RealWorld) → (#,#) (State# RealWorld) Int#
+
+  identityInt : Int → IO Int =
+    λ$ffi_arg_0 : Int.
+      case $ffi_arg_0 as $ffi_arg_0_case : Int of
+        I# $ffi_arg_0_field →
+          (λ$ffi_state : State# RealWorld.
+            case foreign-call $ffi$identityInt $ffi_arg_0_field $ffi_state as $ffi_result : (#,#) (State# RealWorld) Int# of
+              (#,#) $ffi_next_state $ffi_raw_result →
+                (#,#) $ffi_next_state (I# $ffi_raw_result)) ▷ <co>
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test where
+
+  data State# s
+  data RealWorld
+  data Int = I# Int#
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+
+  foreign import ccall unsafe "identity_int" identityInt :: Int -> IO Int
+reason: native-width Int foreign calls unbox and box through Int#
+status: pass
