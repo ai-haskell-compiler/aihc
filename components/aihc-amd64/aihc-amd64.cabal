@@ -15,6 +15,10 @@ library
     Aihc.Amd64.Codegen
     Aihc.Amd64.RegisterAllocate
 
+  other-modules:
+    Aihc.Amd64.Codegen.Function
+    Aihc.Amd64.Codegen.Runtime
+
   hs-source-dirs: src
   build-depends:
     aihc-grin,
