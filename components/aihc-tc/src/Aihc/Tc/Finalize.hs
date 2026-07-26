@@ -91,6 +91,8 @@ zonkEvTerm evTerm =
       EvSuperClass <$> zonkEvTerm evidence <*> pure index
     EvCast evidence coercion ->
       EvCast <$> zonkEvTerm evidence <*> zonkCoercion coercion
+    EvTypeable ty arguments ->
+      EvTypeable <$> zonkType ty <*> mapM zonkEvTerm arguments
 
 zonkCoercion :: Coercion -> TcM Coercion
 zonkCoercion coercion =
@@ -186,6 +188,8 @@ firstMetaEvTerm evTerm =
       firstMetaEvTerm evidence
     EvCast evidence coercion ->
       firstMetaEvTerm evidence <|> firstMetaCoercion coercion
+    EvTypeable ty arguments ->
+      firstMetaType ty <|> firstJusts (map firstMetaEvTerm arguments)
 
 firstMetaCoercion :: Coercion -> Maybe Unique
 firstMetaCoercion coercion =

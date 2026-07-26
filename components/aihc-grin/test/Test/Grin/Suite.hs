@@ -248,6 +248,12 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertBool "allocates a provenance-named ordinary closure" ("PmakeAdder_primitive_" `isInfixOf` rendered)
         assertBool "wrapper makes a saturated primitive call" ("primitive-call @IntRep +#" `isInfixOf` rendered),
+      testCase "FC lowering erases saturated and partially applied unsafeCoerce#" $ do
+        let program = lowerProgram unsafeCoerceProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertEqual "primitive declaration is erased" [] (grinPrimitives program)
+        assertBool ("unsafeCoerce# reached GRIN:\n" <> rendered) (not ("unsafeCoerce#" `isInfixOf` rendered)),
       testCase "FC lowering counts zero-width arguments in closure arity" $ do
         let program = lowerProgram zeroWidthSaturatedApplicationProgram
             rendered = renderProgram program
@@ -967,6 +973,26 @@ partialPrimitiveProgram =
     addVar = Var "+#" (Unique 130) (TcFunTy intTy (TcFunTy intTy intTy))
     makeAdderVar = Var "makeAdder" (Unique 131) (TcFunTy intTy (TcFunTy intTy intTy))
     firstVar = Var "first" (Unique 132) intTy
+
+unsafeCoerceProgram :: FcProgram
+unsafeCoerceProgram =
+  FcProgram
+    [ FcPrimitive unsafeCoerceVar 1,
+      FcTopBind
+        ( FcNonRec
+            coerceVar
+            (FcLam argumentVar (FcApp (FcVar unsafeCoerceVar) (FcVar argumentVar)))
+        ),
+      FcTopBind (FcNonRec coerceAliasVar (FcVar unsafeCoerceVar))
+    ]
+  where
+    sourceTy = TcTyCon (TyCon "Source" 0) []
+    targetTy = TcTyCon (TyCon "Target" 0) []
+    coerceTy = TcFunTy sourceTy targetTy
+    unsafeCoerceVar = Var "unsafeCoerce#" (Unique 133) coerceTy
+    coerceVar = Var "coerce" (Unique 134) coerceTy
+    coerceAliasVar = Var "coerceAlias" (Unique 135) coerceTy
+    argumentVar = Var "argument" (Unique 136) sourceTy
 
 zeroWidthSaturatedApplicationProgram :: FcProgram
 zeroWidthSaturatedApplicationProgram =

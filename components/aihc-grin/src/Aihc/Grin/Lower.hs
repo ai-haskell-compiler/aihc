@@ -194,7 +194,13 @@ lowerTopBind topBind =
     FcNewtype {} ->
       pure mempty
     FcPrimitive var arity ->
-      pure mempty {loweredPrimitives = [(lowerGlobalVar var, arity)]}
+      pure
+        mempty
+          { loweredPrimitives =
+              [ (lowerGlobalVar var, arity)
+              | varName var /= "unsafeCoerce#"
+              ]
+          }
     FcForeignImport foreignCall ->
       pure mempty {loweredForeignCalls = [lowerForeignCall foreignCall]}
     FcTopBind bind -> lowerTopValueBind bind
@@ -267,6 +273,8 @@ lowerExpr expr = do
           lowerSingleEvaluatedOperand "catch_action" action $ \actionValue ->
             lowerCatchHandler handler $ \handlerValue ->
               pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue [])
+        Just ("unsafeCoerce#", argument : extraArguments) ->
+          lowerUnsafeCoerceApplication expr argument extraArguments
         Just (name, arguments) ->
           case Map.lookup name primitiveArities of
             Just arity -> lowerPrimitiveApplication expr name arity arguments
@@ -371,6 +379,19 @@ lowerPrimitiveApplication originalExpr name arity arguments =
   where
     suppliedArity = length arguments
 
+-- unsafeCoerce# changes only the static type of a value. FC has already
+-- checked the application, so GRIN can erase the coercion while preserving
+-- the argument's lazy evaluation. This keeps the operation out of every
+-- backend, including overapplication of a coerced function value.
+lowerUnsafeCoerceApplication :: FcExpr -> FcExpr -> [FcExpr] -> LowerM GrinExpr
+lowerUnsafeCoerceApplication originalExpr argument extraArguments =
+  lowerSingleArgument argument $ \value ->
+    case extraArguments of
+      [] -> pure (GrinConstant [value])
+      _ -> do
+        let coercedExpr = dropLastTermApplications (length extraArguments) originalExpr
+        lowerRemainingApplications coercedExpr value extraArguments
+
 -- Primitive operations have no heap representation. Under-application is
 -- represented by an ordinary closure whose generated entry makes the direct,
 -- saturated primitive call once all remaining logical arguments arrive.
@@ -386,13 +407,16 @@ makePrimitiveClosure originalExpr name remaining captured = do
   let argumentLayouts = map (map grinVarRuntimeRep) argumentGroups
       arguments = map GrinVarValue (captureParameters <> concat argumentGroups)
       resultRep = typeRuntimeRep resultType
+      body
+        | name == "unsafeCoerce#" = GrinConstant arguments
+        | otherwise = GrinPrimitiveCall resultRep name arguments
   emitFunction
     GrinFunction
       { grinFunctionName = functionName,
         grinFunctionLinkName = Nothing,
         grinFunctionParameters = captureParameters <> concat argumentGroups,
         grinFunctionResultRep = resultRep,
-        grinFunctionBody = GrinPrimitiveCall resultRep name arguments
+        grinFunctionBody = body
       }
   pure (GrinNode (GrinClosure functionName argumentLayouts) captured)
 

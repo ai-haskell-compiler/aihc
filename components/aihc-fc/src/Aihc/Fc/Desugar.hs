@@ -461,7 +461,7 @@ primitiveImportSpecs =
       primitive "compareInt#" "Int# -> Int# -> Int#",
       primitive "<#" "Int# -> Int# -> Int#",
       primitive "==#" "Int# -> Int# -> Int#",
-      primitive "charToInt#" "Char# -> Int#",
+      primitive "ord#" "Char# -> Int#",
       primitive "intToChar#" "Int# -> Char#",
       primitive "plusWord#" "Word# -> Word# -> Word#",
       primitive "minusWord#" "Word# -> Word# -> Word#",
@@ -491,6 +491,7 @@ primitiveImportSpecs =
       primitive "ctz#" "Word# -> Word#",
       primitive "popCnt#" "Word# -> Word#",
       primitive "raise#" "a -> b",
+      primitive "unsafeCoerce#" "a -> b",
       primitive "realWorld#" "State# RealWorld",
       primitive
         "catch#"
