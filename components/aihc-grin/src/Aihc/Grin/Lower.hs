@@ -1291,6 +1291,7 @@ lowerForeignEffect effect =
 lowerForeignType :: FcForeignType -> GrinForeignType
 lowerForeignType foreignType =
   case foreignType of
+    FcForeignInt -> GrinForeignInt
     FcForeignInt32 -> GrinForeignInt32
     FcForeignWord64 -> GrinForeignWord64
     FcForeignAddr -> GrinForeignAddr

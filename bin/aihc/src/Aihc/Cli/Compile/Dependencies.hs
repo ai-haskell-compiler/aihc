@@ -76,6 +76,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
 import Data.Text.IO qualified as TIO
+import Data.Text.IO.Utf8 qualified as Utf8
 import Data.Word (Word64)
 import Numeric (showHex)
 import System.Directory
@@ -310,7 +311,7 @@ loadModuleClosure index roots = fmap (fmap snd) (go Set.empty [] roots)
 
 parseModuleFile :: ModuleSource -> IO (Either String Module)
 parseModuleFile ModuleSource {moduleSourcePath} = do
-  source <- TIO.readFile moduleSourcePath
+  source <- Utf8.readFile moduleSourcePath
   pure $
     case parseModule (parserConfig moduleSourcePath source) source of
       ([], modu) -> Right modu

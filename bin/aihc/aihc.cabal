@@ -45,7 +45,7 @@ library
     optparse-applicative >=0.16 && <0.19,
     prettyprinter,
     process,
-    text >=1.2.3 && <2.2,
+    text >=2.1.4 && <2.2,
 
   default-extensions: OverloadedStrings
   ghc-options: -Wall

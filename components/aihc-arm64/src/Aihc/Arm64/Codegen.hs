@@ -921,6 +921,26 @@ compileDirectBinding env vars expression =
             <> rightLines
             <> ["  add x0, x9, x0"]
         )
+    GrinPrimitiveCall IntRep "-#" [left, right] -> do
+      leftLines <- liftEither (materializeValueTo env "x9" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  sub x0, x9, x0"])
+    GrinPrimitiveCall IntRep "*#" [left, right] -> do
+      leftLines <- liftEither (materializeValueTo env "x9" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  mul x0, x9, x0"])
+    GrinPrimitiveCall IntRep "<#" [left, right] -> do
+      leftLines <- liftEither (materializeValueTo env "x9" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  cmp x9, x0", "  cset x0, lt"])
+    GrinPrimitiveCall IntRep "==#" [left, right] -> do
+      leftLines <- liftEither (materializeValueTo env "x9" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  cmp x9, x0", "  cset x0, eq"])
+    GrinPrimitiveCall IntRep "compareInt#" [left, right] -> do
+      leftLines <- liftEither (materializeValueTo env "x9" left)
+      rightLines <- liftEither (materializeValue env right)
+      storeSingleResult vars (leftLines <> rightLines <> ["  cmp x9, x0", "  cset x0, gt", "  csinv x0, x0, xzr, ge"])
     GrinPrimitiveCall runtimeRep name arguments
       | name == "realWorld#",
         null arguments,
@@ -928,7 +948,7 @@ compileDirectBinding env vars expression =
         null (runtimeRepComponents runtimeRep) ->
           pure []
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> do
+      | name `elem` ["charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> do
           valueLines <- liftEither (materializeValue env value)
           storeSingleResult vars valueLines
     GrinPrimitiveCall _ name arguments
@@ -1003,6 +1023,7 @@ compileForeignCallLines env foreignCall arguments = do
 normalizeForeignResult :: GrinForeignType -> [Text]
 normalizeForeignResult foreignType =
   case foreignType of
+    GrinForeignInt -> []
     GrinForeignInt32 -> ["  sxtw x0, w0"]
     GrinForeignWord64 -> []
     GrinForeignAddr -> []

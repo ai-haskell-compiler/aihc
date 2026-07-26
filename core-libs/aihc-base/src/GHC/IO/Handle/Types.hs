@@ -1,1 +1,24 @@
-module GHC.IO.Handle.Types () where
+module GHC.IO.Handle.Types
+  ( Handle (..),
+    HandleState (..),
+    newHandle,
+  )
+where
+
+import GHC.IO.FD (IOHandle)
+import GHC.IO.IOMode (IOMode)
+import GHC.MVar (MVar, newMVar)
+import GHC.Ptr (Ptr)
+import Prelude
+
+-- | A named, serialized reference to mutable IO resource state.
+data Handle = FileHandle String (MVar HandleState)
+
+data HandleState
+  = HandleOpen (Ptr IOHandle) IOMode
+  | HandleClosed
+
+newHandle :: String -> Ptr IOHandle -> IOMode -> IO Handle
+newHandle name rawHandle mode = do
+  state <- newMVar (HandleOpen rawHandle mode)
+  return (FileHandle name state)

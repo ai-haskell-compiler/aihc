@@ -22,6 +22,7 @@ import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
 import Data.Char qualified as Char
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.Int (Int64)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Map.Strict (Map)
@@ -30,14 +31,15 @@ import Data.Sequence (Seq, ViewL (..), (|>))
 import Data.Sequence qualified as Seq
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Word (Word64)
+import Data.Text.Encoding qualified as TE
+import Data.Word (Word64, Word8)
 import Foreign.C.Types (CInt (..))
-import Foreign.LibFFI (Arg, argCInt, argPtr, argWord64, callFFI, retCInt, retPtr, retVoid, retWord64)
+import Foreign.LibFFI (Arg, argCInt, argInt64, argPtr, argWord64, callFFI, retCInt, retInt64, retPtr, retVoid, retWord64)
 import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
 import Foreign.Marshal.Utils (copyBytes, fillBytes)
 import Foreign.Ptr (FunPtr, Ptr, alignPtr, castPtr, plusPtr)
-import System.IO (Handle, hFlush, stdin, stdout)
+import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile, stderr, stdin, stdout)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
 data InterpretError
@@ -70,6 +72,7 @@ data RuntimeValue
   = RuntimeLit !GrinLiteral
   | RuntimeAddress !(Ptr ())
   | RuntimeByteArray !GrinByteArray
+  | RuntimeIOError !Integer
   | RuntimeIOHandle !GrinIOHandle
   | RuntimeIORequest !GrinIORequest
   | RuntimeMVar !Int
@@ -111,11 +114,17 @@ instance Show GrinIOHandle where
 data GrinIOOperation
   = GrinRead !GrinIOHandle !(Ptr ()) !Int !Int
   | GrinWrite !GrinIOHandle !(Ptr ()) !Int !Int
+  | GrinOpen !Text !Integer
+  deriving (Eq, Show)
+
+data GrinIOResult
+  = GrinIOInt !Integer
+  | GrinIOOpenResult !(Either Integer GrinIOHandle)
   deriving (Eq, Show)
 
 data GrinIOState
   = GrinIOSubmitted !GrinIOOperation
-  | GrinIOCompleted !Integer
+  | GrinIOCompleted !GrinIOResult
   | GrinIOConsumed
   deriving (Eq, Show)
 
@@ -683,6 +692,7 @@ isLiftedRuntimeValue value =
     RuntimeAddress {} -> False
     RuntimeIOHandle {} -> False
     RuntimeByteArray {} -> False
+    RuntimeIOError {} -> False
     RuntimeIORequest {} -> False
     RuntimeMVar {} -> False
     RuntimeNode {} -> True
@@ -883,25 +893,71 @@ callForeign foreignCall arguments
   | symbol == "aihc_io_stdout",
     [] <- arguments =
       pure (RuntimeIOHandle (GrinIOHandle 1 stdout))
+  | symbol == "aihc_io_stderr",
+    [] <- arguments =
+      pure (RuntimeIOHandle (GrinIOHandle 2 stderr))
+  | symbol == "aihc_memory_write_byte",
+    [bufferValue, offsetValue, byteValue] <- arguments = do
+      buffer <- expectAddress symbol bufferValue
+      offset <- expectForeignInt symbol offsetValue
+      byte <- expectForeignInt symbol byteValue
+      if offset < 0 || offset > toInteger (maxBound :: Int) || byte < 0 || byte > 255
+        then pure (RuntimeLit (GrinLitInt IntRep (-23)))
+        else do
+          liftEvalIO (pokeArray (castPtr (buffer `plusPtr` fromInteger offset)) [fromInteger byte :: Word8])
+          pure (RuntimeLit (GrinLitInt IntRep 0))
+  | symbol == "aihc_io_submit_open",
+    [pathValue, lengthValue, modeValue] <- arguments = do
+      pathLength <- expectForeignInt symbol lengthValue
+      modeNumber <- expectForeignInt symbol modeValue
+      if pathLength < 0 || pathLength > toInteger (maxBound :: Int)
+        then completedOpenRequest (Left 22)
+        else do
+          bytes <- readAddressBytes symbol (fromInteger pathLength) pathValue
+          case TE.decodeUtf8' bytes of
+            Left _ -> completedOpenRequest (Left 84)
+            Right path ->
+              RuntimeIORequest . GrinIORequest
+                <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinOpen path modeNumber)))
+  | symbol == "aihc_io_open_result_error",
+    [openResult] <- arguments =
+      case openResult of
+        RuntimeIOError errorNumber -> pure (RuntimeLit (GrinLitInt IntRep errorNumber))
+        RuntimeIOHandle {} -> pure (RuntimeLit (GrinLitInt IntRep 0))
+        _ -> throwInterpret (InterpretForeignTypeError symbol openResult)
+  | symbol == "aihc_io_close",
+    [handleValue] <- arguments = do
+      GrinIOHandle _ handle <- expectIOHandle symbol handleValue
+      result <- liftEvalIO (tryForeign (hClose handle))
+      case result of
+        Left _ -> pure (RuntimeLit (GrinLitInt IntRep (-6)))
+        Right () -> pure (RuntimeLit (GrinLitInt IntRep 0))
+  | symbol == "aihc_io_raise_error",
+    [errorValue] <- arguments = do
+      errorNumber <- expectForeignInt symbol errorValue
+      throwInterpret (InterpretRaisedException (T.pack (show errorNumber)))
   | symbol == "aihc_io_submit_read",
     [handleValue, bufferValue, offsetValue, lengthValue] <- arguments = do
       handle <- expectIOHandle symbol handleValue
       buffer <- expectAddress symbol bufferValue
-      offset <- expectInt32 symbol offsetValue
-      byteCount <- expectInt32 symbol lengthValue
+      offset <- expectForeignInt symbol offsetValue
+      byteCount <- expectForeignInt symbol lengthValue
       (checkedOffset, checkedLength) <- checkedAddressRange symbol offset byteCount
       RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinRead handle buffer checkedOffset checkedLength)))
   | symbol == "aihc_io_submit_write",
     [handleValue, bufferValue, offsetValue, lengthValue] <- arguments = do
       handle <- expectIOHandle symbol handleValue
       buffer <- expectAddress symbol bufferValue
-      offset <- expectInt32 symbol offsetValue
-      byteCount <- expectInt32 symbol lengthValue
+      offset <- expectForeignInt symbol offsetValue
+      byteCount <- expectForeignInt symbol lengthValue
       (checkedOffset, checkedLength) <- checkedAddressRange symbol offset byteCount
       RuntimeIORequest . GrinIORequest <$> liftEvalIO (newIORef (GrinIOSubmitted (GrinWrite handle buffer checkedOffset checkedLength)))
   | symbol == "aihc_io_take_result",
     [request] <- arguments =
       takeIOResult symbol request
+  | symbol == "aihc_io_take_open_result",
+    [request] <- arguments =
+      takeOpenIOResult symbol request
   | otherwise = do
       marshalledArguments <-
         zipWithM
@@ -910,6 +966,9 @@ callForeign foreignCall arguments
           arguments
       functionPointer <- lookupForeignFunction foreignCall
       case grinForeignResultType (grinForeignCallSignature foreignCall) of
+        GrinForeignInt -> do
+          result <- liftEvalIO (callFFI functionPointer retInt64 marshalledArguments)
+          pure (RuntimeLit (GrinLitInt IntRep (toInteger result)))
         GrinForeignInt32 -> do
           CInt result <- liftEvalIO (callFFI functionPointer retCInt marshalledArguments)
           pure (RuntimeLit (GrinLitInt Int32Rep (toInteger result)))
@@ -920,6 +979,14 @@ callForeign foreignCall arguments
           RuntimeAddress <$> liftEvalIO (callFFI functionPointer (retPtr retVoid) marshalledArguments)
   where
     symbol = grinForeignCallSymbol foreignCall
+
+hostIOMode :: Integer -> IOMode
+hostIOMode mode =
+  case mode of
+    0 -> ReadMode
+    1 -> WriteMode
+    2 -> AppendMode
+    _ -> ReadWriteMode
 
 expectIOHandle :: Text -> RuntimeValue -> EvalM GrinIOHandle
 expectIOHandle symbol value =
@@ -959,17 +1026,31 @@ completeIORequest (GrinIORequest reference) = do
     GrinIOCompleted {} -> pure ()
     GrinIOConsumed -> throwInterpret (InterpretPrimitiveTypeError "awaitIO#" (RuntimeIORequest (GrinIORequest reference)))
 
-performIOOperation :: GrinIOOperation -> EvalM Integer
+performIOOperation :: GrinIOOperation -> EvalM GrinIOResult
 performIOOperation operation =
   case operation of
     GrinRead (GrinIOHandle _ handle) buffer offset byteCount -> do
-      input <- liftEvalIO (BS.hGet handle byteCount)
-      liftEvalIO (pokeArray (castPtr (buffer `plusPtr` offset)) (BS.unpack input))
-      pure (toInteger (BS.length input))
+      result <- liftEvalIO (tryForeign (BS.hGet handle byteCount))
+      case result of
+        Left _ -> pure (GrinIOInt (-6))
+        Right input -> do
+          liftEvalIO (pokeArray (castPtr (buffer `plusPtr` offset)) (BS.unpack input))
+          pure (GrinIOInt (toInteger (BS.length input)))
     GrinWrite (GrinIOHandle _ handle) buffer offset byteCount -> do
       bytes <- liftEvalIO (BS.pack <$> peekArray byteCount (castPtr (buffer `plusPtr` offset)))
-      liftEvalIO (BS.hPut handle bytes >> hFlush handle)
-      pure (toInteger byteCount)
+      result <- liftEvalIO (tryForeign (BS.hPut handle bytes >> hFlush handle))
+      case result of
+        Left _ -> pure (GrinIOInt (-6))
+        Right () -> pure (GrinIOInt (toInteger byteCount))
+    GrinOpen path modeNumber -> do
+      result <- liftEvalIO (tryForeign (openBinaryFile (T.unpack path) (hostIOMode modeNumber)))
+      pure
+        ( GrinIOOpenResult
+            ( case result of
+                Left _ -> Left 5
+                Right handle -> Right (GrinIOHandle 3 handle)
+            )
+        )
 
 takeIOResult :: Text -> RuntimeValue -> EvalM RuntimeValue
 takeIOResult symbol value =
@@ -977,13 +1058,33 @@ takeIOResult symbol value =
     RuntimeIORequest (GrinIORequest reference) -> do
       state <- liftEvalIO (readIORef reference)
       case state of
-        GrinIOCompleted result -> do
+        GrinIOCompleted (GrinIOInt result) -> do
           liftEvalIO (writeIORef reference GrinIOConsumed)
-          pure (RuntimeLit (GrinLitInt Int32Rep result))
+          pure (RuntimeLit (GrinLitInt IntRep result))
         _ -> throwInterpret (InterpretForeignTypeError symbol value)
     _ -> throwInterpret (InterpretForeignTypeError symbol value)
 
+takeOpenIOResult :: Text -> RuntimeValue -> EvalM RuntimeValue
+takeOpenIOResult symbol value =
+  case value of
+    RuntimeIORequest (GrinIORequest reference) -> do
+      state <- liftEvalIO (readIORef reference)
+      case state of
+        GrinIOCompleted (GrinIOOpenResult result) -> do
+          liftEvalIO (writeIORef reference GrinIOConsumed)
+          pure (either RuntimeIOError RuntimeIOHandle result)
+        _ -> throwInterpret (InterpretForeignTypeError symbol value)
+    _ -> throwInterpret (InterpretForeignTypeError symbol value)
+
+completedOpenRequest :: Either Integer GrinIOHandle -> EvalM RuntimeValue
+completedOpenRequest result =
+  RuntimeIORequest . GrinIORequest
+    <$> liftEvalIO (newIORef (GrinIOCompleted (GrinIOOpenResult result)))
+
 marshalForeignArgument :: Text -> GrinForeignType -> RuntimeValue -> EvalM Arg
+marshalForeignArgument symbol GrinForeignInt argument = do
+  argumentValue <- expectForeignInt symbol argument
+  pure (argInt64 (fromInteger argumentValue :: Int64))
 marshalForeignArgument symbol GrinForeignInt32 argument = do
   argumentValue <- expectInt32 symbol argument
   pure (argCInt (CInt (fromInteger argumentValue)))
@@ -1012,6 +1113,12 @@ lookupForeignFunction foreignCall = do
 
 tryForeign :: IO value -> IO (Either SomeException value)
 tryForeign = try
+
+expectForeignInt :: Text -> RuntimeValue -> EvalM Integer
+expectForeignInt symbol value =
+  case value of
+    RuntimeLit (GrinLitInt IntRep intValue) -> pure intValue
+    other -> throwInterpret (InterpretForeignTypeError symbol other)
 
 expectInt32 :: Text -> RuntimeValue -> EvalM Integer
 expectInt32 symbol value =
@@ -1069,6 +1176,7 @@ renderRawValueM value = do
     RuntimeAddress address -> pure (T.pack (show address))
     RuntimeIOHandle {} -> pure "<io-handle>"
     RuntimeByteArray {} -> pure "<byte-array>"
+    RuntimeIOError {} -> pure "<io-error>"
     RuntimeIORequest {} -> pure "<io-request>"
     RuntimeMVar {} -> pure "<mvar>"
     RuntimeNode (GrinConstructor "C#" 0) [char] -> renderBoxedChar char
@@ -1196,6 +1304,7 @@ snapshotRuntimeValue value =
     RuntimeAddress {} -> pure SnapshotAddress
     RuntimeIOHandle {} -> pure SnapshotAddress
     RuntimeByteArray {} -> pure SnapshotAddress
+    RuntimeIOError {} -> pure SnapshotAddress
     RuntimeIORequest {} -> pure SnapshotAddress
     RuntimeMVar {} -> pure SnapshotMutVar
     RuntimeNode {} -> do

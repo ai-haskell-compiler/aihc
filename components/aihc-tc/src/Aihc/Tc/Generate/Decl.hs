@@ -554,6 +554,8 @@ splitFunctionType ty =
 checkForeignValueType :: SourceSpan -> TcType -> TcM TcForeignMarshal
 checkForeignValueType sourceSpan ty =
   case ty of
+    TcTyCon (TyCon "Int" 0) [] -> pure (intMarshal ty ["I#"])
+    TcTyCon (TyCon "Int#" 0) [] -> pure (intMarshal ty [])
     TcTyCon (TyCon "CInt" 0) [] -> pure (int32Marshal ty ["CInt", "I32#"])
     TcTyCon (TyCon "Int32" 0) [] -> pure (int32Marshal ty ["I32#"])
     TcTyCon (TyCon "Int32#" 0) [] -> pure (int32Marshal ty [])
@@ -565,6 +567,13 @@ checkForeignValueType sourceSpan ty =
       emitError sourceSpan (OtherError ("unsupported foreign import value type: " <> show ty))
       pure (int32Marshal ty [])
   where
+    intMarshal sourceType constructors =
+      TcForeignMarshal
+        { tcForeignSourceType = sourceType,
+          tcForeignPrimitiveType = TcTyCon (TyCon "Int#" 0) [],
+          tcForeignConstructors = constructors,
+          tcForeignAbiType = TcForeignInt
+        }
     int32Marshal sourceType constructors =
       TcForeignMarshal
         { tcForeignSourceType = sourceType,

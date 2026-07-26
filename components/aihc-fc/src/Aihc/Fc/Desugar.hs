@@ -351,6 +351,7 @@ dsForeignCcall tcAnn foreignPlan foreignDecl = do
 lowerForeignAbiType :: TcForeignAbiType -> FcForeignType
 lowerForeignAbiType foreignType =
   case foreignType of
+    TcForeignInt -> FcForeignInt
     TcForeignInt32 -> FcForeignInt32
     TcForeignWord64 -> FcForeignWord64
     TcForeignAddr -> FcForeignAddr

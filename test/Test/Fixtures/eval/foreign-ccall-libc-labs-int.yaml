@@ -1,0 +1,17 @@
+extensions:
+  - ForeignFunctionInterface
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    foreign import ccall unsafe labs :: Int -> Int
+
+    absolute :: Int
+    absolute = labs (negate 7)
+output: |
+  I# 7
+expression: absolute
+status: pass
+reason: marshals the lifted native-width Int representation through a ccall

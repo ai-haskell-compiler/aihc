@@ -27,6 +27,9 @@ tests =
       testCase "traps dormant unsupported primitives in dependency modules" testDormantPrimitive,
       testCase "emits relocatable dependency modules" testIncrementalModule,
       testCase "lowers byte-array primitives through the runtime ABI" testByteArrayPrimitives,
+      testCase "lowers MVar primitives through scheduler transfers" testMVarPrimitives,
+      testCase "lowers native-width Int foreign calls" testForeignInt,
+      testCase "lowers the Prelude Int primitive API" testIntPrimitives,
       testProperty "accepts supported primitives" $
         forAll (elements supportedPrimitives) $ \name ->
           validatePrimitiveNames [name] == Right ()
@@ -165,6 +168,45 @@ testByteArrayPrimitives =
           assertBool "allocates a pinned byte array" ("call\taihc_byte_array_new_pinned" `T.isInfixOf` source)
           assertBool "copies an address into the byte array" ("call\taihc_byte_array_copy_from_addr" `T.isInfixOf` source)
           assertBool "obtains the byte-array payload" ("call\taihc_byte_array_contents" `T.isInfixOf` source)
+
+testMVarPrimitives :: IO ()
+testMVarPrimitives =
+  case toCpsGrin mvarProgram of
+    Left err -> assertFailure (show err)
+    Right cps ->
+      case compileModule (buildLinkLayout [mvarProgram]) "_aihc_init_mvars" (lowerGc cps) of
+        Left err -> assertFailure (show err)
+        Right source ->
+          mapM_
+            (\operation -> assertBool ("calls " <> T.unpack operation) (("call\t" <> operation) `T.isInfixOf` source))
+            [ "aihc_wasm_transfer_new_mvar",
+              "aihc_wasm_transfer_put_mvar",
+              "aihc_wasm_transfer_read_mvar",
+              "aihc_wasm_transfer_take_mvar"
+            ]
+
+testForeignInt :: IO ()
+testForeignInt =
+  case toCpsGrin foreignIntProgram of
+    Left err -> assertFailure (show err)
+    Right cps ->
+      case compileModule (buildLinkLayout [foreignIntProgram]) "_aihc_init_foreign_int" (lowerGc cps) of
+        Left err -> assertFailure (show err)
+        Right source -> do
+          assertBool "declares the Int ABI as i64" (".functype\taihc_io_take_result (i32) -> (i64)" `T.isInfixOf` source)
+          assertBool "passes the address and keeps the i64 result" ("i32.wrap_i64\n\tcall\taihc_io_take_result\n\tlocal.set" `T.isInfixOf` source)
+
+testIntPrimitives :: IO ()
+testIntPrimitives =
+  case toCpsGrin intPrimitiveProgram of
+    Left err -> assertFailure (show err)
+    Right cps ->
+      case compileModule (buildLinkLayout [intPrimitiveProgram]) "_aihc_init_int_primitives" (lowerGc cps) of
+        Left err -> assertFailure (show err)
+        Right source ->
+          mapM_
+            (\instruction -> assertBool ("emits " <> T.unpack instruction) (instruction `T.isInfixOf` source))
+            ["i64.sub", "i64.mul", "i64.lt_s", "i64.eq", "i64.gt_s", "i32.sub", "i64.extend_i32_s"]
 
 program :: GrinProgram
 program =
@@ -360,6 +402,96 @@ byteArrayProgram =
     array = GrinVar "array" 63 (BoxedRep Unlifted)
     contents = GrinVar "contents" 64 AddrRep
     intValue = GrinLitValue . GrinLitInt IntRep
+
+foreignIntProgram :: GrinProgram
+foreignIntProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [takeResultCall],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "$foreign_int",
+              grinFunctionLinkName = Just "foreign_int",
+              grinFunctionParameters = [request],
+              grinFunctionResultRep = IntRep,
+              grinFunctionBody = GrinForeignCallExpr takeResultCall [GrinVarValue request]
+            }
+        ]
+    }
+  where
+    request = GrinVar "request" 80 AddrRep
+    takeResultCall =
+      GrinForeignCall
+        { grinForeignCallName = "$ffi$takeResult",
+          grinForeignCallSymbol = "aihc_io_take_result",
+          grinForeignCallSignature = GrinForeignSignature [GrinForeignAddr] GrinForeignInt GrinForeignRealWorld
+        }
+
+mvarProgram :: GrinProgram
+mvarProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives =
+        [ (GrinVar "newMVar#" 70 (BoxedRep Unlifted), 1),
+          (GrinVar "putMVar#" 71 (TupleRep []), 3),
+          (GrinVar "readMVar#" 72 (BoxedRep Lifted), 2),
+          (GrinVar "takeMVar#" 73 (BoxedRep Lifted), 2)
+        ],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "$mvars",
+              grinFunctionLinkName = Just "mvars",
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind [mvar] (GrinPrimitiveCall (BoxedRep Unlifted) "newMVar#" []) $
+                  GrinBind [] (GrinPrimitiveCall (TupleRep []) "putMVar#" [GrinVarValue mvar, value]) $
+                    GrinBind [readValue] (GrinPrimitiveCall (BoxedRep Lifted) "readMVar#" [GrinVarValue mvar]) $
+                      GrinBind [takenValue] (GrinPrimitiveCall (BoxedRep Lifted) "takeMVar#" [GrinVarValue mvar]) $
+                        GrinConstant [GrinVarValue takenValue]
+            }
+        ]
+    }
+  where
+    mvar = GrinVar "mvar" 74 (BoxedRep Unlifted)
+    readValue = GrinVar "read" 75 (BoxedRep Lifted)
+    takenValue = GrinVar "taken" 76 (BoxedRep Lifted)
+    value = GrinLitValue (GrinLitString "value")
+
+intPrimitiveProgram :: GrinProgram
+intPrimitiveProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [(GrinVar name unique IntRep, 2) | (name, unique) <- zip primitiveNames [90 ..]],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions = zipWith primitiveFunction primitiveNames [100 ..]
+    }
+  where
+    primitiveNames = ["-#", "*#", "<#", "==#", "compareInt#"]
+    primitiveFunction name unique =
+      GrinFunction
+        { grinFunctionName = FunctionName ("$" <> name),
+          grinFunctionLinkName = Just ("primitive_" <> name),
+          grinFunctionParameters = [left unique, right unique],
+          grinFunctionResultRep = IntRep,
+          grinFunctionBody = GrinPrimitiveCall IntRep name [GrinVarValue (left unique), GrinVarValue (right unique)]
+        }
+    left unique = GrinVar "left" (unique * 2) IntRep
+    right unique = GrinVar "right" (unique * 2 + 1) IntRep
 
 dormantPrimitiveProgram :: GrinProgram
 dormantPrimitiveProgram =

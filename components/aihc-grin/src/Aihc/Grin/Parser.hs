@@ -647,6 +647,7 @@ foreignType :: Parser GrinForeignType
 foreignType =
   MP.choice
     [ GrinForeignInt32 <$ keyword "int32",
+      GrinForeignInt <$ keyword "int",
       GrinForeignWord64 <$ keyword "word64",
       GrinForeignAddr <$ keyword "addr"
     ]
