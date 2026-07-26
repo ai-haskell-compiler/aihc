@@ -118,6 +118,7 @@
     executable="$TMPDIR/$example_name-${backend}-${compilation.name}-${gc}"
     actual_stdout="$executable.stdout"
     actual_stderr="$executable.stderr"
+    timeout_stderr="$executable.timeout-stderr"
     run_directory="$executable.run"
     stdin_file=/dev/null
     if [[ -f "$example_directory/stdin" ]]; then
@@ -147,14 +148,17 @@
       exit "$compile_exit"
     fi
     mkdir -p "$run_directory"
-    if (cd "$run_directory"; timeout --foreground --kill-after=5s 10s "$executable") \
-      < "$stdin_file" > "$actual_stdout" 2> "$actual_stderr"; then
+    if timeout --foreground --kill-after=5s 10s \
+      bash -c 'cd "$1"; exec "$2" 2> "$3"' \
+      bash "$run_directory" "$executable" "$actual_stderr" \
+      < "$stdin_file" > "$actual_stdout" 2> "$timeout_stderr"; then
       actual_exit=0
     else
       actual_exit=$?
     fi
     if [[ "$actual_exit" -eq 124 || "$actual_exit" -eq 137 ]]; then
       echo "Timed out running $example_name/${backend}-${compilation.name}-${gc}" >&2
+      cat "$timeout_stderr" >&2
       exit 1
     fi
     if [[ "$expected_exit" == nonzero ]]; then
