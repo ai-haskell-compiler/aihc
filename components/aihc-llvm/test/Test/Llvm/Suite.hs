@@ -6,7 +6,14 @@ import Aihc.Grin (GcGrinProgram, lintProgram, lowerGc, toCpsGrin)
 import Aihc.Grin.Gc (gcGrinProgram)
 import Aihc.Grin.Syntax
 import Aihc.Llvm (compileModule, compileProgram, validatePrimitiveNames)
-import Aihc.Native (buildLinkLayout, runtimeSourcePath, supportedNativePrimitiveNames)
+import Aihc.Native
+  ( NativeTarget (Llvm),
+    RuntimeGarbageCollector (RuntimeGcCalloc),
+    RuntimePlan (..),
+    buildLinkLayout,
+    runtimePlan,
+    supportedNativePrimitiveNames,
+  )
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Aihc.Testing.SchedulerProgram (schedulerProgram, stdioSchedulerProgram)
 import Control.Exception (bracket)
@@ -315,19 +322,30 @@ testProgram :: String -> GrinProgram -> IO ()
 testProgram expected program = do
   source <- compile program
   withTempDirectory "aihc-llvm" $ \directory -> do
-    runtime <- runtimeSourcePath
+    runtimeArguments <- llvmRuntimeArguments
     let sourcePath = directory </> "program.ll"
         executablePath = directory </> "program"
     TIO.writeFile sourcePath source
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
-        ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-override-module", runtime, sourcePath, "-o", executablePath]
+        ( ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-override-module"]
+            <> runtimeArguments
+            <> [sourcePath, "-o", executablePath]
+        )
         ""
     assertEqual ("clang rejected generated LLVM IR:\n" <> clangErr) ExitSuccess clangExit
     (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
     assertEqual ("generated program stderr: " <> programErr) ExitSuccess programExit
     assertEqual "generated program stdout" expected programOut
+
+llvmRuntimeArguments :: IO [String]
+llvmRuntimeArguments = do
+  plan <- runtimePlan Llvm RuntimeGcCalloc
+  pure
+    ( ["-I" <> directory | directory <- runtimeIncludeDirectories plan]
+        <> runtimeSources plan
+    )
 
 compile :: GrinProgram -> IO T.Text
 compile program = do
