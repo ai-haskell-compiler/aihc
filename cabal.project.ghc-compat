@@ -8,4 +8,4 @@ benchmarks: False
 
 constraints:
   aihc-cpp ==1.0.0.2,
-  aihc-parser ==1.0.0.4
+  aihc-parser ==1.0.0.5
