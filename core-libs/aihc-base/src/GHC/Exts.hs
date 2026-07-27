@@ -1,6 +1,10 @@
+{-# LANGUAGE MagicHash #-}
+
 module GHC.Exts
-  ( Ptr (..),
+  ( Addr#,
+    Ptr (..),
   )
 where
 
+import GHC.Prim (Addr#)
 import GHC.Ptr (Ptr (..))

@@ -7,6 +7,7 @@ import Aihc.Grin.Syntax
 import Aihc.Native (LinkLayout (..), buildLinkLayout, supportedNativePrimitiveNames)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Aihc.Wasm (WasmError (..), compileModule, compileProgram, compileProgramWithDependencies, validatePrimitiveNames, validateProgramPrimitives)
+import Control.Monad (forM_)
 import Data.Text qualified as T
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
@@ -27,6 +28,7 @@ tests =
       testCase "traps dormant unsupported primitives in dependency modules" testDormantPrimitive,
       testCase "emits relocatable dependency modules" testIncrementalModule,
       testCase "lowers byte-array primitives through the runtime ABI" testByteArrayPrimitives,
+      testCase "lowers Integer arithmetic primitives without fallback traps" testIntegerPrimitives,
       testCase "lowers MVar primitives through scheduler transfers" testMVarPrimitives,
       testCase "lowers native-width Int foreign calls" testForeignInt,
       testCase "lowers the Prelude Int primitive API" testIntPrimitives,
@@ -48,6 +50,8 @@ testDirectModule =
           assertBool "generated entry is object-local" (not (".globl\t.Laihc_wasm_function_0" `T.isInfixOf` source))
           assertBool "not portable C" (not ("#include" `T.isInfixOf` source))
           assertBool "not LLVM IR" (not ("target triple" `T.isInfixOf` source))
+          assertBool "uses the expanded shared info-table ABI" ("\t.int64\t3\n\t.size\t.Laihc_wasm_update_info, 48" `T.isInfixOf` source)
+          assertBool "emits stop continuation frame metadata" ("\t.int64\t5\n\t.size\t.Laihc_wasm_final_info, 48" `T.isInfixOf` source)
 
 testWasmLocals :: IO ()
 testWasmLocals =
@@ -168,6 +172,116 @@ testByteArrayPrimitives =
           assertBool "allocates a pinned byte array" ("call\taihc_byte_array_new_pinned" `T.isInfixOf` source)
           assertBool "copies an address into the byte array" ("call\taihc_byte_array_copy_from_addr" `T.isInfixOf` source)
           assertBool "obtains the byte-array payload" ("call\taihc_byte_array_contents" `T.isInfixOf` source)
+
+testIntegerPrimitives :: IO ()
+testIntegerPrimitives = forM_ integerPrimitiveCases $ \primitiveCase ->
+  case toCpsGrin (primitiveProgram primitiveCase) of
+    Left err -> assertFailure (T.unpack (primitiveCaseName primitiveCase) <> ": " <> show err)
+    Right cps ->
+      case compileModule (buildLinkLayout [primitiveProgram primitiveCase]) "_aihc_init_integer_primitive" (lowerGc cps) of
+        Left err -> assertFailure (T.unpack (primitiveCaseName primitiveCase) <> ": " <> show err)
+        Right source -> do
+          assertBool
+            (T.unpack (primitiveCaseName primitiveCase) <> " does not use the unsupported-primitive fallback")
+            (not ("call\taihc_unsupported_primitive" `T.isInfixOf` source))
+          forM_ (primitiveCaseInstructions primitiveCase) $ \instruction ->
+            assertBool
+              (T.unpack (primitiveCaseName primitiveCase) <> " emits " <> T.unpack instruction)
+              (instruction `T.isInfixOf` source)
+
+data PrimitiveCase = PrimitiveCase
+  { primitiveCaseName :: !T.Text,
+    primitiveCaseArguments :: ![GrinValue],
+    primitiveCaseResults :: ![RuntimeRep],
+    primitiveCaseInstructions :: ![T.Text]
+  }
+
+integerPrimitiveCases :: [PrimitiveCase]
+integerPrimitiveCases =
+  [ intBinary "+#" "i64.add",
+    intBinary "-#" "i64.sub",
+    intBinary "*#" "i64.mul",
+    intComparison "<#" "i64.lt_s",
+    intComparison "==#" "i64.eq",
+    intComparison "compareInt#" "i64.gt_s",
+    intCarry "addIntC#" "i64.add",
+    intCarry "subIntC#" "i64.sub",
+    wordBinary "plusWord#" "i64.add",
+    wordBinary "minusWord#" "i64.sub",
+    wordBinary "timesWord#" "i64.mul",
+    wordCarry "addWordC#" "i64.add",
+    wordCarry "subWordC#" "i64.sub",
+    PrimitiveCase "timesWord2#" wordArguments [WordRep, WordRep] ["call\taihc_wasm_times_word2_high", "i64.mul"],
+    wordBinary "quotWord#" "i64.div_u",
+    wordBinary "remWord#" "i64.rem_u",
+    PrimitiveCase "quotRemWord#" wordArguments [WordRep, WordRep] ["i64.div_u", "i64.rem_u"],
+    PrimitiveCase "quotRemWord2#" [primitiveWordValue 1, primitiveWordValue 2, primitiveWordValue 3] [WordRep, WordRep] ["call\taihc_wasm_quot_rem_word2_quotient"],
+    wordBinary "and#" "i64.and",
+    wordBinary "or#" "i64.or",
+    wordBinary "xor#" "i64.xor",
+    PrimitiveCase "not#" [primitiveWordValue 1] [WordRep] ["i64.xor"],
+    PrimitiveCase "uncheckedShiftL#" [primitiveWordValue 1, primitiveIntValue 2] [WordRep] ["i64.shl"],
+    PrimitiveCase "uncheckedShiftRL#" [primitiveWordValue 1, primitiveIntValue 2] [WordRep] ["i64.shr_u"],
+    PrimitiveCase "int2Word#" [primitiveIntValue 1] [WordRep] ["local.set"],
+    PrimitiveCase "word2Int#" [primitiveWordValue 1] [IntRep] ["local.set"],
+    wordComparison "eqWord#" "i64.eq",
+    wordComparison "neWord#" "i64.ne",
+    wordComparison "ltWord#" "i64.lt_u",
+    wordComparison "leWord#" "i64.le_u",
+    wordComparison "gtWord#" "i64.gt_u",
+    wordComparison "geWord#" "i64.ge_u",
+    PrimitiveCase "clz#" [primitiveWordValue 1] [WordRep] ["i64.clz"],
+    PrimitiveCase "ctz#" [primitiveWordValue 1] [WordRep] ["i64.ctz"],
+    PrimitiveCase "popCnt#" [primitiveWordValue 1] [WordRep] ["i64.popcnt"]
+  ]
+  where
+    intBinary name instruction = PrimitiveCase name intArguments [IntRep] [instruction]
+    intComparison name instruction = PrimitiveCase name intArguments [IntRep] [instruction]
+    intCarry name instruction = PrimitiveCase name intArguments [IntRep, IntRep] [instruction, "i64.shr_u"]
+    wordBinary name instruction = PrimitiveCase name wordArguments [WordRep] [instruction]
+    wordCarry name instruction = PrimitiveCase name wordArguments [WordRep, IntRep] [instruction, "i64.lt_u"]
+    wordComparison name instruction = PrimitiveCase name wordArguments [IntRep] [instruction]
+    intArguments = [primitiveIntValue 7, primitiveIntValue 3]
+    wordArguments = [primitiveWordValue 7, primitiveWordValue 3]
+
+primitiveProgram :: PrimitiveCase -> GrinProgram
+primitiveProgram primitiveCase =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [(GrinVar name 80 resultRep, length arguments)],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName ("$primitive_" <> name),
+              grinFunctionLinkName = Just ("primitive." <> name),
+              grinFunctionParameters = [],
+              grinFunctionResultRep = resultRep,
+              grinFunctionBody =
+                GrinBind
+                  results
+                  (GrinPrimitiveCall resultRep name arguments)
+                  (GrinConstant (map GrinVarValue results))
+            }
+        ]
+    }
+  where
+    name = primitiveCaseName primitiveCase
+    arguments = primitiveCaseArguments primitiveCase
+    resultReps = primitiveCaseResults primitiveCase
+    resultRep = case resultReps of
+      [single] -> single
+      _ -> TupleRep resultReps
+    results = [GrinVar ("result" <> T.pack (show index)) (81 + index) runtimeRep | (index, runtimeRep) <- zip [0 ..] resultReps]
+
+primitiveIntValue :: Integer -> GrinValue
+primitiveIntValue = GrinLitValue . GrinLitInt IntRep
+
+primitiveWordValue :: Integer -> GrinValue
+primitiveWordValue = GrinLitValue . GrinLitInt WordRep
 
 testMVarPrimitives :: IO ()
 testMVarPrimitives =

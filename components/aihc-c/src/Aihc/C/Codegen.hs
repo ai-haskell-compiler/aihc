@@ -13,7 +13,8 @@ module Aihc.C.Codegen
   )
 where
 
-import Aihc.Grin.Gc (GcGrinProgram, gcGrinProgram, gcUpdateFunction)
+import Aihc.Grin.Cps (ContinuationFrameKind (..))
+import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
 import Aihc.Native (LinkLayout (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, supportedNativePrimitiveNames)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
@@ -61,7 +62,8 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoEntry :: !(Maybe Text),
     runtimeInfoFields :: ![RuntimeRep],
     runtimeInfoRemainingArity :: !Int,
-    runtimeInfoNext :: !(Maybe Text)
+    runtimeInfoNext :: !(Maybe Text),
+    runtimeInfoFrameKind :: !(Maybe ContinuationFrameKind)
   }
 
 data RuntimeInfoKey
@@ -104,22 +106,22 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
   initializer <- compileInitializers env program
   constructorInitializer <- compileConstructorInitializers env
   let specialInfos =
-        [ specialInfo "aihc_final_info" "aihc_final_continuation" [] 1 (Just "aihc_final_applied_info"),
-          specialInfo "aihc_final_applied_info" "aihc_final_continuation" [BoxedRep Lifted] 0 Nothing,
-          specialInfo "aihc_top_info" "aihc_top_continuation" [BoxedRep Lifted] 1 (Just "aihc_top_applied_info"),
-          specialInfo "aihc_top_applied_info" "aihc_top_continuation" [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing,
-          specialInfo "aihc_update_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted] 1 (Just "aihc_update_applied_info"),
-          specialInfo "aihc_update_applied_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing,
-          specialInfo "aihc_thread_done_info" "aihc_thread_done_continuation" [] 1 (Just "aihc_thread_done_applied_info"),
-          specialInfo "aihc_thread_done_applied_info" "aihc_thread_done_continuation" [BoxedRep Lifted] 0 Nothing
+        [ specialInfo "aihc_final_info" "aihc_final_continuation" [] 1 (Just "aihc_final_applied_info") ContinuationFrameStop,
+          specialInfo "aihc_final_applied_info" "aihc_final_continuation" [BoxedRep Lifted] 0 Nothing ContinuationFrameStop,
+          specialInfo "aihc_top_info" "aihc_top_continuation" [BoxedRep Lifted] 1 (Just "aihc_top_applied_info") ContinuationFrameNormal,
+          specialInfo "aihc_top_applied_info" "aihc_top_continuation" [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing ContinuationFrameNormal,
+          specialInfo "aihc_update_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted] 1 (Just "aihc_update_applied_info") ContinuationFrameUpdate,
+          specialInfo "aihc_update_applied_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing ContinuationFrameUpdate,
+          specialInfo "aihc_thread_done_info" "aihc_thread_done_continuation" [] 1 (Just "aihc_thread_done_applied_info") ContinuationFrameStop,
+          specialInfo "aihc_thread_done_applied_info" "aihc_thread_done_continuation" [BoxedRep Lifted] 0 Nothing ContinuationFrameStop
         ]
       source =
-        [ "#include \"aihc_runtime.h\"",
+        [ "#include \"aihc_runtime_trampoline.h\"",
           "#include <stdint.h>",
           "#include <stddef.h>",
           "",
           "AihcMachine *aihc_machine;",
-          "AihcPortableTransfer aihc_next_transfer;",
+          "AihcTrampolineTransfer aihc_next_transfer;",
           ""
         ]
           <> renderForeignDeclarations program
@@ -136,7 +138,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
                "  AihcValue *top_continuation;",
                "  AihcValue *update_continuation;",
                "  AihcValue *thread_done_continuation;",
-               "  AihcPortableTransfer transfer;",
+               "  AihcTrampolineTransfer transfer;",
                "  aihc_machine = aihc_machine_new(" <> tshow (length (linkGlobalNames layout)) <> ");"
              ]
           <> indent (reserveLocalsLines functionDefinitions)
@@ -148,13 +150,13 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
                "  top_continuation = aihc_make_node_unchecked(aihc_machine, AIHC_TAG_CLOSURE, &aihc_top_info);",
                "  aihc_set_field(top_continuation, 0, (AihcSlot)(uintptr_t)final_continuation);",
                "  update_continuation = aihc_make_node_unchecked(aihc_machine, AIHC_TAG_CLOSURE, &aihc_update_info);",
-               "  aihc_set_field(update_continuation, 0, aihc_machine->globals[" <> tshow rootSlot <> "]);",
-               "  aihc_set_field(update_continuation, 1, (AihcSlot)(uintptr_t)top_continuation);",
+               "  aihc_set_field(update_continuation, 0, (AihcSlot)(uintptr_t)top_continuation);",
+               "  aihc_set_field(update_continuation, 1, aihc_machine->globals[" <> tshow rootSlot <> "]);",
                "  thread_done_continuation = aihc_make_node_unchecked(aihc_machine, AIHC_TAG_CLOSURE, &aihc_thread_done_info);",
-               "  aihc_next_transfer = aihc_portable_start(aihc_machine, (AihcValue *)(uintptr_t)aihc_machine->globals[" <> tshow rootSlot <> "], top_continuation, update_continuation, thread_done_continuation, aihc_exit);",
+               "  aihc_next_transfer = aihc_trampoline_start(aihc_machine, (AihcValue *)(uintptr_t)aihc_machine->globals[" <> tshow rootSlot <> "], top_continuation, update_continuation, thread_done_continuation, aihc_exit);",
                "  while (aihc_next_transfer.entry != NULL) {",
                "    transfer = aihc_next_transfer;",
-               "    aihc_next_transfer = (AihcPortableTransfer){0};",
+               "    aihc_next_transfer = (AihcTrampolineTransfer){0};",
                "    transfer.entry(transfer.arguments);",
                "  }",
                "  return 0;",
@@ -163,9 +165,9 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment ExecutableUnit layout program
+    env = compileEnvironment ExecutableUnit layout gcProgram
     globalSlots = compileGlobalSlots env
-    specialInfo label entry = RuntimeInfo label Nothing (Just entry)
+    specialInfo label entry fields remaining next frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next (Just frameKind)
 
 compileModule :: LinkLayout -> Text -> GcGrinProgram -> Either CError Text
 compileModule layout initializerSymbol gcProgram = do
@@ -173,12 +175,12 @@ compileModule layout initializerSymbol gcProgram = do
   functionDefinitions <- mapM (compileFunction env) (grinFunctions program)
   initializer <- compileInitializers env program
   let source =
-        [ "#include \"aihc_runtime.h\"",
+        [ "#include \"aihc_runtime_trampoline.h\"",
           "#include <stdint.h>",
           "#include <stddef.h>",
           "",
           "extern AihcMachine *aihc_machine;",
-          "extern AihcPortableTransfer aihc_next_transfer;",
+          "extern AihcTrampolineTransfer aihc_next_transfer;",
           ""
         ]
           <> renderForeignDeclarations program
@@ -194,7 +196,7 @@ compileModule layout initializerSymbol gcProgram = do
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment LibraryUnit layout program
+    env = compileEnvironment LibraryUnit layout gcProgram
 
 validateProgramPrimitives :: GrinProgram -> Either CError ()
 validateProgramPrimitives = validatePrimitiveNames . map (grinVarName . fst) . grinPrimitives
@@ -205,8 +207,8 @@ validatePrimitiveNames = mapM_ $ \name ->
     then Right ()
     else Left (CUnsupportedPrimitive name)
 
-compileEnvironment :: CompilationUnit -> LinkLayout -> GrinProgram -> CompileEnv
-compileEnvironment unitKind layout program =
+compileEnvironment :: CompilationUnit -> LinkLayout -> GcGrinProgram -> CompileEnv
+compileEnvironment unitKind layout gcProgram =
   CompileEnv
     { compileConstructorIds = Map.fromList (zip (map fst constructors) [1 ..]),
       compileConstructorArities = Map.fromList constructors,
@@ -221,6 +223,7 @@ compileEnvironment unitKind layout program =
           LibraryUnit -> True
     }
   where
+    program = gcGrinProgram gcProgram
     constructors = [(name, length layouts) | (name, layouts) <- linkConstructors layout]
     constructorIds = zip (map fst constructors) [1 ..]
     functionLabels =
@@ -233,7 +236,7 @@ compileEnvironment unitKind layout program =
                ]
         )
     constructorEntries =
-      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next)
+      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing)
       | ((name, layouts), (_, identifier)) <- zip (linkConstructors layout) constructorIds,
         let arity = length layouts,
         remaining <- [arity, arity - 1 .. 0],
@@ -261,7 +264,7 @@ compileEnvironment unitKind layout program =
     functionEntries =
       [ ( key,
           label,
-          RuntimeInfo label Nothing (runtimeInfoFunctionName key >>= (`Map.lookup` functionLabels)) (runtimeInfoKeyFields key) (runtimeInfoKeyRemainingArity key) (runtimeInfoKeyNext key >>= (`Map.lookup` infoLabels))
+          RuntimeInfo label Nothing (runtimeInfoFunctionName key >>= (`Map.lookup` functionLabels)) (runtimeInfoKeyFields key) (runtimeInfoKeyRemainingArity key) (runtimeInfoKeyNext key >>= (`Map.lookup` infoLabels)) (runtimeInfoFunctionName key >>= (`Map.lookup` gcContinuationFrames gcProgram))
         )
       | (index, key) <- zip [0 :: Int ..] infoKeys,
         let label = "aihc_function_info_" <> tshow index
@@ -362,12 +365,12 @@ compileExpr env prefix label expression =
       values <- materializeIntoFresh env [value, continuation, updateContinuation]
       case snd values of
         [valueSlot, continuationSlot, updateSlot] ->
-          terminal label (prefix <> fst values <> [setNext ("aihc_portable_eval_cps(aihc_machine, " <> valuePointer (localRef valueSlot) <> ", " <> boolText (isLiftedRuntimeRep runtimeRep) <> ", " <> valuePointer (localRef continuationSlot) <> ", " <> valuePointer (localRef updateSlot) <> ")")])
+          terminal label (prefix <> fst values <> [setNext ("aihc_trampoline_eval_cps(aihc_machine, " <> valuePointer (localRef valueSlot) <> ", " <> boolText (isLiftedRuntimeRep runtimeRep) <> ", " <> valuePointer (localRef continuationSlot) <> ", " <> valuePointer (localRef updateSlot) <> ")")])
         _ -> unsupported "internal CPS evaluation slot arity"
     GrinCall _ functionName arguments -> do
       target <- liftEither (functionCodeLabel (valueCompileEnv env) functionName)
       values <- materializeIntoFresh env arguments
-      terminal label (prefix <> fst values <> [setNext ("aihc_portable_call(aihc_machine, " <> target <> ", " <> tshow (length arguments) <> ", " <> slotPointer (snd values) <> ")")])
+      terminal label (prefix <> fst values <> [setNext ("aihc_trampoline_call(aihc_machine, " <> target <> ", " <> tshow (length arguments) <> ", " <> slotPointer (snd values) <> ")")])
     GrinCpsPrimitiveCall _ name arguments continuation -> compileCpsPrimitive env prefix label name arguments continuation
     GrinCpsApply _ function arguments continuation -> do
       values <- materializeIntoFresh env (function : continuation : arguments)
@@ -375,13 +378,13 @@ compileExpr env prefix label expression =
           argumentSlots = drop 2 slots
       case slots of
         functionSlot : continuationSlot : _ ->
-          terminal label (prefix <> fst values <> [setNext ("aihc_portable_apply_cps(aihc_machine, " <> valuePointer (localRef functionSlot) <> ", " <> tshow (length arguments) <> ", " <> slotPointer argumentSlots <> ", " <> valuePointer (localRef continuationSlot) <> ")")])
+          terminal label (prefix <> fst values <> [setNext ("aihc_trampoline_apply_cps(aihc_machine, " <> valuePointer (localRef functionSlot) <> ", " <> tshow (length arguments) <> ", " <> slotPointer argumentSlots <> ", " <> valuePointer (localRef continuationSlot) <> ")")])
         _ -> unsupported "internal CPS application slot arity"
     GrinContinue continuation values -> do
       stored <- materializeIntoFresh env (continuation : values)
       case snd stored of
         continuationSlot : valueSlots ->
-          terminal label (prefix <> fst stored <> [setNext ("aihc_portable_continue_values(aihc_machine, " <> valuePointer (localRef continuationSlot) <> ", " <> tshow (length values) <> ", " <> slotPointer valueSlots <> ")")])
+          terminal label (prefix <> fst stored <> [setNext ("aihc_trampoline_continue_values(aihc_machine, " <> valuePointer (localRef continuationSlot) <> ", " <> tshow (length values) <> ", " <> slotPointer valueSlots <> ")")])
         [] -> unsupported "internal continuation slot arity"
     GrinHalt _ -> terminal label (prefix <> [setNext "aihc_halt(aihc_machine)"])
     GrinCase scrutinee binder alternatives -> compileCase env prefix label scrutinee binder alternatives
@@ -414,13 +417,13 @@ compileExpr env prefix label expression =
 compileCpsPrimitive :: ValueEnv -> [Text] -> Text -> Text -> [GrinValue] -> GrinValue -> FunctionM ()
 compileCpsPrimitive env prefix label name arguments continuation =
   case (name, arguments) of
-    ("awaitIO#", [request]) -> transfer "aihc_portable_await_io_cps" [request, continuation]
-    ("fork#", [action]) -> transfer "aihc_portable_fork_cps" [action, continuation]
-    ("newMVar#", []) -> transfer "aihc_portable_new_mvar_cps" [continuation]
-    ("readMVar#", [mvar]) -> transfer "aihc_portable_read_mvar_cps" [mvar, continuation]
-    ("takeMVar#", [mvar]) -> transfer "aihc_portable_take_mvar_cps" [mvar, continuation]
-    ("putMVar#", [mvar, value]) -> transfer "aihc_portable_put_mvar_cps" [mvar, value, continuation]
-    ("yield#", []) -> transfer "aihc_portable_yield_cps" [continuation]
+    ("awaitIO#", [request]) -> transfer "aihc_trampoline_await_io_cps" [request, continuation]
+    ("fork#", [action]) -> transfer "aihc_trampoline_fork_cps" [action, continuation]
+    ("newMVar#", []) -> transfer "aihc_trampoline_new_mvar_cps" [continuation]
+    ("readMVar#", [mvar]) -> transfer "aihc_trampoline_read_mvar_cps" [mvar, continuation]
+    ("takeMVar#", [mvar]) -> transfer "aihc_trampoline_take_mvar_cps" [mvar, continuation]
+    ("putMVar#", [mvar, value]) -> transfer "aihc_trampoline_put_mvar_cps" [mvar, value, continuation]
+    ("yield#", []) -> transfer "aihc_trampoline_yield_cps" [continuation]
     _
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
           addBlock label (prefix <> ["aihc_unsupported_primitive();", "return;"])
@@ -449,21 +452,137 @@ compileDirectBinding env vars expression =
           rootSlots <- mapM (localSlot env) vars
           pure (rootLines <> ["aihc_ensure_heap(aihc_machine, " <> tshow requiredWords <> ", " <> tshow (length roots) <> ", " <> slotPointer rootSlots <> ");"])
     GrinStoreUnchecked node -> materializeNode True node >>= storeOne
-    GrinFetch _ pointer -> liftEither (materializeValue env pointer) >>= storeOne . pure
+    GrinFetch _ pointer -> liftEither (materializeValue env pointer) >>= storeExpression
     GrinUpdate pointer value -> update "aihc_update" False pointer value
     GrinUpdateBlackhole pointer value -> update "aihc_update_blackhole" True pointer value
-    GrinPrimitiveCall IntRep "+#" [left, right] -> binaryIntPrimitive "+" left right
-    GrinPrimitiveCall IntRep "-#" [left, right] -> binaryIntPrimitive "-" left right
-    GrinPrimitiveCall IntRep "*#" [left, right] -> binaryIntPrimitive "*" left right
-    GrinPrimitiveCall IntRep "<#" [left, right] -> binaryIntComparison "<" left right
-    GrinPrimitiveCall IntRep "==#" [left, right] -> binaryIntComparison "==" left right
+    GrinPrimitiveCall IntRep name [left, right]
+      | Just operator <- lookup name [("+#", "+"), ("-#", "-"), ("*#", "*")] ->
+          binaryPrimitive operator left right
+    GrinPrimitiveCall WordRep name [left, right]
+      | Just operator <- lookup name [("plusWord#", "+"), ("minusWord#", "-"), ("timesWord#", "*"), ("quotWord#", "/"), ("remWord#", "%"), ("and#", "&"), ("or#", "|"), ("xor#", "^")] ->
+          binaryPrimitive operator left right
+    GrinPrimitiveCall _ name [left, right]
+      | name `elem` ["<#", "==#", "eqWord#", "neWord#", "ltWord#", "leWord#", "gtWord#", "geWord#"] ->
+          comparisonPrimitive name left right
+    GrinPrimitiveCall _ name [left, right]
+      | name `elem` ["addIntC#", "subIntC#", "addWordC#", "subWordC#"] ->
+          carryPrimitive name left right
+    GrinPrimitiveCall _ "timesWord2#" [left, right] -> do
+      stored <- materializeIntoFresh env [left, right]
+      case snd stored of
+        [leftSlot, rightSlot] -> do
+          leftLow <- freshSlot
+          leftHigh <- freshSlot
+          rightLow <- freshSlot
+          rightHigh <- freshSlot
+          product00 <- freshSlot
+          product01 <- freshSlot
+          product10 <- freshSlot
+          product11 <- freshSlot
+          lowPartial <- freshSlot
+          lowResult <- freshSlot
+          let leftRef = localRef leftSlot
+              rightRef = localRef rightSlot
+              ref = localRef
+          storePair
+            vars
+            ( fst stored
+                <> [ ref leftLow <> " = (uint32_t)" <> leftRef <> ";",
+                     ref leftHigh <> " = (uint64_t)" <> leftRef <> " >> 32;",
+                     ref rightLow <> " = (uint32_t)" <> rightRef <> ";",
+                     ref rightHigh <> " = (uint64_t)" <> rightRef <> " >> 32;",
+                     ref product00 <> " = " <> ref leftLow <> " * " <> ref rightLow <> ";",
+                     ref product01 <> " = " <> ref leftLow <> " * " <> ref rightHigh <> ";",
+                     ref product10 <> " = " <> ref leftHigh <> " * " <> ref rightLow <> ";",
+                     ref product11 <> " = " <> ref leftHigh <> " * " <> ref rightHigh <> ";",
+                     ref lowPartial <> " = " <> ref product00 <> " + (" <> ref product01 <> " << 32);",
+                     ref lowResult <> " = " <> ref lowPartial <> " + (" <> ref product10 <> " << 32);"
+                   ]
+            )
+            ( "(AihcSlot)("
+                <> ref product11
+                <> " + ("
+                <> ref product01
+                <> " >> 32) + ("
+                <> ref product10
+                <> " >> 32) + ("
+                <> ref lowPartial
+                <> " < "
+                <> ref product00
+                <> ") + ("
+                <> ref lowResult
+                <> " < "
+                <> ref lowPartial
+                <> "))"
+            )
+            (ref lowResult)
+        _ -> lift (Left (CUnsupportedExpression "internal timesWord2# arity"))
+    GrinPrimitiveCall _ "quotRemWord#" [left, right] -> do
+      stored <- materializeIntoFresh env [left, right]
+      case snd stored of
+        [leftSlot, rightSlot] ->
+          storePair
+            vars
+            (fst stored)
+            ("(AihcSlot)((uint64_t)" <> localRef leftSlot <> " / (uint64_t)" <> localRef rightSlot <> ")")
+            ("(AihcSlot)((uint64_t)" <> localRef leftSlot <> " % (uint64_t)" <> localRef rightSlot <> ")")
+        _ -> lift (Left (CUnsupportedExpression "internal quotRemWord# arity"))
+    GrinPrimitiveCall _ "quotRemWord2#" [high, low, divisor] -> do
+      stored <- materializeIntoFresh env [high, low, divisor]
+      case snd stored of
+        [highSlot, lowSlot, divisorSlot] -> do
+          quotient <- freshSlot
+          remainder <- freshSlot
+          bits <- freshSlot
+          count <- freshSlot
+          overflow <- freshSlot
+          nextBit <- freshSlot
+          let ref = localRef
+          storePair
+            vars
+            ( fst stored
+                <> [ ref quotient <> " = 0;",
+                     ref remainder <> " = " <> ref highSlot <> ";",
+                     ref bits <> " = " <> ref lowSlot <> ";",
+                     ref count <> " = 64;",
+                     "while (" <> ref count <> " != 0) {",
+                     "  " <> ref overflow <> " = " <> ref remainder <> " >> 63;",
+                     "  " <> ref nextBit <> " = " <> ref bits <> " >> 63;",
+                     "  " <> ref remainder <> " = (" <> ref remainder <> " << 1) | " <> ref nextBit <> ";",
+                     "  " <> ref bits <> " <<= 1;",
+                     "  " <> ref quotient <> " <<= 1;",
+                     "  if (" <> ref overflow <> " != 0 || " <> ref remainder <> " >= " <> ref divisorSlot <> ") {",
+                     "    " <> ref remainder <> " -= " <> ref divisorSlot <> ";",
+                     "    " <> ref quotient <> " |= 1;",
+                     "  }",
+                     "  " <> ref count <> "--;",
+                     "}"
+                   ]
+            )
+            (ref quotient)
+            (ref remainder)
+        _ -> lift (Left (CUnsupportedExpression "internal quotRemWord2# arity"))
+    GrinPrimitiveCall _ "not#" [value] -> do
+      source <- liftEither (materializeValue env value)
+      storeExpression ("(AihcSlot)(~(uint64_t)" <> source <> ")")
+    GrinPrimitiveCall _ name [value, amount]
+      | Just operator <- lookup name [("uncheckedShiftL#", "<<"), ("uncheckedShiftRL#", ">>")] -> do
+          stored <- materializeIntoFresh env [value, amount]
+          case snd stored of
+            [valueSlot, amountSlot] ->
+              storeExpressionWith
+                (fst stored)
+                ("(AihcSlot)((uint64_t)" <> localRef valueSlot <> " " <> operator <> " (uint64_t)" <> localRef amountSlot <> ")")
+            _ -> lift (Left (CUnsupportedExpression "internal shift primitive arity"))
+    GrinPrimitiveCall _ name [value]
+      | name `elem` ["int2Word#", "word2Int#"] ->
+          liftEither (materializeValue env value) >>= storeExpression
     GrinPrimitiveCall IntRep "compareInt#" [left, right] -> compareInts left right
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> do
-          source <- liftEither (materializeValue env value)
-          storeOne ["aihc_scratch = " <> source <> ";"]
+      | name `elem` ["ord#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
+          liftEither (materializeValue env value) >>= storeExpression
     GrinPrimitiveCall _ name arguments
       | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
           lines' <- compileForeignCall env foreignCall arguments
@@ -487,6 +606,8 @@ compileDirectBinding env vars expression =
           destination <- localSlot env var
           pure (lines' <> [localRef destination <> " = aihc_scratch;"])
         _ -> lift (Left (CUnsupportedExpression "direct expression result arity"))
+    storeExpression valueExpression = storeOne ["aihc_scratch = " <> valueExpression <> ";"]
+    storeExpressionWith lines' valueExpression = storeOne (lines' <> ["aihc_scratch = " <> valueExpression <> ";"])
     materializeNode unchecked node = do
       scratch <- freshSlot
       (tag, info) <- liftEither (nodeHeader (valueCompileEnv env) node)
@@ -500,7 +621,7 @@ compileDirectBinding env vars expression =
           result <- storeOne [function <> "(" <> callArguments <> ");", "aihc_scratch = " <> localRef valueSlot <> ";"]
           pure (fst stored <> result)
         _ -> lift (Left (CUnsupportedExpression "internal update slot arity"))
-    binaryIntPrimitive operator left right = do
+    binaryPrimitive operator left right = do
       stored <- materializeIntoFresh env [left, right]
       case snd stored of
         [leftSlot, rightSlot] ->
@@ -516,22 +637,69 @@ compileDirectBinding env vars expression =
                    ]
             )
         _ -> lift (Left (CUnsupportedExpression "internal binary Int# primitive arity"))
-    binaryIntComparison operator left right = do
+    comparisonPrimitive name left right = do
       stored <- materializeIntoFresh env [left, right]
       case snd stored of
-        [leftSlot, rightSlot] ->
+        [leftSlot, rightSlot] -> do
+          let (operandType, operator) =
+                case name of
+                  "<#" -> ("int64_t", "<")
+                  "==#" -> ("uint64_t", "==")
+                  "eqWord#" -> ("uint64_t", "==")
+                  "neWord#" -> ("uint64_t", "!=")
+                  "ltWord#" -> ("uint64_t", "<")
+                  "leWord#" -> ("uint64_t", "<=")
+                  "gtWord#" -> ("uint64_t", ">")
+                  _ -> ("uint64_t", ">=")
           storeOne
             ( fst stored
-                <> [ "aihc_scratch = (AihcSlot)((int64_t)"
+                <> [ "aihc_scratch = (AihcSlot)(("
+                       <> operandType
+                       <> ")"
                        <> localRef leftSlot
                        <> " "
                        <> operator
-                       <> " (int64_t)"
+                       <> " ("
+                       <> operandType
+                       <> ")"
                        <> localRef rightSlot
-                       <> " ? 1 : 0);"
+                       <> ");"
                    ]
             )
-        _ -> lift (Left (CUnsupportedExpression "internal Int# comparison arity"))
+        _ -> lift (Left (CUnsupportedExpression "internal comparison primitive arity"))
+    carryPrimitive name left right = do
+      stored <- materializeIntoFresh env [left, right]
+      case snd stored of
+        [leftSlot, rightSlot] -> do
+          resultSlot <- freshSlot
+          let leftRef = localRef leftSlot
+              rightRef = localRef rightSlot
+              resultRef = localRef resultSlot
+              operator = if name `elem` ["addIntC#", "addWordC#"] then "+" else "-"
+              flag =
+                case name of
+                  "addIntC#" -> "(((" <> resultRef <> " ^ " <> leftRef <> ") & (" <> resultRef <> " ^ " <> rightRef <> ")) >> 63)"
+                  "subIntC#" -> "(((" <> leftRef <> " ^ " <> rightRef <> ") & (" <> leftRef <> " ^ " <> resultRef <> ")) >> 63)"
+                  "addWordC#" -> "(" <> resultRef <> " < " <> leftRef <> ")"
+                  _ -> "(" <> leftRef <> " < " <> rightRef <> ")"
+          storePair
+            vars
+            (fst stored <> [resultRef <> " = (AihcSlot)((uint64_t)" <> leftRef <> " " <> operator <> " (uint64_t)" <> rightRef <> ");"])
+            resultRef
+            ("(AihcSlot)" <> flag)
+        _ -> lift (Left (CUnsupportedExpression "internal carry primitive arity"))
+    storePair resultVars lines' firstExpression secondExpression =
+      case resultVars of
+        [first, second] -> do
+          firstSlot <- localSlot env first
+          secondSlot <- localSlot env second
+          pure
+            ( lines'
+                <> [ localRef firstSlot <> " = " <> firstExpression <> ";",
+                     localRef secondSlot <> " = " <> secondExpression <> ";"
+                   ]
+            )
+        _ -> lift (Left (CUnsupportedExpression "direct expression pair result arity"))
     compareInts left right = do
       stored <- materializeIntoFresh env [left, right]
       case snd stored of
@@ -688,7 +856,18 @@ renderRuntimeInfos infos = concatMap bitmap infos <> [""] <> map declaration inf
         <> ", "
         <> maybe "NULL" ("&" <>) (runtimeInfoNext info)
         <> ", NULL"
+        <> ", "
+        <> renderFrameKind (runtimeInfoFrameKind info)
         <> "};"
+
+    renderFrameKind frameKind =
+      case frameKind of
+        Nothing -> "AIHC_FRAME_NONE"
+        Just ContinuationFrameNormal -> "AIHC_FRAME_NORMAL"
+        Just ContinuationFrameCatch -> "AIHC_FRAME_CATCH"
+        Just ContinuationFrameUpdate -> "AIHC_FRAME_UPDATE"
+        Just ContinuationFrameRestoreMask -> "AIHC_FRAME_RESTORE_MASK"
+        Just ContinuationFrameStop -> "AIHC_FRAME_STOP"
 
 renderForeignDeclarations :: GrinProgram -> [Text]
 renderForeignDeclarations program =
@@ -733,22 +912,22 @@ renderSpecialDeclarations =
 renderSpecialFunctions :: [Text]
 renderSpecialFunctions =
   [ "static void aihc_top_continuation(AihcSlot *arguments) {",
-    "  aihc_next_transfer = aihc_portable_apply_cps(aihc_machine, (AihcValue *)(uintptr_t)arguments[1], 0, NULL, (AihcValue *)(uintptr_t)arguments[0]);",
+    "  aihc_next_transfer = aihc_trampoline_apply_cps(aihc_machine, (AihcValue *)(uintptr_t)arguments[1], 0, NULL, (AihcValue *)(uintptr_t)arguments[0]);",
     "}",
     "",
     "static void aihc_thread_done_continuation(AihcSlot *arguments) {",
     "  (void)arguments;",
-    "  aihc_next_transfer = aihc_portable_thread_done(aihc_machine);",
+    "  aihc_next_transfer = aihc_trampoline_thread_done(aihc_machine);",
     "}",
     "",
     "static void aihc_final_continuation(AihcSlot *arguments) {",
     "  (void)arguments;",
-    "  aihc_next_transfer = (AihcPortableTransfer){aihc_halt(aihc_machine), NULL};",
+    "  aihc_next_transfer = (AihcTrampolineTransfer){aihc_halt(aihc_machine), NULL};",
     "}",
     "",
     "static void aihc_exit(AihcSlot *arguments) {",
     "  (void)arguments;",
-    "  aihc_next_transfer = (AihcPortableTransfer){0};",
+    "  aihc_next_transfer = (AihcTrampolineTransfer){0};",
     "}",
     ""
   ]

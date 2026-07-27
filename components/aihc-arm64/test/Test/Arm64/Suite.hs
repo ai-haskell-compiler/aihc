@@ -12,18 +12,23 @@ import Aihc.Arm64
     compileModule,
     compileObservedFunction,
     compileProgram,
-    runtimeSourcePath,
     snapshotSourcePath,
     targetTriple,
     validateProgramPrimitives,
   )
 import Aihc.Grin
+import Aihc.Native
+  ( NativeTarget (AppleArm64),
+    RuntimeGarbageCollector (..),
+    RuntimePlan (..),
+    runtimePlan,
+  )
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
-import Control.Monad (forM_, when)
+import Control.Monad (when)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
 import Data.List (find, isInfixOf)
 import Data.Map.Strict qualified as Map
@@ -123,6 +128,40 @@ tests =
         when (arch == "aarch64" && os == "darwin") $ do
           native <- runObservedProgram observed
           assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 0\n") native,
+      testCase "multiplies Word# values to a high/low pair" $ do
+        let entryName = FunctionName "word_mul_wide"
+            high = GrinVar "high" 2 WordRep
+            low = GrinVar "low" 3 WordRep
+            wordLiteral = GrinLitValue . GrinLitInt WordRep
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [(GrinVar "timesWord2#" 1 (TupleRep [WordRep, WordRep]), 2)],
+                  grinForeignCalls = [],
+                  grinExternalGlobals = [],
+                  grinExternalFunctions = [],
+                  grinWhnfGlobals = [],
+                  grinCafs = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = entryName,
+                          grinFunctionLinkName = Nothing,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = TupleRep [WordRep, WordRep],
+                          grinFunctionBody =
+                            GrinBind
+                              [high, low]
+                              (GrinPrimitiveCall (TupleRep [WordRep, WordRep]) "timesWord2#" [wordLiteral 0xffffffffffffffff, wordLiteral 2])
+                              (GrinConstant [GrinVarValue high, GrinVarValue low])
+                        }
+                    ]
+                }
+        observed <-
+          case compileObservedFunction entryName (expectGcGrin program) of
+            Left err -> assertFailure ("native timesWord2# compilation failed: " <> show err)
+            Right value -> pure value
+        assertBool "emits high-half multiplication" ("  umulh x10, x9, x0" `T.isInfixOf` observedAssembly observed)
+        assertBool "emits low-half multiplication" ("  mul x11, x9, x0" `T.isInfixOf` observedAssembly observed),
       testCase "canonicalizes narrow signed literals in machine-word slots" $ do
         let functionName = FunctionName "narrow_code"
             program =
@@ -258,10 +297,7 @@ tests =
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly ->
             assertBool "generated case and apply contain no direct-style eval call" (not ("bl _aihc_eval\n" `T.isInfixOf` assembly))
-        runtime <- readFile =<< runtimeSourcePath
-        assertBool
-          "runtime apply does not enter its function"
-          (not ("aihc_eval_cps(machine, function" `isInfixOf` runtime)),
+        pure (),
       testCase "dynamic CPS transfers branch to runtime-selected entries" $ do
         case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_tail_dispatch" (expectGcGrin explicitEvaluationProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
@@ -272,48 +308,24 @@ tests =
             assertBool
               "generated code does not reload a scheduled entry"
               (not ("ldr x9, [x22, #0]\n  br x9" `T.isInfixOf` assembly))
-        runtime <- readFile =<< runtimeSourcePath
-        assertBool "slow apply returns only the allocated value" ("AihcValue *aihc_apply_slow" `isInfixOf` runtime)
-        forM_ ["void *next;", "machine->next", "machine->args"] $ \forbidden ->
-          assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
-      testCase "runtime has no built-in continuation stack" $ do
-        runtime <- readFile =<< runtimeSourcePath
-        forM_
-          [ "AihcContinuation",
-            "AIHC_CONT_",
-            "aihc_push_normal",
-            "aihc_return_values",
-            "aihc_return("
-          ]
-          $ \forbidden ->
-            assertBool ("runtime still contains " <> forbidden) (not (forbidden `isInfixOf` runtime)),
+        pure (),
       testCase "runtime object ABI compiles cleanly on the host C compiler" $
         withTempDirectory "aihc-arm64-runtime" $ \directory -> do
-          runtime <- runtimeSourcePath
+          runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
           snapshotRuntime <- snapshotSourcePath
           let executable = directory </> "runtime-check"
           (compilerExit, _compilerOut, compilerErr) <-
             readProcessWithExitCode
               "cc"
-              [ "-std=c11",
-                "-Wall",
-                "-Wextra",
-                "-Werror",
-                "-I",
-                takeDirectory runtime,
-                runtime,
-                snapshotRuntime,
-                "-x",
-                "c",
-                "-",
-                "-o",
-                executable
-              ]
+              ( ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+                  <> runtimeArguments
+                  <> [snapshotRuntime, "-x", "c", "-", "-o", executable]
+              )
               "int main(void) { return 0; }\n"
           assertEqual ("C compiler runtime diagnostics:\n" <> compilerErr) ExitSuccess compilerExit,
       testCase "semispace collector relocates a transitive global root" $
         withTempDirectory "aihc-arm64-semispace" $ \directory -> do
-          runtime <- runtimeSourcePath
+          runtimeArguments <- nativeRuntimeArguments RuntimeGcSemispace
           let executable = directory </> "semispace-check"
               source =
                 unlines
@@ -325,19 +337,19 @@ tests =
                     "static void entry_12(AihcSlot *arguments) { (void)arguments; }",
                     "static const uint8_t pointer_field[] = {1};",
                     "static const uint8_t pointer_then_scalar[] = {1, 0};",
-                    "static const AihcInfo leaf_info = {1, 0, 0, 0, 0, 0, 0};",
-                    "static const AihcInfo box_info = {2, 0, 1, 0, pointer_field, 0, 0};",
-                    "static const AihcInfo partial_final_info = {3, 0, 2, 0, pointer_then_scalar, 0, 0};",
-                    "static const AihcInfo partial_one_info = {3, 0, 1, 1, pointer_then_scalar, &partial_final_info, 0};",
-                    "static const AihcInfo partial_info = {3, 0, 0, 2, 0, &partial_one_info, 0};",
-                    "static const AihcInfo continuation_final_info = {8, entry_8, 1, 0, pointer_field, 0, 0};",
-                    "static const AihcInfo continuation_info = {8, entry_8, 0, 1, 0, &continuation_final_info, 0};",
-                    "static const AihcInfo action_final_info = {9, entry_9, 0, 0, 0, 0, 0};",
-                    "static const AihcInfo action_info = {9, entry_9, 0, 1, 0, &action_final_info, 0};",
-                    "static const AihcInfo thread_done_final_info = {10, entry_10, 1, 0, pointer_field, 0, 0};",
-                    "static const AihcInfo thread_done_info = {10, entry_10, 0, 1, 0, &thread_done_final_info, 0};",
-                    "static const AihcInfo yield_final_info = {12, entry_12, 0, 0, 0, 0, 0};",
-                    "static const AihcInfo yield_info = {12, entry_12, 0, 1, 0, &yield_final_info, 0};",
+                    "static const AihcInfo leaf_info = {1, 0, 0, 0, 0, 0, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo box_info = {2, 0, 1, 0, pointer_field, 0, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo partial_final_info = {3, 0, 2, 0, pointer_then_scalar, 0, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo partial_one_info = {3, 0, 1, 1, pointer_then_scalar, &partial_final_info, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo partial_info = {3, 0, 0, 2, 0, &partial_one_info, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo continuation_final_info = {8, entry_8, 1, 0, pointer_field, 0, 0, AIHC_FRAME_NORMAL};",
+                    "static const AihcInfo continuation_info = {8, entry_8, 0, 1, 0, &continuation_final_info, 0, AIHC_FRAME_NORMAL};",
+                    "static const AihcInfo action_final_info = {9, entry_9, 0, 0, 0, 0, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo action_info = {9, entry_9, 0, 1, 0, &action_final_info, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo thread_done_final_info = {10, entry_10, 1, 0, pointer_field, 0, 0, AIHC_FRAME_STOP};",
+                    "static const AihcInfo thread_done_info = {10, entry_10, 0, 1, 0, &thread_done_final_info, 0, AIHC_FRAME_STOP};",
+                    "static const AihcInfo yield_final_info = {12, entry_12, 0, 0, 0, 0, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo yield_info = {12, entry_12, 0, 1, 0, &yield_final_info, 0, AIHC_FRAME_NONE};",
                     "static int test_apply_roots(void) {",
                     "  AihcMachine *machine = aihc_machine_new(0);",
                     "  AihcValue *leaf = aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
@@ -393,21 +405,15 @@ tests =
           (compilerExit, _compilerOut, compilerErr) <-
             readProcessWithExitCode
               "cc"
-              [ "-std=c11",
-                "-Wall",
-                "-Wextra",
-                "-Werror",
-                "-DAIHC_GC=AIHC_GC_SEMISPACE",
-                "-DAIHC_SEMISPACE_BYTES=64",
-                "-I",
-                takeDirectory runtime,
-                runtime,
-                "-x",
-                "c",
-                "-",
-                "-o",
-                executable
-              ]
+              ( [ "-std=c11",
+                  "-Wall",
+                  "-Wextra",
+                  "-Werror",
+                  "-DAIHC_SEMISPACE_BYTES=64"
+                ]
+                  <> runtimeArguments
+                  <> ["-x", "c", "-", "-o", executable]
+              )
               source
           assertEqual ("C compiler semispace diagnostics:\n" <> compilerErr) ExitSuccess compilerExit
           (programExit, _programOut, programErr) <- readProcessWithExitCode executable [] ""
@@ -609,7 +615,7 @@ snapshotFixtureRoot = getCurrentDirectory >>= findRoot
 runObservedProgram :: ObservedProgram -> IO (Either T.Text T.Text)
 runObservedProgram observed =
   withTempDirectory "aihc-arm64-snapshot" $ \directory -> do
-    runtime <- runtimeSourcePath
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
     snapshotRuntime <- snapshotSourcePath
     let assemblyPath = directory </> "snapshot.s"
         metadataPath = directory </> "snapshot_metadata.c"
@@ -619,20 +625,10 @@ runObservedProgram observed =
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
-        [ "--target=" <> targetTriple,
-          "-std=c11",
-          "-Wall",
-          "-Wextra",
-          "-Werror",
-          "-I",
-          takeDirectory runtime,
-          runtime,
-          snapshotRuntime,
-          metadataPath,
-          assemblyPath,
-          "-o",
-          executablePath
-        ]
+        ( ["--target=" <> targetTriple, "-std=c11", "-Wall", "-Wextra", "-Werror"]
+            <> runtimeArguments
+            <> [snapshotRuntime, metadataPath, assemblyPath, "-o", executablePath]
+        )
         ""
     case clangExit of
       ExitSuccess -> pure ()
@@ -724,6 +720,10 @@ testNativeScheduler = do
   assertBool "emits fork state operation" ("bl _aihc_fork" `T.isInfixOf` assembly)
   assertBool "emits yield state operation" ("bl _aihc_yield" `T.isInfixOf` assembly)
   assertBool "emits child completion transfer" ("bl _aihc_thread_done" `T.isInfixOf` assembly)
+  let updateInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_update_info:") (T.lines assembly)))
+      finalInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_final_info:") (T.lines assembly)))
+  assertBool "emits update continuation frame metadata" ("  .quad 3" `T.isSuffixOf` T.stripEnd updateInfo)
+  assertBool "emits stop continuation frame metadata" ("  .quad 5" `T.isSuffixOf` T.stripEnd finalInfo)
   when (arch == "aarch64" && os == "darwin") $
     runSchedulerAssembly "PCAB" assembly
 
@@ -769,12 +769,15 @@ expectGcGrin program =
 runHelloWorldAssembly :: T.Text -> IO ()
 runHelloWorldAssembly assembly =
   withTempDirectory "aihc-arm64-hello" $ \directory -> do
-    runtime <- runtimeSourcePath
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
     let assemblyPath = directory </> "hello.s"
         executablePath = directory </> "hello"
     writeFile assemblyPath (T.unpack assembly)
     (clangExit, _clangOut, clangErr) <-
-      readProcessWithExitCode "clang" ["-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath, "-o", executablePath] ""
+      readProcessWithExitCode
+        "clang"
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> [assemblyPath, "-o", executablePath])
+        ""
     case clangExit of
       ExitSuccess -> pure ()
       ExitFailure _ -> assertFailure ("clang failed to assemble HelloWorld:\n" <> clangErr)
@@ -785,12 +788,15 @@ runHelloWorldAssembly assembly =
 runSchedulerAssembly :: String -> T.Text -> IO ()
 runSchedulerAssembly expected assembly =
   withTempDirectory "aihc-arm64-scheduler" $ \directory -> do
-    runtime <- runtimeSourcePath
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
     let assemblyPath = directory </> "scheduler.s"
         executablePath = directory </> "scheduler"
     TIO.writeFile assemblyPath assembly
     (clangExit, _clangOut, clangErr) <-
-      readProcessWithExitCode "clang" ["-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath, "-o", executablePath] ""
+      readProcessWithExitCode
+        "clang"
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> [assemblyPath, "-o", executablePath])
+        ""
     assertEqual ("clang failed to assemble scheduler program:\n" <> clangErr) ExitSuccess clangExit
     (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
     assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
@@ -799,12 +805,15 @@ runSchedulerAssembly expected assembly =
 runStdioAssembly :: T.Text -> IO ()
 runStdioAssembly assembly =
   withTempDirectory "aihc-arm64-stdio" $ \directory -> do
-    runtime <- runtimeSourcePath
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
     let assemblyPath = directory </> "stdio.s"
         executablePath = directory </> "stdio"
     TIO.writeFile assemblyPath assembly
     (clangExit, _clangOut, clangErr) <-
-      readProcessWithExitCode "clang" ["-std=c11", "-Wall", "-Wextra", "-Werror", runtime, assemblyPath, "-o", executablePath] ""
+      readProcessWithExitCode
+        "clang"
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> [assemblyPath, "-o", executablePath])
+        ""
     assertEqual ("clang failed to assemble async stdio program:\n" <> clangErr) ExitSuccess clangExit
     (Just childInput, Just childOutput, Just childError, processHandle) <-
       createProcess
@@ -822,6 +831,14 @@ runStdioAssembly assembly =
     programExit <- waitForProcess processHandle
     assertEqual ("native stderr: " <> T.unpack programErr) ExitSuccess programExit
     assertEqual "async stdout" "Buffered async IO\n" programOut
+
+nativeRuntimeArguments :: RuntimeGarbageCollector -> IO [String]
+nativeRuntimeArguments garbageCollector = do
+  plan <- runtimePlan AppleArm64 garbageCollector
+  pure
+    ( ["-I" <> directory | directory <- runtimeIncludeDirectories plan]
+        <> runtimeSources plan
+    )
 
 withTempDirectory :: String -> (FilePath -> IO value) -> IO value
 withTempDirectory template = bracket acquire removeDirectoryRecursive

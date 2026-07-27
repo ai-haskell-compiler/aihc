@@ -3,14 +3,27 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Prim
-  ( awaitIO#,
+  ( (+#),
+    (-#),
+    (*#),
+    (<#),
+    (==#),
+    addIntC#,
+    addWordC#,
+    and#,
+    Addr#,
+    awaitIO#,
     ByteArray#,
     byteArrayContents#,
     catch#,
     compareInt#,
+    copyByteArray#,
     copyAddrToByteArray#,
     fork#,
     getSizeofMutableByteArray#,
+    indexWordArray#,
+    int2Word#,
+    intToChar#,
     isByteArrayPinned#,
     isMutableByteArrayPinned#,
     MVar#,
@@ -22,13 +35,24 @@ module GHC.Prim
     newMVar#,
     newMutVar#,
     newPinnedByteArray#,
+    not#,
+    ord#,
+    or#,
+    plusWord#,
+    popCnt#,
+    quotRemWord#,
+    quotRemWord2#,
+    quotWord#,
     raise#,
+    readWordArray#,
     realWorld#,
     readMVar#,
     readMutVar#,
     resizeMutableByteArray#,
     shrinkMutableByteArray#,
     sizeofByteArray#,
+    subIntC#,
+    subWordC#,
     State#,
     takeMVar#,
     ThreadId#,
@@ -37,7 +61,25 @@ module GHC.Prim
     unsafeFreezeByteArray#,
     unsafeThawByteArray#,
     putMVar#,
+    uncheckedShiftL#,
+    uncheckedShiftRL#,
+    unsafeCoerce#,
+    word2Int#,
+    writeWordArray#,
     writeMutVar#,
+    xor#,
+    clz#,
+    ctz#,
+    eqWord#,
+    geWord#,
+    gtWord#,
+    leWord#,
+    ltWord#,
+    minusWord#,
+    neWord#,
+    remWord#,
+    timesWord#,
+    timesWord2#,
     yield#,
   )
 where
@@ -45,6 +87,8 @@ where
 import GHC.Types (TYPE)
 
 data State# s
+
+data Addr#
 
 data ByteArray#
 
@@ -60,9 +104,83 @@ data RealWorld
 
 foreign import prim raise# :: a -> b
 
+foreign import prim unsafeCoerce# :: a -> b
+
 foreign import prim realWorld# :: State# RealWorld
 
 foreign import prim compareInt# :: Int# -> Int# -> Int#
+
+foreign import prim (+#) :: Int# -> Int# -> Int#
+
+foreign import prim (-#) :: Int# -> Int# -> Int#
+
+foreign import prim (*#) :: Int# -> Int# -> Int#
+
+foreign import prim (<#) :: Int# -> Int# -> Int#
+
+foreign import prim (==#) :: Int# -> Int# -> Int#
+
+foreign import prim ord# :: Char# -> Int#
+
+foreign import prim intToChar# :: Int# -> Char#
+
+foreign import prim addIntC# :: Int# -> Int# -> (# Int#, Int# #)
+
+foreign import prim subIntC# :: Int# -> Int# -> (# Int#, Int# #)
+
+foreign import prim plusWord# :: Word# -> Word# -> Word#
+
+foreign import prim minusWord# :: Word# -> Word# -> Word#
+
+foreign import prim timesWord# :: Word# -> Word# -> Word#
+
+foreign import prim addWordC# :: Word# -> Word# -> (# Word#, Int# #)
+
+foreign import prim subWordC# :: Word# -> Word# -> (# Word#, Int# #)
+
+foreign import prim timesWord2# :: Word# -> Word# -> (# Word#, Word# #)
+
+foreign import prim quotWord# :: Word# -> Word# -> Word#
+
+foreign import prim remWord# :: Word# -> Word# -> Word#
+
+foreign import prim quotRemWord# :: Word# -> Word# -> (# Word#, Word# #)
+
+foreign import prim quotRemWord2# :: Word# -> Word# -> Word# -> (# Word#, Word# #)
+
+foreign import prim and# :: Word# -> Word# -> Word#
+
+foreign import prim or# :: Word# -> Word# -> Word#
+
+foreign import prim xor# :: Word# -> Word# -> Word#
+
+foreign import prim not# :: Word# -> Word#
+
+foreign import prim uncheckedShiftL# :: Word# -> Int# -> Word#
+
+foreign import prim uncheckedShiftRL# :: Word# -> Int# -> Word#
+
+foreign import prim int2Word# :: Int# -> Word#
+
+foreign import prim word2Int# :: Word# -> Int#
+
+foreign import prim eqWord# :: Word# -> Word# -> Int#
+
+foreign import prim neWord# :: Word# -> Word# -> Int#
+
+foreign import prim ltWord# :: Word# -> Word# -> Int#
+
+foreign import prim leWord# :: Word# -> Word# -> Int#
+
+foreign import prim gtWord# :: Word# -> Word# -> Int#
+
+foreign import prim geWord# :: Word# -> Word# -> Int#
+
+foreign import prim clz# :: Word# -> Word#
+
+foreign import prim ctz# :: Word# -> Word#
+
+foreign import prim popCnt# :: Word# -> Word#
 
 foreign import prim newMutVar# :: a -> State# d -> (# State# d, MutVar# d a #)
 
@@ -105,6 +223,14 @@ foreign import prim sizeofByteArray# :: ByteArray# -> Int#
 foreign import prim getSizeofMutableByteArray# :: MutableByteArray# d -> State# d -> (# State# d, Int# #)
 
 foreign import prim copyAddrToByteArray# :: Addr# -> MutableByteArray# d -> Int# -> Int# -> State# d -> State# d
+
+foreign import prim indexWordArray# :: ByteArray# -> Int# -> Word#
+
+foreign import prim readWordArray# :: MutableByteArray# d -> Int# -> State# d -> (# State# d, Word# #)
+
+foreign import prim writeWordArray# :: MutableByteArray# d -> Int# -> Word# -> State# d -> State# d
+
+foreign import prim copyByteArray# :: ByteArray# -> Int# -> MutableByteArray# d -> Int# -> Int# -> State# d -> State# d
 
 foreign import prim
   fork# ::

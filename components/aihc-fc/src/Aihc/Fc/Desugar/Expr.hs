@@ -616,7 +616,33 @@ dsIntegerLiteral :: Integer -> DsM FcExpr
 dsIntegerLiteral value = do
   conTy <- lookupType "IS"
   con <- freshVar "IS" conTy
-  pure (FcApp (FcVar con) (FcLit (LitInt IntRep value)))
+  let small integer = FcApp (FcVar con) (FcLit (LitInt IntRep integer))
+  if value >= minIntLiteral && value <= maxIntLiteral
+    then pure (small value)
+    else do
+      let integerTy = TcTyCon (TyCon "Integer" 0) []
+          binaryTy = TcFunTy integerTy (TcFunTy integerTy integerTy)
+          unaryTy = TcFunTy integerTy integerTy
+      add <- freshVar "integerAdd" binaryTy
+      multiply <- freshVar "integerMul" binaryTy
+      negateInteger <- freshVar "integerNegate" unaryTy
+      let buildPositive integer
+            | integer <= maxIntLiteral = small integer
+            | otherwise =
+                let (quotient, remainder) = integer `quotRem` literalBase
+                 in FcApp
+                      (FcApp (FcVar add) (FcApp (FcApp (FcVar multiply) (buildPositive quotient)) (small literalBase)))
+                      (small remainder)
+          magnitude = buildPositive (abs value)
+      pure
+        ( if value < 0
+            then FcApp (FcVar negateInteger) magnitude
+            else magnitude
+        )
+  where
+    literalBase = 1000000000
+    minIntLiteral = -9223372036854775808
+    maxIntLiteral = 9223372036854775807
 
 resolvedAnnotationName :: ResolutionAnnotation -> Name
 resolvedAnnotationName resolution =
@@ -1181,8 +1207,99 @@ dsEvidence evidence =
       desugarBug "superclass evidence is not supported by the type checker"
     EvCast dict _co ->
       dsEvidence dict
+    EvTypeable ty arguments ->
+      dsTypeableEvidence ty arguments
     EvVarTerm {} ->
       desugarBug "unresolved evidence variable in type-checker annotation"
+
+dsTypeableEvidence :: TcType -> [EvTerm] -> DsM FcExpr
+dsTypeableEvidence ty argumentEvidence = do
+  argumentTypes <-
+    case typeableTypeView ty of
+      Just (_, arguments) -> pure arguments
+      Nothing -> desugarBug ("cannot construct Typeable evidence for " <> show ty)
+  if length argumentTypes /= length argumentEvidence
+    then desugarBug "Typeable evidence argument arity mismatch"
+    else do
+      argumentRepresentations <- zipWithM dsTypeableArgument argumentTypes argumentEvidence
+      representation <- dsTypeRepresentation ty argumentRepresentations
+      proxy <- freshVar "$typeable_proxy" (TcTyCon (TyCon "Proxy" 1) [ty])
+      value <- freshVar "$typeable_value" ty
+      let proxyMethod = FcLam proxy representation
+          valueMethod = FcLam value representation
+          dictionaryConstructor =
+            Var
+              (fcDictionaryConstructorName "Typeable")
+              (Unique (-2100))
+              ( TcForAllTy
+                  typeableTyVar
+                  ( TcFunTy
+                      (TcFunTy (TcTyCon (TyCon "Proxy" 1) [TcTyVar typeableTyVar]) typeRepTy)
+                      ( TcFunTy
+                          (TcFunTy (TcTyVar typeableTyVar) typeRepTy)
+                          (TcTyCon (TyCon "Typeable" 1) [TcTyVar typeableTyVar])
+                      )
+                  )
+              )
+      pure (FcApp (FcApp (FcTyApp (FcVar dictionaryConstructor) ty) proxyMethod) valueMethod)
+
+dsTypeableArgument :: TcType -> EvTerm -> DsM FcExpr
+dsTypeableArgument ty evidence = do
+  dictionary <- dsEvidence evidence
+  dictionaryBinder <- freshVar "$typeable_dictionary" (TcTyCon (TyCon "Typeable" 1) [ty])
+  proxyMethod <- freshVar "$typeable_proxy_method" (TcFunTy (TcTyCon (TyCon "Proxy" 1) [ty]) typeRepTy)
+  valueMethod <- freshVar "$typeable_value_method" (TcFunTy ty typeRepTy)
+  let proxyConstructor =
+        Var
+          "Proxy"
+          (Unique (-2101))
+          (TcForAllTy typeableTyVar (TcTyCon (TyCon "Proxy" 1) [TcTyVar typeableTyVar]))
+      proxy = FcTyApp (FcVar proxyConstructor) ty
+  pure
+    ( FcCase
+        dictionary
+        dictionaryBinder
+        [ FcAlt
+            (DataAlt (fcDictionaryConstructorName "Typeable"))
+            [proxyMethod, valueMethod]
+            (FcApp (FcVar proxyMethod) proxy)
+        ]
+    )
+
+dsTypeRepresentation :: TcType -> [FcExpr] -> DsM FcExpr
+dsTypeRepresentation ty arguments =
+  case typeableTypeView ty of
+    Nothing -> desugarBug ("cannot construct TypeRep for " <> show ty)
+    Just (name, _) -> do
+      let tyConConstructor =
+            Var "TyCon" (Unique (-2102)) (TcFunTy stringTy tyConTy)
+          typeRepConstructor =
+            Var
+              "TypeRep"
+              (Unique (-2103))
+              (TcFunTy tyConTy (TcFunTy (listType typeRepTy) typeRepTy))
+          tyCon = FcApp (FcVar tyConConstructor) (T.foldr consChar (nilList charTy) name)
+          argumentList = foldr (consList typeRepTy) (nilList typeRepTy) arguments
+      pure (FcApp (FcApp (FcVar typeRepConstructor) tyCon) argumentList)
+
+typeableTypeView :: TcType -> Maybe (Text, [TcType])
+typeableTypeView ty =
+  case ty of
+    TcTyCon tyCon arguments -> Just (tyConName tyCon, arguments)
+    TcFunTy argument result -> Just ("(->)", [argument, result])
+    _ -> Nothing
+
+typeableTyVar :: TyVarId
+typeableTyVar = TyVarId "a" (Unique (-2104))
+
+typeRepTy :: TcType
+typeRepTy = TcTyCon (TyCon "TypeRep" 0) []
+
+tyConTy :: TcType
+tyConTy = TcTyCon (TyCon "TyCon" 0) []
+
+stringTy :: TcType
+stringTy = listType charTy
 
 unitConstructor :: FcExpr
 unitConstructor =

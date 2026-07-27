@@ -1,4 +1,4 @@
-#include "aihc_runtime.h"
+#include "aihc_snapshot.h"
 
 #include <inttypes.h>
 #include <stdio.h>

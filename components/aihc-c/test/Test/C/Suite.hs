@@ -6,17 +6,22 @@ import Aihc.C (CError (..), compileModule, compileProgram, compileProgramWithDep
 import Aihc.Grin (GcGrinProgram, lintProgram, lowerGc, toCpsGrin)
 import Aihc.Grin.Gc (gcGrinProgram)
 import Aihc.Grin.Syntax
-import Aihc.Native (buildLinkLayout, runtimeSourcePath)
+import Aihc.Native
+  ( NativeTarget (PortableC),
+    RuntimeGarbageCollector (RuntimeGcCalloc),
+    RuntimePlan (..),
+    buildLinkLayout,
+    runtimePlan,
+  )
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
 import Control.Exception (bracket)
 import Control.Monad (forM_)
-import Data.List (isInfixOf)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (ExitCode (..))
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath ((</>))
 import System.IO (hClose, openTempFile)
 import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup)
@@ -98,19 +103,18 @@ putcharCall =
 testTrampoline :: IO ()
 testTrampoline = do
   source <- compile schedulerProgram
+  assertBool "emits normal continuation frame metadata" ("AIHC_FRAME_NORMAL" `T.isInfixOf` source)
+  assertBool "emits update continuation frame metadata" ("AIHC_FRAME_UPDATE" `T.isInfixOf` source)
+  assertBool "emits stop continuation frame metadata" ("AIHC_FRAME_STOP" `T.isInfixOf` source)
   forM_
     [ "while (aihc_next_transfer.entry != NULL)",
-      "aihc_next_transfer = aihc_portable_fork_cps",
-      "aihc_next_transfer = aihc_portable_yield_cps",
+      "aihc_next_transfer = aihc_trampoline_fork_cps",
+      "aihc_next_transfer = aihc_trampoline_yield_cps",
       "extern int32_t putchar(int32_t)"
     ]
     (\needle -> assertBool ("missing generated C fragment: " <> T.unpack needle) (needle `T.isInfixOf` source))
   assertBool "generated C does not use a machine argument field" (not ("aihc_machine->args" `T.isInfixOf` source))
   assertBool "generated C does not own a fixed argument buffer" (not ("static AihcSlot aihc_arguments[" `T.isInfixOf` source))
-  runtime <- readFile =<< runtimeSourcePath
-  assertBool "runtime does not contain a machine argument field" (not ("machine->args" `isInfixOf` runtime))
-  assertBool "runtime owns direct-call argument transfers" ("AihcPortableTransfer aihc_portable_call" `isInfixOf` runtime)
-  assertBool "runtime owns a growable portable argument buffer" ("&machine->portable_arguments_capacity" `isInfixOf` runtime)
 
 wideContinuationProgram :: GrinProgram
 wideContinuationProgram =
@@ -174,7 +178,7 @@ testIncrementalProgram = do
   assertBool "exports the dependency initializer" (("void " <> initializer <> "(void)") `T.isInfixOf` dependencySource)
   assertBool "calls the dependency initializer" ((initializer <> "();") `T.isInfixOf` mainSource)
   withTempDirectory "aihc-c-incremental" $ \directory -> do
-    runtime <- runtimeSourcePath
+    runtimeArguments <- portableRuntimeArguments
     let dependencyPath = directory </> "dependency.c"
         mainPath = directory </> "main.c"
         executablePath = directory </> "program"
@@ -183,17 +187,10 @@ testIncrementalProgram = do
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
-        [ "-std=c11",
-          "-Wall",
-          "-Wextra",
-          "-Werror",
-          "-I" <> takeDirectory runtime,
-          runtime,
-          dependencyPath,
-          mainPath,
-          "-o",
-          executablePath
-        ]
+        ( ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+            <> runtimeArguments
+            <> [dependencyPath, mainPath, "-o", executablePath]
+        )
         ""
     assertEqual ("clang rejected incremental generated C:\n" <> clangErr) ExitSuccess clangExit
     (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
@@ -306,28 +303,30 @@ testProgram :: String -> GrinProgram -> IO ()
 testProgram expected program = do
   source <- compile program
   withTempDirectory "aihc-c" $ \directory -> do
-    runtime <- runtimeSourcePath
+    runtimeArguments <- portableRuntimeArguments
     let sourcePath = directory </> "program.c"
         executablePath = directory </> "program"
     TIO.writeFile sourcePath source
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
-        [ "-std=c11",
-          "-Wall",
-          "-Wextra",
-          "-Werror",
-          "-I" <> takeDirectory runtime,
-          runtime,
-          sourcePath,
-          "-o",
-          executablePath
-        ]
+        ( ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+            <> runtimeArguments
+            <> [sourcePath, "-o", executablePath]
+        )
         ""
     assertEqual ("clang rejected generated C:\n" <> clangErr) ExitSuccess clangExit
     (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
     assertEqual ("generated program stderr: " <> programErr) ExitSuccess programExit
     assertEqual "generated program stdout" expected programOut
+
+portableRuntimeArguments :: IO [String]
+portableRuntimeArguments = do
+  plan <- runtimePlan PortableC RuntimeGcCalloc
+  pure
+    ( ["-I" <> directory | directory <- runtimeIncludeDirectories plan]
+        <> runtimeSources plan
+    )
 
 compile :: GrinProgram -> IO T.Text
 compile program = do

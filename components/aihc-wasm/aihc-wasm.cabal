@@ -10,6 +10,9 @@ category: Development
 synopsis: Direct WebAssembly backend for AIHC GRIN
 data-files:
   runtime/aihc_wasip3.c
+  runtime/aihc_wasm_adapter.c
+  runtime/aihc_wasm_internal.h
+  runtime/aihc_wasm_libc.c
   runtime/include/stdlib.h
   runtime/include/string.h
   runtime/wit/command.wit
