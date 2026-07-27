@@ -1,0 +1,16 @@
+extensions:
+  - ExistentialQuantification
+dependencies: []
+modules:
+  - |
+    {-# LANGUAGE ExistentialQuantification #-}
+    module Test where
+
+    data Box = forall a. Box a
+
+    escape (Box value) = value
+output: ""
+expression: |
+  escape
+status: fail
+reason: a constructor-local existential type must not escape its pattern-match branch

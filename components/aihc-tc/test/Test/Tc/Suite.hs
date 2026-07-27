@@ -253,12 +253,14 @@ kindTests =
           constructorTypes = [tbType binding | binding <- tcModuleBindings result, tbName binding == "R"]
       assertBool ("module should typecheck, got: " <> show (tcModuleDiagnostics result)) (tcModuleSuccess result)
       case constructorTypes of
-        [TcTyCon _ [TcTyVar repVar, TcTyVar valueVar]] -> do
+        [TcForAllTy repVar (TcForAllTy valueVar (TcTyCon _ [TcTyVar resultRepVar, TcTyVar resultValueVar]))] -> do
           assertEqual "representation binder kind" KRuntimeRep (tvKind repVar)
           assertEqual
             "value binder kind"
             (KTYPE (RuntimeRepVar (tvUnique repVar)))
             (tvKind valueVar)
+          assertEqual "result representation argument" repVar resultRepVar
+          assertEqual "result value argument" valueVar resultValueVar
         other -> assertFailure ("unexpected R constructor types: " <> show other),
     testCase "rejects unsaturated type constructor in signature" $ do
       let result =

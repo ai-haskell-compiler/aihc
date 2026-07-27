@@ -4,12 +4,40 @@
 -- instantiated with a concrete type.
 module Aihc.Fc.Subst
   ( substType,
+    freeRigidTyVars,
+    freeRigidTyVarsOf,
   )
 where
 
 import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId (..))
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+
+-- | Free rigid type variables in stable left-to-right order.
+freeRigidTyVars :: TcType -> [TyVarId]
+freeRigidTyVars = freeRigidTyVarsOf . pure
+
+-- | Free rigid type variables across several types, without duplicates.
+freeRigidTyVarsOf :: [TcType] -> [TyVarId]
+freeRigidTyVarsOf = uniqueTyVars . concatMap go
+  where
+    go ty =
+      case ty of
+        TcTyVar tyVar -> [tyVar]
+        TcMetaTv {} -> []
+        TcTyCon _ arguments -> concatMap go arguments
+        TcFunTy argument result -> go argument <> go result
+        TcForAllTy tyVar body -> filter (/= tyVar) (go body)
+        TcQualTy predicates body -> concatMap goPredicate predicates <> go body
+        TcAppTy function argument -> go function <> go argument
+
+    goPredicate predicate =
+      case predicate of
+        ClassPred _ arguments -> concatMap go arguments
+        EqPred left right -> go left <> go right
+
+    uniqueTyVars = List.foldl' (\variables tyVar -> if tyVar `elem` variables then variables else variables <> [tyVar]) []
 
 -- | Substitute type variables in a type according to the given mapping.
 --

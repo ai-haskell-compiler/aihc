@@ -33,6 +33,7 @@ import Aihc.Tc.Annotations (pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Generalize (generalizeAndCommitIgnoring)
 import Aihc.Tc.Generate.Pattern
+import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (sigToScheme)
 import Aihc.Tc.Monad
@@ -271,12 +272,14 @@ inferZeroArgMatch inferExpr match = do
 tcMatchEquation :: InferExpr -> [TcType] -> TcType -> Match -> TcM (Match, [Ct])
 tcMatchEquation inferExpr argTys resTy match = do
   let pats = matchPats match
-  patCheck <- checkPatterns NoSourceSpan (zip pats argTys)
+  patCheck <- checkPatternsWithGivens NoSourceSpan (zip pats argTys)
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithLocals inferExpr (matchRhs match))
   ev <- freshEvVar
   let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
       resCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin NoSourceSpan) NoSourceSpan
-  pure (match {matchPats = pats', matchRhs = rhs'}, pcWantedCts patCheck ++ rhsCts ++ [resCt])
+      bodyWanteds = rhsCts ++ [resCt]
+  remainingCts <- solvePatternBranch NoSourceSpan patCheck resTy bodyWanteds
+  pure (match {matchPats = pats', matchRhs = rhs'}, remainingCts)
 
 unifyMatchRhs :: InferExpr -> TcType -> Match -> TcM (Match, [Ct])
 unifyMatchRhs inferExpr expectedTy match = do

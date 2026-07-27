@@ -10,7 +10,8 @@ module Test.Fc.Suite
 where
 
 import Aihc.Fc
-import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
+import Aihc.Fc.Subst (freeRigidTyVarsOf)
+import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.Text (Text)
@@ -48,6 +49,10 @@ fcEvalTests =
         let literal = LitAddr "hello"
         assertEqual "runtime representation" AddrRep (literalRuntimeRep literal)
         assertEqual "literal type" (Just (TcTyCon (TyCon "Addr#" 0) [])) (literalType literal),
+      testCase "keeps free rigid variables in first-occurrence order" $ do
+        let first = TyVarId "first" (Unique 1)
+            second = TyVarId "second" (Unique 2)
+        assertEqual "ordered variables" [first, second] (freeRigidTyVarsOf [TcTyVar first, TcTyVar second, TcTyVar first]),
       testCase "applies lambdas" $
         assertEvalExpr
           "\"ok\""

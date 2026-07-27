@@ -5,10 +5,10 @@ annotated:
        │     └─ type: Int
        └─ type: *
   data Foo a = Foo
-       │       └─ type: Foo a
+       │       └─ type: ∀ a. Foo a
        └─ type: * → *
   data Chan a = Chan (Foo Int)
-       │        └─ type: Foo Int → Chan a
+       │        └─ type: ∀ a. Foo Int → Chan a
        └─ type: * → *
 extensions: []
 modules:

@@ -26,7 +26,7 @@ module Aihc.Fc.Lint
   )
 where
 
-import Aihc.Fc.Subst (substType)
+import Aihc.Fc.Subst (freeRigidTyVarsOf, substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
@@ -89,7 +89,10 @@ lintProgram env0 prog = go envWithDeclarations (fcTopBinds prog)
       env
         { leDataCons =
             foldr
-              (\(constructor, fields) -> Map.insert constructor (tyVars, fields, resultType))
+              ( \(constructor, fields) ->
+                  let existentialVariables = filter (`notElem` tyVars) (freeRigidTyVarsOf fields)
+                   in Map.insert constructor (tyVars <> existentialVariables, fields, resultType)
+              )
               (leDataCons env)
               constructors
         }
