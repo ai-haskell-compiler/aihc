@@ -34,6 +34,7 @@ freeExprVars expression =
     GrinCpsApply _ function arguments continuation ->
       freeValueVars function <> foldMap freeValueVars arguments <> freeValueVars continuation
     GrinContinue continuation values -> freeValueVars continuation <> foldMap freeValueVars values
+    GrinCpsRaise exception continuation -> freeValueVars exception <> freeValueVars continuation
     GrinHalt values -> foldMap freeValueVars values
     GrinCase scrutinee binder alternatives ->
       freeValueVars scrutinee <> foldMap (freeAlternativeVars binder) alternatives

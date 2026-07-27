@@ -14,6 +14,7 @@ import Aihc.Native
     runtimePlan,
   )
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
+import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram)
 import Control.Exception (bracket)
 import Control.Monad (forM_)
@@ -38,7 +39,8 @@ tests =
       testCase "executes Int# addition" (testProgram "*" (intAddProgram 40 2 42)),
       testCase "wraps overflowing Int# addition" (testProgram "*" (intAddProgram 9223372036854775807 1 (-9223372036854775808))),
       testCase "executes cooperative scheduling" (testProgram "PCAB" schedulerProgram),
-      testCase "executes blackhole wakeups" (testProgram "TA" blackholeSchedulerProgram)
+      testCase "executes blackhole wakeups" (testProgram "TA" blackholeSchedulerProgram),
+      testCase "catches a synchronous exception" (testProgram "E" synchronousExceptionProgram)
     ]
 
 intAddProgram :: Integer -> Integer -> Integer -> GrinProgram

@@ -43,7 +43,6 @@
     environment ? "",
   }:
     mkSourceCheck "${drv.pname}-tests" src nativeBuildInputs ''
-      export GHCRTS=-N1
       ${environment}
       ${testExecutable drv} --hide-successes
     '';
@@ -224,7 +223,9 @@
   devTests = mkPackageTest {
     drv = hsPkgs.aihc-dev;
     src = sources.devSrc pkgs;
-    nativeBuildInputs = [hsPkgs.ghc];
+    nativeBuildInputs = [
+      (hsPkgs.ghcWithPackages (p: [p.aihc-internal]))
+    ];
   };
   aihcTests = mkPackageTest {
     drv = hsPkgs.aihc;

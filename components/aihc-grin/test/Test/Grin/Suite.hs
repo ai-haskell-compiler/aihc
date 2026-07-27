@@ -139,7 +139,8 @@ grinUnitTests =
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
         assertBool "contains explicit throw" ("throw " `isInfixOf` rendered)
-        assertBool "contains explicit catch" ("catch " `isInfixOf` rendered),
+        assertBool "contains explicit catch" ("catch " `isInfixOf` rendered)
+        assertEqual "exception primitives are represented by GRIN control nodes" [] (grinPrimitives program),
       testCase "CPS-GRIN allocates and applies ordinary continuation closures" $ do
         cps <- expectCpsGrin callBindProgram
         let program = cpsGrinProgram cps
@@ -255,15 +256,30 @@ grinUnitTests =
                 (GrinVarValue <$> Map.lookup owner parentByOwner)
                 (firstMaybe (grinNodeFields node))
           _ -> assertFailure "missing unique update continuation",
-      testCase "CPS-GRIN requires exception control to be eliminated" $ do
-        assertEqual
-          "throw"
-          (Left (CpsGrinUnexpectedThrow exceptionBoundaryFunction))
-          (toCpsGrin (exceptionBoundaryProgram (GrinThrow (GrinLitValue (GrinLitInt IntRep 1)))))
-        assertEqual
-          "catch"
-          (Left (CpsGrinUnexpectedCatch exceptionBoundaryFunction))
-          (toCpsGrin (exceptionBoundaryProgram (GrinCatch IntRep exceptionAction exceptionHandler []))),
+      testCase "CPS-GRIN lowers raise to an explicit continuation transfer" $ do
+        cps <- expectCpsGrin (exceptionBoundaryProgram (GrinThrow exceptionValue))
+        let continuation = cpsFunctionContinuations cps Map.! exceptionBoundaryFunction
+        case [function | function <- grinFunctions (cpsGrinProgram cps), grinFunctionName function == exceptionBoundaryFunction] of
+          [function] -> assertEqual "CPS raise" (GrinCpsRaise exceptionValue (GrinVarValue continuation)) (grinFunctionBody function)
+          _ -> assertFailure "missing exception boundary function",
+      testCase "CPS-GRIN lowers catch to a parent-linked catch frame" $ do
+        cps <- expectCpsGrin (exceptionBoundaryProgram (GrinCatch IntRep exceptionAction exceptionHandler []))
+        let program = cpsGrinProgram cps
+            continuation = cpsFunctionContinuations cps Map.! exceptionBoundaryFunction
+            catchNodes =
+              [ (name, fields)
+              | function <- grinFunctions program,
+                grinFunctionName function == exceptionBoundaryFunction,
+                GrinNode (GrinClosure name _) fields <- expressionStoredNodes (grinFunctionBody function),
+                Map.lookup name (cpsContinuationFrames cps) == Just ContinuationFrameCatch
+              ]
+        case catchNodes of
+          [(catchName, fields)] -> do
+            assertEqual "catch frame fields" [GrinVarValue continuation, exceptionHandler] fields
+            case [function | function <- grinFunctions program, grinFunctionName function == catchName] of
+              [function] -> assertBool "normal completion forwards to the parent" (containsContinueTo continuation (grinFunctionBody function))
+              _ -> assertFailure "missing catch continuation entry"
+          _ -> assertFailure ("expected one catch frame, got " <> show catchNodes),
       testCase "FC lowering evaluates Int# arguments without allocating thunks" $ do
         let program = lowerProgram unboxedApplicationProgram
             rendered = renderProgram program
@@ -599,6 +615,16 @@ continuationHasCaptures :: GrinFunction -> Bool
 continuationHasCaptures function =
   "$cps$" `T.isInfixOf` unFunctionName (grinFunctionName function)
     && length (grinFunctionParameters function) > 1
+
+containsContinueTo :: GrinVar -> GrinExpr -> Bool
+containsContinueTo continuation expression =
+  case expression of
+    GrinBind _ value body -> containsContinueTo continuation value || containsContinueTo continuation body
+    GrinStoreRec _ body -> containsContinueTo continuation body
+    GrinStoreRecUnchecked _ body -> containsContinueTo continuation body
+    GrinContinue (GrinVarValue actual) _ -> actual == continuation
+    GrinCase _ _ alternatives -> any (containsContinueTo continuation . grinAltRhs) alternatives
+    _ -> False
 
 data ExplicitOperand
   = GrinCaseOperand
@@ -1776,6 +1802,9 @@ exceptionAction = GrinLitValue (GrinLitString "action")
 
 exceptionHandler :: GrinValue
 exceptionHandler = GrinLitValue (GrinLitString "handler")
+
+exceptionValue :: GrinValue
+exceptionValue = GrinLitValue (GrinLitInt IntRep 1)
 
 invalidUpdateProgram :: GrinProgram
 invalidUpdateProgram =

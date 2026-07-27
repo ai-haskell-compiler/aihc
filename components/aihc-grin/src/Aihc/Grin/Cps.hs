@@ -67,9 +67,7 @@ continuationFrameKindCode frameKind =
     Just ContinuationFrameStop -> 5
 
 data CpsGrinError
-  = CpsGrinUnexpectedThrow !FunctionName
-  | CpsGrinUnexpectedCatch !FunctionName
-  | CpsGrinAlreadyTransformed !FunctionName
+  = CpsGrinAlreadyTransformed !FunctionName
   | CpsGrinInvalidContinuationParent !FunctionName
   deriving (Eq, Show)
 
@@ -234,6 +232,7 @@ transformTail updateName parent bound resultRep continuation expression =
       pure (GrinCpsApply runtimeRep function arguments continuation)
     GrinCpsApply {} -> alreadyTransformed
     GrinContinue {} -> alreadyTransformed
+    GrinCpsRaise {} -> alreadyTransformed
     GrinHalt {} -> alreadyTransformed
     GrinCase scrutinee binder alternatives ->
       GrinCase scrutinee binder <$> mapM transformAlternative alternatives
@@ -249,8 +248,15 @@ transformTail updateName parent bound resultRep continuation expression =
               continuation
               (grinAltRhs alternative)
           pure alternative {grinAltRhs = rhs}
-    GrinThrow {} -> lift (Left (CpsGrinUnexpectedThrow parent))
-    GrinCatch {} -> lift (Left (CpsGrinUnexpectedCatch parent))
+    GrinThrow exception -> pure (GrinCpsRaise exception continuation)
+    GrinCatch runtimeRep action handler state -> do
+      (catchVar, catchNode) <- makeCatchContinuation parent runtimeRep continuation handler
+      pure
+        ( GrinBind
+            [catchVar]
+            (GrinStore catchNode)
+            (GrinCpsApply runtimeRep action state (GrinVarValue catchVar))
+        )
     GrinForeignCallExpr foreignCall arguments ->
       continueDirect resultRep continuation (GrinForeignCallExpr foreignCall arguments)
   where
@@ -306,6 +312,31 @@ makeUpdateContinuation updateName blackhole continuation = do
     ( pointer,
       GrinNode (GrinClosure updateName [[liftedRuntimeRep]]) [continuation, blackhole]
     )
+
+makeCatchContinuation :: FunctionName -> RuntimeRep -> GrinValue -> GrinValue -> CpsM (GrinVar, GrinNode)
+makeCatchContinuation parent resultRep outerContinuation handler = do
+  parentContinuation <-
+    case outerContinuation of
+      GrinVarValue var -> pure var
+      GrinLitValue {} -> lift (Left (CpsGrinInvalidContinuationParent parent))
+  catchName <- freshContinuationName parent
+  pointer <- freshVar "$cps_catch" liftedRuntimeRep
+  capturedHandler <- freshVar "$cps_handler" (grinValueRuntimeRep handler)
+  resultVars <- mapM (freshVar "$cps_catch_result") (runtimeRepComponents resultRep)
+  let catchFunction =
+        GrinFunction
+          { grinFunctionName = catchName,
+            grinFunctionLinkName = Nothing,
+            grinFunctionParameters = parentContinuation : capturedHandler : resultVars,
+            grinFunctionResultRep = resultRep,
+            grinFunctionBody = GrinContinue (GrinVarValue parentContinuation) (map GrinVarValue resultVars)
+          }
+      catchNode =
+        GrinNode
+          (GrinClosure catchName [runtimeRepComponents resultRep])
+          [outerContinuation, handler]
+  addContinuationFunction ContinuationFrameCatch catchFunction
+  pure (pointer, catchNode)
 
 makeUpdateFunction :: FunctionName -> CpsM GrinFunction
 makeUpdateFunction updateName = do
@@ -443,6 +474,7 @@ exprUniques expression =
     GrinCpsApply _ function arguments continuation ->
       valueUniques function <> concatMap valueUniques arguments <> valueUniques continuation
     GrinContinue continuation values -> valueUniques continuation <> concatMap valueUniques values
+    GrinCpsRaise exception continuation -> valueUniques exception <> valueUniques continuation
     GrinHalt values -> concatMap valueUniques values
     GrinCase scrutinee binder alternatives ->
       valueUniques scrutinee

@@ -154,6 +154,9 @@ data GrinExpr
     -- Unlike 'GrinCpsApply', continuation entries do not themselves receive a
     -- return continuation.
     GrinContinue !GrinValue ![GrinValue]
+  | -- | Raise a synchronous exception through the heap-resident continuation
+    -- chain. This form exists only after CPS conversion.
+    GrinCpsRaise !GrinValue !GrinValue
   | -- | Update a cell that was blackholed by 'GrinCpsEval'. This is separate
     -- from an ordinary explicit heap update so the runtime can enforce the
     -- thunk-update protocol.
@@ -241,6 +244,7 @@ grinProgramLiterals program =
         GrinCpsApply _ function arguments continuation ->
           valueLiterals function <> concatMap valueLiterals arguments <> valueLiterals continuation
         GrinContinue continuation values -> valueLiterals continuation <> concatMap valueLiterals values
+        GrinCpsRaise exception continuation -> valueLiterals exception <> valueLiterals continuation
         GrinUpdateBlackhole pointer value -> valueLiterals pointer <> valueLiterals value
         GrinHalt values -> concatMap valueLiterals values
         GrinCase scrutinee _ alternatives -> valueLiterals scrutinee <> concatMap altLiterals alternatives

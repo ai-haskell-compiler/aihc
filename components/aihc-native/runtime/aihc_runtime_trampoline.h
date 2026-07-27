@@ -27,6 +27,9 @@ AihcTrampolineTransfer aihc_trampoline_continue_values(AihcMachine *machine,
                                                        AihcValue *continuation,
                                                        uint64_t count,
                                                        const AihcSlot *values);
+AihcTrampolineTransfer aihc_trampoline_raise_cps(AihcMachine *machine,
+                                                 AihcValue *exception,
+                                                 AihcValue *continuation);
 AihcTrampolineTransfer aihc_trampoline_fork_cps(AihcMachine *machine,
                                                 AihcValue *action,
                                                 AihcValue *continuation);

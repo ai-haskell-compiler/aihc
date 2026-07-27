@@ -338,6 +338,7 @@ evalScheduledExpr env expr continue =
       applyScheduledValue functionValue argumentValues continue
     GrinCpsApply {} -> rejectCpsExpression
     GrinContinue {} -> rejectCpsExpression
+    GrinCpsRaise {} -> rejectCpsExpression
     GrinHalt {} -> rejectCpsExpression
     GrinCase scrutinee binder alternatives -> do
       value <- materializeValue env scrutinee
@@ -572,18 +573,13 @@ matchScheduledAlternative env value alternatives continue = do
 handleScheduledRaised :: RuntimeValue -> [RuntimeValue] -> ScheduledContinuation -> EvalFailure -> EvalM [RuntimeValue]
 handleScheduledRaised handler state continue failure =
   case failure of
-    EvalRaised exception ->
-      applyScheduledValue handler [exception] $ \values -> do
-        handlerWithException <- expectSingle values
-        applyScheduledValue handlerWithException state continue
+    EvalRaised exception -> applyScheduledValue handler (exception : state) continue
     EvalInterpret err -> throwE (EvalInterpret err)
 
 handleRaised :: RuntimeValue -> [RuntimeValue] -> EvalFailure -> EvalM [RuntimeValue]
 handleRaised handler state failure =
   case failure of
-    EvalRaised exception -> do
-      handlerWithException <- expectSingle =<< applyValue handler [exception]
-      applyValue handlerWithException state
+    EvalRaised exception -> applyValue handler (exception : state)
     EvalInterpret err -> throwE (EvalInterpret err)
 
 -- | Resolve an atomic GRIN value into its runtime representation. This only

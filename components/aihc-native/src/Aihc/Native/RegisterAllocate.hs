@@ -224,6 +224,7 @@ grinExprFreeVariables expression =
     GrinApply _ function arguments -> valueUses function <> foldMap valueUses arguments
     GrinCpsApply _ function arguments continuation -> valueUses function <> foldMap valueUses arguments <> valueUses continuation
     GrinContinue continuation values -> valueUses continuation <> foldMap valueUses values
+    GrinCpsRaise exception continuation -> valueUses exception <> valueUses continuation
     GrinUpdateBlackhole pointer value -> valueUses pointer <> valueUses value
     GrinHalt values -> foldMap valueUses values
     GrinCase scrutinee binder alternatives ->

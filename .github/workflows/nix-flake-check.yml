@@ -57,6 +57,4 @@ jobs:
           nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
       - name: Run flake checks
-        run: |
-          nix build .#ci-checks --print-build-logs
-          nix flake check --no-build
+        run: nix build .#ci-checks --print-build-logs

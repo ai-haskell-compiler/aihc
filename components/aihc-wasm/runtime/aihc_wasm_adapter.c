@@ -185,6 +185,12 @@ void aihc_wasm_transfer_continue(AihcMachine *machine, AihcSlot continuation,
       machine, aihc_value(continuation), count, values));
 }
 
+void aihc_wasm_transfer_raise(AihcMachine *machine, AihcSlot exception,
+                              AihcSlot continuation) {
+  aihc_set_transfer(aihc_trampoline_raise_cps(machine, aihc_value(exception),
+                                              aihc_value(continuation)));
+}
+
 void aihc_wasm_transfer_fork(AihcMachine *machine, AihcSlot action,
                              AihcSlot continuation) {
   aihc_set_transfer(aihc_trampoline_fork_cps(machine, aihc_value(action),
