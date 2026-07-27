@@ -40,6 +40,7 @@ tests =
       testCase "lowers byte-array primitives" testByteArrayPrimitives,
       testCase "executes platform Int foreign calls" (testProgram "L" foreignIntProgram),
       testCase "executes Int# addition" (testProgram "*" intAddProgram),
+      testCase "executes thunk entry updates" (testProgram "T" thunkEntryProgram),
       testCase "executes cooperative scheduling" (testProgram "PCAB" schedulerProgram),
       testCase "executes synchronous exception unwinding" (testProgram "E" synchronousExceptionProgram)
     ]
@@ -247,6 +248,45 @@ intAddProgram =
             GrinBind [output] (GrinForeignCallExpr putcharCall [GrinLitValue (GrinLitInt Int32Rep (toInteger (fromEnum character)))]) $
               GrinConstant [GrinVarValue unitValue]
         }
+
+thunkEntryProgram :: GrinProgram
+thunkEntryProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [putcharCall],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [(mainThunk, GrinNode (GrinThunk mainThunkFunction) [])],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = mainThunkFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody = GrinStore (GrinNode (GrinClosure mainActionFunction [[]]) [])
+            },
+          GrinFunction
+            { grinFunctionName = mainActionFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody =
+                GrinBind
+                  [output]
+                  (GrinForeignCallExpr putcharCall [GrinLitValue (GrinLitInt Int32Rep (toInteger (fromEnum 'T')))])
+                  (GrinConstant [GrinVarValue unitValue])
+            }
+        ]
+    }
+  where
+    lifted = BoxedRep Lifted
+    mainThunkFunction = FunctionName "$thunk_entry_main_thunk"
+    mainActionFunction = FunctionName "$thunk_entry_main_action"
+    mainThunk = GrinVar "main" 90 lifted
+    output = GrinVar "output" 91 Int32Rep
+    unitValue = GrinVar "()" 92 lifted
 
 putcharCall :: GrinForeignCall
 putcharCall =
