@@ -532,7 +532,7 @@ primitiveImportSpecs =
       primitive "<#" "Int# -> Int# -> Int#",
       primitive "==#" "Int# -> Int# -> Int#",
       primitive "ord#" "Char# -> Int#",
-      primitive "intToChar#" "Int# -> Char#",
+      primitive "chr#" "Int# -> Char#",
       primitive "plusWord#" "Word# -> Word# -> Word#",
       primitive "minusWord#" "Word# -> Word# -> Word#",
       primitive "timesWord#" "Word# -> Word# -> Word#",

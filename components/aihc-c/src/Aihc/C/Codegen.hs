@@ -587,7 +587,7 @@ compileDirectBinding env vars expression =
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["ord#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
+      | name `elem` ["ord#", "chr#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
           liftEither (materializeValue env value) >>= storeExpression
     GrinPrimitiveCall _ name arguments
       | Just foreignCall <- nativeRuntimePrimitiveCall name -> do

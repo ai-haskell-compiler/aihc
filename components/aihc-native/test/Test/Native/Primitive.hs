@@ -54,7 +54,7 @@ tests =
       testCase "accepts the Prelude Int# primitive API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          ["+#", "-#", "*#", "compareInt#", "<#", "==#", "ord#", "intToChar#"]
+          ["+#", "-#", "*#", "compareInt#", "<#", "==#", "ord#", "chr#"]
     ]
 
 byteArrayRuntimeSymbols :: [(Text, Text)]

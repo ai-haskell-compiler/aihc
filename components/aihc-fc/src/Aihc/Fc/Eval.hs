@@ -270,11 +270,11 @@ evalPrimitive "==#" [left, right] =
 evalPrimitive "ord#" [value] = do
   charValue <- forceCharPrimitiveArg "ord#" value
   pure (VLit (LitInt IntRep (fromIntegral (Char.ord charValue))))
-evalPrimitive "intToChar#" [value] = do
-  intValue <- forceIntPrimitiveArg "intToChar#" value
+evalPrimitive "chr#" [value] = do
+  intValue <- forceIntPrimitiveArg "chr#" value
   if intValue >= 0 && intValue <= 0x10ffff
     then pure (VLit (LitChar WordRep (Char.chr (fromIntegral intValue))))
-    else throwE (EvalPrimitiveTypeError "intToChar#" (VLit (LitInt IntRep intValue)))
+    else throwE (EvalPrimitiveTypeError "chr#" (VLit (LitInt IntRep intValue)))
 evalPrimitive "plusWord#" [left, right] = evalWordPrimitive "plusWord#" (+) left right
 evalPrimitive "minusWord#" [left, right] = evalWordPrimitive "minusWord#" (-) left right
 evalPrimitive "timesWord#" [left, right] = evalWordPrimitive "timesWord#" (*) left right

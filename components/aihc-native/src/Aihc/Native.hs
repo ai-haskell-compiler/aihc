@@ -193,7 +193,7 @@ supportedNativePrimitiveNames =
     "<#",
     "==#",
     "ord#",
-    "intToChar#",
+    "chr#",
     "addIntC#",
     "subIntC#",
     "plusWord#",

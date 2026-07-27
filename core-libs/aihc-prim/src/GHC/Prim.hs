@@ -23,7 +23,7 @@ module GHC.Prim
     getSizeofMutableByteArray#,
     indexWordArray#,
     int2Word#,
-    intToChar#,
+    chr#,
     isByteArrayPinned#,
     isMutableByteArrayPinned#,
     MVar#,
@@ -122,7 +122,7 @@ foreign import prim (==#) :: Int# -> Int# -> Int#
 
 foreign import prim ord# :: Char# -> Int#
 
-foreign import prim intToChar# :: Int# -> Char#
+foreign import prim chr# :: Int# -> Char#
 
 foreign import prim addIntC# :: Int# -> Int# -> (# Int#, Int# #)
 
