@@ -10,6 +10,7 @@ module Aihc.Fc.Subst
 where
 
 import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId (..))
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 
@@ -36,7 +37,7 @@ freeRigidTyVarsOf = uniqueTyVars . concatMap go
         ClassPred _ arguments -> concatMap go arguments
         EqPred left right -> go left <> go right
 
-    uniqueTyVars = foldl' (\variables tyVar -> if tyVar `elem` variables then variables else variables <> [tyVar]) []
+    uniqueTyVars = List.foldl' (\variables tyVar -> if tyVar `elem` variables then variables else variables <> [tyVar]) []
 
 -- | Substitute type variables in a type according to the given mapping.
 --
