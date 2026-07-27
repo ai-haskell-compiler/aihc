@@ -1,6 +1,0 @@
-extensions: []
-input: '"unterminated'
-tokens:
-  - 'TkError "unterminated string literal"'
-  - 'TkEOF'
-status: pass

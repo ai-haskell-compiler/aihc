@@ -1,8 +1,0 @@
-# Without NumericUnderscores, underscore should not be part of the literal
-extensions: []
-input: "0xff_00_00"
-tokens:
-  - 'TkInteger 255 TInteger'
-  - 'TkVarId "_00_00"'
-  - 'TkEOF'
-status: pass

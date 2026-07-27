@@ -1,8 +1,0 @@
-extensions: [OverloadedLabels]
-input: |
-  #typeUrl #"The quick brown fox"
-tokens:
-  - 'TkOverloadedLabel "typeUrl" "#typeUrl"'
-  - 'TkOverloadedLabel "The quick brown fox" "#\"The quick brown fox\""'
-  - 'TkEOF'
-status: pass

@@ -6,11 +6,7 @@ module GHC.Int
   )
 where
 
-foreign import prim (+#) :: Int# -> Int# -> Int#
-
-foreign import prim (-#) :: Int# -> Int# -> Int#
-
-foreign import prim (*#) :: Int# -> Int# -> Int#
+import GHC.Prim ((*#), (+#), (-#))
 
 data Int = I# Int#
 

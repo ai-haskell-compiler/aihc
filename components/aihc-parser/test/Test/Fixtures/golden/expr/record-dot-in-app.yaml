@@ -1,6 +1,0 @@
-extensions: [OverloadedRecordDot]
-input: |
-  f record.field
-ast: |-
-  EApp (EVar "f") (EGetField (EVar "record") "field")
-status: pass

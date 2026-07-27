@@ -1,9 +1,0 @@
-extensions: []
-input: |
-  x --> y
-tokens:
-  - 'TkVarId "x"'
-  - 'TkVarSym "-->"'
-  - 'TkVarId "y"'
-  - 'TkEOF'
-status: pass

@@ -337,19 +337,19 @@ tests =
                     "static void entry_12(AihcSlot *arguments) { (void)arguments; }",
                     "static const uint8_t pointer_field[] = {1};",
                     "static const uint8_t pointer_then_scalar[] = {1, 0};",
-                    "static const AihcInfo leaf_info = {1, 0, 0, 0, 0, 0, 0};",
-                    "static const AihcInfo box_info = {2, 0, 1, 0, pointer_field, 0, 0};",
-                    "static const AihcInfo partial_final_info = {3, 0, 2, 0, pointer_then_scalar, 0, 0};",
-                    "static const AihcInfo partial_one_info = {3, 0, 1, 1, pointer_then_scalar, &partial_final_info, 0};",
-                    "static const AihcInfo partial_info = {3, 0, 0, 2, 0, &partial_one_info, 0};",
-                    "static const AihcInfo continuation_final_info = {8, entry_8, 1, 0, pointer_field, 0, 0};",
-                    "static const AihcInfo continuation_info = {8, entry_8, 0, 1, 0, &continuation_final_info, 0};",
-                    "static const AihcInfo action_final_info = {9, entry_9, 0, 0, 0, 0, 0};",
-                    "static const AihcInfo action_info = {9, entry_9, 0, 1, 0, &action_final_info, 0};",
-                    "static const AihcInfo thread_done_final_info = {10, entry_10, 1, 0, pointer_field, 0, 0};",
-                    "static const AihcInfo thread_done_info = {10, entry_10, 0, 1, 0, &thread_done_final_info, 0};",
-                    "static const AihcInfo yield_final_info = {12, entry_12, 0, 0, 0, 0, 0};",
-                    "static const AihcInfo yield_info = {12, entry_12, 0, 1, 0, &yield_final_info, 0};",
+                    "static const AihcInfo leaf_info = {1, 0, 0, 0, 0, 0, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo box_info = {2, 0, 1, 0, pointer_field, 0, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo partial_final_info = {3, 0, 2, 0, pointer_then_scalar, 0, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo partial_one_info = {3, 0, 1, 1, pointer_then_scalar, &partial_final_info, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo partial_info = {3, 0, 0, 2, 0, &partial_one_info, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo continuation_final_info = {8, entry_8, 1, 0, pointer_field, 0, 0, AIHC_FRAME_NORMAL};",
+                    "static const AihcInfo continuation_info = {8, entry_8, 0, 1, 0, &continuation_final_info, 0, AIHC_FRAME_NORMAL};",
+                    "static const AihcInfo action_final_info = {9, entry_9, 0, 0, 0, 0, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo action_info = {9, entry_9, 0, 1, 0, &action_final_info, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo thread_done_final_info = {10, entry_10, 1, 0, pointer_field, 0, 0, AIHC_FRAME_STOP};",
+                    "static const AihcInfo thread_done_info = {10, entry_10, 0, 1, 0, &thread_done_final_info, 0, AIHC_FRAME_STOP};",
+                    "static const AihcInfo yield_final_info = {12, entry_12, 0, 0, 0, 0, 0, AIHC_FRAME_NONE};",
+                    "static const AihcInfo yield_info = {12, entry_12, 0, 1, 0, &yield_final_info, 0, AIHC_FRAME_NONE};",
                     "static int test_apply_roots(void) {",
                     "  AihcMachine *machine = aihc_machine_new(0);",
                     "  AihcValue *leaf = aihc_make_node(machine, AIHC_TAG_NODE, &leaf_info);",
@@ -720,6 +720,10 @@ testNativeScheduler = do
   assertBool "emits fork state operation" ("bl _aihc_fork" `T.isInfixOf` assembly)
   assertBool "emits yield state operation" ("bl _aihc_yield" `T.isInfixOf` assembly)
   assertBool "emits child completion transfer" ("bl _aihc_thread_done" `T.isInfixOf` assembly)
+  let updateInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_update_info:") (T.lines assembly)))
+      finalInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_final_info:") (T.lines assembly)))
+  assertBool "emits update continuation frame metadata" ("  .quad 3" `T.isSuffixOf` T.stripEnd updateInfo)
+  assertBool "emits stop continuation frame metadata" ("  .quad 5" `T.isSuffixOf` T.stripEnd finalInfo)
   when (arch == "aarch64" && os == "darwin") $
     runSchedulerAssembly "PCAB" assembly
 

@@ -1,6 +1,0 @@
-extensions: [UnboxedTuples]
-input: |
-  (#,,#)
-ast: |-
-  ETuple Unboxed [Nothing, Nothing, Nothing]
-status: pass

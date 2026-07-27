@@ -1,7 +1,0 @@
-extensions: [KindSignatures]
-input: |
-  {-# LANGUAGE KindSignatures #-}
-  class (xs :: [k]) `Infix` (ys :: [k])
-ast: |-
-  Module {[KindSignatures], [DeclClass (ClassDecl {Infix (TyVarBinder {"xs", Just (TList [TVar "k"])}) "Infix" (TyVarBinder {"ys", Just (TList [TVar "k"])})})]}
-status: pass

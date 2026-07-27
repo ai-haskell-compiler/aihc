@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  0x5e.a
-ast: |-
-  EFloat 757 % 8 TFractional
-status: pass

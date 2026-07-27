@@ -267,8 +267,8 @@ evalPrimitive "<#" [left, right] =
   evalIntPrim "<#" (\leftInt rightInt -> if leftInt < rightInt then 1 else 0) left right
 evalPrimitive "==#" [left, right] =
   evalIntPrim "==#" (\leftInt rightInt -> if leftInt == rightInt then 1 else 0) left right
-evalPrimitive "charToInt#" [value] = do
-  charValue <- forceCharPrimitiveArg "charToInt#" value
+evalPrimitive "ord#" [value] = do
+  charValue <- forceCharPrimitiveArg "ord#" value
   pure (VLit (LitInt IntRep (fromIntegral (Char.ord charValue))))
 evalPrimitive "intToChar#" [value] = do
   intValue <- forceIntPrimitiveArg "intToChar#" value
@@ -319,6 +319,8 @@ evalPrimitive "ctz#" [value] = evalWordCount "ctz#" countTrailingZeros value
 evalPrimitive "popCnt#" [value] = evalWordCount "popCnt#" popCount value
 evalPrimitive "raise#" [exception] =
   throwE . EvalRaisedException =<< forceValue exception
+evalPrimitive "unsafeCoerce#" [value] =
+  forceValue value
 evalPrimitive "realWorld#" [] =
   pure VStateToken
 evalPrimitive "catch#" [action, handler, state] =

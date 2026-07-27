@@ -15,6 +15,7 @@ module Aihc.Cli.Compile
     compileSourceToAssemblyWithDependencies,
     compileSourceToAssemblyWithDependenciesFor,
     defaultCompileEnvironment,
+    reachableRuntimePrimitiveNames,
     renderCompileError,
     runCompile,
     runCompileBatch,
@@ -368,7 +369,8 @@ compileIncrementalArtifacts target dependencies compilation = do
       dependencyLayout = buildLinkLayoutFromInterfaces (dependencyLinkInterfaces dependencies)
       layout = extendLinkLayout dependencyLayout mainGrin
       reachability = dependencyReachabilityInterface dependencies <> extractReachabilityInterface mainCore
-      primitives = Set.toAscList (reachablePrimitiveNames "main" reachability)
+      runtimePrograms = map incrementalUnitGrin (incrementalDependencyUnits compilation) <> [mainGrin]
+      primitives = Set.toAscList (reachableRuntimePrimitiveNames "main" reachability runtimePrograms)
   either (Left . CompileBackendError) Right (validateBackendPrimitiveNames target primitives)
   assembly <-
     either
@@ -384,6 +386,21 @@ compileIncrementalArtifacts target dependencies compilation = do
         compiledAssembly = assembly,
         compiledArchives = dependencyArchivePaths dependencies
       }
+
+-- | Source reachability includes primops that typed lowering erases. Backend
+-- validation must consider only declarations that survive into some linked
+-- GRIN unit, otherwise an erased operation such as unsafeCoerce# is mistaken
+-- for a backend responsibility during incremental compilation.
+reachableRuntimePrimitiveNames :: Text -> Fc.ReachabilityInterface -> [Grin.GrinProgram] -> Set.Set Text
+reachableRuntimePrimitiveNames entry reachability programs =
+  Set.intersection
+    (reachablePrimitiveNames entry reachability)
+    ( Set.fromList
+        [ Grin.grinVarName primitive
+        | program <- programs,
+          (primitive, _) <- Grin.grinPrimitives program
+        ]
+    )
 
 compileProgramArtifacts :: NativeTarget -> FcProgram -> Either CompileError CompileArtifacts
 compileProgramArtifacts target sourceCore = do

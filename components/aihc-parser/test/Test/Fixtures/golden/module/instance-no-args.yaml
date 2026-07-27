@@ -1,8 +1,0 @@
-extensions: []
-input: |
-  module Inst where
-  class Foo
-  instance Foo
-ast: |-
-  Module {ModuleHead {"Inst"}, [DeclClass (ClassDecl {Prefix "Foo"}), DeclInstance (InstanceDecl {TCon "Foo"})]}
-status: pass

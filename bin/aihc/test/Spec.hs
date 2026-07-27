@@ -6,6 +6,7 @@ import Aihc.Cli.Compile
   ( CompileEnvironment (..),
     compileOutputPath,
     defaultCompileEnvironment,
+    reachableRuntimePrimitiveNames,
     wasmClangCommand,
     wasmOptArguments,
   )
@@ -27,10 +28,20 @@ import Aihc.Cli.Install
   )
 import Aihc.Cli.Options (Command (..), CompileBatchOptions (..), CompileOptions (..), GarbageCollector (..), InstallErrorFormat (..), InstallOptions (..), ReplOptions (..), parseCommandPure)
 import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession, replCompletion)
-import Aihc.Fc (FcProgram (..))
+import Aihc.Fc
+  ( FcBind (..),
+    FcExpr (..),
+    FcProgram (..),
+    FcTopBind (..),
+    Literal (..),
+    Var (..),
+    extractReachabilityInterface,
+  )
+import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..))
 import Aihc.Resolve (Scope (..))
+import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
 import Control.Exception (bracket)
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
@@ -38,6 +49,7 @@ import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.IORef (newIORef)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import Data.Text qualified as T
 import System.Console.Haskeline qualified as Haskeline
 import System.Directory
@@ -162,6 +174,7 @@ main =
               "wasm-opt arguments"
               ["input.wasm", "-O3", "--enable-tail-call", "--emit-target-features", "-o", "output.wasm"]
               (wasmOptArguments "input.wasm" "output.wasm"),
+          testCase "validates only primitives that survive GRIN lowering" test_runtimePrimitiveValidation,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment
         ],
       testGroup
@@ -885,6 +898,23 @@ test_compileDefaultEnvironment =
   where
     restoreCacheHome Nothing = unsetEnv "XDG_CACHE_HOME"
     restoreCacheHome (Just value) = setEnv "XDG_CACHE_HOME" value
+
+test_runtimePrimitiveValidation :: Assertion
+test_runtimePrimitiveValidation = do
+  let valueTy = TcTyCon (TyCon "Value" 0) []
+      intTy = TcTyCon (TyCon "Int#" 0) []
+      kept = Var "kept#" (Unique 1) (TcFunTy intTy valueTy)
+      unsafeCoerce = Var "unsafeCoerce#" (Unique 2) (TcFunTy valueTy valueTy)
+      mainVar = Var "main" (Unique 3) valueTy
+      core =
+        FcProgram
+          [ FcPrimitive kept 1,
+            FcPrimitive unsafeCoerce 1,
+            FcTopBind (FcNonRec mainVar (FcApp (FcVar unsafeCoerce) (FcApp (FcVar kept) (FcLit (LitInt IntRep 1)))))
+          ]
+      grin = Grin.lowerProgram core
+      reachable = reachableRuntimePrimitiveNames "main" (extractReachabilityInterface core) [grin]
+  assertEqual "runtime primitives" (Set.singleton "kept#") reachable
 
 assertFileExists :: FilePath -> Assertion
 assertFileExists path = do

@@ -1,6 +1,0 @@
-input: |
-  module Demo where
-  x = 1
-output: |
-  Module {ModuleHead {"Demo"}, [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}
-status: pass

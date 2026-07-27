@@ -1,6 +1,0 @@
-extensions: []
-input: "naïve"
-tokens:
-  - 'TkVarId "naïve"'
-  - 'TkEOF'
-status: pass

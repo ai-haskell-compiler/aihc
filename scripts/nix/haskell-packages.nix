@@ -7,13 +7,11 @@
     "aihc-amd64"
     "aihc-arm64"
     "aihc-c"
-    "aihc-cpp"
     "aihc-dev"
     "aihc-fc"
     "aihc-fmt"
     "aihc-grin"
     "aihc-native"
-    "aihc-parser"
     "aihc-resolve"
     "aihc-tc"
     "aihc-testing"
@@ -67,33 +65,6 @@
       optimizeForChecks = true;
       supportsDocs = false;
       supportsCoverage = false;
-    };
-    aihc-parser = {
-      src = sources.parserSrc;
-      cabal2nixOptions = {
-        extraCabal2nixOptions = "--flag fuzz";
-      };
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = true;
-      supportsCoverage = true;
-    };
-    aihc-parser-compat = {
-      src = sources.parserCompatSrc;
-      cabal2nixOptions = {
-        extraCabal2nixOptions = "--flag fuzz";
-      };
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
-    aihc-cpp = {
-      src = sources.cppSrc;
-      disableProfiling = true;
-      optimizeForChecks = false;
-      supportsDocs = true;
-      supportsCoverage = true;
     };
     aihc-fc = {
       src = sources.fcSrc;
@@ -163,17 +134,6 @@
       src = sources.testingSrc;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--subpath tooling/aihc-testing";
-        srcModifier = src: src;
-      };
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
-    aihc-parser-tooling-common = {
-      src = sources.parserToolingCommonSrc;
-      cabal2nixOptions = {
-        extraCabal2nixOptions = "--subpath tooling/aihc-parser-tooling-common";
         srcModifier = src: src;
       };
       disableProfiling = true;
@@ -269,6 +229,11 @@
             (hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling drv)))
     )
     prev;
+
+  mkHackageLibrary = hsLib: drv:
+    hsLib.dontCheck (hsLib.dontHaddock (
+      hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling drv)
+    ));
 in rec {
   # Hackage dependencies whose build settings need manual adjustment.
   hackageDepTestFixes = pkgs: _final: prev: {
@@ -279,7 +244,7 @@ in rec {
     disableOptimization ? false,
     enableDocs ? false,
     enableCoverage ? false,
-    enableChecks ? false,
+    enableTestExecutables ? false,
     warningsAsErrors ? false,
   }: let
     hsLib = pkgs.haskell.lib;
@@ -293,7 +258,7 @@ in rec {
       else drv;
 
     mkComponent = final: name: spec: let
-      checkPackage = enableChecks && builtins.elem name checkedPackageNames;
+      buildTestExecutable = enableTestExecutables && builtins.elem name checkedPackageNames;
       baseDrv =
         final.callCabal2nixWithOptions
         name
@@ -313,30 +278,23 @@ in rec {
         then enableCoverageWithExport hsLib optimizationAdjusted
         else optimizationAdjusted;
       warningsAdjusted = enableWarningsAsErrors coverageAdjusted;
-      checksAdjusted =
-        if checkPackage
+      testExecutableAdjusted =
+        if buildTestExecutable
         then
           hsLib.dontHaddock (
-            hsLib.overrideCabal warningsAdjusted (old: {
+            hsLib.overrideCabal warningsAdjusted (_old: {
               doCheck = true;
-              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
-              testToolDepends =
-                (old.testToolDepends or [])
-                ++ pkgs.lib.optionals (builtins.elem name ["aihc" "aihc-amd64" "aihc-c"]) [pkgs.llvmPackages.clang];
-              preCheck =
-                (old.preCheck or "")
-                + pkgs.lib.optionalString (builtins.elem name ["aihc" "aihc-amd64" "aihc-arm64" "aihc-c" "aihc-fc" "aihc-grin"]) ''
-                  export AIHC_BASE_SRC=${sources.baseSrc pkgs}
-                  export AIHC_PRIM_SRC=${sources.primSrc pkgs}
-                ''
-                + pkgs.lib.optionalString (builtins.elem name ["aihc-amd64" "aihc-arm64" "aihc-c" "aihc-fc" "aihc-grin"]) ''
-                  export AIHC_EVAL_FIXTURES=${sources.evalFixturesSrc pkgs}
-                '';
+              doInstallIntermediates = true;
+              enableSeparateIntermediatesOutput = true;
+              # Cabal builds the test executable before applying this pattern.
+              # The lightweight check derivations run that executable later,
+              # independently of the package dependency chain.
+              testFlags = ["--pattern" "__nix-build-tests-without-running__"];
             })
           )
         else hsLib.dontCheck warningsAdjusted;
       haddockMode =
-        if enableChecks
+        if buildTestExecutable
         then "dont"
         else if enableDocs
         then
@@ -345,17 +303,23 @@ in rec {
           else "dont"
         else "leave";
     in
-      applyHaddockMode hsLib haddockMode checksAdjusted;
+      applyHaddockMode hsLib haddockMode testExecutableAdjusted;
   in
     (projectHsPackages pkgs).override {
       overrides = final: prev:
         disableUpstreamChecks pkgs hsLib localPackageNames final prev
         // hackageDepTestFixes pkgs final prev
         // {
-          ghc-lib-parser = hsLib.dontCheck (hsLib.dontHaddock (
-            hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling
-              final.ghc-lib-parser_9_14_1_20251220)
-          ));
+          aihc-cpp = mkHackageLibrary hsLib (final.callHackageDirect {
+            pkg = "aihc-cpp";
+            ver = "1.0.0.2";
+            sha256 = "1bsq5549wq9nz62qrij6iabac4xv57dbwcqnflgvbfimj910jcz6";
+          } {});
+          aihc-parser = mkHackageLibrary hsLib (final.callHackageDirect {
+            pkg = "aihc-parser";
+            ver = "1.0.0.5";
+            sha256 = "15x6d7m1js7ifhgpczasyxgzga60fskh6ww3x1ffffdr2a39syjn";
+          } {});
           aihc-hackage = hsLib.dontCheck (hsLib.dontHaddock (
             hsLib.disableExecutableProfiling (hsLib.disableLibraryProfiling (
               final.callCabal2nix "aihc-hackage" (sources.hackageSrc pkgs) {}
@@ -369,17 +333,7 @@ in rec {
 
   mkHsPkgsForChecks = pkgs:
     mkHsPkgsVariant pkgs {
-      enableChecks = true;
+      enableTestExecutables = true;
       warningsAsErrors = true;
-    };
-
-  mkHsPkgsWithHaddock = pkgs:
-    mkHsPkgsVariant pkgs {
-      enableDocs = true;
-    };
-
-  mkHsPkgsWithCoverage = pkgs:
-    mkHsPkgsVariant pkgs {
-      enableCoverage = true;
     };
 }

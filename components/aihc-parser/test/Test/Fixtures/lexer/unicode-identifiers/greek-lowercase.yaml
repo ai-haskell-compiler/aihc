@@ -1,6 +1,0 @@
-extensions: []
-input: "αβγ"
-tokens:
-  - 'TkVarId "αβγ"'
-  - 'TkEOF'
-status: pass

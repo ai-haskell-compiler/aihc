@@ -1,6 +1,0 @@
-{- ORACLE_TEST pass -}
-{-# LANGUAGE ForeignFunctionInterface #-}
-{- a
-   multi-line comment below pragma -}
-module DemoMultiLineBelow where
-x = 1

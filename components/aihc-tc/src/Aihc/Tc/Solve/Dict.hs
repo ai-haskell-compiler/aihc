@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Dictionary (class constraint) solver.
 --
 -- For the MVP, this is a stub. The full implementation will match
@@ -50,9 +52,12 @@ solveDictWithGivens givens ct =
         Just evidence -> do
           bindEvidence (ctEvVar ct) evidence
           pure DictSolved
-        Nothing -> do
-          instances <- getInstances
-          tryInstances className args' instances
+        Nothing ->
+          case (className, args') of
+            ("Typeable", [ty]) -> tryTypeable ty
+            _ -> do
+              instances <- getInstances
+              tryInstances className args' instances
     _ ->
       pure (DictStuck ct)
   where
@@ -82,6 +87,28 @@ solveDictWithGivens givens ct =
       case result of
         DictSolved -> lookupEvidence ev
         DictStuck _ -> pure Nothing
+
+    tryTypeable ty =
+      case typeableArguments ty of
+        Nothing -> pure (DictStuck ct)
+        Just arguments -> do
+          argumentEvidence <- mapM (solveSubPred . ClassPred "Typeable" . (: [])) arguments
+          case sequence argumentEvidence of
+            Just evidence -> do
+              bindEvidence (ctEvVar ct) (EvTypeable ty evidence)
+              pure DictSolved
+            Nothing -> pure (DictStuck ct)
+
+typeableArguments :: TcType -> Maybe [TcType]
+typeableArguments ty =
+  case ty of
+    TcTyCon _ arguments -> Just arguments
+    TcFunTy argument result -> Just [argument, result]
+    TcTyVar {} -> Nothing
+    TcMetaTv {} -> Nothing
+    TcForAllTy {} -> Nothing
+    TcQualTy {} -> Nothing
+    TcAppTy {} -> Nothing
 
 sameClassPred :: Text -> [TcType] -> Pred -> Bool
 sameClassPred className args pred' =

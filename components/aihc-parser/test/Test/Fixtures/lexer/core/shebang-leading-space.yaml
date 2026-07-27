@@ -1,7 +1,0 @@
-# GHC also accepts an initial space before the shebang marker.
-extensions: []
-input: " #!/usr/bin/env runghc\nmain\n"
-tokens:
-  - 'TkVarId "main"'
-  - 'TkEOF'
-status: pass

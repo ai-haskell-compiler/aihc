@@ -103,6 +103,9 @@ putcharCall =
 testTrampoline :: IO ()
 testTrampoline = do
   source <- compile schedulerProgram
+  assertBool "emits normal continuation frame metadata" ("AIHC_FRAME_NORMAL" `T.isInfixOf` source)
+  assertBool "emits update continuation frame metadata" ("AIHC_FRAME_UPDATE" `T.isInfixOf` source)
+  assertBool "emits stop continuation frame metadata" ("AIHC_FRAME_STOP" `T.isInfixOf` source)
   forM_
     [ "while (aihc_next_transfer.entry != NULL)",
       "aihc_next_transfer = aihc_trampoline_fork_cps",

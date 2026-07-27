@@ -13,7 +13,8 @@ module Aihc.C.Codegen
   )
 where
 
-import Aihc.Grin.Gc (GcGrinProgram, gcGrinProgram, gcUpdateFunction)
+import Aihc.Grin.Cps (ContinuationFrameKind (..))
+import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
 import Aihc.Native (LinkLayout (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, supportedNativePrimitiveNames)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
@@ -61,7 +62,8 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoEntry :: !(Maybe Text),
     runtimeInfoFields :: ![RuntimeRep],
     runtimeInfoRemainingArity :: !Int,
-    runtimeInfoNext :: !(Maybe Text)
+    runtimeInfoNext :: !(Maybe Text),
+    runtimeInfoFrameKind :: !(Maybe ContinuationFrameKind)
   }
 
 data RuntimeInfoKey
@@ -104,14 +106,14 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
   initializer <- compileInitializers env program
   constructorInitializer <- compileConstructorInitializers env
   let specialInfos =
-        [ specialInfo "aihc_final_info" "aihc_final_continuation" [] 1 (Just "aihc_final_applied_info"),
-          specialInfo "aihc_final_applied_info" "aihc_final_continuation" [BoxedRep Lifted] 0 Nothing,
-          specialInfo "aihc_top_info" "aihc_top_continuation" [BoxedRep Lifted] 1 (Just "aihc_top_applied_info"),
-          specialInfo "aihc_top_applied_info" "aihc_top_continuation" [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing,
-          specialInfo "aihc_update_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted] 1 (Just "aihc_update_applied_info"),
-          specialInfo "aihc_update_applied_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing,
-          specialInfo "aihc_thread_done_info" "aihc_thread_done_continuation" [] 1 (Just "aihc_thread_done_applied_info"),
-          specialInfo "aihc_thread_done_applied_info" "aihc_thread_done_continuation" [BoxedRep Lifted] 0 Nothing
+        [ specialInfo "aihc_final_info" "aihc_final_continuation" [] 1 (Just "aihc_final_applied_info") ContinuationFrameStop,
+          specialInfo "aihc_final_applied_info" "aihc_final_continuation" [BoxedRep Lifted] 0 Nothing ContinuationFrameStop,
+          specialInfo "aihc_top_info" "aihc_top_continuation" [BoxedRep Lifted] 1 (Just "aihc_top_applied_info") ContinuationFrameNormal,
+          specialInfo "aihc_top_applied_info" "aihc_top_continuation" [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing ContinuationFrameNormal,
+          specialInfo "aihc_update_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted] 1 (Just "aihc_update_applied_info") ContinuationFrameUpdate,
+          specialInfo "aihc_update_applied_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing ContinuationFrameUpdate,
+          specialInfo "aihc_thread_done_info" "aihc_thread_done_continuation" [] 1 (Just "aihc_thread_done_applied_info") ContinuationFrameStop,
+          specialInfo "aihc_thread_done_applied_info" "aihc_thread_done_continuation" [BoxedRep Lifted] 0 Nothing ContinuationFrameStop
         ]
       source =
         [ "#include \"aihc_runtime_trampoline.h\"",
@@ -148,8 +150,8 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
                "  top_continuation = aihc_make_node_unchecked(aihc_machine, AIHC_TAG_CLOSURE, &aihc_top_info);",
                "  aihc_set_field(top_continuation, 0, (AihcSlot)(uintptr_t)final_continuation);",
                "  update_continuation = aihc_make_node_unchecked(aihc_machine, AIHC_TAG_CLOSURE, &aihc_update_info);",
-               "  aihc_set_field(update_continuation, 0, aihc_machine->globals[" <> tshow rootSlot <> "]);",
-               "  aihc_set_field(update_continuation, 1, (AihcSlot)(uintptr_t)top_continuation);",
+               "  aihc_set_field(update_continuation, 0, (AihcSlot)(uintptr_t)top_continuation);",
+               "  aihc_set_field(update_continuation, 1, aihc_machine->globals[" <> tshow rootSlot <> "]);",
                "  thread_done_continuation = aihc_make_node_unchecked(aihc_machine, AIHC_TAG_CLOSURE, &aihc_thread_done_info);",
                "  aihc_next_transfer = aihc_trampoline_start(aihc_machine, (AihcValue *)(uintptr_t)aihc_machine->globals[" <> tshow rootSlot <> "], top_continuation, update_continuation, thread_done_continuation, aihc_exit);",
                "  while (aihc_next_transfer.entry != NULL) {",
@@ -163,9 +165,9 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment ExecutableUnit layout program
+    env = compileEnvironment ExecutableUnit layout gcProgram
     globalSlots = compileGlobalSlots env
-    specialInfo label entry = RuntimeInfo label Nothing (Just entry)
+    specialInfo label entry fields remaining next frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next (Just frameKind)
 
 compileModule :: LinkLayout -> Text -> GcGrinProgram -> Either CError Text
 compileModule layout initializerSymbol gcProgram = do
@@ -194,7 +196,7 @@ compileModule layout initializerSymbol gcProgram = do
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment LibraryUnit layout program
+    env = compileEnvironment LibraryUnit layout gcProgram
 
 validateProgramPrimitives :: GrinProgram -> Either CError ()
 validateProgramPrimitives = validatePrimitiveNames . map (grinVarName . fst) . grinPrimitives
@@ -205,8 +207,8 @@ validatePrimitiveNames = mapM_ $ \name ->
     then Right ()
     else Left (CUnsupportedPrimitive name)
 
-compileEnvironment :: CompilationUnit -> LinkLayout -> GrinProgram -> CompileEnv
-compileEnvironment unitKind layout program =
+compileEnvironment :: CompilationUnit -> LinkLayout -> GcGrinProgram -> CompileEnv
+compileEnvironment unitKind layout gcProgram =
   CompileEnv
     { compileConstructorIds = Map.fromList (zip (map fst constructors) [1 ..]),
       compileConstructorArities = Map.fromList constructors,
@@ -221,6 +223,7 @@ compileEnvironment unitKind layout program =
           LibraryUnit -> True
     }
   where
+    program = gcGrinProgram gcProgram
     constructors = [(name, length layouts) | (name, layouts) <- linkConstructors layout]
     constructorIds = zip (map fst constructors) [1 ..]
     functionLabels =
@@ -233,7 +236,7 @@ compileEnvironment unitKind layout program =
                ]
         )
     constructorEntries =
-      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next)
+      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing)
       | ((name, layouts), (_, identifier)) <- zip (linkConstructors layout) constructorIds,
         let arity = length layouts,
         remaining <- [arity, arity - 1 .. 0],
@@ -261,7 +264,7 @@ compileEnvironment unitKind layout program =
     functionEntries =
       [ ( key,
           label,
-          RuntimeInfo label Nothing (runtimeInfoFunctionName key >>= (`Map.lookup` functionLabels)) (runtimeInfoKeyFields key) (runtimeInfoKeyRemainingArity key) (runtimeInfoKeyNext key >>= (`Map.lookup` infoLabels))
+          RuntimeInfo label Nothing (runtimeInfoFunctionName key >>= (`Map.lookup` functionLabels)) (runtimeInfoKeyFields key) (runtimeInfoKeyRemainingArity key) (runtimeInfoKeyNext key >>= (`Map.lookup` infoLabels)) (runtimeInfoFunctionName key >>= (`Map.lookup` gcContinuationFrames gcProgram))
         )
       | (index, key) <- zip [0 :: Int ..] infoKeys,
         let label = "aihc_function_info_" <> tshow index
@@ -578,7 +581,7 @@ compileDirectBinding env vars expression =
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
+      | name `elem` ["ord#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
           liftEither (materializeValue env value) >>= storeExpression
     GrinPrimitiveCall _ name arguments
       | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
@@ -853,7 +856,18 @@ renderRuntimeInfos infos = concatMap bitmap infos <> [""] <> map declaration inf
         <> ", "
         <> maybe "NULL" ("&" <>) (runtimeInfoNext info)
         <> ", NULL"
+        <> ", "
+        <> renderFrameKind (runtimeInfoFrameKind info)
         <> "};"
+
+    renderFrameKind frameKind =
+      case frameKind of
+        Nothing -> "AIHC_FRAME_NONE"
+        Just ContinuationFrameNormal -> "AIHC_FRAME_NORMAL"
+        Just ContinuationFrameCatch -> "AIHC_FRAME_CATCH"
+        Just ContinuationFrameUpdate -> "AIHC_FRAME_UPDATE"
+        Just ContinuationFrameRestoreMask -> "AIHC_FRAME_RESTORE_MASK"
+        Just ContinuationFrameStop -> "AIHC_FRAME_STOP"
 
 renderForeignDeclarations :: GrinProgram -> [Text]
 renderForeignDeclarations program =

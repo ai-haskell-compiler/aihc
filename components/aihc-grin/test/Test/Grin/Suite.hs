@@ -144,11 +144,30 @@ grinUnitTests =
         cps <- expectCpsGrin callBindProgram
         let program = cpsGrinProgram cps
             rendered = renderProgram program
+            callerContinuation = cpsFunctionContinuations cps Map.! FunctionName "caller"
+            callerNodes =
+              [ node
+              | function <- grinFunctions program,
+                grinFunctionName function == FunctionName "caller",
+                node@(GrinNode (GrinClosure name _) _) <- expressionStoredNodes (grinFunctionBody function),
+                name `Set.member` cpsContinuationFunctions cps
+              ]
         assertEqual "transformed lint" [] (lintProgram program)
         assertBool "allocates a continuation closure" ("store (P$cps$" `isInfixOf` rendered)
         assertBool "invokes a continuation closure" ("continue ($cps_return" `isInfixOf` rendered)
         assertBool "passes an explicit continuation to the call" (any callEndsInContinuation (grinFunctions program))
-        assertBool "generated continuation captures its environment" (any continuationHasCaptures (grinFunctions program)),
+        assertBool "generated continuation captures its environment" (any continuationHasCaptures (grinFunctions program))
+        assertEqual "one caller continuation" 1 (length callerNodes)
+        case callerNodes of
+          [GrinNode _ fields] -> assertEqual "parent continuation occupies field zero" (Just (GrinVarValue callerContinuation)) (firstMaybe fields)
+          _ -> pure ()
+        assertEqual
+          "ordinary continuation frame kinds"
+          (Just ContinuationFrameNormal)
+          ( do
+              GrinNode (GrinClosure name _) _ <- firstMaybe callerNodes
+              Map.lookup name (cpsContinuationFrames cps)
+          ),
       testCase "CPS-GRIN treats a multi-value result as one logical argument" $ do
         cps <- expectCpsGrin multiValueContinuationProgram
         case grinFunctions (cpsGrinProgram cps) of
@@ -195,6 +214,7 @@ grinUnitTests =
             roots = map snd reservations
             rendered = renderProgram gcProgram
         assertEqual "preserves continuation entries" (cpsContinuationFunctions cps) (gcContinuationFunctions gc)
+        assertEqual "preserves continuation frame kinds" (cpsContinuationFrames cps) (gcContinuationFrames gc)
         assertEqual "preserves computation continuations" (cpsFunctionContinuations cps) (gcFunctionContinuations gc)
         assertEqual "preserves update entry" (cpsUpdateFunction cps) (gcUpdateFunction gc)
         assertEqual "GC-GRIN lint" [] (lintProgram gcProgram)
@@ -217,8 +237,23 @@ grinUnitTests =
             updateName = cpsUpdateFunction cps
         case [function | function <- grinFunctions program, grinFunctionName function == updateName] of
           [function] -> do
+            assertEqual "update frame kind" (Just ContinuationFrameUpdate) (Map.lookup updateName (cpsContinuationFrames cps))
+            assertEqual
+              "parent and blackhole lead the update entry parameters"
+              ["$cps_outer", "$cps_blackhole"]
+              (map grinVarName (take 2 (grinFunctionParameters function)))
             assertBool "updates only a blackhole" (containsUpdateBlackhole (grinFunctionBody function))
             assertBool "re-forces the updated result" (containsCpsEval (grinFunctionBody function))
+            let parentByOwner =
+                  case grinFunctionParameters function of
+                    parent : _ -> Map.insert updateName parent (cpsFunctionContinuations cps)
+                    [] -> cpsFunctionContinuations cps
+            forM_ (updateContinuationNodes updateName program) $ \(owner, node) -> do
+              assertEqual "update frame has parent and blackhole fields" 2 (length (grinNodeFields node))
+              assertEqual
+                "update frame parent occupies field zero"
+                (GrinVarValue <$> Map.lookup owner parentByOwner)
+                (firstMaybe (grinNodeFields node))
           _ -> assertFailure "missing unique update continuation",
       testCase "CPS-GRIN requires exception control to be eliminated" $ do
         assertEqual
@@ -248,6 +283,12 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertBool "allocates a provenance-named ordinary closure" ("PmakeAdder_primitive_" `isInfixOf` rendered)
         assertBool "wrapper makes a saturated primitive call" ("primitive-call @IntRep +#" `isInfixOf` rendered),
+      testCase "FC lowering erases saturated and partially applied unsafeCoerce#" $ do
+        let program = lowerProgram unsafeCoerceProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertEqual "primitive declaration is erased" [] (grinPrimitives program)
+        assertBool ("unsafeCoerce# reached GRIN:\n" <> rendered) (not ("unsafeCoerce#" `isInfixOf` rendered)),
       testCase "FC lowering counts zero-width arguments in closure arity" $ do
         let program = lowerProgram zeroWidthSaturatedApplicationProgram
             rendered = renderProgram program
@@ -524,6 +565,14 @@ expressionStoredNodes expression =
     GrinCase _ _ alternatives -> concatMap (expressionStoredNodes . grinAltRhs) alternatives
     _ -> []
 
+updateContinuationNodes :: FunctionName -> GrinProgram -> [(FunctionName, GrinNode)]
+updateContinuationNodes updateName program =
+  [ (grinFunctionName function, node)
+  | function <- grinFunctions program,
+    node@(GrinNode (GrinClosure name _) _) <- expressionStoredNodes (grinFunctionBody function),
+    name == updateName
+  ]
+
 expressionCalledFunctions :: GrinExpr -> [FunctionName]
 expressionCalledFunctions expression =
   case expression of
@@ -696,6 +745,12 @@ containsCpsEval expression =
     GrinStoreRec _ body -> containsCpsEval body
     GrinCase _ _ alternatives -> any (containsCpsEval . grinAltRhs) alternatives
     _ -> False
+
+firstMaybe :: [value] -> Maybe value
+firstMaybe values =
+  case values of
+    value : _ -> Just value
+    [] -> Nothing
 
 lastMaybe :: [value] -> Maybe value
 lastMaybe values =
@@ -967,6 +1022,26 @@ partialPrimitiveProgram =
     addVar = Var "+#" (Unique 130) (TcFunTy intTy (TcFunTy intTy intTy))
     makeAdderVar = Var "makeAdder" (Unique 131) (TcFunTy intTy (TcFunTy intTy intTy))
     firstVar = Var "first" (Unique 132) intTy
+
+unsafeCoerceProgram :: FcProgram
+unsafeCoerceProgram =
+  FcProgram
+    [ FcPrimitive unsafeCoerceVar 1,
+      FcTopBind
+        ( FcNonRec
+            coerceVar
+            (FcLam argumentVar (FcApp (FcVar unsafeCoerceVar) (FcVar argumentVar)))
+        ),
+      FcTopBind (FcNonRec coerceAliasVar (FcVar unsafeCoerceVar))
+    ]
+  where
+    sourceTy = TcTyCon (TyCon "Source" 0) []
+    targetTy = TcTyCon (TyCon "Target" 0) []
+    coerceTy = TcFunTy sourceTy targetTy
+    unsafeCoerceVar = Var "unsafeCoerce#" (Unique 133) coerceTy
+    coerceVar = Var "coerce" (Unique 134) coerceTy
+    coerceAliasVar = Var "coerceAlias" (Unique 135) coerceTy
+    argumentVar = Var "argument" (Unique 136) sourceTy
 
 zeroWidthSaturatedApplicationProgram :: FcProgram
 zeroWidthSaturatedApplicationProgram =

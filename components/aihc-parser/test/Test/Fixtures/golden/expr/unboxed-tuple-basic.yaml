@@ -1,6 +1,0 @@
-extensions: [UnboxedTuples]
-input: |
-  (# 1, 2 #)
-ast: |-
-  ETuple Unboxed [EInt 1 TInteger, EInt 2 TInteger]
-status: pass

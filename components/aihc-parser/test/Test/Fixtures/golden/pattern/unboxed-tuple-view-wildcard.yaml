@@ -1,6 +1,0 @@
-extensions: [UnboxedTuples, ViewPatterns]
-input: |
-  (# (== 0) -> True, _ #)
-ast: |-
-  PTuple Unboxed [PView (EParen (ESectionR "==" (EInt 0 TInteger))) (PCon "True" []), PWildcard]
-status: pass

@@ -1,8 +1,0 @@
-# Negative octal integer with NegativeLiterals extension
-extensions:
-  - NegativeLiterals
-input: "-0o17"
-tokens:
-  - 'TkInteger -15 TInteger'
-  - 'TkEOF'
-status: pass

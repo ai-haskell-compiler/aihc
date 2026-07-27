@@ -1,12 +1,13 @@
 {
-  mkApiDocs,
-  mkCombinedDocs,
-  mkCoverageReport,
+  mkChecks,
   mkUserGuide,
-}: pkgs: {
-  api-docs = mkApiDocs pkgs;
-  docs = mkCombinedDocs pkgs;
-  coverage = mkCoverageReport pkgs;
+}: pkgs: let
+  checks = mkChecks pkgs;
+in {
+  ci-checks = pkgs.linkFarm "aihc-ci-checks" (
+    pkgs.lib.mapAttrsToList (name: path: {inherit name path;}) checks
+  );
+  docs = mkUserGuide pkgs;
   user-guide = mkUserGuide pkgs;
-  default = mkCombinedDocs pkgs;
+  default = mkUserGuide pkgs;
 }

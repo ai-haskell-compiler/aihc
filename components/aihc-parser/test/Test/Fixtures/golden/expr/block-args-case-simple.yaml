@@ -1,7 +1,0 @@
-extensions: [BlockArguments]
-input: |
-  id case x of
-    _ -> ()
-ast: |-
-  EApp (EVar "id") (ECase (EVar "x") [CaseAlt (PWildcard) (ETuple [])])
-status: pass

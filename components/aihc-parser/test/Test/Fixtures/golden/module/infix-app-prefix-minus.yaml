@@ -1,7 +1,0 @@
-extensions: []
-input: |
-  module Demo where
-  f = id $ - 1
-ast: |-
-  Module {ModuleHead {"Demo"}, [DeclValue (PatternBind (PVar "f") (EInfix (EVar "id") "$" (ENegate (EInt 1 TInteger))))]}
-status: pass

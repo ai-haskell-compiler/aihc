@@ -14,7 +14,8 @@ module Aihc.Wasm.Codegen
   )
 where
 
-import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
+import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
+import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
 import Aihc.Native (LinkLayout (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, supportedNativePrimitiveNames)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
@@ -78,7 +79,8 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoFields :: ![RuntimeRep],
     runtimeInfoRemainingArity :: !Int,
     runtimeInfoNext :: !(Maybe Text),
-    runtimeInfoAdapter :: !(Maybe RuntimeAdapter)
+    runtimeInfoAdapter :: !(Maybe RuntimeAdapter),
+    runtimeInfoFrameKind :: !(Maybe ContinuationFrameKind)
   }
 
 data RuntimeInfoKey
@@ -124,7 +126,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
   functions <- mapM (compileFunction env) (grinFunctions program)
   constructorInit <- compileConstructorInitializers env
   programInit <- compileInitializers env program
-  let specialInfo label entry fields remaining next = RuntimeInfo label Nothing (Just entry) fields remaining next Nothing
+  let specialInfo label entry fields remaining next frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next Nothing (Just frameKind)
       updateInfo label fields remaining next enter =
         RuntimeInfo
           label
@@ -134,15 +136,16 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
           remaining
           next
           (Just (RuntimeAdapter updateLabel updateArity enter))
+          (Just ContinuationFrameUpdate)
       specialInfos =
-        [ specialInfo "aihc_wasm_final_info" "aihc_wasm_final_continuation" [] 1 (Just "aihc_wasm_final_applied_info"),
-          specialInfo "aihc_wasm_final_applied_info" "aihc_wasm_final_continuation" [BoxedRep Lifted] 0 Nothing,
-          specialInfo "aihc_wasm_top_info" "aihc_wasm_top_continuation" [BoxedRep Lifted] 1 (Just "aihc_wasm_top_applied_info"),
-          specialInfo "aihc_wasm_top_applied_info" "aihc_wasm_top_continuation" [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing,
+        [ specialInfo "aihc_wasm_final_info" "aihc_wasm_final_continuation" [] 1 (Just "aihc_wasm_final_applied_info") ContinuationFrameStop,
+          specialInfo "aihc_wasm_final_applied_info" "aihc_wasm_final_continuation" [BoxedRep Lifted] 0 Nothing ContinuationFrameStop,
+          specialInfo "aihc_wasm_top_info" "aihc_wasm_top_continuation" [BoxedRep Lifted] 1 (Just "aihc_wasm_top_applied_info") ContinuationFrameNormal,
+          specialInfo "aihc_wasm_top_applied_info" "aihc_wasm_top_continuation" [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing ContinuationFrameNormal,
           updateInfo "aihc_wasm_update_info" [BoxedRep Lifted, BoxedRep Lifted] 1 (Just "aihc_wasm_update_applied_info") (Just (RuntimeEnter 2 1 False)),
           updateInfo "aihc_wasm_update_applied_info" [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing Nothing,
-          specialInfo "aihc_wasm_thread_done_info" "aihc_wasm_thread_done_continuation" [] 1 (Just "aihc_wasm_thread_done_applied_info"),
-          specialInfo "aihc_wasm_thread_done_applied_info" "aihc_wasm_thread_done_continuation" [BoxedRep Lifted] 0 Nothing
+          specialInfo "aihc_wasm_thread_done_info" "aihc_wasm_thread_done_continuation" [] 1 (Just "aihc_wasm_thread_done_applied_info") ContinuationFrameStop,
+          specialInfo "aihc_wasm_thread_done_applied_info" "aihc_wasm_thread_done_continuation" [BoxedRep Lifted] 0 Nothing ContinuationFrameStop
         ]
       runtimeInfos = compileRuntimeInfos env <> specialInfos
       source =
@@ -228,7 +231,7 @@ compileEnvironment unitKind layout gcProgram =
                ]
         )
     constructorEntries =
-      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing)
+      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing Nothing)
       | ((name, layouts), (_, identifier)) <- zip (linkConstructors layout) constructorIds,
         let arity = length layouts,
         remaining <- [arity, arity - 1 .. 0],
@@ -265,6 +268,7 @@ compileEnvironment unitKind layout gcProgram =
             (runtimeInfoKeyRemainingArity key)
             (runtimeInfoKeyNext key >>= (`Map.lookup` infoLabels))
             (Just (RuntimeAdapter target arity enter))
+            (Map.lookup functionName (gcContinuationFrames gcProgram))
         )
       | (index, key) <- zip [0 :: Int ..] infoKeys,
         Just functionName <- [runtimeInfoFunctionName key],
@@ -558,7 +562,7 @@ compileDirectBinding env vars expression =
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> storeSingle (materializeValue env value)
+      | name `elem` ["ord#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> storeSingle (materializeValue env value)
     GrinPrimitiveCall _ name arguments
       | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
           instructions <- compileForeignCall env foreignCall arguments
@@ -872,11 +876,11 @@ renderProgramInitializer globalCount rootSlot dependencyInitializers constructor
         <> specialSet 2 (makeSpecial "aihc_wasm_update_info")
         <> specialGet 2
         <> i64Const "0"
-        <> globalGet rootSlot
+        <> specialGet 1
         <> call "aihc_wasm_set_field"
         <> specialGet 2
         <> i64Const "1"
-        <> specialGet 1
+        <> globalGet rootSlot
         <> call "aihc_wasm_set_field"
         <> specialSet 3 (makeSpecial "aihc_wasm_thread_done_info")
         <> ["local.get\t0"]
@@ -1017,7 +1021,8 @@ renderRuntimeInfos infos = concatMap renderBitmap infos <> concatMap renderInfo 
              "\t.int32\t" <> maybe "0" dataLabel (runtimeInfoNext info),
              "\t.int32\t" <> maybe "0" (const (objectEntryLabel info)) (runtimeInfoAdapter info >>= runtimeAdapterEnter),
              "\t.skip\t4",
-             "\t.size\t" <> dataLabel (runtimeInfoLabel info) <> ", 40",
+             "\t.int64\t" <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info)),
+             "\t.size\t" <> dataLabel (runtimeInfoLabel info) <> ", 48",
              ""
            ]
 

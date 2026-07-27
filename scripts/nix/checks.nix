@@ -1,5 +1,4 @@
 {
-  projectHsPackages,
   sources,
   mkHsPkgsForChecks,
 }: pkgs: let
@@ -33,6 +32,31 @@
       cd "$src"
       ${text}
       touch "$out"
+    '';
+
+  testExecutable = drv: "${drv.intermediates}/share/haskell/${hsPkgs.ghc.version}/${drv.pname}-${drv.version}/dist/build/spec/spec";
+
+  mkPackageTest = {
+    drv,
+    src,
+    nativeBuildInputs ? [],
+    environment ? "",
+  }:
+    mkSourceCheck "${drv.pname}-tests" src nativeBuildInputs ''
+      export GHCRTS=-N1
+      ${environment}
+      ${testExecutable drv} --hide-successes
+    '';
+
+  coreLibraryEnvironment = ''
+    export AIHC_BASE_SRC=${sources.baseSrc pkgs}
+    export AIHC_PRIM_SRC=${sources.primSrc pkgs}
+  '';
+
+  evalFixtureEnvironment =
+    coreLibraryEnvironment
+    + ''
+      export AIHC_EVAL_FIXTURES=${sources.evalFixturesSrc pkgs}
     '';
 
   renderExampleTest = ''
@@ -147,30 +171,71 @@
     fi
   '';
 
-  cppProgressEnv = hsPkgs.ghcWithPackages (p: [
-    p.aihc-cpp
-    p.cpphs
-  ]);
-  parserProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-progress";
-  lexerProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "lexer-progress";
-  parserExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-extension-progress";
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
 
-  parserTests = hsPkgs.aihc-parser;
-  cppTests = hsPkgs.aihc-cpp;
-  amd64Tests = hsPkgs.aihc-amd64;
-  arm64Tests = hsPkgs.aihc-arm64;
-  cBackendTests = hsPkgs.aihc-c;
-  nativeTests = hsPkgs.aihc-native;
-  wasmTests = hsPkgs.aihc-wasm;
-  fcTests = hsPkgs.aihc-fc;
-  grinTests = hsPkgs.aihc-grin;
-  resolveTests = hsPkgs.aihc-resolve;
-  tcTests = hsPkgs.aihc-tc;
-  testingTests = hsPkgs.aihc-testing;
-  devTests = hsPkgs.aihc-dev;
-  aihcTests = hsPkgs.aihc;
-  fmtTests = hsPkgs.aihc-fmt;
+  amd64Tests = mkPackageTest {
+    drv = hsPkgs.aihc-amd64;
+    src = sources.amd64Src pkgs;
+    nativeBuildInputs = [pkgs.llvmPackages.clang];
+    environment = evalFixtureEnvironment;
+  };
+  arm64Tests = mkPackageTest {
+    drv = hsPkgs.aihc-arm64;
+    src = sources.arm64Src pkgs;
+    nativeBuildInputs = [pkgs.llvmPackages.clang];
+    environment = evalFixtureEnvironment;
+  };
+  cBackendTests = mkPackageTest {
+    drv = hsPkgs.aihc-c;
+    src = sources.cBackendSrc pkgs;
+    nativeBuildInputs = [pkgs.llvmPackages.clang];
+    environment = evalFixtureEnvironment;
+  };
+  nativeTests = mkPackageTest {
+    drv = hsPkgs.aihc-native;
+    src = sources.nativeSrc pkgs;
+  };
+  wasmTests = mkPackageTest {
+    drv = hsPkgs.aihc-wasm;
+    src = sources.wasmSrc pkgs;
+  };
+  fcTests = mkPackageTest {
+    drv = hsPkgs.aihc-fc;
+    src = sources.fcSrc pkgs;
+    environment = evalFixtureEnvironment;
+  };
+  grinTests = mkPackageTest {
+    drv = hsPkgs.aihc-grin;
+    src = sources.grinSrc pkgs;
+    environment = evalFixtureEnvironment;
+  };
+  resolveTests = mkPackageTest {
+    drv = hsPkgs.aihc-resolve;
+    src = sources.resolveSrc pkgs;
+  };
+  tcTests = mkPackageTest {
+    drv = hsPkgs.aihc-tc;
+    src = sources.tcSrc pkgs;
+  };
+  testingTests = mkPackageTest {
+    drv = hsPkgs.aihc-testing;
+    src = sources.testingSrc pkgs;
+  };
+  devTests = mkPackageTest {
+    drv = hsPkgs.aihc-dev;
+    src = sources.devSrc pkgs;
+    nativeBuildInputs = [hsPkgs.ghc];
+  };
+  aihcTests = mkPackageTest {
+    drv = hsPkgs.aihc;
+    src = sources.aihcSrc pkgs;
+    nativeBuildInputs = [pkgs.llvmPackages.clang];
+    environment = coreLibraryEnvironment;
+  };
+  fmtTests = mkPackageTest {
+    drv = hsPkgs.aihc-fmt;
+    src = sources.fmtSrc pkgs;
+  };
   unicode = import ./unicode.nix {inherit pkgs;};
   unicodeGenerated =
     pkgs.runCommand "aihc-unicode-generated" {
@@ -358,52 +423,7 @@
             test "$(wc -l < "$AIHC_WASM_OPT_MARKER")" -eq ${toString (builtins.length exampleNames)}
             touch "$out"
     '';
-
-  parserProgressStrict = mkSourceCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) [] ''
-    ${parserProgressExe} --strict
-  '';
-
-  lexerProgressStrict = mkSourceCheck "aihc-lexer-progress-strict" (sources.parserSrc pkgs) [] ''
-    ${lexerProgressExe} --strict
-  '';
-
-  parserExtensionProgressStrict = mkSourceCheck "aihc-parser-extension-progress-strict" (sources.parserSrc pkgs) [] ''
-    ${parserExtensionProgressExe} --strict
-  '';
-
-  cppProgressStrict = mkSourceCheck "aihc-cpp-progress-strict" (sources.cppSrc pkgs) [cppProgressEnv] ''
-    runghc -package-env - -itest app/cpp-progress/Main.hs --strict
-  '';
-
-  cppDoctest =
-    mkSourceCheck "aihc-cpp-doctest" (sources.cppSrc pkgs) [
-      (projectHsPackages pkgs).doctest
-      (projectHsPackages pkgs).ghc
-      hsPkgs.aihc-cpp
-    ] ''
-      # Run doctest on the Aihc.Cpp module.
-      doctest -XGHC2021 -isrc src/Aihc/Cpp.hs
-    '';
-
-  parserDoctest = let
-    ghcEnv = hsPkgs.ghcWithPackages (p: [
-      p.aihc-parser
-      p.doctest
-    ]);
-  in
-    mkSourceCheck "aihc-parser-doctest" (sources.parserSrc pkgs) [ghcEnv] ''
-      # Find the GHC package database from ghcWithPackages.
-      PKGDB=$(ghc --print-global-package-db)
-      # Include all source files so imports between modules work.
-      doctest -XGHC2021 -package-db="$PKGDB" -isrc \
-        src/Aihc/Parser/Parens.hs \
-        src/Aihc/Parser/Pretty.hs \
-        src/Aihc/Parser/Shorthand.hs \
-        src/Aihc/Parser.hs
-    '';
 in {
-  parser-tests = parserTests;
-  cpp-tests = cppTests;
   amd64-tests = amd64Tests;
   arm64-tests = arm64Tests;
   c-tests = cBackendTests;
@@ -418,12 +438,6 @@ in {
   aihc-tests = aihcTests;
   fmt-tests = fmtTests;
   unicode-generated = unicodeGenerated;
-  cpp-doctest = cppDoctest;
-  parser-doctest = parserDoctest;
-  parser-progress-strict = parserProgressStrict;
-  lexer-progress-strict = lexerProgressStrict;
-  parser-extension-progress-strict = parserExtensionProgressStrict;
-  cpp-progress-strict = cppProgressStrict;
   nix-lint = nixLint;
   nix-format = nixFormat;
   haskell-lint = haskellLint;

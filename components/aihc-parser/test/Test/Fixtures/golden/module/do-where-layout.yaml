@@ -1,9 +1,0 @@
-extensions: []
-input: |
-  module DoWhereLayout where
-  testDoWhereLayout a = do
-    action
-    where action = a
-ast: |-
-  Module {ModuleHead {"DoWhereLayout"}, [DeclValue (FunctionBind "testDoWhereLayout" [Match {MatchHeadPrefix, [PVar "a"], EDo [DoExpr (EVar "action")] Just [DeclValue (PatternBind (PVar "action") (EVar "a"))]}])]}
-status: pass

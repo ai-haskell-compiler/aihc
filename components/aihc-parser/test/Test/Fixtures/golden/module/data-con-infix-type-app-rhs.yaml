@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  data A a b = b `Infix` a b
-ast: |-
-  Module {[DeclData (DataDecl {Prefix "A" [TyVarBinder {"a"}, TyVarBinder {"b"}], [InfixCon {BangType {TVar "b"}, UnqualifiedName {"Infix"}, BangType {TApp (TVar "a") (TVar "b")}}]})]}
-status: pass

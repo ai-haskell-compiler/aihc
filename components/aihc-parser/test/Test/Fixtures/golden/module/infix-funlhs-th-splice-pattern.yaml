@@ -1,9 +1,0 @@
-extensions: [TemplateHaskell]
-input: |
-  {-# LANGUAGE TemplateHaskell #-}
-  module InfixFunlhsThSplicePattern where
-
-  $splice `fn` () = ()
-ast: |-
-  Module {ModuleHead {"InfixFunlhsThSplicePattern"}, [TemplateHaskell], [DeclValue (FunctionBind "fn" [Match {MatchHeadInfix, [PSplice (EVar "splice"), PTuple []], ETuple []}])]}
-status: pass

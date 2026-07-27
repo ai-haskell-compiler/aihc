@@ -65,7 +65,7 @@ fuzzTests =
         assertEqual "unique identifiers" (length identifiers) (length (nub identifiers))
         assertEqual
           "components"
-          (Set.fromList ["aihc-grin", "aihc-parser", "aihc-parser-compat", "aihc-tc"])
+          (Set.fromList ["aihc-grin", "aihc-tc"])
           components,
       testCase "dashboard stays within short and narrow terminals" $ do
         let frame = renderDashboard 3 24 sampleDashboard
@@ -99,9 +99,9 @@ sampleDashboard :: Dashboard
 sampleDashboard =
   Dashboard
     { dashboardActive =
-        [ (1, "aihc-parser.expr round-trip", 1250),
-          (2, "aihc-parser.decl round-trip", 5000),
-          (3, "aihc-parser.module validator", 9999),
+        [ (1, "aihc-tc.substitution composition", 1250),
+          (2, "aihc-tc.unification symmetry", 5000),
+          (3, "aihc-grin.lint preservation", 9999),
           (4, "aihc-tc.zonking idempotent", 2500),
           (5, "aihc-grin.pretty-printer round-trip", 7500)
         ],

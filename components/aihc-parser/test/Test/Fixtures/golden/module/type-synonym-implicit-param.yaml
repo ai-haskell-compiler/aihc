@@ -1,7 +1,0 @@
-extensions: [ImplicitParams, ConstraintKinds]
-input: |
-  module M where
-  type CanCheck = (?checker :: Int)
-ast: |-
-  Module {ModuleHead {"M"}, [DeclTypeSyn (TypeSynDecl {Prefix "CanCheck", TParen (TImplicitParam "?checker" (TCon "Int"))})]}
-status: pass

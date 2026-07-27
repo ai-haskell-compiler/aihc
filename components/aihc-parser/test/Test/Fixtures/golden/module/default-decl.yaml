@@ -1,7 +1,0 @@
-extensions: []
-input: |
-  module D10 where
-  default (Integer, Double)
-ast: |-
-  Module {ModuleHead {"D10"}, [DeclDefault [TCon "Integer", TCon "Double"]]}
-status: pass

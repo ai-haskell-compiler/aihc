@@ -3,6 +3,7 @@
 -- | Make post-CPS allocation safepoints and relocated roots explicit.
 module Aihc.Grin.Gc
   ( GcGrinProgram,
+    gcContinuationFrames,
     gcContinuationFunctions,
     gcFunctionContinuations,
     gcGrinProgram,
@@ -12,7 +13,7 @@ module Aihc.Grin.Gc
 where
 
 import Aihc.Grin.Analysis (freeExprVars, freeNodeVars)
-import Aihc.Grin.Cps (CpsGrinProgram (..))
+import Aihc.Grin.Cps (ContinuationFrameKind, CpsGrinProgram (..))
 import Aihc.Grin.Syntax
 import Control.Monad.Trans.State.Strict (State, evalState, get, put)
 import Data.Map.Strict (Map)
@@ -26,6 +27,7 @@ import Data.Set qualified as Set
 data GcGrinProgram = GcGrinProgram
   { gcGrinProgram :: !GrinProgram,
     gcContinuationFunctions :: !(Set FunctionName),
+    gcContinuationFrames :: !(Map FunctionName ContinuationFrameKind),
     gcFunctionContinuations :: !(Map FunctionName GrinVar),
     gcUpdateFunction :: !FunctionName
   }
@@ -42,6 +44,7 @@ lowerGc cps =
           { grinFunctions = evalState (mapM lowerFunction (grinFunctions program)) nextUnique
           },
       gcContinuationFunctions = cpsContinuationFunctions cps,
+      gcContinuationFrames = cpsContinuationFrames cps,
       gcFunctionContinuations = cpsFunctionContinuations cps,
       gcUpdateFunction = cpsUpdateFunction cps
     }

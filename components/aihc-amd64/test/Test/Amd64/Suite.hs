@@ -687,6 +687,10 @@ testNativeScheduler = do
   assertBool "emits fork state operation" ("call aihc_fork" `T.isInfixOf` assembly)
   assertBool "emits yield state operation" ("call aihc_yield" `T.isInfixOf` assembly)
   assertBool "emits child completion transfer" ("call aihc_thread_done" `T.isInfixOf` assembly)
+  let updateInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_update_info:") (T.lines assembly)))
+      finalInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_final_info:") (T.lines assembly)))
+  assertBool "emits update continuation frame metadata" ("  .quad 3" `T.isSuffixOf` T.stripEnd updateInfo)
+  assertBool "emits stop continuation frame metadata" ("  .quad 5" `T.isSuffixOf` T.stripEnd finalInfo)
   assertAssemblyAccepted assembly
   when (arch == "x86_64" && os == "linux") $
     runSchedulerAssembly "PCAB" assembly

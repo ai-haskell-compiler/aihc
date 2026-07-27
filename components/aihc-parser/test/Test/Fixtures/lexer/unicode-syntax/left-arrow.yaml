@@ -1,9 +1,0 @@
-extensions:
-  - UnicodeSyntax
-input: "x ← y"
-tokens:
-  - 'TkVarId "x"'
-  - 'TkReservedLeftArrow'
-  - 'TkVarId "y"'
-  - 'TkEOF'
-status: pass

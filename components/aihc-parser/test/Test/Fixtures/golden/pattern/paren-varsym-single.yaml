@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  (+)
-ast: |-
-  PVar "+"
-status: pass

@@ -63,6 +63,7 @@ module Aihc.Arm64.Codegen.Runtime
   )
 where
 
+import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
 import Aihc.Grin.Syntax
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..))
@@ -137,7 +138,8 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoFields :: ![RuntimeRep],
     runtimeInfoRemainingArity :: !Int,
     runtimeInfoNext :: !(Maybe Text),
-    runtimeInfoEnter :: !(Maybe RuntimeEnter)
+    runtimeInfoEnter :: !(Maybe RuntimeEnter),
+    runtimeInfoFrameKind :: !(Maybe ContinuationFrameKind)
   }
 
 data RuntimeEnter = RuntimeEnter
@@ -176,15 +178,16 @@ makeNodeUncheckedLines kind info =
 -- | Describe a unary continuation before and after it receives its result.
 -- The result can occupy several machine slots even though it is one GRIN
 -- argument, hence the distinct runtime arity and supplied-slot count.
-continuationRuntimeInfos :: Text -> Text -> Text -> [RuntimeRep] -> [RuntimeRep] -> [RuntimeInfo]
-continuationRuntimeInfos infoLabel appliedInfoLabel target storedFields suppliedFields =
+continuationRuntimeInfos :: ContinuationFrameKind -> Text -> Text -> Text -> [RuntimeRep] -> [RuntimeRep] -> [RuntimeInfo]
+continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedFields suppliedFields =
   [ RuntimeInfo
       infoLabel
       (InfoAddress target)
       storedFields
       1
       (Just appliedInfoLabel)
-      (Just (RuntimeEnter target (length storedFields) (length suppliedFields))),
+      (Just (RuntimeEnter target (length storedFields) (length suppliedFields)))
+      (Just frameKind),
     RuntimeInfo
       appliedInfoLabel
       (InfoAddress target)
@@ -192,6 +195,7 @@ continuationRuntimeInfos infoLabel appliedInfoLabel target storedFields supplied
       0
       Nothing
       Nothing
+      (Just frameKind)
   ]
 
 renderEnterStubs :: [RuntimeInfo] -> [Text]
@@ -274,7 +278,8 @@ renderRuntimeInfos infos = [".section __DATA,__const"] <> concatMap renderInfo i
              "  .quad " <> tshow (runtimeInfoRemainingArity info),
              "  .quad " <> if null fields then "0" else bitmapLabel,
              "  .quad " <> fromMaybe "0" (runtimeInfoNext info),
-             "  .quad " <> maybe "0" (const (enterEntryLabel info)) (runtimeInfoEnter info)
+             "  .quad " <> maybe "0" (const (enterEntryLabel info)) (runtimeInfoEnter info),
+             "  .quad " <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info))
            ]
       where
         fields = runtimeInfoFields info

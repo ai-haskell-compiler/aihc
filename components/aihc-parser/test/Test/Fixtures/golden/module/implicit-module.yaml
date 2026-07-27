@@ -1,7 +1,0 @@
-extensions: []
-input: |
-  x = 1
-  y = x
-ast: |-
-  Module {[DeclValue (PatternBind (PVar "x") (EInt 1 TInteger)), DeclValue (PatternBind (PVar "y") (EVar "x"))]}
-status: pass

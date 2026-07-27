@@ -1,6 +1,0 @@
-extensions: [OverloadedRecordDot]
-input: |
-  a.b.c
-ast: |-
-  EGetField (EGetField (EVar "a") "b") "c"
-status: pass
