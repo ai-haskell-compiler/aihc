@@ -58,8 +58,6 @@ testGuaranteedTailCalls = do
       "@aihc_llvm_resume"
     ]
     (\needle -> assertBool ("missing generated LLVM fragment: " <> T.unpack needle) (needle `T.isInfixOf` source))
-  assertBool "LLVM backend does not emit the portable-C trampoline" (not ("while (aihc_next_transfer.entry" `T.isInfixOf` source))
-  assertBool "LLVM backend does not call portable transfer helpers" (not ("aihc_portable_" `T.isInfixOf` source))
   assertBool "LLVM backend does not use a global argument buffer" (not ("aihc_llvm_arguments" `T.isInfixOf` source))
   verifyModule source
 

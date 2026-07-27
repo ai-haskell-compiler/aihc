@@ -49,7 +49,7 @@ testDirectModule =
           assertBool "WebAssembly instructions" ("\t.functype\t" `T.isInfixOf` source && "local.set\t" `T.isInfixOf` source)
           assertBool "generated entry" (".Laihc_wasm_function_0:" `T.isInfixOf` source)
           assertBool "generated entry is object-local" (not (".globl\t.Laihc_wasm_function_0" `T.isInfixOf` source))
-          assertBool "not portable C" (not ("#include" `T.isInfixOf` source))
+          assertBool "does not emit C source" (not ("#include" `T.isInfixOf` source))
           assertBool "not LLVM IR" (not ("target triple" `T.isInfixOf` source))
           assertBool "uses the expanded shared info-table ABI" ("\t.int64\t3\n\t.size\t.Laihc_wasm_update_info, 48" `T.isInfixOf` source)
           assertBool "emits stop continuation frame metadata" ("\t.int64\t5\n\t.size\t.Laihc_wasm_final_info, 48" `T.isInfixOf` source)

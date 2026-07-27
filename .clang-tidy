@@ -1,5 +1,5 @@
 # The runtime intentionally stores pointers in machine-word slots, uses C's
-# implicit void-pointer allocation conversions, and targets portable C11 rather
+# implicit void-pointer allocation conversions, and targets C11 rather
 # than optional Annex K APIs. Its uniform runtime entry points also make the
 # similar-parameter heuristic noisy. Keep those exclusions narrow and explicit.
 Checks: >
