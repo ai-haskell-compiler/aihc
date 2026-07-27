@@ -1,0 +1,20 @@
+extensions:
+  - ExistentialQuantification
+modules:
+  - |
+    {-# LANGUAGE ExistentialQuantification #-}
+    module Main where
+    class Markable a
+    data Box = forall a. Markable a => Box a
+annotated:
+  - |
+    {-# LANGUAGE ExistentialQuantification #-}
+    module Main where
+    class Markable a
+          └─ t Main
+    data Box = forall a. Markable a => Box a
+         └─ t Main       └─ t Main│    │   └─ t 0
+                                  │    └─ v Main
+                                  └─ t 0
+status: pass
+reason: constructor forall binders scope over the constructor context and fields

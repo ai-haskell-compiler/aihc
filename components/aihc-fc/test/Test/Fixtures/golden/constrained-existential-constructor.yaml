@@ -1,0 +1,36 @@
+extensions:
+  - ExistentialQuantification
+modules:
+  - |
+    {-# LANGUAGE ExistentialQuantification #-}
+    module Test where
+    data Mark = Marked
+    class Markable a where
+      mark :: a -> Mark
+    data Box = forall a. Markable a => Box a
+    inspect :: Box -> Mark
+    inspect (Box value) = mark value
+expected: |-
+  data Mark
+   = Marked
+
+  data Markable a
+   = $Dict$Markable (a → Mark)
+
+  mark : ∀ a. (Markable a) → a → Mark =
+    Λa.
+      λ$d0 : Markable a.
+        case $d0 as $dict : Markable a of
+          $Dict$Markable $method0 →
+            $method0
+
+  data Box
+   = forall a. Box (Markable a) a
+
+  inspect : Box → Mark =
+    λx1005 : Box.
+      case x1005 as _scrut : Box of
+        Box $dpattern value →
+          mark @a $dpattern value
+status: pass
+reason: System FC stores the constructor dictionary and binds it before the existential payload

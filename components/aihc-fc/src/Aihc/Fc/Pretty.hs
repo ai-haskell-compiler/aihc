@@ -18,6 +18,7 @@ module Aihc.Fc.Pretty
   )
 where
 
+import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..))
 import Data.ByteString qualified as BS
@@ -46,7 +47,7 @@ renderTopBind (FcData tyName tyVars cons) =
   "data "
     ++ T.unpack tyName
     ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) tyVars
-    ++ renderDataCons cons
+    ++ renderDataCons tyVars cons
 renderTopBind (FcNewtype declaration) =
   "newtype "
     ++ T.unpack (fcNewtypeName declaration)
@@ -72,15 +73,24 @@ renderTopBind (FcForeignImport foreignCall) =
 renderTopBind (FcTopBind bind) = renderBind 0 bind
 
 -- | Render data constructors.
-renderDataCons :: [(Text, [TcType])] -> String
-renderDataCons [] = ""
-renderDataCons cons =
+renderDataCons :: [TyVarId] -> [(Text, [TcType])] -> String
+renderDataCons _ [] = ""
+renderDataCons dataTyVars cons =
   "\n" ++ intercalate "\n" (zipWith renderOne (" = " : repeat " | ") cons)
   where
     renderOne prefix (name, args) =
       prefix
+        ++ renderExistentials args
         ++ T.unpack name
         ++ concatMap (\ty -> " " ++ renderTypePrec True ty) args
+
+    renderExistentials arguments =
+      case filter (`notElem` dataTyVars) (freeRigidTyVarsOf arguments) of
+        [] -> ""
+        existentials ->
+          "forall "
+            ++ unwords (map (T.unpack . tvName) existentials)
+            ++ ". "
 
 -- | Render a binding at a given indentation level.
 renderBind :: Int -> FcBind -> String

@@ -23,7 +23,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Canonicalize
-import Aihc.Tc.Solve.Dict (DictResult (..), solveDict)
+import Aihc.Tc.Solve.Dict (DictResult (..), solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.InertSet (InertSet, addInertDict, emptyInertSet)
 import Aihc.Tc.Solve.Worklist
@@ -116,10 +116,22 @@ solveImplication :: Implication -> TcM ()
 solveImplication impl = withTcLevel $ do
   let rawGivens = implGivenCts impl
       wanteds = implWantedCts impl
+      givenPredicates = map ctPred rawGivens
   -- Canonicalize the given equalities by structural decomposition.
   givenEqs <- concat <$> mapM canonicalizeGiven rawGivens
-  -- Solve each wanted using the given equalities as rewrite rules.
-  mapM_ (solveWantedWithGivens givenEqs) wanteds
+  -- Equalities refine the types mentioned by dictionary wanteds, so preserve
+  -- the main worklist's equality-before-dictionary ordering inside branches.
+  let (equalityWanteds, dictionaryWanteds) = partitionWanteds wanteds
+  mapM_ (solveWantedWithGivens givenPredicates givenEqs) equalityWanteds
+  mapM_ (solveWantedWithGivens givenPredicates givenEqs) dictionaryWanteds
+
+partitionWanteds :: [Ct] -> ([Ct], [Ct])
+partitionWanteds = foldr partitionOne ([], [])
+  where
+    partitionOne ct (equalities, dictionaries) =
+      case ctPred ct of
+        EqPred {} -> (ct : equalities, dictionaries)
+        ClassPred {} -> (equalities, ct : dictionaries)
 
 -- | Decompose a given constraint into atomic equalities.
 -- For example, @GADT a ~ GADT Bool@ decomposes into @[(a, Bool)]@.
@@ -159,13 +171,13 @@ applyGivenSubst givens ty = foldr applyOne ty givens
 -- | Attempt to solve a wanted constraint using given equalities.
 -- Rewrites both sides of the wanted using the given substitution and
 -- then tries to solve the resulting equality.
-solveWantedWithGivens :: [(TcType, TcType)] -> Ct -> TcM ()
-solveWantedWithGivens givens ct = case ctPred ct of
+solveWantedWithGivens :: [Pred] -> [(TcType, TcType)] -> Ct -> TcM ()
+solveWantedWithGivens givenPredicates givenEqualities ct = case ctPred ct of
   EqPred t1 t2 -> do
     t1' <- zonkType t1
     t2' <- zonkType t2
-    let t1'' = applyGivenSubst givens t1'
-        t2'' = applyGivenSubst givens t2'
+    let t1'' = applyGivenSubst givenEqualities t1'
+        t2'' = applyGivenSubst givenEqualities t2'
     result <- solveEquality (ct {ctPred = EqPred t1'' t2''})
     case result of
       EqSolved -> pure ()
@@ -176,7 +188,20 @@ solveWantedWithGivens givens ct = case ctPred ct of
             emitError (ctLoc errCt) . UnificationError et1 et2 (ctOrigin errCt) =<< zonkCtEqProvenance errCt
           p ->
             emitError (ctLoc errCt) (UnsolvedWanted p (ctOrigin errCt))
-  _ -> pure ()
+  ClassPred className arguments -> do
+    arguments' <- mapM zonkType arguments
+    let rewritten = ClassPred className (map (applyGivenSubst givenEqualities) arguments')
+        rewrittenGivens = map (rewritePred givenEqualities) givenPredicates
+    result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritten})
+    case result of
+      DictSolved -> pure ()
+      DictStuck stuck -> emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
+
+rewritePred :: [(TcType, TcType)] -> Pred -> Pred
+rewritePred equalities predicate =
+  case predicate of
+    ClassPred className arguments -> ClassPred className (map (applyGivenSubst equalities) arguments)
+    EqPred left right -> EqPred (applyGivenSubst equalities left) (applyGivenSubst equalities right)
 
 zonkCtEqProvenance :: Ct -> TcM (Maybe EqProvenance)
 zonkCtEqProvenance ct =
