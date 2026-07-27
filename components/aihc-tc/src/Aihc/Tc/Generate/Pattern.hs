@@ -31,10 +31,13 @@ import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations (PendingTcAnnotation, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Instantiate (Instantiation (..), instantiate, instantiateWithArgs)
+import Aihc.Tc.Evidence (EvTerm (..))
+import Aihc.Tc.Instantiate (Instantiation (..), applySubst, instantiateWithArgs)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
+import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -42,6 +45,7 @@ data PatternCheck = PatternCheck
   { pcBindings :: ![(UnqualifiedName, TcType)],
     pcWantedCts :: ![Ct],
     pcGivenCts :: ![Ct],
+    pcSkolems :: ![TyVarId],
     pcPatterns :: ![Pattern]
   }
   deriving (Show)
@@ -52,11 +56,12 @@ instance Semigroup PatternCheck where
       { pcBindings = pcBindings left <> pcBindings right,
         pcWantedCts = pcWantedCts left <> pcWantedCts right,
         pcGivenCts = pcGivenCts left <> pcGivenCts right,
+        pcSkolems = pcSkolems left <> pcSkolems right,
         pcPatterns = pcPatterns left <> pcPatterns right
       }
 
 instance Monoid PatternCheck where
-  mempty = PatternCheck [] [] [] []
+  mempty = PatternCheck [] [] [] [] []
 
 data GadtHandling
   = GadtAsWanted
@@ -178,6 +183,7 @@ checkOverloadedIntegerPattern sp pat isNegative scrutTy = do
       { pcBindings = [],
         pcWantedCts = fromIntegerCts <> negateCts <> eqCts,
         pcGivenCts = [],
+        pcSkolems = [],
         pcPatterns = [pat']
       }
 
@@ -314,20 +320,97 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
   mBinder <- lookupResolvedTerm conName target
   case mBinder of
     Just (TcIdBinder scheme _) -> do
-      (conTy, _preds) <- instantiate scheme
+      (conTy, typeArgs, predicates, skolems) <- instantiateConstructorPattern scheme
       (argTys, conResTy) <- splitConTy (length subPats) conTy
       scrutCt <- constructorScrutineeCt gadtHandling sp conName scrutTy conResTy
       subCheck <- checkPatternsWith gadtHandling sp (zip subPats argTys)
+      predicateGivens <- mapM (constructorGiven sp conName) predicates
+      let rebuiltPattern = replaceConstructorSubpatterns originalPat (pcPatterns subCheck)
+          annotatedPattern
+            | null predicateGivens && null skolems = rebuiltPattern
+            | otherwise =
+                PAnn
+                  (mkAnnotation (pendingAnnotation conTy typeArgs (map ctEvVar predicateGivens) []))
+                  rebuiltPattern
       pure
         subCheck
           { pcWantedCts = fst scrutCt <> pcWantedCts subCheck,
-            pcGivenCts = snd scrutCt <> pcGivenCts subCheck,
-            pcPatterns = [replaceConstructorSubpatterns originalPat (pcPatterns subCheck)]
+            pcGivenCts = predicateGivens <> snd scrutCt <> pcGivenCts subCheck,
+            pcSkolems = skolems <> pcSkolems subCheck,
+            pcPatterns = [annotatedPattern]
           }
     Just other ->
       abortTc ("resolved constructor is not an identifier binder: " <> show conName <> " resolved as " <> show target <> " with binder " <> show other)
     Nothing ->
       abortTc ("resolved constructor missing from type environment: " <> show conName <> " resolved as " <> show target)
+
+constructorGiven :: SourceSpan -> Text -> Pred -> TcM Ct
+constructorGiven sp constructorName predicate = do
+  evidence <- freshEvVar
+  bindEvidence evidence (EvGiven predicate)
+  let origin = OccurrenceOf constructorName
+  pure
+    Ct
+      { ctPred = predicate,
+        ctFlavor = Given,
+        ctEvVar = evidence,
+        ctOrigin = origin,
+        ctProvenance = FromCtOrigin origin,
+        ctLoc = sp
+      }
+
+instantiateConstructorPattern :: TypeScheme -> TcM (TcType, [TcType], [Pred], [TyVarId])
+instantiateConstructorPattern (ForAll tyVars predicates body) = do
+  let resultTyVars = constructorResultTyVars body
+      isUniversal tyVar = tvUnique tyVar `Set.member` resultTyVars
+  substitutions <- mapM (instantiateTyVar isUniversal) tyVars
+  let substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty, _) <- substitutions]
+      instantiateType = applySubst substitution
+      typeArgs = map (instantiateType . TcTyVar) tyVars
+      skolems = [skolem | (_, _, Just skolem) <- substitutions]
+  pure
+    ( instantiateType body,
+      typeArgs,
+      map (instantiatePred substitution) predicates,
+      skolems
+    )
+  where
+    instantiateTyVar isUniversal tyVar
+      | isUniversal tyVar = do
+          meta <- freshMetaTv
+          pure (tyVar, meta, Nothing)
+      | otherwise = do
+          skolem <- setTyVarKind (tvKind tyVar) <$> freshSkolemTv (tvName tyVar)
+          pure (tyVar, TcTyVar skolem, Just skolem)
+
+constructorResultTyVars :: TcType -> Set.Set Unique
+constructorResultTyVars = typeTyVars . dropConstructorArguments
+  where
+    dropConstructorArguments (TcFunTy _ result) = dropConstructorArguments result
+    dropConstructorArguments result = result
+
+typeTyVars :: TcType -> Set.Set Unique
+typeTyVars ty =
+  case ty of
+    TcTyVar tyVar -> Set.singleton (tvUnique tyVar)
+    TcMetaTv {} -> Set.empty
+    TcTyCon _ arguments -> Set.unions (map typeTyVars arguments)
+    TcFunTy argument result -> typeTyVars argument <> typeTyVars result
+    TcForAllTy tyVar body -> Set.delete (tvUnique tyVar) (typeTyVars body)
+    TcQualTy predicates body -> Set.unions (typeTyVars body : map predTyVars predicates)
+    TcAppTy function argument -> typeTyVars function <> typeTyVars argument
+
+predTyVars :: Pred -> Set.Set Unique
+predTyVars predicate =
+  case predicate of
+    ClassPred _ arguments -> Set.unions (map typeTyVars arguments)
+    EqPred left right -> typeTyVars left <> typeTyVars right
+
+instantiatePred :: Map.Map Unique TcType -> Pred -> Pred
+instantiatePred substitution predicate =
+  case predicate of
+    ClassPred className arguments -> ClassPred className (map (applySubst substitution) arguments)
+    EqPred left right -> EqPred (applySubst substitution left) (applySubst substitution right)
 
 replaceConstructorSubpatterns :: Pattern -> [Pattern] -> Pattern
 replaceConstructorSubpatterns pat subPats =

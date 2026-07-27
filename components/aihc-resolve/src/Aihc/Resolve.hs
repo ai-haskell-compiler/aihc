@@ -1107,20 +1107,32 @@ resolveDataConDecl :: DataConDecl -> ResolveM DataConDecl
 resolveDataConDecl dataConDecl =
   case dataConDecl of
     DataConAnn ann inner -> DataConAnn ann <$> withPushedSpan ann (resolveDataConDecl inner)
-    PrefixCon forallVars context name bangTypes ->
-      PrefixCon forallVars <$> mapM resolveType context <*> pure name <*> mapM resolveBangType bangTypes
-    InfixCon forallVars context lhs name rhs ->
-      InfixCon forallVars <$> mapM resolveType context <*> resolveBangType lhs <*> pure name <*> resolveBangType rhs
-    RecordCon forallVars context name fields ->
-      RecordCon forallVars <$> mapM resolveType context <*> pure name <*> mapM resolveFieldDecl fields
+    PrefixCon forallVars context name bangTypes -> do
+      (forallScope, forallVars') <- bindTyVarBinders forallVars
+      extendScope forallScope $
+        PrefixCon forallVars' <$> mapM resolveType context <*> pure name <*> mapM resolveBangType bangTypes
+    InfixCon forallVars context lhs name rhs -> do
+      (forallScope, forallVars') <- bindTyVarBinders forallVars
+      extendScope forallScope $
+        InfixCon forallVars' <$> mapM resolveType context <*> resolveBangType lhs <*> pure name <*> resolveBangType rhs
+    RecordCon forallVars context name fields -> do
+      (forallScope, forallVars') <- bindTyVarBinders forallVars
+      extendScope forallScope $
+        RecordCon forallVars' <$> mapM resolveType context <*> pure name <*> mapM resolveFieldDecl fields
     GadtCon forallVars context names body ->
       GadtCon forallVars <$> mapM resolveType context <*> pure names <*> resolveGadtBody body
-    TupleCon forallVars context flavor fields ->
-      TupleCon forallVars <$> mapM resolveType context <*> pure flavor <*> mapM resolveBangType fields
-    UnboxedSumCon forallVars context pos arity field ->
-      UnboxedSumCon forallVars <$> mapM resolveType context <*> pure pos <*> pure arity <*> resolveBangType field
-    ListCon forallVars context ->
-      ListCon forallVars <$> mapM resolveType context
+    TupleCon forallVars context flavor fields -> do
+      (forallScope, forallVars') <- bindTyVarBinders forallVars
+      extendScope forallScope $
+        TupleCon forallVars' <$> mapM resolveType context <*> pure flavor <*> mapM resolveBangType fields
+    UnboxedSumCon forallVars context pos arity field -> do
+      (forallScope, forallVars') <- bindTyVarBinders forallVars
+      extendScope forallScope $
+        UnboxedSumCon forallVars' <$> mapM resolveType context <*> pure pos <*> pure arity <*> resolveBangType field
+    ListCon forallVars context -> do
+      (forallScope, forallVars') <- bindTyVarBinders forallVars
+      extendScope forallScope $
+        ListCon forallVars' <$> mapM resolveType context
   where
     resolveBangType bt = do
       ty' <- resolveType (bangType bt)

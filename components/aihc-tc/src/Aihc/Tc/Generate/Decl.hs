@@ -88,7 +88,7 @@ import Aihc.Tc.Solve.Dict (solveDictWithGivens)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
-import Control.Monad (foldM, forM_, when, zipWithM)
+import Control.Monad (foldM, forM_, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -512,7 +512,7 @@ dataConBindingType :: Text -> TcM TcType
 dataConBindingType name = do
   mBinder <- lookupTerm name
   case mBinder of
-    Just (TcIdBinder (ForAll _ _ body) _) -> zonkType body
+    Just (TcIdBinder scheme _) -> zonkType (schemeToType scheme)
     Just (TcMonoIdBinder ty) -> zonkType ty
     Nothing -> missingTypeInfo ("data constructor " <> T.unpack name)
 
@@ -1232,6 +1232,7 @@ tcFunctionWithSig displayName name sig matches = do
           allCts = concat ctsList
           allImpls = concat implsList
       solveBodyConstraintsWithGivens sigPreds allCts allImpls
+      rejectEscapingExistentials sigTy allImpls
       pure _matches'
   if failed
     then pure (Nothing, [])
@@ -1250,6 +1251,7 @@ tcFunctionInfer displayName name matches = do
       extendTermEnvPermanent name (TcMonoIdBinder placeholderTy)
       (matches', ty, cts', impls') <- tcMatches matches
       solveResult <- solveWithImpls cts' impls'
+      rejectEscapingExistentials ty impls'
       residualPreds <- generalizableResidualPreds solveResult
       pure (matches', ty, residualPreds)
   if failed
@@ -1286,6 +1288,37 @@ generalizableResidualPreds solveResult = do
 predicateCanGeneralize :: Pred -> Bool
 predicateCanGeneralize =
   not . null . predMetaVars
+
+rejectEscapingExistentials :: TcType -> [Implication] -> TcM ()
+rejectEscapingExistentials outerType implications = do
+  zonkedOuterType <- zonkType outerType
+  let skolems = concatMap implSkols implications
+      escaping = filter (`typeMentionsTyVar` zonkedOuterType) skolems
+  unless (null escaping) $
+    emitError
+      NoSourceSpan
+      ( OtherError
+          ( "existential type variable escapes its pattern-match branch: "
+              <> T.unpack (T.intercalate ", " (map tvName escaping))
+          )
+      )
+
+typeMentionsTyVar :: TyVarId -> TcType -> Bool
+typeMentionsTyVar target ty =
+  case ty of
+    TcTyVar tyVar -> tyVar == target
+    TcMetaTv {} -> False
+    TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
+    TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
+    TcForAllTy tyVar body -> tyVar /= target && typeMentionsTyVar target body
+    TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
+    TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
+
+predicateMentionsTyVar :: TyVarId -> Pred -> Bool
+predicateMentionsTyVar target predicate =
+  case predicate of
+    ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
+    EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
 
 zonkPred :: Pred -> TcM Pred
 zonkPred pred' =
@@ -1469,18 +1502,18 @@ dataDeclTyCon name arity kind = mkTyCon name arity kind
 registerDataCon :: TyCon -> [ParamInfo] -> DataConDecl -> TcM TcBindingResult
 registerDataCon tc paramInfos con = case con of
   DataConAnn _ inner -> registerDataCon tc paramInfos inner
-  PrefixCon _docs _ctx conName args ->
-    mapM (fieldTypeTc . bangType) args >>= registerNamedDataCon (unqualifiedNameText conName)
-  InfixCon _docs _ctx lhs conName rhs ->
-    mapM (fieldTypeTc . bangType) [lhs, rhs] >>= registerNamedDataCon (unqualifiedNameText conName)
-  RecordCon _docs _ctx conName fields ->
-    mapM (fieldTypeTc . bangType . fieldType) fields >>= registerNamedDataCon (unqualifiedNameText conName)
-  TupleCon _docs _ctx flavor fields ->
-    mapM (fieldTypeTc . bangType) fields >>= registerNamedDataCon (tupleConText flavor (length fields))
-  UnboxedSumCon _docs _ctx pos arity field ->
-    fieldTypeTc (bangType field) >>= \fieldTy -> registerNamedDataCon (unboxedSumConText pos arity) [fieldTy]
-  ListCon {} ->
-    registerNamedDataCon "[]" []
+  PrefixCon forallVars context conName args ->
+    registerH98DataCon forallVars context (unqualifiedNameText conName) (map bangType args)
+  InfixCon forallVars context lhs conName rhs ->
+    registerH98DataCon forallVars context (unqualifiedNameText conName) (map bangType [lhs, rhs])
+  RecordCon forallVars context conName fields ->
+    registerH98DataCon forallVars context (unqualifiedNameText conName) (map (bangType . fieldType) fields)
+  TupleCon forallVars context flavor fields ->
+    registerH98DataCon forallVars context (tupleConText flavor (length fields)) (map bangType fields)
+  UnboxedSumCon forallVars context pos arity field ->
+    registerH98DataCon forallVars context (unboxedSumConText pos arity) [bangType field]
+  ListCon forallVars context ->
+    registerH98DataCon forallVars context "[]" []
   GadtCon _forallBinders _ctx names body ->
     do
       let resultSurfTy = gadtBodyResultType body
@@ -1510,15 +1543,21 @@ registerDataCon tc paramInfos con = case con of
         ]
     paramVarIds = map paramTyVar paramInfos
     resTy = TcTyCon tc (map TcTyVar paramVarIds)
-    conScheme argTys = ForAll paramVarIds [] (foldr TcFunTy resTy argTys)
-
-    fieldTypeTc = checkRuntimeType paramEnv
-
-    registerNamedDataCon name argTys = do
+    registerH98DataCon forallVars context name fieldTypes = do
+      constructorParams <- makeParamEnv forallVars
+      let constructorEnv =
+            Map.fromList
+              [ (paramName param, (paramTyVar param, paramKind param))
+              | param <- constructorParams
+              ]
+              <> paramEnv
+          constructorTyVars = map paramTyVar constructorParams
+      argTys <- mapM (checkRuntimeType constructorEnv) fieldTypes
+      predicates <- mapM (surfacePredToPred constructorEnv) context
       let conTy = foldr TcFunTy resTy argTys
-          scheme = conScheme argTys
+          scheme = ForAll (paramVarIds <> constructorTyVars) predicates conTy
       extendTermEnvPermanent name (TcIdBinder scheme Closed)
-      zonkedTy <- zonkType conTy
+      zonkedTy <- zonkType (schemeToType scheme)
       pure (TcBindingResult name name zonkedTy)
 
 tupleConText :: TupleFlavor -> Int -> Text
@@ -1707,15 +1746,15 @@ tcMatchEquation expectedOrigin argTys resTy match = do
   let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
       givenCts = pcGivenCts patCheck
       bodyWanteds = pcWantedCts patCheck ++ rhsCts ++ [resCt]
-  if null givenCts
-    then -- No GADT givens: emit everything as flat wanteds.
+  if null givenCts && null (pcSkolems patCheck)
+    then -- No constructor-local type variables or givens: keep flat wanteds.
       pure (match {matchPats = pats', matchRhs = rhs'}, bodyWanteds, [])
     else do
       -- GADT givens: wrap body wanteds in an implication.
       level <- getTcLevel
       let impl =
             Implication
-              { implSkols = [],
+              { implSkols = pcSkolems patCheck,
                 implGivenEvs = map ctEvVar givenCts,
                 implGivenCts = givenCts,
                 implWantedCts = bodyWanteds,

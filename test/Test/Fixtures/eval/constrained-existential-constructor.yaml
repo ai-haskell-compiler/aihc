@@ -1,0 +1,45 @@
+extensions:
+  - ExistentialQuantification
+dependencies: []
+modules:
+  - |
+    {-# LANGUAGE ExistentialQuantification #-}
+    module Test where
+
+    data Mark = Marked | Unmarked
+    data Payload = Payload
+    data Tag = Tag
+
+    class Markable a where
+      mark :: a -> Mark
+
+    instance Markable Payload where
+      mark Payload = Marked
+
+    data Box tag = forall a. Markable a => Box tag a
+
+    boxed :: Box Tag
+    boxed = Box Tag Payload
+
+    inspect :: Box tag -> Mark
+    inspect (Box _ value) = mark value
+
+    inspectCase :: Box tag -> Mark
+    inspectCase box =
+      case box of
+        Box _ value -> mark value
+
+    inspectLambda :: Box tag -> Mark
+    inspectLambda box = (\(Box _ value) -> mark value) box
+
+    inspectLocal :: Box tag -> Mark
+    inspectLocal box =
+      let
+        unpack (Box _ value) = mark value
+      in unpack box
+output: |
+  Marked
+expression: |
+  inspectLocal boxed
+status: pass
+reason: existential constructors store class dictionaries and recover them while matching

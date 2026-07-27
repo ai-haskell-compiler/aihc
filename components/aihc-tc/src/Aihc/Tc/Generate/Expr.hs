@@ -36,6 +36,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
+import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (checkSurfaceType)
 import Aihc.Tc.Monad
@@ -270,9 +271,10 @@ inferLambda sp pats body = do
   argTys <- mapM (const freshMetaTv) pats
   patCheck <- checkPatterns sp (zip pats argTys)
   (body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferExpr body)
+  remainingCts <- solvePatternBranch sp patCheck bodyTy bodyCts
   let funTy = foldr TcFunTy bodyTy argTys
       pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
-  pure (ELambdaPats pats' body', funTy, pcWantedCts patCheck ++ bodyCts)
+  pure (ELambdaPats pats' body', funTy, remainingCts)
 
 inferLambdaCase :: SourceSpan -> [CaseAlt Expr] -> TcM (Expr, TcType, [Ct])
 inferLambdaCase sp alts = do
@@ -300,42 +302,18 @@ inferLambdaCases sp alts = do
 
 inferCaseAlts :: SourceSpan -> TcType -> TcType -> [CaseAlt Expr] -> TcM ([CaseAlt Expr], [Ct])
 inferCaseAlts _sp _scrutTy _resTy [] = pure ([], [])
-inferCaseAlts sp scrutTy resTy (firstAlt : restAlts) = do
-  (firstAlt', firstBranchSp, firstRhsSp, firstRhsTy, firstCts) <- inferAlt firstAlt
-  resultEv <- freshEvVar
-  let resultCt =
-        mkWantedEqCt
-          TypeTrace
-            { typeTraceType = firstRhsTy,
-              typeTraceRole = ActualType,
-              typeTraceOrigin = ExpressionTypeOrigin firstRhsSp
-            }
-          TypeTrace
-            { typeTraceType = resTy,
-              typeTraceRole = ExpectedType,
-              typeTraceOrigin = ConstraintTypeOrigin (CaseBranchOrigin firstBranchSp)
-            }
-          resultEv
-          (CaseBranchOrigin firstRhsSp)
-          firstRhsSp
-  restResults <- mapM (inferAltAgainst firstBranchSp firstRhsTy) restAlts
-  let restAlts' = map fst restResults
-      restCts = concatMap snd restResults
-  pure (firstAlt' : restAlts', firstCts ++ [resultCt] ++ restCts)
+inferCaseAlts sp scrutTy resTy alternatives = do
+  results <- mapM inferAlt alternatives
+  pure (map fst results, concatMap snd results)
   where
     inferAlt (CaseAlt altAnns pat rhs) = do
       let altSp = sourceSpanFromAnns altAnns
           branchSp = combineSourceSpan altSp sp
       patCheck <- checkPattern branchSp pat scrutTy
       (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhs rhs)
+      resultEv <- freshEvVar
       let rhsSp = rhsExprSpan rhs `orSourceSpan` branchSp
-          pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
-      pure (CaseAlt altAnns pat' rhs', branchSp, rhsSp, rhsTy, pcWantedCts patCheck ++ rhsCts)
-
-    inferAltAgainst expectedBranchSp expectedTy alt = do
-      (alt', branchSp, rhsSp, rhsTy, cts) <- inferAlt alt
-      ev <- freshEvVar
-      let rhsCt =
+          resultCt =
             mkWantedEqCt
               TypeTrace
                 { typeTraceType = rhsTy,
@@ -343,14 +321,16 @@ inferCaseAlts sp scrutTy resTy (firstAlt : restAlts) = do
                   typeTraceOrigin = ExpressionTypeOrigin rhsSp
                 }
               TypeTrace
-                { typeTraceType = expectedTy,
+                { typeTraceType = resTy,
                   typeTraceRole = ExpectedType,
-                  typeTraceOrigin = ConstraintTypeOrigin (CaseBranchOrigin expectedBranchSp)
+                  typeTraceOrigin = ConstraintTypeOrigin (CaseBranchOrigin branchSp)
                 }
-              ev
-              (CaseBranchOrigin branchSp)
+              resultEv
+              (CaseBranchOrigin rhsSp)
               rhsSp
-      pure (alt', cts ++ [rhsCt])
+          pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
+      remainingCts <- solvePatternBranch branchSp patCheck resTy (rhsCts <> [resultCt])
+      pure (CaseAlt altAnns pat' rhs', remainingCts)
 
 inferLambdaCaseAlt :: SourceSpan -> [TcType] -> TcType -> LambdaCaseAlt -> TcM (LambdaCaseAlt, [Ct])
 inferLambdaCaseAlt sp argTys resTy alt = do
@@ -361,7 +341,8 @@ inferLambdaCaseAlt sp argTys resTy alt = do
   ev <- freshEvVar
   let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
       rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
-  pure (alt {lambdaCaseAltPats = pats', lambdaCaseAltRhs = rhs'}, pcWantedCts patCheck ++ rhsCts ++ [rhsCt])
+  remainingCts <- solvePatternBranch sp patCheck resTy (rhsCts <> [rhsCt])
+  pure (alt {lambdaCaseAltPats = pats', lambdaCaseAltRhs = rhs'}, remainingCts)
 
 sourceSpanFromAnns :: [Annotation] -> SourceSpan
 sourceSpanFromAnns anns =
@@ -551,7 +532,8 @@ inferListComp sp body quals = do
           let srcSp = exprSpan src `orSourceSpan` ambient
               srcListCt = mkWantedCt (EqPred srcTy (listType elemTy)) ev (AppOrigin srcSp) srcSp
           (rest', body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferCompQuals ambient rest action)
-          pure (CompGen (annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)) src' : rest', body', bodyTy, srcCts ++ pcWantedCts patCheck ++ [srcListCt] ++ bodyCts)
+          remainingCts <- solvePatternBranch ambient patCheck bodyTy bodyCts
+          pure (CompGen (annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)) src' : rest', body', bodyTy, srcCts ++ [srcListCt] ++ remainingCts)
         CompGuard guard -> do
           (guard', guardTy, guardCts) <- inferExpr guard
           ev <- freshEvVar
@@ -637,10 +619,11 @@ inferDoStmt ambient stmt rest =
       resultEq <- wantedDoEq ambient resultTy (TcAppTy monadTy resultItemTy)
       monadCt <- wantedMonad ambient monadTy
       let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
+      remainingCts <- solvePatternBranch ambient patCheck resultTy restCts
       pure
         ( DoBind pat' action' : rest',
           resultTy,
-          actionCts <> pcWantedCts patCheck <> restCts <> [actionEq, resultEq, monadCt]
+          actionCts <> remainingCts <> [actionEq, resultEq, monadCt]
         )
     DoExpr action -> do
       monadTy <- freshMetaTv
@@ -679,7 +662,8 @@ inferResolvedDoStmt ambient resolutionAnn resolution stmt rest =
       (pending, methodCts) <- inferDoBindMethod ambient resolution actionTy itemTy resultTy
       let pat' = annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)
           stmt' = DoAnn (mkAnnotation pending) (DoAnn resolutionAnn (DoBind pat' action'))
-      pure (stmt' : rest', resultTy, actionCts <> pcWantedCts patCheck <> restCts <> methodCts)
+      remainingCts <- solvePatternBranch ambient patCheck resultTy restCts
+      pure (stmt' : rest', resultTy, actionCts <> remainingCts <> methodCts)
     DoExpr action -> do
       itemTy <- freshMetaTv
       (action', actionTy, actionCts) <- inferExprAt ambient action

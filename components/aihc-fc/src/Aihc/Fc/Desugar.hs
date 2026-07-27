@@ -17,6 +17,7 @@ import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMa
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Optimize (optimizeProgram)
+import Aihc.Fc.Subst (freeRigidTyVars, substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseSignatureType)
 import Aihc.Parser.Syntax
@@ -245,8 +246,13 @@ dsDecl _ = pure []
 dsDataDeclM :: DataDecl -> DsM FcTopBind
 dsDataDeclM dd = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
-  cons <- mapM dsDataConM (dataDeclConstructors dd)
-  pure (FcData tyName [] cons)
+  constructorInfos <- mapM dsDataConM (dataDeclConstructors dd)
+  let typeVariables =
+        case constructorInfos of
+          (_, universals, _) : _ -> universals
+          [] -> []
+      constructors = [(name, fields) | (name, _, fields) <- constructorInfos]
+  pure (FcData tyName typeVariables constructors)
 
 -- | Retain the nominal declaration and its representation type as an FC axiom.
 -- 'lowerNewtypes' turns all term-level construction and matching into casts.
@@ -391,13 +397,77 @@ unboxForeignValue binderName marshal expression continuation =
         )
 
 boxForeignValue :: TcForeignMarshal -> FcExpr -> DsM FcExpr
-boxForeignValue marshal rawValue =
-  foldM applyConstructor rawValue (reverse (tcForeignConstructors marshal))
+boxForeignValue marshal =
+  applyConstructors (tcForeignSourceType marshal) (tcForeignConstructors marshal)
   where
-    applyConstructor value constructor = do
+    applyConstructors _ [] value = pure value
+    applyConstructors resultType (constructor : constructors) value = do
       constructorType <- lookupType constructor
       constructorVar <- freshVar constructor constructorType
-      pure (FcApp (FcVar constructorVar) value)
+      (typeArguments, fieldType) <- instantiateUnaryConstructor constructor resultType constructorType
+      fieldValue <- applyConstructors fieldType constructors value
+      pure (FcApp (foldl FcTyApp (FcVar constructorVar) typeArguments) fieldValue)
+
+instantiateUnaryConstructor :: Text -> TcType -> TcType -> DsM ([TcType], TcType)
+instantiateUnaryConstructor constructor expectedResult constructorType = do
+  let (typeVariables, body) = collectForAlls constructorType
+  case body of
+    TcFunTy fieldType resultType ->
+      case matchConstructorResult typeVariables resultType expectedResult Map.empty of
+        Just substitution
+          | Just typeArguments <- traverse (`Map.lookup` substitution) typeVariables ->
+              pure (typeArguments, substType substitution fieldType)
+        _ ->
+          desugarBug
+            ( "foreign marshalling constructor result does not match "
+                <> show expectedResult
+                <> ": "
+                <> T.unpack constructor
+            )
+    _ -> desugarBug ("foreign marshalling constructor is not unary: " <> T.unpack constructor)
+
+matchConstructorResult :: [TyVarId] -> TcType -> TcType -> Map.Map TyVarId TcType -> Maybe (Map.Map TyVarId TcType)
+matchConstructorResult quantified patternType actualType substitution =
+  case patternType of
+    TcTyVar tyVar
+      | tyVar `elem` quantified ->
+          case Map.lookup tyVar substitution of
+            Nothing -> Just (Map.insert tyVar actualType substitution)
+            Just existing
+              | existing == actualType -> Just substitution
+              | otherwise -> Nothing
+    TcTyVar tyVar ->
+      case actualType of
+        TcTyVar actualTyVar | tyVar == actualTyVar -> Just substitution
+        _ -> Nothing
+    TcMetaTv meta ->
+      case actualType of
+        TcMetaTv actualMeta | meta == actualMeta -> Just substitution
+        _ -> Nothing
+    TcTyCon tyCon arguments ->
+      case actualType of
+        TcTyCon actualTyCon actualArguments
+          | tyCon == actualTyCon,
+            length arguments == length actualArguments ->
+              foldM
+                (\current (expectedArgument, actualArgument) -> matchConstructorResult quantified expectedArgument actualArgument current)
+                substitution
+                (zip arguments actualArguments)
+        _ -> Nothing
+    TcFunTy argument result ->
+      case actualType of
+        TcFunTy actualArgument actualResult -> do
+          substitution' <- matchConstructorResult quantified argument actualArgument substitution
+          matchConstructorResult quantified result actualResult substitution'
+        _ -> Nothing
+    TcAppTy function argument ->
+      case actualType of
+        TcAppTy actualFunction actualArgument -> do
+          substitution' <- matchConstructorResult quantified function actualFunction substitution
+          matchConstructorResult quantified argument actualArgument substitution'
+        _ -> Nothing
+    TcForAllTy {} -> Nothing
+    TcQualTy {} -> Nothing
 
 makeForeignIoWrapper :: FcForeignCall -> TcForeignMarshal -> [FcExpr] -> DsM FcExpr
 makeForeignIoWrapper foreignCall resultMarshal arguments = do
@@ -636,12 +706,24 @@ collectForAlls (TcForAllTy tv body) =
    in (tv : tvs, inner)
 collectForAlls ty = ([], ty)
 
-dsDataConM :: DataConDecl -> DsM (Text, [TcType])
+dsDataConM :: DataConDecl -> DsM (Text, [TyVarId], [TcType])
 dsDataConM con = do
   let (name, arity) = dsDataConPure con
   ty <- lookupType name
-  fields <- dataConFieldTypes name arity (dropForAlls ty)
-  pure (name, fields)
+  let (quantifiedVariables, qualifiedConstructorTy) = collectForAlls ty
+      (predicates, constructorTy) = splitConstructorContext qualifiedConstructorTy
+      resultVariables = freeRigidTyVars (constructorResultType constructorTy)
+      universalVariables = filter (`elem` resultVariables) quantifiedVariables
+  fields <- dataConFieldTypes name arity constructorTy
+  pure (name, universalVariables, map predType predicates <> fields)
+
+splitConstructorContext :: TcType -> ([Pred], TcType)
+splitConstructorContext (TcQualTy predicates body) = (predicates, body)
+splitConstructorContext ty = ([], ty)
+
+constructorResultType :: TcType -> TcType
+constructorResultType (TcFunTy _ result) = constructorResultType result
+constructorResultType ty = ty
 
 dataConFieldTypes :: Text -> Int -> TcType -> DsM [TcType]
 dataConFieldTypes _ 0 _ = pure []

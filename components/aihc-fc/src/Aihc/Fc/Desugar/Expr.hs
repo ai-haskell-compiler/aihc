@@ -358,13 +358,14 @@ dsOrdinaryPatternMatch scrutVar pat success failure = do
     _ -> do
       binderTys <- patternBinderTypesM pat (varType scrutVar)
       binders <- zipWithM freshVar binderNames binderTys
-      matched <- withLocals (zip binderNames binders) success
+      (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
+      matched <- withDicts dictionaries (withLocals (zip binderNames binders) success)
       caseBinder <- freshInternalVar "_match" (varType scrutVar)
       pure
         ( FcCase
             (FcVar scrutVar)
             caseBinder
-            [ FcAlt con binders matched,
+            [ FcAlt con (evidenceBinders <> binders) matched,
               FcAlt DefaultAlt [] failure
             ]
         )
@@ -446,8 +447,9 @@ buildAltGroup scrutVar restVars resTy (FirstPatternGroup pat matches) =
           (con, binderNames) = dsPatternPure pat
       binderTys <- patternBinderTypesM pat (varType scrutVar)
       binders <- zipWithM freshVar binderNames binderTys
-      body <- withLocals (zip binderNames binders) (buildCaseChain restVars resTy innerMatches)
-      pure (FcAlt con binders body)
+      (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
+      body <- withDicts dictionaries (withLocals (zip binderNames binders) (buildCaseChain restVars resTy innerMatches))
+      pure (FcAlt con (evidenceBinders <> binders) body)
 
 dsRhs :: Rhs Expr -> DsM FcExpr
 dsRhs (UnguardedRhs _sp expr maybeDecls) =
@@ -511,14 +513,15 @@ dsAnnotatedVar :: TcAnnotation -> Name -> Expr -> DsM FcExpr
 dsAnnotatedVar tcAnn name _expr = do
   let n = nameToText name
   mLocal <- lookupLocalName name
-  case mLocal of
-    Just v -> pure (FcVar v)
-    Nothing -> do
-      ty <- lookupTypeName name
-      v <- freshVar n ty
-      let typedExpr = List.foldl' FcTyApp (FcVar v) (tcAnnTypeArgs tcAnn)
-      dicts <- mapM dsEvidence (tcAnnEvidenceTerms tcAnn)
-      pure (List.foldl' FcApp typedExpr dicts)
+  variable <-
+    case mLocal of
+      Just local -> pure local
+      Nothing -> do
+        ty <- lookupTypeName name
+        freshVar n ty
+  let typedExpr = List.foldl' FcTyApp (FcVar variable) (tcAnnTypeArgs tcAnn)
+  dicts <- mapM dsEvidence (tcAnnEvidenceTerms tcAnn)
+  pure (List.foldl' FcApp typedExpr dicts)
 
 dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
 dsAnnotatedExpr tcAnn inner =
@@ -1032,13 +1035,14 @@ dsCompGenMatch elemTy body pat rest headVar skipExpr =
         _ -> do
           binderTys <- patternBinderTypesM pat (varType headVar)
           binders <- zipWithM freshVar binderNames binderTys
-          matched <- withLocals (zip binderNames binders) (dsCompQuals elemTy body rest skipExpr)
+          (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
+          matched <- withDicts dictionaries (withLocals (zip binderNames binders) (dsCompQuals elemTy body rest skipExpr))
           caseBinder <- freshInternalVar "_lc_match" (varType headVar)
           pure
             ( FcCase
                 (FcVar headVar)
                 caseBinder
-                [ FcAlt con binders matched,
+                [ FcAlt con (evidenceBinders <> binders) matched,
                   FcAlt DefaultAlt [] skipExpr
                 ]
             )
@@ -1059,11 +1063,11 @@ dsLambda pats body = do
   argTys <- mapM lambdaPatternTypeRequired pats
   vars <- zipWithM freshInternalVar (map lambdaArgName pats) argTys
   body' <-
-    if any isOverloadedIntegerPattern pats
-      then do
+    case traverse (uncurry directPatternBindings) (zip pats vars) of
+      Nothing -> do
         failure <- noPatternMatch vars
         dsMatchPatterns vars pats (dsExpr body) failure
-      else withLocals (concat (zipWith lambdaPatternBindings pats vars)) (dsExpr body)
+      Just bindings -> withLocals (concat bindings) (dsExpr body)
   pure (foldr FcLam body' vars)
 
 dsLambdaCase :: [CaseAlt Expr] -> DsM FcExpr
@@ -1102,15 +1106,6 @@ lambdaArgName pat =
     PParen inner -> lambdaArgName inner
     PAs name _ -> unqualifiedNameText name
     _ -> "_lam"
-
-lambdaPatternBindings :: Pattern -> Var -> [(Text, Var)]
-lambdaPatternBindings pat var =
-  case pat of
-    PVar name -> [(unqualifiedNameText name, var)]
-    PAnn _ inner -> lambdaPatternBindings inner var
-    PParen inner -> lambdaPatternBindings inner var
-    PAs name inner -> (unqualifiedNameText name, var) : lambdaPatternBindings inner var
-    _ -> []
 
 dsTuple :: TupleFlavor -> TcAnnotation -> [Maybe Expr] -> DsM FcExpr
 dsTuple flavor tcAnn elems = do
@@ -1320,6 +1315,34 @@ nameTcAnnotation :: Name -> Maybe TcAnnotation
 nameTcAnnotation =
   listToMaybe . mapMaybe fromAnnotation . nameAnns
 
+patternEvidenceBinders :: Pattern -> DsM ([Var], [ClassDict])
+patternEvidenceBinders pattern' = do
+  let predicates =
+        case patternTcAnnotation pattern' of
+          Just annotation -> [predicate | EvGiven predicate <- tcAnnEvidenceTerms annotation]
+          Nothing -> []
+  binders <- mapM (freshVar "$dpattern" . predType) predicates
+  pure (binders, zipWith patternDictionary predicates binders)
+  where
+    patternDictionary predicate binder =
+      case predicate of
+        ClassPred className arguments -> ClassDict className arguments binder
+        EqPred {} -> ClassDict "<constraint>" [] binder
+
+patternTcAnnotation :: Pattern -> Maybe TcAnnotation
+patternTcAnnotation pattern' =
+  case pattern' of
+    PAnn ann inner ->
+      case fromAnnotation ann of
+        Just annotation -> Just annotation
+        Nothing -> patternTcAnnotation inner
+    PParen inner -> patternTcAnnotation inner
+    PStrict inner -> patternTcAnnotation inner
+    PIrrefutable inner -> patternTcAnnotation inner
+    PAs _ inner -> patternTcAnnotation inner
+    PTypeSig inner _ -> patternTcAnnotation inner
+    _ -> Nothing
+
 patternBinderTypesM :: Pattern -> TcType -> DsM [TcType]
 patternBinderTypesM pat scrutTy =
   case pat of
@@ -1347,7 +1370,7 @@ patternBinderTypesM pat scrutTy =
 constructorFieldTypesM :: Name -> Int -> DsM [TcType]
 constructorFieldTypesM name arity = do
   ty <- lookupTypeName name
-  takeConstructorFields (nameToText name) arity (dropForAlls ty)
+  takeConstructorFields (nameToText name) arity (dropConstructorContext (dropForAlls ty))
 
 takeConstructorFields :: Text -> Int -> TcType -> DsM [TcType]
 takeConstructorFields _ 0 _ = pure []
@@ -1359,6 +1382,10 @@ takeConstructorFields name arity ty =
 dropForAlls :: TcType -> TcType
 dropForAlls (TcForAllTy _ body) = dropForAlls body
 dropForAlls ty = ty
+
+dropConstructorContext :: TcType -> TcType
+dropConstructorContext (TcQualTy _ body) = body
+dropConstructorContext ty = ty
 
 listElemTyM :: TcType -> DsM TcType
 listElemTyM (TcTyCon (TyCon "[]" 1) [elemTy]) = pure elemTy
@@ -1470,8 +1497,9 @@ dsCaseAlt scrutTy (CaseAlt _anns pat rhs) = do
   let (con, binderNames) = dsPatternPure pat
   binderTys <- patternBinderTypesM pat scrutTy
   binders <- zipWithM freshVar binderNames binderTys
-  body <- withLocals (zip binderNames binders) (dsRhs rhs)
-  pure (FcAlt con binders body)
+  (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
+  body <- withDicts dictionaries (withLocals (zip binderNames binders) (dsRhs rhs))
+  pure (FcAlt con (evidenceBinders <> binders) body)
 
 -- | Convert a Name to Text.
 nameToText :: Name -> Text
