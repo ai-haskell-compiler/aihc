@@ -198,7 +198,7 @@ lowerTopBind topBind =
         mempty
           { loweredPrimitives =
               [ (lowerGlobalVar var, arity)
-              | varName var /= "unsafeCoerce#"
+              | varName var `notElem` ["unsafeCoerce#", "raise#", "catch#"]
               ]
           }
     FcForeignImport foreignCall ->
@@ -271,7 +271,7 @@ lowerExpr expr = do
           lowerSingleOperand "exception" exception (pure . GrinThrow)
         Just ("catch#", [action, handler, _state]) ->
           lowerSingleEvaluatedOperand "catch_action" action $ \actionValue ->
-            lowerCatchHandler handler $ \handlerValue ->
+            lowerCatchHandler (exprRuntimeRep expr) handler $ \handlerValue ->
               pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue [])
         Just ("unsafeCoerce#", argument : extraArguments) ->
           lowerUnsafeCoerceApplication expr argument extraArguments
@@ -765,11 +765,11 @@ evaluateGrinValue hint runtimeRep value continuation
   | otherwise = continuation value
 
 -- | Keep a catch handler lazy until an exception is raised while still making
--- every function entry explicit. The wrapper is already in WHNF; when called,
--- it evaluates the captured handler and the action returned by that handler
--- before either value is applied.
-lowerCatchHandler :: FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
-lowerCatchHandler handler continuation =
+-- every function entry explicit. The wrapper accepts the exception and runs
+-- the IO action returned by the captured source handler, so the runtime can
+-- resume it directly with the catch frame's parent continuation.
+lowerCatchHandler :: RuntimeRep -> FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerCatchHandler catchResultRep handler continuation =
   lowerSingleArgument handler $ \handlerValue -> do
     let handlerRep = exprRuntimeRep handler
         actionRep = applicationResultRep handler
@@ -778,19 +778,24 @@ lowerCatchHandler handler continuation =
     exception <- freshVar "catch_exception" exceptionRep
     evaluatedHandler <- freshVar "catch_handler_whnf" handlerRep
     actionPointer <- freshVar "catch_handler_action" actionRep
+    evaluatedAction <- freshVar "catch_handler_action_whnf" actionRep
     wrapperName <- freshFunction "catch_handler"
     emitFunction
       GrinFunction
         { grinFunctionName = wrapperName,
           grinFunctionLinkName = Nothing,
           grinFunctionParameters = [capturedHandler, exception],
-          grinFunctionResultRep = actionRep,
+          grinFunctionResultRep = catchResultRep,
           grinFunctionBody =
             bindExpr [evaluatedHandler] (GrinEval handlerRep (GrinVarValue capturedHandler)) $
               bindExpr
                 [actionPointer]
                 (GrinApply actionRep (GrinVarValue evaluatedHandler) [GrinVarValue exception])
-                (GrinEval actionRep (GrinVarValue actionPointer))
+                ( bindExpr
+                    [evaluatedAction]
+                    (GrinEval actionRep (GrinVarValue actionPointer))
+                    (GrinApply catchResultRep (GrinVarValue evaluatedAction) [])
+                )
         }
     wrapperPointer <- freshVar "catch_handler_wrapper" liftedRuntimeRep
     evaluatedWrapper <- freshVar "catch_handler_wrapper_whnf" liftedRuntimeRep

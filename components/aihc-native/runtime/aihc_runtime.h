@@ -32,14 +32,15 @@ typedef struct AihcIoBackend AihcIoBackend;
 typedef struct AihcMVar AihcMVar;
 typedef uint64_t AihcSlot;
 typedef void (*AihcEntry)(AihcSlot *arguments);
-/* The last info-table word is interpreted by the selected code generator.
-   Common runtime code preserves it but never calls it. */
+/* The backend entry is interpreted by the selected code generator. Common
+   runtime code preserves it but never calls it. */
 typedef void (*AihcBackendEntry)(void);
 
 enum {
   AIHC_RESUME_NONE,
   AIHC_RESUME_APPLY,
   AIHC_RESUME_CONTINUE,
+  AIHC_RESUME_RAISE,
 };
 typedef uint64_t AihcResumeKind;
 
@@ -171,6 +172,8 @@ const AihcResume *aihc_block_on_blackhole(AihcMachine *machine,
 void aihc_update(AihcValue *object, AihcValue *value);
 void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
                            AihcValue *value);
+const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
+                             AihcValue *continuation);
 AihcSlot aihc_fork(AihcMachine *machine, AihcValue *action);
 void *aihc_mvar_new(AihcMachine *machine);
 const AihcResume *aihc_mvar_read(AihcMachine *machine, void *mvar,

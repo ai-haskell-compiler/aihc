@@ -14,19 +14,20 @@ current computation interruptible.
 
 ## Current state
 
-`raise#` and `catch#` currently lower to `GrinThrow` and `GrinCatch`. The FC and
-direct-GRIN interpreters implement those nodes with an out-of-band evaluator
-failure. `toCpsGrin` rejects both nodes, and the native and Wasm backends reject
-them as well. This is useful reference behavior, but it is not the runtime
-model.
+`raise#` and `catch#` first lower to direct `GrinThrow` and `GrinCatch` nodes.
+The FC and direct-GRIN interpreters retain their out-of-band reference
+behavior. CPS-GRIN now eliminates both direct nodes: catches allocate an
+explicit catch frame and raises become `GrinCpsRaise` transfers. The shared
+runtime walks the continuation chain and every backend tail-resumes the
+selected handler through its existing transfer convention.
 
 Structural `Typeable` evidence and checked casts are implemented. The CPS pass
 now reifies the rest of a computation as an ordinary closure whose field zero
 is always its parent continuation. CPS records a frame kind for every generated
 continuation, GC-GRIN preserves it, and every backend emits it in `AihcInfo`.
 
-`GrinThrow` and `GrinCatch` are still rejected at the CPS boundary. The next
-runtime change is to lower those nodes to continuation-chain operations.
+Primitive synchronous catch, nested rethrow, and update-frame unwinding work.
+Typed `Exception`/`SomeException`, masking, and asynchronous delivery remain.
 
 ## Continuation-chain invariant
 
@@ -122,6 +123,13 @@ The original thunk info pointer and environment survive the current blackhole
 representation, so restoring the thunk requires no copy. The distinction is a
 property of how the raise was initiated, not of the exception's Haskell type:
 explicitly calling `throwIO UserInterrupt` is still a synchronous raise.
+
+The current first implementation restores the original thunk and resumes
+existing blackhole waiters by raising through each waiter's continuation. This
+prevents a stranded blackhole and preserves retryability, but does not yet
+memoize the synchronous exception for future entries. Installing the portable
+raise thunk described above remains part of completing synchronous exception
+semantics.
 
 ## `Typeable`, `Exception`, and `SomeException`
 
@@ -279,14 +287,14 @@ The feature needs proof at several layers:
 - backend code-generation tests for frame metadata and raise/poll transfers;
 - portable examples compiled by every backend.
 
-Two portable examples should be added with synchronous and asynchronous
-support:
+The `exceptions-sync` portable example uses a failing thunk, nested catches,
+and a handler rethrow. A later typed version should use two user exception
+types once `Exception` and `SomeException` land.
 
-1. `exceptions-sync` uses two user exception types, a nested selective catch,
-   a rethrow, and an exception raised while forcing a thunk.
-2. `exceptions-async` forks a worker, demonstrates masked cleanup and restore,
-   sends an exception with `throwTo`, and deterministically joins through an
-   `MVar`.
+The remaining asynchronous example should:
+
+- fork a worker, demonstrate masked cleanup and restore, send an exception with
+  `throwTo`, and deterministically join through an `MVar`.
 
 A separate POSIX test launches a looping executable, sends it `SIGINT`, and
 checks `UserInterrupt` handling. It is not the semantic cross-backend test.
@@ -297,8 +305,9 @@ checks `UserInterrupt` handling. It is not the semantic cross-backend test.
    `unsafeCoerce#` primitive as an independent change.
 2. **Complete:** make the continuation parent link and frame metadata explicit
    without changing behavior.
-3. Lower synchronous raise/catch during CPS conversion and implement shared
-   unwinding, update cleanup, `Exception`, and `SomeException`.
+3. **In progress:** primitive synchronous raise/catch lowering, shared
+   unwinding, and rollback-style update cleanup are implemented. Portable
+   exception memoization, `Exception`, and `SomeException` remain.
 4. Add masking state and restore frames, then implement the library masking and
    cleanup combinators.
 5. Add per-thread pending queues, safe-point polls, blocked-operation

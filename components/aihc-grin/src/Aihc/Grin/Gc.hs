@@ -85,6 +85,7 @@ lowerExpr bound expression =
     GrinApply {} -> pure expression
     GrinCpsApply {} -> pure expression
     GrinContinue {} -> pure expression
+    GrinCpsRaise {} -> pure expression
     GrinHalt {} -> pure expression
     GrinThrow {} -> pure expression
     GrinCatch {} -> pure expression
@@ -186,6 +187,7 @@ substituteExpr substitutions expression =
     GrinCpsApply runtimeRep function arguments continuation ->
       GrinCpsApply runtimeRep (substituteValue substitutions function) (map (substituteValue substitutions) arguments) (substituteValue substitutions continuation)
     GrinContinue continuation values -> GrinContinue (substituteValue substitutions continuation) (map (substituteValue substitutions) values)
+    GrinCpsRaise exception continuation -> GrinCpsRaise (substituteValue substitutions exception) (substituteValue substitutions continuation)
     GrinHalt values -> GrinHalt (map (substituteValue substitutions) values)
     GrinCase scrutinee binder alternatives ->
       GrinCase
@@ -260,6 +262,7 @@ maximumProgramVarUnique program =
         GrinApply _ function arguments -> concatMap valueUnique (function : arguments)
         GrinCpsApply _ function arguments continuation -> concatMap valueUnique (function : continuation : arguments)
         GrinContinue continuation values -> concatMap valueUnique (continuation : values)
+        GrinCpsRaise exception continuation -> concatMap valueUnique [exception, continuation]
         GrinHalt values -> concatMap valueUnique values
         GrinCase scrutinee binder alternatives ->
           valueUnique scrutinee

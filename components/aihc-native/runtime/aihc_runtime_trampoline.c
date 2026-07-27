@@ -131,19 +131,31 @@ AihcTrampolineTransfer aihc_trampoline_resume(AihcMachine *machine,
   AihcTrampolineTransfer transfer;
   switch (resume->kind) {
   case AIHC_RESUME_APPLY:
-    transfer = aihc_trampoline_apply_cps(machine, resume->function, 0, NULL,
-                                         resume->continuation);
+    transfer = aihc_trampoline_apply_cps(
+        machine, resume->function, resume->count,
+        resume->count == 0 ? NULL : &resume->value, resume->continuation);
     break;
   case AIHC_RESUME_CONTINUE:
     transfer = aihc_trampoline_continue_values_now(
         machine, resume->function, resume->count,
         resume->count == 0 ? NULL : &resume->value);
     break;
+  case AIHC_RESUME_RAISE:
+    transfer = aihc_trampoline_raise_cps(machine, resume->function,
+                                         resume->continuation);
+    break;
   default:
     aihc_fail("invalid suspended continuation");
   }
   machine->selected_resume = (AihcResume){0};
   return transfer;
+}
+
+AihcTrampolineTransfer aihc_trampoline_raise_cps(AihcMachine *machine,
+                                                 AihcValue *exception,
+                                                 AihcValue *continuation) {
+  return aihc_trampoline_resume(machine,
+                                aihc_raise(machine, exception, continuation));
 }
 
 AihcTrampolineTransfer
