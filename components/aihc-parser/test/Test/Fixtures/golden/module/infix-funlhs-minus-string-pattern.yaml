@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  M.H - "" = x
-ast: |-
-  Module {[DeclValue (FunctionBind "-" [Match {MatchHeadInfix, [PCon "M" "H" [], PLit (LitString "")], EVar "x"}])]}
-status: pass

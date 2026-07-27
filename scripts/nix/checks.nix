@@ -285,17 +285,8 @@
     fi
   '';
 
-  cppProgressEnv = hsPkgs.ghcWithPackages (p: [
-    p.aihc-cpp
-    p.cpphs
-  ]);
-  parserProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-progress";
-  lexerProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "lexer-progress";
-  parserExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-extension-progress";
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
 
-  parserTests = mkPackageTest hsPkgs.aihc-parser;
-  cppTests = mkPackageTest hsPkgs.aihc-cpp;
   amd64Tests = mkEvalPackageTest (
     pkgs.haskell.lib.overrideCabal hsPkgs.aihc-amd64 (old: {
       testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
@@ -491,52 +482,7 @@
   # covers whole-program mode. Nix schedules these derivations in parallel.
   wasip3ExampleTest = assert exampleNames != [];
     pkgs.linkFarm "aihc-wasip3-example-test" wasip3ExampleCases;
-
-  parserProgressStrict = mkSourceCheck "aihc-parser-progress-strict" (sources.parserSrc pkgs) [] ''
-    ${parserProgressExe} --strict
-  '';
-
-  lexerProgressStrict = mkSourceCheck "aihc-lexer-progress-strict" (sources.parserSrc pkgs) [] ''
-    ${lexerProgressExe} --strict
-  '';
-
-  parserExtensionProgressStrict = mkSourceCheck "aihc-parser-extension-progress-strict" (sources.parserSrc pkgs) [] ''
-    ${parserExtensionProgressExe} --strict
-  '';
-
-  cppProgressStrict = mkSourceCheck "aihc-cpp-progress-strict" (sources.cppSrc pkgs) [cppProgressEnv] ''
-    runghc -package-env - -itest app/cpp-progress/Main.hs --strict
-  '';
-
-  cppDoctest =
-    mkSourceCheck "aihc-cpp-doctest" (sources.cppSrc pkgs) [
-      (projectHsPackages pkgs).doctest
-      (projectHsPackages pkgs).ghc
-      hsPkgs.aihc-cpp
-    ] ''
-      # Run doctest on the Aihc.Cpp module.
-      doctest -XGHC2021 -isrc src/Aihc/Cpp.hs
-    '';
-
-  parserDoctest = let
-    ghcEnv = hsPkgs.ghcWithPackages (p: [
-      p.aihc-parser
-      p.doctest
-    ]);
-  in
-    mkSourceCheck "aihc-parser-doctest" (sources.parserSrc pkgs) [ghcEnv] ''
-      # Find the GHC package database from ghcWithPackages.
-      PKGDB=$(ghc --print-global-package-db)
-      # Include all source files so imports between modules work.
-      doctest -XGHC2021 -package-db="$PKGDB" -isrc \
-        src/Aihc/Parser/Parens.hs \
-        src/Aihc/Parser/Pretty.hs \
-        src/Aihc/Parser/Shorthand.hs \
-        src/Aihc/Parser.hs
-    '';
 in {
-  parser-tests = parserTests;
-  cpp-tests = cppTests;
   amd64-tests = amd64Tests;
   arm64-tests = arm64Tests;
   c-tests = cBackendTests;
@@ -551,12 +497,6 @@ in {
   aihc-tests = aihcTests;
   fmt-tests = fmtTests;
   unicode-generated = unicodeGenerated;
-  cpp-doctest = cppDoctest;
-  parser-doctest = parserDoctest;
-  parser-progress-strict = parserProgressStrict;
-  lexer-progress-strict = lexerProgressStrict;
-  parser-extension-progress-strict = parserExtensionProgressStrict;
-  cpp-progress-strict = cppProgressStrict;
   nix-lint = nixLint;
   nix-format = nixFormat;
   haskell-lint = haskellLint;

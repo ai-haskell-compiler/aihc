@@ -1,9 +1,0 @@
-input: "-10"
-args: ["--lex"]
-output: |
-  TkSpecialLBrace
-  TkVarSym "-"
-  TkInteger 10 TInteger
-  TkSpecialRBrace
-  TkEOF
-status: pass

@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  if x then y :: T else z
-ast: |-
-  EIf (EVar "x") (ETypeSig (EVar "y") (TCon "T")) (EVar "z")
-status: pass

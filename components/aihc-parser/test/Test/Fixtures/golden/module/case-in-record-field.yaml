@@ -1,7 +1,0 @@
-extensions: []
-input: |
-  module CaseInRecordField where
-  x = R { f = case y of A -> 1, g = 3 }
-ast: |-
-  Module {ModuleHead {"CaseInRecordField"}, [DeclValue (PatternBind (PVar "x") (ERecordCon "R" {"f" = ECase (EVar "y") [CaseAlt (PCon "A" []) (EInt 1 TInteger)], "g" = EInt 3 TInteger}))]}
-status: pass

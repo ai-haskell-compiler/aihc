@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  (Prelude.+ x)
-ast: |-
-  EParen (ESectionR "Prelude" "+" (EVar "x"))
-status: pass

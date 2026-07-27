@@ -1,6 +1,0 @@
-extensions: []
-input: "'ab'"
-tokens:
-  - 'TkError "invalid char literal"'
-  - 'TkEOF'
-status: pass

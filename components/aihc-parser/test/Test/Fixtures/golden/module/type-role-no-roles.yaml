@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  type role M
-ast: |-
-  Module {[DeclRoleAnnotation (RoleAnnotation {UnqualifiedName {"M"}, []})]}
-status: pass

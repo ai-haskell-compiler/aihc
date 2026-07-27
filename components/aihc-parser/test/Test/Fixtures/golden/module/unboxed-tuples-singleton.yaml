@@ -1,9 +1,0 @@
-extensions: [UnboxedTuples]
-input: |
-  {-# LANGUAGE UnboxedTuples #-}
-  module UnboxedTuplesSingleton where
-  x = (# 1 #)
-  f (# y #) = y
-ast: |-
-  Module {ModuleHead {"UnboxedTuplesSingleton"}, [UnboxedTuples], [DeclValue (PatternBind (PVar "x") (ETuple Unboxed [EInt 1 TInteger])), DeclValue (FunctionBind "f" [Match {MatchHeadPrefix, [PTuple Unboxed [PVar "y"]], EVar "y"}])]}
-status: pass

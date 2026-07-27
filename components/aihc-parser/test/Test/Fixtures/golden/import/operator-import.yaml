@@ -1,7 +1,0 @@
-extensions:
-  - TypeOperators
-input: |
-  import Data.Type.Equality ((:~~:)(..))
-ast: |-
-  Module {[ImportDecl {"Data.Type.Equality", ImportSpec {[ImportItemAll{UnqualifiedName {":~~:"}}]}}]}
-status: pass

@@ -1,6 +1,0 @@
-extensions: [ExtendedLiterals, MagicHash]
-input: |
-  123#Word16
-ast: |-
-  EInt 123 TWord16Hash
-status: pass

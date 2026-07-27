@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  (a)
-ast: |-
-  PParen (PVar "a")
-status: pass

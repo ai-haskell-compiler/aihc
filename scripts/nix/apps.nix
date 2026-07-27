@@ -1,23 +1,15 @@
 {
   projectHsPackages,
   mkHsPkgs,
-  mkCoverageReport,
 }: pkgs: let
   hsPkgs = mkHsPkgs pkgs;
   resolveProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve-tooling-common "resolve-progress";
   resolveExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve-tooling-common "resolve-extension-progress";
-  parserProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-progress";
-  lexerProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "lexer-progress";
-  parserExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser-tooling-common "parser-extension-progress";
   aihcDevExe = pkgs.lib.getExe' hsPkgs.aihc-dev "aihc-dev";
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
   unicode = import ./unicode.nix {inherit pkgs;};
-  cppProgressEnv = hsPkgs.ghcWithPackages (p: [
-    p.aihc-cpp
-    p.cpphs
-  ]);
   repoRootGuard = ''
-    test -d components/aihc-parser || {
+    test -f cabal.project || {
       echo "Run this app from the repository root." >&2
       exit 1
     }
@@ -53,13 +45,9 @@
       ${text}
     '';
 
-  mkComponentAppWithInputs = name: runtimeInputs: component: text:
-    mkAppWithInputs name runtimeInputs ''
-      set -euo pipefail
-      ${repoRootGuard}
-      cd ${component}
-      ${text}
-    '';
+  aihcApp = mkAppWithInputs "aihc" [pkgs.bash] ''
+    exec ${aihcExe} "$@"
+  '';
 in {
   fmt = mkFmtApp "fmt" ''
     set -euo pipefail
@@ -177,53 +165,11 @@ in {
     }
   '';
 
-  parser-test = mkComponentApp "parser-test" "components/aihc-parser" ''
-    cabal test --test-show-details=direct
-  '';
-
-  parser-progress = mkComponentApp "parser-progress" "components/aihc-parser" ''
-    ${parserProgressExe} "$@"
-  '';
-
-  lexer-progress = mkComponentApp "lexer-progress" "components/aihc-parser" ''
-    ${lexerProgressExe} "$@"
-  '';
-
-  parser-extension-progress = mkComponentApp "parser-extension-progress" "components/aihc-parser" ''
-    ${parserExtensionProgressExe} "$@"
-  '';
-
   aihc-dev = mkAppWithInputs "aihc-dev" [pkgs.bash hsPkgs.ghc] ''
     exec ${aihcDevExe} "$@"
   '';
 
-  aihc = mkAppWithInputs "aihc" [pkgs.bash] ''
-    exec ${aihcExe} "$@"
-  '';
-
-  parser-progress-strict = mkComponentApp "parser-progress-strict" "components/aihc-parser" ''
-    ${parserProgressExe} --strict
-  '';
-
-  lexer-progress-strict = mkComponentApp "lexer-progress-strict" "components/aihc-parser" ''
-    ${lexerProgressExe} --strict
-  '';
-
-  parser-extension-progress-strict = mkComponentApp "parser-extension-progress-strict" "components/aihc-parser" ''
-    ${parserExtensionProgressExe} --strict "$@"
-  '';
-
-  cpp-test = mkComponentApp "cpp-test" "components/aihc-cpp" ''
-    cabal test --test-show-details=direct
-  '';
-
-  cpp-progress = mkComponentAppWithInputs "cpp-progress" [pkgs.bash cppProgressEnv] "components/aihc-cpp" ''
-    runghc -package-env - -itest app/cpp-progress/Main.hs "$@"
-  '';
-
-  cpp-progress-strict = mkComponentAppWithInputs "cpp-progress-strict" [pkgs.bash cppProgressEnv] "components/aihc-cpp" ''
-    runghc -package-env - -itest app/cpp-progress/Main.hs --strict "$@"
-  '';
+  aihc = aihcApp;
 
   resolve-progress = mkComponentApp "resolve-progress" "components/aihc-resolve" ''
     ${resolveProgressExe} "$@"
@@ -247,48 +193,11 @@ in {
     bash ./scripts/update-generated-content.sh --update
   '';
 
-  generate-benchmarks = mkAppWithInputs "generate-benchmarks" [pkgs.bash pkgs.git pkgs.llvmPackages.clang hsPkgs.cpphs] ''
-    set -euo pipefail
-    ${repoRootGuard}
-    exec ${aihcDevExe} parser-bench report "$@"
-  '';
-
   check-reports = mkReportsApp "check-reports" ''
     set -euo pipefail
     ${repoRootGuard}
     bash ./scripts/update-generated-content.sh --check
   '';
 
-  coverage = let
-    coverageReport = mkCoverageReport pkgs;
-  in
-    mkAppWithInputs "coverage" [pkgs.bash] ''
-      set -euo pipefail
-
-      echo "=== HPC Coverage Report ==="
-      echo ""
-      echo "Coverage report location: ${coverageReport}"
-      echo ""
-
-      echo "Report contents:"
-      ls -la "${coverageReport}/"
-      echo ""
-
-      if [ -f "${coverageReport}/README.txt" ]; then
-        cat "${coverageReport}/README.txt"
-      fi
-
-      echo ""
-      echo "To view HTML reports, open:"
-      if [ -d "${coverageReport}/aihc-parser-html" ]; then
-        echo "  ${coverageReport}/aihc-parser-html/hpc_index.html"
-      fi
-      if [ -d "${coverageReport}/aihc-cpp-html" ]; then
-        echo "  ${coverageReport}/aihc-cpp-html/hpc_index.html"
-      fi
-    '';
-
-  default = mkComponentApp "default" "components/aihc-parser" ''
-    cabal test --test-show-details=direct
-  '';
+  default = aihcApp;
 }

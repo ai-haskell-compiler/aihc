@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  infix ^, +
-ast: |-
-  Module {[DeclFixity Infix Nothing Nothing [UnqualifiedName {"^"}, UnqualifiedName {"+"}]]}
-status: pass

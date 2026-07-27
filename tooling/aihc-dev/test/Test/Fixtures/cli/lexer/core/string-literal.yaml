@@ -1,8 +1,0 @@
-input: "\"hello world\""
-args: ["--lex"]
-output: |
-  TkSpecialLBrace
-  TkString "hello world"
-  TkSpecialRBrace
-  TkEOF
-status: pass

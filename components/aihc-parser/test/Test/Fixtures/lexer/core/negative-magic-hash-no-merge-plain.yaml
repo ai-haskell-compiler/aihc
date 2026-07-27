@@ -1,8 +1,0 @@
-extensions:
-  - MagicHash
-input: "-1"
-tokens:
-  - 'TkVarSym "-"'
-  - 'TkInteger 1 TInteger'
-  - 'TkEOF'
-status: pass

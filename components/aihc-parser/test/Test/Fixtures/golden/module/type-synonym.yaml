@@ -1,7 +1,0 @@
-extensions: []
-input: |
-  module D6 where
-  type Pair a = (a, a)
-ast: |-
-  Module {ModuleHead {"D6"}, [DeclTypeSyn (TypeSynDecl {Prefix "Pair" [TyVarBinder {"a"}], TTuple [TVar "a", TVar "a"]})]}
-status: pass

@@ -1,4 +1,0 @@
-input: "x = 1"
-output: |
-  Module {[DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}
-status: pass

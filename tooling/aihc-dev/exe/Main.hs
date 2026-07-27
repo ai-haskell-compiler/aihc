@@ -5,26 +5,13 @@ import Aihc.Dev.ExtractHi.Compare (comparePackageSubset, renderCoreLibProgressRe
 import Aihc.Dev.ExtractHi.ToResolveIface (toResolveIface)
 import Aihc.Dev.Fuzz qualified as Fuzz
 import Aihc.Dev.Fuzz.CLI qualified as FuzzCLI
-import Aihc.Dev.Golden.Update qualified as GoldenUpdate
-import Aihc.Dev.HackageTester.Run qualified as HackageTesterRun
-import Aihc.Dev.Parser.Bench.CLI qualified as ParserBenchCLI
-import Aihc.Dev.Parser.Bench.Run qualified as ParserBenchRun
-import Aihc.Dev.Parser.CLI qualified as ParserCLI
-import Aihc.Dev.Parser.Run qualified as ParserRun
-import Aihc.Dev.Snippet (SnippetOpts (..), parseExtensionSettingArg, runSnippet)
-import Aihc.Parser.Syntax (ExtensionSetting)
 import Data.Aeson (encode)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import Data.ByteString.Lazy qualified as BL
 import Data.Yaml qualified as Yaml
-import HackageProgress.CLI qualified as ParserHackageProgressCLI
-import HackageProgress.Run qualified as ParserHackageProgressRun
-import HackageTester.CLI qualified as HackageTesterCLI
 import Options.Applicative
 import ResolvePackage qualified as RP
 import ResolveStackageProgress qualified as RSP
-import StackageProgress.CLI qualified as ParserStackageProgressCLI
-import StackageProgress.Run qualified as ParserStackageProgressRun
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitFailure)
 import System.FilePath (takeDirectory)
@@ -49,16 +36,9 @@ data Command
   | CoreLibsProgress
   | ExtractResolveIface ExtractResolveIfaceOpts
   | Fuzz FuzzCLI.Command
-  | Snippet SnippetOpts
-  | Parser ParserRun.Options
-  | ParserBench ParserBenchCLI.Options
-  | HackageTester HackageTesterCLI.Options
-  | ParserStackageProgress ParserStackageProgressCLI.Options
-  | ParserHackageProgress ParserHackageProgressCLI.Options
   | ResolvePackage RP.Options
   | ResolveStackageProgress RSP.Options
   | TcStackageProgress TSP.Options
-  | UpdateGoldens GoldenUpdate.Options
 
 data ExtractHiOpts = ExtractHiOpts
   { ehPackage :: String,
@@ -112,42 +92,6 @@ commandParser =
               (progDesc "Continuously run QuickCheck properties in parallel")
           )
         <> command
-          "snippet"
-          ( info
-              (Snippet <$> snippetParser <**> helper)
-              (progDesc "Analyze a Haskell snippet using GHC and aihc-parser")
-          )
-        <> command
-          "parser"
-          ( info
-              (Parser <$> ParserCLI.optionsParser <**> helper)
-              (progDesc "Parse, lex, or preprocess Haskell source")
-          )
-        <> command
-          "parser-bench"
-          ( info
-              (ParserBench <$> ParserBenchCLI.optionsParser <**> helper)
-              (progDesc "Generate parser benchmark tarballs and run parser benchmarks")
-          )
-        <> command
-          "hackage-tester"
-          ( info
-              (HackageTester <$> HackageTesterCLI.optionsParser <**> helper)
-              (progDesc "Test parser behavior on a Hackage package")
-          )
-        <> command
-          "parser-stackage-progress"
-          ( info
-              (ParserStackageProgress <$> ParserStackageProgressCLI.optionsParser <**> helper)
-              (progDesc "Test parser on Stackage snapshot packages")
-          )
-        <> command
-          "parser-hackage-progress"
-          ( info
-              (ParserHackageProgress <$> ParserHackageProgressCLI.optionsParser <**> helper)
-              (progDesc "Test parser on all packages in Hackage")
-          )
-        <> command
           "resolve"
           ( info
               (ResolvePackage <$> RP.optionsParser <**> helper)
@@ -164,12 +108,6 @@ commandParser =
           ( info
               (TcStackageProgress <$> TSP.optionsParser <**> helper)
               (progDesc "Test type checker on Stackage snapshot packages")
-          )
-        <> command
-          "update-goldens"
-          ( info
-              (UpdateGoldens <$> GoldenUpdate.optionsParser <**> helper)
-              (progDesc "Refresh golden fixture outputs from the current implementation")
           )
     )
 
@@ -215,28 +153,6 @@ compareHiSubsetParser =
           <> help "Oracle package that defines the compatible API"
       )
 
-snippetParser :: Parser SnippetOpts
-snippetParser =
-  SnippetOpts
-    <$> many
-      ( option
-          parseExtensionSetting
-          ( short 'X'
-              <> metavar "EXTENSION"
-              <> help "Enable a language extension (for example, -XTypeApplications)"
-          )
-      )
-    <*> optional
-      ( strArgument
-          ( metavar "FILE"
-              <> help "Snippet file to analyze (reads stdin if omitted)"
-          )
-      )
-
-parseExtensionSetting :: ReadM ExtensionSetting
-parseExtensionSetting =
-  eitherReader parseExtensionSettingArg
-
 runCommand :: Command -> IO ()
 runCommand (ExtractHi opts) = do
   pkg <- extractPackage (ehPackage opts)
@@ -262,23 +178,9 @@ runCommand (ExtractResolveIface opts) = do
   BL.writeFile outputPath (encodePretty resolveIface)
 runCommand (Fuzz fuzzCommand) =
   Fuzz.runCommand fuzzCommand
-runCommand (Snippet opts) =
-  runSnippet opts
-runCommand (Parser opts) =
-  ParserCLI.run opts
-runCommand (ParserBench opts) =
-  ParserBenchRun.run opts
-runCommand (HackageTester opts) =
-  HackageTesterRun.run opts
-runCommand (ParserStackageProgress opts) =
-  ParserStackageProgressRun.run opts
-runCommand (ParserHackageProgress opts) =
-  ParserHackageProgressRun.run opts
 runCommand (ResolvePackage opts) =
   RP.run opts
 runCommand (ResolveStackageProgress opts) =
   RSP.run opts
 runCommand (TcStackageProgress opts) =
   TSP.run opts
-runCommand (UpdateGoldens opts) =
-  GoldenUpdate.run opts

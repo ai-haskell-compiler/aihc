@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  default ()
-ast: |-
-  Module {[DeclDefault []]}
-status: pass

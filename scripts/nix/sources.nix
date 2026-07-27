@@ -37,30 +37,6 @@
 in rec {
   # Source filtering: only include relevant files for each component.
   # This prevents rebuilds when unrelated files change.
-  parserSrc = mkComponentSrc "/components/aihc-parser" [
-    ".hs"
-    ".hs-boot"
-    ".cabal"
-    ".yaml"
-    ".yml"
-    ".tsv"
-    ".json"
-  ];
-
-  parserCompatSrc = mkComponentSrc "/components/aihc-parser-compat" [
-    ".hs"
-    ".cabal"
-  ];
-
-  cppSrc = mkComponentSrc "/components/aihc-cpp" [
-    ".hs"
-    ".cabal"
-    ".yaml"
-    ".yml"
-    ".tsv"
-    ".inc"
-  ];
-
   fcSrc = mkRootSubsetSrc ["components/aihc-fc/" "test/support/"] [
     ".hs"
     ".cabal"
@@ -174,20 +150,6 @@ in rec {
         matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal" ".yaml" ".yml"] path;
       in
         type == "directory" || ((inDev || inTcCommon || inResolveCommon) && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
-    };
-
-  parserToolingCommonSrc = pkgs:
-    pkgs.lib.cleanSourceWith {
-      src = root;
-      filter = path: type: let
-        baseName = baseNameOf path;
-        relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
-        inToolingCommon = pkgs.lib.hasPrefix "tooling/aihc-parser-tooling-common/" relPath;
-        inParserCommon = pkgs.lib.hasPrefix "components/aihc-parser/common/" relPath;
-        inParserApp = pkgs.lib.hasPrefix "components/aihc-parser/app/" relPath;
-        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal"] path;
-      in
-        type == "directory" || ((inToolingCommon || inParserCommon || inParserApp) && matchesSourceSuffix);
     };
 
   resolveToolingCommonSrc = pkgs:

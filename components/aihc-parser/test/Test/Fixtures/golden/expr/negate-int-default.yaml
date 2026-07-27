@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  -1
-ast: |-
-  ENegate (EInt 1 TInteger)
-status: pass

@@ -1,7 +1,0 @@
-extensions: [Arrows]
-input: |
-  serveIndexHtml = proc _request ->
-    returnA -< "response"
-ast: |-
-  Module {[DeclValue (PatternBind (PVar "serveIndexHtml") (EProc (PVar "_request") (CmdArrApp (EVar "returnA") HsFirstOrderApp (EString "response"))))]}
-status: pass

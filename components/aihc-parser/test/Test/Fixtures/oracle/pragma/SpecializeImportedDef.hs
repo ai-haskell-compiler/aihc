@@ -1,9 +1,0 @@
-{- ORACLE_TEST pass -}
-module SpecializeImportedDef (lookupLike) where
-
-lookupLike :: Eq a => [(a, b)] -> a -> Maybe b
-lookupLike [] _ = Nothing
-lookupLike ((k, v):xs) key
-  | k == key = Just v
-  | otherwise = lookupLike xs key
-{-# INLINABLE lookupLike #-}

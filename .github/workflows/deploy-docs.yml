@@ -11,7 +11,6 @@ on:
       - docs/aihc-users-guide/**
       - flake.lock
       - flake.nix
-      - scripts/nix/coverage.nix
       - scripts/nix/docs.nix
       - scripts/nix/packages.nix
   push:
@@ -23,7 +22,6 @@ on:
       - docs/aihc-users-guide/**
       - flake.lock
       - flake.nix
-      - scripts/nix/coverage.nix
       - scripts/nix/docs.nix
       - scripts/nix/packages.nix
 
@@ -50,18 +48,11 @@ jobs:
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
-      - name: Build documentation and coverage
+      - name: Build documentation
         run: |
           echo "=== Building Haddock documentation ==="
           nix build .#docs --print-out-paths
           cp -rL result docs-output
-          # The copied Nix output is read-only; make its root writable before
-          # adding the coverage report below.
-          chmod u+w docs-output
-
-          echo "=== Building coverage report ==="
-          nix build .#coverage --print-out-paths
-          cp -rL result docs-output/coverage
 
           # Nix outputs are read-only; the publishing worktree must be removable.
           chmod -R u+w docs-output

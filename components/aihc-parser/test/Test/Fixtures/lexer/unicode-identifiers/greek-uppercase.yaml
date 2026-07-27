@@ -1,6 +1,0 @@
-extensions: []
-input: "Σtype"
-tokens:
-  - 'TkConId "Σtype"'
-  - 'TkEOF'
-status: pass

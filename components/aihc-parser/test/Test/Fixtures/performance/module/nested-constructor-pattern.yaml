@@ -1,3 +1,0 @@
-extensions: []
-input: |
-  fn (A(A(A(A(A(A(A(A(A(A(A))))))))))) = 10
