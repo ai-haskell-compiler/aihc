@@ -40,6 +40,7 @@ tests =
       testCase "lowers byte-array primitives" testByteArrayPrimitives,
       testCase "executes platform Int foreign calls" (testProgram "L" foreignIntProgram),
       testCase "executes Int# addition" (testProgram "*" intAddProgram),
+      testCase "preserves first-match case semantics" (testProgram "F" firstMatchCaseProgram),
       testCase "executes thunk entry updates" (testProgram "T" thunkEntryProgram),
       testCase "executes cooperative scheduling" (testProgram "PCAB" schedulerProgram),
       testCase "executes synchronous exception unwinding" (testProgram "E" synchronousExceptionProgram)
@@ -53,6 +54,7 @@ testGuaranteedTailCalls = do
       "musttail call tailcc void",
       "ptr %closure, ptr %continuation",
       "getelementptr i64, ptr %closure",
+      "define internal tailcc void @aihc_llvm_apply_1",
       "@aihc_llvm_resume"
     ]
     (\needle -> assertBool ("missing generated LLVM fragment: " <> T.unpack needle) (needle `T.isInfixOf` source))
@@ -126,7 +128,7 @@ integerPrimitiveCases =
     PrimitiveCase "uncheckedShiftRL#" [wordValue 1, intValue 2] [WordRep] [" = lshr i64"],
     PrimitiveCase "int2Word#" [intValue 1] [WordRep] [],
     PrimitiveCase "word2Int#" [wordValue 1] [IntRep] [],
-    PrimitiveCase "charToInt#" [charValue 'a'] [IntRep] [],
+    PrimitiveCase "ord#" [charValue 'a'] [IntRep] [],
     PrimitiveCase "intToChar#" [intValue 97] [WordRep] [],
     wordComparison "eqWord#" "icmp eq i64",
     wordComparison "neWord#" "icmp ne i64",
@@ -239,6 +241,52 @@ intAddProgram =
     successOutput = GrinVar "success_output" 34 Int32Rep
     failureOutput = GrinVar "failure_output" 35 Int32Rep
     unitValue = GrinVar "()" 36 lifted
+    intLiteral = GrinLitValue . GrinLitInt IntRep
+    outputAlternative constructor character output =
+      GrinAlt
+        { grinAltCon = constructor,
+          grinAltBinders = [],
+          grinAltRhs =
+            GrinBind [output] (GrinForeignCallExpr putcharCall [GrinLitValue (GrinLitInt Int32Rep (toInteger (fromEnum character)))]) $
+              GrinConstant [GrinVarValue unitValue]
+        }
+
+firstMatchCaseProgram :: GrinProgram
+firstMatchCaseProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [putcharCall],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [(mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = mainFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody =
+                GrinCase
+                  (intLiteral 1)
+                  caseBinder
+                  [ outputAlternative (GrinLitAlt (GrinLitInt IntRep 1)) 'F' firstOutput,
+                    outputAlternative (GrinLitAlt (GrinLitInt IntRep 1)) 'S' secondOutput,
+                    outputAlternative GrinDefaultAlt '?' failureOutput
+                  ]
+            }
+        ]
+    }
+  where
+    lifted = BoxedRep Lifted
+    mainFunction = FunctionName "$first_match_case_main"
+    mainClosure = GrinVar "main" 100 lifted
+    caseBinder = GrinVar "case_binder" 101 IntRep
+    firstOutput = GrinVar "first_output" 102 Int32Rep
+    secondOutput = GrinVar "second_output" 103 Int32Rep
+    failureOutput = GrinVar "failure_output" 104 Int32Rep
+    unitValue = GrinVar "()" 105 lifted
     intLiteral = GrinLitValue . GrinLitInt IntRep
     outputAlternative constructor character output =
       GrinAlt
@@ -371,7 +419,7 @@ testProgram expected program = do
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
-        ( ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-override-module"]
+        ( ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-override-module", "-O2"]
             <> runtimeArguments
             <> [sourcePath, "-o", executablePath]
         )

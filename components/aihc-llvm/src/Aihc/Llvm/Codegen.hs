@@ -778,7 +778,7 @@ compileDirectBinding env vars expression =
       | Just instruction <- lookup name [("uncheckedShiftL#", "shl"), ("uncheckedShiftRL#", "lshr")] ->
           binaryPrimitive instruction value amount
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["int2Word#", "word2Int#", "charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
+      | name `elem` ["int2Word#", "word2Int#", "ord#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
           materializeValue env value >>= storeOne
     GrinPrimitiveCall IntRep "compareInt#" [left, right] -> do
       (lines', operands) <- materializeValues env [left, right]
@@ -1006,7 +1006,7 @@ alternativePrefix env resultSlot alternative =
 
 caseSwitch :: ValueEnv -> Text -> [(GrinAlt, Text)] -> FunctionM [Text]
 caseSwitch env discriminator targets = do
-  cases <- fmap concat . forM nonDefault $ \(alternative, target) ->
+  allCases <- fmap concat . forM nonDefault $ \(alternative, target) ->
     case grinAltCon alternative of
       GrinDataAlt name -> do
         identifier <- liftEither (constructorId (valueCompileEnv env) name)
@@ -1016,6 +1016,7 @@ caseSwitch env discriminator targets = do
           Just integer -> pure [(integer, target)]
           Nothing -> lift (Left (LlvmUnsupportedValue "string case alternative"))
       GrinDefaultAlt -> pure []
+  let cases = firstCases allCases
   defaultLabel <-
     case [target | (alternative, target) <- targets, grinAltCon alternative == GrinDefaultAlt] of
       target : _ -> pure target
@@ -1030,6 +1031,13 @@ caseSwitch env discriminator targets = do
     )
   where
     nonDefault = [(alternative, target) | (alternative, target) <- targets, grinAltCon alternative /= GrinDefaultAlt]
+
+    firstCases = go Set.empty
+      where
+        go _ [] = []
+        go seen (entry@(discriminant, _) : rest)
+          | discriminant `Set.member` seen = go seen rest
+          | otherwise = entry : go (Set.insert discriminant seen) rest
 
 materializeValues :: ValueEnv -> [GrinValue] -> FunctionM ([Text], [Text])
 materializeValues env values = do
@@ -1271,6 +1279,36 @@ renderNativeControlFunctions =
     "  ret void",
     "}",
     "",
+    "define internal tailcc void @aihc_llvm_apply_1(ptr %machine, ptr %function, ptr %continuation, i64 %value) {",
+    "entry:",
+    "  %header = load i64, ptr %function, align 8",
+    "  %tag = and i64 %header, 7",
+    "  %info_i64 = and i64 %header, -8",
+    "  %info = inttoptr i64 %info_i64 to ptr",
+    "  %arity_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 3",
+    "  %arity = load i64, ptr %arity_slot, align 8",
+    "  %is_closure = icmp eq i64 %tag, 1",
+    "  %is_saturated = icmp eq i64 %arity, 1",
+    "  %is_fast = and i1 %is_closure, %is_saturated",
+    "  br i1 %is_fast, label %fast, label %slow",
+    "fast:",
+    "  %entry_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 6",
+    "  %target = load ptr, ptr %entry_slot, align 8",
+    "  musttail call tailcc void %target(ptr %machine, ptr %function, ptr %continuation, i64 %value)",
+    "  ret void",
+    "slow:",
+    "  %arguments = alloca [1 x i64], align 8",
+    "  %argument = getelementptr [1 x i64], ptr %arguments, i64 0, i64 0",
+    "  store i64 %value, ptr %argument, align 8",
+    "  %continuation_slot = alloca ptr, align 8",
+    "  store ptr %continuation, ptr %continuation_slot, align 8",
+    "  %applied = call ptr @aihc_apply_slow(ptr %machine, ptr %function, i64 1, ptr %arguments, ptr %continuation_slot)",
+    "  %adjusted_continuation = load ptr, ptr %continuation_slot, align 8",
+    "  %applied_i64 = ptrtoint ptr %applied to i64",
+    "  musttail call tailcc void @aihc_llvm_continue_1(ptr %machine, ptr %adjusted_continuation, i64 %applied_i64)",
+    "  ret void",
+    "}",
+    "",
     "define internal tailcc void @aihc_llvm_resume(ptr %machine, ptr %resume) {",
     "entry:",
     "  %kind_slot = getelementptr %AihcResume, ptr %resume, i32 0, i32 0",
@@ -1284,9 +1322,18 @@ renderNativeControlFunctions =
     "  %value = load i64, ptr %value_slot, align 8",
     "  %count = load i64, ptr %count_slot, align 8",
     "  store %AihcResume zeroinitializer, ptr %resume, align 8",
-    "  switch i64 %kind, label %invalid [ i64 1, label %apply i64 2, label %continue ]",
+    "  switch i64 %kind, label %invalid [ i64 1, label %apply i64 2, label %continue i64 3, label %raise ]",
     "apply:",
+    "  %apply_has_one = icmp eq i64 %count, 1",
+    "  br i1 %apply_has_one, label %apply_one, label %apply_zero_check",
+    "apply_zero_check:",
+    "  %apply_has_zero = icmp eq i64 %count, 0",
+    "  br i1 %apply_has_zero, label %apply_zero, label %invalid",
+    "apply_zero:",
     "  musttail call tailcc void @aihc_llvm_apply_0(ptr %machine, ptr %function, ptr %continuation)",
+    "  ret void",
+    "apply_one:",
+    "  musttail call tailcc void @aihc_llvm_apply_1(ptr %machine, ptr %function, ptr %continuation, i64 %value)",
     "  ret void",
     "continue:",
     "  %has_value = icmp eq i64 %count, 1",
@@ -1299,6 +1346,10 @@ renderNativeControlFunctions =
     "  ret void",
     "continue_one:",
     "  musttail call tailcc void @aihc_llvm_continue_1(ptr %machine, ptr %function, i64 %value)",
+    "  ret void",
+    "raise:",
+    "  %raised_resume = call ptr @aihc_raise(ptr %machine, ptr %function, ptr %continuation)",
+    "  musttail call tailcc void @aihc_llvm_resume(ptr %machine, ptr %raised_resume)",
     "  ret void",
     "invalid:",
     "  call void @aihc_no_match()",
