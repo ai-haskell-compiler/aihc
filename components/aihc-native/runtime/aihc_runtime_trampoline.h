@@ -3,8 +3,8 @@
 
 #include "aihc_runtime.h"
 
-/* Array-based control transfers are used by portable C and by the
-   WebAssembly fallback adapter. */
+/* Array-based control transfers are used by the WebAssembly fallback adapter.
+ */
 typedef struct {
   AihcEntry entry;
   AihcSlot *arguments;

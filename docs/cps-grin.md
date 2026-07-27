@@ -92,5 +92,6 @@ without changing Haskell code, System FC, or CPS-GRIN.
 Native saturated applications bypass that area: the closure's application-stage
 info table selects generated code which loads captured fields and supplied
 values into backend argument registers before tail-entering the function.
-Portable C grows and reuses a machine-owned argument vector instead of requiring
-a whole-program arity bound or allocating a vector for every transfer.
+The WebAssembly adapter grows and reuses a machine-owned argument vector
+instead of requiring a whole-program arity bound or allocating a vector for
+every transfer.

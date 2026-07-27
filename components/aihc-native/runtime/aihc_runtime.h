@@ -70,7 +70,7 @@ struct AihcInfo {
   const uint8_t *field_is_pointer;
   const AihcInfo *next;
   /* Backend-owned dynamic entry. Native and WebAssembly adapters give this
-     word their own callable type; portable C leaves it null. */
+     word their own callable type. */
   AihcBackendEntry backend_entry;
   /* Continuation closures have their parent in field zero. This kind is
      backend-independent so the runtime can unwind them uniformly. */

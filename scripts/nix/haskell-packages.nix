@@ -6,7 +6,6 @@
     "aihc"
     "aihc-amd64"
     "aihc-arm64"
-    "aihc-c"
     "aihc-dev"
     "aihc-fc"
     "aihc-fmt"
@@ -35,17 +34,6 @@
       src = sources.arm64Src;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--subpath components/aihc-arm64";
-        srcModifier = src: src;
-      };
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
-    aihc-c = {
-      src = sources.cBackendSrc;
-      cabal2nixOptions = {
-        extraCabal2nixOptions = "--subpath components/aihc-c";
         srcModifier = src: src;
       };
       disableProfiling = true;
