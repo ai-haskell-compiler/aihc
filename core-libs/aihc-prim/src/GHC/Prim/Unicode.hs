@@ -12,7 +12,7 @@ module GHC.Prim.Unicode
   )
 where
 
-import GHC.Prim (intToChar#, ord#, (+#), (-#), (<#))
+import GHC.Prim (chr#, ord#, (+#), (-#), (<#))
 
 generalCategory# :: Char# -> Int#
 generalCategory# value = generalCategoryCode# (ord# value)
@@ -24,13 +24,13 @@ isLowercase# :: Char# -> Int#
 isLowercase# value = isLowercaseCode# (ord# value)
 
 unicodeToUpper :: Char# -> Char#
-unicodeToUpper value = intToChar# (toUpperCode# (ord# value))
+unicodeToUpper value = chr# (toUpperCode# (ord# value))
 
 unicodeToLower :: Char# -> Char#
-unicodeToLower value = intToChar# (toLowerCode# (ord# value))
+unicodeToLower value = chr# (toLowerCode# (ord# value))
 
 unicodeToTitle :: Char# -> Char#
-unicodeToTitle value = intToChar# (toTitleCode# (ord# value))
+unicodeToTitle value = chr# (toTitleCode# (ord# value))
 
 generalCategoryCode# :: Int# -> Int#
 generalCategoryCode# n =

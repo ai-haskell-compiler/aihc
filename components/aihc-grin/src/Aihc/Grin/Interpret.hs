@@ -758,11 +758,11 @@ evalPrimitive "==#" [left, right] =
 evalPrimitive "ord#" [value] = do
   charValue <- expectCharPrimitiveArgument "ord#" value
   pure [RuntimeLit (GrinLitInt IntRep (fromIntegral (Char.ord charValue)))]
-evalPrimitive "intToChar#" [value] = do
-  intValue <- expectIntPrimitiveArgument "intToChar#" value
+evalPrimitive "chr#" [value] = do
+  intValue <- expectIntPrimitiveArgument "chr#" value
   if intValue >= 0 && intValue <= 0x10ffff
     then pure [RuntimeLit (GrinLitChar WordRep (Char.chr (fromIntegral intValue)))]
-    else throwInterpret (InterpretPrimitiveTypeError "intToChar#" (RuntimeLit (GrinLitInt IntRep intValue)))
+    else throwInterpret (InterpretPrimitiveTypeError "chr#" (RuntimeLit (GrinLitInt IntRep intValue)))
 evalPrimitive "realWorld#" [] = pure []
 evalPrimitive "raise#" [exception] =
   throwE (EvalRaised exception)
