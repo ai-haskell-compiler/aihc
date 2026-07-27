@@ -7,7 +7,7 @@ modules:
   - |
     module Test where
 
-    import GHC.Prim (intToChar#, ord#)
+    import GHC.Prim (chr#, ord#)
 
     foreign import prim (+#) :: Int# -> Int# -> Int#
 
@@ -21,6 +21,6 @@ modules:
 output: |
   957
 expression: |
-  ord# (intToChar# (ord# '\x03BB'#)) +# boxedMatch '\x03BB' +# unboxedMatch '\x03BB'#
+  ord# (chr# (ord# '\x03BB'#)) +# boxedMatch '\x03BB' +# unboxedMatch '\x03BB'#
 status: pass
 reason: boxed Char uses C# while Unicode character/codepoint primitives and unboxed literals use Char#
