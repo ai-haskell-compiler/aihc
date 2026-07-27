@@ -51,6 +51,16 @@ typedef struct {
   uint64_t count;
 } AihcResume;
 
+enum {
+  AIHC_FRAME_NONE = 0,
+  AIHC_FRAME_NORMAL = 1,
+  AIHC_FRAME_CATCH = 2,
+  AIHC_FRAME_UPDATE = 3,
+  AIHC_FRAME_RESTORE_MASK = 4,
+  AIHC_FRAME_STOP = 5,
+};
+typedef uint64_t AihcFrameKind;
+
 struct AihcInfo {
   uintptr_t identity;
   AihcEntry entry;
@@ -61,6 +71,9 @@ struct AihcInfo {
   /* Backend-owned dynamic entry. Native and WebAssembly adapters give this
      word their own callable type; portable C leaves it null. */
   AihcBackendEntry backend_entry;
+  /* Continuation closures have their parent in field zero. This kind is
+     backend-independent so the runtime can unwind them uniformly. */
+  AihcFrameKind frame_kind;
 };
 
 struct AihcValue {
