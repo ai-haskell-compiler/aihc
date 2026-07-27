@@ -141,6 +141,12 @@ grinUnitTests =
         assertBool "contains explicit throw" ("throw " `isInfixOf` rendered)
         assertBool "contains explicit catch" ("catch " `isInfixOf` rendered)
         assertEqual "exception primitives are represented by GRIN control nodes" [] (grinPrimitives program),
+      testCase "FC lowering preserves catch# through partial application" $ do
+        let program = lowerProgram partialCatchProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertBool "primitive wrapper contains explicit catch" ("catch " `isInfixOf` rendered)
+        assertEqual "catch# is represented by GRIN control nodes" [] (grinPrimitives program),
       testCase "CPS-GRIN allocates and applies ordinary continuation closures" $ do
         cps <- expectCpsGrin callBindProgram
         let program = cpsGrinProgram cps
@@ -1241,6 +1247,25 @@ exceptionProgram =
       FcApp
         (FcApp (FcApp (FcVar catchVar) action) handler)
         (FcLit (LitInt IntRep 0))
+
+partialCatchProgram :: FcProgram
+partialCatchProgram =
+  FcProgram
+    [ FcPrimitive catchVar 3,
+      FcTopBind
+        ( FcNonRec
+            wrapCatchVar
+            (FcLam actionVar (FcApp (FcVar catchVar) (FcVar actionVar)))
+        )
+    ]
+  where
+    catchVar = Var "catch#" (Unique 8) (TcFunTy actionTy (TcFunTy handlerTy (TcFunTy stateTy resultTy)))
+    wrapCatchVar = Var "wrapCatch" (Unique 9) (TcFunTy actionTy (TcFunTy handlerTy (TcFunTy stateTy resultTy)))
+    actionVar = Var "action" (Unique 10) actionTy
+    stateTy = TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
+    resultTy = TcTyCon (TyCon "(#,#)" 2) [stateTy, boxedIntTy]
+    actionTy = TcFunTy stateTy resultTy
+    handlerTy = TcFunTy boxedIntTy actionTy
 
 multiValueContinuationProgram :: GrinProgram
 multiValueContinuationProgram =

@@ -34,6 +34,7 @@ import Aihc.Tc.Annotations (PendingTcAnnotation, TcClassAnnotation (..), TcClass
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.Monad (emptyTcEnv, initTcState, runTcM)
+import Aihc.Tc.Types (mkTyCon)
 import Data.Data (Data, gmapQ)
 import Data.Maybe (isJust, mapMaybe, maybeToList)
 import Data.Text (Text)
@@ -226,6 +227,12 @@ kindTests =
           ("Char#", WordRep),
           ("ThreadId#", BoxedRep Unlifted)
         ],
+    testCase "constraint dictionaries have a lifted runtime representation" $ do
+      let dictionaryTy =
+            TcTyCon
+              (mkTyCon "Eq" 1 (KFun liftedTypeKind KConstraint))
+              [TcTyCon (TyCon "Bool" 0) []]
+      assertEqual "dictionary representation" (Right liftedRuntimeRep) (runtimeRepOfType dictionaryTy),
     testCase "records source-level constructor field representations" $ do
       let result =
             typecheckModule $
@@ -360,9 +367,13 @@ annotationTests =
       assertBool "module should typecheck" (tcModuleSuccess result)
       assertBool "Eq class methods annotated" (hasClassMethod "==" 0 result)
       assertBool "Default class method annotated" (hasClassMethod "def" 0 result)
+      assertBool "superclass layout annotated" (not (all (null . tcClassSuperClasses) (classAnnotations result)))
+      assertBool "class default method annotated" (any (elem "identity" . tcClassDefaultMethods) (classAnnotations result))
       assertBool "Eq Bool instance annotated" (hasInstanceDict "$fEqBool" result)
       assertBool "Eq list instance annotated" (hasInstanceDict "$fEqList" result)
       assertBool "Default Bool instance annotated" (hasInstanceDict "$fDefaultBool" result)
+      assertBool "Identity Bool instance annotated" (hasInstanceDict "$fIdentityBool" result)
+      assertBool "instance superclass evidence annotated" (not (all (null . tcInstanceSuperClasses) (instanceAnnotations result)))
       assertBool "instance method types annotated" (hasInstanceMethod "==" result && hasInstanceMethod "def" result),
     testCase "polymorphic occurrence type arguments are finalized" $ do
       let result =
@@ -450,7 +461,13 @@ annotationModule =
     \instance Default Bool where\n\
     \  def = True\n\
     \useDefault :: Bool\n\
-    \useDefault = def\n"
+    \useDefault = def\n\
+    \class Eq a => Identity a where\n\
+    \  identity :: a -> a\n\
+    \  identity x = x\n\
+    \instance Identity Bool\n\
+    \useIdentity :: Bool\n\
+    \useIdentity = identity True\n"
 
 parseM :: Text -> Module
 parseM input =
@@ -472,7 +489,7 @@ evidenceDictNames =
 
 evDictNames :: EvTerm -> [Text]
 evDictNames (EvDict name _ evidence) = name : concatMap evDictNames evidence
-evDictNames (EvSuperClass ev _) = evDictNames ev
+evDictNames (EvSuperClass ev _ _ _) = evDictNames ev
 evDictNames (EvCast ev _) = evDictNames ev
 evDictNames _ = []
 
@@ -482,7 +499,7 @@ hasGivenClass className =
   where
     isGiven (EvGiven (ClassPred cls _)) = cls == className
     isGiven (EvDict _ _ evidence) = any isGiven evidence
-    isGiven (EvSuperClass ev _) = isGiven ev
+    isGiven (EvSuperClass ev _ _ _) = isGiven ev
     isGiven (EvCast ev _) = isGiven ev
     isGiven _ = False
 

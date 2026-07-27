@@ -1,0 +1,134 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+
+    import Control.Exception
+      ( Exception,
+        SomeException (..),
+        catch,
+        displayException,
+        evaluate,
+        fromException,
+        throw,
+        throwIO,
+        toException,
+        try,
+      )
+    import GHC.IO (IO (..))
+    import GHC.Prim (State#, RealWorld, realWorld#)
+    import Data.Typeable (cast, eqTypeRep, typeOf)
+
+    data FirstException = FirstException
+    data SecondException = SecondException
+
+    instance Exception FirstException
+    instance Exception SecondException
+
+    catchFirst :: FirstException -> IO Bool
+    catchFirst FirstException = pure True
+
+    rejectFirst :: FirstException -> IO Bool
+    rejectFirst FirstException = pure False
+
+    catchSecond :: SecondException -> IO Bool
+    catchSecond SecondException = pure True
+
+    catchesMatchingType :: IO Bool
+    catchesMatchingType = catch (throwIO FirstException) catchFirst
+
+    rethrowsDifferentType :: IO Bool
+    rethrowsDifferentType =
+      catch
+        (catch (throwIO SecondException) rejectFirst)
+        catchSecond
+
+    catchesPureThrow :: IO Bool
+    catchesPureThrow = catch (evaluate (throw FirstException)) catchFirst
+
+    throwFirstBool :: IO Bool
+    throwFirstBool = throwIO FirstException
+
+    returnsTypedFailure :: IO Bool
+    returnsTypedFailure = do
+      result <- try throwFirstBool
+      case result of
+        Left FirstException -> pure True
+        Right _ -> pure False
+
+    projectsSomeException :: Bool
+    projectsSomeException =
+      case fromException (toException FirstException) of
+        Just FirstException -> True
+        Nothing -> False
+
+    projectFirst :: SomeException -> Maybe FirstException
+    projectFirst = fromException
+
+    rejectsOtherException :: Bool
+    rejectsOtherException =
+      case projectFirst (toException SecondException) of
+        Just _ -> False
+        Nothing -> True
+
+    hasDifferentRepresentations :: Bool
+    hasDifferentRepresentations =
+      case eqTypeRep (typeOf FirstException) (typeOf SecondException) of
+        True -> False
+        False -> True
+
+    manualProjectFirst :: SomeException -> Maybe FirstException
+    manualProjectFirst (SomeException exception) = cast exception
+
+    manualRejectsOtherException :: Bool
+    manualRejectsOtherException =
+      case manualProjectFirst (toException SecondException) of
+        Just _ -> False
+        Nothing -> True
+
+    displaysContainedException :: Bool
+    displaysContainedException =
+      case displayException (toException FirstException) of
+        ['F', 'i', 'r', 's', 't', 'E', 'x', 'c', 'e', 'p', 't', 'i', 'o', 'n'] -> True
+        _ -> False
+
+    catchesSomeException :: SomeException -> IO Bool
+    catchesSomeException _ = pure True
+
+    catchesAtRoot :: IO Bool
+    catchesAtRoot = catch (throwIO FirstException) catchesSomeException
+
+    runTests :: IO Bool
+    runTests = do
+      matching <- catchesMatchingType
+      selective <- rethrowsDifferentType
+      pureThrow <- catchesPureThrow
+      typedFailure <- returnsTypedFailure
+      root <- catchesAtRoot
+      pure
+        ( matching
+            && selective
+            && pureThrow
+            && typedFailure
+            && projectsSomeException
+            && rejectsOtherException
+            && hasDifferentRepresentations
+            && manualRejectsOtherException
+            && displaysContainedException
+            && root
+        )
+
+    runIO :: IO a -> State# RealWorld -> (# State# RealWorld, a #)
+    runIO (IO action) = action
+output: |
+  True
+expression: |
+  case runIO runTests realWorld# of
+    (# _, result #) -> result
+status: pass
+reason: Control.Exception catches matching typed exceptions, rethrows nonmatches, and handles pure and IO throws

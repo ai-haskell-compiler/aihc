@@ -23,6 +23,8 @@ module Aihc.Tc
     typecheckModulesWithEnvAndInstances,
     typecheckModulesWithFullEnv,
     typecheckModuleSccWithFullEnv,
+    typecheckModulesWithClassEnv,
+    typecheckModuleSccWithClassEnv,
 
     -- * Result types
     TcResult (..),
@@ -32,6 +34,7 @@ module Aihc.Tc
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleInstances,
+    tcModuleClasses,
     tcModuleSuccess,
 
     -- * Re-exports for convenience
@@ -48,6 +51,7 @@ module Aihc.Tc
     TypeScheme (..),
     Pred (..),
     InstanceInfo (..),
+    ClassInfo (..),
     TyConInfo (..),
     Unique (..),
     liftedRuntimeRep,
@@ -92,9 +96,9 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Tc.Annotations (TcAnnotation (..), renderPred, renderTcSignature, renderTcType)
-import Aihc.Tc.Env (InstanceInfo (..), TyConInfo (..))
+import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleInstances, tcModule, tcModuleScc)
+import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
@@ -164,6 +168,10 @@ tcModuleInstances :: Module -> [InstanceInfo]
 tcModuleInstances =
   moduleInstances
 
+-- | Type classes recovered from a type-checked module's annotations.
+tcModuleClasses :: Module -> [ClassInfo]
+tcModuleClasses = moduleClasses
+
 -- | Diagnostics recovered from type-checker annotations in a module.
 tcModuleDiagnostics :: Module -> [TcDiagnostic]
 tcModuleDiagnostics =
@@ -216,12 +224,18 @@ firstOfThree (first, _, _) = first
 -- modules.
 typecheckModulesWithFullEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo])
 typecheckModulesWithFullEnv importedTerms importedTyCons importedInstances modules =
+  let (checkedModules, terms, tyCons, _) = typecheckModulesWithClassEnv importedTerms importedTyCons [] importedInstances modules
+   in (checkedModules, terms, tyCons)
+
+typecheckModulesWithClassEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo], [ClassInfo])
+typecheckModulesWithClassEnv importedTerms importedTyCons importedClasses importedInstances modules =
   let (checkedModules, finalState) = go initState modules
    in ( checkedModules,
         [ (name, scheme)
         | (name, TcIdBinder scheme _) <- Map.toList (tcsGlobalTerms finalState)
         ],
-        Map.elems (tcsGlobalTyCons finalState)
+        Map.elems (tcsGlobalTyCons finalState),
+        Map.elems (tcsClasses finalState)
       )
   where
     initState =
@@ -238,6 +252,7 @@ typecheckModulesWithFullEnv importedTerms importedTyCons importedInstances modul
               | tyCon <- importedTyCons
               ]
               <> tcsGlobalTyCons initTcState,
+          tcsClasses = Map.fromList [(ciName classInfo, classInfo) | classInfo <- importedClasses],
           tcsInstances = importedInstances
         }
 
@@ -252,17 +267,23 @@ typecheckModulesWithFullEnv importedTerms importedTyCons importedInstances modul
 -- implementations from predecessor components are never consumed.
 typecheckModuleSccWithFullEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo])
 typecheckModuleSccWithFullEnv importedTerms importedTyCons importedInstances modules =
-  let initState = initialTcState importedTerms importedTyCons importedInstances
+  let (checkedModules, terms, tyCons, _) = typecheckModuleSccWithClassEnv importedTerms importedTyCons [] importedInstances modules
+   in (checkedModules, terms, tyCons)
+
+typecheckModuleSccWithClassEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo], [ClassInfo])
+typecheckModuleSccWithClassEnv importedTerms importedTyCons importedClasses importedInstances modules =
+  let initState = initialTcState importedTerms importedTyCons importedClasses importedInstances
       (checkedModules, finalState) = typecheckModuleSccWithState initState modules
    in ( checkedModules,
         [ (name, scheme)
         | (name, TcIdBinder scheme _) <- Map.toList (tcsGlobalTerms finalState)
         ],
-        Map.elems (tcsGlobalTyCons finalState)
+        Map.elems (tcsGlobalTyCons finalState),
+        Map.elems (tcsClasses finalState)
       )
 
-initialTcState :: [(Text, TypeScheme)] -> [TyConInfo] -> [InstanceInfo] -> TcState
-initialTcState importedTerms importedTyCons importedInstances =
+initialTcState :: [(Text, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> TcState
+initialTcState importedTerms importedTyCons importedClasses importedInstances =
   initTcState
     { tcsGlobalTerms =
         Map.fromList
@@ -276,6 +297,7 @@ initialTcState importedTerms importedTyCons importedInstances =
           | tyCon <- importedTyCons
           ]
           <> tcsGlobalTyCons initTcState,
+      tcsClasses = Map.fromList [(ciName classInfo, classInfo) | classInfo <- importedClasses],
       tcsInstances = importedInstances
     }
 

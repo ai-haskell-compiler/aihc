@@ -1,47 +1,27 @@
 {-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
 
 module Main where
 
-import GHC.IO (IO (..))
-import GHC.Prim (catch#, raise#)
+import Control.Exception (Exception, catch, throwIO)
 import GHC.Ptr (Ptr (..))
 import System.IO (hPutBuf, stdout)
 
-data DemoException = DemoException
+data InnerException = InnerException
 
-failingThunk :: DemoException
-failingThunk = raise# DemoException
+data OuterException = OuterException
 
-forceFailure :: IO ()
-forceFailure =
-  IO
-    ( \state ->
-        case failingThunk of
-          DemoException -> (# state, () #)
-    )
+instance Exception InnerException
 
-throwIO :: DemoException -> IO a
-throwIO exception = IO (\_state -> raise# exception)
+instance Exception OuterException
 
-catchIO :: IO a -> (DemoException -> IO a) -> IO a
-catchIO (IO action) handler =
-  IO
-    ( \state ->
-        catch#
-          action
-          ( \exception ->
-              case handler exception of
-                IO handlerAction -> handlerAction
-          )
-          state
-    )
+ignoreInner :: InnerException -> IO ()
+ignoreInner InnerException = hPutBuf stdout (Ptr "wrong handler\n"# :: Ptr ()) 14
+
+handleOuter :: OuterException -> IO ()
+handleOuter OuterException = hPutBuf stdout (Ptr "outer handler caught rethrow\n"# :: Ptr ()) 29
 
 main :: IO ()
 main =
-  catchIO
-    (catchIO forceFailure throwIO)
-    ( \exception ->
-        case exception of
-          DemoException -> hPutBuf stdout (Ptr "outer handler caught rethrow\n"# :: Ptr ()) 29
-    )
+  catch
+    (catch (throwIO OuterException) ignoreInner)
+    handleOuter

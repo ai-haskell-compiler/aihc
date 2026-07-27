@@ -10,6 +10,7 @@ module Aihc.Fc.Desugar.Expr
   ( dsMatches,
     dsMatchesWithDicts,
     dsMatchesWithGivenDicts,
+    dsEvidence,
     dsRhs,
     DsM,
     DsState (..),
@@ -18,6 +19,7 @@ module Aihc.Fc.Desugar.Expr
     freshUnique,
     freshVar,
     lookupType,
+    withDicts,
   )
 where
 
@@ -140,11 +142,18 @@ withDicts :: [ClassDict] -> DsM a -> DsM a
 withDicts dicts action = do
   st <- get
   let oldDicts = dsLocalDicts st
-      newDicts = foldr (\dict m -> Map.insert (dictKey (classDictName dict) (classDictArgs dict)) (classDictVar dict) m) oldDicts dicts
+      newDicts = foldr insertDictionary oldDicts dicts
   modify' (\s -> s {dsLocalDicts = newDicts})
   result <- action
   modify' (\s -> s {dsLocalDicts = oldDicts})
   pure result
+  where
+    insertDictionary dictionary environment =
+      let className = classDictName dictionary
+          arguments = classDictArgs dictionary
+          variable = classDictVar dictionary
+          withFallback = Map.insertWith (\_ existing -> existing) (dictKey className arguments) variable environment
+       in Map.insert (exactDictKey className arguments) variable withFallback
 
 -- | Desugar a list of match equations into a Core expression.
 --
@@ -1185,7 +1194,7 @@ dsEvidence evidence =
   case evidence of
     EvGiven (ClassPred className args) -> do
       st <- get
-      case Map.lookup (dictKey className args) (dsLocalDicts st) of
+      case Map.lookup (exactDictKey className args) (dsLocalDicts st) <|> Map.lookup (dictKey className args) (dsLocalDicts st) of
         Just var -> pure (FcVar var)
         Nothing ->
           desugarBug ("missing local dictionary for " <> T.unpack (dictKey className args))
@@ -1198,8 +1207,19 @@ dsEvidence evidence =
       pure (List.foldl' FcApp dictExpr contextDicts)
     EvCoercion {} ->
       pure unitConstructor
-    EvSuperClass {} ->
-      desugarBug "superclass evidence is not supported by the type checker"
+    EvSuperClass source sourcePredicate fieldTypes fieldIndex -> do
+      sourceExpression <- dsEvidence source
+      sourceBinder <- freshVar "$super_source" (predType sourcePredicate)
+      fieldBinders <- zipWithM (\index fieldType -> freshVar ("$super_field" <> T.pack (show index)) fieldType) [0 :: Int ..] fieldTypes
+      selected <-
+        case drop fieldIndex fieldBinders of
+          field : _ -> pure field
+          [] -> desugarBug "superclass field index is outside the dictionary layout"
+      constructor <-
+        case sourcePredicate of
+          ClassPred className _ -> pure (fcDictionaryConstructorName className)
+          EqPred {} -> desugarBug "cannot select a superclass from equality evidence"
+      pure (FcCase sourceExpression sourceBinder [FcAlt (DataAlt constructor) fieldBinders (FcVar selected)])
     EvCast dict _co ->
       dsEvidence dict
     EvTypeable ty arguments ->
@@ -1468,6 +1488,25 @@ fcExprTypeM expr =
 
 dictKey :: Text -> [TcType] -> Text
 dictKey className args = className <> ":" <> T.intercalate "," (map typeKey args)
+
+exactDictKey :: Text -> [TcType] -> Text
+exactDictKey className args = className <> ":exact:" <> T.intercalate "," (map exactTypeKey args)
+
+exactTypeKey :: TcType -> Text
+exactTypeKey ty =
+  case ty of
+    TcTyVar tv -> tvName tv <> "#" <> T.pack (show (uniqueInt (tvUnique tv)))
+    TcMetaTv (Unique unique) -> "?" <> T.pack (show unique)
+    TcTyCon tc [] -> tyConName tc
+    TcTyCon (TyCon "[]" _) [elementType] -> "[" <> exactTypeKey elementType <> "]"
+    TcTyCon tc arguments -> tyConName tc <> T.concat (map (("_" <>) . exactTypeKey) arguments)
+    TcAppTy function argument -> exactTypeKey function <> "_" <> exactTypeKey argument
+    TcFunTy argument result -> exactTypeKey argument <> "->" <> exactTypeKey result
+    TcForAllTy _ body -> exactTypeKey body
+    TcQualTy _ body -> exactTypeKey body
+
+uniqueInt :: Unique -> Int
+uniqueInt (Unique unique) = unique
 
 typeKey :: TcType -> Text
 typeKey ty =

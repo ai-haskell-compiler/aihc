@@ -13,7 +13,7 @@ module Aihc.Fc.Desugar
   )
 where
 
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsMatches, dsMatchesWithGivenDicts, freshUnique, freshVar, lookupType)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithGivenDicts, freshUnique, freshVar, lookupType, withDicts)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Optimize (optimizeProgram)
@@ -24,6 +24,7 @@ import Aihc.Parser.Syntax
   ( ArrowKind (..),
     CallConv (..),
     ClassDecl (..),
+    ClassDeclItem (..),
     DataConDecl,
     DataDecl (..),
     Decl (..),
@@ -42,12 +43,10 @@ import Aihc.Parser.Syntax
     Pattern (..),
     Rhs,
     TupleFlavor (..),
-    TyVarBinder (..),
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
     binderHeadName,
-    binderHeadParams,
     fromAnnotation,
     nameText,
     peelDeclAnn,
@@ -734,23 +733,21 @@ dataConFieldTypes name arity ty =
 
 dsClassDeclM :: ClassDecl -> TcClassAnnotation -> DsM [FcTopBind]
 dsClassDeclM classDecl classAnn = do
-  (classTyVars, fieldTypes) <-
-    case methods of
-      [] -> do
-        tyVars <- mapM freshClassTyVar (binderHeadParams (classDeclHead classDecl))
-        pure (tyVars, [])
-      _ -> classDictionaryLayout className (map tcClassMethodType methods)
-  selectors <- mapM (dsClassSelector dictionaryConstructor classTyVars fieldTypes) methods
+  let classTyVars = tcClassTyVars classAnn
+      superClassFieldTypes = map tcDictBinderType (tcClassSuperClasses classAnn)
+  methodFieldTypes <- mapM (classMethodFieldType className classTyVars . tcClassMethodType) methods
+  let fieldTypes = superClassFieldTypes <> methodFieldTypes
+  selectors <- mapM (dsClassSelector dictionaryConstructor (length superClassFieldTypes) classTyVars fieldTypes) methods
+  defaults <- mapM dsClassDefault (classDefaultGroups classDecl)
   let dictionaryDeclaration = FcData className classTyVars [(dictionaryConstructor, fieldTypes)]
-  pure (dictionaryDeclaration : selectors)
+  pure (dictionaryDeclaration : selectors <> defaults)
   where
     className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))
     methods = tcClassMethods classAnn
     dictionaryConstructor = fcDictionaryConstructorName className
-    freshClassTyVar binder = TyVarId (tyVarBinderName binder) <$> freshUnique
 
-dsClassSelector :: Text -> [TyVarId] -> [TcType] -> TcClassMethodAnnotation -> DsM FcTopBind
-dsClassSelector dictionaryConstructor classTyVars fieldTypes methodAnn = do
+dsClassSelector :: Text -> Int -> [TyVarId] -> [TcType] -> TcClassMethodAnnotation -> DsM FcTopBind
+dsClassSelector dictionaryConstructor superClassCount classTyVars fieldTypes methodAnn = do
   methodUnique <- freshUnique
   dictVars <- zipWithM mkSelectorDict [0 :: Int ..] dictPreds
   classDictionaryVar <-
@@ -760,7 +757,7 @@ dsClassSelector dictionaryConstructor classTyVars fieldTypes methodAnn = do
   caseBinder <- freshVar "$dict" (varType classDictionaryVar)
   fieldBinders <- zipWithM (\index -> freshVar ("$method" <> T.pack (show index))) [0 :: Int ..] fieldTypes
   selectedField <-
-    case drop (tcClassMethodIndex methodAnn) fieldBinders of
+    case drop (superClassCount + tcClassMethodIndex methodAnn) fieldBinders of
       selected : _ -> pure selected
       [] -> desugarBug ("invalid class method index for " <> T.unpack (tcClassMethodName methodAnn))
   let extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars methodAnn)
@@ -779,6 +776,46 @@ dsClassSelector dictionaryConstructor classTyVars fieldTypes methodAnn = do
     (dictPreds, _bodyTy) = peelQuals afterForAlls
     mkSelectorDict ix pred' =
       freshVar ("$d" <> T.pack (show ix)) (predType pred')
+
+dsClassDefault :: (TcInstanceMethodAnnotation, [Match]) -> DsM FcTopBind
+dsClassDefault (methodAnn, matches) = do
+  let methodName = tcInstanceMethodName methodAnn
+      methodType = tcInstanceMethodType methodAnn
+      workerName = defaultMethodName methodName
+  worker <- freshVar workerName methodType
+  body <- dsMatches methodType matches
+  pure (FcTopBind (FcNonRec worker body))
+
+classDefaultGroups :: ClassDecl -> [(TcInstanceMethodAnnotation, [Match])]
+classDefaultGroups classDecl = concatMap classDefaultGroup (classDeclItems classDecl)
+
+classDefaultGroup :: ClassDeclItem -> [(TcInstanceMethodAnnotation, [Match])]
+classDefaultGroup item =
+  case item of
+    ClassItemAnn ann inner
+      | Just methodAnn <- fromAnnotation ann -> classDefaultWithAnnotation methodAnn inner
+      | otherwise -> classDefaultGroup inner
+    _ -> []
+
+classDefaultWithAnnotation :: TcInstanceMethodAnnotation -> ClassDeclItem -> [(TcInstanceMethodAnnotation, [Match])]
+classDefaultWithAnnotation methodAnn item =
+  case item of
+    ClassItemAnn _ inner -> classDefaultWithAnnotation methodAnn inner
+    ClassItemDefault (FunctionBind _ matches) -> [(methodAnn, matches)]
+    ClassItemDefault (PatternBind _ _ rhs) -> [(methodAnn, [zeroArgumentMatch rhs])]
+    _ -> []
+
+zeroArgumentMatch :: Rhs Expr -> Match
+zeroArgumentMatch rhs =
+  Match
+    { matchAnns = [],
+      matchHeadForm = MatchHeadPrefix,
+      matchPats = [],
+      matchRhs = rhs
+    }
+
+defaultMethodName :: Text -> Text
+defaultMethodName methodName = "$dm" <> methodName
 
 peelForAlls :: TcType -> ([TyVarId], TcType)
 peelForAlls (TcForAllTy tv rest) =
@@ -807,29 +844,57 @@ dsInstanceDict :: TcInstanceAnnotation -> InstanceDecl -> DsM FcTopBind
 dsInstanceDict instAnn instanceDecl = do
   let methods = Map.fromListWith combineMethods (instanceMethodGroups instanceDecl)
   contextDicts <- zipWithM mkContextDict [0 :: Int ..] (tcInstanceContextDicts instAnn)
-  let methodOrder = tcInstanceMethodOrder instAnn
-  fields <- mapM (dsInstanceMethod contextDicts methods) methodOrder
-  dictVar <- freshVar (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
   className <-
     case dictionaryClassName (tcInstanceDictType instAnn) of
       Just name -> pure name
       Nothing -> desugarBug ("cannot determine class for instance dictionary " <> T.unpack (tcInstanceDictName instAnn))
-  methodTypes <- mapM lookupType methodOrder
-  (classTyVars, fieldTypes) <-
-    case methodTypes of
-      [] -> do
-        tyVars <- mapM (\index -> TyVarId ("a" <> T.pack (show index)) <$> freshUnique) [0 .. length (tcInstanceHeadTypes instAnn) - 1]
-        pure (tyVars, [])
-      _ -> classDictionaryLayout className methodTypes
-  constructorUnique <- freshUnique
-  let dictionaryConstructor = fcDictionaryConstructorName className
-      dictionaryType = TcTyCon (TyCon className (length classTyVars)) (map TcTyVar classTyVars)
-      constructorType = foldr TcForAllTy (foldr TcFunTy dictionaryType fieldTypes) classTyVars
-      constructorVar = Var dictionaryConstructor constructorUnique constructorType
-      constructor = foldl FcTyApp (FcVar constructorVar) (tcInstanceHeadTypes instAnn)
-      dictionary = foldl FcApp constructor fields
-      dictBody = foldr FcTyLam (foldr (FcLam . classDictVar) dictionary contextDicts) (tcInstanceTyVars instAnn)
-  pure (FcTopBind (FcNonRec dictVar dictBody))
+  let methodOrder = tcInstanceMethodOrder instAnn
+      usesDefaultMethod =
+        any
+          (\methodName -> Map.notMember methodName methods && methodName `elem` tcInstanceDefaultMethods instAnn)
+          methodOrder
+      selfDictionary dictVar =
+        foldl
+          FcApp
+          (foldl FcTyApp (FcVar dictVar) (map TcTyVar (tcInstanceTyVars instAnn)))
+          (map (FcVar . classDictVar) contextDicts)
+      desugarFields maybeSelfDictionary = do
+        superClassFields <- withDicts contextDicts (mapM (dsEvidence . snd) (tcInstanceSuperClasses instAnn))
+        methodFields <-
+          mapM
+            (dsInstanceMethod contextDicts methods maybeSelfDictionary (tcInstanceHeadTypes instAnn) (tcInstanceDefaultMethods instAnn))
+            methodOrder
+        pure (superClassFields <> methodFields)
+      buildDictionary recursive dictVar fields = do
+        methodTypes <- mapM lookupType methodOrder
+        let superClassFieldTypes = map tcDictBinderType (tcInstanceClassSuperClasses instAnn)
+        (classTyVars, fieldTypes) <-
+          case methodTypes of
+            [] -> pure (tcInstanceClassTyVars instAnn, superClassFieldTypes)
+            _ -> do
+              (tyVars, methodFieldTypes) <- classDictionaryLayout className methodTypes
+              pure (tyVars, superClassFieldTypes <> methodFieldTypes)
+        constructorUnique <- freshUnique
+        let dictionaryConstructor = fcDictionaryConstructorName className
+            dictionaryType = TcTyCon (TyCon className (length classTyVars)) (map TcTyVar classTyVars)
+            constructorType = foldr TcForAllTy (foldr TcFunTy dictionaryType fieldTypes) classTyVars
+            constructorVar = Var dictionaryConstructor constructorUnique constructorType
+            constructor = foldl FcTyApp (FcVar constructorVar) (tcInstanceHeadTypes instAnn)
+            dictionary = foldl FcApp constructor fields
+            dictBody = foldr FcTyLam (foldr (FcLam . classDictVar) dictionary contextDicts) (tcInstanceTyVars instAnn)
+            bindingGroup
+              | recursive = FcRec [(dictVar, dictBody)]
+              | otherwise = FcNonRec dictVar dictBody
+        pure (FcTopBind bindingGroup)
+  if usesDefaultMethod
+    then do
+      dictVar <- freshVar (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
+      fields <- desugarFields (Just (selfDictionary dictVar))
+      buildDictionary True dictVar fields
+    else do
+      fields <- desugarFields Nothing
+      dictVar <- freshVar (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
+      buildDictionary False dictVar fields
   where
     combineMethods (newTy, newMatches) (_oldTy, oldMatches) = (newTy, oldMatches <> newMatches)
 
@@ -894,13 +959,23 @@ mkContextDict ix dictAnn = do
 classDictPred :: ClassDict -> Pred
 classDictPred dict = ClassPred (classDictName dict) (classDictArgs dict)
 
-dsInstanceMethod :: [ClassDict] -> Map.Map Text (TcType, [Match]) -> Text -> DsM FcExpr
-dsInstanceMethod contextDicts methods methodName =
+dsInstanceMethod :: [ClassDict] -> Map.Map Text (TcType, [Match]) -> Maybe FcExpr -> [TcType] -> [Text] -> Text -> DsM FcExpr
+dsInstanceMethod contextDicts methods maybeSelfDictionary headTypes defaults methodName =
   case Map.lookup methodName methods of
     Just (expected, matches) ->
       dsMatchesWithGivenDicts contextDicts (TcQualTy (map classDictPred contextDicts) expected) matches
-    Nothing ->
-      desugarBug ("missing method " <> T.unpack methodName <> " in instance dictionary")
+    Nothing
+      | methodName `elem` defaults -> do
+          selfDictionary <-
+            case maybeSelfDictionary of
+              Just dictionary -> pure dictionary
+              Nothing -> desugarBug ("default method " <> T.unpack methodName <> " requires a recursive instance dictionary")
+          let workerName = defaultMethodName methodName
+          workerType <- lookupType workerName
+          worker <- freshVar workerName workerType
+          pure (FcApp (foldl FcTyApp (FcVar worker) headTypes) selfDictionary)
+      | otherwise ->
+          desugarBug ("missing method " <> T.unpack methodName <> " in instance dictionary")
 
 moduleInstances :: [Decl] -> [Decl]
 moduleInstances = filter isInstance

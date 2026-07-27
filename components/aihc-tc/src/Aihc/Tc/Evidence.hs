@@ -37,8 +37,9 @@ data EvTerm
     EvDict !Text ![TcType] ![EvTerm]
   | -- | Coercion evidence (for equality constraints).
     EvCoercion !Coercion
-  | -- | Superclass selection from a dictionary.
-    EvSuperClass !EvTerm !Int
+  | -- | Superclass selection from a dictionary. The source predicate and its
+    -- complete field layout make the projection explicit for System FC.
+    EvSuperClass !EvTerm !Pred ![TcType] !Int
   | -- | Cast evidence through a coercion.
     EvCast !EvTerm !Coercion
   | -- | Compiler-synthesized structural runtime type representation.
