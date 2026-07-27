@@ -36,6 +36,7 @@ test-suite spec
 
   main-is: Spec.hs
   other-modules:
+    Aihc.Testing.ExceptionProgram
     Aihc.Testing.SchedulerProgram
     Test.C.Suite
 

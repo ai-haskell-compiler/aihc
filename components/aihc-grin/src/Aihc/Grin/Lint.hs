@@ -216,6 +216,8 @@ lintExpr env bound expr =
         <> lintValue env bound continuation
     GrinContinue continuation values ->
       lintValue env bound continuation <> concatMap (lintValue env bound) values
+    GrinCpsRaise exception continuation ->
+      lintValue env bound exception <> lintValue env bound continuation
     GrinHalt values -> concatMap (lintValue env bound) values
     GrinCase scrutinee binder alternatives ->
       lintValue env bound scrutinee
@@ -350,6 +352,7 @@ exprRuntimeReps expr =
     GrinApply runtimeRep _ _ -> Just (runtimeRepComponents runtimeRep)
     GrinCpsApply {} -> Nothing
     GrinContinue {} -> Nothing
+    GrinCpsRaise {} -> Nothing
     GrinHalt {} -> Nothing
     GrinCase _ _ alternatives ->
       case alternatives of

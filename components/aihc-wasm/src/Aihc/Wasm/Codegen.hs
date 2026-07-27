@@ -351,6 +351,7 @@ runtimeFunctionTypes =
     ("aihc_wasm_transfer_eval", ([I32, I64, I64, I64, I64], [])),
     ("aihc_wasm_transfer_apply", ([I32, I64, I64, I32, I64], [])),
     ("aihc_wasm_transfer_continue", ([I32, I64, I64, I32], [])),
+    ("aihc_wasm_transfer_raise", ([I32, I64, I64], [])),
     ("aihc_wasm_transfer_fork", ([I32, I64, I64], [])),
     ("aihc_wasm_transfer_yield", ([I32, I64], [])),
     ("aihc_wasm_transfer_await_io", ([I32, I64, I64], [])),
@@ -428,6 +429,15 @@ compileExpr env expression =
                 <> call "aihc_wasm_transfer_continue"
             )
         )
+    GrinCpsRaise exception continuation ->
+      pure
+        ( terminal
+            ( machine
+                <> materializeValue env exception
+                <> materializeValue env continuation
+                <> call "aihc_wasm_transfer_raise"
+            )
+        )
     GrinHalt _ -> pure (terminal (machine <> call "aihc_wasm_transfer_halt"))
     GrinCase scrutinee binder alternatives -> compileCase env scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
@@ -440,8 +450,8 @@ compileExpr env expression =
     GrinEval {} -> unsupported "direct-style eval after CPS"
     GrinPrimitiveCall {} -> unsupported "unbound primitive call after CPS"
     GrinApply {} -> unsupported "direct-style apply after CPS"
-    GrinThrow {} -> unsupported "throw"
-    GrinCatch {} -> unsupported "catch"
+    GrinThrow {} -> unsupported "direct-style throw after CPS"
+    GrinCatch {} -> unsupported "direct-style catch after CPS"
     GrinForeignCallExpr {} -> unsupported "unbound foreign call after CPS"
   where
     unsupported = Left . WasmUnsupportedExpression

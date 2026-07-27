@@ -25,6 +25,7 @@ import Aihc.Native
   )
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
+import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
@@ -338,6 +339,7 @@ tests =
           assertEqual ("C compiler runtime diagnostics:\n" <> compilerErr) ExitSuccess compilerExit,
       testCase "compiles standalone HelloWorld GRIN to native Linux AMD64" testNativeHelloWorld,
       testCase "runs fork# and yield# with FIFO scheduling" testNativeScheduler,
+      testCase "catches a synchronous exception" testNativeSynchronousException,
       testCase "blocks and wakes threads that enter a shared blackhole" testNativeBlackholeScheduler,
       testCase "waits for stdin and resumes an async stdio continuation" testNativeStdioScheduler
     ]
@@ -694,6 +696,18 @@ testNativeScheduler = do
   assertAssemblyAccepted assembly
   when (arch == "x86_64" && os == "linux") $
     runSchedulerAssembly "PCAB" assembly
+
+testNativeSynchronousException :: IO ()
+testNativeSynchronousException = do
+  let gc = expectGcGrin synchronousExceptionProgram
+  assembly <-
+    case compileProgram "main" gc of
+      Right value -> pure value
+      Left err -> assertFailure ("AMD64 exception lowering failed: " <> show err)
+  assertBool "emits the shared raise transfer" ("call aihc_raise" `T.isInfixOf` assembly)
+  assertAssemblyAccepted assembly
+  when (arch == "x86_64" && os == "linux") $
+    runSchedulerAssembly "E" assembly
 
 testNativeBlackholeScheduler :: IO ()
 testNativeBlackholeScheduler = do

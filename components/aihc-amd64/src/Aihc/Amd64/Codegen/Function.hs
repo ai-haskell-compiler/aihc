@@ -206,6 +206,21 @@ compileExpr env prefix label expression =
             <> valueLines
         )
         (BlockLayout.Jump ".Laihc_enter")
+    GrinCpsRaise exception continuation -> do
+      exceptionSlot <- freshSlot
+      continuationSlot <- freshSlot
+      storedLines <- materializeIntoSlots env [(exception, exceptionSlot), (continuation, continuationSlot)]
+      addBlock
+        label
+        ( prefix
+            <> storedLines
+            <> [ loadAt "rsi" "r14" exceptionSlot,
+                 loadAt "rdx" "r14" continuationSlot,
+                 "  mov rdi, r15",
+                 "  call aihc_raise"
+               ]
+        )
+        (BlockLayout.Jump ".Laihc_resume")
     GrinHalt _ ->
       addBlock
         label
@@ -213,8 +228,8 @@ compileExpr env prefix label expression =
         BlockLayout.Exit
     GrinCase scrutinee binder alternatives ->
       compileCase env prefix label scrutinee binder alternatives
-    GrinThrow {} -> unsupportedExpression "throw"
-    GrinCatch {} -> unsupportedExpression "catch"
+    GrinThrow {} -> unsupportedExpression "direct-style throw after CPS"
+    GrinCatch {} -> unsupportedExpression "direct-style catch after CPS"
     GrinForeignCallExpr {} -> unsupportedExpression "unbound foreign call after CPS"
   where
     unsupportedExpression name = lift (Left (Amd64UnsupportedExpression name))

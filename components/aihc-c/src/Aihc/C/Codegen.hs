@@ -386,6 +386,12 @@ compileExpr env prefix label expression =
         continuationSlot : valueSlots ->
           terminal label (prefix <> fst stored <> [setNext ("aihc_trampoline_continue_values(aihc_machine, " <> valuePointer (localRef continuationSlot) <> ", " <> tshow (length values) <> ", " <> slotPointer valueSlots <> ")")])
         [] -> unsupported "internal continuation slot arity"
+    GrinCpsRaise exception continuation -> do
+      stored <- materializeIntoFresh env [exception, continuation]
+      case snd stored of
+        [exceptionSlot, continuationSlot] ->
+          terminal label (prefix <> fst stored <> [setNext ("aihc_trampoline_raise_cps(aihc_machine, " <> valuePointer (localRef exceptionSlot) <> ", " <> valuePointer (localRef continuationSlot) <> ")")])
+        _ -> unsupported "internal raise slot arity"
     GrinHalt _ -> terminal label (prefix <> [setNext "aihc_halt(aihc_machine)"])
     GrinCase scrutinee binder alternatives -> compileCase env prefix label scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
@@ -398,8 +404,8 @@ compileExpr env prefix label expression =
     GrinEval {} -> unsupported "direct-style eval after CPS"
     GrinPrimitiveCall {} -> unsupported "unbound primitive call after CPS"
     GrinApply {} -> unsupported "direct-style apply after CPS"
-    GrinThrow {} -> unsupported "throw"
-    GrinCatch {} -> unsupported "catch"
+    GrinThrow {} -> unsupported "direct-style throw after CPS"
+    GrinCatch {} -> unsupported "direct-style catch after CPS"
     GrinForeignCallExpr {} -> unsupported "unbound foreign call after CPS"
   where
     unsupported = lift . Left . CUnsupportedExpression

@@ -23,6 +23,7 @@ tests =
       testCase "stages only explicit moving-GC roots in memory" testGcRootStaging,
       testCase "passes known direct-call arguments through typed tail calls" testDirectCallArguments,
       testCase "loads captured values through object-entry adapters" testObjectEntryAdapters,
+      testCase "lowers synchronous exception transfers" testSynchronousException,
       testCase "rejects a missing entry point" testMissingEntry,
       testCase "rejects unsupported primitives" testUnsupportedPrimitive,
       testCase "traps dormant unsupported primitives in dependency modules" testDormantPrimitive,
@@ -124,6 +125,17 @@ testMissingEntry =
   case toCpsGrin program of
     Left err -> assertFailure (show err)
     Right cps -> assertEqual "missing entry" (Left (WasmMissingEntry "missing")) (compileProgram "missing" (lowerGc cps))
+
+testSynchronousException :: IO ()
+testSynchronousException =
+  case toCpsGrin exceptionProgram of
+    Left err -> assertFailure (show err)
+    Right cps ->
+      case compileProgram "main" (lowerGc cps) of
+        Left err -> assertFailure (show err)
+        Right source -> do
+          assertBool "calls the shared raise transfer" ("call\taihc_wasm_transfer_raise" `T.isInfixOf` source)
+          assertBool "emits catch frame metadata" ("\t.int64\t2\n\t.size\t" `T.isInfixOf` source)
 
 testUnsupportedPrimitive :: IO ()
 testUnsupportedPrimitive =
@@ -349,6 +361,64 @@ program =
 
 mainFunction :: FunctionName
 mainFunction = FunctionName "$main"
+
+exceptionProgram :: GrinProgram
+exceptionProgram =
+  GrinProgram
+    { grinConstructors = [("Exception", [])],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals =
+        [ (exceptionMainClosure, GrinNode (GrinClosure exceptionMainFunction [[]]) []),
+          (exceptionActionClosure, GrinNode (GrinClosure exceptionActionFunction [[]]) []),
+          (exceptionHandlerClosure, GrinNode (GrinClosure exceptionHandlerFunction [[lifted]]) [])
+        ],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = exceptionMainFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody =
+                GrinCatch
+                  lifted
+                  (GrinVarValue exceptionActionClosure)
+                  (GrinVarValue exceptionHandlerClosure)
+                  []
+            },
+          GrinFunction
+            { grinFunctionName = exceptionActionFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody =
+                GrinBind
+                  [exceptionValue]
+                  (GrinStore (GrinNode (GrinConstructor "Exception" 0) []))
+                  (GrinThrow (GrinVarValue exceptionValue))
+            },
+          GrinFunction
+            { grinFunctionName = exceptionHandlerFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [caughtException],
+              grinFunctionResultRep = lifted,
+              grinFunctionBody = GrinConstant [GrinVarValue caughtException]
+            }
+        ]
+    }
+  where
+    lifted = BoxedRep Lifted
+    exceptionMainFunction = FunctionName "$wasm_exception_main"
+    exceptionActionFunction = FunctionName "$wasm_exception_action"
+    exceptionHandlerFunction = FunctionName "$wasm_exception_handler"
+    exceptionMainClosure = GrinVar "main" 200 lifted
+    exceptionActionClosure = GrinVar "wasm_exception_action" 201 lifted
+    exceptionHandlerClosure = GrinVar "wasm_exception_handler" 202 lifted
+    exceptionValue = GrinVar "wasm_exception" 203 lifted
+    caughtException = GrinVar "wasm_caught_exception" 204 lifted
 
 dependencyProgram :: GrinProgram
 dependencyProgram =
