@@ -110,6 +110,11 @@ main =
               "command"
               (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just PortableC) GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--target", "portable-c"]),
+          testCase "parses the LLVM target" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just Llvm) GcCalloc False)))
+              (parseCommandPure ["compile", "Main.hs", "--target", "llvm"]),
           testCase "parses the WASI P3 target" $
             assertEqual
               "command"

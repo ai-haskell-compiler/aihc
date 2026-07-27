@@ -11,6 +11,7 @@
     "aihc-fc"
     "aihc-fmt"
     "aihc-grin"
+    "aihc-llvm"
     "aihc-native"
     "aihc-resolve"
     "aihc-tc"
@@ -45,6 +46,17 @@
       src = sources.cBackendSrc;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--subpath components/aihc-c";
+        srcModifier = src: src;
+      };
+      disableProfiling = true;
+      optimizeForChecks = true;
+      supportsDocs = false;
+      supportsCoverage = false;
+    };
+    aihc-llvm = {
+      src = sources.llvmSrc;
+      cabal2nixOptions = {
+        extraCabal2nixOptions = "--subpath components/aihc-llvm";
         srcModifier = src: src;
       };
       disableProfiling = true;
