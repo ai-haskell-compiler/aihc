@@ -3,7 +3,12 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Prim
-  ( addIntC#,
+  ( (+#),
+    (-#),
+    (*#),
+    (<#),
+    (==#),
+    addIntC#,
     addWordC#,
     and#,
     Addr#,
@@ -18,6 +23,7 @@ module GHC.Prim
     getSizeofMutableByteArray#,
     indexWordArray#,
     int2Word#,
+    intToChar#,
     isByteArrayPinned#,
     isMutableByteArrayPinned#,
     MVar#,
@@ -30,6 +36,7 @@ module GHC.Prim
     newMutVar#,
     newPinnedByteArray#,
     not#,
+    ord#,
     or#,
     plusWord#,
     popCnt#,
@@ -56,6 +63,7 @@ module GHC.Prim
     putMVar#,
     uncheckedShiftL#,
     uncheckedShiftRL#,
+    unsafeCoerce#,
     word2Int#,
     writeWordArray#,
     writeMutVar#,
@@ -96,9 +104,25 @@ data RealWorld
 
 foreign import prim raise# :: a -> b
 
+foreign import prim unsafeCoerce# :: a -> b
+
 foreign import prim realWorld# :: State# RealWorld
 
 foreign import prim compareInt# :: Int# -> Int# -> Int#
+
+foreign import prim (+#) :: Int# -> Int# -> Int#
+
+foreign import prim (-#) :: Int# -> Int# -> Int#
+
+foreign import prim (*#) :: Int# -> Int# -> Int#
+
+foreign import prim (<#) :: Int# -> Int# -> Int#
+
+foreign import prim (==#) :: Int# -> Int# -> Int#
+
+foreign import prim ord# :: Char# -> Int#
+
+foreign import prim intToChar# :: Int# -> Char#
 
 foreign import prim addIntC# :: Int# -> Int# -> (# Int#, Int# #)
 

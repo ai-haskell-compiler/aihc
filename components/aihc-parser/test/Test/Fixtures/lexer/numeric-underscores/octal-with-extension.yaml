@@ -1,8 +1,0 @@
-# Octal literal with underscores
-extensions:
-  - NumericUnderscores
-input: "0o777_777"
-tokens:
-  - 'TkInteger 262143 TInteger'
-  - 'TkEOF'
-status: pass

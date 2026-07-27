@@ -1,7 +1,0 @@
-extensions: []
-input: |
-  module M where
-  class xs `Infix` ys
-ast: |-
-  Module {ModuleHead {"M"}, [DeclClass (ClassDecl {Infix "xs" "Infix" "ys"})]}
-status: pass

@@ -1,8 +1,0 @@
-# Negative hex integer with NegativeLiterals extension
-extensions:
-  - NegativeLiterals
-input: "-0x10"
-tokens:
-  - 'TkInteger -16 TInteger'
-  - 'TkEOF'
-status: pass

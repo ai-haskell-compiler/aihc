@@ -1,6 +1,0 @@
-extensions: [GHC2021, RoleAnnotations]
-input: |
-  type role (:=) nominal nominal
-status: pass
-ast: |-
-  Module {[DeclRoleAnnotation (RoleAnnotation {UnqualifiedName {":="}, [RoleNominal, RoleNominal]})]}

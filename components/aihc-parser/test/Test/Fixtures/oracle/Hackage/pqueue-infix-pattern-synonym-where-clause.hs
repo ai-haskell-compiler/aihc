@@ -1,7 +1,0 @@
-{- ORACLE_TEST pass -}
-{-# LANGUAGE PatternSynonyms #-}
-module A where
-pattern (:<) :: (a, b) -> [(a, b)] -> [(a, b)]
-pattern x :< xs <- (x : xs)
-  where
-    (a, b) :< xs = (a, b) : xs

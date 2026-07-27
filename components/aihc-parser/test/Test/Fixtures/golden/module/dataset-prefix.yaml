@@ -1,7 +1,0 @@
-extensions: []
-input: |
-  module DatasetPrefix where
-  dataset = 5
-ast: |-
-  Module {ModuleHead {"DatasetPrefix"}, [DeclValue (PatternBind (PVar "dataset") (EInt 5 TInteger))]}
-status: pass

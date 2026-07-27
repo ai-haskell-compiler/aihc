@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  (a,)
-ast: |-
-  ETuple [EVar "a", Nothing]
-status: pass

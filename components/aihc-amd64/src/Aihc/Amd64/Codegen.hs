@@ -25,8 +25,10 @@ where
 
 import Aihc.Amd64.Codegen.Function
 import Aihc.Amd64.Codegen.Runtime
+import Aihc.Grin.Cps (ContinuationFrameKind (..))
 import Aihc.Grin.Gc
   ( GcGrinProgram,
+    gcContinuationFrames,
     gcContinuationFunctions,
     gcFunctionContinuations,
     gcGrinProgram,
@@ -113,7 +115,7 @@ compileObservedFunction entryName gcProgram = do
   where
     program = gcGrinProgram gcProgram
     layout = buildLinkLayout [program]
-    compileEnv = (compileEnvironmentWith True layout program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
+    compileEnv = (compileEnvironmentWith True (gcContinuationFrames gcProgram) layout program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
     globalNames = linkGlobalNames layout
     resultReps =
       maybe [] (runtimeRepComponents . grinFunctionResultRep) $
@@ -121,6 +123,7 @@ compileObservedFunction entryName gcProgram = do
     observedRuntimeInfos =
       threadDoneRuntimeInfos
         <> continuationRuntimeInfos
+          ContinuationFrameStop
           ".Laihc_snapshot_info"
           ".Laihc_snapshot_applied_info"
           ".Laihc_snapshot_result"
@@ -156,7 +159,7 @@ compileModule layout initializerSymbol gcProgram = do
   where
     program = gcGrinProgram gcProgram
     compileEnv =
-      (compileEnvironment layout program)
+      (compileEnvironment (gcContinuationFrames gcProgram) layout program)
         { compileAllowUnsupportedPrimitives = True,
           compileContinuationFunctions = gcContinuationFunctions gcProgram
         }
@@ -195,14 +198,14 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
          ]
       <> makeNodeUncheckedLines runtimeTagClosure (InfoAddress ".Laihc_update_info")
       <> [ storeAt "rax" "r14" 0,
-           loadByteOffset "r11" "r15" 0,
-           loadAt "rdx" "r11" rootSlot,
+           "  mov rdx, r12",
            loadAt "rdi" "r14" 0,
            "  xor esi, esi",
            "  call aihc_set_field",
            loadAt "rdi" "r14" 0,
            "  mov esi, 1",
-           "  mov rdx, r12",
+           loadByteOffset "r11" "r15" 0,
+           loadAt "rdx" "r11" rootSlot,
            "  call aihc_set_field"
          ]
       <> makeNodeUncheckedLines runtimeTagClosure (InfoAddress ".Laihc_thread_done_info")
@@ -215,7 +218,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
            loadByteOffset "r11" "r15" 0,
            loadAt applyFunctionRegister "r11" rootSlot,
            loadAt "rax" "r14" 0,
-           "  mov r13, QWORD PTR [rax + 16]",
+           "  mov r13, QWORD PTR [rax + 8]",
            "  mov r11, 1",
            "  jmp .Laihc_eval"
          ]
@@ -238,24 +241,27 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
       <> nonExecutableStack
   where
     program = gcGrinProgram gcProgram
-    compileEnv = (compileEnvironment layout program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
+    compileEnv = (compileEnvironment (gcContinuationFrames gcProgram) layout program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
     globalSlots = compileGlobalSlots compileEnv
     globalNames = linkGlobalNames layout
     pointerRep = BoxedRep Lifted
     programRuntimeInfos updateLabel =
       continuationRuntimeInfos
+        ContinuationFrameStop
         ".Laihc_final_info"
         ".Laihc_final_applied_info"
         ".Laihc_final_continuation"
         []
         [pointerRep]
         <> continuationRuntimeInfos
+          ContinuationFrameNormal
           ".Laihc_top_info"
           ".Laihc_top_applied_info"
           ".Laihc_top_continuation"
           [pointerRep]
           [pointerRep]
         <> continuationRuntimeInfos
+          ContinuationFrameUpdate
           ".Laihc_update_info"
           ".Laihc_update_applied_info"
           updateLabel
@@ -309,6 +315,7 @@ threadDoneContinuation =
 threadDoneRuntimeInfos :: [RuntimeInfo]
 threadDoneRuntimeInfos =
   continuationRuntimeInfos
+    ContinuationFrameStop
     ".Laihc_thread_done_info"
     ".Laihc_thread_done_applied_info"
     ".Laihc_thread_done_continuation"
@@ -324,11 +331,11 @@ renderCompiledSupport env functions runtimeInfos =
 nonExecutableStack :: [Text]
 nonExecutableStack = [".section .note.GNU-stack,\"\",@progbits"]
 
-compileEnvironment :: LinkLayout -> GrinProgram -> CompileEnv
+compileEnvironment :: Map.Map FunctionName ContinuationFrameKind -> LinkLayout -> GrinProgram -> CompileEnv
 compileEnvironment = compileEnvironmentWith False
 
-compileEnvironmentWith :: Bool -> LinkLayout -> GrinProgram -> CompileEnv
-compileEnvironmentWith exposeAllFunctions layout program =
+compileEnvironmentWith :: Bool -> Map.Map FunctionName ContinuationFrameKind -> LinkLayout -> GrinProgram -> CompileEnv
+compileEnvironmentWith exposeAllFunctions continuationFrames layout program =
   CompileEnv
     { compileConstructorIds = Map.fromList (zip (map fst constructors) [1 ..]),
       compileConstructorArities = Map.fromList constructors,
@@ -349,7 +356,7 @@ compileEnvironmentWith exposeAllFunctions layout program =
     constructorInfoEntries =
       [ ( key,
           label,
-          RuntimeInfo label (InfoImmediate identifier) fields remaining next Nothing
+          RuntimeInfo label (InfoImmediate identifier) fields remaining next Nothing Nothing
         )
       | ((name, layouts), (_, identifier)) <- zip constructorLayouts constructorIdentifiers,
         let arity = length layouts,
@@ -393,6 +400,7 @@ compileEnvironmentWith exposeAllFunctions layout program =
                 Just (RuntimeEnter target (length fields) 0)
               _ -> Nothing
           )
+          (Map.lookup functionName continuationFrames)
       | (key, functionName) <- functionInfoKeys,
         let label = functionInfoLabels Map.! key
             target = functionLabelMap Map.! functionName
@@ -484,6 +492,7 @@ exprNodes expression =
     GrinApply {} -> []
     GrinCpsApply {} -> []
     GrinContinue {} -> []
+    GrinCpsRaise {} -> []
     GrinHalt {} -> []
     GrinThrow {} -> []
     GrinCatch {} -> []
@@ -524,6 +533,8 @@ exprRuntimeReps expression =
           <> valueRuntimeReps continuation
     GrinContinue continuation values ->
       valueRuntimeReps continuation <> concatMap valueRuntimeReps values
+    GrinCpsRaise exception continuation ->
+      valueRuntimeReps exception <> valueRuntimeReps continuation
     GrinHalt values -> concatMap valueRuntimeReps values
     GrinCase scrutinee binder alternatives ->
       valueRuntimeReps scrutinee

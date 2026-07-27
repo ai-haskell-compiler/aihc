@@ -1,8 +1,0 @@
-extensions:
-  - UnicodeSyntax
-input: "∀ a"
-tokens:
-  - "TkKeywordForall"
-  - 'TkVarId "a"'
-  - "TkEOF"
-status: pass

@@ -1,6 +1,0 @@
-extensions: [NoStarIsType]
-input: |
-  fn :: a * b
-ast: |-
-  Module {[DeclTypeSig ["fn"] (TInfix (TVar "a") "*" (TVar "b"))]}
-status: pass

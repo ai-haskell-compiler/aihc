@@ -224,6 +224,7 @@ grinExprFreeVariables expression =
     GrinApply _ function arguments -> valueUses function <> foldMap valueUses arguments
     GrinCpsApply _ function arguments continuation -> valueUses function <> foldMap valueUses arguments <> valueUses continuation
     GrinContinue continuation values -> valueUses continuation <> foldMap valueUses values
+    GrinCpsRaise exception continuation -> valueUses exception <> valueUses continuation
     GrinUpdateBlackhole pointer value -> valueUses pointer <> valueUses value
     GrinHalt values -> foldMap valueUses values
     GrinCase scrutinee binder alternatives ->
@@ -270,7 +271,7 @@ exprCallsC expression =
     GrinUpdate {} -> True
     GrinUpdateBlackhole {} -> True
     GrinForeignCallExpr {} -> True
-    GrinPrimitiveCall _ name _ -> name `notElem` ["+#", "-#", "*#", "compareInt#", "<#", "==#", "charToInt#", "intToChar#", "realWorld#"]
+    GrinPrimitiveCall _ name _ -> name `notElem` ["+#", "-#", "*#", "compareInt#", "<#", "==#", "ord#", "intToChar#", "realWorld#"]
     _ -> False
 
 -- | Some expressions make several C calls while consuming their operands, so

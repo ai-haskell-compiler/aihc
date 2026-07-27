@@ -15,6 +15,7 @@ import Aihc.Native
     supportedNativePrimitiveNames,
   )
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
+import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.SchedulerProgram (schedulerProgram, stdioSchedulerProgram)
 import Control.Exception (bracket)
 import Control.Monad (forM_)
@@ -39,7 +40,8 @@ tests =
       testCase "lowers byte-array primitives" testByteArrayPrimitives,
       testCase "executes platform Int foreign calls" (testProgram "L" foreignIntProgram),
       testCase "executes Int# addition" (testProgram "*" intAddProgram),
-      testCase "executes cooperative scheduling" (testProgram "PCAB" schedulerProgram)
+      testCase "executes cooperative scheduling" (testProgram "PCAB" schedulerProgram),
+      testCase "executes synchronous exception unwinding" (testProgram "E" synchronousExceptionProgram)
     ]
 
 testGuaranteedTailCalls :: IO ()

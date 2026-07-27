@@ -1,9 +1,0 @@
-{- ORACLE_TEST pass -}
-{-# LANGUAGE RecordWildCards #-}
-module DoTupleAsPattern where
-
-data T = T { field :: Int }
-
-f mx = do
-  (a, b@T {..}) <- mx
-  return undefined

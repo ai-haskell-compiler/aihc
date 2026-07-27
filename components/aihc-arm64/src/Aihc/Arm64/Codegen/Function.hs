@@ -199,6 +199,21 @@ compileExpr env prefix label expression =
             <> valueLines
         )
         (BlockLayout.Jump ".Laihc_enter")
+    GrinCpsRaise exception continuation -> do
+      exceptionSlot <- freshSlot
+      continuationSlot <- freshSlot
+      storedLines <- materializeIntoSlots env [(exception, exceptionSlot), (continuation, continuationSlot)]
+      addBlock
+        label
+        ( prefix
+            <> storedLines
+            <> [ loadAt "x1" "x19" exceptionSlot,
+                 loadAt "x2" "x19" continuationSlot,
+                 "  mov x0, x22",
+                 "  bl _aihc_raise"
+               ]
+        )
+        (BlockLayout.Jump ".Laihc_resume")
     GrinHalt _ ->
       addBlock
         label
@@ -206,8 +221,8 @@ compileExpr env prefix label expression =
         BlockLayout.Exit
     GrinCase scrutinee binder alternatives ->
       compileCase env prefix label scrutinee binder alternatives
-    GrinThrow {} -> unsupportedExpression "throw"
-    GrinCatch {} -> unsupportedExpression "catch"
+    GrinThrow {} -> unsupportedExpression "direct-style throw after CPS"
+    GrinCatch {} -> unsupportedExpression "direct-style catch after CPS"
     GrinForeignCallExpr {} -> unsupportedExpression "unbound foreign call after CPS"
   where
     unsupportedExpression name = lift (Left (Arm64UnsupportedExpression name))
@@ -452,7 +467,7 @@ compileDirectBinding env vars expression =
     unaryPrimitives =
       ("not#", ["  mvn x0, x0"])
         : [ (name, [])
-          | name <- ["int2Word#", "word2Int#", "charToInt#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
+          | name <- ["int2Word#", "word2Int#", "ord#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
           ]
     binary instruction names =
       [(name, ["  " <> instruction <> " x0, x9, x0"]) | name <- names]

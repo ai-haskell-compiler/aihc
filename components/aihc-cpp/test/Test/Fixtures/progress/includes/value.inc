@@ -1,2 +1,0 @@
-#define VALUE included
-VALUE

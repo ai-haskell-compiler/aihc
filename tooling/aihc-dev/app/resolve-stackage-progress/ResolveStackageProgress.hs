@@ -376,7 +376,7 @@ partitionEithers (Left a : rest) = let (as, bs) = partitionEithers rest in (a : 
 partitionEithers (Right b : rest) = let (as, bs) = partitionEithers rest in (as, b : bs)
 
 -- | Strip BOM and unliterate .lhs files (bird-track and LaTeX styles).
--- Must be applied before CPP and before parsing, matching CppSupport.normalizeSourceForParser.
+-- Must be applied before CPP and before parsing.
 normalizeSource :: FilePath -> Text -> Text
 normalizeSource filePath src
   | map toLower (takeExtension filePath) /= ".lhs" = stripBom src

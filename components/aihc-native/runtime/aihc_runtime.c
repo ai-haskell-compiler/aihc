@@ -12,6 +12,8 @@ _Static_assert(offsetof(AihcMachine, heap_limit) == 32,
                "machine heap-limit ABI");
 _Static_assert(offsetof(AihcInfo, backend_entry) == 48,
                "info-table backend-entry ABI");
+_Static_assert(offsetof(AihcInfo, frame_kind) == 56,
+               "info-table frame-kind ABI");
 _Static_assert(offsetof(AihcResume, kind) == 0, "resume kind ABI");
 _Static_assert(offsetof(AihcResume, function) == 8, "resume function ABI");
 _Static_assert(offsetof(AihcResume, continuation) == 16,
@@ -109,7 +111,8 @@ static void aihc_visit_thread(AihcThread *thread, AihcRootVisitor visitor,
   }
   aihc_visit_value(&thread->resume_function, visitor, context);
   aihc_visit_value(&thread->resume_continuation, visitor, context);
-  if (thread->resume_kind == AIHC_RESUME_CONTINUE &&
+  if ((thread->resume_kind == AIHC_RESUME_CONTINUE ||
+       thread->resume_kind == AIHC_RESUME_APPLY) &&
       thread->resume_count == 1) {
     thread->resume_value = visitor(thread->resume_value, context);
   }
@@ -126,7 +129,8 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
   aihc_visit_value(&machine->thread_done_continuation, visitor, context);
   aihc_visit_value(&machine->selected_resume.function, visitor, context);
   aihc_visit_value(&machine->selected_resume.continuation, visitor, context);
-  if (machine->selected_resume.kind == AIHC_RESUME_CONTINUE &&
+  if ((machine->selected_resume.kind == AIHC_RESUME_CONTINUE ||
+       machine->selected_resume.kind == AIHC_RESUME_APPLY) &&
       machine->selected_resume.count == 1) {
     machine->selected_resume.value =
         visitor(machine->selected_resume.value, context);
@@ -400,6 +404,14 @@ static void aihc_suspend_apply(AihcThread *thread, AihcValue *function,
   thread->resume_count = 0;
 }
 
+static void aihc_suspend_raise(AihcThread *thread, AihcValue *exception,
+                               AihcValue *continuation) {
+  thread->resume_kind = AIHC_RESUME_RAISE;
+  thread->resume_function = exception;
+  thread->resume_continuation = continuation;
+  thread->resume_count = 0;
+}
+
 static void aihc_suspend_continue(AihcThread *thread, AihcValue *continuation,
                                   uint64_t count, AihcSlot value) {
   if (count > 1) {
@@ -427,7 +439,8 @@ static const AihcResume *aihc_select_thread(AihcMachine *machine,
   thread->resume_count = 0;
   machine->current_thread = thread;
   if (resume->kind != AIHC_RESUME_APPLY &&
-      resume->kind != AIHC_RESUME_CONTINUE) {
+      resume->kind != AIHC_RESUME_CONTINUE &&
+      resume->kind != AIHC_RESUME_RAISE) {
     aihc_fail("thread has no suspended continuation");
   }
   return resume;
@@ -982,6 +995,76 @@ void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
     waiter = next;
   }
   free(blackhole);
+}
+
+static void aihc_abandon_blackhole(AihcMachine *machine, AihcValue *object,
+                                   AihcValue *exception) {
+  if (object == NULL || aihc_value_tag(object) != AIHC_TAG_BLACKHOLE) {
+    aihc_fail("exception update frame does not contain a blackhole");
+  }
+  object->header = (object->header & ~AIHC_TAG_MASK) | AIHC_TAG_THUNK;
+  AihcBlackhole *blackhole = aihc_remove_blackhole(machine, object);
+  if (blackhole == NULL) {
+    return;
+  }
+  AihcBlackholeWaiter *waiter = blackhole->waiters_head;
+  while (waiter != NULL) {
+    AihcBlackholeWaiter *next = waiter->next;
+    aihc_suspend_raise(waiter->thread, exception, waiter->continuation);
+    aihc_enqueue_thread(machine, waiter->thread);
+    free(waiter);
+    waiter = next;
+  }
+  free(blackhole);
+}
+
+const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
+                             AihcValue *continuation) {
+  if (exception == NULL) {
+    aihc_fail("attempted to raise a null exception");
+  }
+  for (;;) {
+    if (continuation == NULL ||
+        aihc_value_tag(continuation) != AIHC_TAG_CLOSURE) {
+      aihc_fail("exception chain contains a non-continuation value");
+    }
+    const AihcInfo *info = aihc_value_info_table(continuation);
+    const AihcSlot *fields = aihc_value_fields_const(continuation);
+    switch (info->frame_kind) {
+    case AIHC_FRAME_NORMAL:
+      if (info->field_count < 1) {
+        aihc_fail("normal continuation has no parent");
+      }
+      continuation = (AihcValue *)(uintptr_t)fields[0];
+      break;
+    case AIHC_FRAME_CATCH: {
+      if (info->field_count < 2) {
+        aihc_fail("catch continuation has an invalid layout");
+      }
+      AihcResume *resume = &machine->selected_resume;
+      resume->kind = AIHC_RESUME_APPLY;
+      resume->function = (AihcValue *)(uintptr_t)fields[1];
+      resume->continuation = (AihcValue *)(uintptr_t)fields[0];
+      resume->value = (AihcSlot)(uintptr_t)exception;
+      resume->count = 1;
+      return resume;
+    }
+    case AIHC_FRAME_UPDATE:
+      if (info->field_count < 2) {
+        aihc_fail("update continuation has an invalid layout");
+      }
+      aihc_abandon_blackhole(machine, (AihcValue *)(uintptr_t)fields[1],
+                             exception);
+      continuation = (AihcValue *)(uintptr_t)fields[0];
+      break;
+    case AIHC_FRAME_STOP:
+      aihc_fail("uncaught Haskell exception");
+    case AIHC_FRAME_RESTORE_MASK:
+      aihc_fail("restore-mask continuation is not implemented");
+    default:
+      aihc_fail("exception chain contains a non-frame closure");
+    }
+  }
 }
 
 AihcSlot aihc_fork(AihcMachine *machine, AihcValue *action) {

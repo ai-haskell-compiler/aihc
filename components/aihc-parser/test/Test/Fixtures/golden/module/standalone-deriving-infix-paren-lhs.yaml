@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  deriving instance ((C) '()) :+ ()
-ast: |-
-  Module {[DeclStandaloneDeriving (StandaloneDerivingDecl {TInfix (TParen (TApp (TParen (TCon "C")) (TTuple Promoted []))) ":+" (TTuple [])})]}
-status: pass

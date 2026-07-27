@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  (a :+: b)
-ast: |-
-  PParen (PInfix (PVar "a") ":+:" (PVar "b"))
-status: pass

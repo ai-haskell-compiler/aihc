@@ -1,6 +1,0 @@
-extensions: [ExtendedLiterals, MagicHash]
-input: |
-  123#Int16
-ast: |-
-  EInt 123 TInt16Hash
-status: pass

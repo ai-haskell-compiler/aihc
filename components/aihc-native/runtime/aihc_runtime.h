@@ -32,14 +32,15 @@ typedef struct AihcIoBackend AihcIoBackend;
 typedef struct AihcMVar AihcMVar;
 typedef uint64_t AihcSlot;
 typedef void (*AihcEntry)(AihcSlot *arguments);
-/* The last info-table word is interpreted by the selected code generator.
-   Common runtime code preserves it but never calls it. */
+/* The backend entry is interpreted by the selected code generator. Common
+   runtime code preserves it but never calls it. */
 typedef void (*AihcBackendEntry)(void);
 
 enum {
   AIHC_RESUME_NONE,
   AIHC_RESUME_APPLY,
   AIHC_RESUME_CONTINUE,
+  AIHC_RESUME_RAISE,
 };
 typedef uint64_t AihcResumeKind;
 
@@ -51,6 +52,16 @@ typedef struct {
   uint64_t count;
 } AihcResume;
 
+enum {
+  AIHC_FRAME_NONE = 0,
+  AIHC_FRAME_NORMAL = 1,
+  AIHC_FRAME_CATCH = 2,
+  AIHC_FRAME_UPDATE = 3,
+  AIHC_FRAME_RESTORE_MASK = 4,
+  AIHC_FRAME_STOP = 5,
+};
+typedef uint64_t AihcFrameKind;
+
 struct AihcInfo {
   uintptr_t identity;
   AihcEntry entry;
@@ -61,6 +72,9 @@ struct AihcInfo {
   /* Backend-owned dynamic entry. Native and WebAssembly adapters give this
      word their own callable type; portable C leaves it null. */
   AihcBackendEntry backend_entry;
+  /* Continuation closures have their parent in field zero. This kind is
+     backend-independent so the runtime can unwind them uniformly. */
+  AihcFrameKind frame_kind;
 };
 
 struct AihcValue {
@@ -158,6 +172,8 @@ const AihcResume *aihc_block_on_blackhole(AihcMachine *machine,
 void aihc_update(AihcValue *object, AihcValue *value);
 void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
                            AihcValue *value);
+const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
+                             AihcValue *continuation);
 AihcSlot aihc_fork(AihcMachine *machine, AihcValue *action);
 void *aihc_mvar_new(AihcMachine *machine);
 const AihcResume *aihc_mvar_read(AihcMachine *machine, void *mvar,

@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  (,,)
-ast: |-
-  ETuple [Nothing, Nothing, Nothing]
-status: pass

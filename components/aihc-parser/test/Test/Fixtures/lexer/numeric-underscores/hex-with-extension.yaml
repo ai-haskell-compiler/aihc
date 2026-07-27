@@ -1,7 +1,0 @@
-extensions:
-  - NumericUnderscores
-input: "0xff_00_00"
-tokens:
-  - 'TkInteger 16711680 TInteger'
-  - 'TkEOF'
-status: pass

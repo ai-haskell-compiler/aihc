@@ -1,9 +1,0 @@
-extensions: []
-input: |
-  module D9 where
-  infixl 5 `foo`
-  foo :: a -> a -> a
-  foo = undefined
-ast: |-
-  Module {ModuleHead {"D9"}, [DeclFixity InfixL Nothing 5 [UnqualifiedName {"foo"}], DeclTypeSig ["foo"] (TFun (TVar "a") (TFun (TVar "a") (TVar "a"))), DeclValue (PatternBind (PVar "foo") (EVar "undefined"))]}
-status: pass

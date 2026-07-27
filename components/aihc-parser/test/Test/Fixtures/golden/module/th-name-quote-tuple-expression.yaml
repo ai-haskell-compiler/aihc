@@ -1,5 +1,0 @@
-extensions: [TemplateHaskell]
-input: |
-  x = '(A,B)
-status: fail
-reason: GHC rejects tuple expressions as Template Haskell name quote bodies

@@ -1,6 +1,0 @@
-extensions: [MagicHash]
-input: |
-  -(95#)
-ast: |-
-  ENegate (EParen (EInt 95 TIntHash))
-status: pass

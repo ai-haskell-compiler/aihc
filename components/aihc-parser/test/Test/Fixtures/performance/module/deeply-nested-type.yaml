@@ -1,5 +1,0 @@
-extensions:
-  - ForeignFunctionInterface
-status: pass
-input: |
-  fn :: (B -> (B -> (B -> (B -> (B -> (B -> (B -> (B -> (B -> (B -> (C -> ((Ptr C) -> (B -> ((Ptr C) -> (B -> (IO ()))))))))))))))))

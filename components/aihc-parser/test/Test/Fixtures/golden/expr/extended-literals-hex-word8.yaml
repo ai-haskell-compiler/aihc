@@ -1,6 +1,0 @@
-extensions: [ExtendedLiterals]
-input: |
-  0xFF#Word8
-ast: |-
-  EInt 255 TWord8Hash
-status: pass

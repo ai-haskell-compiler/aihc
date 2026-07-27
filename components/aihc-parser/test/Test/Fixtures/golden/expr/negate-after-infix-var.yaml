@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  f $ - x
-ast: |-
-  EInfix (EVar "f") "$" (ENegate (EVar "x"))
-status: pass

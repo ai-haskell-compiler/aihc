@@ -1,7 +1,0 @@
-extensions: [MultilineStrings]
-input: |
-  """"""
-ast: |-
-  EString ""
-status: pass
-comment: Empty multiline string

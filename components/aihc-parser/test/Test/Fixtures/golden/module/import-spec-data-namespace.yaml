@@ -1,9 +1,0 @@
-extensions:
-  - ExplicitNamespaces
-input: |
-  module Demo where
-  import PatternSynonymsSource (data Zero)
-  x = 1
-status: pass
-ast: |-
-  Module {ModuleHead {"Demo"}, [ImportDecl {"PatternSynonymsSource", ImportSpec {[ImportItemAbs{IEEntityNamespaceData, UnqualifiedName {"Zero"}}]}}], [DeclValue (PatternBind (PVar "x") (EInt 1 TInteger))]}

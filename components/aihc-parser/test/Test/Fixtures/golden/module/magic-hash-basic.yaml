@@ -1,9 +1,0 @@
-extensions: [MagicHash]
-input: |
-  {-# LANGUAGE MagicHash #-}
-  module MagicHashBasic where
-  x# :: Int#
-  x# = 42#
-ast: |-
-  Module {ModuleHead {"MagicHashBasic"}, [MagicHash], [DeclTypeSig ["x#"] (TCon "Int#"), DeclValue (PatternBind (PVar "x#") (EInt 42 TIntHash))]}
-status: pass

@@ -1,6 +1,5 @@
 {-# LANGUAGE ExtendedLiterals #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE NumericUnderscores #-}
 
@@ -13,8 +12,7 @@ import GHC.IO.StdHandles
     writeFromBuffer,
   )
 import GHC.Int (Int (..))
-
-foreign import prim (+#) :: Int# -> Int# -> Int#
+import GHC.Prim ((+#))
 
 countToTenMillion :: Int# -> Int#
 countToTenMillion current =

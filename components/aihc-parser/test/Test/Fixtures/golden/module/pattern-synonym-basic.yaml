@@ -1,7 +1,0 @@
-extensions:
-  - PatternSynonyms
-input: |
-  pattern Pair x y = (x, y)
-ast: |-
-  Module {[DeclPatSyn (PatSynDecl {UnqualifiedName {"Pair"}, PatSynPrefixArgs ["x", "y"], PTuple [PVar "x", PVar "y"], PatSynBidirectional})]}
-status: pass

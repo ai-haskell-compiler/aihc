@@ -1,6 +1,0 @@
-extensions: [NegativeLiterals]
-input: |
-  f -x
-ast: |-
-  EInfix (EVar "f") "-" (EVar "x")
-status: pass

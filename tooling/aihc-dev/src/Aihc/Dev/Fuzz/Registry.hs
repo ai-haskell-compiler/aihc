@@ -7,8 +7,6 @@ module Aihc.Dev.Fuzz.Registry
 where
 
 import Aihc.Grin.Fuzz (grinFuzzProperties)
-import Aihc.Parser.Compat.Fuzz (parserCompatFuzzProperties)
-import Aihc.Parser.Fuzz (parserFuzzProperties)
 import Aihc.Tc.Fuzz (tcFuzzProperties)
 import Test.QuickCheck (Property)
 
@@ -25,11 +23,7 @@ fuzzPropertyId fuzzProperty =
 -- | All continuously runnable properties, grouped by their owning component.
 fuzzProperties :: [FuzzProperty]
 fuzzProperties =
-  concat
-    [ qualify "aihc-parser" parserFuzzProperties,
-      qualify "aihc-parser-compat" parserCompatFuzzProperties,
-      qualify "aihc-tc" tcFuzzProperties,
-      qualify "aihc-grin" grinFuzzProperties
-    ]
+  qualify "aihc-tc" tcFuzzProperties
+    ++ qualify "aihc-grin" grinFuzzProperties
   where
     qualify component = map (uncurry (FuzzProperty component))

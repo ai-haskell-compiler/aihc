@@ -1,6 +1,0 @@
-extensions: []
-input: "---"
-tokens:
-  - 'TkLineComment'
-  - 'TkEOF'
-status: pass

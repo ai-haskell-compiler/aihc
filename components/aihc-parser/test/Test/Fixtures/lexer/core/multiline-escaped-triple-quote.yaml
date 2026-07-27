@@ -1,9 +1,0 @@
-extensions: [MultilineStrings]
-input: |
-  """
-  \"\"\"
-  """
-tokens:
-  - 'TkString "\"\"\""'
-  - 'TkEOF'
-status: pass

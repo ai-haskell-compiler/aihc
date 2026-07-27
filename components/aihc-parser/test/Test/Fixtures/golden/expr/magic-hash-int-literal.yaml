@@ -1,6 +1,0 @@
-extensions: [MagicHash]
-input: |
-  42#
-ast: |-
-  EInt 42 TIntHash
-status: pass

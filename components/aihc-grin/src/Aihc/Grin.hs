@@ -3,12 +3,16 @@ module Aihc.Grin
   ( module Aihc.Grin.Syntax,
     CpsGrinProgram,
     CpsGrinError (..),
+    ContinuationFrameKind (..),
+    continuationFrameKindCode,
+    cpsContinuationFrames,
     cpsContinuationFunctions,
     cpsFunctionContinuations,
     cpsGrinProgram,
     cpsUpdateFunction,
     toCpsGrin,
     GcGrinProgram,
+    gcContinuationFrames,
     gcContinuationFunctions,
     gcFunctionContinuations,
     gcGrinProgram,
@@ -41,15 +45,18 @@ module Aihc.Grin
 where
 
 import Aihc.Grin.Cps
-  ( CpsGrinError (..),
+  ( ContinuationFrameKind (..),
+    CpsGrinError (..),
     CpsGrinProgram,
+    continuationFrameKindCode,
+    cpsContinuationFrames,
     cpsContinuationFunctions,
     cpsFunctionContinuations,
     cpsGrinProgram,
     cpsUpdateFunction,
     toCpsGrin,
   )
-import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, gcUpdateFunction, lowerGc)
+import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, gcUpdateFunction, lowerGc)
 import Aihc.Grin.Interpret (InterpretError (..), RuntimeValue (..), interpretProgramBinding, interpretProgramFunctionSnapshot, interpretProgramIoBinding)
 import Aihc.Grin.Lint (GrinLintError (..), lintProgram)
 import Aihc.Grin.Lower (GrinInterface, extractGrinInterface, lowerProgram, lowerProgramWithInterface)

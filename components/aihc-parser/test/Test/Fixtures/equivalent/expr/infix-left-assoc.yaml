@@ -1,6 +1,0 @@
-extensions: []
-equivalent:
-  - a + b + c
-  - (a + b) + c
-status: pass
-reason: parser matches GHC's left-associated parsed infix tree

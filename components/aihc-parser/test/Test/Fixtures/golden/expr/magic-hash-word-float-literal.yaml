@@ -1,6 +1,0 @@
-extensions: [MagicHash]
-input: |
-  0.0##
-ast: |-
-  EFloat 0 % 1 TDoubleHash
-status: pass

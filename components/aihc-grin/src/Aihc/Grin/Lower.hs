@@ -194,7 +194,13 @@ lowerTopBind topBind =
     FcNewtype {} ->
       pure mempty
     FcPrimitive var arity ->
-      pure mempty {loweredPrimitives = [(lowerGlobalVar var, arity)]}
+      pure
+        mempty
+          { loweredPrimitives =
+              [ (lowerGlobalVar var, arity)
+              | varName var `notElem` ["unsafeCoerce#", "raise#", "catch#"]
+              ]
+          }
     FcForeignImport foreignCall ->
       pure mempty {loweredForeignCalls = [lowerForeignCall foreignCall]}
     FcTopBind bind -> lowerTopValueBind bind
@@ -265,8 +271,10 @@ lowerExpr expr = do
           lowerSingleOperand "exception" exception (pure . GrinThrow)
         Just ("catch#", [action, handler, _state]) ->
           lowerSingleEvaluatedOperand "catch_action" action $ \actionValue ->
-            lowerCatchHandler handler $ \handlerValue ->
+            lowerCatchHandler (exprRuntimeRep expr) handler $ \handlerValue ->
               pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue [])
+        Just ("unsafeCoerce#", argument : extraArguments) ->
+          lowerUnsafeCoerceApplication expr argument extraArguments
         Just (name, arguments) ->
           case Map.lookup name primitiveArities of
             Just arity -> lowerPrimitiveApplication expr name arity arguments
@@ -371,6 +379,19 @@ lowerPrimitiveApplication originalExpr name arity arguments =
   where
     suppliedArity = length arguments
 
+-- unsafeCoerce# changes only the static type of a value. FC has already
+-- checked the application, so GRIN can erase the coercion while preserving
+-- the argument's lazy evaluation. This keeps the operation out of every
+-- backend, including overapplication of a coerced function value.
+lowerUnsafeCoerceApplication :: FcExpr -> FcExpr -> [FcExpr] -> LowerM GrinExpr
+lowerUnsafeCoerceApplication originalExpr argument extraArguments =
+  lowerSingleArgument argument $ \value ->
+    case extraArguments of
+      [] -> pure (GrinConstant [value])
+      _ -> do
+        let coercedExpr = dropLastTermApplications (length extraArguments) originalExpr
+        lowerRemainingApplications coercedExpr value extraArguments
+
 -- Primitive operations have no heap representation. Under-application is
 -- represented by an ordinary closure whose generated entry makes the direct,
 -- saturated primitive call once all remaining logical arguments arrive.
@@ -386,13 +407,16 @@ makePrimitiveClosure originalExpr name remaining captured = do
   let argumentLayouts = map (map grinVarRuntimeRep) argumentGroups
       arguments = map GrinVarValue (captureParameters <> concat argumentGroups)
       resultRep = typeRuntimeRep resultType
+      body
+        | name == "unsafeCoerce#" = GrinConstant arguments
+        | otherwise = GrinPrimitiveCall resultRep name arguments
   emitFunction
     GrinFunction
       { grinFunctionName = functionName,
         grinFunctionLinkName = Nothing,
         grinFunctionParameters = captureParameters <> concat argumentGroups,
         grinFunctionResultRep = resultRep,
-        grinFunctionBody = GrinPrimitiveCall resultRep name arguments
+        grinFunctionBody = body
       }
   pure (GrinNode (GrinClosure functionName argumentLayouts) captured)
 
@@ -741,11 +765,11 @@ evaluateGrinValue hint runtimeRep value continuation
   | otherwise = continuation value
 
 -- | Keep a catch handler lazy until an exception is raised while still making
--- every function entry explicit. The wrapper is already in WHNF; when called,
--- it evaluates the captured handler and the action returned by that handler
--- before either value is applied.
-lowerCatchHandler :: FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
-lowerCatchHandler handler continuation =
+-- every function entry explicit. The wrapper accepts the exception and runs
+-- the IO action returned by the captured source handler, so the runtime can
+-- resume it directly with the catch frame's parent continuation.
+lowerCatchHandler :: RuntimeRep -> FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerCatchHandler catchResultRep handler continuation =
   lowerSingleArgument handler $ \handlerValue -> do
     let handlerRep = exprRuntimeRep handler
         actionRep = applicationResultRep handler
@@ -754,19 +778,24 @@ lowerCatchHandler handler continuation =
     exception <- freshVar "catch_exception" exceptionRep
     evaluatedHandler <- freshVar "catch_handler_whnf" handlerRep
     actionPointer <- freshVar "catch_handler_action" actionRep
+    evaluatedAction <- freshVar "catch_handler_action_whnf" actionRep
     wrapperName <- freshFunction "catch_handler"
     emitFunction
       GrinFunction
         { grinFunctionName = wrapperName,
           grinFunctionLinkName = Nothing,
           grinFunctionParameters = [capturedHandler, exception],
-          grinFunctionResultRep = actionRep,
+          grinFunctionResultRep = catchResultRep,
           grinFunctionBody =
             bindExpr [evaluatedHandler] (GrinEval handlerRep (GrinVarValue capturedHandler)) $
               bindExpr
                 [actionPointer]
                 (GrinApply actionRep (GrinVarValue evaluatedHandler) [GrinVarValue exception])
-                (GrinEval actionRep (GrinVarValue actionPointer))
+                ( bindExpr
+                    [evaluatedAction]
+                    (GrinEval actionRep (GrinVarValue actionPointer))
+                    (GrinApply catchResultRep (GrinVarValue evaluatedAction) [])
+                )
         }
     wrapperPointer <- freshVar "catch_handler_wrapper" liftedRuntimeRep
     evaluatedWrapper <- freshVar "catch_handler_wrapper_whnf" liftedRuntimeRep

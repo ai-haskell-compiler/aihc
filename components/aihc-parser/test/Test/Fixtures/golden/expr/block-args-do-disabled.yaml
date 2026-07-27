@@ -1,7 +1,0 @@
-extensions: []
-input: |
-  id do
-    pure ()
-ast: |-
-status: fail
-reason: BlockArguments extension not enabled

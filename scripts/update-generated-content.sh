@@ -37,14 +37,8 @@ run_cmd() {
 	bash -c "$cmd"
 }
 
-parser_cmd="${PARSER_PROGRESS_CMD:-nix run .#parser-progress}"
-lexer_cmd="${LEXER_PROGRESS_CMD:-nix run .#lexer-progress}"
-extension_markdown_cmd="${PARSER_EXTENSION_PROGRESS_CMD:-nix run .#parser-extension-progress -- --markdown}"
-extension_progress_cmd="${PARSER_EXTENSION_PROGRESS_TEXT_CMD:-nix run .#parser-extension-progress}"
-cpp_cmd="${CPP_PROGRESS_CMD:-nix run .#cpp-progress}"
 resolve_cmd="${RESOLVE_PROGRESS_CMD:-nix run .#resolve-progress}"
 resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#resolve-extension-progress -- --markdown}"
-stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- parser-stackage-progress --snapshot lts-24.33 --jobs 1}"
 resolve_stackage_cmd="${RESOLVE_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- resolve-stackage-progress --snapshot lts-24.33}"
 tc_stackage_cmd="${TC_STACKAGE_PROGRESS_CMD:-nix run .#aihc-dev -- tc-stackage-progress --snapshot lts-24.33}"
 core_libs_progress_cmd="${CORE_LIBS_PROGRESS_CMD:-nix run .#aihc-dev -- core-libs-progress}"
@@ -56,27 +50,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-parser_out="$tmpdir/parser-progress.txt"
-lexer_out="$tmpdir/lexer-progress.txt"
-extension_out="$tmpdir/extension-progress.md"
-extension_progress_out="$tmpdir/extension-progress.txt"
-cpp_out="$tmpdir/cpp-progress.txt"
 resolve_out="$tmpdir/resolve-progress.txt"
 resolve_extension_out="$tmpdir/resolve-extension-progress.md"
-stackage_out="$tmpdir/stackage-progress.txt"
 resolve_stackage_out="$tmpdir/resolve-stackage-progress.txt"
 tc_stackage_out="$tmpdir/tc-stackage-progress.txt"
 core_libs_progress_out="$tmpdir/core-libs-progress.txt"
 line_counts_out="$tmpdir/line-counts.txt"
 
-run_cmd "$parser_cmd" >"$parser_out"
-run_cmd "$lexer_cmd" >"$lexer_out"
-run_cmd "$extension_markdown_cmd" | sed -n '/^# Haskell Parser Extension Support Status/,$p' >"$extension_out"
-run_cmd "$extension_progress_cmd" >"$extension_progress_out"
-run_cmd "$cpp_cmd" >"$cpp_out"
 run_cmd "$resolve_cmd" >"$resolve_out"
 run_cmd "$resolve_extension_markdown_cmd" | sed -n '/^# Name Resolver Extension Support Status/,$p' >"$resolve_extension_out"
-run_cmd "$stackage_cmd" >"$stackage_out" || true
 run_cmd "$resolve_stackage_cmd" >"$resolve_stackage_out" || true
 run_cmd "$tc_stackage_cmd" >"$tc_stackage_out" || true
 run_cmd "$core_libs_progress_cmd" >"$core_libs_progress_out"
@@ -253,42 +235,6 @@ progress_circles() {
   '
 }
 
-parser_vals=($(parse_progress "$parser_out")) || {
-	echo "update-generated-content.sh: could not parse parser-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
-	exit 2
-}
-parser_pass="${parser_vals[0]}"
-parser_xfail="${parser_vals[1]}"
-parser_xpass="${parser_vals[2]}"
-parser_fail="${parser_vals[3]}"
-parser_total="${parser_vals[4]}"
-parser_implemented="${parser_vals[5]}"
-parser_complete="${parser_vals[6]}"
-
-lexer_vals=($(parse_progress "$lexer_out")) || {
-	echo "update-generated-content.sh: could not parse lexer-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
-	exit 2
-}
-lexer_pass="${lexer_vals[0]}"
-lexer_xfail="${lexer_vals[1]}"
-lexer_xpass="${lexer_vals[2]}"
-lexer_fail="${lexer_vals[3]}"
-lexer_total="${lexer_vals[4]}"
-lexer_implemented="${lexer_vals[5]}"
-lexer_complete="${lexer_vals[6]}"
-
-cpp_vals=($(parse_progress "$cpp_out")) || {
-	echo "update-generated-content.sh: could not parse cpp-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
-	exit 2
-}
-cpp_pass="${cpp_vals[0]}"
-cpp_xfail="${cpp_vals[1]}"
-cpp_xpass="${cpp_vals[2]}"
-cpp_fail="${cpp_vals[3]}"
-cpp_total="${cpp_vals[4]}"
-cpp_implemented="${cpp_vals[5]}"
-cpp_complete="${cpp_vals[6]}"
-
 resolve_vals=($(parse_progress "$resolve_out")) || {
 	echo "update-generated-content.sh: could not parse resolve-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
 	exit 2
@@ -300,21 +246,6 @@ resolve_fail="${resolve_vals[3]}"
 resolve_total="${resolve_vals[4]}"
 resolve_implemented="${resolve_vals[5]}"
 resolve_complete="${resolve_vals[6]}"
-
-ext_progress_vals=($(parse_extension_progress "$extension_progress_out")) || {
-	echo "update-generated-content.sh: could not parse parser-extension-progress text (expected PASS=/XFAIL=/ lines)." >&2
-	exit 2
-}
-ext_test_total="${ext_progress_vals[4]}"
-ext_implemented="${ext_progress_vals[5]}"
-
-stackage_vals=($(parse_stackage_progress "$stackage_out")) || {
-	echo "update-generated-content.sh: could not parse stackage-progress output (expected 'AIHC: N / M' line on stdout)." >&2
-	exit 2
-}
-stackage_implemented="${stackage_vals[0]}"
-stackage_total="${stackage_vals[1]}"
-stackage_complete="${stackage_vals[2]}"
 
 resolve_stackage_vals=($(parse_resolve_stackage_progress "$resolve_stackage_out")) || {
 	echo "update-generated-content.sh: could not parse resolve-stackage-progress output (expected '  Resolved: N / M' line on stdout)." >&2
@@ -348,30 +279,11 @@ base_implemented="${base_vals[0]}"
 base_total="${base_vals[1]}"
 base_complete="${base_vals[2]}"
 
-parser_total_tests=$((parser_total + ext_test_total))
-parser_passing_tests=$((parser_implemented + ext_implemented))
-parser_total_complete="$(awk -v passing="$parser_passing_tests" -v total="$parser_total_tests" 'BEGIN { if (total <= 0) { printf "0.00" } else { printf "%.2f", (passing * 100.0) / total } }')"
-parser_total_circles="$(progress_circles "$parser_total_complete")"
-cpp_circles="$(progress_circles "$cpp_complete")"
-stackage_circles="$(progress_circles "$stackage_complete")"
 resolve_stackage_circles="$(progress_circles "$resolve_stackage_complete")"
 tc_stackage_circles="$(progress_circles "$tc_stackage_complete")"
-lexer_circles="$(progress_circles "$lexer_complete")"
 resolve_circles="$(progress_circles "$resolve_complete")"
 ghc_prim_circles="$(progress_circles "$ghc_prim_complete")"
 base_circles="$(progress_circles "$base_complete")"
-
-cat >"$tmpdir/readme-root-parser.txt" <<EOF2
-\`${parser_passing_tests}/${parser_total_tests}\` (\`${parser_total_complete}%\`) ${parser_total_circles}
-EOF2
-
-cat >"$tmpdir/readme-root-cpp.txt" <<EOF2
-\`${cpp_implemented}/${cpp_total}\` (\`${cpp_complete}%\`) ${cpp_circles}
-EOF2
-
-cat >"$tmpdir/readme-root-stackage.txt" <<EOF2
-\`${stackage_implemented}/${stackage_total}\` (\`${stackage_complete}%\`) ${stackage_circles}
-EOF2
 
 cat >"$tmpdir/readme-root-resolve-stackage.txt" <<EOF2
 \`${resolve_stackage_implemented}/${resolve_stackage_total}\` (\`${resolve_stackage_complete}%\`) ${resolve_stackage_circles}
@@ -379,10 +291,6 @@ EOF2
 
 cat >"$tmpdir/readme-root-tc-stackage.txt" <<EOF2
 \`${tc_stackage_implemented}/${tc_stackage_total}\` (\`${tc_stackage_complete}%\`) ${tc_stackage_circles}
-EOF2
-
-cat >"$tmpdir/readme-root-lexer.txt" <<EOF2
-\`${lexer_implemented}/${lexer_total}\` (\`${lexer_complete}%\`) ${lexer_circles}
 EOF2
 
 cat >"$tmpdir/readme-root-resolve.txt" <<EOF2
@@ -395,10 +303,6 @@ EOF2
 
 cat >"$tmpdir/readme-root-base.txt" <<EOF2
 \`${base_implemented}/${base_total}\` (\`${base_complete}%\`) ${base_circles}
-EOF2
-
-cat >"$tmpdir/readme-cpp.txt" <<EOF2
-- \`${cpp_implemented}/${cpp_total}\` implemented (\`${cpp_complete}%\` complete)
 EOF2
 
 replace_marker_block() {
@@ -497,15 +401,6 @@ replace_marker_inline() {
 stale=0
 
 if [ "$mode" = "--update" ]; then
-	cp "$extension_out" docs/aihc-parser-supported-extensions.md
-else
-	if ! cmp -s docs/aihc-parser-supported-extensions.md "$extension_out"; then
-		echo "Generated file out of date: docs/aihc-parser-supported-extensions.md" >&2
-		stale=1
-	fi
-fi
-
-if [ "$mode" = "--update" ]; then
 	cp "$resolve_extension_out" docs/aihc-resolve-supported-extensions.md
 else
 	if ! cmp -s docs/aihc-resolve-supported-extensions.md "$resolve_extension_out"; then
@@ -514,17 +409,12 @@ else
 	fi
 fi
 
-replace_marker_inline README.md "parser-progress" "$tmpdir/readme-root-parser.txt"
-replace_marker_inline README.md "lexer-progress" "$tmpdir/readme-root-lexer.txt"
-replace_marker_inline README.md "parser-stackage-progress" "$tmpdir/readme-root-stackage.txt"
 replace_marker_inline README.md "resolve-stackage-progress" "$tmpdir/readme-root-resolve-stackage.txt"
 replace_marker_inline README.md "tc-stackage-progress" "$tmpdir/readme-root-tc-stackage.txt"
-replace_marker_inline README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
 replace_marker_inline README.md "resolve-progress" "$tmpdir/readme-root-resolve.txt"
 replace_marker_inline README.md "ghc-prim-progress" "$tmpdir/readme-root-ghc-prim.txt"
 replace_marker_inline README.md "base-progress" "$tmpdir/readme-root-base.txt"
 replace_marker_block README.md "line-counts" "$line_counts_out"
-replace_marker_block components/aihc-cpp/README.md "cpp-progress" "$tmpdir/readme-cpp.txt"
 
 if [ "$mode" = "--check" ] && [ "$stale" -ne 0 ]; then
 	exit 1

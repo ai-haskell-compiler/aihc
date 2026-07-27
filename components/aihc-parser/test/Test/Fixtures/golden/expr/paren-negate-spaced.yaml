@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  (- x)
-ast: |-
-  EParen (ENegate (EVar "x"))
-status: pass

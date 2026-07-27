@@ -163,6 +163,12 @@ renderExprIndented indentation expr =
         <> "continue "
         <> renderValue continuation
         <> renderArgument values
+    GrinCpsRaise exception continuation ->
+      indent indentation
+        <> "raise-cps "
+        <> renderValue exception
+        <> " "
+        <> renderValue continuation
     GrinHalt values -> indent indentation <> "halt" <> renderValues values
     GrinCase scrutinee binder alternatives ->
       indent indentation

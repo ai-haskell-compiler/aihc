@@ -3,6 +3,7 @@
 -- | Make post-CPS allocation safepoints and relocated roots explicit.
 module Aihc.Grin.Gc
   ( GcGrinProgram,
+    gcContinuationFrames,
     gcContinuationFunctions,
     gcFunctionContinuations,
     gcGrinProgram,
@@ -12,7 +13,7 @@ module Aihc.Grin.Gc
 where
 
 import Aihc.Grin.Analysis (freeExprVars, freeNodeVars)
-import Aihc.Grin.Cps (CpsGrinProgram (..))
+import Aihc.Grin.Cps (ContinuationFrameKind, CpsGrinProgram (..))
 import Aihc.Grin.Syntax
 import Control.Monad.Trans.State.Strict (State, evalState, get, put)
 import Data.Map.Strict (Map)
@@ -26,6 +27,7 @@ import Data.Set qualified as Set
 data GcGrinProgram = GcGrinProgram
   { gcGrinProgram :: !GrinProgram,
     gcContinuationFunctions :: !(Set FunctionName),
+    gcContinuationFrames :: !(Map FunctionName ContinuationFrameKind),
     gcFunctionContinuations :: !(Map FunctionName GrinVar),
     gcUpdateFunction :: !FunctionName
   }
@@ -42,6 +44,7 @@ lowerGc cps =
           { grinFunctions = evalState (mapM lowerFunction (grinFunctions program)) nextUnique
           },
       gcContinuationFunctions = cpsContinuationFunctions cps,
+      gcContinuationFrames = cpsContinuationFrames cps,
       gcFunctionContinuations = cpsFunctionContinuations cps,
       gcUpdateFunction = cpsUpdateFunction cps
     }
@@ -82,6 +85,7 @@ lowerExpr bound expression =
     GrinApply {} -> pure expression
     GrinCpsApply {} -> pure expression
     GrinContinue {} -> pure expression
+    GrinCpsRaise {} -> pure expression
     GrinHalt {} -> pure expression
     GrinThrow {} -> pure expression
     GrinCatch {} -> pure expression
@@ -183,6 +187,7 @@ substituteExpr substitutions expression =
     GrinCpsApply runtimeRep function arguments continuation ->
       GrinCpsApply runtimeRep (substituteValue substitutions function) (map (substituteValue substitutions) arguments) (substituteValue substitutions continuation)
     GrinContinue continuation values -> GrinContinue (substituteValue substitutions continuation) (map (substituteValue substitutions) values)
+    GrinCpsRaise exception continuation -> GrinCpsRaise (substituteValue substitutions exception) (substituteValue substitutions continuation)
     GrinHalt values -> GrinHalt (map (substituteValue substitutions) values)
     GrinCase scrutinee binder alternatives ->
       GrinCase
@@ -257,6 +262,7 @@ maximumProgramVarUnique program =
         GrinApply _ function arguments -> concatMap valueUnique (function : arguments)
         GrinCpsApply _ function arguments continuation -> concatMap valueUnique (function : continuation : arguments)
         GrinContinue continuation values -> concatMap valueUnique (continuation : values)
+        GrinCpsRaise exception continuation -> concatMap valueUnique [exception, continuation]
         GrinHalt values -> concatMap valueUnique values
         GrinCase scrutinee binder alternatives ->
           valueUnique scrutinee

@@ -5,35 +5,27 @@ module Test.ResolveStackageProgress.PathsModule
   )
 where
 
-import Aihc.Cpp (Result (..))
-import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseModule)
+import Aihc.Hackage.Cabal qualified as HC
+import Aihc.Hackage.Util (chooseBestCabalFile, findCabalFiles)
 import Aihc.Parser.Syntax
-  ( LanguageEdition (..),
-    NameType (..),
-    headerExtensionSettings,
-    headerLanguageEdition,
+  ( NameType (..),
     mkUnqualifiedName,
     qualifyName,
   )
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (ModuleExports, ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
 import Control.Exception (bracket)
-import CppSupport (moduleHeaderPragmas, preprocessForParserIfEnabled)
 import Data.Aeson (Value, encode, object, (.=))
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isAlphaNum, isUpper)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
-import HackageSupport
-  ( FileInfo (..),
-    findTargetFilesFromCabal,
-    readTextFileLenient,
-    resolveIncludeBestEffort,
-  )
+import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import ResolveStackageProgress qualified as Progress
 import System.Directory (createDirectory, createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
-import System.FilePath ((</>))
+import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, openTempFile)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
@@ -56,7 +48,7 @@ test_extractsInterfaceForGeneratedPathsPackage =
     writeFile cabalFile pathsDemoCabal
     writeFile sourceFile pathsUserSource
 
-    files <- findTargetFilesFromCabal root
+    files <- findTargetFiles root
     modules <- mapM (parseFileInfo root) files
     let result = resolveWithDeps baseExports modules
     assertEqual "expected generated Paths package to resolve cleanly" [] (resolveErrors result)
@@ -74,28 +66,25 @@ test_extractsInterfaceForGeneratedPathsPackage =
         assertBool "expected getDataDir export" (Map.member "getDataDir" (scopeTerms pathsScope))
         assertBool "expected getDataFileName export" (Map.member "getDataFileName" (scopeTerms pathsScope))
 
-parseFileInfo :: FilePath -> FileInfo -> IO Syntax.Module
+findTargetFiles :: FilePath -> IO [HC.FileInfo]
+findTargetFiles packageRoot = do
+  cabalFiles <- findCabalFiles packageRoot
+  cabalFile <-
+    case cabalFiles of
+      [] -> ioError (userError "expected a generated test Cabal file")
+      [file] -> pure file
+      files -> pure (chooseBestCabalFile packageRoot files)
+  cabalBytes <- BS.readFile cabalFile
+  case snd (runParseResult (parseGenericPackageDescription cabalBytes)) of
+    Left (_, errors) -> ioError (userError (show errors))
+    Right packageDescription -> HC.collectComponentFiles packageDescription (takeDirectory cabalFile)
+
+parseFileInfo :: FilePath -> HC.FileInfo -> IO Syntax.Module
 parseFileInfo packageRoot info = do
-  let file = fileInfoPath info
-  source <- readTextFileLenient file
-  Result {resultOutput = source'} <-
-    preprocessForParserIfEnabled
-      (fileInfoExtensions info)
-      (fileInfoCppOptions info)
-      file
-      (fileInfoDependencies info)
-      (resolveIncludeBestEffort packageRoot (fileInfoIncludeDirs info) file)
-      source
-  let headerPragmas = moduleHeaderPragmas source'
-      defaultEdition = fromMaybe Haskell98Edition (fileInfoLanguage info)
-      edition = fromMaybe defaultEdition (headerLanguageEdition headerPragmas)
-      extensionSettings = fileInfoExtensions info ++ headerExtensionSettings headerPragmas
-      effectiveExts = Syntax.effectiveExtensions edition extensionSettings
-      config = defaultConfig {parserSourceName = file, parserExtensions = effectiveExts}
-      (errs, modu) = parseModule config source'
-  if null errs
-    then pure modu
-    else assertFailure (formatParseErrors file (Just source') errs)
+  result <- Progress.parseFileInfo packageRoot info
+  case result of
+    Left err -> assertFailure err
+    Right (modu, _) -> pure modu
 
 baseExports :: ModuleExports
 baseExports =

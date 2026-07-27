@@ -64,6 +64,7 @@ module Aihc.Amd64.Codegen.Runtime
   )
 where
 
+import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
 import Aihc.Grin.Syntax
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..))
@@ -138,7 +139,8 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoFields :: ![RuntimeRep],
     runtimeInfoRemainingArity :: !Int,
     runtimeInfoNext :: !(Maybe Text),
-    runtimeInfoEnter :: !(Maybe RuntimeEnter)
+    runtimeInfoEnter :: !(Maybe RuntimeEnter),
+    runtimeInfoFrameKind :: !(Maybe ContinuationFrameKind)
   }
 
 data RuntimeEnter = RuntimeEnter
@@ -153,15 +155,16 @@ data RuntimeInfoKey
   | ThunkRuntimeInfo !FunctionName ![RuntimeRep]
   deriving (Eq, Ord, Show)
 
-continuationRuntimeInfos :: Text -> Text -> Text -> [RuntimeRep] -> [RuntimeRep] -> [RuntimeInfo]
-continuationRuntimeInfos infoLabel appliedInfoLabel target storedFields suppliedFields =
+continuationRuntimeInfos :: ContinuationFrameKind -> Text -> Text -> Text -> [RuntimeRep] -> [RuntimeRep] -> [RuntimeInfo]
+continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedFields suppliedFields =
   [ RuntimeInfo
       infoLabel
       (InfoAddress target)
       storedFields
       1
       (Just appliedInfoLabel)
-      (Just (RuntimeEnter target (length storedFields) (length suppliedFields))),
+      (Just (RuntimeEnter target (length storedFields) (length suppliedFields)))
+      (Just frameKind),
     RuntimeInfo
       appliedInfoLabel
       (InfoAddress target)
@@ -169,6 +172,7 @@ continuationRuntimeInfos infoLabel appliedInfoLabel target storedFields supplied
       0
       Nothing
       Nothing
+      (Just frameKind)
   ]
 
 materializeValue :: ValueEnv -> GrinValue -> Either Amd64Error [Text]
@@ -389,7 +393,8 @@ renderRuntimeInfos infos =
              "  .quad " <> tshow (runtimeInfoRemainingArity info),
              "  .quad " <> if null fields then "0" else bitmapLabel,
              "  .quad " <> fromMaybe "0" (runtimeInfoNext info),
-             "  .quad " <> maybe "0" (const (enterEntryLabel info)) (runtimeInfoEnter info)
+             "  .quad " <> maybe "0" (const (enterEntryLabel info)) (runtimeInfoEnter info),
+             "  .quad " <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info))
            ]
       where
         fields = runtimeInfoFields info
@@ -456,7 +461,11 @@ renderNativeControl =
     "  cmp r11d, 1",
     "  je .Laihc_resume_apply",
     "  cmp r11d, 2",
-    "  jne .Laihc_invalid_enter",
+    "  je .Laihc_resume_continue",
+    "  cmp r11d, 3",
+    "  je .Laihc_resume_raise",
+    "  jmp .Laihc_invalid_enter",
+    ".Laihc_resume_continue:",
     "  mov r10, QWORD PTR [rax + 24]",
     "  mov r11, QWORD PTR [rax + 32]",
     "  mov r12, QWORD PTR [rax + 8]",
@@ -472,6 +481,8 @@ renderNativeControl =
     "  mov rax, r10",
     "  jmp .Laihc_enter",
     ".Laihc_resume_apply:",
+    "  mov r10, QWORD PTR [rax + 24]",
+    "  mov r11, QWORD PTR [rax + 32]",
     "  mov r12, QWORD PTR [rax + 8]",
     "  mov r13, QWORD PTR [rax + 16]",
     "  mov QWORD PTR [rax], 0",
@@ -479,7 +490,23 @@ renderNativeControl =
     "  mov QWORD PTR [rax + 16], 0",
     "  mov QWORD PTR [rax + 24], 0",
     "  mov QWORD PTR [rax + 32], 0",
+    "  test r11, r11",
+    "  jz .Laihc_enter",
+    "  cmp r11, 1",
+    "  jne .Laihc_invalid_enter",
+    "  mov rax, r10",
     "  jmp .Laihc_enter",
+    ".Laihc_resume_raise:",
+    "  mov rsi, QWORD PTR [rax + 8]",
+    "  mov rdx, QWORD PTR [rax + 16]",
+    "  mov QWORD PTR [rax], 0",
+    "  mov QWORD PTR [rax + 8], 0",
+    "  mov QWORD PTR [rax + 16], 0",
+    "  mov QWORD PTR [rax + 24], 0",
+    "  mov QWORD PTR [rax + 32], 0",
+    "  mov rdi, r15",
+    "  call aihc_raise",
+    "  jmp .Laihc_resume",
     ".Laihc_eval:",
     "  mov QWORD PTR [r14], rax",
     "  mov QWORD PTR [r14 + 8], r11",

@@ -17,7 +17,8 @@ module Aihc.Llvm.Codegen
   )
 where
 
-import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
+import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
+import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
 import Aihc.Native
   ( LinkLayout (..),
@@ -74,7 +75,8 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoFields :: ![RuntimeRep],
     runtimeInfoRemainingArity :: !Int,
     runtimeInfoNext :: !(Maybe Text),
-    runtimeInfoEnter :: !(Maybe RuntimeEnter)
+    runtimeInfoEnter :: !(Maybe RuntimeEnter),
+    runtimeInfoFrameKind :: !(Maybe ContinuationFrameKind)
   }
 
 data RuntimeEnter = RuntimeEnter
@@ -122,14 +124,14 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
     globals <- compileInitializers env program
     pure (constructors, globals)
   let specialInfos =
-        [ specialInfo "aihc_llvm_final_info" "aihc_llvm_final_continuation" [] 1 (Just "aihc_llvm_final_applied_info") (Just (continuationEnter "aihc_llvm_final_continuation" 0 1)),
-          specialInfo "aihc_llvm_final_applied_info" "aihc_llvm_final_continuation" [BoxedRep Lifted] 0 Nothing Nothing,
-          specialInfo "aihc_llvm_top_info" "aihc_llvm_top_continuation" [BoxedRep Lifted] 1 (Just "aihc_llvm_top_applied_info") (Just (continuationEnter "aihc_llvm_top_continuation" 1 1)),
-          specialInfo "aihc_llvm_top_applied_info" "aihc_llvm_top_continuation" [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing Nothing,
-          specialInfo "aihc_llvm_update_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted] 1 (Just "aihc_llvm_update_applied_info") (Just (continuationEnter updateLabel 2 1)),
-          specialInfo "aihc_llvm_update_applied_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing Nothing,
-          specialInfo "aihc_llvm_thread_done_info" "aihc_llvm_thread_done_continuation" [] 1 (Just "aihc_llvm_thread_done_applied_info") (Just (continuationEnter "aihc_llvm_thread_done_continuation" 0 1)),
-          specialInfo "aihc_llvm_thread_done_applied_info" "aihc_llvm_thread_done_continuation" [BoxedRep Lifted] 0 Nothing Nothing
+        [ specialInfo "aihc_llvm_final_info" "aihc_llvm_final_continuation" [] 1 (Just "aihc_llvm_final_applied_info") (Just (continuationEnter "aihc_llvm_final_continuation" 0 1)) ContinuationFrameStop,
+          specialInfo "aihc_llvm_final_applied_info" "aihc_llvm_final_continuation" [BoxedRep Lifted] 0 Nothing Nothing ContinuationFrameStop,
+          specialInfo "aihc_llvm_top_info" "aihc_llvm_top_continuation" [BoxedRep Lifted] 1 (Just "aihc_llvm_top_applied_info") (Just (continuationEnter "aihc_llvm_top_continuation" 1 1)) ContinuationFrameNormal,
+          specialInfo "aihc_llvm_top_applied_info" "aihc_llvm_top_continuation" [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing Nothing ContinuationFrameNormal,
+          specialInfo "aihc_llvm_update_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted] 1 (Just "aihc_llvm_update_applied_info") (Just (continuationEnter updateLabel 2 1)) ContinuationFrameUpdate,
+          specialInfo "aihc_llvm_update_applied_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted, BoxedRep Lifted] 0 Nothing Nothing ContinuationFrameUpdate,
+          specialInfo "aihc_llvm_thread_done_info" "aihc_llvm_thread_done_continuation" [] 1 (Just "aihc_llvm_thread_done_applied_info") (Just (continuationEnter "aihc_llvm_thread_done_continuation" 0 1)) ContinuationFrameStop,
+          specialInfo "aihc_llvm_thread_done_applied_info" "aihc_llvm_thread_done_continuation" [BoxedRep Lifted] 0 Nothing Nothing ContinuationFrameStop
         ]
       source =
         llvmPreamble
@@ -149,8 +151,8 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment ExecutableUnit (gcContinuationFunctions gcProgram) layout program
-    specialInfo label entry = RuntimeInfo label Nothing (Just entry)
+    env = compileEnvironment ExecutableUnit (gcContinuationFunctions gcProgram) (gcContinuationFrames gcProgram) layout program
+    specialInfo label entry fields remaining next enter frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next enter (Just frameKind)
     continuationEnter target stored supplied = RuntimeEnter target stored supplied True
 
 compileModule :: LinkLayout -> Text -> GcGrinProgram -> Either LlvmError Text
@@ -178,7 +180,7 @@ compileModule layout initializerSymbol gcProgram = do
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment LibraryUnit (gcContinuationFunctions gcProgram) layout program
+    env = compileEnvironment LibraryUnit (gcContinuationFunctions gcProgram) (gcContinuationFrames gcProgram) layout program
 
 validateProgramPrimitives :: GrinProgram -> Either LlvmError ()
 validateProgramPrimitives = validatePrimitiveNames . map (grinVarName . fst) . grinPrimitives
@@ -189,8 +191,8 @@ validatePrimitiveNames = mapM_ $ \name ->
     then Right ()
     else Left (LlvmUnsupportedPrimitive name)
 
-compileEnvironment :: CompilationUnit -> Set.Set FunctionName -> LinkLayout -> GrinProgram -> CompileEnv
-compileEnvironment unitKind continuationFunctions layout program =
+compileEnvironment :: CompilationUnit -> Set.Set FunctionName -> Map FunctionName ContinuationFrameKind -> LinkLayout -> GrinProgram -> CompileEnv
+compileEnvironment unitKind continuationFunctions continuationFrames layout program =
   CompileEnv
     { compileConstructorIds = Map.fromList (zip (map fst constructors) [1 ..]),
       compileConstructorArities = Map.fromList constructors,
@@ -214,7 +216,7 @@ compileEnvironment unitKind continuationFunctions layout program =
                ]
         )
     constructorEntries =
-      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing)
+      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing Nothing)
       | ((name, layouts), (_, identifier)) <- zip (linkConstructors layout) constructorIds,
         let arity = length layouts,
         remaining <- [arity, arity - 1 .. 0],
@@ -250,6 +252,7 @@ compileEnvironment unitKind continuationFunctions layout program =
             (runtimeInfoKeyRemainingArity key)
             (runtimeInfoKeyNext key >>= (`Map.lookup` infoLabels))
             (runtimeEnter key)
+            (runtimeInfoFunctionName key >>= (`Map.lookup` continuationFrames))
         )
       | (index, key) <- zip [0 :: Int ..] infoKeys,
         let label = "aihc_llvm_function_info_" <> tshow index
@@ -371,6 +374,22 @@ compileExpr env prefix label expression =
         [continuationPointer] -> compileContinueTransfer continuationPointer valueOperands
         _ -> lift (Left (LlvmUnsupportedExpression "internal continuation pointer arity"))
       terminal label (prefix <> continuationLines <> valueLines <> pointerLines <> transfer)
+    GrinCpsRaise exception continuation -> do
+      (lines', operands) <- materializeValues env [exception, continuation]
+      (pointerLines, pointerOperands) <- pointerArguments operands
+      case pointerOperands of
+        [exceptionPointer, continuationPointer] -> do
+          resume <- freshValue
+          terminal
+            label
+            ( prefix
+                <> lines'
+                <> pointerLines
+                <> [ "  " <> resume <> " = call ptr @aihc_raise(ptr %machine, ptr " <> exceptionPointer <> ", ptr " <> continuationPointer <> ")",
+                     "  musttail call tailcc void @aihc_llvm_resume(ptr %machine, ptr " <> resume <> ")"
+                   ]
+            )
+        _ -> lift (Left (LlvmUnsupportedExpression "internal CPS raise pointer arity"))
     GrinHalt {} -> do
       entry <- freshValue
       terminal
@@ -1538,6 +1557,8 @@ renderRuntimeInfos infos = concatMap bitmap infos <> map definition infos <> [""
         <> maybe "null" ("@" <>) (runtimeInfoNext info)
         <> ", ptr "
         <> maybe "null" (const ("@" <> enterEntryLabel info)) (runtimeInfoEnter info)
+        <> ", i64 "
+        <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info))
         <> " }, align 8"
 
 renderForeignDeclarations :: GrinProgram -> [Text]
@@ -1593,7 +1614,7 @@ renderAddrLiterals env =
 llvmPreamble :: [Text]
 llvmPreamble =
   [ "; Generated by AIHC's LLVM backend.",
-    "%AihcInfo = type { i64, ptr, i64, i64, ptr, ptr, ptr }",
+    "%AihcInfo = type { i64, ptr, i64, i64, ptr, ptr, ptr, i64 }",
     "%AihcResume = type { i64, ptr, ptr, i64, i64 }",
     "%AihcMachinePrefix = type { ptr, i64, ptr }",
     ""
@@ -1611,6 +1632,7 @@ renderRuntimeDeclarations =
     "declare ptr @aihc_apply_slow(ptr, ptr, i64, ptr, ptr)",
     "declare void @aihc_begin_blackhole(ptr, ptr)",
     "declare ptr @aihc_block_on_blackhole(ptr, ptr, ptr)",
+    "declare ptr @aihc_raise(ptr, ptr, ptr)",
     "declare i64 @aihc_fork(ptr, ptr)",
     "declare ptr @aihc_mvar_new(ptr)",
     "declare ptr @aihc_mvar_read(ptr, ptr, ptr)",

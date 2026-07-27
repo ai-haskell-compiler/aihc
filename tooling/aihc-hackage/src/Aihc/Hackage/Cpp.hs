@@ -2,8 +2,8 @@
 
 -- | Shared CPP macro machinery for Haskell source preprocessing.
 --
--- Both @stackage-progress@ and @aihc-dev parser-bench@ use this module to
--- ensure they set identical CPP preprocessor flags (GHC version macros,
+-- Compiler progress tools use this module to set identical CPP preprocessor
+-- flags (GHC version macros,
 -- @MIN_VERSION_*@ macros, and @-D@\/@-U@ options from @.cabal@ files).
 module Aihc.Hackage.Cpp
   ( builtinCppMacros,

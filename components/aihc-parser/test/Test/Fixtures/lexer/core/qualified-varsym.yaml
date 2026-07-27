@@ -1,6 +1,0 @@
-extensions: []
-input: "Prelude.+"
-tokens:
-  - 'TkQVarSym "Prelude" "+"'
-  - 'TkEOF'
-status: pass
