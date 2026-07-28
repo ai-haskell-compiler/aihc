@@ -20,6 +20,7 @@ module Prelude
     Ordering (..),
     String,
     (&&),
+    (.),
     (++),
     (=<<),
     (/=),
@@ -50,6 +51,13 @@ type String = [Char]
 
 id :: a -> a
 id x = x
+
+(.) :: (b -> c) -> (a -> b) -> a -> c
+f . g = compose
+  where
+    compose value = f (g value)
+
+infixr 9 .
 
 data Maybe a = Nothing | Just a
 

@@ -60,8 +60,8 @@ renderTypeAnnotation ann =
   intercalate "; " ("type: " <> renderTcType (tcAnnType ann) : renderElaboration ann)
 
 renderClassAnnotation :: TcClassAnnotation -> String
-renderClassAnnotation (TcClassAnnotation methods) =
-  "class methods: " <> intercalate ", " (map renderClassMethod methods)
+renderClassAnnotation classAnnotation =
+  "class methods: " <> intercalate ", " (map renderClassMethod (tcClassMethods classAnnotation))
 
 renderClassMethod :: TcClassMethodAnnotation -> String
 renderClassMethod method =
@@ -206,7 +206,7 @@ renderEvTerm ev =
         <> renderTypeArgs typeArgs
         <> renderEvidenceArgs evidence
     EvCoercion coercion -> renderCoercion coercion
-    EvSuperClass evidence index -> "super[" <> show index <> "](" <> renderEvTerm evidence <> ")"
+    EvSuperClass evidence _ _ index -> "super[" <> show index <> "](" <> renderEvTerm evidence <> ")"
     EvCast evidence coercion -> "cast(" <> renderEvTerm evidence <> ", " <> renderCoercion coercion <> ")"
     EvTypeable ty arguments ->
       "typeable @" <> renderTcType ty <> renderEvidenceArgs arguments

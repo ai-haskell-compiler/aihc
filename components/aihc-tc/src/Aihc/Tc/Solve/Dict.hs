@@ -13,17 +13,15 @@ module Aihc.Tc.Solve.Dict
 where
 
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (InstanceInfo (..))
+import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Instantiate (applySubst)
-import Aihc.Tc.Monad (TcM, bindEvidence, freshEvVar, getInstances, lookupEvidence)
+import Aihc.Tc.Monad (TcM, bindEvidence, freshEvVar, getInstances, lookupClass, lookupEvidence)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (foldM)
-import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Text (Text)
 
 -- | Result of attempting to solve a dictionary constraint.
 data DictResult
@@ -48,7 +46,8 @@ solveDictWithGivens givens ct =
   case ctPred ct of
     ClassPred className args -> do
       args' <- mapM zonkType args
-      case givenDict className args' of
+      givenEvidence <- givenDict className args'
+      case givenEvidence of
         Just evidence -> do
           bindEvidence (ctEvVar ct) evidence
           pure DictSolved
@@ -62,7 +61,43 @@ solveDictWithGivens givens ct =
       pure (DictStuck ct)
   where
     givenDict className args =
-      EvGiven <$> find (sameClassPred className args) givens
+      firstGivenOrSuperclass (ClassPred className args) givens
+
+    firstGivenOrSuperclass _ [] = pure Nothing
+    firstGivenOrSuperclass target (given : rest)
+      | target == given = pure (Just (EvGiven given))
+      | otherwise = do
+          projected <- superclassEvidence [] target (EvGiven given) given
+          case projected of
+            Just evidence -> pure (Just evidence)
+            Nothing -> firstGivenOrSuperclass target rest
+
+    superclassEvidence visited target sourceEvidence sourcePredicate =
+      case sourcePredicate of
+        ClassPred sourceClass sourceArgs
+          | sourceClass `elem` visited -> pure Nothing
+          | otherwise -> do
+              classInfo <- lookupClass sourceClass
+              case classInfo of
+                Nothing -> pure Nothing
+                Just info -> do
+                  let substitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
+                      fieldTypes = classFieldTypes info substitution
+                  case traverse (constraintTypeToPred . applySubst substitution) (ciSuperClassTypes info) of
+                    Just superClasses -> searchSuperClasses (sourceClass : visited) sourceEvidence sourcePredicate fieldTypes target 0 superClasses
+                    Nothing -> pure Nothing
+        _ -> pure Nothing
+
+    searchSuperClasses _ _ _ _ _ _ [] = pure Nothing
+    searchSuperClasses visited sourceEvidence sourcePredicate fieldTypes target index (superClass : rest)
+      | superClass == target =
+          pure (Just (EvSuperClass sourceEvidence sourcePredicate fieldTypes index))
+      | otherwise = do
+          let projection = EvSuperClass sourceEvidence sourcePredicate fieldTypes index
+          nested <- superclassEvidence visited target projection superClass
+          case nested of
+            Just evidence -> pure (Just evidence)
+            Nothing -> searchSuperClasses visited sourceEvidence sourcePredicate fieldTypes target (index + 1) rest
 
     tryInstances _ _ [] = pure (DictStuck ct)
     tryInstances className args (instanceInfo : rest)
@@ -110,13 +145,42 @@ typeableArguments ty =
     TcQualTy {} -> Nothing
     TcAppTy {} -> Nothing
 
-sameClassPred :: Text -> [TcType] -> Pred -> Bool
-sameClassPred className args pred' =
-  case pred' of
-    ClassPred givenClass givenArgs ->
-      givenClass == className && givenArgs == args
-    EqPred {} ->
-      False
+classFieldTypes :: ClassInfo -> Map Unique TcType -> [TcType]
+classFieldTypes classInfo substitution =
+  map (applySubst substitution) (ciSuperClassTypes classInfo)
+    <> map (methodFieldType classInfo substitution . snd) (ciMethods classInfo)
+
+methodFieldType :: ClassInfo -> Map Unique TcType -> TypeScheme -> TcType
+methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
+  applySubst substitution $
+    foldr TcForAllTy qualifiedBody extraTypeVariables
+  where
+    classVariables = ciTyVars classInfo
+    extraTypeVariables = filter (`notElem` classVariables) typeVariables
+    remainingPredicates = filter (not . isClassPredicate) predicates
+    qualifiedBody
+      | null remainingPredicates = body
+      | otherwise = TcQualTy remainingPredicates body
+    isClassPredicate predicate =
+      case predicate of
+        ClassPred className _ -> className == ciName classInfo
+        EqPred {} -> False
+
+constraintTypeToPred :: TcType -> Maybe Pred
+constraintTypeToPred ty =
+  case collectTypeApplications ty of
+    (TcTyCon (TyCon "~" 2) [], [left, right]) -> Just (EqPred left right)
+    (TcTyCon tyCon headArgs, arguments) ->
+      Just (ClassPred (tyConName tyCon) (headArgs <> arguments))
+    _ -> Nothing
+
+collectTypeApplications :: TcType -> (TcType, [TcType])
+collectTypeApplications ty =
+  case ty of
+    TcAppTy function argument ->
+      let (headType, arguments) = collectTypeApplications function
+       in (headType, arguments <> [argument])
+    _ -> (ty, [])
 
 matchTypes :: [TcType] -> [TcType] -> Maybe (Map Unique TcType)
 matchTypes patterns targets

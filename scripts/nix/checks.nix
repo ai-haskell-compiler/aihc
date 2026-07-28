@@ -130,9 +130,18 @@
       gc = "calloc";
     }
   ];
+  allBackendSmokeMatrix =
+    smokeCompilationMatrix
+    ++ pkgs.lib.optional (nativeBackend != null) {
+      backend = nativeBackend;
+      compilation = smokeCompilation;
+      gc = "calloc";
+    };
   exampleCompilationMatrix = exampleName:
     if exampleName == "hello-world"
     then compilationMatrix
+    else if exampleName == "exceptions-sync"
+    then allBackendSmokeMatrix
     else smokeCompilationMatrix;
   wasip3CompilationModes = exampleName:
     if exampleName == "hello-world"
@@ -425,9 +434,10 @@
     })
     exampleNames;
 
-  # Every example gets one LLVM smoke test. Hello World also carries the
-  # complete backend/mode/GC matrix, avoiding a cross-product for every program.
-  # Nix schedules the independent examples in parallel.
+  # Every example gets one LLVM smoke test. The synchronous exception example
+  # also exercises the host-native backend, while Hello World carries the
+  # complete backend/mode/GC matrix. Nix schedules independent examples in
+  # parallel.
   examplesTests = assert exampleNames != [];
     pkgs.linkFarm "aihc-examples-tests" exampleCases;
 

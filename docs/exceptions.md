@@ -21,13 +21,25 @@ explicit catch frame and raises become `GrinCpsRaise` transfers. The shared
 runtime walks the continuation chain and every backend tail-resumes the
 selected handler through its existing transfer convention.
 
-Structural `Typeable` evidence and checked casts are implemented. The CPS pass
-now reifies the rest of a computation as an ordinary closure whose field zero
+Structural `Typeable` evidence and checked casts are implemented. The typed
+library layer now provides `Exception`, `SomeException`, `throw`, `throwIO`,
+selective `catch`, `handle`, `try`, their `Just`-selecting variants, and
+`evaluate`. Nonmatching typed catches rethrow the original `SomeException`.
+Class dictionaries retain superclass fields across separately compiled modules,
+so the existential `Exception` dictionary supplies the `Typeable` evidence used
+by `fromException`. Class default methods provide the standard empty user
+instance declaration. AIHC does not have `Show` yet, so its initial `Exception`
+class has the `Typeable` superclass and defaults `displayException` to the type
+constructor name; adding `Show` can align that remaining superclass and default
+with GHC without changing the exception representation.
+
+The CPS pass now reifies the rest of a computation as an ordinary closure whose field zero
 is always its parent continuation. CPS records a frame kind for every generated
 continuation, GC-GRIN preserves it, and every backend emits it in `AihcInfo`.
 
-Primitive synchronous catch, nested rethrow, and update-frame unwinding work.
-Typed `Exception`/`SomeException`, masking, and asynchronous delivery remain.
+Primitive and typed synchronous catch, nested rethrow, and update-frame
+unwinding work. Masking, asynchronous delivery, and the masking-dependent
+cleanup combinators remain.
 
 ## Continuation-chain invariant
 
@@ -162,7 +174,7 @@ that identity must become `(unit, module, occurrence)` throughout resolution,
 type checking, interfaces, and `TypeRep`. This is a compiler identity issue,
 not something exception handling should paper over with a wider hash.
 
-The compatible library layer needs:
+The compatible library layer provides:
 
 - automatic `Typeable` evidence, including functions, lists, tuples, and
   parameterized user types;
@@ -170,8 +182,11 @@ The compatible library layer needs:
   the standard `Exception` definition;
 - `Exception`, `SomeException`, `toException`, `fromException`, and
   `displayException`;
-- `throw`, `throwIO`, typed `catch`, `try`, `evaluate`, `finally`, `bracket`,
-  and the masking API.
+- `throw`, `throwIO`, typed `catch`, `handle`, `try`, and `evaluate`.
+
+`finally`, `bracket`, and the masking API remain coupled to the masking-state
+step: exposing cleanup combinators before masking would give them the wrong
+asynchronous-exception semantics.
 
 The initial AIHC `Typeable` dictionary contains compiler-supplied `typeRep` and
 `typeOf` fields. Once imported class-selector metadata is retained reliably,
@@ -287,9 +302,9 @@ The feature needs proof at several layers:
 - backend code-generation tests for frame metadata and raise/poll transfers;
 - portable examples compiled by every backend.
 
-The `exceptions-sync` portable example uses a failing thunk, nested catches,
-and a handler rethrow. A later typed version should use two user exception
-types once `Exception` and `SomeException` land.
+The `exceptions-sync` portable example uses two user exception types and nested
+typed catches. The inner handler does not match, so `catch` rethrows the
+original `SomeException` for the outer handler.
 
 The remaining asynchronous example should:
 
@@ -305,9 +320,9 @@ checks `UserInterrupt` handling. It is not the semantic cross-backend test.
    `unsafeCoerce#` primitive as an independent change.
 2. **Complete:** make the continuation parent link and frame metadata explicit
    without changing behavior.
-3. **In progress:** primitive synchronous raise/catch lowering, shared
-   unwinding, and rollback-style update cleanup are implemented. Portable
-   exception memoization, `Exception`, and `SomeException` remain.
+3. **In progress:** primitive and typed synchronous raise/catch lowering,
+   `Exception`, `SomeException`, shared unwinding, and rollback-style update
+   cleanup are implemented. Portable exception memoization remains.
 4. Add masking state and restore frames, then implement the library masking and
    cleanup combinators.
 5. Add per-thread pending queues, safe-point polls, blocked-operation

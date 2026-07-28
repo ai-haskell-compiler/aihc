@@ -54,6 +54,9 @@ module Aihc.Tc.Monad
     withTcLevel,
     addInstance,
     getInstances,
+    addClass,
+    getClasses,
+    lookupClass,
 
     -- * GADT constructor registry
     markGadtCon,
@@ -69,7 +72,7 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
-import Aihc.Tc.Env (InstanceInfo, TyConInfo)
+import Aihc.Tc.Env (ClassInfo (..), InstanceInfo, TyConInfo)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -177,6 +180,8 @@ data TcState = TcState
     tcsGlobalTerms :: !(Map Text TcBinder),
     -- | Global type constructors accumulated by top-level declarations.
     tcsGlobalTyCons :: !(Map Text TyConInfo),
+    -- | Type classes in scope, including their superclass layouts and defaults.
+    tcsClasses :: !(Map Text ClassInfo),
     -- | Class instances in scope.
     tcsInstances :: ![InstanceInfo],
     -- | Names of GADT constructors (have non-trivial result types).
@@ -195,6 +200,7 @@ initTcState =
       tcsDiagnostics = [],
       tcsGlobalTerms = builtinTerms,
       tcsGlobalTyCons = Map.empty,
+      tcsClasses = Map.empty,
       tcsInstances = [],
       tcsGadtCons = Set.empty
     }
@@ -369,6 +375,16 @@ addInstance instanceInfo = lift $ modify' $ \s ->
 
 getInstances :: TcM [InstanceInfo]
 getInstances = lift $ gets tcsInstances
+
+addClass :: ClassInfo -> TcM ()
+addClass classInfo = lift $ modify' $ \state ->
+  state {tcsClasses = Map.insert (ciName classInfo) classInfo (tcsClasses state)}
+
+getClasses :: TcM [ClassInfo]
+getClasses = lift $ gets (Map.elems . tcsClasses)
+
+lookupClass :: Text -> TcM (Maybe ClassInfo)
+lookupClass className = lift $ gets (Map.lookup className . tcsClasses)
 
 -- | Run a computation with adjusted local type-checker options.
 localTcOptions :: (Bool -> Bool) -> (Bool -> Bool) -> TcM a -> TcM a

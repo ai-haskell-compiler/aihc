@@ -211,6 +211,7 @@ runtimeRepOfType :: TcType -> Either String RuntimeRep
 runtimeRepOfType ty =
   case typeKind ty of
     KTYPE runtimeRep -> Right runtimeRep
+    KConstraint -> Right liftedRuntimeRep
     other -> Left ("type does not have a runtime representation: " <> show other)
 
 typeKind :: TcType -> Kind

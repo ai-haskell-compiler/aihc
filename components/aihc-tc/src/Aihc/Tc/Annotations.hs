@@ -133,8 +133,11 @@ data TcClassMethodAnnotation = TcClassMethodAnnotation
   }
   deriving (Eq, Show)
 
-newtype TcClassAnnotation = TcClassAnnotation
-  { tcClassMethods :: [TcClassMethodAnnotation]
+data TcClassAnnotation = TcClassAnnotation
+  { tcClassTyVars :: ![TyVarId],
+    tcClassSuperClasses :: ![TcDictBinderAnnotation],
+    tcClassMethods :: ![TcClassMethodAnnotation],
+    tcClassDefaultMethods :: ![Text]
   }
   deriving (Eq, Show)
 
@@ -143,8 +146,12 @@ data TcInstanceAnnotation = TcInstanceAnnotation
     tcInstanceDictType :: !TcType,
     tcInstanceTyVars :: ![TyVarId],
     tcInstanceHeadTypes :: ![TcType],
+    tcInstanceClassTyVars :: ![TyVarId],
+    tcInstanceClassSuperClasses :: ![TcDictBinderAnnotation],
     tcInstanceContextDicts :: ![TcDictBinderAnnotation],
-    tcInstanceMethodOrder :: ![Text]
+    tcInstanceSuperClasses :: ![(TcDictBinderAnnotation, EvTerm)],
+    tcInstanceMethodOrder :: ![Text],
+    tcInstanceDefaultMethods :: ![Text]
   }
   deriving (Eq, Show)
 

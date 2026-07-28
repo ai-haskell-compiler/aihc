@@ -62,19 +62,19 @@ annotationForPendingTc :: PendingTcAnnotation -> TcM TcAnnotation
 annotationForPendingTc pending = do
   ty <- zonkType (pendingTcAnnType pending)
   typeArgs <- mapM zonkType (pendingTcAnnTypeArgs pending)
-  evidenceTerms <- mapM (evidenceForEvVar >=> zonkEvTerm) (pendingTcAnnEvidenceVars pending)
+  evidenceTerms <- mapM (evidenceForEvVar ty >=> zonkEvTerm) (pendingTcAnnEvidenceVars pending)
   termArgTypes <- mapM zonkType (pendingTcAnnTermArgTypes pending)
   let ann = TcAnnotation ty typeArgs evidenceTerms termArgTypes
   rejectMetaTcAnnotation ann
   pure ann
 
-evidenceForEvVar :: EvVar -> TcM EvTerm
-evidenceForEvVar ev = do
+evidenceForEvVar :: TcType -> EvVar -> TcM EvTerm
+evidenceForEvVar contextType ev = do
   maybeEvidence <- lookupEvidence ev
   case maybeEvidence of
     Just evidence -> pure evidence
     Nothing ->
-      abortTc ("internal type annotation error: missing evidence for " <> show ev)
+      abortTc ("internal type annotation error: missing evidence for " <> show ev <> " while finalizing " <> show contextType)
 
 zonkEvTerm :: EvTerm -> TcM EvTerm
 zonkEvTerm evTerm =
@@ -87,8 +87,8 @@ zonkEvTerm evTerm =
       EvDict name <$> mapM zonkType typeArgs <*> mapM zonkEvTerm evidence
     EvCoercion coercion ->
       EvCoercion <$> zonkCoercion coercion
-    EvSuperClass evidence index ->
-      EvSuperClass <$> zonkEvTerm evidence <*> pure index
+    EvSuperClass evidence sourcePredicate fieldTypes index ->
+      EvSuperClass <$> zonkEvTerm evidence <*> zonkPred sourcePredicate <*> mapM zonkType fieldTypes <*> pure index
     EvCast evidence coercion ->
       EvCast <$> zonkEvTerm evidence <*> zonkCoercion coercion
     EvTypeable ty arguments ->
@@ -124,13 +124,13 @@ rejectMetaTcAnnotation ann =
 
 rejectMetaFinalAnnotation :: Annotation -> TcM ()
 rejectMetaFinalAnnotation ann = do
-  traverseReject (firstMetaTcAnnotation <$> fromAnnotation @TcAnnotation ann)
-  traverseReject (firstMetaClassAnnotation <$> fromAnnotation @TcClassAnnotation ann)
-  traverseReject (firstMetaInstanceAnnotation <$> fromAnnotation @TcInstanceAnnotation ann)
-  traverseReject (firstMetaInstanceMethodAnnotation <$> fromAnnotation @TcInstanceMethodAnnotation ann)
+  traverseReject "type annotation" (firstMetaTcAnnotation <$> fromAnnotation @TcAnnotation ann)
+  traverseReject "class annotation" (firstMetaClassAnnotation <$> fromAnnotation @TcClassAnnotation ann)
+  traverseReject "instance annotation" (firstMetaInstanceAnnotation <$> fromAnnotation @TcInstanceAnnotation ann)
+  traverseReject "instance method annotation" (firstMetaInstanceMethodAnnotation <$> fromAnnotation @TcInstanceMethodAnnotation ann)
   where
-    traverseReject Nothing = pure ()
-    traverseReject (Just maybeMeta) = rejectMeta "finalized annotation" maybeMeta
+    traverseReject _ Nothing = pure ()
+    traverseReject context (Just maybeMeta) = rejectMeta ("finalized " <> context) maybeMeta
 
 rejectMeta :: String -> Maybe Unique -> TcM ()
 rejectMeta context maybeMeta =
@@ -150,8 +150,9 @@ firstMetaTcAnnotation ann =
     )
 
 firstMetaClassAnnotation :: TcClassAnnotation -> Maybe Unique
-firstMetaClassAnnotation (TcClassAnnotation methods) =
-  firstJusts (map firstMetaClassMethodAnnotation methods)
+firstMetaClassAnnotation classAnnotation =
+  firstJusts (map (firstMetaType . tcDictBinderType) (tcClassSuperClasses classAnnotation))
+    <|> firstJusts (map firstMetaClassMethodAnnotation (tcClassMethods classAnnotation))
 
 firstMetaClassMethodAnnotation :: TcClassMethodAnnotation -> Maybe Unique
 firstMetaClassMethodAnnotation method =
@@ -162,7 +163,11 @@ firstMetaInstanceAnnotation ann =
   firstJusts
     ( firstMetaType (tcInstanceDictType ann)
         : map firstMetaType (tcInstanceHeadTypes ann)
+        ++ map firstMetaDictBinderAnnotation (tcInstanceClassSuperClasses ann)
         ++ map firstMetaDictBinderAnnotation (tcInstanceContextDicts ann)
+        ++ [ firstMetaDictBinderAnnotation superClass <|> firstMetaEvTerm evidence
+           | (superClass, evidence) <- tcInstanceSuperClasses ann
+           ]
     )
 
 firstMetaDictBinderAnnotation :: TcDictBinderAnnotation -> Maybe Unique
@@ -184,8 +189,8 @@ firstMetaEvTerm evTerm =
       firstJusts (map firstMetaType typeArgs ++ map firstMetaEvTerm evidence)
     EvCoercion coercion ->
       firstMetaCoercion coercion
-    EvSuperClass evidence _ ->
-      firstMetaEvTerm evidence
+    EvSuperClass evidence sourcePredicate fieldTypes _ ->
+      firstMetaEvTerm evidence <|> firstMetaPred sourcePredicate <|> firstJusts (map firstMetaType fieldTypes)
     EvCast evidence coercion ->
       firstMetaEvTerm evidence <|> firstMetaCoercion coercion
     EvTypeable ty arguments ->

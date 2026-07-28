@@ -50,7 +50,8 @@ import Aihc.Resolve
     resolveWithDeps,
   )
 import Aihc.Tc
-  ( InstanceInfo,
+  ( ClassInfo,
+    InstanceInfo,
     TcBindingResult (..),
     TyConInfo,
     TypeScheme (..),
@@ -58,7 +59,7 @@ import Aihc.Tc
     tcModuleDiagnostics,
     tcModuleInstances,
     tcModuleSuccess,
-    typecheckModuleSccWithFullEnv,
+    typecheckModuleSccWithClassEnv,
   )
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket, bracketOnError)
@@ -110,6 +111,7 @@ data DependencyArtifact = DependencyArtifact
   { dependencyExports :: !ModuleExports,
     dependencyTerms :: ![(Text, TypeScheme)],
     dependencyTyCons :: ![TyConInfo],
+    dependencyClasses :: ![ClassInfo],
     dependencyBindings :: ![TcBindingResult],
     dependencyInstances :: ![InstanceInfo],
     dependencyNewtypeInterface :: !NewtypeInterface,
@@ -139,6 +141,7 @@ data StoredDependencyArtifact = StoredDependencyArtifact
     storedExports :: !StoredModuleExports,
     storedTerms :: ![(Text, TypeScheme)],
     storedTyCons :: ![TyConInfo],
+    storedClasses :: ![ClassInfo],
     storedBindings :: ![TcBindingResult],
     storedInstances :: ![InstanceInfo],
     storedUnits :: ![DependencyUnit]
@@ -177,7 +180,7 @@ data LoadedModule = LoadedModule
   }
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 21
+cacheSchemaVersion = 22
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
@@ -228,6 +231,7 @@ emptyDependencyArtifact =
     { dependencyExports = Map.empty,
       dependencyTerms = [],
       dependencyTyCons = [],
+      dependencyClasses = [],
       dependencyBindings = [],
       dependencyInstances = [],
       dependencyNewtypeInterface = mempty,
@@ -329,16 +333,17 @@ parserConfig sourceName source =
 compileLoadedModules :: [LoadedModule] -> Either String DependencyArtifact
 compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedModuleSccs loaded)
   where
-    initialState = CompileState Map.empty [] [] [] [] mempty mempty mempty [] []
+    initialState = CompileState Map.empty [] [] [] [] [] mempty mempty mempty [] []
 
     compileScc state members =
       case resolveWithDeps (compileStateExports state) (map loadedModule members) of
         ResolveResult {resolveErrors = errors@(_ : _)} -> Left ("core library resolve error: " <> show errors)
         resolved@ResolveResult {resolvedModules} ->
-          let (checkedModules, termSchemes, tyCons) =
-                typecheckModuleSccWithFullEnv
+          let (checkedModules, termSchemes, tyCons, classes) =
+                typecheckModuleSccWithClassEnv
                   (compileStateTerms state)
                   (compileStateTyCons state)
+                  (compileStateClasses state)
                   (compileStateInstances state)
                   resolvedModules
            in if not (all tcModuleSuccess checkedModules)
@@ -378,6 +383,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                                           { compileStateExports = compileStateExports state <> extractInterfaceWithDeps (compileStateExports state) resolved,
                                             compileStateTerms = termSchemes,
                                             compileStateTyCons = tyCons,
+                                            compileStateClasses = classes,
                                             compileStateBindings = bindings,
                                             compileStateInstances = compileStateInstances state <> localInstances,
                                             compileStateNewtypes = compileStateNewtypes state <> newtypes,
@@ -392,6 +398,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
         { dependencyExports = compileStateExports state,
           dependencyTerms = compileStateTerms state,
           dependencyTyCons = compileStateTyCons state,
+          dependencyClasses = compileStateClasses state,
           dependencyBindings = compileStateBindings state,
           dependencyInstances = compileStateInstances state,
           dependencyNewtypeInterface = compileStateNewtypes state,
@@ -407,6 +414,7 @@ data CompileState = CompileState
   { compileStateExports :: !ModuleExports,
     compileStateTerms :: ![(Text, TypeScheme)],
     compileStateTyCons :: ![TyConInfo],
+    compileStateClasses :: ![ClassInfo],
     compileStateBindings :: ![TcBindingResult],
     compileStateInstances :: ![InstanceInfo],
     compileStateNewtypes :: !NewtypeInterface,
@@ -647,6 +655,7 @@ toStoredArtifact artifact =
       storedExports = toStoredExports (dependencyExports artifact),
       storedTerms = dependencyTerms artifact,
       storedTyCons = dependencyTyCons artifact,
+      storedClasses = dependencyClasses artifact,
       storedBindings = dependencyBindings artifact,
       storedInstances = dependencyInstances artifact,
       storedUnits = dependencyUnits artifact
@@ -658,6 +667,7 @@ fromStoredArtifact stored =
     { dependencyExports = fromStoredExports (storedExports stored),
       dependencyTerms = storedTerms stored,
       dependencyTyCons = storedTyCons stored,
+      dependencyClasses = storedClasses stored,
       dependencyBindings = storedBindings stored,
       dependencyInstances = storedInstances stored,
       dependencyNewtypeInterface = foldMap dependencyUnitNewtypeInterface units,

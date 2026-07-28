@@ -79,12 +79,15 @@ data ClassInfo = ClassInfo
   { ciName :: !Text,
     -- | Type parameters of the class.
     ciTyVars :: ![TyVarId],
-    -- | Superclass predicates.
-    ciSuperClasses :: ![Pred],
+    -- | Superclass constraint types. Keeping the full type permits a class
+    -- parameter to appear in predicate position, as in @class c a => D c a@.
+    ciSuperClassTypes :: ![TcType],
     -- | Method names and their types.
-    ciMethods :: ![(Text, TypeScheme)]
+    ciMethods :: ![(Text, TypeScheme)],
+    -- | Methods with a source-level default implementation.
+    ciDefaultMethods :: ![Text]
   }
-  deriving (Show)
+  deriving (Show, Read)
 
 -- | Information about a class instance.
 data InstanceInfo = InstanceInfo

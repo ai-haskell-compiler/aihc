@@ -1,1 +1,6 @@
-module Control.Exception () where
+module Control.Exception
+  ( module Control.Exception.Base,
+  )
+where
+
+import Control.Exception.Base
