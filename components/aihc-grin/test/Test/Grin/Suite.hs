@@ -10,7 +10,7 @@ where
 import Aihc.Fc.Newtype (extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
 import Aihc.Fc.Syntax
 import Aihc.Grin
-import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), runtimeRepOfType)
+import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), liftedRuntimeRep, runtimeRepOfType)
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Control.Monad (forM_)
@@ -377,6 +377,13 @@ grinUnitTests =
               (GrinStore (GrinNode (GrinConstructor "I32#" 0) [GrinVarValue (GrinVar "value" 62 Int32Rep)]))
               (grinFunctionBody function)
           functions -> assertFailure ("expected one constructor function, got " <> show (length functions)),
+      testCase "FC lowering materializes boxed tuple constructors used only by patterns" $ do
+        let program = lowerProgram triplePatternProgram
+        assertEqual "lint" [] (lintProgram program)
+        assertEqual
+          "triple layout"
+          (Just [[liftedRuntimeRep], [liftedRuntimeRep], [liftedRuntimeRep]])
+          (lookup "(,,)" (grinConstructors program)),
       testCase "FC lowering returns a tail constructor store directly" $ do
         let program = lowerProgram tailStoredTupleProgram
         assertEqual "lint" [] (lintProgram program)
@@ -1957,6 +1964,27 @@ saturatedConstructorProgram =
   where
     int32WrapperVar = Var "wrapInt32" (Unique 60) (TcFunTy int32Ty boxedInt32Ty)
     int32ConstructorVar = Var "I32#" (Unique 61) (TcFunTy int32Ty boxedInt32Ty)
+
+triplePatternProgram :: FcProgram
+triplePatternProgram =
+  FcProgram
+    [ FcTopBind
+        ( FcNonRec
+            projectVar
+            ( FcLam
+                inputVar
+                (FcCase (FcVar inputVar) caseVar [FcAlt (DataAlt "(,,)") [firstVar, secondVar, thirdVar] (FcVar firstVar)])
+            )
+        )
+    ]
+  where
+    tripleTy = TcTyCon (TyCon "(,,)" 3) [boxedIntTy, boxedIntTy, boxedIntTy]
+    projectVar = Var "firstOfThree" (Unique 70) (TcFunTy tripleTy boxedIntTy)
+    inputVar = Var "triple" (Unique 71) tripleTy
+    caseVar = Var "tripleCase" (Unique 72) tripleTy
+    firstVar = Var "first" (Unique 73) boxedIntTy
+    secondVar = Var "second" (Unique 74) boxedIntTy
+    thirdVar = Var "third" (Unique 75) boxedIntTy
 
 tailStoredTupleProgram :: FcProgram
 tailStoredTupleProgram =
