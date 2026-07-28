@@ -31,7 +31,7 @@ import Aihc.Cli.Install
   )
 import Aihc.Cli.Options (Command (..), CompileOptions (..), GarbageCollector (..), InstallErrorFormat (..), InstallOptions (..), PrepareRuntimeOptions (..), ReplOptions (..), parseCommandPure)
 import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession, replCompletion)
-import Aihc.Cli.Runtime (prepareRuntimeArchive)
+import Aihc.Cli.Runtime (prepareRuntimeArchive, readWasmClangProcessWithExitCode)
 import Aihc.Fc
   ( FcBind (..),
     FcExpr (..),
@@ -57,16 +57,20 @@ import Data.Set qualified as Set
 import Data.Text qualified as T
 import System.Console.Haskeline qualified as Haskeline
 import System.Directory
-  ( createDirectory,
+  ( Permissions (executable),
+    createDirectory,
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
+    getPermissions,
     getTemporaryDirectory,
     removeDirectoryRecursive,
     removeFile,
+    setPermissions,
     withCurrentDirectory,
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openTempFile)
 import Test.Tasty (defaultMain, testGroup)
@@ -186,6 +190,7 @@ main =
         [ testCase "uses standard Clang for the WebAssembly target" $ do
             assertEqual "default command" ("clang", ["--target=wasm32-unknown-unknown"]) (wasmClangCommand Nothing)
             assertEqual "configured command" ("custom-clang", ["--target=wasm32-unknown-unknown"]) (wasmClangCommand (Just "custom-clang")),
+          testCase "explains when Clang has no wasm32 target" test_missingWasm32ClangTarget,
           testCase "enables Binaryen optimization and tail calls" $
             assertEqual
               "wasm-opt arguments"
@@ -1231,3 +1236,37 @@ withTempDir prefix action = do
     (pure tempFile)
     removeDirectoryRecursive
     action
+
+test_missingWasm32ClangTarget :: Assertion
+test_missingWasm32ClangTarget = do
+  withFakeClang "  arm64 - AArch64\n  x86-64 - 64-bit X86\n" $ \clang -> do
+    (exitCode, _stdout, stderr) <- readWasmClangProcessWithExitCode clang ["--target=wasm32-unknown-unknown"]
+    assertEqual "Clang failure" (ExitFailure 1) exitCode
+    assertBool "original Clang error" ("original Clang failure" `isInfixOf` stderr)
+    assertBool "missing target notice" ("does not include the wasm32 target" `isInfixOf` stderr)
+    assertBool "Homebrew advice" ("brew install llvm" `isInfixOf` stderr)
+    assertBool "Nix advice" ("nix shell nixpkgs#llvmPackages.clang-unwrapped" `isInfixOf` stderr)
+  withFakeClang "  wasm32 - WebAssembly 32-bit\n" $ \clang -> do
+    (exitCode, _stdout, stderr) <- readWasmClangProcessWithExitCode clang ["--target=wasm32-unknown-unknown"]
+    assertEqual "Clang failure" (ExitFailure 1) exitCode
+    assertEqual "supported target error" "original Clang failure\n" stderr
+
+withFakeClang :: String -> (FilePath -> IO a) -> IO a
+withFakeClang targets action =
+  withTempDir "aihc-fake-clang" $ \directory -> do
+    let clang = directory </> "clang"
+    writeFile
+      clang
+      ( unlines
+          [ "#!/bin/sh",
+            "if [ \"$1\" = \"-print-targets\" ]; then",
+            "  printf '%s' '" <> targets <> "'",
+            "  exit 0",
+            "fi",
+            "printf '%s\\n' 'original Clang failure' >&2",
+            "exit 1"
+          ]
+      )
+    permissions <- getPermissions clang
+    setPermissions clang permissions {executable = True}
+    action clang

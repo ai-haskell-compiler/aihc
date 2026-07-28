@@ -17,7 +17,7 @@ where
 
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
-import Aihc.Cli.Runtime (wasmClangCommand)
+import Aihc.Cli.Runtime (readWasmClangProcessWithExitCode, wasmClangCommand)
 import Aihc.Cli.Store (installedLibrariesActivePath, installedLibrariesRoot)
 import Aihc.Fc (DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, optimizeProgram)
 import Aihc.Grin qualified as Grin
@@ -578,7 +578,10 @@ buildObject target layout unit = do
                 objectPath = temporary </> "module.o"
             TIO.writeFile sourcePath backendSource
             (compiler, arguments) <- objectCompiler target sourcePath objectPath
-            (exitCode, _stdout, stderr) <- readProcessWithExitCode compiler arguments ""
+            (exitCode, _stdout, stderr) <-
+              case target of
+                Wasm32Wasip3 -> readWasmClangProcessWithExitCode compiler arguments
+                _ -> readProcessWithExitCode compiler arguments ""
             case exitCode of
               ExitSuccess -> renameFile objectPath destination >> pure (Right ())
               ExitFailure _ -> pure (Left ("failed to compile dependency unit " <> dependencyUnitLabel (backendDependencyUnit unit) <> ": " <> stderr))
