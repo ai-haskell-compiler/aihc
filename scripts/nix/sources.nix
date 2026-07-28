@@ -62,11 +62,6 @@ in rec {
     ".yml"
   ];
 
-  cBackendSrc = mkRootSubsetSrc ["components/aihc-c/" "test/support/"] [
-    ".hs"
-    ".cabal"
-  ];
-
   llvmSrc = mkRootSubsetSrc ["components/aihc-llvm/" "test/support/"] [
     ".hs"
     ".cabal"

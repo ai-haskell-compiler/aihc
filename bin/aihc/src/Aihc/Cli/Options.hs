@@ -127,7 +127,7 @@ compileOptionsParser =
       )
     <*> OA.switch
       ( OA.long "keep-asm"
-          <> OA.help "Keep generated backend source as OUTPUT.s, OUTPUT.c, or OUTPUT.ll"
+          <> OA.help "Keep generated backend source as OUTPUT.s or OUTPUT.ll"
       )
     <*> OA.switch
       ( OA.long "whole-program"
@@ -138,7 +138,7 @@ compileOptionsParser =
           (OA.eitherReader parseNativeTarget)
           ( OA.long "target"
               <> OA.metavar "TARGET"
-              <> OA.help "Target: apple-arm64, linux-amd64, portable-c, llvm, or wasm32-wasip3 (default: host)"
+              <> OA.help "Target: apple-arm64, linux-amd64, llvm, or wasm32-wasip3 (default: host)"
           )
       )
     <*> OA.option

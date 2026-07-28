@@ -112,7 +112,7 @@
     "x86_64-linux" = "linux-amd64";
   };
   nativeBackend = nativeBackendBySystem.${pkgs.stdenv.hostPlatform.system} or null;
-  backends = ["portable-c" "llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
+  backends = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
   compilationMatrix = builtins.concatLists (
     map (
       backend:
@@ -124,11 +124,6 @@
   );
   smokeCompilation = builtins.head compilationModes;
   smokeCompilationMatrix = [
-    {
-      backend = "portable-c";
-      compilation = smokeCompilation;
-      gc = "calloc";
-    }
     {
       backend = "llvm";
       compilation = smokeCompilation;
@@ -307,11 +302,6 @@
     })
   );
   arm64Tests = mkEvalPackageTest hsPkgs.aihc-arm64;
-  cBackendTests = mkEvalPackageTest (
-    pkgs.haskell.lib.overrideCabal hsPkgs.aihc-c (old: {
-      testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
-    })
-  );
   llvmTests = mkEvalPackageTest (
     pkgs.haskell.lib.overrideCabal hsPkgs.aihc-llvm (old: {
       testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
@@ -444,10 +434,10 @@
     })
     exampleNames;
 
-  # Every example gets portable-C and LLVM smoke tests. The synchronous
-  # exception example also exercises the host-native backend, while Hello World
-  # carries the complete backend/mode/GC matrix. Nix schedules independent
-  # examples in parallel.
+  # Every example gets one LLVM smoke test. The synchronous exception example
+  # also exercises the host-native backend, while Hello World carries the
+  # complete backend/mode/GC matrix. Nix schedules independent examples in
+  # parallel.
   examplesTests = assert exampleNames != [];
     pkgs.linkFarm "aihc-examples-tests" exampleCases;
 
@@ -505,7 +495,6 @@
 in {
   amd64-tests = amd64Tests;
   arm64-tests = arm64Tests;
-  c-tests = cBackendTests;
   llvm-tests = llvmTests;
   native-tests = nativeTests;
   wasm-tests = wasmTests;

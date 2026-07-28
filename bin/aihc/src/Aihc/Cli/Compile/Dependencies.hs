@@ -14,7 +14,6 @@ where
 
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
-import Aihc.C qualified as C
 import Aihc.Fc (DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, optimizeProgram)
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
@@ -22,13 +21,10 @@ import Aihc.Native
   ( LinkInterface,
     LinkLayout,
     NativeTarget (..),
-    RuntimeGarbageCollector (RuntimeGcCalloc),
-    RuntimePlan (runtimeIncludeDirectories),
     backendCompiler,
     buildLinkLayoutFromInterfaces,
     extractLinkInterface,
     nativeTargetTriple,
-    runtimePlan,
   )
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -521,14 +517,10 @@ compileBackendModule target layout initializer program =
   case target of
     AppleArm64 -> either (Left . show) Right (Arm64.compileModule layout initializer program)
     LinuxAmd64 -> either (Left . show) Right (Amd64.compileModule layout initializer program)
-    PortableC -> compileC
     Llvm -> either (Left . show) Right (Llvm.compileModule layout initializer program)
     Wasm32Wasip3 -> either (Left . show) Right (Wasm.compileModule layout initializer program)
-  where
-    compileC = either (Left . show) Right (C.compileModule layout initializer program)
 
 backendSourceExtension :: NativeTarget -> String
-backendSourceExtension PortableC = ".c"
 backendSourceExtension Llvm = ".ll"
 backendSourceExtension Wasm32Wasip3 = ".s"
 backendSourceExtension _ = ".s"
@@ -537,22 +529,12 @@ objectCompiler :: NativeTarget -> FilePath -> FilePath -> IO (FilePath, [String]
 objectCompiler target sourcePath objectPath = do
   (compiler, targetArguments) <- backendCompiler target
   case target of
-    PortableC -> cCompiler compiler targetArguments
     Llvm -> pure (compiler, targetArguments <> ["-c", sourcePath, "-o", objectPath])
     AppleArm64 -> pure (compiler, nativeArguments targetArguments)
     LinuxAmd64 -> pure (compiler, nativeArguments targetArguments)
     Wasm32Wasip3 -> pure (compiler, targetArguments <> ["-mtail-call", "-c", sourcePath, "-o", objectPath])
   where
     nativeArguments targetArguments = targetArguments <> ["-c", sourcePath, "-o", objectPath]
-    cCompiler compiler targetArguments = do
-      plan <- runtimePlan PortableC RuntimeGcCalloc
-      pure
-        ( compiler,
-          targetArguments
-            <> ["-std=c11", "-Wall", "-Wextra", "-Werror"]
-            <> ["-I" <> directory | directory <- runtimeIncludeDirectories plan]
-            <> ["-c", sourcePath, "-o", objectPath]
-        )
 
 dependencyUnitLabel :: DependencyUnit -> String
 dependencyUnitLabel = T.unpack . T.intercalate "," . dependencyUnitModules

@@ -42,7 +42,6 @@ import System.Info qualified as System
 data NativeTarget
   = AppleArm64
   | LinuxAmd64
-  | PortableC
   | Llvm
   | Wasm32Wasip3
   deriving (Bounded, Enum, Eq, Ord, Show)
@@ -63,7 +62,6 @@ renderNativeTarget target =
   case target of
     AppleArm64 -> "apple-arm64"
     LinuxAmd64 -> "linux-amd64"
-    PortableC -> "portable-c"
     Llvm -> "llvm"
     Wasm32Wasip3 -> "wasm32-wasip3"
 
@@ -74,12 +72,10 @@ parseNativeTarget value =
     "arm64-apple-darwin" -> Right AppleArm64
     "linux-amd64" -> Right LinuxAmd64
     "x86_64-unknown-linux-gnu" -> Right LinuxAmd64
-    "portable-c" -> Right PortableC
-    "c" -> Right PortableC
     "llvm" -> Right Llvm
     "wasm32-wasip3" -> Right Wasm32Wasip3
     "wasip3" -> Right Wasm32Wasip3
-    _ -> Left "target must be apple-arm64, linux-amd64, portable-c, llvm, or wasm32-wasip3"
+    _ -> Left "target must be apple-arm64, linux-amd64, llvm, or wasm32-wasip3"
 
 hostNativeTarget :: Maybe NativeTarget
 hostNativeTarget
@@ -92,15 +88,13 @@ nativeTargetTriple target =
   case target of
     AppleArm64 -> "arm64-apple-darwin"
     LinuxAmd64 -> "x86_64-unknown-linux-gnu"
-    PortableC -> "portable-c"
     Llvm -> "llvm"
     Wasm32Wasip3 -> "wasm32-unknown-unknown"
 
--- | Select the C or assembly compiler driver and target arguments.
+-- | Select the compiler driver and target arguments.
 backendCompiler :: NativeTarget -> IO (FilePath, [String])
 backendCompiler target =
   case target of
-    PortableC -> pure ("clang", [])
     Llvm -> pure ("clang", ["-Wno-override-module", "-O2"])
     Wasm32Wasip3 -> pure ("clang", ["--target=wasm32-unknown-unknown"])
     AppleArm64 -> nativeCompiler
@@ -175,7 +169,7 @@ runtimePlan target garbageCollector = do
     RuntimePlan
       { runtimeSources =
           [core, collector, host]
-            <> [trampoline | target == PortableC || target == Wasm32Wasip3],
+            <> [trampoline | target == Wasm32Wasip3],
         runtimeIncludeDirectories = [takeDirectory core]
       }
 

@@ -9,7 +9,6 @@ packages:
   components/aihc-native
   components/aihc-amd64
   components/aihc-arm64
-  components/aihc-c
   components/aihc-llvm
   components/aihc-wasm
   bin/aihc-fmt

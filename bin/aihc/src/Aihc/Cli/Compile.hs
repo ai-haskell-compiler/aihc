@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Compile a standalone Haskell module through System FC and GRIN to an
--- executable through an assembly, LLVM, or portable C backend.
+-- executable through an assembly or LLVM backend.
 module Aihc.Cli.Compile
   ( CompileEnvironment (..),
     CompileError (..),
@@ -26,7 +26,6 @@ where
 
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
-import Aihc.C qualified as C
 import Aihc.Cli.Compile.Dependencies
   ( CompileEnvironment (..),
     DependencyArtifact (..),
@@ -98,7 +97,6 @@ data CompileError
 data BackendError
   = BackendArm64Error !Arm64.Arm64Error
   | BackendAmd64Error !Amd64.Amd64Error
-  | BackendCError !C.CError
   | BackendLlvmError !Llvm.LlvmError
   | BackendWasmError !Wasm.WasmError
   deriving (Eq, Show)
@@ -138,7 +136,7 @@ runCompileWithEnvironment environment options = do
       Just explicitTarget -> pure explicitTarget
       Nothing ->
         maybe
-          (ioError (userError (renderCompileError (CompileTargetError "unsupported host; pass --target portable-c or another explicit target"))))
+          (ioError (userError (renderCompileError (CompileTargetError "unsupported host; pass an explicit --target"))))
           pure
           hostNativeTarget
   source <- Utf8.readFile (compileSourceFile options)
@@ -371,33 +369,24 @@ validateBackendPrimitiveNames target names =
   case target of
     AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.validatePrimitiveNames names)
     LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.validatePrimitiveNames names)
-    PortableC -> validateC
     Llvm -> either (Left . BackendLlvmError) Right (Llvm.validatePrimitiveNames names)
     Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.validatePrimitiveNames names)
-  where
-    validateC = either (Left . BackendCError) Right (C.validatePrimitiveNames names)
 
 compileBackendProgram :: NativeTarget -> Text -> Grin.GcGrinProgram -> Either BackendError Text
 compileBackendProgram target entry program =
   case target of
     AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.compileProgram entry program)
     LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileProgram entry program)
-    PortableC -> compileC
     Llvm -> either (Left . BackendLlvmError) Right (Llvm.compileProgram entry program)
     Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.compileProgram entry program)
-  where
-    compileC = either (Left . BackendCError) Right (C.compileProgram entry program)
 
 compileBackendProgramWithDependencies :: NativeTarget -> LinkLayout -> [Text] -> Text -> Grin.GcGrinProgram -> Either BackendError Text
 compileBackendProgramWithDependencies target layout initializers entry program =
   case target of
     AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.compileProgramWithDependencies layout initializers entry program)
     LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileProgramWithDependencies layout initializers entry program)
-    PortableC -> compileC
     Llvm -> either (Left . BackendLlvmError) Right (Llvm.compileProgramWithDependencies layout initializers entry program)
     Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.compileProgramWithDependencies layout initializers entry program)
-  where
-    compileC = either (Left . BackendCError) Right (C.compileProgramWithDependencies layout initializers entry program)
 
 renderCore :: FcProgram -> Text
 renderCore = withFinalNewline . Fc.renderProgram
@@ -626,7 +615,6 @@ runTool tool arguments = do
     ExitFailure _ -> ioError (userError (renderCompileError (CompileToolError tool exitCode stderr)))
 
 backendSourceExtension :: NativeTarget -> String
-backendSourceExtension PortableC = ".c"
 backendSourceExtension Llvm = ".ll"
 backendSourceExtension Wasm32Wasip3 = ".s"
 backendSourceExtension _ = ".s"

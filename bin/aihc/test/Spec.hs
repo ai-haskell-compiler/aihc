@@ -105,11 +105,10 @@ main =
               "command"
               (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just LinuxAmd64) GcCalloc False)))
               (parseCommandPure ["compile", "Main.hs", "--target", "linux-amd64"]),
-          testCase "parses the portable C target" $
-            assertEqual
-              "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just PortableC) GcCalloc False)))
-              (parseCommandPure ["compile", "Main.hs", "--target", "portable-c"]),
+          testCase "rejects the removed portable C target" $
+            case parseCommandPure ["compile", "Main.hs", "--target", "portable-c"] of
+              Left _ -> pure ()
+              Right command -> assertFailure ("unexpected command: " <> show command),
           testCase "parses the LLVM target" $
             assertEqual
               "command"
