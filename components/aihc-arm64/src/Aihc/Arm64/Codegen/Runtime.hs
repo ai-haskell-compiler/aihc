@@ -49,12 +49,11 @@ module Aihc.Arm64.Codegen.Runtime
     runtimeInfoFunctionName,
     runtimeInfoKeyFields,
     runtimeInfoKeyNext,
+    runtimeInfoKeyObjectKind,
     runtimeInfoKeyRemainingArity,
     runtimeInfoKeyStages,
-    runtimeTagClosure,
-    runtimeTagNode,
-    runtimeTagPartialConstructor,
-    runtimeTagThunk,
+    runtimeObjectClosure,
+    runtimeObjectNode,
     storeAt,
     storeByteOffset,
     storeGlobal,
@@ -139,7 +138,8 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoRemainingArity :: !Int,
     runtimeInfoNext :: !(Maybe Text),
     runtimeInfoEnter :: !(Maybe RuntimeEnter),
-    runtimeInfoFrameKind :: !(Maybe ContinuationFrameKind)
+    runtimeInfoFrameKind :: !(Maybe ContinuationFrameKind),
+    runtimeInfoObjectKind :: !Int
   }
 
 data RuntimeEnter = RuntimeEnter
@@ -158,22 +158,21 @@ data NodeInfo
   = InfoImmediate !Int
   | InfoAddress !Text
 
-makeNodeLines :: Int -> NodeInfo -> [Text]
-makeNodeLines kind info =
+makeNodeLines :: NodeInfo -> [Text]
+makeNodeLines info =
   [ "  mov x0, x22",
-    immediate "x1" kind,
     infoLine info,
     "  bl _aihc_make_node"
   ]
   where
     infoLine nodeInfo =
       case nodeInfo of
-        InfoImmediate integer -> immediate "x2" integer
-        InfoAddress label -> address "x2" label
+        InfoImmediate integer -> immediate "x1" integer
+        InfoAddress label -> address "x1" label
 
-makeNodeUncheckedLines :: Int -> NodeInfo -> [Text]
-makeNodeUncheckedLines kind info =
-  init (makeNodeLines kind info) <> ["  bl _aihc_make_node_unchecked"]
+makeNodeUncheckedLines :: NodeInfo -> [Text]
+makeNodeUncheckedLines info =
+  init (makeNodeLines info) <> ["  bl _aihc_make_node_unchecked"]
 
 -- | Describe a unary continuation before and after it receives its result.
 -- The result can occupy several machine slots even though it is one GRIN
@@ -187,7 +186,8 @@ continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedField
       1
       (Just appliedInfoLabel)
       (Just (RuntimeEnter target (length storedFields) (length suppliedFields)))
-      (Just frameKind),
+      (Just frameKind)
+      runtimeObjectClosure,
     RuntimeInfo
       appliedInfoLabel
       (InfoAddress target)
@@ -196,6 +196,7 @@ continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedField
       Nothing
       Nothing
       (Just frameKind)
+      runtimeObjectClosure
   ]
 
 renderEnterStubs :: [RuntimeInfo] -> [Text]
@@ -279,7 +280,8 @@ renderRuntimeInfos infos = [".section __DATA,__const"] <> concatMap renderInfo i
              "  .quad " <> if null fields then "0" else bitmapLabel,
              "  .quad " <> fromMaybe "0" (runtimeInfoNext info),
              "  .quad " <> maybe "0" (const (enterEntryLabel info)) (runtimeInfoEnter info),
-             "  .quad " <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info))
+             "  .quad " <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info)),
+             "  .quad " <> tshow (runtimeInfoObjectKind info)
            ]
       where
         fields = runtimeInfoFields info
@@ -308,11 +310,11 @@ renderRuntimeSupport env extraInfos =
   where
     infos = compileRuntimeInfos env <> extraInfos
 
-runtimeTagNode, runtimeTagClosure, runtimeTagThunk, runtimeTagPartialConstructor :: Int
-runtimeTagNode = 0
-runtimeTagClosure = 1
-runtimeTagThunk = 2
-runtimeTagPartialConstructor = 3
+runtimeObjectNode, runtimeObjectClosure, runtimeObjectThunk, runtimeObjectPartialConstructor :: Int
+runtimeObjectNode = 0
+runtimeObjectClosure = 1
+runtimeObjectThunk = 2
+runtimeObjectPartialConstructor = 3
 
 loadLocation :: Text -> Location Text -> [Text]
 loadLocation destination location =
@@ -336,7 +338,6 @@ renderNativeControl =
     ".p2align 3",
     ".Laihc_enter:",
     "  ldr x9, [x20]",
-    "  and x9, x9, #0xfffffffffffffff8",
     "  ldr x9, [x9, #48]",
     "  cbz x9, .Laihc_invalid_enter",
     "  br x9",
@@ -388,7 +389,7 @@ renderNativeControl =
     "  str x8, [x19, #8]",
     ".Laihc_eval_loop:",
     "  ldr x9, [x20]",
-    "  and x10, x9, #7",
+    "  ldr x10, [x9, #64]",
     "  cmp x10, #2",
     "  b.eq .Laihc_eval_thunk",
     "  cmp x10, #4",
@@ -479,6 +480,13 @@ runtimeInfoKeyRemainingArity :: RuntimeInfoKey -> Int
 runtimeInfoKeyRemainingArity (ConstructorRuntimeInfo _ remaining) = remaining
 runtimeInfoKeyRemainingArity (ClosureRuntimeInfo _ _ argumentLayouts) = length argumentLayouts
 runtimeInfoKeyRemainingArity ThunkRuntimeInfo {} = 0
+
+runtimeInfoKeyObjectKind :: RuntimeInfoKey -> Int
+runtimeInfoKeyObjectKind (ConstructorRuntimeInfo _ remaining)
+  | remaining == 0 = runtimeObjectNode
+  | otherwise = runtimeObjectPartialConstructor
+runtimeInfoKeyObjectKind ClosureRuntimeInfo {} = runtimeObjectClosure
+runtimeInfoKeyObjectKind ThunkRuntimeInfo {} = runtimeObjectThunk
 
 runtimeInfoKeyNext :: RuntimeInfoKey -> Maybe RuntimeInfoKey
 runtimeInfoKeyNext (ConstructorRuntimeInfo name remaining)
@@ -623,10 +631,10 @@ allocateNode = allocateNodeWith makeNodeLines
 allocateNodeUnchecked :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
 allocateNodeUnchecked = allocateNodeWith makeNodeUncheckedLines
 
-allocateNodeWith :: (Int -> NodeInfo -> [Text]) -> ValueEnv -> GrinNode -> Either Arm64Error [Text]
+allocateNodeWith :: (NodeInfo -> [Text]) -> ValueEnv -> GrinNode -> Either Arm64Error [Text]
 allocateNodeWith make env node = do
-  (tag, info) <- nodeHeader env node
-  pure (make tag info)
+  info <- nodeHeader env node
+  pure (make info)
 
 initializeNodeFields :: ValueEnv -> GrinNode -> Either Arm64Error [Text]
 initializeNodeFields env node =
@@ -640,21 +648,18 @@ initializeNodeFields env node =
              "  bl _aihc_set_field"
            ]
 
-nodeHeader :: ValueEnv -> GrinNode -> Either Arm64Error (Int, NodeInfo)
+nodeHeader :: ValueEnv -> GrinNode -> Either Arm64Error NodeInfo
 nodeHeader env node =
   case grinNodeTag node of
     GrinConstructor name remaining -> do
       label <- lookupRuntimeInfoLabel compileEnv (ConstructorRuntimeInfo name remaining)
-      pure
-        ( if remaining == 0 then runtimeTagNode else runtimeTagPartialConstructor,
-          InfoAddress label
-        )
+      pure (InfoAddress label)
     GrinClosure functionName argumentLayouts -> do
       label <- lookupRuntimeInfoLabel compileEnv (ClosureRuntimeInfo functionName fields argumentLayouts)
-      pure (runtimeTagClosure, InfoAddress label)
+      pure (InfoAddress label)
     GrinThunk functionName -> do
       label <- lookupRuntimeInfoLabel compileEnv (ThunkRuntimeInfo functionName fields)
-      pure (runtimeTagThunk, InfoAddress label)
+      pure (InfoAddress label)
   where
     compileEnv = valueCompileEnv env
     fields = map grinValueRuntimeRep (grinNodeFields node)

@@ -75,7 +75,7 @@ aihc_trampoline_continue_values_now(AihcMachine *machine,
                                     AihcValue *continuation, uint64_t count,
                                     const AihcSlot *values) {
   if (continuation == NULL ||
-      aihc_value_tag(continuation) != AIHC_TAG_CLOSURE) {
+      aihc_value_kind(continuation) != AIHC_OBJECT_CLOSURE) {
     aihc_fail("attempted to invoke a non-continuation value");
   }
   if (aihc_value_arity(continuation) != 1) {
@@ -109,7 +109,7 @@ AihcTrampolineTransfer aihc_trampoline_apply_cps(AihcMachine *machine,
   if (function == NULL) {
     aihc_fail("attempted to apply null");
   }
-  if (aihc_value_tag(function) == AIHC_TAG_CLOSURE &&
+  if (aihc_value_kind(function) == AIHC_OBJECT_CLOSURE &&
       aihc_value_arity(function) == 1) {
     (void)aihc_next_application_info(aihc_value_info_table(function), count);
     return aihc_trampoline_transfer(aihc_value_entry(function),
@@ -165,15 +165,15 @@ aihc_trampoline_eval_cps(AihcMachine *machine, AihcValue *value,
   if (value == NULL) {
     aihc_fail("attempted to evaluate null");
   }
-  switch (aihc_value_tag(value)) {
-  case AIHC_TAG_THUNK: {
+  switch (aihc_value_kind(value)) {
+  case AIHC_OBJECT_THUNK: {
     AihcSlot *arguments =
         aihc_trampoline_arguments(machine, value, 0, NULL, update_continuation);
     AihcEntry entry = aihc_value_entry(value);
     aihc_begin_blackhole(machine, value);
     return aihc_trampoline_transfer(entry, arguments);
   }
-  case AIHC_TAG_INDIRECTION:
+  case AIHC_OBJECT_INDIRECTION:
     if (result_is_lifted) {
       return aihc_trampoline_eval_cps(machine,
                                       (AihcValue *)(uintptr_t)value->fields[0],
@@ -181,7 +181,7 @@ aihc_trampoline_eval_cps(AihcMachine *machine, AihcValue *value,
     }
     return aihc_trampoline_continue_value(machine, continuation,
                                           value->fields[0]);
-  case AIHC_TAG_BLACKHOLE:
+  case AIHC_OBJECT_BLACKHOLE:
     return aihc_trampoline_resume(
         machine, aihc_block_on_blackhole(machine, value, continuation));
   default:

@@ -76,7 +76,8 @@ data RuntimeInfo = RuntimeInfo
     runtimeInfoRemainingArity :: !Int,
     runtimeInfoNext :: !(Maybe Text),
     runtimeInfoEnter :: !(Maybe RuntimeEnter),
-    runtimeInfoFrameKind :: !(Maybe ContinuationFrameKind)
+    runtimeInfoFrameKind :: !(Maybe ContinuationFrameKind),
+    runtimeInfoObjectKind :: !Int
   }
 
 data RuntimeEnter = RuntimeEnter
@@ -152,7 +153,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
   where
     program = gcGrinProgram gcProgram
     env = compileEnvironment ExecutableUnit (gcContinuationFunctions gcProgram) (gcContinuationFrames gcProgram) layout program
-    specialInfo label entry fields remaining next enter frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next enter (Just frameKind)
+    specialInfo label entry fields remaining next enter frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next enter (Just frameKind) runtimeObjectClosure
     continuationEnter target stored supplied = RuntimeEnter target stored supplied True
 
 compileModule :: LinkLayout -> Text -> GcGrinProgram -> Either LlvmError Text
@@ -216,7 +217,7 @@ compileEnvironment unitKind continuationFunctions continuationFrames layout prog
                ]
         )
     constructorEntries =
-      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing Nothing)
+      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key))
       | ((name, layouts), (_, identifier)) <- zip (linkConstructors layout) constructorIds,
         let arity = length layouts,
         remaining <- [arity, arity - 1 .. 0],
@@ -253,6 +254,7 @@ compileEnvironment unitKind continuationFunctions continuationFrames layout prog
             (runtimeInfoKeyNext key >>= (`Map.lookup` infoLabels))
             (runtimeEnter key)
             (runtimeInfoFunctionName key >>= (`Map.lookup` continuationFrames))
+            (runtimeInfoKeyObjectKind key)
         )
       | (index, key) <- zip [0 :: Int ..] infoKeys,
         let label = "aihc_llvm_function_info_" <> tshow index
@@ -431,7 +433,7 @@ compileApplyTransfer :: [Text] -> Text -> Text -> [Text] -> Text -> FunctionM ()
 compileApplyTransfer prefix label function arguments continuation = do
   fastLabel <- freshLabel "apply_fast"
   slowLabel <- freshLabel "apply_slow"
-  (infoLines, tag, info) <- loadValueInfo function
+  (infoLines, kind, info) <- loadValueInfo function
   arityPointer <- freshValue
   arity <- freshValue
   isClosure <- freshValue
@@ -443,7 +445,7 @@ compileApplyTransfer prefix label function arguments continuation = do
         <> infoLines
         <> [ "  " <> arityPointer <> " = getelementptr %AihcInfo, ptr " <> info <> ", i32 0, i32 3",
              "  " <> arity <> " = load i64, ptr " <> arityPointer <> ", align 8",
-             "  " <> isClosure <> " = icmp eq i64 " <> tag <> ", 1",
+             "  " <> isClosure <> " = icmp eq i64 " <> kind <> ", 1",
              "  " <> isSaturated <> " = icmp eq i64 " <> arity <> ", 1",
              "  " <> isFast <> " = and i1 " <> isClosure <> ", " <> isSaturated,
              "  br i1 " <> isFast <> ", label %" <> fastLabel <> ", label %" <> slowLabel
@@ -511,16 +513,16 @@ compileContinueTransfer continuation values = do
 loadValueInfo :: Text -> FunctionM ([Text], Text, Text)
 loadValueInfo value = do
   header <- freshValue
-  tag <- freshValue
-  infoInteger <- freshValue
   info <- freshValue
+  kindPointer <- freshValue
+  kind <- freshValue
   pure
     ( [ "  " <> header <> " = load i64, ptr " <> value <> ", align 8",
-        "  " <> tag <> " = and i64 " <> header <> ", 7",
-        "  " <> infoInteger <> " = and i64 " <> header <> ", -8",
-        "  " <> info <> " = inttoptr i64 " <> infoInteger <> " to ptr"
+        "  " <> info <> " = inttoptr i64 " <> header <> " to ptr",
+        "  " <> kindPointer <> " = getelementptr %AihcInfo, ptr " <> info <> ", i32 0, i32 8",
+        "  " <> kind <> " = load i64, ptr " <> kindPointer <> ", align 8"
       ],
-      tag,
+      kind,
       info
     )
 
@@ -1071,7 +1073,7 @@ materializeLiteral env literal =
 
 materializeNode :: ValueEnv -> Bool -> GrinNode -> FunctionM ([Text], Text)
 materializeNode env unchecked node = do
-  (tag, info) <- liftEither (nodeHeader (valueCompileEnv env) node)
+  info <- liftEither (nodeHeader (valueCompileEnv env) node)
   object <- freshValue
   objectInteger <- freshValue
   fields <- initializeLocalFields env objectInteger node
@@ -1080,9 +1082,7 @@ materializeNode env unchecked node = do
           <> object
           <> " = call ptr @"
           <> (if unchecked then "aihc_make_node_unchecked" else "aihc_make_node")
-          <> "(ptr %machine, i64 "
-          <> tshow tag
-          <> ", ptr @"
+          <> "(ptr %machine, ptr @"
           <> info
           <> ")",
         "  " <> objectInteger <> " = ptrtoint ptr " <> object <> " to i64"
@@ -1098,17 +1098,15 @@ initializeLocalFields env objectOperand node =
     (objectLines, object) <- intToPtr objectOperand
     pure (lines' <> objectLines <> ["  call void @aihc_set_field(ptr " <> object <> ", i64 " <> tshow index <> ", i64 " <> operand <> ")"])
 
-nodeHeader :: CompileEnv -> GrinNode -> Either LlvmError (Int, Text)
-nodeHeader env node = do
-  info <- lookupRuntimeInfoLabel env key
-  pure (tag, info)
+nodeHeader :: CompileEnv -> GrinNode -> Either LlvmError Text
+nodeHeader env node = lookupRuntimeInfoLabel env key
   where
     fields = map grinValueRuntimeRep (grinNodeFields node)
-    (tag, key) =
+    key =
       case grinNodeTag node of
-        GrinConstructor name remaining -> (if remaining == 0 then 0 else 3, ConstructorRuntimeInfo name remaining)
-        GrinClosure functionName layouts -> (1, ClosureRuntimeInfo functionName fields layouts)
-        GrinThunk functionName -> (2, ThunkRuntimeInfo functionName fields)
+        GrinConstructor name remaining -> ConstructorRuntimeInfo name remaining
+        GrinClosure functionName layouts -> ClosureRuntimeInfo functionName fields layouts
+        GrinThunk functionName -> ThunkRuntimeInfo functionName fields
 
 compileConstructorInitializers :: CompileEnv -> FunctionM [Text]
 compileConstructorInitializers env = fmap concat . forM nullary $ \(name, _) -> do
@@ -1118,7 +1116,7 @@ compileConstructorInitializers env = fmap concat . forM nullary $ \(name, _) -> 
   objectInteger <- freshValue
   globalStore <- storeGlobal slot objectInteger
   pure
-    ( [ "  " <> object <> " = call ptr @aihc_make_node(ptr %machine, i64 0, ptr @" <> info <> ")",
+    ( [ "  " <> object <> " = call ptr @aihc_make_node(ptr %machine, ptr @" <> info <> ")",
         "  " <> objectInteger <> " = ptrtoint ptr " <> object <> " to i64"
       ]
         <> globalStore
@@ -1134,12 +1132,12 @@ compileInitializers :: CompileEnv -> GrinProgram -> FunctionM [Text]
 compileInitializers env program = do
   cafAllocations <- fmap concat . forM (grinCafs program) $ \(var, node) -> do
     slot <- liftEither (globalSlot env (grinVarName var))
-    (tag, info) <- liftEither (nodeHeader env node)
+    info <- liftEither (nodeHeader env node)
     object <- freshValue
     objectInteger <- freshValue
     globalStore <- storeGlobal slot objectInteger
     pure
-      ( [ "  " <> object <> " = call ptr @aihc_make_node(ptr %machine, i64 " <> tshow tag <> ", ptr @" <> info <> ")",
+      ( [ "  " <> object <> " = call ptr @aihc_make_node(ptr %machine, ptr @" <> info <> ")",
           "  " <> objectInteger <> " = ptrtoint ptr " <> object <> " to i64"
         ]
           <> globalStore
@@ -1170,11 +1168,11 @@ renderMain env rootSlot dependencyInitializers constructorInitialization initial
     <> ["  call void @" <> initializer <> "()" | initializer <- dependencyInitializers]
     <> initialization
     <> [ "  call void @aihc_ensure_heap(ptr %machine, i64 7, i64 0, ptr null)",
-         "  %final = call ptr @aihc_make_node_unchecked(ptr %machine, i64 1, ptr @aihc_llvm_final_info)",
-         "  %top = call ptr @aihc_make_node_unchecked(ptr %machine, i64 1, ptr @aihc_llvm_top_info)",
+         "  %final = call ptr @aihc_make_node_unchecked(ptr %machine, ptr @aihc_llvm_final_info)",
+         "  %top = call ptr @aihc_make_node_unchecked(ptr %machine, ptr @aihc_llvm_top_info)",
          "  %final_i64 = ptrtoint ptr %final to i64",
          "  call void @aihc_set_field(ptr %top, i64 0, i64 %final_i64)",
-         "  %update = call ptr @aihc_make_node_unchecked(ptr %machine, i64 1, ptr @aihc_llvm_update_info)",
+         "  %update = call ptr @aihc_make_node_unchecked(ptr %machine, ptr @aihc_llvm_update_info)",
          "  %globals_field = getelementptr %AihcMachinePrefix, ptr %machine, i32 0, i32 0",
          "  %globals = load ptr, ptr %globals_field, align 8",
          "  %root_slot = getelementptr i64, ptr %globals, i64 " <> tshow rootSlot,
@@ -1182,7 +1180,7 @@ renderMain env rootSlot dependencyInitializers constructorInitialization initial
          "  %top_i64 = ptrtoint ptr %top to i64",
          "  call void @aihc_set_field(ptr %update, i64 0, i64 %top_i64)",
          "  call void @aihc_set_field(ptr %update, i64 1, i64 %root)",
-         "  %thread_done = call ptr @aihc_make_node_unchecked(ptr %machine, i64 1, ptr @aihc_llvm_thread_done_info)",
+         "  %thread_done = call ptr @aihc_make_node_unchecked(ptr %machine, ptr @aihc_llvm_thread_done_info)",
          "  call void @aihc_set_thread_done_continuation(ptr %machine, ptr %thread_done)",
          "  %exit_field = getelementptr %AihcMachinePrefix, ptr %machine, i32 0, i32 2",
          "  store ptr @aihc_llvm_exit, ptr %exit_field, align 8",
@@ -1233,8 +1231,7 @@ renderNativeControlFunctions =
   [ "define internal tailcc void @aihc_llvm_continue_0(ptr %machine, ptr %continuation) {",
     "entry:",
     "  %header = load i64, ptr %continuation, align 8",
-    "  %info_i64 = and i64 %header, -8",
-    "  %info = inttoptr i64 %info_i64 to ptr",
+    "  %info = inttoptr i64 %header to ptr",
     "  %entry_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 6",
     "  %target = load ptr, ptr %entry_slot, align 8",
     "  musttail call tailcc void %target(ptr %machine, ptr %continuation)",
@@ -1244,8 +1241,7 @@ renderNativeControlFunctions =
     "define internal tailcc void @aihc_llvm_continue_1(ptr %machine, ptr %continuation, i64 %value) {",
     "entry:",
     "  %header = load i64, ptr %continuation, align 8",
-    "  %info_i64 = and i64 %header, -8",
-    "  %info = inttoptr i64 %info_i64 to ptr",
+    "  %info = inttoptr i64 %header to ptr",
     "  %entry_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 6",
     "  %target = load ptr, ptr %entry_slot, align 8",
     "  musttail call tailcc void %target(ptr %machine, ptr %continuation, i64 %value)",
@@ -1255,12 +1251,12 @@ renderNativeControlFunctions =
     "define internal tailcc void @aihc_llvm_apply_0(ptr %machine, ptr %function, ptr %continuation) {",
     "entry:",
     "  %header = load i64, ptr %function, align 8",
-    "  %tag = and i64 %header, 7",
-    "  %info_i64 = and i64 %header, -8",
-    "  %info = inttoptr i64 %info_i64 to ptr",
+    "  %info = inttoptr i64 %header to ptr",
     "  %arity_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 3",
     "  %arity = load i64, ptr %arity_slot, align 8",
-    "  %is_closure = icmp eq i64 %tag, 1",
+    "  %kind_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 8",
+    "  %kind = load i64, ptr %kind_slot, align 8",
+    "  %is_closure = icmp eq i64 %kind, 1",
     "  %is_saturated = icmp eq i64 %arity, 1",
     "  %is_fast = and i1 %is_closure, %is_saturated",
     "  br i1 %is_fast, label %fast, label %slow",
@@ -1282,12 +1278,12 @@ renderNativeControlFunctions =
     "define internal tailcc void @aihc_llvm_apply_1(ptr %machine, ptr %function, ptr %continuation, i64 %value) {",
     "entry:",
     "  %header = load i64, ptr %function, align 8",
-    "  %tag = and i64 %header, 7",
-    "  %info_i64 = and i64 %header, -8",
-    "  %info = inttoptr i64 %info_i64 to ptr",
+    "  %info = inttoptr i64 %header to ptr",
     "  %arity_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 3",
     "  %arity = load i64, ptr %arity_slot, align 8",
-    "  %is_closure = icmp eq i64 %tag, 1",
+    "  %kind_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 8",
+    "  %kind = load i64, ptr %kind_slot, align 8",
+    "  %is_closure = icmp eq i64 %kind, 1",
     "  %is_saturated = icmp eq i64 %arity, 1",
     "  %is_fast = and i1 %is_closure, %is_saturated",
     "  br i1 %is_fast, label %fast, label %slow",
@@ -1362,13 +1358,13 @@ renderNativeControlFunctions =
     "loop:",
     "  %current = phi ptr [ %value, %entry ], [ %indirected, %indirection_lifted ]",
     "  %header = load i64, ptr %current, align 8",
-    "  %tag = and i64 %header, 7",
-    "  switch i64 %tag, label %ready [ i64 2, label %thunk i64 4, label %indirection i64 5, label %blackhole ]",
+    "  %info = inttoptr i64 %header to ptr",
+    "  %kind_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 8",
+    "  %kind = load i64, ptr %kind_slot, align 8",
+    "  switch i64 %kind, label %ready [ i64 2, label %thunk i64 4, label %indirection i64 5, label %blackhole ]",
     "thunk:",
     "  call void @aihc_begin_blackhole(ptr %machine, ptr %current)",
-    "  %thunk_info_i64 = and i64 %header, -8",
-    "  %thunk_info = inttoptr i64 %thunk_info_i64 to ptr",
-    "  %thunk_entry_slot = getelementptr %AihcInfo, ptr %thunk_info, i32 0, i32 6",
+    "  %thunk_entry_slot = getelementptr %AihcInfo, ptr %info, i32 0, i32 6",
     "  %thunk_entry = load ptr, ptr %thunk_entry_slot, align 8",
     "  musttail call tailcc void %thunk_entry(ptr %machine, ptr %current, ptr %update_continuation)",
     "  ret void",
@@ -1422,14 +1418,12 @@ pointerIdentity :: Text -> FunctionM ([Text], Text)
 pointerIdentity operand = do
   (objectLines, object) <- intToPtr operand
   header <- freshValue
-  infoInteger <- freshValue
   info <- freshValue
   identity <- freshValue
   pure
     ( objectLines
         <> [ "  " <> header <> " = load i64, ptr " <> object <> ", align 8",
-             "  " <> infoInteger <> " = and i64 " <> header <> ", -8",
-             "  " <> info <> " = inttoptr i64 " <> infoInteger <> " to ptr",
+             "  " <> info <> " = inttoptr i64 " <> header <> " to ptr",
              "  " <> identity <> " = load i64, ptr " <> info <> ", align 8"
            ],
       identity
@@ -1610,6 +1604,8 @@ renderRuntimeInfos infos = concatMap bitmap infos <> map definition infos <> [""
         <> maybe "null" (const ("@" <> enterEntryLabel info)) (runtimeInfoEnter info)
         <> ", i64 "
         <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info))
+        <> ", i64 "
+        <> tshow (runtimeInfoObjectKind info)
         <> " }, align 8"
 
 renderForeignDeclarations :: GrinProgram -> [Text]
@@ -1665,7 +1661,7 @@ renderAddrLiterals env =
 llvmPreamble :: [Text]
 llvmPreamble =
   [ "; Generated by AIHC's LLVM backend.",
-    "%AihcInfo = type { i64, ptr, i64, i64, ptr, ptr, ptr, i64 }",
+    "%AihcInfo = type { i64, ptr, i64, i64, ptr, ptr, ptr, i64, i64 }",
     "%AihcResume = type { i64, ptr, ptr, i64, i64 }",
     "%AihcMachinePrefix = type { ptr, i64, ptr }",
     ""
@@ -1674,8 +1670,8 @@ llvmPreamble =
 renderRuntimeDeclarations :: [Text]
 renderRuntimeDeclarations =
   [ "declare ptr @aihc_machine_new(i64)",
-    "declare ptr @aihc_make_node(ptr, i64, ptr)",
-    "declare ptr @aihc_make_node_unchecked(ptr, i64, ptr)",
+    "declare ptr @aihc_make_node(ptr, ptr)",
+    "declare ptr @aihc_make_node_unchecked(ptr, ptr)",
     "declare void @aihc_ensure_heap(ptr, i64, i64, ptr)",
     "declare void @aihc_set_field(ptr, i64, i64)",
     "declare void @aihc_update(ptr, ptr)",
@@ -1756,6 +1752,19 @@ runtimeInfoKeyRemainingArity key = case key of
   ConstructorRuntimeInfo _ remaining -> remaining
   ClosureRuntimeInfo _ _ layouts -> length layouts
   ThunkRuntimeInfo {} -> 0
+
+runtimeInfoKeyObjectKind :: RuntimeInfoKey -> Int
+runtimeInfoKeyObjectKind key = case key of
+  ConstructorRuntimeInfo _ 0 -> runtimeObjectNode
+  ConstructorRuntimeInfo {} -> runtimeObjectPartialConstructor
+  ClosureRuntimeInfo {} -> runtimeObjectClosure
+  ThunkRuntimeInfo {} -> runtimeObjectThunk
+
+runtimeObjectNode, runtimeObjectClosure, runtimeObjectThunk, runtimeObjectPartialConstructor :: Int
+runtimeObjectNode = 0
+runtimeObjectClosure = 1
+runtimeObjectThunk = 2
+runtimeObjectPartialConstructor = 3
 
 runtimeInfoKeyNext :: RuntimeInfoKey -> Maybe RuntimeInfoKey
 runtimeInfoKeyNext key = case key of

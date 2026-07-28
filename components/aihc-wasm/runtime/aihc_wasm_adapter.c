@@ -62,14 +62,13 @@ static AihcValue *aihc_value(AihcSlot slot) {
   return (AihcValue *)(uintptr_t)slot;
 }
 
-AihcSlot aihc_wasm_make_node(AihcMachine *machine, uint64_t tag,
-                             const AihcInfo *info) {
-  return (AihcSlot)(uintptr_t)aihc_make_node(machine, tag, info);
+AihcSlot aihc_wasm_make_node(AihcMachine *machine, const AihcInfo *info) {
+  return (AihcSlot)(uintptr_t)aihc_make_node(machine, info);
 }
 
-AihcSlot aihc_wasm_make_node_unchecked(AihcMachine *machine, uint64_t tag,
+AihcSlot aihc_wasm_make_node_unchecked(AihcMachine *machine,
                                        const AihcInfo *info) {
-  return (AihcSlot)(uintptr_t)aihc_make_node_unchecked(machine, tag, info);
+  return (AihcSlot)(uintptr_t)aihc_make_node_unchecked(machine, info);
 }
 
 void aihc_wasm_set_field(AihcSlot value, uint64_t index, AihcSlot field) {
@@ -146,7 +145,7 @@ void aihc_wasm_transfer_eval(AihcMachine *machine, AihcSlot value,
                              uint64_t lifted, AihcSlot continuation,
                              AihcSlot update_continuation) {
   AihcValue *object = aihc_value(value);
-  if (object != NULL && aihc_value_tag(object) == AIHC_TAG_THUNK &&
+  if (object != NULL && aihc_value_kind(object) == AIHC_OBJECT_THUNK &&
       aihc_value_info_table(object)->backend_entry != NULL) {
     aihc_set_object_transfer(machine, object, NULL,
                              aihc_value(update_continuation));
@@ -162,7 +161,7 @@ void aihc_wasm_transfer_apply(AihcMachine *machine, AihcSlot function,
                               uint64_t count, const AihcSlot *arguments,
                               AihcSlot continuation) {
   AihcValue *object = aihc_value(function);
-  if (object != NULL && aihc_value_tag(object) == AIHC_TAG_CLOSURE &&
+  if (object != NULL && aihc_value_kind(object) == AIHC_OBJECT_CLOSURE &&
       aihc_can_enter_saturated(object, count)) {
     aihc_set_object_transfer(machine, object, arguments,
                              aihc_value(continuation));
@@ -176,7 +175,7 @@ void aihc_wasm_transfer_apply(AihcMachine *machine, AihcSlot function,
 void aihc_wasm_transfer_continue(AihcMachine *machine, AihcSlot continuation,
                                  uint64_t count, const AihcSlot *values) {
   AihcValue *object = aihc_value(continuation);
-  if (object != NULL && aihc_value_tag(object) == AIHC_TAG_CLOSURE &&
+  if (object != NULL && aihc_value_kind(object) == AIHC_OBJECT_CLOSURE &&
       aihc_can_enter_saturated(object, count)) {
     aihc_set_object_transfer(machine, object, values, NULL);
     return;

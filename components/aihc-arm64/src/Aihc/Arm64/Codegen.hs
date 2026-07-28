@@ -86,12 +86,12 @@ compileObservedFunction entryName gcProgram = do
             <> reserveLocalsLines functions
             <> constructorLines
             <> initLines
-            <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_thread_done_info")
+            <> makeNodeLines (InfoAddress ".Laihc_thread_done_info")
             <> [ "  mov x1, x0",
                  "  mov x0, x22",
                  "  bl _aihc_set_thread_done_continuation"
                ]
-            <> makeNodeLines runtimeTagClosure (InfoAddress ".Laihc_snapshot_info")
+            <> makeNodeLines (InfoAddress ".Laihc_snapshot_info")
             <> [ "  mov x21, x0",
                  "  mov x0, x22",
                  "  bl _aihc_reset_allocation_count",
@@ -174,15 +174,15 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
            "  mov x3, xzr",
            "  bl _aihc_ensure_heap"
          ]
-      <> makeNodeUncheckedLines runtimeTagClosure (InfoAddress ".Laihc_final_info")
+      <> makeNodeUncheckedLines (InfoAddress ".Laihc_final_info")
       <> ["  mov x21, x0"]
-      <> makeNodeUncheckedLines runtimeTagClosure (InfoAddress ".Laihc_top_info")
+      <> makeNodeUncheckedLines (InfoAddress ".Laihc_top_info")
       <> [ "  mov x20, x0",
            "  mov x2, x21",
            "  mov x1, #0",
            "  bl _aihc_set_field"
          ]
-      <> makeNodeUncheckedLines runtimeTagClosure (InfoAddress ".Laihc_update_info")
+      <> makeNodeUncheckedLines (InfoAddress ".Laihc_update_info")
       <> [ storeAt "x0" "x19" 0,
            "  mov x2, x20",
            loadAt "x0" "x19" 0,
@@ -194,7 +194,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
            loadAt "x2" "x9" rootSlot,
            "  bl _aihc_set_field"
          ]
-      <> makeNodeUncheckedLines runtimeTagClosure (InfoAddress ".Laihc_thread_done_info")
+      <> makeNodeUncheckedLines (InfoAddress ".Laihc_thread_done_info")
       <> [ "  mov x10, x0",
            "  mov x1, x10",
            "  mov x0, x22",
@@ -284,7 +284,7 @@ compileEnvironmentWith exposeAllFunctions continuationFrames layout program =
     constructorInfoEntries =
       [ ( key,
           label,
-          RuntimeInfo label (InfoImmediate identifier) fields remaining next Nothing Nothing
+          RuntimeInfo label (InfoImmediate identifier) fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key)
         )
       | ((name, layouts), (_, identifier)) <- zip constructorLayouts constructorIdentifiers,
         let arity = length layouts,
@@ -329,6 +329,7 @@ compileEnvironmentWith exposeAllFunctions continuationFrames layout program =
               _ -> Nothing
           )
           (Map.lookup functionName continuationFrames)
+          (runtimeInfoKeyObjectKind key)
       | (key, functionName) <- functionInfoKeys,
         let label = functionInfoLabels Map.! key
             target = functionLabelMap Map.! functionName
@@ -340,7 +341,7 @@ compileConstructorInitializers env =
   fmap concat . forM nullaryConstructors $ \name -> do
     slot <- globalSlot env name
     info <- lookupRuntimeInfoLabel env (ConstructorRuntimeInfo name 0)
-    pure $ makeNodeLines runtimeTagNode (InfoAddress info) <> storeGlobal slot
+    pure $ makeNodeLines (InfoAddress info) <> storeGlobal slot
   where
     nullaryConstructors = Map.keys (Map.filter (== 0) (compileConstructorArities env))
 

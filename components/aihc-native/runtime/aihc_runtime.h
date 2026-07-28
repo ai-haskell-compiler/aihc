@@ -8,18 +8,15 @@
 #endif
 
 enum {
-  AIHC_TAG_NODE = 0,
-  AIHC_TAG_CLOSURE = 1,
-  AIHC_TAG_THUNK = 2,
-  AIHC_TAG_PARTIAL_CONSTRUCTOR = 3,
-  AIHC_TAG_INDIRECTION = 4,
-  AIHC_TAG_BLACKHOLE = 5,
-  AIHC_TAG_THREAD = 6,
-  AIHC_TAG_FORWARDING = 7,
+  AIHC_OBJECT_NODE,
+  AIHC_OBJECT_CLOSURE,
+  AIHC_OBJECT_THUNK,
+  AIHC_OBJECT_PARTIAL_CONSTRUCTOR,
+  AIHC_OBJECT_INDIRECTION,
+  AIHC_OBJECT_BLACKHOLE,
+  AIHC_OBJECT_THREAD,
 };
-
-#define AIHC_TAG_BITS 3
-#define AIHC_TAG_MASK ((uintptr_t)((1U << AIHC_TAG_BITS) - 1U))
+typedef uint64_t AihcObjectKind;
 
 typedef struct AihcValue AihcValue;
 typedef struct AihcMachine AihcMachine;
@@ -75,11 +72,12 @@ struct AihcInfo {
   /* Continuation closures have their parent in field zero. This kind is
      backend-independent so the runtime can unwind them uniformly. */
   AihcFrameKind frame_kind;
+  AihcObjectKind object_kind;
 };
 
 struct AihcValue {
-  /* Low AIHC_TAG_BITS select the runtime state. Remaining bits point to the
-     static info table, or to the copied object for a forwarding header. */
+  /* Ordinarily an unmodified info-table pointer. During semispace collection,
+     a forwarded from-space object temporarily holds its to-space address. */
   AihcSlot header;
   AihcSlot fields[];
 };
@@ -112,15 +110,13 @@ struct AihcMachine {
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
                "AIHC objects must have a one-word base header");
-_Static_assert(_Alignof(AihcInfo) >= (1U << AIHC_TAG_BITS),
-               "AIHC info tables must leave the tag bits clear");
-
-static inline uint64_t aihc_value_tag(const AihcValue *value) {
-  return value->header & AIHC_TAG_MASK;
-}
 
 static inline const AihcInfo *aihc_value_info_table(const AihcValue *value) {
-  return (const AihcInfo *)(value->header & ~AIHC_TAG_MASK);
+  return (const AihcInfo *)(uintptr_t)value->header;
+}
+
+static inline AihcObjectKind aihc_value_kind(const AihcValue *value) {
+  return aihc_value_info_table(value)->object_kind;
 }
 
 static inline uintptr_t aihc_value_info(const AihcValue *value) {
@@ -147,10 +143,8 @@ static inline const AihcSlot *aihc_value_fields_const(const AihcValue *value) {
   return value->fields;
 }
 
-AihcValue *aihc_make_node(AihcMachine *machine, uint64_t tag,
-                          const AihcInfo *info);
-AihcValue *aihc_make_node_unchecked(AihcMachine *machine, uint64_t tag,
-                                    const AihcInfo *info);
+AihcValue *aihc_make_node(AihcMachine *machine, const AihcInfo *info);
+AihcValue *aihc_make_node_unchecked(AihcMachine *machine, const AihcInfo *info);
 void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
                       AihcSlot *roots);
 AihcMachine *aihc_machine_new(uint64_t global_count);

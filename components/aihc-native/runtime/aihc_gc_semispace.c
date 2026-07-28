@@ -20,13 +20,13 @@ static AihcValue *aihc_forward(AihcMachine *machine, uint8_t *from_start,
       !aihc_in_space(from_start, machine->semispace_bytes, value)) {
     return value;
   }
-  if (aihc_value_tag(value) == AIHC_TAG_FORWARDING) {
-    return (AihcValue *)(uintptr_t)(value->header & ~AIHC_TAG_MASK);
+  AihcValue *forwarded = (AihcValue *)(uintptr_t)value->header;
+  if (aihc_in_space(machine->heap_start, machine->semispace_bytes, forwarded)) {
+    return forwarded;
   }
 
-  uint64_t tag = aihc_value_tag(value);
   const AihcInfo *info = aihc_value_info_table(value);
-  uint64_t words = aihc_object_words(tag, info);
+  uint64_t words = aihc_object_words(info);
   size_t bytes = sizeof(AihcSlot) * words;
   if (machine->heap_next + bytes > machine->heap_limit) {
     aihc_fail("live data exceeds semispace");
@@ -34,7 +34,7 @@ static AihcValue *aihc_forward(AihcMachine *machine, uint8_t *from_start,
   AihcValue *copy = (AihcValue *)machine->heap_next;
   memcpy(copy, value, bytes);
   machine->heap_next += bytes;
-  value->header = (uintptr_t)copy | AIHC_TAG_FORWARDING;
+  value->header = (AihcSlot)(uintptr_t)copy;
   return copy;
 }
 
@@ -58,14 +58,15 @@ static void aihc_collect(AihcMachine *machine, uint64_t required_words,
   uint8_t *scan = to_start;
   while (scan < machine->heap_next) {
     AihcValue *object = (AihcValue *)scan;
-    uint64_t tag = aihc_value_tag(object);
     const AihcInfo *info = aihc_value_info_table(object);
+    AihcObjectKind kind = info->object_kind;
     uint64_t count = info->field_count;
-    if (tag == AIHC_TAG_INDIRECTION) {
+    if (kind == AIHC_OBJECT_INDIRECTION) {
       object->fields[0] = aihc_forward_root(object->fields[0], &context);
-    } else if (tag == AIHC_TAG_NODE || tag == AIHC_TAG_CLOSURE ||
-               tag == AIHC_TAG_THUNK || tag == AIHC_TAG_PARTIAL_CONSTRUCTOR ||
-               tag == AIHC_TAG_BLACKHOLE) {
+    } else if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
+               kind == AIHC_OBJECT_THUNK ||
+               kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR ||
+               kind == AIHC_OBJECT_BLACKHOLE) {
       for (uint64_t index = 0; index < count; ++index) {
         if (info->field_is_pointer != NULL && info->field_is_pointer[index]) {
           object->fields[index] =
@@ -73,9 +74,9 @@ static void aihc_collect(AihcMachine *machine, uint64_t required_words,
         }
       }
     } else {
-      aihc_fail("collector encountered an invalid object tag");
+      aihc_fail("collector encountered an invalid object kind");
     }
-    scan += sizeof(AihcSlot) * aihc_object_words(tag, info);
+    scan += sizeof(AihcSlot) * aihc_object_words(info);
   }
 
   machine->other_space = from_start;
