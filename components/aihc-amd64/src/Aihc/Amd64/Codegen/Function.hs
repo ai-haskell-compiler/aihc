@@ -184,7 +184,6 @@ compileExpr env prefix label expression =
             <> [loadAt register "r14" slot | (register, slot) <- zip applyArgumentRegisters argumentSlots]
             <> saveApplyOverflowLines "r14" argumentSlots
             <> [ "  mov r11, QWORD PTR [" <> applyFunctionRegister <> "]",
-                 "  and r11, -8",
                  "  mov r11, QWORD PTR [r11 + 48]",
                  "  test r11, r11",
                  "  jz " <> slowLabel,

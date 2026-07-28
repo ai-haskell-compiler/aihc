@@ -14,9 +14,10 @@ void *malloc(size_t size) {
     aihc_heap_next = (uintptr_t)&aihc_heap_base;
   }
   size_t requested = size == 0 ? 1 : size;
-  uintptr_t header = aihc_align(aihc_heap_next, 16);
-  uintptr_t end = header + sizeof(size_t) + requested;
-  if (end < header) {
+  uintptr_t payload = aihc_align(aihc_heap_next + sizeof(size_t), 16);
+  uintptr_t header = payload - sizeof(size_t);
+  uintptr_t end = payload + requested;
+  if (payload < aihc_heap_next || end < payload) {
     return NULL;
   }
   size_t memory_size = __builtin_wasm_memory_size(0) * 65536U;
@@ -28,7 +29,7 @@ void *malloc(size_t size) {
   }
   *(size_t *)header = requested;
   aihc_heap_next = end;
-  return (void *)(header + sizeof(size_t));
+  return (void *)payload;
 }
 
 void free(void *pointer) { (void)pointer; }

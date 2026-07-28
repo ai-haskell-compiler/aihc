@@ -14,17 +14,40 @@ _Static_assert(offsetof(AihcInfo, backend_entry) == 48,
                "info-table backend-entry ABI");
 _Static_assert(offsetof(AihcInfo, frame_kind) == 56,
                "info-table frame-kind ABI");
+_Static_assert(offsetof(AihcInfo, object_kind) == 64,
+               "info-table object-kind ABI");
+_Static_assert(sizeof(AihcInfo) == 72, "info-table size ABI");
 _Static_assert(offsetof(AihcResume, kind) == 0, "resume kind ABI");
 _Static_assert(offsetof(AihcResume, function) == 8, "resume function ABI");
 _Static_assert(offsetof(AihcResume, continuation) == 16,
                "resume continuation ABI");
 _Static_assert(offsetof(AihcResume, value) == 24, "resume value ABI");
 _Static_assert(offsetof(AihcResume, count) == 32, "resume count ABI");
+#elif UINTPTR_MAX == UINT32_MAX
+_Static_assert(offsetof(AihcInfo, backend_entry) == 32,
+               "info-table backend-entry ABI");
+_Static_assert(offsetof(AihcInfo, frame_kind) == 40,
+               "info-table frame-kind ABI");
+_Static_assert(offsetof(AihcInfo, object_kind) == 48,
+               "info-table object-kind ABI");
+_Static_assert(sizeof(AihcInfo) == 56, "info-table size ABI");
 #endif
 
 _Noreturn void aihc_fail(const char *message) { aihc_host_fail(message); }
 
 static const AihcResume *aihc_schedule(AihcMachine *machine);
+
+static const uint8_t aihc_indirection_field_is_pointer[] = {1};
+static const AihcInfo aihc_indirection_info = {
+    .field_count = 1,
+    .field_is_pointer = aihc_indirection_field_is_pointer,
+    .frame_kind = AIHC_FRAME_NONE,
+    .object_kind = AIHC_OBJECT_INDIRECTION,
+};
+static const AihcInfo aihc_thread_info = {
+    .frame_kind = AIHC_FRAME_NONE,
+    .object_kind = AIHC_OBJECT_THREAD,
+};
 
 void aihc_unsupported_primitive(void) {
   aihc_fail("primitive is not implemented by the native runtime");
@@ -73,26 +96,26 @@ AihcSlot *aihc_reserve_slots(AihcMachine *machine, AihcSlot **slots,
   return resized;
 }
 
-static AihcSlot aihc_make_header(uint64_t tag, const AihcInfo *info) {
-  uintptr_t address = (uintptr_t)info;
-  if (info == NULL || (address & AIHC_TAG_MASK) != 0) {
-    aihc_fail("info table is null or insufficiently aligned");
+static AihcSlot aihc_make_header(const AihcInfo *info) {
+  if (info == NULL) {
+    aihc_fail("info table is null");
   }
-  switch (tag) {
-  case AIHC_TAG_CLOSURE:
-  case AIHC_TAG_THUNK:
-  case AIHC_TAG_NODE:
-  case AIHC_TAG_PARTIAL_CONSTRUCTOR:
-    return address | tag;
+  switch (info->object_kind) {
+  case AIHC_OBJECT_CLOSURE:
+  case AIHC_OBJECT_THUNK:
+  case AIHC_OBJECT_NODE:
+  case AIHC_OBJECT_PARTIAL_CONSTRUCTOR:
+    return (AihcSlot)(uintptr_t)info;
   default:
-    aihc_fail("attempted to allocate an invalid object tag");
+    aihc_fail("attempted to allocate an invalid object kind");
   }
 }
 
-uint64_t aihc_object_words(uint64_t tag, const AihcInfo *info) {
+uint64_t aihc_object_words(const AihcInfo *info) {
   uint64_t field_words = info->field_count;
-  if (field_words == 0 && (tag == AIHC_TAG_THUNK || tag == AIHC_TAG_BLACKHOLE ||
-                           tag == AIHC_TAG_INDIRECTION)) {
+  if (field_words == 0 && (info->object_kind == AIHC_OBJECT_THUNK ||
+                           info->object_kind == AIHC_OBJECT_BLACKHOLE ||
+                           info->object_kind == AIHC_OBJECT_INDIRECTION)) {
     field_words = 1;
   }
   return 1 + field_words;
@@ -178,20 +201,19 @@ void aihc_ensure_heap(AihcMachine *machine, uint64_t words, uint64_t root_count,
   aihc_gc_ensure(machine, words, root_count, roots);
 }
 
-AihcValue *aihc_make_node_unchecked(AihcMachine *machine, uint64_t tag,
+AihcValue *aihc_make_node_unchecked(AihcMachine *machine,
                                     const AihcInfo *info) {
-  uint64_t words = aihc_object_words(tag, info);
+  uint64_t words = aihc_object_words(info);
   AihcValue *value = aihc_gc_allocate(machine, words);
   aihc_record_allocation(machine);
-  value->header = aihc_make_header(tag, info);
+  value->header = aihc_make_header(info);
   return value;
 }
 
-AihcValue *aihc_make_node(AihcMachine *machine, uint64_t tag,
-                          const AihcInfo *info) {
-  uint64_t words = aihc_object_words(tag, info);
+AihcValue *aihc_make_node(AihcMachine *machine, const AihcInfo *info) {
+  uint64_t words = aihc_object_words(info);
   aihc_ensure_heap(machine, words, 0, NULL);
-  return aihc_make_node_unchecked(machine, tag, info);
+  return aihc_make_node_unchecked(machine, info);
 }
 
 uint64_t aihc_allocation_count(const AihcMachine *machine) {
@@ -216,8 +238,7 @@ const AihcInfo *aihc_next_application_info(const AihcInfo *info,
 
 static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
                                         AihcValue **value_pointer,
-                                        uint64_t result_tag, uint64_t count,
-                                        const AihcSlot *fields,
+                                        uint64_t count, const AihcSlot *fields,
                                         AihcValue **continuation_pointer) {
   AihcValue *value = *value_pointer;
   const AihcInfo *info = aihc_value_info_table(value);
@@ -240,13 +261,13 @@ static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
     }
   }
 
-  aihc_ensure_heap(machine, aihc_object_words(result_tag, next_info),
-                   2 + pointer_count, roots);
+  aihc_ensure_heap(machine, aihc_object_words(next_info), 2 + pointer_count,
+                   roots);
   value = (AihcValue *)roots[0];
   *value_pointer = value;
   *continuation_pointer = (AihcValue *)roots[1];
 
-  AihcValue *copy = aihc_make_node_unchecked(machine, result_tag, next_info);
+  AihcValue *copy = aihc_make_node_unchecked(machine, next_info);
   AihcSlot *original_fields = aihc_value_fields(value);
   AihcSlot *copy_fields = aihc_value_fields(copy);
   for (uint64_t index = 0; index < original_count; ++index) {
@@ -264,7 +285,7 @@ static AihcValue *aihc_copy_with_fields(AihcMachine *machine,
 
 static AihcThread *aihc_thread_new(AihcMachine *machine) {
   AihcThread *thread = aihc_allocate_auxiliary(machine, sizeof(*thread));
-  thread->header = AIHC_TAG_THREAD;
+  thread->header = (AihcSlot)(uintptr_t)&aihc_thread_info;
   return thread;
 }
 
@@ -372,24 +393,22 @@ AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,
   if (function == NULL) {
     aihc_fail("attempted to apply null");
   }
-  switch (aihc_value_tag(function)) {
-  case AIHC_TAG_CLOSURE: {
+  switch (aihc_value_kind(function)) {
+  case AIHC_OBJECT_CLOSURE: {
     uint64_t arity = aihc_value_arity(function);
     if (arity <= 1) {
       aihc_fail("closure application does not require the slow path");
     }
-    return aihc_copy_with_fields(machine, &function, AIHC_TAG_CLOSURE, count,
-                                 arguments, continuation);
+    return aihc_copy_with_fields(machine, &function, count, arguments,
+                                 continuation);
   }
-  case AIHC_TAG_PARTIAL_CONSTRUCTOR: {
+  case AIHC_OBJECT_PARTIAL_CONSTRUCTOR: {
     uint64_t arity = aihc_value_arity(function);
     if (arity == 0) {
       aihc_fail("saturated constructor was applied");
     }
-    uint64_t result_tag =
-        arity > 1 ? AIHC_TAG_PARTIAL_CONSTRUCTOR : AIHC_TAG_NODE;
-    return aihc_copy_with_fields(machine, &function, result_tag, count,
-                                 arguments, continuation);
+    return aihc_copy_with_fields(machine, &function, count, arguments,
+                                 continuation);
   }
   default:
     aihc_fail("attempted to apply a non-function value");
@@ -923,17 +942,21 @@ const AihcResume *aihc_await_io(AihcMachine *machine, void *opaque_request,
 }
 
 void aihc_begin_blackhole(AihcMachine *machine, AihcValue *value) {
-  if (value == NULL || aihc_value_tag(value) != AIHC_TAG_THUNK) {
+  if (value == NULL || aihc_value_kind(value) != AIHC_OBJECT_THUNK) {
     aihc_fail("attempted to blackhole a non-thunk value");
   }
-  value->header = (value->header & ~AIHC_TAG_MASK) | AIHC_TAG_BLACKHOLE;
-  aihc_find_blackhole(machine, value);
+  const AihcInfo *original_info = aihc_value_info_table(value);
+  AihcBlackhole *blackhole = aihc_find_blackhole(machine, value);
+  blackhole->original_info = original_info;
+  blackhole->info = *original_info;
+  blackhole->info.object_kind = AIHC_OBJECT_BLACKHOLE;
+  value->header = (AihcSlot)(uintptr_t)&blackhole->info;
 }
 
 const AihcResume *aihc_block_on_blackhole(AihcMachine *machine,
                                           AihcValue *value,
                                           AihcValue *continuation) {
-  if (value == NULL || aihc_value_tag(value) != AIHC_TAG_BLACKHOLE) {
+  if (value == NULL || aihc_value_kind(value) != AIHC_OBJECT_BLACKHOLE) {
     aihc_fail("attempted to block on a value that is not blackholed");
   }
   aihc_add_blackhole_waiter(machine, value, continuation);
@@ -972,19 +995,19 @@ void aihc_update(AihcValue *object, AihcValue *value) {
     aihc_fail("attempted to update with null");
   }
   object->fields[0] = (AihcSlot)value;
-  object->header = (object->header & ~AIHC_TAG_MASK) | AIHC_TAG_INDIRECTION;
+  object->header = (AihcSlot)(uintptr_t)&aihc_indirection_info;
 }
 
 void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
                            AihcValue *value) {
-  if (object == NULL || aihc_value_tag(object) != AIHC_TAG_BLACKHOLE) {
+  if (object == NULL || aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE) {
     aihc_fail("attempted to update a cell that is not blackholed");
   }
-  aihc_update(object, value);
   AihcBlackhole *blackhole = aihc_remove_blackhole(machine, object);
   if (blackhole == NULL) {
-    return;
+    aihc_fail("blackholed object has no scheduler record");
   }
+  aihc_update(object, value);
   AihcBlackholeWaiter *waiter = blackhole->waiters_head;
   while (waiter != NULL) {
     AihcBlackholeWaiter *next = waiter->next;
@@ -999,14 +1022,14 @@ void aihc_update_blackhole(AihcMachine *machine, AihcValue *object,
 
 static void aihc_abandon_blackhole(AihcMachine *machine, AihcValue *object,
                                    AihcValue *exception) {
-  if (object == NULL || aihc_value_tag(object) != AIHC_TAG_BLACKHOLE) {
+  if (object == NULL || aihc_value_kind(object) != AIHC_OBJECT_BLACKHOLE) {
     aihc_fail("exception update frame does not contain a blackhole");
   }
-  object->header = (object->header & ~AIHC_TAG_MASK) | AIHC_TAG_THUNK;
   AihcBlackhole *blackhole = aihc_remove_blackhole(machine, object);
   if (blackhole == NULL) {
-    return;
+    aihc_fail("blackholed object has no scheduler record");
   }
+  object->header = (AihcSlot)(uintptr_t)blackhole->original_info;
   AihcBlackholeWaiter *waiter = blackhole->waiters_head;
   while (waiter != NULL) {
     AihcBlackholeWaiter *next = waiter->next;
@@ -1025,7 +1048,7 @@ const AihcResume *aihc_raise(AihcMachine *machine, AihcValue *exception,
   }
   for (;;) {
     if (continuation == NULL ||
-        aihc_value_tag(continuation) != AIHC_TAG_CLOSURE) {
+        aihc_value_kind(continuation) != AIHC_OBJECT_CLOSURE) {
       aihc_fail("exception chain contains a non-continuation value");
     }
     const AihcInfo *info = aihc_value_info_table(continuation);
@@ -1091,7 +1114,7 @@ const AihcResume *aihc_thread_done(AihcMachine *machine) {
 void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation) {
   if (thread_done_continuation == NULL ||
-      aihc_value_tag(thread_done_continuation) != AIHC_TAG_CLOSURE ||
+      aihc_value_kind(thread_done_continuation) != AIHC_OBJECT_CLOSURE ||
       aihc_value_arity(thread_done_continuation) != 1) {
     aihc_fail("invalid thread completion continuation");
   }

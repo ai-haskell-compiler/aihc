@@ -55,6 +55,8 @@ struct AihcBlackholeWaiter {
 };
 
 struct AihcBlackhole {
+  AihcInfo info;
+  const AihcInfo *original_info;
   AihcValue *object;
   AihcThread *owner;
   AihcBlackholeWaiter *waiters_head;
@@ -125,7 +127,7 @@ void *aihc_allocate_zeroed(size_t bytes);
 void *aihc_allocate_auxiliary(AihcMachine *machine, size_t bytes);
 AihcSlot *aihc_reserve_slots(AihcMachine *machine, AihcSlot **slots,
                              uint64_t *capacity, uint64_t count);
-uint64_t aihc_object_words(uint64_t tag, const AihcInfo *info);
+uint64_t aihc_object_words(const AihcInfo *info);
 const AihcInfo *aihc_next_application_info(const AihcInfo *info,
                                            uint64_t supplied_count);
 int64_t aihc_io_error(int error);

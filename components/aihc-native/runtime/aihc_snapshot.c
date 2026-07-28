@@ -133,23 +133,23 @@ static void discover_object(SnapshotState *state, AihcValue *object) {
     return;
   }
 
-  uint64_t tag = aihc_value_tag(object);
-  switch (tag) {
-  case AIHC_TAG_NODE:
-  case AIHC_TAG_PARTIAL_CONSTRUCTOR: {
+  AihcObjectKind kind = aihc_value_kind(object);
+  switch (kind) {
+  case AIHC_OBJECT_NODE:
+  case AIHC_OBJECT_PARTIAL_CONSTRUCTOR: {
     const AihcSnapshotConstructor *constructor =
         find_constructor(state, aihc_value_info(object));
     if (constructor == NULL) {
       snapshot_fail("constructor descriptor is missing");
     }
-    uint64_t count = tag == AIHC_TAG_NODE ? constructor->field_count
-                                          : aihc_value_count(object);
+    uint64_t count = kind == AIHC_OBJECT_NODE ? constructor->field_count
+                                              : aihc_value_count(object);
     discover_fields(state, aihc_value_fields_const(object), count,
                     constructor->field_count, constructor->field_reps);
     return;
   }
-  case AIHC_TAG_CLOSURE:
-  case AIHC_TAG_THUNK: {
+  case AIHC_OBJECT_CLOSURE:
+  case AIHC_OBJECT_THUNK: {
     const AihcSnapshotFunction *function =
         find_function(state, aihc_value_info(object));
     if (function == NULL) {
@@ -160,11 +160,11 @@ static void discover_object(SnapshotState *state, AihcValue *object) {
                     function->parameter_count, function->parameter_reps);
     return;
   }
-  case AIHC_TAG_INDIRECTION:
+  case AIHC_OBJECT_INDIRECTION:
     discover_value(state, object->fields[0], AIHC_SNAPSHOT_POINTER);
     return;
-  case AIHC_TAG_BLACKHOLE:
-  case AIHC_TAG_THREAD:
+  case AIHC_OBJECT_BLACKHOLE:
+  case AIHC_OBJECT_THREAD:
     return;
   default:
     snapshot_fail("unknown heap object tag");
@@ -204,10 +204,10 @@ static void print_fields(SnapshotState *state, const AihcSlot *fields,
 }
 
 static void print_object(SnapshotState *state, const AihcValue *object) {
-  uint64_t tag = aihc_value_tag(object);
-  switch (tag) {
-  case AIHC_TAG_NODE:
-  case AIHC_TAG_PARTIAL_CONSTRUCTOR: {
+  AihcObjectKind kind = aihc_value_kind(object);
+  switch (kind) {
+  case AIHC_OBJECT_NODE:
+  case AIHC_OBJECT_PARTIAL_CONSTRUCTOR: {
     const AihcSnapshotConstructor *constructor =
         find_constructor(state, aihc_value_info(object));
     if (constructor == NULL) {
@@ -216,7 +216,7 @@ static void print_object(SnapshotState *state, const AihcValue *object) {
     fputs("C", stdout);
     fputs(constructor->name, stdout);
     uint64_t count;
-    if (tag == AIHC_TAG_PARTIAL_CONSTRUCTOR) {
+    if (kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR) {
       printf("/%" PRIu64, aihc_value_arity(object));
       count = aihc_value_count(object);
     } else {
@@ -226,15 +226,15 @@ static void print_object(SnapshotState *state, const AihcValue *object) {
                  constructor->field_count, constructor->field_reps);
     return;
   }
-  case AIHC_TAG_CLOSURE:
-  case AIHC_TAG_THUNK: {
+  case AIHC_OBJECT_CLOSURE:
+  case AIHC_OBJECT_THUNK: {
     const AihcSnapshotFunction *function =
         find_function(state, aihc_value_info(object));
     if (function == NULL) {
       snapshot_fail("function descriptor is missing");
     }
     uint64_t count;
-    if (tag == AIHC_TAG_CLOSURE) {
+    if (kind == AIHC_OBJECT_CLOSURE) {
       printf("P%s/%" PRIu64, function->name, aihc_value_arity(object));
       count = aihc_value_count(object);
     } else {
@@ -245,14 +245,14 @@ static void print_object(SnapshotState *state, const AihcValue *object) {
                  function->parameter_count, function->parameter_reps);
     return;
   }
-  case AIHC_TAG_INDIRECTION:
+  case AIHC_OBJECT_INDIRECTION:
     fputs("Indirection ", stdout);
     print_value(state, object->fields[0], AIHC_SNAPSHOT_POINTER);
     return;
-  case AIHC_TAG_BLACKHOLE:
+  case AIHC_OBJECT_BLACKHOLE:
     fputs("<blackhole>", stdout);
     return;
-  case AIHC_TAG_THREAD:
+  case AIHC_OBJECT_THREAD:
     fputs("ThreadId#", stdout);
     return;
   default:

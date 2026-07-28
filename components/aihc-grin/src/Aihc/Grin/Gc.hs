@@ -150,7 +150,7 @@ freshRelocated var = do
   put (unique + 1)
   pure var {grinVarName = grinVarName var <> "$gc", grinVarUnique = unique}
 
--- One tagged info-table pointer plus the statically known payload. A
+-- One info-table pointer plus the statically known payload. A
 -- zero-field thunk reserves one payload word so it can become an indirection
 -- in place.
 nodeWords :: GrinNode -> Int
