@@ -5,6 +5,8 @@ module Main (main) where
 import Aihc.Cli.Compile
   ( CompileEnvironment (..),
     compileOutputPath,
+    compileSourceToAssemblyWithDependenciesFor,
+    compileSourceToWholeCoreWithDependencies,
     defaultCompileEnvironment,
     reachableRuntimePrimitiveNames,
     wasmClangCommand,
@@ -22,12 +24,14 @@ import Aihc.Cli.Install
     buildPackagePlanWithResolver,
     checkPackagePlan,
     dryRunInstallScaffold,
+    installPackageLibraries,
     renderInstallFailure,
     renderInstallFailureWithOptions,
     writeInstallScaffold,
   )
-import Aihc.Cli.Options (Command (..), CompileOptions (..), GarbageCollector (..), InstallErrorFormat (..), InstallOptions (..), ReplOptions (..), parseCommandPure)
+import Aihc.Cli.Options (Command (..), CompileOptions (..), GarbageCollector (..), InstallErrorFormat (..), InstallOptions (..), PrepareRuntimeOptions (..), ReplOptions (..), parseCommandPure)
 import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession, replCompletion)
+import Aihc.Cli.Runtime (prepareRuntimeArchive)
 import Aihc.Fc
   ( FcBind (..),
     FcExpr (..),
@@ -57,7 +61,6 @@ import System.Directory
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
-    getCurrentDirectory,
     getTemporaryDirectory,
     removeDirectoryRecursive,
     removeFile,
@@ -78,32 +81,32 @@ main =
         [ testCase "parses compile source" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcCalloc False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcCalloc Nothing False)))
               (parseCommandPure ["compile", "Main.hs"]),
           testCase "parses compile output and keep-asm" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True False Nothing GcCalloc False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" (Just "hello") False False True False Nothing GcCalloc Nothing False)))
               (parseCommandPure ["compile", "Main.hs", "-o", "hello", "--keep-asm"]),
           testCase "parses keep-core" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False False Nothing GcCalloc False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing True False False False Nothing GcCalloc Nothing False)))
               (parseCommandPure ["compile", "Main.hs", "--keep-core"]),
           testCase "parses keep-grin" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False False Nothing GcCalloc False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False True False False Nothing GcCalloc Nothing False)))
               (parseCommandPure ["compile", "Main.hs", "--keep-grin"]),
           testCase "parses whole-program compatibility mode" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False True Nothing GcCalloc False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False True Nothing GcCalloc Nothing False)))
               (parseCommandPure ["compile", "Main.hs", "--whole-program"]),
           testCase "parses a cross-compilation target" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just LinuxAmd64) GcCalloc False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just LinuxAmd64) GcCalloc Nothing False)))
               (parseCommandPure ["compile", "Main.hs", "--target", "linux-amd64"]),
           testCase "rejects the removed portable C target" $
             case parseCommandPure ["compile", "Main.hs", "--target", "portable-c"] of
@@ -112,12 +115,12 @@ main =
           testCase "parses the LLVM target" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just Llvm) GcCalloc False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just Llvm) GcCalloc Nothing False)))
               (parseCommandPure ["compile", "Main.hs", "--target", "llvm"]),
           testCase "parses the WASI P3 target" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just Wasm32Wasip3) GcCalloc False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False (Just Wasm32Wasip3) GcCalloc Nothing False)))
               (parseCommandPure ["compile", "Main.hs", "--target", "wasm32-wasip3"]),
           testCase "parses optional wasm-opt optimization" $
             case parseCommandPure ["compile", "Main.hs", "--target", "wasm32-wasip3", "--use-wasm-opt"] of
@@ -126,36 +129,51 @@ main =
           testCase "selects the semispace collector" $
             assertEqual
               "command"
-              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcSemispace False)))
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcSemispace Nothing False)))
               (parseCommandPure ["compile", "Main.hs", "--gc", "semispace"]),
+          testCase "selects an installed toolchain store" $
+            assertEqual
+              "command"
+              (Right (CmdCompile (CompileOptions "Main.hs" Nothing False False False False Nothing GcCalloc (Just "/tmp/aihc-store") False)))
+              (parseCommandPure ["compile", "Main.hs", "--store", "/tmp/aihc-store"]),
+          testCase "prepares one installed runtime" $
+            assertEqual
+              "command"
+              (Right (CmdPrepareRuntime (PrepareRuntimeOptions Llvm GcSemispace (Just "/tmp/aihc-store"))))
+              (parseCommandPure ["prepare-runtime", "--target", "llvm", "--gc", "semispace", "--store", "/tmp/aihc-store"]),
           testCase "derives safe default compile output paths" $ do
-            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False False Nothing GcCalloc False))
-            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False False Nothing GcCalloc False)),
+            assertEqual "Haskell source" "src/Main" (compileOutputPath (CompileOptions "src/Main.hs" Nothing False False False False Nothing GcCalloc Nothing False))
+            assertEqual "extensionless source" "program.out" (compileOutputPath (CompileOptions "program" Nothing False False False False Nothing GcCalloc Nothing False)),
           testCase "parses install package" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False False InstallErrorsHuman)))
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False [] False InstallErrorsHuman)))
               (parseCommandPure ["install", "text"]),
           testCase "parses install version" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False False False InstallErrorsHuman)))
+              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False False [] False InstallErrorsHuman)))
               (parseCommandPure ["install", "text", "--version", "2.1"]),
           testCase "parses install offline and store" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True False False InstallErrorsHuman)))
+              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True False [] False InstallErrorsHuman)))
               (parseCommandPure ["install", "text", "--offline", "--store", "/tmp/aihc-store"]),
           testCase "parses install dry run" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False True False InstallErrorsHuman)))
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False True [] False InstallErrorsHuman)))
               (parseCommandPure ["install", "text", "--dry-run"]),
           testCase "parses first error module and JSON errors" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False True InstallErrorsJson)))
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False [] True InstallErrorsJson)))
               (parseCommandPure ["install", "text", "--first-error-module", "--json-errors"]),
+          testCase "parses install targets" $
+            assertEqual
+              "command"
+              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") False False [Llvm, Wasm32Wasip3] False InstallErrorsHuman)))
+              (parseCommandPure ["install", "text", "--store", "/tmp/aihc-store", "--target", "llvm", "--target", "wasm32-wasip3"]),
           testCase "rejects explicit dependency variants" $
             assertLeftContains "dependency" (parseCommandPure ["install", "a", "--dependency", "b=1.0.0:abcdef"]),
           testCase "parses repl" $
@@ -173,6 +191,8 @@ main =
               "wasm-opt arguments"
               ["input.wasm", "-O3", "--enable-tail-call", "--emit-target-features", "-o", "output.wasm"]
               (wasmOptArguments "input.wasm" "output.wasm"),
+          testCase "compiles against an installed package without its sources" test_installedPackage,
+          testCase "prepares an installed runtime archive" test_preparedRuntime,
           testCase "validates only primitives that survive GRIN lowering" test_runtimePrimitiveValidation,
           testCase "uses the shared XDG cache for compiled dependencies" test_compileDefaultEnvironment
         ],
@@ -614,7 +634,7 @@ test_rendersPreprocessedSourceForRenameErrors =
 
 defaultInstallOptionsForTest :: InstallOptions
 defaultInstallOptionsForTest =
-  InstallOptions "demo" Nothing Nothing False False False InstallErrorsHuman
+  InstallOptions "demo" Nothing Nothing False False [] False InstallErrorsHuman
 
 syntheticInstallFailure :: InstallFailure
 syntheticInstallFailure =
@@ -889,10 +909,8 @@ test_compileDefaultEnvironment =
       ( \_ -> do
           setEnv "XDG_CACHE_HOME" cacheHome
           withCurrentDirectory workingDirectory $ do
-            actualWorkingDirectory <- getCurrentDirectory
             environment <- defaultCompileEnvironment
-            assertEqual "core libraries" (actualWorkingDirectory </> "core-libs") (compileCoreLibraryRoot environment)
-            assertEqual "compiled dependency cache" (cacheHome </> "aihc" </> "libraries") (compileCacheRoot environment)
+            assertEqual "installed toolchain store" (cacheHome </> "aihc" </> "store") (compileInstalledStoreRoot environment)
       )
   where
     restoreCacheHome Nothing = unsetEnv "XDG_CACHE_HOME"
@@ -914,6 +932,67 @@ test_runtimePrimitiveValidation = do
       grin = Grin.lowerProgram core
       reachable = reachableRuntimePrimitiveNames "main" (extractReachabilityInterface core) [grin]
   assertEqual "runtime primitives" (Set.singleton "kept#") reachable
+
+test_installedPackage :: Assertion
+test_installedPackage =
+  withTempDir "aihc-installed-package" $ \root -> do
+    let sourceRoot = root </> "prim-fixture"
+        primSource = sourceRoot </> "src" </> "GHC" </> "Prim.hs"
+        cabalFile = sourceRoot </> "prim-fixture.cabal"
+        storeRoot = root </> "store"
+        environment = CompileEnvironment storeRoot
+        mainSource =
+          T.unlines
+            [ "{-# LANGUAGE MagicHash #-}",
+              "{-# LANGUAGE NoImplicitPrelude #-}",
+              "module Main where",
+              "import GHC.Prim",
+              "main = Unit"
+            ]
+    createDirectoryIfMissing True (takeDirectory primSource)
+    writeFile
+      cabalFile
+      ( unlines
+          [ "cabal-version: 3.8",
+            "name: prim-fixture",
+            "version: 0.1.0.0",
+            "build-type: Simple",
+            "library",
+            "  exposed-modules: GHC.Prim",
+            "  hs-source-dirs: src",
+            "  default-extensions: NoImplicitPrelude",
+            "  default-language: GHC2021"
+          ]
+      )
+    writeFile
+      primSource
+      ( unlines
+          [ "{-# LANGUAGE MagicHash #-}",
+            "{-# LANGUAGE NoImplicitPrelude #-}",
+            "module GHC.Prim where",
+            "data Unit = Unit"
+          ]
+      )
+    plan <- buildPackagePlanFromSource storeRoot (PackageSpec "prim-fixture" "0.1.0.0") sourceRoot
+    installResult <- installPackageLibraries [Llvm] plan
+    case installResult of
+      Left err -> assertFailure err
+      Right _ -> pure ()
+    removeDirectoryRecursive sourceRoot
+    compileResult <- compileSourceToAssemblyWithDependenciesFor Llvm environment "Main.hs" mainSource
+    case compileResult of
+      Left err -> assertFailure (show err)
+      Right assembly -> assertBool "expected installed dependency initializer" ("_aihc_init_" `T.isInfixOf` assembly)
+    wholeResult <- compileSourceToWholeCoreWithDependencies environment "Main.hs" mainSource
+    case wholeResult of
+      Left err -> assertFailure (show err)
+      Right core -> assertBool "expected installed dependency body" ("main" `T.isInfixOf` core)
+
+test_preparedRuntime :: Assertion
+test_preparedRuntime =
+  withTempDir "aihc-prepared-runtime" $ \root -> do
+    archive <- prepareRuntimeArchive root Llvm GcCalloc
+    assertFileExists archive
 
 assertFileExists :: FilePath -> Assertion
 assertFileExists path = do

@@ -4,6 +4,7 @@ module Aihc.Cli.Options
     GarbageCollector (..),
     InstallErrorFormat (..),
     InstallOptions (..),
+    PrepareRuntimeOptions (..),
     ReplOptions (..),
     parseCommandIO,
     parseCommandPure,
@@ -12,11 +13,13 @@ module Aihc.Cli.Options
 where
 
 import Aihc.Native (NativeTarget, parseNativeTarget)
+import Control.Applicative (many)
 import Options.Applicative qualified as OA
 
 data Command
   = CmdCompile !CompileOptions
   | CmdInstall !InstallOptions
+  | CmdPrepareRuntime !PrepareRuntimeOptions
   | CmdRepl !ReplOptions
   deriving (Eq, Show)
 
@@ -29,6 +32,7 @@ data CompileOptions = CompileOptions
     compileWholeProgram :: !Bool,
     compileTarget :: !(Maybe NativeTarget),
     compileGarbageCollector :: !GarbageCollector,
+    compileStoreRoot :: !(Maybe FilePath),
     compileUseWasmOpt :: !Bool
   }
   deriving (Eq, Show)
@@ -36,6 +40,13 @@ data CompileOptions = CompileOptions
 data GarbageCollector
   = GcCalloc
   | GcSemispace
+  deriving (Eq, Show)
+
+data PrepareRuntimeOptions = PrepareRuntimeOptions
+  { prepareRuntimeTarget :: !NativeTarget,
+    prepareRuntimeGarbageCollector :: !GarbageCollector,
+    prepareRuntimeStoreRoot :: !(Maybe FilePath)
+  }
   deriving (Eq, Show)
 
 newtype ReplOptions = ReplOptions
@@ -49,6 +60,7 @@ data InstallOptions = InstallOptions
     installStoreRoot :: !(Maybe FilePath),
     installOffline :: !Bool,
     installDryRun :: !Bool,
+    installTargets :: ![NativeTarget],
     installFirstErrorModule :: !Bool,
     installErrorFormat :: !InstallErrorFormat
   }
@@ -92,7 +104,13 @@ commandParser =
           "install"
           ( OA.info
               (CmdInstall <$> installOptionsParser OA.<**> OA.helper)
-              (OA.progDesc "Install a Hackage package into the aihc store scaffold")
+              (OA.progDesc "Compile and install a library package and its dependencies")
+          )
+        <> OA.command
+          "prepare-runtime"
+          ( OA.info
+              (CmdPrepareRuntime <$> prepareRuntimeOptionsParser OA.<**> OA.helper)
+              (OA.progDesc "Compile and install a runtime for one backend and garbage collector")
           )
         <> OA.command
           "repl"
@@ -149,6 +167,13 @@ compileOptionsParser =
           <> OA.showDefaultWith (const "calloc")
           <> OA.help "Select the garbage collector compiled into the executable"
       )
+    <*> OA.optional
+      ( OA.strOption
+          ( OA.long "store"
+              <> OA.metavar "DIR"
+              <> OA.help "Read installed runtimes and core libraries from DIR"
+          )
+      )
     <*> OA.switch
       ( OA.long "use-wasm-opt"
           <> OA.help "Optimize the linked core WebAssembly module with wasm-opt when available"
@@ -160,6 +185,43 @@ parseGarbageCollector value =
     "calloc" -> Right GcCalloc
     "semispace" -> Right GcSemispace
     _ -> Left "expected calloc or semispace"
+
+prepareRuntimeOptionsParser :: OA.Parser PrepareRuntimeOptions
+prepareRuntimeOptionsParser =
+  PrepareRuntimeOptions
+    <$> nativeTargetOption
+    <*> garbageCollectorOption
+    <*> storeRootOption "Install the prepared runtime into DIR"
+
+nativeTargetOption :: OA.Parser NativeTarget
+nativeTargetOption =
+  OA.option
+    (OA.eitherReader parseNativeTarget)
+    ( OA.long "target"
+        <> OA.metavar "TARGET"
+        <> OA.help "Target: apple-arm64, linux-amd64, llvm, or wasm32-wasip3"
+    )
+
+garbageCollectorOption :: OA.Parser GarbageCollector
+garbageCollectorOption =
+  OA.option
+    (OA.eitherReader parseGarbageCollector)
+    ( OA.long "gc"
+        <> OA.metavar "calloc|semispace"
+        <> OA.value GcCalloc
+        <> OA.showDefaultWith (const "calloc")
+        <> OA.help "Select the garbage collector"
+    )
+
+storeRootOption :: String -> OA.Parser (Maybe FilePath)
+storeRootOption description =
+  OA.optional
+    ( OA.strOption
+        ( OA.long "store"
+            <> OA.metavar "DIR"
+            <> OA.help description
+        )
+    )
 
 replOptionsParser :: OA.Parser ReplOptions
 replOptionsParser =
@@ -177,7 +239,7 @@ installOptionsParser =
   InstallOptions
     <$> OA.strArgument
       ( OA.metavar "PACKAGE"
-          <> OA.help "Hackage package name"
+          <> OA.help "Hackage package name or local package directory"
       )
     <*> OA.optional
       ( OA.strOption
@@ -201,6 +263,7 @@ installOptionsParser =
       ( OA.long "dry-run"
           <> OA.help "Plan the install without writing store artifacts or package cache files"
       )
+    <*> many nativeTargetOption
     <*> OA.switch
       ( OA.long "first-error-module"
           <> OA.help "Only print diagnostics from the module or file that produced the first install error"

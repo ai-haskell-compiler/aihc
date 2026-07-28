@@ -14,6 +14,7 @@ where
 
 import Data.Bool (Bool (..))
 import GHC.Int (Int (..))
+import Prelude (Char)
 
 class Bounded a where
   minBound :: a

@@ -1,19 +1,24 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Core-library discovery and content-addressed compilation for @aihc compile@.
--- Each closure cache contains the frontend interfaces and one Core, GRIN, and
--- backend object artifact per strongly connected module component.
+-- | Installed-library compilation and loading for @aihc compile@.
+-- Incremental caches retain only frontend and linking interfaces; a companion
+-- whole-program cache keeps Core and GRIN bodies for backend construction and
+-- explicit whole-program compilation.
 module Aihc.Cli.Compile.Dependencies
   ( CompileEnvironment (..),
     DependencyArtifact (..),
     DependencyUnit (..),
+    LibraryPackage (..),
     buildDependencies,
+    installLibraries,
   )
 where
 
 import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
+import Aihc.Cli.Runtime (wasmClangCommand)
+import Aihc.Cli.Store (installedLibrariesActivePath, installedLibrariesRoot)
 import Aihc.Fc (DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, optimizeProgram)
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
@@ -63,12 +68,12 @@ import Aihc.Tc
   )
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket, bracketOnError)
-import Control.Monad (filterM, foldM)
+import Control.Monad (foldM)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
+import Data.Char (isHexDigit)
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.List (sort)
-import Data.Map.Strict (Map)
+import Data.List (sort, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set qualified as Set
@@ -81,29 +86,24 @@ import Data.Word (Word64)
 import Numeric (showHex)
 import System.Directory
   ( createDirectoryIfMissing,
-    doesDirectoryExist,
     doesFileExist,
-    listDirectory,
     removeDirectoryRecursive,
     removeFile,
     renameFile,
   )
+import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath
-  ( dropExtension,
-    makeRelative,
-    splitDirectories,
+  ( makeRelative,
     takeDirectory,
-    takeExtension,
     (</>),
   )
 import System.IO (hClose, hPutStr, openTempFile)
 import System.Process (readProcessWithExitCode)
 import Text.Read (readMaybe)
 
-data CompileEnvironment = CompileEnvironment
-  { compileCoreLibraryRoot :: !FilePath,
-    compileCacheRoot :: !FilePath
+newtype CompileEnvironment = CompileEnvironment
+  { compileInstalledStoreRoot :: FilePath
   }
   deriving (Eq, Show)
 
@@ -118,7 +118,9 @@ data DependencyArtifact = DependencyArtifact
     dependencyGrinInterface :: !Grin.GrinInterface,
     dependencyReachabilityInterface :: !ReachabilityInterface,
     dependencyLinkInterfaces :: ![LinkInterface],
+    dependencyRuntimePrimitiveNames :: !(Set.Set Text),
     dependencyUnits :: ![DependencyUnit],
+    dependencyUnitMetadata :: ![DependencyUnitMetadata],
     dependencyInitializerSymbols :: ![Text],
     dependencyArchivePaths :: ![FilePath]
   }
@@ -136,6 +138,12 @@ data DependencyUnit = DependencyUnit
   }
   deriving (Eq, Show, Read)
 
+data DependencyUnitMetadata = DependencyUnitMetadata
+  { dependencyMetadataLibraries :: ![Text],
+    dependencyMetadataModules :: ![Text]
+  }
+  deriving (Eq, Show, Read)
+
 data StoredDependencyArtifact = StoredDependencyArtifact
   { storedSchemaVersion :: !Int,
     storedExports :: !StoredModuleExports,
@@ -144,7 +152,13 @@ data StoredDependencyArtifact = StoredDependencyArtifact
     storedClasses :: ![ClassInfo],
     storedBindings :: ![TcBindingResult],
     storedInstances :: ![InstanceInfo],
-    storedUnits :: ![DependencyUnit]
+    storedNewtypeInterface :: !NewtypeInterface,
+    storedGrinInterface :: !Grin.GrinInterface,
+    storedReachabilityInterface :: !ReachabilityInterface,
+    storedLinkInterfaces :: ![LinkInterface],
+    storedRuntimePrimitiveNames :: !(Set.Set Text),
+    storedUnitMetadata :: ![DependencyUnitMetadata],
+    storedUnits :: !(Maybe [DependencyUnit])
   }
   deriving (Show, Read)
 
@@ -169,61 +183,143 @@ data StoredResolvedName
   | StoredError !String
   deriving (Show, Read)
 
-data ModuleSource = ModuleSource
-  { moduleSourceLibrary :: !Text,
-    moduleSourcePath :: !FilePath
-  }
-
 data LoadedModule = LoadedModule
   { loadedLibrary :: !Text,
     loadedModule :: !Module
   }
 
+-- | One Cabal-selected library package in an installation closure.
+data LibraryPackage = LibraryPackage
+  { libraryPackageName :: !Text,
+    libraryPackageRoot :: !FilePath,
+    libraryPackageFiles :: ![FilePath]
+  }
+  deriving (Eq, Show)
+
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 22
+cacheSchemaVersion = 26
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
   let importedRoots = map importDeclModule (moduleImports mainModule)
       defaultRoots = if usesImplicitPrelude then ["GHC.Prim", "Prelude"] else []
-      initialRoots = sort (Set.toList (Set.fromList (defaultRoots <> importedRoots)))
-  if null initialRoots
+      requiredModules = sort (Set.toList (Set.fromList (defaultRoots <> importedRoots)))
+  if null requiredModules
     then pure (Right emptyDependencyArtifact)
     else do
-      indexResult <- discoverModules (compileCoreLibraryRoot environment)
-      case indexResult of
+      installed <- readInstalledLibraries environment buildBackend
+      case installed of
         Left err -> pure (Left err)
-        Right moduleIndex -> do
-          let roots = addLibraryRoots moduleIndex initialRoots
-          closureResult <- loadModuleClosure moduleIndex roots
-          case closureResult of
-            Left err -> pure (Left err)
-            Right loaded -> do
-              graphHash <- dependencyGraphHash target (compileCoreLibraryRoot environment) loaded
-              let closureHash = stableHash (map (Text.encodeUtf8 . frameText) roots)
-                  cacheDirectory = compileCacheRoot environment </> graphHash
-                  cachePath = cacheDirectory </> closureHash <> ".cache"
-              cached <- readCache cachePath
-              case cached of
-                Just artifact
-                  | buildBackend -> finishArtifact target cacheDirectory closureHash artifact
-                  | otherwise -> pure (Right artifact)
-                Nothing ->
-                  case compileLoadedModules loaded of
-                    Left err -> pure (Left err)
-                    Right artifact -> do
-                      createDirectoryIfMissing True cacheDirectory
-                      writeCache cacheDirectory cachePath artifact
-                      if buildBackend
-                        then finishArtifact target cacheDirectory closureHash artifact
-                        else pure (Right artifact)
+        Right (artifactRoot, artifact) ->
+          case filter (`Map.notMember` dependencyExports artifact) requiredModules of
+            missing@(_ : _) -> pure (Left ("library modules are not installed: " <> T.unpack (T.intercalate ", " missing)))
+            []
+              | buildBackend -> attachInstalledBackend target artifactRoot artifact
+              | otherwise -> pure (Right artifact)
 
-finishArtifact :: NativeTarget -> FilePath -> FilePath -> DependencyArtifact -> IO (Either String DependencyArtifact)
-finishArtifact target cacheDirectory closureHash artifact = do
-  backendArtifacts <- buildBackendArtifacts target (cacheDirectory </> closureHash) (dependencyUnits artifact)
+-- | Compile a package closure once, then install its frontend interfaces,
+-- whole-program bodies, and one archive set per requested target.
+installLibraries :: FilePath -> [LibraryPackage] -> [NativeTarget] -> IO (Either String FilePath)
+installLibraries storeRoot packages targets
+  | all (null . libraryPackageFiles) packages = pure (Left "the package closure contains no library modules")
+  | otherwise = do
+      graphHash <- dependencyGraphHash packages
+      let librariesRoot = installedLibrariesRoot storeRoot
+          artifactRoot = librariesRoot </> graphHash
+          incrementalPath = artifactRoot </> "interfaces.cache"
+          wholePath = artifactRoot </> "whole.cache"
+      cached <- readCache wholePath
+      artifactResult <-
+        case cached of
+          Just artifact
+            | not (null (dependencyUnits artifact)) -> pure (Right artifact)
+          _ -> do
+            loadedResult <- loadLibraryPackages packages
+            pure (loadedResult >>= compileLoadedModules)
+      case artifactResult of
+        Left err -> pure (Left err)
+        Right artifact -> do
+          createDirectoryIfMissing True artifactRoot
+          writeCache artifactRoot incrementalPath False artifact
+          writeCache artifactRoot wholePath True artifact
+          backendResults <-
+            mapM
+              (\target -> buildBackendArtifacts target (installedBackendRoot artifactRoot target) (dependencyUnits artifact))
+              (sort (Set.toList (Set.fromList targets)))
+          case sequence backendResults of
+            Left err -> pure (Left err)
+            Right _ -> do
+              writeActiveLibraries storeRoot graphHash
+              pure (Right artifactRoot)
+
+readInstalledLibraries :: CompileEnvironment -> Bool -> IO (Either String (FilePath, DependencyArtifact))
+readInstalledLibraries environment incremental = do
+  let storeRoot = compileInstalledStoreRoot environment
+      activePath = installedLibrariesActivePath storeRoot
+  activeExists <- doesFileExist activePath
+  if not activeExists
+    then pure (Left ("libraries are not installed in " <> storeRoot <> "; run `aihc install PACKAGE` first"))
+    else do
+      activeContents <- readFile activePath
+      case words activeContents of
+        [graphHash]
+          | length graphHash == 16 && all isHexDigit graphHash -> do
+              let artifactRoot = installedLibrariesRoot storeRoot </> graphHash
+                  artifactPath = artifactRoot </> if incremental then "interfaces.cache" else "whole.cache"
+              cached <- readCache artifactPath
+              pure $
+                case cached of
+                  Nothing -> Left ("installed library artifact is missing or incompatible: " <> artifactPath)
+                  Just artifact -> Right (artifactRoot, artifact)
+        _ -> pure (Left ("invalid installed library selector: " <> activePath))
+
+attachInstalledBackend :: NativeTarget -> FilePath -> DependencyArtifact -> IO (Either String DependencyArtifact)
+attachInstalledBackend target artifactRoot artifact = do
+  let backendRoot = installedBackendRoot artifactRoot target
+      (initializers, archives) = backendMetadataArtifacts backendRoot (dependencyUnitMetadata artifact)
+      finished = artifact {dependencyInitializerSymbols = initializers, dependencyArchivePaths = archives}
+  archivesExist <- and <$> mapM doesFileExist archives
   pure $
-    (\(initializers, archives) -> artifact {dependencyInitializerSymbols = initializers, dependencyArchivePaths = archives})
-      <$> backendArtifacts
+    if archivesExist
+      then Right finished
+      else Left ("compiled libraries for target " <> nativeTargetTriple target <> " are not installed")
+
+installedBackendRoot :: FilePath -> NativeTarget -> FilePath
+installedBackendRoot artifactRoot target = artifactRoot </> "backends" </> nativeTargetTriple target
+
+writeActiveLibraries :: FilePath -> String -> IO ()
+writeActiveLibraries storeRoot graphHash = do
+  let destination = installedLibrariesActivePath storeRoot
+      directory = takeDirectory destination
+  createDirectoryIfMissing True directory
+  bracketOnError
+    (openTempFile directory "active.tmp")
+    (\(path, handle) -> hClose handle >> removeFile path)
+    ( \(path, handle) -> do
+        hPutStr handle (graphHash <> "\n")
+        hClose handle
+        renameFile path destination
+    )
+
+backendMetadataArtifacts :: FilePath -> [DependencyUnitMetadata] -> ([Text], [FilePath])
+backendMetadataArtifacts artifactRoot metadata =
+  ( map metadataInitializerSymbol metadata,
+    [artifactRoot </> "archives" </> "lib" <> T.unpack library <> ".a" | library <- libraries]
+  )
+  where
+    libraries = sort (Set.toList (Set.fromList (map metadataPrimaryLibrary metadata)))
+
+metadataInitializerSymbol :: DependencyUnitMetadata -> Text
+metadataInitializerSymbol metadata =
+  "_aihc_init_"
+    <> symbolHex
+      ( metadataPrimaryLibrary metadata
+          <> "\0"
+          <> T.intercalate "\0" (dependencyMetadataModules metadata)
+      )
+
+metadataPrimaryLibrary :: DependencyUnitMetadata -> Text
+metadataPrimaryLibrary = fromMaybe "dependencies" . listToMaybe . dependencyMetadataLibraries
 
 emptyDependencyArtifact :: DependencyArtifact
 emptyDependencyArtifact =
@@ -238,87 +334,48 @@ emptyDependencyArtifact =
       dependencyGrinInterface = mempty,
       dependencyReachabilityInterface = mempty,
       dependencyLinkInterfaces = [],
+      dependencyRuntimePrimitiveNames = Set.empty,
       dependencyUnits = [],
+      dependencyUnitMetadata = [],
       dependencyInitializerSymbols = [],
       dependencyArchivePaths = []
     }
 
--- aihc-base is defined in terms of the compiler-owned GHC.Prim interface even
--- when a selected base module does not import it directly.
-addLibraryRoots :: Map Text ModuleSource -> [Text] -> [Text]
-addLibraryRoots moduleIndex roots
-  | any isBaseModule roots = sort (Set.toList (Set.insert "GHC.Prim" (Set.fromList roots)))
-  | otherwise = roots
+loadLibraryPackages :: [LibraryPackage] -> IO (Either String [LoadedModule])
+loadLibraryPackages packages = do
+  parsed <- mapM loadPackage packages
+  pure $ sequence parsed >>= rejectDuplicateModules . concat
   where
-    isBaseModule name =
-      case Map.lookup name moduleIndex of
-        Just ModuleSource {moduleSourceLibrary = "aihc-base"} -> True
-        _ -> False
+    loadPackage package =
+      sequence
+        <$> mapM
+          (parseModuleFile (libraryPackageName package))
+          (sort (libraryPackageFiles package))
 
-discoverModules :: FilePath -> IO (Either String (Map Text ModuleSource))
-discoverModules root = do
-  exists <- doesDirectoryExist root
-  if not exists
-    then pure (Left ("core library directory does not exist: " <> root))
-    else do
-      entries <- sort <$> listDirectory root
-      libraries <- filterM (doesDirectoryExist . (root </>)) entries
-      foldM addLibrary (Right Map.empty) libraries
-  where
-    addLibrary (Left err) _ = pure (Left err)
-    addLibrary (Right index) library = do
-      let sourceRoot = root </> library </> "src"
-      sourceRootExists <- doesDirectoryExist sourceRoot
-      if not sourceRootExists
-        then pure (Right index)
-        else do
-          files <- listFilesRecursively sourceRoot
-          pure (foldM (insertModule sourceRoot (T.pack library)) index (filter ((== ".hs") . takeExtension) files))
+    rejectDuplicateModules loaded = snd <$> foldM insertModule (Map.empty, []) loaded
+    insertModule (seen, loaded) modu =
+      case moduleName (loadedModule modu) of
+        Nothing -> Left "installed library modules must have explicit module names"
+        Just name ->
+          case Map.lookup name seen of
+            Nothing -> Right (Map.insert name (loadedLibrary modu) seen, loaded <> [modu])
+            Just previous ->
+              Left
+                ( "module "
+                    <> T.unpack name
+                    <> " is provided by both "
+                    <> T.unpack previous
+                    <> " and "
+                    <> T.unpack (loadedLibrary modu)
+                )
 
-    insertModule sourceRoot library index path =
-      let relative = dropExtension (makeRelative sourceRoot path)
-          discoveredModuleName = T.intercalate "." (map T.pack (splitDirectories relative))
-       in case Map.lookup discoveredModuleName index of
-            Nothing -> Right (Map.insert discoveredModuleName (ModuleSource library path) index)
-            Just previous
-              | libraryPriority library < libraryPriority (moduleSourceLibrary previous) ->
-                  Right (Map.insert discoveredModuleName (ModuleSource library path) index)
-              | otherwise -> Right index
-
-    libraryPriority "aihc-prim" = 0 :: Int
-    libraryPriority "aihc-base" = 1
-    libraryPriority "aihc-internal" = 3
-    libraryPriority _ = 2
-
-loadModuleClosure :: Map Text ModuleSource -> [Text] -> IO (Either String [LoadedModule])
-loadModuleClosure index roots = fmap (fmap snd) (go Set.empty [] roots)
-  where
-    go seen loaded [] = pure (Right (seen, loaded))
-    go seen loaded (name : remaining)
-      | name `Set.member` seen = go seen loaded remaining
-      | otherwise =
-          case Map.lookup name index of
-            Nothing -> pure (Left ("core module not found in ./core-libs: " <> T.unpack name))
-            Just source -> do
-              parsed <- parseModuleFile source
-              case parsed of
-                Left err -> pure (Left err)
-                Right modu -> do
-                  let seen' = Set.insert name seen
-                      imports = map importDeclModule (moduleImports modu)
-                  dependencies <- go seen' loaded imports
-                  case dependencies of
-                    Left err -> pure (Left err)
-                    Right (seen'', loaded') ->
-                      go seen'' (loaded' <> [LoadedModule (moduleSourceLibrary source) modu]) remaining
-
-parseModuleFile :: ModuleSource -> IO (Either String Module)
-parseModuleFile ModuleSource {moduleSourcePath} = do
-  source <- Utf8.readFile moduleSourcePath
+parseModuleFile :: Text -> FilePath -> IO (Either String LoadedModule)
+parseModuleFile library path = do
+  source <- Utf8.readFile path
   pure $
-    case parseModule (parserConfig moduleSourcePath source) source of
-      ([], modu) -> Right modu
-      (errors, _) -> Left ("failed to parse core module " <> moduleSourcePath <> ": " <> show errors)
+    case parseModule (parserConfig path source) source of
+      ([], modu) -> Right (LoadedModule library modu)
+      (errors, _) -> Left ("failed to parse library module " <> path <> ": " <> show errors)
 
 parserConfig :: FilePath -> Text -> ParserConfig
 parserConfig sourceName source =
@@ -337,7 +394,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
 
     compileScc state members =
       case resolveWithDeps (compileStateExports state) (map loadedModule members) of
-        ResolveResult {resolveErrors = errors@(_ : _)} -> Left ("core library resolve error: " <> show errors)
+        ResolveResult {resolveErrors = errors@(_ : _)} -> Left ("library resolve error: " <> show errors)
         resolved@ResolveResult {resolvedModules} ->
           let (checkedModules, termSchemes, tyCons, classes) =
                 typecheckModuleSccWithClassEnv
@@ -347,14 +404,14 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                   (compileStateInstances state)
                   resolvedModules
            in if not (all tcModuleSuccess checkedModules)
-                then Left ("core library typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules))
+                then Left ("library typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules))
                 else
                   let localBindings = concatMap tcModuleBindings checkedModules
                       bindings = compileStateBindings state <> localBindings
                       localInstances = concatMap tcModuleInstances checkedModules
                       desugared = zipWith (desugarModuleWithBindings bindings) checkedModules resolvedModules
                    in if not (all dsSuccess desugared)
-                        then Left ("core library desugar error: " <> unlines (concatMap dsErrors desugared))
+                        then Left ("library desugar error: " <> unlines (concatMap dsErrors desugared))
                         else
                           let sourceCore = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
                               core = optimizeProgram (lowerNewtypesWithInterface (compileStateNewtypes state) sourceCore)
@@ -364,7 +421,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                               grin = Grin.lowerProgramWithInterface (compileStateGrin state) core
                               linkInterface = extractLinkInterface grin
                            in case Grin.toCpsGrin grin of
-                                Left err -> Left ("core library CPS-GRIN error: " <> show err)
+                                Left err -> Left ("library CPS-GRIN error: " <> show err)
                                 Right cpsGrin ->
                                   let unit =
                                         DependencyUnit
@@ -405,7 +462,14 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
           dependencyGrinInterface = compileStateGrin state,
           dependencyReachabilityInterface = compileStateReachability state,
           dependencyLinkInterfaces = compileStateLinks state,
+          dependencyRuntimePrimitiveNames =
+            Set.fromList
+              [ Grin.grinVarName primitive
+              | unit <- compileStateUnits state,
+                (primitive, _) <- Grin.grinPrimitives (dependencyUnitGrin unit)
+              ],
           dependencyUnits = compileStateUnits state,
+          dependencyUnitMetadata = map dependencyMetadata (compileStateUnits state),
           dependencyInitializerSymbols = [],
           dependencyArchivePaths = []
         }
@@ -479,6 +543,13 @@ backendUnit objectRoot unit =
     unitName = T.intercalate "+" (dependencyUnitModules unit)
     initializer = "_aihc_init_" <> symbolHex (library <> "\0" <> T.intercalate "\0" (dependencyUnitModules unit))
 
+dependencyMetadata :: DependencyUnit -> DependencyUnitMetadata
+dependencyMetadata unit =
+  DependencyUnitMetadata
+    { dependencyMetadataLibraries = dependencyUnitLibraries unit,
+      dependencyMetadataModules = dependencyUnitModules unit
+    }
+
 backendUnitLibrary :: BackendUnit -> Text
 backendUnitLibrary = dependencyUnitPrimaryLibrary . backendDependencyUnit
 
@@ -527,7 +598,10 @@ backendSourceExtension _ = ".s"
 
 objectCompiler :: NativeTarget -> FilePath -> FilePath -> IO (FilePath, [String])
 objectCompiler target sourcePath objectPath = do
-  (compiler, targetArguments) <- backendCompiler target
+  (compiler, targetArguments) <-
+    case target of
+      Wasm32Wasip3 -> wasmClangCommand <$> lookupEnv "AIHC_WASM_CLANG"
+      _ -> backendCompiler target
   case target of
     Llvm -> pure (compiler, targetArguments <> ["-c", sourcePath, "-o", objectPath])
     AppleArm64 -> pure (compiler, nativeArguments targetArguments)
@@ -562,49 +636,27 @@ withTemporaryDirectory parent template = bracket acquire removeDirectoryRecursiv
       createDirectoryIfMissing True path
       pure path
 
-dependencyGraphHash :: NativeTarget -> FilePath -> [LoadedModule] -> IO String
-dependencyGraphHash target root loaded = do
-  let libraries = sort (Set.toList (Set.fromList (map (T.unpack . loadedLibrary) loaded)))
-  chunks <- concat <$> mapM libraryChunks libraries
+dependencyGraphHash :: [LibraryPackage] -> IO String
+dependencyGraphHash packages = do
+  chunks <- concat <$> mapM packageChunks (sortOn libraryPackageName packages)
   pure
     ( stableHash
         ( Text.encodeUtf8 (frameText (T.pack (show cacheSchemaVersion)))
-            : Text.encodeUtf8 (frameText (T.pack (nativeTargetTriple target)))
             : chunks
         )
     )
   where
-    libraryChunks library = do
-      let libraryRoot = root </> library
-      exists <- doesDirectoryExist libraryRoot
-      if not exists
-        then pure [Text.encodeUtf8 (frameText (T.pack library))]
-        else do
-          files <- sort <$> listFilesRecursively libraryRoot
-          fmap concat . mapM (fileChunks libraryRoot) $ files
+    packageChunks package = do
+      files <- concat <$> mapM (fileChunks package) (sort (libraryPackageFiles package))
+      pure (Text.encodeUtf8 (frameText (libraryPackageName package)) : files)
 
-    fileChunks libraryRoot path = do
+    fileChunks package path = do
       bytes <- BS.readFile path
       pure
-        [ Text.encodeUtf8 (frameText (T.pack (makeRelative root libraryRoot))),
-          Text.encodeUtf8 (frameText (T.pack (makeRelative libraryRoot path))),
+        [ Text.encodeUtf8 (frameText (T.pack (makeRelative (libraryPackageRoot package) path))),
           Text.encodeUtf8 (frameText (T.pack (show (BS.length bytes)))),
           bytes
         ]
-
-listFilesRecursively :: FilePath -> IO [FilePath]
-listFilesRecursively root = do
-  entries <- sort <$> listDirectory root
-  fmap concat . mapM visit $ entries
-  where
-    visit name = do
-      let path = root </> name
-      directory <- doesDirectoryExist path
-      if directory
-        then listFilesRecursively path
-        else do
-          file <- doesFileExist path
-          pure [path | file]
 
 frameText :: Text -> Text
 frameText value = T.pack (show (T.length value)) <> ":" <> value
@@ -637,19 +689,19 @@ readCache path = do
           then Just (fromStoredArtifact stored)
           else Nothing
 
-writeCache :: FilePath -> FilePath -> DependencyArtifact -> IO ()
-writeCache directory destination artifact =
+writeCache :: FilePath -> FilePath -> Bool -> DependencyArtifact -> IO ()
+writeCache directory destination includeUnits artifact =
   bracketOnError
     (openTempFile directory "dependency.cache.tmp")
     (\(path, handle) -> hClose handle >> removeFile path)
     ( \(path, handle) -> do
-        hPutStr handle (show (toStoredArtifact artifact))
+        hPutStr handle (show (toStoredArtifact includeUnits artifact))
         hClose handle
         renameFile path destination
     )
 
-toStoredArtifact :: DependencyArtifact -> StoredDependencyArtifact
-toStoredArtifact artifact =
+toStoredArtifact :: Bool -> DependencyArtifact -> StoredDependencyArtifact
+toStoredArtifact includeUnits artifact =
   StoredDependencyArtifact
     { storedSchemaVersion = cacheSchemaVersion,
       storedExports = toStoredExports (dependencyExports artifact),
@@ -658,7 +710,13 @@ toStoredArtifact artifact =
       storedClasses = dependencyClasses artifact,
       storedBindings = dependencyBindings artifact,
       storedInstances = dependencyInstances artifact,
-      storedUnits = dependencyUnits artifact
+      storedNewtypeInterface = dependencyNewtypeInterface artifact,
+      storedGrinInterface = dependencyGrinInterface artifact,
+      storedReachabilityInterface = dependencyReachabilityInterface artifact,
+      storedLinkInterfaces = dependencyLinkInterfaces artifact,
+      storedRuntimePrimitiveNames = dependencyRuntimePrimitiveNames artifact,
+      storedUnitMetadata = dependencyUnitMetadata artifact,
+      storedUnits = if includeUnits then Just (dependencyUnits artifact) else Nothing
     }
 
 fromStoredArtifact :: StoredDependencyArtifact -> DependencyArtifact
@@ -670,16 +728,16 @@ fromStoredArtifact stored =
       dependencyClasses = storedClasses stored,
       dependencyBindings = storedBindings stored,
       dependencyInstances = storedInstances stored,
-      dependencyNewtypeInterface = foldMap dependencyUnitNewtypeInterface units,
-      dependencyGrinInterface = foldMap dependencyUnitGrinInterface units,
-      dependencyReachabilityInterface = foldMap dependencyUnitReachabilityInterface units,
-      dependencyLinkInterfaces = map dependencyUnitLinkInterface units,
-      dependencyUnits = storedUnits stored,
+      dependencyNewtypeInterface = storedNewtypeInterface stored,
+      dependencyGrinInterface = storedGrinInterface stored,
+      dependencyReachabilityInterface = storedReachabilityInterface stored,
+      dependencyLinkInterfaces = storedLinkInterfaces stored,
+      dependencyRuntimePrimitiveNames = storedRuntimePrimitiveNames stored,
+      dependencyUnits = fromMaybe [] (storedUnits stored),
+      dependencyUnitMetadata = storedUnitMetadata stored,
       dependencyInitializerSymbols = [],
       dependencyArchivePaths = []
     }
-  where
-    units = storedUnits stored
 
 toStoredExports :: ModuleExports -> StoredModuleExports
 toStoredExports = StoredModuleExports . map (fmap toStoredScope) . Map.toAscList

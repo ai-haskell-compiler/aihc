@@ -8,6 +8,7 @@ import Aihc.Cli.Compile (runCompile)
 import Aihc.Cli.Install (runInstall)
 import Aihc.Cli.Options (Command (..), ReplOptions (..), parseCommandIO)
 import Aihc.Cli.Repl (runRepl)
+import Aihc.Cli.Runtime (runPrepareRuntime)
 import Control.Exception (IOException, displayException, try)
 import System.Exit (exitFailure)
 import System.IO (hPutStrLn, stderr)
@@ -24,4 +25,5 @@ main = do
 runCommand :: Command -> IO ()
 runCommand (CmdCompile opts) = runCompile opts
 runCommand (CmdInstall opts) = runInstall opts
+runCommand (CmdPrepareRuntime opts) = runPrepareRuntime opts
 runCommand (CmdRepl opts) = runRepl (replStoreRoot opts)
