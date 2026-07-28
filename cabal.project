@@ -1,6 +1,7 @@
 packages:
   core-libs/aihc-base
   core-libs/aihc-internal
+  core-libs/aihc-prim
   bin/aihc
   components/aihc-resolve
   components/aihc-tc

@@ -252,6 +252,7 @@ library
     GHC.Internal.Integer
 
   hs-source-dirs: src
+  build-depends: aihc-prim ==0.13.0
   default-extensions: NoImplicitPrelude
   ghc-options: -Wall
   default-language: GHC2021
