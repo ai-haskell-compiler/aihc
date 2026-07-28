@@ -16,6 +16,8 @@ library
     Aihc.Cli.Install
     Aihc.Cli.Options
     Aihc.Cli.Repl
+    Aihc.Cli.Runtime
+    Aihc.Cli.Store
 
   other-modules:
     Aihc.Cli.Compile.Dependencies

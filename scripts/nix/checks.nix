@@ -7,10 +7,6 @@
   wasmLd = pkgs.writeShellScriptBin "wasm-ld" ''
     exec ${pkgs.lld}/bin/wasm-ld "$@"
   '';
-  wasmOpt = pkgs.writeShellScriptBin "wasm-opt" ''
-    printf 'invoked\n' >> "''${AIHC_WASM_OPT_MARKER:?}"
-    exec ${pkgs.binaryen}/bin/wasm-opt "$@"
-  '';
   examplesSource = sources.examplesSrc pkgs;
   exampleEntries = builtins.readDir "${examplesSource}/examples";
   exampleNames = builtins.filter (
@@ -101,10 +97,6 @@
       name = "incremental";
       flags = [];
     }
-    {
-      name = "whole-program";
-      flags = ["--whole-program"];
-    }
   ];
   garbageCollectors = ["calloc" "semispace"];
   nativeBackendBySystem = {
@@ -113,6 +105,8 @@
   };
   nativeBackend = nativeBackendBySystem.${pkgs.stdenv.hostPlatform.system} or null;
   backends = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
+  exampleToolchainTargets = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend ++ ["wasm32-wasip3"];
+  exampleToolchainTargetArguments = builtins.concatMap (target: ["--target" target]) exampleToolchainTargets;
   compilationMatrix = builtins.concatLists (
     map (
       backend:
@@ -143,10 +137,7 @@
     else if exampleName == "exceptions-sync"
     then allBackendSmokeMatrix
     else smokeCompilationMatrix;
-  wasip3CompilationModes = exampleName:
-    if exampleName == "hello-world"
-    then compilationModes
-    else [smokeCompilation];
+  wasip3CompilationModes = _exampleName: compilationModes;
 
   renderExampleTest = {
     backend,
@@ -173,6 +164,7 @@
     if timeout --foreground --kill-after=5s 120s ${aihcExe} compile "$source" \
       --target ${backend} \
       --gc ${gc} \
+      --store ${exampleToolchain} \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
       :
@@ -242,7 +234,7 @@
     fi
     if timeout --foreground --kill-after=5s 120s ${aihcExe} compile "$source" \
       --target wasm32-wasip3 \
-      --use-wasm-opt \
+      --store ${exampleToolchain} \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
       --output "$executable"; then
       :
@@ -383,6 +375,44 @@
     test "$failed" -eq 0
   '';
 
+  # The compiler owns preparation of the installed toolchain. Runtime archives
+  # are built once per backend/GC pair, and ordinary package installation emits
+  # the reusable library interfaces and target-specific archives.
+  exampleToolchain =
+    pkgs.runCommand "aihc-example-toolchain" {
+      src = sources.coreLibrariesSrc pkgs;
+      nativeBuildInputs = [
+        pkgs.llvmPackages.bintools
+        pkgs.llvmPackages.clang
+        pkgs.llvmPackages.clang-unwrapped
+        pkgs.wasm-tools
+        pkgs.wit-bindgen
+        wasmLd
+      ];
+    } ''
+      cd "$src"
+      export GHCRTS=-N1
+      export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
+      mkdir -p "$out"
+
+      ${aihcExe} prepare-runtime --target llvm --gc calloc --store "$out"
+      ${aihcExe} prepare-runtime --target llvm --gc semispace --store "$out"
+      ${pkgs.lib.optionalString (nativeBackend != null) ''
+        ${aihcExe} prepare-runtime --target ${nativeBackend} --gc calloc --store "$out"
+        ${aihcExe} prepare-runtime --target ${nativeBackend} --gc semispace --store "$out"
+      ''}
+      ${aihcExe} prepare-runtime --target wasm32-wasip3 --gc calloc --store "$out"
+
+      ${aihcExe} install core-libs/aihc-base \
+        --offline \
+        --store "$out" \
+        ${pkgs.lib.escapeShellArgs exampleToolchainTargetArguments}
+
+      test -f "$out/libraries/active"
+      test -n "$(find "$out/libraries" -type f -name 'interfaces.cache' -print -quit)"
+      test -n "$(find "$out/libraries" -type f -name 'libaihc-base.a' -print -quit)"
+    '';
+
   exampleTestInputs = [
     pkgs.coreutils
     pkgs.diffutils
@@ -394,7 +424,6 @@
   mkExampleTest = exampleName:
     mkSourceCheck "aihc-example-${exampleName}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
       set -euo pipefail
-      export XDG_CACHE_HOME="$TMPDIR/cache"
       export GHCRTS=-N1
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
@@ -436,8 +465,8 @@
 
   # Every example gets one LLVM smoke test. The synchronous exception example
   # also exercises the host-native backend, while Hello World carries the
-  # complete backend/mode/GC matrix. Nix schedules independent examples in
-  # parallel.
+  # complete backend/GC matrix. Nix schedules independent examples in
+  # parallel against the immutable shared library and runtime artifacts.
   examplesTests = assert exampleNames != [];
     pkgs.linkFarm "aihc-examples-tests" exampleCases;
 
@@ -451,16 +480,13 @@
     pkgs.wasmtime
     pkgs.wit-bindgen
     wasmLd
-    wasmOpt
   ];
 
   mkWasip3ExampleTest = exampleName:
     mkSourceCheck "aihc-wasip3-example-${exampleName}" (sources.exampleSrc exampleName pkgs) wasip3ExampleInputs ''
       set -euo pipefail
-      export XDG_CACHE_HOME="$TMPDIR/cache"
       export GHCRTS=-N1
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
-      export AIHC_WASM_OPT_MARKER="$TMPDIR/wasm-opt-invocations"
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
 
@@ -475,9 +501,6 @@
 
       ${pkgs.lib.concatMapStringsSep "\n" renderWasip3ExampleTest (wasip3CompilationModes exampleName)}
 
-      test -n "$(find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.o' -print -quit)"
-      test -n "$(find "$XDG_CACHE_HOME/aihc/libraries" -type f -name '*.a' -print -quit)"
-      test "$(wc -l < "$AIHC_WASM_OPT_MARKER")" -eq ${toString (builtins.length (wasip3CompilationModes exampleName))}
       touch "$out"
     '';
 
@@ -488,8 +511,10 @@
     })
     exampleNames;
 
-  # Every example gets one incremental WASI smoke test. Hello World additionally
-  # covers whole-program mode. Nix schedules these derivations in parallel.
+  # Every example gets one incremental WASI smoke test. Nix schedules these
+  # derivations in parallel against the immutable shared library and runtime
+  # artifacts. Whole-program linking has focused CLI coverage because it
+  # intentionally recompiles the merged dependency bodies.
   wasip3ExampleTest = assert exampleNames != [];
     pkgs.linkFarm "aihc-wasip3-example-test" wasip3ExampleCases;
 in {

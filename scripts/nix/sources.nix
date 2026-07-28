@@ -169,10 +169,12 @@ in rec {
     ".cabal"
   ];
 
-  examplesSrc = mkRootSubsetSrc ["core-libs/" "examples/"] exampleSourceSuffixes;
+  examplesSrc = mkRootSubsetSrc ["examples/"] exampleSourceSuffixes;
+
+  coreLibrariesSrc = mkRootSubsetSrc ["core-libs/"] exampleSourceSuffixes;
 
   exampleSrc = exampleName:
-    mkRootSubsetSrc ["core-libs/" "examples/${exampleName}/"] exampleSourceSuffixes;
+    mkRootSubsetSrc ["examples/${exampleName}/"] exampleSourceSuffixes;
 
   fmtSrc = mkComponentSrc "/bin/aihc-fmt" [
     ".hs"

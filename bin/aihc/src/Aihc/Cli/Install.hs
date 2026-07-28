@@ -21,6 +21,7 @@ module Aihc.Cli.Install
     defaultStoreRoot,
     dryRunInstallScaffold,
     installFailureIsForPackage,
+    installPackageLibraries,
     lookupPackagePlanSourceLineCount,
     newPackageCheckCache,
     newPackagePlanCache,
@@ -32,7 +33,9 @@ module Aihc.Cli.Install
   )
 where
 
+import Aihc.Cli.Compile.Dependencies (LibraryPackage (..), installLibraries)
 import Aihc.Cli.Options (InstallErrorFormat (..), InstallOptions (..))
+import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cpp qualified as Cpp
 import Aihc.Fc (DesugarResult (..), desugarModuleWithBindings, renderProgram)
 import Aihc.Hackage.Cabal qualified as HackageCabal
@@ -42,6 +45,7 @@ import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
+import Aihc.Native (NativeTarget)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (..),
@@ -85,7 +89,6 @@ import Aihc.Tc
 import Control.Applicative ((<|>))
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar)
 import Control.Exception (AsyncException, Exception (..), SomeException, evaluate, fromException, mask, throwIO, try)
-import Control.Monad (when)
 import Data.Aeson (ToJSON (..), object, (.:), (.=))
 import Data.Aeson qualified as Aeson
 import Data.Aeson.Key qualified as Key
@@ -97,7 +100,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Either (rights)
 import Data.Foldable (toList)
 import Data.IORef (newIORef, readIORef, writeIORef)
-import Data.List (nub, sort, sortOn)
+import Data.List (nub, nubBy, sort, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
@@ -108,15 +111,15 @@ import Data.Word (Word64)
 import Distribution.Package qualified as CabalPackage
 import Distribution.PackageDescription (buildable, condLibrary, condSubLibraries, genPackageFlags, libBuildInfo, package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.Pretty (prettyShow)
 import Distribution.Types.Flag (flagDefault, flagName, unFlagName)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
 import Numeric (showHex)
 import System.Directory
-  ( XdgDirectory (XdgCache),
-    createDirectoryIfMissing,
+  ( createDirectoryIfMissing,
+    doesDirectoryExist,
     doesFileExist,
     getCurrentDirectory,
-    getXdgDirectory,
   )
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure)
@@ -306,29 +309,113 @@ instance ToJSON PhaseStatus where
 runInstall :: InstallOptions -> IO ()
 runInstall opts = do
   storeRoot <- maybe defaultStoreRoot pure (installStoreRoot opts)
-  version <- resolveVersion opts
-  let spec = PackageSpec (installPackageName opts) version
-      resolver = hackageDependencyResolver opts
+  (spec, resolver) <- installRequest opts
   plan <-
     if installDryRun opts
       then buildDryRunPackagePlanWithResolver resolver storeRoot spec
       else buildPackagePlanWithResolver resolver storeRoot spec
-  result <-
-    if installDryRun opts
-      then dryRunInstallScaffold plan
-      else do
-        writeResult <- writeInstallScaffold plan
-        case writeResult of
-          Right installResult -> pure installResult
-          Left failure -> do
-            hPutStrLn stderr (renderInstallFailureWithOptions opts failure)
-            exitFailure
-  putStrLn ("store: " <> resultStorePath result)
-  putStrLn ("manifest: " <> resultManifestPath result)
-  putStrLn ("interfaces: " <> resultInterfacePath result)
-  putStrLn ("system-fc: " <> resultFcPath result)
-  when (installDryRun opts) $
-    putStrLn "dry-run: no files written"
+  if installDryRun opts
+    then do
+      result <- dryRunInstallScaffold plan
+      printInstallResult result
+      putStrLn "dry-run: no files written"
+    else
+      if null (installTargets opts)
+        then do
+          writeResult <- writeInstallScaffold plan
+          case writeResult of
+            Right result -> printInstallResult result
+            Left failure -> do
+              hPutStrLn stderr (renderInstallFailureWithOptions opts failure)
+              exitFailure
+        else do
+          libraryResult <- installPackageLibraries (installTargets opts) plan
+          artifactRoot <- either (ioError . userError) pure libraryResult
+          putStrLn ("libraries: " <> artifactRoot)
+  where
+    printInstallResult result = do
+      putStrLn ("store: " <> resultStorePath result)
+      putStrLn ("manifest: " <> resultManifestPath result)
+      putStrLn ("interfaces: " <> resultInterfacePath result)
+      putStrLn ("system-fc: " <> resultFcPath result)
+
+installRequest :: InstallOptions -> IO (PackageSpec, DependencyResolver)
+installRequest opts = do
+  let packageArgument = installPackageName opts
+  localSource <- doesDirectoryExist packageArgument
+  if localSource
+    then do
+      spec <- packageSpecFromSource packageArgument
+      pure (spec, localDependencyResolver opts packageArgument)
+    else do
+      version <- resolveVersion opts
+      pure (PackageSpec packageArgument version, hackageDependencyResolver opts)
+
+localDependencyResolver :: InstallOptions -> FilePath -> DependencyResolver
+localDependencyResolver opts rootSource =
+  DependencyResolver
+    { resolverResolveVersion = \name -> do
+        local <- localPackage name
+        maybe (resolverResolveVersion fallback name) (pure . pkgVersion . fst) local,
+      resolverSourcePath = \spec -> do
+        local <- localPackage (pkgName spec)
+        case local of
+          Just (localSpec, path)
+            | pkgVersion localSpec == pkgVersion spec -> pure path
+          _ -> resolverSourcePath fallback spec
+    }
+  where
+    fallback = hackageDependencyResolver opts
+    workspace = takeDirectory (normalise rootSource)
+    localPackage name = do
+      let candidate = workspace </> name
+      exists <- doesDirectoryExist candidate
+      if exists
+        then do
+          spec <- packageSpecFromSource candidate
+          pure (Just (spec, candidate))
+        else pure Nothing
+
+packageSpecFromSource :: FilePath -> IO PackageSpec
+packageSpecFromSource sourcePath = do
+  cabalFiles <- HackageUtil.findCabalFiles sourcePath
+  cabalFile <-
+    case cabalFiles of
+      [] -> ioError (userError ("No .cabal file found under " <> sourcePath))
+      files -> pure (HackageUtil.chooseBestCabalFile sourcePath files)
+  cabalBytes <- BS.readFile cabalFile
+  gpd <-
+    case runParseResult (parseGenericPackageDescription cabalBytes) of
+      (_, Right parsed) -> pure parsed
+      (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> cabalFile <> ": " <> show errs))
+  let packageId = package (packageDescription gpd)
+  pure
+    PackageSpec
+      { pkgName = CabalPackage.unPackageName (CabalPackage.packageName packageId),
+        pkgVersion = prettyShow (CabalPackage.packageVersion packageId)
+      }
+
+-- | Install the compiled library closure represented by a generic package
+-- plan. Cabal chooses the modules; callers never enumerate them.
+installPackageLibraries :: [NativeTarget] -> PackagePlan -> IO (Either String FilePath)
+installPackageLibraries targets plan = do
+  packages <- mapM packageLibrary (flattenPackagePlan plan)
+  installLibraries (planStoreRoot plan) packages targets
+  where
+    packageLibrary package = do
+      files <- collectPlanFiles package
+      pure
+        LibraryPackage
+          { libraryPackageName = T.pack (pkgName (packageKeySpec (planPackageKey package))),
+            libraryPackageRoot = planSourcePath package,
+            libraryPackageFiles = map HackageCabal.fileInfoPath files
+          }
+
+    flattenPackagePlan =
+      nubBy samePackage . go
+      where
+        go package = concatMap go (planDependencyPlans package) <> [package]
+        samePackage left right = planPackageKey left == planPackageKey right
 
 hackageDependencyResolver :: InstallOptions -> DependencyResolver
 hackageDependencyResolver opts =
@@ -367,11 +454,6 @@ resolveVersion opts =
           case result of
             Right version -> pure version
             Left err -> ioError (userError err)
-
-defaultStoreRoot :: IO FilePath
-defaultStoreRoot = do
-  cacheDir <- getXdgDirectory XdgCache "aihc"
-  pure (cacheDir </> "store")
 
 buildPackagePlanWithResolver :: DependencyResolver -> FilePath -> PackageSpec -> IO PackagePlan
 buildPackagePlanWithResolver resolver storeRoot spec = do
