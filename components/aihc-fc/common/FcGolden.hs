@@ -31,9 +31,8 @@ import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
-import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
+import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 
 data ExpectedStatus
@@ -72,24 +71,19 @@ loadFcCases = do
   if not exists
     then pure []
     else do
-      tupleSourcePath <- findTupleSource
-      tupleSource <- TIO.readFile tupleSourcePath
       paths <- listFixtureFiles fixtureRoot
-      mapM (loadFcCase [tupleSource]) paths
+      mapM (loadFcCase [tupleSupportModule]) paths
 
-findTupleSource :: IO FilePath
-findTupleSource = getCurrentDirectory >>= findUp
-  where
-    findUp directory = do
-      let candidate = directory </> "core-libs" </> "aihc-prim" </> "src" </> "GHC" </> "Tuple.hs"
-      exists <- doesFileExist candidate
-      if exists
-        then pure candidate
-        else do
-          let parent = takeDirectory directory
-          if parent == directory
-            then fail "could not find core-libs/aihc-prim/src/GHC/Tuple.hs"
-            else findUp parent
+-- Golden modules deliberately omit core-library dependencies. Keep their
+-- primitive tuple support source-defined while limiting the fixture to the
+-- arities exercised here; integration fixtures load the real aihc-prim module.
+tupleSupportModule :: Text
+tupleSupportModule =
+  T.unlines
+    [ "module GHC.Tuple where",
+      "data Unit = ()",
+      "data Tuple2 a b = (a, b)"
+    ]
 
 loadFcCase :: [Text] -> FilePath -> IO FcCase
 loadFcCase supportModules path = do
