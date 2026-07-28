@@ -469,7 +469,7 @@ listType elemTy = TcTyCon (TyCon "[]" 1) [elemTy]
 tupleConText :: TupleFlavor -> Int -> Text
 tupleConText flavor arity =
   case flavor of
-    Boxed -> "(" <> commas arity <> ")"
+    Boxed -> boxedTupleTyConName arity
     Unboxed -> "(#" <> commas arity <> "#)"
 
 commas :: Int -> Text

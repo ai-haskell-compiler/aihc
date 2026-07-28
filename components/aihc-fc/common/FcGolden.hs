@@ -31,8 +31,9 @@ import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
-import System.Directory (doesDirectoryExist, listDirectory)
+import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 
 data ExpectedStatus
@@ -54,6 +55,7 @@ data FcCase = FcCase
     caseCategory :: !String,
     casePath :: !FilePath,
     caseExtensions :: ![Extension],
+    caseSupportModules :: ![Text],
     caseModules :: ![Text],
     caseExpected :: !String,
     caseStatus :: !ExpectedStatus,
@@ -70,20 +72,36 @@ loadFcCases = do
   if not exists
     then pure []
     else do
+      tupleSourcePath <- findTupleSource
+      tupleSource <- TIO.readFile tupleSourcePath
       paths <- listFixtureFiles fixtureRoot
-      mapM loadFcCase paths
+      mapM (loadFcCase [tupleSource]) paths
 
-loadFcCase :: FilePath -> IO FcCase
-loadFcCase path = do
+findTupleSource :: IO FilePath
+findTupleSource = getCurrentDirectory >>= findUp
+  where
+    findUp directory = do
+      let candidate = directory </> "core-libs" </> "aihc-prim" </> "src" </> "GHC" </> "Tuple.hs"
+      exists <- doesFileExist candidate
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory directory
+          if parent == directory
+            then fail "could not find core-libs/aihc-prim/src/GHC/Tuple.hs"
+            else findUp parent
+
+loadFcCase :: [Text] -> FilePath -> IO FcCase
+loadFcCase supportModules path = do
   raw <- Y.decodeFileEither path
   case raw of
     Left err -> fail ("Invalid YAML fixture " <> path <> ": " <> Y.prettyPrintParseException err)
-    Right value -> case parseFcFixture path value of
+    Right value -> case parseFcFixture supportModules path value of
       Left e -> fail e
       Right c -> pure c
 
-parseFcFixture :: FilePath -> Y.Value -> Either String FcCase
-parseFcFixture path value = do
+parseFcFixture :: [Text] -> FilePath -> Y.Value -> Either String FcCase
+parseFcFixture supportModules path value = do
   (extNames, modules, expectedText, statusText, reasonText) <-
     parseEither
       ( withObject "fc fixture" $ \obj -> do
@@ -107,6 +125,7 @@ parseFcFixture path value = do
         caseCategory = category,
         casePath = relPath,
         caseExtensions = exts,
+        caseSupportModules = supportModules,
         caseModules = modules,
         caseExpected = expected,
         caseStatus = status,
@@ -130,7 +149,8 @@ parseExpectedValue _ = fail "expected must be a string or list"
 
 evaluateFcCase :: FcCase -> (Outcome, String)
 evaluateFcCase tc =
-  let parsedModules = map parseOne (caseModules tc)
+  let supportModuleCount = length (caseSupportModules tc)
+      parsedModules = map parseOne (caseSupportModules tc <> caseModules tc)
    in case sequence parsedModules of
         Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
         Right modules ->
@@ -141,8 +161,9 @@ evaluateFcCase tc =
                     then
                       let allBindings = moduleGroupBindings tcResults
                           results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+                          fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
-                            then classifySuccess tc (renderResults results)
+                            then classifySuccess tc (renderResults fixtureResults)
                             else classifyFailure tc (renderErrors results)
                     else classifyFailure tc ("typecheck error: " <> renderTcErrors tcResults)
             ResolveResult {resolveErrors} ->

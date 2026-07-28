@@ -302,9 +302,7 @@ builtinConstructors :: [(Text, [[RuntimeRep]])]
 builtinConstructors =
   [ ("C#", [[WordRep]]),
     ("[]", []),
-    (":", [[liftedRuntimeRep], [liftedRuntimeRep]]),
-    ("()", []),
-    ("(,)", [[liftedRuntimeRep], [liftedRuntimeRep]])
+    (":", [[liftedRuntimeRep], [liftedRuntimeRep]])
   ]
 
 -- | Flattened storage layouts for runtime-supplied constructors. Source-level

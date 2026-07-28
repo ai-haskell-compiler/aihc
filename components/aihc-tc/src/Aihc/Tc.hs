@@ -49,6 +49,7 @@ module Aihc.Tc
     TyVarId (..),
     tvKind,
     TypeScheme (..),
+    boxedTupleTyConName,
     Pred (..),
     InstanceInfo (..),
     ClassInfo (..),

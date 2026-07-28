@@ -47,7 +47,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Tc.Evidence (EvTerm, EvVar)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -213,7 +213,6 @@ renderTcType = go 0
     go :: Int -> TcType -> String
     go _ (TcTyVar tv) = T.unpack (tvName tv)
     go _ (TcMetaTv (Unique u)) = "?" ++ show u
-    go _ (TcTyCon tc []) = T.unpack (tyConName tc)
     go _ (TcTyCon (TyCon name 1) [arg])
       | name == T.pack "[]" = "[" ++ go 0 arg ++ "]"
     go _ (TcTyCon (TyCon name arity) args)
@@ -224,6 +223,7 @@ renderTcType = go 0
       | isUnboxedTupleCon name arity,
         arity == length args =
           "(# " ++ commaSep (map (go 0) args) ++ " #)"
+    go _ (TcTyCon tc []) = T.unpack (tyConName tc)
     go p (TcTyCon tc args) =
       parenIf (p >= 2) $
         unwords (T.unpack (tyConName tc) : map (go 2) args)
@@ -252,7 +252,7 @@ renderTcType = go 0
     commaSep = T.unpack . T.intercalate (T.pack ", ") . map T.pack
 
     isBoxedTupleCon name arity =
-      name == T.pack "(" <> commas arity <> T.pack ")"
+      arity /= 1 && name == boxedTupleTyConName arity
 
     isUnboxedTupleCon name arity =
       name == T.pack "(#" <> commas arity <> T.pack "#)"

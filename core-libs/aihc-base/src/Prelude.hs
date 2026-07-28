@@ -46,6 +46,7 @@ import GHC.Integer (Integer)
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
 import GHC.Prim (RealWorld, State#, chr#, compareInt#, int2Word#, ord#, word2Int#, (+#), (<#), (==#))
+import GHC.Tuple ()
 
 data Char = C# Char#
 

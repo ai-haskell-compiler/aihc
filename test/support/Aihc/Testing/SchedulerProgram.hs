@@ -13,7 +13,7 @@ import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 schedulerProgram :: GrinProgram
 schedulerProgram =
   GrinProgram
-    { grinConstructors = [],
+    { grinConstructors = [("()", [])],
       grinPrimitives =
         [ (GrinVar "fork#" 1 lifted, 2),
           (GrinVar "yield#" 2 lifted, 1)
@@ -73,7 +73,7 @@ schedulerProgram =
 stdioSchedulerProgram :: GrinProgram
 stdioSchedulerProgram =
   GrinProgram
-    { grinConstructors = [],
+    { grinConstructors = [("()", [])],
       grinPrimitives =
         [ (GrinVar "awaitIO#" 30 lifted, 2),
           (GrinVar "newPinnedByteArray#" 31 (BoxedRep Unlifted), 2),

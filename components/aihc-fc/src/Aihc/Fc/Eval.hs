@@ -185,8 +185,6 @@ builtinConstructorEnv =
     [ ("C#", VConstructor "C#" []),
       ("[]", VConstructor "[]" []),
       (":", VConstructor ":" []),
-      ("()", VConstructor "()" []),
-      ("(,)", VConstructor "(,)" []),
       ("(#,#)", VConstructor "(#,#)" [])
     ]
 

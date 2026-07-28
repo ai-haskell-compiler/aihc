@@ -1122,7 +1122,8 @@ dsTuple flavor tcAnn elems = do
   if length elemTys == length elems
     then do
       elems' <- zipWithM dsMaybeTupleElem elemTys elems
-      pure (List.foldl' FcApp (tupleConExpr flavor elemTys) elems')
+      constructor <- tupleConExpr flavor elemTys
+      pure (List.foldl' FcApp constructor elems')
     else desugarBug ("tuple annotation arity mismatch: expected " <> show (length elems) <> " type argument(s), got " <> show (length elemTys))
 
 dsMaybeTupleElem :: TcType -> Maybe Expr -> DsM FcExpr
@@ -1131,18 +1132,23 @@ dsMaybeTupleElem ty Nothing = do
   v <- freshVar "_tuple_section" ty
   pure (FcVar v)
 
-tupleConExpr :: TupleFlavor -> [TcType] -> FcExpr
-tupleConExpr flavor elemTys =
+tupleConExpr :: TupleFlavor -> [TcType] -> DsM FcExpr
+tupleConExpr flavor elemTys = do
   let arity = length elemTys
-   in List.foldl' FcTyApp (FcVar (Var (tupleConName flavor arity) (Unique (-20 - arity)) (tupleConType flavor elemTys))) elemTys
+      name = tupleConName flavor arity
+  constructorTy <-
+    case flavor of
+      Boxed -> lookupType name
+      Unboxed -> pure (unboxedTupleConType elemTys)
+  pure (List.foldl' FcTyApp (FcVar (Var name (Unique (-20 - arity)) constructorTy)) elemTys)
 
-tupleConType :: TupleFlavor -> [TcType] -> TcType
-tupleConType flavor elemTys =
+unboxedTupleConType :: [TcType] -> TcType
+unboxedTupleConType elemTys =
   foldr TcForAllTy (foldr (TcFunTy . TcTyVar) resultTy tyVars) tyVars
   where
     arity = length elemTys
     tyVars = [TyVarId ("t" <> T.pack (show i)) (Unique (-2100 - i)) | i <- [0 .. arity - 1]]
-    resultTy = TcTyCon (TyCon (tupleConName flavor arity) arity) (map TcTyVar tyVars)
+    resultTy = TcTyCon (TyCon (tupleConName Unboxed arity) arity) (map TcTyVar tyVars)
 
 tupleConName :: TupleFlavor -> Int -> Text
 tupleConName flavor arity =
@@ -1199,14 +1205,14 @@ dsEvidence evidence =
         Nothing ->
           desugarBug ("missing local dictionary for " <> T.unpack (dictKey className args))
     EvGiven EqPred {} ->
-      pure unitConstructor
+      unitConstructor
     EvDict dictName typeArgs contextEvidence -> do
       dictTy <- lookupType dictName
       contextDicts <- mapM dsEvidence contextEvidence
       let dictExpr = List.foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy)) typeArgs
       pure (List.foldl' FcApp dictExpr contextDicts)
     EvCoercion {} ->
-      pure unitConstructor
+      unitConstructor
     EvSuperClass source sourcePredicate fieldTypes fieldIndex -> do
       sourceExpression <- dsEvidence source
       sourceBinder <- freshVar "$super_source" (predType sourcePredicate)
@@ -1316,9 +1322,10 @@ tyConTy = TcTyCon (TyCon "TyCon" 0) []
 stringTy :: TcType
 stringTy = listType charTy
 
-unitConstructor :: FcExpr
-unitConstructor =
-  FcVar (Var "()" (Unique (-13)) (TcTyCon (TyCon "()" 0) []))
+unitConstructor :: DsM FcExpr
+unitConstructor = do
+  ty <- lookupType "()"
+  pure (FcVar (Var "()" (Unique (-13)) ty))
 
 exprAnnotationType :: Expr -> Maybe TcType
 exprAnnotationType expr =

@@ -51,6 +51,7 @@ modules:
           show ([] :: [Bool]) == "[]",
           show [False, True] == "[False,True]",
           show (False, Just True) == "(False,Just True)",
+          show (False, Just True, I# 2#) == "(False,Just True,2)",
           show "a\n\"\\" == "\"a\\n\\\"\\\\\"",
           show ['\x80', '2'] == "\"\\128\\&2\"",
           showsPrec 11 (negate (I# 1#)) "!" == "(-1)!",

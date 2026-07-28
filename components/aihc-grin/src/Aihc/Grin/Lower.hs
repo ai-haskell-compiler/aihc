@@ -150,7 +150,7 @@ programEnvironment interface =
 lowerProgramWithEnvironment :: ProgramEnvironment -> FcProgram -> GrinProgram
 lowerProgramWithEnvironment environment program =
   GrinProgram
-    { grinConstructors = loweredConstructors tops <> programBoxedTupleConstructors program,
+    { grinConstructors = loweredConstructors tops,
       grinPrimitives = loweredPrimitives tops,
       grinForeignCalls = loweredForeignCalls tops,
       grinExternalGlobals = Set.toAscList (lowerReferencedExternalGlobalNames finalState),
@@ -1437,61 +1437,6 @@ programConstructors program =
   | FcData _ _ constructors <- fcTopBinds program,
     (name, fields) <- constructors
   ]
-    <> [(name, length layouts) | (name, layouts) <- programBoxedTupleConstructors program]
-
--- | Boxed tuple constructors are wired into System FC rather than declared by
--- an 'FcData' binding. Materialize the tuple arities used by each compilation
--- unit so linking and every backend receive the same constructor layouts.
-programBoxedTupleConstructors :: FcProgram -> [(Text, [[RuntimeRep]])]
-programBoxedTupleConstructors program =
-  Map.toAscList . Map.fromList $
-    [ (name, replicate arity [liftedRuntimeRep])
-    | name <- map varName (programVars program) <> concatMap topAlternativeConstructors (fcTopBinds program),
-      name `Map.notMember` builtinArities,
-      Just arity <- [boxedTupleConstructorArity name]
-    ]
-  where
-    builtinArities = Map.fromList [(name, length layouts) | (name, layouts) <- builtinConstructors]
-
-boxedTupleConstructorArity :: Text -> Maybe Int
-boxedTupleConstructorArity name = do
-  contents <- T.stripPrefix "(" name >>= T.stripSuffix ")"
-  if not (T.null contents) && T.all (== ',') contents
-    then Just (T.length contents + 1)
-    else Nothing
-
-topAlternativeConstructors :: FcTopBind -> [Text]
-topAlternativeConstructors topBind =
-  case topBind of
-    FcTopBind bind -> bindAlternativeConstructors bind
-    _ -> []
-
-bindAlternativeConstructors :: FcBind -> [Text]
-bindAlternativeConstructors bind =
-  case bind of
-    FcNonRec _ expr -> exprAlternativeConstructors expr
-    FcRec bindings -> concatMap (exprAlternativeConstructors . snd) bindings
-
-exprAlternativeConstructors :: FcExpr -> [Text]
-exprAlternativeConstructors expr =
-  case expr of
-    FcVar {} -> []
-    FcLit {} -> []
-    FcApp function argument -> exprAlternativeConstructors function <> exprAlternativeConstructors argument
-    FcTyApp inner _ -> exprAlternativeConstructors inner
-    FcLam _ body -> exprAlternativeConstructors body
-    FcTyLam _ body -> exprAlternativeConstructors body
-    FcLet bind body -> bindAlternativeConstructors bind <> exprAlternativeConstructors body
-    FcCase scrutinee _ alternatives ->
-      exprAlternativeConstructors scrutinee <> concatMap alternativeConstructors alternatives
-    FcCast inner _ -> exprAlternativeConstructors inner
-    FcCallForeign _ arguments -> concatMap exprAlternativeConstructors arguments
-
-alternativeConstructors :: FcAlt -> [Text]
-alternativeConstructors alternative =
-  case altCon alternative of
-    DataAlt name -> name : exprAlternativeConstructors (altRhs alternative)
-    _ -> exprAlternativeConstructors (altRhs alternative)
 
 programWhnfGlobalNames :: FcProgram -> [Text]
 programWhnfGlobalNames program = concatMap topWhnfGlobalNames (fcTopBinds program)

@@ -463,7 +463,7 @@ test_plansLibraryComponentsWithoutExecutables =
     createDirectoryIfMissing True storeRoot
     writeFile (sourceRoot </> "demo.cabal") libraryOnlyInstallCabal
     writeFile (sourceRoot </> "src" </> "Demo.hs") "module Demo where\nimport Demo.Internal\nimport Dep\nx = depId internalValue\n"
-    writeFile (sourceRoot </> "internal" </> "Demo" </> "Internal.hs") "module Demo.Internal where\ninternalValue = ()\n"
+    writeFile (sourceRoot </> "internal" </> "Demo" </> "Internal.hs") ("module Demo.Internal where\ninternalValue = ()\n" <> fixtureTupleDeclaration)
     writeFile (sourceRoot </> "app" </> "Main.hs") "module Main where\nthis executable is intentionally invalid\n"
     createFixturePackageWithSource depRoot "dep" "1.0.0" "Dep" [] "module Dep where\ndepId x = x\n"
 
@@ -1033,7 +1033,7 @@ withFixturePackage action =
     createDirectoryIfMissing True storeRoot
     writeFile (sourceRoot </> "demo.cabal") demoCabal
     writeFile (sourceRoot </> "Setup.hs") "import Distribution.Simple\nmain = defaultMain\n"
-    writeFile (srcDir </> "Demo.hs") "module Demo where\nx = ()\n"
+    writeFile (srcDir </> "Demo.hs") ("module Demo where\nx = ()\n" <> fixtureTupleDeclaration)
     action sourceRoot storeRoot
 
 withDependencyFixture :: (FilePath -> FilePath -> FilePath -> FilePath -> IO a) -> IO a
@@ -1111,7 +1111,7 @@ createFixturePackageWithOtherModules sourceRoot name version moduleName otherMod
   createDirectoryIfMissing True srcDir
   writeFile (sourceRoot </> name <> ".cabal") (fixtureCabal name version moduleName otherModules dependencies)
   writeFile (sourceRoot </> "Setup.hs") "import Distribution.Simple\nmain = defaultMain\n"
-  writeFile (srcDir </> moduleName <> ".hs") ("module " <> moduleName <> " where\nx = ()\n")
+  writeFile (srcDir </> moduleName <> ".hs") ("module " <> moduleName <> " where\nx = ()\n" <> fixtureTupleDeclaration)
 
 createFixturePackageWithSource :: FilePath -> String -> String -> String -> [String] -> String -> IO ()
 createFixturePackageWithSource sourceRoot name version moduleName dependencies source = do
@@ -1119,7 +1119,13 @@ createFixturePackageWithSource sourceRoot name version moduleName dependencies s
   createDirectoryIfMissing True srcDir
   writeFile (sourceRoot </> name <> ".cabal") (fixtureCabal name version moduleName [] dependencies)
   writeFile (sourceRoot </> "Setup.hs") "import Distribution.Simple\nmain = defaultMain\n"
-  writeFile (srcDir </> moduleName <> ".hs") source
+  writeFile (srcDir </> moduleName <> ".hs") (source <> fixtureTupleDeclaration)
+
+-- Installer fixtures intentionally have no dependency on the core libraries.
+-- Supply the primitive nullary tuple declaration in source so they exercise
+-- the same ordinary-constructor path as packages which depend on aihc-prim.
+fixtureTupleDeclaration :: String
+fixtureTupleDeclaration = "\ndata FixtureUnit = ()\n"
 
 createCoreProviderFixtures :: FilePath -> IO ()
 createCoreProviderFixtures root = do
