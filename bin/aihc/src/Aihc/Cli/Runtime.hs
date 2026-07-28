@@ -4,6 +4,7 @@
 -- ordinary program links consume those immutable artifacts.
 module Aihc.Cli.Runtime
   ( prepareRuntimeArchive,
+    readWasmClangProcessWithExitCode,
     runPrepareRuntime,
     runtimeGarbageCollector,
     wasmClangCommand,
@@ -30,6 +31,7 @@ import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, openTempFile)
+import System.IO.Error (tryIOError)
 import System.Process (readProcessWithExitCode)
 
 runPrepareRuntime :: PrepareRuntimeOptions -> IO ()
@@ -102,9 +104,9 @@ buildWasip3RuntimeObjects garbageCollector directory = do
   runtimeObjects <-
     forM (zip [0 :: Int ..] (runtimeSources <> wasmRuntimeSources)) $ \(index, source) -> do
       let object = directory </> "runtime-" <> show index <> ".o"
-      runTool clang (clangTargetArguments <> cArguments <> ["-c", source, "-o", object])
+      runWasmClangTool clang (clangTargetArguments <> cArguments <> ["-c", source, "-o", object])
       pure object
-  runTool clang (clangTargetArguments <> cArguments <> ["-c", bindingsSource, "-o", bindingsObject])
+  runWasmClangTool clang (clangTargetArguments <> cArguments <> ["-c", bindingsSource, "-o", bindingsObject])
   pure (runtimeObjects <> [bindingsObject, componentTypeObject])
 
 runtimeGarbageCollector :: GarbageCollector -> RuntimeGarbageCollector
@@ -122,6 +124,57 @@ wasmClangCommand override =
 wasmOptArguments :: FilePath -> FilePath -> [String]
 wasmOptArguments input output =
   [input, "-O3", "--enable-tail-call", "--emit-target-features", "-o", output]
+
+-- | Run Clang and, after a WebAssembly compilation failure, inspect its
+-- registered targets so a target-limited installation gets an actionable
+-- diagnostic without obscuring Clang's original error.
+readWasmClangProcessWithExitCode :: FilePath -> [String] -> IO (ExitCode, String, String)
+readWasmClangProcessWithExitCode clang arguments = do
+  result@(exitCode, stdout, stderr) <- readProcessWithExitCode clang arguments ""
+  case exitCode of
+    ExitSuccess -> pure result
+    ExitFailure _ -> do
+      targetsResult <- tryIOError (readProcessWithExitCode clang ["-print-targets"] "")
+      pure
+        ( exitCode,
+          stdout,
+          case targetsResult of
+            Right (ExitSuccess, targets, _targetsStderr)
+              | not (hasWasm32Target targets) -> appendWasm32TargetNotice stderr
+            _ -> stderr
+        )
+
+hasWasm32Target :: String -> Bool
+hasWasm32Target = any lineIsWasm32Target . lines
+  where
+    lineIsWasm32Target line =
+      case words line of
+        target : _ -> target == "wasm32"
+        [] -> False
+
+appendWasm32TargetNotice :: String -> String
+appendWasm32TargetNotice originalError =
+  originalError
+    <> separator
+    <> unlines
+      [ "AIHC notice: this Clang installation does not include the wasm32 target.",
+        "The default Clang shipped with macOS omits WebAssembly support. Install LLVM Clang",
+        "with Homebrew (`brew install llvm`) or Nix",
+        "(`nix shell nixpkgs#llvmPackages.clang-unwrapped`), then set AIHC_WASM_CLANG",
+        "to that Clang executable."
+      ]
+  where
+    separator
+      | null originalError = ""
+      | last originalError == '\n' = "\n"
+      | otherwise = "\n\n"
+
+runWasmClangTool :: FilePath -> [String] -> IO ()
+runWasmClangTool clang arguments = do
+  (exitCode, _stdout, stderr) <- readWasmClangProcessWithExitCode clang arguments
+  case exitCode of
+    ExitSuccess -> pure ()
+    ExitFailure _ -> ioError (userError (clang <> " failed (" <> show exitCode <> "): " <> stderr))
 
 runTool :: FilePath -> [String] -> IO ()
 runTool tool arguments = do

@@ -33,7 +33,7 @@ import Aihc.Cli.Compile.Dependencies
     buildDependencies,
   )
 import Aihc.Cli.Options (CompileOptions (..), GarbageCollector (..))
-import Aihc.Cli.Runtime (runtimeGarbageCollector, wasmClangCommand, wasmOptArguments)
+import Aihc.Cli.Runtime (readWasmClangProcessWithExitCode, runtimeGarbageCollector, wasmClangCommand, wasmOptArguments)
 import Aihc.Cli.Store (defaultStoreRoot, installedRuntimeArchivePath)
 import Aihc.Fc
   ( DesugarResult (..),
@@ -544,7 +544,7 @@ assembleWasip3 storeRoot garbageCollector useWasmOpt output assemblyPath archive
         coreModule = directory </> "core.wasm"
         linkedCoreModule = maybe coreModule (const unoptimizedCoreModule) wasmOpt
         (clang, clangTargetArguments) = wasmClangCommand clangOverride
-    runTool clang (clangTargetArguments <> ["-mtail-call", "-c", assemblyPath, "-o", programObject])
+    runWasmClangTool clang (clangTargetArguments <> ["-mtail-call", "-c", assemblyPath, "-o", programObject])
     runtimeArchive <- requireInstalledRuntime storeRoot Wasm32Wasip3 garbageCollector
     runTool
       "wasm-ld"
@@ -575,6 +575,13 @@ runTool tool arguments = do
   case exitCode of
     ExitSuccess -> pure ()
     ExitFailure _ -> ioError (userError (renderCompileError (CompileToolError tool exitCode stderr)))
+
+runWasmClangTool :: FilePath -> [String] -> IO ()
+runWasmClangTool clang arguments = do
+  (exitCode, _stdout, stderr) <- readWasmClangProcessWithExitCode clang arguments
+  case exitCode of
+    ExitSuccess -> pure ()
+    ExitFailure _ -> ioError (userError (renderCompileError (CompileToolError clang exitCode stderr)))
 
 backendSourceExtension :: NativeTarget -> String
 backendSourceExtension Llvm = ".ll"
