@@ -6,6 +6,16 @@ modules:
     data Bool = True | False
     x :: MyBool
     x = True
-annotated: []
-status: xfail
-reason: "type synonyms not yet supported in type checker"
+annotated:
+  - |-
+    module Test where
+    type MyBool = Bool
+    data Bool = True | False
+         │      │      └─ type: Bool
+         │      └─ type: Bool
+         └─ type: *
+    x :: MyBool
+    x = True
+    └─ type: Bool
+status: pass
+reason: "nullary type synonyms expand to their representation type"

@@ -18,6 +18,8 @@ module Prelude
     Num (..),
     Ord (..),
     Ordering (..),
+    Show (..),
+    ShowS,
     String,
     (&&),
     (.),
@@ -28,6 +30,10 @@ module Prelude
     id,
     not,
     otherwise,
+    showChar,
+    showParen,
+    shows,
+    showString,
     (||),
   )
 where
@@ -37,9 +43,9 @@ import Data.Kind (Type)
 import GHC.IO (IO (..))
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
-import GHC.Internal.Integer (compareInteger#, eqInteger#)
+import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
-import GHC.Prim (RealWorld, State#, compareInt#, (==#))
+import GHC.Prim (RealWorld, State#, chr#, compareInt#, int2Word#, ord#, word2Int#, (+#), (<#), (==#))
 
 data Char = C# Char#
 
@@ -90,6 +96,14 @@ instance Eq Int where
 instance Eq Integer where
   x == y =
     case eqInteger# x y of
+      0# -> False
+      _ -> True
+
+  x /= y = not (x == y)
+
+instance Eq Char where
+  C# x == C# y =
+    case (==#) (ord# x) (ord# y) of
       0# -> False
       _ -> True
 
@@ -286,6 +300,195 @@ minBy cmp x y =
   case cmp x y of
     GT -> y
     _ -> x
+
+type ShowS = String -> String
+
+class Show a where
+  showsPrec :: Int -> a -> ShowS
+  show :: a -> String
+  showList :: [a] -> ShowS
+
+  showsPrec _ value suffix = show value ++ suffix
+  show value = showsPrec (I# 0#) value []
+  showList = showListWith shows
+
+shows :: (Show a) => a -> ShowS
+shows = showsPrec (I# 0#)
+
+showChar :: Char -> ShowS
+showChar char suffix = char : suffix
+
+showString :: String -> ShowS
+showString = (++)
+
+showParen :: Bool -> ShowS -> ShowS
+showParen condition output =
+  case condition of
+    False -> output
+    True -> showChar '(' . output . showChar ')'
+
+instance Show Bool where
+  showsPrec _ False = showString "False"
+  showsPrec _ True = showString "True"
+
+instance Show Int where
+  showsPrec precedence (I# value) = showsSignedInteger precedence (IS value)
+
+instance Show Integer where
+  showsPrec = showsSignedInteger
+
+instance Show () where
+  showsPrec _ () = showString "()"
+
+instance Show Ordering where
+  showsPrec _ LT = showString "LT"
+  showsPrec _ EQ = showString "EQ"
+  showsPrec _ GT = showString "GT"
+
+instance Show Char where
+  showsPrec _ char = showChar '\'' . showLitChar char . showChar '\''
+  showList chars = showChar '"' . showLitString chars . showChar '"'
+
+instance (Show a) => Show [a] where
+  showsPrec _ = showList
+
+instance (Show a) => Show (Maybe a) where
+  showsPrec _ Nothing = showString "Nothing"
+  showsPrec precedence (Just value) =
+    showParen (precedence > 10) (showString "Just " . showsPrec 11 value)
+
+instance (Show a, Show b) => Show (Either a b) where
+  showsPrec precedence (Left value) =
+    showParen (precedence > 10) (showString "Left " . showsPrec 11 value)
+  showsPrec precedence (Right value) =
+    showParen (precedence > 10) (showString "Right " . showsPrec 11 value)
+
+instance (Show a, Show b) => Show (a, b) where
+  showsPrec _ (first, second) =
+    showChar '(' . shows first . showChar ',' . shows second . showChar ')'
+
+instance (Show a, Show b, Show c) => Show (a, b, c) where
+  showsPrec _ (first, second, third) =
+    showChar '('
+      . shows first
+      . showChar ','
+      . shows second
+      . showChar ','
+      . shows third
+      . showChar ')'
+
+showsSignedInteger :: Int -> Integer -> ShowS
+showsSignedInteger precedence value =
+  case (<#) (compareInteger# value (IS 0#)) 0# of
+    0# -> showsUnsignedInteger value
+    _ -> showParen (precedence > 6) (showChar '-' . showsUnsignedInteger (integerAbs value))
+
+showsUnsignedInteger :: Integer -> ShowS
+showsUnsignedInteger value suffix =
+  case integerQuotRemWord# value (int2Word# 10#) of
+    (# quotient, remainder #) ->
+      case eqInteger# quotient (IS 0#) of
+        1# -> digitChar remainder : suffix
+        _ -> showsUnsignedInteger quotient (digitChar remainder : suffix)
+
+digitChar :: Word# -> Char
+digitChar digit = C# (chr# ((+#) (word2Int# digit) 48#))
+
+showListWith :: (a -> ShowS) -> [a] -> ShowS
+showListWith _ [] = showString "[]"
+showListWith showElement (value : values) =
+  showChar '[' . showElement value . showListTail showElement values
+
+showListTail :: (a -> ShowS) -> [a] -> ShowS
+showListTail _ [] = showChar ']'
+showListTail showElement (value : values) =
+  showChar ',' . showElement value . showListTail showElement values
+
+showLitString :: String -> ShowS
+showLitString [] = id
+showLitString ('"' : chars) = showString "\\\"" . showLitString chars
+showLitString ('\'' : chars) = showChar '\'' . showLitString chars
+showLitString (char : chars) = showLitChar char . showLitString chars
+
+showLitChar :: Char -> ShowS
+showLitChar '\a' = showString "\\a"
+showLitChar '\b' = showString "\\b"
+showLitChar '\f' = showString "\\f"
+showLitChar '\n' = showString "\\n"
+showLitChar '\r' = showString "\\r"
+showLitChar '\t' = showString "\\t"
+showLitChar '\v' = showString "\\v"
+showLitChar '\\' = showString "\\\\"
+showLitChar '\'' = showString "\\'"
+showLitChar char@(C# value) =
+  case ord# value of
+    code -> showLitCode char code
+
+showLitCode :: Char -> Int# -> ShowS
+showLitCode char code =
+  case (<#) code 32# of
+    1# -> showChar '\\' . showString (asciiControlName code)
+    _ ->
+      case (==#) code 127# of
+        1# -> showString "\\DEL"
+        _ ->
+          case (<#) code 160# of
+            1# -> showNumericEscape code
+            _ -> showChar char
+
+asciiControlName :: Int# -> String
+asciiControlName code =
+  case code of
+    0# -> "NUL"
+    1# -> "SOH"
+    2# -> "STX"
+    3# -> "ETX"
+    4# -> "EOT"
+    5# -> "ENQ"
+    6# -> "ACK"
+    7# -> "BEL"
+    8# -> "BS"
+    9# -> "HT"
+    10# -> "LF"
+    11# -> "VT"
+    12# -> "FF"
+    13# -> "CR"
+    14# -> "SO"
+    15# -> "SI"
+    16# -> "DLE"
+    17# -> "DC1"
+    18# -> "DC2"
+    19# -> "DC3"
+    20# -> "DC4"
+    21# -> "NAK"
+    22# -> "SYN"
+    23# -> "ETB"
+    24# -> "CAN"
+    25# -> "EM"
+    26# -> "SUB"
+    27# -> "ESC"
+    28# -> "FS"
+    29# -> "GS"
+    30# -> "RS"
+    _ -> "US"
+
+showNumericEscape :: Int# -> ShowS
+showNumericEscape value suffix =
+  showChar '\\' (showsUnsignedInteger (IS value) (protectNumericEscape suffix))
+
+protectNumericEscape :: String -> String
+protectNumericEscape [] = []
+protectNumericEscape chars@('0' : _) = '\\' : '&' : chars
+protectNumericEscape chars@('1' : _) = '\\' : '&' : chars
+protectNumericEscape chars@('2' : _) = '\\' : '&' : chars
+protectNumericEscape chars@('3' : _) = '\\' : '&' : chars
+protectNumericEscape chars@('4' : _) = '\\' : '&' : chars
+protectNumericEscape chars@('5' : _) = '\\' : '&' : chars
+protectNumericEscape chars@('6' : _) = '\\' : '&' : chars
+protectNumericEscape chars@('7' : _) = '\\' : '&' : chars
+protectNumericEscape chars@('8' : _) = '\\' : '&' : chars
+protectNumericEscape chars@('9' : _) = '\\' : '&' : chars
+protectNumericEscape chars = chars
 
 (++) :: [a] -> [a] -> [a]
 (++) [] ys = ys

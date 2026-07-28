@@ -1,0 +1,69 @@
+dependencies:
+  - aihc-base
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int(I#))
+
+    data Wrapped = Wrapped Bool
+
+    instance Show Wrapped where
+      showsPrec precedence (Wrapped value) =
+        showParen
+          (precedence > 10)
+          (showString "Wrapped " . showsPrec 11 value)
+
+    data Named = Named
+
+    instance Show Named where
+      show Named = "Named"
+
+    renderFalse :: ShowS
+    renderFalse = shows False
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : values) = allTrue values
+    allTrue (False : _) = False
+
+    results :: Bool
+    results =
+      allTrue
+        [ show False == "False",
+          show (I# 0#) == "0",
+          show (I# 42#) == "42",
+          show (negate (I# 42#)) == "-42",
+          show (18446744073709551616 :: Integer) == "18446744073709551616",
+          show (negate (18446744073709551616 :: Integer)) == "-18446744073709551616",
+          show (100000000000000000000000000000000000000000000000000 :: Integer) == "100000000000000000000000000000000000000000000000000",
+          show () == "()",
+          show GT == "GT",
+          show ('a' :: Char) == "'a'",
+          show ('\n' :: Char) == "'\\n'",
+          show ('\x01' :: Char) == "'\\SOH'",
+          show (Nothing :: Maybe Bool) == "Nothing",
+          show (Just True) == "Just True",
+          show (Left False :: Either Bool Int) == "Left False",
+          show (Right (I# 2#) :: Either Bool Int) == "Right 2",
+          show ([] :: [Bool]) == "[]",
+          show [False, True] == "[False,True]",
+          show (False, Just True) == "(False,Just True)",
+          show "a\n\"\\" == "\"a\\n\\\"\\\\\"",
+          show ['\x80', '2'] == "\"\\128\\&2\"",
+          showsPrec 11 (negate (I# 1#)) "!" == "(-1)!",
+          showList [True, False] "!" == "[True,False]!",
+          showsPrec 0 True "!" == "True!",
+          renderFalse "" == "False",
+          show (Wrapped False) == "Wrapped False",
+          showsPrec 11 (Wrapped True) "!" == "(Wrapped True)!",
+          showsPrec 0 Named "!" == "Named!"
+        ]
+output: |
+  True
+expression: |
+  results
+status: pass
+reason: Prelude Show defaults and instances render supported primitive and algebraic types

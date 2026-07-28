@@ -45,6 +45,7 @@ import Aihc.Parser.Syntax
     SourceSpan (..),
     TupleFlavor (..),
     Type (..),
+    TypeSynDecl (..),
     UnqualifiedName (..),
     ValueDecl (..),
     binderHeadName,
@@ -73,7 +74,7 @@ import Aihc.Tc.Annotations
     annotateDecl,
   )
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..))
+import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -340,9 +341,14 @@ tcModule m = do
 -- in another member of the same import cycle.
 tcModuleScc :: [Module] -> TcM [Module]
 tcModuleScc modules = do
-  -- Phase 1: collect data declarations, register constructors,
-  --          and report their types.
-  mapM_ registerDecl (concatMap moduleDecls modules)
+  -- Phase 1: register type constructor headers before expanding synonym
+  -- bodies, then register value-level declarations against those expanded
+  -- types. This permits forward references from synonyms to data types while
+  -- making aliases available in constructor fields and class methods.
+  let declarations = concatMap moduleDecls modules
+  mapM_ registerTypeDeclHeader declarations
+  mapM_ registerTypeSynonymBody declarations
+  mapM_ registerValueLevelDecl declarations
   -- Phase 2: collect type signatures and convert them to schemes.
   rawSigs <- mapM (collectUserSigs . moduleDecls) modules
   schemes <- mapM (traverse checkUserSig) rawSigs
@@ -418,12 +424,18 @@ defaultGlobalKindMetas = do
         TcMonoIdBinder ty -> TcMonoIdBinder <$> defaultTypeKinds ty
     defaultTyConInfoKinds info = do
       kind <- defaultKindMetas (tciKind info)
+      synonym <- traverse defaultTypeSynonymKinds (tciTypeSynonym info)
       let tyCon = tciTyCon info
       pure
         info
           { tciTyCon = mkTyCon (tyConName tyCon) (tyConArity tyCon) kind,
-            tciKind = kind
+            tciKind = kind,
+            tciTypeSynonym = synonym
           }
+    defaultTypeSynonymKinds synonym =
+      TypeSynonymInfo
+        <$> mapM defaultTyVarKinds (tsiParams synonym)
+        <*> traverse defaultTypeKinds (tsiBody synonym)
     defaultClassKinds info =
       ClassInfo
         (ciName info)
@@ -1526,18 +1538,23 @@ zonkPred pred' =
     ClassPred className args -> ClassPred className <$> mapM zonkType args
     EqPred left right -> EqPred <$> zonkType left <*> zonkType right
 
--- | Register a declaration in the environment (data types, etc.).
--- Returns binding results for the declared names.
-registerDecl :: Decl -> TcM [TcBindingResult]
-registerDecl (DeclData dd) = registerDataDecl dd
-registerDecl (DeclNewtype nd) = registerNewtypeDecl nd
-registerDecl (DeclClass classDecl) = registerClassDecl classDecl
-registerDecl (DeclInstance instanceDecl) = registerInstanceDecl instanceDecl
-registerDecl (DeclForeign foreignDecl)
+registerTypeDeclHeader :: Decl -> TcM [TcBindingResult]
+registerTypeDeclHeader (DeclData dataDecl) = registerDataDeclHeader dataDecl
+registerTypeDeclHeader (DeclNewtype newtypeDecl) = registerNewtypeDeclHeader newtypeDecl
+registerTypeDeclHeader (DeclTypeSyn typeSynDecl) = registerTypeSynonymHeader typeSynDecl
+registerTypeDeclHeader (DeclAnn _ inner) = registerTypeDeclHeader inner
+registerTypeDeclHeader _ = pure []
+
+registerValueLevelDecl :: Decl -> TcM [TcBindingResult]
+registerValueLevelDecl (DeclData dataDecl) = registerDataConstructors dataDecl
+registerValueLevelDecl (DeclNewtype newtypeDecl) = registerNewtypeConstructor newtypeDecl
+registerValueLevelDecl (DeclClass classDecl) = registerClassDecl classDecl
+registerValueLevelDecl (DeclInstance instanceDecl) = registerInstanceDecl instanceDecl
+registerValueLevelDecl (DeclForeign foreignDecl)
   | isForeignImport foreignDecl =
       registerForeignImport foreignDecl
-registerDecl (DeclAnn _ inner) = registerDecl inner
-registerDecl _ = pure []
+registerValueLevelDecl (DeclAnn _ inner) = registerValueLevelDecl inner
+registerValueLevelDecl _ = pure []
 
 isForeignImport :: ForeignDecl -> Bool
 isForeignImport foreignDecl =
@@ -1570,7 +1587,8 @@ registerClassDecl classDecl = do
       { tciName = className,
         tciArity = length params,
         tciTyCon = mkTyCon className (length params) classKind,
-        tciKind = classKind
+        tciKind = classKind,
+        tciTypeSynonym = Nothing
       }
   methodResults <- concat <$> mapM (registerClassItem classPred paramTvEnv paramTyVars) (classDeclItems classDecl)
   methods <- mapM registeredMethod (classDeclMethodNames classDecl)
@@ -1674,8 +1692,8 @@ typeSuffix ty =
 --   - @Bool :: *@
 --   - @True :: Bool@
 --   - @False :: Bool@
-registerDataDecl :: DataDecl -> TcM [TcBindingResult]
-registerDataDecl dd = do
+registerDataDeclHeader :: DataDecl -> TcM [TcBindingResult]
+registerDataDeclHeader dd = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
       params = binderHeadParams (dataDeclHead dd)
       arity = length params
@@ -1688,18 +1706,28 @@ registerDataDecl dd = do
       { tciName = tyName,
         tciArity = arity,
         tciTyCon = tc,
-        tciKind = declaredKind
+        tciKind = declaredKind,
+        tciTypeSynonym = Nothing
       }
-  conResults <- mapM (registerDataCon tc paramInfos) (dataDeclConstructors dd)
   zonkedKind <- defaultKindMetas declaredKind
   let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind)
-  pure (tyConResult : conResults)
+  pure [tyConResult]
+
+registerDataConstructors :: DataDecl -> TcM [TcBindingResult]
+registerDataConstructors dataDecl = do
+  let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
+  maybeInfo <- lookupTyCon tyName
+  case maybeInfo of
+    Nothing -> missingTypeInfo ("data type " <> T.unpack tyName)
+    Just info -> do
+      paramInfos <- makeParamEnv (binderHeadParams (dataDeclHead dataDecl))
+      mapM (registerDataCon (tciTyCon info) paramInfos) (dataDeclConstructors dataDecl)
 
 -- | Register a newtype declaration's type constructor and representation
 -- constructor.  Newtype erasure/coercion semantics are handled elsewhere; at
 -- this stage the type checker only needs the source-level names and types.
-registerNewtypeDecl :: NewtypeDecl -> TcM [TcBindingResult]
-registerNewtypeDecl nd = do
+registerNewtypeDeclHeader :: NewtypeDecl -> TcM [TcBindingResult]
+registerNewtypeDeclHeader nd = do
   let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead nd))
       params = binderHeadParams (newtypeDeclHead nd)
       arity = length params
@@ -1712,12 +1740,58 @@ registerNewtypeDecl nd = do
       { tciName = tyName,
         tciArity = arity,
         tciTyCon = tc,
-        tciKind = declaredKind
+        tciKind = declaredKind,
+        tciTypeSynonym = Nothing
       }
-  conResults <- mapM (registerDataCon tc paramInfos) (newtypeDeclConstructor nd)
   zonkedKind <- defaultKindMetas declaredKind
   let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind)
-  pure (tyConResult : maybeToList conResults)
+  pure [tyConResult]
+
+registerNewtypeConstructor :: NewtypeDecl -> TcM [TcBindingResult]
+registerNewtypeConstructor newtypeDecl = do
+  let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
+  maybeInfo <- lookupTyCon tyName
+  case maybeInfo of
+    Nothing -> missingTypeInfo ("newtype " <> T.unpack tyName)
+    Just info -> do
+      paramInfos <- makeParamEnv (binderHeadParams (newtypeDeclHead newtypeDecl))
+      constructor <- mapM (registerDataCon (tciTyCon info) paramInfos) (newtypeDeclConstructor newtypeDecl)
+      pure (maybeToList constructor)
+
+registerTypeSynonymHeader :: TypeSynDecl -> TcM [TcBindingResult]
+registerTypeSynonymHeader typeSynDecl = do
+  let tyName = unqualifiedNameText (binderHeadName (typeSynHead typeSynDecl))
+      params = binderHeadParams (typeSynHead typeSynDecl)
+      arity = length params
+  paramInfos <- makeParamEnv params
+  let declaredKind = foldr (KFun . paramKind) KType paramInfos
+      tyCon = mkTyCon tyName arity declaredKind
+      synonym = TypeSynonymInfo (map paramTyVar paramInfos) Nothing
+  extendTyConEnvPermanent
+    tyName
+    TyConInfo
+      { tciName = tyName,
+        tciArity = arity,
+        tciTyCon = tyCon,
+        tciKind = declaredKind,
+        tciTypeSynonym = Just synonym
+      }
+  pure [TcBindingResult tyName tyName (kindToTcType declaredKind)]
+
+registerTypeSynonymBody :: Decl -> TcM ()
+registerTypeSynonymBody (DeclAnn _ inner) = registerTypeSynonymBody inner
+registerTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
+  let tyName = unqualifiedNameText (binderHeadName (typeSynHead typeSynDecl))
+  maybeInfo <- lookupTyCon tyName
+  case maybeInfo of
+    Just info
+      | Just synonym <- tciTypeSynonym info -> do
+          let params = tsiParams synonym
+              tvEnv = Map.fromList [(tvName param, (param, tvKind param)) | param <- params]
+          body <- checkSurfaceType tvEnv (typeSynBody typeSynDecl) KType
+          extendTyConEnvPermanent tyName (info {tciTypeSynonym = Just (synonym {tsiBody = Just body})})
+    _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
+registerTypeSynonymBody _ = pure ()
 
 dataDeclTyCon :: Text -> Int -> Kind -> TyCon
 dataDeclTyCon "List" 1 kind = mkTyCon "[]" 1 kind

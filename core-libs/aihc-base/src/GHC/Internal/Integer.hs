@@ -9,6 +9,7 @@ module GHC.Internal.Integer
     integerAdd,
     integerMul,
     integerNegate,
+    integerQuotRemWord#,
     integerSignum,
     integerSub,
     integerToInt#,
@@ -28,6 +29,7 @@ import GHC.Prim
     ltWord#,
     newByteArray#,
     plusWord#,
+    quotRemWord2#,
     quotWord#,
     readWordArray#,
     realWorld#,
@@ -129,6 +131,32 @@ integerToInt# :: Integer -> Int#
 integerToInt# (IS value) = value
 integerToInt# (IP magnitude) = word2Int# (indexWordArray# magnitude 0#)
 integerToInt# (IN magnitude) = (-#) 0# (word2Int# (indexWordArray# magnitude 0#))
+
+integerQuotRemWord# :: Integer -> Word# -> (# Integer, Word# #)
+integerQuotRemWord# value divisor =
+  case signInteger# value of
+    0# -> (# IS 0#, int2Word# 0# #)
+    sign ->
+      case magnitudeSize# value of
+        wordCount ->
+          case newByteArray# ((*#) wordCount 8#) realWorld# of
+            (# state0, mutable #) ->
+              case divideMagnitudeByWord# value divisor mutable ((-#) wordCount 1#) (int2Word# 0#) state0 of
+                (# state1, remainder #) ->
+                  case trimMagnitudeWords# mutable ((-#) wordCount 1#) state1 of
+                    (# state2, usedWords #) ->
+                      case freezeTrimmed# mutable usedWords state2 of
+                        quotientMagnitude -> (# integerFromMagnitude# sign quotientMagnitude, remainder #)
+
+divideMagnitudeByWord# :: Integer -> Word# -> MutableByteArray# RealWorld -> Int# -> Word# -> State# RealWorld -> (# State# RealWorld, Word# #)
+divideMagnitudeByWord# value divisor mutable index remainder state =
+  case (<#) index 0# of
+    1# -> (# state, remainder #)
+    _ ->
+      case quotRemWord2# remainder (magnitudeWord# value index) divisor of
+        (# quotientWord, nextRemainder #) ->
+          case writeWordArray# mutable index quotientWord state of
+            state1 -> divideMagnitudeByWord# value divisor mutable ((-#) index 1#) nextRemainder state1
 
 compareInteger# :: Integer -> Integer -> Int#
 compareInteger# left right =

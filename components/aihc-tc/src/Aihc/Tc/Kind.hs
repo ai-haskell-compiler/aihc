@@ -38,14 +38,17 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameText,
   )
-import Aihc.Tc.Env (TyConInfo (..))
+import Aihc.Tc.Env (TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Instantiate (applySubst)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Control.Monad (zipWithM)
 import Data.List (nub, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -94,8 +97,15 @@ checkRuntimeType tvEnv ty = do
     _ -> emitError NoSourceSpan (KindMismatch KType actual') >> pure tcTy
 
 convertSurfaceTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, Kind)
-convertSurfaceTypeWithKinds tvEnv ty =
-  case peelTypeHead ty of
+convertSurfaceTypeWithKinds tvEnv ty = do
+  expanded <- expandTypeSynonym tvEnv (peelTypeHead ty)
+  case expanded of
+    Just result -> pure result
+    Nothing -> convertNonSynonymTypeWithKinds tvEnv (peelTypeHead ty)
+
+convertNonSynonymTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, Kind)
+convertNonSynonymTypeWithKinds tvEnv ty =
+  case ty of
     TAnn _ inner ->
       convertSurfaceTypeWithKinds tvEnv inner
     TVar name ->
@@ -166,6 +176,91 @@ convertSurfaceTypeWithKinds tvEnv ty =
       emitError NoSourceSpan (OtherError ("unsupported surface type in kind checker: " <> take 80 (show ty)))
       meta <- freshMetaTv
       pure (meta, KType)
+
+expandTypeSynonym :: TvKindEnv -> Type -> TcM (Maybe (TcType, Kind))
+expandTypeSynonym tvEnv ty =
+  case typeApplicationSpine ty of
+    (TCon name Unpromoted, arguments) -> do
+      maybeInfo <- lookupTyCon (nameText name)
+      case maybeInfo >>= tciTypeSynonym of
+        Just synonym
+          | Just {} <- tsiBody synonym -> Just <$> instantiateTypeSynonym tvEnv (nameText name) synonym arguments
+        _ -> pure Nothing
+    _ -> pure Nothing
+
+instantiateTypeSynonym :: TvKindEnv -> Text -> TypeSynonymInfo -> [Type] -> TcM (TcType, Kind)
+instantiateTypeSynonym tvEnv synonymName synonym arguments =
+  case tsiBody synonym of
+    Nothing -> do
+      emitError NoSourceSpan (OtherError ("recursive or incomplete type synonym: " <> T.unpack synonymName))
+      meta <- freshMetaTv
+      pure (meta, KType)
+    Just body -> do
+      let params = tsiParams synonym
+          arity = length params
+          (synonymArguments, remainingArguments) = splitAt arity arguments
+      if length synonymArguments /= arity
+        then do
+          emitError NoSourceSpan (OtherError ("type synonym " <> T.unpack synonymName <> " is not fully applied"))
+          meta <- freshMetaTv
+          pure (meta, KType)
+        else do
+          checkedArguments <- zipWithM checkArgument params synonymArguments
+          let substitution = Map.fromList (zip (map tvUnique params) checkedArguments)
+          expandedBody <- expandTcTypeSynonyms Set.empty (applySubst substitution body)
+          applyRemainingArguments (expandedBody, typeKind expandedBody) remainingArguments
+  where
+    checkArgument param argument = checkSurfaceType tvEnv argument (tvKind param)
+
+    applyRemainingArguments result [] = pure result
+    applyRemainingArguments (functionType, functionKind) (argument : rest) = do
+      (argumentType, argumentKind) <- convertSurfaceTypeWithKinds tvEnv argument
+      resultKind <- freshKindMeta
+      unifyKinds functionKind (KFun argumentKind resultKind)
+      zonkedResultKind <- zonkKind resultKind
+      applyRemainingArguments (applyType functionType argumentType, zonkedResultKind) rest
+
+typeApplicationSpine :: Type -> (Type, [Type])
+typeApplicationSpine = go []
+  where
+    go arguments (TAnn _ inner) = go arguments inner
+    go arguments (TApp function argument) = go (argument : arguments) function
+    go arguments (TTypeApp function argument) = go (argument : arguments) function
+    go arguments headType = (headType, arguments)
+
+expandTcTypeSynonyms :: Set Text -> TcType -> TcM TcType
+expandTcTypeSynonyms expanding ty =
+  case ty of
+    TcTyVar {} -> pure ty
+    TcMetaTv {} -> pure ty
+    TcTyCon tyCon arguments -> do
+      expandedArguments <- mapM (expandTcTypeSynonyms expanding) arguments
+      maybeInfo <- lookupTyCon (tyConName tyCon)
+      case maybeInfo >>= tciTypeSynonym of
+        Just synonym
+          | Just body <- tsiBody synonym,
+            let params = tsiParams synonym,
+            length expandedArguments >= length params ->
+              if tyConName tyCon `Set.member` expanding
+                then do
+                  emitError NoSourceSpan (OtherError ("recursive type synonym: " <> T.unpack (tyConName tyCon)))
+                  pure (TcTyCon tyCon expandedArguments)
+                else do
+                  let (synonymArguments, remainingArguments) = splitAt (length params) expandedArguments
+                      substitution = Map.fromList (zip (map tvUnique params) synonymArguments)
+                      expandedBody = applySubst substitution body
+                  normalizedBody <- expandTcTypeSynonyms (Set.insert (tyConName tyCon) expanding) expandedBody
+                  expandTcTypeSynonyms expanding (foldl applyType normalizedBody remainingArguments)
+        _ -> pure (TcTyCon tyCon expandedArguments)
+    TcFunTy argument result -> TcFunTy <$> expandTcTypeSynonyms expanding argument <*> expandTcTypeSynonyms expanding result
+    TcForAllTy tyVar body -> TcForAllTy tyVar <$> expandTcTypeSynonyms expanding body
+    TcQualTy predicates body -> TcQualTy <$> mapM expandPredicate predicates <*> expandTcTypeSynonyms expanding body
+    TcAppTy function argument -> applyType <$> expandTcTypeSynonyms expanding function <*> expandTcTypeSynonyms expanding argument
+  where
+    expandPredicate predicate =
+      case predicate of
+        ClassPred className arguments -> ClassPred className <$> mapM (expandTcTypeSynonyms expanding) arguments
+        EqPred left right -> EqPred <$> expandTcTypeSynonyms expanding left <*> expandTcTypeSynonyms expanding right
 
 inferTypeVariable :: TvKindEnv -> UnqualifiedName -> TcM (TcType, Kind)
 inferTypeVariable tvEnv name =
