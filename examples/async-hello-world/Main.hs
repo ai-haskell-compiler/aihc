@@ -2,16 +2,8 @@
 
 module Main where
 
-import GHC.IO.StdHandles
-  ( copyAddrToByteArray,
-    stdoutHandle,
-    withPinnedByteArray,
-    writeFromBuffer,
-  )
+import GHC.Ptr (Ptr (..))
+import System.IO (hPutBuf, stdout)
 
-main :: IO Int
-main =
-  withPinnedByteArray 13# (\buffer -> do
-    copyAddrToByteArray "Hello world!\n"# buffer 0# 13#
-    output <- stdoutHandle
-    writeFromBuffer output buffer 0 13)
+main :: IO ()
+main = hPutBuf stdout (Ptr "Hello world!\n"# :: Ptr ()) 13

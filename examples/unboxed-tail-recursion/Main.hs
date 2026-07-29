@@ -5,16 +5,11 @@
 
 module Main where
 
-import GHC.IO.StdHandles
-  ( copyAddrToByteArray,
-    stdoutHandle,
-    withPinnedByteArray,
-    writeFromBuffer,
-  )
 import GHC.Int (Int (..))
 import GHC.Prim ((+#))
+import GHC.Ptr (Ptr (..))
+import System.IO (hPutBuf, stdout)
 
-countToTenMillion :: Int# -> Int#
 countToTenMillion current =
   case current of
     10_000_000# -> current
@@ -27,21 +22,15 @@ main =
     _ -> writeFail
 
 writeOk :: IO Int
-writeOk =
-  withPinnedByteArray 3# (\buffer -> do
-    copyAddrToByteArray "ok\n"# buffer 0# 3#
-    output <- stdoutHandle
-    writeFromBuffer output buffer zero length)
+writeOk = do
+  hPutBuf stdout (Ptr "ok\n"# :: Ptr ()) length
+  return length
   where
-    zero = I# 0#
     length = I# 3#
 
 writeFail :: IO Int
-writeFail =
-  withPinnedByteArray 5# (\buffer -> do
-    copyAddrToByteArray "fail\n"# buffer 0# 5#
-    output <- stdoutHandle
-    writeFromBuffer output buffer zero length)
+writeFail = do
+  hPutBuf stdout (Ptr "fail\n"# :: Ptr ()) length
+  return length
   where
-    zero = I# 0#
     length = I# 5#

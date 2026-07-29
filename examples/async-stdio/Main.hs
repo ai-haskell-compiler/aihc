@@ -1,22 +1,32 @@
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 module Main where
 
-import GHC.IO.StdHandles
-  ( readIntoBuffer,
-    stdinHandle,
-    stdoutHandle,
-    withPinnedByteArray,
-    writeFromBuffer,
-  )
+import GHC.IO (IO (..))
+import GHC.Int (Int (..))
+import GHC.Prim (MutableByteArray#, RealWorld, mutableByteArrayContents#, newPinnedByteArray#)
+import GHC.Ptr (Ptr (..))
+import System.IO (hGetBuf, hPutBuf, stdin, stdout)
 
--- This example uses one stable buffer below the future Handle layer. It echoes
--- one input block while the green-thread scheduler can run during each IO
--- request.
-main :: IO Int
+-- This example uses one stable buffer through the Handle layer. It echoes one
+-- input block while the green-thread scheduler can run during each IO request.
+main :: IO ()
 main =
-  withPinnedByteArray 64# (\buffer -> do
-    input <- stdinHandle
-    count <- readIntoBuffer input buffer 0 64
-    output <- stdoutHandle
-    writeFromBuffer output buffer 0 count)
+  withExampleBuffer
+    64
+    ( \buffer -> do
+        let pointer = Ptr (mutableByteArrayContents# buffer) :: Ptr ()
+        count <- hGetBuf stdin pointer 64
+        hPutBuf stdout pointer count
+    )
+
+withExampleBuffer :: Int -> (MutableByteArray# RealWorld -> IO a) -> IO a
+withExampleBuffer (I# size) action =
+  IO
+    ( \state ->
+        case newPinnedByteArray# size state of
+          (# allocatedState, buffer #) ->
+            case action buffer of
+              IO run -> run allocatedState
+    )
