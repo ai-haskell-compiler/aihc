@@ -1,9 +1,9 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
--- | Raw runtime-owned IO resources. 'Handle' supplies locking, lifecycle,
--- direction checks, and complete-transfer semantics above this module.
+-- | Buffer operations over runtime-owned IO resources. 'Handle' supplies
+-- locking, lifecycle, direction checks, and complete-transfer semantics above
+-- this module.
 module GHC.IO.FD
   ( IOHandle,
     stdinHandle,
@@ -22,48 +22,25 @@ where
 
 import GHC.Event (awaitIO)
 import GHC.IO (IO (..))
+import GHC.IO.Runtime
+  ( IOHandle,
+    IORequest,
+    closeIOHandle,
+    openResultError,
+    stderrHandle,
+    stdinHandle,
+    stdoutHandle,
+    submitOpen,
+    submitRead,
+    submitWrite,
+    takeOpenResult,
+    takeResult,
+    writeMemoryByte,
+  )
 import GHC.Int (Int (..))
 import GHC.Prim (MutableByteArray#, RealWorld, copyAddrToByteArray#, mutableByteArrayContents#)
 import GHC.Ptr (Ptr (..))
 import Prelude hiding (Int)
-
--- | An opaque IO resource owned by the runtime.
-data IOHandle
-
-data IORequest
-
-foreign import ccall unsafe "aihc_io_stdin"
-  stdinHandle :: IO (Ptr IOHandle)
-
-foreign import ccall unsafe "aihc_io_stdout"
-  stdoutHandle :: IO (Ptr IOHandle)
-
-foreign import ccall unsafe "aihc_io_stderr"
-  stderrHandle :: IO (Ptr IOHandle)
-
-foreign import ccall unsafe "aihc_io_submit_open"
-  submitOpen :: Addr# -> Int -> Int -> IO (Ptr IORequest)
-
-foreign import ccall unsafe "aihc_io_open_result_error"
-  openResultError :: Ptr IOHandle -> IO Int
-
-foreign import ccall unsafe "aihc_io_close"
-  closeIOHandle :: Ptr IOHandle -> IO Int
-
-foreign import ccall unsafe "aihc_memory_write_byte"
-  writeMemoryByte :: Addr# -> Int -> Int -> IO Int
-
-foreign import ccall unsafe "aihc_io_submit_read"
-  submitRead :: Ptr IOHandle -> Addr# -> Int -> Int -> IO (Ptr IORequest)
-
-foreign import ccall unsafe "aihc_io_submit_write"
-  submitWrite :: Ptr IOHandle -> Addr# -> Int -> Int -> IO (Ptr IORequest)
-
-foreign import ccall unsafe "aihc_io_take_result"
-  takeResult :: Ptr IORequest -> IO Int
-
-foreign import ccall unsafe "aihc_io_take_open_result"
-  takeOpenResult :: Ptr IORequest -> IO (Ptr IOHandle)
 
 openIOHandle :: Addr# -> Int -> Int -> IO (Either Int (Ptr IOHandle))
 openIOHandle path length mode = do

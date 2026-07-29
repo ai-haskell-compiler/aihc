@@ -49,6 +49,7 @@ import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
 import Control.Exception (bracket)
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.IORef (newIORef)
 import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort)
@@ -458,11 +459,13 @@ test_plansLibraryComponentsWithoutExecutables =
         depRoot = root </> "dep"
         storeRoot = root </> "store"
     createDirectoryIfMissing True (sourceRoot </> "src")
+    createDirectoryIfMissing True (sourceRoot </> "src" </> "Demo")
     createDirectoryIfMissing True (sourceRoot </> "internal" </> "Demo")
     createDirectoryIfMissing True (sourceRoot </> "app")
     createDirectoryIfMissing True storeRoot
     writeFile (sourceRoot </> "demo.cabal") libraryOnlyInstallCabal
-    writeFile (sourceRoot </> "src" </> "Demo.hs") "module Demo where\nimport Demo.Internal\nimport Dep\nx = depId internalValue\n"
+    writeFile (sourceRoot </> "src" </> "Demo.hs") "module Demo where\nimport Demo.Internal\nimport Demo.Private\nimport Dep\nx = depId (privateValue internalValue)\n"
+    writeFile (sourceRoot </> "src" </> "Demo" </> "Private.hs") "module Demo.Private where\nprivateValue x = x\n"
     writeFile (sourceRoot </> "internal" </> "Demo" </> "Internal.hs") ("module Demo.Internal where\ninternalValue = ()\n" <> fixtureTupleDeclaration)
     writeFile (sourceRoot </> "app" </> "Main.hs") "module Main where\nthis executable is intentionally invalid\n"
     createFixturePackageWithSource depRoot "dep" "1.0.0" "Dep" [] "module Dep where\ndepId x = x\n"
@@ -473,10 +476,23 @@ test_plansLibraryComponentsWithoutExecutables =
         storeRoot
         (PackageSpec "demo" "0.1.0.0")
 
-    assertEqual "library source file count" 2 (planSourceFileCount plan)
+    assertEqual "library source file count" 3 (planSourceFileCount plan)
     assertEqual "external library dependencies" ["dep"] [pkgName (packageKeySpec (planPackageKey dependencyPlan)) | dependencyPlan <- planDependencyPlans plan]
     _ <- expectInstallSuccess (checkPackagePlan plan)
-    pure ()
+    result <- expectInstallSuccess (writeInstallScaffold plan)
+    interface <- BL8.readFile (resultInterfacePath result)
+    case Aeson.decode interface of
+      Just (Aeson.Object artifact) ->
+        case KeyMap.lookup "modules" artifact of
+          Just (Aeson.Array modules) -> do
+            let moduleNames =
+                  [ name
+                  | Aeson.Object moduleEntry <- foldr (:) [] modules,
+                    Just (Aeson.String name) <- [KeyMap.lookup "module" moduleEntry]
+                  ]
+            assertEqual "public interface modules" ["Demo", "Demo.Internal"] moduleNames
+          other -> assertFailure ("expected interface modules, got " <> show other)
+      other -> assertFailure ("expected interface artifact, got " <> show other)
 
 test_writeInstallScaffold :: Assertion
 test_writeInstallScaffold =
@@ -943,6 +959,7 @@ test_installedPackage =
   withTempDir "aihc-installed-package" $ \root -> do
     let sourceRoot = root </> "prim-fixture"
         primSource = sourceRoot </> "src" </> "GHC" </> "Prim.hs"
+        internalSource = sourceRoot </> "src" </> "GHC" </> "Prim" </> "Internal.hs"
         cabalFile = sourceRoot </> "prim-fixture.cabal"
         storeRoot = root </> "store"
         environment = CompileEnvironment storeRoot
@@ -952,6 +969,13 @@ test_installedPackage =
               "{-# LANGUAGE NoImplicitPrelude #-}",
               "module Main where",
               "import GHC.Prim",
+              "main = Unit"
+            ]
+        privateMainSource =
+          T.unlines
+            [ "{-# LANGUAGE NoImplicitPrelude #-}",
+              "module Main where",
+              "import GHC.Prim.Internal",
               "main = Unit"
             ]
     createDirectoryIfMissing True (takeDirectory primSource)
@@ -964,6 +988,7 @@ test_installedPackage =
             "build-type: Simple",
             "library",
             "  exposed-modules: GHC.Prim",
+            "  other-modules: GHC.Prim.Internal",
             "  hs-source-dirs: src",
             "  default-extensions: NoImplicitPrelude",
             "  default-language: GHC2021"
@@ -974,7 +999,16 @@ test_installedPackage =
       ( unlines
           [ "{-# LANGUAGE MagicHash #-}",
             "{-# LANGUAGE NoImplicitPrelude #-}",
-            "module GHC.Prim where",
+            "module GHC.Prim (Unit(..)) where",
+            "import GHC.Prim.Internal (Unit(..))"
+          ]
+      )
+    createDirectoryIfMissing True (takeDirectory internalSource)
+    writeFile
+      internalSource
+      ( unlines
+          [ "{-# LANGUAGE NoImplicitPrelude #-}",
+            "module GHC.Prim.Internal where",
             "data Unit = Unit"
           ]
       )
@@ -988,6 +1022,10 @@ test_installedPackage =
     case compileResult of
       Left err -> assertFailure (show err)
       Right assembly -> assertBool "expected installed dependency initializer" ("_aihc_init_" `T.isInfixOf` assembly)
+    privateCompileResult <- compileSourceToAssemblyWithDependenciesFor Llvm environment "PrivateMain.hs" privateMainSource
+    case privateCompileResult of
+      Left err -> assertBool ("expected private module error, got: " <> show err) ("GHC.Prim.Internal" `isInfixOf` show err)
+      Right _ -> assertFailure "expected private other-module import to be rejected"
     wholeResult <- compileSourceToWholeCoreWithDependencies environment "Main.hs" mainSource
     case wholeResult of
       Left err -> assertFailure (show err)
@@ -1220,6 +1258,7 @@ libraryOnlyInstallCabal =
       "",
       "library",
       "  exposed-modules: Demo",
+      "  other-modules: Demo.Private",
       "  hs-source-dirs: src",
       "  build-depends: demo-internal, dep",
       "  default-language: Haskell2010",

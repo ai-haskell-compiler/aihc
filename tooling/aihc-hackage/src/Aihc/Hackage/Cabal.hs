@@ -7,6 +7,7 @@ module Aihc.Hackage.Cabal
 
     -- * Component file discovery
     collectComponentFiles,
+    collectLibraryExposedModules,
     collectLibraryFiles,
 
     -- * Condition evaluation
@@ -149,6 +150,23 @@ collectLibraryFiles gpd packageRoot = do
 
   libraryFiles <- fmap concat (mapM (uncurry (libraryFilesFor pkgDescr evalCond packageRoot)) libraryTrees)
   pure (dedupeFiles libraryFiles)
+
+-- | Collect the public module interface selected by active Cabal conditions.
+-- Private @other-modules@ are intentionally absent even though
+-- 'collectLibraryFiles' includes their source files for compilation.
+collectLibraryExposedModules :: GenericPackageDescription -> [Text]
+collectLibraryExposedModules gpd =
+  nub
+    [ T.pack (prettyShow moduleName)
+    | tree <- libraryTrees,
+      let build = collectMergedBuildInfo evalCond libBuildInfo tree,
+      buildable build,
+      library <- collectCondTreeData evalCond tree,
+      moduleName <- exposedModules library
+    ]
+  where
+    evalCond = conditionEvaluator gpd
+    libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
 
 collectExecutableFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
 collectExecutableFiles gpd packageRoot = do

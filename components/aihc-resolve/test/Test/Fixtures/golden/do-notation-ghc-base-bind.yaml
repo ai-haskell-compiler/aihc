@@ -1,0 +1,41 @@
+extensions: []
+modules:
+  - |
+    module GHC.Base (Monad(..)) where
+
+    class Monad m where
+      (>>=) :: m a -> (a -> m b) -> m b
+      return :: a -> m a
+  - |
+    module Main where
+
+    import GHC.Base (return)
+
+    program value = do
+      result <- value
+      return result
+annotated:
+  - |
+    module GHC.Base (Monad(..)) where
+
+    class Monad m where
+          └─ t GHC.Base
+      (>>=) :: m a -> (a -> m b) -> m b
+      return :: a -> m a
+  - |
+    module Main where
+
+    import GHC.Base (return)
+
+    program value = do
+    │       └─ v 0
+    └─ v Main
+      result <- value
+      └─ v 1    └─ v 0
+      └─ v GHC.Base
+      return result
+      │      └─ v 1
+      └─ v GHC.Base
+status: pass
+reason: ordinary do notation resolves the canonical GHC.Base Monad method without
+  importing it, while return remains an ordinary imported method

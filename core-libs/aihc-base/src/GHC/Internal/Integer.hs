@@ -7,12 +7,21 @@ module GHC.Internal.Integer
     eqInteger#,
     integerAbs,
     integerAdd,
+    integerAnd,
+    integerBit#,
+    integerComplement,
     integerMul,
     integerNegate,
+    integerOr,
+    integerPopCount#,
     integerQuotRemWord#,
+    integerShiftL#,
+    integerShiftR#,
     integerSignum,
     integerSub,
+    integerTestBit#,
     integerToInt#,
+    integerXor,
   )
 where
 
@@ -23,12 +32,16 @@ import GHC.Prim
     State#,
     addIntC#,
     addWordC#,
+    and#,
     eqWord#,
     indexWordArray#,
     int2Word#,
     ltWord#,
     newByteArray#,
+    not#,
+    or#,
     plusWord#,
+    popCnt#,
     quotRemWord2#,
     quotWord#,
     readWordArray#,
@@ -38,9 +51,12 @@ import GHC.Prim
     subIntC#,
     subWordC#,
     timesWord2#,
+    uncheckedShiftL#,
+    uncheckedShiftRL#,
     unsafeFreezeByteArray#,
     word2Int#,
     writeWordArray#,
+    xor#,
     (*#),
     (+#),
     (-#),
@@ -126,6 +142,252 @@ integerAbs value =
 
 integerSignum :: Integer -> Integer
 integerSignum value = IS (signInteger# value)
+
+integerAnd :: Integer -> Integer -> Integer
+integerAnd left right =
+  case signInteger# left of
+    1# ->
+      case signInteger# right of
+        1# -> positiveBitwise# 0# left right
+        0# -> IS 0#
+        _ -> positiveAndNot left (integerPredecessorMagnitude right)
+    0# -> IS 0#
+    _ ->
+      case signInteger# right of
+        1# -> positiveAndNot right (integerPredecessorMagnitude left)
+        0# -> IS 0#
+        _ -> negativeFromComplement (positiveBitwise# 1# (integerPredecessorMagnitude left) (integerPredecessorMagnitude right))
+
+integerOr :: Integer -> Integer -> Integer
+integerOr left right =
+  case signInteger# left of
+    1# ->
+      case signInteger# right of
+        1# -> positiveBitwise# 1# left right
+        0# -> left
+        _ -> negativeFromComplement (positiveAndNot (integerPredecessorMagnitude right) left)
+    0# -> right
+    _ ->
+      case signInteger# right of
+        1# -> negativeFromComplement (positiveAndNot (integerPredecessorMagnitude left) right)
+        0# -> left
+        _ -> negativeFromComplement (positiveBitwise# 0# (integerPredecessorMagnitude left) (integerPredecessorMagnitude right))
+
+integerXor :: Integer -> Integer -> Integer
+integerXor left right =
+  case signInteger# left of
+    1# ->
+      case signInteger# right of
+        1# -> positiveBitwise# 2# left right
+        0# -> left
+        _ -> negativeFromComplement (positiveBitwise# 2# left (integerPredecessorMagnitude right))
+    0# -> right
+    _ ->
+      case signInteger# right of
+        1# -> negativeFromComplement (positiveBitwise# 2# (integerPredecessorMagnitude left) right)
+        0# -> left
+        _ -> positiveBitwise# 2# (integerPredecessorMagnitude left) (integerPredecessorMagnitude right)
+
+integerComplement :: Integer -> Integer
+integerComplement value = integerSub (integerNegate value) (IS 1#)
+
+integerBit# :: Int# -> Integer
+integerBit# amount =
+  case (<#) amount 0# of
+    1# -> IS 0#
+    _ -> integerShiftL# (IS 1#) amount
+
+integerTestBit# :: Integer -> Int# -> Int#
+integerTestBit# value amount =
+  case (<#) amount 0# of
+    1# -> 0#
+    _ ->
+      case (<#) (signInteger# value) 0# of
+        1# ->
+          case testMagnitudeBit# (integerPredecessorMagnitude value) amount of
+            0# -> 1#
+            _ -> 0#
+        _ -> testMagnitudeBit# value amount
+
+integerShiftL# :: Integer -> Int# -> Integer
+integerShiftL# value amount =
+  case (<#) amount 0# of
+    1# -> integerShiftL# value amount
+    _ ->
+      case signInteger# value of
+        0# -> IS 0#
+        sign -> integerFromMagnitude# sign (shiftMagnitudeL# value amount)
+
+integerShiftR# :: Integer -> Int# -> Integer
+integerShiftR# value amount =
+  case (<#) amount 0# of
+    1# -> integerShiftR# value amount
+    _ ->
+      case signInteger# value of
+        0# -> IS 0#
+        1# -> integerFromMagnitude# 1# (shiftMagnitudeR# value amount)
+        _ -> negativeFromComplement (integerFromMagnitude# 1# (shiftMagnitudeR# (integerPredecessorMagnitude value) amount))
+
+integerPopCount# :: Integer -> Int#
+integerPopCount# value =
+  case signInteger# value of
+    0# -> 0#
+    1# -> popCountMagnitude# value 0# 0#
+    _ -> (-#) 0# (popCountMagnitude# value 0# 0#)
+
+integerPredecessorMagnitude :: Integer -> Integer
+integerPredecessorMagnitude value = integerSub (integerAbs value) (IS 1#)
+
+negativeFromComplement :: Integer -> Integer
+negativeFromComplement value = integerNegate (integerAdd value (IS 1#))
+
+positiveBitwise# :: Int# -> Integer -> Integer -> Integer
+positiveBitwise# operation left right =
+  case maxInt# (magnitudeSize# left) (magnitudeSize# right) of
+    wordCount ->
+      case newByteArray# ((*#) wordCount 8#) realWorld# of
+        (# state0, mutable #) ->
+          case writeBitwiseWords# operation left right mutable wordCount 0# state0 of
+            (# state1, _ #) ->
+              case trimMagnitudeWords# mutable ((-#) wordCount 1#) state1 of
+                (# state2, usedWords #) -> integerFromMagnitude# 1# (freezeTrimmed# mutable usedWords state2)
+
+positiveAndNot :: Integer -> Integer -> Integer
+positiveAndNot left right =
+  case magnitudeSize# left of
+    wordCount ->
+      case newByteArray# ((*#) wordCount 8#) realWorld# of
+        (# state0, mutable #) ->
+          case writeAndNotWords# left right mutable wordCount 0# state0 of
+            (# state1, _ #) ->
+              case trimMagnitudeWords# mutable ((-#) wordCount 1#) state1 of
+                (# state2, usedWords #) -> integerFromMagnitude# 1# (freezeTrimmed# mutable usedWords state2)
+
+writeBitwiseWords# :: Int# -> Integer -> Integer -> MutableByteArray# RealWorld -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
+writeBitwiseWords# operation left right mutable wordCount index state =
+  case (==#) index wordCount of
+    1# -> (# state, index #)
+    _ ->
+      case bitwiseWord# operation (magnitudeWordOrZero# left index) (magnitudeWordOrZero# right index) of
+        result ->
+          case writeWordArray# mutable index result state of
+            state1 -> writeBitwiseWords# operation left right mutable wordCount ((+#) index 1#) state1
+
+writeAndNotWords# :: Integer -> Integer -> MutableByteArray# RealWorld -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
+writeAndNotWords# left right mutable wordCount index state =
+  case (==#) index wordCount of
+    1# -> (# state, index #)
+    _ ->
+      case and# (magnitudeWord# left index) (not# (magnitudeWordOrZero# right index)) of
+        result ->
+          case writeWordArray# mutable index result state of
+            state1 -> writeAndNotWords# left right mutable wordCount ((+#) index 1#) state1
+
+bitwiseWord# :: Int# -> Word# -> Word# -> Word#
+bitwiseWord# operation left right =
+  case operation of
+    0# -> and# left right
+    1# -> or# left right
+    _ -> xor# left right
+
+splitBitIndex# :: Int# -> (# Int#, Int# #)
+splitBitIndex# amount =
+  (# word2Int# (uncheckedShiftRL# (int2Word# amount) 6#), word2Int# (and# (int2Word# amount) (int2Word# 63#)) #)
+
+testMagnitudeBit# :: Integer -> Int# -> Int#
+testMagnitudeBit# value amount =
+  case splitBitIndex# amount of
+    (# wordIndex, bitIndex #) ->
+      case (<#) wordIndex (magnitudeSize# value) of
+        1# ->
+          case eqWord# (and# (magnitudeWord# value wordIndex) (uncheckedShiftL# (int2Word# 1#) bitIndex)) (int2Word# 0#) of
+            1# -> 0#
+            _ -> 1#
+        _ -> 0#
+
+shiftMagnitudeL# :: Integer -> Int# -> ByteArray#
+shiftMagnitudeL# value amount =
+  case splitBitIndex# amount of
+    (# wordShift, bitShift #) ->
+      case (+#) ((+#) (magnitudeSize# value) wordShift) 1# of
+        resultSize ->
+          case newByteArray# ((*#) resultSize 8#) realWorld# of
+            (# state0, mutable #) ->
+              case zeroMagnitudeWords# mutable wordShift 0# state0 of
+                (# state1, _ #) ->
+                  case writeShiftedLeftWords# value mutable wordShift bitShift 0# (int2Word# 0#) state1 of
+                    (# state2, usedWords #) -> freezeTrimmed# mutable usedWords state2
+
+writeShiftedLeftWords# :: Integer -> MutableByteArray# RealWorld -> Int# -> Int# -> Int# -> Word# -> State# RealWorld -> (# State# RealWorld, Int# #)
+writeShiftedLeftWords# value mutable wordShift bitShift index carry state =
+  case (==#) index (magnitudeSize# value) of
+    1# ->
+      case eqWord# carry (int2Word# 0#) of
+        1# -> (# state, (+#) wordShift index #)
+        _ ->
+          case writeWordArray# mutable ((+#) wordShift index) carry state of
+            state1 -> (# state1, (+#) ((+#) wordShift index) 1# #)
+    _ ->
+      case magnitudeWord# value index of
+        word ->
+          case shiftedLeftWord# word bitShift carry of
+            (# result, nextCarry #) ->
+              case writeWordArray# mutable ((+#) wordShift index) result state of
+                state1 -> writeShiftedLeftWords# value mutable wordShift bitShift ((+#) index 1#) nextCarry state1
+
+shiftedLeftWord# :: Word# -> Int# -> Word# -> (# Word#, Word# #)
+shiftedLeftWord# word bitShift carry =
+  case bitShift of
+    0# -> (# word, int2Word# 0# #)
+    _ -> (# or# (uncheckedShiftL# word bitShift) carry, uncheckedShiftRL# word ((-#) 64# bitShift) #)
+
+shiftMagnitudeR# :: Integer -> Int# -> ByteArray#
+shiftMagnitudeR# value amount =
+  case splitBitIndex# amount of
+    (# wordShift, bitShift #) ->
+      case (<#) wordShift (magnitudeSize# value) of
+        0# -> emptyMagnitude# 0#
+        _ ->
+          case (-#) (magnitudeSize# value) wordShift of
+            resultSize ->
+              case newByteArray# ((*#) resultSize 8#) realWorld# of
+                (# state0, mutable #) ->
+                  case writeShiftedRightWords# value mutable wordShift bitShift resultSize 0# state0 of
+                    (# state1, _ #) ->
+                      case trimMagnitudeWords# mutable ((-#) resultSize 1#) state1 of
+                        (# state2, usedWords #) -> freezeTrimmed# mutable usedWords state2
+
+writeShiftedRightWords# :: Integer -> MutableByteArray# RealWorld -> Int# -> Int# -> Int# -> Int# -> State# RealWorld -> (# State# RealWorld, Int# #)
+writeShiftedRightWords# value mutable wordShift bitShift resultSize index state =
+  case (==#) index resultSize of
+    1# -> (# state, index #)
+    _ ->
+      case shiftedRightWord# value ((+#) wordShift index) bitShift of
+        result ->
+          case writeWordArray# mutable index result state of
+            state1 -> writeShiftedRightWords# value mutable wordShift bitShift resultSize ((+#) index 1#) state1
+
+shiftedRightWord# :: Integer -> Int# -> Int# -> Word#
+shiftedRightWord# value sourceIndex bitShift =
+  case bitShift of
+    0# -> magnitudeWord# value sourceIndex
+    _ ->
+      or#
+        (uncheckedShiftRL# (magnitudeWord# value sourceIndex) bitShift)
+        (uncheckedShiftL# (magnitudeWordOrZero# value ((+#) sourceIndex 1#)) ((-#) 64# bitShift))
+
+emptyMagnitude# :: Int# -> ByteArray#
+emptyMagnitude# size =
+  case newByteArray# size realWorld# of
+    (# state, mutable #) ->
+      case unsafeFreezeByteArray# mutable state of
+        (# _, magnitude #) -> magnitude
+
+popCountMagnitude# :: Integer -> Int# -> Int# -> Int#
+popCountMagnitude# value index total =
+  case (==#) index (magnitudeSize# value) of
+    1# -> total
+    _ -> popCountMagnitude# value ((+#) index 1#) ((+#) total (word2Int# (popCnt# (magnitudeWord# value index))))
 
 integerToInt# :: Integer -> Int#
 integerToInt# (IS value) = value
