@@ -249,7 +249,6 @@ library
     Unsafe.Coerce
 
   other-modules:
-    GHC.IO.Buffer.Internal
     GHC.IO.Console
     GHC.IO.Runtime
     GHC.Internal.Char

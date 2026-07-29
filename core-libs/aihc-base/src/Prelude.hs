@@ -64,8 +64,7 @@ where
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import GHC.Base (Applicative (..), Functor (..), Monad (..))
 import GHC.Enum (Bounded (..), Enum (..))
-import GHC.IO (IO)
-import GHC.IO.Buffer.Internal (withPinnedByteArray)
+import GHC.IO (IO (..))
 import GHC.IO.Console (writeOutputByte, writeStdout)
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
@@ -73,7 +72,7 @@ import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
-import GHC.Prim (MutableByteArray#, RealWorld, and#, chr#, int2Word#, ord#, word2Int#, (+#), (<#), (==#))
+import GHC.Prim (MutableByteArray#, RealWorld, and#, chr#, int2Word#, newPinnedByteArray#, ord#, word2Int#, (+#), (<#), (==#))
 import GHC.Real
   ( Fractional (..),
     Integral (..),
@@ -432,11 +431,20 @@ putChar character = putStr [character]
 
 putStr :: String -> IO ()
 putStr [] = return ()
-putStr characters =
-  withPinnedByteArray
-    4096#
-    ( \buffer ->
-        writeStringChunks buffer 0# characters
+putStr characters = do
+  buffer <- newOutputBuffer 4096#
+  case buffer of
+    OutputBuffer rawBuffer -> writeStringChunks rawBuffer 0# characters
+
+data OutputBuffer = OutputBuffer (MutableByteArray# RealWorld)
+
+newOutputBuffer :: Int# -> IO OutputBuffer
+newOutputBuffer size =
+  IO
+    ( \state ->
+        case newPinnedByteArray# size state of
+          (# allocatedState, buffer #) ->
+            (# allocatedState, OutputBuffer buffer #)
     )
 
 putStrLn :: String -> IO ()

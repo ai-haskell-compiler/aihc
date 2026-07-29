@@ -7,7 +7,6 @@ module GHC.IO.StdHandles
     stdinHandle,
     stdoutHandle,
     stderrHandle,
-    withPinnedByteArray,
     copyAddrToByteArray,
     readIntoBuffer,
     writeFromBuffer,
@@ -15,7 +14,6 @@ module GHC.IO.StdHandles
 where
 
 import GHC.Foreign (openUtf8FilePath)
-import GHC.IO.Buffer.Internal (withPinnedByteArray)
 import GHC.IO.Exception (ioError, ioErrorFromErrno)
 import GHC.IO.FD
   ( IOHandle,

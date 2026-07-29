@@ -1,0 +1,31 @@
+annotated:
+- |-
+  module Main where
+  class Context a where
+        └─ t Main
+  class Derived a where
+        └─ t Main
+  data Wrapper a = Wrapper a
+       └─ t Main   └─ v Main
+  data T a = T a
+       │     └─ v Main
+       └─ t Main
+  deriving via Wrapper a instance forall a. Context a => Derived (T a)
+               │       └─ t 0               │       │    └─ t Main│ └─ t 0
+               └─ t Main                    │       └─ t 0        └─ t Main
+                                            └─ t Main
+extensions:
+- DerivingStrategies
+- DerivingVia
+- ExplicitForAll
+- StandaloneDeriving
+modules:
+- |
+  module Main where
+  class Context a where
+  class Derived a where
+  data Wrapper a = Wrapper a
+  data T a = T a
+  deriving via Wrapper a instance forall a. Context a => Derived (T a)
+reason: ''
+status: pass

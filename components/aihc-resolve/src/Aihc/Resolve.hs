@@ -37,6 +37,8 @@ import Aihc.Parser.Syntax
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
+    DerivingClause (..),
+    DerivingStrategy (..),
     DoStmt (..),
     Expr (..),
     Extension (..),
@@ -65,6 +67,7 @@ import Aihc.Parser.Syntax
     RecordField (..),
     Rhs (..),
     SourceSpan (..),
+    StandaloneDerivingDecl (..),
     TyVarBinder (..),
     Type (..),
     TypeSynDecl (..),
@@ -397,7 +400,8 @@ resolveDeclCore termDefinition decl =
     DeclPatSynSig {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclInstance instanceDecl ->
       DeclInstance <$> resolveInstanceDecl instanceDecl
-    DeclStandaloneDeriving {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclStandaloneDeriving derivingDecl ->
+      DeclStandaloneDeriving <$> resolveStandaloneDerivingDecl derivingDecl
     DeclTypeFamilyDecl {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclDataFamilyDecl {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclTypeFamilyInst {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
@@ -485,6 +489,38 @@ resolveInstanceDeclItem instanceDeclItem =
     InstanceItemTypeFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
     InstanceItemDataFamilyInst {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
     InstanceItemPragma {} -> annotateUnhandledInstanceDeclItem <$> currentSpan <*> pure instanceDeclItem
+
+resolveStandaloneDerivingDecl :: StandaloneDerivingDecl -> ResolveM StandaloneDerivingDecl
+resolveStandaloneDerivingDecl derivingDecl = do
+  (forallScope, forallBinders') <- bindTyVarBinders (standaloneDerivingForall derivingDecl)
+  (strategy', context', head') <-
+    extendScope forallScope $
+      (,,)
+        <$> traverse resolveDerivingStrategy (standaloneDerivingStrategy derivingDecl)
+        <*> mapM resolveType (standaloneDerivingContext derivingDecl)
+        <*> resolveType (standaloneDerivingHead derivingDecl)
+  pure
+    derivingDecl
+      { standaloneDerivingStrategy = strategy',
+        standaloneDerivingForall = forallBinders',
+        standaloneDerivingContext = context',
+        standaloneDerivingHead = head'
+      }
+
+resolveDerivingClause :: DerivingClause -> ResolveM DerivingClause
+resolveDerivingClause clause = do
+  strategy' <- traverse resolveDerivingStrategy (derivingStrategy clause)
+  classes' <-
+    case derivingClasses clause of
+      Left name -> Left <$> resolveTypeUseAtName name
+      Right tys -> Right <$> mapM resolveType tys
+  pure clause {derivingStrategy = strategy', derivingClasses = classes'}
+
+resolveDerivingStrategy :: DerivingStrategy -> ResolveM DerivingStrategy
+resolveDerivingStrategy strategy =
+  case strategy of
+    DerivingVia ty -> DerivingVia <$> resolveType ty
+    _ -> pure strategy
 
 resolveMatch :: Match -> ResolveM Match
 resolveMatch match =
@@ -1073,12 +1109,14 @@ resolveDataDecl keyword dataDecl = do
   context' <- mapM resolveType (dataDeclContext dataDecl)
   kind' <- traverse resolveType (dataDeclKind dataDecl)
   constructors' <- mapM resolveDataConDecl (dataDeclConstructors dataDecl)
+  deriving' <- mapM resolveDerivingClause (dataDeclDeriving dataDecl)
   pure
     dataDecl
       { dataDeclHead = head',
         dataDeclContext = context',
         dataDeclKind = kind',
-        dataDeclConstructors = map (resolveDataConDefinitions scope) constructors'
+        dataDeclConstructors = map (resolveDataConDefinitions scope) constructors',
+        dataDeclDeriving = deriving'
       }
 
 resolveTypeSynDecl :: TypeSynDecl -> ResolveM TypeSynDecl
@@ -1110,11 +1148,13 @@ resolveNewtypeDecl newtypeDecl = do
           InfixBinderHead lhs name rhs params -> InfixBinderHead lhs (resolveHeadName name) rhs params
   kind' <- traverse resolveType (newtypeDeclKind newtypeDecl)
   constructor' <- traverse resolveDataConDecl (newtypeDeclConstructor newtypeDecl)
+  deriving' <- mapM resolveDerivingClause (newtypeDeclDeriving newtypeDecl)
   pure
     newtypeDecl
       { newtypeDeclHead = head',
         newtypeDeclKind = kind',
-        newtypeDeclConstructor = resolveDataConDefinitions scope <$> constructor'
+        newtypeDeclConstructor = resolveDataConDefinitions scope <$> constructor',
+        newtypeDeclDeriving = deriving'
       }
 
 resolveDataConDecl :: DataConDecl -> ResolveM DataConDecl
@@ -1453,6 +1493,13 @@ resolveTypeUse name = do
   sp <- currentSpan
   scope <- currentScope
   pure (resolveNameTo sp ResolutionNamespaceType (resolveTypeName scope name) name)
+
+resolveTypeUseAtName :: Name -> ResolveM Name
+resolveTypeUseAtName name = do
+  sp <- currentSpan
+  scope <- currentScope
+  let nameSpan = effectiveResolutionSpan (spanStartNameSpan sp (nameText name)) (sourceSpanFromAnns (nameAnns name))
+  pure (resolveNameTo nameSpan ResolutionNamespaceType (resolveTypeName scope name) name)
 
 resolveScopedTypeVariableUse :: UnqualifiedName -> ResolveM UnqualifiedName
 resolveScopedTypeVariableUse name = do

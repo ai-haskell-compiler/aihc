@@ -417,7 +417,6 @@
     pkgs.coreutils
     pkgs.diffutils
     pkgs.findutils
-    pkgs.ghc
     pkgs.llvmPackages.clang
   ];
 
@@ -437,21 +436,6 @@
         exit 1
       fi
 
-      if [[ "$example_name" == mvars ]]; then
-        ghc_executable="$TMPDIR/$example_name-ghc"
-        ghc_output_directory="$TMPDIR/$example_name-ghc-output"
-        mkdir -p "$ghc_output_directory"
-        ghc -v0 \
-          -outputdir "$ghc_output_directory" \
-          -o "$ghc_executable" \
-          "$source"
-        env -u GHCRTS timeout --foreground --kill-after=5s 10s "$ghc_executable" > "$ghc_executable.stdout"
-        diff --unified \
-          --label "$example_name/expected" \
-          --label "$example_name/ghc-non-threaded" \
-          "$expected_stdout" "$ghc_executable.stdout"
-      fi
-
       ${pkgs.lib.concatMapStringsSep "\n" renderExampleTest (exampleCompilationMatrix exampleName)}
       touch "$out"
     '';
@@ -462,6 +446,95 @@
       path = mkExampleTest exampleName;
     })
     exampleNames;
+
+  mkGhcExampleTest = exampleName:
+    mkSourceCheck "aihc-ghc-example-${exampleName}" (sources.exampleSrc exampleName pkgs) [pkgs.coreutils pkgs.diffutils (projectHsPackages pkgs).ghc] ''
+      set -euo pipefail
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      empty_stderr="$TMPDIR/empty-stderr"
+      touch "$empty_stderr"
+
+      source="examples/${exampleName}/Main.hs"
+      example_directory=$(dirname "$source")
+      example_name=${pkgs.lib.escapeShellArg exampleName}
+      expected_stdout="$example_directory/stdout"
+      if [[ ! -f "$expected_stdout" ]]; then
+        echo "Missing expected stdout for $source: $expected_stdout" >&2
+        exit 1
+      fi
+
+      stdin_file=/dev/null
+      if [[ -f "$example_directory/stdin" ]]; then
+        stdin_file="$example_directory/stdin"
+      fi
+      expected_stderr="$empty_stderr"
+      if [[ -f "$example_directory/stderr" ]]; then
+        expected_stderr="$example_directory/stderr"
+      fi
+      expected_exit=0
+      if [[ -f "$example_directory/exit" ]]; then
+        expected_exit=$(<"$example_directory/exit")
+      fi
+
+      actual_stdout="$TMPDIR/$example_name.stdout"
+      actual_stderr="$TMPDIR/$example_name.stderr"
+      run_directory="$TMPDIR/$example_name.run"
+      mkdir -p "$run_directory"
+      if timeout --foreground --kill-after=5s 120s \
+        bash -c 'cd "$1"; exec runghc -package-env - "$2"' \
+        bash "$run_directory" "$PWD/$source" \
+        < "$stdin_file" > "$actual_stdout" 2> "$actual_stderr"; then
+        actual_exit=0
+      else
+        actual_exit=$?
+      fi
+
+      if [[ "$actual_exit" -eq 124 || "$actual_exit" -eq 137 ]]; then
+        echo "Timed out running $example_name with GHC" >&2
+        cat "$actual_stderr" >&2
+        exit 1
+      fi
+      if [[ "$expected_exit" == nonzero ]]; then
+        if [[ "$actual_exit" -eq 0 ]]; then
+          echo "Expected $example_name/GHC to fail" >&2
+          exit 1
+        fi
+      elif [[ "$expected_exit" =~ ^[0-9]+$ ]]; then
+        if [[ "$actual_exit" -ne "$expected_exit" ]]; then
+          echo "Expected $example_name/GHC to exit with $expected_exit, got $actual_exit" >&2
+          cat "$actual_stderr" >&2
+          exit 1
+        fi
+      else
+        echo "Invalid expected exit status for $example_name: $expected_exit" >&2
+        exit 1
+      fi
+
+      diff --unified \
+        --label "$example_name/stdout-expected" \
+        --label "$example_name/stdout-ghc" \
+        "$expected_stdout" "$actual_stdout"
+      # GHC's uncaught-exception diagnostics vary by version and platform.
+      # For expected failures, stdout and the nonzero status are the stable contract.
+      if [[ "$expected_exit" != nonzero ]]; then
+        diff --unified \
+          --label "$example_name/stderr-expected" \
+          --label "$example_name/stderr-ghc" \
+          "$expected_stderr" "$actual_stderr"
+      fi
+      touch "$out"
+    '';
+
+  ghcExampleCases =
+    map (exampleName: {
+      name = exampleName;
+      path = mkGhcExampleTest exampleName;
+    })
+    exampleNames;
+
+  ghcExampleTest = assert exampleNames != [];
+    pkgs.linkFarm "aihc-ghc-example-test" ghcExampleCases;
 
   # Every example gets one LLVM smoke test. The synchronous exception example
   # also exercises the host-native backend, while Hello World carries the
@@ -539,6 +612,7 @@ in {
   c-lint = cLint;
   c-format = cFormat;
   cabal-format = cabalFormat;
+  ghc-example-test = ghcExampleTest;
   examples-tests = examplesTests;
   wasip3-example-test = wasip3ExampleTest;
 }
