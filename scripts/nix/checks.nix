@@ -453,6 +453,8 @@
   mkGhcExampleTest = exampleName:
     mkSourceCheck "aihc-ghc-example-${exampleName}" (sources.exampleSrc exampleName pkgs) [pkgs.coreutils pkgs.diffutils (projectHsPackages pkgs).ghc] ''
       set -euo pipefail
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
 
