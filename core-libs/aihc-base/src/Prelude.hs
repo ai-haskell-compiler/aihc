@@ -11,6 +11,7 @@ module Prelude
     Functor (..),
     IO,
     Int,
+    Integral (..),
     Integer,
     List (..),
     Maybe (..),
@@ -28,6 +29,7 @@ module Prelude
     (/=),
     (==),
     id,
+    fromIntegral,
     not,
     otherwise,
     showChar,
@@ -46,6 +48,7 @@ import GHC.Integer (Integer)
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
 import GHC.Prim (RealWorld, State#, chr#, compareInt#, int2Word#, ord#, word2Int#, (+#), (<#), (==#))
+import GHC.Real (Integral (..), fromIntegral)
 import GHC.Tuple ()
 
 data Char = C# Char#
