@@ -1,0 +1,59 @@
+annotated:
+- |-
+  {-# LANGUAGE DeriveAnyClass, DerivingStrategies, DerivingVia, GeneralizedNewtypeDeriving, KindSignatures #-}
+  module Main where
+  data Type
+       └─ type: *
+  class C a where
+  └─ class methods: c ∷ ∀ a. (C a) ⇒ a → a
+    c :: a -> a
+  class D a where
+  └─ class methods:
+  class HK (f :: Type -> Type) where
+  └─ class methods:
+  data Wrapper a = Wrapper a
+       │           └─ type: ∀ a. a → Wrapper a
+       └─ type: * → *
+  data T a = T a
+  │    │     └─ type: ∀ a. a → T a
+  │    └─ type: * → *
+  └─ deriving plans: anyclass C (T a) [context: infer] [methods: c], anyclass HK T [context: infer], via Wrapper a D (T a) [context: infer]
+    deriving anyclass C
+    deriving anyclass HK
+    deriving D via Wrapper a
+  newtype N a = N a
+  │       │     └─ type: ∀ a. a → N a
+  │       └─ type: * → *
+  └─ deriving plans: newtype C (N a) [context: infer] [methods: c]
+    deriving newtype C
+  data Default a = Default a
+  │    │           └─ type: ∀ a. a → Default a
+  │    └─ type: * → *
+  └─ deriving plans: default C (Default a) [context: infer] [methods: c]
+    deriving C
+extensions:
+- DeriveAnyClass
+- DerivingStrategies
+- DerivingVia
+- GeneralizedNewtypeDeriving
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE DeriveAnyClass, DerivingStrategies, DerivingVia, GeneralizedNewtypeDeriving, KindSignatures #-}
+  module Main where
+  data Type
+  class C a where
+    c :: a -> a
+  class D a where
+  class HK (f :: Type -> Type) where
+  data Wrapper a = Wrapper a
+  data T a = T a
+    deriving anyclass C
+    deriving anyclass HK
+    deriving D via Wrapper a
+  newtype N a = N a
+    deriving newtype C
+  data Default a = Default a
+    deriving C
+reason: deriving clauses become typed plans without generating declarations
+status: pass

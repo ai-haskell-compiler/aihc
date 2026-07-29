@@ -17,6 +17,10 @@ module Aihc.Tc.Annotations
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDictBinderAnnotation (..),
+    TcDerivingAnnotation (..),
+    TcDerivingContext (..),
+    TcDerivingPlan (..),
+    TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
 
@@ -138,6 +142,47 @@ data TcClassAnnotation = TcClassAnnotation
     tcClassSuperClasses :: ![TcDictBinderAnnotation],
     tcClassMethods :: ![TcClassMethodAnnotation],
     tcClassDefaultMethods :: ![Text]
+  }
+  deriving (Eq, Show)
+
+-- | A checked deriving strategy. The default case remains explicit because
+-- choosing between stock, newtype, and anyclass is a type-checker policy
+-- decision that depends on the enabled extensions and the requested class.
+data TcDerivingStrategy
+  = TcDerivingDefault
+  | TcDerivingStock
+  | TcDerivingNewtype
+  | TcDerivingAnyclass
+  | TcDerivingVia !TcType
+  deriving (Eq, Show)
+
+-- | How the derived instance context is supplied. Standalone deriving has an
+-- explicit checked context; attached clauses require strategy-specific
+-- inference in a later type-checker step.
+data TcDerivingContext
+  = TcDerivingInferContext
+  | TcDerivingExplicitContext ![Pred]
+  deriving (Eq, Show)
+
+-- | Typed input to strategy-specific deriving. This deliberately contains
+-- the class layout needed by System FC lowering so downstream phases never
+-- need to reconstruct Haskell class information.
+data TcDerivingPlan = TcDerivingPlan
+  { tcDerivingStrategy :: !TcDerivingStrategy,
+    tcDerivingClassName :: !Text,
+    tcDerivingDictName :: !Text,
+    tcDerivingTyVars :: ![TyVarId],
+    tcDerivingHeadTypes :: ![TcType],
+    tcDerivingContext :: !TcDerivingContext,
+    tcDerivingClassTyVars :: ![TyVarId],
+    tcDerivingClassSuperClasses :: ![TcDictBinderAnnotation],
+    tcDerivingClassMethods :: ![TcClassMethodAnnotation],
+    tcDerivingDefaultMethods :: ![Text]
+  }
+  deriving (Eq, Show)
+
+newtype TcDerivingAnnotation = TcDerivingAnnotation
+  { tcDerivingPlans :: [TcDerivingPlan]
   }
   deriving (Eq, Show)
 

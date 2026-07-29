@@ -74,7 +74,8 @@ import Aihc.Tc.Annotations
     annotateDecl,
   )
 import Aihc.Tc.Constraint
-import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..), TypeSynonymInfo (..))
+import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
+import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -503,6 +504,7 @@ annotateDeclTc classMethods checkedValueNames decl =
       | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
     DeclInstance instanceDecl -> annotateInstanceDeclTc classMethods instanceDecl
+    DeclStandaloneDeriving derivingDecl -> annotateStandaloneDerivingTc derivingDecl
     _ -> pure decl
 
 valueDeclWasChecked :: Set.Set Text -> ValueDecl -> Bool
@@ -569,7 +571,8 @@ annotateDataDeclTc dataDecl = do
   ty <- tyConBindingType tyName
   constructors <- mapM annotateDataConDeclTc (dataDeclConstructors dataDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (dataDeclHead dataDecl)
-  pure (DeclData (dataDecl {dataDeclHead = annotatedHead, dataDeclConstructors = constructors}))
+      annotatedDecl = DeclData (dataDecl {dataDeclHead = annotatedHead, dataDeclConstructors = constructors})
+  annotateAttachedDerivingTc DataTyCon (dataDeclHead dataDecl) (dataDeclDeriving dataDecl) annotatedDecl
 
 annotateNewtypeDeclTc :: NewtypeDecl -> TcM Decl
 annotateNewtypeDeclTc newtypeDecl = do
@@ -577,7 +580,8 @@ annotateNewtypeDeclTc newtypeDecl = do
   ty <- tyConBindingType tyName
   constructor <- mapM annotateDataConDeclTc (newtypeDeclConstructor newtypeDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (newtypeDeclHead newtypeDecl)
-  pure (DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor}))
+      annotatedDecl = DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor})
+  annotateAttachedDerivingTc NewtypeTyCon (newtypeDeclHead newtypeDecl) (newtypeDeclDeriving newtypeDecl) annotatedDecl
 
 annotateBinderHeadName :: TcAnnotation -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
 annotateBinderHeadName tcAnn head' =
@@ -1588,6 +1592,7 @@ registerClassDecl classDecl = do
         tciArity = length params,
         tciTyCon = mkTyCon className (length params) classKind,
         tciKind = classKind,
+        tciFlavor = ClassTyCon,
         tciTypeSynonym = Nothing
       }
   methodResults <- concat <$> mapM (registerClassItem classPred paramTvEnv paramTyVars) (classDeclItems classDecl)
@@ -1707,6 +1712,7 @@ registerDataDeclHeader dd = do
         tciArity = arity,
         tciTyCon = tc,
         tciKind = declaredKind,
+        tciFlavor = DataTyCon,
         tciTypeSynonym = Nothing
       }
   zonkedKind <- defaultKindMetas declaredKind
@@ -1741,6 +1747,7 @@ registerNewtypeDeclHeader nd = do
         tciArity = arity,
         tciTyCon = tc,
         tciKind = declaredKind,
+        tciFlavor = NewtypeTyCon,
         tciTypeSynonym = Nothing
       }
   zonkedKind <- defaultKindMetas declaredKind
@@ -1774,6 +1781,7 @@ registerTypeSynonymHeader typeSynDecl = do
         tciArity = arity,
         tciTyCon = tyCon,
         tciKind = declaredKind,
+        tciFlavor = SynonymTyCon,
         tciTypeSynonym = Just synonym
       }
   pure [TcBindingResult tyName tyName (kindToTcType declaredKind)]

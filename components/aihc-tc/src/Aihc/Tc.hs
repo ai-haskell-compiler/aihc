@@ -53,6 +53,7 @@ module Aihc.Tc
     Pred (..),
     InstanceInfo (..),
     ClassInfo (..),
+    TyConFlavor (..),
     TyConInfo (..),
     Unique (..),
     liftedRuntimeRep,
@@ -62,6 +63,10 @@ module Aihc.Tc
     isLiftedType,
     isUnliftedType,
     TcAnnotation (..),
+    TcDerivingAnnotation (..),
+    TcDerivingContext (..),
+    TcDerivingPlan (..),
+    TcDerivingStrategy (..),
     TcDiagnostic (..),
     TcErrorKind (..),
     TcSeverity (..),
@@ -96,8 +101,8 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Tc.Annotations (TcAnnotation (..), renderPred, renderTcSignature, renderTcType)
-import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConInfo (..))
+import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderPred, renderTcSignature, renderTcType)
+import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)

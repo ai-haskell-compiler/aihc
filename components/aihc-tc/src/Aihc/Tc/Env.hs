@@ -8,6 +8,7 @@ module Aihc.Tc.Env
     emptyGlobalEnv,
 
     -- * Type constructor info
+    TyConFlavor (..),
     TyConInfo (..),
     TypeSynonymInfo (..),
 
@@ -47,11 +48,19 @@ emptyGlobalEnv =
     }
 
 -- | Information about a type constructor.
+data TyConFlavor
+  = ClassTyCon
+  | DataTyCon
+  | NewtypeTyCon
+  | SynonymTyCon
+  deriving (Eq, Show, Read)
+
 data TyConInfo = TyConInfo
   { tciName :: !Text,
     tciArity :: !Int,
     tciTyCon :: !TyCon,
     tciKind :: !Kind,
+    tciFlavor :: !TyConFlavor,
     tciTypeSynonym :: !(Maybe TypeSynonymInfo)
   }
   deriving (Show, Read)
