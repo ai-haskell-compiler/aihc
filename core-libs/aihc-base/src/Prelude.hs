@@ -47,7 +47,8 @@ where
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import GHC.Base (Applicative (..), Functor (..), Monad (..))
 import GHC.IO (IO)
-import GHC.IO.Console (withOutputBuffer, writeOutputByte, writeStdout)
+import GHC.IO.Buffer.Internal (withPinnedByteArray)
+import GHC.IO.Console (writeOutputByte, writeStdout)
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
@@ -505,7 +506,7 @@ putChar character = putStr [character]
 putStr :: String -> IO ()
 putStr [] = return ()
 putStr characters =
-  withOutputBuffer
+  withPinnedByteArray
     4096#
     ( \buffer ->
         writeStringChunks buffer 0# characters
