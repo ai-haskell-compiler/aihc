@@ -1,0 +1,26 @@
+dependencies:
+  - aihc-base
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    main :: IO ()
+    main = do
+      putChar 'A'
+      putStr "BC"
+      putStrLn ""
+      putStrLn "line"
+      print True
+      print (42 :: Int)
+stdout: |
+  ABC
+  line
+  True
+  42
+output: |
+  ()
+expression: main
+status: pass
+reason: Prelude character, string, line, and Show-based output writes to stdout

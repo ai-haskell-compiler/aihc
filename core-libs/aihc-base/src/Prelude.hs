@@ -32,6 +32,10 @@ module Prelude
     fromIntegral,
     not,
     otherwise,
+    print,
+    putChar,
+    putStr,
+    putStrLn,
     showChar,
     showParen,
     shows,
@@ -43,11 +47,12 @@ where
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import Data.Kind (Type)
 import GHC.IO (IO (..))
+import GHC.IO.Console (withOutputBuffer, writeOutputByte, writeStdout)
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
-import GHC.Prim (RealWorld, State#, chr#, compareInt#, int2Word#, ord#, word2Int#, (+#), (<#), (==#))
+import GHC.Prim (MutableByteArray#, RealWorld, State#, and#, chr#, compareInt#, int2Word#, ord#, word2Int#, (+#), (<#), (==#))
 import GHC.Real (Integral (..), fromIntegral)
 import GHC.Tuple ()
 
@@ -493,6 +498,45 @@ protectNumericEscape chars@('7' : _) = '\\' : '&' : chars
 protectNumericEscape chars@('8' : _) = '\\' : '&' : chars
 protectNumericEscape chars@('9' : _) = '\\' : '&' : chars
 protectNumericEscape chars = chars
+
+putChar :: Char -> IO ()
+putChar character = putStr [character]
+
+putStr :: String -> IO ()
+putStr [] = return ()
+putStr characters =
+  withOutputBuffer
+    4096#
+    ( \buffer ->
+        writeStringChunks buffer 0# characters
+    )
+
+putStrLn :: String -> IO ()
+putStrLn characters = do
+  putStr characters
+  putChar '\n'
+
+print :: (Show a) => a -> IO ()
+print value = putStrLn (show value)
+
+writeStringChunks :: MutableByteArray# RealWorld -> Int# -> String -> IO ()
+writeStringChunks buffer count characters =
+  case characters of
+    [] -> writeStdout buffer count
+    character : remaining ->
+      case (==#) count 4096# of
+        1# -> do
+          writeStdout buffer count
+          writeStringChunks buffer 0# characters
+        _ -> do
+          writeCharacterByte buffer count character
+          writeStringChunks buffer ((+#) count 1#) remaining
+
+writeCharacterByte :: MutableByteArray# RealWorld -> Int# -> Char -> IO ()
+writeCharacterByte buffer offset (C# character) =
+  -- This initial text layer is intentionally byte-oriented. Handle encoding
+  -- will replace the low-byte mapping when the encoding API is implemented.
+  writeOutputByte buffer offset (word2Int# (and# (int2Word# (ord# character)) (int2Word# 255#)))
 
 (++) :: [a] -> [a] -> [a]
 (++) [] ys = ys

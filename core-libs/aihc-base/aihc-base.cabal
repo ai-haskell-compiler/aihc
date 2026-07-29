@@ -149,6 +149,7 @@ library
     GHC.IO
     GHC.IO.Buffer
     GHC.IO.BufferedIO
+    GHC.IO.Console
     GHC.IO.Device
     GHC.IO.Encoding
     GHC.IO.Encoding.CodePage
@@ -168,6 +169,7 @@ library
     GHC.IO.Handle.Text
     GHC.IO.Handle.Types
     GHC.IO.IOMode
+    GHC.IO.Runtime
     GHC.IO.StdHandles
     GHC.IO.SubSystem
     GHC.IO.Unsafe
