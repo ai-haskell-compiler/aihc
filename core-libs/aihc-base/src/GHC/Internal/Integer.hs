@@ -9,6 +9,7 @@ module GHC.Internal.Integer
     integerAdd,
     integerMul,
     integerNegate,
+    integerQuotRem,
     integerQuotRemWord#,
     integerSignum,
     integerSub,
@@ -131,6 +132,43 @@ integerToInt# :: Integer -> Int#
 integerToInt# (IS value) = value
 integerToInt# (IP magnitude) = word2Int# (indexWordArray# magnitude 0#)
 integerToInt# (IN magnitude) = (-#) 0# (word2Int# (indexWordArray# magnitude 0#))
+
+integerQuotRem :: Integer -> Integer -> (Integer, Integer)
+integerQuotRem numerator denominator =
+  case signInteger# denominator of
+    0# -> integerDivisionByZero
+    denominatorSign ->
+      case signInteger# numerator of
+        0# -> (IS 0#, IS 0#)
+        numeratorSign ->
+          case positiveQuotRem (integerAbs numerator) (integerAbs denominator) of
+            (quotient, remainder) ->
+              case (==#) numeratorSign denominatorSign of
+                1# -> (quotient, signedRemainder numeratorSign remainder)
+                _ -> (integerNegate quotient, signedRemainder numeratorSign remainder)
+
+signedRemainder :: Int# -> Integer -> Integer
+signedRemainder sign remainder =
+  case sign of
+    1# -> remainder
+    _ -> integerNegate remainder
+
+positiveQuotRem :: Integer -> Integer -> (Integer, Integer)
+positiveQuotRem dividend divisor = divideFromScale dividend divisor (IS 1#)
+
+divideFromScale :: Integer -> Integer -> Integer -> (Integer, Integer)
+divideFromScale dividend scaledDivisor quotientBit =
+  case compareMagnitudes# scaledDivisor dividend of
+    1# -> (IS 0#, dividend)
+    _ ->
+      case divideFromScale dividend (integerAdd scaledDivisor scaledDivisor) (integerAdd quotientBit quotientBit) of
+        (quotient, remainder) ->
+          case compareMagnitudes# scaledDivisor remainder of
+            1# -> (quotient, remainder)
+            _ -> (integerAdd quotient quotientBit, integerSub remainder scaledDivisor)
+
+integerDivisionByZero :: a
+integerDivisionByZero = integerDivisionByZero
 
 integerQuotRemWord# :: Integer -> Word# -> (# Integer, Word# #)
 integerQuotRemWord# value divisor =

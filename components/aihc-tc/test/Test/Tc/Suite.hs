@@ -375,6 +375,23 @@ annotationTests =
       assertBool "Identity Bool instance annotated" (hasInstanceDict "$fIdentityBool" result)
       assertBool "instance superclass evidence annotated" (not (all (null . tcInstanceSuperClasses) (instanceAnnotations result)))
       assertBool "instance method types annotated" (hasInstanceMethod "==" result && hasInstanceMethod "def" result),
+    testCase "instance methods retain method-local constraints" $ do
+      let result =
+            typecheckModule $
+              parseM
+                "module Test where\n\
+                \data Unit = Unit\n\
+                \class Required a where\n\
+                \  required :: a -> a\n\
+                \instance Required Unit where\n\
+                \  required value = value\n\
+                \class Container a where\n\
+                \  applyRequired :: Required b => a -> b -> b\n\
+                \instance Container Unit where\n\
+                \  applyRequired _ value = required value\n\
+                \result = applyRequired Unit Unit\n"
+      assertBool "method-local Required b evidence should remain in scope" (tcModuleSuccess result)
+      assertBool "Required Unit evidence should be selected at the call site" ("$fRequiredUnit" `elem` evidenceDictNames result),
     testCase "polymorphic occurrence type arguments are finalized" $ do
       let result =
             typecheckModule $

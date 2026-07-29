@@ -1,0 +1,63 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Ratio
+
+    ratio :: Integer -> Integer -> Rational
+    ratio = (%)
+
+    asRational :: (Real a) => a -> Rational
+    asRational = toRational
+
+    half :: (Fractional a) => a
+    half = fromRational (ratio 1 2)
+
+    split :: (RealFrac a, Integral b) => a -> (b, a)
+    split = properFraction
+
+    splitIsNegativeSevenThirds :: Bool
+    splitIsNegativeSevenThirds =
+      case split (ratio (negate 7) 3) of
+        (whole, fraction) ->
+          whole == (negate 2 :: Integer) && fraction == ratio (negate 1) 3
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : values) = allTrue values
+    allTrue (False : _) = False
+
+    results :: Bool
+    results =
+      allTrue
+        [ asRational (7 :: Integer) == ratio 7 1,
+          asRational (ratio (negate 7) 3) == ratio (negate 7) 3,
+          (half :: Rational) == ratio 1 2,
+          splitIsNegativeSevenThirds,
+          truncate (ratio (negate 7) 3) == (negate 2 :: Integer),
+          floor (ratio (negate 7) 3) == (negate 3 :: Integer),
+          ceiling (ratio (negate 7) 3) == (negate 2 :: Integer),
+          round (ratio 5 2) == (2 :: Integer),
+          round (ratio 7 2) == (4 :: Integer),
+          round (ratio (negate 5) 2) == (negate 2 :: Integer),
+          round (ratio (negate 7) 2) == (negate 4 :: Integer),
+          quot (negate 7 :: Integer) 3 == negate 2,
+          rem (negate 7 :: Integer) 3 == negate 1,
+          div (negate 7 :: Integer) 3 == negate 3,
+          mod (negate 7 :: Integer) 3 == 2,
+          gcd (negate 18 :: Integer) 24 == 6,
+          lcm (negate 6 :: Integer) 8 == 24,
+          even (42 :: Integer),
+          odd (negate 3 :: Integer),
+          (fromIntegral (7 :: Int) :: Rational) == ratio 7 1,
+          (realToFrac (ratio 3 2) :: Rational) == ratio 3 2
+        ]
+output: |
+  True
+expression: |
+  results
+status: pass
+reason: Prelude exposes Real, Integral, Fractional, and RealFrac with coherent Ratio instances and conversions

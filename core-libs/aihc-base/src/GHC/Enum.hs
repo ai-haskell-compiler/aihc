@@ -1,5 +1,3 @@
-{-# LANGUAGE MagicHash #-}
-
 module GHC.Enum
   ( Bounded (..),
     Enum (..),
@@ -12,29 +10,17 @@ module GHC.Enum
   )
 where
 
-import Data.Bool (Bool (..))
-import GHC.Int (Int (..))
-import Prelude (Char)
-
-class Bounded a where
-  minBound :: a
-  maxBound :: a
-
-class Enum a where
-  succ :: a -> a
-  pred :: a -> a
-  toEnum :: Int -> a
-  fromEnum :: a -> Int
-  enumFrom :: a -> [a]
-  enumFromThen :: a -> a -> [a]
-  enumFromTo :: a -> a -> [a]
-  enumFromThenTo :: a -> a -> a -> [a]
+import GHC.Int (Int)
+import Prelude (Bool (..), Bounded (..), Char, Enum (..), Ord (..))
 
 boundedEnumFrom :: (Enum a, Bounded a) => a -> [a]
-boundedEnumFrom = boundedEnumFrom
+boundedEnumFrom value = enumFromTo value maxBound
 
 boundedEnumFromThen :: (Enum a, Bounded a) => a -> a -> [a]
-boundedEnumFromThen = boundedEnumFromThen
+boundedEnumFromThen first second =
+  case fromEnum second >= fromEnum first of
+    True -> enumFromThenTo first second maxBound
+    False -> enumFromThenTo first second minBound
 
 toEnumError :: [Char] -> Int -> (a, a) -> b
 toEnumError = toEnumError
@@ -47,43 +33,3 @@ succError = succError
 
 predError :: [Char] -> a
 predError = predError
-
-instance Bounded Bool where
-  minBound = False
-  maxBound = True
-
-instance Enum Bool where
-  succ False = True
-  succ True = succError "Prelude.Enum.Bool.succ"
-
-  pred True = False
-  pred False = predError "Prelude.Enum.Bool.pred"
-
-  toEnum (I# n) =
-    case n of
-      0# -> False
-      1# -> True
-      _ -> toEnumError "Bool" (I# n) (False, True)
-
-  fromEnum False = I# 0#
-  fromEnum True = I# 1#
-
-  enumFrom False = [False, True]
-  enumFrom True = [True]
-
-  enumFromThen False True = [False, True]
-  enumFromThen True False = [True, False]
-  enumFromThen False False = [False]
-  enumFromThen True True = [True]
-
-  enumFromTo False False = [False]
-  enumFromTo False True = [False, True]
-  enumFromTo True True = [True]
-  enumFromTo True False = []
-
-  enumFromThenTo False True False = [False]
-  enumFromThenTo False True True = [False, True]
-  enumFromThenTo True False True = [True]
-  enumFromThenTo True False False = [True, False]
-  enumFromThenTo False False _ = [False]
-  enumFromThenTo True True _ = [True]

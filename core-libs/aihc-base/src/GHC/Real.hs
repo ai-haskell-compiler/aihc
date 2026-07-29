@@ -1,1 +1,40 @@
-module GHC.Real () where
+module GHC.Real
+  ( Fractional (..),
+    Integral (..),
+    Real (..),
+    RealFrac (..),
+    Rational,
+    Ratio,
+    denominator,
+    even,
+    fromIntegral,
+    gcd,
+    lcm,
+    numerator,
+    odd,
+    realToFrac,
+    (%),
+    (^),
+    (^^),
+  )
+where
+
+import Prelude
+  ( Fractional (..),
+    Integral (..),
+    Ratio,
+    Rational,
+    Real (..),
+    RealFrac (..),
+    denominator,
+    even,
+    fromIntegral,
+    gcd,
+    lcm,
+    numerator,
+    odd,
+    realToFrac,
+    (%),
+    (^),
+    (^^),
+  )
