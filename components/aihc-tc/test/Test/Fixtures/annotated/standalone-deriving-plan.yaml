@@ -1,0 +1,42 @@
+annotated:
+- |-
+  {-# LANGUAGE DerivingStrategies, DerivingVia, ExplicitForAll, GeneralizedNewtypeDeriving, StandaloneDeriving #-}
+  module Main where
+  class Context a where
+  └─ class methods:
+  class Derived a where
+  └─ class methods: derived ∷ ∀ a. (Derived a) ⇒ a → a
+    derived :: a -> a
+  data Wrapper a = Wrapper a
+       │           └─ type: ∀ a. a → Wrapper a
+       └─ type: * → *
+  data T a = T a
+       │     └─ type: ∀ a. a → T a
+       └─ type: * → *
+  newtype N a = N a
+          │     └─ type: ∀ a. a → N a
+          └─ type: * → *
+  deriving via Wrapper a instance forall a. Context a => Derived (T a)
+  └─ deriving plans: via Wrapper a Derived (T a) [context: Context a] [methods: derived]
+  deriving newtype instance Derived (N a)
+  └─ deriving plans: newtype Derived (N a) [context: ()] [methods: derived]
+extensions:
+- DerivingStrategies
+- DerivingVia
+- ExplicitForAll
+- GeneralizedNewtypeDeriving
+- StandaloneDeriving
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies, DerivingVia, ExplicitForAll, GeneralizedNewtypeDeriving, StandaloneDeriving #-}
+  module Main where
+  class Context a where
+  class Derived a where
+    derived :: a -> a
+  data Wrapper a = Wrapper a
+  data T a = T a
+  newtype N a = N a
+  deriving via Wrapper a instance forall a. Context a => Derived (T a)
+  deriving newtype instance Derived (N a)
+reason: standalone deriving plans preserve their checked explicit context
+status: pass
