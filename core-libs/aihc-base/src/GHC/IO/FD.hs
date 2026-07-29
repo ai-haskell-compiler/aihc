@@ -1,8 +1,9 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
--- | Raw runtime-owned IO resources. 'Handle' supplies locking, lifecycle,
--- direction checks, and complete-transfer semantics above this module.
+-- | Buffer operations over runtime-owned IO resources. 'Handle' supplies
+-- locking, lifecycle, direction checks, and complete-transfer semantics above
+-- this module.
 module GHC.IO.FD
   ( IOHandle,
     stdinHandle,
