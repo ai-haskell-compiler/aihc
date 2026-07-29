@@ -22,7 +22,7 @@ Find more information here:
 | Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `234/3427` (`6.83%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
 | Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2937/2937` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `35/3425` (`1.02%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
-| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `164/10057` (`1.63%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
+| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `172/10057` (`1.71%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `38/39` (`97.43%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
@@ -36,16 +36,16 @@ Find more information here:
 ```
 | Component    |   Code |   Tests |   Total |
 |--------------|--------|---------|---------|
-| aihc-amd64   |   2146 |     832 |    2978 |
-| aihc-arm64   |   2031 |     851 |    2882 |
-| aihc-fc      |   4621 |    1060 |    5681 |
-| aihc-grin    |   5379 |    2318 |    7697 |
-| aihc-llvm    |   1836 |     452 |    2288 |
-| aihc-native  |   3027 |     322 |    3349 |
+| aihc-amd64   |   2149 |     832 |    2981 |
+| aihc-arm64   |   2035 |     871 |    2906 |
+| aihc-fc      |   4726 |    1060 |    5786 |
+| aihc-grin    |   5391 |    2342 |    7733 |
+| aihc-llvm    |   1843 |     452 |    2295 |
+| aihc-native  |   3047 |     322 |    3369 |
 | aihc-resolve |   2316 |    1348 |    3664 |
-| aihc-tc      |   6362 |    2528 |    8890 |
-| aihc-wasm    |   2063 |     673 |    2736 |
-| **Total**    |  29781 |   10384 |   40165 |
+| aihc-tc      |   6671 |    2545 |    9216 |
+| aihc-wasm    |   2074 |     673 |    2747 |
+| **Total**    |  30252 |   10445 |   40697 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
