@@ -54,6 +54,7 @@ data FcCase = FcCase
     caseCategory :: !String,
     casePath :: !FilePath,
     caseExtensions :: ![Extension],
+    caseSupportModules :: ![Text],
     caseModules :: ![Text],
     caseExpected :: !String,
     caseStatus :: !ExpectedStatus,
@@ -71,19 +72,30 @@ loadFcCases = do
     then pure []
     else do
       paths <- listFixtureFiles fixtureRoot
-      mapM loadFcCase paths
+      mapM (loadFcCase [tupleSupportModule]) paths
 
-loadFcCase :: FilePath -> IO FcCase
-loadFcCase path = do
+-- Golden modules deliberately omit core-library dependencies. Keep their
+-- primitive tuple support source-defined while limiting the fixture to the
+-- arities exercised here; integration fixtures load the real aihc-prim module.
+tupleSupportModule :: Text
+tupleSupportModule =
+  T.unlines
+    [ "module GHC.Tuple where",
+      "data Unit = ()",
+      "data Tuple2 a b = (a, b)"
+    ]
+
+loadFcCase :: [Text] -> FilePath -> IO FcCase
+loadFcCase supportModules path = do
   raw <- Y.decodeFileEither path
   case raw of
     Left err -> fail ("Invalid YAML fixture " <> path <> ": " <> Y.prettyPrintParseException err)
-    Right value -> case parseFcFixture path value of
+    Right value -> case parseFcFixture supportModules path value of
       Left e -> fail e
       Right c -> pure c
 
-parseFcFixture :: FilePath -> Y.Value -> Either String FcCase
-parseFcFixture path value = do
+parseFcFixture :: [Text] -> FilePath -> Y.Value -> Either String FcCase
+parseFcFixture supportModules path value = do
   (extNames, modules, expectedText, statusText, reasonText) <-
     parseEither
       ( withObject "fc fixture" $ \obj -> do
@@ -107,6 +119,7 @@ parseFcFixture path value = do
         caseCategory = category,
         casePath = relPath,
         caseExtensions = exts,
+        caseSupportModules = supportModules,
         caseModules = modules,
         caseExpected = expected,
         caseStatus = status,
@@ -130,7 +143,8 @@ parseExpectedValue _ = fail "expected must be a string or list"
 
 evaluateFcCase :: FcCase -> (Outcome, String)
 evaluateFcCase tc =
-  let parsedModules = map parseOne (caseModules tc)
+  let supportModuleCount = length (caseSupportModules tc)
+      parsedModules = map parseOne (caseSupportModules tc <> caseModules tc)
    in case sequence parsedModules of
         Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
         Right modules ->
@@ -141,8 +155,9 @@ evaluateFcCase tc =
                     then
                       let allBindings = moduleGroupBindings tcResults
                           results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+                          fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
-                            then classifySuccess tc (renderResults results)
+                            then classifySuccess tc (renderResults fixtureResults)
                             else classifyFailure tc (renderErrors results)
                     else classifyFailure tc ("typecheck error: " <> renderTcErrors tcResults)
             ResolveResult {resolveErrors} ->

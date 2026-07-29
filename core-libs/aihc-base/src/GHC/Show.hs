@@ -1,6 +1,11 @@
-module GHC.Show (Show (..)) where
+module GHC.Show
+  ( Show (..),
+    ShowS,
+    showChar,
+    showParen,
+    shows,
+    showString,
+  )
+where
 
-import Prelude (String)
-
-class Show a where
-  show :: a -> String
+import Prelude (Show (..), ShowS, showChar, showParen, showString, shows)

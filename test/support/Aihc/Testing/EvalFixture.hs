@@ -299,20 +299,17 @@ concatPrograms programs =
   FcProgram (concatMap fcTopBinds programs)
 
 loadDependencyModules :: EvalCase -> [Module] -> IO (Either String [Module])
-loadDependencyModules tc evalModules =
-  case evalCaseDependencies tc of
-    [] -> pure (Right [])
-    dependencies -> do
-      let transitiveDependencies
-            | "aihc-base" `elem` dependencies,
-              "aihc-prim" `notElem` dependencies =
-                dependencies <> ["aihc-prim"]
-            | otherwise = dependencies
-      roots <- traverse resolveDependencyRoot transitiveDependencies
-      case sequence roots of
-        Left errMsg -> pure (Left errMsg)
-        Right packageRoots ->
-          loadTransitiveModules packageRoots (initialDependencyModules evalModules)
+loadDependencyModules tc evalModules = do
+  let dependencies = evalCaseDependencies tc
+      transitiveDependencies = nub (dependencies <> ["aihc-prim"])
+      initialModules
+        | null dependencies = ["GHC.Tuple"]
+        | otherwise = initialDependencyModules evalModules
+  roots <- traverse resolveDependencyRoot transitiveDependencies
+  case sequence roots of
+    Left errMsg -> pure (Left errMsg)
+    Right packageRoots ->
+      loadTransitiveModules packageRoots initialModules
 
 resolveDependencyRoot :: Text -> IO (Either String (Text, FilePath))
 resolveDependencyRoot dependency =

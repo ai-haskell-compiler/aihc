@@ -2,13 +2,55 @@
 
 module Test.Resolver.Suite
   ( resolverGoldenTests,
+    resolverUnitTests,
   )
 where
 
+import Aihc.Parser (defaultConfig, parseModule)
+import Aihc.Resolve (ResolveResult (..), extractInterface, resolve, resolveWithDeps)
 import Control.Monad (when)
+import Data.Text (Text)
 import qualified ResolverGolden as RG
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase, testCaseInfo)
+
+resolverUnitTests :: TestTree
+resolverUnitTests =
+  testGroup
+    "resolver-unit"
+    [ testCase "dependency-backed Prelude re-export supplies fromInteger" testDependencyBackedPreludeReExport
+    ]
+
+testDependencyBackedPreludeReExport :: Assertion
+testDependencyBackedPreludeReExport =
+  case (parse "GHC.Num" numSource, parse "Prelude" preludeSource) of
+    (Right numModule, Right preludeModule) -> do
+      let dependencyResult = resolve [numModule]
+          result = resolveWithDeps (extractInterface dependencyResult) [preludeModule]
+      case resolveErrors dependencyResult of
+        [] ->
+          case resolveErrors result of
+            [] -> pure ()
+            errors -> assertFailure ("failed to resolve Prelude through dependency exports: " <> show errors)
+        errors -> assertFailure ("failed to resolve dependency module: " <> show errors)
+    (Left errors, _) -> assertFailure errors
+    (_, Left errors) -> assertFailure errors
+  where
+    parse sourceName source =
+      case parseModule defaultConfig source of
+        ([], modu) -> Right modu
+        (errors, _) -> Left (sourceName <> " parse failure: " <> show errors)
+    numSource :: Text
+    numSource =
+      "module GHC.Num (Num (..)) where\n\
+      \data Integer = Integer\n\
+      \class Num a where\n\
+      \  fromInteger :: Integer -> a\n"
+    preludeSource :: Text
+    preludeSource =
+      "module Prelude (Num (..)) where\n\
+      \import GHC.Num (Num (..))\n\
+      \one = 1\n"
 
 resolverGoldenTests :: IO TestTree
 resolverGoldenTests = do

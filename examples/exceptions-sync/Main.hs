@@ -5,17 +5,12 @@ module Main where
 import Control.Exception (Exception, catch, throwIO)
 import GHC.Ptr (Ptr (..))
 import System.IO (hPutBuf, stdout)
-import Text.Show (Show (..))
 
 data InnerException = InnerException
+  deriving (Show)
 
 data OuterException = OuterException
-
-instance Show InnerException where
-  show InnerException = "InnerException"
-
-instance Show OuterException where
-  show OuterException = "OuterException"
+  deriving (Show)
 
 instance Exception InnerException
 

@@ -11,7 +11,7 @@ expected: |
    = True
    | False
 
-  pair : (,) Bool () =
-    (,) @Bool @() True ()
+  pair : Tuple2 Bool Unit =
+    (,) @Bool @Unit True ()
 status: pass
 reason: reifies tuple constructor type arguments from type-checker annotations

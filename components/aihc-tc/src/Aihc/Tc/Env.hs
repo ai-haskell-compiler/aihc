@@ -9,6 +9,7 @@ module Aihc.Tc.Env
 
     -- * Type constructor info
     TyConInfo (..),
+    TypeSynonymInfo (..),
 
     -- * Data constructor info
     DataConInfo (..),
@@ -50,7 +51,14 @@ data TyConInfo = TyConInfo
   { tciName :: !Text,
     tciArity :: !Int,
     tciTyCon :: !TyCon,
-    tciKind :: !Kind
+    tciKind :: !Kind,
+    tciTypeSynonym :: !(Maybe TypeSynonymInfo)
+  }
+  deriving (Show, Read)
+
+data TypeSynonymInfo = TypeSynonymInfo
+  { tsiParams :: ![TyVarId],
+    tsiBody :: !(Maybe TcType)
   }
   deriving (Show, Read)
 
