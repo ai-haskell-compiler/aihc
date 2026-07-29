@@ -6,8 +6,12 @@ modules:
   - |
     module Test where
 
+    writeWithMonad :: IO ()
+    writeWithMonad = putStr "monad\n" >>= \ignored -> return ()
+
     main :: IO ()
     main = do
+      writeWithMonad
       putChar 'A'
       putStr "BC"
       putStrLn ""
@@ -15,6 +19,7 @@ modules:
       print True
       print (42 :: Int)
 stdout: |
+  monad
   ABC
   line
   True

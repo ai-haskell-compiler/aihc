@@ -45,14 +45,14 @@ module Prelude
 where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
-import Data.Kind (Type)
-import GHC.IO (IO (..))
+import GHC.Base (Applicative (..), Functor (..), Monad (..))
+import GHC.IO (IO)
 import GHC.IO.Console (withOutputBuffer, writeOutputByte, writeStdout)
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
-import GHC.Prim (MutableByteArray#, RealWorld, State#, and#, chr#, compareInt#, int2Word#, ord#, word2Int#, (+#), (<#), (==#))
+import GHC.Prim (MutableByteArray#, RealWorld, and#, chr#, compareInt#, int2Word#, ord#, word2Int#, (+#), (<#), (==#))
 import GHC.Real (Integral (..), fromIntegral)
 import GHC.Tuple ()
 
@@ -542,9 +542,6 @@ writeCharacterByte buffer offset (C# character) =
 (++) [] ys = ys
 (++) (x : xs) ys = x : (xs ++ ys)
 
-class Functor (f :: Type -> Type) where
-  fmap :: (a -> b) -> f a -> f b
-
 instance Functor List where
   fmap = fmapList
 
@@ -559,20 +556,6 @@ instance Functor (Either e) where
     case mx of
       Left e -> Left e
       Right x -> Right (f x)
-
-instance Functor IO where
-  fmap f (IO action) =
-    IO
-      ( \state ->
-          case action state of
-            (# nextState, value #) -> (# nextState, f value #)
-      )
-
-class (Functor f) => Applicative (f :: Type -> Type) where
-  pure :: a -> f a
-  (<*>) :: f (a -> b) -> f a -> f b
-
-infixl 4 <*>
 
 instance Applicative List where
   pure x = [x]
@@ -600,25 +583,6 @@ instance Applicative (Either e) where
         case mx of
           Left e -> Left e
           Right x -> Right (f x)
-
-instance Applicative IO where
-  pure value = IO (pureIO value)
-
-  IO function <*> IO argument =
-    IO
-      ( \state ->
-          case function state of
-            (# functionState, f #) ->
-              case argument functionState of
-                (# resultState, value #) -> (# resultState, f value #)
-      )
-
-class (Applicative m) => Monad (m :: Type -> Type) where
-  (>>=) :: m a -> (a -> m b) -> m b
-  (>>) :: m a -> m b -> m b
-  return :: a -> m a
-
-infixl 1 >>=, >>
 
 (=<<) :: (Monad m) => (a -> m b) -> m a -> m b
 f =<< mx = mx >>= f
@@ -651,27 +615,6 @@ instance Monad (Either e) where
       Left e -> Left e
       Right _ -> my
   return = Right
-
-instance Monad IO where
-  IO action >>= k =
-    IO
-      ( \state ->
-          case action state of
-            (# nextState, value #) ->
-              case k value of
-                IO nextAction -> nextAction nextState
-      )
-
-  IO action >> IO nextAction =
-    IO
-      ( \state ->
-          case action state of
-            (# nextState, _ #) -> nextAction nextState
-      )
-  return = pure
-
-pureIO :: a -> State# RealWorld -> (# State# RealWorld, a #)
-pureIO value state = (# state, value #)
 
 fmapList :: (a -> b) -> [a] -> [b]
 fmapList _ [] = []

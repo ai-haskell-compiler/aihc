@@ -11,13 +11,13 @@ module GHC.IO.Console
   )
 where
 
+import GHC.Base (bindIO, returnIO)
 import GHC.IO (IO (..))
 import GHC.IO.Runtime (IOHandle, IORequest, raiseIOErrorRaw, stdoutHandle, submitWrite, takeResult, writeMemoryByte)
 import GHC.Int (Int (..))
 import GHC.Prim
   ( MutableByteArray#,
     RealWorld,
-    State#,
     awaitIO#,
     mutableByteArrayContents#,
     newPinnedByteArray#,
@@ -40,7 +40,7 @@ withOutputBuffer size action =
 
 writeOutputByte :: MutableByteArray# RealWorld -> Int# -> Int# -> IO ()
 writeOutputByte buffer offset value =
-  bindConsoleIO
+  bindIO
     (writeMemoryByte (mutableByteArrayContents# buffer) (I# offset) (I# value))
     checkOutputByteResult
 
@@ -48,14 +48,14 @@ checkOutputByteResult :: Int -> IO ()
 checkOutputByteResult (I# encodedError) =
   case (<#) encodedError 0# of
     1# -> raiseConsoleIOError ((-#) ((-#) 0# encodedError) 1#)
-    _ -> pureConsoleIO ()
+    _ -> returnIO ()
 
 writeStdout :: MutableByteArray# RealWorld -> Int# -> IO ()
 writeStdout buffer count =
   case (==#) count 0# of
-    1# -> pureConsoleIO ()
+    1# -> returnIO ()
     _ ->
-      bindConsoleIO
+      bindIO
         stdoutHandle
         ( \handle ->
             writeStdoutLoop handle (mutableByteArrayContents# buffer) 0# count
@@ -63,17 +63,17 @@ writeStdout buffer count =
 
 writeStdoutLoop :: Ptr IOHandle -> Addr# -> Int# -> Int# -> IO ()
 writeStdoutLoop handle buffer offset remaining =
-  bindConsoleIO
+  bindIO
     (submitWrite handle buffer (I# offset) (I# remaining))
     ( \request ->
-        bindConsoleIO
+        bindIO
           (awaitConsoleIO request)
           (takeWriteResult request handle buffer offset remaining)
     )
 
 takeWriteResult :: Ptr IORequest -> Ptr IOHandle -> Addr# -> Int# -> Int# -> () -> IO ()
 takeWriteResult request handle buffer offset remaining () =
-  bindConsoleIO (takeResult request) (finishWriteResult handle buffer offset remaining)
+  bindIO (takeResult request) (finishWriteResult handle buffer offset remaining)
 
 finishWriteResult :: Ptr IOHandle -> Addr# -> Int# -> Int# -> Int -> IO ()
 finishWriteResult handle buffer offset remaining (I# transferred) =
@@ -84,7 +84,7 @@ finishWriteResult handle buffer offset remaining (I# transferred) =
         1# -> raiseConsoleIOError 6#
         _ ->
           case (==#) transferred remaining of
-            1# -> pureConsoleIO ()
+            1# -> returnIO ()
             _ -> writeStdoutLoop handle buffer ((+#) offset transferred) ((-#) remaining transferred)
 
 awaitConsoleIO :: Ptr request -> IO ()
@@ -97,23 +97,7 @@ awaitConsoleIO (Ptr request) =
 
 raiseConsoleIOError :: Int# -> IO ()
 raiseConsoleIOError exceptionCode =
-  bindConsoleIO (raiseIOErrorRaw (I# exceptionCode)) retryConsoleIOError
+  bindIO (raiseIOErrorRaw (I# exceptionCode)) retryConsoleIOError
 
 retryConsoleIOError :: Int -> IO ()
 retryConsoleIOError (I# exceptionCode) = raiseConsoleIOError exceptionCode
-
-bindConsoleIO :: IO a -> (a -> IO b) -> IO b
-bindConsoleIO (IO action) next =
-  IO
-    ( \state ->
-        case action state of
-          (# nextState, value #) ->
-            case next value of
-              IO nextAction -> nextAction nextState
-    )
-
-pureConsoleIO :: a -> IO a
-pureConsoleIO value = IO (pureConsoleState value)
-
-pureConsoleState :: a -> State# RealWorld -> (# State# RealWorld, a #)
-pureConsoleState value state = (# state, value #)
