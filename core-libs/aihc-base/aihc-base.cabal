@@ -249,6 +249,9 @@ library
     Unsafe.Coerce
 
   other-modules:
+    GHC.IO.Buffer.Internal
+    GHC.IO.Console
+    GHC.IO.Runtime
     GHC.Internal.Integer
 
   hs-source-dirs: src

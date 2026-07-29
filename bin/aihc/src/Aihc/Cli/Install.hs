@@ -403,12 +403,14 @@ installPackageLibraries targets plan = do
   installLibraries (planStoreRoot plan) packages targets
   where
     packageLibrary package = do
-      files <- collectPlanFiles package
+      gpd <- readPlanPackageDescription package
+      files <- HackageCabal.collectLibraryFiles gpd (planSourcePath package)
       pure
         LibraryPackage
           { libraryPackageName = T.pack (pkgName (packageKeySpec (planPackageKey package))),
             libraryPackageRoot = planSourcePath package,
-            libraryPackageFiles = map HackageCabal.fileInfoPath files
+            libraryPackageFiles = map HackageCabal.fileInfoPath files,
+            libraryPackageExposedModules = HackageCabal.collectLibraryExposedModules gpd
           }
 
     flattenPackagePlan =
@@ -1245,7 +1247,8 @@ fcArtifactValue plan result =
 
 generatePackageInterface :: ModuleExports -> [(Text, TypeScheme)] -> [TcBindingResult] -> PackagePlan -> IO InterfaceBuildResult
 generatePackageInterface depExports importedTerms importedBindings plan = do
-  files <- collectPlanFiles plan
+  gpd <- readPlanPackageDescription plan
+  files <- HackageCabal.collectLibraryFiles gpd (planSourcePath plan)
   parsedFiles <- mapM (parseInterfaceFile (planSourcePath plan)) files
   let parsedModules = [modu | ParsedFileOk _ modu _ _ <- parsedFiles]
       sourceLinesByFile = Map.unionsWith Map.union (map parsedFileSourceLines parsedFiles)
@@ -1253,7 +1256,8 @@ generatePackageInterface depExports importedTerms importedBindings plan = do
       parseDiagnostics = enrichDiagnostics (concatMap parsedFileParseDiagnostics parsedFiles)
       cppDiagnostics = enrichDiagnostics (concatMap parsedFileCppDiagnostics parsedFiles)
       resolveResult = resolveWithDeps depExports parsedModules
-      ownExports = extractInterface resolveResult
+      exposedModules = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
+      ownExports = Map.restrictKeys (extractInterface resolveResult) exposedModules
   (checkedModules, tcModules, tcDiagnostics, ownTerms) <- typecheckInterfaceModules importedTerms (resolvedModules resolveResult)
   let resolveDiagnostics = enrichDiagnostics (map resolveErrorValue (resolveErrors resolveResult))
       enrichedTcDiagnostics = enrichDiagnostics tcDiagnostics
@@ -1378,14 +1382,12 @@ parsedFileCppDiagnostics parsed =
     ParsedFileOk _ _ _ cppDiagnostics -> cppDiagnostics
     ParsedFileFailed _ _ _ cppDiagnostics -> cppDiagnostics
 
-collectPlanFiles :: PackagePlan -> IO [HackageCabal.FileInfo]
-collectPlanFiles plan = do
+readPlanPackageDescription :: PackagePlan -> IO GenericPackageDescription
+readPlanPackageDescription plan = do
   cabalBytes <- BS.readFile (planCabalFile plan)
-  gpd <-
-    case runParseResult (parseGenericPackageDescription cabalBytes) of
-      (_, Right parsed) -> pure parsed
-      (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> planCabalFile plan <> ": " <> show errs))
-  HackageCabal.collectLibraryFiles gpd (planSourcePath plan)
+  case runParseResult (parseGenericPackageDescription cabalBytes) of
+    (_, Right parsed) -> pure parsed
+    (_, Left (_, errs)) -> ioError (userError ("Failed to parse " <> planCabalFile plan <> ": " <> show errs))
 
 parseInterfaceFile :: FilePath -> HackageCabal.FileInfo -> IO ParsedInterfaceFile
 parseInterfaceFile packageRoot fileInfo = do

@@ -185,6 +185,7 @@ data StoredResolvedName
 
 data LoadedModule = LoadedModule
   { loadedLibrary :: !Text,
+    loadedModuleExposed :: !Bool,
     loadedModule :: !Module
   }
 
@@ -192,7 +193,8 @@ data LoadedModule = LoadedModule
 data LibraryPackage = LibraryPackage
   { libraryPackageName :: !Text,
     libraryPackageRoot :: !FilePath,
-    libraryPackageFiles :: ![FilePath]
+    libraryPackageFiles :: ![FilePath],
+    libraryPackageExposedModules :: ![Text]
   }
   deriving (Eq, Show)
 
@@ -349,7 +351,7 @@ loadLibraryPackages packages = do
     loadPackage package =
       sequence
         <$> mapM
-          (parseModuleFile (libraryPackageName package))
+          (parseModuleFile (libraryPackageName package) (Set.fromList (libraryPackageExposedModules package)))
           (sort (libraryPackageFiles package))
 
     rejectDuplicateModules loaded = snd <$> foldM insertModule (Map.empty, []) loaded
@@ -369,12 +371,12 @@ loadLibraryPackages packages = do
                     <> T.unpack (loadedLibrary modu)
                 )
 
-parseModuleFile :: Text -> FilePath -> IO (Either String LoadedModule)
-parseModuleFile library path = do
+parseModuleFile :: Text -> Set.Set Text -> FilePath -> IO (Either String LoadedModule)
+parseModuleFile library exposedModules path = do
   source <- Utf8.readFile path
   pure $
     case parseModule (parserConfig path source) source of
-      ([], modu) -> Right (LoadedModule library modu)
+      ([], modu) -> Right (LoadedModule library (maybe False (`Set.member` exposedModules) (moduleName modu)) modu)
       (errors, _) -> Left ("failed to parse library module " <> path <> ": " <> show errors)
 
 parserConfig :: FilePath -> Text -> ParserConfig
@@ -452,7 +454,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
 
     finish state =
       DependencyArtifact
-        { dependencyExports = compileStateExports state,
+        { dependencyExports = Map.restrictKeys (compileStateExports state) exposedModules,
           dependencyTerms = compileStateTerms state,
           dependencyTyCons = compileStateTyCons state,
           dependencyClasses = compileStateClasses state,
@@ -473,6 +475,14 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
           dependencyInitializerSymbols = [],
           dependencyArchivePaths = []
         }
+      where
+        exposedModules =
+          Set.fromList
+            [ name
+            | modu <- loaded,
+              loadedModuleExposed modu,
+              Just name <- [moduleName (loadedModule modu)]
+            ]
 
 data CompileState = CompileState
   { compileStateExports :: !ModuleExports,
@@ -651,7 +661,11 @@ dependencyGraphHash packages = do
   where
     packageChunks package = do
       files <- concat <$> mapM (fileChunks package) (sort (libraryPackageFiles package))
-      pure (Text.encodeUtf8 (frameText (libraryPackageName package)) : files)
+      pure
+        ( Text.encodeUtf8 (frameText (libraryPackageName package))
+            : Text.encodeUtf8 (frameText (T.intercalate "," (sort (libraryPackageExposedModules package))))
+            : files
+        )
 
     fileChunks package path = do
       bytes <- BS.readFile path

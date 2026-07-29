@@ -4,7 +4,8 @@
 module GHC.Foreign (openUtf8FilePath) where
 
 import GHC.Char (ord)
-import GHC.IO.FD (IOHandle, openIOHandle, withPinnedByteArray, writeMemoryByte)
+import GHC.IO.Buffer.Internal (withPinnedByteArray)
+import GHC.IO.FD (IOHandle, openIOHandle, writeMemoryByte)
 import GHC.Int (Int (..))
 import GHC.Prim (mutableByteArrayContents#)
 import GHC.Ptr (Ptr)
