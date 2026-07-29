@@ -3,6 +3,7 @@
 module Main where
 
 import Control.Concurrent (forkIO, yield)
+import GHC.Prim (Addr#)
 import GHC.Ptr (Ptr (..))
 import System.IO (hPutBuf, stdout)
 
