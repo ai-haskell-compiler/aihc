@@ -33,6 +33,8 @@
     "stdin"
     "stderr"
     "stdout"
+    "stdout-aihc"
+    "stdout-ghc"
   ];
 in rec {
   # Source filtering: only include relevant files for each component.

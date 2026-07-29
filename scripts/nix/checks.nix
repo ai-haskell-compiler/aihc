@@ -430,9 +430,12 @@
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
       example_name=${pkgs.lib.escapeShellArg exampleName}
-      expected_stdout="$example_directory/stdout"
+      expected_stdout="$example_directory/stdout-aihc"
       if [[ ! -f "$expected_stdout" ]]; then
-        echo "Missing expected stdout for $source: $expected_stdout" >&2
+        expected_stdout="$example_directory/stdout"
+      fi
+      if [[ ! -f "$expected_stdout" ]]; then
+        echo "Missing expected AIHC stdout for $source" >&2
         exit 1
       fi
 
@@ -456,9 +459,12 @@
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
       example_name=${pkgs.lib.escapeShellArg exampleName}
-      expected_stdout="$example_directory/stdout"
+      expected_stdout="$example_directory/stdout-ghc"
       if [[ ! -f "$expected_stdout" ]]; then
-        echo "Missing expected stdout for $source: $expected_stdout" >&2
+        expected_stdout="$example_directory/stdout"
+      fi
+      if [[ ! -f "$expected_stdout" ]]; then
+        echo "Missing expected GHC stdout for $source" >&2
         exit 1
       fi
 
@@ -564,9 +570,12 @@
       source="examples/${exampleName}/Main.hs"
       example_directory=$(dirname "$source")
       example_name=${pkgs.lib.escapeShellArg exampleName}
-      expected_stdout="$example_directory/stdout"
+      expected_stdout="$example_directory/stdout-aihc"
       if [[ ! -f "$expected_stdout" ]]; then
-        echo "Missing expected stdout for $source: $expected_stdout" >&2
+        expected_stdout="$example_directory/stdout"
+      fi
+      if [[ ! -f "$expected_stdout" ]]; then
+        echo "Missing expected AIHC stdout for $source" >&2
         exit 1
       fi
 
