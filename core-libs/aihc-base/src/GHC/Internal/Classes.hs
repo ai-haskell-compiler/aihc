@@ -7,29 +7,12 @@ module GHC.Internal.Classes
   )
 where
 
-import Data.Bool (Bool (..), not)
+import Data.Bool (not)
+import GHC.Classes (Eq (..), Ord (..))
 import GHC.Int (Int (..))
 import GHC.Internal.Integer (Integer, compareInteger#, eqInteger#)
 import GHC.Prim (compareInt#, (==#))
-
-data Ordering = LT | EQ | GT
-
-class Eq a where
-  (==) :: a -> a -> Bool
-  (/=) :: a -> a -> Bool
-
-infix 4 ==, /=
-
-class (Eq a) => Ord a where
-  compare :: a -> a -> Ordering
-  (<) :: a -> a -> Bool
-  (<=) :: a -> a -> Bool
-  (>) :: a -> a -> Bool
-  (>=) :: a -> a -> Bool
-  max :: a -> a -> a
-  min :: a -> a -> a
-
-infix 4 <, <=, >, >=
+import GHC.Types (Bool (..), Ordering (..))
 
 instance Eq Bool where
   False == False = True

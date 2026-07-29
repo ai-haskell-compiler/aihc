@@ -1,0 +1,82 @@
+extensions:
+  - LambdaCase
+  - MagicHash
+modules:
+  - |
+    module GHC.Classes where
+
+    data Bool = False | True
+
+    class Eq a where
+      (==) :: a -> a -> Bool
+  - |
+    module GHC.Num where
+
+    data Integer = IS Int#
+
+    class Num a where
+      fromInteger :: Integer -> a
+      negate :: a -> a
+  - |
+    module Main where
+
+    fromInteger value = value
+    negate value = value
+    left == right = ()
+
+    one = 1
+
+    match = \case
+      -1 -> ()
+annotated:
+- |-
+  module GHC.Classes where
+
+  data Bool = False | True
+       │      │       └─ v GHC.Classes
+       │      └─ v GHC.Classes
+       └─ t GHC.Classes
+
+  class Eq a where
+        └─ t GHC.Classes
+    (==) :: a -> a -> Bool
+                      └─ t GHC.Classes
+- |-
+  module GHC.Num where
+
+  data Integer = IS Int#
+       │         │  └─ t Builtin Int#
+       │         └─ v GHC.Num
+       └─ t GHC.Num
+
+  class Num a where
+        └─ t GHC.Num
+    fromInteger :: Integer -> a
+                   └─ t GHC.Num
+    negate :: a -> a
+- |-
+  module Main where
+
+  fromInteger value = value
+  └─ v Main   └─ v 0  └─ v 0
+  negate value = value
+  │      └─ v 1  └─ v 1
+  └─ v Main
+  left == right = ()
+  │    │  └─ v 3
+  │    └─ v Main
+  └─ v 2
+
+  one = 1
+  │     └─ v GHC.Num
+  └─ v Main
+
+  match = \case
+  └─ v Main
+    -1 -> ()
+    └─ v GHC.Classes
+    └─ v GHC.Num
+    └─ v GHC.Num
+status: pass
+reason: ordinary integer syntax resolves canonical methods from GHC.Num and
+  GHC.Classes without importing or defining Prelude

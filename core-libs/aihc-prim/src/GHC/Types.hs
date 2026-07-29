@@ -2,13 +2,19 @@
 {-# LANGUAGE KindSignatures #-}
 
 module GHC.Types
-  ( TYPE,
+  ( Bool (..),
+    Ordering (..),
+    TYPE,
     Levity (..),
     RuntimeRep (..),
     VecCount (..),
     VecElem (..),
   )
 where
+
+data Bool = False | True
+
+data Ordering = LT | EQ | GT
 
 data TYPE (rep :: RuntimeRep)
 

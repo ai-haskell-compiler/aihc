@@ -223,7 +223,9 @@ moduleInfo exports modu =
           foldr applyExtensionSetting [] (moduleLanguagePragmas modu),
       moduleInfoExplicitPreludeImport =
         any ((== "Prelude") . importDeclModule) (moduleImports modu),
-      moduleInfoGhcBaseScope = Map.findWithDefault emptyScope "GHC.Base" exports
+      moduleInfoGhcBaseScope = Map.findWithDefault emptyScope "GHC.Base" exports,
+      moduleInfoGhcClassesScope = Map.findWithDefault emptyScope "GHC.Classes" exports,
+      moduleInfoGhcNumScope = Map.findWithDefault emptyScope "GHC.Num" exports
     }
 
 resolveModuleImports :: ModuleExports -> [ImportDecl] -> [ImportDecl]
@@ -691,7 +693,7 @@ resolveIntegerLiteral expr = do
   let resolved =
         if RebindableSyntax `elem` moduleInfoExtensions info
           then rebindableFromInteger info scope
-          else preludeFromInteger scope
+          else lookupTerm "fromInteger" (moduleInfoGhcNumScope info)
       annotation =
         ResolutionAnnotation
           sp
@@ -699,12 +701,6 @@ resolveIntegerLiteral expr = do
           ResolutionNamespaceTerm
           resolved
   pure (EAnn (mkAnnotation annotation) expr)
-
-preludeFromInteger :: Scope -> ResolvedName
-preludeFromInteger scope =
-  case Map.lookup "Prelude" (scopeQualifiedModules scope) of
-    Just preludeScope -> lookupTerm "fromInteger" preludeScope
-    Nothing -> ResolvedError "unbound"
 
 rebindableFromInteger :: ModuleInfo -> Scope -> ResolvedName
 rebindableFromInteger info scope =
@@ -744,13 +740,15 @@ resolveSyntaxTerm name = do
   pure $
     if RebindableSyntax `elem` moduleInfoExtensions info
       then rebindableSyntaxTerm info scope name
-      else preludeSyntaxTerm scope name
+      else builtinSyntaxTerm info name
 
-preludeSyntaxTerm :: Scope -> Text -> ResolvedName
-preludeSyntaxTerm scope name =
-  case Map.lookup "Prelude" (scopeQualifiedModules scope) of
-    Just preludeScope -> lookupTerm name preludeScope
-    Nothing -> ResolvedError "unbound"
+builtinSyntaxTerm :: ModuleInfo -> Text -> ResolvedName
+builtinSyntaxTerm info name =
+  case name of
+    "fromInteger" -> lookupTerm name (moduleInfoGhcNumScope info)
+    "negate" -> lookupTerm name (moduleInfoGhcNumScope info)
+    "==" -> lookupTerm name (moduleInfoGhcClassesScope info)
+    _ -> ResolvedError "unknown built-in syntax term"
 
 rebindableSyntaxTerm :: ModuleInfo -> Scope -> Text -> ResolvedName
 rebindableSyntaxTerm info scope name =

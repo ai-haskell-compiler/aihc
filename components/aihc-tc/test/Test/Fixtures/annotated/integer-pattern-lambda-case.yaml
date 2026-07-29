@@ -1,14 +1,18 @@
 annotated:
 - |-
-  module Main where
-  match = \case
-  └─ type: ∀ a. (Eq a Num a) ⇒ a → ()
-    1 -> ()
-    ││    └─ type: ()
-    └─ type: a; type-args: a; evidence: given Num a
-    └─ type: a → a → Bool; type-args: a; evidence: given Eq a
+  module GHC.Classes where
+  import GHC.Types (Bool)
+  class Eq a where
+  └─ class methods: == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
+    (==) :: a -> a -> Bool
 - |-
-  module Prelude where
+  module GHC.Num where
+  import GHC.Types (Integer)
+  class Num a where
+  └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
+    fromInteger :: Integer -> a
+- |-
+  module GHC.Types where
   data Bool = False | True
        │      │       └─ type: Bool
        │      └─ type: Bool
@@ -16,22 +20,30 @@ annotated:
   data Integer = IS Int#
        │         └─ type: Int# → Integer
        └─ type: *
-  class Eq a where
-  └─ class methods: == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
-    (==) :: a -> a -> Bool
-  class Num a where
-  └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
-    fromInteger :: Integer -> a
+- |-
+  module Main where
+  match = \case
+  └─ type: ∀ a. (Eq a Num a) ⇒ a → ()
+    1 -> ()
+    ││    └─ type: ()
+    └─ type: a; type-args: a; evidence: given Num a
+    └─ type: a → a → Bool; type-args: a; evidence: given Eq a
 extensions:
 - LambdaCase
 - MagicHash
 modules:
 - |
-  module Prelude where
+  module GHC.Types where
   data Bool = False | True
   data Integer = IS Int#
+- |
+  module GHC.Classes where
+  import GHC.Types (Bool)
   class Eq a where
     (==) :: a -> a -> Bool
+- |
+  module GHC.Num where
+  import GHC.Types (Integer)
   class Num a where
     fromInteger :: Integer -> a
 - |

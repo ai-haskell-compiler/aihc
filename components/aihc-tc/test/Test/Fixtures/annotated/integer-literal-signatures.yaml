@@ -1,22 +1,7 @@
 annotated:
 - |-
-  module Main where
-  asInt :: Int
-  asInt = 1 :: Int
-  │       └─ type: Int; type-args: Int; evidence: $fNumInt
-  └─ type: Int
-  asInteger :: Integer
-  asInteger = 1 :: Integer
-  │           └─ type: Integer; type-args: Integer; evidence: $fNumInteger
-  └─ type: Integer
-- |-
-  module Prelude where
-  data Int = I Int#
-       │     └─ type: Int# → Int
-       └─ type: *
-  data Integer = IS Int#
-       │         └─ type: Int# → Integer
-       └─ type: *
+  module GHC.Num where
+  import GHC.Types (Int (..), Integer (..))
   class Num a where
   └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
     fromInteger :: Integer -> a
@@ -30,13 +15,35 @@ annotated:
     fromInteger x = x
     │           └─ type: Integer
     └─ fromInteger ∷ Integer → Integer
+- |-
+  module GHC.Types where
+  data Int = I Int#
+       │     └─ type: Int# → Int
+       └─ type: *
+  data Integer = IS Int#
+       │         └─ type: Int# → Integer
+       └─ type: *
+- |-
+  module Main where
+  import GHC.Types (Int, Integer)
+  asInt :: Int
+  asInt = 1 :: Int
+  │       └─ type: Int; type-args: Int; evidence: $fNumInt
+  └─ type: Int
+  asInteger :: Integer
+  asInteger = 1 :: Integer
+  │           └─ type: Integer; type-args: Integer; evidence: $fNumInteger
+  └─ type: Integer
 extensions:
 - MagicHash
 modules:
 - |
-  module Prelude where
+  module GHC.Types where
   data Int = I Int#
   data Integer = IS Int#
+- |
+  module GHC.Num where
+  import GHC.Types (Int (..), Integer (..))
   class Num a where
     fromInteger :: Integer -> a
   instance Num Int where
@@ -45,10 +52,11 @@ modules:
     fromInteger x = x
 - |
   module Main where
+  import GHC.Types (Int, Integer)
   asInt :: Int
   asInt = 1 :: Int
   asInteger :: Integer
   asInteger = 1 :: Integer
 reason: expression signatures constrain overloaded integer literals to concrete
-  Prelude Num instances
+  GHC.Num instances
 status: pass

@@ -8,7 +8,6 @@ expected: |-
 
   data Integer
    = IS Int#
-
   data Eq a
    = $Dict$Eq (a → a → Bool)
 
@@ -19,6 +18,14 @@ expected: |-
           $Dict$Eq $method0 →
             $method0
 
+  $fEqInt : Eq Int =
+    $Dict$Eq @Int (λx1004 : Int.
+      λy1005 : Int.
+        case x1004 as _scrut : Int of
+          I x →
+            case y1005 as _scrut : Int of
+              I y →
+                True)
   data Num a
    = $Dict$Num (Integer → a)
 
@@ -29,24 +36,16 @@ expected: |-
           $Dict$Num $method0 →
             $method0
 
-  $fEqInt : Eq Int =
-    $Dict$Eq @Int (λx1008 : Int.
-      λy1009 : Int.
-        case x1008 as _scrut : Int of
-          I x →
-            case y1009 as _scrut : Int of
-              I y →
-                True)
-
   $fNumInt : Num Int =
-    $Dict$Num @Int (λx1017 : Integer.
-      case x1017 as _scrut : Integer of
+    $Dict$Num @Int (λx1004 : Integer.
+      case x1004 as _scrut : Integer of
         IS x →
           I x)
 
   $fNumInteger : Num Integer =
-    $Dict$Num @Integer (λx1023 : Integer.
-      x1023)
+    $Dict$Num @Integer (λx1010 : Integer.
+      x1010)
+
   asInt : Int =
     fromInteger @Int $fNumInt (IS 1)
 
@@ -65,20 +64,29 @@ extensions:
 - MagicHash
 modules:
 - |
-  module Prelude where
+  module GHC.Types where
   data Bool = False | True
   data Int = I Int#
   data Integer = IS Int#
+- |
+  module GHC.Classes where
+  import GHC.Types (Bool (..), Int (..))
   class Eq a where
     (==) :: a -> a -> Bool
-  class Num a where
-    fromInteger :: Integer -> a
   instance Eq Int where
     I x == I y = True
+- |
+  module GHC.Num where
+  import GHC.Types (Int (..), Integer (..))
+  class Num a where
+    fromInteger :: Integer -> a
   instance Num Int where
     fromInteger (IS x) = I x
   instance Num Integer where
     fromInteger x = x
+- |
+  module Prelude (Int, Integer) where
+  import GHC.Types (Int, Integer)
 - |
   module Main where
   asInt :: Int
@@ -88,5 +96,5 @@ modules:
   caseInt :: ()
   caseInt = case (1 :: Int) of
     1 -> ()
-reason: desugars concrete integer literals and integer case scrutinees through Prelude.fromInteger
+reason: desugars concrete integer literals and integer case scrutinees through GHC.Num.fromInteger
 status: pass

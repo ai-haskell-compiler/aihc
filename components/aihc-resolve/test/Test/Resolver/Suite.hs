@@ -18,11 +18,11 @@ resolverUnitTests :: TestTree
 resolverUnitTests =
   testGroup
     "resolver-unit"
-    [ testCase "dependency-backed Prelude re-export supplies fromInteger" testDependencyBackedPreludeReExport
+    [ testCase "dependency-backed GHC.Num supplies built-in fromInteger" testDependencyBackedGhcNum
     ]
 
-testDependencyBackedPreludeReExport :: Assertion
-testDependencyBackedPreludeReExport =
+testDependencyBackedGhcNum :: Assertion
+testDependencyBackedGhcNum =
   case (parse "GHC.Num" numSource, parse "Prelude" preludeSource) of
     (Right numModule, Right preludeModule) -> do
       let dependencyResult = resolve [numModule]
@@ -31,7 +31,7 @@ testDependencyBackedPreludeReExport =
         [] ->
           case resolveErrors result of
             [] -> pure ()
-            errors -> assertFailure ("failed to resolve Prelude through dependency exports: " <> show errors)
+            errors -> assertFailure ("failed to resolve built-in syntax through dependency exports: " <> show errors)
         errors -> assertFailure ("failed to resolve dependency module: " <> show errors)
     (Left errors, _) -> assertFailure errors
     (_, Left errors) -> assertFailure errors

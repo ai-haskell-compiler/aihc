@@ -1,5 +1,4 @@
 {-# LANGUAGE MagicHash #-}
-{-# LANGUAGE RebindableSyntax #-}
 
 module GHC.Real
   ( Fractional (..),
