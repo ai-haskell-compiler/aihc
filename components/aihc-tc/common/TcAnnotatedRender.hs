@@ -18,6 +18,10 @@ import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
+    TcDerivingAnnotation (..),
+    TcDerivingContext (..),
+    TcDerivingPlan (..),
+    TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
   )
@@ -50,6 +54,7 @@ renderTcAnnotation annotation =
   pretty
     <$> ( renderTypeAnnotation <$> fromAnnotation @TcAnnotation annotation
             <|> renderClassAnnotation <$> fromAnnotation @TcClassAnnotation annotation
+            <|> renderDerivingAnnotation <$> fromAnnotation @TcDerivingAnnotation annotation
             <|> renderInstanceAnnotation <$> fromAnnotation @TcInstanceAnnotation annotation
             <|> renderInstanceMethodAnnotation <$> fromAnnotation @TcInstanceMethodAnnotation annotation
             <|> renderDiagnostic <$> fromAnnotation @TcDiagnostic annotation
@@ -61,11 +66,45 @@ renderTypeAnnotation ann =
 
 renderClassAnnotation :: TcClassAnnotation -> String
 renderClassAnnotation classAnnotation =
-  "class methods: " <> intercalate ", " (map renderClassMethod (tcClassMethods classAnnotation))
+  "class methods:" <> case tcClassMethods classAnnotation of
+    [] -> ""
+    methods -> " " <> intercalate ", " (map renderClassMethod methods)
 
 renderClassMethod :: TcClassMethodAnnotation -> String
 renderClassMethod method =
   renderTcSignature (tcClassMethodName method) (tcClassMethodType method)
+
+renderDerivingAnnotation :: TcDerivingAnnotation -> String
+renderDerivingAnnotation annotation =
+  "deriving plans: " <> intercalate ", " (map renderDerivingPlan (tcDerivingPlans annotation))
+
+renderDerivingPlan :: TcDerivingPlan -> String
+renderDerivingPlan plan =
+  renderDerivingStrategy (tcDerivingStrategy plan)
+    <> " "
+    <> renderTcType (TcTyCon (TyCon (tcDerivingClassName plan) (length (tcDerivingHeadTypes plan))) (tcDerivingHeadTypes plan))
+    <> renderDerivingContext (tcDerivingContext plan)
+    <> renderDerivingMethods (tcDerivingClassMethods plan)
+
+renderDerivingStrategy :: TcDerivingStrategy -> String
+renderDerivingStrategy strategy =
+  case strategy of
+    TcDerivingDefault -> "default"
+    TcDerivingStock -> "stock"
+    TcDerivingNewtype -> "newtype"
+    TcDerivingAnyclass -> "anyclass"
+    TcDerivingVia viaType -> "via " <> renderTcType viaType
+
+renderDerivingContext :: TcDerivingContext -> String
+renderDerivingContext context =
+  case context of
+    TcDerivingInferContext -> " [context: infer]"
+    TcDerivingExplicitContext [] -> " [context: ()]"
+    TcDerivingExplicitContext predicates -> " [context: " <> intercalate ", " (map renderPred predicates) <> "]"
+
+renderDerivingMethods :: [TcClassMethodAnnotation] -> String
+renderDerivingMethods [] = ""
+renderDerivingMethods methods = " [methods: " <> intercalate ", " (map (T.unpack . tcClassMethodName) methods) <> "]"
 
 renderInstanceAnnotation :: TcInstanceAnnotation -> String
 renderInstanceAnnotation ann =

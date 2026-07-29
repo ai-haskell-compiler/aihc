@@ -14,6 +14,10 @@ import Aihc.Tc.Annotations
     TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
+    TcDerivingAnnotation (..),
+    TcDerivingContext (..),
+    TcDerivingPlan (..),
+    TcDerivingStrategy (..),
     TcDictBinderAnnotation (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
@@ -126,6 +130,7 @@ rejectMetaFinalAnnotation :: Annotation -> TcM ()
 rejectMetaFinalAnnotation ann = do
   traverseReject "type annotation" (firstMetaTcAnnotation <$> fromAnnotation @TcAnnotation ann)
   traverseReject "class annotation" (firstMetaClassAnnotation <$> fromAnnotation @TcClassAnnotation ann)
+  traverseReject "deriving annotation" (firstMetaDerivingAnnotation <$> fromAnnotation @TcDerivingAnnotation ann)
   traverseReject "instance annotation" (firstMetaInstanceAnnotation <$> fromAnnotation @TcInstanceAnnotation ann)
   traverseReject "instance method annotation" (firstMetaInstanceMethodAnnotation <$> fromAnnotation @TcInstanceMethodAnnotation ann)
   where
@@ -157,6 +162,31 @@ firstMetaClassAnnotation classAnnotation =
 firstMetaClassMethodAnnotation :: TcClassMethodAnnotation -> Maybe Unique
 firstMetaClassMethodAnnotation method =
   firstMetaType (tcClassMethodType method) <|> firstMetaType (tcClassMethodDictType method)
+
+firstMetaDerivingAnnotation :: TcDerivingAnnotation -> Maybe Unique
+firstMetaDerivingAnnotation annotation =
+  firstJusts (map firstMetaDerivingPlan (tcDerivingPlans annotation))
+
+firstMetaDerivingPlan :: TcDerivingPlan -> Maybe Unique
+firstMetaDerivingPlan plan =
+  firstJusts
+    ( map firstMetaType (tcDerivingHeadTypes plan)
+        ++ map firstMetaClassMethodAnnotation (tcDerivingClassMethods plan)
+        ++ map firstMetaDictBinderAnnotation (tcDerivingClassSuperClasses plan)
+        ++ [firstMetaDerivingStrategy (tcDerivingStrategy plan), firstMetaDerivingContext (tcDerivingContext plan)]
+    )
+
+firstMetaDerivingStrategy :: TcDerivingStrategy -> Maybe Unique
+firstMetaDerivingStrategy strategy =
+  case strategy of
+    TcDerivingVia viaType -> firstMetaType viaType
+    _ -> Nothing
+
+firstMetaDerivingContext :: TcDerivingContext -> Maybe Unique
+firstMetaDerivingContext context =
+  case context of
+    TcDerivingInferContext -> Nothing
+    TcDerivingExplicitContext predicates -> firstJusts (map firstMetaPred predicates)
 
 firstMetaInstanceAnnotation :: TcInstanceAnnotation -> Maybe Unique
 firstMetaInstanceAnnotation ann =

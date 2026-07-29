@@ -19,6 +19,7 @@ library
     Aihc.Tc
     Aihc.Tc.Annotations
     Aihc.Tc.Constraint
+    Aihc.Tc.Deriving
     Aihc.Tc.Env
     Aihc.Tc.Error
     Aihc.Tc.Evidence
