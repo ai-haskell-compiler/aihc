@@ -1,4 +1,5 @@
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE RebindableSyntax #-}
 
 module GHC.Real
   ( Fractional (..),
@@ -22,9 +23,9 @@ module GHC.Real
 where
 
 import Data.Bool (Bool (..), not, (&&))
-import GHC.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Enum (Enum (..))
 import GHC.Int (Int (..))
+import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), integerQuotRem, integerToInt#)
 import GHC.Num (Num (..))
 

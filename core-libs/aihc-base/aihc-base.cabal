@@ -117,7 +117,6 @@ library
     GHC.Bits
     GHC.ByteOrder
     GHC.Char
-    GHC.Classes
     GHC.Clock
     GHC.Conc
     GHC.Conc.IO
@@ -254,6 +253,7 @@ library
     GHC.IO.Console
     GHC.IO.Runtime
     GHC.Internal.Char
+    GHC.Internal.Classes
     GHC.Internal.Integer
 
   hs-source-dirs: src

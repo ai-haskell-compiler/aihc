@@ -1,6 +1,6 @@
 {-# LANGUAGE MagicHash #-}
 
-module GHC.Classes
+module GHC.Internal.Classes
   ( Eq (..),
     Ord (..),
     Ordering (..),

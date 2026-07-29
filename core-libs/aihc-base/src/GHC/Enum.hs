@@ -1,4 +1,5 @@
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE RebindableSyntax #-}
 
 module GHC.Enum
   ( Bounded (..),
@@ -13,9 +14,9 @@ module GHC.Enum
 where
 
 import Data.Bool (Bool (..))
-import GHC.Classes (Eq (..), Ord (..))
 import GHC.Int (Int (..))
 import GHC.Internal.Char (Char)
+import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.Internal.Integer (Integer (..), integerToInt#)
 import GHC.Num (Num (..))
 import GHC.Prim (int2Word#, not#, uncheckedShiftRL#, word2Int#, (+#))
