@@ -1,0 +1,21 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Bits (And (And), Iff (Iff), Ior (Ior), Xor (Xor), getAnd, getIff, getIor, getXor)
+
+    checks :: Bool
+    checks =
+      getAnd (And True)
+        && getIor (Ior True)
+        && getXor (Xor True)
+        && getIff (Iff True)
+output: |
+  True
+expression: |
+  checks
+status: pass
+reason: Data.Bits exports the base-4.22 bitwise wrapper constructors and getter functions
