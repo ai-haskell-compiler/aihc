@@ -5,7 +5,7 @@ module Main where
 
 import GHC.IO (IO (..))
 import GHC.Int (Int (..))
-import GHC.Prim (MutableByteArray#, RealWorld, mutableByteArrayContents#, newPinnedByteArray#)
+import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newPinnedByteArray#)
 import GHC.Ptr (Ptr (..))
 import System.IO
   ( IOMode (..),
@@ -28,45 +28,40 @@ main = do
   hPutBuf appended (Ptr "C"# :: Ptr ()) 1
   hClose appended
 
-  withExampleBuffer
-    3
-    ( \buffer -> do
-        let pointer = Ptr (mutableByteArrayContents# buffer) :: Ptr ()
-        inputFile <- openBinaryFile "π" ReadMode
-        count <- hGetBuf inputFile pointer 3
-        hClose inputFile
-        hClose inputFile
-        hGetBuf inputFile pointer 0
-        hPutBuf stdout (Ptr (mutableByteArrayContents# buffer) :: Ptr ()) count
-    )
+  inputBuffer <- newPinnedByteArray 3
+  let inputPointer = Ptr (pinnedByteArrayContents# inputBuffer) :: Ptr ()
+  inputFile <- openBinaryFile "π" ReadMode
+  count <- hGetBuf inputFile inputPointer 3
+  hClose inputFile
+  hClose inputFile
+  hGetBuf inputFile inputPointer 0
+  hPutBuf stdout inputPointer count
 
   updated <- openBinaryFile "π" ReadWriteMode
   hPutBuf updated (Ptr "X"# :: Ptr ()) 1
-  withExampleBuffer
-    2
-    ( \buffer -> do
-        let pointer = Ptr (mutableByteArrayContents# buffer) :: Ptr ()
-        count <- hGetBuf updated pointer 2
-        hPutBuf stdout (Ptr (mutableByteArrayContents# buffer) :: Ptr ()) count
-    )
+  updatedBuffer <- newPinnedByteArray 2
+  let updatedPointer = Ptr (pinnedByteArrayContents# updatedBuffer) :: Ptr ()
+  updatedCount <- hGetBuf updated updatedPointer 2
+  hPutBuf stdout updatedPointer updatedCount
   hClose updated
 
   hPutBuf stderr (Ptr "E\n"# :: Ptr ()) 2
-  withExampleBuffer
-    2
-    ( \buffer -> do
-        let pointer = Ptr (mutableByteArrayContents# buffer) :: Ptr ()
-        count <- hGetBuf stdin pointer 2
-        hPutBuf stdout (Ptr (mutableByteArrayContents# buffer) :: Ptr ()) count
-    )
+  stdinBuffer <- newPinnedByteArray 2
+  let stdinPointer = Ptr (pinnedByteArrayContents# stdinBuffer) :: Ptr ()
+  stdinCount <- hGetBuf stdin stdinPointer 2
+  hPutBuf stdout stdinPointer stdinCount
   hPutBuf stdout (Ptr "\n"# :: Ptr ()) 1
 
-withExampleBuffer :: Int -> (MutableByteArray# RealWorld -> IO a) -> IO a
-withExampleBuffer (I# size) action =
+data PinnedByteArray = PinnedByteArray (MutableByteArray# RealWorld)
+
+pinnedByteArrayContents# :: PinnedByteArray -> Addr#
+pinnedByteArrayContents# (PinnedByteArray buffer) = mutableByteArrayContents# buffer
+
+newPinnedByteArray :: Int -> IO PinnedByteArray
+newPinnedByteArray (I# size) =
   IO
     ( \state ->
         case newPinnedByteArray# size state of
           (# allocatedState, buffer #) ->
-            case action buffer of
-              IO run -> run allocatedState
+            (# allocatedState, PinnedByteArray buffer #)
     )

@@ -7,7 +7,6 @@ module GHC.IO.StdHandles
     stdinHandle,
     stdoutHandle,
     stderrHandle,
-    withPinnedByteArray,
     copyAddrToByteArray,
     readIntoBuffer,
     writeFromBuffer,
@@ -23,7 +22,6 @@ import GHC.IO.FD
     stderrHandle,
     stdinHandle,
     stdoutHandle,
-    withPinnedByteArray,
     writeFromBuffer,
   )
 import GHC.IO.Handle.Types (Handle, newHandle)

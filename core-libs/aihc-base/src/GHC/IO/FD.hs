@@ -12,7 +12,6 @@ module GHC.IO.FD
     openIOHandle,
     closeIOHandle,
     writeMemoryByte,
-    withPinnedByteArray,
     copyAddrToByteArray,
     readIntoBuffer,
     writeFromBuffer,
@@ -24,7 +23,7 @@ where
 import GHC.Event (awaitIO)
 import GHC.IO (IO (..))
 import GHC.Int (Int (..))
-import GHC.Prim (MutableByteArray#, RealWorld, copyAddrToByteArray#, mutableByteArrayContents#, newPinnedByteArray#)
+import GHC.Prim (MutableByteArray#, RealWorld, copyAddrToByteArray#, mutableByteArrayContents#)
 import GHC.Ptr (Ptr (..))
 import Prelude hiding (Int)
 
@@ -75,18 +74,6 @@ openIOHandle path length mode = do
   case openCode of
     0 -> return (Right result)
     _ -> return (Left openCode)
-
--- | Allocate zero-filled pinned storage for the duration of an action. The
--- proof-of-concept runtime does not reclaim the allocation yet.
-withPinnedByteArray :: Int# -> (MutableByteArray# RealWorld -> IO a) -> IO a
-withPinnedByteArray size action =
-  IO
-    ( \state ->
-        case newPinnedByteArray# size state of
-          (# allocatedState, buffer #) ->
-            case action buffer of
-              IO run -> run allocatedState
-    )
 
 copyAddrToByteArray :: Addr# -> MutableByteArray# RealWorld -> Int# -> Int# -> IO ()
 copyAddrToByteArray source buffer offset length =

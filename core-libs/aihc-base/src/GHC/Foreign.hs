@@ -1,12 +1,14 @@
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
 
 -- | Minimal UTF-8 marshalling used for POSIX file paths.
 module GHC.Foreign (openUtf8FilePath) where
 
 import GHC.Char (ord)
-import GHC.IO.FD (IOHandle, openIOHandle, withPinnedByteArray, writeMemoryByte)
+import GHC.IO (IO (..))
+import GHC.IO.FD (IOHandle, openIOHandle, writeMemoryByte)
 import GHC.Int (Int (..))
-import GHC.Prim (mutableByteArrayContents#)
+import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newPinnedByteArray#)
 import GHC.Ptr (Ptr)
 import Prelude hiding (Int)
 
@@ -17,14 +19,23 @@ openUtf8FilePath path mode =
   case utf8Length path of
     Left pathError -> return (Left pathError)
     Right length ->
-      case length of
-        I# rawLength ->
-          withPinnedByteArray
-            rawLength
-            ( \buffer -> do
-                writeUtf8 (mutableByteArrayContents# buffer) 0 path
-                openIOHandle (mutableByteArrayContents# buffer) length mode
-            )
+      do
+        buffer <- newPathBuffer length
+        case buffer of
+          PathBuffer rawBuffer -> do
+            writeUtf8 (mutableByteArrayContents# rawBuffer) 0 path
+            openIOHandle (mutableByteArrayContents# rawBuffer) length mode
+
+data PathBuffer = PathBuffer (MutableByteArray# RealWorld)
+
+newPathBuffer :: Int -> IO PathBuffer
+newPathBuffer (I# size) =
+  IO
+    ( \state ->
+        case newPinnedByteArray# size state of
+          (# allocatedState, buffer #) ->
+            (# allocatedState, PathBuffer buffer #)
+    )
 
 utf8Length :: String -> Either Int Int
 utf8Length = go 0
