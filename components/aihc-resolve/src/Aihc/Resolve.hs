@@ -209,17 +209,18 @@ resolveModule exports nextLocal modu =
   let imports' = resolveModuleImports exports (moduleImports modu)
       modu' = modu {moduleImports = imports'}
       scope = moduleScope exports modu'
-      (nextLocal', decls') = runResolveM scope (moduleInfo modu') nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
+      (nextLocal', decls') = runResolveM scope (moduleInfo exports modu') nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
    in (nextLocal', modu' {moduleDecls = decls'})
 
-moduleInfo :: Module -> ModuleInfo
-moduleInfo modu =
+moduleInfo :: ModuleExports -> Module -> ModuleInfo
+moduleInfo exports modu =
   ModuleInfo
     { moduleInfoExtensions =
         applyImpliedExtensions $
           foldr applyExtensionSetting [] (moduleLanguagePragmas modu),
       moduleInfoExplicitPreludeImport =
-        any ((== "Prelude") . importDeclModule) (moduleImports modu)
+        any ((== "Prelude") . importDeclModule) (moduleImports modu),
+      moduleInfoGhcBaseScope = Map.findWithDefault emptyScope "GHC.Base" exports
     }
 
 resolveModuleImports :: ModuleExports -> [ImportDecl] -> [ImportDecl]
@@ -841,8 +842,21 @@ annotateDoBind isLast stmt
   | isLast = pure stmt
   | otherwise = do
       sp <- currentSpan
-      bindAnn <- syntaxTermAnnotation sp ">>="
+      bindAnn <- doBindAnnotation sp
       pure (DoAnn (mkAnnotation bindAnn) stmt)
+
+doBindAnnotation :: SourceSpan -> ResolveM ResolutionAnnotation
+doBindAnnotation sp = do
+  scope <- currentScope
+  info <- currentModuleInfo
+  -- GHC wires ordinary do notation to the canonical Monad method even when
+  -- GHC.Base is not imported. RebindableSyntax deliberately restores lexical
+  -- lookup so user-defined bind operators can replace it.
+  let resolved =
+        if RebindableSyntax `elem` moduleInfoExtensions info
+          then rebindableSyntaxTerm info scope ">>="
+          else lookupTerm ">>=" (moduleInfoGhcBaseScope info)
+  pure (ResolutionAnnotation sp ">>=" ResolutionNamespaceTerm resolved)
 
 resolveArithSeq :: ArithSeq -> ResolveM ArithSeq
 resolveArithSeq arithSeq =

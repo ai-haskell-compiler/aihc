@@ -117,6 +117,7 @@ library
     GHC.Bits
     GHC.ByteOrder
     GHC.Char
+    GHC.Classes
     GHC.Clock
     GHC.Conc
     GHC.Conc.IO
@@ -249,6 +250,10 @@ library
     Unsafe.Coerce
 
   other-modules:
+    GHC.IO.Buffer.Internal
+    GHC.IO.Console
+    GHC.IO.Runtime
+    GHC.Internal.Char
     GHC.Internal.Integer
 
   hs-source-dirs: src

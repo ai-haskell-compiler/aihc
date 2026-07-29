@@ -1,0 +1,134 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Bits
+
+    intChecks :: [Bool]
+    intChecks =
+      [ (12 .&. 10 :: Int) == 8
+      , (12 .|. 3 :: Int) == 15
+      , xor (12 :: Int) 10 == 6
+      , complement (0 :: Int) == negate 1
+      , shift (3 :: Int) 2 == 12
+      , shift (8 :: Int) (negate 2) == 2
+      , shiftL (1 :: Int) 64 == 0
+      , shift (1 :: Int) (negate 64) == 0
+      , shiftR (negate 2 :: Int) 1 == negate 1
+      , shiftR (1 :: Int) 64 == 0
+      , rotateL (1 :: Int) 1 == 2
+      , rotateR (1 :: Int) 1 == bit 63
+      , rotate (1 :: Int) (negate 1) == bit 63
+      , rotate (1 :: Int) 64 == 1
+      , rotate (1 :: Int) 65 == 2
+      , unsafeShiftL (3 :: Int) 2 == 12
+      , unsafeShiftR (8 :: Int) 2 == 2
+      , (zeroBits :: Int) == 0
+      , (bit 5 :: Int) == 32
+      , setBit (8 :: Int) 1 == 10
+      , clearBit (10 :: Int) 1 == 8
+      , complementBit (10 :: Int) 2 == 14
+      , testBit (10 :: Int) 3
+      , not (testBit (10 :: Int) 2)
+      , bitSizeMaybe (0 :: Int) == Just 64
+      , bitSize (0 :: Int) == 64
+      , finiteBitSize (0 :: Int) == 64
+      , isSigned (0 :: Int)
+      , popCount (negate 3 :: Int) == 63
+      , countLeadingZeros (1 :: Int) == 63
+      , countLeadingZeros (0 :: Int) == 64
+      , countTrailingZeros (negate 8 :: Int) == 3
+      , countTrailingZeros (0 :: Int) == 64
+      , clearBit (7 :: Int) 64 == 7
+      ]
+
+    boolChecks :: [Bool]
+    boolChecks =
+      [ True .&. False == False
+      , True .|. False == True
+      , xor True True == False
+      , complement False == True
+      , shift True 0 == True
+      , shift True 1 == False
+      , rotate False 17 == False
+      , (zeroBits :: Bool) == False
+      , bit 0 == True
+      , bit 1 == False
+      , testBit True 0
+      , not (testBit True 1)
+      , bitSizeMaybe False == Just 1
+      , finiteBitSize False == 1
+      , not (isSigned False)
+      , popCount True == 1
+      , countLeadingZeros False == 1
+      , countTrailingZeros True == 0
+      , setBit False 0 == True
+      , clearBit True 0 == False
+      ]
+
+    integerChecks :: [Bool]
+    integerChecks =
+      [ ((bit 130 .|. bit 5) .&. complement (bit 5) :: Integer) == bit 130
+      , xor (bit 130 :: Integer) (bit 129) == bit 130 + bit 129
+      , complement (0 :: Integer) == negate 1
+      , ((negate 5) .&. 3 :: Integer) == 3
+      , ((negate 5) .|. 2 :: Integer) == negate 5
+      , xor (negate 5 :: Integer) 3 == negate 8
+      , ((negate 5) .&. negate 3 :: Integer) == negate 7
+      , ((negate 5) .|. negate 3 :: Integer) == negate 1
+      , xor (negate 5 :: Integer) (negate 3) == 6
+      , shiftL (3 :: Integer) 130 == bit 131 + bit 130
+      , shiftL (negate 3 :: Integer) 65 == negate (bit 66 + bit 65)
+      , shiftR (bit 130 + 3 :: Integer) 129 == 2
+      , shiftR (bit 130 + bit 64 + 1 :: Integer) 64 == bit 66 + 1
+      , shiftR (negate 3 :: Integer) 1 == negate 2
+      , rotate (3 :: Integer) (negate 1) == 1
+      , testBit (negate 2 :: Integer) 130
+      , not (testBit (negate 2 :: Integer) 0)
+      , popCount (bit 130 + bit 5 + 1 :: Integer) == 3
+      , popCount (negate 3 :: Integer) == negate 2
+      , (bit (negate 1) :: Integer) == 0
+      , bitSizeMaybe (0 :: Integer) == Nothing
+      , isSigned (0 :: Integer)
+      ]
+
+    defaultAndExtraChecks :: [Bool]
+    defaultAndExtraChecks =
+      [ (bitDefault 6 :: Int) == 64
+      , testBitDefault (64 :: Int) 6
+      , popCountDefault (42 :: Int) == 3
+      , (oneBits :: Int) == negate 1
+      , (12 .^. 10 :: Int) == 6
+      , (8 .>>. 2 :: Int) == 2
+      , (3 .<<. 2 :: Int) == 12
+      , (8 !>>. 2 :: Int) == 2
+      , (3 !<<. 2 :: Int) == 12
+      , getAnd (And 12 .&. And 10 :: And Int) == 8
+      , getAnd (setBit (And 8) 1 :: And Int) == 10
+      , getAnd (clearBit (And 10) 1 :: And Int) == 8
+      , getAnd (complementBit (And 10) 2 :: And Int) == 14
+      , getAnd (unsafeShiftR (And 8) 2 :: And Int) == 2
+      , getIor (Ior 12 .|. Ior 3 :: Ior Int) == 15
+      , getXor (xor (Xor 12) (Xor 10) :: Xor Int) == 6
+      , getIff (complement (Iff 0) :: Iff Int) == negate 1
+      , toIntegralSized (42 :: Integer) == (Just 42 :: Maybe Int)
+      , toIntegralSized (9223372036854775808 :: Integer) == (Nothing :: Maybe Int)
+      , toIntegralSized (negate (bit 63) - 1 :: Integer) == (Nothing :: Maybe Int)
+      , toIntegralSized (42 :: Int) == (Just 42 :: Maybe Integer)
+      ]
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (value : values) = value && allTrue values
+
+    checks :: Bool
+    checks = allTrue intChecks && allTrue boolChecks && allTrue integerChecks && allTrue defaultAndExtraChecks
+output: |
+  True
+expression: |
+  checks
+status: pass
+reason: Data.Bits matches the base-4.22 API for class defaults, Bool, Int, Integer, aliases, sized conversions, and bitwise wrapper types
