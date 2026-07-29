@@ -31,6 +31,7 @@ module Aihc.Tc.Types
     VecCount (..),
     VecElem (..),
     TypeScheme (..),
+    boxedTupleTyConName,
     liftedRuntimeRep,
     liftedTypeKind,
     typeKind,
@@ -51,6 +52,15 @@ where
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+
+-- | Source-level names of the lifted tuple types declared by @ghc-prim@.
+-- Their data constructors retain the familiar parenthesized comma syntax.
+boxedTupleTyConName :: Int -> Text
+boxedTupleTyConName arity =
+  case arity of
+    0 -> "Unit"
+    1 -> "Solo"
+    _ -> "Tuple" <> T.pack (show arity)
 
 -- | Unique identifier for type variables and evidence variables.
 newtype Unique = Unique Int

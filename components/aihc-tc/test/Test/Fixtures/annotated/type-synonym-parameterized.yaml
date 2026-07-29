@@ -4,7 +4,29 @@ modules:
     module Test where
     data Bool = True | False
     type Pair a b = (a, b)
+    type Wrapped a = Box a
+    data Box a = Box a
     p = (True, False)
-annotated: []
-status: xfail
-reason: "parameterized type synonyms not yet supported"
+    wrapped :: Wrapped Bool
+    wrapped = Box True
+annotated:
+  - |-
+    module Test where
+    data Bool = True | False
+         │      │      └─ type: Bool
+         │      └─ type: Bool
+         └─ type: *
+    type Pair a b = (a, b)
+    type Wrapped a = Box a
+    data Box a = Box a
+         │       └─ type: ∀ a. a → Box a
+         └─ type: * → *
+    p = (True, False)
+    │   └─ type: (Bool, Bool); type-args: Bool, Bool
+    └─ type: (Bool, Bool)
+    wrapped :: Wrapped Bool
+    wrapped = Box True
+    │         └─ type: Bool → Box Bool; type-args: Bool
+    └─ type: Box Bool
+status: pass
+reason: "parameterized type synonyms substitute their applied arguments"

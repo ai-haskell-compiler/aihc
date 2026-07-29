@@ -195,7 +195,7 @@ resolveWithDeps depExports modules =
        in (nextLocal', modu')
     (_, resolved) = mapAccumL step 0 modules
     modules' = resolved
-    ownExports = collectModuleExports modules
+    ownExports = collectModuleExportsWithDeps depExports modules
     exports = ownExports `Map.union` depExports
 
 extractInterface :: ResolveResult -> ModuleExports

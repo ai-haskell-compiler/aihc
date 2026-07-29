@@ -461,7 +461,7 @@ inferTuple sp flavor elems = do
 tupleConText :: TupleFlavor -> Int -> Text
 tupleConText flavor arity =
   case flavor of
-    Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
+    Boxed -> boxedTupleTyConName arity
     Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
 
 inferList :: SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])

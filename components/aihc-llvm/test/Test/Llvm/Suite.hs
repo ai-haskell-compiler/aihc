@@ -206,7 +206,7 @@ verifyModule source =
 intAddProgram :: GrinProgram
 intAddProgram =
   GrinProgram
-    { grinConstructors = [],
+    { grinConstructors = [("()", [])],
       grinPrimitives = [(GrinVar "+#" 30 IntRep, 2)],
       grinForeignCalls = [putcharCall],
       grinExternalGlobals = [],
@@ -252,7 +252,7 @@ intAddProgram =
 firstMatchCaseProgram :: GrinProgram
 firstMatchCaseProgram =
   GrinProgram
-    { grinConstructors = [],
+    { grinConstructors = [("()", [])],
       grinPrimitives = [],
       grinForeignCalls = [putcharCall],
       grinExternalGlobals = [],
@@ -298,7 +298,7 @@ firstMatchCaseProgram =
 thunkEntryProgram :: GrinProgram
 thunkEntryProgram =
   GrinProgram
-    { grinConstructors = [],
+    { grinConstructors = [("()", [])],
       grinPrimitives = [],
       grinForeignCalls = [putcharCall],
       grinExternalGlobals = [],
@@ -350,7 +350,7 @@ putcharCall =
 foreignIntProgram :: GrinProgram
 foreignIntProgram =
   GrinProgram
-    { grinConstructors = [],
+    { grinConstructors = [("()", [])],
       grinPrimitives = [],
       grinForeignCalls = [labsCall, putcharCall],
       grinExternalGlobals = [],

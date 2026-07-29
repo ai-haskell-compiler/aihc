@@ -53,7 +53,7 @@ expected: |-
   asInteger : Integer =
     fromInteger @Integer $fNumInteger (IS 1)
 
-  caseInt : () =
+  caseInt : Unit =
     case fromInteger @Int $fNumInt (IS 1) as _case : Int of
       _ _case_value →
         case == @Int $fEqInt _case_value (fromInteger @Int $fNumInt (IS 1)) as _case_guard : Bool of
