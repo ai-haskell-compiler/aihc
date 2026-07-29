@@ -1,0 +1,52 @@
+annotated:
+- |-
+  module Main where
+  class Stock a where
+        └─ t Main
+  class Anyclass a where
+        └─ t Main
+  class Via a where
+        └─ t Main
+  data Wrapper a = Wrapper a
+       └─ t Main   └─ v Main
+  data T a = T a
+       │     └─ v Main
+       └─ t Main
+    deriving stock Stock
+                   └─ t Main
+    deriving anyclass (Anyclass)
+                       └─ t Main
+    deriving (Via) via Wrapper a
+              │        └─ t Main
+              └─ t Main
+  newtype N a = N a
+          │     └─ v Main
+          └─ t Main
+    deriving stock Stock
+                   └─ t Main
+  data Bad = Bad
+       │     └─ v Main
+       └─ t Main
+    deriving Missing
+             └─ t Error unbound
+extensions:
+- DeriveAnyClass
+- DerivingStrategies
+- DerivingVia
+modules:
+- |
+  module Main where
+  class Stock a where
+  class Anyclass a where
+  class Via a where
+  data Wrapper a = Wrapper a
+  data T a = T a
+    deriving stock Stock
+    deriving anyclass (Anyclass)
+    deriving (Via) via Wrapper a
+  newtype N a = N a
+    deriving stock Stock
+  data Bad = Bad
+    deriving Missing
+reason: ''
+status: pass
