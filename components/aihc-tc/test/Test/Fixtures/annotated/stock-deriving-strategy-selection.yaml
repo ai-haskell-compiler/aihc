@@ -1,0 +1,37 @@
+annotated:
+- |-
+  {-# LANGUAGE DeriveAnyClass, DeriveFunctor, KindSignatures #-}
+  module Main where
+  data Type
+       └─ type: *
+  class Eq a where
+  └─ class methods:
+  class Functor (f :: Type -> Type) where
+  └─ class methods:
+  data E = E
+  │    │   └─ type: E
+  │    └─ type: *
+  └─ deriving plans: stock Eq E [context: infer]
+    deriving Eq
+  data F a = F a
+  │    │     └─ type: ∀ a. a → F a
+  │    └─ type: * → *
+  └─ deriving plans: stock Functor F [context: infer]
+    deriving Functor
+extensions:
+- DeriveAnyClass
+- DeriveFunctor
+- KindSignatures
+modules:
+- |
+  {-# LANGUAGE DeriveAnyClass, DeriveFunctor, KindSignatures #-}
+  module Main where
+  data Type
+  class Eq a where
+  class Functor (f :: Type -> Type) where
+  data E = E
+    deriving Eq
+  data F a = F a
+    deriving Functor
+reason: stock mechanisms take precedence over DeriveAnyClass when their enabling extensions are active
+status: pass

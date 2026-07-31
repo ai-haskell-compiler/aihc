@@ -1,0 +1,27 @@
+annotated:
+- |-
+  {-# LANGUAGE DerivingStrategies #-}
+  module Main where
+  class C a where
+  └─ class methods:
+  data ExplicitStock = ExplicitStock
+       └─ type: *      └─ type: ExplicitStock
+    deriving stock C
+                   └─ error: stock deriving is not available for class C
+  data NoDefault = NoDefault
+       └─ type: *  └─ type: NoDefault
+    deriving C
+             └─ error: cannot select a deriving strategy for C; enable DeriveAnyClass, or use an explicit strategy
+extensions:
+- DerivingStrategies
+modules:
+- |
+  {-# LANGUAGE DerivingStrategies #-}
+  module Main where
+  class C a where
+  data ExplicitStock = ExplicitStock
+    deriving stock C
+  data NoDefault = NoDefault
+    deriving C
+reason: TC rejects unsupported explicit stock deriving and unresolved default strategies
+status: pass

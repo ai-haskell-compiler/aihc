@@ -145,12 +145,11 @@ data TcClassAnnotation = TcClassAnnotation
   }
   deriving (Eq, Show)
 
--- | A checked deriving strategy. The default case remains explicit because
--- choosing between stock, newtype, and anyclass is a type-checker policy
--- decision that depends on the enabled extensions and the requested class.
+-- | The effective deriving strategy selected by the type checker. Source
+-- declarations without an explicit strategy are resolved before a plan is
+-- attached, so System FC never has to reproduce extension-sensitive policy.
 data TcDerivingStrategy
-  = TcDerivingDefault
-  | TcDerivingStock
+  = TcDerivingStock
   | TcDerivingNewtype
   | TcDerivingAnyclass
   | TcDerivingVia !TcType

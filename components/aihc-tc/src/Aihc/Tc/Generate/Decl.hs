@@ -28,6 +28,7 @@ import Aihc.Parser.Syntax
     DataDecl (..),
     Decl (..),
     Expr (..),
+    Extension,
     FieldDecl (..),
     ForeignDecl (..),
     ForeignDirection (..),
@@ -48,6 +49,8 @@ import Aihc.Parser.Syntax
     TypeSynDecl (..),
     UnqualifiedName (..),
     ValueDecl (..),
+    applyExtensionSetting,
+    applyImpliedExtensions,
     binderHeadName,
     binderHeadParams,
     fromAnnotation,
@@ -486,25 +489,28 @@ renderCheckedGroup checkedGroups (groupId, group) =
 annotateModuleTc :: Set.Set Text -> Module -> TcM Module
 annotateModuleTc checkedValueNames m = do
   let classMethods = collectClassMethodNames (moduleDecls m)
-  decls <- mapM (annotateDeclTc classMethods checkedValueNames) (moduleDecls m)
+      extensions =
+        applyImpliedExtensions $
+          foldr applyExtensionSetting [] (moduleLanguagePragmas m)
+  decls <- mapM (annotateDeclTc extensions classMethods checkedValueNames) (moduleDecls m)
   pure (m {moduleDecls = decls})
 
-annotateDeclTc :: Map Text [Text] -> Set.Set Text -> Decl -> TcM Decl
-annotateDeclTc classMethods checkedValueNames decl =
+annotateDeclTc :: [Extension] -> Map Text [Text] -> Set.Set Text -> Decl -> TcM Decl
+annotateDeclTc extensions classMethods checkedValueNames decl =
   case decl of
-    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc classMethods checkedValueNames inner
+    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc extensions classMethods checkedValueNames inner
     DeclValue valueDecl
       | valueDeclWasChecked checkedValueNames valueDecl -> do
           (ty, valueDecl') <- annotateValueDeclTc valueDecl
           pure (annotateDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] []) (DeclValue valueDecl'))
       | otherwise -> pure decl
-    DeclData dataDecl -> annotateDataDeclTc dataDecl
-    DeclNewtype newtypeDecl -> annotateNewtypeDeclTc newtypeDecl
+    DeclData dataDecl -> annotateDataDeclTc extensions dataDecl
+    DeclNewtype newtypeDecl -> annotateNewtypeDeclTc extensions newtypeDecl
     DeclForeign foreignDecl
       | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
     DeclInstance instanceDecl -> annotateInstanceDeclTc classMethods instanceDecl
-    DeclStandaloneDeriving derivingDecl -> annotateStandaloneDerivingTc derivingDecl
+    DeclStandaloneDeriving derivingDecl -> annotateStandaloneDerivingTc extensions derivingDecl
     _ -> pure decl
 
 valueDeclWasChecked :: Set.Set Text -> ValueDecl -> Bool
@@ -565,23 +571,23 @@ annotateClassMethod index methodName = do
         tcClassMethodIndex = index
       }
 
-annotateDataDeclTc :: DataDecl -> TcM Decl
-annotateDataDeclTc dataDecl = do
+annotateDataDeclTc :: [Extension] -> DataDecl -> TcM Decl
+annotateDataDeclTc extensions dataDecl = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
   ty <- tyConBindingType tyName
   constructors <- mapM annotateDataConDeclTc (dataDeclConstructors dataDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (dataDeclHead dataDecl)
       annotatedDecl = DeclData (dataDecl {dataDeclHead = annotatedHead, dataDeclConstructors = constructors})
-  annotateAttachedDerivingTc DataTyCon (dataDeclHead dataDecl) (dataDeclDeriving dataDecl) annotatedDecl
+  annotateAttachedDerivingTc extensions DataTyCon (dataDeclHead dataDecl) (dataDeclDeriving dataDecl) annotatedDecl
 
-annotateNewtypeDeclTc :: NewtypeDecl -> TcM Decl
-annotateNewtypeDeclTc newtypeDecl = do
+annotateNewtypeDeclTc :: [Extension] -> NewtypeDecl -> TcM Decl
+annotateNewtypeDeclTc extensions newtypeDecl = do
   let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
   ty <- tyConBindingType tyName
   constructor <- mapM annotateDataConDeclTc (newtypeDeclConstructor newtypeDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (newtypeDeclHead newtypeDecl)
       annotatedDecl = DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor})
-  annotateAttachedDerivingTc NewtypeTyCon (newtypeDeclHead newtypeDecl) (newtypeDeclDeriving newtypeDecl) annotatedDecl
+  annotateAttachedDerivingTc extensions NewtypeTyCon (newtypeDeclHead newtypeDecl) (newtypeDeclDeriving newtypeDecl) annotatedDecl
 
 annotateBinderHeadName :: TcAnnotation -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
 annotateBinderHeadName tcAnn head' =

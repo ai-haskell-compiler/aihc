@@ -17,6 +17,7 @@ import Aihc.Parser.Syntax
     Decl (..),
     DerivingClause (..),
     DerivingStrategy (..),
+    Extension,
     Name (..),
     SourceSpan (..),
     StandaloneDerivingDecl (..),
@@ -40,22 +41,23 @@ import Aihc.Tc.Annotations
     TcDerivingStrategy (..),
     TcDictBinderAnnotation (..),
   )
+import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy)
 import Aihc.Tc.Env (ClassInfo (..), TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, surfacePredToPred)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds)
-import Control.Monad (unless, zipWithM)
+import Control.Monad (zipWithM)
 import Data.List (find, nub, (\\))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 
-annotateAttachedDerivingTc :: TyConFlavor -> BinderHead UnqualifiedName -> [DerivingClause] -> Decl -> TcM Decl
-annotateAttachedDerivingTc targetFlavor targetHead clauses decl = do
-  plans <- checkAttachedDerivingPlans targetFlavor targetHead clauses
+annotateAttachedDerivingTc :: [Extension] -> TyConFlavor -> BinderHead UnqualifiedName -> [DerivingClause] -> Decl -> TcM Decl
+annotateAttachedDerivingTc extensions targetFlavor targetHead clauses decl = do
+  plans <- checkAttachedDerivingPlans extensions targetFlavor targetHead clauses
   pure (annotateDerivingPlans plans decl)
 
 annotateDerivingPlans :: [TcDerivingPlan] -> Decl -> Decl
@@ -63,8 +65,8 @@ annotateDerivingPlans [] decl = decl
 annotateDerivingPlans plans decl =
   DeclAnn (mkAnnotation (TcDerivingAnnotation plans)) decl
 
-checkAttachedDerivingPlans :: TyConFlavor -> BinderHead UnqualifiedName -> [DerivingClause] -> TcM [TcDerivingPlan]
-checkAttachedDerivingPlans targetFlavor targetHead clauses = do
+checkAttachedDerivingPlans :: [Extension] -> TyConFlavor -> BinderHead UnqualifiedName -> [DerivingClause] -> TcM [TcDerivingPlan]
+checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
   rawParams <- makeParamEnv (binderHeadParams targetHead)
   params <- mapM defaultParam rawParams
   let targetName = unqualifiedNameText (binderHeadName targetHead)
@@ -84,7 +86,7 @@ checkAttachedDerivingPlans targetFlavor targetHead clauses = do
 
     checkOne targetInfo params tvEnv strategy classHead = do
       (plan, hadErrors) <-
-        withErrorTracking (checkAttachedDerivingPlan targetFlavor targetInfo params tvEnv strategy classHead)
+        withErrorTracking (checkAttachedDerivingPlan extensions targetFlavor targetInfo params tvEnv strategy classHead)
       pure (if hadErrors then Nothing else plan)
 
 data AttachedDerivingClassHead = AttachedDerivingClassHead
@@ -115,8 +117,8 @@ attachedDerivingClassHeads clause =
           emitError (typeSpan classType) (OtherError "invalid class in deriving clause")
           pure Nothing
 
-checkAttachedDerivingPlan :: TyConFlavor -> TyConInfo -> [ParamInfo] -> TvKindEnv -> Maybe DerivingStrategy -> AttachedDerivingClassHead -> TcM (Maybe TcDerivingPlan)
-checkAttachedDerivingPlan targetFlavor targetInfo params tvEnv strategy classHead = do
+checkAttachedDerivingPlan :: [Extension] -> TyConFlavor -> TyConInfo -> [ParamInfo] -> TvKindEnv -> Maybe DerivingStrategy -> AttachedDerivingClassHead -> TcM (Maybe TcDerivingPlan)
+checkAttachedDerivingPlan extensions targetFlavor targetInfo params tvEnv strategy classHead = do
   let className = nameText (attachedClassName classHead)
       classSpan = attachedClassSpan classHead
       suppliedArguments = attachedClassArguments classHead
@@ -138,7 +140,7 @@ checkAttachedDerivingPlan targetFlavor targetInfo params tvEnv strategy classHea
               checkedArguments <- zipWithM (checkSurfaceType tvEnv) suppliedArguments (map tvKind prefixClassVars)
               targetKind <- defaultKindMetas (tvKind targetClassVar)
               targetType <- attachedTargetType classSpan targetInfo params targetKind
-              checkedStrategy <- checkDerivingStrategy targetFlavor tvEnv targetKind classSpan strategy
+              checkedStrategy <- checkDerivingStrategy extensions targetFlavor className tvEnv targetKind classSpan strategy
               methods <- derivingClassMethods classInfo
               let headTypes = checkedArguments <> [targetType]
                   strategyTypes = case checkedStrategy of TcDerivingVia viaType -> [viaType]; _ -> []
@@ -159,14 +161,14 @@ attachedTargetType sourceSpan targetInfo params expectedKind = do
       emitError sourceSpan (KindMismatch expectedKind (tciKind targetInfo))
       pure (TcTyCon tyCon arguments)
 
-annotateStandaloneDerivingTc :: StandaloneDerivingDecl -> TcM Decl
-annotateStandaloneDerivingTc derivingDecl = do
-  (maybePlan, hadErrors) <- withErrorTracking (checkStandaloneDerivingPlan derivingDecl)
+annotateStandaloneDerivingTc :: [Extension] -> StandaloneDerivingDecl -> TcM Decl
+annotateStandaloneDerivingTc extensions derivingDecl = do
+  (maybePlan, hadErrors) <- withErrorTracking (checkStandaloneDerivingPlan extensions derivingDecl)
   let plans = if hadErrors then [] else maybeToList maybePlan
   pure (annotateDerivingPlans plans (DeclStandaloneDeriving derivingDecl))
 
-checkStandaloneDerivingPlan :: StandaloneDerivingDecl -> TcM (Maybe TcDerivingPlan)
-checkStandaloneDerivingPlan derivingDecl =
+checkStandaloneDerivingPlan :: [Extension] -> StandaloneDerivingDecl -> TcM (Maybe TcDerivingPlan)
+checkStandaloneDerivingPlan extensions derivingDecl =
   case instanceHeadName (standaloneDerivingHead derivingDecl) of
     Nothing -> do
       emitError (typeSpan (standaloneDerivingHead derivingDecl)) (OtherError "invalid standalone deriving instance head")
@@ -196,7 +198,7 @@ checkStandaloneDerivingPlan derivingDecl =
               checkedContext <- mapM (surfacePredToPred tvEnv) (standaloneDerivingContext derivingDecl)
               let targetKind = maybe KType (tvKind . snd) (unsnoc (ciTyVars classInfo))
               targetFlavor <- standaloneTargetFlavor checkedHead
-              checkedStrategy <- checkDerivingStrategy targetFlavor tvEnv targetKind classSpan (standaloneDerivingStrategy derivingDecl)
+              checkedStrategy <- checkDerivingStrategy extensions targetFlavor className tvEnv targetKind classSpan (standaloneDerivingStrategy derivingDecl)
               tyVars <- mapM (defaultTyVarKinds . paramTyVar) params
               headTypes <- mapM defaultTypeKinds checkedHead
               context <- mapM defaultPredKinds checkedContext
@@ -226,19 +228,6 @@ mkDerivingPlan strategy classInfo tyVars headTypes context methods =
     }
   where
     className = ciName classInfo
-
-checkDerivingStrategy :: TyConFlavor -> TvKindEnv -> Kind -> SourceSpan -> Maybe DerivingStrategy -> TcM TcDerivingStrategy
-checkDerivingStrategy targetFlavor tvEnv targetKind sourceSpan strategy =
-  case strategy of
-    Nothing -> pure TcDerivingDefault
-    Just DerivingStock -> pure TcDerivingStock
-    Just DerivingAnyclass -> pure TcDerivingAnyclass
-    Just DerivingNewtype -> do
-      unless (targetFlavor == NewtypeTyCon) $
-        emitError sourceSpan (OtherError "newtype deriving requires a newtype instance target")
-      pure TcDerivingNewtype
-    Just (DerivingVia viaType) ->
-      TcDerivingVia <$> checkSurfaceType tvEnv viaType targetKind
 
 derivingClassMethods :: ClassInfo -> TcM [TcClassMethodAnnotation]
 derivingClassMethods classInfo =

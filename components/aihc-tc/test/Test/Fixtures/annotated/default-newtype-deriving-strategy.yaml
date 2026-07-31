@@ -1,0 +1,24 @@
+annotated:
+- |-
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Main where
+  class C a where
+  └─ class methods: c ∷ ∀ a. (C a) ⇒ a → a
+    c :: a -> a
+  newtype N a = N a
+  │       │     └─ type: ∀ a. a → N a
+  │       └─ type: * → *
+  └─ deriving plans: newtype C (N a) [context: infer] [methods: c]
+    deriving C
+extensions:
+- GeneralizedNewtypeDeriving
+modules:
+- |
+  {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+  module Main where
+  class C a where
+    c :: a -> a
+  newtype N a = N a
+    deriving C
+reason: default deriving selects newtype when only GeneralizedNewtypeDeriving applies
+status: pass
