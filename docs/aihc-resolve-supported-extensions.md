@@ -2,18 +2,23 @@
 
 ## Summary
 
-- Total Extensions: 6
-- Supported: 6
+- Total Extensions: 11
+- Supported: 11
 - In Progress: 0
 
 ## Extension Status
 
 | Extension                 | Status | Tests Passing |
 |---------------------------|:------:|---------------|
+| DeriveAnyClass            |   🟢    | 1/1           |
+| DerivingStrategies        |   🟢    | 2/2           |
+| DerivingVia               |   🟢    | 2/2           |
 | ExistentialQuantification |   🟢    | 1/1           |
+| ExplicitForAll            |   🟢    | 1/1           |
 | LambdaCase                |   🟢    | 1/1           |
 | MagicHash                 |   🟢    | 5/5           |
 | RecordWildCards           |   🟢    | 1/1           |
 | ScopedTypeVariables       |   🟢    | 1/1           |
+| StandaloneDeriving        |   🟢    | 1/1           |
 | StandaloneKindSignatures  |   🟢    | 1/1           |
 
