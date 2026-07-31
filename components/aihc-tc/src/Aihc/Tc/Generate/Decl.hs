@@ -67,6 +67,7 @@ import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
+    TcDerivingAnnotation (..),
     TcDictBinderAnnotation (..),
     TcForeignAbiType (..),
     TcForeignEffect (..),
@@ -78,6 +79,7 @@ import Aihc.Tc.Annotations
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
+import Aihc.Tc.Deriving.Context (derivingPlanInstanceInfo, finalizeDerivingModulesTc)
 import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -175,7 +177,11 @@ annotationClasses ann decl =
               [ (tcClassMethodName method, typeToScheme (tcClassMethodType method))
               | method <- tcClassMethods classAnn
               ],
-            ciDefaultMethods = tcClassDefaultMethods classAnn
+            ciDefaultMethods = tcClassDefaultMethods classAnn,
+            ciDefaultSignatures =
+              [ (methodName, typeToScheme signature)
+              | (methodName, signature) <- tcClassDefaultSignatures classAnn
+              ]
           }
       ]
     _ -> []
@@ -196,19 +202,26 @@ declInstances decl =
 
 annotationInstances :: Annotation -> Decl -> [InstanceInfo]
 annotationInstances ann decl =
-  case (fromAnnotation ann, peelDeclAnn decl) of
-    (Just instAnn, DeclInstance instanceDecl)
-      | Just className <- instanceHeadName (instanceDeclHead instanceDecl) ->
-          [ InstanceInfo
-              { iiClassName = nameText className,
-                iiDictName = tcInstanceDictName instAnn,
-                iiDictType = tcInstanceDictType instAnn,
-                iiTyVars = tcInstanceTyVars instAnn,
-                iiContext = map dictBinderPred (tcInstanceContextDicts instAnn),
-                iiHead = tcInstanceHeadTypes instAnn
-              }
-          ]
-    _ -> []
+  explicitInstance <> derivedInstances
+  where
+    explicitInstance =
+      case (fromAnnotation @TcInstanceAnnotation ann, peelDeclAnn decl) of
+        (Just instAnn, DeclInstance instanceDecl)
+          | Just className <- instanceHeadName (instanceDeclHead instanceDecl) ->
+              [ InstanceInfo
+                  { iiClassName = nameText className,
+                    iiDictName = tcInstanceDictName instAnn,
+                    iiDictType = tcInstanceDictType instAnn,
+                    iiTyVars = tcInstanceTyVars instAnn,
+                    iiContext = map dictBinderPred (tcInstanceContextDicts instAnn),
+                    iiHead = tcInstanceHeadTypes instAnn
+                  }
+              ]
+        _ -> []
+    derivedInstances =
+      case fromAnnotation @TcDerivingAnnotation ann of
+        Just derivingAnnotation -> mapMaybe derivingPlanInstanceInfo (tcDerivingPlans derivingAnnotation)
+        Nothing -> []
 
 dictBinderPred :: TcDictBinderAnnotation -> Pred
 dictBinderPred dictBinder =
@@ -260,11 +273,24 @@ classAnnotationBindings ann decl =
       [ TcBindingResult (tcClassMethodName method) (tcClassMethodName method) (tcClassMethodType method)
       | method <- tcClassMethods classAnn
       ]
-        <> [ TcBindingResult (defaultMethodName (tcClassMethodName method)) (defaultMethodName (tcClassMethodName method)) (tcClassMethodType method)
+        <> [ TcBindingResult (defaultMethodName (tcClassMethodName method)) (defaultMethodName (tcClassMethodName method)) (classDefaultWorkerType classAnn method)
            | method <- tcClassMethods classAnn,
              tcClassMethodName method `elem` tcClassDefaultMethods classAnn
            ]
     _ -> []
+
+classDefaultWorkerType :: TcClassAnnotation -> TcClassMethodAnnotation -> TcType
+classDefaultWorkerType classAnnotation method =
+  case lookup (tcClassMethodName method) (tcClassDefaultSignatures classAnnotation) of
+    Just signature
+      | Just classPredicate <- constraintTypeToPred (tcClassMethodDictType method) ->
+          let (tyVars, body) = peelForAlls signature
+              qualifiedBody =
+                case body of
+                  TcQualTy predicates result -> TcQualTy (classPredicate : predicates) result
+                  result -> TcQualTy [classPredicate] result
+           in foldr TcForAllTy qualifiedBody tyVars
+    _ -> tcClassMethodType method
 
 instanceAnnotationBindings :: Annotation -> [TcBindingResult]
 instanceAnnotationBindings ann =
@@ -353,14 +379,22 @@ tcModuleScc modules = do
   mapM_ registerTypeDeclHeader declarations
   mapM_ registerTypeSynonymBody declarations
   mapM_ registerValueLevelDecl declarations
+  -- Deriving strategy and context inference depends only on registered type,
+  -- class, and explicit-instance information. Finalize the entire SCC as one
+  -- batch before checking signatures and bodies so sibling derived instances
+  -- are mutually visible and ordinary values can use them.
+  defaultGlobalKindMetas
+  derivingAnnotated <- mapM annotateModuleDerivingTc modules
+  derivingFinalized <- finalizeDerivingModulesTc derivingAnnotated
   -- Phase 2: collect type signatures and convert them to schemes.
-  rawSigs <- mapM (collectUserSigs . moduleDecls) modules
+  rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
   schemes <- mapM (traverse checkUserSig) rawSigs
   mapM_ registerCheckedSig (concatMap Map.elems schemes)
-  pending <- zipWithM tcModuleBody schemes modules
+  pending <- zipWithM tcModuleBody schemes derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
   defaultGlobalKindMetas
-  mapM finishPendingModule pending
+  annotated <- mapM annotatePendingModule pending
+  mapM finalizeModuleTc annotated
 
 registerCheckedSig :: CheckedSig -> TcM ()
 registerCheckedSig sig =
@@ -398,13 +432,12 @@ tcModuleBody schemes m = do
   checkTopLevelUnliftedBindings sourceGroups groupResults
   pure (PendingModule pendingModule valueResults)
 
-finishPendingModule :: PendingModule -> TcM Module
-finishPendingModule pending = do
+annotatePendingModule :: PendingModule -> TcM Module
+annotatePendingModule pending = do
   -- Only bindings that checked without errors are eligible for value
   -- annotations. Failed bindings remain in the recovery environment, but
   -- they must not be rendered as successful inferred types.
-  annotatedModule <- annotateModuleTc (Set.fromList (map tbName (pendingValueResults pending))) (pendingSyntax pending)
-  finalizeModuleTc annotatedModule
+  annotateModuleTc (Set.fromList (map tbName (pendingValueResults pending))) (pendingSyntax pending)
 
 defaultGlobalKindMetas :: TcM ()
 defaultGlobalKindMetas = do
@@ -447,6 +480,7 @@ defaultGlobalKindMetas = do
         <*> mapM defaultTypeKinds (ciSuperClassTypes info)
         <*> mapM (traverse defaultTypeSchemeKinds) (ciMethods info)
         <*> pure (ciDefaultMethods info)
+        <*> mapM (traverse defaultTypeSchemeKinds) (ciDefaultSignatures info)
     defaultInstanceKinds info =
       InstanceInfo
         (iiClassName info)
@@ -489,28 +523,48 @@ renderCheckedGroup checkedGroups (groupId, group) =
 annotateModuleTc :: Set.Set Text -> Module -> TcM Module
 annotateModuleTc checkedValueNames m = do
   let classMethods = collectClassMethodNames (moduleDecls m)
-      extensions =
-        applyImpliedExtensions $
-          foldr applyExtensionSetting [] (moduleLanguagePragmas m)
-  decls <- mapM (annotateDeclTc extensions classMethods checkedValueNames) (moduleDecls m)
+  decls <- mapM (annotateDeclTc classMethods checkedValueNames) (moduleDecls m)
   pure (m {moduleDecls = decls})
 
-annotateDeclTc :: [Extension] -> Map Text [Text] -> Set.Set Text -> Decl -> TcM Decl
-annotateDeclTc extensions classMethods checkedValueNames decl =
+annotateModuleDerivingTc :: Module -> TcM Module
+annotateModuleDerivingTc modu = do
+  declarations <- mapM (annotateDeclDerivingTc extensions) (moduleDecls modu)
+  pure modu {moduleDecls = declarations}
+  where
+    extensions = moduleEnabledExtensions modu
+
+annotateDeclDerivingTc :: [Extension] -> Decl -> TcM Decl
+annotateDeclDerivingTc extensions decl =
   case decl of
-    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc extensions classMethods checkedValueNames inner
+    DeclAnn annotation inner -> DeclAnn annotation <$> annotateDeclDerivingTc extensions inner
+    DeclData dataDecl ->
+      annotateAttachedDerivingTc extensions DataTyCon (dataDeclHead dataDecl) (dataDeclDeriving dataDecl) decl
+    DeclNewtype newtypeDecl ->
+      annotateAttachedDerivingTc extensions NewtypeTyCon (newtypeDeclHead newtypeDecl) (newtypeDeclDeriving newtypeDecl) decl
+    DeclStandaloneDeriving derivingDecl -> annotateStandaloneDerivingTc extensions derivingDecl
+    _ -> pure decl
+
+moduleEnabledExtensions :: Module -> [Extension]
+moduleEnabledExtensions modu =
+  applyImpliedExtensions $
+    foldr applyExtensionSetting [] (moduleLanguagePragmas modu)
+
+annotateDeclTc :: Map Text [Text] -> Set.Set Text -> Decl -> TcM Decl
+annotateDeclTc classMethods checkedValueNames decl =
+  case decl of
+    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc classMethods checkedValueNames inner
     DeclValue valueDecl
       | valueDeclWasChecked checkedValueNames valueDecl -> do
           (ty, valueDecl') <- annotateValueDeclTc valueDecl
           pure (annotateDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] []) (DeclValue valueDecl'))
       | otherwise -> pure decl
-    DeclData dataDecl -> annotateDataDeclTc extensions dataDecl
-    DeclNewtype newtypeDecl -> annotateNewtypeDeclTc extensions newtypeDecl
+    DeclData dataDecl -> annotateDataDeclTc dataDecl
+    DeclNewtype newtypeDecl -> annotateNewtypeDeclTc newtypeDecl
     DeclForeign foreignDecl
       | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
     DeclInstance instanceDecl -> annotateInstanceDeclTc classMethods instanceDecl
-    DeclStandaloneDeriving derivingDecl -> annotateStandaloneDerivingTc extensions derivingDecl
+    DeclStandaloneDeriving {} -> pure decl
     _ -> pure decl
 
 valueDeclWasChecked :: Set.Set Text -> ValueDecl -> Bool
@@ -539,7 +593,9 @@ annotateClassDeclTc classDecl = do
                   { tcClassTyVars = ciTyVars info,
                     tcClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes info),
                     tcClassMethods = methods,
-                    tcClassDefaultMethods = ciDefaultMethods info
+                    tcClassDefaultMethods = ciDefaultMethods info,
+                    tcClassDefaultSignatures =
+                      [(methodName, schemeToType signature) | (methodName, signature) <- ciDefaultSignatures info]
                   }
             )
             (DeclClass (classDecl {classDeclItems = items}))
@@ -552,7 +608,7 @@ annotateClassDefaultItem item =
     ClassItemDefault valueDecl ->
       case valueDeclBinderName valueDecl of
         Just (_, methodName) -> do
-          methodTy <- bindingType methodName
+          methodTy <- bindingType (defaultMethodName methodName)
           pure (ClassItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) item)
         Nothing -> pure item
     _ -> pure item
@@ -571,23 +627,21 @@ annotateClassMethod index methodName = do
         tcClassMethodIndex = index
       }
 
-annotateDataDeclTc :: [Extension] -> DataDecl -> TcM Decl
-annotateDataDeclTc extensions dataDecl = do
+annotateDataDeclTc :: DataDecl -> TcM Decl
+annotateDataDeclTc dataDecl = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
   ty <- tyConBindingType tyName
   constructors <- mapM annotateDataConDeclTc (dataDeclConstructors dataDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (dataDeclHead dataDecl)
-      annotatedDecl = DeclData (dataDecl {dataDeclHead = annotatedHead, dataDeclConstructors = constructors})
-  annotateAttachedDerivingTc extensions DataTyCon (dataDeclHead dataDecl) (dataDeclDeriving dataDecl) annotatedDecl
+  pure (DeclData (dataDecl {dataDeclHead = annotatedHead, dataDeclConstructors = constructors}))
 
-annotateNewtypeDeclTc :: [Extension] -> NewtypeDecl -> TcM Decl
-annotateNewtypeDeclTc extensions newtypeDecl = do
+annotateNewtypeDeclTc :: NewtypeDecl -> TcM Decl
+annotateNewtypeDeclTc newtypeDecl = do
   let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
   ty <- tyConBindingType tyName
   constructor <- mapM annotateDataConDeclTc (newtypeDeclConstructor newtypeDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (newtypeDeclHead newtypeDecl)
-      annotatedDecl = DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor})
-  annotateAttachedDerivingTc extensions NewtypeTyCon (newtypeDeclHead newtypeDecl) (newtypeDeclDeriving newtypeDecl) annotatedDecl
+  pure (DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor}))
 
 annotateBinderHeadName :: TcAnnotation -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
 annotateBinderHeadName tcAnn head' =
@@ -830,7 +884,7 @@ tcClassDefaultValue valueDecl =
   case valueDeclBinderName valueDecl of
     Nothing -> pure valueDecl
     Just (_, methodName) -> do
-      binder <- lookupTerm methodName
+      binder <- lookupTerm (defaultMethodName methodName)
       case binder of
         Just (TcIdBinder (ForAll _ givens methodTy) _) ->
           case valueDecl of
@@ -1617,15 +1671,17 @@ registerClassDecl classDecl = do
       }
   methodResults <- concat <$> mapM (registerClassItem classPred paramTvEnv paramTyVars) (classDeclItems classDecl)
   methods <- mapM registeredMethod (classDeclMethodNames classDecl)
+  defaultSignatures <- catMaybes <$> mapM (registerClassDefaultSignature paramTvEnv paramTyVars) (classDeclItems classDecl)
   let defaults = classDeclDefaultMethodNames classDecl
-  defaultResults <- mapM (registerDefaultMethod defaults) methods
+  defaultResults <- mapM (registerDefaultMethod defaults defaultSignatures) methods
   addClass
     ClassInfo
       { ciName = className,
         ciTyVars = paramTyVars,
         ciSuperClassTypes = superClassTypes,
         ciMethods = methods,
-        ciDefaultMethods = defaults
+        ciDefaultMethods = defaults,
+        ciDefaultSignatures = defaultSignatures
       }
   pure (methodResults <> catMaybes defaultResults)
   where
@@ -1635,13 +1691,19 @@ registerClassDecl classDecl = do
         Just (TcIdBinder scheme _) -> pure (methodName, scheme)
         _ -> missingTypeInfo ("class method " <> T.unpack methodName)
 
-    registerDefaultMethod defaults (methodName, scheme)
+    registerDefaultMethod defaults defaultSignatures (methodName, scheme)
       | methodName `elem` defaults = do
           let workerName = defaultMethodName methodName
-              workerType = schemeToType scheme
-          extendTermEnvPermanent workerName (TcIdBinder scheme Closed)
+              workerScheme = maybe scheme (defaultWorkerScheme scheme) (lookup methodName defaultSignatures)
+              workerType = schemeToType workerScheme
+          extendTermEnvPermanent workerName (TcIdBinder workerScheme Closed)
           pure (Just (TcBindingResult workerName workerName workerType))
       | otherwise = pure Nothing
+
+    defaultWorkerScheme ordinaryScheme (ForAll tyVars predicates body) =
+      case ordinaryScheme of
+        ForAll _ (classPredicate : _) _ -> ForAll tyVars (classPredicate : predicates) body
+        _ -> ForAll tyVars predicates body
 
 registerClassItem :: Pred -> TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM [TcBindingResult]
 registerClassItem classPred classTvEnv classTyVars item =
@@ -1668,6 +1730,26 @@ registerClassItem classPred classTvEnv classTyVars item =
         )
         names
     _ -> pure []
+
+registerClassDefaultSignature :: TvKindEnv -> [TyVarId] -> ClassDeclItem -> TcM (Maybe (Text, TypeScheme))
+registerClassDefaultSignature classTvEnv classTyVars item =
+  case peelClassDeclItemAnn item of
+    ClassItemDefaultSig methodName ty -> do
+      let (context, body) = splitContext ty
+          classVarNames = Map.keys classTvEnv
+          freeVars = freeTypeVars ty \\ classVarNames
+      extraTyVars <- mapM freshSkolemTv freeVars
+      extraKinds <- mapM (const freshKindMeta) freeVars
+      let tvEnv = classTvEnv <> Map.fromList (zip freeVars (zip extraTyVars extraKinds))
+      methodBody <- checkSurfaceType tvEnv body KType
+      contextPreds <- mapM (surfacePredToPred tvEnv) context
+      pure
+        ( Just
+            ( unqualifiedNameText methodName,
+              ForAll (classTyVars <> extraTyVars) contextPreds methodBody
+            )
+        )
+    _ -> pure Nothing
 
 registerInstanceDecl :: InstanceDecl -> TcM [TcBindingResult]
 registerInstanceDecl instanceDecl =

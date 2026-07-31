@@ -13,6 +13,7 @@ import Aihc.Parser.Syntax
     CaseAlt (..),
     Decl (..),
     Expr (..),
+    Extension (..),
     GuardQualifier (..),
     GuardedRhs (..),
     InstanceDecl (..),
@@ -375,6 +376,40 @@ annotationTests =
       assertBool "Identity Bool instance annotated" (hasInstanceDict "$fIdentityBool" result)
       assertBool "instance superclass evidence annotated" (not (all (null . tcInstanceSuperClasses) (instanceAnnotations result)))
       assertBool "instance method types annotated" (hasInstanceMethod "==" result && hasInstanceMethod "def" result),
+    testCase "AnyClass deriving exports inferred instance contexts" $ do
+      let result =
+            typecheckModule $
+              parseMWithExtensions
+                [DefaultSignatures, DeriveAnyClass, DerivingStrategies]
+                "{-# LANGUAGE DefaultSignatures, DeriveAnyClass, DerivingStrategies #-}\n\
+                \module Test where\n\
+                \class Show a where\n\
+                \  showValue :: a -> a\n\
+                \class C a where\n\
+                \  c :: a -> a\n\
+                \  default c :: Show a => a -> a\n\
+                \  c x = showValue x\n\
+                \data T a = T a deriving anyclass C\n\
+                \instance Show a => Show (T a) where\n\
+                \  showValue x = x\n\
+                \data Unit = Unit\n\
+                \instance Show Unit where\n\
+                \  showValue x = x\n\
+                \useDerived :: T Unit -> T Unit\n\
+                \useDerived value = c value\n\
+                \class Parent a where\n\
+                \class Parent a => Child a where\n\
+                \data S a = S a deriving anyclass (Child, Parent)\n"
+          instances = tcModuleInstances result
+          plans = derivingPlans result
+          contexts className = [map renderPred (iiContext instanceInfo) | instanceInfo <- instances, iiClassName instanceInfo == className]
+      assertBool ("module should typecheck, got: " <> show (tcModuleDiagnostics result)) (tcModuleSuccess result)
+      assertEqual "default-signature context" [["Show a"]] (contexts "C")
+      assertEqual "sibling superclass context" [[]] (contexts "Child")
+      assertEqual "sibling AnyClass instance" [[]] (contexts "Parent")
+      assertBool "same-module values can select the derived dictionary" ("$fCTa" `elem` evidenceDictNames result)
+      assertBool "default-method evidence is checked in TC" (not (all (null . tcDerivingDefaultMethodEvidence) plans))
+      assertBool "superclass evidence is checked in TC" (not (all (null . tcDerivingSuperClasses) plans)),
     testCase "instance methods retain method-local constraints" $ do
       let result =
             typecheckModule $
@@ -487,14 +522,20 @@ annotationModule =
     \useIdentity = identity True\n"
 
 parseM :: Text -> Module
-parseM input =
-  case resolve [parseOnly input] of
+parseM = parseMWithExtensions []
+
+parseMWithExtensions :: [Extension] -> Text -> Module
+parseMWithExtensions extensions input =
+  case resolve [parseOnlyWithExtensions extensions input] of
     ResolveResult {resolvedModules = [resolved], resolveErrors = []} -> resolved
     ResolveResult {resolveErrors} -> error ("Resolve error in test: " ++ show resolveErrors)
 
 parseOnly :: Text -> Module
-parseOnly input =
-  let config = defaultConfig {parserSourceName = "<test>"}
+parseOnly = parseOnlyWithExtensions []
+
+parseOnlyWithExtensions :: [Extension] -> Text -> Module
+parseOnlyWithExtensions extensions input =
+  let config = defaultConfig {parserSourceName = "<test>", parserExtensions = extensions}
       (errs, modu) = parseModule config input
    in if null errs
         then modu
@@ -563,6 +604,14 @@ instanceAnnotations =
   where
     goDecl (DeclAnn ann inner) =
       maybeToList (fromAnnotation ann) <> goDecl inner
+    goDecl _ = []
+
+derivingPlans :: Module -> [TcDerivingPlan]
+derivingPlans =
+  concatMap goDecl . moduleDecls
+  where
+    goDecl (DeclAnn ann inner) =
+      maybe [] tcDerivingPlans (fromAnnotation ann) <> goDecl inner
     goDecl _ = []
 
 instanceMethodAnnotations :: Module -> [TcInstanceMethodAnnotation]

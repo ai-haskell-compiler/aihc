@@ -23,7 +23,7 @@ annotated:
 - |-
   module Main where
   match = \case
-  └─ type: ∀ a. (Eq a Num a) ⇒ a → ()
+  └─ type: ∀ a. (Eq a, Num a) ⇒ a → ()
     1 -> ()
     ││    └─ type: ()
     └─ type: a; type-args: a; evidence: given Num a

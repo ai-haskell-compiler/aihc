@@ -158,6 +158,7 @@ firstMetaClassAnnotation :: TcClassAnnotation -> Maybe Unique
 firstMetaClassAnnotation classAnnotation =
   firstJusts (map (firstMetaType . tcDictBinderType) (tcClassSuperClasses classAnnotation))
     <|> firstJusts (map firstMetaClassMethodAnnotation (tcClassMethods classAnnotation))
+    <|> firstJusts (map (firstMetaType . snd) (tcClassDefaultSignatures classAnnotation))
 
 firstMetaClassMethodAnnotation :: TcClassMethodAnnotation -> Maybe Unique
 firstMetaClassMethodAnnotation method =
@@ -173,6 +174,11 @@ firstMetaDerivingPlan plan =
     ( map firstMetaType (tcDerivingHeadTypes plan)
         ++ map firstMetaClassMethodAnnotation (tcDerivingClassMethods plan)
         ++ map firstMetaDictBinderAnnotation (tcDerivingClassSuperClasses plan)
+        ++ concatMap (map firstMetaPred . snd) (tcDerivingDefaultSignatures plan)
+        ++ [ firstMetaDictBinderAnnotation superClass <|> firstMetaEvTerm evidence
+           | (superClass, evidence) <- tcDerivingSuperClasses plan
+           ]
+        ++ concatMap (map firstMetaEvTerm . snd) (tcDerivingDefaultMethodEvidence plan)
         ++ [firstMetaDerivingStrategy (tcDerivingStrategy plan), firstMetaDerivingContext (tcDerivingContext plan)]
     )
 

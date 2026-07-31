@@ -102,7 +102,11 @@ data ClassInfo = ClassInfo
     -- | Method names and their types.
     ciMethods :: ![(Text, TypeScheme)],
     -- | Methods with a source-level default implementation.
-    ciDefaultMethods :: ![Text]
+    ciDefaultMethods :: ![Text],
+    -- | Checked source-level default signatures. Unlike ordinary method
+    -- signatures, their constraints become instance obligations when
+    -- DeriveAnyClass selects the default implementation.
+    ciDefaultSignatures :: ![(Text, TypeScheme)]
   }
   deriving (Show, Read)
 

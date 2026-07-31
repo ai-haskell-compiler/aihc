@@ -145,7 +145,7 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo params tvEnv strate
               let headTypes = checkedArguments <> [targetType]
                   strategyTypes = case checkedStrategy of TcDerivingVia viaType -> [viaType]; _ -> []
                   quantified = filter (\param -> any (typeMentionsTyVar (paramTyVar param)) (headTypes <> strategyTypes)) params
-              pure (Just (mkDerivingPlan checkedStrategy classInfo (map paramTyVar quantified) headTypes TcDerivingInferContext methods))
+              pure (Just (mkDerivingPlan classSpan checkedStrategy classInfo (map paramTyVar quantified) headTypes TcDerivingInferContext methods))
 
 attachedTargetType :: SourceSpan -> TyConInfo -> [ParamInfo] -> Kind -> TcM TcType
 attachedTargetType sourceSpan targetInfo params expectedKind = do
@@ -204,7 +204,7 @@ checkStandaloneDerivingPlan extensions derivingDecl =
               context <- mapM defaultPredKinds checkedContext
               strategy <- defaultDerivingStrategyKinds checkedStrategy
               methods <- derivingClassMethods classInfo
-              pure (Just (mkDerivingPlan strategy classInfo tyVars headTypes (TcDerivingExplicitContext context) methods))
+              pure (Just (mkDerivingPlan classSpan strategy classInfo tyVars headTypes (TcDerivingExplicitContext context) methods))
   where
     implicitParam name = do
       rawTyVar <- freshSkolemTv name
@@ -212,10 +212,11 @@ checkStandaloneDerivingPlan extensions derivingDecl =
       let tyVar = setTyVarKind kind rawTyVar
       pure ParamInfo {paramName = name, paramTyVar = tyVar, paramKind = kind}
 
-mkDerivingPlan :: TcDerivingStrategy -> ClassInfo -> [TyVarId] -> [TcType] -> TcDerivingContext -> [TcClassMethodAnnotation] -> TcDerivingPlan
-mkDerivingPlan strategy classInfo tyVars headTypes context methods =
+mkDerivingPlan :: SourceSpan -> TcDerivingStrategy -> ClassInfo -> [TyVarId] -> [TcType] -> TcDerivingContext -> [TcClassMethodAnnotation] -> TcDerivingPlan
+mkDerivingPlan sourceSpan strategy classInfo tyVars headTypes context methods =
   TcDerivingPlan
-    { tcDerivingStrategy = strategy,
+    { tcDerivingSourceSpan = sourceSpan,
+      tcDerivingStrategy = strategy,
       tcDerivingClassName = className,
       tcDerivingDictName = instanceDictName className headTypes,
       tcDerivingTyVars = tyVars,
@@ -224,7 +225,10 @@ mkDerivingPlan strategy classInfo tyVars headTypes context methods =
       tcDerivingClassTyVars = ciTyVars classInfo,
       tcDerivingClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes classInfo),
       tcDerivingClassMethods = methods,
-      tcDerivingDefaultMethods = ciDefaultMethods classInfo
+      tcDerivingDefaultMethods = ciDefaultMethods classInfo,
+      tcDerivingDefaultSignatures = [(methodName, predicates) | (methodName, ForAll _ predicates _) <- ciDefaultSignatures classInfo],
+      tcDerivingSuperClasses = [],
+      tcDerivingDefaultMethodEvidence = []
     }
   where
     className = ciName classInfo
