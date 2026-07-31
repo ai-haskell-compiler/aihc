@@ -89,7 +89,6 @@ renderDerivingPlan plan =
 renderDerivingStrategy :: TcDerivingStrategy -> String
 renderDerivingStrategy strategy =
   case strategy of
-    TcDerivingDefault -> "default"
     TcDerivingStock -> "stock"
     TcDerivingNewtype -> "newtype"
     TcDerivingAnyclass -> "anyclass"

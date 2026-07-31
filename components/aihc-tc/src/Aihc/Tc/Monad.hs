@@ -65,6 +65,7 @@ module Aihc.Tc.Monad
     -- * Diagnostics
     emitDiagnostic,
     emitError,
+    emitWarning,
     getDiagnostics,
     withErrorTracking,
   )
@@ -423,6 +424,16 @@ emitError loc kind =
     TcDiagnostic
       { diagLoc = diagnosticLoc loc,
         diagSeverity = TcError,
+        diagKind = kind
+      }
+
+-- | Emit a warning diagnostic.
+emitWarning :: SourceSpan -> TcErrorKind -> TcM ()
+emitWarning loc kind =
+  emitDiagnostic
+    TcDiagnostic
+      { diagLoc = diagnosticLoc loc,
+        diagSeverity = TcWarning,
         diagKind = kind
       }
 

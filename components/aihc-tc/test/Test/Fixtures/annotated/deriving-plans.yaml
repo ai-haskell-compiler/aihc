@@ -26,10 +26,15 @@ annotated:
   │       └─ type: * → *
   └─ deriving plans: newtype C (N a) [context: infer] [methods: c]
     deriving newtype C
+  newtype PreferAnyclass a = PreferAnyclass a
+  │       └─ type: * → *     └─ type: ∀ a. a → PreferAnyclass a
+  └─ deriving plans: anyclass C (PreferAnyclass a) [context: infer] [methods: c]
+    deriving C
+             └─ warning: both DeriveAnyClass and GeneralizedNewtypeDeriving are enabled; defaulting to anyclass for C
   data Default a = Default a
   │    │           └─ type: ∀ a. a → Default a
   │    └─ type: * → *
-  └─ deriving plans: default C (Default a) [context: infer] [methods: c]
+  └─ deriving plans: anyclass C (Default a) [context: infer] [methods: c]
     deriving C
 extensions:
 - DeriveAnyClass
@@ -53,7 +58,9 @@ modules:
     deriving D via Wrapper a
   newtype N a = N a
     deriving newtype C
+  newtype PreferAnyclass a = PreferAnyclass a
+    deriving C
   data Default a = Default a
     deriving C
-reason: deriving clauses become typed plans without generating declarations
+reason: deriving clauses become typed plans with effective strategies but without generated declarations
 status: pass
