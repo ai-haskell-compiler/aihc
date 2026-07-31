@@ -19,13 +19,13 @@ extensions:
 - MagicHash
 modules:
 - |
-  module Prelude where
+  module GHC.Num where
   data Integer = IS Int#
   class Num a where
     fromInteger :: Integer -> a
 - |
   module Main where
   one = 1
-reason: desugars default integer literals through Prelude.fromInteger applied to an
+reason: desugars default integer literals through GHC.Num.fromInteger applied to an
   Integer constructor value
 status: pass

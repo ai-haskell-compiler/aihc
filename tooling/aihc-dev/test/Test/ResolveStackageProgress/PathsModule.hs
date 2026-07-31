@@ -89,7 +89,9 @@ parseFileInfo packageRoot info = do
 baseExports :: ModuleExports
 baseExports =
   Map.fromList
-    [ ("Prelude", mkScope "Prelude" ["return", "++", "==", "otherwise", "fromInteger"] ["IO", "FilePath", "String", "Char", "Bool"]),
+    [ ("GHC.Classes", mkScope "GHC.Classes" ["=="] []),
+      ("GHC.Num", mkScope "GHC.Num" ["fromInteger"] []),
+      ("Prelude", mkScope "Prelude" ["return", "++", "==", "otherwise", "fromInteger"] ["IO", "FilePath", "String", "Char", "Bool"]),
       ("Control.Exception", mkScope "Control.Exception" ["catch"] ["IOException"]),
       ("Data.List", mkScope "Data.List" ["last"] []),
       ("Data.Version", mkScope "Data.Version" ["Version"] ["Version"]),

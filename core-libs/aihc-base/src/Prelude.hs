@@ -4,11 +4,14 @@
 
 module Prelude
   ( Applicative (..),
+    Bounded (..),
     Bool (..),
     Char (..),
     Either (..),
+    Enum (..),
     Eq (..),
     Functor (..),
+    Fractional (..),
     IO,
     Int,
     Integral (..),
@@ -19,6 +22,10 @@ module Prelude
     Num (..),
     Ord (..),
     Ordering (..),
+    Rational,
+    Ratio,
+    Real (..),
+    RealFrac (..),
     Show (..),
     ShowS,
     String,
@@ -29,8 +36,14 @@ module Prelude
     (/=),
     (==),
     id,
+    even,
     fromIntegral,
+    gcd,
+    lcm,
     not,
+    odd,
+    numerator,
+    denominator,
     otherwise,
     print,
     putChar,
@@ -40,23 +53,46 @@ module Prelude
     showParen,
     shows,
     showString,
+    realToFrac,
+    (%),
+    (^),
+    (^^),
     (||),
   )
 where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import GHC.Base (Applicative (..), Functor (..), Monad (..))
+import GHC.Enum (Bounded (..), Enum (..))
 import GHC.IO (IO (..))
 import GHC.IO.Console (writeOutputByte, writeStdout)
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
+import GHC.Internal.Char (Char (..))
+import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
-import GHC.Prim (MutableByteArray#, RealWorld, and#, chr#, compareInt#, int2Word#, newPinnedByteArray#, ord#, word2Int#, (+#), (<#), (==#))
-import GHC.Real (Integral (..), fromIntegral)
+import GHC.Prim (MutableByteArray#, RealWorld, and#, chr#, int2Word#, newPinnedByteArray#, ord#, word2Int#, (+#), (<#), (==#))
+import GHC.Real
+  ( Fractional (..),
+    Integral (..),
+    Ratio,
+    Rational,
+    Real (..),
+    RealFrac (..),
+    denominator,
+    even,
+    fromIntegral,
+    gcd,
+    lcm,
+    numerator,
+    odd,
+    realToFrac,
+    (%),
+    (^),
+    (^^),
+  )
 import GHC.Tuple ()
-
-data Char = C# Char#
 
 data List a = [] | a : [a]
 
@@ -77,38 +113,6 @@ infixr 9 .
 data Maybe a = Nothing | Just a
 
 data Either a b = Left a | Right b
-
-data Ordering = LT | EQ | GT
-
-class Eq a where
-  (==) :: a -> a -> Bool
-  (/=) :: a -> a -> Bool
-
-infix 4 ==, /=
-
-instance Eq Bool where
-  False == False = True
-  False == True = False
-  True == False = False
-  True == True = True
-
-  x /= y = not (x == y)
-
-instance Eq Int where
-  I# x == I# y =
-    case (==#) x y of
-      0# -> False
-      _ -> True
-
-  x /= y = not (x == y)
-
-instance Eq Integer where
-  x == y =
-    case eqInteger# x y of
-      0# -> False
-      _ -> True
-
-  x /= y = not (x == y)
 
 instance Eq Char where
   C# x == C# y =
@@ -142,52 +146,6 @@ instance (Eq a, Eq b) => Eq (Either a b) where
 
   x /= y = not (x == y)
 
-instance Eq Ordering where
-  LT == LT = True
-  EQ == EQ = True
-  GT == GT = True
-  _ == _ = False
-
-  x /= y = not (x == y)
-
-class (Eq a) => Ord a where
-  compare :: a -> a -> Ordering
-  (<) :: a -> a -> Bool
-  (<=) :: a -> a -> Bool
-  (>) :: a -> a -> Bool
-  (>=) :: a -> a -> Bool
-  max :: a -> a -> a
-  min :: a -> a -> a
-
-infix 4 <, <=, >, >=
-
-instance Ord Bool where
-  compare = compareBool
-  x < y = lessBy compareBool x y
-  x <= y = lessOrEqualBy compareBool x y
-  x > y = greaterBy compareBool x y
-  x >= y = greaterOrEqualBy compareBool x y
-  max = maxBy compareBool
-  min = minBy compareBool
-
-instance Ord Int where
-  compare = compareInt
-  x < y = lessBy compareInt x y
-  x <= y = lessOrEqualBy compareInt x y
-  x > y = greaterBy compareInt x y
-  x >= y = greaterOrEqualBy compareInt x y
-  max = maxBy compareInt
-  min = minBy compareInt
-
-instance Ord Integer where
-  compare = compareInteger
-  x < y = lessBy compareInteger x y
-  x <= y = lessOrEqualBy compareInteger x y
-  x > y = greaterBy compareInteger x y
-  x >= y = greaterOrEqualBy compareInteger x y
-  max = maxBy compareInteger
-  min = minBy compareInteger
-
 instance (Ord a) => Ord [a] where
   compare = compareList
   xs < ys = lessBy compareList xs ys
@@ -215,27 +173,6 @@ instance (Ord a, Ord b) => Ord (Either a b) where
   max = maxBy compareEither
   min = minBy compareEither
 
-instance Ord Ordering where
-  compare = compareOrdering
-  x < y = lessBy compareOrdering x y
-  x <= y = lessOrEqualBy compareOrdering x y
-  x > y = greaterBy compareOrdering x y
-  x >= y = greaterOrEqualBy compareOrdering x y
-  max = maxBy compareOrdering
-  min = minBy compareOrdering
-
-compareBool :: Bool -> Bool -> Ordering
-compareBool False False = EQ
-compareBool False True = LT
-compareBool True False = GT
-compareBool True True = EQ
-
-compareInt :: Int -> Int -> Ordering
-compareInt (I# x) (I# y) = orderingFromInt# (compareInt# x y)
-
-compareInteger :: Integer -> Integer -> Ordering
-compareInteger x y = orderingFromInt# (compareInteger# x y)
-
 compareList :: (Ord a) => [a] -> [a] -> Ordering
 compareList [] [] = EQ
 compareList [] (_ : _) = LT
@@ -257,22 +194,6 @@ compareEither (Left x) (Left y) = compare x y
 compareEither (Left _) (Right _) = LT
 compareEither (Right _) (Left _) = GT
 compareEither (Right x) (Right y) = compare x y
-
-compareOrdering :: Ordering -> Ordering -> Ordering
-compareOrdering LT LT = EQ
-compareOrdering LT _ = LT
-compareOrdering EQ LT = GT
-compareOrdering EQ EQ = EQ
-compareOrdering EQ GT = LT
-compareOrdering GT GT = EQ
-compareOrdering GT _ = GT
-
-orderingFromInt# :: Int# -> Ordering
-orderingFromInt# value =
-  case value of
-    0# -> EQ
-    1# -> GT
-    _ -> LT
 
 lessBy :: (a -> a -> Ordering) -> a -> a -> Bool
 lessBy cmp x y =
@@ -345,6 +266,12 @@ instance Show Int where
 
 instance Show Integer where
   showsPrec = showsSignedInteger
+
+instance (Show a) => Show (Ratio a) where
+  showsPrec precedence value =
+    showParen
+      (precedence > 7)
+      (showsPrec 8 (numerator value) . showString " % " . showsPrec 8 (denominator value))
 
 instance Show () where
   showsPrec _ () = showString "()"

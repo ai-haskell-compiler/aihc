@@ -251,6 +251,8 @@ library
   other-modules:
     GHC.IO.Console
     GHC.IO.Runtime
+    GHC.Internal.Char
+    GHC.Internal.Classes
     GHC.Internal.Integer
 
   hs-source-dirs: src

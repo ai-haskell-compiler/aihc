@@ -34,7 +34,9 @@ data ResolveEnv = ResolveEnv
 data ModuleInfo = ModuleInfo
   { moduleInfoExtensions :: ![Extension],
     moduleInfoExplicitPreludeImport :: !Bool,
-    moduleInfoGhcBaseScope :: !Scope
+    moduleInfoGhcBaseScope :: !Scope,
+    moduleInfoGhcClassesScope :: !Scope,
+    moduleInfoGhcNumScope :: !Scope
   }
 
 newtype ResolveState = ResolveState

@@ -866,17 +866,19 @@ tcInstanceItemBody givens headTys item =
     InstanceItemAnn ann inner ->
       InstanceItemAnn ann <$> tcInstanceItemBody givens headTys inner
     InstanceItemBind (FunctionBind name matches) -> do
-      methodTy <- methodExpectedType headTys (unqualifiedNameText name)
+      methodScheme <- methodExpectedScheme headTys (unqualifiedNameText name)
+      (methodGivens, methodTy) <- skolemizeQualified methodScheme
       let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
       results <- mapM (tcMatchEquation Nothing argTys resTy) matches
-      solveInstanceBodyConstraints givens [(cts, impls) | (_match, cts, impls) <- results]
+      solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
       pure (InstanceItemBind (FunctionBind name [match | (match, _cts, _impls) <- results]))
     InstanceItemBind (PatternBind _ pat rhs) ->
       case patternBinderName pat of
         Just (_, methodName) -> do
-          methodTy <- methodExpectedType headTys methodName
+          methodScheme <- methodExpectedScheme headTys methodName
+          (methodGivens, methodTy) <- skolemizeQualified methodScheme
           results <- mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pat) rhs]
-          solveInstanceBodyConstraints givens [(cts, impls) | (_match, cts, impls) <- results]
+          solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
           case results of
             [(match, _cts, _impls)] ->
               pure (replaceInstancePatternBindRhs (matchRhs match) item)
@@ -925,21 +927,33 @@ binderType (TcIdBinder scheme _) = schemeToType scheme
 binderType (TcMonoIdBinder ty) = ty
 
 methodExpectedType :: [TcType] -> Text -> TcM TcType
-methodExpectedType headTys methodName = do
+methodExpectedType headTys methodName = schemeToType <$> methodExpectedScheme headTys methodName
+
+methodExpectedScheme :: [TcType] -> Text -> TcM TypeScheme
+methodExpectedScheme headTys methodName = do
   mBinder <- lookupTerm methodName
   case mBinder of
-    Just (TcIdBinder (ForAll _ preds body) _) ->
-      case firstClassPredSubst preds headTys of
-        Just subst -> pure (substType subst body)
+    Just (TcIdBinder (ForAll tyVars predicates body) _) ->
+      case splitClassReceiver predicates headTys of
+        Just (subst, methodPredicates) ->
+          pure
+            ( ForAll
+                (filter (\tyVar -> not (Map.member (tvUnique tyVar) subst)) tyVars)
+                (map (substPred subst) methodPredicates)
+                (substType subst body)
+            )
         Nothing -> missingTypeInfo ("class method receiver for " <> T.unpack methodName)
-    Just (TcMonoIdBinder ty) -> pure ty
+    Just (TcMonoIdBinder ty) -> pure (ForAll [] [] ty)
     Nothing -> missingTypeInfo ("class method " <> T.unpack methodName)
 
-firstClassPredSubst :: [Pred] -> [TcType] -> Maybe (Map Unique TcType)
-firstClassPredSubst preds headTys =
-  case [classArgs | ClassPred _ classArgs <- preds] of
-    classArgs : _ -> matchTypes classArgs headTys
-    [] -> Nothing
+splitClassReceiver :: [Pred] -> [TcType] -> Maybe (Map Unique TcType, [Pred])
+splitClassReceiver [] _ = Nothing
+splitClassReceiver (predicate : predicates) headTys =
+  case predicate of
+    ClassPred _ classArgs -> (,predicates) <$> matchTypes classArgs headTys
+    _ -> do
+      (subst, rest) <- splitClassReceiver predicates headTys
+      pure (subst, predicate : rest)
 
 missingTypeInfo :: String -> TcM a
 missingTypeInfo msg =

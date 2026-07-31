@@ -13,7 +13,7 @@ module Aihc.Fc.Desugar
   )
 where
 
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithGivenDicts, freshUnique, freshVar, lookupType, withDicts)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupType, withDicts)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Optimize (optimizeProgram)
@@ -956,14 +956,11 @@ mkContextDict ix dictAnn = do
   dictVar <- freshVar ("$d" <> T.pack (show ix)) (tcDictBinderType dictAnn)
   pure (ClassDict (tcDictBinderClassName dictAnn) (tcDictBinderArgs dictAnn) dictVar)
 
-classDictPred :: ClassDict -> Pred
-classDictPred dict = ClassPred (classDictName dict) (classDictArgs dict)
-
 dsInstanceMethod :: [ClassDict] -> Map.Map Text (TcType, [Match]) -> Maybe FcExpr -> [TcType] -> [Text] -> Text -> DsM FcExpr
 dsInstanceMethod contextDicts methods maybeSelfDictionary headTypes defaults methodName =
   case Map.lookup methodName methods of
     Just (expected, matches) ->
-      dsMatchesWithGivenDicts contextDicts (TcQualTy (map classDictPred contextDicts) expected) matches
+      dsMatchesWithEnclosingDicts contextDicts expected matches
     Nothing
       | methodName `elem` defaults -> do
           selfDictionary <-

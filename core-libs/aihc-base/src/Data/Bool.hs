@@ -7,7 +7,7 @@ module Data.Bool
   )
 where
 
-data Bool = False | True
+import GHC.Types (Bool (..))
 
 infixr 3 &&
 

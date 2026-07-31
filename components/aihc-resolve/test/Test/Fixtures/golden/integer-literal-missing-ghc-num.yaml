@@ -9,5 +9,5 @@ modules:
 - |
   module Main where
   one = 1
-reason: integer literals fail hard when Prelude.fromInteger is unavailable
+reason: integer literals fail hard when GHC.Num.fromInteger is unavailable
 status: pass
