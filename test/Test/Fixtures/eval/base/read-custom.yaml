@@ -1,0 +1,80 @@
+dependencies:
+  - aihc-base
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import GHC.Read
+    import Text.ParserCombinators.ReadPrec (ReadPrec, prec, readPrec_to_S, step)
+    import Text.Read (Lexeme(..))
+
+    data Wrapped = Wrapped Bool
+
+    instance Eq Wrapped where
+      Wrapped left == Wrapped right = left == right
+      Wrapped left /= Wrapped right = left /= right
+
+    instance Read Wrapped where
+      readPrec =
+        parens
+          (prec 10
+            (do
+              expectP (Ident "Wrapped")
+              value <- step readPrec
+              return (Wrapped value)))
+      readListPrec = readListPrecDefault
+
+    data Named = Named Bool
+
+    instance Eq Named where
+      Named left == Named right = left == right
+      Named left /= Named right = left /= right
+
+    instance Read Named where
+      readPrec =
+        parens
+          (do
+            expectP (Ident "Named")
+            expectP (Punc "{")
+            value <- readField "named" readPrec
+            expectP (Punc "}")
+            return (Named value))
+      readListPrec = readListPrecDefault
+
+    fullyReads :: (Read a, Eq a) => a -> String -> Bool
+    fullyReads expected input =
+      case reads input of
+        [(actual, rest)] -> actual == expected && emptyString rest
+        _ -> False
+
+    emptyString :: String -> Bool
+    emptyString [] = True
+    emptyString (_ : _) = False
+
+    readsWith :: ReadPrec a -> String -> [(a, String)]
+    readsWith parser = readPrec_to_S parser 0
+
+    checks :: [Bool]
+    checks =
+      [ fullyReads (Wrapped False) "Wrapped False",
+        fullyReads (Wrapped True) "(Wrapped True)",
+        fullyReads (Named True) "Named { named = True }",
+        boolResult True (readsWith (readFieldHash "named" readPrec) "named# =True"),
+        boolResult False (readsWith (readSymField "#" readPrec) "(#)=False")
+      ]
+
+    boolResult :: Bool -> [(Bool, String)] -> Bool
+    boolResult expected [(value, rest)] = value == expected && emptyString rest
+    boolResult _ _ = False
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : values) = allTrue values
+    allTrue (False : _) = False
+output: |
+  True
+expression: |
+  allTrue checks
+status: pass
+reason: GHC.Read supports precedence-sensitive and record-style user instances

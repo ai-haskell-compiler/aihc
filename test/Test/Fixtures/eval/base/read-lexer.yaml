@@ -1,0 +1,46 @@
+dependencies:
+  - aihc-base
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import GHC.Read
+    import Text.ParserCombinators.ReadPrec (readPrec_to_S)
+    import Text.Read (Lexeme(..))
+
+    stringResult :: String -> String -> [(String, String)] -> Bool
+    stringResult expectedValue expectedRest [(value, rest)] =
+      value == expectedValue && rest == expectedRest
+    stringResult _ _ _ = False
+
+    charResult :: Char -> String -> [(Char, String)] -> Bool
+    charResult expectedValue expectedRest [(value, rest)] =
+      value == expectedValue && rest == expectedRest
+    charResult _ _ _ = False
+
+    boolResult :: Bool -> String -> [(Bool, String)] -> Bool
+    boolResult expectedValue expectedRest [(value, rest)] =
+      value == expectedValue && rest == expectedRest
+    boolResult _ _ _ = False
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : values) = allTrue values
+    allTrue (False : _) = False
+
+    checks :: [Bool]
+    checks =
+      [ stringResult "Just" " False!" (lex "  Just False!"),
+        stringResult "" "" (lex "   "),
+        stringResult "123" "abc" (lexDigits "123abc"),
+        stringResult "\\n" "rest" (lexLitChar "\\nrest"),
+        charResult '\n' "rest" (readLitChar "\\nrest"),
+        boolResult True "!" (readPrec_to_S (choose [("False", return False), ("True", return True)]) 0 "True!")
+      ]
+output: |
+  True
+expression: |
+  allTrue checks
+status: pass
+reason: GHC.Read exposes compatible lexical and ReadPrec helpers

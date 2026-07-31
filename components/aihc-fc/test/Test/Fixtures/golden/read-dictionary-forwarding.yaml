@@ -1,0 +1,32 @@
+expected: |-
+  data Result
+   = Result
+
+  data Read a
+   = $Dict$Read (Result → a)
+
+  reads : ∀ a. (Read a) → Result → a =
+    Λa.
+      λ$d0 : Read a.
+        case $d0 as $dict : Read a of
+          $Dict$Read $method0 →
+            $method0
+
+  parse : ∀ a. (Read a) → Result → a =
+    Λa.
+      λ$d0 : Read a.
+        reads @a $d0
+extensions: []
+modules:
+- |
+  module Test where
+
+  data Result = Result
+
+  class Read a where
+    reads :: Result -> a
+
+  parse :: Read a => Result -> a
+  parse = reads
+reason: forwards a supplied Read dictionary
+status: pass

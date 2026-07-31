@@ -1,0 +1,6 @@
+- ignore:
+    name: Use camelCase
+    within: Prelude
+- ignore:
+    name: Use foldl
+    within: GHC.Read.Lex
