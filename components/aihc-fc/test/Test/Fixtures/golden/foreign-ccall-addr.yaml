@@ -20,7 +20,12 @@ expected: |-
             (#,#) $ffi_next_state ((I32# $ffi_raw_result) ▷ <co>)) ▷ <co>
 
   main : IO CInt =
-    puts "hello world\n"#
+    case "hello world\n"# as $ffi_arg_0$inl1012 : Addr# of
+      _ →
+        (λ$ffi_state$inl1013 : State# RealWorld.
+          case foreign-call $ffi$puts $ffi_arg_0$inl1012 $ffi_state$inl1013 as $ffi_result$inl1014 : (#,#) (State# RealWorld) Int32# of
+            (#,#) $ffi_next_state$inl1015 $ffi_raw_result$inl1016 →
+              (#,#) $ffi_next_state$inl1015 ((I32# $ffi_raw_result$inl1016) ▷ <co>)) ▷ <co>
 extensions:
 - ForeignFunctionInterface
 - MagicHash

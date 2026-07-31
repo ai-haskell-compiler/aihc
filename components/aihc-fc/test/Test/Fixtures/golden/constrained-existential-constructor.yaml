@@ -31,6 +31,8 @@ expected: |-
     λx1005 : Box.
       case x1005 as _scrut : Box of
         Box $dpattern value →
-          mark @a $dpattern value
+          case $dpattern as $dict$inl1016 : Markable a of
+            $Dict$Markable $method0$inl1017 →
+              $method0$inl1017 value
 status: pass
 reason: System FC stores the constructor dictionary and binds it before the existential payload

@@ -208,9 +208,9 @@ evalWithEnv env expr =
       evalWithEnv env body
     FcLet bind body ->
       evalWithEnv (extendBind env bind) body
-    FcCase scrut _ alts -> do
+    FcCase scrut binder alts -> do
       value <- evalWithEnv env scrut
-      matchAlternative env value alts
+      matchAlternative (Map.insert (varName binder) value env) value alts
     FcCast inner _ ->
       evalWithEnv env inner
     FcCallForeign foreignCall arguments -> do

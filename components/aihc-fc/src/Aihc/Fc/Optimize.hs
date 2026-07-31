@@ -1,31 +1,31 @@
--- | Small, monotone System FC simplifications.
+-- | System FC simplification and equality-saturation optimization.
 --
--- Every optimization in this module must strictly simplify the Core program:
--- rules may remove structure, but must not trade one form for another form of
--- equal complexity. This makes it safe to run the complete rule set to a
--- fixpoint and keeps interactions between independent rules predictable.
+-- Local canonicalizations run to a fixpoint. Binding-aware inlining separately
+-- generates equivalent alternatives and uses an e-graph cost model to decide
+-- whether the exposed optimization opportunities justify the added code.
 module Aihc.Fc.Optimize
   ( optimizeProgram,
   )
 where
 
+import Aihc.Fc.Optimize.Inline (inlineCandidatesProgram)
 import Aihc.Fc.Syntax
-import Data.List qualified as List
+import Aihc.Tc.Types (Unique)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Text (Text)
 
-type CoreOptimization = FcProgram -> FcProgram
+-- Linked compilation units currently have independently allocated uniques.
+-- Include the printed name so an alias in one unit cannot capture an unrelated
+-- constructor or global imported from another unit.
+type VarKey = (Unique, Text)
 
--- | Apply every Core simplification until a complete pass makes no change.
+-- | Canonicalize existing aliases, then explore sharing-safe inlining
+-- alternatives. Generated non-trivial lets remain explicit sharing points.
 optimizeProgram :: FcProgram -> FcProgram
-optimizeProgram = untilStable runOptimizations
+optimizeProgram = inlineCandidatesProgram . simplifyAliases
   where
-    runOptimizations program = List.foldl' (flip ($)) program coreOptimizations
-
--- Keep this list ordered from local canonicalizations to broader rewrites so
--- later rules see the simplest output available from earlier rules.
-coreOptimizations :: [CoreOptimization]
-coreOptimizations = [copyPropagateProgram]
+    simplifyAliases = untilStable copyPropagateProgram
 
 untilStable :: (Eq value) => (value -> value) -> value -> value
 untilStable transform input =
@@ -45,7 +45,7 @@ copyPropagateProgram (FcProgram topBinds) =
         FcTopBind bind -> FcTopBind (copyBind Map.empty bind)
         _ -> topBind
 
-copyBind :: Map Var Var -> FcBind -> FcBind
+copyBind :: Map VarKey Var -> FcBind -> FcBind
 copyBind aliases bind =
   case bind of
     FcNonRec binder rhs ->
@@ -54,24 +54,24 @@ copyBind aliases bind =
       let innerAliases = removeAliases (map fst bindings) aliases
        in FcRec [(binder, copyExpr innerAliases rhs) | (binder, rhs) <- bindings]
 
-copyExpr :: Map Var Var -> FcExpr -> FcExpr
+copyExpr :: Map VarKey Var -> FcExpr -> FcExpr
 copyExpr aliases expression =
   case expression of
     FcVar var -> FcVar (resolveAlias aliases var)
     FcLit {} -> expression
     FcApp function argument -> FcApp (copyExpr aliases function) (copyExpr aliases argument)
     FcTyApp function ty -> FcTyApp (copyExpr aliases function) ty
-    FcLam binder body -> FcLam binder (copyExpr (Map.delete binder aliases) body)
+    FcLam binder body -> FcLam binder (copyExpr (Map.delete (varKey binder) aliases) body)
     FcTyLam tyVar body -> FcTyLam tyVar (copyExpr aliases body)
     FcLet (FcNonRec binder (FcVar source)) body ->
-      copyExpr (Map.insert binder (resolveAlias aliases source) aliases) body
+      copyExpr (Map.insert (varKey binder) (resolveAlias aliases source) aliases) body
     FcLet (FcRec [(binder, FcVar source)]) body
-      | binder /= source ->
-          copyExpr (Map.insert binder (resolveAlias aliases source) aliases) body
+      | varKey binder /= varKey source ->
+          copyExpr (Map.insert (varKey binder) (resolveAlias aliases source) aliases) body
     FcLet bind@(FcNonRec binder _) body ->
       FcLet
         (copyBind aliases bind)
-        (copyExpr (Map.delete binder aliases) body)
+        (copyExpr (Map.delete (varKey binder) aliases) body)
     FcLet bind@(FcRec bindings) body ->
       let binders = map fst bindings
           innerAliases = removeAliases binders aliases
@@ -80,12 +80,12 @@ copyExpr aliases expression =
       FcCase
         (copyExpr aliases scrutinee)
         binder
-        (map (copyAlt (Map.delete binder aliases)) alternatives)
+        (map (copyAlt (Map.delete (varKey binder) aliases)) alternatives)
     FcCast inner coercion -> FcCast (copyExpr aliases inner) coercion
     FcCallForeign foreignCall arguments ->
       FcCallForeign foreignCall (map (copyExpr aliases) arguments)
 
-copyAlt :: Map Var Var -> FcAlt -> FcAlt
+copyAlt :: Map VarKey Var -> FcAlt -> FcAlt
 copyAlt aliases alternative =
   alternative
     { altRhs =
@@ -94,11 +94,14 @@ copyAlt aliases alternative =
           (altRhs alternative)
     }
 
-removeAliases :: [Var] -> Map Var Var -> Map Var Var
-removeAliases binders aliases = foldr Map.delete aliases binders
+removeAliases :: [Var] -> Map VarKey Var -> Map VarKey Var
+removeAliases binders aliases = foldr (Map.delete . varKey) aliases binders
 
-resolveAlias :: Map Var Var -> Var -> Var
+resolveAlias :: Map VarKey Var -> Var -> Var
 resolveAlias aliases var =
-  case Map.lookup var aliases of
+  case Map.lookup (varKey var) aliases of
     Just target -> resolveAlias aliases target
     Nothing -> var
+
+varKey :: Var -> VarKey
+varKey var = (varUnique var, varName var)

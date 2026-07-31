@@ -179,13 +179,14 @@ lintExpr env (FcLet bind body) = do
   case errs of
     [] -> lintExpr env' body
     (e : _) -> Left e
-lintExpr env (FcCase scrut _binder alts) = do
+lintExpr env (FcCase scrut binder alts) = do
   _scrutTy <- lintExpr env scrut
+  let alternativeEnv = extendTermEnv binder env
   case alts of
     [] -> Left (LintFailure "case expression has no alternatives")
     alt : rest -> do
-      resTy <- lintAlt env alt
-      mapM_ (lintAltWithExpected env resTy) rest
+      resTy <- lintAlt alternativeEnv alt
+      mapM_ (lintAltWithExpected alternativeEnv resTy) rest
       Right resTy
 lintExpr env (FcCast e co) = do
   eTy <- lintExpr env e

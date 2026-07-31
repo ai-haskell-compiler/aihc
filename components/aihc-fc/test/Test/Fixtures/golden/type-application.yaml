@@ -9,7 +9,7 @@ expected: |-
         x1001
 
   true : Bool =
-    id @Bool True
+    True
 extensions: []
 modules:
 - |

@@ -11,7 +11,6 @@ module Aihc.Grin.Lower
 where
 
 import Aihc.Fc.Newtype (lowerNewtypes)
-import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Grin.Analysis (freeExprVars)
@@ -76,9 +75,7 @@ instance Monoid LoweredTop where
 -- representations, closure-convert lambdas and thunks, and make evaluation,
 -- application, allocation, and exception control explicit.
 lowerProgram :: FcProgram -> GrinProgram
-lowerProgram sourceProgram = lowerProgramWithInterface mempty program
-  where
-    program = optimizeProgram (lowerNewtypes sourceProgram)
+lowerProgram sourceProgram = lowerProgramWithInterface mempty (lowerNewtypes sourceProgram)
 
 -- | Runtime facts exported by one compiled unit. Lowering consumers need to
 -- know which external names are globals, already in WHNF, constructors, or
@@ -106,7 +103,7 @@ instance Monoid GrinInterface where
   mempty = GrinInterface Set.empty Set.empty Map.empty Map.empty Map.empty
 
 extractGrinInterface :: FcProgram -> GrinInterface
-extractGrinInterface sourceProgram =
+extractGrinInterface program =
   GrinInterface
     { grinInterfaceGlobals = Set.fromList (programGlobalNames program),
       grinInterfaceWhnfGlobals = Set.fromList (programWhnfGlobalNames program),
@@ -118,16 +115,12 @@ extractGrinInterface sourceProgram =
           ],
       grinInterfaceCodeInfos = Map.fromList (programCodeInfos program)
     }
-  where
-    program = optimizeProgram sourceProgram
 
 -- | Lower one SCC using only the exported runtime facts of predecessor SCCs.
 -- The supplied program must already have completed its FC transformations.
 lowerProgramWithInterface :: GrinInterface -> FcProgram -> GrinProgram
-lowerProgramWithInterface imported sourceProgram =
+lowerProgramWithInterface imported program =
   lowerProgramWithEnvironment (programEnvironment (imported <> extractGrinInterface program)) program
-  where
-    program = optimizeProgram sourceProgram
 
 data ProgramEnvironment = ProgramEnvironment
   { programEnvironmentGlobals :: !(Set Text),

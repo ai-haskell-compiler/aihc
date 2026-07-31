@@ -15,7 +15,8 @@ import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.Text (Text)
-import FcGolden
+import FcGolden hiding (FcCase)
+import FcGolden qualified
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
 
@@ -26,7 +27,7 @@ fcGoldenTests = do
   let tests = map mkTest cases
   pure (testGroup "FC golden tests" tests)
 
-mkTest :: FcCase -> TestTree
+mkTest :: FcGolden.FcCase -> TestTree
 mkTest tc = testCase (caseId tc) $ do
   let (outcome, details) = evaluateFcCase tc
   case outcome of
@@ -137,6 +138,132 @@ fcOptimizationTests =
             computed = FcApp (FcVar identity) (FcVar value)
             source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcNonRec binder computed) (FcVar binder)))]
         assertEqual "optimized program" source (optimizeProgram source),
+      testCase "inlines a direct function at every call site" $ do
+        let argument = Var "argument" (Unique 20) stringTy
+            identity = Var "identity" (Unique 21) (TcFunTy stringTy stringTy)
+            firstValue = Var "firstValue" (Unique 22) stringTy
+            secondValue = Var "secondValue" (Unique 23) stringTy
+            first = Var "first" (Unique 24) stringTy
+            second = Var "second" (Unique 25) stringTy
+            source =
+              FcProgram
+                [ FcTopBind (FcNonRec identity (FcLam argument (FcVar argument))),
+                  FcTopBind (FcNonRec first (FcApp (FcVar identity) (FcVar firstValue))),
+                  FcTopBind (FcNonRec second (FcApp (FcVar identity) (FcVar secondValue)))
+                ]
+            optimized = optimizeProgram source
+        assertEqual "first call" (Just (FcVar firstValue)) (topBindingRhs "first" optimized)
+        assertEqual "second call" (Just (FcVar secondValue)) (topBindingRhs "second" optimized),
+      testCase "preserves sharing when an inlined argument is used twice" $ do
+        let pairTy = ty "Pair"
+            pair = Var "Pair" (Unique 30) (TcFunTy stringTy (TcFunTy stringTy pairTy))
+            expensive = Var "expensive" (Unique 31) (TcFunTy stringTy stringTy)
+            sourceValue = Var "source" (Unique 32) stringTy
+            duplicate = Var "duplicate" (Unique 33) (TcFunTy stringTy pairTy)
+            argument = Var "argument" (Unique 34) stringTy
+            mainVar = Var "main" (Unique 35) pairTy
+            duplicateRhs = FcLam argument (FcApp (FcApp (FcVar pair) (FcVar argument)) (FcVar argument))
+            computed = FcApp (FcVar expensive) (FcVar sourceValue)
+            program =
+              FcProgram
+                [ FcData "Pair" [] [("Pair", [stringTy, stringTy])],
+                  FcPrimitive expensive 1,
+                  FcTopBind (FcNonRec duplicate duplicateRhs),
+                  FcTopBind (FcNonRec mainVar (FcApp (FcVar duplicate) computed))
+                ]
+            mainRhs = topBindingRhs "main" (optimizeProgram program)
+        assertEqual "callee removed" 0 (maybe 0 (countVariableName "duplicate") mainRhs)
+        assertEqual "argument computation retained once" 1 (maybe 0 (countVariableName "expensive") mainRhs)
+        assertEqual "shared through a let" True (maybe False containsNonRecursiveLet mainRhs),
+      testCase "does not inline a computed CAF" $ do
+        let expensive = Var "expensive" (Unique 40) (TcFunTy stringTy stringTy)
+            sourceValue = Var "source" (Unique 41) stringTy
+            cached = Var "cached" (Unique 42) stringTy
+            mainVar = Var "main" (Unique 43) stringTy
+            program =
+              FcProgram
+                [ FcPrimitive expensive 1,
+                  FcTopBind (FcNonRec cached (FcApp (FcVar expensive) (FcVar sourceValue))),
+                  FcTopBind (FcNonRec mainVar (FcVar cached))
+                ]
+        assertEqual "computed thunk retained" program (optimizeProgram program),
+      testCase "keeps an unused unlifted argument strict" $ do
+        let intHashTy = ty "Int#"
+            unitTy = ty "Unit"
+            force = Var "force" (Unique 50) (TcFunTy intHashTy intHashTy)
+            sourceValue = Var "source" (Unique 51) intHashTy
+            ignore = Var "ignore" (Unique 52) (TcFunTy intHashTy unitTy)
+            argument = Var "argument" (Unique 53) intHashTy
+            unitValue = Var "()" (Unique 54) unitTy
+            mainVar = Var "main" (Unique 55) unitTy
+            forcedArgument = FcApp (FcVar force) (FcVar sourceValue)
+            program =
+              FcProgram
+                [ FcData "Unit" [] [("()", [])],
+                  FcPrimitive force 1,
+                  FcTopBind (FcNonRec ignore (FcLam argument (FcVar unitValue))),
+                  FcTopBind (FcNonRec mainVar (FcApp (FcVar ignore) forcedArgument))
+                ]
+        case topBindingRhs "main" (optimizeProgram program) of
+          Just (FcCase scrutinee _ [FcAlt DefaultAlt [] (FcVar result)]) -> do
+            assertEqual "strict argument" forcedArgument scrutinee
+            assertEqual "result" unitValue result
+          other -> assertFailure ("expected a strict case binding, got: " <> show other),
+      testCase "eliminates repeated dictionary-dispatched binds" $ do
+        let unitTy = ty "Unit"
+            dictionaryTy = ty "MonadBox"
+            continuationTy = TcFunTy unitTy unitTy
+            methodTy = TcFunTy unitTy (TcFunTy continuationTy unitTy)
+            constructor = Var "$Dict$MonadBox" (Unique 60) (TcFunTy methodTy dictionaryTy)
+            selector = Var ">>=" (Unique 61) (TcFunTy dictionaryTy methodTy)
+            dictionary = Var "$fMonadBox" (Unique 62) dictionaryTy
+            implementation = Var "bindBox" (Unique 63) methodTy
+            dictionaryArgument = Var "$dictionary" (Unique 64) dictionaryTy
+            caseBinder = Var "$case" (Unique 65) dictionaryTy
+            selectedMethod = Var "$method" (Unique 66) methodTy
+            valueArgument = Var "value" (Unique 67) unitTy
+            continuation = Var "continuation" (Unique 68) continuationTy
+            ignoredFirst = Var "ignoredFirst" (Unique 69) unitTy
+            ignoredSecond = Var "ignoredSecond" (Unique 70) unitTy
+            firstAction = Var "firstAction" (Unique 71) unitTy
+            secondAction = Var "secondAction" (Unique 72) unitTy
+            finalAction = Var "finalAction" (Unique 73) unitTy
+            mainVar = Var "main" (Unique 74) unitTy
+            selectorRhs =
+              FcLam
+                dictionaryArgument
+                ( FcCase
+                    (FcVar dictionaryArgument)
+                    caseBinder
+                    [FcAlt (DataAlt "$Dict$MonadBox") [selectedMethod] (FcVar selectedMethod)]
+                )
+            implementationRhs =
+              FcLam valueArgument (FcLam continuation (FcApp (FcVar continuation) (FcVar valueArgument)))
+            callBind action = FcApp (FcApp (FcApp (FcVar selector) (FcVar dictionary)) action)
+            mainRhs =
+              callBind
+                (FcVar firstAction)
+                ( FcLam
+                    ignoredFirst
+                    ( callBind
+                        (FcVar secondAction)
+                        (FcLam ignoredSecond (FcVar finalAction))
+                    )
+                )
+            program =
+              FcProgram
+                [ FcData "Unit" [] [("()", [])],
+                  FcData "MonadBox" [] [("$Dict$MonadBox", [methodTy])],
+                  FcTopBind (FcNonRec selector selectorRhs),
+                  FcTopBind (FcNonRec implementation implementationRhs),
+                  FcTopBind (FcNonRec dictionary (FcApp (FcVar constructor) (FcVar implementation))),
+                  FcTopBind (FcNonRec mainVar mainRhs)
+                ]
+            optimizedMain = topBindingRhs "main" (optimizeProgram program)
+        assertEqual "bind chain" (Just (FcVar finalAction)) optimizedMain
+        assertEqual "selector eliminated" 0 (maybe 0 (countVariableName ">>=") optimizedMain)
+        assertEqual "dictionary eliminated" 0 (maybe 0 (countVariableName "$fMonadBox") optimizedMain)
+        assertEqual "implementation eliminated" 0 (maybe 0 (countVariableName "bindBox") optimizedMain),
       testCase "eliminates values and types unreachable from the entry point" $ do
         let liveTy = ty "Live"
             leafTy = ty "Leaf"
@@ -274,6 +401,47 @@ renderEvalResult result =
   case result of
     Left err -> pure (Left err)
     Right value -> renderValue value
+
+topBindingRhs :: Text -> FcProgram -> Maybe FcExpr
+topBindingRhs name (FcProgram topBinds) =
+  case [ rhs
+       | FcTopBind (FcNonRec binder rhs) <- topBinds,
+         varName binder == name
+       ] of
+    rhs : _ -> Just rhs
+    [] -> Nothing
+
+countVariableName :: Text -> FcExpr -> Int
+countVariableName name expression =
+  case expression of
+    FcVar variable -> fromEnum (varName variable == name)
+    FcLit {} -> 0
+    FcApp function argument -> countVariableName name function + countVariableName name argument
+    FcTyApp function _ -> countVariableName name function
+    FcLam _ body -> countVariableName name body
+    FcTyLam _ body -> countVariableName name body
+    FcLet (FcNonRec _ rhs) body -> countVariableName name rhs + countVariableName name body
+    FcLet (FcRec bindings) body -> sum (map (countVariableName name . snd) bindings) + countVariableName name body
+    FcCase scrutinee _ alternatives ->
+      countVariableName name scrutinee + sum (map (countVariableName name . altRhs) alternatives)
+    FcCast body _ -> countVariableName name body
+    FcCallForeign _ arguments -> sum (map (countVariableName name) arguments)
+
+containsNonRecursiveLet :: FcExpr -> Bool
+containsNonRecursiveLet expression =
+  case expression of
+    FcVar {} -> False
+    FcLit {} -> False
+    FcApp function argument -> containsNonRecursiveLet function || containsNonRecursiveLet argument
+    FcTyApp function _ -> containsNonRecursiveLet function
+    FcLam _ body -> containsNonRecursiveLet body
+    FcTyLam _ body -> containsNonRecursiveLet body
+    FcLet FcNonRec {} _ -> True
+    FcLet (FcRec bindings) body -> any (containsNonRecursiveLet . snd) bindings || containsNonRecursiveLet body
+    FcCase scrutinee _ alternatives ->
+      containsNonRecursiveLet scrutinee || any (containsNonRecursiveLet . altRhs) alternatives
+    FcCast body _ -> containsNonRecursiveLet body
+    FcCallForeign _ arguments -> any containsNonRecursiveLet arguments
 
 var :: Text -> TcType -> Var
 var name = Var name (Unique 0)

@@ -31,7 +31,21 @@ expected: |-
                 True)
 
   eqBool : Bool → Bool → Bool =
-    == @Bool $fEqBool
+    λx1004 : Bool.
+      λy1005 : Bool.
+        case x1004 as _scrut : Bool of
+          False →
+            case y1005 as _scrut : Bool of
+              False →
+                True
+              True →
+                False
+          True →
+            case y1005 as _scrut : Bool of
+              False →
+                False
+              True →
+                True
 extensions: []
 modules:
 - |

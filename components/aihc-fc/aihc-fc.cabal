@@ -32,10 +32,15 @@ library
     base >=4.16 && <5,
     bytestring,
     containers,
+    hegg >=0.6 && <0.7,
     libffi >=0.2 && <0.3,
     text >=1.2,
     transformers,
     unix,
+
+  other-modules:
+    Aihc.Fc.Optimize.EGraph
+    Aihc.Fc.Optimize.Inline
 
   ghc-options: -Wall
   default-language: GHC2021
