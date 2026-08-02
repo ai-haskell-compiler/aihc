@@ -14,8 +14,13 @@ module Aihc.Tc.Env
     TyConInfo (..),
     TypeSynonymInfo (..),
 
-    -- * Data constructor info
+    -- * Datatype and constructor info
+    DataTypeInfo (..),
     DataConInfo (..),
+    DataConFieldInfo (..),
+    DataConFieldUnpack (..),
+    DataConSourceForm (..),
+    dataConArgTypes,
 
     -- * Class info
     ClassInfo (..),
@@ -79,6 +84,44 @@ data TypeSynonymInfo = TypeSynonymInfo
   }
   deriving (Show, Read)
 
+-- | Checked information about a data or newtype declaration. This is the
+-- semantic constructor layout consumed by deriving and exported through
+-- module interfaces; downstream phases must not reconstruct it from syntax.
+data DataTypeInfo = DataTypeInfo
+  { dtiName :: !Text,
+    dtiTyCon :: !TyCon,
+    dtiTyVars :: ![TyVarId],
+    dtiFlavor :: !TyConFlavor,
+    dtiConstructors :: ![DataConInfo]
+  }
+  deriving (Eq, Show, Read)
+
+-- | The source declaration form of a constructor. Stock deriving needs this
+-- distinction for constructor rendering and record-specific operations.
+data DataConSourceForm
+  = PrefixDataCon
+  | InfixDataCon
+  | RecordDataCon
+  deriving (Eq, Show, Read)
+
+-- | Source unpacking intent for a constructor field. This is kept separate
+-- from strictness because the source syntax permits both facts to be stated.
+data DataConFieldUnpack
+  = NoFieldUnpack
+  | UnpackField
+  | NoUnpackField
+  deriving (Eq, Show, Read)
+
+-- | Checked type and source layout of one constructor field.
+data DataConFieldInfo = DataConFieldInfo
+  { dcfiLabel :: !(Maybe Text),
+    dcfiType :: !TcType,
+    dcfiStrict :: !Bool,
+    dcfiLazy :: !Bool,
+    dcfiUnpack :: !DataConFieldUnpack
+  }
+  deriving (Eq, Show, Read)
+
 -- | Information about a data constructor.
 --
 -- This is particularly important for GADT support: the universal/existential
@@ -92,12 +135,16 @@ data DataConInfo = DataConInfo
     dciExTyVars :: ![TyVarId],
     -- | Constructor constraints (given on match).
     dciTheta :: ![Pred],
-    -- | Field types.
-    dciArgTys :: ![TcType],
+    -- | Checked fields in runtime argument order.
+    dciFields :: ![DataConFieldInfo],
     -- | Result type (may mention universals).
-    dciResTy :: !TcType
+    dciResTy :: !TcType,
+    dciSourceForm :: !DataConSourceForm
   }
-  deriving (Show)
+  deriving (Eq, Show, Read)
+
+dataConArgTypes :: DataConInfo -> [TcType]
+dataConArgTypes = map dcfiType . dciFields
 
 -- | Information about a type class.
 data ClassInfo = ClassInfo

@@ -42,7 +42,7 @@ import Aihc.Tc.Annotations
     TcDictBinderAnnotation (..),
   )
 import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy)
-import Aihc.Tc.Env (ClassInfo (..), TyConFlavor (..), TyConInfo (..))
+import Aihc.Tc.Env (ClassInfo (..), DataTypeInfo, TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, surfacePredToPred)
 import Aihc.Tc.Monad
@@ -74,19 +74,21 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
   targetInfo <- lookupTyCon targetName
   case targetInfo of
     Nothing -> missingTypeInfo ("deriving target " <> T.unpack targetName)
-    Just info -> concat <$> mapM (checkClause info params tvEnv) clauses
+    Just info -> do
+      dataType <- lookupDataType targetName
+      concat <$> mapM (checkClause info dataType params tvEnv) clauses
   where
     defaultParam param = do
       tyVar <- defaultTyVarKinds (paramTyVar param)
       pure param {paramTyVar = tyVar, paramKind = tvKind tyVar}
 
-    checkClause targetInfo params tvEnv clause = do
+    checkClause targetInfo dataType params tvEnv clause = do
       classHeads <- attachedDerivingClassHeads clause
-      catMaybes <$> mapM (checkOne targetInfo params tvEnv (derivingStrategy clause)) classHeads
+      catMaybes <$> mapM (checkOne targetInfo dataType params tvEnv (derivingStrategy clause)) classHeads
 
-    checkOne targetInfo params tvEnv strategy classHead = do
+    checkOne targetInfo dataType params tvEnv strategy classHead = do
       (plan, hadErrors) <-
-        withErrorTracking (checkAttachedDerivingPlan extensions targetFlavor targetInfo params tvEnv strategy classHead)
+        withErrorTracking (checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvEnv strategy classHead)
       pure (if hadErrors then Nothing else plan)
 
 data AttachedDerivingClassHead = AttachedDerivingClassHead
@@ -117,8 +119,8 @@ attachedDerivingClassHeads clause =
           emitError (typeSpan classType) (OtherError "invalid class in deriving clause")
           pure Nothing
 
-checkAttachedDerivingPlan :: [Extension] -> TyConFlavor -> TyConInfo -> [ParamInfo] -> TvKindEnv -> Maybe DerivingStrategy -> AttachedDerivingClassHead -> TcM (Maybe TcDerivingPlan)
-checkAttachedDerivingPlan extensions targetFlavor targetInfo params tvEnv strategy classHead = do
+checkAttachedDerivingPlan :: [Extension] -> TyConFlavor -> TyConInfo -> Maybe DataTypeInfo -> [ParamInfo] -> TvKindEnv -> Maybe DerivingStrategy -> AttachedDerivingClassHead -> TcM (Maybe TcDerivingPlan)
+checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvEnv strategy classHead = do
   let className = nameText (attachedClassName classHead)
       classSpan = attachedClassSpan classHead
       suppliedArguments = attachedClassArguments classHead
@@ -145,7 +147,7 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo params tvEnv strate
               let headTypes = checkedArguments <> [targetType]
                   strategyTypes = case checkedStrategy of TcDerivingVia viaType -> [viaType]; _ -> []
                   quantified = filter (\param -> any (typeMentionsTyVar (paramTyVar param)) (headTypes <> strategyTypes)) params
-              pure (Just (mkDerivingPlan classSpan checkedStrategy classInfo (map paramTyVar quantified) headTypes TcDerivingInferContext methods))
+              pure (Just (mkDerivingPlan classSpan checkedStrategy classInfo (map paramTyVar quantified) headTypes dataType TcDerivingInferContext methods))
 
 attachedTargetType :: SourceSpan -> TyConInfo -> [ParamInfo] -> Kind -> TcM TcType
 attachedTargetType sourceSpan targetInfo params expectedKind = do
@@ -204,7 +206,8 @@ checkStandaloneDerivingPlan extensions derivingDecl =
               context <- mapM defaultPredKinds checkedContext
               strategy <- defaultDerivingStrategyKinds checkedStrategy
               methods <- derivingClassMethods classInfo
-              pure (Just (mkDerivingPlan classSpan strategy classInfo tyVars headTypes (TcDerivingExplicitContext context) methods))
+              dataType <- standaloneTargetDataType headTypes
+              pure (Just (mkDerivingPlan classSpan strategy classInfo tyVars headTypes dataType (TcDerivingExplicitContext context) methods))
   where
     implicitParam name = do
       rawTyVar <- freshSkolemTv name
@@ -212,8 +215,8 @@ checkStandaloneDerivingPlan extensions derivingDecl =
       let tyVar = setTyVarKind kind rawTyVar
       pure ParamInfo {paramName = name, paramTyVar = tyVar, paramKind = kind}
 
-mkDerivingPlan :: SourceSpan -> TcDerivingStrategy -> ClassInfo -> [TyVarId] -> [TcType] -> TcDerivingContext -> [TcClassMethodAnnotation] -> TcDerivingPlan
-mkDerivingPlan sourceSpan strategy classInfo tyVars headTypes context methods =
+mkDerivingPlan :: SourceSpan -> TcDerivingStrategy -> ClassInfo -> [TyVarId] -> [TcType] -> Maybe DataTypeInfo -> TcDerivingContext -> [TcClassMethodAnnotation] -> TcDerivingPlan
+mkDerivingPlan sourceSpan strategy classInfo tyVars headTypes dataType context methods =
   TcDerivingPlan
     { tcDerivingSourceSpan = sourceSpan,
       tcDerivingStrategy = strategy,
@@ -221,6 +224,7 @@ mkDerivingPlan sourceSpan strategy classInfo tyVars headTypes context methods =
       tcDerivingDictName = instanceDictName className headTypes,
       tcDerivingTyVars = tyVars,
       tcDerivingHeadTypes = headTypes,
+      tcDerivingDataType = dataType,
       tcDerivingContext = context,
       tcDerivingClassTyVars = ciTyVars classInfo,
       tcDerivingClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes classInfo),
@@ -267,6 +271,12 @@ standaloneTargetFlavor headTypes =
           maybeInfo <- lookupTyCon targetName
           pure (maybe DataTyCon tciFlavor maybeInfo)
     _ -> pure DataTyCon
+
+standaloneTargetDataType :: [TcType] -> TcM (Maybe DataTypeInfo)
+standaloneTargetDataType headTypes =
+  case reverse headTypes of
+    targetType : _ -> maybe (pure Nothing) lookupDataType (tcTypeConstructorName targetType)
+    _ -> pure Nothing
 
 tcTypeConstructorName :: TcType -> Maybe Text
 tcTypeConstructorName ty =

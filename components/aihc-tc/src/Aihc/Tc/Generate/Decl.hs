@@ -32,6 +32,7 @@ import Aihc.Parser.Syntax
     Expr (..),
     Extension,
     FieldDecl (..),
+    ForallTelescope (..),
     ForeignDecl (..),
     ForeignDirection (..),
     GadtBody (..),
@@ -44,6 +45,9 @@ import Aihc.Parser.Syntax
     NameType (..),
     NewtypeDecl (..),
     Pattern (..),
+    Pragma (..),
+    PragmaType (..),
+    PragmaUnpackKind (..),
     Rhs (..),
     SourceSpan (..),
     TupleFlavor (..),
@@ -82,7 +86,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
 import Aihc.Tc.Deriving.Context (derivingPlanInstanceInfo, finalizeDerivingModulesTc)
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..), dataFamilyAxiomName, dataFamilyRepresentationName)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..), dataFamilyAxiomName, dataFamilyRepresentationName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -462,6 +466,7 @@ defaultGlobalKindMetas = do
   state <- lift get
   terms <- traverse defaultBinderKinds (tcsGlobalTerms state)
   tyCons <- traverse defaultTyConInfoKinds (tcsGlobalTyCons state)
+  dataTypes <- traverse defaultDataTypeKinds (tcsDataTypes state)
   classes <- traverse defaultClassKinds (tcsClasses state)
   instances <- mapM defaultInstanceKinds (tcsInstances state)
   dataFamilyInstances <- mapM defaultDataFamilyInstanceKinds (tcsDataFamilyInstances state)
@@ -470,6 +475,7 @@ defaultGlobalKindMetas = do
       current
         { tcsGlobalTerms = terms,
           tcsGlobalTyCons = tyCons,
+          tcsDataTypes = dataTypes,
           tcsClasses = classes,
           tcsInstances = instances,
           tcsDataFamilyInstances = dataFamilyInstances
@@ -493,6 +499,33 @@ defaultGlobalKindMetas = do
       TypeSynonymInfo
         <$> mapM defaultTyVarKinds (tsiParams synonym)
         <*> traverse defaultTypeKinds (tsiBody synonym)
+    defaultDataTypeKinds info = do
+      tyVars <- mapM defaultTyVarKinds (dtiTyVars info)
+      constructors <- mapM defaultDataConKinds (dtiConstructors info)
+      kind <- defaultKindMetas (tyConKind (dtiTyCon info))
+      pure
+        info
+          { dtiTyCon = mkTyCon (dtiName info) (tyConArity (dtiTyCon info)) kind,
+            dtiTyVars = tyVars,
+            dtiConstructors = constructors
+          }
+    defaultDataConKinds info = do
+      universalTyVars <- mapM defaultTyVarKinds (dciUnivTyVars info)
+      existentialTyVars <- mapM defaultTyVarKinds (dciExTyVars info)
+      predicates <- mapM defaultPredKinds (dciTheta info)
+      fields <- mapM defaultDataConFieldKinds (dciFields info)
+      resultType <- defaultTypeKinds (dciResTy info)
+      pure
+        info
+          { dciUnivTyVars = universalTyVars,
+            dciExTyVars = existentialTyVars,
+            dciTheta = predicates,
+            dciFields = fields,
+            dciResTy = resultType
+          }
+    defaultDataConFieldKinds field = do
+      fieldType' <- defaultTypeKinds (dcfiType field)
+      pure field {dcfiType = fieldType'}
     defaultClassKinds info =
       ClassInfo
         (ciName info)
@@ -1985,7 +2018,17 @@ registerDataConstructors dataDecl = do
     Nothing -> missingTypeInfo ("data type " <> T.unpack tyName)
     Just info -> do
       paramInfos <- makeParamEnv (binderHeadParams (dataDeclHead dataDecl))
-      mapM (registerDataCon (tciTyCon info) paramInfos) (dataDeclConstructors dataDecl)
+      bindings <- mapM (registerDataCon (tciTyCon info) paramInfos) (dataDeclConstructors dataDecl)
+      constructors <- concat <$> mapM checkedDataConInfos (dataDeclConstructors dataDecl)
+      addDataType
+        DataTypeInfo
+          { dtiName = tyName,
+            dtiTyCon = tciTyCon info,
+            dtiTyVars = map paramTyVar paramInfos,
+            dtiFlavor = DataTyCon,
+            dtiConstructors = constructors
+          }
+      pure bindings
 
 -- | Register a newtype declaration's type constructor and representation
 -- constructor.  Newtype erasure/coercion semantics are handled elsewhere; at
@@ -2021,6 +2064,15 @@ registerNewtypeConstructor newtypeDecl = do
     Just info -> do
       paramInfos <- makeParamEnv (binderHeadParams (newtypeDeclHead newtypeDecl))
       constructor <- mapM (registerDataCon (tciTyCon info) paramInfos) (newtypeDeclConstructor newtypeDecl)
+      constructors <- maybe (pure []) checkedDataConInfos (newtypeDeclConstructor newtypeDecl)
+      addDataType
+        DataTypeInfo
+          { dtiName = tyName,
+            dtiTyCon = tciTyCon info,
+            dtiTyVars = map paramTyVar paramInfos,
+            dtiFlavor = NewtypeTyCon,
+            dtiConstructors = constructors
+          }
       pure (maybeToList constructor)
 
 registerTypeSynonymHeader :: TypeSynDecl -> TcM [TcBindingResult]
@@ -2077,34 +2129,44 @@ registerDataConWithResult paramInfos resTy con = case con of
   InfixCon forallVars context lhs conName rhs ->
     registerH98DataCon forallVars context (unqualifiedNameText conName) (map bangType [lhs, rhs])
   RecordCon forallVars context conName fields ->
-    registerH98DataCon forallVars context (unqualifiedNameText conName) (map (bangType . fieldType) fields)
+    registerH98DataCon forallVars context (unqualifiedNameText conName) (map bangType (recordBangFields fields))
   TupleCon forallVars context flavor fields ->
     registerH98DataCon forallVars context (tupleConText flavor (length fields)) (map bangType fields)
   UnboxedSumCon forallVars context pos arity field ->
     registerH98DataCon forallVars context (unboxedSumConText pos arity) [bangType field]
   ListCon forallVars context ->
     registerH98DataCon forallVars context "[]" []
-  GadtCon _forallBinders _ctx names body ->
-    do
-      let resultSurfTy = gadtBodyResultType body
-          argSurfTys = gadtBodyArgTypes body
-      gadtResTy <- checkSurfaceType paramEnv resultSurfTy KType
-      gadtArgTys <- mapM (checkRuntimeType paramEnv) argSurfTys
-      let conTy = foldr TcFunTy gadtResTy gadtArgTys
-          gadtScheme = ForAll [] [] conTy
-      mapM_
-        ( \n -> do
-            let nm = unqualifiedNameText n
-            extendTermEnvPermanent nm (TcIdBinder gadtScheme Closed)
-            markGadtCon nm
-        )
-        names
-      case names of
-        (n : _) -> do
-          zonkedTy <- zonkType conTy
-          let name = unqualifiedNameText n
-           in pure (TcBindingResult name name zonkedTy)
-        [] -> pure (TcBindingResult "<gadt>" "<gadt>" gadtResTy)
+  GadtCon forallBinders context names body -> do
+    constructorParams <- makeParamEnv (concatMap forallTelescopeBinders forallBinders)
+    let constructorEnv =
+          Map.fromList
+            [ (paramName param, (paramTyVar param, paramKind param))
+            | param <- constructorParams
+            ]
+            <> paramEnv
+        constructorTyVars = map paramTyVar constructorParams
+    let resultSurfTy = gadtBodyResultType body
+        argSurfTys = gadtBodyArgTypes body
+    gadtResTy <- checkSurfaceType constructorEnv resultSurfTy KType
+    gadtArgTys <- mapM (checkRuntimeType constructorEnv) argSurfTys
+    predicates <- mapM (surfacePredToPred constructorEnv) context
+    let conTy = foldr TcFunTy gadtResTy gadtArgTys
+        candidateTyVars = paramVarIds <> constructorTyVars
+        quantifiedTyVars = filter (\tyVar -> typeMentionsTyVar tyVar conTy || any (predicateMentionsTyVar tyVar) predicates) candidateTyVars
+        gadtScheme = ForAll quantifiedTyVars predicates conTy
+    mapM_
+      ( \n -> do
+          let nm = unqualifiedNameText n
+          extendTermEnvPermanent nm (TcIdBinder gadtScheme Closed)
+          markGadtCon nm
+      )
+      names
+    case names of
+      (n : _) -> do
+        zonkedTy <- zonkType conTy
+        let name = unqualifiedNameText n
+         in pure (TcBindingResult name name zonkedTy)
+      [] -> pure (TcBindingResult "<gadt>" "<gadt>" gadtResTy)
   where
     paramEnv =
       Map.fromList
@@ -2151,7 +2213,83 @@ bars n
 -- | Extract argument types from a GadtBody.
 gadtBodyArgTypes :: GadtBody -> [Type]
 gadtBodyArgTypes (GadtPrefixBody argsWithKinds _) = map (bangType . fst) argsWithKinds
-gadtBodyArgTypes _ = []
+gadtBodyArgTypes (GadtRecordBody fields _) = map bangType (recordBangFields fields)
+
+recordBangFields :: [FieldDecl] -> [BangType]
+recordBangFields = concatMap $ \field -> replicate (length (fieldNames field)) (fieldType field)
+
+checkedDataConInfos :: DataConDecl -> TcM [DataConInfo]
+checkedDataConInfos declaration = do
+  let (sourceForm, sourceFields, constructorNames) = dataConSourceLayout declaration
+  mapM (checkedDataConInfo sourceForm sourceFields) constructorNames
+
+checkedDataConInfo :: DataConSourceForm -> [(Maybe Text, BangType)] -> Text -> TcM DataConInfo
+checkedDataConInfo sourceForm sourceFields constructorName = do
+  maybeBinder <- lookupTerm constructorName
+  case maybeBinder of
+    Just (TcIdBinder (ForAll tyVars predicates constructorType) _) -> do
+      let (argumentTypes, resultType) = splitFunctionType constructorType
+      if length sourceFields /= length argumentTypes
+        then abortTc ("constructor metadata arity disagrees with checked type for " <> T.unpack constructorName)
+        else do
+          let (universalTyVars, existentialTyVars) = partition (`typeMentionsTyVar` resultType) tyVars
+          pure
+            DataConInfo
+              { dciName = constructorName,
+                dciUnivTyVars = universalTyVars,
+                dciExTyVars = existentialTyVars,
+                dciTheta = predicates,
+                dciFields = zipWith checkedFieldInfo sourceFields argumentTypes,
+                dciResTy = resultType,
+                dciSourceForm = sourceForm
+              }
+    Just TcMonoIdBinder {} ->
+      abortTc ("data constructor has a monomorphic binder: " <> T.unpack constructorName)
+    Nothing ->
+      missingTypeInfo ("data constructor " <> T.unpack constructorName)
+
+checkedFieldInfo :: (Maybe Text, BangType) -> TcType -> DataConFieldInfo
+checkedFieldInfo (label, bang) fieldType' =
+  DataConFieldInfo
+    { dcfiLabel = label,
+      dcfiType = fieldType',
+      dcfiStrict = bangStrict bang,
+      dcfiLazy = bangLazy bang,
+      dcfiUnpack = fieldUnpack bang
+    }
+
+fieldUnpack :: BangType -> DataConFieldUnpack
+fieldUnpack bang =
+  case [unpack | Pragma (PragmaUnpack unpack) _ <- bangPragmas bang] of
+    UnpackPragma : _ -> UnpackField
+    NoUnpackPragma : _ -> NoUnpackField
+    [] -> NoFieldUnpack
+
+dataConSourceLayout :: DataConDecl -> (DataConSourceForm, [(Maybe Text, BangType)], [Text])
+dataConSourceLayout declaration =
+  case declaration of
+    DataConAnn _ inner -> dataConSourceLayout inner
+    PrefixCon _ _ constructor fields ->
+      (PrefixDataCon, map (Nothing,) fields, [unqualifiedNameText constructor])
+    InfixCon _ _ left constructor right ->
+      (InfixDataCon, map (Nothing,) [left, right], [unqualifiedNameText constructor])
+    RecordCon _ _ constructor fields ->
+      (RecordDataCon, recordSourceFields fields, [unqualifiedNameText constructor])
+    TupleCon _ _ flavor fields ->
+      (PrefixDataCon, map (Nothing,) fields, [tupleConText flavor (length fields)])
+    UnboxedSumCon _ _ position arity field ->
+      (PrefixDataCon, [(Nothing, field)], [unboxedSumConText position arity])
+    ListCon {} ->
+      (PrefixDataCon, [], ["[]"])
+    GadtCon _ _ constructors body ->
+      let names = map unqualifiedNameText constructors
+       in case body of
+            GadtPrefixBody fields _ -> (PrefixDataCon, map ((Nothing,) . fst) fields, names)
+            GadtRecordBody fields _ -> (RecordDataCon, recordSourceFields fields, names)
+
+recordSourceFields :: [FieldDecl] -> [(Maybe Text, BangType)]
+recordSourceFields = concatMap $ \field ->
+  [(Just (unqualifiedNameText label), fieldType field) | label <- fieldNames field]
 
 -- | Type-check a declaration, returning binding results for value bindings.
 tcDecl :: Decl -> TcM [TcBindingResult]

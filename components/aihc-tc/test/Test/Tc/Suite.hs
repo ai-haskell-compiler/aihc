@@ -37,6 +37,7 @@ import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.Monad (emptyTcEnv, initTcState, runTcM)
 import Aihc.Tc.Types (mkTyCon)
 import Data.Data (Data, gmapQ)
+import Data.List (find)
 import Data.Maybe (isJust, mapMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Typeable (cast)
@@ -545,6 +546,65 @@ annotationTests =
       assertBool "derived dictionary type is exported downstream" (any ((== "$fCTa") . tbName) (tcModuleBindings result))
       assertBool "default-method evidence is checked in TC" (not (all (null . tcDerivingDefaultMethodEvidence) plans))
       assertBool "superclass evidence is checked in TC" (not (all (null . tcDerivingSuperClasses) plans)),
+    testCase "deriving plans consume checked datatype metadata across interfaces" $ do
+      let baseResult =
+            resolve
+              [ parseOnlyWithExtensions
+                  [ExistentialQuantification]
+                  "{-# LANGUAGE ExistentialQuantification #-}\n\
+                  \module Base (Marker, T(..)) where\n\
+                  \class Marker a where\n\
+                  \data T a\n\
+                  \  = Prefix a\n\
+                  \  | a :*: a\n\
+                  \  | Record { left, right :: {-# UNPACK #-} !a }\n\
+                  \  | forall b. Hidden b\n"
+              ]
+          dependencyExports = extractInterface baseResult
+      case baseResult of
+        ResolveResult {resolvedModules = baseModules, resolveErrors = []} -> do
+          let (checkedBase, interface) = typecheckModuleSccWithInterface mempty baseModules
+          assertBool ("provider should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedBase)) (all tcModuleSuccess checkedBase)
+          assertEqual
+            "interface serialization round-trip"
+            (show interface)
+            (show (read (show interface) :: TcInterface))
+          case find ((== "T") . dtiName) (tcInterfaceDataTypes interface) of
+            Nothing -> assertFailure "provider interface did not export datatype T"
+            Just dataType -> do
+              assertEqual "datatype flavor" DataTyCon (dtiFlavor dataType)
+              assertEqual
+                "constructor source forms"
+                [PrefixDataCon, InfixDataCon, RecordDataCon, PrefixDataCon]
+                (map dciSourceForm (dtiConstructors dataType))
+              case find ((== "Record") . dciName) (dtiConstructors dataType) of
+                Nothing -> assertFailure "record constructor metadata is missing"
+                Just recordInfo -> do
+                  assertEqual "grouped record field arity" 2 (length (dataConArgTypes recordInfo))
+                  assertEqual "grouped record labels expand to runtime fields" [Just "left", Just "right"] (map dcfiLabel (dciFields recordInfo))
+                  assertBool "record fields retain source strictness" (all dcfiStrict (dciFields recordInfo))
+                  assertBool "record fields retain source unpacking" (all ((== UnpackField) . dcfiUnpack) (dciFields recordInfo))
+              case find ((== "Hidden") . dciName) (dtiConstructors dataType) of
+                Nothing -> assertFailure "existential constructor metadata is missing"
+                Just hiddenInfo -> assertEqual "existential variables" 1 (length (dciExTyVars hiddenInfo))
+              let target =
+                    parseOnlyWithExtensions
+                      [DeriveAnyClass, DerivingStrategies, StandaloneDeriving]
+                      "{-# LANGUAGE DeriveAnyClass, DerivingStrategies, StandaloneDeriving #-}\n\
+                      \module Use where\n\
+                      \import Base\n\
+                      \deriving anyclass instance Marker (T a)\n"
+              case resolveWithDeps dependencyExports [target] of
+                ResolveResult {resolvedModules = targetModules, resolveErrors = []} -> do
+                  let (checkedTarget, _) = typecheckModuleSccWithInterface interface targetModules
+                  assertBool ("consumer should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedTarget)) (all tcModuleSuccess checkedTarget)
+                  case concatMap derivingPlans checkedTarget of
+                    [plan] -> assertEqual "imported constructor layout reaches deriving plan" (Just dataType) (tcDerivingDataType plan)
+                    plans -> assertFailure ("expected one imported deriving plan, got: " <> show plans)
+                ResolveResult {resolveErrors} ->
+                  assertFailure ("Resolve error in datatype-interface consumer: " <> show resolveErrors)
+        ResolveResult {resolveErrors} ->
+          assertFailure ("Resolve error in datatype-interface provider: " <> show resolveErrors),
     testCase "instance methods retain method-local constraints" $ do
       let result =
             typecheckModule $
