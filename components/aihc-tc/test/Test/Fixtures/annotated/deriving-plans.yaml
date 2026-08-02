@@ -17,7 +17,7 @@ annotated:
   data T a = T a
   │    │     └─ type: ∀ a. a → T a
   │    └─ type: * → *
-  └─ deriving plans: anyclass C (T a) [context: infer] [methods: c], anyclass HK T [context: infer], via Wrapper a D (T a) [context: infer]
+  └─ deriving plans: anyclass C (T a) [context: ()] [methods: c], anyclass HK T [context: ()], via Wrapper a D (T a) [context: infer]
     deriving anyclass C
     deriving anyclass HK
     deriving D via Wrapper a
@@ -28,13 +28,13 @@ annotated:
     deriving newtype C
   newtype PreferAnyclass a = PreferAnyclass a
   │       └─ type: * → *     └─ type: ∀ a. a → PreferAnyclass a
-  └─ deriving plans: anyclass C (PreferAnyclass a) [context: infer] [methods: c]
+  └─ deriving plans: anyclass C (PreferAnyclass a) [context: ()] [methods: c]
     deriving C
              └─ warning: both DeriveAnyClass and GeneralizedNewtypeDeriving are enabled; defaulting to anyclass for C
   data Default a = Default a
   │    │           └─ type: ∀ a. a → Default a
   │    └─ type: * → *
-  └─ deriving plans: anyclass C (Default a) [context: infer] [methods: c]
+  └─ deriving plans: anyclass C (Default a) [context: ()] [methods: c]
     deriving C
 extensions:
 - DeriveAnyClass

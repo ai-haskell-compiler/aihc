@@ -46,6 +46,7 @@ import Aihc.Parser.Syntax
   ( Decl (..),
     Expr (..),
     Pattern (..),
+    SourceSpan,
     Type (..),
     fromAnnotation,
     mkAnnotation,
@@ -141,7 +142,8 @@ data TcClassAnnotation = TcClassAnnotation
   { tcClassTyVars :: ![TyVarId],
     tcClassSuperClasses :: ![TcDictBinderAnnotation],
     tcClassMethods :: ![TcClassMethodAnnotation],
-    tcClassDefaultMethods :: ![Text]
+    tcClassDefaultMethods :: ![Text],
+    tcClassDefaultSignatures :: ![(Text, TcType)]
   }
   deriving (Eq, Show)
 
@@ -167,7 +169,8 @@ data TcDerivingContext
 -- the class layout needed by System FC lowering so downstream phases never
 -- need to reconstruct Haskell class information.
 data TcDerivingPlan = TcDerivingPlan
-  { tcDerivingStrategy :: !TcDerivingStrategy,
+  { tcDerivingSourceSpan :: !SourceSpan,
+    tcDerivingStrategy :: !TcDerivingStrategy,
     tcDerivingClassName :: !Text,
     tcDerivingDictName :: !Text,
     tcDerivingTyVars :: ![TyVarId],
@@ -176,7 +179,14 @@ data TcDerivingPlan = TcDerivingPlan
     tcDerivingClassTyVars :: ![TyVarId],
     tcDerivingClassSuperClasses :: ![TcDictBinderAnnotation],
     tcDerivingClassMethods :: ![TcClassMethodAnnotation],
-    tcDerivingDefaultMethods :: ![Text]
+    tcDerivingDefaultMethods :: ![Text],
+    tcDerivingDefaultSignatures :: ![(Text, [Pred])],
+    -- | Evidence for the instantiated superclass fields after context
+    -- inference. It remains empty while an attached context is unresolved.
+    tcDerivingSuperClasses :: ![(TcDictBinderAnnotation, EvTerm)],
+    -- | Evidence arguments required by each selected default method, excluding
+    -- the recursive dictionary for the derived instance itself.
+    tcDerivingDefaultMethodEvidence :: ![(Text, [EvTerm])]
   }
   deriving (Eq, Show)
 
@@ -280,7 +290,7 @@ renderTcType = go 0
             "∀ " ++ unwords (map (T.unpack . tvName) (tv : tvs)) ++ ". " ++ go 0 inner
     go p (TcQualTy preds body) =
       parenIf (p >= 1) $
-        "(" ++ unwords (map showPred preds) ++ ") ⇒ " ++ go 0 body
+        "(" ++ commaSep (map showPred preds) ++ ") ⇒ " ++ go 0 body
     go p (TcAppTy f a) =
       parenIf (p >= 2) $
         go 1 f ++ " " ++ go 2 a

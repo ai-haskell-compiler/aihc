@@ -9,6 +9,9 @@ module Aihc.Tc.Solve.Dict
   ( solveDict,
     solveDictWithGivens,
     DictResult (..),
+    constraintTypeToPred,
+    matchTypes,
+    substPred,
   )
 where
 

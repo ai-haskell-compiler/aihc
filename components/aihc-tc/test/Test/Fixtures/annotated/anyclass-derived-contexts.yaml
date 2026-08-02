@@ -1,0 +1,59 @@
+annotated:
+- |-
+  {-# LANGUAGE DefaultSignatures, DeriveAnyClass, DerivingStrategies #-}
+  module Main where
+  class Show a where
+  └─ class methods:
+  class C a where
+  └─ class methods: c ∷ ∀ a. (C a) ⇒ a → a
+    c :: a -> a
+    default c :: Show a => a -> a
+    c x = x
+    │ └─ type: a
+    └─ c ∷ ∀ a. (C a, Show a) ⇒ a → a
+  data T a = T a
+  │    │     └─ type: ∀ a. a → T a
+  │    └─ type: * → *
+  └─ deriving plans: anyclass C (T a) [context: Show a] [methods: c]
+    deriving anyclass C
+  instance Show a => Show (T a)
+  └─ $fShowTa ∷ ∀ a. (Show a) ⇒ Show (T a)
+  class Parent a where
+  └─ class methods:
+  class Parent a => Child a where
+  └─ class methods:
+  data S a = S a
+  │    │     └─ type: ∀ a. a → S a
+  │    └─ type: * → *
+  └─ deriving plans: anyclass Child (S a) [context: ()], anyclass Parent (S a) [context: ()]
+    deriving anyclass (Child, Parent)
+  data Missing = Missing
+  │    │         └─ type: Missing
+  │    └─ type: *
+  └─ deriving plans: anyclass Child Missing [context: infer]
+    deriving anyclass Child
+                      └─ error: unsolved constraint Parent Missing
+extensions:
+- DefaultSignatures
+- DeriveAnyClass
+- DerivingStrategies
+modules:
+- |
+  {-# LANGUAGE DefaultSignatures, DeriveAnyClass, DerivingStrategies #-}
+  module Main where
+  class Show a where
+  class C a where
+    c :: a -> a
+    default c :: Show a => a -> a
+    c x = x
+  data T a = T a
+    deriving anyclass C
+  instance Show a => Show (T a)
+  class Parent a where
+  class Parent a => Child a where
+  data S a = S a
+    deriving anyclass (Child, Parent)
+  data Missing = Missing
+    deriving anyclass Child
+reason: AnyClass contexts use checked default signatures and solve sibling derived superclasses as a declaration-order-independent batch
+status: pass
