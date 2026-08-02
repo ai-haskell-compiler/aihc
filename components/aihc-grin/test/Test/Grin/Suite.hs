@@ -231,6 +231,21 @@ grinUnitTests =
         assertBool "renames relocated roots" ("$gc" `isInfixOf` rendered)
         assertBool "uses unchecked stores" ("store-unchecked " `isInfixOf` rendered)
         assertBool "eliminates checked function stores" (not ("\n  store " `isInfixOf` rendered)),
+      testCase "GC lowering reserves boxed-array headers and relocates the initial element" $ do
+        cps <- expectCpsGrin gcArrayProgram
+        let gcProgram = gcGrinProgram (lowerGc cps)
+            reservations = concatMap (ensureHeapReservations . grinFunctionBody) (grinFunctions gcProgram)
+            rendered = renderProgram gcProgram
+        assertEqual "GC-GRIN lint" [] (lintProgram gcProgram)
+        assertBool "contains an array-header reservation" (not (null reservations))
+        assertBool "all array headers reserve three words" (all ((== 3) . fst) reservations)
+        forM_ (map snd reservations) $ \roots -> do
+          let rootNames = [grinVarName root | GrinVarValue root <- roots]
+          assertBool "the scalar size is not a root" ("size" `notElem` rootNames)
+          assertBool "array roots are pointer-represented" (all (isPointerRuntimeRep . grinValueRuntimeRep) roots)
+        assertBool "renames the relocated initial element" ("initial$gc" `isInfixOf` rendered)
+        assertBool "uses the unchecked array allocator" ("newArrayUnchecked#" `isInfixOf` rendered)
+        assertBool "eliminates the checked array allocator" (not ("primitive newArray#" `isInfixOf` rendered)),
       testCase "CPS-GRIN gives every computation entry a return continuation" $ do
         cps <- expectCpsGrin callBindProgram
         forM_ (Map.toList (cpsFunctionContinuations cps)) $ \(name, continuation) ->
@@ -1637,6 +1652,31 @@ gcRootProgram =
     root = GrinVar "root" 201 (BoxedRep Lifted)
     scalar = GrinVar "scalar" 202 IntRep
     result = GrinVar "result" 203 (BoxedRep Lifted)
+
+gcArrayProgram :: GrinProgram
+gcArrayProgram =
+  heapProgram
+    { grinPrimitives = [(arrayPrimitive, 2)],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "gc_array",
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [arraySize, initial],
+              grinFunctionResultRep = BoxedRep Unlifted,
+              grinFunctionBody =
+                GrinBind
+                  [array]
+                  (GrinPrimitiveCall (BoxedRep Unlifted) "newArray#" [GrinVarValue arraySize, GrinVarValue initial])
+                  (GrinConstant [GrinVarValue array])
+            }
+        ]
+    }
+  where
+    arrayPrimitive = GrinVar "newArray#" 210 (BoxedRep Unlifted)
+    arraySize = GrinVar "size" 211 IntRep
+    initial = GrinVar "initial" 212 (BoxedRep Lifted)
+    array = GrinVar "array" 213 (BoxedRep Unlifted)
 
 callBindProgram :: GrinProgram
 callBindProgram =

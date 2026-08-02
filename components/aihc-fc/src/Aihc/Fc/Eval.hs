@@ -53,6 +53,7 @@ data EvalError
   | EvalForeignLookupError Text Text
   | EvalInvalidIOResult Value
   | EvalBlackholedThunk
+  | EvalInvalidArrayIndex Text Integer Int
   | EvalInvalidByteArrayRange Text Integer Integer Int
   | EvalBlockedOnMVar Text
   | EvalRaisedException Value
@@ -64,6 +65,7 @@ data Value
   | VClosure Env Var FcExpr
   | VConstructor Text [Value]
   | VPrim Text Int [Value]
+  | VArray EvalArray
   | VByteArray EvalByteArray
   | VIOError Integer
   | VIOHandle EvalIOHandle
@@ -88,6 +90,14 @@ data EvalThunkState
   | ThunkEvaluating
 
 newtype EvalMutVar = EvalMutVar (IORef Value)
+
+newtype EvalArray = EvalArray (IORef [Value])
+
+instance Eq EvalArray where
+  EvalArray left == EvalArray right = left == right
+
+instance Show EvalArray where
+  show _ = "<array>"
 
 newtype EvalMVar = EvalMVar (IORef (Maybe Value))
 
@@ -260,7 +270,7 @@ evalWithEnv env expr =
     FcLet bind body ->
       extendBind env bind >>= \extended -> evalWithEnv extended body
     FcCase scrut _ alts -> do
-      value <- evalWithEnv env scrut
+      value <- evalWithEnv env scrut >>= forceValue
       matchAlternative env value alts
     FcCast inner _ ->
       evalWithEnv env inner
@@ -287,12 +297,12 @@ forceValue value =
     VThunk (EvalThunk ref) -> do
       state <- lift (readIORef ref)
       case state of
-        ThunkEvaluated result -> pure result
+        ThunkEvaluated result -> forceValue result
         ThunkEvaluating -> throwE EvalBlackholedThunk
         ThunkSuspended env expression -> do
           lift (writeIORef ref ThunkEvaluating)
           result <-
-            evalWithEnv env expression `catchE` \err -> do
+            (evalWithEnv env expression >>= forceValue) `catchE` \err -> do
               lift (writeIORef ref state)
               throwE err
           lift (writeIORef ref (ThunkEvaluated result))
@@ -444,6 +454,34 @@ evalPrimitive "sameMutVar#" [left, right] = do
   leftReference <- forceMutVarPrimitiveArg "sameMutVar#" left
   rightReference <- forceMutVarPrimitiveArg "sameMutVar#" right
   pure (intPrimitiveValue (if leftReference == rightReference then 1 else 0))
+evalPrimitive "newArray#" [size, initialValue, state] = do
+  count <- checkedArraySize "newArray#" =<< forceIntPrimitiveArg "newArray#" size
+  array <- EvalArray <$> lift (newIORef (replicate count initialValue))
+  pure (VConstructor "(#,#)" [state, VArray array])
+evalPrimitive "indexArray#" [arrayValue, indexValue] = do
+  array <- forceArrayPrimitiveArg "indexArray#" arrayValue
+  index <- forceIntPrimitiveArg "indexArray#" indexValue
+  readArrayElement "indexArray#" array index
+evalPrimitive "readArray#" [arrayValue, indexValue, state] = do
+  array <- forceArrayPrimitiveArg "readArray#" arrayValue
+  index <- forceIntPrimitiveArg "readArray#" indexValue
+  value <- readArrayElement "readArray#" array index
+  pure (VConstructor "(#,#)" [state, value])
+evalPrimitive "writeArray#" [arrayValue, indexValue, value, state] = do
+  array <- forceArrayPrimitiveArg "writeArray#" arrayValue
+  index <- forceIntPrimitiveArg "writeArray#" indexValue
+  writeArrayElement "writeArray#" array index value
+  pure state
+evalPrimitive "unsafeFreezeArray#" [arrayValue, state] = do
+  array <- forceArrayPrimitiveArg "unsafeFreezeArray#" arrayValue
+  pure (VConstructor "(#,#)" [state, VArray array])
+evalPrimitive "unsafeThawArray#" [arrayValue, state] = do
+  array <- forceArrayPrimitiveArg "unsafeThawArray#" arrayValue
+  pure (VConstructor "(#,#)" [state, VArray array])
+evalPrimitive "sameMutableArray#" [left, right] = do
+  leftArray <- forceArrayPrimitiveArg "sameMutableArray#" left
+  rightArray <- forceArrayPrimitiveArg "sameMutableArray#" right
+  pure (intPrimitiveValue (if leftArray == rightArray then 1 else 0))
 evalPrimitive "newByteArray#" [size, state] = do
   byteArray <- allocateByteArray "newByteArray#" False 8 =<< forceIntPrimitiveArg "newByteArray#" size
   pure (VConstructor "(#,#)" [state, VByteArray byteArray])
@@ -650,6 +688,46 @@ forceByteArrayPrimitiveArg name value = do
   case forced of
     VByteArray byteArray -> pure byteArray
     other -> throwE (EvalPrimitiveTypeError name other)
+
+checkedArraySize :: Text -> Integer -> EvalM Int
+checkedArraySize name size
+  | size < 0 || size > toInteger (maxBound :: Int) =
+      throwE (EvalInvalidArrayIndex name size 0)
+  | otherwise = pure (fromInteger size)
+
+forceArrayPrimitiveArg :: Text -> Value -> EvalM EvalArray
+forceArrayPrimitiveArg name value = do
+  forced <- forceValue value
+  case forced of
+    VArray array -> pure array
+    other -> throwE (EvalPrimitiveTypeError name other)
+
+readArrayElement :: Text -> EvalArray -> Integer -> EvalM Value
+readArrayElement name (EvalArray reference) index = do
+  values <- lift (readIORef reference)
+  case listElement index values of
+    Just value -> pure value
+    Nothing -> throwE (EvalInvalidArrayIndex name index (length values))
+
+writeArrayElement :: Text -> EvalArray -> Integer -> Value -> EvalM ()
+writeArrayElement name (EvalArray reference) index value = do
+  values <- lift (readIORef reference)
+  case replaceListElement index value values of
+    Just updated -> lift (writeIORef reference updated)
+    Nothing -> throwE (EvalInvalidArrayIndex name index (length values))
+
+listElement :: Integer -> [a] -> Maybe a
+listElement index _ | index < 0 = Nothing
+listElement _ [] = Nothing
+listElement 0 (value : _) = Just value
+listElement index (_ : values) = listElement (index - 1) values
+
+replaceListElement :: Integer -> a -> [a] -> Maybe [a]
+replaceListElement index _ _ | index < 0 = Nothing
+replaceListElement _ _ [] = Nothing
+replaceListElement 0 value (_ : values) = Just (value : values)
+replaceListElement index value (current : values) =
+  (current :) <$> replaceListElement (index - 1) value values
 
 forceMVarPrimitiveArg :: Text -> Value -> EvalM EvalMVar
 forceMVarPrimitiveArg name value = do
@@ -1076,6 +1154,7 @@ renderForcedValue value =
       pure (T.unwords (name : renderedArgs))
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
+    VArray {} -> pure "<array>"
     VIOError {} -> pure "<io-error>"
     VIOHandle {} -> pure "<io-handle>"
     VByteArray {} -> pure "<byte-array>"
@@ -1154,6 +1233,7 @@ renderRawValueM value = do
       pure (T.unwords (name : renderedArgs))
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
+    VArray {} -> pure "<array>"
     VIOError {} -> pure "<io-error>"
     VIOHandle {} -> pure "<io-handle>"
     VByteArray {} -> pure "<byte-array>"

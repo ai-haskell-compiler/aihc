@@ -215,6 +215,10 @@ supportedNativePrimitiveNames =
     "gtWord#",
     "geWord#",
     "realWorld#",
+    "newArray#",
+    "newArrayUnchecked#",
+    "unsafeFreezeArray#",
+    "unsafeThawArray#",
     "unsafeFreezeByteArray#",
     "unsafeThawByteArray#"
   ]
@@ -262,7 +266,11 @@ nativeRuntimePrimitiveCall name = lookup name nativeRuntimePrimitiveCalls
 
 nativeRuntimePrimitiveCalls :: [(Text, GrinForeignCall)]
 nativeRuntimePrimitiveCalls =
-  [ call "newByteArray#" "aihc_byte_array_new" [GrinForeignWord64] GrinForeignAddr,
+  [ call "indexArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "readArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "writeArray#" "aihc_array_write" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "sameMutableArray#" "aihc_array_same" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
+    call "newByteArray#" "aihc_byte_array_new" [GrinForeignWord64] GrinForeignAddr,
     call "newPinnedByteArray#" "aihc_byte_array_new_pinned" [GrinForeignWord64] GrinForeignAddr,
     call "newAlignedPinnedByteArray#" "aihc_byte_array_new_aligned_pinned" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
     call "isMutableByteArrayPinned#" "aihc_byte_array_is_pinned" [GrinForeignAddr] GrinForeignWord64,

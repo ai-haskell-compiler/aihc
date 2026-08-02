@@ -327,6 +327,10 @@ runtimeFunctionTypes =
     ("aihc_wasm_make_node", ([I32, I32], [I64])),
     ("aihc_wasm_make_node_unchecked", ([I32, I32], [I64])),
     ("aihc_ensure_heap", ([I32, I64, I64, I32], [])),
+    ("aihc_array_new_unchecked", ([I32, I64, I64], [I32])),
+    ("aihc_array_index", ([I32, I64], [I64])),
+    ("aihc_array_write", ([I32, I64, I64], [I64])),
+    ("aihc_array_same", ([I32, I32], [I64])),
     ("aihc_wasm_set_field", ([I64, I64, I64], [])),
     ("aihc_wasm_update", ([I64, I64], [])),
     ("aihc_wasm_update_blackhole", ([I32, I64, I64], [])),
@@ -574,7 +578,15 @@ compileDirectBinding env vars expression =
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["ord#", "chr#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> storeSingle (materializeValue env value)
+      | name `elem` ["ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> storeSingle (materializeValue env value)
+    GrinPrimitiveCall _ "newArrayUnchecked#" [size, initial] ->
+      storeSingle
+        ( machine
+            <> materializeValue env size
+            <> materializeValue env initial
+            <> call "aihc_array_new_unchecked"
+            <> ["i64.extend_i32_u"]
+        )
     GrinPrimitiveCall _ name arguments
       | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
           instructions <- compileForeignCall env foreignCall arguments

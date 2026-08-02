@@ -325,6 +325,19 @@ compileDirectBinding env vars expression =
     GrinFetch _ pointer -> liftEither (materializeValue env pointer) >>= storeSingleResult
     GrinUpdate pointer value -> compileUpdateBinding False "_aihc_update" pointer value
     GrinUpdateBlackhole pointer value -> compileUpdateBinding True "_aihc_update_blackhole" pointer value
+    GrinPrimitiveCall _ "newArrayUnchecked#" arguments@[_, _] -> do
+      (argumentLines, argumentSlots) <- materializeIntoFreshSlots env arguments
+      case argumentSlots of
+        [sizeSlot, initialSlot] ->
+          storeSingleResult
+            ( argumentLines
+                <> [ "  mov x0, x22",
+                     loadAt "x1" "x19" sizeSlot,
+                     loadAt "x2" "x19" initialSlot,
+                     "  bl _aihc_array_new_unchecked"
+                   ]
+            )
+        _ -> lift (Left (Arm64UnsupportedExpression "boxed-array allocation arity"))
     GrinPrimitiveCall _ name [left, right]
       | Just instructions <- lookup name singleResultBinaryPrimitives ->
           compileBinary storeSingleResult instructions left right
@@ -466,7 +479,7 @@ compileDirectBinding env vars expression =
     unaryPrimitives =
       ("not#", ["  mvn x0, x0"])
         : [ (name, [])
-          | name <- ["int2Word#", "word2Int#", "ord#", "chr#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
+          | name <- ["int2Word#", "word2Int#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
           ]
     binary instruction names =
       [(name, ["  " <> instruction <> " x0, x9, x0"]) | name <- names]

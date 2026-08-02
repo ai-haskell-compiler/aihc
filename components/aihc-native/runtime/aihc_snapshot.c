@@ -163,6 +163,14 @@ static void discover_object(SnapshotState *state, AihcValue *object) {
   case AIHC_OBJECT_INDIRECTION:
     discover_value(state, object->fields[0], AIHC_SNAPSHOT_POINTER);
     return;
+  case AIHC_OBJECT_ARRAY: {
+    uint64_t count = object->fields[0];
+    const AihcSlot *elements = (const AihcSlot *)(uintptr_t)object->fields[1];
+    for (uint64_t index = 0; index < count; ++index) {
+      discover_value(state, elements[index], AIHC_SNAPSHOT_POINTER);
+    }
+    return;
+  }
   case AIHC_OBJECT_BLACKHOLE:
   case AIHC_OBJECT_THREAD:
     return;
@@ -249,6 +257,19 @@ static void print_object(SnapshotState *state, const AihcValue *object) {
     fputs("Indirection ", stdout);
     print_value(state, object->fields[0], AIHC_SNAPSHOT_POINTER);
     return;
+  case AIHC_OBJECT_ARRAY: {
+    uint64_t count = object->fields[0];
+    const AihcSlot *elements = (const AihcSlot *)(uintptr_t)object->fields[1];
+    fputs("Array#[", stdout);
+    for (uint64_t index = 0; index < count; ++index) {
+      if (index != 0) {
+        fputs(", ", stdout);
+      }
+      print_value(state, elements[index], AIHC_SNAPSHOT_POINTER);
+    }
+    putchar(']');
+    return;
+  }
   case AIHC_OBJECT_BLACKHOLE:
     fputs("<blackhole>", stdout);
     return;

@@ -63,6 +63,12 @@ static void aihc_collect(AihcMachine *machine, uint64_t required_words,
     uint64_t count = info->field_count;
     if (kind == AIHC_OBJECT_INDIRECTION) {
       object->fields[0] = aihc_forward_root(object->fields[0], &context);
+    } else if (kind == AIHC_OBJECT_ARRAY) {
+      uint64_t length = aihc_array_length(object);
+      AihcSlot *elements = aihc_array_elements(object);
+      for (uint64_t index = 0; index < length; ++index) {
+        elements[index] = aihc_forward_root(elements[index], &context);
+      }
     } else if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
                kind == AIHC_OBJECT_THUNK ||
                kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR ||

@@ -12,6 +12,7 @@ module GHC.Prim
     addWordC#,
     and#,
     Addr#,
+    Array#,
     awaitIO#,
     ByteArray#,
     byteArrayContents#,
@@ -21,16 +22,19 @@ module GHC.Prim
     copyAddrToByteArray#,
     fork#,
     getSizeofMutableByteArray#,
+    indexArray#,
     indexWordArray#,
     int2Word#,
     chr#,
     isByteArrayPinned#,
     isMutableByteArrayPinned#,
     MVar#,
+    MutableArray#,
     MutableByteArray#,
     mutableByteArrayContents#,
     MutVar#,
     newAlignedPinnedByteArray#,
+    newArray#,
     newByteArray#,
     newMVar#,
     newMutVar#,
@@ -48,9 +52,11 @@ module GHC.Prim
     readWordArray#,
     realWorld#,
     readMVar#,
+    readArray#,
     readMutVar#,
     resizeMutableByteArray#,
     sameMutVar#,
+    sameMutableArray#,
     shrinkMutableByteArray#,
     sizeofByteArray#,
     subIntC#,
@@ -61,13 +67,16 @@ module GHC.Prim
     RealWorld,
     TYPE,
     unsafeFreezeByteArray#,
+    unsafeFreezeArray#,
     unsafeThawByteArray#,
+    unsafeThawArray#,
     putMVar#,
     uncheckedShiftL#,
     uncheckedShiftRL#,
     unsafeCoerce#,
     word2Int#,
     writeWordArray#,
+    writeArray#,
     writeMutVar#,
     xor#,
     clz#,
@@ -92,7 +101,11 @@ data State# s
 
 data Addr#
 
+data Array# a
+
 data ByteArray#
+
+data MutableArray# d a
 
 data MutableByteArray# d
 
@@ -201,6 +214,20 @@ foreign import prim readMutVar# :: MutVar# d a -> State# d -> (# State# d, a #)
 foreign import prim writeMutVar# :: MutVar# d a -> a -> State# d -> State# d
 
 foreign import prim sameMutVar# :: MutVar# d a -> MutVar# d a -> Int#
+
+foreign import prim newArray# :: Int# -> a -> State# d -> (# State# d, MutableArray# d a #)
+
+foreign import prim indexArray# :: Array# a -> Int# -> a
+
+foreign import prim readArray# :: MutableArray# d a -> Int# -> State# d -> (# State# d, a #)
+
+foreign import prim writeArray# :: MutableArray# d a -> Int# -> a -> State# d -> State# d
+
+foreign import prim unsafeFreezeArray# :: MutableArray# d a -> State# d -> (# State# d, Array# a #)
+
+foreign import prim unsafeThawArray# :: Array# a -> State# d -> (# State# d, MutableArray# d a #)
+
+foreign import prim sameMutableArray# :: MutableArray# d a -> MutableArray# d a -> Int#
 
 foreign import prim newByteArray# :: Int# -> State# d -> (# State# d, MutableByteArray# d #)
 

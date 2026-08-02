@@ -780,8 +780,22 @@ compileDirectBinding env vars expression =
       | Just instruction <- lookup name [("uncheckedShiftL#", "shl"), ("uncheckedShiftRL#", "lshr")] ->
           binaryPrimitive instruction value amount
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["int2Word#", "word2Int#", "ord#", "intToChar#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
+      | name `elem` ["int2Word#", "word2Int#", "ord#", "intToChar#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
           materializeValue env value >>= storeOne
+    GrinPrimitiveCall _ "newArrayUnchecked#" [size, initial] -> do
+      (lines', operands) <- materializeValues env [size, initial]
+      case operands of
+        [sizeOperand, initialOperand] -> do
+          resultPointer <- freshValue
+          result <- freshValue
+          storeOne
+            ( lines'
+                <> [ "  " <> resultPointer <> " = call ptr @aihc_array_new_unchecked(ptr %machine, i64 " <> sizeOperand <> ", i64 " <> initialOperand <> ")",
+                     "  " <> result <> " = ptrtoint ptr " <> resultPointer <> " to i64"
+                   ],
+              result
+            )
+        _ -> internalArity "boxed-array allocation"
     GrinPrimitiveCall IntRep "compareInt#" [left, right] -> do
       (lines', operands) <- materializeValues env [left, right]
       case operands of
@@ -1673,6 +1687,7 @@ renderRuntimeDeclarations =
     "declare ptr @aihc_make_node(ptr, ptr)",
     "declare ptr @aihc_make_node_unchecked(ptr, ptr)",
     "declare void @aihc_ensure_heap(ptr, i64, i64, ptr)",
+    "declare ptr @aihc_array_new_unchecked(ptr, i64, i64)",
     "declare void @aihc_set_field(ptr, i64, i64)",
     "declare void @aihc_update(ptr, ptr)",
     "declare void @aihc_update_blackhole(ptr, ptr, ptr)",

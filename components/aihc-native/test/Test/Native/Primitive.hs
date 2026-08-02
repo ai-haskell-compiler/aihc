@@ -30,14 +30,27 @@ tests =
                 (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           byteArrayRuntimeSymbols,
+      testCase "maps boxed-array primitives to the shared runtime ABI" $
+        mapM_
+          ( \(primitive, symbol) ->
+              assertEqual
+                ("runtime call for " <> show primitive)
+                (Just symbol)
+                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+          )
+          arrayRuntimeSymbols,
       testCase "keeps freeze and thaw representation-preserving" $
         mapM_
           (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
-          ["unsafeFreezeByteArray#", "unsafeThawByteArray#"],
+          ["unsafeFreezeByteArray#", "unsafeThawByteArray#", "unsafeFreezeArray#", "unsafeThawArray#"],
       testCase "accepts the complete byte-array API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           (map fst byteArrayRuntimeSymbols <> ["unsafeFreezeByteArray#", "unsafeThawByteArray#"]),
+      testCase "accepts the complete boxed-array API in native programs" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          (map fst arrayRuntimeSymbols <> ["newArray#", "newArrayUnchecked#", "unsafeFreezeArray#", "unsafeThawArray#"]),
       testCase "accepts the Integer arithmetic primitive API" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
@@ -75,6 +88,14 @@ byteArrayRuntimeSymbols =
     ("readWordArray#", "aihc_byte_array_read_word"),
     ("writeWordArray#", "aihc_byte_array_write_word"),
     ("copyByteArray#", "aihc_byte_array_copy")
+  ]
+
+arrayRuntimeSymbols :: [(Text, Text)]
+arrayRuntimeSymbols =
+  [ ("indexArray#", "aihc_array_index"),
+    ("readArray#", "aihc_array_index"),
+    ("writeArray#", "aihc_array_write"),
+    ("sameMutableArray#", "aihc_array_same")
   ]
 
 integerPrimitiveNames :: [Text]
