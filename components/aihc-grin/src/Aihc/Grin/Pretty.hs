@@ -98,7 +98,7 @@ renderExprIndented indentation expr =
     GrinEnsureHeap requiredWords roots ->
       indent indentation
         <> "ensure-heap "
-        <> show requiredWords
+        <> renderValue requiredWords
         <> renderValues roots
     GrinStoreUnchecked node -> indent indentation <> "store-unchecked " <> renderNode node
     GrinStoreRec bindings body ->

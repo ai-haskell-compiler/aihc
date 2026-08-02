@@ -25,8 +25,7 @@ static AihcValue *aihc_forward(AihcMachine *machine, uint8_t *from_start,
     return forwarded;
   }
 
-  const AihcInfo *info = aihc_value_info_table(value);
-  uint64_t words = aihc_object_words(info);
+  uint64_t words = aihc_value_words(value);
   size_t bytes = sizeof(AihcSlot) * words;
   if (machine->heap_next + bytes > machine->heap_limit) {
     aihc_fail("live data exceeds semispace");
@@ -63,6 +62,12 @@ static void aihc_collect(AihcMachine *machine, uint64_t required_words,
     uint64_t count = info->field_count;
     if (kind == AIHC_OBJECT_INDIRECTION) {
       object->fields[0] = aihc_forward_root(object->fields[0], &context);
+    } else if (kind == AIHC_OBJECT_ARRAY) {
+      uint64_t length = aihc_array_length(object);
+      AihcSlot *elements = aihc_array_elements(object);
+      for (uint64_t index = 0; index < length; ++index) {
+        elements[index] = aihc_forward_root(elements[index], &context);
+      }
     } else if (kind == AIHC_OBJECT_NODE || kind == AIHC_OBJECT_CLOSURE ||
                kind == AIHC_OBJECT_THUNK ||
                kind == AIHC_OBJECT_PARTIAL_CONSTRUCTOR ||
@@ -76,7 +81,7 @@ static void aihc_collect(AihcMachine *machine, uint64_t required_words,
     } else {
       aihc_fail("collector encountered an invalid object kind");
     }
-    scan += sizeof(AihcSlot) * aihc_object_words(info);
+    scan += sizeof(AihcSlot) * aihc_value_words(object);
   }
 
   machine->other_space = from_start;
@@ -98,15 +103,24 @@ void aihc_gc_init(AihcMachine *machine) {
 
 void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
                     AihcSlot *roots) {
+  if (words > SIZE_MAX / sizeof(AihcSlot)) {
+    aihc_fail("heap reservation is too large");
+  }
   size_t bytes = sizeof(AihcSlot) * words;
-  if (machine->heap_next + bytes > machine->heap_limit) {
+  if (bytes > machine->semispace_bytes) {
+    aihc_fail("heap reservation exceeds semispace");
+  }
+  if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_collect(machine, words, root_count, roots);
   }
 }
 
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
+  if (words > SIZE_MAX / sizeof(AihcSlot)) {
+    aihc_fail("heap allocation is too large");
+  }
   size_t bytes = sizeof(AihcSlot) * words;
-  if (machine->heap_next + bytes > machine->heap_limit) {
+  if (bytes > (size_t)(machine->heap_limit - machine->heap_next)) {
     aihc_fail("unchecked allocation exceeded reserved heap");
   }
   AihcValue *value = (AihcValue *)machine->heap_next;
