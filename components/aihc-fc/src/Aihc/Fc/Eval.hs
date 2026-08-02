@@ -14,9 +14,10 @@ where
 import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Syntax
-import Aihc.Tc.Types (RuntimeRep (..), TcType (..), TyCon (..))
+import Aihc.Tc.Types (RuntimeRep (..), TcType (..), TyCon (..), Unique)
+import Control.Applicative ((<|>))
 import Control.Exception (SomeException, displayException, try)
-import Control.Monad (zipWithM, (<=<), (>=>))
+import Control.Monad (forM, forM_, zipWithM, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Data.Bits (countLeadingZeros, countTrailingZeros, popCount, shiftL, shiftR, xor, (.&.), (.|.))
@@ -44,13 +45,14 @@ data EvalError
   = EvalUnboundVariable Text
   | EvalMissingBinding Text
   | EvalApplyNonFunction Value
-  | EvalNoMatchingAlternative Value
+  | EvalNoMatchingAlternative Value [FcAltCon]
   | EvalPrimitiveArity Text Int
   | EvalPrimitiveTypeError Text Value
   | EvalForeignArity Text Int Int
   | EvalForeignTypeError Text Value
   | EvalForeignLookupError Text Text
   | EvalInvalidIOResult Value
+  | EvalBlackholedThunk
   | EvalInvalidByteArrayRange Text Integer Integer Int
   | EvalBlockedOnMVar Text
   | EvalRaisedException Value
@@ -69,8 +71,21 @@ data Value
   | VMVar EvalMVar
   | VMutVar EvalMutVar
   | VStateToken
-  | VThunk Env FcExpr
+  | VThunk EvalThunk
   deriving (Eq, Show)
+
+newtype EvalThunk = EvalThunk (IORef EvalThunkState)
+
+instance Eq EvalThunk where
+  EvalThunk left == EvalThunk right = left == right
+
+instance Show EvalThunk where
+  show _ = "<thunk>"
+
+data EvalThunkState
+  = ThunkSuspended !Env !FcExpr
+  | ThunkEvaluated !Value
+  | ThunkEvaluating
 
 newtype EvalMutVar = EvalMutVar (IORef Value)
 
@@ -134,13 +149,43 @@ instance Eq EvalIORequest where
 instance Show EvalIORequest where
   show _ = "<io-request>"
 
-type Env = Map Text Value
+data Env = Env
+  { envLocals :: !(Map Unique Value),
+    envGlobals :: !(Map Text Value)
+  }
+  deriving (Eq, Show)
+
+emptyEnv :: Env
+emptyEnv = Env Map.empty Map.empty
+
+globalEnv :: [(Text, Value)] -> Env
+globalEnv = Env Map.empty . Map.fromList
+
+unionEnv :: Env -> Env -> Env
+unionEnv left right =
+  Env
+    { envLocals = envLocals left `Map.union` envLocals right,
+      envGlobals = envGlobals left `Map.union` envGlobals right
+    }
+
+lookupEnvVar :: Var -> Env -> Maybe Value
+lookupEnvVar var env =
+  Map.lookup (varUnique var) (envLocals env)
+    <|> Map.lookup (varName var) (envGlobals env)
+
+insertLocal :: Var -> Value -> Env -> Env
+insertLocal var value env =
+  env {envLocals = Map.insert (varUnique var) value (envLocals env)}
+
+localEnv :: [(Var, Value)] -> Env
+localEnv bindings = Env (Map.fromList [(varUnique var, value) | (var, value) <- bindings]) Map.empty
 
 type EvalM = ExceptT EvalError IO
 
 evalProgramBinding :: Text -> FcProgram -> IO (Either EvalError Value)
-evalProgramBinding name sourceProgram = runExceptT $
-  case Map.lookup name env of
+evalProgramBinding name sourceProgram = runExceptT $ do
+  env <- buildProgramEnv program
+  case Map.lookup name (envGlobals env) of
     Just value -> do
       forced <- forceValue value
       if name `Map.member` ioBindings
@@ -156,32 +201,37 @@ evalProgramBinding name sourceProgram = runExceptT $
           var <- bindersOf bind,
           isIOType (varType var)
         ]
-    env = primitiveTopEnv `Map.union` topEnv `Map.union` builtinConstructorEnv
-    primitiveTopEnv = Map.fromList (concatMap primitiveTopBindingValues (fcTopBinds program))
-    topEnv = Map.fromList (concatMap topBindingValues (fcTopBinds program))
-    primitiveTopBindingValues (FcPrimitive var arity) =
-      [(varName var, VPrim (varName var) arity [])]
-    primitiveTopBindingValues _ =
-      []
-    topBindingValues (FcTopBind (FcNonRec var expr)) =
-      [(varName var, VThunk env expr)]
-    topBindingValues (FcTopBind (FcRec bindings)) =
-      [(varName var, VThunk env expr) | (var, expr) <- bindings]
-    topBindingValues (FcData _ _ constructors) =
-      [(conName, VConstructor conName []) | (conName, _) <- constructors]
-    topBindingValues FcNewtype {} =
-      []
-    topBindingValues FcPrimitive {} =
-      []
-    topBindingValues FcForeignImport {} =
-      []
+
+buildProgramEnv :: FcProgram -> EvalM Env
+buildProgramEnv program = do
+  thunkBindings <- mapM allocateTopBinding valueBindings
+  let env = globalEnv (directBindings <> [(varName var, VThunk thunk) | (var, _, thunk) <- thunkBindings]) `unionEnv` builtinConstructorEnv
+  forM_ thunkBindings $ \(_, expression, EvalThunk ref) ->
+    lift (writeIORef ref (ThunkSuspended env expression))
+  pure env
+  where
+    topBinds = fcTopBinds program
+    valueBindings = concatMap topValueBindings topBinds
+    directBindings = concatMap directTopBindings topBinds
+
+    allocateTopBinding (var, expression) = do
+      ref <- lift (newIORef ThunkEvaluating)
+      pure (var, expression, EvalThunk ref)
+
+    topValueBindings (FcTopBind (FcNonRec var expression)) = [(var, expression)]
+    topValueBindings (FcTopBind (FcRec bindings)) = bindings
+    topValueBindings _ = []
+
+    directTopBindings (FcPrimitive var arity) = [(varName var, VPrim (varName var) arity [])]
+    directTopBindings (FcData _ _ constructors) = [(conName, VConstructor conName []) | (conName, _) <- constructors]
+    directTopBindings _ = []
 
 evalExpr :: FcExpr -> IO (Either EvalError Value)
 evalExpr = runExceptT . evalWithEnv builtinConstructorEnv
 
 builtinConstructorEnv :: Env
 builtinConstructorEnv =
-  Map.fromList
+  globalEnv
     [ ("C#", VConstructor "C#" []),
       ("[]", VConstructor "[]" []),
       (":", VConstructor ":" []),
@@ -192,14 +242,15 @@ evalWithEnv :: Env -> FcExpr -> EvalM Value
 evalWithEnv env expr =
   case expr of
     FcVar var ->
-      case Map.lookup (varName var) env of
+      case lookupEnvVar var env of
         Just value -> forceValue value
         Nothing -> throwE (EvalUnboundVariable (varName var))
     FcLit lit ->
       pure (VLit lit)
     FcApp fun arg -> do
       funValue <- evalWithEnv env fun
-      applyValue funValue (VThunk env arg)
+      argumentValue <- lazyArgument env arg
+      applyValue funValue argumentValue
     FcTyApp inner _ ->
       evalWithEnv env inner
     FcLam var body ->
@@ -207,7 +258,7 @@ evalWithEnv env expr =
     FcTyLam _ body ->
       evalWithEnv env body
     FcLet bind body ->
-      evalWithEnv (extendBind env bind) body
+      extendBind env bind >>= \extended -> evalWithEnv extended body
     FcCase scrut _ alts -> do
       value <- evalWithEnv env scrut
       matchAlternative env value alts
@@ -217,10 +268,35 @@ evalWithEnv env expr =
       values <- mapM (evalWithEnv env >=> forceValue) arguments
       executeForeignCall foreignCall values
 
+lazyArgument :: Env -> FcExpr -> EvalM Value
+lazyArgument env expression =
+  case expression of
+    FcVar var ->
+      case lookupEnvVar var env of
+        Just value -> pure value
+        Nothing -> throwE (EvalUnboundVariable (varName var))
+    _ -> VThunk <$> newThunk env expression
+
+newThunk :: Env -> FcExpr -> EvalM EvalThunk
+newThunk env expression =
+  EvalThunk <$> lift (newIORef (ThunkSuspended env expression))
+
 forceValue :: Value -> EvalM Value
 forceValue value =
   case value of
-    VThunk env expr -> evalWithEnv env expr
+    VThunk (EvalThunk ref) -> do
+      state <- lift (readIORef ref)
+      case state of
+        ThunkEvaluated result -> pure result
+        ThunkEvaluating -> throwE EvalBlackholedThunk
+        ThunkSuspended env expression -> do
+          lift (writeIORef ref ThunkEvaluating)
+          result <-
+            evalWithEnv env expression `catchE` \err -> do
+              lift (writeIORef ref state)
+              throwE err
+          lift (writeIORef ref (ThunkEvaluated result))
+          pure result
     VPrim name 0 [] -> evalPrimitive name []
     _ -> pure value
 
@@ -236,7 +312,7 @@ applyValue value arg = do
   forced <- forceValue value
   case forced of
     VClosure closureEnv var body ->
-      evalWithEnv (Map.insert (varName var) arg closureEnv) body
+      evalWithEnv (insertLocal var arg closureEnv) body
     VConstructor name args ->
       pure (VConstructor name (args <> [arg]))
     VPrim name arity args ->
@@ -923,39 +999,44 @@ forceCharPrimitiveArg name value = do
     VLit (LitChar _ charValue) -> pure charValue
     other -> throwE (EvalPrimitiveTypeError name other)
 
-extendBind :: Env -> FcBind -> Env
+extendBind :: Env -> FcBind -> EvalM Env
 extendBind env bind =
   case bind of
-    FcNonRec var expr ->
-      Map.insert (varName var) (VThunk env expr) env
-    FcRec bindings ->
-      recEnv
-      where
-        recEnv = foldr insertBinding env bindings
-        insertBinding (var, expr) = Map.insert (varName var) (VThunk recEnv expr)
+    FcNonRec var expr -> do
+      thunk <- newThunk env expr
+      pure (insertLocal var (VThunk thunk) env)
+    FcRec bindings -> do
+      allocated <- forM bindings $ \(var, expression) -> do
+        ref <- lift (newIORef ThunkEvaluating)
+        pure (var, expression, EvalThunk ref)
+      let recEnv = foldr (\(var, _, thunk) -> insertLocal var (VThunk thunk)) env allocated
+      forM_ allocated $ \(_, expression, EvalThunk ref) ->
+        lift (writeIORef ref (ThunkSuspended recEnv expression))
+      pure recEnv
 
 matchAlternative :: Env -> Value -> [FcAlt] -> EvalM Value
-matchAlternative env value =
-  go
+matchAlternative env value alternatives =
+  go alternatives
   where
-    go [] = throwE (EvalNoMatchingAlternative value)
+    expected = map altCon alternatives
+    go [] = throwE (EvalNoMatchingAlternative value expected)
     go (alt : rest) =
       case matchAlt value alt of
-        Just bindings -> evalWithEnv (bindings <> env) (altRhs alt)
+        Just bindings -> evalWithEnv (bindings `unionEnv` env) (altRhs alt)
         Nothing -> go rest
 
 matchAlt :: Value -> FcAlt -> Maybe Env
 matchAlt value alt =
   case (altCon alt, value) of
     (DefaultAlt, _) ->
-      Just (Map.fromList [(varName var, value) | var <- altBinders alt])
+      Just (localEnv [(var, value) | var <- altBinders alt])
     (LitAlt expected, VLit actual)
       | expected == actual ->
-          Just Map.empty
+          Just emptyEnv
     (DataAlt expected, VConstructor actual args)
       | expected == actual,
         length args == length (altBinders alt) ->
-          Just (Map.fromList (zipWith (\var arg -> (varName var, arg)) (altBinders alt) args))
+          Just (localEnv (zip (altBinders alt) args))
     _ ->
       Nothing
 

@@ -1,0 +1,54 @@
+dependencies:
+  - aihc-base
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int(I#))
+    import GHC.Read
+
+    fullyReads :: (Read a, Eq a) => a -> String -> Bool
+    fullyReads expected input =
+      case reads input of
+        [(actual, rest)] -> actual == expected && emptyString rest
+        _ -> False
+
+    emptyString :: String -> Bool
+    emptyString [] = True
+    emptyString (_ : _) = False
+
+    readsUnit :: String -> Bool
+    readsUnit input =
+      case (reads input :: [((), String)]) of
+        [(_, rest)] -> emptyString rest
+        _ -> False
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : values) = allTrue values
+    allTrue (False : _) = False
+
+    checks :: [Bool]
+    checks =
+      [ fullyReads False "False",
+        fullyReads True "((True))",
+        fullyReads (I# 42#) "42",
+        fullyReads (negate (I# 42#)) "-42",
+        fullyReads (255 :: Integer) "0xff",
+        fullyReads (10 :: Integer) "0b1010",
+        fullyReads (123456789 :: Integer) "123456789",
+        fullyReads (1 % 2 :: Rational) "1 % 2",
+        readsUnit "()",
+        fullyReads GT "GT",
+        fullyReads ('a' :: Char) "'a'",
+        fullyReads ('\n' :: Char) "'\\n'",
+        fullyReads ("a\n\"\\" :: String) "\"a\\n\\\"\\\\\""
+      ]
+output: |
+  True
+expression: |
+  allTrue checks
+status: pass
+reason: GHC.Read parses primitive values, numeric bases, escapes, and parentheses

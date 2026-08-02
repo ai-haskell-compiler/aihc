@@ -27,6 +27,7 @@ import Aihc.Parser.Syntax
     SourceSpan (..),
     TupleFlavor (..),
     Type,
+    UnqualifiedName,
     fromAnnotation,
     mkAnnotation,
   )
@@ -273,8 +274,25 @@ inferLambda sp pats body = do
   (body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferExpr body)
   remainingCts <- solvePatternBranch sp patCheck bodyTy bodyCts
   let funTy = foldr TcFunTy bodyTy argTys
-      pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
+      pats' = zipWith (annotateLambdaPattern (pcBindings patCheck)) argTys (pcPatterns patCheck)
   pure (ELambdaPats pats' body', funTy, remainingCts)
+
+annotateLambdaPattern :: [(UnqualifiedName, TcType)] -> TcType -> Pattern -> Pattern
+annotateLambdaPattern bindings argTy pat =
+  let annotated = annotatePatternBindings bindings pat
+   in if lambdaPatternCarriesBinderType annotated
+        then annotated
+        else PAnn (mkAnnotation (pendingAnnotation argTy [] [] [])) annotated
+
+lambdaPatternCarriesBinderType :: Pattern -> Bool
+lambdaPatternCarriesBinderType (PAnn _ inner) = lambdaPatternCarriesBinderType inner
+lambdaPatternCarriesBinderType PVar {} = True
+lambdaPatternCarriesBinderType (PParen inner) = lambdaPatternCarriesBinderType inner
+lambdaPatternCarriesBinderType PAs {} = True
+lambdaPatternCarriesBinderType (PStrict inner) = lambdaPatternCarriesBinderType inner
+lambdaPatternCarriesBinderType (PIrrefutable inner) = lambdaPatternCarriesBinderType inner
+lambdaPatternCarriesBinderType (PTypeSig inner _) = lambdaPatternCarriesBinderType inner
+lambdaPatternCarriesBinderType _ = False
 
 inferLambdaCase :: SourceSpan -> [CaseAlt Expr] -> TcM (Expr, TcType, [Ct])
 inferLambdaCase sp alts = do

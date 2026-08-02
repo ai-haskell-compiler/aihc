@@ -26,6 +26,9 @@ module Prelude
     Ratio,
     Real (..),
     RealFrac (..),
+    Read (..),
+    ReadPrec (..),
+    ReadS,
     Show (..),
     ShowS,
     String,
@@ -53,6 +56,22 @@ module Prelude
     showParen,
     shows,
     showString,
+    reads,
+    readParen,
+    lex,
+    Prec,
+    minPrec,
+    prec,
+    step,
+    reset,
+    get,
+    look,
+    (+++),
+    (<++),
+    pfail,
+    choice,
+    readPrec_to_S,
+    readS_to_Prec,
     realToFrac,
     (%),
     (^),
@@ -99,6 +118,214 @@ data List a = [] | a : [a]
 infixr 5 :
 
 type String = [Char]
+
+type ReadS a = String -> [(a, String)]
+
+type Prec = Int
+
+minPrec :: Prec
+minPrec = 0
+
+newtype ReadPrec a = ReadPrec (Prec -> ReadS a)
+
+instance Functor ReadPrec where
+  fmap f (ReadPrec parser) =
+    ReadPrec (\precedence input -> mapReadResults f (parser precedence input))
+
+instance Applicative ReadPrec where
+  pure value = ReadPrec (\_ input -> [(value, input)])
+
+  ReadPrec functionParser <*> ReadPrec valueParser =
+    ReadPrec
+      ( \precedence input ->
+          applyReadResults precedence valueParser (functionParser precedence input)
+      )
+
+instance Monad ReadPrec where
+  ReadPrec parser >>= next =
+    ReadPrec
+      ( \precedence input ->
+          bindReadResults precedence next (parser precedence input)
+      )
+
+  ReadPrec first >> ReadPrec second =
+    ReadPrec
+      ( \precedence input ->
+          thenReadResults precedence second (first precedence input)
+      )
+
+  return = pure
+
+mapReadResults :: (a -> b) -> [(a, String)] -> [(b, String)]
+mapReadResults _ [] = []
+mapReadResults f ((value, rest) : results) = (f value, rest) : mapReadResults f results
+
+applyReadResults :: Prec -> (Prec -> ReadS a) -> [(a -> b, String)] -> [(b, String)]
+applyReadResults _ _ [] = []
+applyReadResults precedence parser ((f, rest) : results) =
+  mapReadResults f (parser precedence rest) ++ applyReadResults precedence parser results
+
+bindReadResults :: Prec -> (a -> ReadPrec b) -> [(a, String)] -> [(b, String)]
+bindReadResults _ _ [] = []
+bindReadResults precedence next ((value, rest) : results) =
+  runReadPrec (next value) precedence rest ++ bindReadResults precedence next results
+
+thenReadResults :: Prec -> (Prec -> ReadS b) -> [(a, String)] -> [(b, String)]
+thenReadResults _ _ [] = []
+thenReadResults precedence parser ((_, rest) : results) =
+  parser precedence rest ++ thenReadResults precedence parser results
+
+runReadPrec :: ReadPrec a -> Prec -> ReadS a
+runReadPrec (ReadPrec parser) = parser
+
+readPrec_to_S :: ReadPrec a -> Prec -> ReadS a
+readPrec_to_S = runReadPrec
+
+readS_to_Prec :: (Prec -> ReadS a) -> ReadPrec a
+readS_to_Prec = ReadPrec
+
+prec :: Prec -> ReadPrec a -> ReadPrec a
+prec required parser =
+  ReadPrec
+    ( \context input ->
+        case context <= required of
+          True -> runReadPrec parser required input
+          False -> []
+    )
+
+step :: ReadPrec a -> ReadPrec a
+step parser = ReadPrec (\context -> runReadPrec parser (context + 1))
+
+reset :: ReadPrec a -> ReadPrec a
+reset parser = ReadPrec (\_ -> runReadPrec parser minPrec)
+
+get :: ReadPrec Char
+get =
+  ReadPrec
+    ( \_ input ->
+        case input of
+          [] -> []
+          char : rest -> [(char, rest)]
+    )
+
+look :: ReadPrec String
+look = ReadPrec (\_ input -> [(input, input)])
+
+(+++) :: ReadPrec a -> ReadPrec a -> ReadPrec a
+ReadPrec left +++ ReadPrec right =
+  ReadPrec (\precedence input -> left precedence input ++ right precedence input)
+
+infixr 5 +++
+
+(<++) :: ReadPrec a -> ReadPrec a -> ReadPrec a
+ReadPrec left <++ ReadPrec right =
+  ReadPrec
+    ( \precedence input ->
+        case left precedence input of
+          [] -> right precedence input
+          results -> results
+    )
+
+infixr 5 <++
+
+pfail :: ReadPrec a
+pfail = ReadPrec (\_ _ -> [])
+
+choice :: [ReadPrec a] -> ReadPrec a
+choice = foldrRead (+++) pfail
+
+foldrRead :: (a -> b -> b) -> b -> [a] -> b
+foldrRead _ initial [] = initial
+foldrRead combine initial (value : values) = combine value (foldrRead combine initial values)
+
+class Read a where
+  readsPrec :: Int -> ReadS a
+  readList :: ReadS [a]
+  readPrec :: ReadPrec a
+  readListPrec :: ReadPrec [a]
+
+  readsPrec = readPrec_to_S readPrec
+  readList = readPrec_to_S readListPrec minPrec
+  readPrec = readS_to_Prec readsPrec
+  readListPrec = readS_to_Prec defaultReadListParser
+
+defaultReadListParser :: (Read a) => Prec -> ReadS [a]
+defaultReadListParser _ = readList
+
+reads :: (Read a) => ReadS a
+reads = readsPrec minPrec
+
+readParen :: Bool -> ReadS a -> ReadS a
+readParen required parser =
+  case required of
+    True -> mandatory
+    False -> optional
+  where
+    optional input = parser input ++ mandatory input
+    mandatory input = bindPreludeReadS (matchPreludeLexeme "(" input) afterOpen
+    afterOpen _ input = bindPreludeReadS (optional input) afterValue
+    afterValue value input = bindPreludeReadS (matchPreludeLexeme ")" input) (afterClose value)
+    afterClose value _ rest = [(value, rest)]
+
+bindPreludeReadS :: [(a, String)] -> (a -> String -> [(b, String)]) -> [(b, String)]
+bindPreludeReadS [] _ = []
+bindPreludeReadS ((value, rest) : results) next =
+  next value rest ++ bindPreludeReadS results next
+
+matchPreludeLexeme :: String -> ReadS String
+matchPreludeLexeme expected input =
+  case lex input of
+    (actual, rest) : _ ->
+      case actual == expected of
+        True -> [(actual, rest)]
+        False -> []
+    _ -> []
+
+lex :: ReadS String
+lex input =
+  case skipPreludeReadSpaces input of
+    [] -> [([], [])]
+    char : rest ->
+      case isPreludeReadPunctuation char of
+        True -> [([char], rest)]
+        False ->
+          case takePreludeReadToken (char : rest) of
+            (token, remaining) -> [(token, remaining)]
+
+skipPreludeReadSpaces :: String -> String
+skipPreludeReadSpaces [] = []
+skipPreludeReadSpaces (' ' : rest) = skipPreludeReadSpaces rest
+skipPreludeReadSpaces ('\t' : rest) = skipPreludeReadSpaces rest
+skipPreludeReadSpaces ('\n' : rest) = skipPreludeReadSpaces rest
+skipPreludeReadSpaces ('\r' : rest) = skipPreludeReadSpaces rest
+skipPreludeReadSpaces input = input
+
+takePreludeReadToken :: String -> (String, String)
+takePreludeReadToken [] = ([], [])
+takePreludeReadToken input@(char : rest) =
+  case isPreludeReadDelimiter char of
+    True -> ([], input)
+    False ->
+      case takePreludeReadToken rest of
+        (token, remaining) -> (char : token, remaining)
+
+isPreludeReadDelimiter :: Char -> Bool
+isPreludeReadDelimiter ' ' = True
+isPreludeReadDelimiter '\t' = True
+isPreludeReadDelimiter '\n' = True
+isPreludeReadDelimiter '\r' = True
+isPreludeReadDelimiter char = isPreludeReadPunctuation char
+
+isPreludeReadPunctuation :: Char -> Bool
+isPreludeReadPunctuation '(' = True
+isPreludeReadPunctuation ')' = True
+isPreludeReadPunctuation '[' = True
+isPreludeReadPunctuation ']' = True
+isPreludeReadPunctuation '{' = True
+isPreludeReadPunctuation '}' = True
+isPreludeReadPunctuation ',' = True
+isPreludeReadPunctuation ';' = True
+isPreludeReadPunctuation _ = False
 
 id :: a -> a
 id x = x
@@ -368,9 +595,12 @@ showLitCode char code =
       case (==#) code 127# of
         1# -> showString "\\DEL"
         _ ->
-          case (<#) code 160# of
-            1# -> showNumericEscape code
-            _ -> showChar char
+          case (<#) code 128# of
+            1# -> showChar char
+            _ ->
+              case (<#) code 160# of
+                1# -> showNumericEscape code
+                _ -> showChar char
 
 asciiControlName :: Int# -> String
 asciiControlName code =
