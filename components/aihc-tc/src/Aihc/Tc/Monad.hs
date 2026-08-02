@@ -47,6 +47,9 @@ module Aihc.Tc.Monad
     lookupTyCon,
     extendTyConEnvPermanent,
     getTyConEnv,
+    addDataType,
+    getDataTypes,
+    lookupDataType,
     localTcOptions,
     tcMonoLocalBinds,
     tcMonomorphismRestriction,
@@ -75,7 +78,7 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo, InstanceInfo, TyConInfo)
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo, DataTypeInfo (..), InstanceInfo, TyConInfo)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -183,6 +186,8 @@ data TcState = TcState
     tcsGlobalTerms :: !(Map Text TcBinder),
     -- | Global type constructors accumulated by top-level declarations.
     tcsGlobalTyCons :: !(Map Text TyConInfo),
+    -- | Checked constructor layouts for data and newtype declarations.
+    tcsDataTypes :: !(Map Text DataTypeInfo),
     -- | Type classes in scope, including their superclass layouts and defaults.
     tcsClasses :: !(Map Text ClassInfo),
     -- | Class instances in scope.
@@ -205,6 +210,7 @@ initTcState =
       tcsDiagnostics = [],
       tcsGlobalTerms = builtinTerms,
       tcsGlobalTyCons = Map.empty,
+      tcsDataTypes = Map.empty,
       tcsClasses = Map.empty,
       tcsInstances = [],
       tcsDataFamilyInstances = [],
@@ -374,6 +380,16 @@ getTyConEnv = lift $ gets tcsGlobalTyCons
 extendTyConEnvPermanent :: Text -> TyConInfo -> TcM ()
 extendTyConEnvPermanent name info = lift $ modify' $ \s ->
   s {tcsGlobalTyCons = Map.insert name info (tcsGlobalTyCons s)}
+
+addDataType :: DataTypeInfo -> TcM ()
+addDataType info = lift $ modify' $ \state ->
+  state {tcsDataTypes = Map.insert (dtiName info) info (tcsDataTypes state)}
+
+getDataTypes :: TcM [DataTypeInfo]
+getDataTypes = lift $ gets (Map.elems . tcsDataTypes)
+
+lookupDataType :: Text -> TcM (Maybe DataTypeInfo)
+lookupDataType name = lift $ gets (Map.lookup name . tcsDataTypes)
 
 addInstance :: InstanceInfo -> TcM ()
 addInstance instanceInfo = lift $ modify' $ \s ->

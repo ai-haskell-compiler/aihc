@@ -17,6 +17,7 @@ where
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( DataConDecl (..),
+    FieldDecl (..),
     Name (..),
     NumericType (..),
     Pattern (..),
@@ -98,7 +99,7 @@ dsDataConPure (PrefixCon _docs _ctx conName args) =
 dsDataConPure (InfixCon _docs _ctx _lhs conName _rhs) =
   (unqualifiedNameText conName, 2)
 dsDataConPure (RecordCon _docs _ctx conName fields) =
-  (unqualifiedNameText conName, length fields)
+  (unqualifiedNameText conName, sum (map (length . fieldNames) fields))
 dsDataConPure (GadtCon {}) = ("<gadt>", 0)
 dsDataConPure (TupleCon _docs _ctx flavor fields) =
   (tupleConText flavor (length fields), length fields)

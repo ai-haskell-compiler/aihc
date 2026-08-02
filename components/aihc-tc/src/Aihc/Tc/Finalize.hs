@@ -22,7 +22,7 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
   )
-import Aihc.Tc.Env (DataFamilyInstanceInfo (..))
+import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types (Pred (..), TcType (..), Unique (..))
@@ -174,6 +174,7 @@ firstMetaDerivingPlan :: TcDerivingPlan -> Maybe Unique
 firstMetaDerivingPlan plan =
   firstJusts
     ( map firstMetaType (tcDerivingHeadTypes plan)
+        ++ maybe [] (map firstMetaDataConInfo . dtiConstructors) (tcDerivingDataType plan)
         ++ map firstMetaClassMethodAnnotation (tcDerivingClassMethods plan)
         ++ map firstMetaDictBinderAnnotation (tcDerivingClassSuperClasses plan)
         ++ concatMap (map firstMetaPred . snd) (tcDerivingDefaultSignatures plan)
@@ -219,6 +220,14 @@ firstMetaInstanceMethodAnnotation ann =
 firstMetaDataFamilyInstance :: DataFamilyInstanceInfo -> Maybe Unique
 firstMetaDataFamilyInstance info =
   firstMetaType (dfiiFamilyType info)
+
+firstMetaDataConInfo :: DataConInfo -> Maybe Unique
+firstMetaDataConInfo info =
+  firstJusts
+    ( map firstMetaPred (dciTheta info)
+        ++ map (firstMetaType . dcfiType) (dciFields info)
+        ++ [firstMetaType (dciResTy info)]
+    )
 
 firstMetaEvTerm :: EvTerm -> Maybe Unique
 firstMetaEvTerm evTerm =

@@ -51,6 +51,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
+import Aihc.Tc.Env (DataTypeInfo)
 import Aihc.Tc.Evidence (EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName)
 import Data.Text (Text)
@@ -175,6 +176,9 @@ data TcDerivingPlan = TcDerivingPlan
     tcDerivingDictName :: !Text,
     tcDerivingTyVars :: ![TyVarId],
     tcDerivingHeadTypes :: ![TcType],
+    -- | Checked constructor layout of the final instance-head type, when the
+    -- target is a data or newtype constructor known to this compilation.
+    tcDerivingDataType :: !(Maybe DataTypeInfo),
     tcDerivingContext :: !TcDerivingContext,
     tcDerivingClassTyVars :: ![TyVarId],
     tcDerivingClassSuperClasses :: ![TcDictBinderAnnotation],
