@@ -1466,6 +1466,7 @@ patternBinderTypesM pat scrutTy =
     PCon name _ subPats -> do
       fallbackTys <- constructorFieldTypesM name (length subPats)
       zipWithM patternFieldTypeM subPats fallbackTys
+    PTuple _ [] -> pure []
     PTuple _ subPats -> tupleFieldTypesM (length subPats) scrutTy
     PVar {} -> pure [scrutTy]
     PAnn _ inner -> patternBinderTypesM inner scrutTy

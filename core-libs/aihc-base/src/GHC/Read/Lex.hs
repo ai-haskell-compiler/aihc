@@ -89,7 +89,7 @@ lexTokenWithSpelling input =
     '\'' : rest -> lexCharacterToken rest
     '"' : rest -> lexStringToken rest
     char : rest ->
-      case isPunctuation char of
+      case isLexPunctuation char of
         True -> [([char], Punc [char], rest)]
         False ->
           case isIdentifierStart char of
@@ -200,17 +200,17 @@ isReadSpace '\f' = True
 isReadSpace '\v' = True
 isReadSpace _ = False
 
-isPunctuation :: Char -> Bool
-isPunctuation ',' = True
-isPunctuation ';' = True
-isPunctuation '(' = True
-isPunctuation ')' = True
-isPunctuation '[' = True
-isPunctuation ']' = True
-isPunctuation '{' = True
-isPunctuation '}' = True
-isPunctuation '`' = True
-isPunctuation _ = False
+isLexPunctuation :: Char -> Bool
+isLexPunctuation ',' = True
+isLexPunctuation ';' = True
+isLexPunctuation '(' = True
+isLexPunctuation ')' = True
+isLexPunctuation '[' = True
+isLexPunctuation ']' = True
+isLexPunctuation '{' = True
+isLexPunctuation '}' = True
+isLexPunctuation '`' = True
+isLexPunctuation _ = False
 
 isIdentifierStart :: Char -> Bool
 isIdentifierStart char = isAsciiLetter char || charEqual char '_'

@@ -1,0 +1,17 @@
+dependencies:
+  - aihc-base
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Result a = Result a
+
+    containsUnit :: Result () -> Bool
+    containsUnit (Result ()) = True
+output: |
+  True
+expression: |
+  containsUnit (Result ())
+status: pass
+reason: nested unit patterns require no tuple field type information
