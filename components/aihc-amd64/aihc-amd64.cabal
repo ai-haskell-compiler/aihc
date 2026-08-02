@@ -68,5 +68,9 @@ test-suite spec
     unix,
     yaml,
 
-  ghc-options: -Wall
+  ghc-options:
+    -Wall
+    -rtsopts
+    -with-rtsopts=-M10G
+
   default-language: GHC2021

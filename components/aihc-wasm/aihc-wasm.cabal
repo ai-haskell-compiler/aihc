@@ -64,5 +64,9 @@ test-suite spec
     tasty-quickcheck,
     text,
 
-  ghc-options: -Wall
+  ghc-options:
+    -Wall
+    -rtsopts
+    -with-rtsopts=-M10G
+
   default-language: GHC2021

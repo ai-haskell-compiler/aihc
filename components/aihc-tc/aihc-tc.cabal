@@ -115,6 +115,6 @@ test-suite spec
     -Wall
     -threaded
     -rtsopts
-    -with-rtsopts=-N
+    "-with-rtsopts=-N -M10G"
 
   default-language: GHC2021

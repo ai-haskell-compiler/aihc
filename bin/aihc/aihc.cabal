@@ -64,7 +64,7 @@ executable aihc
     -Wall
     -threaded
     -rtsopts
-    -with-rtsopts=-N
+    "-with-rtsopts=-N -M10G"
 
   default-language: GHC2021
 
@@ -94,5 +94,9 @@ test-suite spec
     text,
     time,
 
-  ghc-options: -Wall
+  ghc-options:
+    -Wall
+    -rtsopts
+    -with-rtsopts=-M10G
+
   default-language: GHC2021

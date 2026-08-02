@@ -159,5 +159,9 @@ test-suite spec
     time,
     yaml >=0.11 && <0.12,
 
-  ghc-options: -Wall
+  ghc-options:
+    -Wall
+    -rtsopts
+    -with-rtsopts=-M10G
+
   default-language: GHC2021
