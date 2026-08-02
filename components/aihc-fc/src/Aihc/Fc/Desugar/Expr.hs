@@ -25,7 +25,7 @@ module Aihc.Fc.Desugar.Expr
 where
 
 import Aihc.Fc.Desugar.Match (dsPatternPure, numericRuntimeRep)
-import Aihc.Fc.Pseudo (seqPseudoOpName)
+import Aihc.Fc.Lower (seqPseudoOpName)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax

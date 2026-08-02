@@ -11,8 +11,8 @@ module Aihc.Fc.Eval
   )
 where
 
+import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
-import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Types (RuntimeRep (..), TcType (..), TyCon (..), Unique)
 import Control.Applicative ((<|>))
@@ -193,7 +193,7 @@ evalProgramBinding name sourceProgram = runExceptT $ do
         else pure forced
     Nothing -> throwE (EvalMissingBinding name)
   where
-    program = optimizeProgram (lowerNewtypes sourceProgram)
+    program = lowerPseudoOps (lowerNewtypes sourceProgram)
     ioBindings =
       Map.fromList
         [ (varName var, ())

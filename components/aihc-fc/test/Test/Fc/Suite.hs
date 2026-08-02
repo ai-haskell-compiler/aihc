@@ -5,6 +5,7 @@ module Test.Fc.Suite
   ( fcGoldenTests,
     fcEvalTests,
     fcEvalFixtureTests,
+    fcLoweringTests,
     fcOptimizationTests,
   )
 where
@@ -87,10 +88,10 @@ fcEvalTests =
         assertEqual "high and low words" (Right (Right "(1,18446744073709551614)")) actual
     ]
 
-fcOptimizationTests :: TestTree
-fcOptimizationTests =
+fcLoweringTests :: TestTree
+fcLoweringTests =
   testGroup
-    "FC optimizations"
+    "FC compulsory lowering"
     [ testCase "expands saturated seq to a case on its first argument" $ do
         let boolTy = ty "Bool"
             first = Var "first" (Unique 1) stringTy
@@ -104,7 +105,7 @@ fcOptimizationTests =
                 ]
             caseBinder = Var "$seq_whnf" (Unique 5) stringTy
             expected = FcProgram [FcTopBind (FcNonRec result (Aihc.Fc.FcCase (FcVar first) caseBinder [FcAlt DefaultAlt [] (FcVar second)]))]
-        assertEqual "expanded program" expected (optimizeProgram source),
+        assertEqual "lowered program" expected (lowerPseudoOps source),
       testCase "expands partially applied seq to an explicit lambda" $ do
         let boolTy = ty "Bool"
             first = Var "first" (Unique 1) stringTy
@@ -114,7 +115,25 @@ fcOptimizationTests =
             caseBinder = Var "$seq_whnf" (Unique 5) stringTy
             source = FcProgram [FcTopBind (FcNonRec result (FcApp (FcVar seqVar) (FcVar first)))]
             expected = FcProgram [FcTopBind (FcNonRec result (FcLam second (Aihc.Fc.FcCase (FcVar first) caseBinder [FcAlt DefaultAlt [] (FcVar second)])))]
-        assertEqual "expanded program" expected (optimizeProgram source),
+        assertEqual "lowered program" expected (lowerPseudoOps source)
+    ]
+
+fcOptimizationTests :: TestTree
+fcOptimizationTests =
+  testGroup
+    "FC optional optimizations"
+    [ testCase "does not perform compulsory pseudo-op lowering" $ do
+        let boolTy = ty "Bool"
+            first = Var "first" (Unique 1) stringTy
+            second = Var "second" (Unique 2) boolTy
+            seqVar = Var "$aihc.seq" (Unique 3) (TcFunTy stringTy (TcFunTy boolTy boolTy))
+            result = Var "result" (Unique 4) boolTy
+            source =
+              FcProgram
+                [ FcTopBind
+                    (FcNonRec result (FcApp (FcApp (FcVar seqVar) (FcVar first)) (FcVar second)))
+                ]
+        assertEqual "optimization leaves pseudo-op intact" source (optimizeProgram source),
       testCase "copy propagates simple non-recursive lets" $ do
         let value = Var "value" (Unique 1) stringTy
             alias = Var "alias" (Unique 2) stringTy

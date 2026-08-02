@@ -1,15 +1,15 @@
--- | Small, monotone System FC simplifications.
+-- | Optional, monotone System FC simplifications.
 --
 -- Every optimization in this module must strictly simplify the Core program:
 -- rules may remove structure, but must not trade one form for another form of
 -- equal complexity. This makes it safe to run the complete rule set to a
 -- fixpoint and keeps interactions between independent rules predictable.
+-- Compiler correctness must never depend on running this module.
 module Aihc.Fc.Optimize
   ( optimizeProgram,
   )
 where
 
-import Aihc.Fc.Pseudo (expandPseudoOps)
 import Aihc.Fc.Syntax
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -17,7 +17,8 @@ import Data.Map.Strict qualified as Map
 
 type CoreOptimization = FcProgram -> FcProgram
 
--- | Apply every Core simplification until a complete pass makes no change.
+-- | Optionally apply every Core simplification until a complete pass makes no
+-- change.
 optimizeProgram :: FcProgram -> FcProgram
 optimizeProgram = untilStable runOptimizations
   where
@@ -26,7 +27,7 @@ optimizeProgram = untilStable runOptimizations
 -- Keep this list ordered from local canonicalizations to broader rewrites so
 -- later rules see the simplest output available from earlier rules.
 coreOptimizations :: [CoreOptimization]
-coreOptimizations = [expandPseudoOps, copyPropagateProgram]
+coreOptimizations = [copyPropagateProgram]
 
 untilStable :: (Eq value) => (value -> value) -> value -> value
 untilStable transform input =

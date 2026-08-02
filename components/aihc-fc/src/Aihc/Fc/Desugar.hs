@@ -17,8 +17,8 @@ import Aihc.Fc.Desugar.Deriving (dsDerivingPlans, moduleDerivingPlans)
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, peelForAlls, peelQuals, predType)
 import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupType, withDicts)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
+import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
-import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Subst (freeRigidTyVars, substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseSignatureType)
@@ -87,7 +87,8 @@ data DesugarResult = DesugarResult
   }
   deriving (Show)
 
--- | Desugar a module: parse, typecheck, then translate to Core.
+-- | Desugar a module: parse, typecheck, then translate to compulsorily lowered
+-- but deliberately unoptimized Core.
 desugarModule :: Module -> DesugarResult
 desugarModule m =
   case resolve [m] of
@@ -127,7 +128,7 @@ desugarModuleWithBindings bindings tcResult _m =
                 }
             Right (binds, _) ->
               DesugarResult
-                { dsProgram = optimizeProgram (lowerConstraintProgram (lowerNewtypes (FcProgram binds))),
+                { dsProgram = lowerPseudoOps (lowerConstraintProgram (lowerNewtypes (FcProgram binds))),
                   dsSuccess = True,
                   dsErrors = []
                 }

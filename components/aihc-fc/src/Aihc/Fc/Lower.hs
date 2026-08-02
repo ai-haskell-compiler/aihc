@@ -1,10 +1,10 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Compulsory unfoldings for primitive-looking operations whose semantics
--- are ordinary System FC control flow rather than runtime primitive calls.
-module Aihc.Fc.Pseudo
-  ( expandPseudoOps,
+-- | Compulsory System FC lowering that establishes forms required by every
+-- evaluator and backend, independently of optional optimization.
+module Aihc.Fc.Lower
+  ( lowerPseudoOps,
     seqPseudoOpName,
   )
 where
@@ -21,17 +21,17 @@ import Data.Text (Text)
 seqPseudoOpName :: Text
 seqPseudoOpName = "$aihc.seq"
 
--- | Expand every occurrence of a pseudo-op. In particular, @seq@ must be
--- gone before FC reaches evaluation or GRIN lowering: its second argument may
--- be unlifted, so representing a saturated call as an ordinary function call
--- could evaluate that argument before the first one.
-expandPseudoOps :: FcProgram -> FcProgram
-expandPseudoOps program = evalState (expandProgram program) (nextUnique program)
+-- | Lower every pseudo-op to ordinary System FC. This pass is compulsory:
+-- @seq@ must be gone before FC reaches evaluation or GRIN lowering because
+-- its second argument may be unlifted, so representing a saturated call as an
+-- ordinary function call could evaluate that argument before the first one.
+lowerPseudoOps :: FcProgram -> FcProgram
+lowerPseudoOps program = evalState (lowerProgram program) (nextUnique program)
 
 type ExpandM = State Int
 
-expandProgram :: FcProgram -> ExpandM FcProgram
-expandProgram (FcProgram topBinds) = FcProgram <$> mapM expandTopBind topBinds
+lowerProgram :: FcProgram -> ExpandM FcProgram
+lowerProgram (FcProgram topBinds) = FcProgram <$> mapM expandTopBind topBinds
 
 expandTopBind :: FcTopBind -> ExpandM FcTopBind
 expandTopBind topBind =
