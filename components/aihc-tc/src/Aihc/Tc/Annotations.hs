@@ -34,6 +34,7 @@ module Aihc.Tc.Annotations
     annotateExpr,
     annotateDecl,
     pendingAnnotation,
+    pendingTypeLambdaAnnotation,
 
     -- * Pretty-printing
     renderPred,
@@ -51,6 +52,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
+import Aihc.Tc.Env (DataTypeInfo)
 import Aihc.Tc.Evidence (EvTerm, EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName)
 import Data.Text (Text)
@@ -63,6 +65,8 @@ import Data.Text qualified as T
 data TcAnnotation = TcAnnotation
   { -- | The inferred/checked type of this node.
     tcAnnType :: !TcType,
+    -- | Type variables abstracted at this expression.
+    tcAnnTypeBinders :: ![TyVarId],
     -- | Type arguments made explicit at this occurrence.
     tcAnnTypeArgs :: ![TcType],
     -- | Evidence terms whose dictionaries must be passed at this occurrence.
@@ -116,6 +120,7 @@ data TcForeignAbiType
 -- ordinary 'TcAnnotation' values after solving.
 data PendingTcAnnotation = PendingTcAnnotation
   { pendingTcAnnType :: !TcType,
+    pendingTcAnnTypeBinders :: ![TyVarId],
     pendingTcAnnTypeArgs :: ![TcType],
     pendingTcAnnEvidenceVars :: ![EvVar],
     pendingTcAnnTermArgTypes :: ![TcType]
@@ -175,6 +180,9 @@ data TcDerivingPlan = TcDerivingPlan
     tcDerivingDictName :: !Text,
     tcDerivingTyVars :: ![TyVarId],
     tcDerivingHeadTypes :: ![TcType],
+    -- | Checked constructor layout of the final instance-head type, when the
+    -- target is a data or newtype constructor known to this compilation.
+    tcDerivingDataType :: !(Maybe DataTypeInfo),
     tcDerivingContext :: !TcDerivingContext,
     tcDerivingClassTyVars :: ![TyVarId],
     tcDerivingClassSuperClasses :: ![TcDictBinderAnnotation],
@@ -240,7 +248,10 @@ annotateDecl :: TcAnnotation -> Decl -> Decl
 annotateDecl ann = DeclAnn (mkAnnotation ann)
 
 pendingAnnotation :: TcType -> [TcType] -> [EvVar] -> [TcType] -> PendingTcAnnotation
-pendingAnnotation = PendingTcAnnotation
+pendingAnnotation ty = PendingTcAnnotation ty []
+
+pendingTypeLambdaAnnotation :: TcType -> [TyVarId] -> PendingTcAnnotation
+pendingTypeLambdaAnnotation ty binders = PendingTcAnnotation ty binders [] [] []
 
 -- | Render a binder and its 'TcType' as a human-readable signature.
 renderTcSignature :: Text -> TcType -> String

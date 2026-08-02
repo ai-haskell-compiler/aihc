@@ -56,6 +56,7 @@ data InterpretError
   | InterpretForeignArity !Text !Int !Int
   | InterpretForeignTypeError !Text !RuntimeValue
   | InterpretForeignLookupError !Text !Text
+  | InterpretInvalidArrayIndex !Text !Integer !Int
   | InterpretInvalidByteArrayRange !Text !Integer !Integer !Int
   | InterpretResultArity !Int !Int
   | InterpretInvalidThunkResult ![RuntimeValue]
@@ -72,6 +73,7 @@ data InterpretError
 data RuntimeValue
   = RuntimeLit !GrinLiteral
   | RuntimeAddress !(Ptr ())
+  | RuntimeArray !GrinArray
   | RuntimeByteArray !GrinByteArray
   | RuntimeIOError !Integer
   | RuntimeIOHandle !GrinIOHandle
@@ -84,6 +86,14 @@ data RuntimeValue
   deriving (Eq, Show)
 
 newtype GrinMutVar = GrinMutVar (IORef RuntimeValue)
+
+newtype GrinArray = GrinArray (IORef [RuntimeValue])
+
+instance Eq GrinArray where
+  GrinArray left == GrinArray right = left == right
+
+instance Show GrinArray where
+  show _ = "<array>"
 
 instance Eq GrinMutVar where
   GrinMutVar left == GrinMutVar right = left == right
@@ -687,6 +697,7 @@ isLiftedRuntimeValue value =
   case value of
     RuntimeLit literal -> isLiftedRuntimeRep (grinValueRuntimeRep (GrinLitValue literal))
     RuntimeAddress {} -> False
+    RuntimeArray {} -> False
     RuntimeIOHandle {} -> False
     RuntimeByteArray {} -> False
     RuntimeIOError {} -> False
@@ -764,6 +775,7 @@ evalPrimitive "chr#" [value] = do
     then pure [RuntimeLit (GrinLitChar WordRep (Char.chr (fromIntegral intValue)))]
     else throwInterpret (InterpretPrimitiveTypeError "chr#" (RuntimeLit (GrinLitInt IntRep intValue)))
 evalPrimitive "realWorld#" [] = pure []
+evalPrimitive "noDuplicate#" [] = pure []
 evalPrimitive "raise#" [exception] =
   throwE (EvalRaised exception)
 evalPrimitive "catch#" [action, handler] =
@@ -779,6 +791,35 @@ evalPrimitive "writeMutVar#" [mutVar, value] = do
   GrinMutVar reference <- expectMutVarPrimitiveArgument "writeMutVar#" mutVar
   liftEvalIO (writeIORef reference value)
   pure []
+evalPrimitive "sameMutVar#" [left, right] = do
+  leftReference <- expectMutVarPrimitiveArgument "sameMutVar#" left
+  rightReference <- expectMutVarPrimitiveArgument "sameMutVar#" right
+  pure [intRuntimeValue (if leftReference == rightReference then 1 else 0)]
+evalPrimitive "newArray#" [size, initialValue] = do
+  count <- checkedArraySize "newArray#" =<< expectIntPrimitiveArgument "newArray#" size
+  array <- GrinArray <$> liftEvalIO (newIORef (replicate count initialValue))
+  pure [RuntimeArray array]
+evalPrimitive "indexArray#" [arrayValue, indexValue] = do
+  array <- expectArrayPrimitiveArgument "indexArray#" arrayValue
+  index <- expectIntPrimitiveArgument "indexArray#" indexValue
+  (: []) <$> readArrayElement "indexArray#" array index
+evalPrimitive "readArray#" [arrayValue, indexValue] = do
+  array <- expectArrayPrimitiveArgument "readArray#" arrayValue
+  index <- expectIntPrimitiveArgument "readArray#" indexValue
+  (: []) <$> readArrayElement "readArray#" array index
+evalPrimitive "writeArray#" [arrayValue, indexValue, value] = do
+  array <- expectArrayPrimitiveArgument "writeArray#" arrayValue
+  index <- expectIntPrimitiveArgument "writeArray#" indexValue
+  writeArrayElement "writeArray#" array index value
+  pure []
+evalPrimitive name [arrayValue]
+  | name == "unsafeFreezeArray#" || name == "unsafeThawArray#" = do
+      array <- expectArrayPrimitiveArgument name arrayValue
+      pure [RuntimeArray array]
+evalPrimitive "sameMutableArray#" [left, right] = do
+  leftArray <- expectArrayPrimitiveArgument "sameMutableArray#" left
+  rightArray <- expectArrayPrimitiveArgument "sameMutableArray#" right
+  pure [intRuntimeValue (if leftArray == rightArray then 1 else 0)]
 evalPrimitive "newByteArray#" [size] = do
   byteArray <- allocateByteArray "newByteArray#" False 8 =<< expectIntPrimitiveArgument "newByteArray#" size
   pure [RuntimeByteArray byteArray]
@@ -903,6 +944,45 @@ checkedByteArraySize symbol size
   | size < 0 || size > toInteger (maxBound :: Int) =
       throwInterpret (InterpretInvalidByteArrayRange symbol 0 size 0)
   | otherwise = pure (fromInteger size)
+
+checkedArraySize :: Text -> Integer -> EvalM Int
+checkedArraySize name size
+  | size < 0 || size > toInteger (maxBound :: Int) =
+      throwInterpret (InterpretInvalidArrayIndex name size 0)
+  | otherwise = pure (fromInteger size)
+
+expectArrayPrimitiveArgument :: Text -> RuntimeValue -> EvalM GrinArray
+expectArrayPrimitiveArgument name value =
+  case value of
+    RuntimeArray array -> pure array
+    other -> throwInterpret (InterpretPrimitiveTypeError name other)
+
+readArrayElement :: Text -> GrinArray -> Integer -> EvalM RuntimeValue
+readArrayElement name (GrinArray reference) index = do
+  values <- liftEvalIO (readIORef reference)
+  case listElement index values of
+    Just value -> pure value
+    Nothing -> throwInterpret (InterpretInvalidArrayIndex name index (length values))
+
+writeArrayElement :: Text -> GrinArray -> Integer -> RuntimeValue -> EvalM ()
+writeArrayElement name (GrinArray reference) index value = do
+  values <- liftEvalIO (readIORef reference)
+  case replaceListElement index value values of
+    Just updated -> liftEvalIO (writeIORef reference updated)
+    Nothing -> throwInterpret (InterpretInvalidArrayIndex name index (length values))
+
+listElement :: Integer -> [a] -> Maybe a
+listElement index _ | index < 0 = Nothing
+listElement _ [] = Nothing
+listElement 0 (value : _) = Just value
+listElement index (_ : values) = listElement (index - 1) values
+
+replaceListElement :: Integer -> a -> [a] -> Maybe [a]
+replaceListElement index _ _ | index < 0 = Nothing
+replaceListElement _ _ [] = Nothing
+replaceListElement 0 value (_ : values) = Just (value : values)
+replaceListElement index value (current : values) =
+  (current :) <$> replaceListElement (index - 1) value values
 
 checkedByteArrayAlignment :: Text -> Integer -> EvalM Int
 checkedByteArrayAlignment symbol alignment
@@ -1335,6 +1415,7 @@ renderRawValueM value = do
   case exposed of
     RuntimeLit literal -> pure (renderLiteral literal)
     RuntimeAddress address -> pure (T.pack (show address))
+    RuntimeArray {} -> pure "<array>"
     RuntimeIOHandle {} -> pure "<io-handle>"
     RuntimeByteArray {} -> pure "<byte-array>"
     RuntimeIOError {} -> pure "<io-error>"
@@ -1463,6 +1544,7 @@ snapshotRuntimeValue value =
   case value of
     RuntimeLit literal -> pure (SnapshotLiteral literal)
     RuntimeAddress {} -> pure SnapshotAddress
+    RuntimeArray {} -> pure SnapshotAddress
     RuntimeIOHandle {} -> pure SnapshotAddress
     RuntimeByteArray {} -> pure SnapshotAddress
     RuntimeIOError {} -> pure SnapshotAddress

@@ -15,6 +15,7 @@ where
 import Aihc.Grin.Analysis (freeExprVars, freeNodeVars)
 import Aihc.Grin.Cps (ContinuationFrameKind, CpsGrinProgram (..))
 import Aihc.Grin.Syntax
+import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Monad.Trans.State.Strict (State, evalState, get, put)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -33,9 +34,9 @@ data GcGrinProgram = GcGrinProgram
   }
   deriving (Eq, Show, Read)
 
--- | Replace every managed store with an explicit reservation followed by an
--- unchecked allocation. The reservation is an identity operation on its fast
--- path and returns fresh SSA names for roots relocated by its slow path.
+-- | Give explicit reservations their live roots and place a static reservation
+-- before every managed store. Each reservation returns fresh SSA names for
+-- roots that may be relocated by collection.
 lowerGc :: CpsGrinProgram -> GcGrinProgram
 lowerGc cps =
   GcGrinProgram
@@ -60,6 +61,8 @@ lowerFunction function = do
 lowerExpr :: Set GrinVar -> GrinExpr -> State Int GrinExpr
 lowerExpr bound expression =
   case expression of
+    GrinBind [] (GrinEnsureHeap requiredWords []) body ->
+      lowerReservation bound requiredWords body
     GrinBind resultVars (GrinStore node) body ->
       lowerStore bound resultVars node body
     GrinBind resultVars valueExpression body -> do
@@ -102,8 +105,25 @@ lowerStore bound resultVars node body = do
   pure
     ( GrinBind
         relocated
-        (GrinEnsureHeap (nodeWords node) (map GrinVarValue roots))
+        (GrinEnsureHeap (staticHeapWords (nodeWords node)) (map GrinVarValue roots))
         (GrinBind resultVars (GrinStoreUnchecked node') body')
+    )
+
+-- Reservations inserted before CPS carry only their dynamic size. Once
+-- control flow is explicit, populate the reservation with every live pointer
+-- root and rewrite the following expression to use the relocated SSA names.
+lowerReservation :: Set GrinVar -> GrinValue -> GrinExpr -> State Int GrinExpr
+lowerReservation bound requiredWords body = do
+  let roots = livePointerRoots bound (freeExprVars body)
+  relocated <- mapM freshRelocated roots
+  let substitutions = Map.fromList (zip roots relocated)
+      bodyWithRelocatedRoots = substituteExpr substitutions body
+  body' <- lowerExpr (bound <> Set.fromList relocated) bodyWithRelocatedRoots
+  pure
+    ( GrinBind
+        relocated
+        (GrinEnsureHeap requiredWords (map GrinVarValue roots))
+        body'
     )
 
 lowerTailStore :: Set GrinVar -> GrinNode -> State Int GrinExpr
@@ -114,7 +134,7 @@ lowerTailStore bound node = do
   pure
     ( GrinBind
         relocated
-        (GrinEnsureHeap (nodeWords node) (map GrinVarValue roots))
+        (GrinEnsureHeap (staticHeapWords (nodeWords node)) (map GrinVarValue roots))
         (GrinStoreUnchecked (substituteNode substitutions node))
     )
 
@@ -131,7 +151,7 @@ lowerStoreRec bound bindings body = do
   pure
     ( GrinBind
         relocated
-        (GrinEnsureHeap (sum (map (nodeWords . snd) bindings)) (map GrinVarValue roots))
+        (GrinEnsureHeap (staticHeapWords (sum (map (nodeWords . snd) bindings))) (map GrinVarValue roots))
         (GrinStoreRecUnchecked bindings' body')
     )
 
@@ -162,6 +182,9 @@ nodeWords node =
   where
     fieldCount = length (grinNodeFields node)
 
+staticHeapWords :: Int -> GrinValue
+staticHeapWords = GrinLitValue . GrinLitInt WordRep . toInteger
+
 substituteExpr :: Map GrinVar GrinVar -> GrinExpr -> GrinExpr
 substituteExpr substitutions expression =
   case expression of
@@ -169,7 +192,7 @@ substituteExpr substitutions expression =
     GrinBind vars valueExpression body ->
       GrinBind vars (substituteExpr substitutions valueExpression) (substituteExpr (without vars substitutions) body)
     GrinStore node -> GrinStore (substituteNode substitutions node)
-    GrinEnsureHeap requiredWords roots -> GrinEnsureHeap requiredWords (map (substituteValue substitutions) roots)
+    GrinEnsureHeap requiredWords roots -> GrinEnsureHeap (substituteValue substitutions requiredWords) (map (substituteValue substitutions) roots)
     GrinStoreUnchecked node -> GrinStoreUnchecked (substituteNode substitutions node)
     GrinStoreRec bindings body -> substituteStoreRec GrinStoreRec substitutions bindings body
     GrinStoreRecUnchecked bindings body -> substituteStoreRec GrinStoreRecUnchecked substitutions bindings body
@@ -247,7 +270,7 @@ maximumProgramVarUnique program =
         GrinConstant values -> concatMap valueUnique values
         GrinBind vars valueExpression body -> map grinVarUnique vars <> exprUniques valueExpression <> exprUniques body
         GrinStore node -> nodeUniques node
-        GrinEnsureHeap _ roots -> concatMap valueUnique roots
+        GrinEnsureHeap requiredWords roots -> valueUnique requiredWords <> concatMap valueUnique roots
         GrinStoreUnchecked node -> nodeUniques node
         GrinStoreRec bindings body -> storeRecUniques bindings body
         GrinStoreRecUnchecked bindings body -> storeRecUniques bindings body

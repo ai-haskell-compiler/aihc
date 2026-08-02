@@ -173,7 +173,7 @@ lintExpr env bound expr =
         <> lintExpr env bound valueExpr
         <> lintExpr env (Set.fromList vars <> bound) body
     GrinStore node -> lintNode env bound node
-    GrinEnsureHeap _ roots -> concatMap (lintValue env bound) roots
+    GrinEnsureHeap requiredWords roots -> lintValue env bound requiredWords <> concatMap (lintValue env bound) roots
     GrinStoreUnchecked node -> lintNode env bound node
     GrinStoreRec bindings body ->
       let recursiveBound = Set.fromList (map fst bindings) <> bound

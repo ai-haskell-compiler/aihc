@@ -3,6 +3,7 @@
 -- | Test suite for System FC desugaring golden tests.
 module Test.Fc.Suite
   ( fcGoldenTests,
+    fcDesugarTests,
     fcEvalTests,
     fcEvalFixtureTests,
     fcLoweringTests,
@@ -11,7 +12,10 @@ module Test.Fc.Suite
 where
 
 import Aihc.Fc
+import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
+import Aihc.Parser (defaultConfig, parseModule)
+import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
@@ -35,6 +39,24 @@ mkTest tc = testCase (caseId tc) $ do
     OutcomeXFail -> pure ()
     OutcomeXPass -> assertFailure ("unexpected pass (xpass): " <> details)
     OutcomeFail -> assertFailure details
+
+fcDesugarTests :: TestTree
+fcDesugarTests =
+  testGroup
+    "FC desugaring"
+    [ testCase "counts every label in a grouped record field" $ do
+        let (_, parsedModule) = parseModule defaultConfig "module Test where\ndata Pair a = Pair { left, right :: a }\n"
+            constructors = concatMap declarationConstructors (Surface.moduleDecls parsedModule)
+        case constructors of
+          [constructor] -> assertEqual "constructor arity" ("Pair", 2) (dsDataConPure constructor)
+          _ -> assertFailure ("expected one parsed constructor, got: " <> show constructors)
+    ]
+  where
+    declarationConstructors declaration =
+      case declaration of
+        Surface.DeclAnn _ inner -> declarationConstructors inner
+        Surface.DeclData dataDeclaration -> Surface.dataDeclConstructors dataDeclaration
+        _ -> []
 
 fcEvalTests :: TestTree
 fcEvalTests =

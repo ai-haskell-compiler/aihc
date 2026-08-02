@@ -48,6 +48,11 @@ static const AihcInfo aihc_thread_info = {
     .frame_kind = AIHC_FRAME_NONE,
     .object_kind = AIHC_OBJECT_THREAD,
 };
+static const AihcInfo aihc_array_info = {
+    .field_count = 1,
+    .frame_kind = AIHC_FRAME_NONE,
+    .object_kind = AIHC_OBJECT_ARRAY,
+};
 
 void aihc_unsupported_primitive(void) {
   aihc_fail("primitive is not implemented by the native runtime");
@@ -119,6 +124,63 @@ uint64_t aihc_object_words(const AihcInfo *info) {
     field_words = 1;
   }
   return 1 + field_words;
+}
+
+uint64_t aihc_value_words(const AihcValue *value) {
+  if (aihc_value_kind(value) == AIHC_OBJECT_ARRAY) {
+    return 2 + aihc_array_length(value);
+  }
+  return aihc_object_words(aihc_value_info_table(value));
+}
+
+uint64_t aihc_array_length(const AihcValue *array) {
+  if (array == NULL || aihc_value_kind(array) != AIHC_OBJECT_ARRAY) {
+    aihc_fail("boxed-array primitive received a non-array");
+  }
+  return array->fields[0];
+}
+
+AihcSlot *aihc_array_elements(AihcValue *array) {
+  (void)aihc_array_length(array);
+  return array->fields + 1;
+}
+
+static uint64_t aihc_array_checked_index(AihcValue *array, int64_t index) {
+  uint64_t count = aihc_array_length(array);
+  if (index < 0 || (uint64_t)index >= count) {
+    aihc_fail("boxed-array index is out of bounds");
+  }
+  return (uint64_t)index;
+}
+
+AihcValue *aihc_array_new(AihcMachine *machine, int64_t count,
+                          AihcSlot initial) {
+  if (count < 0 || (uint64_t)count > SIZE_MAX / sizeof(AihcSlot) - 2) {
+    aihc_fail("boxed-array size is invalid");
+  }
+  uint64_t length = (uint64_t)count;
+  AihcValue *array = aihc_gc_allocate(machine, length + 2);
+  aihc_record_allocation(machine);
+  array->header = (AihcSlot)(uintptr_t)&aihc_array_info;
+  array->fields[0] = length;
+  AihcSlot *elements = aihc_array_elements(array);
+  for (uint64_t index = 0; index < length; ++index) {
+    elements[index] = initial;
+  }
+  return array;
+}
+
+AihcSlot aihc_array_index(AihcValue *array, int64_t index) {
+  return aihc_array_elements(array)[aihc_array_checked_index(array, index)];
+}
+
+AihcSlot aihc_array_write(AihcValue *array, int64_t index, AihcSlot value) {
+  aihc_array_elements(array)[aihc_array_checked_index(array, index)] = value;
+  return 0;
+}
+
+uint64_t aihc_array_same(AihcValue *left, AihcValue *right) {
+  return left == right;
 }
 
 static void aihc_visit_value(AihcValue **value, AihcRootVisitor visitor,

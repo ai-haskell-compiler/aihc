@@ -482,7 +482,9 @@ wiredInTypeKind name =
     "Float" -> Just KType
     "Char" -> Just KType
     "Bool" -> Just KType
+    "Array#" -> Just (KFun KType (KTYPE (BoxedRep Unlifted)))
     "ByteArray#" -> Just (KTYPE (BoxedRep Unlifted))
+    "MutableArray#" -> Just (KFun KType (KFun KType (KTYPE (BoxedRep Unlifted))))
     "MutableByteArray#" -> Just (KFun KType (KTYPE (BoxedRep Unlifted)))
     "Int#" -> Just (KTYPE IntRep)
     "Int8#" -> Just (KTYPE Int8Rep)

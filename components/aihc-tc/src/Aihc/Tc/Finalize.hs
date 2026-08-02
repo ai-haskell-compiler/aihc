@@ -22,10 +22,10 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
   )
-import Aihc.Tc.Env (DataFamilyInstanceInfo (..))
+import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Monad
-import Aihc.Tc.Types (Pred (..), TcType (..), Unique (..))
+import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..))
 import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((>=>))
@@ -66,12 +66,20 @@ finalizeAnnotationTc ann =
 annotationForPendingTc :: PendingTcAnnotation -> TcM TcAnnotation
 annotationForPendingTc pending = do
   ty <- zonkType (pendingTcAnnType pending)
+  typeBinders <- mapM zonkTypeBinder (pendingTcAnnTypeBinders pending)
   typeArgs <- mapM zonkType (pendingTcAnnTypeArgs pending)
   evidenceTerms <- mapM (evidenceForEvVar ty >=> zonkEvTerm) (pendingTcAnnEvidenceVars pending)
   termArgTypes <- mapM zonkType (pendingTcAnnTermArgTypes pending)
-  let ann = TcAnnotation ty typeArgs evidenceTerms termArgTypes
+  let ann = TcAnnotation ty typeBinders typeArgs evidenceTerms termArgTypes
   rejectMetaTcAnnotation ann
   pure ann
+
+zonkTypeBinder :: TyVarId -> TcM TyVarId
+zonkTypeBinder binder = do
+  binderType <- zonkType (TcTyVar binder)
+  case binderType of
+    TcTyVar binder' -> pure binder'
+    _ -> abortTc "internal type annotation error: type binder zonked to a non-variable"
 
 evidenceForEvVar :: TcType -> EvVar -> TcM EvTerm
 evidenceForEvVar contextType ev = do
@@ -174,6 +182,7 @@ firstMetaDerivingPlan :: TcDerivingPlan -> Maybe Unique
 firstMetaDerivingPlan plan =
   firstJusts
     ( map firstMetaType (tcDerivingHeadTypes plan)
+        ++ maybe [] (map firstMetaDataConInfo . dtiConstructors) (tcDerivingDataType plan)
         ++ map firstMetaClassMethodAnnotation (tcDerivingClassMethods plan)
         ++ map firstMetaDictBinderAnnotation (tcDerivingClassSuperClasses plan)
         ++ concatMap (map firstMetaPred . snd) (tcDerivingDefaultSignatures plan)
@@ -219,6 +228,14 @@ firstMetaInstanceMethodAnnotation ann =
 firstMetaDataFamilyInstance :: DataFamilyInstanceInfo -> Maybe Unique
 firstMetaDataFamilyInstance info =
   firstMetaType (dfiiFamilyType info)
+
+firstMetaDataConInfo :: DataConInfo -> Maybe Unique
+firstMetaDataConInfo info =
+  firstJusts
+    ( map firstMetaPred (dciTheta info)
+        ++ map (firstMetaType . dcfiType) (dciFields info)
+        ++ [firstMetaType (dciResTy info)]
+    )
 
 firstMetaEvTerm :: EvTerm -> Maybe Unique
 firstMetaEvTerm evTerm =

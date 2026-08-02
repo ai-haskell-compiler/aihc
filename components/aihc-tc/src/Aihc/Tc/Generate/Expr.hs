@@ -32,16 +32,19 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
+import Aihc.Tc.Instantiate (Instantiation (..), applySubst, instantiateWithArgs)
 import Aihc.Tc.Kind (checkSurfaceType)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
+import Aihc.Tc.Unify (unify)
+import Aihc.Tc.Zonk (zonkType)
+import Control.Monad (when)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
@@ -154,8 +157,10 @@ inferNameOccurrence ambient nameSyntax = do
               (map ctEvVar cts)
               []
       pure (elaborationAnnotation pending, instType inst, cts)
-    Just (TcMonoIdBinder ty) ->
-      pure (Nothing, ty, [])
+    Just (TcMonoIdBinder ty) -> do
+      (instantiatedTy, typeArgs) <- instantiateSigmaType ty
+      let pending = pendingAnnotation instantiatedTy typeArgs [] []
+      pure (elaborationAnnotation pending, instantiatedTy, [])
     Nothing ->
       abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
 
@@ -378,11 +383,102 @@ inferRhs = inferRhsWithLocals inferExpr
 inferApp :: SourceSpan -> Expr -> Expr -> TcM (Expr, TcType, [Ct])
 inferApp sp fun arg = do
   (fun', funTy, funCts) <- inferExpr fun
-  (arg', argTy, argCts) <- inferExpr arg
-  resTy <- freshMetaTv
-  ev <- freshEvVar
-  let eqCt = mkWantedCt (EqPred funTy (TcFunTy argTy resTy)) ev (AppOrigin sp) sp
-  pure (EApp fun' arg', resTy, funCts ++ argCts ++ [eqCt])
+  zonkedFunTy <- zonkType funTy
+  case zonkedFunTy of
+    TcFunTy expectedArgTy resultTy
+      | hasLeadingForAll expectedArgTy -> do
+          (arg', argCts) <- checkHigherRankArgument sp expectedArgTy arg
+          pure (EApp fun' arg', resultTy, funCts <> argCts)
+    _ -> do
+      (arg', argTy, argCts) <- inferExpr arg
+      resTy <- freshMetaTv
+      ev <- freshEvVar
+      let eqCt = mkWantedCt (EqPred funTy (TcFunTy argTy resTy)) ev (AppOrigin sp) sp
+      pure (EApp fun' arg', resTy, funCts <> argCts <> [eqCt])
+
+checkHigherRankArgument :: SourceSpan -> TcType -> Expr -> TcM (Expr, [Ct])
+checkHigherRankArgument sp expectedTy arg = do
+  boundary <- getUniqueBoundary
+  (arg', actualTy, argCts) <- inferExpr arg
+  (skolems, expectedBody) <- skolemizeSigmaType expectedTy
+  unify sp (AppOrigin sp) actualTy expectedBody
+  rejectEscapingHigherRankMetas sp boundary skolems actualTy
+  let annotatedArg = annotatePendingExprAt sp (pendingTypeLambdaAnnotation expectedTy skolems) arg'
+  pure (annotatedArg, argCts)
+
+hasLeadingForAll :: TcType -> Bool
+hasLeadingForAll TcForAllTy {} = True
+hasLeadingForAll _ = False
+
+instantiateSigmaType :: TcType -> TcM (TcType, [TcType])
+instantiateSigmaType = go []
+  where
+    go arguments (TcForAllTy binder body) = do
+      argument <- freshMetaTv
+      go (arguments <> [argument]) (applySubst (Map.singleton (tvUnique binder) argument) body)
+    go arguments ty = pure (ty, arguments)
+
+skolemizeSigmaType :: TcType -> TcM ([TyVarId], TcType)
+skolemizeSigmaType = go []
+  where
+    go skolems (TcForAllTy binder body) = do
+      skolem <- setTyVarKind (tvKind binder) <$> freshSkolemTv (tvName binder)
+      go (skolems <> [skolem]) (applySubst (Map.singleton (tvUnique binder) (TcTyVar skolem)) body)
+    go skolems ty = pure (skolems, ty)
+
+rejectEscapingHigherRankMetas :: SourceSpan -> Unique -> [TyVarId] -> TcType -> TcM ()
+rejectEscapingHigherRankMetas sp (Unique boundaryInt) skolems actualTy = do
+  let olderMetas = filter (isOlderThan boundaryInt) (typeMetaVariables actualTy)
+  escaped <- anyM (metaMentionsAnySkolem skolems) olderMetas
+  when escaped $
+    emitError sp (OtherError "higher-rank type variable escapes its argument")
+  where
+    isOlderThan threshold (Unique metaInt) = metaInt < threshold
+
+metaMentionsAnySkolem :: [TyVarId] -> Unique -> TcM Bool
+metaMentionsAnySkolem skolems meta = do
+  ty <- zonkType (TcMetaTv meta)
+  pure (any (`typeMentionsTyVar` ty) skolems)
+
+anyM :: (a -> TcM Bool) -> [a] -> TcM Bool
+anyM _ [] = pure False
+anyM predicate (value : values) = do
+  matches <- predicate value
+  if matches then pure True else anyM predicate values
+
+typeMetaVariables :: TcType -> [Unique]
+typeMetaVariables ty =
+  case ty of
+    TcTyVar {} -> []
+    TcMetaTv meta -> [meta]
+    TcTyCon _ arguments -> concatMap typeMetaVariables arguments
+    TcFunTy argument result -> typeMetaVariables argument <> typeMetaVariables result
+    TcForAllTy _ body -> typeMetaVariables body
+    TcQualTy predicates body -> concatMap predicateMetaVariables predicates <> typeMetaVariables body
+    TcAppTy function argument -> typeMetaVariables function <> typeMetaVariables argument
+
+predicateMetaVariables :: Pred -> [Unique]
+predicateMetaVariables predicate =
+  case predicate of
+    ClassPred _ arguments -> concatMap typeMetaVariables arguments
+    EqPred left right -> typeMetaVariables left <> typeMetaVariables right
+
+typeMentionsTyVar :: TyVarId -> TcType -> Bool
+typeMentionsTyVar target ty =
+  case ty of
+    TcTyVar tyVar -> tyVar == target
+    TcMetaTv {} -> False
+    TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
+    TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
+    TcForAllTy binder body -> binder /= target && typeMentionsTyVar target body
+    TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
+    TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
+
+predicateMentionsTyVar :: TyVarId -> Pred -> Bool
+predicateMentionsTyVar target predicate =
+  case predicate of
+    ClassPred _ arguments -> any (typeMentionsTyVar target) arguments
+    EqPred left right -> typeMentionsTyVar target left || typeMentionsTyVar target right
 
 inferTypeApp :: SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
 inferTypeApp sp fun tyArg = do

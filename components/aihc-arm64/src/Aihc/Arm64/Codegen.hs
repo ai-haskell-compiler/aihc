@@ -496,7 +496,7 @@ exprRuntimeReps expression =
     GrinBind vars valueExpression body ->
       map grinVarRuntimeRep vars <> exprRuntimeReps valueExpression <> exprRuntimeReps body
     GrinStore node -> nodeRuntimeReps node
-    GrinEnsureHeap _ roots -> concatMap valueRuntimeReps roots
+    GrinEnsureHeap requiredWords roots -> valueRuntimeReps requiredWords <> concatMap valueRuntimeReps roots
     GrinStoreUnchecked node -> nodeRuntimeReps node
     GrinStoreRec bindings body -> storedRuntimeReps bindings body
     GrinStoreRecUnchecked bindings body -> storedRuntimeReps bindings body

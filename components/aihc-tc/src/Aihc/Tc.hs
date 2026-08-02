@@ -57,6 +57,12 @@ module Aihc.Tc
     Pred (..),
     InstanceInfo (..),
     DataFamilyInstanceInfo (..),
+    DataTypeInfo (..),
+    DataConInfo (..),
+    DataConFieldInfo (..),
+    DataConFieldUnpack (..),
+    DataConSourceForm (..),
+    dataConArgTypes,
     dataFamilyAxiomName,
     dataFamilyRepresentationName,
     ClassInfo (..),
@@ -109,7 +115,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderPred, renderTcSignature, renderTcType)
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), dataFamilyAxiomName, dataFamilyRepresentationName)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
@@ -143,6 +149,7 @@ data TcResult = TcResult
 data TcInterface = TcInterface
   { tcInterfaceTerms :: ![(Text, TypeScheme)],
     tcInterfaceTyCons :: ![TyConInfo],
+    tcInterfaceDataTypes :: ![DataTypeInfo],
     tcInterfaceClasses :: ![ClassInfo],
     tcInterfaceInstances :: ![InstanceInfo],
     tcInterfaceDataFamilyInstances :: ![DataFamilyInstanceInfo]
@@ -154,6 +161,7 @@ emptyTcInterface =
   TcInterface
     { tcInterfaceTerms = [],
       tcInterfaceTyCons = [],
+      tcInterfaceDataTypes = [],
       tcInterfaceClasses = [],
       tcInterfaceInstances = [],
       tcInterfaceDataFamilyInstances = []
@@ -164,6 +172,7 @@ instance Semigroup TcInterface where
     TcInterface
       { tcInterfaceTerms = mergeInterfaceEntries fst (tcInterfaceTerms left <> tcInterfaceTerms right),
         tcInterfaceTyCons = mergeInterfaceEntries tciName (tcInterfaceTyCons left <> tcInterfaceTyCons right),
+        tcInterfaceDataTypes = mergeInterfaceEntries dtiName (tcInterfaceDataTypes left <> tcInterfaceDataTypes right),
         tcInterfaceClasses = mergeInterfaceEntries ciName (tcInterfaceClasses left <> tcInterfaceClasses right),
         tcInterfaceInstances = mergeInterfaceEntries iiDictName (tcInterfaceInstances left <> tcInterfaceInstances right),
         tcInterfaceDataFamilyInstances = mergeInterfaceEntries dfiiAxiomName (tcInterfaceDataFamilyInstances left <> tcInterfaceDataFamilyInstances right)
@@ -294,6 +303,7 @@ typecheckModulesWithClassEnv importedTerms importedTyCons importedClasses import
           TcInterface
             { tcInterfaceTerms = importedTerms,
               tcInterfaceTyCons = importedTyCons,
+              tcInterfaceDataTypes = [],
               tcInterfaceClasses = importedClasses,
               tcInterfaceInstances = importedInstances,
               tcInterfaceDataFamilyInstances = []
@@ -336,6 +346,7 @@ typecheckModuleSccWithClassEnv importedTerms importedTyCons importedClasses impo
           TcInterface
             { tcInterfaceTerms = importedTerms,
               tcInterfaceTyCons = importedTyCons,
+              tcInterfaceDataTypes = [],
               tcInterfaceClasses = importedClasses,
               tcInterfaceInstances = importedInstances,
               tcInterfaceDataFamilyInstances = []
@@ -365,6 +376,7 @@ initialTcState imported =
           | tyCon <- tcInterfaceTyCons imported
           ]
           <> tcsGlobalTyCons initTcState,
+      tcsDataTypes = Map.fromList [(dtiName dataType, dataType) | dataType <- tcInterfaceDataTypes imported],
       tcsClasses = Map.fromList [(ciName classInfo, classInfo) | classInfo <- tcInterfaceClasses imported],
       tcsInstances = tcInterfaceInstances imported,
       tcsDataFamilyInstances = tcInterfaceDataFamilyInstances imported
@@ -378,6 +390,7 @@ tcInterfaceFromState state =
         | (name, TcIdBinder scheme _) <- Map.toList (tcsGlobalTerms state)
         ],
       tcInterfaceTyCons = Map.elems (tcsGlobalTyCons state),
+      tcInterfaceDataTypes = Map.elems (tcsDataTypes state),
       tcInterfaceClasses = Map.elems (tcsClasses state),
       tcInterfaceInstances = mergeInterfaceEntries iiDictName (tcsInstances state),
       tcInterfaceDataFamilyInstances = mergeInterfaceEntries dfiiAxiomName (tcsDataFamilyInstances state)

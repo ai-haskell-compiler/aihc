@@ -623,6 +623,7 @@ primitiveImportSpecs =
       primitive "unsafeCoerce#" "a -> b",
       seqPrimitive,
       primitive "realWorld#" "State# RealWorld",
+      primitive "noDuplicate#" "State# d -> State# d",
       primitive
         "catch#"
         "(State# RealWorld -> (# State# RealWorld, a #)) -> (b -> State# RealWorld -> (# State# RealWorld, a #)) -> State# RealWorld -> (# State# RealWorld, a #)",
@@ -637,6 +638,14 @@ primitiveImportSpecs =
       primitive "newMutVar#" "a -> State# d -> (# State# d, MutVar# d a #)",
       primitive "readMutVar#" "MutVar# d a -> State# d -> (# State# d, a #)",
       primitive "writeMutVar#" "MutVar# d a -> a -> State# d -> State# d",
+      primitive "sameMutVar#" "MutVar# d a -> MutVar# d a -> Int#",
+      primitive "newArray#" "Int# -> a -> State# d -> (# State# d, MutableArray# d a #)",
+      primitive "indexArray#" "Array# a -> Int# -> a",
+      primitive "readArray#" "MutableArray# d a -> Int# -> State# d -> (# State# d, a #)",
+      primitive "writeArray#" "MutableArray# d a -> Int# -> a -> State# d -> State# d",
+      primitive "unsafeFreezeArray#" "MutableArray# d a -> State# d -> (# State# d, Array# a #)",
+      primitive "unsafeThawArray#" "Array# a -> State# d -> (# State# d, MutableArray# d a #)",
+      primitive "sameMutableArray#" "MutableArray# d a -> MutableArray# d a -> Int#",
       primitive "newByteArray#" "Int# -> State# d -> (# State# d, MutableByteArray# d #)",
       primitive "newPinnedByteArray#" "Int# -> State# d -> (# State# d, MutableByteArray# d #)",
       primitive "newAlignedPinnedByteArray#" "Int# -> Int# -> State# d -> (# State# d, MutableByteArray# d #)",

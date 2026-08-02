@@ -1,0 +1,112 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    import Control.Applicative (Alternative (..))
+    import Control.Monad (MonadPlus (..))
+    import Data.Foldable
+    import Data.Monoid (Monoid (..))
+    import Data.Semigroup (Semigroup (..))
+
+    data Tree a = Leaf a | Branch (Tree a) (Tree a)
+
+    instance Functor Tree where
+      fmap f (Leaf x) = Leaf (f x)
+      fmap f (Branch left right) = Branch (fmap f left) (fmap f right)
+
+    instance Foldable Tree where
+      foldr f z (Leaf x) = f x z
+      foldr f z (Branch left right) = foldr f (foldr f z right) left
+
+    data Append a = Append [a]
+
+    instance Semigroup (Append a) where
+      Append xs <> Append ys = Append (xs ++ ys)
+
+    instance Monoid (Append a) where
+      mempty = Append []
+
+    tree :: Tree Int
+    tree = Branch (Leaf 1) (Branch (Leaf 2) (Leaf 3))
+
+    appendValues :: Append a -> [a]
+    appendValues (Append xs) = xs
+
+    positive :: Int -> Maybe Int
+    positive x = if x > 0 then Just x else Nothing
+
+    prependM :: Int -> [Int] -> Maybe [Int]
+    prependM x xs = Just (x : xs)
+
+    reversePrependM :: [Int] -> Int -> Maybe [Int]
+    reversePrependM xs x = Just (x : xs)
+
+    fromMaybeList :: Maybe [a] -> [a]
+    fromMaybeList Nothing = []
+    fromMaybeList (Just xs) = xs
+
+    isJustValue :: Maybe a -> Bool
+    isJustValue Nothing = False
+    isJustValue (Just _) = True
+
+    fromMaybeValue :: a -> Maybe a -> a
+    fromMaybeValue fallback Nothing = fallback
+    fromMaybeValue _ (Just value) = value
+
+    checks :: [Bool]
+    checks =
+      [ appendValues (Append [True] <> Append [False, True]) == [True, False, True],
+        appendValues (mappend (Append [True]) (Append [False])) == [True, False],
+        appendValues (mconcat [Append [True], Append [False], Append [True]]) == [True, False, True],
+        appendValues (foldMap (\x -> Append [x]) tree) == [1, 2, 3],
+        appendValues (fold (fmap (\x -> Append [x]) tree)) == [1, 2, 3],
+        appendValues (foldMap' (\x -> Append [x]) tree) == [1, 2, 3],
+        foldr (:) [] tree == [1, 2, 3],
+        foldr' (:) [] tree == [1, 2, 3],
+        foldl (\xs x -> x : xs) [] tree == [3, 2, 1],
+        foldl' (\xs x -> x : xs) [] tree == [3, 2, 1],
+        foldr1 (-) tree == 2,
+        foldl1 (-) tree == negate 4,
+        toList tree == [1, 2, 3],
+        null (Branch (Leaf True) (Leaf False)) == False,
+        null (Nothing :: Maybe Bool) == True,
+        length tree == 3,
+        elem 2 tree,
+        maximum tree == 3,
+        minimum tree == 1,
+        sum tree == 6,
+        product tree == 6,
+        fromMaybeList (foldrM prependM [] tree) == [1, 2, 3],
+        fromMaybeList (foldlM reversePrependM [] tree) == [3, 2, 1],
+        isJustValue (traverse_ positive tree),
+        isJustValue (for_ tree positive),
+        isJustValue (sequenceA_ (Branch (Leaf (Just True)) (Leaf (Just False)))),
+        fromMaybeValue False (asum (Branch (Leaf Nothing) (Leaf (Just True)))),
+        isJustValue (mapM_ positive tree),
+        isJustValue (forM_ tree positive),
+        isJustValue (sequence_ (Branch (Leaf (Just True)) (Leaf (Just False)))),
+        fromMaybeValue False (msum (Branch (Leaf Nothing) (Leaf (Just True)))),
+        concat (Branch (Leaf [True, False]) (Leaf [True])) == [True, False, True],
+        concatMap (\x -> [x, x]) tree == [1, 1, 2, 2, 3, 3],
+        and (Branch (Leaf True) (Leaf False)) == False,
+        or (Branch (Leaf False) (Leaf True)) == True,
+        any (\x -> x > 2) tree,
+        all (\x -> x > 0) tree,
+        maximumBy compare tree == 3,
+        minimumBy compare tree == 1,
+        notElem 4 tree,
+        fromMaybeValue 0 (find (\x -> x > 1) tree) == 2,
+        toList [True, False, True] == [True, False, True],
+        toList (Just True) == [True],
+        toList (Left False :: Either Bool Int) == [],
+        toList (Right 1 :: Either Bool Int) == [1],
+        fromMaybeValue False (empty <|> Just True),
+        fromMaybeValue False (mzero `mplus` Just True)
+      ]
+output: |
+  True
+expression: and checks
+status: pass
+reason: evaluates the Data.Foldable API, Foldable instances, and its prerequisite algebra classes from aihc-base
