@@ -26,7 +26,7 @@ where
 
 import Aihc.Fc.Desugar.Match (dsPatternPure, numericRuntimeRep)
 import Aihc.Fc.Lower (seqPseudoOpName)
-import Aihc.Fc.Subst (substType)
+import Aihc.Fc.Subst (substExprVar, substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( CaseAlt (..),
@@ -895,7 +895,12 @@ adjustCaseMatchResult adjust matchResult =
 forceCaseScrutinee :: Var -> FcExpr -> DsM FcExpr
 forceCaseScrutinee scrutVar body = do
   caseBinder <- freshInternalVar "_bang" (varType scrutVar)
-  pure (FcCase (FcVar scrutVar) caseBinder [FcAlt DefaultAlt [] body])
+  pure
+    ( FcCase
+        (FcVar scrutVar)
+        caseBinder
+        [FcAlt DefaultAlt [] (substExprVar scrutVar caseBinder body)]
+    )
 
 dsOverloadedIntegerPatternMatch :: Var -> Pattern -> DsM FcExpr -> FcExpr -> DsM FcExpr
 dsOverloadedIntegerPatternMatch scrutVar pat success failure = do

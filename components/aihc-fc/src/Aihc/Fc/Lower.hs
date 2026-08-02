@@ -9,7 +9,7 @@ module Aihc.Fc.Lower
   )
 where
 
-import Aihc.Fc.Subst (substType)
+import Aihc.Fc.Subst (substExprVar, substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Types (TcType (..), Unique (..))
 import Control.Monad.Trans.State.Strict (State, evalState, get, put)
@@ -108,7 +108,11 @@ seqCase first second = do
     case expressionType first of
       Just ty -> freshVar "$seq_whnf" ty
       Nothing -> error "FC pseudo-op expansion could not determine seq's first argument type"
-  pure (FcCase first binder [FcAlt DefaultAlt [] second])
+  let result =
+        case first of
+          FcVar source -> substExprVar source binder second
+          _ -> second
+  pure (FcCase first binder [FcAlt DefaultAlt [] result])
 
 expressionType :: FcExpr -> Maybe TcType
 expressionType expression =

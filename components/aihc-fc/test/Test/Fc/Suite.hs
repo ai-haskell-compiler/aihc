@@ -137,6 +137,30 @@ fcLoweringTests =
             caseBinder = Var "$seq_whnf" (Unique 5) stringTy
             source = FcProgram [FcTopBind (FcNonRec result (FcApp (FcVar seqVar) (FcVar first)))]
             expected = FcProgram [FcTopBind (FcNonRec result (FcLam second (Aihc.Fc.FcCase (FcVar first) caseBinder [FcAlt DefaultAlt [] (FcVar second)])))]
+        assertEqual "lowered program" expected (lowerPseudoOps source),
+      testCase "uses the evaluated case binder for later references to the first argument" $ do
+        let boolTy = ty "Bool"
+            first = Var "first" (Unique 1) stringTy
+            consume = Var "consume" (Unique 2) (TcFunTy stringTy boolTy)
+            seqVar = Var "$aihc.seq" (Unique 3) (TcFunTy stringTy (TcFunTy boolTy boolTy))
+            result = Var "result" (Unique 4) boolTy
+            source =
+              FcProgram
+                [ FcTopBind
+                    ( FcNonRec
+                        result
+                        (FcApp (FcApp (FcVar seqVar) (FcVar first)) (FcApp (FcVar consume) (FcVar first)))
+                    )
+                ]
+            caseBinder = Var "$seq_whnf" (Unique 5) stringTy
+            expected =
+              FcProgram
+                [ FcTopBind
+                    ( FcNonRec
+                        result
+                        (Aihc.Fc.FcCase (FcVar first) caseBinder [FcAlt DefaultAlt [] (FcApp (FcVar consume) (FcVar caseBinder))])
+                    )
+                ]
         assertEqual "lowered program" expected (lowerPseudoOps source)
     ]
 
