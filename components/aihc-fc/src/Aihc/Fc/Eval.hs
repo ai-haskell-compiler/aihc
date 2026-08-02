@@ -397,6 +397,8 @@ evalPrimitive "unsafeCoerce#" [value] =
   forceValue value
 evalPrimitive "realWorld#" [] =
   pure VStateToken
+evalPrimitive "noDuplicate#" [state] =
+  pure state
 evalPrimitive "catch#" [action, handler, state] =
   applyValue action state `catchE` handleRaised
   where
@@ -438,6 +440,10 @@ evalPrimitive "writeMutVar#" [mutVar, value, state] = do
   EvalMutVar ref <- forceMutVarPrimitiveArg "writeMutVar#" mutVar
   lift (writeIORef ref value)
   pure state
+evalPrimitive "sameMutVar#" [left, right] = do
+  leftReference <- forceMutVarPrimitiveArg "sameMutVar#" left
+  rightReference <- forceMutVarPrimitiveArg "sameMutVar#" right
+  pure (intPrimitiveValue (if leftReference == rightReference then 1 else 0))
 evalPrimitive "newByteArray#" [size, state] = do
   byteArray <- allocateByteArray "newByteArray#" False 8 =<< forceIntPrimitiveArg "newByteArray#" size
   pure (VConstructor "(#,#)" [state, VByteArray byteArray])

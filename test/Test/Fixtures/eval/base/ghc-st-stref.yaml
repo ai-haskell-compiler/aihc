@@ -1,0 +1,49 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import GHC.ST (ST(..), STret(..), liftST, runST, unsafeDupableInterleaveST, unsafeInterleaveST)
+    import GHC.STRef (newSTRef, readSTRef, writeSTRef)
+
+    updateReference :: Int
+    updateReference = runST (do
+      reference <- newSTRef 1
+      writeSTRef reference 42
+      readSTRef reference)
+
+    compareReferences :: (Bool, Bool)
+    compareReferences = runST (do
+      first <- newSTRef True
+      second <- newSTRef True
+      return (first == first, first == second))
+
+    functorValue :: Bool
+    functorValue = runST (fmap not (return False))
+
+    applicativeValue :: Bool
+    applicativeValue = runST (return not <*> return False)
+
+    interleavedValues :: (Bool, Bool)
+    interleavedValues = runST (do
+      first <- unsafeInterleaveST (return True)
+      second <- unsafeDupableInterleaveST (return False)
+      return (first, second))
+
+    liftedValue :: Bool
+    liftedValue = runST (ST (\state ->
+      case liftST (return True) state of
+        STret nextState value -> (# nextState, value #)))
+
+    showValue :: Bool
+    showValue = show (return True :: ST Bool Bool) == "<<ST action>>"
+output: |
+  (((I# 42),(True,False)),((True,True),(True,False),True,True))
+expression: |
+  ((updateReference, compareReferences), ((functorValue, applicativeValue), interleavedValues, liftedValue, showValue))
+status: pass
+reason: runs rank-N state threads and preserves STRef mutation and pointer identity through FC and GRIN
