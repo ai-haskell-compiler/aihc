@@ -25,10 +25,14 @@ module Aihc.Tc
     typecheckModuleSccWithFullEnv,
     typecheckModulesWithClassEnv,
     typecheckModuleSccWithClassEnv,
+    typecheckModulesWithInterface,
+    typecheckModuleSccWithInterface,
 
     -- * Result types
     TcResult (..),
     TcBindingResult (..),
+    TcInterface (..),
+    emptyTcInterface,
 
     -- * Module result projections
     tcModuleBindings,
@@ -130,6 +134,41 @@ data TcResult = TcResult
   }
   deriving (Show)
 
+-- | The complete semantic interface shared between independently checked
+-- module groups. Implementations never cross this boundary: only the facts
+-- needed to type-check downstream source are retained.
+data TcInterface = TcInterface
+  { tcInterfaceTerms :: ![(Text, TypeScheme)],
+    tcInterfaceTyCons :: ![TyConInfo],
+    tcInterfaceClasses :: ![ClassInfo],
+    tcInterfaceInstances :: ![InstanceInfo]
+  }
+  deriving (Show, Read)
+
+emptyTcInterface :: TcInterface
+emptyTcInterface =
+  TcInterface
+    { tcInterfaceTerms = [],
+      tcInterfaceTyCons = [],
+      tcInterfaceClasses = [],
+      tcInterfaceInstances = []
+    }
+
+instance Semigroup TcInterface where
+  left <> right =
+    TcInterface
+      { tcInterfaceTerms = mergeInterfaceEntries fst (tcInterfaceTerms left <> tcInterfaceTerms right),
+        tcInterfaceTyCons = mergeInterfaceEntries tciName (tcInterfaceTyCons left <> tcInterfaceTyCons right),
+        tcInterfaceClasses = mergeInterfaceEntries ciName (tcInterfaceClasses left <> tcInterfaceClasses right),
+        tcInterfaceInstances = mergeInterfaceEntries iiDictName (tcInterfaceInstances left <> tcInterfaceInstances right)
+      }
+
+instance Monoid TcInterface where
+  mempty = emptyTcInterface
+
+mergeInterfaceEntries :: (Ord key) => (value -> key) -> [value] -> [value]
+mergeInterfaceEntries key = Map.elems . Map.fromList . map (\value -> (key value, value))
+
 -- | Type-check a single expression in an empty environment.
 --
 -- This is the primary entry point for testing. For full module
@@ -220,48 +259,48 @@ typecheckModulesWithEnv importedTerms =
 -- | Type-check modules in order with preloaded terms and class instances.
 typecheckModulesWithEnvAndInstances :: [(Text, TypeScheme)] -> [InstanceInfo] -> [Module] -> [Module]
 typecheckModulesWithEnvAndInstances importedTerms importedInstances =
-  firstOfThree . typecheckModulesWithFullEnv importedTerms [] importedInstances
-
-firstOfThree :: (a, b, c) -> a
-firstOfThree (first, _, _) = first
+  fst
+    . typecheckModulesWithInterface
+      emptyTcInterface
+        { tcInterfaceTerms = importedTerms,
+          tcInterfaceInstances = importedInstances
+        }
 
 -- | Type-check modules with a complete imported type-checker interface and
 -- return the accumulated term schemes and type constructors for downstream
 -- modules.
 typecheckModulesWithFullEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo])
 typecheckModulesWithFullEnv importedTerms importedTyCons importedInstances modules =
-  let (checkedModules, terms, tyCons, _) = typecheckModulesWithClassEnv importedTerms importedTyCons [] importedInstances modules
-   in (checkedModules, terms, tyCons)
+  let (checkedModules, interface) =
+        typecheckModulesWithInterface
+          emptyTcInterface
+            { tcInterfaceTerms = importedTerms,
+              tcInterfaceTyCons = importedTyCons,
+              tcInterfaceInstances = importedInstances
+            }
+          modules
+   in (checkedModules, tcInterfaceTerms interface, tcInterfaceTyCons interface)
 
 typecheckModulesWithClassEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo], [ClassInfo])
 typecheckModulesWithClassEnv importedTerms importedTyCons importedClasses importedInstances modules =
-  let (checkedModules, finalState) = go initState modules
-   in ( checkedModules,
-        [ (name, scheme)
-        | (name, TcIdBinder scheme _) <- Map.toList (tcsGlobalTerms finalState)
-        ],
-        Map.elems (tcsGlobalTyCons finalState),
-        Map.elems (tcsClasses finalState)
-      )
-  where
-    initState =
-      initTcState
-        { tcsGlobalTerms =
-            Map.fromList
-              [ (name, TcIdBinder scheme Closed)
-              | (name, scheme) <- importedTerms
-              ]
-              <> tcsGlobalTerms initTcState,
-          tcsGlobalTyCons =
-            Map.fromList
-              [ (tciName tyCon, tyCon)
-              | tyCon <- importedTyCons
-              ]
-              <> tcsGlobalTyCons initTcState,
-          tcsClasses = Map.fromList [(ciName classInfo, classInfo) | classInfo <- importedClasses],
-          tcsInstances = importedInstances
-        }
+  let (checkedModules, interface) =
+        typecheckModulesWithInterface
+          TcInterface
+            { tcInterfaceTerms = importedTerms,
+              tcInterfaceTyCons = importedTyCons,
+              tcInterfaceClasses = importedClasses,
+              tcInterfaceInstances = importedInstances
+            }
+          modules
+   in (checkedModules, tcInterfaceTerms interface, tcInterfaceTyCons interface, tcInterfaceClasses interface)
 
+-- | Type-check dependency-ordered modules with a complete imported semantic
+-- interface and return the accumulated interface for downstream modules.
+typecheckModulesWithInterface :: TcInterface -> [Module] -> ([Module], TcInterface)
+typecheckModulesWithInterface imported modules =
+  let (checkedModules, finalState) = go (initialTcState imported) modules
+   in (checkedModules, tcInterfaceFromState finalState)
+  where
     go st [] = ([], st)
     go st (m : ms) =
       let (result, st') = typecheckModuleWithState st m
@@ -273,38 +312,65 @@ typecheckModulesWithClassEnv importedTerms importedTyCons importedClasses import
 -- implementations from predecessor components are never consumed.
 typecheckModuleSccWithFullEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo])
 typecheckModuleSccWithFullEnv importedTerms importedTyCons importedInstances modules =
-  let (checkedModules, terms, tyCons, _) = typecheckModuleSccWithClassEnv importedTerms importedTyCons [] importedInstances modules
-   in (checkedModules, terms, tyCons)
+  let (checkedModules, interface) =
+        typecheckModuleSccWithInterface
+          emptyTcInterface
+            { tcInterfaceTerms = importedTerms,
+              tcInterfaceTyCons = importedTyCons,
+              tcInterfaceInstances = importedInstances
+            }
+          modules
+   in (checkedModules, tcInterfaceTerms interface, tcInterfaceTyCons interface)
 
 typecheckModuleSccWithClassEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo], [ClassInfo])
 typecheckModuleSccWithClassEnv importedTerms importedTyCons importedClasses importedInstances modules =
-  let initState = initialTcState importedTerms importedTyCons importedClasses importedInstances
-      (checkedModules, finalState) = typecheckModuleSccWithState initState modules
-   in ( checkedModules,
-        [ (name, scheme)
-        | (name, TcIdBinder scheme _) <- Map.toList (tcsGlobalTerms finalState)
-        ],
-        Map.elems (tcsGlobalTyCons finalState),
-        Map.elems (tcsClasses finalState)
-      )
+  let (checkedModules, interface) =
+        typecheckModuleSccWithInterface
+          TcInterface
+            { tcInterfaceTerms = importedTerms,
+              tcInterfaceTyCons = importedTyCons,
+              tcInterfaceClasses = importedClasses,
+              tcInterfaceInstances = importedInstances
+            }
+          modules
+   in (checkedModules, tcInterfaceTerms interface, tcInterfaceTyCons interface, tcInterfaceClasses interface)
 
-initialTcState :: [(Text, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> TcState
-initialTcState importedTerms importedTyCons importedClasses importedInstances =
+-- | Type-check one strongly connected module component using only the
+-- supplied imported interface.
+typecheckModuleSccWithInterface :: TcInterface -> [Module] -> ([Module], TcInterface)
+typecheckModuleSccWithInterface imported modules =
+  let (checkedModules, finalState) = typecheckModuleSccWithState (initialTcState imported) modules
+   in (checkedModules, tcInterfaceFromState finalState)
+
+initialTcState :: TcInterface -> TcState
+initialTcState imported =
   initTcState
     { tcsGlobalTerms =
         Map.fromList
           [ (name, TcIdBinder scheme Closed)
-          | (name, scheme) <- importedTerms
+          | (name, scheme) <- tcInterfaceTerms imported
           ]
           <> tcsGlobalTerms initTcState,
       tcsGlobalTyCons =
         Map.fromList
           [ (tciName tyCon, tyCon)
-          | tyCon <- importedTyCons
+          | tyCon <- tcInterfaceTyCons imported
           ]
           <> tcsGlobalTyCons initTcState,
-      tcsClasses = Map.fromList [(ciName classInfo, classInfo) | classInfo <- importedClasses],
-      tcsInstances = importedInstances
+      tcsClasses = Map.fromList [(ciName classInfo, classInfo) | classInfo <- tcInterfaceClasses imported],
+      tcsInstances = tcInterfaceInstances imported
+    }
+
+tcInterfaceFromState :: TcState -> TcInterface
+tcInterfaceFromState state =
+  TcInterface
+    { tcInterfaceTerms =
+        [ (name, scheme)
+        | (name, TcIdBinder scheme _) <- Map.toList (tcsGlobalTerms state)
+        ],
+      tcInterfaceTyCons = Map.elems (tcsGlobalTyCons state),
+      tcInterfaceClasses = Map.elems (tcsClasses state),
+      tcInterfaceInstances = mergeInterfaceEntries iiDictName (tcsInstances state)
     }
 
 typecheckModuleSccWithState :: TcState -> [Module] -> ([Module], TcState)

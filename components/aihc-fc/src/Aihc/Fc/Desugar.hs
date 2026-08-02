@@ -129,6 +129,12 @@ lowerConstraintProgram (FcProgram topBinds) =
       case topBind of
         FcData name tyVars constructors ->
           FcData name tyVars [(constructor, map lowerConstraintType fields) | (constructor, fields) <- constructors]
+        FcAxiom declaration ->
+          FcAxiom
+            declaration
+              { fcAxiomLeft = lowerConstraintType (fcAxiomLeft declaration),
+                fcAxiomRight = lowerConstraintType (fcAxiomRight declaration)
+              }
         FcNewtype declaration ->
           FcNewtype
             declaration

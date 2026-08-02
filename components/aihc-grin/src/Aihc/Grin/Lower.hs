@@ -191,6 +191,8 @@ lowerTopBind topBind =
   case topBind of
     FcData _ _ constructors ->
       pure mempty {loweredConstructors = [(name, map (runtimeRepComponents . typeRuntimeRep) fields) | (name, fields) <- constructors]}
+    FcAxiom {} ->
+      pure mempty
     FcNewtype {} ->
       pure mempty
     FcPrimitive var arity ->
@@ -1418,6 +1420,7 @@ programGlobalNames program = concatMap topGlobalNames (fcTopBinds program)
     topGlobalNames topBind =
       case topBind of
         FcData _ _ constructors -> map fst constructors
+        FcAxiom {} -> []
         FcNewtype {} -> []
         FcPrimitive {} -> []
         FcForeignImport {} -> []
@@ -1447,6 +1450,7 @@ programWhnfGlobalNames program = concatMap topWhnfGlobalNames (fcTopBinds progra
     topWhnfGlobalNames topBind =
       case topBind of
         FcData _ _ constructors -> map fst constructors
+        FcAxiom {} -> []
         FcNewtype {} -> []
         FcPrimitive {} -> []
         FcForeignImport {} -> []
@@ -1538,6 +1542,7 @@ topVars :: FcTopBind -> [Var]
 topVars topBind =
   case topBind of
     FcData {} -> []
+    FcAxiom {} -> []
     FcNewtype {} -> []
     FcPrimitive var _ -> [var]
     FcForeignImport {} -> []

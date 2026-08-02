@@ -48,6 +48,19 @@ renderTopBind (FcData tyName tyVars cons) =
     ++ T.unpack tyName
     ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) tyVars
     ++ renderDataCons tyVars cons
+renderTopBind (FcAxiom declaration) =
+  "axiom "
+    ++ T.unpack (fcAxiomName declaration)
+    ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) (fcAxiomTyVars declaration)
+    ++ " : "
+    ++ renderType (fcAxiomLeft declaration)
+    ++ roleEquality (fcAxiomRole declaration)
+    ++ renderType (fcAxiomRight declaration)
+  where
+    roleEquality role =
+      case role of
+        FcNominal -> " ~N "
+        FcRepresentational -> " ~R "
 renderTopBind (FcNewtype declaration) =
   "newtype "
     ++ T.unpack (fcNewtypeName declaration)

@@ -15,6 +15,7 @@
 module Aihc.Fc.Lint
   ( -- * Lint
     lintProgram,
+    lintProgramWithAxiomInterface,
     lintExpr,
 
     -- * Errors
@@ -26,6 +27,7 @@ module Aihc.Fc.Lint
   )
 where
 
+import Aihc.Fc.Axiom (AxiomInterface, extractAxiomInterface, lookupAxiomDecl)
 import Aihc.Fc.Subst (freeRigidTyVarsOf, substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Evidence (Coercion (..))
@@ -60,8 +62,8 @@ data LintEnv = LintEnv
     leTyVars :: !(Set TyVarId),
     -- | Known data constructors: name -> (type var params, field types, result type).
     leDataCons :: !(Map Text ([TyVarId], [TcType], TcType)),
-    -- | Representational equality axioms introduced by newtypes.
-    leNewtypes :: !(Map Text FcNewtypeDecl),
+    -- | Type equality axioms visible to coercion linting.
+    leAxioms :: !AxiomInterface,
     leForeignCalls :: !(Map Text FcForeignCall)
   }
   deriving (Show)
@@ -73,18 +75,25 @@ emptyLintEnv =
     { leTerms = Map.empty,
       leTyVars = Set.empty,
       leDataCons = Map.empty,
-      leNewtypes = Map.empty,
+      leAxioms = mempty,
       leForeignCalls = Map.empty
     }
 
 -- | Lint an entire program.
 lintProgram :: LintEnv -> FcProgram -> [LintError]
-lintProgram env0 prog = go envWithDeclarations (fcTopBinds prog)
-  where
-    envWithDeclarations = foldr registerDeclaration env0 (fcTopBinds prog)
+lintProgram = lintProgramWithAxiomInterface mempty
 
-    registerDeclaration (FcNewtype declaration) env =
-      env {leNewtypes = Map.insert (fcNewtypeName declaration) declaration (leNewtypes env)}
+-- | Lint a program with equality axioms imported from independently compiled
+-- units. Local declarations take precedence over imported declarations.
+lintProgramWithAxiomInterface :: AxiomInterface -> LintEnv -> FcProgram -> [LintError]
+lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTopBinds prog)
+  where
+    envWithDeclarations =
+      foldr
+        registerDeclaration
+        env0 {leAxioms = leAxioms env0 <> imported <> extractAxiomInterface prog}
+        (fcTopBinds prog)
+
     registerDeclaration (FcData typeName tyVars constructors) env =
       env
         { leDataCons =
@@ -105,6 +114,9 @@ lintProgram env0 prog = go envWithDeclarations (fcTopBinds prog)
     go _ [] = []
     go env (FcData {} : rest) =
       -- Data declarations don't need expression-level linting.
+      go env rest
+    go env (FcAxiom {} : rest) =
+      -- Axiom declarations don't need expression-level linting.
       go env rest
     go env (FcNewtype {} : rest) =
       -- Newtype declarations don't need expression-level linting.
@@ -245,16 +257,16 @@ coercionEndpoints env (TyConAppCo tc coercions) = do
   pairs <- mapM (coercionEndpoints env) coercions
   Right (TcTyCon tc (map fst pairs), TcTyCon tc (map snd pairs))
 coercionEndpoints env (AxiomInstCo name typeArgs) =
-  case Map.lookup name (leNewtypes env) of
-    Nothing -> Left (LintFailure ("unknown newtype axiom: " ++ show name))
+  case lookupAxiomDecl name (leAxioms env) of
+    Nothing -> Left (LintFailure ("unknown coercion axiom: " ++ show name))
     Just declaration
-      | length typeArgs /= length (fcNewtypeTyVars declaration) ->
-          Left (LintFailure ("newtype axiom arity mismatch: " ++ show name))
+      | length typeArgs /= length (fcAxiomTyVars declaration) ->
+          Left (LintFailure ("coercion axiom arity mismatch: " ++ show name))
       | otherwise ->
-          let substitution = Map.fromList (zip (fcNewtypeTyVars declaration) typeArgs)
+          let substitution = Map.fromList (zip (fcAxiomTyVars declaration) typeArgs)
            in Right
-                ( substType substitution (fcNewtypeResult declaration),
-                  substType substitution (fcNewtypeRepresentation declaration)
+                ( substType substitution (fcAxiomLeft declaration),
+                  substType substitution (fcAxiomRight declaration)
                 )
 
 -- | Extend the term environment with a variable.
