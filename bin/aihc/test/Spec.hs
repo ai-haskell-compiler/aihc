@@ -328,6 +328,7 @@ main =
           testCase "renders JSON install errors on request" test_rendersJsonInstallErrors,
           testCase "does not install dependencies when root package fails" test_failedRootDoesNotInstallDependencies,
           testCase "type-checks references to dependency bindings" test_typeChecksReferencesToDependencyBindings,
+          testCase "type-checks with dependency type environments" test_typeChecksWithDependencyTypeEnvironments,
           testCase "checks cast-style instance methods using dependency id" test_checksCastStyleDependencyId,
           testCase "checks constraint-kinded multi-parameter classes" test_checksConstraintKindedMultiParameterClasses,
           testCase "checks packages without writing install artifacts" test_checkPackagePlanWritesNoArtifacts,
@@ -732,6 +733,40 @@ test_typeChecksReferencesToDependencyBindings =
         storeRoot = root </> "store"
     createFixturePackageWithSource sourceRoot "demo" "0.1.0.0" "Demo" ["dep >=1 && <2"] "module Demo where\nimport Dep\ny = depId ()\n"
     createFixturePackageWithSource depRoot "dep" "1.0.0" "Dep" [] "module Dep where\ndepId :: a -> a\ndepId x = x\n"
+    createDirectoryIfMissing True storeRoot
+    plan <-
+      buildPackagePlanWithResolver
+        (fixtureDependencyResolver sourceRoot [("dep", "1.0.0", depRoot)])
+        storeRoot
+        (PackageSpec "demo" "0.1.0.0")
+
+    _ <- expectInstallSuccess (writeInstallScaffold plan)
+    assertFileExists (planStorePath plan </> "manifest.json")
+
+test_typeChecksWithDependencyTypeEnvironments :: Assertion
+test_typeChecksWithDependencyTypeEnvironments =
+  withTempDir "aihc-cli" $ \root -> do
+    let sourceRoot = root </> "source"
+        depRoot = root </> "dep"
+        storeRoot = root </> "store"
+        source =
+          unlines
+            [ "module Demo where",
+              "import Dep",
+              "use :: Box a -> Box a",
+              "use value = mark value"
+            ]
+        dependencySource =
+          unlines
+            [ "module Dep where",
+              "data Box a = Box a",
+              "class Marker a where",
+              "  mark :: a -> a",
+              "instance Marker (Box a) where",
+              "  mark value = value"
+            ]
+    createFixturePackageWithSource sourceRoot "demo" "0.1.0.0" "Demo" ["dep >=1 && <2"] source
+    createFixturePackageWithSource depRoot "dep" "1.0.0" "Dep" [] dependencySource
     createDirectoryIfMissing True storeRoot
     plan <-
       buildPackagePlanWithResolver
