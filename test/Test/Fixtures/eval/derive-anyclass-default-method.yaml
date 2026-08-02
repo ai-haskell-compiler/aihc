@@ -1,0 +1,40 @@
+extensions:
+  - DefaultSignatures
+  - DeriveAnyClass
+  - DerivingStrategies
+modules:
+  - |
+    {-# LANGUAGE DefaultSignatures, DeriveAnyClass, DerivingStrategies #-}
+    module Test where
+
+    data Unit = Unit
+    data Box a = Box a
+
+    class Required a where
+      required :: a -> a
+
+    instance Required Unit where
+      required value = value
+
+    instance Required a => Required (Box a) where
+      required value = value
+
+    class Any a where
+      anyValue :: a -> a
+      default anyValue :: Required a => a -> a
+      anyValue value = required value
+
+    data Wrapped a = Wrapped (Box a)
+      deriving anyclass Any
+
+    instance Required a => Required (Wrapped a) where
+      required value = value
+
+    answer :: Wrapped Unit
+    answer = anyValue (Wrapped (Box Unit))
+output: |
+  Wrapped (Box Unit)
+expression: |
+  answer
+status: pass
+reason: evaluates a constrained default method through a derived AnyClass dictionary

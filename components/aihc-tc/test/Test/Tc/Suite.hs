@@ -440,6 +440,7 @@ annotationTests =
       assertEqual "sibling superclass context" [[]] (contexts "Child")
       assertEqual "sibling AnyClass instance" [[]] (contexts "Parent")
       assertBool "same-module values can select the derived dictionary" ("$fCTa" `elem` evidenceDictNames result)
+      assertBool "derived dictionary type is exported downstream" (any ((== "$fCTa") . tbName) (tcModuleBindings result))
       assertBool "default-method evidence is checked in TC" (not (all (null . tcDerivingDefaultMethodEvidence) plans))
       assertBool "superclass evidence is checked in TC" (not (all (null . tcDerivingSuperClasses) plans)),
     testCase "instance methods retain method-local constraints" $ do

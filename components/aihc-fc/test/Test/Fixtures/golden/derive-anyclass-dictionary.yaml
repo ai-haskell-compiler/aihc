@@ -1,0 +1,114 @@
+expected: |-
+  data Unit
+   = Unit
+
+  data Box a
+   = Box a
+
+  data Required a
+   = $Dict$Required (a → a)
+
+  required : ∀ a. (Required a) → a → a =
+    Λa.
+      λ$d0 : Required a.
+        case $d0 as $dict : Required a of
+          $Dict$Required $method0 →
+            $method0
+
+  data Any a
+   = $Dict$Any (a → a)
+
+  anyValue : ∀ a. (Any a) → a → a =
+    Λa.
+      λ$d0 : Any a.
+        case $d0 as $dict : Any a of
+          $Dict$Any $method0 →
+            $method0
+
+  $dmanyValue : ∀ a. (Any a) → (Required a) → a → a =
+    Λa.
+      λ$d0 : Any a.
+        λ$d1 : Required a.
+          λx1011 : a.
+            required @a $d1 x1011
+
+  data Wrapped a
+   = Wrapped (Box a)
+
+  data Parent a
+   = $Dict$Parent
+
+  data Child a
+   = $Dict$Child (Parent a)
+
+  data Both
+   = Both
+
+  $fRequiredBoxa : ∀ a. (Required a) → Required (Box a) =
+    Λa.
+      λ$d0 : Required a.
+        $Dict$Required @(Box a) (λx1014 : Box a.
+          x1014)
+
+  $fRequiredWrappeda : ∀ a. (Required a) → Required (Wrapped a) =
+    Λa.
+      λ$d0 : Required a.
+        $Dict$Required @(Wrapped a) (λx1018 : Wrapped a.
+          x1018)
+
+  $fParentBoth : Parent Both =
+    $Dict$Parent @Both
+
+  $fChildBoth : Child Both =
+    $Dict$Child @Both $fParentBoth
+
+  rec
+    $fAnyWrappeda : ∀ a. (Required a) → Any (Wrapped a) =
+      Λa.
+        λ$d0 : Required a.
+          $Dict$Any @(Wrapped a) ($dmanyValue @(Wrapped a) ($fAnyWrappeda @a $d0) ($fRequiredWrappeda @a $d0))
+
+  useAny : ∀ a. (Required a) → (Wrapped a) → Wrapped a =
+    Λa.
+      λ$d0 : Required a.
+        anyValue @(Wrapped a) ($fAnyWrappeda @a $d0)
+extensions:
+- DefaultSignatures
+- DeriveAnyClass
+- DerivingStrategies
+modules:
+- |
+  {-# LANGUAGE DefaultSignatures, DeriveAnyClass, DerivingStrategies #-}
+  module Test where
+
+  data Unit = Unit
+  data Box a = Box a
+
+  class Required a where
+    required :: a -> a
+
+  instance Required a => Required (Box a) where
+    required value = value
+
+  class Any a where
+    anyValue :: a -> a
+    default anyValue :: Required a => a -> a
+    anyValue value = required value
+
+  data Wrapped a = Wrapped (Box a)
+    deriving anyclass Any
+
+  instance Required a => Required (Wrapped a) where
+    required value = value
+
+  class Parent a where
+  class Parent a => Child a where
+
+  data Both = Both
+    deriving anyclass (Child, Parent)
+
+  useAny :: Required a => Wrapped a -> Wrapped a
+  useAny = anyValue
+reason: AnyClass lowering consumes finalized contexts, superclass evidence, and
+  default-method evidence attached by the type checker
+status: pass
