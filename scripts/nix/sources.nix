@@ -203,6 +203,7 @@ in rec {
         pathStr = toString path;
         isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
         isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
+        isHlintConfig = baseName == ".hlint.yaml";
         isFixture = pkgs.lib.hasInfix "/test/Test/Fixtures/" pathStr;
         inComponents = pkgs.lib.hasInfix "/components/" pathStr;
         inTooling = pkgs.lib.hasInfix "/tooling/" pathStr;
@@ -211,7 +212,7 @@ in rec {
         inNixHaskell = pkgs.lib.hasInfix "/scripts/nix/ucd2haskell-aihc/" pathStr;
         inTestSupport = pkgs.lib.hasInfix "/test/support/" pathStr;
       in
-        type == "directory" || ((inComponents || inTooling || inBin || inCoreLibs || inNixHaskell || inTestSupport) && (isCabal || (isHaskell && !isFixture)));
+        type == "directory" || isHlintConfig || ((inComponents || inTooling || inBin || inCoreLibs || inNixHaskell || inTestSupport) && (isCabal || (isHaskell && !isFixture)));
     };
 
   # Cabal formatting should not be invalidated by ordinary Haskell changes.
