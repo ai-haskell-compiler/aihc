@@ -14,7 +14,7 @@ where
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Syntax
-import Aihc.Tc.Types (RuntimeRep (..), TcType (..), TyCon (..), Unique)
+import Aihc.Tc.Types (RuntimeRep (..), TcType (..), TyCon (..), Unique, isLiftedType)
 import Control.Applicative ((<|>))
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (forM, forM_, zipWithM, (<=<), (>=>))
@@ -1002,9 +1002,13 @@ forceCharPrimitiveArg name value = do
 extendBind :: Env -> FcBind -> EvalM Env
 extendBind env bind =
   case bind of
-    FcNonRec var expr -> do
-      thunk <- newThunk env expr
-      pure (insertLocal var (VThunk thunk) env)
+    FcNonRec var expr
+      | isLiftedType (varType var) -> do
+          thunk <- newThunk env expr
+          pure (insertLocal var (VThunk thunk) env)
+      | otherwise -> do
+          value <- evalWithEnv env expr >>= forceValue
+          pure (insertLocal var value env)
     FcRec bindings -> do
       allocated <- forM bindings $ \(var, expression) -> do
         ref <- lift (newIORef ThunkEvaluating)

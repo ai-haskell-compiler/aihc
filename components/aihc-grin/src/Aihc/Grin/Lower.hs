@@ -498,9 +498,13 @@ lowerCase scrutinee binder alternatives =
           (lowerExpr (altRhs alternative))
       scrutineeExpr <- lowerExpr scrutinee
       pure (bindExpr [] scrutineeExpr rhs)
-    (_, TupleRep _, [alternative])
+    (_, TupleRep _, alternative : _)
       | DataAlt constructor <- altCon alternative,
         isUnboxedTupleConstructor constructor ->
+          -- An unboxed tuple has exactly one constructor. The source match
+          -- compiler may retain a syntactic fall-through alternative while
+          -- compiling nested refutable fields, but that alternative is
+          -- unreachable at the outer tuple match.
           lowerUnboxedTupleCase scrutinee binder alternative
     _ ->
       lowerSingleEvaluatedOperand "scrutinee" scrutinee $ \value -> do

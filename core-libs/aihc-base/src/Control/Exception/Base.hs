@@ -19,7 +19,7 @@ where
 import GHC.Exception (Exception (..), SomeException (..), throw)
 import GHC.IO (IO (..))
 import GHC.Prim (catch#, raise#)
-import Prelude (Either (..), Maybe (..), pure, (.), (>>=))
+import Prelude (Either (..), Maybe (..), pure, seq, (.), (>>=))
 
 throwIO :: (Exception e) => e -> IO a
 throwIO exception = IO (\_state -> raise# (toException exception))
@@ -78,6 +78,5 @@ evaluate :: a -> IO a
 evaluate value =
   IO
     ( \state ->
-        case value of
-          evaluated -> (# state, evaluated #)
+        seq value (# state, value #)
     )
