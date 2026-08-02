@@ -7,7 +7,7 @@ module Test.Tc.Suite
   )
 where
 
-import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseModule, parseSignatureType)
 import Aihc.Parser.Syntax
   ( Annotation,
     CaseAlt (..),
@@ -34,6 +34,7 @@ import Aihc.Tc
 import Aihc.Tc.Annotations (PendingTcAnnotation, TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
+import Aihc.Tc.Kind (freeTypeVars)
 import Aihc.Tc.Monad (emptyTcEnv, initTcState, runTcM)
 import Aihc.Tc.Types (mkTyCon)
 import Data.Data (Data, gmapQ)
@@ -266,7 +267,11 @@ variableTests =
 
 kindTests :: [TestTree]
 kindTests =
-  [ testCase "primitive types retain their runtime-representation kinds" $ do
+  [ testCase "explicit forall removes every occurrence of its bound variables" $ do
+      case parseSignatureType defaultConfig {parserExtensions = [ExplicitForAll]} "forall a. a -> a" of
+        ParseOk signature -> assertEqual "free type variables" [] (freeTypeVars signature)
+        ParseErr errors -> assertFailure ("signature should parse: " <> show errors),
+    testCase "primitive types retain their runtime-representation kinds" $ do
       assertEqual
         "Int kind"
         liftedTypeKind

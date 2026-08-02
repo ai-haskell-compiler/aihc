@@ -1,0 +1,19 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (raise#)
+
+    data Unit = Unit
+
+    result :: Bool
+    result = seq (raise# Unit) True
+output: ""
+expression: result
+status: fail
+reason: seq propagates failure while evaluating its first argument to weak head normal form

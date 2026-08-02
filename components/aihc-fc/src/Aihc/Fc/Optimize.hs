@@ -9,6 +9,7 @@ module Aihc.Fc.Optimize
   )
 where
 
+import Aihc.Fc.Pseudo (expandPseudoOps)
 import Aihc.Fc.Syntax
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -25,7 +26,7 @@ optimizeProgram = untilStable runOptimizations
 -- Keep this list ordered from local canonicalizations to broader rewrites so
 -- later rules see the simplest output available from earlier rules.
 coreOptimizations :: [CoreOptimization]
-coreOptimizations = [copyPropagateProgram]
+coreOptimizations = [expandPseudoOps, copyPropagateProgram]
 
 untilStable :: (Eq value) => (value -> value) -> value -> value
 untilStable transform input =

@@ -25,6 +25,7 @@ module Aihc.Fc.Desugar.Expr
 where
 
 import Aihc.Fc.Desugar.Match (dsPatternPure, numericRuntimeRep)
+import Aihc.Fc.Pseudo (seqPseudoOpName)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
@@ -608,9 +609,24 @@ dsAnnotatedVar tcAnn name _expr = do
       Nothing -> do
         ty <- lookupTypeName name
         freshVar n ty
-  let typedExpr = List.foldl' FcTyApp (FcVar variable) (tcAnnTypeArgs tcAnn)
+  let occurrenceVar
+        | isGhcPrimSeq name = variable {varName = seqPseudoOpName}
+        | otherwise = variable
+      typedExpr = List.foldl' FcTyApp (FcVar occurrenceVar) (tcAnnTypeArgs tcAnn)
   dicts <- mapM dsEvidence (tcAnnEvidenceTerms tcAnn)
   pure (List.foldl' FcApp typedExpr dicts)
+
+isGhcPrimSeq :: Name -> Bool
+isGhcPrimSeq name =
+  any isSeqResolution (mapMaybe fromAnnotation (nameAnns name))
+  where
+    isSeqResolution resolution =
+      resolutionNamespace resolution == ResolutionNamespaceTerm
+        && case resolutionTarget resolution of
+          ResolvedTopLevel target ->
+            nameQualifier target == Just "GHC.Prim"
+              && nameText target == "seq"
+          _ -> False
 
 dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
 dsAnnotatedExpr tcAnn inner =

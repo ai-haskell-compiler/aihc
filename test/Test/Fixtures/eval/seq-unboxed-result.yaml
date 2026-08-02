@@ -1,0 +1,15 @@
+dependencies:
+  - aihc-base
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    foreign import prim (+#) :: Int# -> Int# -> Int#
+
+output: |
+  42
+expression: seq () ((+#) 20# 22#)
+status: pass
+reason: seq accepts and returns an unboxed second argument through its RuntimeRep-polymorphic result type

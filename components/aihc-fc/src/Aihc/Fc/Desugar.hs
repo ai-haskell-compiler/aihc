@@ -60,7 +60,18 @@ import Aihc.Resolve (ResolveResult (..), resolve)
 import Aihc.Tc (DataFamilyInstanceInfo (..), TcBindingResult (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc.Types
+  ( Kind (KRuntimeRep, KTYPE),
+    Pred (..),
+    RuntimeRep (RuntimeRepVar),
+    TcType (..),
+    TyCon (..),
+    TyVarId (..),
+    Unique (..),
+    liftedTypeKind,
+    tvKind,
+    tvUnique,
+  )
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
 import Control.Monad.Trans.State.Strict (runStateT)
@@ -567,18 +578,15 @@ validatePrimitiveImport name ty =
                 <> T.unpack name
                 <> "; expected "
                 <> T.unpack (primitiveSpecSource spec)
+                <> ", got "
+                <> renderTcSignature "" ty
             )
 
 data PrimitiveSpec = PrimitiveSpec
   { primitiveSpecSource :: !Text,
-    primitiveSpecType :: !PrimitiveType
+    primitiveSpecArity :: !Int,
+    primitiveSpecAccepts :: TcType -> Bool
   }
-
-primitiveSpecArity :: PrimitiveSpec -> Int
-primitiveSpecArity = primitiveTypeArity . primitiveSpecType
-
-primitiveSpecAccepts :: PrimitiveSpec -> TcType -> Bool
-primitiveSpecAccepts = matchesPrimitiveType . primitiveSpecType
 
 primitiveImportSpecs :: Map.Map Text PrimitiveSpec
 primitiveImportSpecs =
@@ -622,6 +630,7 @@ primitiveImportSpecs =
       primitive "popCnt#" "Word# -> Word#",
       primitive "raise#" "a -> b",
       primitive "unsafeCoerce#" "a -> b",
+      seqPrimitive,
       primitive "realWorld#" "State# RealWorld",
       primitive
         "catch#"
@@ -660,12 +669,47 @@ primitiveImportSpecs =
 
 primitive :: Text -> Text -> (Text, PrimitiveSpec)
 primitive name source =
-  ( name,
+  let expected = parsePrimitiveType source
+   in ( name,
+        PrimitiveSpec
+          { primitiveSpecSource = source,
+            primitiveSpecArity = primitiveTypeArity expected,
+            primitiveSpecAccepts = matchesPrimitiveType expected
+          }
+      )
+
+seqPrimitive :: (Text, PrimitiveSpec)
+seqPrimitive =
+  ( "seq",
     PrimitiveSpec
-      { primitiveSpecSource = source,
-        primitiveSpecType = parsePrimitiveType source
+      { primitiveSpecSource = "forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b",
+        primitiveSpecArity = 2,
+        primitiveSpecAccepts = matchesSeqType
       }
   )
+
+matchesSeqType :: TcType -> Bool
+matchesSeqType actual =
+  matchesRepresentationPolymorphicSeq actual
+    || matchesPrimitiveType (parsePrimitiveType "a -> b -> b") actual
+  where
+    matchesRepresentationPolymorphicSeq ty =
+      case body of
+        TcFunTy (TcTyVar first) (TcFunTy (TcTyVar secondArgument) (TcTyVar result)) ->
+          first `elem` quantified
+            && secondArgument `elem` quantified
+            && result == secondArgument
+            && tvKind first == liftedTypeKind
+            && case tvKind secondArgument of
+              KTYPE (RuntimeRepVar representationUnique) ->
+                any
+                  (\tyVar -> tvUnique tyVar == representationUnique && tvKind tyVar == KRuntimeRep)
+                  quantified
+              _ -> False
+            && length quantified == 3
+        _ -> False
+      where
+        (quantified, body) = collectForAlls ty
 
 data PrimitiveType
   = PrimitiveTyVar !Text

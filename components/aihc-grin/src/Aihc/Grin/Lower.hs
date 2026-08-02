@@ -114,7 +114,8 @@ extractGrinInterface sourceProgram =
       grinInterfacePrimitiveArities =
         Map.fromList
           [ (varName var, arity)
-          | FcPrimitive var arity <- fcTopBinds program
+          | FcPrimitive var arity <- fcTopBinds program,
+            varName var /= "seq"
           ],
       grinInterfaceCodeInfos = Map.fromList (programCodeInfos program)
     }
@@ -200,7 +201,7 @@ lowerTopBind topBind =
         mempty
           { loweredPrimitives =
               [ (lowerGlobalVar var, arity)
-              | varName var `notElem` ["unsafeCoerce#", "raise#", "catch#"]
+              | varName var `notElem` ["unsafeCoerce#", "raise#", "catch#", "seq"]
               ]
           }
     FcForeignImport foreignCall ->
@@ -277,6 +278,8 @@ lowerExpr expr = do
               pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue [])
         Just ("unsafeCoerce#", argument : extraArguments) ->
           lowerUnsafeCoerceApplication expr argument extraArguments
+        Just ("seq", _) ->
+          error "GRIN lowering received an unexpanded seq pseudo-op"
         Just (name, arguments) ->
           case Map.lookup name primitiveArities of
             Just arity -> lowerPrimitiveApplication expr name arity arguments

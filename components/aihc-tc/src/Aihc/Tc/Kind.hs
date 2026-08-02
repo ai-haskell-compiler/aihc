@@ -44,7 +44,7 @@ import Aihc.Tc.Instantiate (applySubst)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Control.Monad (zipWithM)
-import Data.List (nub, (\\))
+import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -593,8 +593,12 @@ freeTypeVars = nub . go
     go (TKindSig inner kindTy) = go inner ++ go kindTy
     go (TContext preds inner) = concatMap go preds ++ go inner
     go (TForall telescope inner) =
-      (concatMap binderKindVars (forallTelescopeBinders telescope) ++ go inner)
-        \\ map tyVarBinderName (forallTelescopeBinders telescope)
+      filter
+        (`Set.notMember` boundNames)
+        (concatMap binderKindVars binders ++ go inner)
+      where
+        binders = forallTelescopeBinders telescope
+        boundNames = Set.fromList (map tyVarBinderName binders)
     go _ = []
     binderKindVars binder = maybe [] go (tyVarBinderKind binder)
 

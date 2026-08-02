@@ -49,6 +49,7 @@ module GHC.Prim
     readMVar#,
     readMutVar#,
     resizeMutableByteArray#,
+    seq,
     shrinkMutableByteArray#,
     sizeofByteArray#,
     subIntC#,
@@ -105,6 +106,10 @@ data RealWorld
 foreign import prim raise# :: a -> b
 
 foreign import prim unsafeCoerce# :: a -> b
+
+foreign import prim seq :: a -> b -> b
+
+infixr 0 `seq`
 
 foreign import prim realWorld# :: State# RealWorld
 

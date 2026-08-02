@@ -29,6 +29,7 @@ library
     Aihc.Fc.Desugar.Deriving
     Aihc.Fc.Desugar.Deriving.AnyClass
     Aihc.Fc.Desugar.Dictionary
+    Aihc.Fc.Pseudo
 
   hs-source-dirs: src
   build-depends:

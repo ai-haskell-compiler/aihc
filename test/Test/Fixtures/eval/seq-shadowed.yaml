@@ -1,0 +1,24 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (raise#)
+    import Prelude hiding (seq)
+
+    data Unit = Unit
+
+    seq :: Unit -> Bool -> Bool
+    seq _ result = result
+
+    result :: Bool
+    result = seq (raise# Unit) True
+output: |
+  True
+expression: result
+status: pass
+reason: only the resolved GHC.Prim.seq binding receives compulsory strictness semantics
