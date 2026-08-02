@@ -1372,13 +1372,18 @@ exprType expr =
     FcCast inner _ -> exprType inner
     FcCallForeign foreignCall _arguments ->
       Just (fcForeignCallResultType (fcForeignCallSignature foreignCall))
-  where
-    functionResultType functionType =
-      case functionType of
-        TcFunTy _ result -> Just result
-        TcQualTy [] body -> functionResultType body
-        TcQualTy (_ : predicates) body -> Just (if null predicates then body else TcQualTy predicates body)
-        _ -> Nothing
+
+-- A default class method can be specialized to its class constructor before
+-- its method type variables, then applied to the instance dictionary. Preserve
+-- those still-polymorphic binders while consuming the runtime argument.
+functionResultType :: TcType -> Maybe TcType
+functionResultType functionType =
+  case functionType of
+    TcFunTy _ result -> Just result
+    TcForAllTy tyVar body -> TcForAllTy tyVar <$> functionResultType body
+    TcQualTy [] body -> functionResultType body
+    TcQualTy (_ : predicates) body -> Just (if null predicates then body else TcQualTy predicates body)
+    _ -> Nothing
 
 typeRuntimeRep :: TcType -> RuntimeRep
 typeRuntimeRep ty =
@@ -1391,13 +1396,6 @@ applicationResultRep function =
   case exprType function >>= functionResultType of
     Just result -> typeRuntimeRep result
     Nothing -> error ("GRIN lowering could not determine application result type: " <> show function)
-  where
-    functionResultType functionType =
-      case functionType of
-        TcFunTy _ result -> Just result
-        TcQualTy [] body -> functionResultType body
-        TcQualTy (_ : predicates) body -> Just (if null predicates then body else TcQualTy predicates body)
-        _ -> Nothing
 
 functionArgumentRep :: FcExpr -> RuntimeRep
 functionArgumentRep function =
@@ -1408,6 +1406,7 @@ functionArgumentRep function =
     functionArgumentType functionType =
       case functionType of
         TcFunTy argument _ -> Just argument
+        TcForAllTy _ body -> functionArgumentType body
         TcQualTy [] body -> functionArgumentType body
         _ -> Nothing
 
