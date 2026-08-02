@@ -165,7 +165,7 @@ static void discover_object(SnapshotState *state, AihcValue *object) {
     return;
   case AIHC_OBJECT_ARRAY: {
     uint64_t count = object->fields[0];
-    const AihcSlot *elements = (const AihcSlot *)(uintptr_t)object->fields[1];
+    const AihcSlot *elements = object->fields + 1;
     for (uint64_t index = 0; index < count; ++index) {
       discover_value(state, elements[index], AIHC_SNAPSHOT_POINTER);
     }
@@ -259,7 +259,7 @@ static void print_object(SnapshotState *state, const AihcValue *object) {
     return;
   case AIHC_OBJECT_ARRAY: {
     uint64_t count = object->fields[0];
-    const AihcSlot *elements = (const AihcSlot *)(uintptr_t)object->fields[1];
+    const AihcSlot *elements = object->fields + 1;
     fputs("Array#[", stdout);
     for (uint64_t index = 0; index < count; ++index) {
       if (index != 0) {

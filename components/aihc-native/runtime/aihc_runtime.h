@@ -155,10 +155,10 @@ AihcSlot *aihc_alloc_locals(AihcMachine *machine, uint64_t count);
 void aihc_no_match(void);
 void aihc_unsupported_primitive(void);
 void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field);
-/* Boxed arrays use a managed three-word header and a stable auxiliary element
-   buffer. The semispace collector traces every element through the header. */
-AihcValue *aihc_array_new_unchecked(AihcMachine *machine, int64_t count,
-                                    AihcSlot initial);
+/* Boxed arrays are contiguous managed objects. GrinEnsureHeap reserves their
+   length-dependent storage before this initializer advances the heap. */
+AihcValue *aihc_array_new(AihcMachine *machine, int64_t count,
+                          AihcSlot initial);
 AihcSlot aihc_array_index(AihcValue *array, int64_t index);
 AihcSlot aihc_array_write(AihcValue *array, int64_t index, AihcSlot value);
 uint64_t aihc_array_same(AihcValue *left, AihcValue *right);

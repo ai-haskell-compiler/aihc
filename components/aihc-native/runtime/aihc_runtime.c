@@ -49,7 +49,7 @@ static const AihcInfo aihc_thread_info = {
     .object_kind = AIHC_OBJECT_THREAD,
 };
 static const AihcInfo aihc_array_info = {
-    .field_count = 2,
+    .field_count = 1,
     .frame_kind = AIHC_FRAME_NONE,
     .object_kind = AIHC_OBJECT_ARRAY,
 };
@@ -126,6 +126,13 @@ uint64_t aihc_object_words(const AihcInfo *info) {
   return 1 + field_words;
 }
 
+uint64_t aihc_value_words(const AihcValue *value) {
+  if (aihc_value_kind(value) == AIHC_OBJECT_ARRAY) {
+    return 2 + aihc_array_length(value);
+  }
+  return aihc_object_words(aihc_value_info_table(value));
+}
+
 uint64_t aihc_array_length(const AihcValue *array) {
   if (array == NULL || aihc_value_kind(array) != AIHC_OBJECT_ARRAY) {
     aihc_fail("boxed-array primitive received a non-array");
@@ -135,7 +142,7 @@ uint64_t aihc_array_length(const AihcValue *array) {
 
 AihcSlot *aihc_array_elements(AihcValue *array) {
   (void)aihc_array_length(array);
-  return (AihcSlot *)(uintptr_t)array->fields[1];
+  return array->fields + 1;
 }
 
 static uint64_t aihc_array_checked_index(AihcValue *array, int64_t index) {
@@ -146,25 +153,20 @@ static uint64_t aihc_array_checked_index(AihcValue *array, int64_t index) {
   return (uint64_t)index;
 }
 
-AihcValue *aihc_array_new_unchecked(AihcMachine *machine, int64_t count,
-                                    AihcSlot initial) {
-  if (count < 0 || (uint64_t)count > SIZE_MAX / sizeof(AihcSlot)) {
+AihcValue *aihc_array_new(AihcMachine *machine, int64_t count,
+                          AihcSlot initial) {
+  if (count < 0 || (uint64_t)count > SIZE_MAX / sizeof(AihcSlot) - 2) {
     aihc_fail("boxed-array size is invalid");
   }
   uint64_t length = (uint64_t)count;
-  size_t allocated_count = length == 0 ? 1 : (size_t)length;
-  AihcSlot *elements =
-      aihc_allocate_auxiliary(machine, allocated_count * sizeof(*elements));
-  for (uint64_t index = 0; index < length; ++index) {
-    elements[index] = initial;
-  }
-
-  AihcValue *array =
-      aihc_gc_allocate(machine, aihc_object_words(&aihc_array_info));
+  AihcValue *array = aihc_gc_allocate(machine, length + 2);
   aihc_record_allocation(machine);
   array->header = (AihcSlot)(uintptr_t)&aihc_array_info;
   array->fields[0] = length;
-  array->fields[1] = (AihcSlot)(uintptr_t)elements;
+  AihcSlot *elements = aihc_array_elements(array);
+  for (uint64_t index = 0; index < length; ++index) {
+    elements[index] = initial;
+  }
   return array;
 }
 

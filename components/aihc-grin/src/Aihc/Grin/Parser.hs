@@ -383,7 +383,7 @@ ensureHeapExpr :: Parser GrinExpr
 ensureHeapExpr = do
   keyword "ensure-heap"
   horizontal1
-  requiredWords <- signedInt
+  requiredWords <- grinValue
   roots <- grinValues
   lineEnd
   pure (GrinEnsureHeap requiredWords roots)

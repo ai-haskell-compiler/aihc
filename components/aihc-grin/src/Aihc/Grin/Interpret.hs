@@ -795,11 +795,10 @@ evalPrimitive "sameMutVar#" [left, right] = do
   leftReference <- expectMutVarPrimitiveArgument "sameMutVar#" left
   rightReference <- expectMutVarPrimitiveArgument "sameMutVar#" right
   pure [intRuntimeValue (if leftReference == rightReference then 1 else 0)]
-evalPrimitive name [size, initialValue]
-  | name == "newArray#" || name == "newArrayUnchecked#" = do
-      count <- checkedArraySize name =<< expectIntPrimitiveArgument name size
-      array <- GrinArray <$> liftEvalIO (newIORef (replicate count initialValue))
-      pure [RuntimeArray array]
+evalPrimitive "newArray#" [size, initialValue] = do
+  count <- checkedArraySize "newArray#" =<< expectIntPrimitiveArgument "newArray#" size
+  array <- GrinArray <$> liftEvalIO (newIORef (replicate count initialValue))
+  pure [RuntimeArray array]
 evalPrimitive "indexArray#" [arrayValue, indexValue] = do
   array <- expectArrayPrimitiveArgument "indexArray#" arrayValue
   index <- expectIntPrimitiveArgument "indexArray#" indexValue

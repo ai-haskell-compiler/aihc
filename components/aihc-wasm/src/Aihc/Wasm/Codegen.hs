@@ -327,7 +327,7 @@ runtimeFunctionTypes =
     ("aihc_wasm_make_node", ([I32, I32], [I64])),
     ("aihc_wasm_make_node_unchecked", ([I32, I32], [I64])),
     ("aihc_ensure_heap", ([I32, I64, I64, I32], [])),
-    ("aihc_array_new_unchecked", ([I32, I64, I64], [I32])),
+    ("aihc_array_new", ([I32, I64, I64], [I32])),
     ("aihc_array_index", ([I32, I64], [I64])),
     ("aihc_array_write", ([I32, I64, I64], [I64])),
     ("aihc_array_same", ([I32, I32], [I64])),
@@ -496,7 +496,7 @@ compileDirectBinding env vars expression =
           let stores = concat [storeScratch index (materializeValue env root) | (index, root) <- zip [0 :: Int ..] roots]
               reloads = concat [localSetFor env var (loadScratch index) | (index, var) <- zip [0 :: Int ..] vars]
               rootsAddress = if null roots then i32Const "0" else scratchAddress
-          pure (stores <> machine <> i64Const (tshow requiredWords) <> i64Const (tshow (length roots)) <> rootsAddress <> call "aihc_ensure_heap" <> reloads)
+          pure (stores <> machine <> materializeValue env requiredWords <> i64Const (tshow (length roots)) <> rootsAddress <> call "aihc_ensure_heap" <> reloads)
     GrinStoreUnchecked node -> storeNode True node
     GrinFetch _ pointer -> storeSingle (materializeValue env pointer)
     GrinUpdate pointer value -> update "aihc_wasm_update" False pointer value
@@ -579,12 +579,12 @@ compileDirectBinding env vars expression =
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
     GrinPrimitiveCall _ name [value]
       | name `elem` ["ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] -> storeSingle (materializeValue env value)
-    GrinPrimitiveCall _ "newArrayUnchecked#" [size, initial] ->
+    GrinPrimitiveCall _ "newArray#" [size, initial] ->
       storeSingle
         ( machine
             <> materializeValue env size
             <> materializeValue env initial
-            <> call "aihc_array_new_unchecked"
+            <> call "aihc_array_new"
             <> ["i64.extend_i32_u"]
         )
     GrinPrimitiveCall _ name arguments
@@ -1200,7 +1200,7 @@ exprReps :: GrinExpr -> [RuntimeRep]
 exprReps expression = case expression of
   GrinBind vars value body -> map grinVarRuntimeRep vars <> exprReps value <> exprReps body
   GrinStore node -> nodeReps node
-  GrinEnsureHeap _ roots -> map grinValueRuntimeRep roots
+  GrinEnsureHeap requiredWords roots -> grinValueRuntimeRep requiredWords : map grinValueRuntimeRep roots
   GrinStoreUnchecked node -> nodeReps node
   GrinStoreRec bindings body -> concatMap (nodeReps . snd) bindings <> exprReps body
   GrinStoreRecUnchecked bindings body -> concatMap (nodeReps . snd) bindings <> exprReps body

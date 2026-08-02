@@ -366,7 +366,7 @@ lowerPrimitiveApplication originalExpr name arity arguments =
         fmap GrinStore . makePrimitiveClosure originalExpr name (arity - suppliedArity)
     EQ ->
       lowerArgumentMany arguments $ \values ->
-        pure (GrinPrimitiveCall (exprRuntimeRep originalExpr) name values)
+        lowerSaturatedPrimitive (exprRuntimeRep originalExpr) name values
     GT -> do
       let (saturatedArguments, extraArguments) = splitAt arity arguments
           saturatedExpr = dropLastTermApplications (suppliedArity - arity) originalExpr
@@ -376,10 +376,30 @@ lowerPrimitiveApplication originalExpr name arity arguments =
         case resultVars of
           [resultVar] -> do
             rest <- lowerRemainingApplications saturatedExpr (GrinVarValue resultVar) extraArguments
-            pure (bindExpr resultVars (GrinPrimitiveCall saturatedRep name values) rest)
+            primitive <- lowerSaturatedPrimitive saturatedRep name values
+            pure (bindExpr resultVars primitive rest)
           _ -> error "GRIN lowering expected an overapplied primitive to return one function value"
   where
     suppliedArity = length arguments
+
+-- Array storage is one info-table word, one length word, and one word per
+-- element. Make that dynamic reservation explicit before CPS so GC lowering
+-- only has to attach its ordinary live-root set to the safepoint.
+lowerSaturatedPrimitive :: RuntimeRep -> Text -> [GrinValue] -> LowerM GrinExpr
+lowerSaturatedPrimitive resultRep "newArray#" arguments@[size, _] = do
+  requiredWords <- freshVar "array_words" IntRep
+  pure
+    ( GrinBind
+        [requiredWords]
+        (GrinPrimitiveCall IntRep "+#" [size, GrinLitValue (GrinLitInt IntRep 2)])
+        ( GrinBind
+            []
+            (GrinEnsureHeap (GrinVarValue requiredWords) [])
+            (GrinPrimitiveCall resultRep "newArray#" arguments)
+        )
+    )
+lowerSaturatedPrimitive resultRep name arguments =
+  pure (GrinPrimitiveCall resultRep name arguments)
 
 -- unsafeCoerce# changes only the static type of a value. FC has already
 -- checked the application, so GRIN can erase the coercion while preserving
@@ -417,7 +437,7 @@ makePrimitiveClosure originalExpr name remaining captured = do
         evaluateGrinValue "catch_action" liftedRuntimeRep action $ \actionValue ->
           wrapCatchHandlerValue resultRep liftedRuntimeRep liftedRuntimeRep liftedRuntimeRep handler $ \handlerValue ->
             pure (GrinCatch resultRep actionValue handlerValue [])
-      _ -> pure (GrinPrimitiveCall resultRep name arguments)
+      _ -> lowerSaturatedPrimitive resultRep name arguments
   emitFunction
     GrinFunction
       { grinFunctionName = functionName,

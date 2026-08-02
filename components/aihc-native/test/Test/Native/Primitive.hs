@@ -50,7 +50,7 @@ tests =
       testCase "accepts the complete boxed-array API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
-          (map fst arrayRuntimeSymbols <> ["newArray#", "newArrayUnchecked#", "unsafeFreezeArray#", "unsafeThawArray#"]),
+          (map fst arrayRuntimeSymbols <> ["newArray#", "unsafeFreezeArray#", "unsafeThawArray#"]),
       testCase "accepts the Integer arithmetic primitive API" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))

@@ -226,26 +226,25 @@ grinUnitTests =
         assertEqual "preserves update entry" (cpsUpdateFunction cps) (gcUpdateFunction gc)
         assertEqual "GC-GRIN lint" [] (lintProgram gcProgram)
         assertBool "contains an explicit reservation" (not (null reservations))
-        assertBool "uses a one-word header for a one-field node" (2 `elem` map fst reservations)
+        assertBool "uses a one-word header for a one-field node" (2 `elem` reservationLiteralWords reservations)
         assertBool "roots contain only pointer representations" (all (all (isPointerRuntimeRep . grinValueRuntimeRep)) roots)
         assertBool "renames relocated roots" ("$gc" `isInfixOf` rendered)
         assertBool "uses unchecked stores" ("store-unchecked " `isInfixOf` rendered)
         assertBool "eliminates checked function stores" (not ("\n  store " `isInfixOf` rendered)),
-      testCase "GC lowering reserves boxed-array headers and relocates the initial element" $ do
+      testCase "GC lowering populates dynamic boxed-array reservation roots" $ do
         cps <- expectCpsGrin gcArrayProgram
         let gcProgram = gcGrinProgram (lowerGc cps)
             reservations = concatMap (ensureHeapReservations . grinFunctionBody) (grinFunctions gcProgram)
             rendered = renderProgram gcProgram
         assertEqual "GC-GRIN lint" [] (lintProgram gcProgram)
-        assertBool "contains an array-header reservation" (not (null reservations))
-        assertBool "all array headers reserve three words" (all ((== 3) . fst) reservations)
+        assertBool "contains a dynamic array reservation" (any (isArrayWordCount . fst) reservations)
         forM_ (map snd reservations) $ \roots -> do
           let rootNames = [grinVarName root | GrinVarValue root <- roots]
           assertBool "the scalar size is not a root" ("size" `notElem` rootNames)
           assertBool "array roots are pointer-represented" (all (isPointerRuntimeRep . grinValueRuntimeRep) roots)
         assertBool "renames the relocated initial element" ("initial$gc" `isInfixOf` rendered)
-        assertBool "uses the unchecked array allocator" ("newArrayUnchecked#" `isInfixOf` rendered)
-        assertBool "eliminates the checked array allocator" (not ("primitive newArray#" `isInfixOf` rendered)),
+        assertBool "retains newArray# as the initializer" ("primitive newArray#" `isInfixOf` rendered)
+        assertBool "does not invent an unchecked array primitive" (not ("newArrayUnchecked#" `isInfixOf` rendered)),
       testCase "CPS-GRIN gives every computation entry a return continuation" $ do
         cps <- expectCpsGrin callBindProgram
         forM_ (Map.toList (cpsFunctionContinuations cps)) $ \(name, continuation) ->
@@ -314,6 +313,13 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertBool "contains a direct primitive call" ("primitive-call @IntRep +#" `isInfixOf` rendered)
         assertBool "primitive is not global" (not ("global +#" `isInfixOf` rendered)),
+      testCase "FC lowering makes the dynamic newArray# reservation explicit" $ do
+        let program = lowerProgram arrayPrimitiveProgram
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertBool "computes header plus element words" ("array_words" `isInfixOf` rendered && "primitive-call @IntRep +#" `isInfixOf` rendered)
+        assertBool "reserves the computed word count" ("ensure-heap ($grin_array_words" `isInfixOf` rendered)
+        assertBool "leaves newArray# as the initializer" ("primitive-call @(BoxedRep Unlifted) newArray#" `isInfixOf` rendered),
       testCase "FC lowering wraps partially applied primitives in ordinary closures" $ do
         let program = lowerProgram partialPrimitiveProgram
             rendered = renderProgram program
@@ -581,7 +587,7 @@ expectCpsGrin program =
     Left err -> assertFailure ("expected CPS-GRIN conversion to succeed, got " <> show err)
     Right cps -> pure cps
 
-ensureHeapReservations :: GrinExpr -> [(Int, [GrinValue])]
+ensureHeapReservations :: GrinExpr -> [(GrinValue, [GrinValue])]
 ensureHeapReservations expression =
   case expression of
     GrinBind _ valueExpression body -> ensureHeapReservations valueExpression <> ensureHeapReservations body
@@ -590,6 +596,16 @@ ensureHeapReservations expression =
     GrinStoreRecUnchecked _ body -> ensureHeapReservations body
     GrinCase _ _ alternatives -> concatMap (ensureHeapReservations . grinAltRhs) alternatives
     _ -> []
+
+reservationLiteralWords :: [(GrinValue, [GrinValue])] -> [Integer]
+reservationLiteralWords reservations =
+  [ words'
+  | (GrinLitValue (GrinLitInt _ words'), _) <- reservations
+  ]
+
+isArrayWordCount :: GrinValue -> Bool
+isArrayWordCount (GrinVarValue var) = grinVarName var == "array_words"
+isArrayWordCount _ = False
 
 expressionStoredNodes :: GrinExpr -> [GrinNode]
 expressionStoredNodes expression =
@@ -1054,6 +1070,28 @@ primitiveCallProgram =
     addVar = Var "+#" (Unique 29) (TcFunTy intTy (TcFunTy intTy intTy))
     addOneVar = Var "addOne" (Unique 30) (TcFunTy intTy intTy)
     argumentVar = Var "argument" (Unique 31) intTy
+
+arrayPrimitiveProgram :: FcProgram
+arrayPrimitiveProgram =
+  FcProgram
+    [ FcPrimitive newArrayVar 2,
+      FcPrimitive addVar 2,
+      FcTopBind
+        ( FcNonRec
+            allocateVar
+            ( FcLam
+                sizeVar
+                (FcLam initialVar (FcApp (FcApp (FcVar newArrayVar) (FcVar sizeVar)) (FcVar initialVar)))
+            )
+        )
+    ]
+  where
+    arrayTy = TcTyCon (TyCon "Array#" 1) [boxedIntTy]
+    newArrayVar = Var "newArray#" (Unique 220) (TcFunTy intTy (TcFunTy boxedIntTy arrayTy))
+    addVar = Var "+#" (Unique 221) (TcFunTy intTy (TcFunTy intTy intTy))
+    allocateVar = Var "allocate" (Unique 222) (TcFunTy intTy (TcFunTy boxedIntTy arrayTy))
+    sizeVar = Var "size" (Unique 223) intTy
+    initialVar = Var "initial" (Unique 224) boxedIntTy
 
 partialPrimitiveProgram :: FcProgram
 partialPrimitiveProgram =
@@ -1656,7 +1694,7 @@ gcRootProgram =
 gcArrayProgram :: GrinProgram
 gcArrayProgram =
   heapProgram
-    { grinPrimitives = [(arrayPrimitive, 2)],
+    { grinPrimitives = [(arrayPrimitive, 2), (plusPrimitive, 2)],
       grinCafs = [],
       grinFunctions =
         [ GrinFunction
@@ -1666,17 +1704,27 @@ gcArrayProgram =
               grinFunctionResultRep = BoxedRep Unlifted,
               grinFunctionBody =
                 GrinBind
-                  [array]
-                  (GrinPrimitiveCall (BoxedRep Unlifted) "newArray#" [GrinVarValue arraySize, GrinVarValue initial])
-                  (GrinConstant [GrinVarValue array])
+                  [arrayWords]
+                  (GrinPrimitiveCall IntRep "+#" [GrinVarValue arraySize, GrinLitValue (GrinLitInt IntRep 2)])
+                  ( GrinBind
+                      []
+                      (GrinEnsureHeap (GrinVarValue arrayWords) [])
+                      ( GrinBind
+                          [array]
+                          (GrinPrimitiveCall (BoxedRep Unlifted) "newArray#" [GrinVarValue arraySize, GrinVarValue initial])
+                          (GrinConstant [GrinVarValue array])
+                      )
+                  )
             }
         ]
     }
   where
     arrayPrimitive = GrinVar "newArray#" 210 (BoxedRep Unlifted)
+    plusPrimitive = GrinVar "+#" 214 IntRep
     arraySize = GrinVar "size" 211 IntRep
     initial = GrinVar "initial" 212 (BoxedRep Lifted)
     array = GrinVar "array" 213 (BoxedRep Unlifted)
+    arrayWords = GrinVar "array_words" 215 IntRep
 
 callBindProgram :: GrinProgram
 callBindProgram =

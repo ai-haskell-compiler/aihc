@@ -78,7 +78,7 @@ genExprSized size =
     atomicExpressions =
       [ GrinConstant <$> smallList genValue,
         GrinStore <$> genNode,
-        GrinEnsureHeap <$> QC.arbitrary <*> smallList genValue,
+        GrinEnsureHeap <$> genValue <*> smallList genValue,
         GrinStoreUnchecked <$> genNode,
         GrinFetch <$> genRuntimeRep <*> genValue,
         GrinUpdate <$> genValue <*> genValue,

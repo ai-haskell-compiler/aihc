@@ -128,6 +128,7 @@ void *aihc_allocate_auxiliary(AihcMachine *machine, size_t bytes);
 AihcSlot *aihc_reserve_slots(AihcMachine *machine, AihcSlot **slots,
                              uint64_t *capacity, uint64_t count);
 uint64_t aihc_object_words(const AihcInfo *info);
+uint64_t aihc_value_words(const AihcValue *value);
 AihcSlot *aihc_array_elements(AihcValue *array);
 uint64_t aihc_array_length(const AihcValue *array);
 const AihcInfo *aihc_next_application_info(const AihcInfo *info,

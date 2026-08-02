@@ -17,5 +17,8 @@ void aihc_gc_ensure(AihcMachine *machine, uint64_t words, uint64_t root_count,
 
 AihcValue *aihc_gc_allocate(AihcMachine *machine, uint64_t words) {
   (void)machine;
+  if (words > SIZE_MAX / sizeof(AihcSlot)) {
+    aihc_fail("heap allocation is too large");
+  }
   return aihc_allocate_zeroed(sizeof(AihcSlot) * words);
 }

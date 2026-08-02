@@ -631,6 +631,7 @@ compileDirectBinding env vars expression =
     GrinStore node -> materializeNode env False node >>= storeOne
     GrinEnsureHeap requiredWords roots
       | length vars == length roots -> do
+          (requiredLines, requiredOperand) <- materializeValue env requiredWords
           (rootLines, rootOperands) <- materializeValues env roots
           rootsArray <- freshValue
           elementStores <- fmap concat . forM (zip [0 :: Int ..] rootOperands) $ \(index, operand) -> do
@@ -649,10 +650,11 @@ compileDirectBinding env vars expression =
                 storeLocal destination value
               ]
           pure
-            ( rootLines
+            ( requiredLines
+                <> rootLines
                 <> ["  " <> rootsArray <> " = alloca [" <> tshow (max 1 (length roots)) <> " x i64], align 8"]
                 <> elementStores
-                <> ["  call void @aihc_ensure_heap(ptr %machine, i64 " <> tshow requiredWords <> ", i64 " <> tshow (length roots) <> ", ptr " <> rootsArray <> ")"]
+                <> ["  call void @aihc_ensure_heap(ptr %machine, i64 " <> requiredOperand <> ", i64 " <> tshow (length roots) <> ", ptr " <> rootsArray <> ")"]
                 <> relocated
             )
     GrinStoreUnchecked node -> materializeNode env True node >>= storeOne
@@ -782,7 +784,7 @@ compileDirectBinding env vars expression =
     GrinPrimitiveCall _ name [value]
       | name `elem` ["int2Word#", "word2Int#", "ord#", "intToChar#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
           materializeValue env value >>= storeOne
-    GrinPrimitiveCall _ "newArrayUnchecked#" [size, initial] -> do
+    GrinPrimitiveCall _ "newArray#" [size, initial] -> do
       (lines', operands) <- materializeValues env [size, initial]
       case operands of
         [sizeOperand, initialOperand] -> do
@@ -790,7 +792,7 @@ compileDirectBinding env vars expression =
           result <- freshValue
           storeOne
             ( lines'
-                <> [ "  " <> resultPointer <> " = call ptr @aihc_array_new_unchecked(ptr %machine, i64 " <> sizeOperand <> ", i64 " <> initialOperand <> ")",
+                <> [ "  " <> resultPointer <> " = call ptr @aihc_array_new(ptr %machine, i64 " <> sizeOperand <> ", i64 " <> initialOperand <> ")",
                      "  " <> result <> " = ptrtoint ptr " <> resultPointer <> " to i64"
                    ],
               result
@@ -1687,7 +1689,7 @@ renderRuntimeDeclarations =
     "declare ptr @aihc_make_node(ptr, ptr)",
     "declare ptr @aihc_make_node_unchecked(ptr, ptr)",
     "declare void @aihc_ensure_heap(ptr, i64, i64, ptr)",
-    "declare ptr @aihc_array_new_unchecked(ptr, i64, i64)",
+    "declare ptr @aihc_array_new(ptr, i64, i64)",
     "declare void @aihc_set_field(ptr, i64, i64)",
     "declare void @aihc_update(ptr, ptr)",
     "declare void @aihc_update_blackhole(ptr, ptr, ptr)",
@@ -1828,7 +1830,7 @@ exprReps :: GrinExpr -> [RuntimeRep]
 exprReps expression = case expression of
   GrinBind vars value body -> map grinVarRuntimeRep vars <> exprReps value <> exprReps body
   GrinStore node -> nodeReps node
-  GrinEnsureHeap _ roots -> map grinValueRuntimeRep roots
+  GrinEnsureHeap requiredWords roots -> grinValueRuntimeRep requiredWords : map grinValueRuntimeRep roots
   GrinStoreUnchecked node -> nodeReps node
   GrinStoreRec bindings body -> concatMap (nodeReps . snd) bindings <> exprReps body
   GrinStoreRecUnchecked bindings body -> concatMap (nodeReps . snd) bindings <> exprReps body

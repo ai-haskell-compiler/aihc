@@ -216,7 +216,6 @@ supportedNativePrimitiveNames =
     "geWord#",
     "realWorld#",
     "newArray#",
-    "newArrayUnchecked#",
     "unsafeFreezeArray#",
     "unsafeThawArray#",
     "unsafeFreezeByteArray#",
