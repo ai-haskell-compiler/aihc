@@ -15,6 +15,7 @@ module Aihc.Tc.Monad
     -- * Fresh names
     freshUnique,
     freshMetaTv,
+    freshMetaTvOfKind,
     freshSkolemTv,
     freshEvVar,
 
@@ -23,6 +24,9 @@ module Aihc.Tc.Monad
     readMetaTv,
     writeKindMeta,
     readKindMeta,
+    readMetaTvKind,
+    writeRuntimeRepDependency,
+    readRuntimeRepDependency,
 
     -- * Evidence
     bindEvidence,
@@ -169,6 +173,11 @@ data TcState = TcState
     tcsMetaSolutions :: !(Map Unique TcType),
     -- | Solutions for kind meta-variables.
     tcsKindSolutions :: !(Map Unique Kind),
+    -- | Declared kinds of representation-polymorphic meta-variables.
+    tcsMetaKinds :: !(Map Unique Kind),
+    -- | A runtime-representation meta and the value type whose representation
+    -- determines it.
+    tcsRuntimeRepDependencies :: !(Map Unique TcType),
     -- | Evidence bindings accumulated during solving.
     tcsEvBinds :: !(Map Unique EvTerm),
     -- | Diagnostics (errors and warnings) collected.
@@ -201,6 +210,8 @@ initTcState =
     { tcsNextUnique = 0,
       tcsMetaSolutions = Map.empty,
       tcsKindSolutions = Map.empty,
+      tcsMetaKinds = Map.empty,
+      tcsRuntimeRepDependencies = Map.empty,
       tcsEvBinds = Map.empty,
       tcsDiagnostics = [],
       tcsGlobalTerms = builtinTerms,
@@ -236,6 +247,13 @@ freshUnique = lift $ do
 freshMetaTv :: TcM TcType
 freshMetaTv = TcMetaTv <$> freshUnique
 
+freshMetaTvOfKind :: Kind -> TcM TcType
+freshMetaTvOfKind kind = do
+  unique <- freshUnique
+  lift $ modify' $ \state ->
+    state {tcsMetaKinds = Map.insert unique kind (tcsMetaKinds state)}
+  pure (TcMetaTv unique)
+
 -- | Allocate a fresh skolem (rigid) type variable.
 freshSkolemTv :: Text -> TcM TyVarId
 freshSkolemTv name = do
@@ -255,6 +273,22 @@ writeMetaTv u ty = lift $ modify' $ \s ->
 readMetaTv :: Unique -> TcM (Maybe TcType)
 readMetaTv u = lift $ gets $ \s ->
   Map.lookup u (tcsMetaSolutions s)
+
+readMetaTvKind :: Unique -> TcM Kind
+readMetaTvKind unique =
+  lift $ gets $ Map.findWithDefault liftedTypeKind unique . tcsMetaKinds
+
+writeRuntimeRepDependency :: Unique -> TcType -> TcM ()
+writeRuntimeRepDependency unique representedType =
+  lift $ modify' $ \state ->
+    state
+      { tcsRuntimeRepDependencies =
+          Map.insert unique representedType (tcsRuntimeRepDependencies state)
+      }
+
+readRuntimeRepDependency :: Unique -> TcM (Maybe TcType)
+readRuntimeRepDependency unique =
+  lift $ gets $ Map.lookup unique . tcsRuntimeRepDependencies
 
 -- | Record the solution for a kind meta-variable.
 writeKindMeta :: Unique -> Kind -> TcM ()

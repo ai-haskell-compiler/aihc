@@ -41,6 +41,7 @@ library
     Aihc.Tc.Solve.Equality
     Aihc.Tc.Solve.InertSet
     Aihc.Tc.Solve.Worklist
+    Aihc.Tc.TypeScheme
     Aihc.Tc.Types
     Aihc.Tc.Unify
     Aihc.Tc.Zonk
