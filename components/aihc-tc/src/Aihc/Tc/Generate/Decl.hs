@@ -243,6 +243,7 @@ annotationBindings ann decl =
   tcAnnotationBindings ann decl
     <> classAnnotationBindings ann decl
     <> instanceAnnotationBindings ann
+    <> derivingAnnotationBindings ann
 
 tcAnnotationBindings :: Annotation -> Decl -> [TcBindingResult]
 tcAnnotationBindings ann decl =
@@ -297,6 +298,16 @@ instanceAnnotationBindings ann =
   case fromAnnotation ann of
     Just instAnn ->
       [TcBindingResult (tcInstanceDictName instAnn) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)]
+    Nothing -> []
+
+derivingAnnotationBindings :: Annotation -> [TcBindingResult]
+derivingAnnotationBindings ann =
+  case fromAnnotation ann of
+    Just derivingAnnotation ->
+      [ TcBindingResult (iiDictName instanceInfo) (iiDictName instanceInfo) (iiDictType instanceInfo)
+      | plan <- tcDerivingPlans derivingAnnotation,
+        Just instanceInfo <- [derivingPlanInstanceInfo plan]
+      ]
     Nothing -> []
 
 dataConBindings :: DataConDecl -> [TcBindingResult]

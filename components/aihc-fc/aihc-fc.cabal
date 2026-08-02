@@ -25,6 +25,11 @@ library
     Aihc.Fc.Subst
     Aihc.Fc.Syntax
 
+  other-modules:
+    Aihc.Fc.Desugar.Deriving
+    Aihc.Fc.Desugar.Deriving.AnyClass
+    Aihc.Fc.Desugar.Dictionary
+
   hs-source-dirs: src
   build-depends:
     aihc-parser,
