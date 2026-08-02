@@ -613,12 +613,13 @@ dsAnnotatedVar tcAnn name _expr = do
   pure (List.foldl' FcApp typedExpr dicts)
 
 dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
-dsAnnotatedExpr tcAnn inner =
-  case inner of
+dsAnnotatedExpr tcAnn inner = do
+  body <- case inner of
     EAnn ann (EInt value TInteger _)
       | Just resolution <- fromAnnotation ann,
         isFromIntegerResolution resolution ->
           dsOverloadedIntegerLiteral tcAnn resolution value
+    EAnn _ nested -> dsExpr nested
     EVar name -> dsAnnotatedVar tcAnn name inner
     EApp fun arg -> FcApp <$> dsExpr fun <*> dsExpr arg
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)
@@ -633,6 +634,7 @@ dsAnnotatedExpr tcAnn inner =
     EInfix lhs op rhs -> dsInfix lhs op rhs
     ECase scrut alts -> dsCase scrut alts
     _ -> desugarBug ("unsupported annotated expression form after type checking: " <> take 80 (show inner))
+  pure (foldr FcTyLam body (tcAnnTypeBinders tcAnn))
 
 dsDo :: [DoStmt Expr] -> DsM FcExpr
 dsDo stmts =

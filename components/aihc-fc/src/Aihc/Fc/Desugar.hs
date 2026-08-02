@@ -623,6 +623,7 @@ primitiveImportSpecs =
       primitive "raise#" "a -> b",
       primitive "unsafeCoerce#" "a -> b",
       primitive "realWorld#" "State# RealWorld",
+      primitive "noDuplicate#" "State# d -> State# d",
       primitive
         "catch#"
         "(State# RealWorld -> (# State# RealWorld, a #)) -> (b -> State# RealWorld -> (# State# RealWorld, a #)) -> State# RealWorld -> (# State# RealWorld, a #)",
@@ -637,6 +638,7 @@ primitiveImportSpecs =
       primitive "newMutVar#" "a -> State# d -> (# State# d, MutVar# d a #)",
       primitive "readMutVar#" "MutVar# d a -> State# d -> (# State# d, a #)",
       primitive "writeMutVar#" "MutVar# d a -> a -> State# d -> State# d",
+      primitive "sameMutVar#" "MutVar# d a -> MutVar# d a -> Int#",
       primitive "newByteArray#" "Int# -> State# d -> (# State# d, MutableByteArray# d #)",
       primitive "newPinnedByteArray#" "Int# -> State# d -> (# State# d, MutableByteArray# d #)",
       primitive "newAlignedPinnedByteArray#" "Int# -> Int# -> State# d -> (# State# d, MutableByteArray# d #)",

@@ -34,6 +34,7 @@ module Aihc.Tc.Annotations
     annotateExpr,
     annotateDecl,
     pendingAnnotation,
+    pendingTypeLambdaAnnotation,
 
     -- * Pretty-printing
     renderPred,
@@ -63,6 +64,8 @@ import Data.Text qualified as T
 data TcAnnotation = TcAnnotation
   { -- | The inferred/checked type of this node.
     tcAnnType :: !TcType,
+    -- | Type variables abstracted at this expression.
+    tcAnnTypeBinders :: ![TyVarId],
     -- | Type arguments made explicit at this occurrence.
     tcAnnTypeArgs :: ![TcType],
     -- | Evidence terms whose dictionaries must be passed at this occurrence.
@@ -116,6 +119,7 @@ data TcForeignAbiType
 -- ordinary 'TcAnnotation' values after solving.
 data PendingTcAnnotation = PendingTcAnnotation
   { pendingTcAnnType :: !TcType,
+    pendingTcAnnTypeBinders :: ![TyVarId],
     pendingTcAnnTypeArgs :: ![TcType],
     pendingTcAnnEvidenceVars :: ![EvVar],
     pendingTcAnnTermArgTypes :: ![TcType]
@@ -240,7 +244,10 @@ annotateDecl :: TcAnnotation -> Decl -> Decl
 annotateDecl ann = DeclAnn (mkAnnotation ann)
 
 pendingAnnotation :: TcType -> [TcType] -> [EvVar] -> [TcType] -> PendingTcAnnotation
-pendingAnnotation = PendingTcAnnotation
+pendingAnnotation ty = PendingTcAnnotation ty []
+
+pendingTypeLambdaAnnotation :: TcType -> [TyVarId] -> PendingTcAnnotation
+pendingTypeLambdaAnnotation ty binders = PendingTcAnnotation ty binders [] [] []
 
 -- | Render a binder and its 'TcType' as a human-readable signature.
 renderTcSignature :: Text -> TcType -> String

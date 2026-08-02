@@ -162,7 +162,43 @@ applicationTests :: [TestTree]
 applicationTests =
   [ testCase "application infers result type" $ do
       let result = tcWithDecls "f x = x\narg = True\n" "f arg"
-      assertBool "should succeed" (tcResultSuccess result)
+      assertBool "should succeed" (tcResultSuccess result),
+    testCase "application checks a rank-N argument" $ do
+      let result =
+            typecheckModule $
+              parseMWithExtensions
+                [RankNTypes]
+                "module Test where\n\
+                \data State s a = State a\n\
+                \data World = World\n\
+                \data Result = Result\n\
+                \runState :: (forall s. State s a) -> a\n\
+                \runState action = runWorld action\n\
+                \runWorld :: State World a -> a\n\
+                \runWorld (State value) = value\n\
+                \result = runState (State Result)\n"
+          typeBinders = concatMap tcAnnTypeBinders (exprAnnotations result)
+      assertBool ("module should typecheck, got: " <> show (tcModuleDiagnostics result)) (tcModuleSuccess result)
+      assertBool "rank-N checking should record an explicit type abstraction" (not (null typeBinders)),
+    testCase "application rejects an escaping rank-N skolem" $ do
+      let result =
+            typecheckModule $
+              parseMWithExtensions
+                [RankNTypes]
+                "module Test where\n\
+                \data State s a = State a\n\
+                \data World = World\n\
+                \runState :: (forall s. State s a) -> a\n\
+                \runState action = runWorld action\n\
+                \runWorld :: State World a -> a\n\
+                \runWorld (State value) = value\n\
+                \escape action = (action, runState action)\n"
+          isEscapeDiagnostic diagnostic =
+            case diagKind diagnostic of
+              OtherError "higher-rank type variable escapes its argument" -> True
+              _ -> False
+      assertBool "escaping skolem should fail typechecking" (not (tcModuleSuccess result))
+      assertBool "escape should have a focused diagnostic" (any isEscapeDiagnostic (tcModuleDiagnostics result))
   ]
 
 -- | Tests for if-then-else.
