@@ -15,8 +15,8 @@
 | DerivingVia               |   🟢    | 2/2           |
 | ExistentialQuantification |   🟢    | 1/1           |
 | ExplicitForAll            |   🟢    | 1/1           |
-| LambdaCase                |   🟢    | 1/1           |
-| MagicHash                 |   🟢    | 5/5           |
+| LambdaCase                |   🟢    | 2/2           |
+| MagicHash                 |   🟢    | 6/6           |
 | RecordWildCards           |   🟢    | 1/1           |
 | ScopedTypeVariables       |   🟢    | 1/1           |
 | StandaloneDeriving        |   🟢    | 1/1           |

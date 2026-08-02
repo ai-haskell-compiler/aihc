@@ -1,0 +1,55 @@
+dependencies:
+  - aihc-base
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Int (Int(I#))
+    import GHC.Read
+
+    fullyReads :: (Read a, Eq a) => a -> String -> Bool
+    fullyReads expected input =
+      case reads input of
+        [(actual, rest)] -> actual == expected && emptyString rest
+        _ -> False
+
+    emptyString :: String -> Bool
+    emptyString [] = True
+    emptyString (_ : _) = False
+
+    readsPair :: String -> Bool
+    readsPair input =
+      case (reads input :: [((Bool, Maybe Bool), String)]) of
+        [((False, Just True), rest)] -> emptyString rest
+        _ -> False
+
+    readsTriple :: String -> Bool
+    readsTriple input =
+      case (reads input :: [((Bool, Maybe Bool, Int), String)]) of
+        [((False, Just True, I# 2#), rest)] -> emptyString rest
+        _ -> False
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : values) = allTrue values
+    allTrue (False : _) = False
+
+    checks :: [Bool]
+    checks =
+      [ fullyReads ([] :: [Bool]) "[]",
+        fullyReads [False, True] "[False, True]",
+        fullyReads (Nothing :: Maybe Bool) "Nothing",
+        fullyReads (Just True) "Just True",
+        fullyReads (Left False :: Either Bool Int) "Left False",
+        fullyReads (Right (I# 2#) :: Either Bool Int) "Right 2",
+        readsPair "(False, Just True)",
+        readsTriple "(False, Just True, 2)"
+      ]
+output: |
+  True
+expression: |
+  allTrue checks
+status: pass
+reason: GHC.Read parses lists, optional values, sums, and tuples

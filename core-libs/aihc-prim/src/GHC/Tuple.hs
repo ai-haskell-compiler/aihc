@@ -74,7 +74,7 @@ where
 data Unit = ()
 
 {- HLINT ignore Solo "Use newtype instead of data" -}
-data Solo a = Solo a
+data Solo a = MkSolo a
 
 type Tuple0 = Unit
 

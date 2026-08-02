@@ -57,7 +57,7 @@ import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Types (Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc.Types (Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType)
 import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -266,7 +266,9 @@ buildCaseChain [] resTy [] = do
   pure (FcVar v)
 buildCaseChain scrutVars@(scrutVar : restVars) resTy matches
   | any (any requiresOrderedPatternMatch . matchPats) matches =
-      dsOrderedMatches scrutVars matches
+      dsOrderedMatches resTy scrutVars matches
+  | hasDefaultFallback matches =
+      dsOrderedMatches resTy scrutVars matches
   | allVarPatterns matches = do
       -- Variable patterns: bind each pattern variable name to the
       -- scrutinee Var, then recurse.
@@ -280,13 +282,34 @@ buildCaseChain scrutVars@(scrutVar : restVars) resTy matches
       caseBinder <- freshVar "_scrut" (varType scrutVar)
       pure (FcCase (FcVar scrutVar) caseBinder alts)
 
-dsOrderedMatches :: [Var] -> [Match] -> DsM FcExpr
-dsOrderedMatches scrutVars matches =
+dsOrderedMatches :: TcType -> [Var] -> [Match] -> DsM FcExpr
+dsOrderedMatches resultTy scrutVars matches =
   case matches of
-    [] -> noPatternMatch scrutVars
+    [] -> do
+      failureVar <- freshInternalVar "_no_match" resultTy
+      pure $
+        if isLiftedType resultTy
+          then FcLet (FcRec [(failureVar, FcVar failureVar)]) (FcVar failureVar)
+          else FcVar failureVar
     match : rest -> do
-      failure <- dsOrderedMatches scrutVars rest
-      dsMatchPatterns scrutVars (matchPats match) (dsRhs (matchRhs match)) failure
+      failure <- dsOrderedMatches resultTy scrutVars rest
+      if isLiftedType resultTy
+        then do
+          failureVar <- freshInternalVar "_next_match" resultTy
+          matched <- dsMatchPatterns scrutVars (matchPats match) (dsRhs (matchRhs match)) (FcVar failureVar)
+          pure (FcLet (FcNonRec failureVar failure) matched)
+        else dsMatchPatterns scrutVars (matchPats match) (dsRhs (matchRhs match)) failure
+
+hasDefaultFallback :: [Match] -> Bool
+hasDefaultFallback matches =
+  any ((== DefaultAlt) . firstPatternKey) matches
+    && any ((/= DefaultAlt) . firstPatternKey) matches
+
+firstPatternKey :: Match -> FcAltCon
+firstPatternKey match =
+  case matchPats match of
+    pat : _ -> patternKey pat
+    [] -> DefaultAlt
 
 dsMatchPatterns :: [Var] -> [Pattern] -> DsM FcExpr -> FcExpr -> DsM FcExpr
 dsMatchPatterns [] [] success _failure = success
@@ -318,9 +341,39 @@ dsMatchPattern scrutVar pat success failure =
 
 requiresOrderedPatternMatch :: Pattern -> Bool
 requiresOrderedPatternMatch pat =
-  isOverloadedIntegerPattern pat || case boxedCharPatternValue pat of
-    Just _ -> True
-    Nothing -> False
+  isOverloadedIntegerPattern pat
+    || requiresPatternWrapperMatch pat
+    || case boxedCharPatternValue pat of
+      Just _ -> True
+      Nothing -> False
+
+requiresPatternWrapperMatch :: Pattern -> Bool
+requiresPatternWrapperMatch (PAnn _ inner) = requiresPatternWrapperMatch inner
+requiresPatternWrapperMatch (PParen inner) = requiresPatternWrapperMatch inner
+requiresPatternWrapperMatch PAs {} = True
+requiresPatternWrapperMatch PStrict {} = True
+requiresPatternWrapperMatch PIrrefutable {} = True
+requiresPatternWrapperMatch PTypeSig {} = True
+requiresPatternWrapperMatch _ = False
+
+requiresRecursivePatternMatch :: Pattern -> Bool
+requiresRecursivePatternMatch (PAnn _ inner) = requiresRecursivePatternMatch inner
+requiresRecursivePatternMatch (PParen inner) = requiresRecursivePatternMatch inner
+requiresRecursivePatternMatch PAs {} = True
+requiresRecursivePatternMatch PStrict {} = True
+requiresRecursivePatternMatch PIrrefutable {} = True
+requiresRecursivePatternMatch PTypeSig {} = True
+requiresRecursivePatternMatch pat =
+  case constructorSubpatterns pat of
+    [] -> False
+    subpatterns -> not (all directBinderPattern subpatterns)
+
+directBinderPattern :: Pattern -> Bool
+directBinderPattern (PAnn _ inner) = directBinderPattern inner
+directBinderPattern (PParen inner) = directBinderPattern inner
+directBinderPattern PVar {} = True
+directBinderPattern PWildcard = True
+directBinderPattern _ = False
 
 boxedCharPatternValue :: Pattern -> Maybe Char
 boxedCharPatternValue pat =
@@ -374,7 +427,7 @@ dsOrdinaryPatternMatch scrutVar pat success failure = do
       binderTys <- patternBinderTypesM pat (varType scrutVar)
       binders <- zipWithM freshVar binderNames binderTys
       (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
-      matched <- withDicts dictionaries (withLocals (zip binderNames binders) success)
+      matched <- withDicts dictionaries (dsMatchPatterns binders (constructorSubpatterns pat) success failure)
       caseBinder <- freshInternalVar "_match" (varType scrutVar)
       pure
         ( FcCase
@@ -384,6 +437,17 @@ dsOrdinaryPatternMatch scrutVar pat success failure = do
               FcAlt DefaultAlt [] failure
             ]
         )
+
+constructorSubpatterns :: Pattern -> [Pattern]
+constructorSubpatterns (PAnn _ inner) = constructorSubpatterns inner
+constructorSubpatterns (PParen inner) = constructorSubpatterns inner
+constructorSubpatterns (PCon _ _ subpatterns) = subpatterns
+constructorSubpatterns (PList []) = []
+constructorSubpatterns (PList (item : items)) = [item, PList items]
+constructorSubpatterns (PInfix left operator right)
+  | nameText operator == ":" = [left, right]
+constructorSubpatterns (PTuple _ subpatterns) = subpatterns
+constructorSubpatterns _ = []
 
 noPatternMatch :: [Var] -> DsM FcExpr
 noPatternMatch (scrutVar : _) = do
@@ -458,13 +522,23 @@ buildAltGroup scrutVar restVars resTy (FirstPatternGroup pat matches) =
       body <- buildCaseChain restVars resTy []
       pure (FcAlt DefaultAlt [] body)
     _ -> do
-      let innerMatches = map dropFirstPat matches
-          (con, binderNames) = dsPatternPure pat
-      binderTys <- patternBinderTypesM pat (varType scrutVar)
-      binders <- zipWithM freshVar binderNames binderTys
-      (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
-      body <- withDicts dictionaries (withLocals (zip binderNames binders) (buildCaseChain restVars resTy innerMatches))
-      pure (FcAlt con (evidenceBinders <> binders) body)
+      case dsPatternPure pat of
+        (DefaultAlt, _) -> do
+          body <- dsOrderedMatches resTy (scrutVar : restVars) matches
+          pure (FcAlt DefaultAlt [] body)
+        (con, binderNames) -> do
+          let innerMatches = map expandFirstConstructorPattern matches
+          binderTys <- patternBinderTypesM pat (varType scrutVar)
+          binders <- zipWithM freshVar binderNames binderTys
+          (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
+          body <- withDicts dictionaries (buildCaseChain (binders <> restVars) resTy innerMatches)
+          pure (FcAlt con (evidenceBinders <> binders) body)
+
+expandFirstConstructorPattern :: Match -> Match
+expandFirstConstructorPattern match =
+  case matchPats match of
+    [] -> match
+    pat : pats -> match {matchPats = constructorSubpatterns pat <> pats}
 
 dsRhs :: Rhs Expr -> DsM FcExpr
 dsRhs (UnguardedRhs _sp expr maybeDecls) =
@@ -708,7 +782,7 @@ dsCase scrut alts = do
       Just ty -> pure ty
       Nothing -> fcExprTypeM scrut'
   binder <- freshVar "_case" scrutTy
-  if any (isOverloadedIntegerPattern . caseAltPattern) alts
+  if any (requiresOrderedCasePatternMatch . caseAltPattern) alts
     then do
       scrutValue <- freshVar "_case_value" scrutTy
       body <- dsCaseAlternatives scrutValue alts
@@ -716,6 +790,10 @@ dsCase scrut alts = do
     else do
       alts' <- mapM (dsCaseAlt scrutTy) alts
       pure (FcCase scrut' binder alts')
+
+requiresOrderedCasePatternMatch :: Pattern -> Bool
+requiresOrderedCasePatternMatch pat =
+  requiresOrderedPatternMatch pat || requiresRecursivePatternMatch pat
 
 isOverloadedIntegerPattern :: Pattern -> Bool
 isOverloadedIntegerPattern pat =
@@ -1382,10 +1460,13 @@ patternBinderTypesM pat scrutTy =
     PInfix _lhs op _rhs
       | nameText op == ":" ->
           (\elemTy -> [elemTy, scrutTy]) <$> listElemTyM scrutTy
+    PList (_ : _) ->
+      (\elemTy -> [elemTy, scrutTy]) <$> listElemTyM scrutTy
     PCon _ _ [] -> pure []
     PCon name _ subPats -> do
       fallbackTys <- constructorFieldTypesM name (length subPats)
       zipWithM patternFieldTypeM subPats fallbackTys
+    PTuple _ [] -> pure []
     PTuple _ subPats -> tupleFieldTypesM (length subPats) scrutTy
     PVar {} -> pure [scrutTy]
     PAnn _ inner -> patternBinderTypesM inner scrutTy

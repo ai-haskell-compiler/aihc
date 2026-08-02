@@ -71,20 +71,24 @@ import Aihc.Resolve
     resolveWithDeps,
   )
 import Aihc.Tc
-  ( Pred (..),
+  ( ClassInfo (..),
+    InstanceInfo (..),
+    Pred (..),
     TcBindingResult (..),
     TcDiagnostic (..),
     TcSeverity (..),
     TcType (..),
     TyCon (..),
+    TyConInfo (..),
     TyVarId (..),
     TypeScheme (..),
     Unique (..),
     renderTcType,
     tcModuleBindings,
     tcModuleDiagnostics,
+    tcModuleInstances,
     tcModuleSuccess,
-    typecheckModulesWithEnv,
+    typecheckModulesWithClassEnv,
   )
 import Control.Applicative ((<|>))
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar)
@@ -246,7 +250,10 @@ data InterfaceBuildResult = InterfaceBuildResult
     interfaceResolveDiagnostics :: ![Aeson.Value],
     interfaceTcDiagnostics :: ![Aeson.Value],
     interfaceTcModules :: ![Aeson.Value],
-    interfaceImportedTerms :: ![(Text, TypeScheme)],
+    interfaceTcTerms :: ![(Text, TypeScheme)],
+    interfaceTcTyCons :: ![TyConInfo],
+    interfaceTcClasses :: ![ClassInfo],
+    interfaceTcInstances :: ![InstanceInfo],
     interfaceTcBindings :: ![TcBindingResult],
     interfaceFcDiagnostics :: ![Aeson.Value],
     interfaceFcModules :: ![Aeson.Value]
@@ -790,9 +797,13 @@ prepareInstallScaffoldUncached cache plan = do
     Nothing -> do
       let preparedDependencies = rights dependencyResults
           depExports = foldl' Map.union Map.empty (map (interfaceModuleExports . preparedInterface) preparedDependencies)
-          importedTerms = concatMap (interfaceImportedTerms . preparedInterface) preparedDependencies
-          importedBindings = concatMap (interfaceTcBindings . preparedInterface) preparedDependencies
-      interfaceResult <- generatePackageInterface depExports importedTerms importedBindings plan
+          dependencyInterfaces = map preparedInterface preparedDependencies
+          importedTerms = mergeTermSchemes (map interfaceTcTerms dependencyInterfaces)
+          importedTyCons = mergeBy tciName (map interfaceTcTyCons dependencyInterfaces)
+          importedClasses = mergeBy ciName (map interfaceTcClasses dependencyInterfaces)
+          importedInstances = mergeBy iiDictName (map interfaceTcInstances dependencyInterfaces)
+          importedBindings = mergeBy tbName (map interfaceTcBindings dependencyInterfaces)
+      interfaceResult <- generatePackageInterface depExports importedTerms importedTyCons importedClasses importedInstances importedBindings plan
       pure $
         case blockingInterfaceFailures interfaceResult of
           [] ->
@@ -809,6 +820,12 @@ firstLeft :: [Either a b] -> Maybe a
 firstLeft [] = Nothing
 firstLeft (Left value : _) = Just value
 firstLeft (Right _ : rest) = firstLeft rest
+
+mergeTermSchemes :: [[(Text, TypeScheme)]] -> [(Text, TypeScheme)]
+mergeTermSchemes = Map.toAscList . Map.fromList . concat
+
+mergeBy :: (Ord key) => (value -> key) -> [[value]] -> [value]
+mergeBy key = Map.elems . Map.fromList . map (\value -> (key value, value)) . concat
 
 writePreparedInstallScaffold :: PreparedInstall -> IO ()
 writePreparedInstallScaffold prepared = do
@@ -1245,8 +1262,8 @@ fcArtifactValue plan result =
       "modules" .= interfaceFcModules result
     ]
 
-generatePackageInterface :: ModuleExports -> [(Text, TypeScheme)] -> [TcBindingResult] -> PackagePlan -> IO InterfaceBuildResult
-generatePackageInterface depExports importedTerms importedBindings plan = do
+generatePackageInterface :: ModuleExports -> [(Text, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> [TcBindingResult] -> PackagePlan -> IO InterfaceBuildResult
+generatePackageInterface depExports importedTerms importedTyCons importedClasses importedInstances importedBindings plan = do
   gpd <- readPlanPackageDescription plan
   files <- HackageCabal.collectLibraryFiles gpd (planSourcePath plan)
   parsedFiles <- mapM (parseInterfaceFile (planSourcePath plan)) files
@@ -1258,12 +1275,13 @@ generatePackageInterface depExports importedTerms importedBindings plan = do
       resolveResult = resolveWithDeps depExports parsedModules
       exposedModules = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
       ownExports = Map.restrictKeys (extractInterface resolveResult) exposedModules
-  (checkedModules, tcModules, tcDiagnostics, ownTerms) <- typecheckInterfaceModules importedTerms (resolvedModules resolveResult)
+  (checkedModules, tcModules, tcDiagnostics, tcTerms, tcTyCons, tcClasses, tcInstances) <-
+    typecheckInterfaceModules importedTerms importedTyCons importedClasses importedInstances (resolvedModules resolveResult)
   let resolveDiagnostics = enrichDiagnostics (map resolveErrorValue (resolveErrors resolveResult))
       enrichedTcDiagnostics = enrichDiagnostics tcDiagnostics
       enrichedTcModules = map (addTcModuleDiagnosticSourceLines sourceLinesByFile) tcModules
       ownBindings = concatMap tcModuleBindings checkedModules
-      allBindings = importedBindings <> ownBindings
+      allBindings = mergeBy tbName [importedBindings, ownBindings]
       fcResults = zipWith (desugarModuleWithBindings allBindings) checkedModules (resolvedModules resolveResult)
       fcModules = zipWith fcModuleValue (resolvedModules resolveResult) fcResults
       fcDiagnostics = concatMap fcModuleDiagnosticValues fcModules
@@ -1277,30 +1295,36 @@ generatePackageInterface depExports importedTerms importedBindings plan = do
         interfaceResolveDiagnostics = resolveDiagnostics,
         interfaceTcDiagnostics = enrichedTcDiagnostics,
         interfaceTcModules = enrichedTcModules,
-        interfaceImportedTerms = ownTerms,
-        interfaceTcBindings = ownBindings,
+        interfaceTcTerms = tcTerms,
+        interfaceTcTyCons = tcTyCons,
+        interfaceTcClasses = tcClasses,
+        interfaceTcInstances = tcInstances,
+        interfaceTcBindings = allBindings,
         interfaceFcDiagnostics = fcDiagnostics,
         interfaceFcModules = fcModules
       }
 
-typecheckInterfaceModules :: [(Text, TypeScheme)] -> [Module] -> IO ([Module], [Aeson.Value], [Aeson.Value], [(Text, TypeScheme)])
-typecheckInterfaceModules importedTerms modules = do
+typecheckInterfaceModules :: [(Text, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> [Module] -> IO ([Module], [Aeson.Value], [Aeson.Value], [(Text, TypeScheme)], [TyConInfo], [ClassInfo], [InstanceInfo])
+typecheckInterfaceModules importedTerms importedTyCons importedClasses importedInstances modules = do
   currentModule <- newIORef (listToMaybe sortedModules)
   result <- timeout typecheckPhaseTimeoutMicros (go currentModule)
   case result of
-    Just (checkedModules, tcModules, ownTerms) -> pure (checkedModules, tcModules, concatMap tcModuleDiagnosticValues tcModules, ownTerms)
+    Just (checkedModules, tcModules, tcTerms, tcTyCons, tcClasses, tcInstances) ->
+      pure (checkedModules, tcModules, concatMap tcModuleDiagnosticValues tcModules, tcTerms, tcTyCons, tcClasses, tcInstances)
     Nothing -> do
       current <- readIORef currentModule
-      pure ([], [], [typecheckTimeoutDiagnostic current], [])
+      pure ([], [], [typecheckTimeoutDiagnostic current], [], [], [], [])
   where
     sortedModules = sortModulesByImports modules
     go current = do
       mapM_ (writeIORef current . Just) sortedModules
-      let checkedModules = typecheckModulesWithEnv importedTerms sortedModules
+      let (checkedModules, tcTerms, tcTyCons, tcClasses) =
+            typecheckModulesWithClassEnv importedTerms importedTyCons importedClasses importedInstances sortedModules
           tcModules = zipWith tcModuleValue sortedModules checkedModules
-          ownTerms = concatMap moduleImportedTerms checkedModules
+          tcInstances = mergeBy iiDictName [importedInstances, concatMap tcModuleInstances checkedModules]
       _ <- evaluate (forceJsonValue (Aeson.toJSON tcModules))
-      length (show ownTerms) `seq` pure (checkedModules, tcModules, ownTerms)
+      length (show (tcTerms, tcTyCons, tcClasses, tcInstances)) `seq`
+        pure (checkedModules, tcModules, tcTerms, tcTyCons, tcClasses, tcInstances)
 
 sortModulesByImports :: [Module] -> [Module]
 sortModulesByImports modules = reverse sorted
@@ -1323,28 +1347,11 @@ sortModulesByImports modules = reverse sorted
         Just importedModule -> visitModule state importedModule
         Nothing -> state
 
-moduleImportedTerms :: Module -> [(Text, TypeScheme)]
-moduleImportedTerms =
-  map bindingImportedTerm . tcModuleBindings
-
-bindingImportedTerm :: TcBindingResult -> (Text, TypeScheme)
-bindingImportedTerm binding =
-  (tbName binding, tcTypeScheme (tbType binding))
-
-tcTypeScheme :: TcType -> TypeScheme
-tcTypeScheme ty =
-  case collectForAlls ty of
-    (tvs, TcQualTy preds body) -> ForAll tvs preds body
-    (tvs, body) -> ForAll tvs [] body
-
-collectForAlls :: TcType -> ([TyVarId], TcType)
-collectForAlls (TcForAllTy tv body) =
-  let (tvs, inner) = collectForAlls body
-   in (tv : tvs, inner)
-collectForAlls ty = ([], ty)
+typecheckPhaseTimeoutSeconds :: Int
+typecheckPhaseTimeoutSeconds = 30
 
 typecheckPhaseTimeoutMicros :: Int
-typecheckPhaseTimeoutMicros = 1000 * 1000
+typecheckPhaseTimeoutMicros = typecheckPhaseTimeoutSeconds * 1000 * 1000
 
 forceJsonValue :: Aeson.Value -> Aeson.Value
 forceJsonValue value =
@@ -1357,7 +1364,7 @@ typecheckTimeoutDiagnostic modu =
         [ "span" .= sourceSpanValue NoSourceSpan,
           "severity" .= ("error" :: String),
           "module" .= name,
-          "message" .= ("typecheck timed out after 1s while checking " <> T.unpack name <> "; this is a bug" :: String)
+          "message" .= ("typecheck timed out after " <> show typecheckPhaseTimeoutSeconds <> "s while checking " <> T.unpack name <> "; this is a bug" :: String)
         ]
 
 data ParsedInterfaceFile

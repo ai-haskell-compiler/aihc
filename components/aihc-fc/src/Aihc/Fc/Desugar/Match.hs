@@ -39,6 +39,8 @@ dsPatternPure (PCon name _typeArgs subPats) =
    in (DataAlt conName, binderNames)
 dsPatternPure (PList []) =
   (DataAlt "[]", [])
+dsPatternPure (PList (_ : _)) =
+  (DataAlt ":", ["_head", "_tail"])
 dsPatternPure (PInfix lhs op rhs)
   | nameText op == ":" =
       (DataAlt ":", [subPatName lhs, subPatName rhs])
