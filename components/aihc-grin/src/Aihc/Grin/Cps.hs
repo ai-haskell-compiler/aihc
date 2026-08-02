@@ -198,7 +198,7 @@ transformTail updateName parent bound resultRep continuation expression =
               valueExpression
           pure (GrinBind [nextVar] (GrinStore nextNode) transformedValue)
     GrinStore node -> continueDirect resultRep continuation (GrinStore node)
-    GrinEnsureHeap {} -> alreadyTransformed
+    GrinEnsureHeap requiredWords roots -> continueDirect resultRep continuation (GrinEnsureHeap requiredWords roots)
     GrinStoreUnchecked {} -> alreadyTransformed
     GrinStoreRec bindings body -> do
       let recursiveVars = Set.fromList (map fst bindings)
@@ -452,7 +452,7 @@ exprUniques expression =
     GrinBind vars valueExpression body ->
       map grinVarUnique vars <> exprUniques valueExpression <> exprUniques body
     GrinStore node -> nodeUniques node
-    GrinEnsureHeap _ roots -> concatMap valueUniques roots
+    GrinEnsureHeap requiredWords roots -> valueUniques requiredWords <> concatMap valueUniques roots
     GrinStoreUnchecked node -> nodeUniques node
     GrinStoreRec bindings body ->
       concatMap (\(var, node) -> grinVarUnique var : nodeUniques node) bindings

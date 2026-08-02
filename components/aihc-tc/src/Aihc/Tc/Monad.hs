@@ -17,6 +17,7 @@ module Aihc.Tc.Monad
     freshMetaTv,
     freshSkolemTv,
     freshEvVar,
+    getUniqueBoundary,
 
     -- * Meta-variable solutions
     writeMetaTv,
@@ -251,6 +252,11 @@ freshSkolemTv name = do
 -- | Allocate a fresh evidence variable.
 freshEvVar :: TcM EvVar
 freshEvVar = EvVar <$> freshUnique
+
+-- | Snapshot the unique supply. Uniques below this boundary were allocated
+-- before the current type-checking region.
+getUniqueBoundary :: TcM Unique
+getUniqueBoundary = Unique <$> lift (gets tcsNextUnique)
 
 -- | Record the solution for a meta-variable.
 writeMetaTv :: Unique -> TcType -> TcM ()

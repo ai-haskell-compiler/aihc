@@ -624,7 +624,7 @@ annotateDeclTc classMethods checkedValueNames decl =
     DeclValue valueDecl
       | valueDeclWasChecked checkedValueNames valueDecl -> do
           (ty, valueDecl') <- annotateValueDeclTc valueDecl
-          pure (annotateDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] []) (DeclValue valueDecl'))
+          pure (annotateDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] [] []) (DeclValue valueDecl'))
       | otherwise -> pure decl
     DeclData dataDecl -> annotateDataDeclTc dataDecl
     DeclNewtype newtypeDecl -> annotateNewtypeDeclTc newtypeDecl
@@ -702,7 +702,7 @@ annotateDataDeclTc dataDecl = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
   ty <- tyConBindingType tyName
   constructors <- mapM annotateDataConDeclTc (dataDeclConstructors dataDecl)
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (dataDeclHead dataDecl)
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] []) (dataDeclHead dataDecl)
   pure (DeclData (dataDecl {dataDeclHead = annotatedHead, dataDeclConstructors = constructors}))
 
 annotateNewtypeDeclTc :: NewtypeDecl -> TcM Decl
@@ -710,14 +710,14 @@ annotateNewtypeDeclTc newtypeDecl = do
   let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
   ty <- tyConBindingType tyName
   constructor <- mapM annotateDataConDeclTc (newtypeDeclConstructor newtypeDecl)
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (newtypeDeclHead newtypeDecl)
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] []) (newtypeDeclHead newtypeDecl)
   pure (DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor}))
 
 annotateDataFamilyDeclTc :: DataFamilyDecl -> TcM Decl
 annotateDataFamilyDeclTc familyDecl = do
   let familyName = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
   ty <- tyConBindingType familyName
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (dataFamilyDeclHead familyDecl)
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] []) (dataFamilyDeclHead familyDecl)
   pure (DeclDataFamilyDecl (familyDecl {dataFamilyDeclHead = annotatedHead}))
 
 annotateDataFamilyInstTc :: DataFamilyInst -> TcM Decl
@@ -746,7 +746,7 @@ annotateRegisteredDataConDeclTc dataConDecl =
   where
     annotateWithType ty = do
       zonkedTy <- zonkType ty
-      pure (DataConAnn (mkAnnotation (TcAnnotation zonkedTy [] [] [])) dataConDecl)
+      pure (DataConAnn (mkAnnotation (TcAnnotation zonkedTy [] [] [] [])) dataConDecl)
 
 annotateBinderHeadName :: TcAnnotation -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
 annotateBinderHeadName tcAnn head' =
@@ -766,7 +766,7 @@ annotateDataConDeclTc dataConDecl = do
     [] -> pure dataConDecl
     (name, _) : _ -> do
       ty <- dataConBindingType name
-      pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [])) dataConDecl)
+      pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [] [])) dataConDecl)
 
 dataConBindingType :: Text -> TcM TcType
 dataConBindingType name = do
@@ -780,7 +780,7 @@ annotateForeignDeclTc :: ForeignDecl -> TcM Decl
 annotateForeignDeclTc foreignDecl = do
   ty <- bindingType (unqualifiedNameText (foreignName foreignDecl))
   let sourceSpan = unqualifiedNameSpan (foreignName foreignDecl)
-      annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] []) (DeclForeign foreignDecl)
+      annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] []) (DeclForeign foreignDecl)
   case foreignCallConv foreignDecl of
     CCall -> do
       plan <- checkForeignImportType sourceSpan ty

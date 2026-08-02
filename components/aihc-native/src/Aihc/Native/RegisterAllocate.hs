@@ -210,7 +210,7 @@ grinExprFreeVariables expression =
     GrinBind bound valueExpression body ->
       grinExprFreeVariables valueExpression <> (grinExprFreeVariables body `Set.difference` Set.fromList bound)
     GrinStore node -> nodeUses node
-    GrinEnsureHeap _ roots -> foldMap valueUses roots
+    GrinEnsureHeap requiredWords roots -> valueUses requiredWords <> foldMap valueUses roots
     GrinStoreUnchecked node -> nodeUses node
     GrinStoreRec bindings body -> storeRecUses bindings body
     GrinStoreRecUnchecked bindings body -> storeRecUses bindings body

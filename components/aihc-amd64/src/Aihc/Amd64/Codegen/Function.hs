@@ -304,34 +304,42 @@ compileDirectBinding env vars expression =
     GrinStore node -> liftEither (materializeNode env node) >>= storeSingleResult
     GrinEnsureHeap requiredWords roots
       | length vars == length roots -> do
-          (rootLines, rootSlots) <- materializeIntoFreshSlots env roots
-          resultLines <-
-            fmap concat . forM (zip vars rootSlots) $ \(var, slot) -> do
-              location <- liftEither (variableLocation env var)
-              pure ([loadAt "r11" "r14" slot] <> storeLocation "r11" location)
-          readyLabel <- freshLabel (valueLabelPrefix env) "heap_ready"
-          pure
-            ( rootLines
-                <> [ loadByteOffset "r10" "r15" 24,
-                     loadByteOffset "r11" "r15" 32,
-                     immediate "rax" (requiredWords * 8),
-                     "  add rax, r10",
-                     "  cmp rax, r11",
-                     "  jbe " <> readyLabel,
-                     "  mov rdi, r15",
-                     immediate "rsi" requiredWords,
-                     immediate "rdx" (length roots),
-                     slotPointer "rcx" rootSlots,
-                     "  call aihc_ensure_heap",
-                     readyLabel <> ":"
-                   ]
-                <> resultLines
-            )
+          (argumentLines, argumentSlots) <- materializeIntoFreshSlots env (requiredWords : roots)
+          case argumentSlots of
+            requiredSlot : rootSlots -> do
+              resultLines <-
+                fmap concat . forM (zip vars rootSlots) $ \(var, slot) -> do
+                  location <- liftEither (variableLocation env var)
+                  pure ([loadAt "r11" "r14" slot] <> storeLocation "r11" location)
+              pure
+                ( argumentLines
+                    <> [ "  mov rdi, r15",
+                         loadAt "rsi" "r14" requiredSlot,
+                         immediate "rdx" (length roots),
+                         slotPointer "rcx" rootSlots,
+                         "  call aihc_ensure_heap"
+                       ]
+                    <> resultLines
+                )
+            [] -> lift (Left (Amd64UnsupportedExpression "heap reservation size"))
       | otherwise -> lift (Left (Amd64UnsupportedExpression "heap reservation result arity"))
     GrinStoreUnchecked node -> liftEither (materializeNodeUnchecked env node) >>= storeSingleResult
     GrinFetch _ pointer -> liftEither (materializeValue env pointer) >>= storeSingleResult
     GrinUpdate pointer value -> compileUpdateBinding False "aihc_update" pointer value
     GrinUpdateBlackhole pointer value -> compileUpdateBinding True "aihc_update_blackhole" pointer value
+    GrinPrimitiveCall _ "newArray#" arguments@[_, _] -> do
+      (argumentLines, argumentSlots) <- materializeIntoFreshSlots env arguments
+      case argumentSlots of
+        [sizeSlot, initialSlot] ->
+          storeSingleResult
+            ( argumentLines
+                <> [ "  mov rdi, r15",
+                     loadAt "rsi" "r14" sizeSlot,
+                     loadAt "rdx" "r14" initialSlot,
+                     "  call aihc_array_new"
+                   ]
+            )
+        _ -> lift (Left (Amd64UnsupportedExpression "boxed-array allocation arity"))
     GrinPrimitiveCall _ name [left, right]
       | Just instructions <- lookup name singleResultBinaryPrimitives ->
           compileBinary "r10" "rax" storeSingleResult instructions left right
@@ -460,7 +468,7 @@ compileDirectBinding env vars expression =
     unaryPrimitives =
       ("not#", ["  not rax"])
         : [ (name, [])
-          | name <- ["int2Word#", "word2Int#", "ord#", "chr#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
+          | name <- ["int2Word#", "word2Int#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
           ]
     binary instruction names =
       [(name, ["  " <> instruction <> " r10, rax", "  mov rax, r10"]) | name <- names]
