@@ -764,6 +764,7 @@ evalPrimitive "chr#" [value] = do
     then pure [RuntimeLit (GrinLitChar WordRep (Char.chr (fromIntegral intValue)))]
     else throwInterpret (InterpretPrimitiveTypeError "chr#" (RuntimeLit (GrinLitInt IntRep intValue)))
 evalPrimitive "realWorld#" [] = pure []
+evalPrimitive "noDuplicate#" [] = pure []
 evalPrimitive "raise#" [exception] =
   throwE (EvalRaised exception)
 evalPrimitive "catch#" [action, handler] =
@@ -779,6 +780,10 @@ evalPrimitive "writeMutVar#" [mutVar, value] = do
   GrinMutVar reference <- expectMutVarPrimitiveArgument "writeMutVar#" mutVar
   liftEvalIO (writeIORef reference value)
   pure []
+evalPrimitive "sameMutVar#" [left, right] = do
+  leftReference <- expectMutVarPrimitiveArgument "sameMutVar#" left
+  rightReference <- expectMutVarPrimitiveArgument "sameMutVar#" right
+  pure [intRuntimeValue (if leftReference == rightReference then 1 else 0)]
 evalPrimitive "newByteArray#" [size] = do
   byteArray <- allocateByteArray "newByteArray#" False 8 =<< expectIntPrimitiveArgument "newByteArray#" size
   pure [RuntimeByteArray byteArray]

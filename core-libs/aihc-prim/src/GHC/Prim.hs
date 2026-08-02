@@ -35,6 +35,7 @@ module GHC.Prim
     newMVar#,
     newMutVar#,
     newPinnedByteArray#,
+    noDuplicate#,
     not#,
     ord#,
     or#,
@@ -49,6 +50,7 @@ module GHC.Prim
     readMVar#,
     readMutVar#,
     resizeMutableByteArray#,
+    sameMutVar#,
     shrinkMutableByteArray#,
     sizeofByteArray#,
     subIntC#,
@@ -107,6 +109,8 @@ foreign import prim raise# :: a -> b
 foreign import prim unsafeCoerce# :: a -> b
 
 foreign import prim realWorld# :: State# RealWorld
+
+foreign import prim noDuplicate# :: State# d -> State# d
 
 foreign import prim compareInt# :: Int# -> Int# -> Int#
 
@@ -195,6 +199,8 @@ foreign import prim putMVar# :: MVar# d a -> a -> State# d -> State# d
 foreign import prim readMutVar# :: MutVar# d a -> State# d -> (# State# d, a #)
 
 foreign import prim writeMutVar# :: MutVar# d a -> a -> State# d -> State# d
+
+foreign import prim sameMutVar# :: MutVar# d a -> MutVar# d a -> Int#
 
 foreign import prim newByteArray# :: Int# -> State# d -> (# State# d, MutableByteArray# d #)
 

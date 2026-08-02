@@ -1,0 +1,61 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Ix (Ix (index, inRange, range, rangeSize))
+    import GHC.Ix (unsafeIndex, unsafeRangeSize)
+
+    boolResults :: ([Bool], [Bool], (Int, Int, Int), (Bool, Bool))
+    boolResults =
+      ( range (False, True),
+        range (True, False),
+        (index (False, True) True, rangeSize (False, True), rangeSize (True, False)),
+        (inRange (False, True) False, inRange (True, True) False)
+      )
+
+    orderingResults :: ([Ordering], Int, Bool)
+    orderingResults =
+      ( range (LT, GT),
+        index (LT, GT) EQ,
+        inRange (EQ, GT) LT
+      )
+
+    twoInt :: Int
+    twoInt = 2
+
+    threeInt :: Int
+    threeInt = 3
+
+    fourInt :: Int
+    fourInt = 4
+
+    fiveInt :: Int
+    fiveInt = 5
+
+    intResults :: ([Int], (Int, Int), (Bool, Bool))
+    intResults =
+      ( range (twoInt, fourInt),
+        (index (twoInt, fourInt) threeInt, unsafeIndex (twoInt, fourInt) fourInt),
+        (inRange (twoInt, fourInt) twoInt, inRange (twoInt, fourInt) fiveInt)
+      )
+
+    threeInteger :: Integer
+    threeInteger = 3
+
+    fiveInteger :: Integer
+    fiveInteger = 5
+
+    integerResults :: ([Integer], (Int, Int))
+    integerResults =
+      ( range (threeInteger, fiveInteger),
+        (index (threeInteger, fiveInteger) fiveInteger, unsafeRangeSize (threeInteger, fiveInteger))
+      )
+output: |
+  ((((: False (: True [])),[],((I# 1),(I# 2),(I# 0)),(True,False)),((: LT (: EQ (: GT []))),(I# 1),False)),(((: (I# 2) (: (I# 3) (: (I# 4) []))),((I# 1),(I# 2)),(True,False)),((: (IS 3) (: (IS 4) (: (IS 5) []))),((I# 2),(I# 3)))))
+expression: |
+  ((boolResults, orderingResults), (intResults, integerResults))
+status: pass
+reason: evaluates the GHC.Ix class, scalar instances, safe Data.Ix API, and unsafe GHC.Ix methods

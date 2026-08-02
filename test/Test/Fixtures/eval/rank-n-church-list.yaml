@@ -1,0 +1,65 @@
+extensions:
+  - RankNTypes
+dependencies: []
+modules:
+  - |
+    module Test where
+
+    foldr :: (a -> b -> b) -> b -> [a] -> b
+    foldr _ initial [] = initial
+    foldr combine initial (value : values) =
+      combine value (foldr combine initial values)
+
+    -- | Laws:
+    --
+    -- > runList (fromList xs) (:) [] == xs
+    -- > runList (fromList xs) f z == foldr f z xs
+    -- > foldr f z (toList xs) == runList xs f z
+    newtype ChurchList a =
+      ChurchList (forall r. (a -> r -> r) -> r -> r)
+
+    runList :: ChurchList a -> (a -> r -> r) -> r -> r
+    runList (ChurchList build) = build
+
+    -- | Make a 'ChurchList' out of a regular list.
+    fromList :: [a] -> ChurchList a
+    fromList xs = ChurchList (\k z -> foldr k z xs)
+
+    -- | Turn a 'ChurchList' into a regular list.
+    toList :: ChurchList a -> [a]
+    toList xs = runList xs (:) []
+
+    -- | The 'ChurchList' counterpart to '(:)'.
+    cons :: a -> ChurchList a -> ChurchList a
+    cons x xs = ChurchList (\k z -> k x (runList xs k z))
+
+    -- | Append two 'ChurchList's in O(1) time.
+    append :: ChurchList a -> ChurchList a -> ChurchList a
+    append xs ys = ChurchList (\k z -> runList xs k (runList ys k z))
+
+    nil :: ChurchList a
+    nil = ChurchList (\_ z -> z)
+
+    singleton :: a -> ChurchList a
+    singleton x = ChurchList (\k z -> k x z)
+
+    snoc :: ChurchList a -> a -> ChurchList a
+    snoc xs x = ChurchList (\k z -> runList xs k (k x z))
+
+    data Item = A | B | C
+
+    sample :: [Item]
+    sample = [A, B, C]
+
+    church :: ChurchList Item
+    church = append (cons A nil) (snoc (singleton B) C)
+output: |
+  ((: A (: B (: C []))),((: A (: B (: C []))),(: A (: B (: C [])))),((: A (: B (: C []))),(: A (: B (: C [])))),(: A (: B (: C []))))
+expression: |
+  ( toList (fromList sample),
+    (runList (fromList sample) (:) [], foldr (:) [] sample),
+    (foldr (:) [] (toList church), runList church (:) []),
+    toList church
+  )
+status: pass
+reason: evaluates Church-encoded lists whose representation quantifies over the fold result type
