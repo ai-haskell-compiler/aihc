@@ -17,7 +17,7 @@ import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.Text (Text)
 import FcGolden
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
+import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
 -- | Build the golden test tree from fixtures.
 fcGoldenTests :: IO TestTree
@@ -235,6 +235,48 @@ fcOptimizationTests =
           "consumer body"
           loweredConsumer
           (lowerNewtypesWithInterface (extractNewtypeInterface provider) consumer)
+        assertEqual
+          "consumer lint"
+          []
+          (lintProgramWithAxiomInterface (extractAxiomInterface provider) emptyLintEnv loweredConsumer),
+      testCase "lints explicit equality axioms" $ do
+        let familyTy = ty "Family"
+            representationTy = ty "Int#"
+            declaration =
+              FcAxiomDecl
+                { fcAxiomName = "axFamily",
+                  fcAxiomTyVars = [],
+                  fcAxiomRole = FcNominal,
+                  fcAxiomLeft = familyTy,
+                  fcAxiomRight = representationTy
+                }
+            value = Var "main" (Unique 40) familyTy
+            binding = FcTopBind (FcNonRec value (FcCast (FcLit (LitInt IntRep 42)) (Sym (AxiomInstCo "axFamily" []))))
+            program = FcProgram [FcAxiom declaration, binding]
+        assertEqual "Core lint" [] (lintProgram emptyLintEnv program)
+        assertEqual "reachable axiom" program (eliminateDeadCode "main" program)
+        assertEqual "pretty axiom" "axiom axFamily : Family ~N Int#" (renderTopBind (FcAxiom declaration)),
+      testCase "imports equality axioms across compilation units" $ do
+        let parameter = TyVarId "a" (Unique 42)
+            representationTy = ty "Int#"
+            familyTy argument = TcTyCon (TyCon "Family" 1) [argument]
+            declaration =
+              FcAxiomDecl
+                { fcAxiomName = "axFamily",
+                  fcAxiomTyVars = [parameter],
+                  fcAxiomRole = FcRepresentational,
+                  fcAxiomLeft = familyTy (TcTyVar parameter),
+                  fcAxiomRight = TcTyVar parameter
+                }
+            value = Var "main" (Unique 41) (familyTy representationTy)
+            provider = FcProgram [FcAxiom declaration]
+            consumer = FcProgram [FcTopBind (FcNonRec value (FcCast (FcLit (LitInt IntRep 42)) (Sym (AxiomInstCo "axFamily" [representationTy]))))]
+            wrongArity = FcProgram [FcTopBind (FcNonRec value (FcCast (FcLit (LitInt IntRep 42)) (Sym (AxiomInstCo "axFamily" []))))]
+            interface = extractAxiomInterface provider
+        assertBool "consumer needs imported axiom" (not (null (lintProgram emptyLintEnv consumer)))
+        assertBool "axiom arity is checked" (not (null (lintProgramWithAxiomInterface interface emptyLintEnv wrongArity)))
+        assertEqual "consumer lint" [] (lintProgramWithAxiomInterface interface emptyLintEnv consumer)
+        assertEqual "serialized interface" interface (read (show interface))
     ]
 
 fcEvalFixtureTests :: IO TestTree

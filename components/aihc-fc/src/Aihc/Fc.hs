@@ -35,9 +35,13 @@ module Aihc.Fc
     NewtypeInterface,
     extractNewtypeInterface,
     lowerNewtypesWithInterface,
+    AxiomInterface,
+    extractAxiomInterface,
+    lookupAxiomDecl,
 
     -- * Lint
     lintProgram,
+    lintProgramWithAxiomInterface,
     lintExpr,
     LintError (..),
     LintEnv (..),
@@ -51,10 +55,11 @@ module Aihc.Fc
   )
 where
 
+import Aihc.Fc.Axiom (AxiomInterface, extractAxiomInterface, lookupAxiomDecl)
 import Aihc.Fc.DeadCode (ReachabilityInterface, eliminateDeadCode, extractReachabilityInterface, reachablePrimitiveNames)
 import Aihc.Fc.Desugar (DesugarResult (..), desugarModule, desugarModuleWithBindings, desugarModuleWithTcResult)
 import Aihc.Fc.Eval (EvalError (..), Value (..), evalExpr, evalProgramBinding, renderRawValue, renderValue)
-import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram)
+import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram, lintProgramWithAxiomInterface)
 import Aihc.Fc.Newtype (NewtypeInterface, extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
 import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Pretty (renderExpr, renderProgram, renderTopBind, renderType)

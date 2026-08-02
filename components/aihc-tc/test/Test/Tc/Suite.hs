@@ -318,7 +318,39 @@ kindTests =
             ResolveResult {resolveErrors} ->
               assertFailure ("Resolve error in imported-type test: " <> show resolveErrors)
         ResolveResult {resolveErrors} ->
-          assertFailure ("Resolve error in dependency-type test: " <> show resolveErrors)
+          assertFailure ("Resolve error in dependency-type test: " <> show resolveErrors),
+    testCase "transports a complete semantic interface between module groups" $ do
+      let baseResult =
+            resolve
+              [ parseOnly
+                  "module Base (Unit(..), Identity(..)) where\n\
+                  \data Unit = Unit\n\
+                  \class Identity a where\n\
+                  \  identity :: a -> a\n\
+                  \instance Identity Unit where\n\
+                  \  identity value = value\n"
+              ]
+          depExports = extractInterface baseResult
+      case baseResult of
+        ResolveResult {resolvedModules = baseModules, resolveErrors = []} -> do
+          let (checkedBase, interface) = typecheckModuleSccWithInterface mempty baseModules
+          assertBool "dependency should typecheck" (all tcModuleSuccess checkedBase)
+          assertBool "constructor term exported" ("Unit" `elem` map fst (tcInterfaceTerms interface))
+          assertBool "method term exported" ("identity" `elem` map fst (tcInterfaceTerms interface))
+          assertBool "type constructor exported" ("Unit" `elem` map tciName (tcInterfaceTyCons interface))
+          assertBool "class exported" ("Identity" `elem` map ciName (tcInterfaceClasses interface))
+          assertBool "instance exported" ("$fIdentityUnit" `elem` map iiDictName (tcInterfaceInstances interface))
+          let target = parseOnly "module Test where\nimport Base\nanswer :: Unit\nanswer = identity Unit\n"
+          case resolveWithDeps depExports [target] of
+            ResolveResult {resolvedModules = targetModules, resolveErrors = []} -> do
+              let (checkedTarget, _) = typecheckModuleSccWithInterface interface targetModules
+              assertBool
+                ("consumer should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedTarget))
+                (all tcModuleSuccess checkedTarget)
+            ResolveResult {resolveErrors} ->
+              assertFailure ("Resolve error in semantic-interface consumer: " <> show resolveErrors)
+        ResolveResult {resolveErrors} ->
+          assertFailure ("Resolve error in semantic-interface provider: " <> show resolveErrors)
   ]
   where
     isKindMismatch diag =

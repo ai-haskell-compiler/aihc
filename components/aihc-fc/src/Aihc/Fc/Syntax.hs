@@ -22,6 +22,8 @@ module Aihc.Fc.Syntax
     -- * Bindings
     FcBind (..),
     FcTopBind (..),
+    FcAxiomDecl (..),
+    FcAxiomRole (..),
     FcNewtypeDecl (..),
     FcProgram (..),
     FcForeignCall (..),
@@ -68,6 +70,9 @@ data FcTopBind
   = -- | Data type declaration: type name, type variable parameters,
     -- list of (constructor name, field types).
     FcData !Text ![TyVarId] ![(Text, [TcType])]
+  | -- | A type equality axiom. Axioms are proof metadata and have no
+    -- runtime representation.
+    FcAxiom !FcAxiomDecl
   | -- | A nominal type with a representational equality axiom.
     FcNewtype !FcNewtypeDecl
   | -- | A primitive imported by @foreign import prim@.
@@ -77,6 +82,22 @@ data FcTopBind
     FcForeignImport !FcForeignCall
   | -- | Value binding.
     FcTopBind !FcBind
+  deriving (Eq, Show, Read)
+
+-- | The role at which an axiom proves equality.
+data FcAxiomRole
+  = FcNominal
+  | FcRepresentational
+  deriving (Eq, Show, Read)
+
+-- | A named, parameterized type equality retained in System FC.
+data FcAxiomDecl = FcAxiomDecl
+  { fcAxiomName :: !Text,
+    fcAxiomTyVars :: ![TyVarId],
+    fcAxiomRole :: !FcAxiomRole,
+    fcAxiomLeft :: !TcType,
+    fcAxiomRight :: !TcType
+  }
   deriving (Eq, Show, Read)
 
 -- | The type-level information retained for a @newtype@ after its constructor

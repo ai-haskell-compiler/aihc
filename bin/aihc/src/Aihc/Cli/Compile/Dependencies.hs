@@ -19,7 +19,7 @@ import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
 import Aihc.Cli.Runtime (readWasmClangProcessWithExitCode, wasmClangCommand)
 import Aihc.Cli.Store (installedLibrariesActivePath, installedLibrariesRoot)
-import Aihc.Fc (DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, optimizeProgram)
+import Aihc.Fc (AxiomInterface, DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractAxiomInterface, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, optimizeProgram)
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
 import Aihc.Native
@@ -55,16 +55,12 @@ import Aihc.Resolve
     resolveWithDeps,
   )
 import Aihc.Tc
-  ( ClassInfo,
-    InstanceInfo,
-    TcBindingResult (..),
-    TyConInfo,
-    TypeScheme (..),
+  ( TcBindingResult (..),
+    TcInterface,
     tcModuleBindings,
     tcModuleDiagnostics,
-    tcModuleInstances,
     tcModuleSuccess,
-    typecheckModuleSccWithClassEnv,
+    typecheckModuleSccWithInterface,
   )
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket, bracketOnError)
@@ -109,11 +105,9 @@ newtype CompileEnvironment = CompileEnvironment
 
 data DependencyArtifact = DependencyArtifact
   { dependencyExports :: !ModuleExports,
-    dependencyTerms :: ![(Text, TypeScheme)],
-    dependencyTyCons :: ![TyConInfo],
-    dependencyClasses :: ![ClassInfo],
+    dependencyTcInterface :: !TcInterface,
     dependencyBindings :: ![TcBindingResult],
-    dependencyInstances :: ![InstanceInfo],
+    dependencyAxiomInterface :: !AxiomInterface,
     dependencyNewtypeInterface :: !NewtypeInterface,
     dependencyGrinInterface :: !Grin.GrinInterface,
     dependencyReachabilityInterface :: !ReachabilityInterface,
@@ -131,6 +125,7 @@ data DependencyUnit = DependencyUnit
     dependencyUnitProgram :: !FcProgram,
     dependencyUnitGrin :: !Grin.GrinProgram,
     dependencyUnitCpsGrin :: !Grin.CpsGrinProgram,
+    dependencyUnitAxiomInterface :: !AxiomInterface,
     dependencyUnitNewtypeInterface :: !NewtypeInterface,
     dependencyUnitGrinInterface :: !Grin.GrinInterface,
     dependencyUnitReachabilityInterface :: !ReachabilityInterface,
@@ -147,11 +142,9 @@ data DependencyUnitMetadata = DependencyUnitMetadata
 data StoredDependencyArtifact = StoredDependencyArtifact
   { storedSchemaVersion :: !Int,
     storedExports :: !StoredModuleExports,
-    storedTerms :: ![(Text, TypeScheme)],
-    storedTyCons :: ![TyConInfo],
-    storedClasses :: ![ClassInfo],
+    storedTcInterface :: !TcInterface,
     storedBindings :: ![TcBindingResult],
-    storedInstances :: ![InstanceInfo],
+    storedAxiomInterface :: !AxiomInterface,
     storedNewtypeInterface :: !NewtypeInterface,
     storedGrinInterface :: !Grin.GrinInterface,
     storedReachabilityInterface :: !ReachabilityInterface,
@@ -199,7 +192,7 @@ data LibraryPackage = LibraryPackage
   deriving (Eq, Show)
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 27
+cacheSchemaVersion = 28
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
@@ -327,11 +320,9 @@ emptyDependencyArtifact :: DependencyArtifact
 emptyDependencyArtifact =
   DependencyArtifact
     { dependencyExports = Map.empty,
-      dependencyTerms = [],
-      dependencyTyCons = [],
-      dependencyClasses = [],
+      dependencyTcInterface = mempty,
       dependencyBindings = [],
-      dependencyInstances = [],
+      dependencyAxiomInterface = mempty,
       dependencyNewtypeInterface = mempty,
       dependencyGrinInterface = mempty,
       dependencyReachabilityInterface = mempty,
@@ -392,31 +383,26 @@ parserConfig sourceName source =
 compileLoadedModules :: [LoadedModule] -> Either String DependencyArtifact
 compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedModuleSccs loaded)
   where
-    initialState = CompileState Map.empty [] [] [] [] [] mempty mempty mempty [] []
+    initialState = CompileState Map.empty mempty [] mempty mempty mempty mempty [] []
 
     compileScc state members =
       case resolveWithDeps (compileStateExports state) (map loadedModule members) of
         ResolveResult {resolveErrors = errors@(_ : _)} -> Left ("library resolve error: " <> show errors)
         resolved@ResolveResult {resolvedModules} ->
-          let (checkedModules, termSchemes, tyCons, classes) =
-                typecheckModuleSccWithClassEnv
-                  (compileStateTerms state)
-                  (compileStateTyCons state)
-                  (compileStateClasses state)
-                  (compileStateInstances state)
-                  resolvedModules
+          let (checkedModules, tcInterface) =
+                typecheckModuleSccWithInterface (compileStateTcInterface state) resolvedModules
            in if not (all tcModuleSuccess checkedModules)
                 then Left ("library typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules))
                 else
                   let localBindings = concatMap tcModuleBindings checkedModules
                       bindings = compileStateBindings state <> localBindings
-                      localInstances = concatMap tcModuleInstances checkedModules
                       desugared = zipWith (desugarModuleWithBindings bindings) checkedModules resolvedModules
                    in if not (all dsSuccess desugared)
                         then Left ("library desugar error: " <> unlines (concatMap dsErrors desugared))
                         else
                           let sourceCore = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
                               core = optimizeProgram (lowerNewtypesWithInterface (compileStateNewtypes state) sourceCore)
+                              axioms = extractAxiomInterface core
                               newtypes = extractNewtypeInterface core
                               grinInterface = Grin.extractGrinInterface core
                               reachabilityInterface = extractReachabilityInterface core
@@ -432,6 +418,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                                             dependencyUnitProgram = core,
                                             dependencyUnitGrin = grin,
                                             dependencyUnitCpsGrin = cpsGrin,
+                                            dependencyUnitAxiomInterface = axioms,
                                             dependencyUnitNewtypeInterface = newtypes,
                                             dependencyUnitGrinInterface = grinInterface,
                                             dependencyUnitReachabilityInterface = reachabilityInterface,
@@ -440,11 +427,9 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                                    in Right
                                         CompileState
                                           { compileStateExports = compileStateExports state <> extractInterfaceWithDeps (compileStateExports state) resolved,
-                                            compileStateTerms = termSchemes,
-                                            compileStateTyCons = tyCons,
-                                            compileStateClasses = classes,
+                                            compileStateTcInterface = tcInterface,
                                             compileStateBindings = bindings,
-                                            compileStateInstances = compileStateInstances state <> localInstances,
+                                            compileStateAxioms = compileStateAxioms state <> axioms,
                                             compileStateNewtypes = compileStateNewtypes state <> newtypes,
                                             compileStateGrin = compileStateGrin state <> grinInterface,
                                             compileStateReachability = compileStateReachability state <> reachabilityInterface,
@@ -455,11 +440,9 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
     finish state =
       DependencyArtifact
         { dependencyExports = Map.restrictKeys (compileStateExports state) exposedModules,
-          dependencyTerms = compileStateTerms state,
-          dependencyTyCons = compileStateTyCons state,
-          dependencyClasses = compileStateClasses state,
+          dependencyTcInterface = compileStateTcInterface state,
           dependencyBindings = compileStateBindings state,
-          dependencyInstances = compileStateInstances state,
+          dependencyAxiomInterface = compileStateAxioms state,
           dependencyNewtypeInterface = compileStateNewtypes state,
           dependencyGrinInterface = compileStateGrin state,
           dependencyReachabilityInterface = compileStateReachability state,
@@ -486,11 +469,9 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
 
 data CompileState = CompileState
   { compileStateExports :: !ModuleExports,
-    compileStateTerms :: ![(Text, TypeScheme)],
-    compileStateTyCons :: ![TyConInfo],
-    compileStateClasses :: ![ClassInfo],
+    compileStateTcInterface :: !TcInterface,
     compileStateBindings :: ![TcBindingResult],
-    compileStateInstances :: ![InstanceInfo],
+    compileStateAxioms :: !AxiomInterface,
     compileStateNewtypes :: !NewtypeInterface,
     compileStateGrin :: !Grin.GrinInterface,
     compileStateReachability :: !ReachabilityInterface,
@@ -722,11 +703,9 @@ toStoredArtifact includeUnits artifact =
   StoredDependencyArtifact
     { storedSchemaVersion = cacheSchemaVersion,
       storedExports = toStoredExports (dependencyExports artifact),
-      storedTerms = dependencyTerms artifact,
-      storedTyCons = dependencyTyCons artifact,
-      storedClasses = dependencyClasses artifact,
+      storedTcInterface = dependencyTcInterface artifact,
       storedBindings = dependencyBindings artifact,
-      storedInstances = dependencyInstances artifact,
+      storedAxiomInterface = dependencyAxiomInterface artifact,
       storedNewtypeInterface = dependencyNewtypeInterface artifact,
       storedGrinInterface = dependencyGrinInterface artifact,
       storedReachabilityInterface = dependencyReachabilityInterface artifact,
@@ -740,11 +719,9 @@ fromStoredArtifact :: StoredDependencyArtifact -> DependencyArtifact
 fromStoredArtifact stored =
   DependencyArtifact
     { dependencyExports = fromStoredExports (storedExports stored),
-      dependencyTerms = storedTerms stored,
-      dependencyTyCons = storedTyCons stored,
-      dependencyClasses = storedClasses stored,
+      dependencyTcInterface = storedTcInterface stored,
       dependencyBindings = storedBindings stored,
-      dependencyInstances = storedInstances stored,
+      dependencyAxiomInterface = storedAxiomInterface stored,
       dependencyNewtypeInterface = storedNewtypeInterface stored,
       dependencyGrinInterface = storedGrinInterface stored,
       dependencyReachabilityInterface = storedReachabilityInterface stored,
