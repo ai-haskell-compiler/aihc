@@ -26,6 +26,8 @@ import Aihc.Parser.Syntax
     ClassDeclItem (..),
     DataConDecl (..),
     DataDecl (..),
+    DataFamilyDecl (..),
+    DataFamilyInst (..),
     Decl (..),
     Expr (..),
     Extension,
@@ -80,7 +82,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
 import Aihc.Tc.Deriving.Context (derivingPlanInstanceInfo, finalizeDerivingModulesTc)
-import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..))
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..), dataFamilyAxiomName, dataFamilyRepresentationName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -100,7 +102,7 @@ import Control.Monad (foldM, forM_, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.List (mapAccumL, nub, nubBy, partition, (\\))
+import Data.List (find, mapAccumL, nub, nubBy, partition, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, mapMaybe, maybeToList)
@@ -236,6 +238,8 @@ declBindings decl =
       concatMap dataConBindings (dataDeclConstructors dataDecl)
     DeclNewtype newtypeDecl ->
       maybe [] dataConBindings (newtypeDeclConstructor newtypeDecl)
+    DeclDataFamilyInst familyInst ->
+      concatMap dataConBindings (dataFamilyInstConstructors familyInst)
     _ -> []
 
 annotationBindings :: Annotation -> Decl -> [TcBindingResult]
@@ -259,6 +263,9 @@ tcAnnotationBindings ann decl =
            in [TcBindingResult name name (tcAnnType tcAnn)]
         DeclNewtype newtypeDecl ->
           let name = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
+           in [TcBindingResult name name (tcAnnType tcAnn)]
+        DeclDataFamilyDecl familyDecl ->
+          let name = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
            in [TcBindingResult name name (tcAnnType tcAnn)]
         DeclForeign foreignDecl ->
           let name = unqualifiedNameText (foreignName foreignDecl)
@@ -446,13 +453,15 @@ defaultGlobalKindMetas = do
   tyCons <- traverse defaultTyConInfoKinds (tcsGlobalTyCons state)
   classes <- traverse defaultClassKinds (tcsClasses state)
   instances <- mapM defaultInstanceKinds (tcsInstances state)
+  dataFamilyInstances <- mapM defaultDataFamilyInstanceKinds (tcsDataFamilyInstances state)
   lift $
     modify' $ \current ->
       current
         { tcsGlobalTerms = terms,
           tcsGlobalTyCons = tyCons,
           tcsClasses = classes,
-          tcsInstances = instances
+          tcsInstances = instances,
+          tcsDataFamilyInstances = dataFamilyInstances
         }
   where
     defaultBinderKinds binder =
@@ -489,6 +498,21 @@ defaultGlobalKindMetas = do
         <*> mapM defaultTyVarKinds (iiTyVars info)
         <*> mapM defaultPredKinds (iiContext info)
         <*> mapM defaultTypeKinds (iiHead info)
+    defaultDataFamilyInstanceKinds info = do
+      familyType <- defaultTypeKinds (dfiiFamilyType info)
+      tyVars <- mapM defaultTyVarKinds (dfiiTyVars info)
+      let representationTyCon = dfiiRepresentationTyCon info
+      representationKind <- defaultKindMetas (tyConKind representationTyCon)
+      pure
+        info
+          { dfiiFamilyType = familyType,
+            dfiiTyVars = tyVars,
+            dfiiRepresentationTyCon =
+              mkTyCon
+                (tyConName representationTyCon)
+                (tyConArity representationTyCon)
+                representationKind
+          }
 
 data TcDeclGroupResult = TcDeclGroupResult
   { tcGroupId :: !Int,
@@ -560,6 +584,8 @@ annotateDeclTc classMethods checkedValueNames decl =
       | otherwise -> pure decl
     DeclData dataDecl -> annotateDataDeclTc dataDecl
     DeclNewtype newtypeDecl -> annotateNewtypeDeclTc newtypeDecl
+    DeclDataFamilyDecl familyDecl -> annotateDataFamilyDeclTc familyDecl
+    DeclDataFamilyInst familyInst -> annotateDataFamilyInstTc familyInst
     DeclForeign foreignDecl
       | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
@@ -642,6 +668,41 @@ annotateNewtypeDeclTc newtypeDecl = do
   constructor <- mapM annotateDataConDeclTc (newtypeDeclConstructor newtypeDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (newtypeDeclHead newtypeDecl)
   pure (DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor}))
+
+annotateDataFamilyDeclTc :: DataFamilyDecl -> TcM Decl
+annotateDataFamilyDeclTc familyDecl = do
+  let familyName = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
+  ty <- tyConBindingType familyName
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] []) (dataFamilyDeclHead familyDecl)
+  pure (DeclDataFamilyDecl (familyDecl {dataFamilyDeclHead = annotatedHead}))
+
+annotateDataFamilyInstTc :: DataFamilyInst -> TcM Decl
+annotateDataFamilyInstTc familyInst = do
+  constructors <- mapM annotateRegisteredDataConDeclTc (dataFamilyInstConstructors familyInst)
+  let annotated = DeclDataFamilyInst (familyInst {dataFamilyInstConstructors = constructors})
+      constructorNames = concatMap (map fst . dataConBindingNames) constructors
+  familyInstances <- getDataFamilyInstances
+  case constructorNames of
+    firstConstructor : _ ->
+      case find (elem firstConstructor . dfiiConstructorNames) familyInstances of
+        Just familyInstance -> pure (DeclAnn (mkAnnotation familyInstance) annotated)
+        Nothing -> pure annotated
+    [] -> pure annotated
+
+annotateRegisteredDataConDeclTc :: DataConDecl -> TcM DataConDecl
+annotateRegisteredDataConDeclTc dataConDecl =
+  case dataConBindingNames dataConDecl of
+    [] -> pure dataConDecl
+    (name, _) : _ -> do
+      maybeBinder <- lookupTerm name
+      case maybeBinder of
+        Just (TcIdBinder scheme _) -> annotateWithType (schemeToType scheme)
+        Just (TcMonoIdBinder ty) -> annotateWithType ty
+        Nothing -> pure dataConDecl
+  where
+    annotateWithType ty = do
+      zonkedTy <- zonkType ty
+      pure (DataConAnn (mkAnnotation (TcAnnotation zonkedTy [] [] [])) dataConDecl)
 
 annotateBinderHeadName :: TcAnnotation -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
 annotateBinderHeadName tcAnn head' =
@@ -1619,6 +1680,7 @@ zonkPred pred' =
 registerTypeDeclHeader :: Decl -> TcM [TcBindingResult]
 registerTypeDeclHeader (DeclData dataDecl) = registerDataDeclHeader dataDecl
 registerTypeDeclHeader (DeclNewtype newtypeDecl) = registerNewtypeDeclHeader newtypeDecl
+registerTypeDeclHeader (DeclDataFamilyDecl familyDecl) = registerDataFamilyDeclHeader familyDecl
 registerTypeDeclHeader (DeclTypeSyn typeSynDecl) = registerTypeSynonymHeader typeSynDecl
 registerTypeDeclHeader (DeclAnn _ inner) = registerTypeDeclHeader inner
 registerTypeDeclHeader _ = pure []
@@ -1626,6 +1688,7 @@ registerTypeDeclHeader _ = pure []
 registerValueLevelDecl :: Decl -> TcM [TcBindingResult]
 registerValueLevelDecl (DeclData dataDecl) = registerDataConstructors dataDecl
 registerValueLevelDecl (DeclNewtype newtypeDecl) = registerNewtypeConstructor newtypeDecl
+registerValueLevelDecl (DeclDataFamilyInst familyInst) = registerDataFamilyInstance familyInst
 registerValueLevelDecl (DeclClass classDecl) = registerClassDecl classDecl
 registerValueLevelDecl (DeclInstance instanceDecl) = registerInstanceDecl instanceDecl
 registerValueLevelDecl (DeclForeign foreignDecl)
@@ -1793,6 +1856,88 @@ typeSuffix ty =
     TcTyCon tc args -> tyConName tc <> T.concat (map typeSuffix args)
     _ -> "T"
 
+registerDataFamilyDeclHeader :: DataFamilyDecl -> TcM [TcBindingResult]
+registerDataFamilyDeclHeader familyDecl = do
+  let familyName = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
+      params = binderHeadParams (dataFamilyDeclHead familyDecl)
+      arity = length params
+  paramInfos <- makeParamEnv params
+  declaredKind <- tyConKindFromParams paramInfos (dataFamilyDeclKind familyDecl)
+  let familyTyCon = mkTyCon familyName arity declaredKind
+  extendTyConEnvPermanent
+    familyName
+    TyConInfo
+      { tciName = familyName,
+        tciArity = arity,
+        tciTyCon = familyTyCon,
+        tciKind = declaredKind,
+        tciFlavor = DataFamilyTyCon,
+        tciTypeSynonym = Nothing
+      }
+  zonkedKind <- defaultKindMetas declaredKind
+  pure [TcBindingResult familyName familyName (kindToTcType zonkedKind)]
+
+registerDataFamilyInstance :: DataFamilyInst -> TcM [TcBindingResult]
+registerDataFamilyInstance familyInst = do
+  paramInfos <- dataFamilyInstanceParams familyInst
+  let tvEnv =
+        Map.fromList
+          [ (paramName param, (paramTyVar param, paramKind param))
+          | param <- paramInfos
+          ]
+      constructorNames = concatMap (map fst . dataConBindingNames) (dataFamilyInstConstructors familyInst)
+  familyType <- checkSurfaceType tvEnv (dataFamilyInstHead familyInst) KType
+  case (familyType, constructorNames) of
+    (_, []) -> do
+      emitError NoSourceSpan (OtherError "data-family instances without constructors are not supported")
+      pure []
+    (TcTyCon familyTyCon _, firstConstructor : _) -> do
+      maybeFamilyInfo <- lookupTyCon (tyConName familyTyCon)
+      case maybeFamilyInfo of
+        Just familyInfo
+          | tciFlavor familyInfo == DataFamilyTyCon -> do
+              representationKind <- tyConKindFromParams paramInfos (dataFamilyInstKind familyInst)
+              let familyName = tciName familyInfo
+                  representationName = dataFamilyRepresentationName familyName firstConstructor
+                  representationTyCon = mkTyCon representationName (length paramInfos) representationKind
+                  axiomName = dataFamilyAxiomName familyName firstConstructor
+                  instanceInfo =
+                    DataFamilyInstanceInfo
+                      { dfiiFamilyName = familyName,
+                        dfiiFamilyType = familyType,
+                        dfiiTyVars = map paramTyVar paramInfos,
+                        dfiiRepresentationTyCon = representationTyCon,
+                        dfiiAxiomName = axiomName,
+                        dfiiConstructorNames = constructorNames,
+                        dfiiIsNewtype = dataFamilyInstIsNewtype familyInst
+                      }
+              addDataFamilyInstance instanceInfo
+              mapM (registerDataConWithResult paramInfos familyType) (dataFamilyInstConstructors familyInst)
+        _ -> do
+          emitError NoSourceSpan (OtherError ("data-family instance head does not name a data family: " <> T.unpack (tyConName familyTyCon)))
+          pure []
+    _ -> do
+      emitError NoSourceSpan (OtherError ("invalid data-family instance head: " <> show familyType))
+      pure []
+
+dataFamilyInstanceParams :: DataFamilyInst -> TcM [ParamInfo]
+dataFamilyInstanceParams familyInst = do
+  explicitParams <- makeParamEnv (dataFamilyInstForall familyInst)
+  let explicitNames = map paramName explicitParams
+      implicitNames = freeTypeVars (dataFamilyInstHead familyInst) \\ explicitNames
+  implicitParams <- mapM makeImplicitParam implicitNames
+  pure (explicitParams <> implicitParams)
+  where
+    makeImplicitParam name = do
+      rawTyVar <- freshSkolemTv name
+      kind <- freshKindMeta
+      pure
+        ParamInfo
+          { paramName = name,
+            paramTyVar = setTyVarKind kind rawTyVar,
+            paramKind = kind
+          }
+
 -- | Register a data declaration's type constructor and data constructors.
 --
 -- For @data Bool = True | False@, this produces:
@@ -1910,8 +2055,12 @@ dataDeclTyCon name arity kind = mkTyCon name arity kind
 -- | Register a single data constructor as a polymorphic binding.
 -- Returns the binding result for the constructor.
 registerDataCon :: TyCon -> [ParamInfo] -> DataConDecl -> TcM TcBindingResult
-registerDataCon tc paramInfos con = case con of
-  DataConAnn _ inner -> registerDataCon tc paramInfos inner
+registerDataCon tc paramInfos =
+  registerDataConWithResult paramInfos (TcTyCon tc (map (TcTyVar . paramTyVar) paramInfos))
+
+registerDataConWithResult :: [ParamInfo] -> TcType -> DataConDecl -> TcM TcBindingResult
+registerDataConWithResult paramInfos resTy con = case con of
+  DataConAnn _ inner -> registerDataConWithResult paramInfos resTy inner
   PrefixCon forallVars context conName args ->
     registerH98DataCon forallVars context (unqualifiedNameText conName) (map bangType args)
   InfixCon forallVars context lhs conName rhs ->
@@ -1952,7 +2101,6 @@ registerDataCon tc paramInfos con = case con of
         | param <- paramInfos
         ]
     paramVarIds = map paramTyVar paramInfos
-    resTy = TcTyCon tc (map TcTyVar paramVarIds)
     registerH98DataCon forallVars context name fieldTypes = do
       constructorParams <- makeParamEnv forallVars
       let constructorEnv =

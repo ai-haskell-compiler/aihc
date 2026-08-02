@@ -1,0 +1,39 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Provider (Unit(..), Payload(..)) where
+    data Unit = Unit
+    data family Payload a
+    data instance Payload Unit = PayloadUnit Unit
+  - |
+    module Consumer where
+    import Provider (Unit(..), Payload(..))
+    value :: Payload Unit
+    value = PayloadUnit Unit
+annotated:
+  - |
+    module Consumer where
+    import Provider (Unit(..), Payload(..))
+    value :: Payload Unit
+    │        │       └─ t Provider
+    │        └─ t Provider
+    └─ v Consumer
+    value = PayloadUnit Unit
+    │       │           └─ v Provider
+    │       └─ v Provider
+    └─ v Consumer
+  - |
+    module Provider (Unit(..), Payload(..)) where
+    data Unit = Unit
+         │      └─ v Provider
+         └─ t Provider
+    data family Payload a
+                └─ t Provider
+    data instance Payload Unit = PayloadUnit Unit
+                  │       │      │           └─ t Provider
+                  │       │      └─ v Provider
+                  │       └─ t Provider
+                  └─ t Provider
+status: pass
+reason: standalone data families and their instance constructors participate in ordinary type and term resolution

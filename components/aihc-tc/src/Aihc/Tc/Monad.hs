@@ -54,6 +54,8 @@ module Aihc.Tc.Monad
     withTcLevel,
     addInstance,
     getInstances,
+    addDataFamilyInstance,
+    getDataFamilyInstances,
     addClass,
     getClasses,
     lookupClass,
@@ -73,7 +75,7 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
-import Aihc.Tc.Env (ClassInfo (..), InstanceInfo, TyConInfo)
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo, InstanceInfo, TyConInfo)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -185,6 +187,8 @@ data TcState = TcState
     tcsClasses :: !(Map Text ClassInfo),
     -- | Class instances in scope.
     tcsInstances :: ![InstanceInfo],
+    -- | Standalone data-family instance equations in scope.
+    tcsDataFamilyInstances :: ![DataFamilyInstanceInfo],
     -- | Names of GADT constructors (have non-trivial result types).
     tcsGadtCons :: !(Set Text)
   }
@@ -203,6 +207,7 @@ initTcState =
       tcsGlobalTyCons = Map.empty,
       tcsClasses = Map.empty,
       tcsInstances = [],
+      tcsDataFamilyInstances = [],
       tcsGadtCons = Set.empty
     }
 
@@ -376,6 +381,13 @@ addInstance instanceInfo = lift $ modify' $ \s ->
 
 getInstances :: TcM [InstanceInfo]
 getInstances = lift $ gets tcsInstances
+
+addDataFamilyInstance :: DataFamilyInstanceInfo -> TcM ()
+addDataFamilyInstance instanceInfo = lift $ modify' $ \state ->
+  state {tcsDataFamilyInstances = instanceInfo : tcsDataFamilyInstances state}
+
+getDataFamilyInstances :: TcM [DataFamilyInstanceInfo]
+getDataFamilyInstances = lift $ gets tcsDataFamilyInstances
 
 addClass :: ClassInfo -> TcM ()
 addClass classInfo = lift $ modify' $ \state ->

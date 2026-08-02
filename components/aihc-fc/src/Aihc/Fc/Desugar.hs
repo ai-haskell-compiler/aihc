@@ -27,6 +27,7 @@ import Aihc.Parser.Syntax
     ClassDeclItem (..),
     DataConDecl,
     DataDecl (..),
+    DataFamilyInst (..),
     Decl (..),
     Expr,
     Extension (..),
@@ -54,7 +55,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (ResolveResult (..), resolve)
-import Aihc.Tc (TcBindingResult (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
+import Aihc.Tc (DataFamilyInstanceInfo (..), TcBindingResult (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
@@ -235,6 +236,8 @@ dsModule m = do
 dsDecl :: Decl -> DsM [FcTopBind]
 dsDecl (DeclData dd) = (: []) <$> dsDataDeclM dd
 dsDecl (DeclNewtype nd) = (: []) <$> dsNewtypeDeclM nd
+dsDecl (DeclAnn ann (DeclDataFamilyInst familyInst))
+  | Just familyInfo <- fromAnnotation ann = dsDataFamilyInstM familyInfo familyInst
 dsDecl (DeclAnn ann inner)
   | Just foreignAnn <- fromAnnotation ann,
     Just (tcAnn, foreignDecl) <- annotatedForeignDecl inner =
@@ -245,6 +248,7 @@ dsDecl (DeclAnn ann (DeclClass classDecl))
   | Just classAnn <- fromAnnotation ann = dsClassDeclM classDecl classAnn
 dsDecl (DeclAnn _ inner) = dsDecl inner
 dsDecl DeclClass {} = desugarBug "missing type-checker annotation for class declaration"
+dsDecl DeclDataFamilyInst {} = desugarBug "missing type-checker annotation for data-family instance"
 dsDecl _ = pure []
 
 -- | Desugar a data declaration.
@@ -258,6 +262,54 @@ dsDataDeclM dd = do
           [] -> []
       constructors = [(name, fields) | (name, _, fields) <- constructorInfos]
   pure (FcData tyName typeVariables constructors)
+
+-- | Retain a data-family instance as a fresh representation type and a
+-- nominal axiom connecting that representation to the family application.
+dsDataFamilyInstM :: DataFamilyInstanceInfo -> DataFamilyInst -> DsM [FcTopBind]
+dsDataFamilyInstM familyInfo familyInst = do
+  constructorInfos <- mapM dsDataConM (dataFamilyInstConstructors familyInst)
+  case constructorInfos of
+    [] -> desugarBug "data-family instance has no constructors"
+    _ -> do
+      let representationTyCon = dfiiRepresentationTyCon familyInfo
+          representationName = tyConName representationTyCon
+          representationTyVars = dfiiTyVars familyInfo
+          representationType = TcTyCon representationTyCon (map TcTyVar representationTyVars)
+          axiom =
+            FcAxiom
+              FcAxiomDecl
+                { fcAxiomName = dfiiAxiomName familyInfo,
+                  fcAxiomTyVars = representationTyVars,
+                  fcAxiomRole = FcNominal,
+                  fcAxiomLeft = dfiiFamilyType familyInfo,
+                  fcAxiomRight = representationType
+                }
+      representation <- dataFamilyRepresentation familyInst representationName representationTyVars representationType constructorInfos
+      pure [representation, axiom]
+
+dataFamilyRepresentation :: DataFamilyInst -> Text -> [TyVarId] -> TcType -> [(Text, [TyVarId], [TcType])] -> DsM FcTopBind
+dataFamilyRepresentation familyInst representationName representationTyVars representationType constructorInfos
+  | dataFamilyInstIsNewtype familyInst =
+      case constructorInfos of
+        [(constructorName, _, [fieldType])] ->
+          pure
+            ( FcNewtype
+                FcNewtypeDecl
+                  { fcNewtypeName = representationName,
+                    fcNewtypeTyVars = representationTyVars,
+                    fcNewtypeConstructor = constructorName,
+                    fcNewtypeRepresentation = fieldType,
+                    fcNewtypeResult = representationType
+                  }
+            )
+        _ -> desugarBug "newtype family instance does not have exactly one constructor with one field"
+  | otherwise =
+      pure
+        ( FcData
+            representationName
+            representationTyVars
+            [(name, fields) | (name, _, fields) <- constructorInfos]
+        )
 
 -- | Retain the nominal declaration and its representation type as an FC axiom.
 -- 'lowerNewtypes' turns all term-level construction and matching into casts.
