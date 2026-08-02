@@ -37,7 +37,7 @@ import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.Monad (emptyTcEnv, initTcState, runTcM)
 import Aihc.Tc.Types (mkTyCon)
 import Data.Data (Data, gmapQ)
-import Data.List (find)
+import Data.List (find, isInfixOf)
 import Data.Maybe (isJust, mapMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Typeable (cast)
@@ -605,6 +605,56 @@ annotationTests =
                   assertFailure ("Resolve error in datatype-interface consumer: " <> show resolveErrors)
         ResolveResult {resolveErrors} ->
           assertFailure ("Resolve error in datatype-interface provider: " <> show resolveErrors),
+    testCase "stock Eq deriving infers field contexts and recursive evidence" $ do
+      let result =
+            typecheckModule $
+              parseMWithExtensions
+                [DerivingStrategies]
+                "{-# LANGUAGE DerivingStrategies #-}\n\
+                \module Test where\n\
+                \data Bool = False | True\n\
+                \class Eq a where\n\
+                \  (==) :: a -> a -> Bool\n\
+                \  (/=) :: a -> a -> Bool\n\
+                \instance Eq Bool where\n\
+                \  False == False = True\n\
+                \  True == True = True\n\
+                \  _ == _ = False\n\
+                \  False /= False = False\n\
+                \  True /= True = False\n\
+                \  _ /= _ = True\n\
+                \data Tree a = Leaf a | Branch (Tree a) (Tree a) deriving stock Eq\n"
+      assertBool ("module should typecheck, got: " <> show (tcModuleDiagnostics result)) (tcModuleSuccess result)
+      case derivingPlans result of
+        [plan] -> do
+          case tcDerivingContext plan of
+            TcDerivingExplicitContext [ClassPred "Eq" [TcTyVar contextVar]] ->
+              assertBool "context variable is quantified by the plan" (contextVar `elem` tcDerivingTyVars plan)
+            context -> assertFailure ("unexpected inferred context: " <> show context)
+          case tcDerivingStockPlan plan of
+            Nothing -> assertFailure "stock Eq evidence plan is missing"
+            Just (TcStockEqPlan constructorEvidence) -> do
+              assertEqual "evidence follows constructor fields" [1, 2] (map length constructorEvidence)
+              assertBool
+                "recursive fields select the derived dictionary"
+                (all (elem "$fEqTreea" . concatMap evDictNames) (drop 1 constructorEvidence))
+        plans -> assertFailure ("expected one stock Eq plan, got: " <> show plans),
+    testCase "stock Eq deriving rejects existential constructors in TC" $ do
+      let result =
+            typecheckModule $
+              parseMWithExtensions
+                [DerivingStrategies, ExistentialQuantification]
+                "{-# LANGUAGE DerivingStrategies, ExistentialQuantification #-}\n\
+                \module Test where\n\
+                \data Bool = False | True\n\
+                \class Eq a where\n\
+                \  (==) :: a -> a -> Bool\n\
+                \  (/=) :: a -> a -> Bool\n\
+                \data Hidden = forall a. Hidden a deriving stock Eq\n"
+      assertBool "module should fail" (not (tcModuleSuccess result))
+      assertBool
+        "diagnostic should identify the unsupported constructor shape"
+        (any (isInfixOf "existential constructors" . show . diagKind) (tcModuleDiagnostics result)),
     testCase "instance methods retain method-local constraints" $ do
       let result =
             typecheckModule $

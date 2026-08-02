@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Strategy dispatch and dependency grouping for derived dictionaries.
 module Aihc.Fc.Desugar.Deriving
   ( dsDerivingPlans,
@@ -6,10 +8,11 @@ module Aihc.Fc.Desugar.Deriving
 where
 
 import Aihc.Fc.Desugar.Deriving.AnyClass (dsAnyClassDictionaryPlan)
-import Aihc.Fc.Desugar.Expr (DsM)
-import Aihc.Fc.Syntax (FcBind (..), FcTopBind (..))
+import Aihc.Fc.Desugar.Deriving.StockEq (dsStockEqDictionaryPlan)
+import Aihc.Fc.Desugar.Expr (DsM, desugarBug)
+import Aihc.Fc.Syntax (FcBind (..), FcExpr, FcTopBind (..), Var)
 import Aihc.Parser.Syntax (Decl (..), fromAnnotation)
-import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingAnnotation (..), TcDerivingPlan (..), TcDerivingStrategy (..))
+import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingAnnotation (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.Text (Text)
@@ -18,11 +21,16 @@ dsDerivingPlans :: [TcDerivingPlan] -> DsM [FcTopBind]
 dsDerivingPlans plans =
   mapM dsDerivingScc (stronglyConnComp planNodes)
   where
-    anyClassPlans = filter ((== TcDerivingAnyclass) . tcDerivingStrategy) plans
+    supportedPlans = filter isSupportedPlan plans
     planNodes =
       [ (plan, tcDerivingDictName plan, derivingPlanDependencies plan)
-      | plan <- anyClassPlans
+      | plan <- supportedPlans
       ]
+
+isSupportedPlan :: TcDerivingPlan -> Bool
+isSupportedPlan plan =
+  tcDerivingStrategy plan == TcDerivingAnyclass
+    || (tcDerivingStrategy plan == TcDerivingStock && tcDerivingClassName plan == "Eq")
 
 -- Evidence may make sibling dictionaries depend on one another regardless of
 -- their source order. Preserve acyclic dependency order and use recursive FC
@@ -31,17 +39,26 @@ dsDerivingScc :: SCC TcDerivingPlan -> DsM FcTopBind
 dsDerivingScc scc =
   case scc of
     AcyclicSCC plan -> do
-      (dictVar, body) <- dsAnyClassDictionaryPlan plan
+      (dictVar, body) <- dsDerivingPlan plan
       pure (FcTopBind (FcNonRec dictVar body))
     CyclicSCC plans -> do
-      bindings <- mapM dsAnyClassDictionaryPlan plans
+      bindings <- mapM dsDerivingPlan plans
       pure (FcTopBind (FcRec bindings))
+
+dsDerivingPlan :: TcDerivingPlan -> DsM (Var, FcExpr)
+dsDerivingPlan plan =
+  case tcDerivingStrategy plan of
+    TcDerivingAnyclass -> dsAnyClassDictionaryPlan plan
+    TcDerivingStock
+      | tcDerivingClassName plan == "Eq" -> dsStockEqDictionaryPlan plan
+    strategy -> desugarBug ("unsupported finalized deriving strategy: " <> show strategy)
 
 derivingPlanDependencies :: TcDerivingPlan -> [Text]
 derivingPlanDependencies plan =
   selfDependency
     <> concatMap (evidenceDependencies . snd) (tcDerivingSuperClasses plan)
     <> concatMap (concatMap evidenceDependencies . snd) (tcDerivingDefaultMethodEvidence plan)
+    <> maybe [] (concatMap (concatMap evidenceDependencies) . tcStockEqFieldEvidence) (tcDerivingStockPlan plan)
   where
     selfDependency =
       [ tcDerivingDictName plan

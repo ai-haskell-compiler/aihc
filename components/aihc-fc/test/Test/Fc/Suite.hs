@@ -13,7 +13,7 @@ where
 import Aihc.Fc
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
-import Aihc.Parser (defaultConfig, parseModule)
+import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Aihc.Tc.Evidence (Coercion (..))
@@ -48,7 +48,22 @@ fcDesugarTests =
             constructors = concatMap declarationConstructors (Surface.moduleDecls parsedModule)
         case constructors of
           [constructor] -> assertEqual "constructor arity" ("Pair", 2) (dsDataConPure constructor)
-          _ -> assertFailure ("expected one parsed constructor, got: " <> show constructors)
+          _ -> assertFailure ("expected one parsed constructor, got: " <> show constructors),
+      testCase "stock Eq dictionaries pass Core lint" $ do
+        let source =
+              "{-# LANGUAGE DerivingStrategies #-}\n\
+              \module Test where\n\
+              \data Bool = False | True\n\
+              \class Eq a where\n\
+              \  (==) :: a -> a -> Bool\n\
+              \  (/=) :: a -> a -> Bool\n\
+              \data Tree a = Leaf a | Branch (Tree a) (Tree a) deriving stock Eq\n"
+            config = defaultConfig {parserExtensions = [Surface.DerivingStrategies]}
+            (parseErrors, parsedModule) = parseModule config source
+            result = desugarModule parsedModule
+        assertEqual "source parses" [] parseErrors
+        assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
+        assertEqual "Core lint" [] (lintProgram emptyLintEnv (dsProgram result))
     ]
   where
     declarationConstructors declaration =

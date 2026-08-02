@@ -1,0 +1,46 @@
+extensions:
+  - DerivingStrategies
+  - StandaloneDeriving
+dependencies: []
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies, StandaloneDeriving #-}
+    module Test where
+
+    data Bool = False | True
+    data Results = Results Bool Bool Bool Bool Bool
+
+    class Eq a where
+      (==) :: a -> a -> Bool
+      (/=) :: a -> a -> Bool
+
+    instance Eq Bool where
+      False == False = True
+      True == True = True
+      _ == _ = False
+
+      False /= False = False
+      True /= True = False
+      _ /= _ = True
+
+    data Pair a = None | Pair a a
+      deriving stock Eq
+
+    newtype Wrapped a = Wrapped a
+      deriving stock Eq
+
+    data Solo a = Solo a
+    deriving stock instance Eq a => Eq (Solo a)
+
+    result :: Results
+    result =
+      Results
+        (Pair True False == Pair True False)
+        (Pair True False == Pair False True)
+        (None /= Pair True True)
+        (Wrapped True == Wrapped True)
+        (Solo False /= Solo True)
+expression: result
+output: Results True False True True True
+status: pass
+reason: executes generated equality, constructor mismatch, field mismatch, and inequality
