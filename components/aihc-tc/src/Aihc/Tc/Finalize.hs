@@ -22,6 +22,7 @@ import Aihc.Tc.Annotations
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
   )
+import Aihc.Tc.Env (DataFamilyInstanceInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types (Pred (..), TcType (..), Unique (..))
@@ -133,6 +134,7 @@ rejectMetaFinalAnnotation ann = do
   traverseReject "deriving annotation" (firstMetaDerivingAnnotation <$> fromAnnotation @TcDerivingAnnotation ann)
   traverseReject "instance annotation" (firstMetaInstanceAnnotation <$> fromAnnotation @TcInstanceAnnotation ann)
   traverseReject "instance method annotation" (firstMetaInstanceMethodAnnotation <$> fromAnnotation @TcInstanceMethodAnnotation ann)
+  traverseReject "data-family instance annotation" (firstMetaDataFamilyInstance <$> fromAnnotation @DataFamilyInstanceInfo ann)
   where
     traverseReject _ Nothing = pure ()
     traverseReject context (Just maybeMeta) = rejectMeta ("finalized " <> context) maybeMeta
@@ -213,6 +215,10 @@ firstMetaDictBinderAnnotation ann =
 firstMetaInstanceMethodAnnotation :: TcInstanceMethodAnnotation -> Maybe Unique
 firstMetaInstanceMethodAnnotation ann =
   firstMetaType (tcInstanceMethodType ann)
+
+firstMetaDataFamilyInstance :: DataFamilyInstanceInfo -> Maybe Unique
+firstMetaDataFamilyInstance info =
+  firstMetaType (dfiiFamilyType info)
 
 firstMetaEvTerm :: EvTerm -> Maybe Unique
 firstMetaEvTerm evTerm =

@@ -51,6 +51,7 @@ tcTests =
     [ testGroup "literals" literalTests,
       testGroup "application" applicationTests,
       testGroup "case" caseTests,
+      testGroup "data families" dataFamilyTests,
       testGroup "if-then-else" ifTests,
       testGroup "lambda" lambdaTests,
       testGroup "variables" variableTests,
@@ -180,6 +181,71 @@ caseTests =
       let result = tc "\\x -> case x of { y -> y }"
       assertBool "should succeed" (tcResultSuccess result)
       assertBool "should be function type" (isFunTy (tcResultType result))
+  ]
+
+dataFamilyTests :: [TestTree]
+dataFamilyTests =
+  [ testCase "exports standalone data-family instances across module groups" $ do
+      let providerResult =
+            resolve
+              [ parseOnlyWithExtensions
+                  [TypeFamilies]
+                  "module Provider (Unit(..), Payload(..)) where\n\
+                  \data Unit = Unit\n\
+                  \data family Payload a\n\
+                  \data instance Payload a = PayloadValue a\n"
+              ]
+          providerExports = extractInterface providerResult
+      case providerResult of
+        ResolveResult {resolvedModules = providerModules, resolveErrors = []} -> do
+          let (checkedProvider, interface) = typecheckModuleSccWithInterface mempty providerModules
+          assertBool
+            ("provider should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedProvider))
+            (all tcModuleSuccess checkedProvider)
+          assertBool
+            "checked syntax carries the family representation equation"
+            (any (containsParserAnnotation (isJust . fromAnnotation @DataFamilyInstanceInfo)) checkedProvider)
+          assertBool "family type constructor exported" ("Payload" `elem` map tciName (tcInterfaceTyCons interface))
+          case tcInterfaceDataFamilyInstances interface of
+            [familyInstance] -> do
+              assertEqual "family name" "Payload" (dfiiFamilyName familyInstance)
+              assertEqual "one instance variable" 1 (length (dfiiTyVars familyInstance))
+              assertEqual "representation name" "$R$Payload$PayloadValue" (tyConName (dfiiRepresentationTyCon familyInstance))
+              assertEqual "axiom name" "$ax$Payload$PayloadValue" (dfiiAxiomName familyInstance)
+              assertEqual "constructors" ["PayloadValue"] (dfiiConstructorNames familyInstance)
+              assertBool "data instance is not a newtype" (not (dfiiIsNewtype familyInstance))
+            familyInstances -> assertFailure ("expected one exported family instance, got: " <> show familyInstances)
+          let consumer =
+                parseOnlyWithExtensions
+                  [TypeFamilies]
+                  "module Consumer where\n\
+                  \import Provider\n\
+                  \unwrap :: Payload Unit -> Unit\n\
+                  \unwrap payload = case payload of PayloadValue value -> value\n"
+          case resolveWithDeps providerExports [consumer] of
+            ResolveResult {resolvedModules = consumerModules, resolveErrors = []} -> do
+              let (checkedConsumer, _) = typecheckModuleSccWithInterface interface consumerModules
+              assertBool
+                ("consumer should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedConsumer))
+                (all tcModuleSuccess checkedConsumer)
+            ResolveResult {resolveErrors} ->
+              assertFailure ("Resolve error in data-family consumer: " <> show resolveErrors)
+        ResolveResult {resolveErrors} ->
+          assertFailure ("Resolve error in data-family provider: " <> show resolveErrors),
+    testCase "rejects an instance whose head is not a data family" $ do
+      let result =
+            typecheckModule $
+              parseMWithExtensions
+                [TypeFamilies]
+                "module Test where\n\
+                \data Ordinary a = Ordinary a\n\
+                \data instance Ordinary a = InvalidOrdinary a\n"
+          isInvalidHead diagnostic =
+            case diagKind diagnostic of
+              OtherError "data-family instance head does not name a data family: Ordinary" -> True
+              _ -> False
+      assertBool "module should fail" (not (tcModuleSuccess result))
+      assertBool ("expected an invalid family-head diagnostic, got: " <> show (tcModuleDiagnostics result)) (any isInvalidHead (tcModuleDiagnostics result))
   ]
 
 -- | Tests for lambda expressions.

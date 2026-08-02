@@ -192,7 +192,7 @@ data LibraryPackage = LibraryPackage
   deriving (Eq, Show)
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 28
+cacheSchemaVersion = 29
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do

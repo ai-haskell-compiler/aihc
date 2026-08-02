@@ -1,0 +1,14 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+    data family Payload a
+    data instance Payload a = PayloadValue a
+expected: |
+  data $R$Payload$PayloadValue a
+   = PayloadValue a
+
+  axiom $ax$Payload$PayloadValue a : Payload a ~N $R$Payload$PayloadValue a
+status: pass
+reason: data-family instances retain an explicit representation type and nominal equality axiom in System FC

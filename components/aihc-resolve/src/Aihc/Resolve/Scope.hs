@@ -32,6 +32,8 @@ import Aihc.Parser.Syntax
     ClassDeclItem (..),
     DataConDecl (..),
     DataDecl (..),
+    DataFamilyDecl (..),
+    DataFamilyInst (..),
     Decl (..),
     ExportSpec (..),
     FieldDecl (..),
@@ -52,6 +54,7 @@ import Aihc.Parser.Syntax
     RecordField (..),
     SourceSpan (..),
     TupleFlavor (..),
+    Type (..),
     TypeSynDecl (..),
     UnqualifiedName,
     ValueDecl (..),
@@ -60,6 +63,7 @@ import Aihc.Parser.Syntax
     moduleExports,
     moduleName,
     peelPatternAnn,
+    peelTypeHead,
     qualifyName,
     recordFieldValue,
     renderUnqualifiedName,
@@ -224,8 +228,37 @@ declExportedNames decl =
           termNames = maybe [] dataConDeclNames (newtypeDeclConstructor newtypeDecl)
           constructorNames = maybe [] dataConDeclConstructorNames (newtypeDeclConstructor newtypeDecl)
        in DeclExports termNames [typeName] (constructorMap typeName constructorNames) (maybe Map.empty (recordFieldMap . (: [])) (newtypeDeclConstructor newtypeDecl)) Map.empty Map.empty
+    DeclDataFamilyDecl familyDecl ->
+      DeclExports [] [binderHeadName (dataFamilyDeclHead familyDecl)] Map.empty Map.empty Map.empty Map.empty
+    DeclDataFamilyInst familyInst -> dataFamilyInstExports familyInst
     DeclTypeSyn typeSynDecl -> DeclExports [] [binderHeadName (typeSynHead typeSynDecl)] Map.empty Map.empty Map.empty Map.empty
     _ -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty
+
+dataFamilyInstExports :: DataFamilyInst -> DeclExports
+dataFamilyInstExports familyInst =
+  case dataFamilyHeadName (dataFamilyInstHead familyInst) of
+    Nothing -> DeclExports termNames [] Map.empty recordFields Map.empty Map.empty
+    Just familyName ->
+      DeclExports
+        termNames
+        []
+        (constructorMap familyName constructorNames)
+        recordFields
+        Map.empty
+        Map.empty
+  where
+    constructors = dataFamilyInstConstructors familyInst
+    termNames = dataDeclConstructorNames constructors
+    constructorNames = concatMap dataConDeclConstructorNames constructors
+    recordFields = recordFieldMap constructors
+
+dataFamilyHeadName :: Type -> Maybe UnqualifiedName
+dataFamilyHeadName ty =
+  case peelTypeHead ty of
+    TCon name _ -> Just (mkUnqualifiedName (nameType name) (nameText name))
+    TApp function _ -> dataFamilyHeadName function
+    TTypeApp function _ -> dataFamilyHeadName function
+    _ -> Nothing
 
 dataDeclExports :: BinderHead UnqualifiedName -> [DataConDecl] -> DeclExports
 dataDeclExports headBinder constructors =

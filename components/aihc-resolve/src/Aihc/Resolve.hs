@@ -36,6 +36,8 @@ import Aihc.Parser.Syntax
     CompStmt (..),
     DataConDecl (..),
     DataDecl (..),
+    DataFamilyDecl (..),
+    DataFamilyInst (..),
     Decl (..),
     DerivingClause (..),
     DerivingStrategy (..),
@@ -405,9 +407,11 @@ resolveDeclCore termDefinition decl =
     DeclStandaloneDeriving derivingDecl ->
       DeclStandaloneDeriving <$> resolveStandaloneDerivingDecl derivingDecl
     DeclTypeFamilyDecl {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
-    DeclDataFamilyDecl {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclDataFamilyDecl dataFamilyDecl ->
+      DeclDataFamilyDecl <$> resolveDataFamilyDecl dataFamilyDecl
     DeclTypeFamilyInst {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
-    DeclDataFamilyInst {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclDataFamilyInst dataFamilyInst ->
+      DeclDataFamilyInst <$> resolveDataFamilyInst dataFamilyInst
 
 resolveValueDecl :: TermDefinition -> ValueDecl -> ResolveM ValueDecl
 resolveValueDecl termDefinition valueDecl =
@@ -1115,6 +1119,41 @@ resolveDataDecl keyword dataDecl = do
         dataDeclKind = kind',
         dataDeclConstructors = map (resolveDataConDefinitions scope) constructors',
         dataDeclDeriving = deriving'
+      }
+
+resolveDataFamilyDecl :: DataFamilyDecl -> ResolveM DataFamilyDecl
+resolveDataFamilyDecl familyDecl = do
+  scope <- currentScope
+  declSpan <- currentSpan
+  let resolveHeadName name =
+        let rendered = renderUnqualifiedName name
+            span' = declKeywordNameSpan "data family " declSpan rendered
+         in resolveUnqualifiedNameTo span' ResolutionNamespaceType (lookupType rendered scope) name
+      head' =
+        case dataFamilyDeclHead familyDecl of
+          PrefixBinderHead name params -> PrefixBinderHead (resolveHeadName name) params
+          InfixBinderHead lhs name rhs params -> InfixBinderHead lhs (resolveHeadName name) rhs params
+  kind' <- traverse resolveType (dataFamilyDeclKind familyDecl)
+  pure familyDecl {dataFamilyDeclHead = head', dataFamilyDeclKind = kind'}
+
+resolveDataFamilyInst :: DataFamilyInst -> ResolveM DataFamilyInst
+resolveDataFamilyInst familyInst = do
+  scope <- currentScope
+  (forallScope, forallBinders') <- bindTyVarBinders (dataFamilyInstForall familyInst)
+  (head', kind', constructors', deriving') <-
+    extendScope forallScope $
+      (,,,)
+        <$> resolveType (dataFamilyInstHead familyInst)
+        <*> traverse resolveType (dataFamilyInstKind familyInst)
+        <*> mapM resolveDataConDecl (dataFamilyInstConstructors familyInst)
+        <*> mapM resolveDerivingClause (dataFamilyInstDeriving familyInst)
+  pure
+    familyInst
+      { dataFamilyInstForall = forallBinders',
+        dataFamilyInstHead = head',
+        dataFamilyInstKind = kind',
+        dataFamilyInstConstructors = map (resolveDataConDefinitions scope) constructors',
+        dataFamilyInstDeriving = deriving'
       }
 
 resolveTypeSynDecl :: TypeSynDecl -> ResolveM TypeSynDecl

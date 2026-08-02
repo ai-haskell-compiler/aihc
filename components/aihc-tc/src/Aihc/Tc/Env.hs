@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Global and class environments.
 --
 -- These are built once per module from the parsed declarations and carry
@@ -20,6 +22,11 @@ module Aihc.Tc.Env
 
     -- * Instance info
     InstanceInfo (..),
+
+    -- * Data family instances
+    DataFamilyInstanceInfo (..),
+    dataFamilyAxiomName,
+    dataFamilyRepresentationName,
   )
 where
 
@@ -51,6 +58,7 @@ emptyGlobalEnv =
 data TyConFlavor
   = ClassTyCon
   | DataTyCon
+  | DataFamilyTyCon
   | NewtypeTyCon
   | SynonymTyCon
   deriving (Eq, Show, Read)
@@ -124,3 +132,25 @@ data InstanceInfo = InstanceInfo
     iiHead :: ![TcType]
   }
   deriving (Show, Read)
+
+-- | A checked standalone data-family instance equation. The representation
+-- type and nominal axiom are compiler-internal names derived from the first
+-- (globally unique) constructor of the instance.
+data DataFamilyInstanceInfo = DataFamilyInstanceInfo
+  { dfiiFamilyName :: !Text,
+    dfiiFamilyType :: !TcType,
+    dfiiTyVars :: ![TyVarId],
+    dfiiRepresentationTyCon :: !TyCon,
+    dfiiAxiomName :: !Text,
+    dfiiConstructorNames :: ![Text],
+    dfiiIsNewtype :: !Bool
+  }
+  deriving (Show, Read)
+
+dataFamilyRepresentationName :: Text -> Text -> Text
+dataFamilyRepresentationName familyName firstConstructor =
+  "$R$" <> familyName <> "$" <> firstConstructor
+
+dataFamilyAxiomName :: Text -> Text -> Text
+dataFamilyAxiomName familyName firstConstructor =
+  "$ax$" <> familyName <> "$" <> firstConstructor
