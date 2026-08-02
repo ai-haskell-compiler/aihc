@@ -1,0 +1,33 @@
+dependencies:
+  - aihc-base
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (raise#)
+
+    error :: [Char] -> ()
+    error message = raise# message
+
+    wildcardCase :: ()
+    wildcardCase = case error "wildcard" of
+      _ -> ()
+      _ -> error "unreachable"
+
+    variableCase :: ()
+    variableCase = case error "variable" of
+      value -> ()
+      _ -> error "unreachable"
+
+    fallthroughScope :: Bool -> Bool
+    fallthroughScope matched = case False of
+      matched@True -> matched
+      _ -> matched
+output: |
+  ((),(),True)
+expression: |
+  (wildcardCase, variableCase, fallthroughScope True)
+status: pass
+reason: irrefutable alternatives are lazy and pattern bindings do not escape into fall-through alternatives

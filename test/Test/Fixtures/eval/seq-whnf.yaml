@@ -1,0 +1,31 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (raise#)
+
+    data Unit = Unit
+    data Box = Box Unit
+    data Result = Result Bool Bool Bool
+
+    forceBox :: Bool -> Bool
+    forceBox = seq (Box (raise# Unit))
+
+    divergingFunction :: Unit -> Unit
+    divergingFunction value = raise# value
+
+    applySeq :: (Box -> Bool -> Bool) -> Bool
+    applySeq force = force (Box (raise# Unit)) True
+
+    result :: Result
+    result = Result (forceBox True) (seq divergingFunction True) (applySeq seq)
+output: |
+  Result True True True
+expression: result
+status: pass
+reason: seq evaluates constructors and function closures only to weak head normal form, including unsaturated and partially applied uses

@@ -269,7 +269,9 @@ compileIncrementally dependencies unoptimizedMain =
           incrementalMainUnit = IncrementalUnit mainCore mainGrin mainCpsGrin
         }
   where
-    mainCore = Fc.optimizeProgram (Fc.lowerNewtypesWithInterface (dependencyNewtypeInterface dependencies) (eliminateDeadCode "main" unoptimizedMain))
+    mainCore =
+      Fc.optimizeProgram
+        (Fc.lowerPseudoOps (Fc.lowerNewtypesWithInterface (dependencyNewtypeInterface dependencies) (eliminateDeadCode "main" unoptimizedMain)))
     mainGrin = Grin.lowerProgramWithInterface (dependencyGrinInterface dependencies) mainCore
 
 -- | Link already-incremental Core units for whole-program analysis. Unique
@@ -343,7 +345,7 @@ reachableRuntimePrimitiveNames entry reachability programs =
 
 compileProgramArtifacts :: NativeTarget -> FcProgram -> Either CompileError CompileArtifacts
 compileProgramArtifacts target sourceCore = do
-  let core = Fc.optimizeProgram (Fc.lowerNewtypes sourceCore)
+  let core = Fc.optimizeProgram (Fc.lowerPseudoOps (Fc.lowerNewtypes sourceCore))
   let grin = Grin.lowerProgram core
   cpsGrin <- either (Left . CompileCpsGrinError) Right (Grin.toCpsGrin grin)
   let gcGrin = Grin.lowerGc cpsGrin

@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE GHCForeignImportPrim #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -55,6 +57,7 @@ module GHC.Prim
     readArray#,
     readMutVar#,
     resizeMutableByteArray#,
+    seq,
     sameMutVar#,
     sameMutableArray#,
     shrinkMutableByteArray#,
@@ -95,7 +98,7 @@ module GHC.Prim
   )
 where
 
-import GHC.Types (TYPE)
+import GHC.Types (RuntimeRep, TYPE)
 
 data State# s
 
@@ -120,6 +123,10 @@ data RealWorld
 foreign import prim raise# :: a -> b
 
 foreign import prim unsafeCoerce# :: a -> b
+
+foreign import prim seq :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b
+
+infixr 0 `seq`
 
 foreign import prim realWorld# :: State# RealWorld
 

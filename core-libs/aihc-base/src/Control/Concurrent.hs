@@ -16,7 +16,7 @@ where
 
 import GHC.IO (IO (..))
 import GHC.MVar (MVar, newEmptyMVar, newMVar, putMVar, readMVar, takeMVar)
-import GHC.Prim (ThreadId#, fork#, yield#)
+import GHC.Prim (ThreadId#, fork#, seq, yield#)
 
 -- | An opaque green-thread identifier.
 data ThreadId = ThreadId ThreadId#
@@ -28,10 +28,11 @@ forkIO (IO action) =
     ( \state ->
         -- Explicit GRIN apply does not enter operands, and unpacking the IO
         -- newtype alone does not enter its state transformer.
-        case action of
-          forcedAction ->
-            case fork# forcedAction state of
+        seq
+          action
+          ( case fork# action state of
               (# nextState, threadId #) -> (# nextState, ThreadId threadId #)
+          )
     )
 
 -- | Cooperatively yield to the next runnable green thread.

@@ -53,13 +53,15 @@ expected: |-
     fromInteger @Integer $fNumInteger (IS 1)
 
   caseInt : Unit =
-    case fromInteger @Int $fNumInt (IS 1) as _case : Int of
-      _ _case_value →
-        case == @Int $fEqInt _case_value (fromInteger @Int $fNumInt (IS 1)) as _case_guard : Bool of
-          True →
-            ()
-          False →
-            case _case_value as _case_nomatch : Int of
+    let
+      _case_value : Int =
+        fromInteger @Int $fNumInt (IS 1)
+    in
+      case == @Int $fEqInt _case_value (fromInteger @Int $fNumInt (IS 1)) as _case_guard : Bool of
+        True →
+          ()
+        False →
+          case _case_value as _case_nomatch : Int of
 extensions:
 - MagicHash
 modules:

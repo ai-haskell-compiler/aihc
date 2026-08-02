@@ -7,7 +7,7 @@ module Test.Tc.Suite
   )
 where
 
-import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseModule, parseSignatureType)
 import Aihc.Parser.Syntax
   ( Annotation,
     CaseAlt (..),
@@ -34,8 +34,14 @@ import Aihc.Tc
 import Aihc.Tc.Annotations (PendingTcAnnotation, TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
+import Aihc.Tc.Generalize (generalizeAndCommit)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
+import Aihc.Tc.Kind (freeTypeVars)
 import Aihc.Tc.Monad (emptyTcEnv, initTcState, runTcM)
+import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme)
 import Aihc.Tc.Types (mkTyCon)
+import Aihc.Tc.Unify (unifyTypes)
+import Aihc.Tc.Zonk (zonkType)
 import Data.Data (Data, gmapQ)
 import Data.List (find)
 import Data.Maybe (isJust, mapMaybe, maybeToList)
@@ -57,6 +63,7 @@ tcTests =
       testGroup "lambda" lambdaTests,
       testGroup "variables" variableTests,
       testGroup "kinds" kindTests,
+      testGroup "type schemes" typeSchemeTests,
       testGroup "annotations" annotationTests,
       testGroup "error-cases" errorTests
     ]
@@ -303,7 +310,11 @@ variableTests =
 
 kindTests :: [TestTree]
 kindTests =
-  [ testCase "primitive types retain their runtime-representation kinds" $ do
+  [ testCase "explicit forall removes every occurrence of its bound variables" $ do
+      case parseSignatureType defaultConfig {parserExtensions = [ExplicitForAll]} "forall a. a -> a" of
+        ParseOk signature -> assertEqual "free type variables" [] (freeTypeVars signature)
+        ParseErr errors -> assertFailure ("signature should parse: " <> show errors),
+    testCase "primitive types retain their runtime-representation kinds" $ do
       assertEqual
         "Int kind"
         liftedTypeKind
@@ -488,6 +499,63 @@ kindTests =
         RuntimeRepVar {} -> False
         RuntimeRepMeta {} -> True
         _ -> False
+
+typeSchemeTests :: [TestTree]
+typeSchemeTests =
+  [ testCase "parses an explicit representation-polymorphic scheme" $ do
+      scheme <- parseScheme "forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b"
+      case scheme of
+        ForAll [representation, argument, result] [] (TcFunTy (TcTyVar argument') (TcFunTy (TcTyVar result') (TcTyVar result''))) -> do
+          assertEqual "representation kind" KRuntimeRep (tvKind representation)
+          assertEqual "ordinary argument kind" liftedTypeKind (tvKind argument)
+          assertEqual
+            "dependent result kind"
+            (KTYPE (RuntimeRepVar (tvUnique representation)))
+            (tvKind result)
+          assertEqual "argument occurrence" argument argument'
+          assertEqual "result argument occurrence" result result'
+          assertEqual "result occurrence" result result''
+        other -> assertFailure ("unexpected parsed scheme: " <> show other),
+    testCase "compares schemes rigidly modulo alpha-renaming" $ do
+      expected <- parseScheme "forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b"
+      renamed <- parseScheme "forall (rep :: RuntimeRep) x (y :: TYPE rep). x -> y -> y"
+      wrongResult <- parseScheme "forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> a"
+      liftedOnly <- parseScheme "a -> b -> b"
+      assertBool "alpha-renamed scheme should match" (equivalentTypeSchemes expected renamed)
+      assertBool "different result should not match" (not (equivalentTypeSchemes expected wrongResult))
+      assertBool "missing representation binder should not match" (not (equivalentTypeSchemes expected liftedOnly)),
+    testCase "instantiation infers a dependent RuntimeRep argument" $ do
+      scheme <- parseScheme "forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b"
+      case runTcM emptyTcEnv initTcState $ do
+        instantiation <- instantiateWithArgs scheme
+        case instTypeArgs instantiation of
+          [representation, _, result] -> do
+            unified <- unifyTypes result (TcTyCon (TyCon "Int#" 0) [])
+            representation' <- zonkType representation
+            pure (unified, representation')
+          other -> pure (Left (OtherError ("unexpected type arguments: " <> show other)), TcMetaTv (Unique (-1))) of
+        Left abort -> assertFailure ("type checker aborted: " <> show abort)
+        Right ((unified, representation), _) -> do
+          case unified of
+            Left err -> assertFailure ("result type should unify: " <> show err)
+            Right () -> pure ()
+          assertBool "representation becomes IntRep" (isTyCon "'IntRep" representation),
+    testCase "generalization retains dependent RuntimeRep binders" $ do
+      expected <- parseScheme "forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b"
+      case runTcM emptyTcEnv initTcState $ do
+        instantiation <- instantiateWithArgs expected
+        generalizeAndCommit (instType instantiation) [] of
+        Left abort -> assertFailure ("type checker aborted: " <> show abort)
+        Right (actual, _) ->
+          assertBool
+            ("generalized scheme should retain representation polymorphism: " <> show actual)
+            (equivalentTypeSchemes expected actual)
+  ]
+  where
+    parseScheme source =
+      case parseTypeScheme source of
+        Left err -> assertFailure ("scheme should parse: " <> err) >> fail "unreachable"
+        Right scheme -> pure scheme
 
 annotationTests :: [TestTree]
 annotationTests =

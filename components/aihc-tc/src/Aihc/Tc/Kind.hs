@@ -13,6 +13,7 @@ module Aihc.Tc.Kind
     kindToTcType,
     classPredicateArgKinds,
     makeParamEnv,
+    runtimeRepToTcType,
     sigToScheme,
     surfacePredToPred,
     tyConKindFromParams,
@@ -44,7 +45,7 @@ import Aihc.Tc.Instantiate (applySubst)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Control.Monad (zipWithM)
-import Data.List (nub, (\\))
+import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -63,15 +64,24 @@ data ParamInfo = ParamInfo
 
 sigToScheme :: Type -> TcM TypeScheme
 sigToScheme ty = do
-  let (context, body) = splitContext ty
+  let (explicitBinders, qualifiedBody) = splitForalls ty
+      (context, body) = splitContext qualifiedBody
       freeVars = freeTypeVars ty
   rawTvs <- mapM freshSkolemTv freeVars
   kinds <- mapM (const freshKindMeta) freeVars
-  let tvs = zipWith setTyVarKind kinds rawTvs
-  let tvEnv = Map.fromList (zip freeVars (zip tvs kinds))
+  let implicitTvs = zipWith setTyVarKind kinds rawTvs
+  let implicitEnv = Map.fromList (zip freeVars (zip implicitTvs kinds))
+  explicitParams <- makeParamEnvWith implicitEnv explicitBinders
+  let explicitTvs = map paramTyVar explicitParams
+      tvEnv =
+        implicitEnv
+          <> Map.fromList
+            [ (paramName param, (paramTyVar param, paramKind param))
+            | param <- explicitParams
+            ]
   tcTy <- checkRuntimeType tvEnv body
   preds <- mapM (surfacePredToPred tvEnv) context
-  pure (ForAll tvs preds tcTy)
+  pure (ForAll (implicitTvs <> explicitTvs) preds tcTy)
 
 convertSurfaceType :: Map Text TyVarId -> Type -> TcM TcType
 convertSurfaceType tvMap ty = do
@@ -315,7 +325,10 @@ inferOpenTypeConstructor name = do
   pure (TcTyCon (mkTyCon name 0 kind) [], kind)
 
 makeParamEnv :: [TyVarBinder] -> TcM [ParamInfo]
-makeParamEnv = go Map.empty
+makeParamEnv = makeParamEnvWith Map.empty
+
+makeParamEnvWith :: TvKindEnv -> [TyVarBinder] -> TcM [ParamInfo]
+makeParamEnvWith = go
   where
     go _ [] = pure []
     go tvEnv (binder : rest) = do
@@ -595,8 +608,12 @@ freeTypeVars = nub . go
     go (TKindSig inner kindTy) = go inner ++ go kindTy
     go (TContext preds inner) = concatMap go preds ++ go inner
     go (TForall telescope inner) =
-      (concatMap binderKindVars (forallTelescopeBinders telescope) ++ go inner)
-        \\ map tyVarBinderName (forallTelescopeBinders telescope)
+      filter
+        (`Set.notMember` boundNames)
+        (concatMap binderKindVars binders ++ go inner)
+      where
+        binders = forallTelescopeBinders telescope
+        boundNames = Set.fromList (map tyVarBinderName binders)
     go _ = []
     binderKindVars binder = maybe [] go (tyVarBinderKind binder)
 
@@ -604,6 +621,16 @@ splitContext :: Type -> ([Type], Type)
 splitContext (TAnn _ inner) = splitContext inner
 splitContext (TContext preds inner) = (preds, inner)
 splitContext ty = ([], ty)
+
+splitForalls :: Type -> ([TyVarBinder], Type)
+splitForalls ty =
+  case ty of
+    TAnn _ inner -> splitForalls inner
+    TParen inner -> splitForalls inner
+    TForall telescope inner ->
+      let (binders, body) = splitForalls inner
+       in (forallTelescopeBinders telescope <> binders, body)
+    _ -> ([], ty)
 
 surfacePredToPred :: TvKindEnv -> Type -> TcM Pred
 surfacePredToPred tvEnv ty =

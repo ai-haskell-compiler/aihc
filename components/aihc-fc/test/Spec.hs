@@ -1,6 +1,6 @@
 module Main (main) where
 
-import Test.Fc.Suite (fcDesugarTests, fcEvalFixtureTests, fcEvalTests, fcGoldenTests, fcOptimizationTests)
+import Test.Fc.Suite (fcDesugarTests, fcEvalFixtureTests, fcEvalTests, fcGoldenTests, fcLoweringTests, fcOptimizationTests)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.QuickCheck qualified as QC
 
@@ -14,6 +14,7 @@ main = do
         [ golden,
           fcDesugarTests,
           fcEvalTests,
+          fcLoweringTests,
           fcOptimizationTests,
           evalFixtures,
           QC.testProperty "dummy quickcheck property" prop_dummy

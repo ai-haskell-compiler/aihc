@@ -1,0 +1,23 @@
+extensions:
+  - BangPatterns
+expected: |-
+  data Box
+   = Box
+
+  forceBox : Box → Box =
+    λx1001 : Box.
+      case x1001 as _bang1002 : Box of
+        _ →
+          _bang1002
+modules:
+  - |
+    module Test where
+
+    data Box = Box
+
+    forceBox :: Box -> Box
+    forceBox value =
+      case value of
+        !evaluated -> evaluated
+status: pass
+reason: a strict variable pattern binds its RHS to the evaluated Core case binder

@@ -6,6 +6,7 @@ module Test.Fc.Suite
     fcDesugarTests,
     fcEvalTests,
     fcEvalFixtureTests,
+    fcLoweringTests,
     fcOptimizationTests,
   )
 where
@@ -109,11 +110,77 @@ fcEvalTests =
         assertEqual "high and low words" (Right (Right "(1,18446744073709551614)")) actual
     ]
 
+fcLoweringTests :: TestTree
+fcLoweringTests =
+  testGroup
+    "FC compulsory lowering"
+    [ testCase "expands saturated seq to a case on its first argument" $ do
+        let boolTy = ty "Bool"
+            first = Var "first" (Unique 1) stringTy
+            second = Var "second" (Unique 2) boolTy
+            seqVar = Var "$aihc.seq" (Unique 3) (TcFunTy stringTy (TcFunTy boolTy boolTy))
+            result = Var "result" (Unique 4) boolTy
+            source =
+              FcProgram
+                [ FcTopBind
+                    (FcNonRec result (FcApp (FcApp (FcVar seqVar) (FcVar first)) (FcVar second)))
+                ]
+            caseBinder = Var "$seq_whnf" (Unique 5) stringTy
+            expected = FcProgram [FcTopBind (FcNonRec result (Aihc.Fc.FcCase (FcVar first) caseBinder [FcAlt DefaultAlt [] (FcVar second)]))]
+        assertEqual "lowered program" expected (lowerPseudoOps source),
+      testCase "expands partially applied seq to an explicit lambda" $ do
+        let boolTy = ty "Bool"
+            first = Var "first" (Unique 1) stringTy
+            seqVar = Var "$aihc.seq" (Unique 2) (TcFunTy stringTy (TcFunTy boolTy boolTy))
+            result = Var "forceFirst" (Unique 3) (TcFunTy boolTy boolTy)
+            second = Var "$seq_second" (Unique 4) boolTy
+            caseBinder = Var "$seq_whnf" (Unique 5) stringTy
+            source = FcProgram [FcTopBind (FcNonRec result (FcApp (FcVar seqVar) (FcVar first)))]
+            expected = FcProgram [FcTopBind (FcNonRec result (FcLam second (Aihc.Fc.FcCase (FcVar first) caseBinder [FcAlt DefaultAlt [] (FcVar second)])))]
+        assertEqual "lowered program" expected (lowerPseudoOps source),
+      testCase "uses the evaluated case binder for later references to the first argument" $ do
+        let boolTy = ty "Bool"
+            first = Var "first" (Unique 1) stringTy
+            consume = Var "consume" (Unique 2) (TcFunTy stringTy boolTy)
+            seqVar = Var "$aihc.seq" (Unique 3) (TcFunTy stringTy (TcFunTy boolTy boolTy))
+            result = Var "result" (Unique 4) boolTy
+            source =
+              FcProgram
+                [ FcTopBind
+                    ( FcNonRec
+                        result
+                        (FcApp (FcApp (FcVar seqVar) (FcVar first)) (FcApp (FcVar consume) (FcVar first)))
+                    )
+                ]
+            caseBinder = Var "$seq_whnf" (Unique 5) stringTy
+            expected =
+              FcProgram
+                [ FcTopBind
+                    ( FcNonRec
+                        result
+                        (Aihc.Fc.FcCase (FcVar first) caseBinder [FcAlt DefaultAlt [] (FcApp (FcVar consume) (FcVar caseBinder))])
+                    )
+                ]
+        assertEqual "lowered program" expected (lowerPseudoOps source)
+    ]
+
 fcOptimizationTests :: TestTree
 fcOptimizationTests =
   testGroup
-    "FC optimizations"
-    [ testCase "copy propagates simple non-recursive lets" $ do
+    "FC optional optimizations"
+    [ testCase "does not perform compulsory pseudo-op lowering" $ do
+        let boolTy = ty "Bool"
+            first = Var "first" (Unique 1) stringTy
+            second = Var "second" (Unique 2) boolTy
+            seqVar = Var "$aihc.seq" (Unique 3) (TcFunTy stringTy (TcFunTy boolTy boolTy))
+            result = Var "result" (Unique 4) boolTy
+            source =
+              FcProgram
+                [ FcTopBind
+                    (FcNonRec result (FcApp (FcApp (FcVar seqVar) (FcVar first)) (FcVar second)))
+                ]
+        assertEqual "optimization leaves pseudo-op intact" source (optimizeProgram source),
+      testCase "copy propagates simple non-recursive lets" $ do
         let value = Var "value" (Unique 1) stringTy
             alias = Var "alias" (Unique 2) stringTy
             consume = Var "consume" (Unique 3) (TcFunTy stringTy stringTy)

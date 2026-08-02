@@ -1,0 +1,30 @@
+dependencies:
+  - aihc-base
+extensions:
+  - BangPatterns
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (catch#, raise#, realWorld#)
+
+    error :: [Char] -> ()
+    error message = raise# message
+
+    throwing state =
+      case error "bang" of
+        !_ -> (# state, False #)
+
+    handler exception state =
+      case exception of
+        ['b', 'a', 'n', 'g'] -> (# state, True #)
+        _ -> (# state, False #)
+output: |
+  True
+expression: |
+  case catch# throwing handler realWorld# of
+    (# _, result #) -> result
+status: pass
+reason: a bang wildcard is infallible but still evaluates its scrutinee before entering the right-hand side

@@ -1,0 +1,30 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (catch#, raise#, realWorld#)
+
+    error :: [Char] -> ()
+    error message = raise# message
+
+    throwing state =
+      case seq (error "urk") () of
+        () -> (# state, False #)
+
+    handler exception state =
+      case exception of
+        ['u', 'r', 'k'] -> (# state, True #)
+        _ -> (# state, False #)
+output: |
+  True
+expression: |
+  case catch# throwing handler realWorld# of
+    (# _, result #) -> result
+status: pass
+reason: seq evaluates its first argument and propagates the exact error payload to the exception handler

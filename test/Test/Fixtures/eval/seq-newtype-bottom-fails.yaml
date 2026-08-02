@@ -1,0 +1,20 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (raise#)
+
+    data Unit = Unit
+    newtype Wrapped = Wrapped Unit
+
+    result :: Bool
+    result = seq (Wrapped (raise# Unit)) True
+output: ""
+expression: result
+status: fail
+reason: seq observes through a newtype because newtype construction has no runtime WHNF boundary
