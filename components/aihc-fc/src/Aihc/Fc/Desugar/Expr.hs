@@ -791,6 +791,10 @@ dsIf cond thenE elseE = do
     )
 
 dsCase :: Expr -> [CaseAlt Expr] -> DsM FcExpr
+dsCase _ [CaseAlt _ pattern' rhs]
+  | isDiscardingWildcardPattern pattern',
+    UnguardedRhs {} <- rhs =
+      dsRhs rhs
 dsCase scrut alts = do
   scrut' <- dsExpr scrut
   scrutTy <-
@@ -806,6 +810,19 @@ dsCase scrut alts = do
     else do
       alts' <- mapM (dsCaseAlt scrutTy) alts
       pure (FcCase scrut' binder alts')
+
+-- A source wildcard is an irrefutable pattern. When it binds nothing and is
+-- the only alternative, neither matching nor the right-hand side needs the
+-- scrutinee, so emitting Core's strict case would change divergence and
+-- exception behavior.
+isDiscardingWildcardPattern :: Pattern -> Bool
+isDiscardingWildcardPattern pattern' =
+  case peelPatternAnn pattern' of
+    PWildcard -> True
+    PParen inner -> isDiscardingWildcardPattern inner
+    PTypeSig inner _ -> isDiscardingWildcardPattern inner
+    PIrrefutable inner -> isDiscardingWildcardPattern inner
+    _ -> False
 
 requiresOrderedCasePatternMatch :: Pattern -> Bool
 requiresOrderedCasePatternMatch pat =

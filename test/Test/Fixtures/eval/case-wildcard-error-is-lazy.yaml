@@ -1,0 +1,19 @@
+dependencies:
+  - aihc-base
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim (raise#)
+
+    error :: [Char] -> ()
+    error message = raise# message
+output: |
+  ()
+expression: |
+  case error "urk" of
+    _ -> ()
+status: pass
+reason: a source wildcard pattern is irrefutable and does not evaluate the case scrutinee
