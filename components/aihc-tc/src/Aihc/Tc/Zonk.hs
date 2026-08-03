@@ -13,8 +13,8 @@ module Aihc.Tc.Zonk
   )
 where
 
-import Aihc.Tc.Kind (defaultKindMetas, zonkKind)
-import Aihc.Tc.Monad (TcM, readMetaTv)
+import Aihc.Tc.Kind (defaultKindMetas, runtimeRepToTcType, zonkKind)
+import Aihc.Tc.Monad (TcM, readMetaTv, readRuntimeRepDependency, writeMetaTv)
 import Aihc.Tc.Types
 
 -- | Zonk a type: chase meta-variable solutions to their final values.
@@ -22,9 +22,10 @@ zonkType :: TcType -> TcM TcType
 zonkType ty = case ty of
   TcMetaTv u -> do
     mSol <- readMetaTv u
-    case mSol of
+    resolved <- case mSol of
       Nothing -> pure ty
       Just sol -> zonkType sol
+    resolveRuntimeRepDependency u resolved
   TcTyVar tv -> TcTyVar <$> zonkTyVar tv
   TcTyCon tc args -> do
     kind <- zonkKind (tyConKind tc)
@@ -33,6 +34,40 @@ zonkType ty = case ty of
   TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> zonkType body
   TcQualTy preds body -> TcQualTy <$> mapM zonkPred preds <*> zonkType body
   TcAppTy f a -> TcAppTy <$> zonkType f <*> zonkType a
+
+resolveRuntimeRepDependency :: Unique -> TcType -> TcM TcType
+resolveRuntimeRepDependency unique unresolved@(TcMetaTv unresolvedUnique)
+  | unique == unresolvedUnique = do
+      dependency <- readRuntimeRepDependency unique
+      case dependency of
+        Nothing -> pure unresolved
+        Just representedType -> do
+          representedType' <- zonkType representedType
+          if containsMetaVariable representedType'
+            then pure unresolved
+            else case runtimeRepOfType representedType' of
+              Left _ -> pure unresolved
+              Right runtimeRep -> do
+                let solution = runtimeRepToTcType runtimeRep
+                writeMetaTv unique solution
+                pure solution
+resolveRuntimeRepDependency _ resolved = pure resolved
+
+containsMetaVariable :: TcType -> Bool
+containsMetaVariable ty =
+  case ty of
+    TcMetaTv {} -> True
+    TcTyVar {} -> False
+    TcTyCon _ arguments -> any containsMetaVariable arguments
+    TcFunTy argument result -> containsMetaVariable argument || containsMetaVariable result
+    TcForAllTy _ body -> containsMetaVariable body
+    TcQualTy predicates body -> any containsMetaPred predicates || containsMetaVariable body
+    TcAppTy function argument -> containsMetaVariable function || containsMetaVariable argument
+  where
+    containsMetaPred predicate =
+      case predicate of
+        ClassPred _ arguments -> any containsMetaVariable arguments
+        EqPred left right -> containsMetaVariable left || containsMetaVariable right
 
 -- | Zonk a predicate.
 zonkPred :: Pred -> TcM Pred

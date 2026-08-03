@@ -11,10 +11,10 @@ module Aihc.Fc.Eval
   )
 where
 
+import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
-import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Syntax
-import Aihc.Tc.Types (RuntimeRep (..), TcType (..), TyCon (..), Unique)
+import Aihc.Tc.Types (RuntimeRep (..), TcType (..), TyCon (..), Unique, isLiftedType)
 import Control.Applicative ((<|>))
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (forM, forM_, zipWithM, (<=<), (>=>))
@@ -203,7 +203,7 @@ evalProgramBinding name sourceProgram = runExceptT $ do
         else pure forced
     Nothing -> throwE (EvalMissingBinding name)
   where
-    program = optimizeProgram (lowerNewtypes sourceProgram)
+    program = lowerPseudoOps (lowerNewtypes sourceProgram)
     ioBindings =
       Map.fromList
         [ (varName var, ())
@@ -1086,9 +1086,13 @@ forceCharPrimitiveArg name value = do
 extendBind :: Env -> FcBind -> EvalM Env
 extendBind env bind =
   case bind of
-    FcNonRec var expr -> do
-      thunk <- newThunk env expr
-      pure (insertLocal var (VThunk thunk) env)
+    FcNonRec var expr
+      | isLiftedType (varType var) -> do
+          thunk <- newThunk env expr
+          pure (insertLocal var (VThunk thunk) env)
+      | otherwise -> do
+          value <- evalWithEnv env expr >>= forceValue
+          pure (insertLocal var value env)
     FcRec bindings -> do
       allocated <- forM bindings $ \(var, expression) -> do
         ref <- lift (newIORef ThunkEvaluating)

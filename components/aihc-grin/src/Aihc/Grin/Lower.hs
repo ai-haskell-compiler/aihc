@@ -10,8 +10,8 @@ module Aihc.Grin.Lower
   )
 where
 
+import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
-import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Grin.Analysis (freeExprVars)
@@ -76,9 +76,7 @@ instance Monoid LoweredTop where
 -- representations, closure-convert lambdas and thunks, and make evaluation,
 -- application, allocation, and exception control explicit.
 lowerProgram :: FcProgram -> GrinProgram
-lowerProgram sourceProgram = lowerProgramWithInterface mempty program
-  where
-    program = optimizeProgram (lowerNewtypes sourceProgram)
+lowerProgram = lowerProgramWithInterface mempty
 
 -- | Runtime facts exported by one compiled unit. Lowering consumers need to
 -- know which external names are globals, already in WHNF, constructors, or
@@ -106,7 +104,10 @@ instance Monoid GrinInterface where
   mempty = GrinInterface Set.empty Set.empty Map.empty Map.empty Map.empty
 
 extractGrinInterface :: FcProgram -> GrinInterface
-extractGrinInterface sourceProgram =
+extractGrinInterface = extractPreparedGrinInterface . lowerRequiredFc
+
+extractPreparedGrinInterface :: FcProgram -> GrinInterface
+extractPreparedGrinInterface program =
   GrinInterface
     { grinInterfaceGlobals = Set.fromList (programGlobalNames program),
       grinInterfaceWhnfGlobals = Set.fromList (programWhnfGlobalNames program),
@@ -114,20 +115,25 @@ extractGrinInterface sourceProgram =
       grinInterfacePrimitiveArities =
         Map.fromList
           [ (varName var, arity)
-          | FcPrimitive var arity <- fcTopBinds program
+          | FcPrimitive var arity <- fcTopBinds program,
+            varName var /= "seq"
           ],
       grinInterfaceCodeInfos = Map.fromList (programCodeInfos program)
     }
-  where
-    program = optimizeProgram sourceProgram
 
--- | Lower one SCC using only the exported runtime facts of predecessor SCCs.
--- The supplied program must already have completed its FC transformations.
+-- | Apply compulsory FC lowering, then lower one SCC using only the exported
+-- runtime facts of predecessor SCCs. Optional FC optimizations are the
+-- caller's choice and are never required for correct GRIN semantics.
 lowerProgramWithInterface :: GrinInterface -> FcProgram -> GrinProgram
 lowerProgramWithInterface imported sourceProgram =
-  lowerProgramWithEnvironment (programEnvironment (imported <> extractGrinInterface program)) program
+  lowerProgramWithEnvironment (programEnvironment (imported <> extractPreparedGrinInterface program)) program
   where
-    program = optimizeProgram sourceProgram
+    program = lowerRequiredFc sourceProgram
+
+-- | Establish the System FC forms required by GRIN lowering. These semantic
+-- lowerings are deliberately independent of optional FC optimization.
+lowerRequiredFc :: FcProgram -> FcProgram
+lowerRequiredFc = lowerPseudoOps . lowerNewtypes
 
 data ProgramEnvironment = ProgramEnvironment
   { programEnvironmentGlobals :: !(Set Text),
@@ -200,7 +206,7 @@ lowerTopBind topBind =
         mempty
           { loweredPrimitives =
               [ (lowerGlobalVar var, arity)
-              | varName var `notElem` ["unsafeCoerce#", "raise#", "catch#"]
+              | varName var `notElem` ["unsafeCoerce#", "raise#", "catch#", "seq"]
               ]
           }
     FcForeignImport foreignCall ->
@@ -277,6 +283,8 @@ lowerExpr expr = do
               pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue [])
         Just ("unsafeCoerce#", argument : extraArguments) ->
           lowerUnsafeCoerceApplication expr argument extraArguments
+        Just ("seq", _) ->
+          error "GRIN lowering received an unexpanded seq pseudo-op"
         Just (name, arguments) ->
           case Map.lookup name primitiveArities of
             Just arity -> lowerPrimitiveApplication expr name arity arguments
@@ -510,9 +518,13 @@ lowerCase scrutinee binder alternatives =
           (lowerExpr (altRhs alternative))
       scrutineeExpr <- lowerExpr scrutinee
       pure (bindExpr [] scrutineeExpr rhs)
-    (_, TupleRep _, [alternative])
+    (_, TupleRep _, alternative : _)
       | DataAlt constructor <- altCon alternative,
         isUnboxedTupleConstructor constructor ->
+          -- An unboxed tuple has exactly one constructor. The source match
+          -- compiler may retain a syntactic fall-through alternative while
+          -- compiling nested refutable fields, but that alternative is
+          -- unreachable at the outer tuple match.
           lowerUnboxedTupleCase scrutinee binder alternative
     _ ->
       lowerSingleEvaluatedOperand "scrutinee" scrutinee $ \value -> do

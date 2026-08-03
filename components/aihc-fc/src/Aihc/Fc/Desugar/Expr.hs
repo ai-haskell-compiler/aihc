@@ -25,7 +25,8 @@ module Aihc.Fc.Desugar.Expr
 where
 
 import Aihc.Fc.Desugar.Match (dsPatternPure, numericRuntimeRep)
-import Aihc.Fc.Subst (substType)
+import Aihc.Fc.Lower (seqPseudoOpName)
+import Aihc.Fc.Subst (substExprVar, substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( CaseAlt (..),
@@ -356,25 +357,6 @@ requiresPatternWrapperMatch PIrrefutable {} = True
 requiresPatternWrapperMatch PTypeSig {} = True
 requiresPatternWrapperMatch _ = False
 
-requiresRecursivePatternMatch :: Pattern -> Bool
-requiresRecursivePatternMatch (PAnn _ inner) = requiresRecursivePatternMatch inner
-requiresRecursivePatternMatch (PParen inner) = requiresRecursivePatternMatch inner
-requiresRecursivePatternMatch PAs {} = True
-requiresRecursivePatternMatch PStrict {} = True
-requiresRecursivePatternMatch PIrrefutable {} = True
-requiresRecursivePatternMatch PTypeSig {} = True
-requiresRecursivePatternMatch pat =
-  case constructorSubpatterns pat of
-    [] -> False
-    subpatterns -> not (all directBinderPattern subpatterns)
-
-directBinderPattern :: Pattern -> Bool
-directBinderPattern (PAnn _ inner) = directBinderPattern inner
-directBinderPattern (PParen inner) = directBinderPattern inner
-directBinderPattern PVar {} = True
-directBinderPattern PWildcard = True
-directBinderPattern _ = False
-
 boxedCharPatternValue :: Pattern -> Maybe Char
 boxedCharPatternValue pat =
   case peelPatternAnn pat of
@@ -608,9 +590,24 @@ dsAnnotatedVar tcAnn name _expr = do
       Nothing -> do
         ty <- lookupTypeName name
         freshVar n ty
-  let typedExpr = List.foldl' FcTyApp (FcVar variable) (tcAnnTypeArgs tcAnn)
+  let occurrenceVar
+        | isGhcPrimSeq name = variable {varName = seqPseudoOpName}
+        | otherwise = variable
+      typedExpr = List.foldl' FcTyApp (FcVar occurrenceVar) (tcAnnTypeArgs tcAnn)
   dicts <- mapM dsEvidence (tcAnnEvidenceTerms tcAnn)
   pure (List.foldl' FcApp typedExpr dicts)
+
+isGhcPrimSeq :: Name -> Bool
+isGhcPrimSeq name =
+  any isSeqResolution (mapMaybe fromAnnotation (nameAnns name))
+  where
+    isSeqResolution resolution =
+      resolutionNamespace resolution == ResolutionNamespaceTerm
+        && case resolutionTarget resolution of
+          ResolvedTopLevel target ->
+            nameQualifier target == Just "GHC.Prim"
+              && nameText target == "seq"
+          _ -> False
 
 dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
 dsAnnotatedExpr tcAnn inner = do
@@ -783,19 +780,21 @@ dsCase scrut alts = do
     case exprAnnotationType scrut of
       Just ty -> pure ty
       Nothing -> fcExprTypeM scrut'
-  binder <- freshVar "_case" scrutTy
-  if any (requiresOrderedCasePatternMatch . caseAltPattern) alts
-    then do
-      scrutValue <- freshVar "_case_value" scrutTy
-      body <- dsCaseAlternatives scrutValue alts
-      pure (FcCase scrut' binder [FcAlt DefaultAlt [scrutValue] body])
-    else do
-      alts' <- mapM (dsCaseAlt scrutTy) alts
-      pure (FcCase scrut' binder alts')
+  case scrut' of
+    FcVar scrutVar -> dsCaseAlternatives scrutVar alts
+    _ -> do
+      scrutVar <- freshVar "_case_value" scrutTy
+      body <- dsCaseAlternatives scrutVar alts
+      bindCaseScrutinee scrutVar scrut' body
 
-requiresOrderedCasePatternMatch :: Pattern -> Bool
-requiresOrderedCasePatternMatch pat =
-  requiresOrderedPatternMatch pat || requiresRecursivePatternMatch pat
+-- A source case does not necessarily evaluate its scrutinee: wildcard,
+-- variable, and lazy patterns match immediately. Bind a lifted scrutinee with
+-- a non-recursive binding and let the compiled patterns introduce strict Core
+-- cases only when they actually inspect it. The FC evaluator and backends make
+-- such a binding lazy at LiftedRep and strict at every unlifted representation.
+bindCaseScrutinee :: Var -> FcExpr -> FcExpr -> DsM FcExpr
+bindCaseScrutinee scrutVar scrutinee body =
+  pure (FcLet (FcNonRec scrutVar scrutinee) body)
 
 isOverloadedIntegerPattern :: Pattern -> Bool
 isOverloadedIntegerPattern pat =
@@ -815,15 +814,93 @@ isOverloadedIntegerLiteral lit =
     Surface.LitInt _ TInteger _ -> True
     _ -> False
 
+-- | A compiled source match either cannot fail or accepts the code to run when
+-- it does fail. Keeping this distinction explicit is what makes an
+-- irrefutable alternative structurally discard every later alternative.
+data CaseMatchResult
+  = CaseMatchInfallible (DsM FcExpr)
+  | CaseMatchFallible (DsM FcExpr -> DsM FcExpr)
+
 dsCaseAlternatives :: Var -> [CaseAlt Expr] -> DsM FcExpr
-dsCaseAlternatives scrutVar alts =
-  case alts of
-    [] -> do
+dsCaseAlternatives scrutVar alternatives =
+  extractCaseMatchResult combined noMatch
+  where
+    combined = foldr (combineCaseMatchResults . dsCaseAlternative scrutVar) alwaysFailCaseMatch alternatives
+    noMatch = do
       binder <- freshVar "_case_nomatch" (varType scrutVar)
       pure (FcCase (FcVar scrutVar) binder [])
-    alt : rest -> do
-      failure <- dsCaseAlternatives scrutVar rest
-      dsMatchPattern scrutVar (caseAltPattern alt) (dsRhs (caseAltRhs alt)) failure
+
+alwaysFailCaseMatch :: CaseMatchResult
+alwaysFailCaseMatch = CaseMatchFallible id
+
+extractCaseMatchResult :: CaseMatchResult -> DsM FcExpr -> DsM FcExpr
+extractCaseMatchResult matchResult failure =
+  case matchResult of
+    CaseMatchInfallible body -> body
+    CaseMatchFallible build -> build failure
+
+combineCaseMatchResults :: CaseMatchResult -> CaseMatchResult -> CaseMatchResult
+combineCaseMatchResults first second =
+  case first of
+    CaseMatchInfallible {} -> first
+    CaseMatchFallible buildFirst ->
+      case second of
+        CaseMatchInfallible body -> CaseMatchInfallible (buildFirst body)
+        CaseMatchFallible buildSecond -> CaseMatchFallible (buildFirst . buildSecond)
+
+dsCaseAlternative :: Var -> CaseAlt Expr -> CaseMatchResult
+dsCaseAlternative scrutVar alternative =
+  dsPatternMatchResult scrutVar (caseAltPattern alternative) (dsRhs (caseAltRhs alternative))
+
+dsPatternMatchResult :: Var -> Pattern -> DsM FcExpr -> CaseMatchResult
+dsPatternMatchResult scrutVar pattern' success =
+  case peelPatternAnn pattern' of
+    PVar name ->
+      CaseMatchInfallible (withLocals [(unqualifiedNameText name, scrutVar)] success)
+    PWildcard -> CaseMatchInfallible success
+    PParen inner -> dsPatternMatchResult scrutVar inner success
+    PAs name inner ->
+      withCaseMatchLocals [(unqualifiedNameText name, scrutVar)] (dsPatternMatchResult scrutVar inner success)
+    PStrict inner ->
+      adjustCaseMatchResult (forceCaseScrutinee scrutVar) (dsPatternMatchResult scrutVar inner success)
+    PIrrefutable inner ->
+      CaseMatchInfallible (withLocals (irrefutablePatternBindings scrutVar inner) success)
+    PTypeSig inner _ -> dsPatternMatchResult scrutVar inner success
+    _ ->
+      CaseMatchFallible $ \failureAction -> do
+        failure <- failureAction
+        dsMatchPattern scrutVar pattern' success failure
+
+withCaseMatchLocals :: [(Text, Var)] -> CaseMatchResult -> CaseMatchResult
+withCaseMatchLocals bindings matchResult =
+  case matchResult of
+    CaseMatchInfallible body -> CaseMatchInfallible (withLocals bindings body)
+    CaseMatchFallible build ->
+      CaseMatchFallible $ \failureAction -> do
+        -- Pattern binders scope over this alternative only. Build the next
+        -- alternative before extending the desugaring environment so a failed
+        -- as-pattern cannot capture names in its fall-through path.
+        failure <- failureAction
+        withLocals bindings (build (pure failure))
+
+adjustCaseMatchResult :: (FcExpr -> DsM FcExpr) -> CaseMatchResult -> CaseMatchResult
+adjustCaseMatchResult adjust matchResult =
+  case matchResult of
+    CaseMatchInfallible body -> CaseMatchInfallible (body >>= adjust)
+    CaseMatchFallible build ->
+      CaseMatchFallible $ \failure -> do
+        body <- build failure
+        adjust body
+
+forceCaseScrutinee :: Var -> FcExpr -> DsM FcExpr
+forceCaseScrutinee scrutVar body = do
+  caseBinder <- freshInternalVar "_bang" (varType scrutVar)
+  pure
+    ( FcCase
+        (FcVar scrutVar)
+        caseBinder
+        [FcAlt DefaultAlt [] (substExprVar scrutVar caseBinder body)]
+    )
 
 dsOverloadedIntegerPatternMatch :: Var -> Pattern -> DsM FcExpr -> FcExpr -> DsM FcExpr
 dsOverloadedIntegerPatternMatch scrutVar pat success failure = do
@@ -1625,16 +1702,6 @@ charTy = TcTyCon (TyCon "Char" 0) []
 
 charHashTy :: TcType
 charHashTy = TcTyCon (TyCon "Char#" 0) []
-
--- | Desugar a case alternative.
-dsCaseAlt :: TcType -> CaseAlt Expr -> DsM FcAlt
-dsCaseAlt scrutTy (CaseAlt _anns pat rhs) = do
-  let (con, binderNames) = dsPatternPure pat
-  binderTys <- patternBinderTypesM pat scrutTy
-  binders <- zipWithM freshVar binderNames binderTys
-  (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
-  body <- withDicts dictionaries (withLocals (zip binderNames binders) (dsRhs rhs))
-  pure (FcAlt con (evidenceBinders <> binders) body)
 
 -- | Convert a Name to Text.
 nameToText :: Name -> Text

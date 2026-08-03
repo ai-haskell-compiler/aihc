@@ -13,6 +13,7 @@ where
 
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
+import Control.Monad (foldM, forM_)
 import Data.Map.Strict qualified as Map
 
 data Instantiation = Instantiation
@@ -33,8 +34,10 @@ instantiate scheme = do
 
 instantiateWithArgs :: TypeScheme -> TcM Instantiation
 instantiateWithArgs (ForAll tvs preds body) = do
-  -- Create a fresh meta-variable for each quantified type variable.
-  subst <- Map.fromList <$> mapM mkSubst tvs
+  -- Allocate in binder order so later binder kinds can refer to earlier
+  -- instantiations (for example @b :: TYPE r@).
+  subst <- foldM extendSubst Map.empty tvs
+  forM_ tvs (recordRuntimeRepDependency subst)
   let substTy = applySubst subst
       body' = substTy body
       preds' = map (substPred subst) preds
@@ -46,9 +49,35 @@ instantiateWithArgs (ForAll tvs preds body) = do
         instPreds = preds'
       }
   where
-    mkSubst tv = do
-      meta <- freshMetaTv
-      pure (tvUnique tv, meta)
+    extendSubst subst tv = do
+      meta <- freshMetaTvOfKind (substKind subst (tvKind tv))
+      pure (Map.insert (tvUnique tv) meta subst)
+
+recordRuntimeRepDependency :: Map.Map Unique TcType -> TyVarId -> TcM ()
+recordRuntimeRepDependency subst tv =
+  case (Map.lookup (tvUnique tv) subst, substKind subst (tvKind tv)) of
+    (Just representedType@(TcMetaTv _), KTYPE (RuntimeRepMeta representationMeta)) ->
+      writeRuntimeRepDependency representationMeta representedType
+    _ -> pure ()
+
+substKind :: Map.Map Unique TcType -> Kind -> Kind
+substKind subst kind =
+  case kind of
+    KTYPE runtimeRep -> KTYPE (substRuntimeRep subst runtimeRep)
+    KFun argument result -> KFun (substKind subst argument) (substKind subst result)
+    _ -> kind
+
+substRuntimeRep :: Map.Map Unique TcType -> RuntimeRep -> RuntimeRep
+substRuntimeRep subst runtimeRep =
+  case runtimeRep of
+    RuntimeRepVar unique ->
+      case Map.lookup unique subst of
+        Just (TcMetaTv meta) -> RuntimeRepMeta meta
+        Just (TcTyVar tyVar) -> RuntimeRepVar (tvUnique tyVar)
+        _ -> runtimeRep
+    TupleRep reps -> TupleRep (map (substRuntimeRep subst) reps)
+    SumRep reps -> SumRep (map (substRuntimeRep subst) reps)
+    _ -> runtimeRep
 
 -- | Apply a substitution (from TyVar uniques to types) to a type.
 applySubst :: Map.Map Unique TcType -> TcType -> TcType

@@ -17,14 +17,12 @@ import Aihc.Fc.Desugar.Deriving (dsDerivingPlans, moduleDerivingPlans)
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, peelForAlls, peelQuals, predType)
 import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupType, withDicts)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
+import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
-import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Subst (freeRigidTyVars, substType)
 import Aihc.Fc.Syntax
-import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseSignatureType)
 import Aihc.Parser.Syntax
-  ( ArrowKind (..),
-    CallConv (..),
+  ( CallConv (..),
     ClassDecl (..),
     ClassDeclItem (..),
     DataConDecl,
@@ -32,7 +30,6 @@ import Aihc.Parser.Syntax
     DataFamilyInst (..),
     Decl (..),
     Expr,
-    Extension (..),
     ForeignDecl (..),
     ForeignDirection (..),
     ForeignEntitySpec (..),
@@ -45,22 +42,26 @@ import Aihc.Parser.Syntax
     NewtypeDecl (..),
     Pattern (..),
     Rhs,
-    TupleFlavor (..),
-    Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
     binderHeadName,
     fromAnnotation,
-    nameText,
     peelDeclAnn,
-    peelTypeHead,
     unqualifiedNameText,
   )
 import Aihc.Resolve (ResolveResult (..), resolve)
 import Aihc.Tc (DataFamilyInstanceInfo (..), TcBindingResult (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
+import Aihc.Tc.Types
+  ( Pred (..),
+    TcType (..),
+    TyCon (..),
+    TyVarId (..),
+    TypeScheme,
+    Unique (..),
+  )
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
 import Control.Monad.Trans.State.Strict (runStateT)
@@ -76,7 +77,8 @@ data DesugarResult = DesugarResult
   }
   deriving (Show)
 
--- | Desugar a module: parse, typecheck, then translate to Core.
+-- | Desugar a module: parse, typecheck, then translate to compulsorily lowered
+-- but deliberately unoptimized Core.
 desugarModule :: Module -> DesugarResult
 desugarModule m =
   case resolve [m] of
@@ -116,7 +118,7 @@ desugarModuleWithBindings bindings tcResult _m =
                 }
             Right (binds, _) ->
               DesugarResult
-                { dsProgram = optimizeProgram (lowerConstraintProgram (lowerNewtypes (FcProgram binds))),
+                { dsProgram = lowerPseudoOps (lowerConstraintProgram (lowerNewtypes (FcProgram binds))),
                   dsSuccess = True,
                   dsErrors = []
                 }
@@ -560,25 +562,22 @@ validatePrimitiveImport name ty =
     Nothing ->
       desugarBug ("unknown foreign import prim: " <> T.unpack name)
     Just spec
-      | primitiveSpecAccepts spec ty -> pure (primitiveSpecArity spec)
+      | equivalentTypeSchemes (primitiveSpecExpected spec) (typeSchemeFromType ty) ->
+          pure (typeSchemeArity (primitiveSpecExpected spec))
       | otherwise ->
           desugarBug
             ( "incorrect type for foreign import prim "
                 <> T.unpack name
                 <> "; expected "
                 <> T.unpack (primitiveSpecSource spec)
+                <> ", got "
+                <> renderTcSignature "" ty
             )
 
 data PrimitiveSpec = PrimitiveSpec
   { primitiveSpecSource :: !Text,
-    primitiveSpecType :: !PrimitiveType
+    primitiveSpecExpected :: !TypeScheme
   }
-
-primitiveSpecArity :: PrimitiveSpec -> Int
-primitiveSpecArity = primitiveTypeArity . primitiveSpecType
-
-primitiveSpecAccepts :: PrimitiveSpec -> TcType -> Bool
-primitiveSpecAccepts = matchesPrimitiveType . primitiveSpecType
 
 primitiveImportSpecs :: Map.Map Text PrimitiveSpec
 primitiveImportSpecs =
@@ -622,6 +621,7 @@ primitiveImportSpecs =
       primitive "popCnt#" "Word# -> Word#",
       primitive "raise#" "a -> b",
       primitive "unsafeCoerce#" "a -> b",
+      seqPrimitive,
       primitive "realWorld#" "State# RealWorld",
       primitive "noDuplicate#" "State# d -> State# d",
       primitive
@@ -669,91 +669,26 @@ primitiveImportSpecs =
 
 primitive :: Text -> Text -> (Text, PrimitiveSpec)
 primitive name source =
-  ( name,
-    PrimitiveSpec
-      { primitiveSpecSource = source,
-        primitiveSpecType = parsePrimitiveType source
-      }
-  )
+  let expected = parsePrimitiveTypeScheme source
+   in ( name,
+        PrimitiveSpec
+          { primitiveSpecSource = source,
+            primitiveSpecExpected = expected
+          }
+      )
 
-data PrimitiveType
-  = PrimitiveTyVar !Text
-  | PrimitiveTyCon !Text ![PrimitiveType]
-  | PrimitiveFunTy !PrimitiveType !PrimitiveType
-  deriving (Show)
+seqPrimitive :: (Text, PrimitiveSpec)
+seqPrimitive =
+  primitive "seq" "forall (r :: RuntimeRep) a (b :: TYPE r). a -> b -> b"
 
-parsePrimitiveType :: Text -> PrimitiveType
-parsePrimitiveType source =
-  case parseSignatureType primitiveParserConfig source of
-    ParseOk ty ->
-      case primitiveTypeFromSurface ty of
-        Right expected -> expected
-        Left err -> invalidPrimitiveType err
-    ParseErr errs -> invalidPrimitiveType (show errs)
+parsePrimitiveTypeScheme :: Text -> TypeScheme
+parsePrimitiveTypeScheme source =
+  case parseTypeScheme source of
+    Right scheme -> scheme
+    Left err -> invalidPrimitiveType err
   where
     invalidPrimitiveType err =
       error ("invalid primitive type specification `" <> T.unpack source <> "`: " <> err)
-
-primitiveParserConfig :: ParserConfig
-primitiveParserConfig =
-  defaultConfig
-    { parserExtensions = [MagicHash, UnboxedTuples]
-    }
-
-primitiveTypeFromSurface :: Type -> Either String PrimitiveType
-primitiveTypeFromSurface ty =
-  case peelTypeHead ty of
-    TVar name -> Right (PrimitiveTyVar (unqualifiedNameText name))
-    TCon name _ -> Right (PrimitiveTyCon (nameText name) [])
-    TApp function argument -> do
-      function' <- primitiveTypeFromSurface function
-      argument' <- primitiveTypeFromSurface argument
-      case function' of
-        PrimitiveTyCon name arguments -> Right (PrimitiveTyCon name (arguments <> [argument']))
-        _ -> Left ("unsupported type application in " <> show ty)
-    TFun ArrowUnrestricted argument result ->
-      PrimitiveFunTy <$> primitiveTypeFromSurface argument <*> primitiveTypeFromSurface result
-    TTuple Unboxed _ elements ->
-      PrimitiveTyCon (unboxedTupleTyConName (length elements)) <$> traverse primitiveTypeFromSurface elements
-    unsupported -> Left ("unsupported syntax in " <> show unsupported)
-
-primitiveTypeArity :: PrimitiveType -> Int
-primitiveTypeArity (PrimitiveFunTy _ result) = 1 + primitiveTypeArity result
-primitiveTypeArity _ = 0
-
-matchesPrimitiveType :: PrimitiveType -> TcType -> Bool
-matchesPrimitiveType expected actual =
-  case matchPrimitiveType quantified expected body Map.empty of
-    Just bindings ->
-      let matched = Map.elems bindings
-       in length matched == length quantified && all (`elem` matched) quantified
-    Nothing -> False
-  where
-    (quantified, body) = collectForAlls actual
-
-matchPrimitiveType :: [TyVarId] -> PrimitiveType -> TcType -> Map.Map Text TyVarId -> Maybe (Map.Map Text TyVarId)
-matchPrimitiveType quantified expected actual bindings =
-  case (expected, actual) of
-    (PrimitiveTyVar name, TcTyVar actualVar)
-      | actualVar `elem` quantified ->
-          case Map.lookup name bindings of
-            Nothing -> Just (Map.insert name actualVar bindings)
-            Just expectedVar
-              | expectedVar == actualVar -> Just bindings
-            _ -> Nothing
-    (PrimitiveTyCon expectedName expectedArguments, TcTyCon actualTyCon actualArguments)
-      | expectedName == tyConName actualTyCon,
-        length expectedArguments == length actualArguments ->
-          foldM
-            ( \current (expectedArgument, actualArgument) ->
-                matchPrimitiveType quantified expectedArgument actualArgument current
-            )
-            bindings
-            (zip expectedArguments actualArguments)
-    (PrimitiveFunTy expectedArgument expectedResult, TcFunTy actualArgument actualResult) -> do
-      bindings' <- matchPrimitiveType quantified expectedArgument actualArgument bindings
-      matchPrimitiveType quantified expectedResult actualResult bindings'
-    _ -> Nothing
 
 statePrimRealWorldTy :: TcType
 statePrimRealWorldTy = TcTyCon (TyCon "State#" 1) [realWorldTy]

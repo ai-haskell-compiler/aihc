@@ -19,7 +19,7 @@ import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
 import Aihc.Cli.Runtime (readWasmClangProcessWithExitCode, wasmClangCommand)
 import Aihc.Cli.Store (installedLibrariesActivePath, installedLibrariesRoot)
-import Aihc.Fc (AxiomInterface, DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractAxiomInterface, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, optimizeProgram)
+import Aihc.Fc (AxiomInterface, DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractAxiomInterface, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, lowerPseudoOps, optimizeProgram)
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
 import Aihc.Native
@@ -401,7 +401,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                         then Left ("library desugar error: " <> unlines (concatMap dsErrors desugared))
                         else
                           let sourceCore = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
-                              core = optimizeProgram (lowerNewtypesWithInterface (compileStateNewtypes state) sourceCore)
+                              core = optimizeProgram (lowerPseudoOps (lowerNewtypesWithInterface (compileStateNewtypes state) sourceCore))
                               axioms = extractAxiomInterface core
                               newtypes = extractNewtypeInterface core
                               grinInterface = Grin.extractGrinInterface core

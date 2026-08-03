@@ -25,16 +25,21 @@ module Aihc.Fc
     EvalError (..),
     Value (..),
 
-    -- * Optimization
+    -- * Compulsory lowering
+    lowerPseudoOps,
+    lowerNewtypes,
+    lowerNewtypesWithInterface,
+    NewtypeInterface,
+    extractNewtypeInterface,
+
+    -- * Optional optimization
     eliminateDeadCode,
     optimizeProgram,
+
+    -- * Analysis and interfaces
     ReachabilityInterface,
     extractReachabilityInterface,
     reachablePrimitiveNames,
-    lowerNewtypes,
-    NewtypeInterface,
-    extractNewtypeInterface,
-    lowerNewtypesWithInterface,
     AxiomInterface,
     extractAxiomInterface,
     lookupAxiomDecl,
@@ -60,6 +65,7 @@ import Aihc.Fc.DeadCode (ReachabilityInterface, eliminateDeadCode, extractReacha
 import Aihc.Fc.Desugar (DesugarResult (..), desugarModule, desugarModuleWithBindings, desugarModuleWithTcResult)
 import Aihc.Fc.Eval (EvalError (..), Value (..), evalExpr, evalProgramBinding, renderRawValue, renderValue)
 import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram, lintProgramWithAxiomInterface)
+import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (NewtypeInterface, extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
 import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Pretty (renderExpr, renderProgram, renderTopBind, renderType)

@@ -4,11 +4,13 @@
 -- instantiated with a concrete type.
 module Aihc.Fc.Subst
   ( substType,
+    substExprVar,
     freeRigidTyVars,
     freeRigidTyVarsOf,
   )
 where
 
+import Aihc.Fc.Syntax
 import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId (..))
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -63,3 +65,46 @@ substType subst ty
 
     goPred s (ClassPred cls args) = ClassPred cls (map (go s) args)
     goPred s (EqPred t1 t2) = EqPred (go s t1) (go s t2)
+
+-- | Scope-aware substitution of one System FC term variable. The replacement
+-- must be fresh for the expression's scope.
+--
+-- Case lowering uses this to make the evaluated case binder authoritative in
+-- an alternative. In particular, primitives that consume an already-entered
+-- value must not receive the original thunk merely because the source body
+-- referred to the scrutinee by its old name.
+substExprVar :: Var -> Var -> FcExpr -> FcExpr
+substExprVar source replacement = go
+  where
+    go expression =
+      case expression of
+        FcVar var
+          | var == source -> FcVar replacement
+          | otherwise -> expression
+        FcLit {} -> expression
+        FcApp function argument -> FcApp (go function) (go argument)
+        FcTyApp function ty -> FcTyApp (go function) ty
+        FcLam binder body
+          | binder == source -> expression
+          | otherwise -> FcLam binder (go body)
+        FcTyLam tyVar body -> FcTyLam tyVar (go body)
+        FcLet bind body ->
+          case bind of
+            FcNonRec binder rhs ->
+              FcLet
+                (FcNonRec binder (go rhs))
+                (if binder == source then body else go body)
+            FcRec bindings
+              | source `elem` map fst bindings -> expression
+              | otherwise -> FcLet (FcRec [(binder, go rhs) | (binder, rhs) <- bindings]) (go body)
+        FcCase scrutinee binder alternatives ->
+          FcCase
+            (go scrutinee)
+            binder
+            (if binder == source then alternatives else map goAlternative alternatives)
+        FcCast inner coercion -> FcCast (go inner) coercion
+        FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map go arguments)
+
+    goAlternative alternative
+      | source `elem` altBinders alternative = alternative
+      | otherwise = alternative {altRhs = go (altRhs alternative)}

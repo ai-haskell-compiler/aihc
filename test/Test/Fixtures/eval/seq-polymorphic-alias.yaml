@@ -1,0 +1,18 @@
+dependencies:
+  - aihc-base
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    seqAlias = seq
+
+    applyAlias :: Int# -> Int#
+    applyAlias value = seqAlias () value
+
+output: |
+  42
+expression: applyAlias 42#
+status: pass
+reason: an unsaturated seq binding retains its RuntimeRep-polymorphic type through generalization
