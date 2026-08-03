@@ -18,14 +18,14 @@ Find more information here:
 
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| TypeCheck Stackage | <!-- AUTO-GENERATED: START tc-stackage-progress --> `83/3427` (`2.42%`) ○○○○○ <!-- AUTO-GENERATED: END tc-stackage-progress -->             |
+| TypeCheck Stackage | <!-- AUTO-GENERATED: START tc-stackage-progress --> `366/3427` (`10.68%`) ○○○○○ <!-- AUTO-GENERATED: END tc-stackage-progress -->             |
 | Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `237/3427` (`6.92%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
 | Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2937/2937` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-stackage-progress --> |
-| aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `51/3425` (`1.49%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
-| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `227/10057` (`2.26%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
+| aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `52/3425` (`1.52%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
+| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `329/10057` (`3.27%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
-| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `42/43` (`97.67%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
+| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `43/44` (`97.72%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
 | Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `2373/2373` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END parser-progress -->                     |
 | Lexer Tests        | <!-- AUTO-GENERATED: START lexer-progress --> `107/107` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END lexer-progress -->                        |
 | CPP Tests          | <!-- AUTO-GENERATED: START cpp-progress --> `46/46` (`100.00%`) ●●●●● <!-- AUTO-GENERATED: END cpp-progress -->                            |
@@ -36,16 +36,16 @@ Find more information here:
 ```
 | Component    |   Code |   Tests |   Total |
 |--------------|--------|---------|---------|
-| aihc-amd64   |   2149 |     832 |    2981 |
-| aihc-arm64   |   2035 |     871 |    2906 |
-| aihc-fc      |   4732 |    1080 |    5812 |
-| aihc-grin    |   5389 |    2342 |    7731 |
-| aihc-llvm    |   1843 |     452 |    2295 |
-| aihc-native  |   3047 |     322 |    3369 |
-| aihc-resolve |   2371 |    1578 |    3949 |
-| aihc-tc      |   7403 |    2896 |   10299 |
-| aihc-wasm    |   2074 |     673 |    2747 |
-| **Total**    |  31043 |   11046 |   42089 |
+| aihc-amd64   |   2160 |     832 |    2992 |
+| aihc-arm64   |   2046 |     891 |    2937 |
+| aihc-fc      |   5488 |    1380 |    6868 |
+| aihc-grin    |   5499 |    2426 |    7925 |
+| aihc-llvm    |   1863 |     452 |    2315 |
+| aihc-native  |   3158 |     342 |    3500 |
+| aihc-resolve |   2441 |    1617 |    4058 |
+| aihc-tc      |   8666 |    3332 |   11998 |
+| aihc-wasm    |   2089 |     673 |    2762 |
+| **Total**    |  33410 |   11945 |   45355 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
