@@ -2,8 +2,8 @@
 
 ## Summary
 
-- Total Extensions: 11
-- Supported: 11
+- Total Extensions: 12
+- Supported: 12
 - In Progress: 0
 
 ## Extension Status
@@ -21,4 +21,5 @@
 | ScopedTypeVariables       |   🟢    | 1/1           |
 | StandaloneDeriving        |   🟢    | 1/1           |
 | StandaloneKindSignatures  |   🟢    | 1/1           |
+| TypeFamilies              |   🟢    | 1/1           |
 
