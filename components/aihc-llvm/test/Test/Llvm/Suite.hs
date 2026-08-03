@@ -51,6 +51,8 @@ testGuaranteedTailCalls = do
   source <- compile schedulerProgram
   forM_
     [ "define internal tailcc void",
+      "define i32 @main(i32 %argc, ptr %argv)",
+      "call void @aihc_program_arguments_initialize(i32 %argc, ptr %argv)",
       "musttail call tailcc void",
       "ptr %closure, ptr %continuation",
       "getelementptr i64, ptr %closure",
@@ -127,7 +129,7 @@ integerPrimitiveCases =
     PrimitiveCase "int2Word#" [intValue 1] [WordRep] [],
     PrimitiveCase "word2Int#" [wordValue 1] [IntRep] [],
     PrimitiveCase "ord#" [charValue 'a'] [IntRep] [],
-    PrimitiveCase "intToChar#" [intValue 97] [WordRep] [],
+    PrimitiveCase "chr#" [intValue 97] [WordRep] [],
     wordComparison "eqWord#" "icmp eq i64",
     wordComparison "neWord#" "icmp ne i64",
     wordComparison "ltWord#" "icmp ult i64",

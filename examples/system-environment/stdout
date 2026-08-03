@@ -1,0 +1,21 @@
+initial:
+program name: system-environment
+arguments:
+first
+two words
+
+last
+blåbær
+modified:
+program name: modified-program
+arguments:
+runtime
+ændret
+restored:
+program name: system-environment
+arguments:
+first
+two words
+
+last
+blåbær

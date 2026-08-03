@@ -29,6 +29,7 @@
   exampleSourceSuffixes = [
     ".hs"
     ".cabal"
+    "args"
     "exit"
     "stdin"
     "stderr"

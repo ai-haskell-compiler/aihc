@@ -12,6 +12,7 @@ module GHC.IO.Runtime
     submitOpen,
     openResultError,
     closeIOHandle,
+    readMemoryByte,
     writeMemoryByte,
     submitRead,
     submitWrite,
@@ -49,6 +50,9 @@ foreign import ccall unsafe "aihc_io_close"
 
 foreign import ccall unsafe "aihc_memory_write_byte"
   writeMemoryByte :: Addr# -> Int -> Int -> IO Int
+
+foreign import ccall unsafe "aihc_memory_read_byte"
+  readMemoryByte :: Addr# -> Int -> IO Int
 
 foreign import ccall unsafe "aihc_io_submit_read"
   submitRead :: Ptr IOHandle -> Addr# -> Int -> Int -> IO (Ptr IORequest)

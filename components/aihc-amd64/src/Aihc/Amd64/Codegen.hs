@@ -276,7 +276,11 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
 mainPrologue :: Int -> [Text]
 mainPrologue globalCount =
   entryPrologue "main"
-    <> [immediate "rdi" globalCount, "  call aihc_machine_new", "  mov r15, rax"]
+    <> [ "  call aihc_program_arguments_initialize",
+         immediate "rdi" globalCount,
+         "  call aihc_machine_new",
+         "  mov r15, rax"
+       ]
 
 entryPrologue :: Text -> [Text]
 entryPrologue symbol =

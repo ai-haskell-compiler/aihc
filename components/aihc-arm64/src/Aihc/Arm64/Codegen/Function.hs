@@ -710,7 +710,11 @@ addBlock label instructions terminator =
 slotPointer :: Text -> [Int] -> Text
 slotPointer register slots =
   case slots of
-    first : _ -> "  add " <> register <> ", x19, #" <> tshow (first * 8)
+    first : _ ->
+      let offset = first * 8
+       in case offset <= 4095 of
+            True -> "  add " <> register <> ", x19, #" <> tshow offset
+            False -> immediate register offset <> "\n  add " <> register <> ", x19, " <> register
     [] -> "  mov " <> register <> ", xzr"
 
 liftEither :: Either Arm64Error value -> FunctionM value

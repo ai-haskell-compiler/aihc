@@ -759,6 +759,7 @@ testNativeScheduler = do
     case compileProgram "main" gc of
       Right value -> pure value
       Left err -> assertFailure ("ARM64 scheduler lowering failed: " <> show err)
+  assertBool "captures argc and argv before machine startup" ("bl _aihc_program_arguments_initialize" `T.isInfixOf` assembly)
   assertBool "emits fork state operation" ("bl _aihc_fork" `T.isInfixOf` assembly)
   assertBool "emits yield state operation" ("bl _aihc_yield" `T.isInfixOf` assembly)
   assertBool "emits child completion transfer" ("bl _aihc_thread_done" `T.isInfixOf` assembly)
