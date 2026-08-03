@@ -1,0 +1,84 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    import Data.List.NonEmpty
+
+    values :: NonEmpty Int
+    values = 1 :| [2, 3]
+
+    nonEmptyUnfoldStep :: Int -> (Int, Maybe Int)
+    nonEmptyUnfoldStep value =
+      if value < 3
+        then (value, Just (value + 1))
+        else (value, Nothing)
+
+    descending :: Int -> Int -> Ordering
+    descending left right = compare right left
+
+    sameParity :: Int -> Int -> Bool
+    sameParity left right = left `mod` 2 == right `mod` 2
+
+    lists :: [NonEmpty a] -> [[a]]
+    lists [] = []
+    lists (value : rest) = toList value : lists rest
+
+    samePair :: (Eq a) => ([a], [a]) -> ([a], [a]) -> Bool
+    samePair (leftPrefix, leftSuffix) (rightPrefix, rightSuffix) =
+      leftPrefix == rightPrefix && leftSuffix == rightSuffix
+
+    andList :: [Bool] -> Bool
+    andList [] = True
+    andList (value : rest) = value && andList rest
+
+    checks :: [Bool]
+    checks =
+      [ toList values == [1, 2, 3],
+        fromList [1, 2, 3] == values,
+        nonEmpty ([] :: [Int]) == Nothing,
+        nonEmpty ([1, 2] :: [Int]) == Just (1 :| [2]),
+        toList (0 <| values) == [0, 1, 2, 3],
+        toList (append values (4 :| [5])) == [1, 2, 3, 4, 5],
+        toList (prependList [0] values) == [0, 1, 2, 3],
+        head values == 1,
+        tail values == [2, 3],
+        last values == 3,
+        init values == [1, 2],
+        length values == 3,
+        compareLength values 2 == GT,
+        compareLength values 3 == EQ,
+        compareLength values 4 == LT,
+        toList (map (\value -> value * 2) values) == [2, 4, 6],
+        toList (intersperse 0 values) == [1, 0, 2, 0, 3],
+        toList (scanl (+) 0 ([1, 2, 3] :: [Int])) == [0, 1, 3, 6],
+        toList (scanr (+) 0 ([1, 2, 3] :: [Int])) == [6, 5, 3, 0],
+        toList (scanl1 (+) values) == [1, 3, 6],
+        toList (scanr1 (+) values) == [6, 5, 3],
+        toList (reverse values) == [3, 2, 1],
+        take 4 (iterate (\value -> value * 2) (1 :: Int)) == [1, 2, 4, 8],
+        take 7 (cycle values) == [1, 2, 3, 1, 2, 3, 1],
+        toList (unfoldr nonEmptyUnfoldStep 1) == [1, 2, 3],
+        samePair (splitAt 2 values) ([1, 2], [3]),
+        samePair (span (\value -> value < 3) values) ([1, 2], [3]),
+        filter (\value -> value > 1) values == [2, 3],
+        toList (inits ([1, 2] :: [Int])) == [[], [1], [1, 2]],
+        toList (tails ([1, 2] :: [Int])) == [[1, 2], [2], []],
+        lists (group ([1, 1, 2, 3, 3] :: [Int])) == [[1, 1], [2], [3, 3]],
+        lists (groupBy sameParity ([1, 3, 2, 4] :: [Int])) == [[1, 3], [2, 4]],
+        toList (sort (3 :| [1, 2] :: NonEmpty Int)) == [1, 2, 3],
+        toList (sortBy descending values) == [3, 2, 1],
+        toList (insert 2 ([1, 3] :: [Int])) == [1, 2, 3],
+        toList (nub (1 :| [2, 1, 3, 2] :: NonEmpty Int)) == [1, 2, 3],
+        toList (permutations ([1, 2] :: [Int])) == [[1, 2], [2, 1]],
+        isPrefixOf [1, 2] values,
+        values !! 1 == 2,
+        toList (zipWith (+) values (4 :| [5])) == [5, 7],
+        not (xor (True :| [False, True]))
+      ]
+output: |
+  True
+expression: andList checks
+status: pass
+reason: evaluates Data.List.NonEmpty construction, transformations, folds, grouping, sorting, indexing, zipping, and bounded stream producers
