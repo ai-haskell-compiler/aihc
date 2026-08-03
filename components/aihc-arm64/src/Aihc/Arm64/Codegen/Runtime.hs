@@ -501,12 +501,16 @@ renderAddrLiteralPool :: CompileEnv -> [Text]
 renderAddrLiteralPool env =
   case Map.toAscList (compileAddrLiteralLabels env) of
     [] -> []
-    literals -> [".section __TEXT,__cstring,cstring_literals"] <> concatMap renderLiteral literals
+    literals -> [".section __TEXT,__const"] <> concatMap renderLiteral literals
   where
     renderLiteral (value, label) =
-      [ label <> ":",
-        "  .byte " <> T.intercalate ", " (map tshow (BS.unpack value <> [0]))
-      ]
+      ["  .p2align 3", label <> ":"]
+        <> map renderBytes (chunksOf 32 (BS.unpack value <> [0]))
+
+    renderBytes bytes = "  .byte " <> T.intercalate ", " (map tshow bytes)
+
+    chunksOf _ [] = []
+    chunksOf size bytes = take size bytes : chunksOf size (drop size bytes)
 
 functionLabel :: Int -> Text
 functionLabel index = ".Laihc_function_" <> tshow index

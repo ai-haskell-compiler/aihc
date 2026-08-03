@@ -30,6 +30,15 @@ tests =
                 (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           byteArrayRuntimeSymbols,
+      testCase "maps address indexing primitives to the shared runtime ABI" $
+        mapM_
+          ( \(primitive, symbol) ->
+              assertEqual
+                ("runtime call for " <> show primitive)
+                (Just symbol)
+                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+          )
+          addressIndexRuntimeSymbols,
       testCase "maps boxed-array primitives to the shared runtime ABI" $
         mapM_
           ( \(primitive, symbol) ->
@@ -88,6 +97,13 @@ byteArrayRuntimeSymbols =
     ("readWordArray#", "aihc_byte_array_read_word"),
     ("writeWordArray#", "aihc_byte_array_write_word"),
     ("copyByteArray#", "aihc_byte_array_copy")
+  ]
+
+addressIndexRuntimeSymbols :: [(Text, Text)]
+addressIndexRuntimeSymbols =
+  [ ("indexWord8OffAddr#", "aihc_addr_index_word8"),
+    ("indexWord32OffAddr#", "aihc_addr_index_word32"),
+    ("indexWord64OffAddr#", "aihc_addr_index_word64")
   ]
 
 arrayRuntimeSymbols :: [(Text, Text)]

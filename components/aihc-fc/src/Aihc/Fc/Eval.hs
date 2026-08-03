@@ -30,14 +30,14 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Data.Word (Word64, Word8)
+import Data.Word (Word32, Word64, Word8)
 import Foreign.C.Types (CInt (..))
 import Foreign.LibFFI (Arg, argCInt, argInt64, argPtr, argWord64, callFFI, retCInt, retInt64, retPtr, retVoid, retWord64)
 import Foreign.Marshal.Alloc (mallocBytes)
 import Foreign.Marshal.Array (newArray0, peekArray, pokeArray, withArray0)
 import Foreign.Marshal.Utils (copyBytes, fillBytes)
 import Foreign.Ptr (FunPtr, Ptr, alignPtr, castPtr, plusPtr)
-import Foreign.Storable (peekElemOff, pokeElemOff)
+import Foreign.Storable (peekByteOff, peekElemOff, pokeElemOff)
 import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile, stderr, stdin, stdout)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
@@ -392,6 +392,9 @@ evalPrimitive "uncheckedShiftL#" [value, count] = evalWordShift "uncheckedShiftL
 evalPrimitive "uncheckedShiftRL#" [value, count] = evalWordShift "uncheckedShiftRL#" shiftR value count
 evalPrimitive "int2Word#" [value] = wordValue . normalizeWord <$> forceIntPrimitiveArg "int2Word#" value
 evalPrimitive "word2Int#" [value] = intPrimitiveValue . normalizeInt <$> forceWordPrimitiveArg "word2Int#" value
+evalPrimitive "word8ToWord#" [value] = wordValue <$> forceRuntimeRepPrimitiveArg "word8ToWord#" Word8Rep value
+evalPrimitive "word32ToWord#" [value] = wordValue <$> forceRuntimeRepPrimitiveArg "word32ToWord#" Word32Rep value
+evalPrimitive "word64ToWord#" [value] = wordValue <$> forceRuntimeRepPrimitiveArg "word64ToWord#" Word64Rep value
 evalPrimitive "eqWord#" [left, right] = evalWordComparison "eqWord#" (==) left right
 evalPrimitive "neWord#" [left, right] = evalWordComparison "neWord#" (/=) left right
 evalPrimitive "ltWord#" [left, right] = evalWordComparison "ltWord#" (<) left right
@@ -540,6 +543,12 @@ evalPrimitive "copyAddrToByteArray#" [source, value, offset, byteCount, state] =
   sourceBytes <- readAddressBytes "copyAddrToByteArray#" destinationLength source
   lift (pokeArray (castPtr (evalByteArrayContents byteArray `plusPtr` destinationOffset)) (BS.unpack sourceBytes))
   pure state
+evalPrimitive "indexWord8OffAddr#" [address, index] =
+  VLit . LitInt Word8Rep <$> indexAddressPrimitive "indexWord8OffAddr#" 1 readAddressWord8 address index
+evalPrimitive "indexWord32OffAddr#" [address, index] =
+  VLit . LitInt Word32Rep <$> indexAddressPrimitive "indexWord32OffAddr#" 4 readAddressWord32 address index
+evalPrimitive "indexWord64OffAddr#" [address, index] =
+  VLit . LitInt Word64Rep <$> indexAddressPrimitive "indexWord64OffAddr#" 8 readAddressWord64 address index
 evalPrimitive "indexWordArray#" [value, index] = do
   byteArray <- forceByteArrayPrimitiveArg "indexWordArray#" value
   checkedIndex <- checkedWordArrayIndex "indexWordArray#" byteArray =<< forceIntPrimitiveArg "indexWordArray#" index
@@ -774,6 +783,14 @@ forceIntPrimitiveArg name value = do
 forceWordPrimitiveArg :: Text -> Value -> EvalM Integer
 forceWordPrimitiveArg name value = normalizeWord <$> forceIntPrimitiveArg name value
 
+forceRuntimeRepPrimitiveArg :: Text -> RuntimeRep -> Value -> EvalM Integer
+forceRuntimeRepPrimitiveArg name expectedRep value = do
+  forced <- forceValue value
+  case forced of
+    VLit (LitInt actualRep intValue)
+      | actualRep == expectedRep -> pure intValue
+    other -> throwE (EvalPrimitiveTypeError name other)
+
 forceMutVarPrimitiveArg :: Text -> Value -> EvalM EvalMutVar
 forceMutVarPrimitiveArg name value = do
   forced <- forceValue value
@@ -966,6 +983,29 @@ checkedAddressRange symbol offset byteCount =
     else pure (fromInteger offset, fromInteger byteCount)
   where
     intLimit = toInteger (maxBound :: Int)
+
+indexAddressPrimitive :: Text -> Int -> (Ptr () -> Int -> IO Integer) -> Value -> Value -> EvalM Integer
+indexAddressPrimitive symbol elementSize readElement address indexValue = do
+  index <- forceIntPrimitiveArg symbol indexValue
+  (byteOffset, _) <- checkedAddressRange symbol (index * toInteger elementSize) (toInteger elementSize)
+  forcedAddress <- forceValue address
+  case forcedAddress of
+    VLit (LitAddr bytes)
+      | byteOffset + elementSize <= BS.length bytes ->
+          lift (BS.useAsCString bytes (\pointer -> readElement (castPtr pointer) byteOffset))
+      | otherwise ->
+          throwE (EvalInvalidByteArrayRange symbol (toInteger byteOffset) (toInteger elementSize) (BS.length bytes))
+    VAddress pointer -> lift (readElement pointer byteOffset)
+    other -> throwE (EvalPrimitiveTypeError symbol other)
+
+readAddressWord8 :: Ptr () -> Int -> IO Integer
+readAddressWord8 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Word8)
+
+readAddressWord32 :: Ptr () -> Int -> IO Integer
+readAddressWord32 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Word32)
+
+readAddressWord64 :: Ptr () -> Int -> IO Integer
+readAddressWord64 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Word64)
 
 readAddressBytes :: Text -> Int -> Value -> EvalM BS.ByteString
 readAddressBytes symbol byteCount value = do

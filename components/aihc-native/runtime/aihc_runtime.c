@@ -737,6 +737,35 @@ uint64_t aihc_byte_array_copy_from_addr(void *source, void *opaque_array,
   return 0;
 }
 
+static const uint8_t *aihc_addr_element(void *opaque_address,
+                                        int64_t requested_index,
+                                        size_t element_size) {
+  if (opaque_address == NULL || requested_index < 0 ||
+      (uint64_t)requested_index > SIZE_MAX / element_size) {
+    aihc_fail("invalid address index");
+  }
+  return (const uint8_t *)opaque_address +
+         (size_t)requested_index * element_size;
+}
+
+uint64_t aihc_addr_index_word8(void *address, int64_t index) {
+  return *aihc_addr_element(address, index, sizeof(uint8_t));
+}
+
+uint64_t aihc_addr_index_word32(void *address, int64_t index) {
+  uint32_t value;
+  memcpy(&value, aihc_addr_element(address, index, sizeof(value)),
+         sizeof(value));
+  return value;
+}
+
+uint64_t aihc_addr_index_word64(void *address, int64_t index) {
+  uint64_t value;
+  memcpy(&value, aihc_addr_element(address, index, sizeof(value)),
+         sizeof(value));
+  return value;
+}
+
 static size_t aihc_byte_array_word_offset(AihcByteArray *array,
                                           int64_t requested_index) {
   if (array == NULL || requested_index < 0 ||

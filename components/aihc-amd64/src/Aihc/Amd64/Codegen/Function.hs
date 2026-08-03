@@ -468,7 +468,7 @@ compileDirectBinding env vars expression =
     unaryPrimitives =
       ("not#", ["  not rax"])
         : [ (name, [])
-          | name <- ["int2Word#", "word2Int#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
+          | name <- ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"]
           ]
     binary instruction names =
       [(name, ["  " <> instruction <> " r10, rax", "  mov rax, r10"]) | name <- names]
