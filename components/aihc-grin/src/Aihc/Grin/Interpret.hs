@@ -32,7 +32,7 @@ import Data.Sequence qualified as Seq
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
-import Data.Word (Word64, Word8)
+import Data.Word (Word32, Word64, Word8)
 import Foreign.C.Types (CInt (..))
 import Foreign.LibFFI (Arg, argCInt, argInt64, argPtr, argWord64, callFFI, retCInt, retInt64, retPtr, retVoid, retWord64)
 import Foreign.Marshal.Alloc (mallocBytes)
@@ -752,6 +752,12 @@ evalPrimitive "int2Word#" [value] = do
 evalPrimitive "word2Int#" [value] = do
   word <- expectWordPrimitiveArgument "word2Int#" value
   pure [intRuntimeValue word]
+evalPrimitive "word8ToWord#" [value] =
+  (: []) . wordRuntimeValue <$> expectRuntimeRepPrimitiveArgument "word8ToWord#" Word8Rep value
+evalPrimitive "word32ToWord#" [value] =
+  (: []) . wordRuntimeValue <$> expectRuntimeRepPrimitiveArgument "word32ToWord#" Word32Rep value
+evalPrimitive "word64ToWord#" [value] =
+  (: []) . wordRuntimeValue <$> expectRuntimeRepPrimitiveArgument "word64ToWord#" Word64Rep value
 evalPrimitive "eqWord#" [left, right] = evalWordComparison "eqWord#" (==) left right
 evalPrimitive "neWord#" [left, right] = evalWordComparison "neWord#" (/=) left right
 evalPrimitive "ltWord#" [left, right] = evalWordComparison "ltWord#" (<) left right
@@ -871,6 +877,12 @@ evalPrimitive "getSizeofMutableByteArray#" [value] = do
   byteArray <- expectByteArrayPrimitiveArgument "getSizeofMutableByteArray#" value
   size <- liftEvalIO (readIORef (grinByteArraySize byteArray))
   pure [RuntimeLit (GrinLitInt IntRep (toInteger size))]
+evalPrimitive "indexWord8OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Word8Rep <$> indexAddressPrimitive "indexWord8OffAddr#" 1 readAddressWord8 address index
+evalPrimitive "indexWord32OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Word32Rep <$> indexAddressPrimitive "indexWord32OffAddr#" 4 readAddressWord32 address index
+evalPrimitive "indexWord64OffAddr#" [address, index] =
+  (: []) . RuntimeLit . GrinLitInt Word64Rep <$> indexAddressPrimitive "indexWord64OffAddr#" 8 readAddressWord64 address index
 evalPrimitive "indexWordArray#" [value, index] = do
   byteArray <- expectByteArrayPrimitiveArgument "indexWordArray#" value
   wordIndex <- expectIntPrimitiveArgument "indexWordArray#" index
@@ -1061,6 +1073,13 @@ evalWordCount name operation value = do
 wordRuntimeValue :: Integer -> RuntimeValue
 wordRuntimeValue = RuntimeLit . GrinLitInt WordRep . normalizeWord
 
+expectRuntimeRepPrimitiveArgument :: Text -> RuntimeRep -> RuntimeValue -> EvalM Integer
+expectRuntimeRepPrimitiveArgument name expectedRep value =
+  case value of
+    RuntimeLit (GrinLitInt actualRep intValue)
+      | actualRep == expectedRep -> pure intValue
+    other -> throwInterpret (InterpretPrimitiveTypeError name other)
+
 intRuntimeValue :: Integer -> RuntimeValue
 intRuntimeValue = RuntimeLit . GrinLitInt IntRep . normalizeInt
 
@@ -1248,6 +1267,28 @@ checkedAddressRange symbol offset byteCount =
     else pure (fromInteger offset, fromInteger byteCount)
   where
     intLimit = toInteger (maxBound :: Int)
+
+indexAddressPrimitive :: Text -> Int -> (Ptr () -> Int -> IO Integer) -> RuntimeValue -> RuntimeValue -> EvalM Integer
+indexAddressPrimitive symbol elementSize readElement address indexValue = do
+  index <- expectIntPrimitiveArgument symbol indexValue
+  (byteOffset, _) <- checkedAddressRange symbol (index * toInteger elementSize) (toInteger elementSize)
+  case address of
+    RuntimeLit (GrinLitAddr bytes)
+      | byteOffset + elementSize <= BS.length bytes ->
+          liftEvalIO (BS.useAsCString bytes (\pointer -> readElement (castPtr pointer) byteOffset))
+      | otherwise ->
+          throwInterpret (InterpretInvalidByteArrayRange symbol (toInteger byteOffset) (toInteger elementSize) (BS.length bytes))
+    RuntimeAddress pointer -> liftEvalIO (readElement pointer byteOffset)
+    other -> throwInterpret (InterpretPrimitiveTypeError symbol other)
+
+readAddressWord8 :: Ptr () -> Int -> IO Integer
+readAddressWord8 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Word8)
+
+readAddressWord32 :: Ptr () -> Int -> IO Integer
+readAddressWord32 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Word32)
+
+readAddressWord64 :: Ptr () -> Int -> IO Integer
+readAddressWord64 pointer offset = toInteger <$> (peekByteOff pointer offset :: IO Word64)
 
 readAddressBytes :: Text -> Int -> RuntimeValue -> EvalM BS.ByteString
 readAddressBytes symbol byteCount value =

@@ -25,6 +25,9 @@ module GHC.Prim
     fork#,
     getSizeofMutableByteArray#,
     indexArray#,
+    indexWord8OffAddr#,
+    indexWord32OffAddr#,
+    indexWord64OffAddr#,
     indexWordArray#,
     int2Word#,
     chr#,
@@ -78,6 +81,9 @@ module GHC.Prim
     uncheckedShiftRL#,
     unsafeCoerce#,
     word2Int#,
+    word8ToWord#,
+    word32ToWord#,
+    word64ToWord#,
     writeWordArray#,
     writeArray#,
     writeMutVar#,
@@ -188,6 +194,12 @@ foreign import prim int2Word# :: Int# -> Word#
 
 foreign import prim word2Int# :: Word# -> Int#
 
+foreign import prim word8ToWord# :: Word8# -> Word#
+
+foreign import prim word32ToWord# :: Word32# -> Word#
+
+foreign import prim word64ToWord# :: Word64# -> Word#
+
 foreign import prim eqWord# :: Word# -> Word# -> Int#
 
 foreign import prim neWord# :: Word# -> Word# -> Int#
@@ -263,6 +275,12 @@ foreign import prim sizeofByteArray# :: ByteArray# -> Int#
 foreign import prim getSizeofMutableByteArray# :: MutableByteArray# d -> State# d -> (# State# d, Int# #)
 
 foreign import prim copyAddrToByteArray# :: Addr# -> MutableByteArray# d -> Int# -> Int# -> State# d -> State# d
+
+foreign import prim indexWord8OffAddr# :: Addr# -> Int# -> Word8#
+
+foreign import prim indexWord32OffAddr# :: Addr# -> Int# -> Word32#
+
+foreign import prim indexWord64OffAddr# :: Addr# -> Int# -> Word64#
 
 foreign import prim indexWordArray# :: ByteArray# -> Int# -> Word#
 
