@@ -16,6 +16,7 @@ import Aihc.Cli.Install
   ( DependencyResolver (..),
     InstallFailure (..),
     InstallResult (..),
+    PackageHash (..),
     PackagePlan (..),
     PackageVariantKey (..),
     ResolvedDependency (..),
@@ -25,6 +26,7 @@ import Aihc.Cli.Install
     checkPackagePlan,
     dryRunInstallScaffold,
     installPackageLibraries,
+    packageVariantLibraryId,
     renderInstallFailure,
     renderInstallFailureWithOptions,
     writeInstallScaffold,
@@ -313,7 +315,12 @@ main =
         ],
       testGroup
         "install"
-        [ testCase "builds stable store paths" test_stableStorePath,
+        [ testCase "forms readable package-variant library identities" $
+            assertEqual
+              "library id"
+              ["aihc", "base", "4", "21", "2", "0", "dephash"]
+              (packageVariantLibraryId (PackageVariantKey (PackageSpec "aihc-base" "4.21.2.0") (PackageHash "dephash") [] [])),
+          testCase "builds stable store paths" test_stableStorePath,
           testCase "recursive dependencies affect store paths" test_recursiveDependenciesAffectStorePaths,
           testCase "plans library components without executables" test_plansLibraryComponentsWithoutExecutables,
           testCase "writes scaffold artifacts" test_writeInstallScaffold,
@@ -1003,8 +1010,10 @@ test_installedPackage =
             [ "{-# LANGUAGE MagicHash #-}",
               "{-# LANGUAGE NoImplicitPrelude #-}",
               "module Main where",
-              "import GHC.Prim",
-              "main = Unit"
+              "import qualified GHC.Prim as Prim",
+              "data Local = Local",
+              "identity value = value",
+              "main = Prim.identity Local"
             ]
         privateMainSource =
           T.unlines
@@ -1034,8 +1043,9 @@ test_installedPackage =
       ( unlines
           [ "{-# LANGUAGE MagicHash #-}",
             "{-# LANGUAGE NoImplicitPrelude #-}",
-            "module GHC.Prim (Unit(..)) where",
-            "import GHC.Prim.Internal (Unit(..))"
+            "module GHC.Prim (Unit(..), identity) where",
+            "import GHC.Prim.Internal (Unit(..))",
+            "identity value = value"
           ]
       )
     createDirectoryIfMissing True (takeDirectory internalSource)
@@ -1056,7 +1066,10 @@ test_installedPackage =
     compileResult <- compileSourceToAssemblyWithDependenciesFor Llvm environment "Main.hs" mainSource
     case compileResult of
       Left err -> assertFailure (show err)
-      Right assembly -> assertBool "expected installed dependency initializer" ("_aihc_init_" `T.isInfixOf` assembly)
+      Right assembly -> do
+        let identitySymbol = T.intercalate "_" (packageVariantLibraryId (planPackageKey plan) <> ["GHC", "Prim", "identity"])
+        assertBool "expected installed dependency initializer" ("_aihc_init_" `T.isInfixOf` assembly)
+        assertBool ("expected readable dependency symbol " <> T.unpack identitySymbol) (identitySymbol `T.isInfixOf` assembly)
     privateCompileResult <- compileSourceToAssemblyWithDependenciesFor Llvm environment "PrivateMain.hs" privateMainSource
     case privateCompileResult of
       Left err -> assertBool ("expected private module error, got: " <> show err) ("GHC.Prim.Internal" `isInfixOf` show err)

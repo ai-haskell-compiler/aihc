@@ -46,6 +46,7 @@ import Aihc.Parser.Syntax
     ValueDecl (..),
     binderHeadName,
     fromAnnotation,
+    moduleName,
     peelDeclAnn,
     unqualifiedNameText,
   )
@@ -109,7 +110,7 @@ desugarModuleWithBindings bindings tcResult _m =
         }
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
-       in case runStateT (dsModule tcResult) (DsState 1000 typeEnv Map.empty Map.empty) of
+       in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) typeEnv Map.empty Map.empty) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram [],

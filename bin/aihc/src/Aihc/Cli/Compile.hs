@@ -61,7 +61,7 @@ import Aihc.Native
     hostNativeTarget,
   )
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
-import Aihc.Parser.Syntax (Extension (ImplicitPrelude), LanguageEdition (Haskell98Edition), Module, effectiveExtensions, headerExtensionSettings, headerLanguageEdition)
+import Aihc.Parser.Syntax (Extension (ImplicitPrelude), LanguageEdition (Haskell98Edition), Module, effectiveExtensions, headerExtensionSettings, headerLanguageEdition, moduleName)
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
@@ -119,7 +119,8 @@ data IncrementalUnit = IncrementalUnit
 -- this structure; it is never an alternative frontend or lowering path.
 data IncrementalCompilation = IncrementalCompilation
   { incrementalDependencyUnits :: ![IncrementalUnit],
-    incrementalMainUnit :: !IncrementalUnit
+    incrementalMainUnit :: !IncrementalUnit,
+    incrementalEntryName :: !Text
   }
 
 runCompile :: CompileOptions -> IO ()
@@ -249,15 +250,15 @@ compileWithDependencies target wholeProgram dependencies parsed =
                     else
                       let mainProgram = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
                        in do
-                            incremental <- compileIncrementally dependencies mainProgram
+                            incremental <- compileIncrementally (fromMaybe "Main" (moduleName parsed)) dependencies mainProgram
                             if wholeProgram
                               then compileWholeProgramArtifacts target incremental
                               else compileIncrementalArtifacts target dependencies incremental
 
 -- | Compile every module SCC to its own normalized Core and GRIN unit before any
 -- optional whole-program transformation is considered.
-compileIncrementally :: DependencyArtifact -> FcProgram -> Either CompileError IncrementalCompilation
-compileIncrementally dependencies unoptimizedMain =
+compileIncrementally :: Text -> DependencyArtifact -> FcProgram -> Either CompileError IncrementalCompilation
+compileIncrementally mainModuleName dependencies unoptimizedMain =
   do
     mainCpsGrin <- either (Left . CompileCpsGrinError) Right (Grin.toCpsGrin mainGrin)
     pure
@@ -266,13 +267,15 @@ compileIncrementally dependencies unoptimizedMain =
             [ IncrementalUnit (dependencyUnitProgram unit) (dependencyUnitGrin unit) (dependencyUnitCpsGrin unit)
             | unit <- dependencyUnits dependencies
             ],
-          incrementalMainUnit = IncrementalUnit mainCore mainGrin mainCpsGrin
+          incrementalMainUnit = IncrementalUnit mainCore mainGrin mainCpsGrin,
+          incrementalEntryName = T.intercalate "\0" (["exe"] <> T.splitOn "." mainModuleName <> ["main"])
         }
   where
     mainCore =
       Fc.optimizeProgram
         (Fc.lowerPseudoOps (Fc.lowerNewtypesWithInterface (dependencyNewtypeInterface dependencies) (eliminateDeadCode "main" unoptimizedMain)))
-    mainGrin = Grin.lowerProgramWithInterface (dependencyGrinInterface dependencies) mainCore
+    mainLinkNames = Grin.linkNamesForProgram ["exe"] (T.splitOn "." mainModuleName) mainCore
+    mainGrin = Grin.lowerProgramWithInterfaceAndLinkNames mainLinkNames (dependencyGrinInterface dependencies) mainCore
 
 -- | Link already-incremental Core units for whole-program analysis. Unique
 -- namespaces are separated only while constructing the merged view.
@@ -317,7 +320,7 @@ compileIncrementalArtifacts target dependencies compilation = do
     either
       (Left . CompileBackendError)
       Right
-      (compileBackendProgramWithDependencies target layout (dependencyInitializerSymbols dependencies) "main" mainGcGrin)
+      (compileBackendProgramWithDependencies target layout (dependencyInitializerSymbols dependencies) (incrementalEntryName compilation) mainGcGrin)
   pure
     CompileArtifacts
       { compiledCore = renderCore mainCore,
@@ -406,12 +409,12 @@ maximumProgramUnique :: FcProgram -> Int
 maximumProgramUnique = maximum . (0 :) . map varUniqueInt . programVars
 
 varUniqueInt :: Var -> Int
-varUniqueInt Var {varUnique = Unique unique} = unique
+varUniqueInt var = case varUnique var of Unique unique -> unique
 
 shiftProgramVars :: Int -> FcProgram -> FcProgram
 shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBinds)
   where
-    shiftVar var@Var {varUnique = Unique unique} = var {varUnique = Unique (unique + offset)}
+    shiftVar var = case varUnique var of Unique unique -> var {varUnique = Unique (unique + offset)}
 
     shiftTopBind topBind =
       case topBind of

@@ -62,7 +62,7 @@ testWasmLocals =
       case compileModule (buildLinkLayout [directCallProgram]) "_aihc_init_wasm_locals" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
-          let (_, fromFastEntry) = T.breakOn "aihc_link_63616c6c6572:" source
+          let (_, fromFastEntry) = T.breakOn "aihc_entry_caller:" source
               fastEntry = fst (T.breakOn "\tend_function" fromFastEntry)
           assertBool "reads the incoming parameter directly" ("local.get\t1" `T.isInfixOf` fastEntry)
           assertBool "does not copy fast-entry parameters from memory" (not ("i64.load" `T.isInfixOf` fastEntry))
@@ -102,8 +102,8 @@ testDirectCallArguments =
       case compileModule (buildLinkLayout [directCallProgram]) "_aihc_init_direct_call" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
-          assertBool "declares the exact external fast-entry signature" ("\t.functype\taihc_link_6964656e74697479 (i32, i64, i64) -> ()" `T.isInfixOf` source)
-          assertBool "tail-calls the known entry" ("return_call\taihc_link_6964656e74697479" `T.isInfixOf` source)
+          assertBool "declares the exact external fast-entry signature" ("\t.functype\taihc_entry_identity (i32, i64, i64) -> ()" `T.isInfixOf` source)
+          assertBool "tail-calls the known entry" ("return_call\taihc_entry_identity" `T.isInfixOf` source)
           assertBool "does not route known calls through C" (not ("call\taihc_wasm_transfer_direct" `T.isInfixOf` source))
 
 testObjectEntryAdapters :: IO ()

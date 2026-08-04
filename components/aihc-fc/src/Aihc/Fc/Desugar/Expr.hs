@@ -62,7 +62,7 @@ import Aihc.Tc.Types (Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVar
 import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, get, modify')
+import Control.Monad.Trans.State.Strict (StateT, get, gets, modify')
 import Data.ByteString qualified as BS
 import Data.Char (ord)
 import Data.List qualified as List
@@ -78,6 +78,7 @@ type DsM = StateT DsState (Either String)
 -- | Desugaring state.
 data DsState = DsState
   { dsNextUnique :: !Int,
+    dsModuleName :: !(Maybe Text),
     -- | Map from surface name to its inferred type (from TC).
     dsTypeEnv :: !(Map Text TcType),
     -- | Local variable bindings (pattern-bound, lambda-bound).
@@ -535,15 +536,16 @@ dsExpr (EAnn ann inner)
   | Just tcAnn <- fromAnnotation ann =
       dsAnnotatedExpr tcAnn inner
 dsExpr (EVar name) = do
-  let n = nameToText name
+  let n = nameText name
+      resolvedName = resolvedOccurrenceName name
   -- Check local bindings first (pattern/lambda variables).
-  mLocal <- lookupLocalName name
+  mLocal <- lookupLocalName resolvedName
   case mLocal of
     Just v -> pure (FcVar v)
     Nothing -> do
-      ty <- lookupTypeName name
+      ty <- lookupTypeName resolvedName
       v <- freshVar n ty
-      pure (FcVar v)
+      pure (FcVar v {varResolvedName = nameToResolvedText resolvedName})
 dsExpr (EInt i numericType _) = pure (FcLit (LitInt (numericRuntimeRep numericType) i))
 dsExpr (EChar c _) = pure (boxCharLiteral c)
 dsExpr (ECharHash c _) = pure (FcLit (LitChar WordRep c))
@@ -582,14 +584,16 @@ dsExpr expr =
 
 dsAnnotatedVar :: TcAnnotation -> Name -> Expr -> DsM FcExpr
 dsAnnotatedVar tcAnn name _expr = do
-  let n = nameToText name
-  mLocal <- lookupLocalName name
+  let n = nameText name
+      resolvedName = resolvedOccurrenceName name
+  mLocal <- lookupLocalName resolvedName
   variable <-
     case mLocal of
       Just local -> pure local
       Nothing -> do
-        ty <- lookupTypeName name
-        freshVar n ty
+        ty <- lookupTypeName resolvedName
+        imported <- freshVar n ty
+        pure imported {varResolvedName = nameToResolvedText resolvedName}
   let occurrenceVar
         | isGhcPrimSeq name = variable {varName = seqPseudoOpName}
         | otherwise = variable
@@ -738,10 +742,22 @@ dsIntegerLiteral value = do
 resolvedAnnotationName :: ResolutionAnnotation -> Name
 resolvedAnnotationName resolution =
   case resolutionTarget resolution of
-    ResolvedTopLevel name -> mkName Nothing (nameType name) (nameText name)
+    ResolvedTopLevel name -> mkName (nameQualifier name) (nameType name) (nameText name)
     ResolvedLocal _ name -> qualifyName Nothing name
     ResolvedBuiltin name -> mkName Nothing NameVarId name
     ResolvedError {} -> mkName Nothing NameVarId (resolutionName resolution)
+
+resolvedOccurrenceName :: Name -> Name
+resolvedOccurrenceName name =
+  maybe
+    name
+    resolvedAnnotationName
+    ( listToMaybe
+        [ resolution
+        | resolution <- mapMaybe fromAnnotation (nameAnns name),
+          resolutionNamespace resolution == ResolutionNamespaceTerm
+        ]
+    )
 
 isFromIntegerResolution :: ResolutionAnnotation -> Bool
 isFromIntegerResolution resolution =
@@ -1709,12 +1725,17 @@ nameToText n = case nameQualifier n of
   Nothing -> nameText n
   Just q -> q <> "." <> nameText n
 
+nameToResolvedText :: Name -> Maybe Text
+nameToResolvedText name = (<> "." <> nameText name) <$> nameQualifier name
+
 lookupLocalName :: Name -> DsM (Maybe Var)
 lookupLocalName name = do
-  local <- lookupLocal (nameToText name)
-  case local of
-    Just var -> pure (Just var)
+  currentModule <- gets dsModuleName
+  case nameQualifier name of
     Nothing -> lookupLocal (nameText name)
+    Just qualifier
+      | Just qualifier == currentModule -> lookupLocal (nameText name)
+      | otherwise -> lookupLocal (nameToText name)
 
 lookupTypeName :: Name -> DsM TcType
 lookupTypeName name = do

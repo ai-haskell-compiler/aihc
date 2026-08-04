@@ -557,6 +557,53 @@ grinUnitTests =
             assertBool "direct dependency call" ("call @(BoxedRep Lifted) $entry$identity" `isInfixOf` rendered)
             assertBool "dependency function has no global slot" (not ("global identity" `isInfixOf` rendered))
           programs -> assertFailure ("expected two FC programs, got " <> show (length programs)),
+      testCase "separate FC units identify link-visible definitions" $ do
+        case (separateLinkableFunctionPrograms "Data.Provider" 80, separateLinkableFunctionPrograms "Data.Other" 90) of
+          ([providerCore, consumerCore], [otherProviderCore, otherConsumerCore]) -> do
+            let providerNames = linkNamesForProgram ["aihc", "base", "4", "21", "2", "0", "dephash"] ["Data", "Provider"] providerCore
+                otherProviderNames = linkNamesForProgram ["aihc", "base", "4", "21", "2", "0", "dephash"] ["Data", "Other"] otherProviderCore
+                consumerNames = linkNamesForProgram ["exe"] ["Main"] consumerCore
+                providerInterface = extractGrinInterfaceWithLinkNames providerNames providerCore
+                otherProviderInterface = extractGrinInterfaceWithLinkNames otherProviderNames otherProviderCore
+                combinedInterface = providerInterface <> otherProviderInterface
+                provider = lowerProgramWithLinkNames providerNames providerCore
+                otherProvider = lowerProgramWithLinkNames otherProviderNames otherProviderCore
+                consumer = lowerProgramWithInterfaceAndLinkNames consumerNames combinedInterface consumerCore
+                otherConsumer = lowerProgramWithInterfaceAndLinkNames consumerNames combinedInterface otherConsumerCore
+                linkedNames program = [name | function <- grinFunctions program, Just name <- [grinFunctionLinkName function]]
+            assertEqual "provider link name" [T.intercalate "\0" ["aihc", "base", "4", "21", "2", "0", "dephash", "Data", "Provider", "identity"]] (linkedNames provider)
+            assertEqual "other provider link name" [T.intercalate "\0" ["aihc", "base", "4", "21", "2", "0", "dephash", "Data", "Other", "identity"]] (linkedNames otherProvider)
+            assertEqual "external link name" [T.intercalate "\0" ["aihc", "base", "4", "21", "2", "0", "dephash", "Data", "Provider", "identity"]] (map grinCodeSourceName (grinExternalFunctions consumer))
+            assertEqual "other external link name" [T.intercalate "\0" ["aihc", "base", "4", "21", "2", "0", "dephash", "Data", "Other", "identity"]] (map grinCodeSourceName (grinExternalFunctions otherConsumer))
+          programs -> assertFailure ("expected two pairs of FC programs, got " <> show programs),
+      testCase "duplicate generated names receive readable unique suffixes" $ do
+        let firstVar = Var "xor" (Unique 100) (TcFunTy boxedIntTy boxedIntTy)
+            firstArgument = Var "value" (Unique 101) boxedIntTy
+            secondVar = Var "xor" (Unique 102) (TcFunTy boxedIntTy boxedIntTy)
+            secondArgument = Var "value" (Unique 103) boxedIntTy
+            core =
+              FcProgram
+                [ FcTopBind (FcNonRec firstVar (FcLam firstArgument (FcVar firstArgument))),
+                  FcTopBind (FcNonRec secondVar (FcLam secondArgument (FcVar secondArgument)))
+                ]
+            program = lowerProgramWithLinkNames (linkNamesForProgram ["package"] ["Module"] core) core
+            linkedNames = [name | function <- grinFunctions program, Just name <- [grinFunctionLinkName function]]
+        assertEqual
+          "link names"
+          [T.intercalate "\0" ["package", "Module", "xor", "u100n1"], T.intercalate "\0" ["package", "Module", "xor", "u102n2"]]
+          linkedNames,
+      testCase "separate FC units namespace global slots" $ do
+        case (separateLinkableGlobalPrograms "Data.Provider" 110, separateLinkableGlobalPrograms "Data.Other" 120) of
+          ([providerCore, consumerCore], [otherProviderCore, otherConsumerCore]) -> do
+            let libraryId = ["aihc", "base", "4", "21", "2", "0", "dephash"]
+                providerNames = linkNamesForProgram libraryId ["Data", "Provider"] providerCore
+                otherProviderNames = linkNamesForProgram libraryId ["Data", "Other"] otherProviderCore
+                combinedInterface = extractGrinInterfaceWithLinkNames providerNames providerCore <> extractGrinInterfaceWithLinkNames otherProviderNames otherProviderCore
+                consumer = lowerProgramWithInterfaceAndLinkNames (linkNamesForProgram ["exe"] ["Main"] consumerCore) combinedInterface consumerCore
+                otherConsumer = lowerProgramWithInterfaceAndLinkNames (linkNamesForProgram ["exe"] ["OtherMain"] otherConsumerCore) combinedInterface otherConsumerCore
+            assertEqual "provider external global" [T.intercalate "\0" (libraryId <> ["Data", "Provider", "value"])] (grinExternalGlobals consumer)
+            assertEqual "other external global" [T.intercalate "\0" (libraryId <> ["Data", "Other", "value"])] (grinExternalGlobals otherConsumer)
+          programs -> assertFailure ("expected two global pairs, got " <> show programs),
       testCase "separate FC units store saturated dependency constructors directly" $ do
         case separateConstructorPrograms of
           [providerCore, consumerCore] -> do
@@ -2134,6 +2181,28 @@ separateFunctionPrograms =
     identityVar = Var "identity" (Unique 81) (TcFunTy boxedIntTy boxedIntTy)
     argumentVar = Var "argument" (Unique 82) boxedIntTy
     answerVar = Var "answer" (Unique 83) boxedIntTy
+
+separateLinkableFunctionPrograms :: Text -> Int -> [FcProgram]
+separateLinkableFunctionPrograms qualifier uniqueBase =
+  [ FcProgram [FcTopBind (FcNonRec identityVar (FcLam argumentVar (FcVar argumentVar)))],
+    FcProgram [FcTopBind (FcNonRec answerVar (FcApp (FcVar importedIdentityVar) (FcLit (LitString "argument"))))]
+  ]
+  where
+    identityType = TcFunTy boxedIntTy boxedIntTy
+    identityVar = Var "identity" (Unique uniqueBase) identityType
+    importedIdentityVar = (Var "identity" (Unique uniqueBase) identityType) {varResolvedName = Just (qualifier <> ".identity")}
+    argumentVar = Var "argument" (Unique (uniqueBase + 1)) boxedIntTy
+    answerVar = Var "answer" (Unique (uniqueBase + 2)) boxedIntTy
+
+separateLinkableGlobalPrograms :: Text -> Int -> [FcProgram]
+separateLinkableGlobalPrograms qualifier uniqueBase =
+  [ FcProgram [FcTopBind (FcNonRec valueVar (FcLit (LitString "provider")))],
+    FcProgram [FcTopBind (FcNonRec answerVar (FcVar importedValueVar))]
+  ]
+  where
+    valueVar = Var "value" (Unique uniqueBase) boxedIntTy
+    importedValueVar = (Var "value" (Unique uniqueBase) boxedIntTy) {varResolvedName = Just (qualifier <> ".value")}
+    answerVar = Var "answer" (Unique (uniqueBase + 1)) boxedIntTy
 
 separateNewtypePrograms :: [FcProgram]
 separateNewtypePrograms =

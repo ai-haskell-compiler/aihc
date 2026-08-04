@@ -17,7 +17,7 @@ where
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
 import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
-import Aihc.Native (LinkLayout (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, supportedNativePrimitiveNames)
+import Aihc.Native (LinkLayout (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, renderLinkedFunctionSymbol, supportedNativePrimitiveNames)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
@@ -28,8 +28,6 @@ import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.Encoding qualified as Text
-import Numeric (showHex)
 
 data WasmError
   = WasmMissingEntry !Text
@@ -1257,9 +1255,7 @@ localFunctionLabel :: Int -> GrinFunction -> Text
 localFunctionLabel index function = maybe (".Laihc_wasm_function_" <> tshow index) linkedFunctionLabel (grinFunctionLinkName function)
 
 linkedFunctionLabel :: Text -> Text
-linkedFunctionLabel name = "aihc_link_" <> T.concat [T.pack (pad2 (showHex byte "")) | byte <- BS.unpack (Text.encodeUtf8 name)]
-  where
-    pad2 value = replicate (2 - length value) '0' <> value
+linkedFunctionLabel = renderLinkedFunctionSymbol
 
 boolInteger :: Bool -> Text
 boolInteger True = "1"

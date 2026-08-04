@@ -4,9 +4,14 @@
 -- | Lowering from non-strict System FC to strict, runtime-explicit GRIN.
 module Aihc.Grin.Lower
   ( GrinInterface,
+    GrinLinkNames,
+    linkNamesForProgram,
     extractGrinInterface,
+    extractGrinInterfaceWithLinkNames,
     lowerProgram,
+    lowerProgramWithLinkNames,
     lowerProgramWithInterface,
+    lowerProgramWithInterfaceAndLinkNames,
   )
 where
 
@@ -23,7 +28,9 @@ import Aihc.Tc.Types
     liftedRuntimeRep,
     runtimeRepOfType,
   )
+import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
+import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -38,15 +45,19 @@ data LowerState = LowerState
     lowerFunctionsRev :: ![GrinFunction],
     lowerConstructorArities :: !(Map Text Int),
     lowerPrimitiveArities :: !(Map Text Int),
-    lowerCodeInfos :: !(Map Text GrinCodeInfo),
-    lowerLocalCodeNames :: !(Set Text),
-    lowerReferencedExternalCodeNames :: !(Set Text),
+    lowerLocalCodeInfosByUnique :: !(Map Unique [(TcType, GrinCodeInfo)]),
+    lowerCodeInfosByName :: !(Map Text GrinCodeInfo),
+    lowerLocalCodeLinkNames :: !(Set Text),
+    lowerReferencedExternalCodeLinkNames :: !(Set Text),
     lowerLocalGlobalNames :: !(Set Text),
     lowerReferencedExternalGlobalNames :: !(Set Text),
-    lowerGlobalNames :: !(Set Text),
-    lowerWhnfGlobalNames :: !(Set Text),
+    lowerGlobalNames :: !(Map Text Text),
+    lowerWhnfGlobalNames :: !(Map Text Text),
     lowerLocalVars :: !(Map (Text, Unique) [GrinVar]),
-    lowerCurrentProvenance :: !(Maybe Text)
+    lowerCurrentProvenance :: !(Maybe Text),
+    lowerUseIncrementalCodeLookup :: !Bool,
+    lowerLinkNames :: !GrinLinkNames,
+    lowerLinkNameOccurrences :: !(Map Unique Int)
   }
 
 type LowerM = State LowerState
@@ -78,15 +89,83 @@ instance Monoid LoweredTop where
 lowerProgram :: FcProgram -> GrinProgram
 lowerProgram = lowerProgramWithInterface mempty
 
--- | Runtime facts exported by one compiled unit. Lowering consumers need to
--- know which external names are globals, already in WHNF, constructors, or
--- primitives, but never need the defining FC expressions.
+-- | Linker identities for top-level FC values, keyed by their compiler
+-- unique. The text representation uses NUL only as an internal component
+-- separator; native backends render it into a readable object symbol.
+data GrinLinkNames = GrinLinkNames
+  { grinNativeLinkNames :: !(Map Unique [Text]),
+    grinSourceLinkNames :: !(Map Unique [Text]),
+    grinConstructorNames :: !(Map Text (Text, Int))
+  }
+  deriving (Eq, Show, Read)
+
+instance Semigroup GrinLinkNames where
+  left <> right =
+    GrinLinkNames
+      { grinNativeLinkNames = Map.unionWith (<>) (grinNativeLinkNames left) (grinNativeLinkNames right),
+        grinSourceLinkNames = Map.unionWith (<>) (grinSourceLinkNames left) (grinSourceLinkNames right),
+        grinConstructorNames = grinConstructorNames left <> grinConstructorNames right
+      }
+
+instance Monoid GrinLinkNames where
+  mempty = GrinLinkNames Map.empty Map.empty Map.empty
+
+-- | Assign every top-level value in a program a linker identity consisting
+-- of the supplied package-and-module components followed by its source name.
+linkNamesForProgram :: [Text] -> [Text] -> FcProgram -> GrinLinkNames
+linkNamesForProgram libraryId moduleNameComponents program =
+  GrinLinkNames
+    { grinNativeLinkNames =
+        Map.fromListWith
+          (flip (<>))
+          [ (varUnique var, [T.intercalate "\0" (libraryId <> moduleNameComponents <> symbolComponents ordinal var)])
+          | (var, ordinal) <- topLevelVarsWithOrdinals
+          ],
+      grinSourceLinkNames =
+        Map.fromListWith
+          (flip (<>))
+          [ (varUnique var, [T.intercalate "." (moduleNameComponents <> [varName var])])
+          | (var, _) <- topLevelVarsWithOrdinals
+          ],
+      grinConstructorNames =
+        Map.fromList
+          [ (T.intercalate "." (moduleNameComponents <> [name]), (name, length fields))
+          | FcData _ _ constructors <- fcTopBinds program,
+            (name, fields) <- constructors
+          ]
+    }
+  where
+    topLevelVars = [var | FcTopBind bind <- fcTopBinds program, var <- topBindVars bind]
+    nameCounts = Map.fromListWith (+) [(varName var, 1 :: Int) | var <- topLevelVars]
+    topLevelVarsWithOrdinals = snd (mapAccumL annotate Map.empty topLevelVars)
+    annotate :: Map Text Int -> Var -> (Map Text Int, (Var, Int))
+    annotate ordinals var =
+      let ordinal = Map.findWithDefault 0 (varName var) ordinals + 1
+       in (Map.insert (varName var) ordinal ordinals, (var, ordinal))
+    symbolComponents ordinal var =
+      [varName var]
+        <> ["u" <> T.pack (show (sourceUnique var)) <> "n" <> T.pack (show ordinal) | Map.findWithDefault 0 (varName var) nameCounts > 1]
+    topBindVars bind =
+      case bind of
+        FcNonRec var _ -> [var]
+        FcRec bindings -> map fst bindings
+
+-- | Lower one standalone compilation unit with an explicit linker identity
+-- for each link-visible top-level definition.
+lowerProgramWithLinkNames :: GrinLinkNames -> FcProgram -> GrinProgram
+lowerProgramWithLinkNames linkNames = lowerProgramWithInterfaceAndLinkNames linkNames mempty
+
+-- | Runtime facts exported by one compiled unit. Function facts retain their
+-- unit-local compiler unique and source name; lowering never compares uniques
+-- from different units.
 data GrinInterface = GrinInterface
-  { grinInterfaceGlobals :: !(Set Text),
-    grinInterfaceWhnfGlobals :: !(Set Text),
+  { grinInterfaceGlobals :: !(Map Text Text),
+    grinInterfaceWhnfGlobals :: !(Map Text Text),
     grinInterfaceConstructorArities :: !(Map Text Int),
     grinInterfacePrimitiveArities :: !(Map Text Int),
-    grinInterfaceCodeInfos :: !(Map Text GrinCodeInfo)
+    grinInterfaceCodeInfosByUnique :: !(Map Unique [(TcType, GrinCodeInfo)]),
+    grinInterfaceCodeInfosByName :: !(Map Text GrinCodeInfo),
+    grinInterfaceCodeInfosByLinkName :: !(Map Text GrinCodeInfo)
   }
   deriving (Eq, Show, Read)
 
@@ -97,38 +176,78 @@ instance Semigroup GrinInterface where
         grinInterfaceWhnfGlobals = grinInterfaceWhnfGlobals left <> grinInterfaceWhnfGlobals right,
         grinInterfaceConstructorArities = grinInterfaceConstructorArities left <> grinInterfaceConstructorArities right,
         grinInterfacePrimitiveArities = grinInterfacePrimitiveArities left <> grinInterfacePrimitiveArities right,
-        grinInterfaceCodeInfos = grinInterfaceCodeInfos left <> grinInterfaceCodeInfos right
+        grinInterfaceCodeInfosByUnique = Map.unionWith (<>) (grinInterfaceCodeInfosByUnique left) (grinInterfaceCodeInfosByUnique right),
+        grinInterfaceCodeInfosByName = grinInterfaceCodeInfosByName left <> grinInterfaceCodeInfosByName right,
+        grinInterfaceCodeInfosByLinkName = grinInterfaceCodeInfosByLinkName left <> grinInterfaceCodeInfosByLinkName right
       }
 
 instance Monoid GrinInterface where
-  mempty = GrinInterface Set.empty Set.empty Map.empty Map.empty Map.empty
+  mempty = GrinInterface Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
 extractGrinInterface :: FcProgram -> GrinInterface
-extractGrinInterface = extractPreparedGrinInterface . lowerRequiredFc
+extractGrinInterface = extractGrinInterfaceWithLinkNames mempty
 
-extractPreparedGrinInterface :: FcProgram -> GrinInterface
-extractPreparedGrinInterface program =
+-- | Extract runtime facts whose native code labels identify each definition's
+-- package and module. Source-level lookup keys deliberately remain unchanged.
+extractGrinInterfaceWithLinkNames :: GrinLinkNames -> FcProgram -> GrinInterface
+extractGrinInterfaceWithLinkNames linkNames = extractPreparedGrinInterface linkNames . lowerRequiredFc
+
+extractPreparedGrinInterface :: GrinLinkNames -> FcProgram -> GrinInterface
+extractPreparedGrinInterface linkNames program =
   GrinInterface
-    { grinInterfaceGlobals = Set.fromList (programGlobalNames program),
-      grinInterfaceWhnfGlobals = Set.fromList (programWhnfGlobalNames program),
-      grinInterfaceConstructorArities = Map.fromList (programConstructors program),
+    { grinInterfaceGlobals =
+        Map.fromList
+          ( [(name, name) | (name, _) <- programConstructors program]
+              <> [(sourceName, name) | (sourceName, (name, _)) <- constructorNames]
+              <> [ (sourceName, linkedName)
+                 | (var, qualifiedName, linkedName, _) <- globalInfos,
+                   sourceName <- [varName var, qualifiedName]
+                 ]
+          ),
+      grinInterfaceWhnfGlobals =
+        Map.fromList
+          ( [(name, name) | (name, arity) <- programConstructors program, arity == 0]
+              <> [(sourceName, name) | (sourceName, (name, 0)) <- constructorNames]
+              <> [ (sourceName, linkedName)
+                 | (var, qualifiedName, linkedName, True) <- globalInfos,
+                   sourceName <- [varName var, qualifiedName]
+                 ]
+          ),
+      grinInterfaceConstructorArities = Map.fromList (programConstructors program <> [(sourceName, arity) | (sourceName, (_, arity)) <- constructorNames]),
       grinInterfacePrimitiveArities =
         Map.fromList
           [ (varName var, arity)
           | FcPrimitive var arity <- fcTopBinds program,
             varName var /= "seq"
           ],
-      grinInterfaceCodeInfos = Map.fromList (programCodeInfos program)
+      grinInterfaceCodeInfosByUnique = Map.fromListWith (<>) [(varUnique var, [(varType var, info)]) | (var, _, info) <- codeInfos],
+      grinInterfaceCodeInfosByName =
+        Map.fromList
+          [ (sourceName, info)
+          | (var, qualifiedName, info) <- codeInfos,
+            sourceName <- [varName var, qualifiedName]
+          ],
+      grinInterfaceCodeInfosByLinkName = Map.fromList [(grinCodeSourceName info, info) | (_, _, info) <- codeInfos]
     }
+  where
+    codeInfos = programCodeInfos linkNames program
+    globalInfos = programGlobalInfos linkNames program
+    constructorNames = Map.toList (grinConstructorNames linkNames)
 
 -- | Apply compulsory FC lowering, then lower one SCC using only the exported
 -- runtime facts of predecessor SCCs. Optional FC optimizations are the
 -- caller's choice and are never required for correct GRIN semantics.
 lowerProgramWithInterface :: GrinInterface -> FcProgram -> GrinProgram
-lowerProgramWithInterface imported sourceProgram =
-  lowerProgramWithEnvironment (programEnvironment (imported <> extractPreparedGrinInterface program)) program
+lowerProgramWithInterface = lowerProgramWithInterfaceAndLinkNames mempty
+
+-- | Lower one compilation unit against imported runtime facts with an
+-- explicit linker identity for each local top-level definition.
+lowerProgramWithInterfaceAndLinkNames :: GrinLinkNames -> GrinInterface -> FcProgram -> GrinProgram
+lowerProgramWithInterfaceAndLinkNames linkNames imported sourceProgram =
+  lowerProgramWithEnvironment linkNames imported localInterface (programEnvironment (localInterface <> imported)) program
   where
     program = lowerRequiredFc sourceProgram
+    localInterface = extractPreparedGrinInterface linkNames program
 
 -- | Establish the System FC forms required by GRIN lowering. These semantic
 -- lowerings are deliberately independent of optional FC optimization.
@@ -136,25 +255,25 @@ lowerRequiredFc :: FcProgram -> FcProgram
 lowerRequiredFc = lowerPseudoOps . lowerNewtypes
 
 data ProgramEnvironment = ProgramEnvironment
-  { programEnvironmentGlobals :: !(Set Text),
-    programEnvironmentWhnfGlobals :: !(Set Text),
+  { programEnvironmentGlobals :: !(Map Text Text),
+    programEnvironmentWhnfGlobals :: !(Map Text Text),
     programEnvironmentConstructorArities :: !(Map Text Int),
     programEnvironmentPrimitiveArities :: !(Map Text Int),
-    programEnvironmentCodeInfos :: !(Map Text GrinCodeInfo)
+    programEnvironmentCodeInfosByName :: !(Map Text GrinCodeInfo)
   }
 
 programEnvironment :: GrinInterface -> ProgramEnvironment
 programEnvironment interface =
   ProgramEnvironment
-    { programEnvironmentGlobals = Set.fromList (map fst builtinConstructors) <> grinInterfaceGlobals interface,
-      programEnvironmentWhnfGlobals = Set.fromList (map fst builtinConstructors) <> grinInterfaceWhnfGlobals interface,
+    { programEnvironmentGlobals = Map.fromList [(name, name) | (name, _) <- builtinConstructors] <> grinInterfaceGlobals interface,
+      programEnvironmentWhnfGlobals = Map.fromList [(name, name) | (name, layouts) <- builtinConstructors, null layouts] <> grinInterfaceWhnfGlobals interface,
       programEnvironmentConstructorArities = Map.fromList [(name, length layouts) | (name, layouts) <- builtinConstructors] <> grinInterfaceConstructorArities interface,
       programEnvironmentPrimitiveArities = grinInterfacePrimitiveArities interface,
-      programEnvironmentCodeInfos = grinInterfaceCodeInfos interface
+      programEnvironmentCodeInfosByName = grinInterfaceCodeInfosByName interface
     }
 
-lowerProgramWithEnvironment :: ProgramEnvironment -> FcProgram -> GrinProgram
-lowerProgramWithEnvironment environment program =
+lowerProgramWithEnvironment :: GrinLinkNames -> GrinInterface -> GrinInterface -> ProgramEnvironment -> FcProgram -> GrinProgram
+lowerProgramWithEnvironment linkNames imported local environment program =
   GrinProgram
     { grinConstructors = loweredConstructors tops,
       grinPrimitives = loweredPrimitives tops,
@@ -173,23 +292,27 @@ lowerProgramWithEnvironment environment program =
           lowerFunctionsRev = [],
           lowerConstructorArities = programEnvironmentConstructorArities environment,
           lowerPrimitiveArities = programEnvironmentPrimitiveArities environment,
-          lowerCodeInfos = programEnvironmentCodeInfos environment,
-          lowerLocalCodeNames = localCodeNames,
-          lowerReferencedExternalCodeNames = Set.empty,
-          lowerLocalGlobalNames = Set.fromList (programGlobalNames program),
+          lowerLocalCodeInfosByUnique = grinInterfaceCodeInfosByUnique local,
+          lowerCodeInfosByName = programEnvironmentCodeInfosByName environment,
+          lowerLocalCodeLinkNames = localCodeLinkNames,
+          lowerReferencedExternalCodeLinkNames = Set.empty,
+          lowerLocalGlobalNames = Set.fromList [linkedName | (_, _, linkedName, _) <- programGlobalInfos linkNames program],
           lowerReferencedExternalGlobalNames = Set.empty,
           lowerGlobalNames = programEnvironmentGlobals environment,
           lowerWhnfGlobalNames = programEnvironmentWhnfGlobals environment,
           lowerLocalVars = Map.empty,
-          lowerCurrentProvenance = Nothing
+          lowerCurrentProvenance = Nothing,
+          lowerUseIncrementalCodeLookup = not (grinLinkNamesEmpty linkNames),
+          lowerLinkNames = linkNames,
+          lowerLinkNameOccurrences = Map.empty
         }
     (topParts, finalState) = runState (mapM lowerTopBind (fcTopBinds program)) initialState
     tops = mconcat topParts
-    localCodeNames = Map.keysSet (Map.fromList (programCodeInfos program))
+    localCodeLinkNames = Set.fromList [grinCodeSourceName info | (_, _, info) <- programCodeInfos linkNames program]
     externalCodeInfos =
       [ info
-      | (name, info) <- Map.toAscList (programEnvironmentCodeInfos environment),
-        name `Set.member` lowerReferencedExternalCodeNames finalState
+      | (linkName', info) <- Map.toAscList (grinInterfaceCodeInfosByLinkName imported),
+        linkName' `Set.member` lowerReferencedExternalCodeLinkNames finalState
       ]
 
 lowerTopBind :: FcTopBind -> LowerM LoweredTop
@@ -205,7 +328,7 @@ lowerTopBind topBind =
       pure
         mempty
           { loweredPrimitives =
-              [ (lowerGlobalVar var, arity)
+              [ (plainGlobalVar var, arity)
               | varName var `notElem` ["unsafeCoerce#", "raise#", "catch#", "seq"]
               ]
           }
@@ -222,13 +345,14 @@ lowerTopValueBind bind =
   where
     lowerBinding var expr =
       withProvenance (varName var) $ do
+        linkedName <- nextLinkName var
         if isDirectFunction expr
           then do
-            emitTopFunction var expr
+            emitTopFunction linkedName var expr
             pure mempty
           else do
             staticNode <- lowerStaticNode expr
-            topVar <- freshTopVar var
+            topVar <- freshTopVar linkedName
             case staticNode of
               Just node -> pure mempty {loweredWhnfGlobals = [(topVar, node)]}
               Nothing -> do
@@ -247,17 +371,17 @@ isDirectFunction expr =
     FcCast inner _ -> isDirectFunction inner
     _ -> False
 
-emitTopFunction :: Var -> FcExpr -> LowerM ()
-emitTopFunction var expr = do
+emitTopFunction :: Text -> Var -> FcExpr -> LowerM ()
+emitTopFunction linkedName _var expr = do
   let (binders, body) = collectLeadingLambdas expr
-      functionName = topFunctionName var
+      functionName = linkedFunctionName linkedName
   (parameters, loweredBody) <- withFreshLocalVars binders $ \groups -> do
     body' <- lowerExpr body
     pure (concat groups, body')
   emitFunction
     GrinFunction
       { grinFunctionName = functionName,
-        grinFunctionLinkName = Just (varName var),
+        grinFunctionLinkName = Just linkedName,
         grinFunctionParameters = parameters,
         grinFunctionResultRep = exprRuntimeRep body,
         grinFunctionBody = loweredBody
@@ -742,16 +866,17 @@ lowerStaticValues expr =
       | otherwise -> do
           constructorArity <- lookupConstructorArity var
           isWhnfGlobal <- isWhnfGlobalVar var
+          global <- lowerGlobalVar var
           localGlobalNames <- gets lowerLocalGlobalNames
           case constructorArity of
             Just 0 -> do
               noteExternalGlobalReference var
-              pure (Just [GrinVarValue (lowerGlobalVar var)])
+              pure (Just [GrinVarValue global])
             _
               | isWhnfGlobal,
-                varName var `Set.notMember` localGlobalNames -> do
+                grinVarName global `Set.notMember` localGlobalNames -> do
                   noteExternalGlobalReference var
-                  pure (Just [GrinVarValue (lowerGlobalVar var)])
+                  pure (Just [GrinVarValue global])
               | otherwise -> pure Nothing
     FcTyApp inner _ -> lowerStaticValues inner
     FcCast inner _ -> lowerStaticValues inner
@@ -931,11 +1056,11 @@ freshVar hint runtimeRep = do
   modify' $ \state -> state {lowerNextUnique = unique + 1}
   pure (GrinVar ("$grin_" <> hint <> "_" <> T.pack (show unique)) unique runtimeRep)
 
-freshTopVar :: Var -> LowerM GrinVar
-freshTopVar var = do
+freshTopVar :: Text -> LowerM GrinVar
+freshTopVar linkedName = do
   unique <- gets lowerNextUnique
   modify' $ \state -> state {lowerNextUnique = unique + 1}
-  pure (GrinVar (varName var) unique liftedRuntimeRep)
+  pure (GrinVar linkedName unique liftedRuntimeRep)
 
 freshFunction :: Text -> LowerM FunctionName
 freshFunction kind = do
@@ -996,7 +1121,7 @@ lookupFunctionResultRep owner functionName
   | functionName == grinFunctionName owner = pure (grinFunctionResultRep owner)
   | otherwise = do
       localFunctions <- gets lowerFunctionsRev
-      codeInfos <- gets lowerCodeInfos
+      codeInfos <- gets lowerCodeInfosByName
       case [grinFunctionResultRep function | function <- localFunctions, grinFunctionName function == functionName]
         <> [grinCodeResultRep info | info <- Map.elems codeInfos, grinCodeFunctionName info == functionName] of
         resultRep : _ -> pure resultRep
@@ -1060,8 +1185,18 @@ freeVarsAlt :: FcAlt -> Set Var
 freeVarsAlt alt =
   freeVars (altRhs alt) `Set.difference` Set.fromList (altBinders alt)
 
-lowerGlobalVar :: Var -> GrinVar
-lowerGlobalVar var = GrinVar (varName var) (sourceUnique var) liftedRuntimeRep
+plainGlobalVar :: Var -> GrinVar
+plainGlobalVar var = GrinVar (varName var) (sourceUnique var) liftedRuntimeRep
+
+lowerGlobalVar :: Var -> LowerM GrinVar
+lowerGlobalVar var = do
+  globalNames <- gets lowerGlobalNames
+  incremental <- gets lowerUseIncrementalCodeLookup
+  let sourceName
+        | incremental = fromMaybe (varName var) (varResolvedName var)
+        | otherwise = varName var
+      linkedName = Map.findWithDefault (varName var) sourceName globalNames
+  pure (GrinVar linkedName (sourceUnique var) liftedRuntimeRep)
 
 capturesFor :: FcExpr -> LowerM [GrinVar]
 capturesFor expr =
@@ -1083,9 +1218,13 @@ isGlobalVar :: Var -> LowerM Bool
 isGlobalVar var = do
   localVars <- gets lowerLocalVars
   globalNames <- gets lowerGlobalNames
+  incremental <- gets lowerUseIncrementalCodeLookup
+  let sourceName
+        | incremental = fromMaybe (varName var) (varResolvedName var)
+        | otherwise = varName var
   pure
     ( varKey var `Map.notMember` localVars
-        && (varName var `Set.member` globalNames || isUnboxedTupleConstructor (varName var))
+        && (sourceName `Map.member` globalNames || isUnboxedTupleConstructor (varName var))
     )
 
 -- | Values that can be embedded directly in a non-allocating GRIN operation.
@@ -1109,7 +1248,8 @@ lowerDirectValues expr =
         _
           | isWhnfGlobal -> do
               noteExternalGlobalReference var
-              pure (Just [GrinVarValue (lowerGlobalVar var)])
+              global <- lowerGlobalVar var
+              pure (Just [GrinVarValue global])
           | not isGlobal && runtimeRep /= liftedRuntimeRep ->
               Just . map GrinVarValue <$> lookupLocalVars var
           | otherwise -> pure Nothing
@@ -1153,7 +1293,8 @@ lookupRuntimeVars var = do
         then case runtimeReps of
           [_] -> do
             noteExternalGlobalReference var
-            pure [lowerGlobalVar var]
+            globalVar <- lowerGlobalVar var
+            pure [globalVar]
           _ -> error "GRIN lowering found a global with a multi-value runtime representation"
         else lookupLocalVars var
 
@@ -1166,12 +1307,13 @@ lookupRuntimeVar var =
 noteExternalGlobalReference :: Var -> LowerM ()
 noteExternalGlobalReference var = do
   localGlobalNames <- gets lowerLocalGlobalNames
-  if varName var `Set.member` localGlobalNames
+  global <- lowerGlobalVar var
+  if grinVarName global `Set.member` localGlobalNames
     then pure ()
     else modify' $ \state ->
       state
         { lowerReferencedExternalGlobalNames =
-            Set.insert (varName var) (lowerReferencedExternalGlobalNames state)
+            Set.insert (grinVarName global) (lowerReferencedExternalGlobalNames state)
         }
 
 lookupAliasVars :: FcExpr -> LowerM (Maybe [GrinVar])
@@ -1189,19 +1331,30 @@ lookupAliasVars expr =
 lookupCodeInfo :: Var -> LowerM (Maybe GrinCodeInfo)
 lookupCodeInfo var = do
   locals <- gets lowerLocalVars
-  codeInfos <- gets lowerCodeInfos
-  localCodeNames <- gets lowerLocalCodeNames
+  localCodeInfosByUnique <- gets lowerLocalCodeInfosByUnique
+  codeInfosByName <- gets lowerCodeInfosByName
+  localCodeLinkNames <- gets lowerLocalCodeLinkNames
+  incremental <- gets lowerUseIncrementalCodeLookup
+  let localInfo =
+        case varResolvedName var of
+          Nothing -> Map.lookup (varUnique var) localCodeInfosByUnique >>= lookup (varType var)
+          Just _ -> Nothing
+      sourceName
+        | incremental = fromMaybe (varName var) (varResolvedName var)
+        | otherwise = varName var
+      sourceInfo = Map.lookup sourceName codeInfosByName
+      selected = if incremental then localInfo <|> sourceInfo else sourceInfo
   if varKey var `Map.member` locals
     then pure Nothing
-    else case Map.lookup (varName var) codeInfos of
+    else case selected of
       Nothing -> pure Nothing
       Just info -> do
-        if varName var `Set.member` localCodeNames
+        if grinCodeSourceName info `Set.member` localCodeLinkNames
           then pure ()
           else modify' $ \state ->
             state
-              { lowerReferencedExternalCodeNames =
-                  Set.insert (varName var) (lowerReferencedExternalCodeNames state)
+              { lowerReferencedExternalCodeLinkNames =
+                  Set.insert (grinCodeSourceName info) (lowerReferencedExternalCodeLinkNames state)
               }
         pure (Just info)
 
@@ -1277,7 +1430,11 @@ isWhnfGlobalVar :: Var -> LowerM Bool
 isWhnfGlobalVar var = do
   localVars <- gets lowerLocalVars
   whnfGlobalNames <- gets lowerWhnfGlobalNames
-  pure (varKey var `Map.notMember` localVars && varName var `Set.member` whnfGlobalNames)
+  incremental <- gets lowerUseIncrementalCodeLookup
+  let sourceName
+        | incremental = fromMaybe (varName var) (varResolvedName var)
+        | otherwise = varName var
+  pure (varKey var `Map.notMember` localVars && sourceName `Map.member` whnfGlobalNames)
 
 withFreshLocalVars :: [Var] -> ([[GrinVar]] -> LowerM a) -> LowerM a
 withFreshLocalVars vars action = do
@@ -1445,26 +1602,6 @@ functionArgumentRep function =
 programVars :: FcProgram -> [Var]
 programVars program = concatMap topVars (fcTopBinds program)
 
-programGlobalNames :: FcProgram -> [Text]
-programGlobalNames program = concatMap topGlobalNames (fcTopBinds program)
-  where
-    topGlobalNames topBind =
-      case topBind of
-        FcData _ _ constructors -> map fst constructors
-        FcAxiom {} -> []
-        FcNewtype {} -> []
-        FcPrimitive {} -> []
-        FcForeignImport {} -> []
-        FcTopBind bind ->
-          [ varName var
-          | (var, expr) <- topBindings bind,
-            not (isDirectFunction expr)
-          ]
-    topBindings bind =
-      case bind of
-        FcNonRec var expr -> [(var, expr)]
-        FcRec bindings -> bindings
-
 programConstructors :: FcProgram -> [(Text, Int)]
 programConstructors program =
   [ (name, length fields)
@@ -1472,47 +1609,40 @@ programConstructors program =
     (name, fields) <- constructors
   ]
 
-programWhnfGlobalNames :: FcProgram -> [Text]
-programWhnfGlobalNames program = concatMap topWhnfGlobalNames (fcTopBinds program)
+programGlobalInfos :: GrinLinkNames -> FcProgram -> [(Var, Text, Text, Bool)]
+programGlobalInfos linkNames program = concat (snd (mapAccumL buildInfo Map.empty bindings))
   where
     constructorArities =
       Map.fromList [(name, length layouts) | (name, layouts) <- builtinConstructors]
         <> Map.fromList (programConstructors program)
-    topWhnfGlobalNames topBind =
-      case topBind of
-        FcData _ _ constructors -> map fst constructors
-        FcAxiom {} -> []
-        FcNewtype {} -> []
-        FcPrimitive {} -> []
-        FcForeignImport {} -> []
-        FcTopBind bind ->
-          [ varName var
-          | (var, expr) <- topBindings bind,
-            isStaticWhnf constructorArities expr
-          ]
+    bindings = [(var, expr) | FcTopBind bind <- fcTopBinds program, (var, expr) <- topBindings bind]
+    buildInfo occurrences (var, expr) =
+      let (occurrences', index, linkedName) = linkNameAt linkNames occurrences var
+          sourceName = sourceNameAt linkNames index var
+       in (occurrences', [(var, sourceName, linkedName, isStaticWhnf constructorArities expr) | not (isDirectFunction expr)])
     topBindings bind =
       case bind of
         FcNonRec var expr -> [(var, expr)]
-        FcRec bindings -> bindings
+        FcRec recursiveBindings -> recursiveBindings
 
-programCodeInfos :: FcProgram -> [(Text, GrinCodeInfo)]
-programCodeInfos program =
-  [ (varName var, codeInfoFor var expr)
-  | FcTopBind bind <- fcTopBinds program,
-    (var, expr) <- topBindings bind,
-    isDirectFunction expr
-  ]
+programCodeInfos :: GrinLinkNames -> FcProgram -> [(Var, Text, GrinCodeInfo)]
+programCodeInfos linkNames program = concat (snd (mapAccumL buildInfo Map.empty bindings))
   where
+    bindings = [(var, expr) | FcTopBind bind <- fcTopBinds program, (var, expr) <- topBindings bind]
+    buildInfo occurrences (var, expr) =
+      let (occurrences', index, linkedName) = linkNameAt linkNames occurrences var
+          sourceName = sourceNameAt linkNames index var
+       in (occurrences', [(var, sourceName, codeInfoFor linkedName var expr) | isDirectFunction expr])
     topBindings bind =
       case bind of
         FcNonRec var expr -> [(var, expr)]
-        FcRec bindings -> bindings
+        FcRec recursiveBindings -> recursiveBindings
 
-codeInfoFor :: Var -> FcExpr -> GrinCodeInfo
-codeInfoFor var expr =
+codeInfoFor :: Text -> Var -> FcExpr -> GrinCodeInfo
+codeInfoFor linkedName _var expr =
   GrinCodeInfo
-    { grinCodeSourceName = varName var,
-      grinCodeFunctionName = topFunctionName var,
+    { grinCodeSourceName = linkedName,
+      grinCodeFunctionName = linkedFunctionName linkedName,
       grinCodeParameterLayouts =
         [ runtimeRepComponents (typeRuntimeRep (varType binder))
         | binder <- binders
@@ -1522,8 +1652,36 @@ codeInfoFor var expr =
   where
     (binders, body) = collectLeadingLambdas expr
 
-topFunctionName :: Var -> FunctionName
-topFunctionName var = FunctionName ("$entry$" <> varName var)
+linkedFunctionName :: Text -> FunctionName
+linkedFunctionName linkedName = FunctionName ("$entry$" <> linkedName)
+
+nextLinkName :: Var -> LowerM Text
+nextLinkName var = do
+  names <- gets lowerLinkNames
+  occurrences <- gets lowerLinkNameOccurrences
+  let (occurrences', _, linkedName) = linkNameAt names occurrences var
+  modify' (\state -> state {lowerLinkNameOccurrences = occurrences'})
+  pure linkedName
+
+linkNameAt :: GrinLinkNames -> Map Unique Int -> Var -> (Map Unique Int, Int, Text)
+linkNameAt names occurrences var =
+  (Map.insert unique (index + 1) occurrences, index, linkedName)
+  where
+    unique = varUnique var
+    index = Map.findWithDefault 0 unique occurrences
+    linkedName = fromMaybe (varName var) (Map.lookup unique (grinNativeLinkNames names) >>= atIndex index)
+
+sourceNameAt :: GrinLinkNames -> Int -> Var -> Text
+sourceNameAt names index var =
+  fromMaybe (varName var) (Map.lookup (varUnique var) (grinSourceLinkNames names) >>= atIndex index)
+
+atIndex :: Int -> [a] -> Maybe a
+atIndex position values = case drop position values of
+  value : _ -> Just value
+  [] -> Nothing
+
+grinLinkNamesEmpty :: GrinLinkNames -> Bool
+grinLinkNamesEmpty = Map.null . grinNativeLinkNames
 
 collectLeadingLambdas :: FcExpr -> ([Var], FcExpr)
 collectLeadingLambdas expr =

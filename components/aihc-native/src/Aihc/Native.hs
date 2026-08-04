@@ -21,6 +21,7 @@ module Aihc.Native
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
     parseNativeTarget,
+    renderLinkedFunctionSymbol,
     renderNativeTarget,
     runtimePlan,
     snapshotSourcePath,
@@ -31,9 +32,13 @@ where
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types (RuntimeRep)
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
+import Data.Char (chr)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as Text
+import Numeric (showHex)
 import Paths_aihc_native (getDataFileName)
 import System.FilePath (takeDirectory)
 import System.Info qualified as System
@@ -76,6 +81,28 @@ parseNativeTarget value =
     "wasm32-wasip3" -> Right Wasm32Wasip3
     "wasip3" -> Right Wasm32Wasip3
     _ -> Left "target must be apple-arm64, linux-amd64, llvm, or wasm32-wasip3"
+
+-- | Render a NUL-separated logical linker identity as a readable, reversible
+-- object symbol. ASCII letters and digits stay intact, components use a single
+-- underscore separator, and only literal underscores or unsafe UTF-8 bytes
+-- are escaped.
+renderLinkedFunctionSymbol :: Text -> Text
+renderLinkedFunctionSymbol logicalName =
+  case T.splitOn "\0" logicalName of
+    [unstructured] -> "aihc_entry_" <> renderComponent unstructured
+    components -> T.intercalate "_" (map renderComponent components)
+  where
+    renderComponent = T.concat . map renderByte . BS.unpack . Text.encodeUtf8
+    renderByte byte
+      | asciiAlphaNumeric byte = T.singleton (chr (fromIntegral byte))
+      | byte == 95 = "__u"
+      | otherwise = "__x" <> T.pack (padByte (showHex byte ""))
+    asciiAlphaNumeric byte =
+      (byte >= 48 && byte <= 57)
+        || (byte >= 65 && byte <= 90)
+        || (byte >= 97 && byte <= 122)
+    padByte [digit] = ['0', digit]
+    padByte digits = digits
 
 hostNativeTarget :: Maybe NativeTarget
 hostNativeTarget

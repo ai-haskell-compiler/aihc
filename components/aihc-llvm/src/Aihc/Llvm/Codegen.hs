@@ -25,6 +25,7 @@ import Aihc.Native
     buildAddrLiteralPool,
     buildLinkLayout,
     nativeRuntimePrimitiveCall,
+    renderLinkedFunctionSymbol,
     supportedNativePrimitiveNames,
   )
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
@@ -39,7 +40,6 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Numeric (showHex)
 
 data LlvmError
   = LlvmMissingEntry !Text
@@ -1888,7 +1888,7 @@ localFunctionLabel :: Int -> GrinFunction -> Text
 localFunctionLabel index function = maybe ("aihc_llvm_function_" <> tshow index) linkedFunctionLabel (grinFunctionLinkName function)
 
 linkedFunctionLabel :: Text -> Text
-linkedFunctionLabel name = "aihc_entry_" <> T.concatMap (\character -> T.pack (showHex (ord character) "_")) name
+linkedFunctionLabel = renderLinkedFunctionSymbol
 
 llvmLabel :: Text -> Text
 llvmLabel = T.map (\character -> if character `elem` ['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> ['_'] then character else '_')
