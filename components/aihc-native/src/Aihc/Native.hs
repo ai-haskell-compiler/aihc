@@ -208,6 +208,9 @@ supportedNativePrimitiveNames =
     "uncheckedShiftRL#",
     "int2Word#",
     "word2Int#",
+    "word8ToWord#",
+    "word32ToWord#",
+    "word64ToWord#",
     "eqWord#",
     "neWord#",
     "ltWord#",
@@ -265,7 +268,10 @@ nativeRuntimePrimitiveCall name = lookup name nativeRuntimePrimitiveCalls
 
 nativeRuntimePrimitiveCalls :: [(Text, GrinForeignCall)]
 nativeRuntimePrimitiveCalls =
-  [ call "indexArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+  [ call "indexWord8OffAddr#" "aihc_addr_index_word8" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "indexWord32OffAddr#" "aihc_addr_index_word32" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "indexWord64OffAddr#" "aihc_addr_index_word64" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "indexArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "readArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "writeArray#" "aihc_array_write" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "sameMutableArray#" "aihc_array_same" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,

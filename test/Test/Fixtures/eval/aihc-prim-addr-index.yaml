@@ -1,0 +1,36 @@
+dependencies:
+  - aihc-base
+  - aihc-prim
+extensions:
+  - MagicHash
+modules:
+  - |
+    module Test where
+
+    import GHC.Prim
+    import GHC.Int (Int(..))
+
+    data Results = Results Int Int Int
+
+    data Bytes = Bytes Addr#
+
+    bytes :: Bytes
+    bytes = Bytes "\1\2\3\4\5\6\7\8\9\10\11\12\13\14\15\16"#
+
+    indexWord8 :: Int
+    indexWord8 = case bytes of
+      Bytes address -> I# (word2Int# (word8ToWord# (indexWord8OffAddr# address 1#)))
+
+    indexWord32 :: Int
+    indexWord32 = case bytes of
+      Bytes address -> I# (word2Int# (word32ToWord# (indexWord32OffAddr# address 1#)))
+
+    indexWord64 :: Int
+    indexWord64 = case bytes of
+      Bytes address -> I# (word2Int# (word64ToWord# (indexWord64OffAddr# address 1#)))
+output: |
+  Results (I# 2) (I# 134678021) (I# 1157159078456920585)
+expression: |
+  Results indexWord8 indexWord32 indexWord64
+status: pass
+reason: Addr# indexing uses GHC-compatible element offsets and sized word results

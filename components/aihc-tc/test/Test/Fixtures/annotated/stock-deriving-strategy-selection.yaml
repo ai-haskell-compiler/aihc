@@ -4,14 +4,20 @@ annotated:
   module Main where
   data Type
        └─ type: *
+  data Bool = False | True
+       │      │       └─ type: Bool
+       │      └─ type: Bool
+       └─ type: *
   class Eq a where
-  └─ class methods:
+  └─ class methods: == ∷ ∀ a. (Eq a) ⇒ a → a → Bool, /= ∷ ∀ a. (Eq a) ⇒ a → a → Bool
+    (==) :: a -> a -> Bool
+    (/=) :: a -> a -> Bool
   class Functor (f :: Type -> Type) where
   └─ class methods:
   data E = E
   │    │   └─ type: E
   │    └─ type: *
-  └─ deriving plans: stock Eq E [context: infer]
+  └─ deriving plans: stock Eq E [context: ()] [methods: ==, /=]
     deriving Eq
   data F a = F a
   │    │     └─ type: ∀ a. a → F a
@@ -27,7 +33,10 @@ modules:
   {-# LANGUAGE DeriveAnyClass, DeriveFunctor, KindSignatures #-}
   module Main where
   data Type
+  data Bool = False | True
   class Eq a where
+    (==) :: a -> a -> Bool
+    (/=) :: a -> a -> Bool
   class Functor (f :: Type -> Type) where
   data E = E
     deriving Eq

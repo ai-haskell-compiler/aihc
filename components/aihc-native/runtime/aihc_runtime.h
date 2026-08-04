@@ -203,6 +203,9 @@ int64_t aihc_io_close(void *handle);
 int64_t aihc_memory_write_byte(void *buffer, int64_t offset, int64_t value);
 int64_t aihc_memory_read_byte(const void *buffer, int64_t offset);
 _Noreturn int64_t aihc_io_raise_error(int64_t error);
+uint64_t aihc_addr_index_word8(void *address, int64_t index);
+uint64_t aihc_addr_index_word32(void *address, int64_t index);
+uint64_t aihc_addr_index_word64(void *address, int64_t index);
 /* Proof-of-concept byte arrays use stable auxiliary allocations and are not
    released. Freeze and thaw are representation-preserving compiler
    primitives. */

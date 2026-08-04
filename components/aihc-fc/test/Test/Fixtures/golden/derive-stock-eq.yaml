@@ -1,0 +1,128 @@
+extensions:
+  - DerivingStrategies
+modules:
+  - |
+    {-# LANGUAGE DerivingStrategies #-}
+    module Test where
+
+    data Bool = False | True
+
+    class Eq a where
+      (==) :: a -> a -> Bool
+      (/=) :: a -> a -> Bool
+
+    data Tree a = Leaf a | Branch (Tree a) (Tree a)
+      deriving stock Eq
+
+    sameTree :: Eq a => Tree a -> Tree a -> Bool
+    sameTree = (==)
+expected: |-
+  data Bool
+   = False
+   | True
+
+  data Eq a
+   = $Dict$Eq (a → a → Bool) (a → a → Bool)
+
+  == : ∀ a. (Eq a) → a → a → Bool =
+    Λa.
+      λ$d0 : Eq a.
+        case $d0 as $dict : Eq a of
+          $Dict$Eq $method0 $method1 →
+            $method0
+
+  /= : ∀ a. (Eq a) → a → a → Bool =
+    Λa.
+      λ$d0 : Eq a.
+        case $d0 as $dict : Eq a of
+          $Dict$Eq $method0 $method1 →
+            $method1
+
+  data Tree a
+   = Leaf a
+   | Branch (Tree a) (Tree a)
+
+  rec
+    $fEqTreea : ∀ a. (Eq a) → Eq (Tree a) =
+      Λa.
+        λ$d0 : Eq a.
+          let
+            $stock_eq_self : Eq (Tree a) =
+              $fEqTreea @a $d0
+          in
+            $Dict$Eq @(Tree a) (λ$stock_eq_left : Tree a.
+              λ$stock_eq_right : Tree a.
+                case $stock_eq_left as $stock_eq_outer : Tree a of
+                  Leaf $stock_eq_left_field0 →
+                    case $stock_eq_right as $stock_eq_inner : Tree a of
+                      Leaf $stock_eq_right_field0 →
+                        case case $d0 as $stock_eq_dictionary : Eq a of
+                          $Dict$Eq $stock_eq_method $stock_neq_method →
+                            $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0 as $stock_eq_bool : Bool of
+                          False →
+                            False
+                          True →
+                            True
+                      _ →
+                        False
+                  Branch $stock_eq_left_field0 $stock_eq_left_field1 →
+                    case $stock_eq_right as $stock_eq_inner : Tree a of
+                      Branch $stock_eq_right_field0 $stock_eq_right_field1 →
+                        case case $stock_eq_self as $stock_eq_dictionary : Eq (Tree a) of
+                          $Dict$Eq $stock_eq_method $stock_neq_method →
+                            $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0 as $stock_eq_bool : Bool of
+                          False →
+                            False
+                          True →
+                            case case $stock_eq_self as $stock_eq_dictionary : Eq (Tree a) of
+                              $Dict$Eq $stock_eq_method $stock_neq_method →
+                                $stock_eq_method $stock_eq_left_field1 $stock_eq_right_field1 as $stock_eq_bool : Bool of
+                              False →
+                                False
+                              True →
+                                True
+                      _ →
+                        False) (λ$stock_eq_left : Tree a.
+              λ$stock_eq_right : Tree a.
+                case case $stock_eq_left as $stock_eq_outer : Tree a of
+                  Leaf $stock_eq_left_field0 →
+                    case $stock_eq_right as $stock_eq_inner : Tree a of
+                      Leaf $stock_eq_right_field0 →
+                        case case $d0 as $stock_eq_dictionary : Eq a of
+                          $Dict$Eq $stock_eq_method $stock_neq_method →
+                            $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0 as $stock_eq_bool : Bool of
+                          False →
+                            False
+                          True →
+                            True
+                      _ →
+                        False
+                  Branch $stock_eq_left_field0 $stock_eq_left_field1 →
+                    case $stock_eq_right as $stock_eq_inner : Tree a of
+                      Branch $stock_eq_right_field0 $stock_eq_right_field1 →
+                        case case $stock_eq_self as $stock_eq_dictionary : Eq (Tree a) of
+                          $Dict$Eq $stock_eq_method $stock_neq_method →
+                            $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0 as $stock_eq_bool : Bool of
+                          False →
+                            False
+                          True →
+                            case case $stock_eq_self as $stock_eq_dictionary : Eq (Tree a) of
+                              $Dict$Eq $stock_eq_method $stock_neq_method →
+                                $stock_eq_method $stock_eq_left_field1 $stock_eq_right_field1 as $stock_eq_bool : Bool of
+                              False →
+                                False
+                              True →
+                                True
+                      _ →
+                        False as $stock_eq_not : Bool of
+                  False →
+                    True
+                  True →
+                    False)
+
+  sameTree : ∀ a. (Eq a) → (Tree a) → (Tree a) → Bool =
+    Λa.
+      λ$d0 : Eq a.
+        == @(Tree a) ($fEqTreea @a $d0)
+status: pass
+reason: stock Eq lowering consumes checked constructor layouts and field evidence

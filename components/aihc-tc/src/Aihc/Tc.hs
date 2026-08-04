@@ -80,6 +80,7 @@ module Aihc.Tc
     TcDerivingContext (..),
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
+    TcStockDerivingPlan (..),
     TcDiagnostic (..),
     TcErrorKind (..),
     TcSeverity (..),
@@ -114,7 +115,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), renderPred, renderTcSignature, renderTcType)
+import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType)
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)

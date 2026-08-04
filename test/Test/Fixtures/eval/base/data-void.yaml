@@ -1,0 +1,33 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    import Data.Void (Void, absurd, vacuous)
+
+    fromEither :: Either Void a -> a
+    fromEither value =
+      case value of
+        Left impossible -> absurd impossible
+        Right result -> result
+
+    emptyVoids :: [Void]
+    emptyVoids = []
+
+    emptyInts :: [Int]
+    emptyInts = vacuous emptyVoids
+
+    checks :: Bool
+    checks =
+      case fromEither (Right True) of
+        False -> False
+        True ->
+          case emptyInts of
+            [] -> True
+            _ : _ -> False
+output: |
+  True
+expression: checks
+status: pass
+reason: evaluates the public Data.Void eliminator and functor transformation from aihc-base

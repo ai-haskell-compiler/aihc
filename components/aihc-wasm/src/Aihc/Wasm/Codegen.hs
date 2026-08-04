@@ -338,6 +338,9 @@ runtimeFunctionTypes =
     ("aihc_wasm_global_set", ([I32, I64, I64], [])),
     ("aihc_wasm_value_field", ([I64, I64], [I64])),
     ("aihc_wasm_value_info", ([I64], [I64])),
+    ("aihc_addr_index_word8", ([I32, I64], [I64])),
+    ("aihc_addr_index_word32", ([I32, I64], [I64])),
+    ("aihc_addr_index_word64", ([I32, I64], [I64])),
     ("aihc_byte_array_new", ([I64], [I32])),
     ("aihc_byte_array_new_pinned", ([I64], [I32])),
     ("aihc_byte_array_new_aligned_pinned", ([I64, I64], [I32])),
@@ -562,7 +565,7 @@ compileDirectBinding env vars expression =
       | Just operator <- lookup name [("uncheckedShiftL#", "i64.shl"), ("uncheckedShiftRL#", "i64.shr_u")] ->
           binaryPrimitive operator value amount
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["int2Word#", "word2Int#"] -> storeSingle (materializeValue env value)
+      | name `elem` ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#"] -> storeSingle (materializeValue env value)
     GrinPrimitiveCall _ name [value]
       | Just operator <- lookup name [("clz#", "i64.clz"), ("ctz#", "i64.ctz"), ("popCnt#", "i64.popcnt")] ->
           storeSingle (materializeValue env value <> [operator])

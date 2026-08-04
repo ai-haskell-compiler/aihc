@@ -21,6 +21,7 @@ import Aihc.Tc.Annotations
     TcDictBinderAnnotation (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
+    TcStockDerivingPlan (..),
   )
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
@@ -190,6 +191,7 @@ firstMetaDerivingPlan plan =
            | (superClass, evidence) <- tcDerivingSuperClasses plan
            ]
         ++ concatMap (map firstMetaEvTerm . snd) (tcDerivingDefaultMethodEvidence plan)
+        ++ maybe [] (concatMap (map firstMetaEvTerm) . tcStockEqFieldEvidence) (tcDerivingStockPlan plan)
         ++ [firstMetaDerivingStrategy (tcDerivingStrategy plan), firstMetaDerivingContext (tcDerivingContext plan)]
     )
 

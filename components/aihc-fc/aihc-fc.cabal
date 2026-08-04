@@ -29,6 +29,7 @@ library
   other-modules:
     Aihc.Fc.Desugar.Deriving
     Aihc.Fc.Desugar.Deriving.AnyClass
+    Aihc.Fc.Desugar.Deriving.StockEq
     Aihc.Fc.Desugar.Dictionary
 
   hs-source-dirs: src

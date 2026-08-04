@@ -20,6 +20,7 @@ module Aihc.Tc.Annotations
     TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
+    TcStockDerivingPlan (..),
     TcDerivingStrategy (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
@@ -170,6 +171,14 @@ data TcDerivingContext
   | TcDerivingExplicitContext ![Pred]
   deriving (Eq, Show)
 
+-- | Strategy-specific proof payload for stock deriving. Each constructor's
+-- equality evidence is aligned with its checked runtime fields.
+newtype TcStockDerivingPlan
+  = TcStockEqPlan
+  { tcStockEqFieldEvidence :: [[EvTerm]]
+  }
+  deriving (Eq, Show)
+
 -- | Typed input to strategy-specific deriving. This deliberately contains
 -- the class layout needed by System FC lowering so downstream phases never
 -- need to reconstruct Haskell class information.
@@ -184,6 +193,7 @@ data TcDerivingPlan = TcDerivingPlan
     -- target is a data or newtype constructor known to this compilation.
     tcDerivingDataType :: !(Maybe DataTypeInfo),
     tcDerivingContext :: !TcDerivingContext,
+    tcDerivingStockPlan :: !(Maybe TcStockDerivingPlan),
     tcDerivingClassTyVars :: ![TyVarId],
     tcDerivingClassSuperClasses :: ![TcDictBinderAnnotation],
     tcDerivingClassMethods :: ![TcClassMethodAnnotation],

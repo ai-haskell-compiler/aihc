@@ -7,7 +7,7 @@ main = do
   putStrLn "initial:"
   printEnvironment
   putStrLn "modified:"
-  withProgName "path/modified-program" (withArgs ["runtime", "ændret"] printEnvironment)
+  withProgName "path/modified-program" (withArgs ["runtime", "changed"] printEnvironment)
   putStrLn "restored:"
   printEnvironment
 
