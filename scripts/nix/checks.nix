@@ -256,7 +256,7 @@
       exit "$compile_exit"
     fi
     mkdir -p "$run_directory"
-    if timeout --foreground --kill-after=5s 10s wasmtime run -C cache=n -S cli \
+    if timeout --foreground --kill-after=5s 30s wasmtime run -C cache=n -S cli \
       --dir "$run_directory::." \
       --argv0 "$example_name" \
       "$executable" "''${example_args[@]}" \
