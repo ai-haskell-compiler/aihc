@@ -32,3 +32,10 @@ result-*
 # Qwen Code
 .qwen/
 .aihc-cache/
+
+# Example build artifacts
+examples/*/*.s
+examples/*/*.core
+examples/*/*.grin
+examples/*/*.ll
+examples/*/Main
