@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | System FC core language.
 --
@@ -17,7 +18,7 @@ module Aihc.Fc.Syntax
     FcExpr (..),
 
     -- * Variables
-    Var (..),
+    Var (Var, varName, varUnique, varType, varResolvedName),
 
     -- * Bindings
     FcBind (..),
@@ -181,12 +182,23 @@ fcDictionaryConstructorName :: Text -> Text
 fcDictionaryConstructorName className = "$Dict$" <> className
 
 -- | A typed variable.
-data Var = Var
+data Var = ResolvedVar
   { varName :: !Text,
     varUnique :: !Unique,
-    varType :: !TcType
+    varType :: !TcType,
+    -- | Resolver identity for an imported occurrence. Kept separate from the
+    -- display name so whole-program FC evaluation remains source-readable.
+    varResolvedName :: !(Maybe Text)
   }
   deriving (Show, Read)
+
+-- | Construct a variable without a separate imported identity.
+pattern Var :: Text -> Unique -> TcType -> Var
+pattern Var name unique ty <- ResolvedVar name unique ty _
+  where
+    Var name unique ty = ResolvedVar name unique ty Nothing
+
+{-# COMPLETE Var #-}
 
 -- Eq/Ord on Unique only, mirroring TyVarId.
 instance Eq Var where

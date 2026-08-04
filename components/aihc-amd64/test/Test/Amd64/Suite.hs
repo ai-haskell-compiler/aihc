@@ -296,8 +296,8 @@ tests =
         case compileModule (buildLinkLayout [program]) "_aihc_init_direct_call" (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
-            assertBool "exports caller entry" (".globl aihc_entry_63_61_6c_6c_65_72_" `T.isInfixOf` assembly)
-            assertBool "branches to dependency entry" ("jmp aihc_entry_69_64_65_6e_74_69_74_79_" `T.isInfixOf` assembly)
+            assertBool "exports caller entry" (".globl aihc_entry_caller" `T.isInfixOf` assembly)
+            assertBool "branches to dependency entry" ("jmp aihc_entry_identity" `T.isInfixOf` assembly)
             assertBool "does not publish direct-call arguments through the machine" (not ("mov QWORD PTR [r15], r12" `T.isInfixOf` assembly)),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
       testCase "case and apply never evaluate operands implicitly" $ do

@@ -30,6 +30,7 @@ import Aihc.Native
     buildLinkLayoutFromInterfaces,
     extractLinkInterface,
     nativeTargetTriple,
+    renderLinkedFunctionSymbol,
   )
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -69,7 +70,7 @@ import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.Char (isHexDigit)
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.List (sort, sortOn)
+import Data.List (intercalate, sort, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set qualified as Set
@@ -122,6 +123,7 @@ data DependencyArtifact = DependencyArtifact
 data DependencyUnit = DependencyUnit
   { dependencyUnitLibraries :: ![Text],
     dependencyUnitModules :: ![Text],
+    dependencyUnitInitializer :: !Text,
     dependencyUnitProgram :: !FcProgram,
     dependencyUnitGrin :: !Grin.GrinProgram,
     dependencyUnitCpsGrin :: !Grin.CpsGrinProgram,
@@ -135,7 +137,8 @@ data DependencyUnit = DependencyUnit
 
 data DependencyUnitMetadata = DependencyUnitMetadata
   { dependencyMetadataLibraries :: ![Text],
-    dependencyMetadataModules :: ![Text]
+    dependencyMetadataModules :: ![Text],
+    dependencyMetadataInitializer :: !Text
   }
   deriving (Eq, Show, Read)
 
@@ -178,6 +181,7 @@ data StoredResolvedName
 
 data LoadedModule = LoadedModule
   { loadedLibrary :: !Text,
+    loadedLibraryId :: ![Text],
     loadedModuleExposed :: !Bool,
     loadedModule :: !Module
   }
@@ -185,6 +189,7 @@ data LoadedModule = LoadedModule
 -- | One Cabal-selected library package in an installation closure.
 data LibraryPackage = LibraryPackage
   { libraryPackageName :: !Text,
+    libraryPackageId :: ![Text],
     libraryPackageRoot :: !FilePath,
     libraryPackageFiles :: ![FilePath],
     libraryPackageExposedModules :: ![Text]
@@ -192,7 +197,7 @@ data LibraryPackage = LibraryPackage
   deriving (Eq, Show)
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 30
+cacheSchemaVersion = 32
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
@@ -305,13 +310,7 @@ backendMetadataArtifacts artifactRoot metadata =
     libraries = sort (Set.toList (Set.fromList (map metadataPrimaryLibrary metadata)))
 
 metadataInitializerSymbol :: DependencyUnitMetadata -> Text
-metadataInitializerSymbol metadata =
-  "_aihc_init_"
-    <> symbolHex
-      ( metadataPrimaryLibrary metadata
-          <> "\0"
-          <> T.intercalate "\0" (dependencyMetadataModules metadata)
-      )
+metadataInitializerSymbol = dependencyMetadataInitializer
 
 metadataPrimaryLibrary :: DependencyUnitMetadata -> Text
 metadataPrimaryLibrary = fromMaybe "dependencies" . listToMaybe . dependencyMetadataLibraries
@@ -342,7 +341,7 @@ loadLibraryPackages packages = do
     loadPackage package =
       sequence
         <$> mapM
-          (parseModuleFile (libraryPackageName package) (Set.fromList (libraryPackageExposedModules package)))
+          (parseModuleFile (libraryPackageName package) (libraryPackageId package) (Set.fromList (libraryPackageExposedModules package)))
           (sort (libraryPackageFiles package))
 
     rejectDuplicateModules loaded = snd <$> foldM insertModule (Map.empty, []) loaded
@@ -362,12 +361,12 @@ loadLibraryPackages packages = do
                     <> T.unpack (loadedLibrary modu)
                 )
 
-parseModuleFile :: Text -> Set.Set Text -> FilePath -> IO (Either String LoadedModule)
-parseModuleFile library exposedModules path = do
+parseModuleFile :: Text -> [Text] -> Set.Set Text -> FilePath -> IO (Either String LoadedModule)
+parseModuleFile library libraryId exposedModules path = do
   source <- Utf8.readFile path
   pure $
     case parseModule (parserConfig path source) source of
-      ([], modu) -> Right (LoadedModule library (maybe False (`Set.member` exposedModules) (moduleName modu)) modu)
+      ([], modu) -> Right (LoadedModule library libraryId (maybe False (`Set.member` exposedModules) (moduleName modu)) modu)
       (errors, _) -> Left ("failed to parse library module " <> path <> ": " <> show errors)
 
 parserConfig :: FilePath -> Text -> ParserConfig
@@ -400,21 +399,34 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                    in if not (all dsSuccess desugared)
                         then Left ("library desugar error: " <> unlines (concatMap dsErrors desugared))
                         else
-                          let sourceCore = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
+                          let libraries = sort (Set.toList (Set.fromList (map loadedLibrary members)))
+                              libraryIds = sort (Set.toList (Set.fromList (map loadedLibraryId members)))
+                              modules = sort (map loadedModuleName members)
+                              initializer = unitInitializerSymbol libraryIds modules
+                              linkNames =
+                                mconcat
+                                  [ Grin.linkNamesForProgram
+                                      (loadedLibraryId member)
+                                      (T.splitOn "." (loadedModuleName member))
+                                      (dsProgram desugaredModule)
+                                  | (member, desugaredModule) <- zip members desugared
+                                  ]
+                              sourceCore = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
                               core = optimizeProgram (lowerPseudoOps (lowerNewtypesWithInterface (compileStateNewtypes state) sourceCore))
                               axioms = extractAxiomInterface core
                               newtypes = extractNewtypeInterface core
-                              grinInterface = Grin.extractGrinInterface core
+                              grinInterface = Grin.extractGrinInterfaceWithLinkNames linkNames core
                               reachabilityInterface = extractReachabilityInterface core
-                              grin = Grin.lowerProgramWithInterface (compileStateGrin state) core
+                              grin = Grin.lowerProgramWithInterfaceAndLinkNames linkNames (compileStateGrin state) core
                               linkInterface = extractLinkInterface grin
                            in case Grin.toCpsGrin grin of
                                 Left err -> Left ("library CPS-GRIN error: " <> show err)
                                 Right cpsGrin ->
                                   let unit =
                                         DependencyUnit
-                                          { dependencyUnitLibraries = sort (Set.toList (Set.fromList (map loadedLibrary members))),
-                                            dependencyUnitModules = sort (map loadedModuleName members),
+                                          { dependencyUnitLibraries = libraries,
+                                            dependencyUnitModules = modules,
+                                            dependencyUnitInitializer = initializer,
                                             dependencyUnitProgram = core,
                                             dependencyUnitGrin = grin,
                                             dependencyUnitCpsGrin = cpsGrin,
@@ -532,13 +544,24 @@ backendUnit objectRoot unit =
   where
     library = dependencyUnitPrimaryLibrary unit
     unitName = T.intercalate "+" (dependencyUnitModules unit)
-    initializer = "_aihc_init_" <> symbolHex (library <> "\0" <> T.intercalate "\0" (dependencyUnitModules unit))
+    initializer = dependencyUnitInitializer unit
+
+unitInitializerSymbol :: [[Text]] -> [Text] -> Text
+unitInitializerSymbol libraryIds modules =
+  "_aihc_init_" <> renderLinkedFunctionSymbol (T.intercalate "\0" components)
+  where
+    components =
+      case libraryIds of
+        [] -> "dependencies" : moduleComponents
+        ids -> intercalate ["with"] ids <> moduleComponents
+    moduleComponents = concatMap (T.splitOn ".") modules
 
 dependencyMetadata :: DependencyUnit -> DependencyUnitMetadata
 dependencyMetadata unit =
   DependencyUnitMetadata
     { dependencyMetadataLibraries = dependencyUnitLibraries unit,
-      dependencyMetadataModules = dependencyUnitModules unit
+      dependencyMetadataModules = dependencyUnitModules unit,
+      dependencyMetadataInitializer = dependencyUnitInitializer unit
     }
 
 backendUnitLibrary :: BackendUnit -> Text
@@ -546,11 +569,6 @@ backendUnitLibrary = dependencyUnitPrimaryLibrary . backendDependencyUnit
 
 dependencyUnitPrimaryLibrary :: DependencyUnit -> Text
 dependencyUnitPrimaryLibrary unit = fromMaybe "dependencies" (listToMaybe (dependencyUnitLibraries unit))
-
-symbolHex :: Text -> Text
-symbolHex = T.concat . map renderByte . BS.unpack . Text.encodeUtf8
-  where
-    renderByte byte = T.pack (padLeft 2 '0' (showHex byte ""))
 
 buildObject :: NativeTarget -> LinkLayout -> BackendUnit -> IO (Either String ())
 buildObject target layout unit = do
@@ -643,9 +661,10 @@ dependencyGraphHash packages = do
     packageChunks package = do
       files <- concat <$> mapM (fileChunks package) (sort (libraryPackageFiles package))
       pure
-        ( Text.encodeUtf8 (frameText (libraryPackageName package))
-            : Text.encodeUtf8 (frameText (T.intercalate "," (sort (libraryPackageExposedModules package))))
-            : files
+        ( [Text.encodeUtf8 (frameText (libraryPackageName package))]
+            <> map (Text.encodeUtf8 . frameText) (libraryPackageId package)
+            <> [Text.encodeUtf8 (frameText (T.intercalate "," (sort (libraryPackageExposedModules package))))]
+            <> files
         )
 
     fileChunks package path = do

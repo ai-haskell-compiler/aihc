@@ -26,6 +26,7 @@ module Aihc.Cli.Install
     newPackageCheckCache,
     newPackagePlanCache,
     packagePlanFailureShouldBeReportedForPackage,
+    packageVariantLibraryId,
     renderInstallFailure,
     renderInstallFailureWithOptions,
     runInstall,
@@ -201,6 +202,17 @@ data PackageVariantKey = PackageVariantKey
     packageKeyDependencies :: ![ResolvedDependency]
   }
   deriving (Eq, Show)
+
+-- | Readable, globally unique library identity components. The package hash
+-- already covers flags, dependency variants, Cabal input, and compiler phase
+-- configuration, so it must not be recomputed later in the pipeline.
+packageVariantLibraryId :: PackageVariantKey -> [Text]
+packageVariantLibraryId key =
+  T.splitOn "-" (T.pack (pkgName spec))
+    <> T.splitOn "." (T.pack (pkgVersion spec))
+    <> [T.pack (unPackageHash (packageKeyHash key))]
+  where
+    spec = packageKeySpec key
 
 data SourceAnalysis = SourceAnalysis
   { sourceCabalFile :: !FilePath,
@@ -408,6 +420,7 @@ installPackageLibraries targets plan = do
       pure
         LibraryPackage
           { libraryPackageName = T.pack (pkgName (packageKeySpec (planPackageKey package))),
+            libraryPackageId = packageVariantLibraryId (planPackageKey package),
             libraryPackageRoot = planSourcePath package,
             libraryPackageFiles = map HackageCabal.fileInfoPath files,
             libraryPackageExposedModules = HackageCabal.collectLibraryExposedModules gpd

@@ -64,6 +64,7 @@ where
 
 import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
 import Aihc.Grin.Syntax
+import Aihc.Native (renderLinkedFunctionSymbol)
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..))
 import Aihc.Tc.Types (RuntimeRep (..))
@@ -77,7 +78,6 @@ import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Numeric (showHex)
 
 data Arm64Error
   = Arm64MissingEntry !Text
@@ -524,9 +524,7 @@ localFunctionLabelWith exposeAllFunctions index function
         Nothing -> functionLabel index
 
 linkedFunctionLabel :: Text -> Text
-linkedFunctionLabel name = "_aihc_entry_" <> T.concatMap encode name
-  where
-    encode character = T.pack (showHex (ord character) "_")
+linkedFunctionLabel = ("_" <>) . renderLinkedFunctionSymbol
 
 storeGlobal :: Int -> [Text]
 storeGlobal slot = ["  ldr x9, [x22, #0]", storeAt "x0" "x9" slot]
