@@ -1,0 +1,19 @@
+initial:
+program name: system-environment
+arguments:
+first
+two words
+
+last
+modified:
+program name: modified-program
+arguments:
+runtime
+changed
+restored:
+program name: system-environment
+arguments:
+first
+two words
+
+last

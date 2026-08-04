@@ -54,6 +54,78 @@ static const AihcInfo aihc_array_info = {
     .object_kind = AIHC_OBJECT_ARRAY,
 };
 
+static uint8_t *aihc_program_arguments;
+static size_t aihc_program_arguments_length;
+
+static void aihc_program_arguments_install(uint8_t *arguments, size_t length) {
+  free(aihc_program_arguments);
+  aihc_program_arguments = arguments;
+  aihc_program_arguments_length = length;
+}
+
+void aihc_program_arguments_initialize(int argc, char *const argv[]) {
+  if (argc < 0 || (argc != 0 && argv == NULL)) {
+    aihc_fail("invalid initial program arguments");
+  }
+  size_t length = 0;
+  for (int index = 0; index < argc; ++index) {
+    if (argv[index] == NULL) {
+      aihc_fail("null initial program argument");
+    }
+    size_t argument_length = strlen(argv[index]);
+    if ((uint64_t)argument_length >= (uint64_t)INT64_MAX - (uint64_t)length) {
+      aihc_fail("program arguments are too large");
+    }
+    length += argument_length + 1;
+  }
+  uint8_t *arguments = NULL;
+  if (length != 0) {
+    arguments = aihc_allocate_zeroed(length);
+    size_t offset = 0;
+    for (int index = 0; index < argc; ++index) {
+      size_t argument_length = strlen(argv[index]);
+      memcpy(arguments + offset, argv[index], argument_length);
+      offset += argument_length + 1;
+    }
+  }
+  aihc_program_arguments_install(arguments, length);
+}
+
+int64_t aihc_program_arguments_size(void) {
+  return (int64_t)aihc_program_arguments_length;
+}
+
+int64_t aihc_program_arguments_copy(void *opaque_buffer, int64_t capacity) {
+  int64_t required = aihc_program_arguments_size();
+  if (capacity < 0 || (capacity != 0 && opaque_buffer == NULL)) {
+    return -1;
+  }
+  if (capacity >= required && required != 0) {
+    memcpy(opaque_buffer, aihc_program_arguments, (size_t)required);
+  }
+  return required;
+}
+
+int64_t aihc_program_arguments_replace(const void *opaque_buffer,
+                                       int64_t requested_length) {
+  if (requested_length < 0 ||
+      (requested_length != 0 && opaque_buffer == NULL)) {
+    return -1;
+  }
+  size_t length = (size_t)requested_length;
+  const uint8_t *buffer = opaque_buffer;
+  if (length != 0 && buffer[length - 1] != 0) {
+    return -1;
+  }
+  uint8_t *arguments = NULL;
+  if (length != 0) {
+    arguments = aihc_allocate_zeroed(length);
+    memcpy(arguments, buffer, length);
+  }
+  aihc_program_arguments_install(arguments, length);
+  return 0;
+}
+
 void aihc_unsupported_primitive(void) {
   aihc_fail("primitive is not implemented by the native runtime");
 }
@@ -626,6 +698,14 @@ int64_t aihc_memory_write_byte(void *opaque_buffer, int64_t offset,
   }
   ((uint8_t *)opaque_buffer)[(size_t)offset] = (uint8_t)value;
   return 0;
+}
+
+int64_t aihc_memory_read_byte(const void *opaque_buffer, int64_t offset) {
+  if (opaque_buffer == NULL || offset < 0) {
+    return aihc_io_error(AIHC_IO_ERROR_INVALID_ARGUMENT);
+  }
+  const uint8_t *buffer = opaque_buffer;
+  return buffer[offset];
 }
 
 static size_t aihc_byte_array_size(int64_t requested_size) {

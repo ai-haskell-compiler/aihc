@@ -154,6 +154,13 @@ void aihc_reset_allocation_count(AihcMachine *machine);
 AihcSlot *aihc_alloc_locals(AihcMachine *machine, uint64_t count);
 void aihc_no_match(void);
 void aihc_unsupported_primitive(void);
+/* The complete process argument vector is copied before the Haskell machine
+   starts. argv[0] is retained because getProgName and withProgName share the
+   same mutable vector as getArgs and withArgs. */
+void aihc_program_arguments_initialize(int argc, char *const argv[]);
+int64_t aihc_program_arguments_size(void);
+int64_t aihc_program_arguments_copy(void *buffer, int64_t capacity);
+int64_t aihc_program_arguments_replace(const void *buffer, int64_t length);
 void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field);
 /* Boxed arrays are contiguous managed objects. GrinEnsureHeap reserves their
    length-dependent storage before this initializer advances the heap. */
@@ -194,6 +201,7 @@ void *aihc_io_stderr(void);
 int64_t aihc_io_open_result_error(void *result);
 int64_t aihc_io_close(void *handle);
 int64_t aihc_memory_write_byte(void *buffer, int64_t offset, int64_t value);
+int64_t aihc_memory_read_byte(const void *buffer, int64_t offset);
 _Noreturn int64_t aihc_io_raise_error(int64_t error);
 uint64_t aihc_addr_index_word8(void *address, int64_t index);
 uint64_t aihc_addr_index_word32(void *address, int64_t index);

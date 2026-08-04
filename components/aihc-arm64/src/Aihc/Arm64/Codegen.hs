@@ -366,7 +366,11 @@ compileInitializers env program = do
 mainPrologue :: Int -> [Text]
 mainPrologue globalCount =
   entryPrologue "_main"
-    <> [immediate "x0" globalCount, "  bl _aihc_machine_new", "  mov x22, x0"]
+    <> [ "  bl _aihc_program_arguments_initialize",
+         immediate "x0" globalCount,
+         "  bl _aihc_machine_new",
+         "  mov x22, x0"
+       ]
 
 entryPrologue :: Text -> [Text]
 entryPrologue symbol =

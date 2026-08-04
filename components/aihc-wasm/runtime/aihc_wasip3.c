@@ -3,6 +3,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 extern void aihc_wasm_program_initialize(void);
 
@@ -50,6 +52,44 @@ typedef struct {
 } AihcWasiIo;
 
 static AihcWasiIo aihc_wasi_io;
+
+static void aihc_wasi_initialize_arguments(void) {
+  command_list_string_t arguments = {0};
+  wasi_cli_environment_get_arguments(&arguments);
+  size_t length = 0;
+  for (size_t index = 0; index < arguments.len; ++index) {
+    if ((uint64_t)arguments.ptr[index].len >=
+        (uint64_t)INT64_MAX - (uint64_t)length) {
+      command_list_string_free(&arguments);
+      abort();
+    }
+    length += arguments.ptr[index].len + 1;
+  }
+  uint8_t *buffer = NULL;
+  if (length != 0) {
+    buffer = malloc(length);
+    if (buffer == NULL) {
+      command_list_string_free(&arguments);
+      abort();
+    }
+    size_t offset = 0;
+    for (size_t index = 0; index < arguments.len; ++index) {
+      command_string_t argument = arguments.ptr[index];
+      if (argument.len != 0) {
+        memcpy(buffer + offset, argument.ptr, argument.len);
+      }
+      offset += argument.len;
+      buffer[offset++] = 0;
+    }
+  }
+  if (aihc_program_arguments_replace(buffer, (int64_t)length) != 0) {
+    free(buffer);
+    command_list_string_free(&arguments);
+    abort();
+  }
+  free(buffer);
+  command_list_string_free(&arguments);
+}
 
 static int64_t aihc_wasi_error(int32_t error) { return -((int64_t)error) - 1; }
 
@@ -479,6 +519,7 @@ static command_callback_code_t aihc_pump(void) {
 }
 
 command_callback_code_t exports_wasi_cli_run_run(void) {
+  aihc_wasi_initialize_arguments();
   aihc_wasm_program_initialize();
   return aihc_pump();
 }

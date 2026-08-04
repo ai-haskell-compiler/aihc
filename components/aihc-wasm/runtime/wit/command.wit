@@ -1,6 +1,7 @@
 package aihc:app;
 
 world command {
+  import wasi:cli/environment@0.3.0;
   import wasi:cli/stdin@0.3.0;
   import wasi:cli/stdout@0.3.0;
   import wasi:cli/stderr@0.3.0;

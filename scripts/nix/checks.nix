@@ -153,6 +153,10 @@
     if [[ -f "$example_directory/stdin" ]]; then
       stdin_file="$example_directory/stdin"
     fi
+    example_args=()
+    if [[ -f "$example_directory/args" ]]; then
+      mapfile -t example_args < "$example_directory/args"
+    fi
     expected_stderr="$empty_stderr"
     if [[ -f "$example_directory/stderr" ]]; then
       expected_stderr="$example_directory/stderr"
@@ -179,8 +183,8 @@
     fi
     mkdir -p "$run_directory"
     if timeout --foreground --kill-after=5s 10s \
-      bash -c 'cd "$1"; exec "$2" 2> "$3"' \
-      bash "$run_directory" "$executable" "$actual_stderr" \
+      bash -c 'run_directory=$1; executable=$2; stderr=$3; argv0=$4; shift 4; cd "$run_directory"; exec -a "$argv0" "$executable" "$@" 2> "$stderr"' \
+      bash "$run_directory" "$executable" "$actual_stderr" "$example_name" "''${example_args[@]}" \
       < "$stdin_file" > "$actual_stdout" 2> "$timeout_stderr"; then
       actual_exit=0
     else
@@ -224,6 +228,10 @@
     if [[ -f "$example_directory/stdin" ]]; then
       stdin_file="$example_directory/stdin"
     fi
+    example_args=()
+    if [[ -f "$example_directory/args" ]]; then
+      mapfile -t example_args < "$example_directory/args"
+    fi
     expected_stderr="$empty_stderr"
     if [[ -f "$example_directory/stderr" ]]; then
       expected_stderr="$example_directory/stderr"
@@ -248,9 +256,10 @@
       exit "$compile_exit"
     fi
     mkdir -p "$run_directory"
-    if timeout --foreground --kill-after=5s 10s wasmtime run -C cache=n -S cli \
+    if timeout --foreground --kill-after=5s 30s wasmtime run -C cache=n -S cli \
       --dir "$run_directory::." \
-      "$executable" \
+      --argv0 "$example_name" \
+      "$executable" "''${example_args[@]}" \
       < "$stdin_file" > "$actual_stdout" 2> "$actual_stderr"; then
       actual_exit=0
     else
@@ -468,6 +477,10 @@
       if [[ -f "$example_directory/stdin" ]]; then
         stdin_file="$example_directory/stdin"
       fi
+      example_args=()
+      if [[ -f "$example_directory/args" ]]; then
+        mapfile -t example_args < "$example_directory/args"
+      fi
       expected_stderr="$empty_stderr"
       if [[ -f "$example_directory/stderr" ]]; then
         expected_stderr="$example_directory/stderr"
@@ -479,11 +492,21 @@
 
       actual_stdout="$TMPDIR/$example_name.stdout"
       actual_stderr="$TMPDIR/$example_name.stderr"
+      executable="$TMPDIR/$example_name-ghc"
+      ghc_output_directory="$TMPDIR/$example_name-ghc-build"
       run_directory="$TMPDIR/$example_name.run"
-      mkdir -p "$run_directory"
+      mkdir -p "$ghc_output_directory" "$run_directory"
       if timeout --foreground --kill-after=5s 120s \
-        bash -c 'cd "$1"; exec runghc -package-env - "$2"' \
-        bash "$run_directory" "$PWD/$source" \
+        ghc -v0 -package-env - -outputdir "$ghc_output_directory" "$source" -o "$executable"; then
+        :
+      else
+        compile_exit=$?
+        echo "GHC failed to compile $example_name with exit $compile_exit" >&2
+        exit "$compile_exit"
+      fi
+      if timeout --foreground --kill-after=5s 120s \
+        bash -c 'run_directory=$1; executable=$2; argv0=$3; shift 3; cd "$run_directory"; exec -a "$argv0" "$executable" "$@"' \
+        bash "$run_directory" "$executable" "$example_name" "''${example_args[@]}" \
         < "$stdin_file" > "$actual_stdout" 2> "$actual_stderr"; then
         actual_exit=0
       else

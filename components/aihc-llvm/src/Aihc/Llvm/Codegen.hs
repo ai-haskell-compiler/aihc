@@ -782,7 +782,7 @@ compileDirectBinding env vars expression =
       | Just instruction <- lookup name [("uncheckedShiftL#", "shl"), ("uncheckedShiftRL#", "lshr")] ->
           binaryPrimitive instruction value amount
     GrinPrimitiveCall _ name [value]
-      | name `elem` ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "ord#", "intToChar#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
+      | name `elem` ["int2Word#", "word2Int#", "word8ToWord#", "word32ToWord#", "word64ToWord#", "ord#", "chr#", "unsafeFreezeArray#", "unsafeThawArray#", "unsafeFreezeByteArray#", "unsafeThawByteArray#"] ->
           materializeValue env value >>= storeOne
     GrinPrimitiveCall _ "newArray#" [size, initial] -> do
       (lines', operands) <- materializeValues env [size, initial]
@@ -1175,8 +1175,9 @@ runInitializer action = fst <$> runStateT action (FunctionState 0 0 0 [])
 
 renderMain :: CompileEnv -> Int -> [Text] -> [Text] -> [Text] -> [Text]
 renderMain env rootSlot dependencyInitializers constructorInitialization initialization =
-  [ "define i32 @main() {",
+  [ "define i32 @main(i32 %argc, ptr %argv) {",
     "entry:",
+    "  call void @aihc_program_arguments_initialize(i32 %argc, ptr %argv)",
     "  %machine = call ptr @aihc_machine_new(i64 " <> tshow (Map.size (compileGlobalSlots env)) <> ")",
     "  store ptr %machine, ptr @aihc_machine, align 8"
   ]
@@ -1686,6 +1687,7 @@ llvmPreamble =
 renderRuntimeDeclarations :: [Text]
 renderRuntimeDeclarations =
   [ "declare ptr @aihc_machine_new(i64)",
+    "declare void @aihc_program_arguments_initialize(i32, ptr)",
     "declare ptr @aihc_make_node(ptr, ptr)",
     "declare ptr @aihc_make_node_unchecked(ptr, ptr)",
     "declare void @aihc_ensure_heap(ptr, i64, i64, ptr)",
