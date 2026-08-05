@@ -64,9 +64,31 @@ tcTests =
       testGroup "variables" variableTests,
       testGroup "kinds" kindTests,
       testGroup "type schemes" typeSchemeTests,
+      testGroup "binding identities" bindingIdentityTests,
       testGroup "annotations" annotationTests,
       testGroup "error-cases" errorTests
     ]
+
+bindingIdentityTests :: [TestTree]
+bindingIdentityTests =
+  [ testCase "distinguishes identical module bindings from different packages" $ do
+      let source = parseOnly "module Shared where\nvalue input = input\n"
+      case resolve [source] of
+        ResolveResult {resolvedModules = [resolved], resolveErrors = []} -> do
+          let checked = typecheckModule resolved
+              fromPackage packageId =
+                [ tbId binding
+                | binding <- tcModuleBindingsWithPackage packageId checked,
+                  tbName binding == "value"
+                ]
+              firstId = fromPackage ["first", "1", "variant-a"]
+              secondId = fromPackage ["second", "1", "variant-b"]
+          assertBool ("module should typecheck, got: " <> show (tcModuleDiagnostics checked)) (tcModuleSuccess checked)
+          assertEqual "first package binding" [TcBindingId ["first", "1", "variant-a"] (Just "Shared") TcBindingTerm "value"] firstId
+          assertEqual "second package binding" [TcBindingId ["second", "1", "variant-b"] (Just "Shared") TcBindingTerm "value"] secondId
+          assertBool "package identity keeps otherwise identical bindings distinct" (firstId /= secondId)
+        result -> assertFailure ("expected one resolved module, got: " <> show result)
+  ]
 
 -- | Build the inline annotated golden test tree from YAML fixtures.
 tcAnnotatedGoldenTests :: IO TestTree

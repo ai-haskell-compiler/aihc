@@ -328,8 +328,20 @@ lookupTerm name =
   lift $ gets $ \s -> Map.lookup name (tcsGlobalTerms s)
 
 lookupResolvedTerm :: Text -> ResolvedName -> TcM (Maybe TcBinder)
-lookupResolvedTerm displayName resolved =
-  resolvedNameTermKey displayName resolved >>= lookupTermKey
+lookupResolvedTerm displayName resolved = do
+  exact <-
+    case resolved of
+      ResolvedTopLevel name -> lookupTerm (globalNameText name)
+      _ -> resolvedNameTermKey displayName resolved >>= lookupTermKey
+  case exact of
+    Just binder -> pure (Just binder)
+    Nothing -> lookupTerm (resolvedOccurrence resolved)
+  where
+    resolvedOccurrence target =
+      case target of
+        ResolvedTopLevel name -> nameText name
+        ResolvedBuiltin name -> name
+        _ -> displayName
 
 lookupTermKey :: TcTermKey -> TcM (Maybe TcBinder)
 lookupTermKey key =
@@ -387,6 +399,12 @@ extendResolvedTermEnv name binder action = do
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
 extendTermEnvPermanent name binder = lift $ modify' $ \s ->
   s {tcsGlobalTerms = Map.insert name binder (tcsGlobalTerms s)}
+
+globalNameText :: Name -> Text
+globalNameText name =
+  case nameQualifier name of
+    Nothing -> nameText name
+    Just qualifier -> qualifier <> "." <> nameText name
 
 resolvedTermTarget :: Name -> TcM ResolvedName
 resolvedTermTarget name =

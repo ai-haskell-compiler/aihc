@@ -56,6 +56,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Tc (TcBindingId (..), TcBindingNamespace (..))
 import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Types (Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType)
@@ -81,6 +82,8 @@ data DsState = DsState
     dsModuleName :: !(Maybe Text),
     -- | Map from surface name to its inferred type (from TC).
     dsTypeEnv :: !(Map Text TcType),
+    -- | Complete binding environment keyed by canonical frontend identity.
+    dsBindingTypes :: !(Map TcBindingId TcType),
     -- | Local variable bindings (pattern-bound, lambda-bound).
     dsLocalVars :: !(Map Text Var),
     -- | Local dictionaries, keyed by class predicate.
@@ -121,7 +124,7 @@ lookupType name = do
   st <- get
   case Map.lookup name (dsLocalVars st) of
     Just v -> pure (varType v)
-    Nothing -> case Map.lookup name (dsTypeEnv st) of
+    Nothing -> case lookupCanonicalBinding (mkName Nothing NameVarId name) st <|> Map.lookup name (dsTypeEnv st) of
       Just ty -> pure ty
       Nothing -> desugarBug ("missing type information for name: " <> T.unpack name)
 
@@ -1747,4 +1750,24 @@ lookupTypeName name = do
 lookupTypeMaybeName :: Name -> DsM (Maybe TcType)
 lookupTypeMaybeName name = do
   st <- get
-  pure (Map.lookup (nameToText name) (dsTypeEnv st) <|> Map.lookup (nameText name) (dsTypeEnv st))
+  pure
+    ( lookupCanonicalBinding name st
+        <|> Map.lookup (nameToText name) (dsTypeEnv st)
+        <|> Map.lookup (nameText name) (dsTypeEnv st)
+    )
+
+lookupCanonicalBinding :: Name -> DsState -> Maybe TcType
+lookupCanonicalBinding name st =
+  case [ ty
+       | (bindingId, ty) <- Map.toList (dsBindingTypes st),
+         tbiNamespace bindingId == TcBindingTerm,
+         tbiOccurrence bindingId == nameText name,
+         matchesModule bindingId
+       ] of
+    [ty] -> Just ty
+    _ -> Nothing
+  where
+    matchesModule bindingId =
+      case nameQualifier name of
+        Just qualifier -> tbiModule bindingId == Just qualifier
+        Nothing -> tbiModule bindingId == dsModuleName st

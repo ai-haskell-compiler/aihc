@@ -10,8 +10,11 @@ module Aihc.Tc.Generate.Decl
   ( tcModule,
     tcModuleScc,
     moduleBindings,
+    moduleBindingsWithPackage,
     moduleInstances,
     moduleClasses,
+    TcBindingId (..),
+    TcBindingNamespace (..),
     TcBindingResult (..),
   )
 where
@@ -64,6 +67,7 @@ import Aihc.Parser.Syntax
     instanceHeadName,
     instanceHeadTypes,
     mkAnnotation,
+    moduleName,
     nameText,
     peelClassDeclItemAnn,
     peelDeclAnn,
@@ -104,7 +108,7 @@ import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
 import Control.Monad (foldM, forM_, unless, when, zipWithM)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (get, modify')
+import Control.Monad.Trans.State.Strict (get, gets, modify')
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (find, mapAccumL, nub, nubBy, partition, (\\))
 import Data.Map.Strict (Map)
@@ -128,7 +132,9 @@ peelDeclSpan ambient _ = ambient
 
 -- | Result of type-checking a single binding.
 data TcBindingResult = TcBindingResult
-  { -- | Canonical binder identity. Symbolic binders are stored without
+  { -- | Canonical global identity selected for this binding.
+    tbId :: !TcBindingId,
+    -- | Source occurrence name. Symbolic binders are stored without
     -- prefix-position parentheses, e.g. @++@ rather than @(++)@.
     tbName :: !Text,
     -- | Human-facing rendering for diagnostics and golden output.
@@ -136,6 +142,32 @@ data TcBindingResult = TcBindingResult
     tbType :: !TcType
   }
   deriving (Show, Read)
+
+-- | Namespace of a global binding. Term and type declarations may share an
+-- occurrence name without denoting the same entity.
+data TcBindingNamespace
+  = TcBindingTerm
+  | TcBindingType
+  deriving (Eq, Ord, Show, Read)
+
+-- | Stable identity of a checked global binding. The package identity is a
+-- structured list because installed library identities are already framed as
+-- name, version, and variant-hash components.
+data TcBindingId = TcBindingId
+  { tbiPackage :: ![Text],
+    tbiModule :: !(Maybe Text),
+    tbiNamespace :: !TcBindingNamespace,
+    tbiOccurrence :: !Text
+  }
+  deriving (Eq, Ord, Show, Read)
+
+termBinding :: Text -> Text -> TcType -> TcBindingResult
+termBinding name =
+  TcBindingResult (TcBindingId [] Nothing TcBindingTerm name) name
+
+typeBinding :: Text -> Text -> TcType -> TcBindingResult
+typeBinding name =
+  TcBindingResult (TcBindingId [] Nothing TcBindingType name) name
 
 data UserSig = UserSig
   { userSigName :: !Text,
@@ -152,8 +184,23 @@ data CheckedSig = CheckedSig
   deriving (Show)
 
 moduleBindings :: Module -> [TcBindingResult]
-moduleBindings modu =
-  concatMap declBindings (moduleDecls modu)
+moduleBindings = moduleBindingsWithPackage []
+
+-- | Recover checked bindings and attach the compilation unit identity. The
+-- type checker itself is package-agnostic; package-aware drivers supply the
+-- installed library identity at this interface boundary.
+moduleBindingsWithPackage :: [Text] -> Module -> [TcBindingResult]
+moduleBindingsWithPackage packageId modu =
+  map qualify (concatMap declBindings (moduleDecls modu))
+  where
+    qualify binding =
+      binding
+        { tbId =
+            (tbId binding)
+              { tbiPackage = packageId,
+                tbiModule = moduleName modu
+              }
+        }
 
 -- | Recover instance-environment entries from finalized module annotations.
 moduleInstances :: Module -> [InstanceInfo]
@@ -260,32 +307,32 @@ tcAnnotationBindings ann decl =
     Just tcAnn ->
       case decl of
         DeclValue valueDecl ->
-          [ TcBindingResult name displayName (tcAnnType tcAnn)
+          [ termBinding name displayName (tcAnnType tcAnn)
           | (name, displayName) <- valueDeclBindingNames valueDecl
           ]
         DeclData dataDecl ->
           let name = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
-           in [TcBindingResult name name (tcAnnType tcAnn)]
+           in [typeBinding name name (tcAnnType tcAnn)]
         DeclNewtype newtypeDecl ->
           let name = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
-           in [TcBindingResult name name (tcAnnType tcAnn)]
+           in [typeBinding name name (tcAnnType tcAnn)]
         DeclDataFamilyDecl familyDecl ->
           let name = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
-           in [TcBindingResult name name (tcAnnType tcAnn)]
+           in [typeBinding name name (tcAnnType tcAnn)]
         DeclForeign foreignDecl ->
           let name = unqualifiedNameText (foreignName foreignDecl)
               displayName = renderBinderName (foreignName foreignDecl)
-           in [TcBindingResult name displayName (tcAnnType tcAnn)]
+           in [termBinding name displayName (tcAnnType tcAnn)]
         _ -> []
 
 classAnnotationBindings :: Annotation -> Decl -> [TcBindingResult]
 classAnnotationBindings ann decl =
   case (fromAnnotation ann, decl) of
     (Just classAnn, DeclClass {}) ->
-      [ TcBindingResult (tcClassMethodName method) (tcClassMethodName method) (tcClassMethodType method)
+      [ termBinding (tcClassMethodName method) (tcClassMethodName method) (tcClassMethodType method)
       | method <- tcClassMethods classAnn
       ]
-        <> [ TcBindingResult (defaultMethodName (tcClassMethodName method)) (defaultMethodName (tcClassMethodName method)) (classDefaultWorkerType classAnn method)
+        <> [ termBinding (defaultMethodName (tcClassMethodName method)) (defaultMethodName (tcClassMethodName method)) (classDefaultWorkerType classAnn method)
            | method <- tcClassMethods classAnn,
              tcClassMethodName method `elem` tcClassDefaultMethods classAnn
            ]
@@ -308,14 +355,14 @@ instanceAnnotationBindings :: Annotation -> [TcBindingResult]
 instanceAnnotationBindings ann =
   case fromAnnotation ann of
     Just instAnn ->
-      [TcBindingResult (tcInstanceDictName instAnn) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)]
+      [termBinding (tcInstanceDictName instAnn) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)]
     Nothing -> []
 
 derivingAnnotationBindings :: Annotation -> [TcBindingResult]
 derivingAnnotationBindings ann =
   case fromAnnotation ann of
     Just derivingAnnotation ->
-      [ TcBindingResult (iiDictName instanceInfo) (iiDictName instanceInfo) (iiDictType instanceInfo)
+      [ termBinding (iiDictName instanceInfo) (iiDictName instanceInfo) (iiDictType instanceInfo)
       | plan <- tcDerivingPlans derivingAnnotation,
         Just instanceInfo <- [derivingPlanInstanceInfo plan]
       ]
@@ -327,7 +374,7 @@ dataConBindings dataConDecl =
     DataConAnn ann inner ->
       case fromAnnotation ann of
         Just tcAnn ->
-          [ TcBindingResult name displayName (tcAnnType tcAnn)
+          [ termBinding name displayName (tcAnnType tcAnn)
           | (name, displayName) <- dataConBindingNames inner
           ]
         Nothing -> dataConBindings inner
@@ -452,7 +499,18 @@ tcModuleBody schemes m = do
   -- unlifted. Generated declarations without source spans are permitted so
   -- downstream passes can introduce internal unlifted bindings.
   checkTopLevelUnliftedBindings sourceGroups groupResults
+  registerQualifiedValueResults m valueResults
   pure (PendingModule pendingModule valueResults)
+
+registerQualifiedValueResults :: Module -> [TcBindingResult] -> TcM ()
+registerQualifiedValueResults modu bindings =
+  case moduleName modu of
+    Nothing -> pure ()
+    Just name ->
+      forM_ bindings $ \binding ->
+        extendTermEnvPermanent
+          (name <> "." <> tbName binding)
+          (TcIdBinder (typeToScheme (tbType binding)) Closed)
 
 annotatePendingModule :: PendingModule -> TcM Module
 annotatePendingModule pending = do
@@ -589,10 +647,32 @@ renderCheckedGroup checkedGroups (groupId, group) =
   fromMaybe (renderDeclGroup group) (Map.lookup groupId checkedGroups)
 
 annotateModuleTc :: Set.Set Text -> Module -> TcM Module
-annotateModuleTc checkedValueNames m = do
-  let classMethods = collectClassMethodNames (moduleDecls m)
-  decls <- mapM (annotateDeclTc classMethods checkedValueNames) (moduleDecls m)
-  pure (m {moduleDecls = decls})
+annotateModuleTc checkedValueNames m =
+  withCurrentModuleTermAliases m $ do
+    let classMethods = collectClassMethodNames (moduleDecls m)
+    decls <- mapM (annotateDeclTc classMethods checkedValueNames) (moduleDecls m)
+    pure (m {moduleDecls = decls})
+
+-- Annotation recovery still uses occurrence names because it walks one module
+-- at a time. Supply aliases only for that module while retaining qualified
+-- identities in the persistent global environment.
+withCurrentModuleTermAliases :: Module -> TcM a -> TcM a
+withCurrentModuleTermAliases modu action = do
+  original <- lift (gets tcsGlobalTerms)
+  let aliases =
+        case moduleName modu of
+          Nothing -> Map.empty
+          Just name ->
+            let prefix = name <> "."
+             in Map.fromList
+                  [ (occurrence, binder)
+                  | (globalName, binder) <- Map.toList original,
+                    Just occurrence <- [T.stripPrefix prefix globalName]
+                  ]
+  lift (modify' (\state -> state {tcsGlobalTerms = aliases <> original}))
+  result <- action
+  lift (modify' (\state -> state {tcsGlobalTerms = original}))
+  pure result
 
 annotateModuleDerivingTc :: Module -> TcM Module
 annotateModuleDerivingTc modu = do
@@ -1585,7 +1665,7 @@ tcSingleDeclGroup sigs groupId d =
             else do
               zonkedTy <- zonkType ty
               let decl' = replacePatternBindRhs rhs' d
-              pure (TcDeclGroupResult groupId [TcBindingResult "<pattern>" "<pattern>" zonkedTy] (Just [decl']))
+              pure (TcDeclGroupResult groupId [termBinding "<pattern>" "<pattern>" zonkedTy] (Just [decl']))
     _ -> do
       bindings <- tcDecl d
       pure (TcDeclGroupResult groupId bindings Nothing)
@@ -1635,7 +1715,7 @@ tcFunctionWithSig displayName name sig matches = do
       -- Report the declared scheme as the binding's type.
       let declaredTy = schemeToType scheme
       zonkedTy <- zonkType declaredTy
-      pure (Just matches', [TcBindingResult name displayName zonkedTy])
+      pure (Just matches', [termBinding name displayName zonkedTy])
 
 -- | Type-check a function without a type signature (infer).
 tcFunctionInfer :: Text -> Text -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
@@ -1656,7 +1736,7 @@ tcFunctionInfer displayName name matches = do
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
       extendTermEnvPermanent name (TcIdBinder scheme Closed)
-      pure (Just matches', [TcBindingResult name displayName zonkedTy])
+      pure (Just matches', [termBinding name displayName zonkedTy])
 
 generalizableResidualPreds :: SolveResult -> TcM [Pred]
 generalizableResidualPreds solveResult = do
@@ -1753,7 +1833,7 @@ registerForeignImport foreignDecl = do
       declaredTy = schemeToType scheme
   extendTermEnvPermanent name (TcIdBinder scheme Closed)
   zonkedTy <- zonkType declaredTy
-  pure [TcBindingResult name displayName zonkedTy]
+  pure [termBinding name displayName zonkedTy]
 
 registerClassDecl :: ClassDecl -> TcM [TcBindingResult]
 registerClassDecl classDecl = do
@@ -1804,7 +1884,7 @@ registerClassDecl classDecl = do
               workerScheme = maybe scheme (defaultWorkerScheme scheme) (lookup methodName defaultSignatures)
               workerType = schemeToType workerScheme
           extendTermEnvPermanent workerName (TcIdBinder workerScheme Closed)
-          pure (Just (TcBindingResult workerName workerName workerType))
+          pure (Just (termBinding workerName workerName workerType))
       | otherwise = pure Nothing
 
     defaultWorkerScheme ordinaryScheme (ForAll tyVars predicates body) =
@@ -1833,7 +1913,7 @@ registerClassItem classPred classTvEnv classTyVars item =
                 displayName = renderBinderName methodName
             extendTermEnvPermanent name (TcIdBinder scheme Closed)
             zonkedTy <- zonkType declaredTy
-            pure (TcBindingResult name displayName zonkedTy)
+            pure (termBinding name displayName zonkedTy)
         )
         names
     _ -> pure []
@@ -1882,7 +1962,7 @@ registerInstanceDecl instanceDecl =
             iiContext = context,
             iiHead = headTys
           }
-      pure [TcBindingResult dictName dictName dictTy]
+      pure [termBinding dictName dictName dictTy]
 
 predType :: Pred -> TcType
 predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
@@ -1919,7 +1999,7 @@ registerDataFamilyDeclHeader familyDecl = do
         tciTypeSynonym = Nothing
       }
   zonkedKind <- defaultKindMetas declaredKind
-  pure [TcBindingResult familyName familyName (kindToTcType zonkedKind)]
+  pure [typeBinding familyName familyName (kindToTcType zonkedKind)]
 
 registerDataFamilyInstance :: DataFamilyInst -> TcM [TcBindingResult]
 registerDataFamilyInstance familyInst = do
@@ -2007,7 +2087,7 @@ registerDataDeclHeader dd = do
         tciTypeSynonym = Nothing
       }
   zonkedKind <- defaultKindMetas declaredKind
-  let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind)
+  let tyConResult = typeBinding tyName tyName (kindToTcType zonkedKind)
   pure [tyConResult]
 
 registerDataConstructors :: DataDecl -> TcM [TcBindingResult]
@@ -2052,7 +2132,7 @@ registerNewtypeDeclHeader nd = do
         tciTypeSynonym = Nothing
       }
   zonkedKind <- defaultKindMetas declaredKind
-  let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind)
+  let tyConResult = typeBinding tyName tyName (kindToTcType zonkedKind)
   pure [tyConResult]
 
 registerNewtypeConstructor :: NewtypeDecl -> TcM [TcBindingResult]
@@ -2094,7 +2174,7 @@ registerTypeSynonymHeader typeSynDecl = do
         tciFlavor = SynonymTyCon,
         tciTypeSynonym = Just synonym
       }
-  pure [TcBindingResult tyName tyName (kindToTcType declaredKind)]
+  pure [typeBinding tyName tyName (kindToTcType declaredKind)]
 
 registerTypeSynonymBody :: Decl -> TcM ()
 registerTypeSynonymBody (DeclAnn _ inner) = registerTypeSynonymBody inner
@@ -2165,8 +2245,8 @@ registerDataConWithResult paramInfos resTy con = case con of
       (n : _) -> do
         zonkedTy <- zonkType conTy
         let name = unqualifiedNameText n
-         in pure (TcBindingResult name name zonkedTy)
-      [] -> pure (TcBindingResult "<gadt>" "<gadt>" gadtResTy)
+         in pure (termBinding name name zonkedTy)
+      [] -> pure (termBinding "<gadt>" "<gadt>" gadtResTy)
   where
     paramEnv =
       Map.fromList
@@ -2189,7 +2269,7 @@ registerDataConWithResult paramInfos resTy con = case con of
           scheme = ForAll (paramVarIds <> constructorTyVars) predicates conTy
       extendTermEnvPermanent name (TcIdBinder scheme Closed)
       zonkedTy <- zonkType (schemeToType scheme)
-      pure (TcBindingResult name name zonkedTy)
+      pure (termBinding name name zonkedTy)
 
 tupleConText :: TupleFlavor -> Int -> Text
 tupleConText flavor arity =
@@ -2313,7 +2393,7 @@ tcValueDecl (PatternBind _ pat rhs) = case patternBinderName pat of
   Nothing -> do
     (_rhs', ty) <- tcRhs rhs
     zonkedTy <- zonkType ty
-    pure [TcBindingResult "<pattern>" "<pattern>" zonkedTy]
+    pure [termBinding "<pattern>" "<pattern>" zonkedTy]
 
 -- | Extract the binder name from a pattern binding's LHS, if it is a bare
 -- variable pattern.  Returns @(displayName, envName)@ for simple variable

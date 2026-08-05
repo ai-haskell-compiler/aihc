@@ -51,7 +51,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (ResolveResult (..), resolve)
-import Aihc.Tc (DataFamilyInstanceInfo (..), TcBindingResult (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
+import Aihc.Tc (DataFamilyInstanceInfo (..), TcBindingId (..), TcBindingResult (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
@@ -110,7 +110,8 @@ desugarModuleWithBindings bindings tcResult _m =
         }
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
-       in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) typeEnv Map.empty Map.empty) of
+          bindingTypes = Map.fromList [(tbId binding, tbType binding) | binding <- bindings]
+       in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) typeEnv bindingTypes Map.empty Map.empty) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram [],
@@ -212,7 +213,10 @@ showTcFailure tcResult =
 
 bindingTypeEntries :: TcBindingResult -> [(Text, TcType)]
 bindingTypeEntries b =
-  [(tbName b, tbType b)]
+  (tbName b, tbType b)
+    : [ (bindingModule <> "." <> tbName b, tbType b)
+      | Just bindingModule <- [tbiModule (tbId b)]
+      ]
 
 builtinTypeEntries :: [(Text, TcType)]
 builtinTypeEntries =

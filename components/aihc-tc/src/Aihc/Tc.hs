@@ -30,12 +30,15 @@ module Aihc.Tc
 
     -- * Result types
     TcResult (..),
+    TcBindingId (..),
+    TcBindingNamespace (..),
     TcBindingResult (..),
     TcInterface (..),
     emptyTcInterface,
 
     -- * Module result projections
     tcModuleBindings,
+    tcModuleBindingsWithPackage,
     tcModuleDiagnostics,
     tcModuleInstances,
     tcModuleClasses,
@@ -118,7 +121,7 @@ import Aihc.Parser.Syntax
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType)
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
+import Aihc.Tc.Generate.Decl (TcBindingId (..), TcBindingNamespace (..), TcBindingResult (..), moduleBindings, moduleBindingsWithPackage, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
@@ -223,6 +226,12 @@ typecheckExprM expr = do
 tcModuleBindings :: Module -> [TcBindingResult]
 tcModuleBindings =
   moduleBindings
+
+-- | Top-level bindings with the package variant identity supplied by a
+-- package-aware compiler driver.
+tcModuleBindingsWithPackage :: [Text] -> Module -> [TcBindingResult]
+tcModuleBindingsWithPackage =
+  moduleBindingsWithPackage
 
 -- | Class instances recovered from a type-checked module's annotations.
 tcModuleInstances :: Module -> [InstanceInfo]

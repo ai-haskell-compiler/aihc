@@ -39,6 +39,8 @@ import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), Resol
 import Aihc.Tc
   ( InstanceInfo,
     Pred (..),
+    TcBindingId (..),
+    TcBindingNamespace (..),
     TcBindingResult (..),
     TcDiagnostic (..),
     TcErrorKind (..),
@@ -541,7 +543,8 @@ bindingTypesForModule =
 importedTermBindings :: [(Text, TypeScheme)] -> [TcBindingResult]
 importedTermBindings terms =
   [ TcBindingResult
-      { tbName = name,
+      { tbId = TcBindingId [] Nothing TcBindingTerm name,
+        tbName = name,
         tbDisplayName = name,
         tbType = instantiateSchemeBody scheme
       }

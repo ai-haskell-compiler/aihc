@@ -530,6 +530,10 @@ test_writeInstallScaffold =
     assertBool "interface includes fixities" ("fixities" `isInfixOf` renderedInterface)
     assertBool "interface includes modules" ("modules" `isInfixOf` renderedInterface)
     assertBool "interface includes typecheck data" ("typecheck" `isInfixOf` renderedInterface)
+    assertBool "interface uses qualified binding identity schema" ("\"schemaVersion\":2" `isInfixOf` renderedInterface)
+    assertBool "interface records binding packages" ("\"package\":[\"demo\"" `isInfixOf` renderedInterface)
+    assertBool "interface records binding modules" ("\"module\":\"Demo\"" `isInfixOf` renderedInterface)
+    assertBool "interface records binding namespaces" ("\"namespace\":\"term\"" `isInfixOf` renderedInterface)
     assertBool "interface is implemented" (not ("unimplemented" `isInfixOf` renderedInterface))
 
     fcJson <- BL8.readFile (resultFcPath result)

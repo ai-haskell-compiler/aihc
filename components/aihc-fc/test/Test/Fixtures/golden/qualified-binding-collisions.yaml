@@ -1,0 +1,83 @@
+extensions: []
+modules:
+  - |
+    module Data.List.NonEmpty where
+    xor value = value
+    length value = value
+    toList value = value
+    indexError value = value
+  - |
+    module GHC.Bits where
+    xor left right = right
+  - |
+    module Data.Foldable where
+    length left right = right
+    toList left right = right
+  - |
+    module GHC.Ix where
+    indexError left right = right
+  - |
+    module CollisionRegression where
+    import qualified Data.List.NonEmpty as NonEmpty
+    resultXor = NonEmpty.xor 'x'
+    resultLength = NonEmpty.length 'l'
+    resultToList = NonEmpty.toList 't'
+    resultIndexError = NonEmpty.indexError 'i'
+expected: |-
+  xor : ∀ a. a → a =
+    Λa.
+      λx1001 : a.
+        x1001
+
+  length : ∀ a. a → a =
+    Λa.
+      λx1003 : a.
+        x1003
+
+  toList : ∀ a. a → a =
+    Λa.
+      λx1005 : a.
+        x1005
+
+  indexError : ∀ a. a → a =
+    Λa.
+      λx1007 : a.
+        x1007
+  xor : ∀ a b. a → b → b =
+    Λa.
+      Λb.
+        λx1001 : a.
+          λy1002 : b.
+            y1002
+  length : ∀ a b. a → b → b =
+    Λa.
+      Λb.
+        λx1001 : a.
+          λy1002 : b.
+            y1002
+
+  toList : ∀ a b. a → b → b =
+    Λa.
+      Λb.
+        λx1004 : a.
+          λy1005 : b.
+            y1005
+  indexError : ∀ a b. a → b → b =
+    Λa.
+      Λb.
+        λx1001 : a.
+          λy1002 : b.
+            y1002
+  resultXor : Char =
+    xor @Char (C# 'x'#)
+
+  resultLength : Char =
+    length @Char (C# 'l'#)
+
+  resultToList : Char =
+    toList @Char (C# 't'#)
+
+  resultIndexError : Char =
+    indexError @Char (C# 'i'#)
+status: pass
+reason: module-qualified binding identities prevent unrelated imported occurrence names from overwriting FC types

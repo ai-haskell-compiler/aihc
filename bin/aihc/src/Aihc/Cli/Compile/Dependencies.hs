@@ -58,7 +58,7 @@ import Aihc.Resolve
 import Aihc.Tc
   ( TcBindingResult (..),
     TcInterface,
-    tcModuleBindings,
+    tcModuleBindingsWithPackage,
     tcModuleDiagnostics,
     tcModuleSuccess,
     typecheckModuleSccWithInterface,
@@ -197,7 +197,7 @@ data LibraryPackage = LibraryPackage
   deriving (Eq, Show)
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 32
+cacheSchemaVersion = 33
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
@@ -393,7 +393,11 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
            in if not (all tcModuleSuccess checkedModules)
                 then Left ("library typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules))
                 else
-                  let localBindings = concatMap tcModuleBindings checkedModules
+                  let localBindings =
+                        concat
+                          [ tcModuleBindingsWithPackage (loadedLibraryId member) checked
+                          | (member, checked) <- zip members checkedModules
+                          ]
                       bindings = compileStateBindings state <> localBindings
                       desugared = zipWith (desugarModuleWithBindings bindings) checkedModules resolvedModules
                    in if not (all dsSuccess desugared)
