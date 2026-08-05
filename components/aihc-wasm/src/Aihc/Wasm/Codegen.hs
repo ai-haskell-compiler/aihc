@@ -329,6 +329,10 @@ runtimeFunctionTypes =
     ("aihc_array_index", ([I32, I64], [I64])),
     ("aihc_array_write", ([I32, I64, I64], [I64])),
     ("aihc_array_same", ([I32, I32], [I64])),
+    ("aihc_mutvar_new", ([I32, I64], [I32])),
+    ("aihc_mutvar_read", ([I32], [I64])),
+    ("aihc_mutvar_write", ([I32, I64], [I64])),
+    ("aihc_mutvar_same", ([I32, I32], [I64])),
     ("aihc_wasm_set_field", ([I64, I64, I64], [])),
     ("aihc_wasm_update", ([I64, I64], [])),
     ("aihc_wasm_update_blackhole", ([I32, I64, I64], [])),
@@ -586,6 +590,13 @@ compileDirectBinding env vars expression =
             <> materializeValue env size
             <> materializeValue env initial
             <> call "aihc_array_new"
+            <> ["i64.extend_i32_u"]
+        )
+    GrinPrimitiveCall _ "newMutVar#" [initial] ->
+      storeSingle
+        ( machine
+            <> materializeValue env initial
+            <> call "aihc_mutvar_new"
             <> ["i64.extend_i32_u"]
         )
     GrinPrimitiveCall _ name arguments

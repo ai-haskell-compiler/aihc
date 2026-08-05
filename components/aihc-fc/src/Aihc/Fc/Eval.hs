@@ -269,9 +269,9 @@ evalWithEnv env expr =
       evalWithEnv env body
     FcLet bind body ->
       extendBind env bind >>= \extended -> evalWithEnv extended body
-    FcCase scrut _ alts -> do
+    FcCase scrut binder alts -> do
       value <- evalWithEnv env scrut >>= forceValue
-      matchAlternative env value alts
+      matchAlternative (insertLocal binder value env) value alts
     FcCast inner _ ->
       evalWithEnv env inner
     FcCallForeign foreignCall arguments -> do

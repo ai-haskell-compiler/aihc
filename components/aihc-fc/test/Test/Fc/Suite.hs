@@ -105,6 +105,20 @@ fcEvalTests =
          in do
               result <- evalProgramBinding "answer" program >>= renderEvalResult
               assertEqual "result" (Right "\"top\"") result,
+      testCase "binds a case scrutinee for the alternative result" $
+        let caseBinder = Var "scrutinee" (Unique 1) stringTy
+            result = Var "answer" (Unique 2) stringTy
+            program =
+              FcProgram
+                [ FcTopBind
+                    ( FcNonRec
+                        result
+                        (Aihc.Fc.FcCase (FcLit (LitString "forced")) caseBinder [FcAlt DefaultAlt [] (FcVar caseBinder)])
+                    )
+                ]
+         in do
+              actual <- evalProgramBinding "answer" program >>= renderEvalResult
+              assertEqual "case result" (Right "\"forced\"") actual,
       testCase "renders raw constructor values" $ do
         result <-
           renderRawValue

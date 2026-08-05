@@ -48,6 +48,15 @@ tests =
                 (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           arrayRuntimeSymbols,
+      testCase "maps mutable-reference primitives to the shared runtime ABI" $
+        mapM_
+          ( \(primitive, symbol) ->
+              assertEqual
+                ("runtime call for " <> show primitive)
+                (Just symbol)
+                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+          )
+          mutVarRuntimeSymbols,
       testCase "keeps freeze and thaw representation-preserving" $
         mapM_
           (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
@@ -60,6 +69,10 @@ tests =
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           (map fst arrayRuntimeSymbols <> ["newArray#", "unsafeFreezeArray#", "unsafeThawArray#"]),
+      testCase "accepts the complete mutable-reference API in native programs" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          ("newMutVar#" : map fst mutVarRuntimeSymbols),
       testCase "accepts the Integer arithmetic primitive API" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
@@ -112,6 +125,13 @@ arrayRuntimeSymbols =
     ("readArray#", "aihc_array_index"),
     ("writeArray#", "aihc_array_write"),
     ("sameMutableArray#", "aihc_array_same")
+  ]
+
+mutVarRuntimeSymbols :: [(Text, Text)]
+mutVarRuntimeSymbols =
+  [ ("readMutVar#", "aihc_mutvar_read"),
+    ("writeMutVar#", "aihc_mutvar_write"),
+    ("sameMutVar#", "aihc_mutvar_same")
   ]
 
 integerPrimitiveNames :: [Text]
