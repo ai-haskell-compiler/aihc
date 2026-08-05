@@ -1,27 +1,103 @@
 expected: |-
-  data Bool
-   = False
-   | True
-
-  select : ∀ a. (a → Bool) → [a] → [a] =
-    Λa.
-      λx1001 : a → Bool.
-        λy1002 : [a].
-          let
-            rec
-              $lc1003 : [a] → [a] =
-                λ_lc_list1004 : [a].
-                  case _lc_list1004 as _lc_scrut1007 : [a] of
-                    [] →
-                      [] @a
-                    : _lc_head1005 _lc_tail1006 →
-                      case x1001 _lc_head1005 as _lc_guard1008 : Bool of
-                        True →
-                          : @a _lc_head1005 ($lc1003 _lc_tail1006)
-                        False →
-                          $lc1003 _lc_tail1006
-          in
-            $lc1003 y1002
+  core 1
+  type 1 = TcForAllTy (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) [])) (TcFunTy (TcTyCon (TyConInternal "[]" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))]) (TcTyCon (TyConInternal "[]" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))])))
+  type 2 = TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) [])
+  type 3 = TcTyCon (TyConInternal "[]" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))]
+  type 4 = TcFunTy (TcTyCon (TyConInternal "[]" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))]) (TcTyCon (TyConInternal "[]" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))])
+  type 5 = TcForAllTy (TyVarIdInternal "a" (Unique (-2000)) (KTYPE (BoxedRep Lifted))) (TcTyCon (TyConInternal "[]" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique (-2000)) (KTYPE (BoxedRep Lifted)))])
+  type 6 = TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))
+  type 7 = TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []
+  type 8 = TcForAllTy (TyVarIdInternal "a" (Unique (-2000)) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique (-2000)) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyCon (TyConInternal "[]" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique (-2000)) (KTYPE (BoxedRep Lifted)))]) (TcTyCon (TyConInternal "[]" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique (-2000)) (KTYPE (BoxedRep Lifted)))])))
+  tyvar 1 = TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted))
+  var 1 = "select"%1000 : t1 local
+  var 2 = "x1001"%1001 : t2 local
+  var 3 = "y1002"%1002 : t3 local
+  var 4 = "$lc1003"%1003 : t4 local
+  var 5 = "_lc_list1004"%1004 : t3 local
+  var 6 = "_lc_scrut1007"%1007 : t3 local
+  var 7 = "[]"%-10 : t5 local
+  var 8 = "_lc_head1005"%1005 : t6 local
+  var 9 = "_lc_tail1006"%1006 : t3 local
+  var 10 = "_lc_guard1008"%1008 : t7 local
+  var 11 = ":"%-11 : t8 local
+  body
+  (program
+    (data
+      "Bool"
+      []
+      (constructor
+        "False")
+      (constructor
+        "True"))
+    (top
+      (nonrec
+        v1:"select"
+        (type-lam
+          a1
+          (lam
+            v2:"x1001"
+            (lam
+              v3:"y1002"
+              (let
+                (rec
+                  (binding
+                    v4:"$lc1003"
+                    (lam
+                      v5:"_lc_list1004"
+                      (case
+                        (ref
+                          v5:"_lc_list1004")
+                        v6:"_lc_scrut1007"
+                        (alt
+                          (data-alt
+                            "[]")
+                          []
+                          (type-app
+                            (ref
+                              v7:"[]")
+                            t6))
+                        (alt
+                          (data-alt
+                            ":")
+                          [v8:"_lc_head1005" v9:"_lc_tail1006"]
+                          (case
+                            (app
+                              (ref
+                                v2:"x1001")
+                              (ref
+                                v8:"_lc_head1005"))
+                            v10:"_lc_guard1008"
+                            (alt
+                              (data-alt
+                                "True")
+                              []
+                              (app
+                                (app
+                                  (type-app
+                                    (ref
+                                      v11:":")
+                                    t6)
+                                  (ref
+                                    v8:"_lc_head1005"))
+                                (app
+                                  (ref
+                                    v4:"$lc1003")
+                                  (ref
+                                    v9:"_lc_tail1006"))))
+                            (alt
+                              (data-alt
+                                "False")
+                              []
+                              (app
+                                (ref
+                                  v4:"$lc1003")
+                                (ref
+                                  v9:"_lc_tail1006")))))))))
+                (app
+                  (ref
+                    v4:"$lc1003")
+                  (ref
+                    v3:"y1002")))))))))
 extensions: []
 modules:
 - |

@@ -6,12 +6,29 @@ modules:
     data Unit = Unit
     data family Wrapped a
     newtype instance Wrapped Unit = WrappedUnit Unit
-expected: |
-  data Unit
-   = Unit
-
-  newtype $R$Wrapped$WrappedUnit = WrappedUnit Unit
-
-  axiom $ax$Wrapped$WrappedUnit : Wrapped Unit ~N $R$Wrapped$WrappedUnit
+expected: |-
+  core 1
+  type 1 = TcTyCon (TyConInternal "Unit" 0 (KTYPE (BoxedRep Lifted))) []
+  type 2 = TcTyCon (TyConInternal "$R$Wrapped$WrappedUnit" 0 (KTYPE (BoxedRep Lifted))) []
+  type 3 = TcTyCon (TyConInternal "Wrapped" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Unit" 0 (KTYPE (BoxedRep Lifted))) []]
+  body
+  (program
+    (data
+      "Unit"
+      []
+      (constructor
+        "Unit"))
+    (newtype
+      "$R$Wrapped$WrappedUnit"
+      []
+      "WrappedUnit"
+      t1
+      t2)
+    (axiom
+      "$ax$Wrapped$WrappedUnit"
+      []
+      nominal
+      t3
+      t2))
 status: pass
 reason: newtype-family instances retain a representation newtype and their nominal family equation

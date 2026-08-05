@@ -5,7 +5,6 @@
 --
 -- * 'Aihc.Fc.Syntax' — Core grammar (expressions, bindings, alternatives)
 -- * 'Aihc.Fc.Text' — lossless, parseable Core text
--- * 'Aihc.Fc.Pretty' — compact Unicode diagnostic rendering
 -- * 'Aihc.Fc.Lint' — Structural type checker for Core
 -- * 'Aihc.Fc.Desugar' — Translation from TC-annotated surface AST to Core
 module Aihc.Fc
@@ -15,12 +14,6 @@ module Aihc.Fc
     -- * Lossless text
     renderProgram,
     parseProgram,
-
-    -- * Diagnostic pretty-printing
-    renderPrettyProgram,
-    renderExpr,
-    renderType,
-    renderTopBind,
 
     -- * Evaluation
     evalProgramBinding,
@@ -73,6 +66,5 @@ import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintP
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (NewtypeInterface, extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
 import Aihc.Fc.Optimize (optimizeProgram)
-import Aihc.Fc.Pretty (renderExpr, renderPrettyProgram, renderTopBind, renderType)
 import Aihc.Fc.Syntax
 import Aihc.Fc.Text (parseProgram, renderProgram)

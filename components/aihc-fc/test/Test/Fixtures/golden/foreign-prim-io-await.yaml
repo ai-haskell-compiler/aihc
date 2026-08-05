@@ -1,14 +1,40 @@
 expected: |-
-  data State#
-
-  data RealWorld
-
-  foreign prim awaitIO#/2 : Addr# → (State# RealWorld) → State# RealWorld
-
-  await : Addr# → (State# RealWorld) → State# RealWorld =
-    λx1002 : Addr#.
-      λy1003 : State# RealWorld.
-        awaitIO# x1002 y1003
+  core 1
+  prefix 1 = "Test"
+  type 1 = TcFunTy (TcTyCon (TyConInternal "Addr#" 0 (KTYPE AddrRep)) []) (TcFunTy (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]) (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]))
+  type 2 = TcTyCon (TyConInternal "Addr#" 0 (KTYPE AddrRep)) []
+  type 3 = TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]
+  var 1 = "awaitIO#"%1000 : t1 local
+  var 2 = "await"%1001 : t1 local
+  var 3 = "x1002"%1002 : t2 local
+  var 4 = "y1003"%1003 : t3 local
+  var 5 = "awaitIO#"%1004 : t1 resolved "Test.awaitIO#"
+  body
+  (program
+    (data
+      "State#"
+      [])
+    (data
+      "RealWorld"
+      [])
+    (primitive
+      v1:"awaitIO#"
+      2)
+    (top
+      (nonrec
+        v2:"await"
+        (lam
+          v3:"x1002"
+          (lam
+            v4:"y1003"
+            (app
+              (app
+                (ref
+                  v5:"1.awaitIO#")
+                (ref
+                  v3:"x1002"))
+              (ref
+                v4:"y1003")))))))
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim

@@ -1,8 +1,21 @@
 expected: |-
-  id : ∀ a. a → a =
-    Λa.
-      λx1001 : a.
-        x1001
+  core 1
+  type 1 = TcForAllTy (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))) (TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))))
+  type 2 = TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))
+  tyvar 1 = TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted))
+  var 1 = "id"%1000 : t1 local
+  var 2 = "x1001"%1001 : t2 local
+  body
+  (program
+    (top
+      (nonrec
+        v1:"id"
+        (type-lam
+          a1
+          (lam
+            v2:"x1001"
+            (ref
+              v2:"x1001"))))))
 extensions: []
 modules:
 - |

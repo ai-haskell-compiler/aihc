@@ -1,23 +1,68 @@
 expected: |-
-  data State#
-
-  data RealWorld
-
-  data ThreadId#
-
-  foreign prim fork#/2 : ∀ a. ((State# RealWorld) → (#,#) (State# RealWorld) a) → (State# RealWorld) → (#,#) (State# RealWorld) ThreadId#
-
-  foreign prim yield#/1 : (State# RealWorld) → State# RealWorld
-
-  spawn : ∀ a. ((State# RealWorld) → (#,#) (State# RealWorld) a) → (State# RealWorld) → (#,#) (State# RealWorld) ThreadId# =
-    Λa.
-      λx1003 : (State# RealWorld) → (#,#) (State# RealWorld) a.
-        λy1004 : State# RealWorld.
-          fork# @a x1003 y1004
-
-  reschedule : (State# RealWorld) → State# RealWorld =
-    λx1007 : State# RealWorld.
-      yield# x1007
+  core 1
+  prefix 1 = "Test"
+  type 1 = TcForAllTy (TyVarIdInternal "a" (Unique 26) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcFunTy (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]) (TcTyCon (TyConInternal "(#,#)" 2 (KFun (KTYPE (TupleRep [])) (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [TupleRep [],BoxedRep Lifted]))))) [TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []],TcTyVar (TyVarIdInternal "a" (Unique 26) (KTYPE (BoxedRep Lifted)))])) (TcFunTy (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]) (TcTyCon (TyConInternal "(#,#)" 2 (KFun (KTYPE (TupleRep [])) (KFun (KTYPE (BoxedRep Unlifted)) (KTYPE (TupleRep [TupleRep [],BoxedRep Unlifted]))))) [TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []],TcTyCon (TyConInternal "ThreadId#" 0 (KTYPE (BoxedRep Unlifted))) []])))
+  type 2 = TcFunTy (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]) (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []])
+  type 3 = TcForAllTy (TyVarIdInternal "a" (Unique 44) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcFunTy (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]) (TcTyCon (TyConInternal "(#,#)" 2 (KFun (KTYPE (TupleRep [])) (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [TupleRep [],BoxedRep Lifted]))))) [TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []],TcTyVar (TyVarIdInternal "a" (Unique 44) (KTYPE (BoxedRep Lifted)))])) (TcFunTy (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]) (TcTyCon (TyConInternal "(#,#)" 2 (KFun (KTYPE (TupleRep [])) (KFun (KTYPE (BoxedRep Unlifted)) (KTYPE (TupleRep [TupleRep [],BoxedRep Unlifted]))))) [TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []],TcTyCon (TyConInternal "ThreadId#" 0 (KTYPE (BoxedRep Unlifted))) []])))
+  type 4 = TcFunTy (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]) (TcTyCon (TyConInternal "(#,#)" 2 (KFun (KTYPE (TupleRep [])) (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [TupleRep [],BoxedRep Lifted]))))) [TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []],TcTyVar (TyVarIdInternal "a" (Unique 44) (KTYPE (BoxedRep Lifted)))])
+  type 5 = TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]
+  type 6 = TcTyVar (TyVarIdInternal "a" (Unique 44) (KTYPE (BoxedRep Lifted)))
+  tyvar 1 = TyVarIdInternal "a" (Unique 44) (KTYPE (BoxedRep Lifted))
+  var 1 = "fork#"%1000 : t1 local
+  var 2 = "yield#"%1001 : t2 local
+  var 3 = "spawn"%1002 : t3 local
+  var 4 = "x1003"%1003 : t4 local
+  var 5 = "y1004"%1004 : t5 local
+  var 6 = "fork#"%1005 : t1 resolved "Test.fork#"
+  var 7 = "reschedule"%1006 : t2 local
+  var 8 = "x1007"%1007 : t5 local
+  var 9 = "yield#"%1008 : t2 resolved "Test.yield#"
+  body
+  (program
+    (data
+      "State#"
+      [])
+    (data
+      "RealWorld"
+      [])
+    (data
+      "ThreadId#"
+      [])
+    (primitive
+      v1:"fork#"
+      2)
+    (primitive
+      v2:"yield#"
+      1)
+    (top
+      (nonrec
+        v3:"spawn"
+        (type-lam
+          a1
+          (lam
+            v4:"x1003"
+            (lam
+              v5:"y1004"
+              (app
+                (app
+                  (type-app
+                    (ref
+                      v6:"1.fork#")
+                    t6)
+                  (ref
+                    v4:"x1003"))
+                (ref
+                  v5:"y1004")))))))
+    (top
+      (nonrec
+        v7:"reschedule"
+        (lam
+          v8:"x1007"
+          (app
+            (ref
+              v9:"1.yield#")
+            (ref
+              v8:"x1007"))))))
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim

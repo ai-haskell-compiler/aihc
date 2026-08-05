@@ -1,9 +1,18 @@
 expected: |-
-  data State#
-
-  data MutVar#
-
-  foreign prim newMutVar#/2 : ∀ value domain. value → (State# domain) → (#,#) (State# domain) (MutVar# domain value)
+  core 1
+  type 1 = TcForAllTy (TyVarIdInternal "value" (Unique 38) (KTYPE (BoxedRep Lifted))) (TcForAllTy (TyVarIdInternal "domain" (Unique 39) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyVar (TyVarIdInternal "value" (Unique 38) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyVar (TyVarIdInternal "domain" (Unique 39) (KTYPE (BoxedRep Lifted)))]) (TcTyCon (TyConInternal "(#,#)" 2 (KFun (KTYPE (TupleRep [])) (KFun (KTYPE (BoxedRep Unlifted)) (KTYPE (TupleRep [TupleRep [],BoxedRep Unlifted]))))) [TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyVar (TyVarIdInternal "domain" (Unique 39) (KTYPE (BoxedRep Lifted)))],TcTyCon (TyConInternal "MutVar#" 2 (KFun (KTYPE (BoxedRep Lifted)) (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Unlifted))))) [TcTyVar (TyVarIdInternal "domain" (Unique 39) (KTYPE (BoxedRep Lifted))),TcTyVar (TyVarIdInternal "value" (Unique 38) (KTYPE (BoxedRep Lifted)))]]))))
+  var 1 = "newMutVar#"%1000 : t1 local
+  body
+  (program
+    (data
+      "State#"
+      [])
+    (data
+      "MutVar#"
+      [])
+    (primitive
+      v1:"newMutVar#"
+      2))
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim

@@ -16,7 +16,6 @@ module FcGolden
 where
 
 import Aihc.Fc.Desugar (DesugarResult (..), desugarModuleWithBindings)
-import Aihc.Fc.Pretty (renderPrettyProgram)
 import Aihc.Fc.Text qualified as FcText
 import Aihc.Parser
   ( ParserConfig (..),
@@ -177,7 +176,7 @@ evaluateFcCase tc =
             then Right ast
             else Left (show errs)
     renderResults results =
-      unlines (map (renderPrettyProgram . dsProgram) results)
+      unlines (map (FcText.renderProgram . dsProgram) results)
     renderErrors results =
       unlines [err | r <- results, err <- dsErrors r]
 

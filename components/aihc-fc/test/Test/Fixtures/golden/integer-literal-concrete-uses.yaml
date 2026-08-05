@@ -1,67 +1,325 @@
 expected: |-
-  data Bool
-   = False
-   | True
+  core 1
+  type 1 = TcTyCon (TyConInternal "Int#" 0 (KTYPE IntRep)) []
+  body
+  (program
+    (data
+      "Bool"
+      []
+      (constructor
+        "False")
+      (constructor
+        "True"))
+    (data
+      "Int"
+      []
+      (constructor
+        "I"
+        t1))
+    (data
+      "Integer"
+      []
+      (constructor
+        "IS"
+        t1)))
 
-  data Int
-   = I Int#
+  core 1
+  prefix 1 = "GHC.Types"
+  type 1 = TcForAllTy (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))))
+  type 2 = TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))]
+  type 3 = TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))
+  type 4 = TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) []]
+  type 5 = TcForAllTy (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))) (TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))]))
+  type 6 = TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) []
+  type 7 = TcTyCon (TyConInternal "Int#" 0 (KTYPE IntRep)) []
+  type 8 = TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []
+  tyvar 1 = TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted))
+  var 1 = "=="%1000 : t1 local
+  var 2 = "$d0"%1001 : t2 local
+  var 3 = "$dict"%1002 : t2 local
+  var 4 = "$method0"%1003 : t3 local
+  var 5 = "$fEqInt"%1011 : t4 local
+  var 6 = "$Dict$Eq"%1012 : t5 local
+  var 7 = "x1004"%1004 : t6 local
+  var 8 = "y1005"%1005 : t6 local
+  var 9 = "_scrut"%1010 : t6 local
+  var 10 = "x"%1006 : t7 local
+  var 11 = "_scrut"%1009 : t6 local
+  var 12 = "y"%1007 : t7 local
+  var 13 = "True"%1008 : t8 resolved "GHC.Types.True"
+  body
+  (program
+    (data
+      "Eq"
+      [a1]
+      (constructor
+        "$Dict$Eq"
+        t3))
+    (top
+      (nonrec
+        v1:"=="
+        (type-lam
+          a1
+          (lam
+            v2:"$d0"
+            (case
+              (ref
+                v2:"$d0")
+              v3:"$dict"
+              (alt
+                (data-alt
+                  "$Dict$Eq")
+                [v4:"$method0"]
+                (ref
+                  v4:"$method0")))))))
+    (top
+      (nonrec
+        v5:"$fEqInt"
+        (app
+          (type-app
+            (ref
+              v6:"$Dict$Eq")
+            t6)
+          (lam
+            v7:"x1004"
+            (lam
+              v8:"y1005"
+              (case
+                (ref
+                  v7:"x1004")
+                v9:"_scrut"
+                (alt
+                  (data-alt
+                    "I")
+                  [v10:"x"]
+                  (case
+                    (ref
+                      v8:"y1005")
+                    v11:"_scrut"
+                    (alt
+                      (data-alt
+                        "I")
+                      [v12:"y"]
+                      (ref
+                        v13:"1.True")))))))))))
 
-  data Integer
-   = IS Int#
-  data Eq a
-   = $Dict$Eq (a → a → Bool)
+  core 1
+  prefix 1 = "GHC.Types"
+  type 1 = TcForAllTy (TyVarIdInternal "a" (Unique 17) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Num" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 17) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyCon (TyConInternal "Integer" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyVar (TyVarIdInternal "a" (Unique 17) (KTYPE (BoxedRep Lifted))))))
+  type 2 = TcTyCon (TyConInternal "Num" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 17) (KTYPE (BoxedRep Lifted)))]
+  type 3 = TcFunTy (TcTyCon (TyConInternal "Integer" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyVar (TyVarIdInternal "a" (Unique 17) (KTYPE (BoxedRep Lifted))))
+  type 4 = TcTyCon (TyConInternal "Num" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) []]
+  type 5 = TcForAllTy (TyVarIdInternal "a" (Unique 17) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcFunTy (TcTyCon (TyConInternal "Integer" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyVar (TyVarIdInternal "a" (Unique 17) (KTYPE (BoxedRep Lifted))))) (TcTyCon (TyConInternal "Num" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 17) (KTYPE (BoxedRep Lifted)))]))
+  type 6 = TcTyCon (TyConInternal "Integer" 0 (KTYPE (BoxedRep Lifted))) []
+  type 7 = TcTyCon (TyConInternal "Int#" 0 (KTYPE IntRep)) []
+  type 8 = TcFunTy (TcTyCon (TyConInternal "Int#" 0 (KTYPE IntRep)) []) (TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) [])
+  type 9 = TcTyCon (TyConInternal "Num" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Integer" 0 (KTYPE (BoxedRep Lifted))) []]
+  type 10 = TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) []
+  tyvar 1 = TyVarIdInternal "a" (Unique 17) (KTYPE (BoxedRep Lifted))
+  var 1 = "fromInteger"%1000 : t1 local
+  var 2 = "$d0"%1001 : t2 local
+  var 3 = "$dict"%1002 : t2 local
+  var 4 = "$method0"%1003 : t3 local
+  var 5 = "$fNumInt"%1008 : t4 local
+  var 6 = "$Dict$Num"%1009 : t5 local
+  var 7 = "x1004"%1004 : t6 local
+  var 8 = "_scrut"%1007 : t6 local
+  var 9 = "x"%1005 : t7 local
+  var 10 = "I"%1006 : t8 resolved "GHC.Types.I"
+  var 11 = "$fNumInteger"%1011 : t9 local
+  var 12 = "$Dict$Num"%1012 : t5 local
+  var 13 = "x1010"%1010 : t6 local
+  body
+  (program
+    (data
+      "Num"
+      [a1]
+      (constructor
+        "$Dict$Num"
+        t3))
+    (top
+      (nonrec
+        v1:"fromInteger"
+        (type-lam
+          a1
+          (lam
+            v2:"$d0"
+            (case
+              (ref
+                v2:"$d0")
+              v3:"$dict"
+              (alt
+                (data-alt
+                  "$Dict$Num")
+                [v4:"$method0"]
+                (ref
+                  v4:"$method0")))))))
+    (top
+      (nonrec
+        v5:"$fNumInt"
+        (app
+          (type-app
+            (ref
+              v6:"$Dict$Num")
+            t10)
+          (lam
+            v7:"x1004"
+            (case
+              (ref
+                v7:"x1004")
+              v8:"_scrut"
+              (alt
+                (data-alt
+                  "IS")
+                [v9:"x"]
+                (app
+                  (ref
+                    v10:"1.I")
+                  (ref
+                    v9:"x"))))))))
+    (top
+      (nonrec
+        v11:"$fNumInteger"
+        (app
+          (type-app
+            (ref
+              v12:"$Dict$Num")
+            t6)
+          (lam
+            v13:"x1010"
+            (ref
+              v13:"x1010"))))))
 
-  == : ∀ a. (Eq a) → a → a → Bool =
-    Λa.
-      λ$d0 : Eq a.
-        case $d0 as $dict : Eq a of
-          $Dict$Eq $method0 →
-            $method0
+  core 1
+  body
+  (program)
 
-  $fEqInt : Eq Int =
-    $Dict$Eq @Int (λx1004 : Int.
-      λy1005 : Int.
-        case x1004 as _scrut : Int of
-          I x →
-            case y1005 as _scrut : Int of
-              I y →
-                True)
-  data Num a
-   = $Dict$Num (Integer → a)
-
-  fromInteger : ∀ a. (Num a) → Integer → a =
-    Λa.
-      λ$d0 : Num a.
-        case $d0 as $dict : Num a of
-          $Dict$Num $method0 →
-            $method0
-
-  $fNumInt : Num Int =
-    $Dict$Num @Int (λx1004 : Integer.
-      case x1004 as _scrut : Integer of
-        IS x →
-          I x)
-
-  $fNumInteger : Num Integer =
-    $Dict$Num @Integer (λx1010 : Integer.
-      x1010)
-
-  asInt : Int =
-    fromInteger @Int $fNumInt (IS 1)
-
-  asInteger : Integer =
-    fromInteger @Integer $fNumInteger (IS 1)
-
-  caseInt : Unit =
-    let
-      _case_value : Int =
-        fromInteger @Int $fNumInt (IS 1)
-    in
-      case == @Int $fEqInt _case_value (fromInteger @Int $fNumInt (IS 1)) as _case_guard : Bool of
-        True →
-          ()
-        False →
-          case _case_value as _case_nomatch : Int of
+  core 1
+  prefix 1 = "GHC.Classes"
+  prefix 2 = "GHC.Num"
+  type 1 = TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) []
+  type 2 = TcForAllTy (TyVarIdInternal "a" (Unique 17) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Num" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 17) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyCon (TyConInternal "Integer" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyVar (TyVarIdInternal "a" (Unique 17) (KTYPE (BoxedRep Lifted))))))
+  type 3 = TcTyCon (TyConInternal "Num" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) []]
+  type 4 = TcFunTy (TcTyCon (TyConInternal "Int#" 0 (KTYPE IntRep)) []) (TcTyCon (TyConInternal "Integer" 0 (KTYPE (BoxedRep Lifted))) [])
+  type 5 = TcTyCon (TyConInternal "Integer" 0 (KTYPE (BoxedRep Lifted))) []
+  type 6 = TcTyCon (TyConInternal "Num" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Integer" 0 (KTYPE (BoxedRep Lifted))) []]
+  type 7 = TcTyCon (TyConInternal "Unit" 0 (KTYPE (BoxedRep Lifted))) []
+  type 8 = TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []
+  type 9 = TcForAllTy (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))))
+  type 10 = TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) []]
+  var 1 = "asInt"%1000 : t1 local
+  var 2 = "fromInteger"%1001 : t2 resolved "GHC.Num.fromInteger"
+  var 3 = "$fNumInt"%-199 : t3 local
+  var 4 = "IS"%1002 : t4 local
+  var 5 = "asInteger"%1003 : t5 local
+  var 6 = "fromInteger"%1004 : t2 resolved "GHC.Num.fromInteger"
+  var 7 = "$fNumInteger"%-199 : t6 local
+  var 8 = "IS"%1005 : t4 local
+  var 9 = "caseInt"%1006 : t7 local
+  var 10 = "_case_value"%1009 : t1 local
+  var 11 = "fromInteger"%1007 : t2 resolved "GHC.Num.fromInteger"
+  var 12 = "IS"%1008 : t4 local
+  var 13 = "_case_guard"%1014 : t8 local
+  var 14 = "=="%1013 : t9 resolved "GHC.Classes.=="
+  var 15 = "$fEqInt"%-199 : t10 local
+  var 16 = "fromInteger"%1011 : t2 resolved "GHC.Num.fromInteger"
+  var 17 = "IS"%1012 : t4 local
+  var 18 = "()"%-20 : t7 local
+  var 19 = "_case_nomatch"%1010 : t1 local
+  literal 1 = LitInt IntRep 1
+  body
+  (program
+    (top
+      (nonrec
+        v1:"asInt"
+        (app
+          (app
+            (type-app
+              (ref
+                v2:"2.fromInteger")
+              t1)
+            (ref
+              v3:"$fNumInt"))
+          (app
+            (ref
+              v4:"IS")
+            (lit
+              l1)))))
+    (top
+      (nonrec
+        v5:"asInteger"
+        (app
+          (app
+            (type-app
+              (ref
+                v6:"2.fromInteger")
+              t5)
+            (ref
+              v7:"$fNumInteger"))
+          (app
+            (ref
+              v8:"IS")
+            (lit
+              l1)))))
+    (top
+      (nonrec
+        v9:"caseInt"
+        (let
+          (nonrec
+            v10:"_case_value"
+            (app
+              (app
+                (type-app
+                  (ref
+                    v11:"2.fromInteger")
+                  t1)
+                (ref
+                  v3:"$fNumInt"))
+              (app
+                (ref
+                  v12:"IS")
+                (lit
+                  l1))))
+          (case
+            (app
+              (app
+                (app
+                  (type-app
+                    (ref
+                      v14:"1.==")
+                    t1)
+                  (ref
+                    v15:"$fEqInt"))
+                (ref
+                  v10:"_case_value"))
+              (app
+                (app
+                  (type-app
+                    (ref
+                      v16:"2.fromInteger")
+                    t1)
+                  (ref
+                    v3:"$fNumInt"))
+                (app
+                  (ref
+                    v17:"IS")
+                  (lit
+                    l1))))
+            v13:"_case_guard"
+            (alt
+              (data-alt
+                "True")
+              []
+              (ref
+                v18:"()"))
+            (alt
+              (data-alt
+                "False")
+              []
+              (case
+                (ref
+                  v10:"_case_value")
+                v19:"_case_nomatch")))))))
 extensions:
 - MagicHash
 modules:

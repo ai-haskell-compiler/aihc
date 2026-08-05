@@ -1,23 +1,89 @@
 expected: |-
-  data State#
-
-  data RealWorld
-
-  data Int
-   = I# Int#
-
-  newtype IO a = IO ((State# RealWorld) → (#,#) (State# RealWorld) a)
-
-  foreign ccall "identity_int" $ffi$identityInt : Int# → (State# RealWorld) → (#,#) (State# RealWorld) Int#
-
-  identityInt : Int → IO Int =
-    λ$ffi_arg_0 : Int.
-      case $ffi_arg_0 as $ffi_arg_0_case : Int of
-        I# $ffi_arg_0_field →
-          (λ$ffi_state : State# RealWorld.
-            case foreign-call $ffi$identityInt $ffi_arg_0_field $ffi_state as $ffi_result : (#,#) (State# RealWorld) Int# of
-              (#,#) $ffi_next_state $ffi_raw_result →
-                (#,#) $ffi_next_state (I# $ffi_raw_result)) ▷ <co>
+  core 1
+  type 1 = TcFunTy (TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyCon (TyConInternal "IO" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) []])
+  type 2 = TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) []
+  type 3 = TcTyCon (TyConInternal "Int#" 0 (KTYPE IntRep)) []
+  type 4 = TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]
+  type 5 = TcTyCon (TyConInternal "(#,#)" 2 (KFun (KTYPE (BoxedRep Lifted)) (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted))))) [TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []],TcTyCon (TyConInternal "Int#" 0 (KTYPE IntRep)) []]
+  type 6 = TcFunTy (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]) (TcFunTy (TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyCon (TyConInternal "(#,#)" 2 (KFun (KTYPE (BoxedRep Lifted)) (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted))))) [TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []],TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) []]))
+  type 7 = TcFunTy (TcTyCon (TyConInternal "Int#" 0 (KTYPE IntRep)) []) (TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) [])
+  type 8 = TcFunTy (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]) (TcTyCon (TyConInternal "(#,#)" 2 (KFun (KTYPE (TupleRep [])) (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [TupleRep [],BoxedRep Lifted]))))) [TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []],TcTyVar (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted)))])
+  type 9 = TcTyCon (TyConInternal "IO" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted)))]
+  tyvar 1 = TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted))
+  var 1 = "identityInt"%1000 : t1 local
+  var 2 = "$ffi_arg_0"%1001 : t2 local
+  var 3 = "$ffi_arg_0_case"%1002 : t2 local
+  var 4 = "$ffi_arg_0_field"%1003 : t3 local
+  var 5 = "$ffi_state"%1004 : t4 local
+  var 6 = "$ffi_result"%1005 : t5 local
+  var 7 = "$ffi_next_state"%1006 : t4 local
+  var 8 = "$ffi_raw_result"%1007 : t3 local
+  var 9 = "(#,#)"%1009 : t6 local
+  var 10 = "I#"%1008 : t7 local
+  coercion 1 = Sym (AxiomInstCo "IO" [TcTyCon (TyConInternal "Int" 0 (KTYPE (BoxedRep Lifted))) []])
+  foreign 1 = FcForeignCall {fcForeignCallName = "$ffi$identityInt", fcForeignCallSymbol = "identity_int", fcForeignCallSignature = FcForeignSignature {fcForeignArgumentTypes = [FcForeignInt], fcForeignResultType = FcForeignInt, fcForeignEffect = FcForeignRealWorld}}
+  body
+  (program
+    (data
+      "State#"
+      [])
+    (data
+      "RealWorld"
+      [])
+    (data
+      "Int"
+      []
+      (constructor
+        "I#"
+        t3))
+    (newtype
+      "IO"
+      [a1]
+      "IO"
+      t8
+      t9)
+    (foreign-import
+      f1)
+    (top
+      (nonrec
+        v1:"identityInt"
+        (lam
+          v2:"$ffi_arg_0"
+          (case
+            (ref
+              v2:"$ffi_arg_0")
+            v3:"$ffi_arg_0_case"
+            (alt
+              (data-alt
+                "I#")
+              [v4:"$ffi_arg_0_field"]
+              (cast
+                (lam
+                  v5:"$ffi_state"
+                  (case
+                    (foreign-call
+                      f1
+                      (ref
+                        v4:"$ffi_arg_0_field")
+                      (ref
+                        v5:"$ffi_state"))
+                    v6:"$ffi_result"
+                    (alt
+                      (data-alt
+                        "(#,#)")
+                      [v7:"$ffi_next_state" v8:"$ffi_raw_result"]
+                      (app
+                        (app
+                          (ref
+                            v9:"(#,#)")
+                          (ref
+                            v7:"$ffi_next_state"))
+                        (app
+                          (ref
+                            v10:"I#")
+                          (ref
+                            v8:"$ffi_raw_result"))))))
+                c1)))))))
 extensions:
 - ForeignFunctionInterface
 - MagicHash

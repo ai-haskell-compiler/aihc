@@ -17,112 +17,487 @@ modules:
     sameTree :: Eq a => Tree a -> Tree a -> Bool
     sameTree = (==)
 expected: |-
-  data Bool
-   = False
-   | True
-
-  data Eq a
-   = $Dict$Eq (a → a → Bool) (a → a → Bool)
-
-  == : ∀ a. (Eq a) → a → a → Bool =
-    Λa.
-      λ$d0 : Eq a.
-        case $d0 as $dict : Eq a of
-          $Dict$Eq $method0 $method1 →
-            $method0
-
-  /= : ∀ a. (Eq a) → a → a → Bool =
-    Λa.
-      λ$d0 : Eq a.
-        case $d0 as $dict : Eq a of
-          $Dict$Eq $method0 $method1 →
-            $method1
-
-  data Tree a
-   = Leaf a
-   | Branch (Tree a) (Tree a)
-
-  rec
-    $fEqTreea : ∀ a. (Eq a) → Eq (Tree a) =
-      Λa.
-        λ$d0 : Eq a.
-          let
-            $stock_eq_self : Eq (Tree a) =
-              $fEqTreea @a $d0
-          in
-            $Dict$Eq @(Tree a) (λ$stock_eq_left : Tree a.
-              λ$stock_eq_right : Tree a.
-                case $stock_eq_left as $stock_eq_outer : Tree a of
-                  Leaf $stock_eq_left_field0 →
-                    case $stock_eq_right as $stock_eq_inner : Tree a of
-                      Leaf $stock_eq_right_field0 →
-                        case case $d0 as $stock_eq_dictionary : Eq a of
-                          $Dict$Eq $stock_eq_method $stock_neq_method →
-                            $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0 as $stock_eq_bool : Bool of
-                          False →
-                            False
-                          True →
-                            True
-                      _ →
-                        False
-                  Branch $stock_eq_left_field0 $stock_eq_left_field1 →
-                    case $stock_eq_right as $stock_eq_inner : Tree a of
-                      Branch $stock_eq_right_field0 $stock_eq_right_field1 →
-                        case case $stock_eq_self as $stock_eq_dictionary : Eq (Tree a) of
-                          $Dict$Eq $stock_eq_method $stock_neq_method →
-                            $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0 as $stock_eq_bool : Bool of
-                          False →
-                            False
-                          True →
-                            case case $stock_eq_self as $stock_eq_dictionary : Eq (Tree a) of
-                              $Dict$Eq $stock_eq_method $stock_neq_method →
-                                $stock_eq_method $stock_eq_left_field1 $stock_eq_right_field1 as $stock_eq_bool : Bool of
-                              False →
-                                False
-                              True →
-                                True
-                      _ →
-                        False) (λ$stock_eq_left : Tree a.
-              λ$stock_eq_right : Tree a.
-                case case $stock_eq_left as $stock_eq_outer : Tree a of
-                  Leaf $stock_eq_left_field0 →
-                    case $stock_eq_right as $stock_eq_inner : Tree a of
-                      Leaf $stock_eq_right_field0 →
-                        case case $d0 as $stock_eq_dictionary : Eq a of
-                          $Dict$Eq $stock_eq_method $stock_neq_method →
-                            $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0 as $stock_eq_bool : Bool of
-                          False →
-                            False
-                          True →
-                            True
-                      _ →
-                        False
-                  Branch $stock_eq_left_field0 $stock_eq_left_field1 →
-                    case $stock_eq_right as $stock_eq_inner : Tree a of
-                      Branch $stock_eq_right_field0 $stock_eq_right_field1 →
-                        case case $stock_eq_self as $stock_eq_dictionary : Eq (Tree a) of
-                          $Dict$Eq $stock_eq_method $stock_neq_method →
-                            $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0 as $stock_eq_bool : Bool of
-                          False →
-                            False
-                          True →
-                            case case $stock_eq_self as $stock_eq_dictionary : Eq (Tree a) of
-                              $Dict$Eq $stock_eq_method $stock_neq_method →
-                                $stock_eq_method $stock_eq_left_field1 $stock_eq_right_field1 as $stock_eq_bool : Bool of
-                              False →
-                                False
-                              True →
-                                True
-                      _ →
-                        False as $stock_eq_not : Bool of
-                  False →
-                    True
-                  True →
-                    False)
-
-  sameTree : ∀ a. (Eq a) → (Tree a) → (Tree a) → Bool =
-    Λa.
-      λ$d0 : Eq a.
-        == @(Tree a) ($fEqTreea @a $d0)
+  core 1
+  prefix 1 = "Test"
+  type 1 = TcForAllTy (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))))
+  type 2 = TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))]
+  type 3 = TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))
+  type 4 = TcForAllTy (TyVarIdInternal "a" (Unique 20) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 20) (KTYPE (BoxedRep Lifted)))]) (TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Tree" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 20) (KTYPE (BoxedRep Lifted)))]]))
+  type 5 = TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 20) (KTYPE (BoxedRep Lifted)))]
+  type 6 = TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Tree" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 20) (KTYPE (BoxedRep Lifted)))]]
+  type 7 = TcForAllTy (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))) (TcFunTy (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))) (TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))])))
+  type 8 = TcTyCon (TyConInternal "Tree" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 20) (KTYPE (BoxedRep Lifted)))]
+  type 9 = TcTyVar (TyVarIdInternal "a" (Unique 20) (KTYPE (BoxedRep Lifted)))
+  type 10 = TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []
+  type 11 = TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 20) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 20) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))
+  type 12 = TcFunTy (TcTyCon (TyConInternal "Tree" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 20) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyCon (TyConInternal "Tree" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 20) (KTYPE (BoxedRep Lifted)))]) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))
+  type 13 = TcForAllTy (TyVarIdInternal "a" (Unique 27) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 27) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyCon (TyConInternal "Tree" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 27) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyCon (TyConInternal "Tree" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 27) (KTYPE (BoxedRep Lifted)))]) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))))
+  type 14 = TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 27) (KTYPE (BoxedRep Lifted)))]
+  type 15 = TcTyVar (TyVarIdInternal "a" (Unique 16) (KTYPE (BoxedRep Lifted)))
+  type 16 = TcTyCon (TyConInternal "Tree" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 16) (KTYPE (BoxedRep Lifted)))]
+  type 17 = TcTyCon (TyConInternal "Tree" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 31) (KTYPE (BoxedRep Lifted)))]
+  type 18 = TcTyVar (TyVarIdInternal "a" (Unique 31) (KTYPE (BoxedRep Lifted)))
+  tyvar 1 = TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted))
+  tyvar 2 = TyVarIdInternal "a" (Unique 16) (KTYPE (BoxedRep Lifted))
+  tyvar 3 = TyVarIdInternal "a" (Unique 20) (KTYPE (BoxedRep Lifted))
+  tyvar 4 = TyVarIdInternal "a" (Unique 27) (KTYPE (BoxedRep Lifted))
+  var 1 = "=="%1000 : t1 local
+  var 2 = "$d0"%1001 : t2 local
+  var 3 = "$dict"%1002 : t2 local
+  var 4 = "$method0"%1003 : t3 local
+  var 5 = "$method1"%1004 : t3 local
+  var 6 = "/="%1005 : t1 local
+  var 7 = "$d0"%1006 : t2 local
+  var 8 = "$dict"%1007 : t2 local
+  var 9 = "$method0"%1008 : t3 local
+  var 10 = "$method1"%1009 : t3 local
+  var 11 = "$fEqTreea"%1011 : t4 local
+  var 12 = "$d0"%1010 : t5 local
+  var 13 = "$stock_eq_self"%1012 : t6 local
+  var 14 = "$Dict$Eq"%1076 : t7 local
+  var 15 = "$stock_eq_left"%1013 : t8 local
+  var 16 = "$stock_eq_right"%1014 : t8 local
+  var 17 = "$stock_eq_outer"%1015 : t8 local
+  var 18 = "$stock_eq_left_field0"%1016 : t9 local
+  var 19 = "$stock_eq_inner"%1025 : t8 local
+  var 20 = "$stock_eq_right_field0"%1017 : t9 local
+  var 21 = "$stock_eq_bool"%1021 : t10 local
+  var 22 = "$stock_eq_dictionary"%1018 : t5 local
+  var 23 = "$stock_eq_method"%1019 : t11 local
+  var 24 = "$stock_neq_method"%1020 : t11 local
+  var 25 = "False"%1022 : t10 local
+  var 26 = "True"%1023 : t10 local
+  var 27 = "False"%1024 : t10 local
+  var 28 = "$stock_eq_left_field0"%1026 : t8 local
+  var 29 = "$stock_eq_left_field1"%1027 : t8 local
+  var 30 = "$stock_eq_inner"%1042 : t8 local
+  var 31 = "$stock_eq_right_field0"%1028 : t8 local
+  var 32 = "$stock_eq_right_field1"%1029 : t8 local
+  var 33 = "$stock_eq_bool"%1036 : t10 local
+  var 34 = "$stock_eq_dictionary"%1030 : t6 local
+  var 35 = "$stock_eq_method"%1031 : t12 local
+  var 36 = "$stock_neq_method"%1032 : t12 local
+  var 37 = "False"%1037 : t10 local
+  var 38 = "$stock_eq_bool"%1038 : t10 local
+  var 39 = "$stock_eq_dictionary"%1033 : t6 local
+  var 40 = "$stock_eq_method"%1034 : t12 local
+  var 41 = "$stock_neq_method"%1035 : t12 local
+  var 42 = "False"%1039 : t10 local
+  var 43 = "True"%1040 : t10 local
+  var 44 = "False"%1041 : t10 local
+  var 45 = "$stock_eq_left"%1043 : t8 local
+  var 46 = "$stock_eq_right"%1044 : t8 local
+  var 47 = "$stock_eq_not"%1073 : t10 local
+  var 48 = "$stock_eq_outer"%1045 : t8 local
+  var 49 = "$stock_eq_left_field0"%1046 : t9 local
+  var 50 = "$stock_eq_inner"%1055 : t8 local
+  var 51 = "$stock_eq_right_field0"%1047 : t9 local
+  var 52 = "$stock_eq_bool"%1051 : t10 local
+  var 53 = "$stock_eq_dictionary"%1048 : t5 local
+  var 54 = "$stock_eq_method"%1049 : t11 local
+  var 55 = "$stock_neq_method"%1050 : t11 local
+  var 56 = "False"%1052 : t10 local
+  var 57 = "True"%1053 : t10 local
+  var 58 = "False"%1054 : t10 local
+  var 59 = "$stock_eq_left_field0"%1056 : t8 local
+  var 60 = "$stock_eq_left_field1"%1057 : t8 local
+  var 61 = "$stock_eq_inner"%1072 : t8 local
+  var 62 = "$stock_eq_right_field0"%1058 : t8 local
+  var 63 = "$stock_eq_right_field1"%1059 : t8 local
+  var 64 = "$stock_eq_bool"%1066 : t10 local
+  var 65 = "$stock_eq_dictionary"%1060 : t6 local
+  var 66 = "$stock_eq_method"%1061 : t12 local
+  var 67 = "$stock_neq_method"%1062 : t12 local
+  var 68 = "False"%1067 : t10 local
+  var 69 = "$stock_eq_bool"%1068 : t10 local
+  var 70 = "$stock_eq_dictionary"%1063 : t6 local
+  var 71 = "$stock_eq_method"%1064 : t12 local
+  var 72 = "$stock_neq_method"%1065 : t12 local
+  var 73 = "False"%1069 : t10 local
+  var 74 = "True"%1070 : t10 local
+  var 75 = "False"%1071 : t10 local
+  var 76 = "True"%1074 : t10 local
+  var 77 = "False"%1075 : t10 local
+  var 78 = "sameTree"%1077 : t13 local
+  var 79 = "$d0"%1078 : t14 local
+  var 80 = "=="%1079 : t1 resolved "Test.=="
+  var 81 = "$fEqTreea"%-199 : t4 local
+  body
+  (program
+    (data
+      "Bool"
+      []
+      (constructor
+        "False")
+      (constructor
+        "True"))
+    (data
+      "Eq"
+      [a1]
+      (constructor
+        "$Dict$Eq"
+        t3
+        t3))
+    (top
+      (nonrec
+        v1:"=="
+        (type-lam
+          a1
+          (lam
+            v2:"$d0"
+            (case
+              (ref
+                v2:"$d0")
+              v3:"$dict"
+              (alt
+                (data-alt
+                  "$Dict$Eq")
+                [v4:"$method0" v5:"$method1"]
+                (ref
+                  v4:"$method0")))))))
+    (top
+      (nonrec
+        v6:"/="
+        (type-lam
+          a1
+          (lam
+            v7:"$d0"
+            (case
+              (ref
+                v7:"$d0")
+              v8:"$dict"
+              (alt
+                (data-alt
+                  "$Dict$Eq")
+                [v9:"$method0" v10:"$method1"]
+                (ref
+                  v10:"$method1")))))))
+    (data
+      "Tree"
+      [a2]
+      (constructor
+        "Leaf"
+        t15)
+      (constructor
+        "Branch"
+        t16
+        t16))
+    (top
+      (rec
+        (binding
+          v11:"$fEqTreea"
+          (type-lam
+            a3
+            (lam
+              v12:"$d0"
+              (let
+                (nonrec
+                  v13:"$stock_eq_self"
+                  (app
+                    (type-app
+                      (ref
+                        v11:"$fEqTreea")
+                      t9)
+                    (ref
+                      v12:"$d0")))
+                (app
+                  (app
+                    (type-app
+                      (ref
+                        v14:"$Dict$Eq")
+                      t8)
+                    (lam
+                      v15:"$stock_eq_left"
+                      (lam
+                        v16:"$stock_eq_right"
+                        (case
+                          (ref
+                            v15:"$stock_eq_left")
+                          v17:"$stock_eq_outer"
+                          (alt
+                            (data-alt
+                              "Leaf")
+                            [v18:"$stock_eq_left_field0"]
+                            (case
+                              (ref
+                                v16:"$stock_eq_right")
+                              v19:"$stock_eq_inner"
+                              (alt
+                                (data-alt
+                                  "Leaf")
+                                [v20:"$stock_eq_right_field0"]
+                                (case
+                                  (case
+                                    (ref
+                                      v12:"$d0")
+                                    v22:"$stock_eq_dictionary"
+                                    (alt
+                                      (data-alt
+                                        "$Dict$Eq")
+                                      [v23:"$stock_eq_method" v24:"$stock_neq_method"]
+                                      (app
+                                        (app
+                                          (ref
+                                            v23:"$stock_eq_method")
+                                          (ref
+                                            v18:"$stock_eq_left_field0"))
+                                        (ref
+                                          v20:"$stock_eq_right_field0"))))
+                                  v21:"$stock_eq_bool"
+                                  (alt
+                                    (data-alt
+                                      "False")
+                                    []
+                                    (ref
+                                      v25:"False"))
+                                  (alt
+                                    (data-alt
+                                      "True")
+                                    []
+                                    (ref
+                                      v26:"True"))))
+                              (alt
+                                default
+                                []
+                                (ref
+                                  v27:"False"))))
+                          (alt
+                            (data-alt
+                              "Branch")
+                            [v28:"$stock_eq_left_field0" v29:"$stock_eq_left_field1"]
+                            (case
+                              (ref
+                                v16:"$stock_eq_right")
+                              v30:"$stock_eq_inner"
+                              (alt
+                                (data-alt
+                                  "Branch")
+                                [v31:"$stock_eq_right_field0" v32:"$stock_eq_right_field1"]
+                                (case
+                                  (case
+                                    (ref
+                                      v13:"$stock_eq_self")
+                                    v34:"$stock_eq_dictionary"
+                                    (alt
+                                      (data-alt
+                                        "$Dict$Eq")
+                                      [v35:"$stock_eq_method" v36:"$stock_neq_method"]
+                                      (app
+                                        (app
+                                          (ref
+                                            v35:"$stock_eq_method")
+                                          (ref
+                                            v28:"$stock_eq_left_field0"))
+                                        (ref
+                                          v31:"$stock_eq_right_field0"))))
+                                  v33:"$stock_eq_bool"
+                                  (alt
+                                    (data-alt
+                                      "False")
+                                    []
+                                    (ref
+                                      v37:"False"))
+                                  (alt
+                                    (data-alt
+                                      "True")
+                                    []
+                                    (case
+                                      (case
+                                        (ref
+                                          v13:"$stock_eq_self")
+                                        v39:"$stock_eq_dictionary"
+                                        (alt
+                                          (data-alt
+                                            "$Dict$Eq")
+                                          [v40:"$stock_eq_method" v41:"$stock_neq_method"]
+                                          (app
+                                            (app
+                                              (ref
+                                                v40:"$stock_eq_method")
+                                              (ref
+                                                v29:"$stock_eq_left_field1"))
+                                            (ref
+                                              v32:"$stock_eq_right_field1"))))
+                                      v38:"$stock_eq_bool"
+                                      (alt
+                                        (data-alt
+                                          "False")
+                                        []
+                                        (ref
+                                          v42:"False"))
+                                      (alt
+                                        (data-alt
+                                          "True")
+                                        []
+                                        (ref
+                                          v43:"True"))))))
+                              (alt
+                                default
+                                []
+                                (ref
+                                  v44:"False"))))))))
+                  (lam
+                    v45:"$stock_eq_left"
+                    (lam
+                      v46:"$stock_eq_right"
+                      (case
+                        (case
+                          (ref
+                            v45:"$stock_eq_left")
+                          v48:"$stock_eq_outer"
+                          (alt
+                            (data-alt
+                              "Leaf")
+                            [v49:"$stock_eq_left_field0"]
+                            (case
+                              (ref
+                                v46:"$stock_eq_right")
+                              v50:"$stock_eq_inner"
+                              (alt
+                                (data-alt
+                                  "Leaf")
+                                [v51:"$stock_eq_right_field0"]
+                                (case
+                                  (case
+                                    (ref
+                                      v12:"$d0")
+                                    v53:"$stock_eq_dictionary"
+                                    (alt
+                                      (data-alt
+                                        "$Dict$Eq")
+                                      [v54:"$stock_eq_method" v55:"$stock_neq_method"]
+                                      (app
+                                        (app
+                                          (ref
+                                            v54:"$stock_eq_method")
+                                          (ref
+                                            v49:"$stock_eq_left_field0"))
+                                        (ref
+                                          v51:"$stock_eq_right_field0"))))
+                                  v52:"$stock_eq_bool"
+                                  (alt
+                                    (data-alt
+                                      "False")
+                                    []
+                                    (ref
+                                      v56:"False"))
+                                  (alt
+                                    (data-alt
+                                      "True")
+                                    []
+                                    (ref
+                                      v57:"True"))))
+                              (alt
+                                default
+                                []
+                                (ref
+                                  v58:"False"))))
+                          (alt
+                            (data-alt
+                              "Branch")
+                            [v59:"$stock_eq_left_field0" v60:"$stock_eq_left_field1"]
+                            (case
+                              (ref
+                                v46:"$stock_eq_right")
+                              v61:"$stock_eq_inner"
+                              (alt
+                                (data-alt
+                                  "Branch")
+                                [v62:"$stock_eq_right_field0" v63:"$stock_eq_right_field1"]
+                                (case
+                                  (case
+                                    (ref
+                                      v13:"$stock_eq_self")
+                                    v65:"$stock_eq_dictionary"
+                                    (alt
+                                      (data-alt
+                                        "$Dict$Eq")
+                                      [v66:"$stock_eq_method" v67:"$stock_neq_method"]
+                                      (app
+                                        (app
+                                          (ref
+                                            v66:"$stock_eq_method")
+                                          (ref
+                                            v59:"$stock_eq_left_field0"))
+                                        (ref
+                                          v62:"$stock_eq_right_field0"))))
+                                  v64:"$stock_eq_bool"
+                                  (alt
+                                    (data-alt
+                                      "False")
+                                    []
+                                    (ref
+                                      v68:"False"))
+                                  (alt
+                                    (data-alt
+                                      "True")
+                                    []
+                                    (case
+                                      (case
+                                        (ref
+                                          v13:"$stock_eq_self")
+                                        v70:"$stock_eq_dictionary"
+                                        (alt
+                                          (data-alt
+                                            "$Dict$Eq")
+                                          [v71:"$stock_eq_method" v72:"$stock_neq_method"]
+                                          (app
+                                            (app
+                                              (ref
+                                                v71:"$stock_eq_method")
+                                              (ref
+                                                v60:"$stock_eq_left_field1"))
+                                            (ref
+                                              v63:"$stock_eq_right_field1"))))
+                                      v69:"$stock_eq_bool"
+                                      (alt
+                                        (data-alt
+                                          "False")
+                                        []
+                                        (ref
+                                          v73:"False"))
+                                      (alt
+                                        (data-alt
+                                          "True")
+                                        []
+                                        (ref
+                                          v74:"True"))))))
+                              (alt
+                                default
+                                []
+                                (ref
+                                  v75:"False")))))
+                        v47:"$stock_eq_not"
+                        (alt
+                          (data-alt
+                            "False")
+                          []
+                          (ref
+                            v76:"True"))
+                        (alt
+                          (data-alt
+                            "True")
+                          []
+                          (ref
+                            v77:"False"))))))))))))
+    (top
+      (nonrec
+        v78:"sameTree"
+        (type-lam
+          a4
+          (lam
+            v79:"$d0"
+            (app
+              (type-app
+                (ref
+                  v80:"1.==")
+                t17)
+              (app
+                (type-app
+                  (ref
+                    v81:"$fEqTreea")
+                  t18)
+                (ref
+                  v79:"$d0"))))))))
 status: pass
 reason: stock Eq lowering consumes checked constructor layouts and field evidence

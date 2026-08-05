@@ -1,37 +1,130 @@
 expected: |-
-  data Bool
-   = False
-   | True
-
-  data Eq a
-   = $Dict$Eq (a → a → Bool)
-
-  == : ∀ a. (Eq a) → a → a → Bool =
-    Λa.
-      λ$d0 : Eq a.
-        case $d0 as $dict : Eq a of
-          $Dict$Eq $method0 →
-            $method0
-
-  $fEqBool : Eq Bool =
-    $Dict$Eq @Bool (λx1004 : Bool.
-      λy1005 : Bool.
-        case x1004 as _scrut : Bool of
-          False →
-            case y1005 as _scrut : Bool of
-              False →
-                True
-              True →
-                False
-          True →
-            case y1005 as _scrut : Bool of
-              False →
-                False
-              True →
-                True)
-
-  eqBool : Bool → Bool → Bool =
-    == @Bool $fEqBool
+  core 1
+  prefix 1 = "Test"
+  type 1 = TcForAllTy (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))))
+  type 2 = TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))]
+  type 3 = TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))
+  type 4 = TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []]
+  type 5 = TcForAllTy (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))) (TcTyCon (TyConInternal "Eq" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))]))
+  type 6 = TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []
+  type 7 = TcFunTy (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []) (TcFunTy (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []))
+  tyvar 1 = TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted))
+  var 1 = "=="%1000 : t1 local
+  var 2 = "$d0"%1001 : t2 local
+  var 3 = "$dict"%1002 : t2 local
+  var 4 = "$method0"%1003 : t3 local
+  var 5 = "$fEqBool"%1013 : t4 local
+  var 6 = "$Dict$Eq"%1014 : t5 local
+  var 7 = "x1004"%1004 : t6 local
+  var 8 = "y1005"%1005 : t6 local
+  var 9 = "_scrut"%1012 : t6 local
+  var 10 = "_scrut"%1008 : t6 local
+  var 11 = "True"%1006 : t6 resolved "Test.True"
+  var 12 = "False"%1007 : t6 resolved "Test.False"
+  var 13 = "_scrut"%1011 : t6 local
+  var 14 = "False"%1009 : t6 resolved "Test.False"
+  var 15 = "True"%1010 : t6 resolved "Test.True"
+  var 16 = "eqBool"%1015 : t7 local
+  var 17 = "=="%1016 : t1 resolved "Test.=="
+  var 18 = "$fEqBool"%-199 : t4 local
+  body
+  (program
+    (data
+      "Bool"
+      []
+      (constructor
+        "False")
+      (constructor
+        "True"))
+    (data
+      "Eq"
+      [a1]
+      (constructor
+        "$Dict$Eq"
+        t3))
+    (top
+      (nonrec
+        v1:"=="
+        (type-lam
+          a1
+          (lam
+            v2:"$d0"
+            (case
+              (ref
+                v2:"$d0")
+              v3:"$dict"
+              (alt
+                (data-alt
+                  "$Dict$Eq")
+                [v4:"$method0"]
+                (ref
+                  v4:"$method0")))))))
+    (top
+      (nonrec
+        v5:"$fEqBool"
+        (app
+          (type-app
+            (ref
+              v6:"$Dict$Eq")
+            t6)
+          (lam
+            v7:"x1004"
+            (lam
+              v8:"y1005"
+              (case
+                (ref
+                  v7:"x1004")
+                v9:"_scrut"
+                (alt
+                  (data-alt
+                    "False")
+                  []
+                  (case
+                    (ref
+                      v8:"y1005")
+                    v10:"_scrut"
+                    (alt
+                      (data-alt
+                        "False")
+                      []
+                      (ref
+                        v11:"1.True"))
+                    (alt
+                      (data-alt
+                        "True")
+                      []
+                      (ref
+                        v12:"1.False"))))
+                (alt
+                  (data-alt
+                    "True")
+                  []
+                  (case
+                    (ref
+                      v8:"y1005")
+                    v13:"_scrut"
+                    (alt
+                      (data-alt
+                        "False")
+                      []
+                      (ref
+                        v14:"1.False"))
+                    (alt
+                      (data-alt
+                        "True")
+                      []
+                      (ref
+                        v15:"1.True"))))))))))
+    (top
+      (nonrec
+        v16:"eqBool"
+        (app
+          (type-app
+            (ref
+              v17:"1.==")
+            t6)
+          (ref
+            v18:"$fEqBool")))))
 extensions: []
 modules:
 - |

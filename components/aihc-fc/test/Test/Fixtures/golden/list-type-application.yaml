@@ -6,12 +6,40 @@ modules:
 
     xs :: [Bool]
     xs = [True]
-expected: |
-  data Bool
-   = True
-   | False
-
-  xs : [Bool] =
-    : @Bool True ([] @Bool)
+expected: |-
+  core 1
+  prefix 1 = "Test"
+  type 1 = TcTyCon (TyConInternal "[]" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []]
+  type 2 = TcForAllTy (TyVarIdInternal "a" (Unique (-2000)) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique (-2000)) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyCon (TyConInternal "[]" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique (-2000)) (KTYPE (BoxedRep Lifted)))]) (TcTyCon (TyConInternal "[]" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique (-2000)) (KTYPE (BoxedRep Lifted)))])))
+  type 3 = TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []
+  type 4 = TcForAllTy (TyVarIdInternal "a" (Unique (-2000)) (KTYPE (BoxedRep Lifted))) (TcTyCon (TyConInternal "[]" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique (-2000)) (KTYPE (BoxedRep Lifted)))])
+  var 1 = "xs"%1000 : t1 local
+  var 2 = ":"%-11 : t2 local
+  var 3 = "True"%1001 : t3 resolved "Test.True"
+  var 4 = "[]"%-10 : t4 local
+  body
+  (program
+    (data
+      "Bool"
+      []
+      (constructor
+        "True")
+      (constructor
+        "False"))
+    (top
+      (nonrec
+        v1:"xs"
+        (app
+          (app
+            (type-app
+              (ref
+                v2:":")
+              t3)
+            (ref
+              v3:"1.True"))
+          (type-app
+            (ref
+              v4:"[]")
+            t3)))))
 status: pass
 reason: reifies list constructor type arguments from type-checker annotations

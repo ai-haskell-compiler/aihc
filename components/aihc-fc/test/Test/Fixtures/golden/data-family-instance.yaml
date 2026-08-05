@@ -5,10 +5,25 @@ modules:
     module Test where
     data family Payload a
     data instance Payload a = PayloadValue a
-expected: |
-  data $R$Payload$PayloadValue a
-   = PayloadValue a
-
-  axiom $ax$Payload$PayloadValue a : Payload a ~N $R$Payload$PayloadValue a
+expected: |-
+  core 1
+  type 1 = TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))
+  type 2 = TcTyCon (TyConInternal "Payload" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))]
+  type 3 = TcTyCon (TyConInternal "$R$Payload$PayloadValue" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted)))]
+  tyvar 1 = TyVarIdInternal "a" (Unique 14) (KTYPE (BoxedRep Lifted))
+  body
+  (program
+    (data
+      "$R$Payload$PayloadValue"
+      [a1]
+      (constructor
+        "PayloadValue"
+        t1))
+    (axiom
+      "$ax$Payload$PayloadValue"
+      [a1]
+      nominal
+      t2
+      t3))
 status: pass
 reason: data-family instances retain an explicit representation type and nominal equality axiom in System FC
