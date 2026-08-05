@@ -1,5 +1,4 @@
 expected: |-
-  core 2
   prefix 1 = Test
 
   1.False : Bool;

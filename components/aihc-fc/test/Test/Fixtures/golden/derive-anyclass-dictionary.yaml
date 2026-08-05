@@ -1,5 +1,4 @@
 expected: |-
-  core 2
   prefix 1 = Test
 
   $Dict$Any : ∀ a. (a → a) → Any a;

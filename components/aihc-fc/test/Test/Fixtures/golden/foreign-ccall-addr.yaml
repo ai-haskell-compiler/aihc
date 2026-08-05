@@ -1,5 +1,4 @@
 expected: |-
-  core 2
   prefix 1 = Test
 
   "(#,#)" : State# RealWorld → CInt → tycon "(#,#)" (State# RealWorld) CInt;

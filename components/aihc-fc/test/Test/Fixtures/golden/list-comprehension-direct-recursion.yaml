@@ -1,6 +1,4 @@
 expected: |-
-  core 2
-
   ":" : ∀ a. a → tycon "[]" a → tycon "[]" a;
   "[]" : ∀ a. tycon "[]" a;
 

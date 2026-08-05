@@ -1,5 +1,4 @@
 expected: |-
-  core 2
   data Bool where
     | False
     | True;
@@ -10,7 +9,6 @@ expected: |-
   data Integer where
     | IS : Int#;
 
-  core 2
   prefix 1 = "GHC.Types"
 
   $Dict$Eq : ∀ a. (a → a → Bool) → Eq a;
@@ -38,7 +36,6 @@ expected: |-
             };
         });
 
-  core 2
   prefix 1 = "GHC.Types"
 
   $Dict$Num{1009} : ∀ a. (Integer → a) → Num a;
@@ -67,9 +64,7 @@ expected: |-
     ($Dict$Num{1012} @Integer) (λ x1010 : Integer →
       x1010);
 
-  core 2
 
-  core 2
   prefix 1 = "GHC.Classes"
   prefix 2 = "GHC.Num"
 

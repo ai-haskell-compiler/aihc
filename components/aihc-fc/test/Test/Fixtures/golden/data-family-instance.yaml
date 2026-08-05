@@ -6,7 +6,6 @@ modules:
     data family Payload a
     data instance Payload a = PayloadValue a
 expected: |-
-  core 2
   data $R$Payload$PayloadValue a where
     | PayloadValue : a;
 

@@ -7,7 +7,6 @@ modules:
     data family Wrapped a
     newtype instance Wrapped Unit = WrappedUnit Unit
 expected: |-
-  core 2
   data Unit where
     | Unit;
 

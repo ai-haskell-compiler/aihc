@@ -7,7 +7,6 @@ modules:
     xs :: [Bool]
     xs = [True]
 expected: |-
-  core 2
   prefix 1 = Test
 
   ":" : ∀ a. a → tycon "[]" a → tycon "[]" a;

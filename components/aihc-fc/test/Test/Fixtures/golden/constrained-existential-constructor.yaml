@@ -11,7 +11,6 @@ modules:
     inspect :: Box -> Mark
     inspect (Box value) = mark value
 expected: |-
-  core 2
   prefix 1 = Test
 
   1.mark : ∀ a. Markable a → a → Mark;

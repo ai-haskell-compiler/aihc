@@ -17,7 +17,6 @@ modules:
     sameTree :: Eq a => Tree a -> Tree a -> Bool
     sameTree = (==)
 expected: |-
-  core 2
   prefix 1 = Test
 
   $Dict$Eq : ∀ a. (a → a → Bool) → (a → a → Bool) → Eq a;

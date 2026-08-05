@@ -1,6 +1,4 @@
 expected: |-
-  core 2
-
   "(#,#)" : State# RealWorld → Int → tycon "(#,#)" (State# RealWorld) Int;
   I# : Int# → Int;
 

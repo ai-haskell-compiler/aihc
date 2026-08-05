@@ -1,7 +1,6 @@
 extensions:
   - BangPatterns
 expected: |-
-  core 2
   data Box where
     | Box;
 

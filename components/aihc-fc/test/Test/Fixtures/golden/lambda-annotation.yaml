@@ -1,5 +1,4 @@
 expected: |-
-  core 2
   data Bool where
     | True
     | False;

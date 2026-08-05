@@ -1,5 +1,4 @@
 expected: |-
-  core 2
   id : ∀ a. a → a =
     Λ a →
       λ x1001 : a →

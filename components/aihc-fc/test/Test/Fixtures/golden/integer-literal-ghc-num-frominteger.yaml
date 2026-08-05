@@ -1,5 +1,4 @@
 expected: |-
-  core 2
   data Integer where
     | IS : Int#;
 
@@ -14,7 +13,6 @@ expected: |-
             $method0;
         };
 
-  core 2
   prefix 1 = "GHC.Num"
 
   1.fromInteger : ∀ a. Num a → Integer → a;

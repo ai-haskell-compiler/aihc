@@ -1,5 +1,4 @@
 expected: |-
-  core 2
   prefix 1 = Test
 
   1.fork# : ∀ a. (State# RealWorld → (tycon "(#,#)" / 2 :: TYPE TupleRep [] → Type → TYPE TupleRep [TupleRep [], LiftedRep]) (State# RealWorld) a) → State# RealWorld → (tycon "(#,#)" / 2 :: TYPE TupleRep [] → TYPE UnliftedRep → TYPE TupleRep [TupleRep [], UnliftedRep]) (State# RealWorld) ThreadId#;

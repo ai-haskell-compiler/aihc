@@ -84,9 +84,8 @@ type TyScope = Map Text [TyVarId]
 renderProgram :: FcProgram -> String
 renderProgram program =
   unlines
-    ( ["core 2"]
-        <> prefixLines
-        <> ["" | not (null prefixLines) || not (null freeVarLines)]
+    ( prefixLines
+        <> ["" | not (null prefixLines)]
         <> freeVarLines
         <> ["" | not (null freeVarLines) && not (null topLines)]
         <> intersperseBlank topLines
@@ -99,7 +98,7 @@ renderProgram program =
 
 parseProgram :: Text -> Either String FcProgram
 parseProgram input = do
-  (prefixes, body) <- parseHeader (map T.unpack (T.lines input))
+  (prefixes, body) <- parsePrefixes (map T.unpack (T.lines input))
   rawPrograms <- runProgramParser (programParser prefixes) (unlines body)
   let (resolveErrors, resolvedPrograms) = partitionEithers (map resolveProgram rawPrograms)
       canonicalInput = unlines (map T.unpack (T.lines input))
@@ -115,11 +114,8 @@ parseProgram input = do
   where
     sameRendered left right = renderProgram left == renderProgram right
 
-parseHeader :: [String] -> Either String (Map Int Text, [String])
-parseHeader lines' =
-  case dropWhile (all isSpace) lines' of
-    "core 2" : rest -> consumePrefixes Map.empty rest
-    _ -> Left "expected FC text header 'core 2'"
+parsePrefixes :: [String] -> Either String (Map Int Text, [String])
+parsePrefixes = consumePrefixes Map.empty . dropWhile (all isSpace)
   where
     consumePrefixes prefixes remaining =
       case remaining of
@@ -1334,7 +1330,7 @@ isConstructorName name =
       Nothing -> False
 
 reservedWords :: [String]
-reservedWords = ["as", "axiom", "case", "ccall", "core", "data", "foreign", "import", "in", "io", "let", "literal", "newtype", "nominal", "of", "prefix", "prim", "pure", "rec", "refl", "representational", "represents", "sym", "tycon", "tyvar", "var", "where"]
+reservedWords = ["as", "axiom", "case", "ccall", "data", "foreign", "import", "in", "io", "let", "literal", "newtype", "nominal", "of", "prefix", "prim", "pure", "rec", "refl", "representational", "represents", "sym", "tycon", "tyvar", "var", "where"]
 
 parenthesize :: Bool -> String -> String
 parenthesize False value = value

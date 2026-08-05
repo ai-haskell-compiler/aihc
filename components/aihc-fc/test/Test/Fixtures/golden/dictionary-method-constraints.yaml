@@ -1,5 +1,4 @@
 expected: |-
-  core 2
   data Result where
     | Result;
 
