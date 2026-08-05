@@ -1,12 +1,13 @@
+extensions:
+  - MagicHash
 dependencies:
   - aihc-base
   - aihc-prim
-extensions:
-  - MagicHash
 modules:
   - |
     module Test where
 
+    import Data.Functor.Identity (Identity (..))
     import GHC.Prim (raise#)
 
     data Unit = Unit
@@ -15,9 +16,9 @@ modules:
     raisedUnit = raise# Unit
 
     result :: Bool
-    result = seq raisedUnit True
+    result = seq (Identity raisedUnit) True
 output: ""
 exception: Unit
 expression: result
 status: pass
-reason: seq raises the first argument's exact Unit exception while evaluating it to weak head normal form
+reason: Identity remains a representational newtype, so seq observes through it and raises its field's Unit exception

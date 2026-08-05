@@ -770,10 +770,10 @@ mkEvalFixtureTest evalCase = testCase (EvalGolden.evalCaseId evalCase) $ do
     EvalGolden.OutcomeXPass -> assertFailure ("unexpected pass (xpass): " <> details)
     EvalGolden.OutcomeFail -> assertFailure details
 
-evaluateGrinProgram :: Text -> FcProgram -> IO (Either String Text)
+evaluateGrinProgram :: Text -> FcProgram -> IO (Either EvalGolden.EvaluationFailure Text)
 evaluateGrinProgram name fcProgram = do
   case prepareEvalProgram name (lowerNewtypes fcProgram) of
-    Left err -> pure (Left err)
+    Left err -> pure (Left (EvalGolden.EvaluationError err))
     Right (preparedProgram, entry, unwrapResult) -> do
       let program = lowerProgram preparedProgram
       case lintProgram program of
@@ -784,9 +784,10 @@ evaluateGrinProgram name fcProgram = do
               RunIoAction -> interpretProgramIoBinding name program
           pure $
             case result of
-              Left err -> Left (show err)
+              Left (InterpretRaisedException exception) -> Left (EvalGolden.EvaluationRaised exception)
+              Left err -> Left (EvalGolden.EvaluationError (show err))
               Right value -> Right (unwrapResult value)
-        lintErrors -> pure (Left ("GRIN lint error: " <> show lintErrors))
+        lintErrors -> pure (Left (EvalGolden.EvaluationError ("GRIN lint error: " <> show lintErrors)))
 
 data BindingEntry
   = EvaluateBinding

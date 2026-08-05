@@ -348,6 +348,34 @@ kindTests =
               (mkTyCon "Eq" 1 (KFun liftedTypeKind KConstraint))
               [TcTyCon (TyCon "Bool" 0) []]
       assertEqual "dictionary representation" (Right liftedRuntimeRep) (runtimeRepOfType dictionaryTy),
+    testCase "infers higher-kinded variables in instance heads and contexts" $ do
+      let source =
+            "{-# LANGUAGE KindSignatures #-}\n\
+            \module Test where\n\
+            \class FunctorLike (f :: Type -> Type) where\n\
+            \  mapLike :: (a -> b) -> f a -> f b\n\
+            \data Product (f :: Type -> Type) (g :: Type -> Type) a = Pair (f a) (g a)\n\
+            \instance (FunctorLike f, FunctorLike g) => FunctorLike (Product f g) where\n\
+            \  mapLike function (Pair first second) = Pair (mapLike function first) (mapLike function second)\n"
+      case resolve [parseOnly source] of
+        ResolveResult {resolvedModules = modules, resolveErrors = []} -> do
+          let (checkedModules, interface) = typecheckModuleSccWithInterface mempty modules
+              instances = [info | info <- tcInterfaceInstances interface, iiClassName info == "FunctorLike"]
+          assertBool
+            ("module should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedModules))
+            (all tcModuleSuccess checkedModules)
+          assertEqual
+            "interface serialization round-trip"
+            (show interface)
+            (show (read (show interface) :: TcInterface))
+          case instances of
+            [instanceInfo] ->
+              assertEqual
+                "instance variable kinds"
+                [KFun KType KType, KFun KType KType]
+                (map tvKind (iiTyVars instanceInfo))
+            other -> assertFailure ("expected one FunctorLike instance, got: " <> show other)
+        ResolveResult {resolveErrors} -> assertFailure ("module should resolve, got: " <> show resolveErrors),
     testCase "records source-level constructor field representations" $ do
       let result =
             typecheckModule $
@@ -633,6 +661,8 @@ annotationTests =
         ResolveResult {resolvedModules = baseModules, resolveErrors = []} -> do
           let (checkedBase, interface) = typecheckModuleSccWithInterface mempty baseModules
           assertBool ("provider should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedBase)) (all tcModuleSuccess checkedBase)
+          assertBool "record selectors are emitted as term bindings" (all (`elem` concatMap (map tbName . tcModuleBindings) checkedBase) ["left", "right"])
+          assertBool "record selectors are exported through T(..)" (all (`elem` map fst (tcInterfaceTerms interface)) ["left", "right"])
           assertEqual
             "interface serialization round-trip"
             (show interface)
@@ -661,7 +691,9 @@ annotationTests =
                       "{-# LANGUAGE DeriveAnyClass, DerivingStrategies, StandaloneDeriving #-}\n\
                       \module Use where\n\
                       \import Base\n\
-                      \deriving anyclass instance Marker (T a)\n"
+                      \deriving anyclass instance Marker (T a)\n\
+                      \select :: T a -> a\n\
+                      \select = left\n"
               case resolveWithDeps dependencyExports [target] of
                 ResolveResult {resolvedModules = targetModules, resolveErrors = []} -> do
                   let (checkedTarget, _) = typecheckModuleSccWithInterface interface targetModules

@@ -5,6 +5,7 @@
 module Aihc.Testing.EvalFixture
   ( Outcome (..),
     EvalCase (..),
+    EvaluationFailure (..),
     ProgramEvaluator,
     evalFixtureRoot,
     evalBindingName,
@@ -83,15 +84,21 @@ data EvalCase = EvalCase
     evalCaseModules :: ![Text],
     evalCaseExpression :: !Text,
     evalCaseOutput :: !String,
+    evalCaseException :: !(Maybe String),
     evalCaseStdout :: !(Maybe String),
     evalCaseStatus :: !ExpectedStatus,
     evalCaseReason :: !String
   }
   deriving (Eq, Show)
 
+data EvaluationFailure
+  = EvaluationError !String
+  | EvaluationRaised !Text
+  deriving (Eq, Show)
+
 -- | A phase evaluator receives the synthetic binding name and the fully
 -- desugared FC program, then renders the resulting value.
-type ProgramEvaluator = Text -> FcProgram -> IO (Either String Text)
+type ProgramEvaluator = Text -> FcProgram -> IO (Either EvaluationFailure Text)
 
 evalFixtureRoot :: IO FilePath
 evalFixtureRoot = do
@@ -138,7 +145,7 @@ loadEvalCase root path = do
 
 parseEvalFixture :: FilePath -> FilePath -> Y.Value -> Either String EvalCase
 parseEvalFixture root path value = do
-  (extNames, dependencies, modules, expression, output, expectedStdout, statusText, reasonText) <-
+  (extNames, dependencies, modules, expression, output, expectedException, expectedStdout, statusText, reasonText) <-
     parseEither
       ( withObject "eval fixture" $ \obj -> do
           exts <- obj .: "extensions"
@@ -146,10 +153,11 @@ parseEvalFixture root path value = do
           mods <- obj .: "modules" >>= parseModules
           expr <- obj .: "expression"
           expected <- obj .: "output"
+          exception <- obj .:? "exception"
           stdoutOutput <- obj .:? "stdout"
           status <- obj .: "status"
           reason <- obj .:? "reason" .!= ""
-          pure (exts, deps, mods, expr, expected, stdoutOutput, status, reason)
+          pure (exts, deps, mods, expr, expected, exception, stdoutOutput, status, reason)
       )
       value
   if null modules
@@ -159,6 +167,13 @@ parseEvalFixture root path value = do
       status <- parseStatus path statusText
       let relPath = makeRelative root path
           category = categoryFromPath relPath
+          exception = trim . T.unpack <$> expectedException
+      case exception of
+        Just "" -> Left ("Eval fixture exception must not be empty in " <> path)
+        Just _
+          | status == StatusFail ->
+              Left ("Eval fixture exception assertions must use status pass, xfail, or xpass in " <> path)
+        _ -> pure ()
       pure
         EvalCase
           { evalCaseId = relPath,
@@ -169,6 +184,7 @@ parseEvalFixture root path value = do
             evalCaseModules = modules,
             evalCaseExpression = expression,
             evalCaseOutput = trim (T.unpack output),
+            evalCaseException = exception,
             evalCaseStdout = T.unpack <$> expectedStdout,
             evalCaseStatus = status,
             evalCaseReason = trim (T.unpack reasonText)
@@ -185,14 +201,14 @@ evaluateEvalCase :: ProgramEvaluator -> EvalCase -> IO (Outcome, String)
 evaluateEvalCase evaluator tc = do
   compileResult <- compileEvalCase tc
   case compileResult of
-    Left errMsg -> pure (classifyFailure tc errMsg)
+    Left errMsg -> pure (classifyCompileFailure tc errMsg)
     Right program -> do
       (actualStdout, renderResult) <-
         evaluateWithExpectedStdout tc (evaluator evalBindingName program)
       pure $
         case renderResult of
           Right actual -> classifySuccess tc (T.unpack actual) actualStdout
-          Left err -> classifyFailure tc ("eval error: " <> err)
+          Left failure -> classifyEvaluationFailure tc failure actualStdout
 
 compileEvalCase :: EvalCase -> IO (Either String FcProgram)
 compileEvalCase tc =
@@ -427,6 +443,13 @@ classifySuccess tc actual actualStdout =
           (OutcomeFail, "expected xpass output match but got: " <> trim actual)
   where
     mismatchDetails
+      | Just expectedException <- evalCaseException tc =
+          Just
+            ( "expected raised exception "
+                <> show expectedException
+                <> " but evaluation succeeded with output:\n"
+                <> trim actual
+            )
       | trim actual /= trim (evalCaseOutput tc) =
           Just ("output mismatch\nexpected:\n" <> evalCaseOutput tc <> "\nactual:\n" <> trim actual)
       | otherwise = stdoutMismatch tc actualStdout
@@ -495,13 +518,56 @@ flushCStdout = do
   _ <- callFFI fflush retCInt [argPtr nullPtr]
   pure ()
 
-classifyFailure :: EvalCase -> String -> (Outcome, String)
-classifyFailure tc errDetails =
+classifyCompileFailure :: EvalCase -> String -> (Outcome, String)
+classifyCompileFailure tc errDetails =
   case evalCaseStatus tc of
-    StatusPass -> (OutcomeFail, "expected success, got error: " <> errDetails)
+    StatusPass ->
+      case evalCaseException tc of
+        Just expected ->
+          ( OutcomeFail,
+            "expected raised exception " <> show expected <> ", but compilation failed: " <> errDetails
+          )
+        Nothing -> (OutcomeFail, "expected success, got error: " <> errDetails)
     StatusFail -> (OutcomePass, "")
     StatusXFail -> (OutcomeXFail, "")
     StatusXPass -> (OutcomeFail, "expected xpass, got error: " <> errDetails)
+
+classifyEvaluationFailure :: EvalCase -> EvaluationFailure -> Maybe String -> (Outcome, String)
+classifyEvaluationFailure tc failure actualStdout =
+  case evalCaseStatus tc of
+    StatusPass ->
+      case evaluationFailureMismatch tc failure actualStdout of
+        Nothing -> (OutcomePass, "")
+        Just details -> (OutcomeFail, details)
+    StatusFail -> (OutcomePass, "")
+    StatusXFail
+      | isNothing (evaluationFailureMismatch tc failure actualStdout) -> (OutcomeXPass, "")
+      | otherwise -> (OutcomeXFail, "")
+    StatusXPass
+      | isNothing (evaluationFailureMismatch tc failure actualStdout) -> (OutcomeXPass, "known bug still passes")
+      | otherwise -> (OutcomeFail, evaluationFailureDetails failure)
+
+evaluationFailureMismatch :: EvalCase -> EvaluationFailure -> Maybe String -> Maybe String
+evaluationFailureMismatch tc failure actualStdout =
+  case (evalCaseException tc, failure) of
+    (Just expected, EvaluationRaised actual)
+      | trim expected /= trim (T.unpack actual) ->
+          Just
+            ( "raised exception mismatch\nexpected:\n"
+                <> trim expected
+                <> "\nactual:\n"
+                <> trim (T.unpack actual)
+            )
+      | otherwise -> stdoutMismatch tc actualStdout
+    (Just expected, EvaluationError details) ->
+      Just ("expected raised exception " <> show expected <> ", got evaluation error: " <> details)
+    (Nothing, _) -> Just ("expected successful evaluation, got error: " <> evaluationFailureDetails failure)
+
+evaluationFailureDetails :: EvaluationFailure -> String
+evaluationFailureDetails failure =
+  case failure of
+    EvaluationError details -> details
+    EvaluationRaised exception -> "uncaught exception: " <> T.unpack exception
 
 listFixtureFiles :: FilePath -> IO [FilePath]
 listFixtureFiles dir = do
