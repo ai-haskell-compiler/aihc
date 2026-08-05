@@ -4,3 +4,9 @@
 - ignore:
     name: Use foldl
     within: GHC.Read.Lex
+- ignore:
+    name: Use traverse
+    within: Data.Traversable
+- ignore:
+    name: Use sequenceA
+    within: Data.Traversable

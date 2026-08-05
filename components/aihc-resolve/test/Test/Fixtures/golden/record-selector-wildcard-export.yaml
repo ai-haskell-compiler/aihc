@@ -1,0 +1,27 @@
+extensions: []
+modules:
+  - |
+    module Provider (Identity(..)) where
+    newtype Identity a = Identity { runIdentity :: a }
+  - |
+    module Consumer where
+    import Provider (Identity(..))
+    unwrap :: Identity a -> a
+    unwrap value = runIdentity value
+annotated:
+  - |
+    module Consumer where
+    import Provider (Identity(..))
+    unwrap :: Identity a -> a
+    │         └─ t Provider
+    └─ v Consumer
+    unwrap value = runIdentity value
+    │      └─ v 0  │           └─ v 0
+    └─ v Consumer  └─ v Provider
+  - |
+    module Provider (Identity(..)) where
+    newtype Identity a = Identity { runIdentity :: a }
+            │            └─ v Provider
+            └─ t Provider
+status: pass
+reason: a T(..) export and import include record selectors bundled with T's constructors

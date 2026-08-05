@@ -1,0 +1,20 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+
+    import Data.Functor.Identity (Identity (..))
+    import GHC.Prim (raise#)
+
+    data Unit = Unit
+
+    result :: Bool
+    result = seq (Identity (raise# Unit)) True
+output: ""
+expression: result
+status: fail
+reason: Identity remains a representational newtype, so seq observes through it and forces its field

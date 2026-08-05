@@ -1,0 +1,204 @@
+extensions:
+  - FlexibleContexts
+  - FlexibleInstances
+  - KindSignatures
+  - MagicHash
+  - UndecidableInstances
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+
+    import Data.Foldable (foldr)
+    import Data.Functor.Compose
+    import Data.Functor.Identity
+    import Data.Functor.Product
+    import Data.Functor.Sum
+    import Data.Kind (Type)
+    import Data.Monoid (Monoid (..))
+    import Data.Semigroup (Semigroup (..))
+    import Data.Traversable (traverse)
+    import GHC.Prim (raise#)
+
+    data Unit = Unit
+
+    class Deep a where
+      deep :: a -> Bool
+
+    class Deep1 (f :: Type -> Type) where
+      liftDeep :: (a -> Bool) -> f a -> Bool
+
+    instance (Deep a) => Deep (Identity a) where
+      deep (Identity value) = deep value
+
+    instance Deep1 Identity where
+      liftDeep force (Identity value) = force value
+
+    instance (Deep (f (g a))) => Deep (Compose f g a) where
+      deep (Compose value) = deep value
+
+    instance (Deep1 f, Deep1 g) => Deep1 (Compose f g) where
+      liftDeep force (Compose value) = liftDeep (liftDeep force) value
+
+    instance (Deep (f a), Deep (g a)) => Deep (Product f g a) where
+      deep (Pair first second) = deep first && deep second
+
+    instance (Deep1 f, Deep1 g) => Deep1 (Product f g) where
+      liftDeep force (Pair first second) = liftDeep force first && liftDeep force second
+
+    instance (Deep (f a), Deep (g a)) => Deep (Sum f g a) where
+      deep (InL value) = deep value
+      deep (InR value) = deep value
+
+    instance (Deep1 f, Deep1 g) => Deep1 (Sum f g) where
+      liftDeep force (InL value) = liftDeep force value
+      liftDeep force (InR value) = liftDeep force value
+
+    flipBool :: Bool -> Bool
+    flipBool False = True
+    flipBool True = False
+
+    keepTrue :: Bool -> Maybe Bool
+    keepTrue True = Just True
+    keepTrue False = Nothing
+
+    isIdentityTrue :: Identity Bool -> Bool
+    isIdentityTrue (Identity True) = True
+    isIdentityTrue _ = False
+
+    isIdentityList :: Identity [Bool] -> Bool
+    isIdentityList (Identity values) = isTrueFalse values
+
+    isIdentityEmpty :: Identity [Bool] -> Bool
+    isIdentityEmpty (Identity []) = True
+    isIdentityEmpty _ = False
+
+    isTrueFalse :: [Bool] -> Bool
+    isTrueFalse [True, False] = True
+    isTrueFalse _ = False
+
+    isTrue :: [Bool] -> Bool
+    isTrue [True] = True
+    isTrue _ = False
+
+    isFalse :: [Bool] -> Bool
+    isFalse [False] = True
+    isFalse _ = False
+
+    isFalseTrueLists :: [[Bool]] -> Bool
+    isFalseTrueLists [first, second] = isFalse first && isTrue second
+    isFalseTrueLists _ = False
+
+    isTrueTrue :: [Bool] -> Bool
+    isTrueTrue [True, True] = True
+    isTrueTrue _ = False
+
+    isMaybeTrue :: Maybe Bool -> Bool
+    isMaybeTrue (Just True) = True
+    isMaybeTrue _ = False
+
+    isMaybeTrueFalse :: Maybe [Bool] -> Bool
+    isMaybeTrueFalse (Just values) = isTrueFalse values
+    isMaybeTrueFalse _ = False
+
+    isMaybeTrueList :: Maybe [Bool] -> Bool
+    isMaybeTrueList (Just values) = isTrue values
+    isMaybeTrueList _ = False
+
+    isMaybeTrueTrue :: Maybe [Bool] -> Bool
+    isMaybeTrueTrue (Just values) = isTrueTrue values
+    isMaybeTrueTrue _ = False
+
+    isTraversedIdentity :: Maybe (Identity Bool) -> Bool
+    isTraversedIdentity (Just value) = isIdentityTrue value
+    isTraversedIdentity _ = False
+
+    isComposeValues :: Compose Maybe [] Bool -> Bool
+    isComposeValues (Compose value) = isMaybeTrueFalse value
+
+    isComposeValue :: Compose Maybe [] Bool -> Bool
+    isComposeValue (Compose value) = isMaybeTrueList value
+
+    isComposeTrueTrue :: Compose Maybe [] Bool -> Bool
+    isComposeTrueTrue (Compose value) = isMaybeTrueTrue value
+
+    isTraversedCompose :: Maybe (Compose Maybe [] Bool) -> Bool
+    isTraversedCompose (Just value) = isComposeTrueTrue value
+    isTraversedCompose _ = False
+
+    isProductValues :: Product Maybe [] Bool -> Bool
+    isProductValues (Pair maybeValue values) = isMaybeTrue maybeValue && isFalse values
+
+    isProductLists :: Product Maybe [] [Bool] -> Bool
+    isProductLists (Pair maybeValues values) = isMaybeTrueFalse maybeValues && isFalseTrueLists values
+
+    isTraversedProduct :: Maybe (Product Maybe [] Bool) -> Bool
+    isTraversedProduct (Just (Pair maybeValue values)) = isMaybeTrue maybeValue && isTrue values
+    isTraversedProduct _ = False
+
+    isLeftTrue :: Sum Maybe [] Bool -> Bool
+    isLeftTrue (InL value) = isMaybeTrue value
+    isLeftTrue _ = False
+
+    isRightTrue :: Sum Maybe [] Bool -> Bool
+    isRightTrue (InR values) = isTrue values
+    isRightTrue _ = False
+
+    isTraversedSum :: Maybe (Sum Maybe [] Bool) -> Bool
+    isTraversedSum (Just value) = isLeftTrue value
+    isTraversedSum _ = False
+
+    lazyProduct :: Product Maybe [] Bool
+    lazyProduct = Pair (raise# Unit) (raise# Unit)
+
+    lazySum :: Sum Maybe [] Bool
+    lazySum = InL (raise# Unit)
+
+    lazyCompose :: Compose Maybe [] Bool
+    lazyCompose = Compose (Just (raise# Unit))
+
+    andList :: [Bool] -> Bool
+    andList [] = True
+    andList (value : values) = value && andList values
+
+    checks :: [Bool]
+    checks =
+      [ runIdentity (fmap flipBool (Identity False)) == True,
+        Identity True == Identity True,
+        Identity False < Identity True,
+        foldr (&&) True (Identity False) == False,
+        isTraversedIdentity (traverse keepTrue (Identity True)),
+        isIdentityTrue (Identity flipBool <*> Identity False),
+        isIdentityTrue (Identity False >>= \value -> Identity (flipBool value)),
+        isIdentityList (Identity [True] <> Identity [False]),
+        isIdentityEmpty (mempty :: Identity [Bool]),
+        show (Identity True) == "Identity True",
+        isComposeValues (fmap flipBool (Compose (Just [False, True]))),
+        foldr (:) [] (Compose (Just [True, False])) == [True, False],
+        isTraversedCompose (traverse keepTrue (Compose (Just [True, True]))),
+        isComposeValue (Compose (Just [flipBool]) <*> Compose (Just [False])),
+        show (Compose (Just [True, False])) == "Compose (Just [True,False])",
+        isProductValues (fmap flipBool (Pair (Just False) [True])),
+        foldr (:) [] (Pair (Just True) [False]) == [True, False],
+        isTraversedProduct (traverse keepTrue (Pair (Just True) [True])),
+        isProductValues (Pair (Just flipBool) [flipBool] <*> Pair (Just False) [True]),
+        isProductValues (Pair (Just False) [False] >>= \value -> Pair (Just (flipBool value)) [value]),
+        isProductLists (Pair (Just [True]) [[False]] <> Pair (Just [False]) [[True]]),
+        show (Pair (Just True) [False]) == "Pair (Just True) [False]",
+        isLeftTrue (fmap flipBool (InL (Just False) :: Sum Maybe [] Bool)),
+        isRightTrue (fmap flipBool (InR [False] :: Sum Maybe [] Bool)),
+        foldr (:) [] (InR [True, False] :: Sum Maybe [] Bool) == [True, False],
+        isTraversedSum (traverse keepTrue (InL (Just True) :: Sum Maybe [] Bool)),
+        (InL (Just True) :: Sum Maybe [] Bool) < InR [],
+        show (InR [True, False] :: Sum Maybe [] Bool) == "InR [True,False]",
+        seq lazyProduct True,
+        seq lazySum True,
+        seq lazyCompose True
+      ]
+output: |
+  True
+expression: andList checks
+status: pass
+reason: evaluates the standard identity, composition, product, and sum wrapper APIs and compiles the higher-kinded instance heads used by deepseq
