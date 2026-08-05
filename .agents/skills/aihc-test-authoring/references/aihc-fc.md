@@ -58,6 +58,20 @@ reason: renders evaluated list literals in raw constructor form
 
 Required keys: `extensions`, `modules`, `expression`, `output`, `status`. `dependencies` is optional and defaults to `[]`, but include it explicitly when the fixture relies on shared library modules.
 
+Use the optional `exception` string when evaluation must raise a specific
+uncaught language exception. It is matched exactly against the exception's raw
+rendering in both FC and GRIN; compilation failures, evaluator failures, and
+different exception values do not satisfy it. Such fixtures are successful
+runtime contracts and therefore use `status: pass` (the required `output` may
+be empty), for example:
+
+```yaml
+output: ""
+exception: Unit
+expression: result
+status: pass
+```
+
 Use the optional `stdout` string when evaluation must write to standard output. The fixture runner captures file descriptor 1, flushes libc output, and requires an exact text match without trimming. Prefer a quoted YAML string when leading, trailing, or newline characters matter. The golden updater skips fixtures with `stdout` expectations so it cannot leak side effects into its own output; validate them with the FC test suite and maintain both expectations manually.
 
 Use `dependencies: [aihc-base]` when an eval fixture depends on `Prelude` names or modules from `core-libs/aihc-base` instead of defining all dependencies inline in `modules`. The runner loads `aihc-base` from `core-libs/aihc-base` by default. Set `AIHC_BASE_SRC` only when local development, CI, or branch testing needs the fixture runner to use a modified or alternate `aihc-base` checkout; the value must be the package root whose `src` tree should replace the default `core-libs/aihc-base`. Dependency loading starts from `Prelude` plus the fixture modules' imports and follows imports transitively. Unknown dependency names fail the fixture.

@@ -11,9 +11,13 @@ modules:
 
     data Unit = Unit
 
+    raisedUnit :: Unit
+    raisedUnit = raise# Unit
+
     result :: Bool
-    result = seq (raise# Unit) True
+    result = seq raisedUnit True
 output: ""
+exception: Unit
 expression: result
-status: fail
-reason: seq propagates failure while evaluating its first argument to weak head normal form
+status: pass
+reason: seq raises the first argument's exact Unit exception while evaluating it to weak head normal form

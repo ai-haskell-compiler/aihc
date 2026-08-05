@@ -12,9 +12,13 @@ modules:
 
     data Unit = Unit
 
+    raisedUnit :: Unit
+    raisedUnit = raise# Unit
+
     result :: Bool
-    result = seq (Identity (raise# Unit)) True
+    result = seq (Identity raisedUnit) True
 output: ""
+exception: Unit
 expression: result
-status: fail
-reason: Identity remains a representational newtype, so seq observes through it and forces its field
+status: pass
+reason: Identity remains a representational newtype, so seq observes through it and raises its field's Unit exception

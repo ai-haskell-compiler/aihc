@@ -8,7 +8,8 @@ modules:
     module Test where
     import GHC.Prim (raise#)
 output: ""
+exception: "10"
 expression: |
   raise# 10#
-status: fail
-reason: uncaught raise# imported from aihc-prim fails evaluation
+status: pass
+reason: uncaught raise# imported from aihc-prim raises the exact integer exception
