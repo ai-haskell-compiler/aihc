@@ -1,0 +1,96 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Version
+    import Text.ParserCombinators.ReadP (readP_to_S)
+
+    class NFData a where
+      rnf :: a -> ()
+
+    instance NFData Int where
+      rnf value = value `seq` ()
+
+    instance NFData Char where
+      rnf value = value `seq` ()
+
+    instance NFData a => NFData [a] where
+      rnf [] = ()
+      rnf (value : values) = rnf value `seq` rnf values
+
+    instance NFData Version where
+      rnf (Version branch tags) = rnf branch `seq` rnf tags
+
+    deepseqStyleInstanceWorks :: Bool
+    deepseqStyleInstanceWorks =
+      case rnf (Version [1, 2, 3] ["alpha", "beta"]) of
+        () -> True
+
+    fullyParsed :: String -> [Version]
+    fullyParsed input = collectComplete (readP_to_S parseVersion input)
+
+    collectComplete :: [(Version, String)] -> [Version]
+    collectComplete [] = []
+    collectComplete ((version, rest) : results) =
+      case rest of
+        [] -> version : collectComplete results
+        _ : _ -> collectComplete results
+
+    parsesAs :: String -> Version -> Bool
+    parsesAs input expected = fullyParsed input == [expected]
+
+    partialParseMatchesGhc :: Bool
+    partialParseMatchesGhc =
+      case readP_to_S parseVersion "1.2-tag!" of
+        [ (first, firstRest),
+          (second, secondRest),
+          (third, thirdRest)
+          ] ->
+            first == Version [1] []
+              && firstRest == ".2-tag!"
+              && second == Version [1, 2] []
+              && secondRest == "-tag!"
+              && third == Version [1, 2] ["tag"]
+              && thirdRest == "!"
+        _ -> False
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : values) = allTrue values
+    allTrue (False : _) = False
+
+    results :: Bool
+    results =
+      allTrue
+        [ makeVersion [] == Version [] [],
+          makeVersion [1, 2, 3] == Version [1, 2, 3] [],
+          showVersion (Version [] []) == "",
+          showVersion (Version [1, 2, 3] []) == "1.2.3",
+          showVersion (Version [1, 2, 3] ["alpha1", "beta"]) == "1.2.3-alpha1-beta",
+          versionBranch (Version [1, 2, 3] ["alpha"]) == [1, 2, 3],
+          versionTags (Version [1, 2, 3] ["alpha"]) == ["alpha"],
+          parsesAs "1" (Version [1] []),
+          parsesAs "01.002" (Version [1, 2] []),
+          parsesAs "1.2.3-alpha1-beta" (Version [1, 2, 3] ["alpha1", "beta"]),
+          fullyParsed "" == [],
+          fullyParsed "1-" == [],
+          fullyParsed "1-alpha_beta" == [],
+          partialParseMatchesGhc,
+          Version [1] ["beta", "alpha"] == Version [1] ["alpha", "beta"],
+          Version [1] ["alpha", "alpha"] /= Version [1] ["alpha"],
+          compare (Version [1, 2] ["z"]) (Version [1, 2] ["a"]) == EQ,
+          Version [1, 2, 1] [] > Version [1, 2] ["release"],
+          deepseqStyleInstanceWorks,
+          show (Version [] []) == "Version {versionBranch = [], versionTags = []}",
+          show (Version [1, 2, 3] ["alpha", "beta"])
+            == "Version {versionBranch = [1,2,3], versionTags = [\"alpha\",\"beta\"]}"
+        ]
+output: |
+  True
+expression: |
+  results
+status: pass
+reason: Data.Version matches base rendering, parsing, tag equality, branch ordering, and Read/Show behavior
