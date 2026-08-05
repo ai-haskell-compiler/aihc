@@ -1,0 +1,35 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.STRef (STRef, modifySTRef, modifySTRef', newSTRef, readSTRef, writeSTRef)
+    import GHC.Prim (raise#)
+    import GHC.ST (runST)
+
+    updateReference :: (Int, Bool, Bool)
+    updateReference = runST (do
+      reference <- newSTRef 1
+      other <- newSTRef 1
+      writeSTRef reference 2
+      modifySTRef reference (\value -> value + 3)
+      modifySTRef' reference (\value -> value * 4)
+      value <- readSTRef reference
+      return (value, reference == reference, reference /= other))
+
+    lazyModification :: (Bool, Bool)
+    lazyModification = runST (do
+      reference <- newSTRef (True, True)
+      modifySTRef reference (\_ -> (False, raise# False))
+      value <- readSTRef reference
+      case value of
+        (first, _) -> return (first, True))
+output: |
+  (((I# 20),True,True),(False,True))
+expression: |
+  (updateReference, lazyModification)
+status: pass
+reason: Data.STRef exposes allocation, read, write, equality, and lazy modification through FC and GRIN

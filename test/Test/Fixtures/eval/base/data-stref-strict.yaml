@@ -1,0 +1,21 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.STRef (modifySTRef', newSTRef)
+    import GHC.Prim (raise#)
+    import GHC.ST (runST)
+
+    strictModification :: Bool
+    strictModification = runST (do
+      reference <- newSTRef True
+      modifySTRef' reference (\_ -> raise# False)
+      return True)
+output: ""
+expression: strictModification
+status: fail
+reason: modifySTRef' forces an updated value to weak head normal form before returning

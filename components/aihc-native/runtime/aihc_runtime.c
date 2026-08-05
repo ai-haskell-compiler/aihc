@@ -255,6 +255,22 @@ uint64_t aihc_array_same(AihcValue *left, AihcValue *right) {
   return left == right;
 }
 
+AihcValue *aihc_mutvar_new(AihcMachine *machine, AihcSlot initial) {
+  return aihc_array_new(machine, 1, initial);
+}
+
+AihcSlot aihc_mutvar_read(AihcValue *mutvar) {
+  return aihc_array_index(mutvar, 0);
+}
+
+AihcSlot aihc_mutvar_write(AihcValue *mutvar, AihcSlot value) {
+  return aihc_array_write(mutvar, 0, value);
+}
+
+uint64_t aihc_mutvar_same(AihcValue *left, AihcValue *right) {
+  return aihc_array_same(left, right);
+}
+
 static void aihc_visit_value(AihcValue **value, AihcRootVisitor visitor,
                              void *context) {
   *value =

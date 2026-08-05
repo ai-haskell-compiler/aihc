@@ -245,6 +245,7 @@ supportedNativePrimitiveNames =
     "gtWord#",
     "geWord#",
     "realWorld#",
+    "newMutVar#",
     "newArray#",
     "unsafeFreezeArray#",
     "unsafeThawArray#",
@@ -295,7 +296,10 @@ nativeRuntimePrimitiveCall name = lookup name nativeRuntimePrimitiveCalls
 
 nativeRuntimePrimitiveCalls :: [(Text, GrinForeignCall)]
 nativeRuntimePrimitiveCalls =
-  [ call "indexWord8OffAddr#" "aihc_addr_index_word8" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+  [ call "readMutVar#" "aihc_mutvar_read" [GrinForeignAddr] GrinForeignWord64,
+    call "writeMutVar#" "aihc_mutvar_write" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    call "sameMutVar#" "aihc_mutvar_same" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
+    call "indexWord8OffAddr#" "aihc_addr_index_word8" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "indexWord32OffAddr#" "aihc_addr_index_word32" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "indexWord64OffAddr#" "aihc_addr_index_word64" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "indexArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
