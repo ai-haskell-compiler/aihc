@@ -25,6 +25,7 @@ library
     Aihc.Fc.Pretty
     Aihc.Fc.Subst
     Aihc.Fc.Syntax
+    Aihc.Fc.Text
 
   other-modules:
     Aihc.Fc.Desugar.Deriving
@@ -59,6 +60,7 @@ test-suite spec
   other-modules:
     Aihc.Testing.EvalFixture
     FcGolden
+    Test.Fc.Arbitrary
     Test.Fc.Suite
 
   build-depends:

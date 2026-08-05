@@ -16,10 +16,13 @@ import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax qualified as Surface
-import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Resolve (ResolveResult (..), resolve)
+import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), tcModuleBindings, tcModuleSuccess, typecheck)
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
+import Data.List (isInfixOf)
 import Data.Text (Text)
+import Data.Text qualified as T
 import FcGolden
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
@@ -64,7 +67,43 @@ fcDesugarTests =
             result = desugarModule parsedModule
         assertEqual "source parses" [] parseErrors
         assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
-        assertEqual "Core lint" [] (lintProgram emptyLintEnv (dsProgram result))
+        assertEqual "Core lint" [] (lintProgram emptyLintEnv (dsProgram result)),
+      testCase "qualified imports retain their FC identity and type" $ do
+        let sources =
+              [ "module Data.List.NonEmpty where\nxor value = value\nlength value = value\ntoList value = value\nindexError value = value\n",
+                "module GHC.Bits where\nxor left right = right\n",
+                "module Data.Foldable where\nlength left right = right\ntoList left right = right\n",
+                "module GHC.Ix where\nindexError left right = right\n",
+                "module CollisionRegression where\nimport qualified Data.List.NonEmpty as NonEmpty\nresultXor = NonEmpty.xor 'x'\nresultLength = NonEmpty.length 'l'\nresultToList = NonEmpty.toList 't'\nresultIndexError = NonEmpty.indexError 'i'\n"
+              ]
+            parsed = map (parseModule defaultConfig) sources
+            parseErrors = concatMap fst parsed
+        assertEqual "source parses" [] parseErrors
+        case resolve (map snd parsed) of
+          ResolveResult {resolvedModules, resolveErrors = []} -> do
+            let tcResults = typecheck resolvedModules
+                allBindings = concatMap tcModuleBindings tcResults
+                desugared = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+            assertBool "type checking succeeds" (all tcModuleSuccess tcResults)
+            assertBool ("desugaring succeeds: " <> show (concatMap dsErrors desugared)) (all dsSuccess desugared)
+            case reverse desugared of
+              consumer : _ -> do
+                let program = dsProgram consumer
+                    rendered = renderProgram program
+                assertBool "renders a readable qualifier prefix" ("prefix 1 = \"Data.List.NonEmpty\"" `isInfixOf` rendered)
+                assertBool "uses the qualifier prefix in variable labels" ("1.xor" `isInfixOf` rendered)
+                case parseProgram (T.pack rendered) of
+                  Left parseError -> assertFailure ("canonical FC does not parse: " <> parseError)
+                  Right reparsed -> assertEqual "canonical FC round-trip" (show program) (show reparsed)
+                mapM_
+                  (assertQualifiedUnaryBinding program)
+                  [ ("resultXor", "xor"),
+                    ("resultLength", "length"),
+                    ("resultToList", "toList"),
+                    ("resultIndexError", "indexError")
+                  ]
+              [] -> assertFailure "expected a consumer FC program"
+          ResolveResult {resolveErrors} -> assertFailure ("resolution failed: " <> show resolveErrors)
     ]
   where
     declarationConstructors declaration =
@@ -72,6 +111,35 @@ fcDesugarTests =
         Surface.DeclAnn _ inner -> declarationConstructors inner
         Surface.DeclData dataDeclaration -> Surface.dataDeclConstructors dataDeclaration
         _ -> []
+
+    assertQualifiedUnaryBinding program (bindingName, importedName) =
+      case [ expression
+           | FcTopBind (FcNonRec binder expression) <- fcTopBinds program,
+             varName binder == bindingName
+           ] of
+        [expression] ->
+          case appliedHeadVar expression of
+            Just imported -> do
+              assertEqual
+                ("resolved identity of " <> show bindingName)
+                (Just ("Data.List.NonEmpty." <> importedName))
+                (varResolvedName imported)
+              assertEqual ("term arity of " <> show bindingName) (1 :: Int) (termArity (varType imported))
+            Nothing -> assertFailure ("expected " <> show bindingName <> " to apply an imported variable")
+        bindings -> assertFailure ("expected one FC binding named " <> show bindingName <> ", got " <> show (length bindings))
+
+    appliedHeadVar expression =
+      case expression of
+        FcVar variable -> Just variable
+        FcApp function _ -> appliedHeadVar function
+        FcTyApp function _ -> appliedHeadVar function
+        _ -> Nothing
+
+    termArity fcType =
+      case fcType of
+        TcForAllTy _ body -> termArity body
+        TcFunTy _ result -> 1 + termArity result
+        _ -> 0
 
 fcEvalTests :: TestTree
 fcEvalTests =

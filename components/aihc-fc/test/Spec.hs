@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Test.Fc.Arbitrary (prop_fcTextRoundTrip)
 import Test.Fc.Suite (fcDesugarTests, fcEvalFixtureTests, fcEvalTests, fcGoldenTests, fcLoweringTests, fcOptimizationTests)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.QuickCheck qualified as QC
@@ -17,11 +18,6 @@ main = do
           fcLoweringTests,
           fcOptimizationTests,
           evalFixtures,
-          QC.testProperty "dummy quickcheck property" prop_dummy
+          QC.testProperty "generated System FC text round-trip" prop_fcTextRoundTrip
         ]
     )
-
--- | Dummy QuickCheck property that always passes.
--- Added so that --quickcheck-tests flag is accepted by the test suite.
-prop_dummy :: Bool -> Bool
-prop_dummy _ = True

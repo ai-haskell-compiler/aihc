@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Pretty-printer for System FC core.
+-- | Compact diagnostic pretty-printer for System FC core.
 --
+-- This rendering prioritizes source readability and is not the lossless text
+-- format. Use "Aihc.Fc.Text" when the output must parse back into Core.
 -- Produces multi-line, nested output with unicode characters:
 --
 -- * \x03bb (\955) for term lambda
@@ -11,7 +13,7 @@
 -- * \x21d2 (\8658) for double arrow (=>)
 -- * \x25b7 (\9655) for cast
 module Aihc.Fc.Pretty
-  ( renderProgram,
+  ( renderPrettyProgram,
     renderExpr,
     renderType,
     renderTopBind,
@@ -37,8 +39,8 @@ fatArrowChar = '\x21d2' -- ⇒
 castChar = '\x25b7' -- ▷
 
 -- | Render a complete program.
-renderProgram :: FcProgram -> String
-renderProgram prog =
+renderPrettyProgram :: FcProgram -> String
+renderPrettyProgram prog =
   intercalate "\n\n" (map renderTopBind (fcTopBinds prog))
 
 -- | Render a top-level binding.

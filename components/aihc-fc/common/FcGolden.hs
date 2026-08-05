@@ -16,7 +16,8 @@ module FcGolden
 where
 
 import Aihc.Fc.Desugar (DesugarResult (..), desugarModuleWithBindings)
-import Aihc.Fc.Pretty (renderProgram)
+import Aihc.Fc.Pretty (renderPrettyProgram)
+import Aihc.Fc.Text qualified as FcText
 import Aihc.Parser
   ( ParserConfig (..),
     defaultConfig,
@@ -157,7 +158,9 @@ evaluateFcCase tc =
                           results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
                           fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
-                            then classifySuccess tc (renderResults fixtureResults)
+                            then case validateRoundTrips fixtureResults of
+                              Left roundTripError -> classifyFailure tc roundTripError
+                              Right () -> classifySuccess tc (renderResults fixtureResults)
                             else classifyFailure tc (renderErrors results)
                     else classifyFailure tc ("typecheck error: " <> renderTcErrors tcResults)
             ResolveResult {resolveErrors} ->
@@ -174,9 +177,19 @@ evaluateFcCase tc =
             then Right ast
             else Left (show errs)
     renderResults results =
-      unlines (map (renderProgram . dsProgram) results)
+      unlines (map (renderPrettyProgram . dsProgram) results)
     renderErrors results =
       unlines [err | r <- results, err <- dsErrors r]
+
+validateRoundTrips :: [DesugarResult] -> Either String ()
+validateRoundTrips = mapM_ (validate . dsProgram)
+  where
+    validate program =
+      case FcText.parseProgram (T.pack (FcText.renderProgram program)) of
+        Left parseError -> Left ("System FC text round-trip parse error: " <> parseError)
+        Right reparsed
+          | show reparsed == show program -> Right ()
+          | otherwise -> Left "System FC text round-trip changed the program"
 
 moduleGroupBindings :: [Module] -> [TcBindingResult]
 moduleGroupBindings =
