@@ -340,6 +340,18 @@ compileDirectBinding env vars expression =
                    ]
             )
         _ -> lift (Left (Amd64UnsupportedExpression "boxed-array allocation arity"))
+    GrinPrimitiveCall _ "newMutVar#" arguments@[_] -> do
+      (argumentLines, argumentSlots) <- materializeIntoFreshSlots env arguments
+      case argumentSlots of
+        [initialSlot] ->
+          storeSingleResult
+            ( argumentLines
+                <> [ "  mov rdi, r15",
+                     loadAt "rsi" "r14" initialSlot,
+                     "  call aihc_mutvar_new"
+                   ]
+            )
+        _ -> lift (Left (Amd64UnsupportedExpression "mutable-reference allocation arity"))
     GrinPrimitiveCall _ name [left, right]
       | Just instructions <- lookup name singleResultBinaryPrimitives ->
           compileBinary "r10" "rax" storeSingleResult instructions left right

@@ -530,6 +530,13 @@ lowerSaturatedPrimitive resultRep "newArray#" arguments@[size, _] = do
             (GrinPrimitiveCall resultRep "newArray#" arguments)
         )
     )
+lowerSaturatedPrimitive resultRep "newMutVar#" arguments@[_] =
+  pure
+    ( GrinBind
+        []
+        (GrinEnsureHeap (GrinLitValue (GrinLitInt IntRep 3)) [])
+        (GrinPrimitiveCall resultRep "newMutVar#" arguments)
+    )
 lowerSaturatedPrimitive resultRep name arguments =
   pure (GrinPrimitiveCall resultRep name arguments)
 
