@@ -16,7 +16,7 @@ where
 
 import GHC.IO (IO (..))
 import GHC.IORef (IORef (..), newIORef, readIORef, writeIORef)
-import GHC.Prim (MutVar#, RealWorld, State#, casMutVarSuccess#, readMutVar#)
+import GHC.Prim (MutVar#, RealWorld, State#, casMutVar#, readMutVar#)
 import GHC.STRef (STRef (..))
 import Prelude (return, seq, (>>=))
 
@@ -43,13 +43,17 @@ retryAtomicModify :: MutVar# RealWorld a -> (a -> (a, b)) -> State# RealWorld ->
 retryAtomicModify reference transform state =
   case readMutVar# reference state of
     (# readState, old #) ->
-      case transform old of
-        (new, result) ->
-          case casMutVarSuccess# reference old new readState of
-            (# nextState, succeeded #) ->
-              case succeeded of
-                0# -> retryAtomicModify reference transform nextState
-                _ -> (# nextState, result #)
+      retryAtomicModifyExpected reference transform old readState
+
+retryAtomicModifyExpected :: MutVar# RealWorld a -> (a -> (a, b)) -> a -> State# RealWorld -> (# State# RealWorld, b #)
+retryAtomicModifyExpected reference transform old state =
+  case transform old of
+    (new, result) ->
+      case casMutVar# reference old new state of
+        (# nextState, failed, current #) ->
+          case failed of
+            0# -> (# nextState, result #)
+            _ -> retryAtomicModifyExpected reference transform current nextState
 
 -- | A strict version of 'atomicModifyIORef'. The new value is forced before
 -- it can be installed, while the returned value is forced after installation.
@@ -71,8 +75,12 @@ retryAtomicWrite :: MutVar# RealWorld a -> a -> State# RealWorld -> (# State# Re
 retryAtomicWrite reference value state =
   case readMutVar# reference state of
     (# readState, old #) ->
-      case casMutVarSuccess# reference old value readState of
-        (# nextState, succeeded #) ->
-          case succeeded of
-            0# -> retryAtomicWrite reference value nextState
-            _ -> (# nextState, () #)
+      retryAtomicWriteExpected reference value old readState
+
+retryAtomicWriteExpected :: MutVar# RealWorld a -> a -> a -> State# RealWorld -> (# State# RealWorld, () #)
+retryAtomicWriteExpected reference value old state =
+  case casMutVar# reference old value state of
+    (# nextState, failed, current #) ->
+      case failed of
+        0# -> (# nextState, () #)
+        _ -> retryAtomicWriteExpected reference value current nextState

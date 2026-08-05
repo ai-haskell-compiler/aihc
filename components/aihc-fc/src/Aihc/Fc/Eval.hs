@@ -453,12 +453,19 @@ evalPrimitive "writeMutVar#" [mutVar, value, state] = do
   EvalMutVar ref <- forceMutVarPrimitiveArg "writeMutVar#" mutVar
   lift (writeIORef ref value)
   pure state
-evalPrimitive "casMutVarSuccess#" [mutVar, expected, replacement, state] = do
-  EvalMutVar ref <- forceMutVarPrimitiveArg "casMutVarSuccess#" mutVar
+evalPrimitive "casMutVar#" [mutVar, expected, replacement, state] = do
+  EvalMutVar ref <- forceMutVarPrimitiveArg "casMutVar#" mutVar
   current <- lift (readIORef ref)
   let succeeded = current == expected
   when succeeded (lift (writeIORef ref replacement))
-  pure (VConstructor "(#,#)" [state, intPrimitiveValue (if succeeded then 1 else 0)])
+  pure
+    ( VConstructor
+        "(#,,#)"
+        [ state,
+          intPrimitiveValue (if succeeded then 0 else 1),
+          if succeeded then replacement else current
+        ]
+    )
 evalPrimitive "sameMutVar#" [left, right] = do
   leftReference <- forceMutVarPrimitiveArg "sameMutVar#" left
   rightReference <- forceMutVarPrimitiveArg "sameMutVar#" right

@@ -1,0 +1,36 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import GHC.IO (IO(..))
+    import GHC.Prim (casMutVar#, newMutVar#)
+
+    isZero# value =
+      case value of
+        0# -> True
+        _ -> False
+
+    isOne# value =
+      case value of
+        1# -> True
+        _ -> False
+
+    casContract :: IO (Bool, Bool, Bool, Bool)
+    casContract = IO (\state ->
+      case newMutVar# True state of
+        (# nextState, reference #) ->
+          case casMutVar# reference True False nextState of
+            (# swappedState, firstFailed, firstCurrent #) ->
+              case casMutVar# reference True True swappedState of
+                (# finalState, secondFailed, secondCurrent #) ->
+                  (# finalState, (isZero# firstFailed, firstCurrent, isOne# secondFailed, secondCurrent) #))
+output: |
+  (True,False,True,False)
+expression: casContract
+status: pass
+reason: casMutVar# matches GHC's name, failure-flag convention, and returned final value on success and failure

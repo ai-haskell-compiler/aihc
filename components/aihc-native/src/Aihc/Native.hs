@@ -298,7 +298,7 @@ nativeRuntimePrimitiveCalls :: [(Text, GrinForeignCall)]
 nativeRuntimePrimitiveCalls =
   [ call "readMutVar#" "aihc_mutvar_read" [GrinForeignAddr] GrinForeignWord64,
     call "writeMutVar#" "aihc_mutvar_write" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "casMutVarSuccess#" "aihc_mutvar_compare_and_swap" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    call "aihcCasMutVarFlag" "aihc_mutvar_compare_and_swap" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "sameMutVar#" "aihc_mutvar_same" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
     call "indexWord8OffAddr#" "aihc_addr_index_word8" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "indexWord32OffAddr#" "aihc_addr_index_word32" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,

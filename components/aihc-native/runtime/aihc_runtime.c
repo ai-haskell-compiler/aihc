@@ -271,10 +271,10 @@ uint64_t aihc_mutvar_compare_and_swap(AihcValue *mutvar, AihcSlot expected,
                                       AihcSlot replacement) {
   AihcSlot *current = &aihc_array_elements(mutvar)[0];
   if (*current != expected) {
-    return 0;
+    return 1;
   }
   *current = replacement;
-  return 1;
+  return 0;
 }
 
 uint64_t aihc_mutvar_same(AihcValue *left, AihcValue *right) {
