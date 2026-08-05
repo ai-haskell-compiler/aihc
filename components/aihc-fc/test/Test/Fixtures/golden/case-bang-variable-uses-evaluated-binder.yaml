@@ -1,33 +1,16 @@
 extensions:
   - BangPatterns
 expected: |-
-  core 1
-  type 1 = TcFunTy (TcTyCon (TyConInternal "Box" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyCon (TyConInternal "Box" 0 (KTYPE (BoxedRep Lifted))) [])
-  type 2 = TcTyCon (TyConInternal "Box" 0 (KTYPE (BoxedRep Lifted))) []
-  var 1 = "forceBox"%1000 : t1 local
-  var 2 = "x1001"%1001 : t2 local
-  var 3 = "_bang1002"%1002 : t2 local
-  body
-  (program
-    (data
-      "Box"
-      []
-      (constructor
-        "Box"))
-    (top
-      (nonrec
-        v1:"forceBox"
-        (lam
-          v2:"x1001"
-          (case
-            (ref
-              v2:"x1001")
-            v3:"_bang1002"
-            (alt
-              default
-              []
-              (ref
-                v3:"_bang1002")))))))
+  core 2
+  data Box where
+    | Box;
+
+  forceBox : Box → Box =
+    λ x1001 : Box →
+      case x1001 as _bang1002 : Box of {
+        _ →
+          _bang1002;
+      };
 modules:
   - |
     module Test where

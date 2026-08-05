@@ -94,7 +94,7 @@ fcDesugarTests =
                 assertBool "uses the qualifier prefix in variable labels" ("1.xor" `isInfixOf` rendered)
                 case parseProgram (T.pack rendered) of
                   Left parseError -> assertFailure ("canonical FC does not parse: " <> parseError)
-                  Right reparsed -> assertEqual "canonical FC round-trip" (show program) (show reparsed)
+                  Right reparsed -> assertEqual "canonical FC round-trip" rendered (renderProgram reparsed)
                 mapM_
                   (assertQualifiedUnaryBinding program)
                   [ ("resultXor", "xor"),
@@ -103,7 +103,47 @@ fcDesugarTests =
                     ("resultIndexError", "indexError")
                   ]
               [] -> assertFailure "expected a consumer FC program"
-          ResolveResult {resolveErrors} -> assertFailure ("resolution failed: " <> show resolveErrors)
+          ResolveResult {resolveErrors} -> assertFailure ("resolution failed: " <> show resolveErrors),
+      testCase "prints uniques only where lexical scope needs them" $ do
+        let valueTy = TcTyCon (TyCon "Value" 0) []
+            firstX = Var "x" (Unique 11) valueTy
+            secondX = Var "x" (Unique 12) valueTy
+            firstA = TyVarId "a" (Unique 21)
+            secondA = TyVarId "a" (Unique 22)
+            separateScopes =
+              FcProgram
+                [ FcTopBind (FcNonRec (Var "left" (Unique 1) (TcFunTy valueTy valueTy)) (FcLam firstX (FcVar firstX))),
+                  FcTopBind (FcNonRec (Var "right" (Unique 2) (TcFunTy valueTy valueTy)) (FcLam secondX (FcVar secondX))),
+                  FcData "LeftBox" [firstA] [("LeftBox", [TcTyVar firstA])],
+                  FcData "RightBox" [secondA] [("RightBox", [TcTyVar secondA])]
+                ]
+            shadowed =
+              FcProgram
+                [ FcTopBind
+                    ( FcNonRec
+                        (Var "useOuter" (Unique 3) (TcFunTy valueTy (TcFunTy valueTy valueTy)))
+                        (FcLam firstX (FcLam secondX (FcApp (FcVar firstX) (FcVar secondX))))
+                    ),
+                  FcAxiom
+                    ( FcAxiomDecl
+                        "Shadowed"
+                        []
+                        FcNominal
+                        (TcForAllTy firstA (TcForAllTy secondA (TcFunTy (TcTyVar firstA) (TcTyVar secondA))))
+                        valueTy
+                    )
+                ]
+            separateText = renderProgram separateScopes
+            shadowedText = renderProgram shadowed
+        assertBool "disjoint term scopes omit uniques" (not ("x{" `isInfixOf` separateText))
+        assertBool "disjoint type scopes omit uniques" (not ("a{" `isInfixOf` separateText))
+        assertBool "shadowed outer term binder is disambiguated" ("x{11}" `isInfixOf` shadowedText)
+        assertBool "innermost term binder stays plain" (not ("x{12}" `isInfixOf` shadowedText))
+        assertBool "shadowed outer type binder is disambiguated" ("a{21}" `isInfixOf` shadowedText)
+        assertBool "innermost type binder stays plain" (not ("a{22}" `isInfixOf` shadowedText))
+        case parseProgram (T.pack shadowedText) of
+          Left parseError -> assertFailure ("scoped canonical FC does not parse: " <> parseError)
+          Right reparsed -> assertEqual "scoped canonical FC round-trip" shadowedText (renderProgram reparsed)
     ]
   where
     declarationConstructors declaration =

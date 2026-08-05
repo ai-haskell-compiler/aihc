@@ -304,7 +304,7 @@ main =
             case result of
               Right output -> do
                 assertBool ("expected type output, got:\n" <> T.unpack output) ("type:\n[Char]" `T.isInfixOf` output)
-                assertBool ("expected system-fc output, got:\n" <> T.unpack output) ("system-fc:\ncore 1" `T.isInfixOf` output)
+                assertBool ("expected system-fc output, got:\n" <> T.unpack output) ("system-fc:\ncore 2" `T.isInfixOf` output)
                 assertBool ("expected result binding, got:\n" <> T.unpack output) ("__aihc_repl_it" `T.isInfixOf` output)
                 assertBool ("expected desugared char list, got:\n" <> T.unpack output) (not ("LitString" `T.isInfixOf` output))
               Left err -> assertFailure ("expected success, got " <> show err),
@@ -820,7 +820,8 @@ test_checksCastStyleDependencyId =
     fcJson <- BL8.readFile (resultFcPath result)
     let renderedFc = BL8.unpack fcJson
     assertBool "FC artifact constructs an ordinary Cast dictionary" ("$Dict$Cast" `isInfixOf` renderedFc)
-    assertBool "FC artifact identifies imported id" ("Dep.id" `isInfixOf` renderedFc)
+    assertBool "FC artifact assigns a prefix to Dep" ("prefix 1 = Dep" `isInfixOf` renderedFc)
+    assertBool "FC artifact identifies imported id" ("1.id" `isInfixOf` renderedFc)
 
 test_checksConstraintKindedMultiParameterClasses :: Assertion
 test_checksConstraintKindedMultiParameterClasses =

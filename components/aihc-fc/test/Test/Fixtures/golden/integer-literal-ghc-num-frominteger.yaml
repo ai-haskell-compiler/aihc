@@ -1,81 +1,26 @@
 expected: |-
-  core 1
-  type 1 = TcForAllTy (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Num" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyCon (TyConInternal "Integer" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted))))))
-  type 2 = TcTyCon (TyConInternal "Num" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))]
-  type 3 = TcFunTy (TcTyCon (TyConInternal "Integer" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted))))
-  type 4 = TcTyCon (TyConInternal "Int#" 0 (KTYPE IntRep)) []
-  tyvar 1 = TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted))
-  var 1 = "fromInteger"%1000 : t1 local
-  var 2 = "$d0"%1001 : t2 local
-  var 3 = "$dict"%1002 : t2 local
-  var 4 = "$method0"%1003 : t3 local
-  body
-  (program
-    (data
-      "Integer"
-      []
-      (constructor
-        "IS"
-        t4))
-    (data
-      "Num"
-      [a1]
-      (constructor
-        "$Dict$Num"
-        t3))
-    (top
-      (nonrec
-        v1:"fromInteger"
-        (type-lam
-          a1
-          (lam
-            v2:"$d0"
-            (case
-              (ref
-                v2:"$d0")
-              v3:"$dict"
-              (alt
-                (data-alt
-                  "$Dict$Num")
-                [v4:"$method0"]
-                (ref
-                  v4:"$method0"))))))))
+  core 2
+  data Integer where
+    | IS : Int#;
 
-  core 1
+  data Num a where
+    | $Dict$Num : Integer → a;
+
+  fromInteger : ∀ a. Num a → Integer → a =
+    Λ a →
+      λ $d0 : Num a →
+        case $d0 as $dict : Num a of {
+          $Dict$Num ($method0 : Integer → a) →
+            $method0;
+        };
+
+  core 2
   prefix 1 = "GHC.Num"
-  type 1 = TcForAllTy (TyVarIdInternal "a" (Unique 19) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Num" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 19) (KTYPE (BoxedRep Lifted)))]) (TcTyVar (TyVarIdInternal "a" (Unique 19) (KTYPE (BoxedRep Lifted)))))
-  type 2 = TcTyCon (TyConInternal "Num" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 19) (KTYPE (BoxedRep Lifted)))]
-  type 3 = TcForAllTy (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Num" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyCon (TyConInternal "Integer" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyVar (TyVarIdInternal "a" (Unique 12) (KTYPE (BoxedRep Lifted))))))
-  type 4 = TcFunTy (TcTyCon (TyConInternal "Int#" 0 (KTYPE IntRep)) []) (TcTyCon (TyConInternal "Integer" 0 (KTYPE (BoxedRep Lifted))) [])
-  type 5 = TcTyVar (TyVarIdInternal "a" (Unique 19) (KTYPE (BoxedRep Lifted)))
-  tyvar 1 = TyVarIdInternal "a" (Unique 19) (KTYPE (BoxedRep Lifted))
-  var 1 = "one"%1000 : t1 local
-  var 2 = "$d0"%1001 : t2 local
-  var 3 = "fromInteger"%1002 : t3 resolved "GHC.Num.fromInteger"
-  var 4 = "IS"%1003 : t4 local
-  literal 1 = LitInt IntRep 1
-  body
-  (program
-    (top
-      (nonrec
-        v1:"one"
-        (type-lam
-          a1
-          (lam
-            v2:"$d0"
-            (app
-              (app
-                (type-app
-                  (ref
-                    v3:"1.fromInteger")
-                  t5)
-                (ref
-                  v2:"$d0"))
-              (app
-                (ref
-                  v4:"IS")
-                (lit
-                  l1))))))))
+
+  one : ∀ a. Num a → a =
+    Λ a →
+      λ $d0 : Num a →
+        ((1.fromInteger : ∀ a. Num a → Integer → a) @a) $d0 ((IS : Int# → Integer) (1 :: IntRep));
 extensions:
 - MagicHash
 modules:

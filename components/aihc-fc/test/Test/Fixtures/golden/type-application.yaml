@@ -1,43 +1,18 @@
 expected: |-
-  core 1
-  prefix 1 = "Test"
-  type 1 = TcForAllTy (TyVarIdInternal "a" (Unique 16) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 16) (KTYPE (BoxedRep Lifted)))) (TcTyVar (TyVarIdInternal "a" (Unique 16) (KTYPE (BoxedRep Lifted)))))
-  type 2 = TcTyVar (TyVarIdInternal "a" (Unique 16) (KTYPE (BoxedRep Lifted)))
-  type 3 = TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []
-  tyvar 1 = TyVarIdInternal "a" (Unique 16) (KTYPE (BoxedRep Lifted))
-  var 1 = "id"%1000 : t1 local
-  var 2 = "x1001"%1001 : t2 local
-  var 3 = "true"%1002 : t3 local
-  var 4 = "id"%1003 : t1 resolved "Test.id"
-  var 5 = "True"%1004 : t3 resolved "Test.True"
-  body
-  (program
-    (data
-      "Bool"
-      []
-      (constructor
-        "True")
-      (constructor
-        "False"))
-    (top
-      (nonrec
-        v1:"id"
-        (type-lam
-          a1
-          (lam
-            v2:"x1001"
-            (ref
-              v2:"x1001")))))
-    (top
-      (nonrec
-        v3:"true"
-        (app
-          (type-app
-            (ref
-              v4:"1.id")
-            t3)
-          (ref
-            v5:"1.True")))))
+  core 2
+  prefix 1 = Test
+
+  data Bool where
+    | True
+    | False;
+
+  id : ∀ a. a → a =
+    Λ a →
+      λ x1001 : a →
+        x1001;
+
+  true : Bool =
+    ((1.id : ∀ a. a → a) @Bool) (1.True : Bool);
 extensions: []
 modules:
 - |

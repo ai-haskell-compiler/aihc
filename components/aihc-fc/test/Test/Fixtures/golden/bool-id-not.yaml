@@ -1,57 +1,24 @@
 expected: |-
-  core 1
-  prefix 1 = "Test"
-  type 1 = TcForAllTy (TyVarIdInternal "a" (Unique 23) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 23) (KTYPE (BoxedRep Lifted)))) (TcTyVar (TyVarIdInternal "a" (Unique 23) (KTYPE (BoxedRep Lifted)))))
-  type 2 = TcTyVar (TyVarIdInternal "a" (Unique 23) (KTYPE (BoxedRep Lifted)))
-  type 3 = TcFunTy (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) [])
-  type 4 = TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []
-  tyvar 1 = TyVarIdInternal "a" (Unique 23) (KTYPE (BoxedRep Lifted))
-  var 1 = "id"%1000 : t1 local
-  var 2 = "x1001"%1001 : t2 local
-  var 3 = "not"%1002 : t3 local
-  var 4 = "x1003"%1003 : t4 local
-  var 5 = "_scrut"%1006 : t4 local
-  var 6 = "False"%1004 : t4 resolved "Test.False"
-  var 7 = "True"%1005 : t4 resolved "Test.True"
-  body
-  (program
-    (data
-      "Bool"
-      []
-      (constructor
-        "True")
-      (constructor
-        "False"))
-    (top
-      (nonrec
-        v1:"id"
-        (type-lam
-          a1
-          (lam
-            v2:"x1001"
-            (ref
-              v2:"x1001")))))
-    (top
-      (nonrec
-        v3:"not"
-        (lam
-          v4:"x1003"
-          (case
-            (ref
-              v4:"x1003")
-            v5:"_scrut"
-            (alt
-              (data-alt
-                "True")
-              []
-              (ref
-                v6:"1.False"))
-            (alt
-              (data-alt
-                "False")
-              []
-              (ref
-                v7:"1.True")))))))
+  core 2
+  prefix 1 = Test
+
+  data Bool where
+    | True
+    | False;
+
+  id : ∀ a. a → a =
+    Λ a →
+      λ x1001 : a →
+        x1001;
+
+  not : Bool → Bool =
+    λ x1003 : Bool →
+      case x1003 as _scrut : Bool of {
+        True →
+          (1.False : Bool);
+        False →
+          (1.True : Bool);
+      };
 extensions: []
 modules:
 - |

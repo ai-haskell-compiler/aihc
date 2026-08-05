@@ -7,39 +7,14 @@ modules:
     pair :: (Bool, ())
     pair = (True, ())
 expected: |-
-  core 1
-  prefix 1 = "Test"
-  type 1 = TcTyCon (TyConInternal "Tuple2" 2 (KFun (KTYPE (BoxedRep Lifted)) (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted))))) [TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) [],TcTyCon (TyConInternal "Unit" 0 (KTYPE (BoxedRep Lifted))) []]
-  type 2 = TcForAllTy (TyVarIdInternal "a" (Unique 4) (KTYPE (BoxedRep Lifted))) (TcForAllTy (TyVarIdInternal "b" (Unique 6) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 4) (KTYPE (BoxedRep Lifted)))) (TcFunTy (TcTyVar (TyVarIdInternal "b" (Unique 6) (KTYPE (BoxedRep Lifted)))) (TcTyCon (TyConInternal "Tuple2" 2 (KFun (KTYPE (BoxedRep Lifted)) (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted))))) [TcTyVar (TyVarIdInternal "a" (Unique 4) (KTYPE (BoxedRep Lifted))),TcTyVar (TyVarIdInternal "b" (Unique 6) (KTYPE (BoxedRep Lifted)))]))))
-  type 3 = TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []
-  type 4 = TcTyCon (TyConInternal "Unit" 0 (KTYPE (BoxedRep Lifted))) []
-  var 1 = "pair"%1000 : t1 local
-  var 2 = "(,)"%-22 : t2 local
-  var 3 = "True"%1001 : t3 resolved "Test.True"
-  var 4 = "()"%-20 : t4 local
-  body
-  (program
-    (data
-      "Bool"
-      []
-      (constructor
-        "True")
-      (constructor
-        "False"))
-    (top
-      (nonrec
-        v1:"pair"
-        (app
-          (app
-            (type-app
-              (type-app
-                (ref
-                  v2:"(,)")
-                t3)
-              t4)
-            (ref
-              v3:"1.True"))
-          (ref
-            v4:"()")))))
+  core 2
+  prefix 1 = Test
+
+  data Bool where
+    | True
+    | False;
+
+  pair : Tuple2 Bool Unit =
+    (("(,)" : ∀ a. ∀ b. a → b → Tuple2 a b) @Bool @Unit) (1.True : Bool) ("()" : Unit);
 status: pass
 reason: reifies tuple constructor type arguments from type-checker annotations

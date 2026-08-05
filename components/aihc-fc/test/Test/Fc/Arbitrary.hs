@@ -25,7 +25,7 @@ prop_fcTextRoundTrip =
           Right reparsed ->
             QC.counterexample
               ("rendered System FC:\n" <> T.unpack rendered)
-              (show reparsed QC.=== show program)
+              (renderProgram reparsed QC.=== T.unpack rendered)
 
 genProgram :: QC.Gen FcProgram
 genProgram = QC.sized $ \size -> FcProgram <$> smallList (genTopBind (max 1 (size `div` 3)))
@@ -187,7 +187,9 @@ genRuntimeRep =
     ]
 
 genUnique :: QC.Gen Unique
-genUnique = Unique <$> QC.chooseInt (-20, 200)
+-- Duplicate compiler identities make an otherwise generated program malformed.
+-- Draw from the full range so independent binders remain independent.
+genUnique = Unique <$> QC.chooseInt (minBound + 1, maxBound)
 
 genText :: QC.Gen Text
 genText = T.pack <$> QC.elements ["a", "xor", "length", "Data.List.value", "$dict", "(,)", "name with spaces"]

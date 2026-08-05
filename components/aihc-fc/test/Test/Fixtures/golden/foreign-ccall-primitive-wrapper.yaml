@@ -1,114 +1,34 @@
 expected: |-
-  core 1
-  type 1 = TcFunTy (TcTyCon (TyConInternal "CInt" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyCon (TyConInternal "IO" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "CInt" 0 (KTYPE (BoxedRep Lifted))) []])
-  type 2 = TcTyCon (TyConInternal "CInt" 0 (KTYPE (BoxedRep Lifted))) []
-  type 3 = TcTyCon (TyConInternal "Int32" 0 (KTYPE (BoxedRep Lifted))) []
-  type 4 = TcTyCon (TyConInternal "Int32#" 0 (KTYPE Int32Rep)) []
-  type 5 = TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]
-  type 6 = TcTyCon (TyConInternal "(#,#)" 2 (KFun (KTYPE (BoxedRep Lifted)) (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted))))) [TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []],TcTyCon (TyConInternal "Int32#" 0 (KTYPE Int32Rep)) []]
-  type 7 = TcFunTy (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]) (TcFunTy (TcTyCon (TyConInternal "CInt" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyCon (TyConInternal "(#,#)" 2 (KFun (KTYPE (BoxedRep Lifted)) (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted))))) [TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []],TcTyCon (TyConInternal "CInt" 0 (KTYPE (BoxedRep Lifted))) []]))
-  type 8 = TcFunTy (TcTyCon (TyConInternal "Int32#" 0 (KTYPE Int32Rep)) []) (TcTyCon (TyConInternal "Int32" 0 (KTYPE (BoxedRep Lifted))) [])
-  type 9 = TcFunTy (TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []]) (TcTyCon (TyConInternal "(#,#)" 2 (KFun (KTYPE (TupleRep [])) (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [TupleRep [],BoxedRep Lifted]))))) [TcTyCon (TyConInternal "State#" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (TupleRep [])))) [TcTyCon (TyConInternal "RealWorld" 0 (KTYPE (BoxedRep Lifted))) []],TcTyVar (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted)))])
-  type 10 = TcTyCon (TyConInternal "IO" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted)))]
-  tyvar 1 = TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted))
-  var 1 = "putchar"%1000 : t1 local
-  var 2 = "$ffi_arg_0"%1001 : t2 local
-  var 3 = "$ffi_arg_0_case"%1002 : t2 local
-  var 4 = "$ffi_arg_0_field"%1003 : t3 local
-  var 5 = "$ffi_arg_0_case"%1004 : t3 local
-  var 6 = "$ffi_arg_0_field"%1005 : t4 local
-  var 7 = "$ffi_state"%1006 : t5 local
-  var 8 = "$ffi_result"%1007 : t6 local
-  var 9 = "$ffi_next_state"%1008 : t5 local
-  var 10 = "$ffi_raw_result"%1009 : t4 local
-  var 11 = "(#,#)"%1012 : t7 local
-  var 12 = "I32#"%1011 : t8 local
-  coercion 1 = AxiomInstCo "CInt" []
-  coercion 2 = Sym (AxiomInstCo "IO" [TcTyCon (TyConInternal "CInt" 0 (KTYPE (BoxedRep Lifted))) []])
-  coercion 3 = Sym (AxiomInstCo "CInt" [])
-  foreign 1 = FcForeignCall {fcForeignCallName = "$ffi$putchar", fcForeignCallSymbol = "putchar", fcForeignCallSignature = FcForeignSignature {fcForeignArgumentTypes = [FcForeignInt32], fcForeignResultType = FcForeignInt32, fcForeignEffect = FcForeignRealWorld}}
-  body
-  (program
-    (data
-      "State#"
-      [])
-    (data
-      "RealWorld"
-      [])
-    (data
-      "Int32"
-      []
-      (constructor
-        "I32#"
-        t4))
-    (newtype
-      "CInt"
-      []
-      "CInt"
-      t3
-      t2)
-    (newtype
-      "IO"
-      [a1]
-      "IO"
-      t9
-      t10)
-    (foreign-import
-      f1)
-    (top
-      (nonrec
-        v1:"putchar"
-        (lam
-          v2:"$ffi_arg_0"
-          (let
-            (nonrec
-              v3:"$ffi_arg_0_case"
-              (ref
-                v2:"$ffi_arg_0"))
-            (let
-              (nonrec
-                v4:"$ffi_arg_0_field"
-                (cast
-                  (ref
-                    v3:"$ffi_arg_0_case")
-                  c1))
-              (case
-                (ref
-                  v4:"$ffi_arg_0_field")
-                v5:"$ffi_arg_0_case"
-                (alt
-                  (data-alt
-                    "I32#")
-                  [v6:"$ffi_arg_0_field"]
-                  (cast
-                    (lam
-                      v7:"$ffi_state"
-                      (case
-                        (foreign-call
-                          f1
-                          (ref
-                            v6:"$ffi_arg_0_field")
-                          (ref
-                            v7:"$ffi_state"))
-                        v8:"$ffi_result"
-                        (alt
-                          (data-alt
-                            "(#,#)")
-                          [v9:"$ffi_next_state" v10:"$ffi_raw_result"]
-                          (app
-                            (app
-                              (ref
-                                v11:"(#,#)")
-                              (ref
-                                v9:"$ffi_next_state"))
-                            (cast
-                              (app
-                                (ref
-                                  v12:"I32#")
-                                (ref
-                                  v10:"$ffi_raw_result"))
-                              c3)))))
-                    c2)))))))))
+  core 2
+  data State# where;
+
+  data RealWorld where;
+
+  data Int32 where
+    | I32# : Int32#;
+
+  newtype CInt = CInt Int32 represents CInt;
+
+  newtype IO a = IO (State# RealWorld → (tycon "(#,#)" / 2 :: TYPE TupleRep [] → Type → TYPE TupleRep [TupleRep [], LiftedRep]) (State# RealWorld) a) represents IO a;
+
+  foreign import ccall $ffi$putchar = "putchar" [Int32] → Int32 io;
+
+  putchar : CInt → IO CInt =
+    λ $ffi_arg_0 : CInt →
+      let $ffi_arg_0_case : CInt =
+        $ffi_arg_0
+      in
+        let $ffi_arg_0_field : Int32 =
+          $ffi_arg_0_case ▷ (axiom CInt)
+        in
+          case $ffi_arg_0_field as $ffi_arg_0_case : Int32 of {
+            I32# ($ffi_arg_0_field : Int32#) →
+              (λ $ffi_state : State# RealWorld →
+                case ccall $ffi$putchar = "putchar" [Int32] → Int32 io [$ffi_arg_0_field, $ffi_state] as $ffi_result : tycon "(#,#)" (State# RealWorld) Int32# of {
+                  "(#,#)" ($ffi_next_state : State# RealWorld) ($ffi_raw_result : Int32#) →
+                    ("(#,#)" : State# RealWorld → CInt → tycon "(#,#)" (State# RealWorld) CInt) $ffi_next_state ((I32# : Int32# → Int32) $ffi_raw_result ▷ (sym axiom CInt));
+                }) ▷ (sym axiom IO @CInt);
+          };
 extensions:
 - ForeignFunctionInterface
 - MagicHash

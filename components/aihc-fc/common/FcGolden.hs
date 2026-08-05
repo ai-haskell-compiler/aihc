@@ -184,11 +184,12 @@ validateRoundTrips :: [DesugarResult] -> Either String ()
 validateRoundTrips = mapM_ (validate . dsProgram)
   where
     validate program =
-      case FcText.parseProgram (T.pack (FcText.renderProgram program)) of
-        Left parseError -> Left ("System FC text round-trip parse error: " <> parseError)
-        Right reparsed
-          | show reparsed == show program -> Right ()
-          | otherwise -> Left "System FC text round-trip changed the program"
+      let rendered = FcText.renderProgram program
+       in case FcText.parseProgram (T.pack rendered) of
+            Left parseError -> Left ("System FC text round-trip parse error: " <> parseError <> "\n\n" <> rendered)
+            Right reparsed
+              | FcText.renderProgram reparsed == rendered -> Right ()
+              | otherwise -> Left ("System FC text round-trip changed the program\n\noriginal:\n" <> rendered <> "\nreparsed:\n" <> FcText.renderProgram reparsed)
 
 moduleGroupBindings :: [Module] -> [TcBindingResult]
 moduleGroupBindings =

@@ -1,25 +1,12 @@
 expected: |-
-  core 1
-  type 1 = TcFunTy (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []) (TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) [])
-  type 2 = TcTyCon (TyConInternal "Bool" 0 (KTYPE (BoxedRep Lifted))) []
-  var 1 = "idBool"%1000 : t1 local
-  var 2 = "x1001"%1001 : t2 local
-  body
-  (program
-    (data
-      "Bool"
-      []
-      (constructor
-        "True")
-      (constructor
-        "False"))
-    (top
-      (nonrec
-        v1:"idBool"
-        (lam
-          v2:"x1001"
-          (ref
-            v2:"x1001")))))
+  core 2
+  data Bool where
+    | True
+    | False;
+
+  idBool : Bool → Bool =
+    λ x1001 : Bool →
+      x1001;
 extensions: []
 modules:
 - |

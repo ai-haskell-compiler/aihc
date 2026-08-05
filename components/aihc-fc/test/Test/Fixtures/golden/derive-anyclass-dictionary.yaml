@@ -1,287 +1,83 @@
 expected: |-
-  core 1
-  prefix 1 = "Test"
-  type 1 = TcForAllTy (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted)))) (TcTyVar (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted))))))
-  type 2 = TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted)))]
-  type 3 = TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted)))) (TcTyVar (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted))))
-  type 4 = TcForAllTy (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Any" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))) (TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted))))))
-  type 5 = TcTyCon (TyConInternal "Any" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))]
-  type 6 = TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))) (TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted))))
-  type 7 = TcForAllTy (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Any" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))) (TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))))))
-  type 8 = TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))]
-  type 9 = TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))
-  type 10 = TcForAllTy (TyVarIdInternal "a" (Unique 62) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 62) (KTYPE (BoxedRep Lifted)))]) (TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Box" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 62) (KTYPE (BoxedRep Lifted)))]]))
-  type 11 = TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 62) (KTYPE (BoxedRep Lifted)))]
-  type 12 = TcForAllTy (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted)))) (TcTyVar (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted))))) (TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted)))]))
-  type 13 = TcTyCon (TyConInternal "Box" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 62) (KTYPE (BoxedRep Lifted)))]
-  type 14 = TcForAllTy (TyVarIdInternal "a" (Unique 64) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 64) (KTYPE (BoxedRep Lifted)))]) (TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Wrapped" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 64) (KTYPE (BoxedRep Lifted)))]]))
-  type 15 = TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 64) (KTYPE (BoxedRep Lifted)))]
-  type 16 = TcTyCon (TyConInternal "Wrapped" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 64) (KTYPE (BoxedRep Lifted)))]
-  type 17 = TcTyCon (TyConInternal "Parent" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Both" 0 (KTYPE (BoxedRep Lifted))) []]
-  type 18 = TcForAllTy (TyVarIdInternal "a" (Unique 29) (KTYPE (BoxedRep Lifted))) (TcTyCon (TyConInternal "Parent" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 29) (KTYPE (BoxedRep Lifted)))])
-  type 19 = TcTyCon (TyConInternal "Child" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Both" 0 (KTYPE (BoxedRep Lifted))) []]
-  type 20 = TcForAllTy (TyVarIdInternal "a" (Unique 31) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Parent" 1 (KFun (KTYPE (BoxedRep Lifted)) KConstraint)) [TcTyVar (TyVarIdInternal "a" (Unique 31) (KTYPE (BoxedRep Lifted)))]) (TcTyCon (TyConInternal "Child" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 31) (KTYPE (BoxedRep Lifted)))]))
-  type 21 = TcForAllTy (TyVarIdInternal "a" (Unique 36) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 36) (KTYPE (BoxedRep Lifted)))]) (TcTyCon (TyConInternal "Any" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyCon (TyConInternal "Wrapped" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 36) (KTYPE (BoxedRep Lifted)))]]))
-  type 22 = TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 36) (KTYPE (BoxedRep Lifted)))]
-  type 23 = TcForAllTy (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcFunTy (TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))) (TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted))))) (TcTyCon (TyConInternal "Any" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted)))]))
-  type 24 = TcForAllTy (TyVarIdInternal "a" (Unique 41) (KTYPE (BoxedRep Lifted))) (TcFunTy (TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 41) (KTYPE (BoxedRep Lifted)))]) (TcFunTy (TcTyCon (TyConInternal "Wrapped" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 41) (KTYPE (BoxedRep Lifted)))]) (TcTyCon (TyConInternal "Wrapped" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 41) (KTYPE (BoxedRep Lifted)))])))
-  type 25 = TcTyCon (TyConInternal "Required" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 41) (KTYPE (BoxedRep Lifted)))]
-  type 26 = TcTyVar (TyVarIdInternal "a" (Unique 16) (KTYPE (BoxedRep Lifted)))
-  type 27 = TcTyCon (TyConInternal "Box" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 24) (KTYPE (BoxedRep Lifted)))]
-  type 28 = TcTyCon (TyConInternal "Parent" 1 (KFun (KTYPE (BoxedRep Lifted)) KConstraint)) [TcTyVar (TyVarIdInternal "a" (Unique 31) (KTYPE (BoxedRep Lifted)))]
-  type 29 = TcTyCon (TyConInternal "Both" 0 (KTYPE (BoxedRep Lifted))) []
-  type 30 = TcTyCon (TyConInternal "Wrapped" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 36) (KTYPE (BoxedRep Lifted)))]
-  type 31 = TcTyVar (TyVarIdInternal "a" (Unique 36) (KTYPE (BoxedRep Lifted)))
-  type 32 = TcTyCon (TyConInternal "Wrapped" 1 (KFun (KTYPE (BoxedRep Lifted)) (KTYPE (BoxedRep Lifted)))) [TcTyVar (TyVarIdInternal "a" (Unique 45) (KTYPE (BoxedRep Lifted)))]
-  type 33 = TcTyVar (TyVarIdInternal "a" (Unique 45) (KTYPE (BoxedRep Lifted)))
-  tyvar 1 = TyVarIdInternal "a" (Unique 16) (KTYPE (BoxedRep Lifted))
-  tyvar 2 = TyVarIdInternal "a" (Unique 18) (KTYPE (BoxedRep Lifted))
-  tyvar 3 = TyVarIdInternal "a" (Unique 22) (KTYPE (BoxedRep Lifted))
-  tyvar 4 = TyVarIdInternal "a" (Unique 24) (KTYPE (BoxedRep Lifted))
-  tyvar 5 = TyVarIdInternal "a" (Unique 29) (KTYPE (BoxedRep Lifted))
-  tyvar 6 = TyVarIdInternal "a" (Unique 31) (KTYPE (BoxedRep Lifted))
-  tyvar 7 = TyVarIdInternal "a" (Unique 62) (KTYPE (BoxedRep Lifted))
-  tyvar 8 = TyVarIdInternal "a" (Unique 64) (KTYPE (BoxedRep Lifted))
-  tyvar 9 = TyVarIdInternal "a" (Unique 36) (KTYPE (BoxedRep Lifted))
-  tyvar 10 = TyVarIdInternal "a" (Unique 41) (KTYPE (BoxedRep Lifted))
-  var 1 = "required"%1000 : t1 local
-  var 2 = "$d0"%1001 : t2 local
-  var 3 = "$dict"%1002 : t2 local
-  var 4 = "$method0"%1003 : t3 local
-  var 5 = "anyValue"%1004 : t4 local
-  var 6 = "$d0"%1005 : t5 local
-  var 7 = "$dict"%1006 : t5 local
-  var 8 = "$method0"%1007 : t6 local
-  var 9 = "$dmanyValue"%1008 : t7 local
-  var 10 = "$d0"%1009 : t5 local
-  var 11 = "$d1"%1010 : t8 local
-  var 12 = "x1011"%1011 : t9 local
-  var 13 = "required"%1012 : t1 resolved "Test.required"
-  var 14 = "$fRequiredBoxa"%1015 : t10 local
-  var 15 = "$d0"%1013 : t11 local
-  var 16 = "$Dict$Required"%1016 : t12 local
-  var 17 = "x1014"%1014 : t13 local
-  var 18 = "$fRequiredWrappeda"%1019 : t14 local
-  var 19 = "$d0"%1017 : t15 local
-  var 20 = "$Dict$Required"%1020 : t12 local
-  var 21 = "x1018"%1018 : t16 local
-  var 22 = "$fParentBoth"%1021 : t17 local
-  var 23 = "$Dict$Parent"%1022 : t18 local
-  var 24 = "$fChildBoth"%1023 : t19 local
-  var 25 = "$Dict$Child"%1024 : t20 local
-  var 26 = "$fParentBoth"%-199 : t17 local
-  var 27 = "$fAnyWrappeda"%1026 : t21 local
-  var 28 = "$d0"%1025 : t22 local
-  var 29 = "$Dict$Any"%1028 : t23 local
-  var 30 = "$dmanyValue"%1027 : t7 local
-  var 31 = "$fRequiredWrappeda"%-199 : t14 local
-  var 32 = "useAny"%1029 : t24 local
-  var 33 = "$d0"%1030 : t25 local
-  var 34 = "anyValue"%1031 : t4 resolved "Test.anyValue"
-  var 35 = "$fAnyWrappeda"%-199 : t21 local
-  body
-  (program
-    (data
-      "Unit"
-      []
-      (constructor
-        "Unit"))
-    (data
-      "Box"
-      [a1]
-      (constructor
-        "Box"
-        t26))
-    (data
-      "Required"
-      [a2]
-      (constructor
-        "$Dict$Required"
-        t3))
-    (top
-      (nonrec
-        v1:"required"
-        (type-lam
-          a2
-          (lam
-            v2:"$d0"
-            (case
-              (ref
-                v2:"$d0")
-              v3:"$dict"
-              (alt
-                (data-alt
-                  "$Dict$Required")
-                [v4:"$method0"]
-                (ref
-                  v4:"$method0")))))))
-    (data
-      "Any"
-      [a3]
-      (constructor
-        "$Dict$Any"
-        t6))
-    (top
-      (nonrec
-        v5:"anyValue"
-        (type-lam
-          a3
-          (lam
-            v6:"$d0"
-            (case
-              (ref
-                v6:"$d0")
-              v7:"$dict"
-              (alt
-                (data-alt
-                  "$Dict$Any")
-                [v8:"$method0"]
-                (ref
-                  v8:"$method0")))))))
-    (top
-      (nonrec
-        v9:"$dmanyValue"
-        (type-lam
-          a3
-          (lam
-            v10:"$d0"
-            (lam
-              v11:"$d1"
-              (lam
-                v12:"x1011"
-                (app
-                  (app
-                    (type-app
-                      (ref
-                        v13:"1.required")
-                      t9)
-                    (ref
-                      v11:"$d1"))
-                  (ref
-                    v12:"x1011"))))))))
-    (data
-      "Wrapped"
-      [a4]
-      (constructor
-        "Wrapped"
-        t27))
-    (data
-      "Parent"
-      [a5]
-      (constructor
-        "$Dict$Parent"))
-    (data
-      "Child"
-      [a6]
-      (constructor
-        "$Dict$Child"
-        t28))
-    (data
-      "Both"
-      []
-      (constructor
-        "Both"))
-    (top
-      (nonrec
-        v14:"$fRequiredBoxa"
-        (type-lam
-          a7
-          (lam
-            v15:"$d0"
-            (app
-              (type-app
-                (ref
-                  v16:"$Dict$Required")
-                t13)
-              (lam
-                v17:"x1014"
-                (ref
-                  v17:"x1014")))))))
-    (top
-      (nonrec
-        v18:"$fRequiredWrappeda"
-        (type-lam
-          a8
-          (lam
-            v19:"$d0"
-            (app
-              (type-app
-                (ref
-                  v20:"$Dict$Required")
-                t16)
-              (lam
-                v21:"x1018"
-                (ref
-                  v21:"x1018")))))))
-    (top
-      (nonrec
-        v22:"$fParentBoth"
-        (type-app
-          (ref
-            v23:"$Dict$Parent")
-          t29)))
-    (top
-      (nonrec
-        v24:"$fChildBoth"
-        (app
-          (type-app
-            (ref
-              v25:"$Dict$Child")
-            t29)
-          (ref
-            v26:"$fParentBoth"))))
-    (top
-      (rec
-        (binding
-          v27:"$fAnyWrappeda"
-          (type-lam
-            a9
-            (lam
-              v28:"$d0"
-              (app
-                (type-app
-                  (ref
-                    v29:"$Dict$Any")
-                  t30)
-                (app
-                  (app
-                    (type-app
-                      (ref
-                        v30:"$dmanyValue")
-                      t30)
-                    (app
-                      (type-app
-                        (ref
-                          v27:"$fAnyWrappeda")
-                        t31)
-                      (ref
-                        v28:"$d0")))
-                  (app
-                    (type-app
-                      (ref
-                        v31:"$fRequiredWrappeda")
-                      t31)
-                    (ref
-                      v28:"$d0")))))))))
-    (top
-      (nonrec
-        v32:"useAny"
-        (type-lam
-          a10
-          (lam
-            v33:"$d0"
-            (app
-              (type-app
-                (ref
-                  v34:"1.anyValue")
-                t32)
-              (app
-                (type-app
-                  (ref
-                    v35:"$fAnyWrappeda")
-                  t33)
-                (ref
-                  v33:"$d0"))))))))
+  core 2
+  prefix 1 = Test
+
+  data Unit where
+    | Unit;
+
+  data Box a where
+    | Box : a;
+
+  data Required a where
+    | $Dict$Required : a → a;
+
+  required : ∀ a. Required a → a → a =
+    Λ a →
+      λ $d0 : Required a →
+        case $d0 as $dict : Required a of {
+          $Dict$Required ($method0 : a → a) →
+            $method0;
+        };
+
+  data Any a where
+    | $Dict$Any : a → a;
+
+  anyValue : ∀ a. Any a → a → a =
+    Λ a →
+      λ $d0 : Any a →
+        case $d0 as $dict : Any a of {
+          $Dict$Any ($method0 : a → a) →
+            $method0;
+        };
+
+  $dmanyValue : ∀ a. Any a → Required a → a → a =
+    Λ a →
+      λ $d0 : Any a →
+        λ $d1 : Required a →
+          λ x1011 : a →
+            ((1.required : ∀ a. Required a → a → a) @a) $d1 x1011;
+
+  data Wrapped a where
+    | Wrapped : Box a;
+
+  data Parent a where
+    | $Dict$Parent;
+
+  data Child a where
+    | $Dict$Child : (Parent / 1 :: Type → Constraint) a;
+
+  data Both where
+    | Both;
+
+  $fRequiredBoxa : ∀ a. Required a → Required (Box a) =
+    Λ a →
+      λ $d0 : Required a →
+        (($Dict$Required{1016} : ∀ a. (a → a) → Required a) @(Box a)) (λ x1014 : Box a →
+          x1014);
+
+  $fRequiredWrappeda : ∀ a. Required a → Required (Wrapped a) =
+    Λ a →
+      λ $d0 : Required a →
+        (($Dict$Required{1020} : ∀ a. (a → a) → Required a) @(Wrapped a)) (λ x1018 : Wrapped a →
+          x1018);
+
+  $fParentBoth : Parent Both =
+    ($Dict$Parent : ∀ a. Parent a) @Both;
+
+  $fChildBoth : Child Both =
+    (($Dict$Child : ∀ a. (Parent / 1 :: Type → Constraint) a → Child a) @Both) ($fParentBoth : Parent Both);
+
+  rec {
+    $fAnyWrappeda : ∀ a. Required a → Any (Wrapped a) =
+      Λ a →
+        λ $d0 : Required a →
+          (($Dict$Any : ∀ a. (a → a) → Any a) @(Wrapped a)) ((($dmanyValue : ∀ a. Any a → Required a → a → a) @(Wrapped a)) (($fAnyWrappeda @a) $d0) ((($fRequiredWrappeda : ∀ a. Required a → Required (Wrapped a)) @a) $d0));
+  };
+
+  useAny : ∀ a. Required a → Wrapped a → Wrapped a =
+    Λ a →
+      λ $d0 : Required a →
+        ((1.anyValue : ∀ a. Any a → a → a) @(Wrapped (a :: Type))) ((($fAnyWrappeda : ∀ a. Required a → Any (Wrapped a)) @(a :: Type)) $d0);
 extensions:
 - DefaultSignatures
 - DeriveAnyClass
