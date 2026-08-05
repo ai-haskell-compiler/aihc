@@ -17,7 +17,7 @@ import Aihc.Fc.Syntax
 import Aihc.Tc.Types (RuntimeRep (..), TcType (..), TyCon (..), Unique, isLiftedType)
 import Control.Applicative ((<|>))
 import Control.Exception (SomeException, displayException, try)
-import Control.Monad (forM, forM_, zipWithM, (<=<), (>=>))
+import Control.Monad (forM, forM_, when, zipWithM, (<=<), (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Data.Bits (countLeadingZeros, countTrailingZeros, popCount, shiftL, shiftR, xor, (.&.), (.|.))
@@ -453,6 +453,12 @@ evalPrimitive "writeMutVar#" [mutVar, value, state] = do
   EvalMutVar ref <- forceMutVarPrimitiveArg "writeMutVar#" mutVar
   lift (writeIORef ref value)
   pure state
+evalPrimitive "casMutVarSuccess#" [mutVar, expected, replacement, state] = do
+  EvalMutVar ref <- forceMutVarPrimitiveArg "casMutVarSuccess#" mutVar
+  current <- lift (readIORef ref)
+  let succeeded = current == expected
+  when succeeded (lift (writeIORef ref replacement))
+  pure (VConstructor "(#,#)" [state, intPrimitiveValue (if succeeded then 1 else 0)])
 evalPrimitive "sameMutVar#" [left, right] = do
   leftReference <- forceMutVarPrimitiveArg "sameMutVar#" left
   rightReference <- forceMutVarPrimitiveArg "sameMutVar#" right

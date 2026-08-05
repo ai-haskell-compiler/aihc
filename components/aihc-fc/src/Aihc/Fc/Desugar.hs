@@ -716,6 +716,7 @@ primitiveImportSpecs =
       primitive "newMutVar#" "a -> State# d -> (# State# d, MutVar# d a #)",
       primitive "readMutVar#" "MutVar# d a -> State# d -> (# State# d, a #)",
       primitive "writeMutVar#" "MutVar# d a -> a -> State# d -> State# d",
+      primitive "casMutVarSuccess#" "MutVar# d a -> a -> a -> State# d -> (# State# d, Int# #)",
       primitive "sameMutVar#" "MutVar# d a -> MutVar# d a -> Int#",
       primitive "newArray#" "Int# -> a -> State# d -> (# State# d, MutableArray# d a #)",
       primitive "indexArray#" "Array# a -> Int# -> a",

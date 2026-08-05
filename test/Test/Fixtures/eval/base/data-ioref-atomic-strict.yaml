@@ -1,0 +1,20 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.IORef (atomicModifyIORef', newIORef)
+    import GHC.Prim (raise#)
+
+    strictAtomicResult :: IO Bool
+    strictAtomicResult = do
+      reference <- newIORef True
+      atomicModifyIORef' reference (\_ -> (False, raise# False))
+      return True
+output: ""
+expression: strictAtomicResult
+status: fail
+reason: atomicModifyIORef' forces the returned value after atomically installing the strict new value

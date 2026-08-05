@@ -1,0 +1,59 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.IORef
+      ( IORef,
+        atomicModifyIORef,
+        atomicModifyIORef',
+        atomicWriteIORef,
+        modifyIORef,
+        modifyIORef',
+        newIORef,
+        readIORef,
+        writeIORef,
+      )
+    import GHC.Prim (raise#)
+
+    updateReference :: IO (Int, Bool, Bool, Int)
+    updateReference = do
+      reference <- newIORef 1
+      other <- newIORef 1
+      writeIORef reference 2
+      modifyIORef reference (\value -> value + 3)
+      modifyIORef' reference (\value -> value * 4)
+      old <- atomicModifyIORef reference (\value -> (value + 2, value))
+      previous <- atomicModifyIORef' reference (\value -> (value * 2, value))
+      atomicWriteIORef reference 42
+      value <- readIORef reference
+      return (value, reference == reference, reference /= other, old + previous)
+
+    lazyModification :: IO (Bool, Bool)
+    lazyModification = do
+      reference <- newIORef (True, True)
+      modifyIORef reference (\_ -> (False, raise# False))
+      value <- readIORef reference
+      case value of
+        (first, _) -> return (first, True)
+
+    lazyAtomicModification :: IO (Bool, Bool)
+    lazyAtomicModification = do
+      reference <- newIORef True
+      result <- atomicModifyIORef reference (\_ -> (raise# False, False))
+      return (result, True)
+
+    combined :: IO ((Int, Bool, Bool, Int), ((Bool, Bool), (Bool, Bool)))
+    combined = do
+      updated <- updateReference
+      lazy <- lazyModification
+      atomicLazy <- lazyAtomicModification
+      return (updated, (lazy, atomicLazy))
+output: |
+  (((I# 42),True,True,(I# 42)),((False,True),(False,True)))
+expression: combined
+status: pass
+reason: Data.IORef exposes reference identity and preserves lazy versus strict update behavior through FC and GRIN

@@ -19,6 +19,7 @@ module GHC.Prim
     ByteArray#,
     byteArrayContents#,
     catch#,
+    casMutVarSuccess#,
     compareInt#,
     copyByteArray#,
     copyAddrToByteArray#,
@@ -231,6 +232,10 @@ foreign import prim putMVar# :: MVar# d a -> a -> State# d -> State# d
 foreign import prim readMutVar# :: MutVar# d a -> State# d -> (# State# d, a #)
 
 foreign import prim writeMutVar# :: MutVar# d a -> a -> State# d -> State# d
+
+-- | Replace a mutable variable when its current value is pointer-identical to
+-- the expected value, returning @1#@ on success and @0#@ on failure.
+foreign import prim casMutVarSuccess# :: MutVar# d a -> a -> a -> State# d -> (# State# d, Int# #)
 
 foreign import prim sameMutVar# :: MutVar# d a -> MutVar# d a -> Int#
 

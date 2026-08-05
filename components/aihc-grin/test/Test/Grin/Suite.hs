@@ -757,7 +757,7 @@ grinGoldenTests =
 
 grinEvalFixtureTests :: IO TestTree
 grinEvalFixtureTests = do
-  cases <- EvalGolden.loadEvalCases
+  cases <- filter (("grin" `elem`) . EvalGolden.evalCaseEvaluators) <$> EvalGolden.loadEvalCases
   let tests = map mkEvalFixtureTest cases
   pure (testGroup "shared evaluation fixtures via GRIN" tests)
 

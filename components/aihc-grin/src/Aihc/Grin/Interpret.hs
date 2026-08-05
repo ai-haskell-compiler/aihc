@@ -14,7 +14,7 @@ import Aihc.Grin.Snapshot
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Control.Exception (SomeException, displayException, try)
-import Control.Monad (zipWithM)
+import Control.Monad (when, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import Control.Monad.Trans.State.Strict (State, StateT, execState, get, gets, modify', runState, runStateT)
@@ -797,6 +797,12 @@ evalPrimitive "writeMutVar#" [mutVar, value] = do
   GrinMutVar reference <- expectMutVarPrimitiveArgument "writeMutVar#" mutVar
   liftEvalIO (writeIORef reference value)
   pure []
+evalPrimitive "casMutVarSuccess#" [mutVar, expected, replacement] = do
+  GrinMutVar reference <- expectMutVarPrimitiveArgument "casMutVarSuccess#" mutVar
+  current <- liftEvalIO (readIORef reference)
+  let succeeded = current == expected
+  when succeeded (liftEvalIO (writeIORef reference replacement))
+  pure [intRuntimeValue (if succeeded then 1 else 0)]
 evalPrimitive "sameMutVar#" [left, right] = do
   leftReference <- expectMutVarPrimitiveArgument "sameMutVar#" left
   rightReference <- expectMutVarPrimitiveArgument "sameMutVar#" right

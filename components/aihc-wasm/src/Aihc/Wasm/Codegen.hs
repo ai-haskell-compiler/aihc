@@ -332,6 +332,7 @@ runtimeFunctionTypes =
     ("aihc_mutvar_new", ([I32, I64], [I32])),
     ("aihc_mutvar_read", ([I32], [I64])),
     ("aihc_mutvar_write", ([I32, I64], [I64])),
+    ("aihc_mutvar_compare_and_swap", ([I32, I64, I64], [I64])),
     ("aihc_mutvar_same", ([I32, I32], [I64])),
     ("aihc_wasm_set_field", ([I64, I64, I64], [])),
     ("aihc_wasm_update", ([I64, I64], [])),
