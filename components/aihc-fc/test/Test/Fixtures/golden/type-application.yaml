@@ -2,6 +2,9 @@ expected: |-
   core 2
   prefix 1 = Test
 
+  1.True : Bool;
+  1.id : ∀ a. a → a;
+
   data Bool where
     | True
     | False;
@@ -12,7 +15,7 @@ expected: |-
         x1001;
 
   true : Bool =
-    ((1.id : ∀ a. a → a) @Bool) (1.True : Bool);
+    (1.id @Bool) 1.True;
 extensions: []
 modules:
 - |

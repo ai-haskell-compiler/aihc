@@ -2,6 +2,8 @@ expected: |-
   core 2
   prefix 1 = Test
 
+  1.reads : ∀ a. Read a → Result → a;
+
   data Result where
     | Result;
 
@@ -19,7 +21,7 @@ expected: |-
   parse : ∀ a. Read a → Result → a =
     Λ a →
       λ $d0 : Read a →
-        ((1.reads : ∀ a. Read a → Result → a) @(a :: Type)) $d0;
+        (1.reads @(a :: Type)) $d0;
 extensions: []
 modules:
 - |

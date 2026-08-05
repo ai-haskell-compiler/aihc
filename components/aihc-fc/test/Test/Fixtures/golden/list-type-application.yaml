@@ -10,11 +10,15 @@ expected: |-
   core 2
   prefix 1 = Test
 
+  ":" : ∀ a. a → tycon "[]" a → tycon "[]" a;
+  "[]" : ∀ a. tycon "[]" a;
+  1.True : Bool;
+
   data Bool where
     | True
     | False;
 
   xs : tycon "[]" Bool =
-    ((":" : ∀ a. a → tycon "[]" a → tycon "[]" a) @Bool) (1.True : Bool) (("[]" : ∀ a. tycon "[]" a) @Bool);
+    (var ":" @Bool) 1.True (var "[]" @Bool);
 status: pass
 reason: reifies list constructor type arguments from type-checker annotations

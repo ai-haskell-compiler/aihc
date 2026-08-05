@@ -92,6 +92,8 @@ fcDesugarTests =
                     rendered = renderProgram program
                 assertBool "renders a readable qualifier prefix" ("prefix 1 = \"Data.List.NonEmpty\"" `isInfixOf` rendered)
                 assertBool "uses the qualifier prefix in variable labels" ("1.xor" `isInfixOf` rendered)
+                assertEqual "declares each free variable's type once" 1 (length (filter (isInfixOf "1.xor :") (lines rendered)))
+                assertBool "keeps free variable uses bare" (not ("(1.xor :" `isInfixOf` rendered))
                 case parseProgram (T.pack rendered) of
                   Left parseError -> assertFailure ("canonical FC does not parse: " <> parseError)
                   Right reparsed -> assertEqual "canonical FC round-trip" rendered (renderProgram reparsed)

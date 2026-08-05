@@ -13,6 +13,9 @@ expected: |-
   core 2
   prefix 1 = "GHC.Types"
 
+  $Dict$Eq : ∀ a. (a → a → Bool) → Eq a;
+  1.True : Bool;
+
   data Eq a where
     | $Dict$Eq : a → a → Bool;
 
@@ -25,18 +28,22 @@ expected: |-
         };
 
   $fEqInt : Eq Int =
-    (($Dict$Eq : ∀ a. (a → a → Bool) → Eq a) @Int) (λ x1004 : Int →
+    ($Dict$Eq @Int) (λ x1004 : Int →
       λ y1005 : Int →
         case x1004 as _scrut : Int of {
           I (x : Int#) →
             case y1005 as _scrut : Int of {
               I (y : Int#) →
-                (1.True : Bool);
+                1.True;
             };
         });
 
   core 2
   prefix 1 = "GHC.Types"
+
+  $Dict$Num{1009} : ∀ a. (Integer → a) → Num a;
+  $Dict$Num{1012} : ∀ a. (Integer → a) → Num a;
+  1.I : Int# → Int;
 
   data Num a where
     | $Dict$Num : Integer → a;
@@ -50,14 +57,14 @@ expected: |-
         };
 
   $fNumInt : Num Int =
-    (($Dict$Num{1009} : ∀ a. (Integer → a) → Num a) @Int) (λ x1004 : Integer →
+    ($Dict$Num{1009} @Int) (λ x1004 : Integer →
       case x1004 as _scrut : Integer of {
         IS (x : Int#) →
-          (1.I : Int# → Int) x;
+          1.I x;
       });
 
   $fNumInteger : Num Integer =
-    (($Dict$Num{1012} : ∀ a. (Integer → a) → Num a) @Integer) (λ x1010 : Integer →
+    ($Dict$Num{1012} @Integer) (λ x1010 : Integer →
       x1010);
 
   core 2
@@ -66,19 +73,33 @@ expected: |-
   prefix 1 = "GHC.Classes"
   prefix 2 = "GHC.Num"
 
+  "()" : Unit;
+  $fEqInt : Eq Int;
+  $fNumInt : Num Int;
+  $fNumInteger : Num Integer;
+  1."==" : ∀ a. Eq a → a → a → Bool;
+  2.fromInteger{1001} : ∀ a. Num a → Integer → a;
+  2.fromInteger{1004} : ∀ a. Num a → Integer → a;
+  2.fromInteger{1007} : ∀ a. Num a → Integer → a;
+  2.fromInteger{1011} : ∀ a. Num a → Integer → a;
+  IS{1002} : Int# → Integer;
+  IS{1005} : Int# → Integer;
+  IS{1008} : Int# → Integer;
+  IS{1012} : Int# → Integer;
+
   asInt : Int =
-    ((2.fromInteger{1001} : ∀ a. Num a → Integer → a) @Int) ($fNumInt : Num Int) ((IS{1002} : Int# → Integer) (1 :: IntRep));
+    (2.fromInteger{1001} @Int) $fNumInt (IS{1002} (1 :: IntRep));
 
   asInteger : Integer =
-    ((2.fromInteger{1004} : ∀ a. Num a → Integer → a) @Integer) ($fNumInteger : Num Integer) ((IS{1005} : Int# → Integer) (1 :: IntRep));
+    (2.fromInteger{1004} @Integer) $fNumInteger (IS{1005} (1 :: IntRep));
 
   caseInt : Unit =
     let _case_value : Int =
-      ((2.fromInteger{1007} : ∀ a. Num a → Integer → a) @Int) ($fNumInt : Num Int) ((IS{1008} : Int# → Integer) (1 :: IntRep))
+      (2.fromInteger{1007} @Int) $fNumInt (IS{1008} (1 :: IntRep))
     in
-      case ((1."==" : ∀ a. Eq a → a → a → Bool) @Int) ($fEqInt : Eq Int) _case_value (((2.fromInteger{1011} : ∀ a. Num a → Integer → a) @Int) ($fNumInt : Num Int) ((IS{1012} : Int# → Integer) (1 :: IntRep))) as _case_guard : Bool of {
+      case (1."==" @Int) $fEqInt _case_value ((2.fromInteger{1011} @Int) $fNumInt (IS{1012} (1 :: IntRep))) as _case_guard : Bool of {
         True →
-          ("()" : Unit);
+          var "()";
         False →
           case _case_value as _case_nomatch : Int of {
           };

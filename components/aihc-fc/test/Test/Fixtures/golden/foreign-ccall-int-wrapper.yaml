@@ -1,5 +1,9 @@
 expected: |-
   core 2
+
+  "(#,#)" : State# RealWorld → Int → tycon "(#,#)" (State# RealWorld) Int;
+  I# : Int# → Int;
+
   data State# where;
 
   data RealWorld where;
@@ -18,7 +22,7 @@ expected: |-
           (λ $ffi_state : State# RealWorld →
             case ccall $ffi$identityInt = "identity_int" [Int] → Int io [$ffi_arg_0_field, $ffi_state] as $ffi_result : tycon "(#,#)" (State# RealWorld) Int# of {
               "(#,#)" ($ffi_next_state : State# RealWorld) ($ffi_raw_result : Int#) →
-                ("(#,#)" : State# RealWorld → Int → tycon "(#,#)" (State# RealWorld) Int) $ffi_next_state ((I# : Int# → Int) $ffi_raw_result);
+                var "(#,#)" $ffi_next_state (I# $ffi_raw_result);
             }) ▷ (sym axiom IO @Int);
       };
 extensions:

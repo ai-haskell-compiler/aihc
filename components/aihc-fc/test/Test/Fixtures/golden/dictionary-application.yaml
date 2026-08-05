@@ -2,6 +2,14 @@ expected: |-
   core 2
   prefix 1 = Test
 
+  $Dict$Eq : ∀ a. (a → a → Bool) → Eq a;
+  $fEqBool{-199} : Eq Bool;
+  1."==" : ∀ a. Eq a → a → a → Bool;
+  1.False{1007} : Bool;
+  1.False{1009} : Bool;
+  1.True{1006} : Bool;
+  1.True{1010} : Bool;
+
   data Bool where
     | False
     | True;
@@ -17,28 +25,28 @@ expected: |-
             $method0;
         };
 
-  $fEqBool : Eq Bool =
-    (($Dict$Eq : ∀ a. (a → a → Bool) → Eq a) @Bool) (λ x1004 : Bool →
+  $fEqBool{1013} : Eq Bool =
+    ($Dict$Eq @Bool) (λ x1004 : Bool →
       λ y1005 : Bool →
         case x1004 as _scrut : Bool of {
           False →
             case y1005 as _scrut : Bool of {
               False →
-                (1.True{1006} : Bool);
+                1.True{1006};
               True →
-                (1.False{1007} : Bool);
+                1.False{1007};
             };
           True →
             case y1005 as _scrut : Bool of {
               False →
-                (1.False{1009} : Bool);
+                1.False{1009};
               True →
-                (1.True{1010} : Bool);
+                1.True{1010};
             };
         });
 
   eqBool : Bool → Bool → Bool =
-    ((1."==" : ∀ a. Eq a → a → a → Bool) @Bool) ($fEqBool : Eq Bool);
+    (1."==" @Bool) $fEqBool{-199};
 extensions: []
 modules:
 - |

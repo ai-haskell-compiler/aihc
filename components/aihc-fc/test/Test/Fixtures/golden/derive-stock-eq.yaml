@@ -20,6 +20,26 @@ expected: |-
   core 2
   prefix 1 = Test
 
+  $Dict$Eq : ∀ a. (a → a → Bool) → (a → a → Bool) → Eq a;
+  $fEqTreea{-199} : ∀ a. Eq a → Eq (Tree a);
+  1."==" : ∀ a. Eq a → a → a → Bool;
+  False{1022} : Bool;
+  False{1024} : Bool;
+  False{1037} : Bool;
+  False{1039} : Bool;
+  False{1041} : Bool;
+  False{1052} : Bool;
+  False{1054} : Bool;
+  False{1067} : Bool;
+  False{1069} : Bool;
+  False{1071} : Bool;
+  False{1075} : Bool;
+  True{1023} : Bool;
+  True{1040} : Bool;
+  True{1053} : Bool;
+  True{1070} : Bool;
+  True{1074} : Bool;
+
   data Bool where
     | False
     | True;
@@ -48,13 +68,13 @@ expected: |-
     | Branch : Tree a, Tree a;
 
   rec {
-    $fEqTreea : ∀ a. Eq a → Eq (Tree a) =
+    $fEqTreea{1011} : ∀ a. Eq a → Eq (Tree a) =
       Λ a →
         λ $d0 : Eq a →
           let $stock_eq_self : Eq (Tree a) =
-            ($fEqTreea @a) $d0
+            ($fEqTreea{1011} @a) $d0
           in
-            (($Dict$Eq : ∀ a. (a → a → Bool) → (a → a → Bool) → Eq a) @(Tree a)) (λ $stock_eq_left : Tree a →
+            ($Dict$Eq @(Tree a)) (λ $stock_eq_left : Tree a →
               λ $stock_eq_right : Tree a →
                 case $stock_eq_left as $stock_eq_outer : Tree a of {
                   Leaf ($stock_eq_left_field0 : a) →
@@ -65,12 +85,12 @@ expected: |-
                             $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0;
                         }) as $stock_eq_bool : Bool of {
                           False →
-                            (False{1022} : Bool);
+                            False{1022};
                           True →
-                            (True{1023} : Bool);
+                            True{1023};
                         };
                       _ →
-                        (False{1024} : Bool);
+                        False{1024};
                     };
                   Branch ($stock_eq_left_field0 : Tree a) ($stock_eq_left_field1 : Tree a) →
                     case $stock_eq_right as $stock_eq_inner : Tree a of {
@@ -80,20 +100,20 @@ expected: |-
                             $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0;
                         }) as $stock_eq_bool : Bool of {
                           False →
-                            (False{1037} : Bool);
+                            False{1037};
                           True →
                             case (case $stock_eq_self as $stock_eq_dictionary : Eq (Tree a) of {
                               $Dict$Eq ($stock_eq_method : Tree a → Tree a → Bool) ($stock_neq_method : Tree a → Tree a → Bool) →
                                 $stock_eq_method $stock_eq_left_field1 $stock_eq_right_field1;
                             }) as $stock_eq_bool : Bool of {
                               False →
-                                (False{1039} : Bool);
+                                False{1039};
                               True →
-                                (True{1040} : Bool);
+                                True{1040};
                             };
                         };
                       _ →
-                        (False{1041} : Bool);
+                        False{1041};
                     };
                 }) (λ $stock_eq_left : Tree a →
               λ $stock_eq_right : Tree a →
@@ -106,12 +126,12 @@ expected: |-
                             $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0;
                         }) as $stock_eq_bool : Bool of {
                           False →
-                            (False{1052} : Bool);
+                            False{1052};
                           True →
-                            (True{1053} : Bool);
+                            True{1053};
                         };
                       _ →
-                        (False{1054} : Bool);
+                        False{1054};
                     };
                   Branch ($stock_eq_left_field0 : Tree a) ($stock_eq_left_field1 : Tree a) →
                     case $stock_eq_right as $stock_eq_inner : Tree a of {
@@ -121,32 +141,32 @@ expected: |-
                             $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0;
                         }) as $stock_eq_bool : Bool of {
                           False →
-                            (False{1067} : Bool);
+                            False{1067};
                           True →
                             case (case $stock_eq_self as $stock_eq_dictionary : Eq (Tree a) of {
                               $Dict$Eq ($stock_eq_method : Tree a → Tree a → Bool) ($stock_neq_method : Tree a → Tree a → Bool) →
                                 $stock_eq_method $stock_eq_left_field1 $stock_eq_right_field1;
                             }) as $stock_eq_bool : Bool of {
                               False →
-                                (False{1069} : Bool);
+                                False{1069};
                               True →
-                                (True{1070} : Bool);
+                                True{1070};
                             };
                         };
                       _ →
-                        (False{1071} : Bool);
+                        False{1071};
                     };
                 }) as $stock_eq_not : Bool of {
                   False →
-                    (True{1074} : Bool);
+                    True{1074};
                   True →
-                    (False{1075} : Bool);
+                    False{1075};
                 });
   };
 
   sameTree : ∀ a. Eq a → Tree a → Tree a → Bool =
     Λ a →
       λ $d0 : Eq a →
-        ((1."==" : ∀ a. Eq a → a → a → Bool) @(Tree (a :: Type))) ((($fEqTreea : ∀ a. Eq a → Eq (Tree a)) @(a :: Type)) $d0);
+        (1."==" @(Tree (a :: Type))) (($fEqTreea{-199} @(a :: Type)) $d0);
 status: pass
 reason: stock Eq lowering consumes checked constructor layouts and field evidence

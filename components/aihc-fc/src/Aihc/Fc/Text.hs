@@ -4,9 +4,9 @@
 -- | The canonical, lossless textual representation of System FC.
 --
 -- The notation deliberately resembles Haskell. Types and variables are
--- written where they occur rather than interned in metadata tables. Compiler
--- uniques are alpha-renaming details, so they are printed only when two
--- simultaneously visible binders would otherwise be ambiguous.
+-- written as Haskell-like declarations rather than interned in metadata
+-- tables. Compiler uniques are alpha-renaming details, so they are printed
+-- only when two simultaneously visible binders would otherwise be ambiguous.
 module Aihc.Fc.Text
   ( parseProgram,
     renderProgram,
@@ -59,19 +59,23 @@ data Naming = Naming
   { namingPrefixes :: !(Map Text Int),
     namingAmbiguousVars :: !(Set Unique),
     namingAmbiguousTyVars :: !(Set Unique),
-    namingFreeVars :: !(Set Unique),
+    namingFreeVarDeclarations :: ![Var],
     namingFreeTyVars :: !(Set Unique)
   }
 
 data Seen = Seen
   { seenFreeVars :: !(Map Text (Set Unique)),
+    seenFreeVarValues :: !(Map (Text, Unique) Var),
     seenFreeTyVars :: !(Map Text (Set Unique)),
     seenAmbiguousVars :: !(Set Unique),
     seenAmbiguousTyVars :: !(Set Unique)
   }
 
 emptySeen :: Seen
-emptySeen = Seen Map.empty Map.empty Set.empty Set.empty
+emptySeen = Seen Map.empty Map.empty Map.empty Set.empty Set.empty
+
+data ParsedProgram = ParsedProgram ![Var] !FcProgram
+  deriving (Show)
 
 type VarScope = Map Text [Var]
 
@@ -81,12 +85,17 @@ renderProgram :: FcProgram -> String
 renderProgram program =
   unlines
     ( ["core 2"]
-        <> ["prefix " <> show index <> " = " <> renderName prefix | (prefix, index) <- sortOn snd (Map.toList (namingPrefixes naming))]
-        <> ["" | not (Map.null (namingPrefixes naming))]
-        <> intersperseBlank (map (renderTop naming) (fcTopBinds program))
+        <> prefixLines
+        <> ["" | not (null prefixLines) || not (null freeVarLines)]
+        <> freeVarLines
+        <> ["" | not (null freeVarLines) && not (null topLines)]
+        <> intersperseBlank topLines
     )
   where
     naming = namingForProgram program
+    prefixLines = ["prefix " <> show index <> " = " <> renderName prefix | (prefix, index) <- sortOn snd (Map.toList (namingPrefixes naming))]
+    freeVarLines = [renderVarBinder naming variable <> ";" | variable <- sortOn (renderVarLabel naming) (namingFreeVarDeclarations naming)]
+    topLines = map (renderTop naming) (fcTopBinds program)
 
 parseProgram :: Text -> Either String FcProgram
 parseProgram input = do
@@ -126,7 +135,7 @@ parseHeader lines' =
         [(entry, "")] -> Right entry
         _ -> Left ("invalid FC prefix: " <> line)
 
-runProgramParser :: ReadP FcProgram -> String -> Either String [FcProgram]
+runProgramParser :: (Show a) => ReadP a -> String -> Either String [a]
 runProgramParser parser input =
   case nubBy (\left right -> show left == show right) [result | (result, rest) <- readP_to_S (spaces *> parser <* spaces <* eof) input, all isSpace rest] of
     [] ->
@@ -135,8 +144,8 @@ runProgramParser parser input =
         [] -> Left ("invalid System FC text near " <> show (take 80 input))
     results -> Right results
 
-programParser :: Map Int Text -> ReadP FcProgram
-programParser prefixes = FcProgram <$> many (topParser prefixes <* symbol ";")
+programParser :: Map Int Text -> ReadP ParsedProgram
+programParser prefixes = ParsedProgram <$> many (varBinderParser prefixes <* symbol ";") <*> (FcProgram <$> many (topParser prefixes <* symbol ";"))
 
 topParser :: Map Int Text -> ReadP FcTopBind
 topParser prefixes =
@@ -233,8 +242,8 @@ atomParser prefixes =
       addrLiteralParser,
       annotatedIntParser,
       annotatedCharParser,
+      FcVar <$> (keyword "var" *> varReferenceParser prefixes),
       FcLit . LitString <$> textAtom,
-      annotatedFreeVarParser prefixes,
       FcVar <$> varReferenceParser prefixes,
       between (symbol "(") (symbol ")") (exprParser prefixes)
     ]
@@ -261,13 +270,6 @@ varBinderParser prefixes = do
 
 varReferenceParser :: Map Int Text -> ReadP Var
 varReferenceParser = varLabelParser
-
-annotatedFreeVarParser :: Map Int Text -> ReadP FcExpr
-annotatedFreeVarParser prefixes = between (symbol "(") (symbol ")") $ do
-  variable <- varLabelParser prefixes
-  symbol ":"
-  ty <- typeParser
-  pure (FcVar variable {varType = ty})
 
 varLabelParser :: Map Int Text -> ReadP Var
 varLabelParser prefixes = do
@@ -611,8 +613,10 @@ renderVarBinder naming variable = renderVarLabel naming variable <> " : " <> ren
 
 renderVarReference :: Naming -> Var -> String
 renderVarReference naming variable
-  | Set.member (varUnique variable) (namingFreeVars naming) = "(" <> renderVarLabel naming variable <> " : " <> renderType naming 0 (varType variable) <> ")"
-  | otherwise = renderVarLabel naming variable
+  | startsWith "\"" label = "var " <> label
+  | otherwise = label
+  where
+    label = renderVarLabel naming variable
 
 renderVarLabel :: Naming -> Var -> String
 renderVarLabel naming variable =
@@ -778,7 +782,7 @@ namingForProgram program =
     { namingPrefixes = Map.fromList (zip prefixes [1 ..]),
       namingAmbiguousVars = seenAmbiguousVars finalSeen <> ambiguousFree seenFreeVars finalSeen,
       namingAmbiguousTyVars = seenAmbiguousTyVars finalSeen <> ambiguousFree seenFreeTyVars finalSeen,
-      namingFreeVars = Set.unions (Map.elems (seenFreeVars finalSeen)),
+      namingFreeVarDeclarations = Map.elems (seenFreeVarValues finalSeen),
       namingFreeTyVars = Set.unions (Map.elems (seenFreeTyVars finalSeen))
     }
   where
@@ -852,13 +856,23 @@ visitVarRef :: VarScope -> Var -> Seen -> Seen
 visitVarRef scope variable seen =
   case Map.lookup (varBase variable) scope of
     Just variables
-      | all ((/= varUnique variable) . varUnique) variables -> addFree
+      | all ((/= varUnique variable) . varUnique) variables ->
+          addFree
+            seen
+              { seenAmbiguousVars =
+                  Set.insert (varUnique variable) (seenAmbiguousVars seen)
+                    <> Set.fromList (map varUnique variables)
+              }
     Just (innermost : _)
       | varUnique innermost /= varUnique variable -> seen {seenAmbiguousVars = Set.insert (varUnique variable) (seenAmbiguousVars seen)}
     Just _ -> seen
-    Nothing -> addFree
+    Nothing -> addFree seen
   where
-    addFree = seen {seenFreeVars = Map.insertWith Set.union (varBase variable) (Set.singleton (varUnique variable)) (seenFreeVars seen)}
+    addFree current =
+      current
+        { seenFreeVars = Map.insertWith Set.union (varBase variable) (Set.singleton (varUnique variable)) (seenFreeVars current),
+          seenFreeVarValues = Map.insertWith (\_ old -> old) (varBase variable, varUnique variable) variable (seenFreeVarValues current)
+        }
 
 visitType :: TyScope -> TcType -> Seen -> Seen
 visitType scope ty seen =
@@ -959,9 +973,18 @@ data ResolveState = ResolveState
 
 type Resolve a = StateT ResolveState (Either String) a
 
-resolveProgram :: FcProgram -> Either String FcProgram
-resolveProgram raw@(FcProgram tops) =
-  evalStateT (FcProgram <$> resolveTops tops) (ResolveState 0 (explicitSuffixes raw) Map.empty Map.empty)
+resolveProgram :: ParsedProgram -> Either String FcProgram
+resolveProgram (ParsedProgram rawFreeVars raw) =
+  evalStateT resolve (ResolveState 0 reserved Map.empty Map.empty)
+  where
+    reserved = explicitSuffixes raw <> explicitSuffixes (FcProgram [FcPrimitive variable 0 | variable <- rawFreeVars])
+    resolve = do
+      freeVars <- traverse (allocateVarWithType Map.empty) rawFreeVars
+      let declarations = Map.fromList [(parsedVarKey rawVariable, variable) | (rawVariable, variable) <- zip rawFreeVars freeVars]
+      when (Map.size declarations /= length rawFreeVars) (throwResolve "duplicate free FC variable declaration")
+      modify' (\current -> current {resolveFreeVars = declarations})
+      case raw of
+        FcProgram tops -> FcProgram <$> resolveTops tops
 
 resolveTops :: [FcTopBind] -> Resolve [FcTopBind]
 resolveTops tops = do
@@ -1018,7 +1041,7 @@ findAllocated raw =
 resolveExpr :: VarScope -> TyScope -> FcExpr -> Resolve FcExpr
 resolveExpr vars tys expression =
   case expression of
-    FcVar rawVariable -> FcVar <$> resolveVarReference vars tys rawVariable
+    FcVar rawVariable -> FcVar <$> resolveVarReference vars rawVariable
     FcLit literal -> pure (FcLit literal)
     FcApp function argument -> FcApp <$> resolveExpr vars tys function <*> resolveExpr vars tys argument
     FcTyApp function ty -> FcTyApp <$> resolveExpr vars tys function <*> resolveType tys ty
@@ -1055,24 +1078,15 @@ resolveAlt vars tys alternative = do
     other -> pure other
   pure (FcAlt constructor binders' rhs)
 
-resolveVarReference :: VarScope -> TyScope -> Var -> Resolve Var
-resolveVarReference vars tys raw =
+resolveVarReference :: VarScope -> Var -> Resolve Var
+resolveVarReference vars raw =
   case Map.lookup (parsedVarKey raw) vars of
     Just (variable : _) | isUnresolvedType (varType raw) -> pure variable
-    _
-      | isUnresolvedType (varType raw) -> throwResolve ("unbound FC variable " <> T.unpack (varName raw))
-      | otherwise -> do
-          ty <- resolveType tys (varType raw)
-          state <- get
-          let key = parsedVarKey raw
-          case Map.lookup key (resolveFreeVars state) of
-            Just variable
-              | show (varType variable) == show ty -> pure variable
-              | otherwise -> throwResolve ("inconsistent types for free FC variable " <> T.unpack (varName raw))
-            Nothing -> do
-              variable <- allocateRawVar raw {varType = ty}
-              modify' (\current -> current {resolveFreeVars = Map.insert key variable (resolveFreeVars current)})
-              pure variable
+    _ -> do
+      state <- get
+      case Map.lookup (parsedVarKey raw) (resolveFreeVars state) of
+        Just variable -> pure variable
+        Nothing -> throwResolve ("unbound FC variable " <> T.unpack (varName raw))
 
 allocateVarWithType :: TyScope -> Var -> Resolve Var
 allocateVarWithType tys raw = do
@@ -1320,7 +1334,7 @@ isConstructorName name =
       Nothing -> False
 
 reservedWords :: [String]
-reservedWords = ["as", "axiom", "case", "ccall", "core", "data", "foreign", "import", "in", "io", "let", "literal", "newtype", "nominal", "of", "prefix", "prim", "pure", "rec", "refl", "representational", "represents", "sym", "tycon", "tyvar", "where"]
+reservedWords = ["as", "axiom", "case", "ccall", "core", "data", "foreign", "import", "in", "io", "let", "literal", "newtype", "nominal", "of", "prefix", "prim", "pure", "rec", "refl", "representational", "represents", "sym", "tycon", "tyvar", "var", "where"]
 
 parenthesize :: Bool -> String -> String
 parenthesize False value = value

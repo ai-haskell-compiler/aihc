@@ -2,6 +2,9 @@ expected: |-
   core 2
   prefix 1 = Test
 
+  1.False : Bool;
+  1.True : Bool;
+
   data Bool where
     | True
     | False;
@@ -15,9 +18,9 @@ expected: |-
     λ x1003 : Bool →
       case x1003 as _scrut : Bool of {
         True →
-          (1.False : Bool);
+          1.False;
         False →
-          (1.True : Bool);
+          1.True;
       };
 extensions: []
 modules:

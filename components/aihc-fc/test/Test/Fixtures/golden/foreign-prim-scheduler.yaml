@@ -2,6 +2,9 @@ expected: |-
   core 2
   prefix 1 = Test
 
+  1.fork# : ∀ a. (State# RealWorld → (tycon "(#,#)" / 2 :: TYPE TupleRep [] → Type → TYPE TupleRep [TupleRep [], LiftedRep]) (State# RealWorld) a) → State# RealWorld → (tycon "(#,#)" / 2 :: TYPE TupleRep [] → TYPE UnliftedRep → TYPE TupleRep [TupleRep [], UnliftedRep]) (State# RealWorld) ThreadId#;
+  1.yield# : State# RealWorld → State# RealWorld;
+
   data State# where;
 
   data RealWorld where;
@@ -16,11 +19,11 @@ expected: |-
     Λ a →
       λ x1003 : State# RealWorld → (tycon "(#,#)" / 2 :: TYPE TupleRep [] → Type → TYPE TupleRep [TupleRep [], LiftedRep]) (State# RealWorld) a →
         λ y1004 : State# RealWorld →
-          ((1.fork# : ∀ a. (State# RealWorld → (tycon "(#,#)" / 2 :: TYPE TupleRep [] → Type → TYPE TupleRep [TupleRep [], LiftedRep]) (State# RealWorld) a) → State# RealWorld → (tycon "(#,#)" / 2 :: TYPE TupleRep [] → TYPE UnliftedRep → TYPE TupleRep [TupleRep [], UnliftedRep]) (State# RealWorld) ThreadId#) @a) x1003 y1004;
+          (1.fork# @a) x1003 y1004;
 
   reschedule : State# RealWorld → State# RealWorld =
     λ x1007 : State# RealWorld →
-      (1.yield# : State# RealWorld → State# RealWorld) x1007;
+      1.yield# x1007;
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim

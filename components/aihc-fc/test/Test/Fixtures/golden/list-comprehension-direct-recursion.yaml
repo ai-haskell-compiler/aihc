@@ -1,5 +1,9 @@
 expected: |-
   core 2
+
+  ":" : ∀ a. a → tycon "[]" a → tycon "[]" a;
+  "[]" : ∀ a. tycon "[]" a;
+
   data Bool where
     | False
     | True;
@@ -13,11 +17,11 @@ expected: |-
               λ _lc_list1004 : tycon "[]" a →
                 case _lc_list1004 as _lc_scrut1007 : tycon "[]" a of {
                   "[]" →
-                    ("[]" : ∀ a. tycon "[]" a) @a;
+                    var "[]" @a;
                   ":" (_lc_head1005 : a) (_lc_tail1006 : tycon "[]" a) →
                     case x1001 _lc_head1005 as _lc_guard1008 : Bool of {
                       True →
-                        ((":" : ∀ a. a → tycon "[]" a → tycon "[]" a) @a) _lc_head1005 ($lc1003 _lc_tail1006);
+                        (var ":" @a) _lc_head1005 ($lc1003 _lc_tail1006);
                       False →
                         $lc1003 _lc_tail1006;
                     };

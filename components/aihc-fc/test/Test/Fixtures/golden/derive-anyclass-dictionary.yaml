@@ -2,6 +2,18 @@ expected: |-
   core 2
   prefix 1 = Test
 
+  $Dict$Any : ∀ a. (a → a) → Any a;
+  $Dict$Child : ∀ a. (Parent / 1 :: Type → Constraint) a → Child a;
+  $Dict$Parent : ∀ a. Parent a;
+  $Dict$Required{1016} : ∀ a. (a → a) → Required a;
+  $Dict$Required{1020} : ∀ a. (a → a) → Required a;
+  $dmanyValue{1027} : ∀ a. Any a → Required a → a → a;
+  $fAnyWrappeda{-199} : ∀ a. Required a → Any (Wrapped a);
+  $fParentBoth{-199} : Parent Both;
+  $fRequiredWrappeda{-199} : ∀ a. Required a → Required (Wrapped a);
+  1.anyValue : ∀ a. Any a → a → a;
+  1.required : ∀ a. Required a → a → a;
+
   data Unit where
     | Unit;
 
@@ -30,12 +42,12 @@ expected: |-
             $method0;
         };
 
-  $dmanyValue : ∀ a. Any a → Required a → a → a =
+  $dmanyValue{1008} : ∀ a. Any a → Required a → a → a =
     Λ a →
       λ $d0 : Any a →
         λ $d1 : Required a →
           λ x1011 : a →
-            ((1.required : ∀ a. Required a → a → a) @a) $d1 x1011;
+            (1.required @a) $d1 x1011;
 
   data Wrapped a where
     | Wrapped : Box a;
@@ -52,32 +64,32 @@ expected: |-
   $fRequiredBoxa : ∀ a. Required a → Required (Box a) =
     Λ a →
       λ $d0 : Required a →
-        (($Dict$Required{1016} : ∀ a. (a → a) → Required a) @(Box a)) (λ x1014 : Box a →
+        ($Dict$Required{1016} @(Box a)) (λ x1014 : Box a →
           x1014);
 
-  $fRequiredWrappeda : ∀ a. Required a → Required (Wrapped a) =
+  $fRequiredWrappeda{1019} : ∀ a. Required a → Required (Wrapped a) =
     Λ a →
       λ $d0 : Required a →
-        (($Dict$Required{1020} : ∀ a. (a → a) → Required a) @(Wrapped a)) (λ x1018 : Wrapped a →
+        ($Dict$Required{1020} @(Wrapped a)) (λ x1018 : Wrapped a →
           x1018);
 
-  $fParentBoth : Parent Both =
-    ($Dict$Parent : ∀ a. Parent a) @Both;
+  $fParentBoth{1021} : Parent Both =
+    $Dict$Parent @Both;
 
   $fChildBoth : Child Both =
-    (($Dict$Child : ∀ a. (Parent / 1 :: Type → Constraint) a → Child a) @Both) ($fParentBoth : Parent Both);
+    ($Dict$Child @Both) $fParentBoth{-199};
 
   rec {
-    $fAnyWrappeda : ∀ a. Required a → Any (Wrapped a) =
+    $fAnyWrappeda{1026} : ∀ a. Required a → Any (Wrapped a) =
       Λ a →
         λ $d0 : Required a →
-          (($Dict$Any : ∀ a. (a → a) → Any a) @(Wrapped a)) ((($dmanyValue : ∀ a. Any a → Required a → a → a) @(Wrapped a)) (($fAnyWrappeda @a) $d0) ((($fRequiredWrappeda : ∀ a. Required a → Required (Wrapped a)) @a) $d0));
+          ($Dict$Any @(Wrapped a)) (($dmanyValue{1027} @(Wrapped a)) (($fAnyWrappeda{1026} @a) $d0) (($fRequiredWrappeda{-199} @a) $d0));
   };
 
   useAny : ∀ a. Required a → Wrapped a → Wrapped a =
     Λ a →
       λ $d0 : Required a →
-        ((1.anyValue : ∀ a. Any a → a → a) @(Wrapped (a :: Type))) ((($fAnyWrappeda : ∀ a. Required a → Any (Wrapped a)) @(a :: Type)) $d0);
+        (1.anyValue @(Wrapped (a :: Type))) (($fAnyWrappeda{-199} @(a :: Type)) $d0);
 extensions:
 - DefaultSignatures
 - DeriveAnyClass
