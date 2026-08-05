@@ -1,0 +1,20 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+
+    import Data.Complex
+    import GHC.Prim (raise#)
+
+    data Failure = Failure
+
+    result :: Bool
+    result = seq ((1 :: Integer) :+ raise# Failure) True
+output: ""
+expression: result
+status: fail
+reason: evaluating a Complex constructor to weak head normal form evaluates both strict components

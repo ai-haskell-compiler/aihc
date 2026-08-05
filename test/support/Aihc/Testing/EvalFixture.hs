@@ -14,7 +14,7 @@ module Aihc.Testing.EvalFixture
   )
 where
 
-import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithBindings)
+import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithDataTypes)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -37,7 +37,7 @@ import Aihc.Parser.Syntax
     parseExtensionName,
   )
 import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (TcBindingResult, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithEnv)
+import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (bracket, mask, onException)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -207,11 +207,11 @@ compileEvalCase tc =
           let resolved = resolveWithDeps mempty (deps <> evalModules)
            in case resolved of
                 ResolveResult {resolvedModules, resolveErrors = []} ->
-                  let tcResults = typecheckModulesWithEnv [] resolvedModules
+                  let (tcResults, tcInterface) = typecheckModulesWithInterface emptyTcInterface resolvedModules
                    in if all tcModuleSuccess tcResults
                         then do
                           let allBindings = moduleGroupBindings tcResults
-                              results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+                              results = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) tcResults resolvedModules
                           if all dsSuccess results
                             then pure (Right (concatPrograms (map dsProgram results)))
                             else pure (Left ("desugar error: " <> unlines (concatMap dsErrors results)))

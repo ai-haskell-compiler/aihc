@@ -42,9 +42,8 @@ dsPatternPure (PList []) =
   (DataAlt "[]", [])
 dsPatternPure (PList (_ : _)) =
   (DataAlt ":", ["_head", "_tail"])
-dsPatternPure (PInfix lhs op rhs)
-  | nameText op == ":" =
-      (DataAlt ":", [subPatName lhs, subPatName rhs])
+dsPatternPure (PInfix lhs op rhs) =
+  (DataAlt (nameToText op), [subPatName lhs, subPatName rhs])
 dsPatternPure (PTuple flavor subPats) =
   (DataAlt (tupleConText flavor (length subPats)), map subPatName subPats)
 dsPatternPure (PVar uname) =

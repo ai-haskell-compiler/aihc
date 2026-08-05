@@ -12,6 +12,7 @@ module Prelude
     Eq (..),
     Functor (..),
     Fractional (..),
+    Floating (..),
     IO,
     Int,
     Integral (..),
@@ -26,6 +27,7 @@ module Prelude
     Ratio,
     Real (..),
     RealFrac (..),
+    RealFloat (..),
     Read (..),
     ReadPrec (..),
     ReadS,
@@ -84,6 +86,7 @@ where
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
 import GHC.Base (Applicative (..), Functor (..), Monad (..))
 import GHC.Enum (Bounded (..), Enum (..))
+import GHC.Float (Floating (..), RealFloat (..))
 import GHC.IO (IO (..))
 import GHC.IO.Console (writeOutputByte, writeStdout)
 import GHC.Int (Int (..))
