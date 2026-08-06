@@ -1,9 +1,4 @@
 expected: |-
-  prefix 1 = Test
-
-  $fEqBool{-199} : Eq Bool;
-  1."==" : ∀ a. Eq a → a → a → Bool;
-
   data Bool where
     | False
     | True;
@@ -19,7 +14,7 @@ expected: |-
             $method0;
         };
 
-  $fEqBool{1013} : Eq Bool =
+  $fEqBool : Eq Bool =
     ($Dict$Eq @Bool) (λ x1004 : Bool →
       λ y1005 : Bool →
         case x1004 as _scrut : Bool of {
@@ -40,7 +35,7 @@ expected: |-
         });
 
   eqBool : Bool → Bool → Bool =
-    (1."==" @Bool) $fEqBool{-199};
+    (var "==" @Bool) $fEqBool;
 extensions: []
 modules:
 - |

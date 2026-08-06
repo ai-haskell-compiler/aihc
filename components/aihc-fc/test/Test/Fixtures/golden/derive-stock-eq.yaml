@@ -17,11 +17,6 @@ modules:
     sameTree :: Eq a => Tree a -> Tree a -> Bool
     sameTree = (==)
 expected: |-
-  prefix 1 = Test
-
-  $fEqTreea{-199} : ∀ a. Eq a → Eq (Tree a);
-  1."==" : ∀ a. Eq a → a → a → Bool;
-
   data Bool where
     | False
     | True;
@@ -50,11 +45,11 @@ expected: |-
     | Branch : Tree a, Tree a;
 
   rec {
-    $fEqTreea{1011} : ∀ a. Eq a → Eq (Tree a) =
+    $fEqTreea : ∀ a. Eq a → Eq (Tree a) =
       Λ a →
         λ $d0 : Eq a →
           let $stock_eq_self : Eq (Tree a) =
-            ($fEqTreea{1011} @a) $d0
+            ($fEqTreea @a) $d0
           in
             ($Dict$Eq @(Tree a)) (λ $stock_eq_left : Tree a →
               λ $stock_eq_right : Tree a →
@@ -149,6 +144,6 @@ expected: |-
   sameTree : ∀ a. Eq a → Tree a → Tree a → Bool =
     Λ a →
       λ $d0 : Eq a →
-        (1."==" @(Tree (a :: Type))) (($fEqTreea{-199} @(a :: Type)) $d0);
+        (var "==" @(Tree (a :: Type))) (($fEqTreea @(a :: Type)) $d0);
 status: pass
 reason: stock Eq lowering consumes checked constructor layouts and field evidence

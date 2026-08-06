@@ -13,6 +13,7 @@ module Aihc.Fc
 
     -- * Lossless text
     renderProgram,
+    renderProgramChecked,
     parseProgram,
 
     -- * Evaluation
@@ -67,4 +68,4 @@ import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (NewtypeInterface, extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
 import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Syntax
-import Aihc.Fc.Text (parseProgram, renderProgram)
+import Aihc.Fc.Text (parseProgram, renderProgram, renderProgramChecked)

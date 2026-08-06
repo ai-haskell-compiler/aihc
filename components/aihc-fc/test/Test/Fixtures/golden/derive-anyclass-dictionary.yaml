@@ -1,13 +1,4 @@
 expected: |-
-  prefix 1 = Test
-
-  $dmanyValue{1027} : ∀ a. Any a → Required a → a → a;
-  $fAnyWrappeda{-199} : ∀ a. Required a → Any (Wrapped a);
-  $fParentBoth{-199} : Parent Both;
-  $fRequiredWrappeda{-199} : ∀ a. Required a → Required (Wrapped a);
-  1.anyValue : ∀ a. Any a → a → a;
-  1.required : ∀ a. Required a → a → a;
-
   data Unit where
     | Unit;
 
@@ -36,12 +27,12 @@ expected: |-
             $method0;
         };
 
-  $dmanyValue{1008} : ∀ a. Any a → Required a → a → a =
+  $dmanyValue : ∀ a. Any a → Required a → a → a =
     Λ a →
       λ $d0 : Any a →
         λ $d1 : Required a →
           λ x1011 : a →
-            (1.required @a) $d1 x1011;
+            (required @a) $d1 x1011;
 
   data Wrapped a where
     | Wrapped : Box a;
@@ -61,29 +52,29 @@ expected: |-
         ($Dict$Required @(Box a)) (λ x1014 : Box a →
           x1014);
 
-  $fRequiredWrappeda{1019} : ∀ a. Required a → Required (Wrapped a) =
+  $fRequiredWrappeda : ∀ a. Required a → Required (Wrapped a) =
     Λ a →
       λ $d0 : Required a →
         ($Dict$Required @(Wrapped a)) (λ x1018 : Wrapped a →
           x1018);
 
-  $fParentBoth{1021} : Parent Both =
+  $fParentBoth : Parent Both =
     $Dict$Parent @Both;
 
   $fChildBoth : Child Both =
-    ($Dict$Child @Both) $fParentBoth{-199};
+    ($Dict$Child @Both) $fParentBoth;
 
   rec {
-    $fAnyWrappeda{1026} : ∀ a. Required a → Any (Wrapped a) =
+    $fAnyWrappeda : ∀ a. Required a → Any (Wrapped a) =
       Λ a →
         λ $d0 : Required a →
-          ($Dict$Any @(Wrapped a)) (($dmanyValue{1027} @(Wrapped a)) (($fAnyWrappeda{1026} @a) $d0) (($fRequiredWrappeda{-199} @a) $d0));
+          ($Dict$Any @(Wrapped a)) (($dmanyValue @(Wrapped a)) (($fAnyWrappeda @a) $d0) (($fRequiredWrappeda @a) $d0));
   };
 
   useAny : ∀ a. Required a → Wrapped a → Wrapped a =
     Λ a →
       λ $d0 : Required a →
-        (1.anyValue @(Wrapped (a :: Type))) (($fAnyWrappeda{-199} @(a :: Type)) $d0);
+        (anyValue @(Wrapped (a :: Type))) (($fAnyWrappeda @(a :: Type)) $d0);
 extensions:
 - DefaultSignatures
 - DeriveAnyClass

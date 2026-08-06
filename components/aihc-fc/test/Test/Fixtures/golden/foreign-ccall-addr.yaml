@@ -1,8 +1,5 @@
 expected: |-
-  prefix 1 = Test
-
   "(#,#)" : State# RealWorld → CInt → tycon "(#,#)" (State# RealWorld) CInt;
-  1.puts : Addr# → IO CInt;
 
   data State# where;
 
@@ -11,22 +8,22 @@ expected: |-
   data Int32 where
     | I32# : Int32#;
 
-  newtype CInt = CInt Int32 represents CInt;
+  newtype CInt = CInt Int32;
 
-  newtype IO a = IO (State# RealWorld → (tycon "(#,#)" / 2 :: TYPE TupleRep [] → Type → TYPE TupleRep [TupleRep [], LiftedRep]) (State# RealWorld) a) represents IO a;
+  newtype IO a = IO (State# RealWorld → (tycon "(#,#)" / 2 :: TYPE TupleRep [] → Type → TYPE TupleRep [TupleRep [], LiftedRep]) (State# RealWorld) a);
 
   foreign import ccall $ffi$puts = "puts" [Addr] → Int32 io;
 
   puts : Addr# → IO CInt =
     λ $ffi_arg_0 : Addr# →
       (λ $ffi_state : State# RealWorld →
-        case ccall $ffi$puts = "puts" [Addr] → Int32 io [$ffi_arg_0, $ffi_state] as $ffi_result : tycon "(#,#)" (State# RealWorld) Int32# of {
+        case ccall $ffi$puts [$ffi_arg_0, $ffi_state] as $ffi_result : tycon "(#,#)" (State# RealWorld) Int32# of {
           "(#,#)" ($ffi_next_state : State# RealWorld) ($ffi_raw_result : Int32#) →
             var "(#,#)" $ffi_next_state (I32# $ffi_raw_result ▷ (sym axiom CInt));
         }) ▷ (sym axiom IO @CInt);
 
   main : IO CInt =
-    1.puts addr# [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 10];
+    puts addr# [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 10];
 extensions:
 - ForeignFunctionInterface
 - MagicHash

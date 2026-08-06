@@ -13,6 +13,7 @@ module Aihc.Fc.Desugar
   )
 where
 
+import Aihc.Fc.Declaration (normalizeProgramReferences)
 import Aihc.Fc.Desugar.Deriving (dsDerivingPlans, moduleDerivingPlans)
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, peelForAlls, peelQuals, predType)
 import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupType, withDicts)
@@ -111,7 +112,7 @@ desugarModuleWithBindings bindings tcResult _m =
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
           bindingTypes = Map.fromList [(tbId binding, tbType binding) | binding <- bindings]
-       in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) typeEnv bindingTypes Map.empty Map.empty) of
+       in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) typeEnv bindingTypes Map.empty Map.empty Map.empty) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram [],
@@ -120,7 +121,10 @@ desugarModuleWithBindings bindings tcResult _m =
                 }
             Right (binds, _) ->
               DesugarResult
-                { dsProgram = lowerPseudoOps (lowerConstraintProgram (lowerNewtypes (FcProgram binds))),
+                { dsProgram =
+                    normalizeProgramReferences
+                      (moduleName tcResult)
+                      (lowerPseudoOps (lowerConstraintProgram (lowerNewtypes (FcProgram binds)))),
                   dsSuccess = True,
                   dsErrors = []
                 }

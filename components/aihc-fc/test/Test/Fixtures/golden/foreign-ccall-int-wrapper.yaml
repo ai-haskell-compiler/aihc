@@ -8,7 +8,7 @@ expected: |-
   data Int where
     | I# : Int#;
 
-  newtype IO a = IO (State# RealWorld → (tycon "(#,#)" / 2 :: TYPE TupleRep [] → Type → TYPE TupleRep [TupleRep [], LiftedRep]) (State# RealWorld) a) represents IO a;
+  newtype IO a = IO (State# RealWorld → (tycon "(#,#)" / 2 :: TYPE TupleRep [] → Type → TYPE TupleRep [TupleRep [], LiftedRep]) (State# RealWorld) a);
 
   foreign import ccall $ffi$identityInt = "identity_int" [Int] → Int io;
 
@@ -17,7 +17,7 @@ expected: |-
       case $ffi_arg_0 as $ffi_arg_0_case : Int of {
         I# ($ffi_arg_0_field : Int#) →
           (λ $ffi_state : State# RealWorld →
-            case ccall $ffi$identityInt = "identity_int" [Int] → Int io [$ffi_arg_0_field, $ffi_state] as $ffi_result : tycon "(#,#)" (State# RealWorld) Int# of {
+            case ccall $ffi$identityInt [$ffi_arg_0_field, $ffi_state] as $ffi_result : tycon "(#,#)" (State# RealWorld) Int# of {
               "(#,#)" ($ffi_next_state : State# RealWorld) ($ffi_raw_result : Int#) →
                 var "(#,#)" $ffi_next_state (I# $ffi_raw_result);
             }) ▷ (sym axiom IO @Int);

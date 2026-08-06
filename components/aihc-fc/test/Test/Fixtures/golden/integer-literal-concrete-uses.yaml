@@ -70,26 +70,20 @@ expected: |-
   $fNumInt : Num Int;
   $fNumInteger : Num Integer;
   1."==" : ∀ a. Eq a → a → a → Bool;
-  2.fromInteger{1001} : ∀ a. Num a → Integer → a;
-  2.fromInteger{1004} : ∀ a. Num a → Integer → a;
-  2.fromInteger{1007} : ∀ a. Num a → Integer → a;
-  2.fromInteger{1011} : ∀ a. Num a → Integer → a;
-  IS{1002} : Int# → Integer;
-  IS{1005} : Int# → Integer;
-  IS{1008} : Int# → Integer;
-  IS{1012} : Int# → Integer;
+  2.fromInteger : ∀ a. Num a → Integer → a;
+  IS : Int# → Integer;
 
   asInt : Int =
-    (2.fromInteger{1001} @Int) $fNumInt (IS{1002} (1 :: IntRep));
+    (2.fromInteger @Int) $fNumInt (IS (1 :: IntRep));
 
   asInteger : Integer =
-    (2.fromInteger{1004} @Integer) $fNumInteger (IS{1005} (1 :: IntRep));
+    (2.fromInteger @Integer) $fNumInteger (IS (1 :: IntRep));
 
   caseInt : Unit =
     let _case_value : Int =
-      (2.fromInteger{1007} @Int) $fNumInt (IS{1008} (1 :: IntRep))
+      (2.fromInteger @Int) $fNumInt (IS (1 :: IntRep))
     in
-      case (1."==" @Int) $fEqInt _case_value ((2.fromInteger{1011} @Int) $fNumInt (IS{1012} (1 :: IntRep))) as _case_guard : Bool of {
+      case (1."==" @Int) $fEqInt _case_value ((2.fromInteger @Int) $fNumInt (IS (1 :: IntRep))) as _case_guard : Bool of {
         True →
           var "()";
         False →

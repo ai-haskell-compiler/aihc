@@ -10,10 +10,11 @@
 module Aihc.Fc.Text
   ( parseProgram,
     renderProgram,
+    renderProgramChecked,
   )
 where
 
-import Aihc.Fc.Constructor (ConstructorTypes, declaredConstructorTypes, isDeclaredConstructor)
+import Aihc.Fc.Declaration (TermDeclarations, declaredConstructorTypes, declaredTerms, hasDeclaredTermName, isDeclaredTerm, newtypeResultKind, validateDeclarationOwnership)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Evidence (Coercion (..), EvVar (..))
 import Aihc.Tc.Types
@@ -62,7 +63,7 @@ data Naming = Naming
     namingAmbiguousTyVars :: !(Set Unique),
     namingFreeVarDeclarations :: ![Var],
     namingFreeTyVars :: !(Set Unique),
-    namingDeclaredConstructors :: !ConstructorTypes
+    namingDeclaredTerms :: !TermDeclarations
   }
 
 data Seen = Seen
@@ -71,10 +72,10 @@ data Seen = Seen
     seenFreeTyVars :: !(Map Text (Set Unique)),
     seenAmbiguousVars :: !(Set Unique),
     seenAmbiguousTyVars :: !(Set Unique),
-    seenDeclaredConstructors :: !ConstructorTypes
+    seenDeclaredTerms :: !TermDeclarations
   }
 
-emptySeen :: ConstructorTypes -> Seen
+emptySeen :: TermDeclarations -> Seen
 emptySeen = Seen Map.empty Map.empty Map.empty Set.empty Set.empty
 
 data ParsedProgram = ParsedProgram ![Var] !FcProgram
@@ -86,6 +87,18 @@ type TyScope = Map Text [TyVarId]
 
 renderProgram :: FcProgram -> String
 renderProgram program =
+  case renderProgramChecked program of
+    Right rendered -> rendered
+    Left renderError -> error ("cannot render System FC: " <> renderError)
+
+renderProgramChecked :: FcProgram -> Either String String
+renderProgramChecked program =
+  case validateDeclarationOwnership program of
+    [] -> Right (renderValidProgram program)
+    errors -> Left (intercalate "; " errors)
+
+renderValidProgram :: FcProgram -> String
+renderValidProgram program =
   unlines
     ( prefixLines
         <> ["" | not (null prefixLines)]
@@ -178,11 +191,13 @@ topParser prefixes =
       keyword "newtype"
       name <- nameAtom
       tyVars <- many typeBinderParser
+      resultKind <- option liftedTypeKind (symbol "::" *> kindParser)
       symbol "="
       constructor <- nameAtom
       representation <- typeParser
-      keyword "represents"
-      FcNewtype . FcNewtypeDecl name tyVars constructor representation <$> typeParser
+      let tyConKind' = foldr (KFun . tvKind) resultKind tyVars
+          result = TcTyCon (mkTyCon name (length tyVars) tyConKind') (map (TcTyVar . setTyVarKind unresolvedKind) tyVars)
+      pure (FcNewtype (FcNewtypeDecl name tyVars constructor representation result))
     primitiveParser = do
       keyword "foreign"
       keyword "import"
@@ -248,7 +263,18 @@ atomParser prefixes =
     ]
 
 foreignExprParser :: Map Int Text -> ReadP FcExpr
-foreignExprParser prefixes = FcCallForeign <$> (keyword "ccall" *> foreignCallBodyParser) <*> between (symbol "[") (symbol "]") (commaSep (exprParser prefixes))
+foreignExprParser prefixes = do
+  name <- keyword "ccall" *> nameAtom
+  arguments <- between (symbol "[") (symbol "]") (commaSep (exprParser prefixes))
+  pure (FcCallForeign (unresolvedForeignCall name) arguments)
+
+unresolvedForeignCall :: Text -> FcForeignCall
+unresolvedForeignCall name =
+  FcForeignCall
+    { fcForeignCallName = name,
+      fcForeignCallSymbol = "",
+      fcForeignCallSignature = FcForeignSignature [] FcForeignInt FcForeignPure
+    }
 
 altParser :: Map Int Text -> ReadP FcAlt
 altParser prefixes = do
@@ -526,17 +552,19 @@ renderTop naming topBind =
       "newtype "
         <> renderName (fcNewtypeName declaration)
         <> concatMap ((" " <>) . renderTyBinder naming) (fcNewtypeTyVars declaration)
+        <> case newtypeResultKind declaration of
+          Right resultKind
+            | resultKind /= liftedTypeKind -> " :: " <> renderKind 0 resultKind
+          _ -> ""
         <> " = "
         <> renderName (fcNewtypeConstructor declaration)
         <> " "
         <> renderType naming 2 (fcNewtypeRepresentation declaration)
-        <> " represents "
-        <> renderType naming 0 (fcNewtypeResult declaration)
         <> ";"
-    FcPrimitive variable arity -> "foreign import prim " <> renderVarBinder naming variable <> " arity " <> show arity <> ";"
+    FcPrimitive variable arity -> "foreign import prim " <> renderDeclaredVarBinder naming variable <> " arity " <> show arity <> ";"
     FcForeignImport foreignCall -> "foreign import " <> renderForeignCall foreignCall <> ";"
-    FcTopBind (FcNonRec variable expression) -> renderVarBinder naming variable <> " =\n" <> indentBlock 2 (renderExpr naming 0 expression) <> ";"
-    FcTopBind (FcRec bindings) -> "rec {\n" <> intercalate "\n" [indentBlock 2 (renderVarBinder naming variable <> " =\n" <> indentBlock 2 (renderExpr naming 0 expression) <> ";") | (variable, expression) <- bindings] <> "\n};"
+    FcTopBind (FcNonRec variable expression) -> renderDeclaredVarBinder naming variable <> " =\n" <> indentBlock 2 (renderExpr naming 0 expression) <> ";"
+    FcTopBind (FcRec bindings) -> "rec {\n" <> intercalate "\n" [indentBlock 2 (renderDeclaredVarBinder naming variable <> " =\n" <> indentBlock 2 (renderExpr naming 0 expression) <> ";") | (variable, expression) <- bindings] <> "\n};"
 
 renderRole :: FcAxiomRole -> String
 renderRole role =
@@ -575,7 +603,7 @@ renderExpr naming precedence expression =
     FcCast inner coercion -> parenthesize (precedence > 1) (renderExpr naming 1 inner <> " ▷ (" <> renderCoercion naming 0 coercion <> ")")
     FcCallForeign foreignCall arguments ->
       "ccall "
-        <> renderForeignCallBody foreignCall
+        <> renderName (fcForeignCallName foreignCall)
         <> " ["
         <> intercalate ", " (map (renderExpr naming 0) arguments)
         <> "]"
@@ -610,14 +638,22 @@ renderAltCon alternative =
 renderVarBinder :: Naming -> Var -> String
 renderVarBinder naming variable = renderVarLabel naming variable <> " : " <> renderType naming 0 (varType variable)
 
+renderDeclaredVarBinder :: Naming -> Var -> String
+renderDeclaredVarBinder naming variable = renderDeclaredVarLabel naming variable <> " : " <> renderType naming 0 (varType variable)
+
 renderVarReference :: Naming -> Var -> String
 renderVarReference naming variable
   | startsWith "\"" label = "var " <> label
   | otherwise = label
   where
     label
-      | isDeclaredConstructor (namingDeclaredConstructors naming) variable = renderName (varName variable)
+      | isDeclaredTerm (namingDeclaredTerms naming) variable = renderDeclaredVarLabel naming variable
       | otherwise = renderVarLabel naming variable
+
+renderDeclaredVarLabel :: Naming -> Var -> String
+renderDeclaredVarLabel naming variable =
+  renderName (varName variable)
+    <> renderUniqueSuffix (Set.member (varUnique variable) (namingAmbiguousVars naming)) (varUnique variable)
 
 renderVarLabel :: Naming -> Var -> String
 renderVarLabel naming variable =
@@ -627,8 +663,7 @@ renderVarLabel naming variable =
       case varResolvedName variable >>= splitResolvedName of
         Just (prefix, occurrence)
           | Just prefixIndex <- Map.lookup prefix (namingPrefixes naming) ->
-              let qualified = show prefixIndex <> "." <> renderName occurrence
-               in if occurrence == varName variable then qualified else renderName (varName variable) <> " ← " <> qualified
+              show prefixIndex <> "." <> renderName occurrence
         _ -> renderName (varName variable)
 
 renderTyBinder :: Naming -> TyVarId -> String
@@ -785,13 +820,13 @@ namingForProgram program =
       namingAmbiguousTyVars = seenAmbiguousTyVars finalSeen <> ambiguousFree seenFreeTyVars finalSeen,
       namingFreeVarDeclarations = Map.elems (seenFreeVarValues finalSeen),
       namingFreeTyVars = Set.unions (Map.elems (seenFreeTyVars finalSeen)),
-      namingDeclaredConstructors = constructorTypes
+      namingDeclaredTerms = declarations
     }
   where
-    constructorTypes = declaredConstructorTypes program
-    prefixes = Set.toAscList (collectPrefixes constructorTypes program)
+    declarations = declaredTerms program
+    prefixes = Set.toAscList (collectPrefixes declarations program)
     topVariables = [variable | FcTopBind binding <- fcTopBinds program, variable <- binders binding] <> [variable | FcPrimitive variable _ <- fcTopBinds program]
-    (initialVars, initialSeen) = addSimultaneousVars Map.empty topVariables (emptySeen constructorTypes)
+    (initialVars, initialSeen) = addSimultaneousVars Map.empty topVariables (emptySeen declarations)
     finalSeen = execProgramSeen initialVars Map.empty program initialSeen
     ambiguousFree selector seen = Set.unions [uniques | uniques <- Map.elems (selector seen), Set.size uniques > 1]
 
@@ -857,7 +892,7 @@ visitAlt vars tys seen alternative =
 
 visitVarRef :: VarScope -> Var -> Seen -> Seen
 visitVarRef scope variable seen =
-  if isDeclaredConstructor (seenDeclaredConstructors seen) variable
+  if isDeclaredTerm (seenDeclaredTerms seen) variable
     then seen
     else case Map.lookup (varBase variable) scope of
       Just variables
@@ -873,12 +908,15 @@ visitVarRef scope variable seen =
       Just _ -> seen
       Nothing -> addFree seen
   where
+    declarationUnique
+      | isNothing (varResolvedName variable) = varUnique variable
+      | otherwise = noUnique
     addFree current =
       current
-        { seenFreeVars = Map.insertWith Set.union (varBase variable) (Set.singleton (varUnique variable)) (seenFreeVars current),
-          seenFreeVarValues = Map.insertWith (\_ old -> old) (varBase variable, varUnique variable) variable (seenFreeVarValues current),
+        { seenFreeVars = Map.insertWith Set.union (varBase variable) (Set.singleton declarationUnique) (seenFreeVars current),
+          seenFreeVarValues = Map.insertWith (\_ old -> old) (varBase variable, declarationUnique) variable (seenFreeVarValues current),
           seenAmbiguousVars =
-            if varBase variable == varName variable && Map.member (varName variable) (seenDeclaredConstructors current)
+            if isNothing (varResolvedName variable) && hasDeclaredTermName (seenDeclaredTerms current) (varName variable)
               then Set.insert (varUnique variable) (seenAmbiguousVars current)
               else seenAmbiguousVars current
         }
@@ -948,12 +986,12 @@ binders binding =
     FcNonRec variable _ -> [variable]
     FcRec bindings' -> map fst bindings'
 
-collectPrefixes :: ConstructorTypes -> FcProgram -> Set Text
-collectPrefixes constructors (FcProgram tops) =
+collectPrefixes :: TermDeclarations -> FcProgram -> Set Text
+collectPrefixes declarations (FcProgram tops) =
   Set.fromList
     [ prefix
     | variable <- concatMap topVars tops,
-      not (isDeclaredConstructor constructors variable),
+      not (isDeclaredTerm declarations variable),
       Just resolved <- [varResolvedName variable],
       Just (prefix, _) <- [splitResolvedName resolved]
     ]
@@ -985,30 +1023,35 @@ data ResolveState = ResolveState
     resolveReserved :: !(Set Int),
     resolveFreeVars :: !(Map Text Var),
     resolveFreeTyVars :: !(Map Text TyVarId),
-    resolveDeclaredConstructors :: !(Map Text Var)
+    resolveDeclaredConstructors :: !(Map Text Var),
+    resolveForeignCalls :: !(Map Text FcForeignCall)
   }
 
 type Resolve a = StateT ResolveState (Either String) a
 
 resolveProgram :: ParsedProgram -> Either String FcProgram
 resolveProgram (ParsedProgram rawFreeVars raw) =
-  evalStateT resolve (ResolveState 0 reserved Map.empty Map.empty Map.empty)
+  evalStateT resolve (ResolveState 0 reserved Map.empty Map.empty Map.empty Map.empty)
   where
     rawConstructors =
       [ Var name noUnique (unresolveBoundTyVarReferences ty)
       | (name, [ty]) <- Map.toList (declaredConstructorTypes raw)
       ]
     reserved = explicitSuffixes raw <> explicitSuffixes (FcProgram [FcPrimitive variable 0 | variable <- rawFreeVars <> rawConstructors])
+    rawForeignCalls = [foreignCall | FcForeignImport foreignCall <- fcTopBinds raw]
     resolve = do
       constructors <- traverse (allocateVarWithType Map.empty) rawConstructors
       freeVars <- traverse (allocateVarWithType Map.empty) rawFreeVars
       let declarations = Map.fromList [(parsedVarKey rawVariable, variable) | (rawVariable, variable) <- zip rawFreeVars freeVars]
       when (Map.size declarations /= length rawFreeVars) (throwResolve "duplicate free FC variable declaration")
+      let foreignCalls = Map.fromList [(fcForeignCallName foreignCall, foreignCall) | foreignCall <- rawForeignCalls]
+      when (Map.size foreignCalls /= length rawForeignCalls) (throwResolve "duplicate foreign FC declaration")
       modify'
         ( \current ->
             current
               { resolveFreeVars = declarations,
-                resolveDeclaredConstructors = Map.fromList [(varName constructor, constructor) | constructor <- constructors]
+                resolveDeclaredConstructors = Map.fromList [(varName constructor, constructor) | constructor <- constructors],
+                resolveForeignCalls = foreignCalls
               }
         )
       case raw of
@@ -1114,7 +1157,14 @@ resolveExpr vars tys expression =
       alternatives' <- traverse (resolveAlt (addResolvedVar rawBinder binder vars) tys) alternatives
       pure (FcCase scrutinee' binder alternatives')
     FcCast inner coercion -> FcCast <$> resolveExpr vars tys inner <*> resolveCoercion tys coercion
-    FcCallForeign foreignCall arguments -> FcCallForeign foreignCall <$> traverse (resolveExpr vars tys) arguments
+    FcCallForeign rawForeignCall arguments -> do
+      foreignCalls <- resolveForeignCalls <$> get
+      foreignCall <-
+        maybe
+          (throwResolve ("unknown foreign FC call " <> T.unpack (fcForeignCallName rawForeignCall)))
+          pure
+          (Map.lookup (fcForeignCallName rawForeignCall) foreignCalls)
+      FcCallForeign foreignCall <$> traverse (resolveExpr vars tys) arguments
 
 resolveAlt :: VarScope -> TyScope -> FcAlt -> Resolve FcAlt
 resolveAlt vars tys alternative = do

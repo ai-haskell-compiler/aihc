@@ -17,8 +17,9 @@ import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (ResolveResult (..), resolve)
-import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), tcModuleBindings, tcModuleSuccess, typecheck)
+import Aihc.Tc (Kind (..), Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), tcModuleBindings, tcModuleSuccess, tyConKind, typecheck)
 import Aihc.Tc.Evidence (Coercion (..))
+import Aihc.Tc.Types (mkTyCon)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.List (isInfixOf)
 import Data.Text (Text)
@@ -108,22 +109,88 @@ fcDesugarTests =
           ResolveResult {resolveErrors} -> assertFailure ("resolution failed: " <> show resolveErrors),
       testCase "data declarations supply constructor types to Core text" $ do
         let localType = TcTyCon (TyCon "Local" 0) []
-            remoteType = TcTyCon (TyCon "Remote" 0) []
-            localConstructor = (Var "Box" (Unique 31) localType) {varResolvedName = Just "Test.Box"}
-            remoteConstructor = (Var "Box" (Unique 32) remoteType) {varResolvedName = Just "Remote.Box"}
+            localConstructor = Var "Box" (Unique 31) localType
+            remoteConstructor = (Var "Box" (Unique 32) localType) {varResolvedName = Just "Remote.Box"}
             program =
               FcProgram
                 [ FcData "Local" [] [("Box", [])],
                   FcTopBind (FcNonRec (Var "local" (Unique 33) localType) (FcVar localConstructor)),
-                  FcTopBind (FcNonRec (Var "remote" (Unique 34) remoteType) (FcVar remoteConstructor))
+                  FcTopBind (FcNonRec (Var "remote" (Unique 34) localType) (FcVar remoteConstructor))
                 ]
             rendered = renderProgram program
         assertBool "local constructor has no redundant signature" (not ("Test.Box :" `isInfixOf` rendered))
         assertBool "local constructor use is unqualified" ("local : Local =\n  Box;" `isInfixOf` rendered)
-        assertBool "different imported constructor keeps its signature" ("1.Box : Remote;" `isInfixOf` rendered)
+        assertBool "same-typed imported constructor keeps its signature" ("1.Box : Local;" `isInfixOf` rendered)
         case parseProgram (T.pack rendered) of
           Left parseError -> assertFailure ("constructor-aware canonical FC does not parse: " <> parseError)
           Right reparsed -> assertEqual "constructor-aware canonical FC round-trip" rendered (renderProgram reparsed),
+      testCase "every global reference obtains metadata from one declaration" $ do
+        let intType = TcTyCon (TyCon "Int" 0) []
+            functionType = TcFunTy intType intType
+            argument = Var "x" (Unique 41) intType
+            localFunction = Var "fn" (Unique 42) functionType
+            importedFirst = (Var "fn" (Unique 43) functionType) {varResolvedName = Just "Remote.fn"}
+            importedSecond = (Var "fn" (Unique 44) functionType) {varResolvedName = Just "Remote.fn"}
+            primitive = Var "inc#" (Unique 45) functionType
+            program =
+              FcProgram
+                [ FcPrimitive primitive 1,
+                  FcTopBind (FcNonRec localFunction (FcLam argument (FcVar argument))),
+                  FcTopBind (FcNonRec (Var "useLocal" (Unique 46) functionType) (FcVar localFunction)),
+                  FcTopBind (FcNonRec (Var "usePrimitive" (Unique 47) functionType) (FcVar primitive)),
+                  FcTopBind (FcNonRec (Var "useImportedFirst" (Unique 48) functionType) (FcVar importedFirst)),
+                  FcTopBind (FcNonRec (Var "useImportedSecond" (Unique 49) functionType) (FcVar importedSecond))
+                ]
+            rendered = renderProgram program
+        assertEqual "one imported declaration" 1 (length (filter (isInfixOf "1.fn :") (lines rendered)))
+        assertBool "local definition is the only local signature" (not ("Test.fn :" `isInfixOf` rendered))
+        assertBool "local use is a bare reference" ("useLocal : Int → Int =\n  fn;" `isInfixOf` rendered)
+        assertBool "primitive use is a bare reference" ("usePrimitive : Int → Int =\n  inc#;" `isInfixOf` rendered)
+        case parseProgram (T.pack rendered) of
+          Left parseError -> assertFailure ("declaration-owned canonical FC does not parse: " <> parseError)
+          Right reparsed -> do
+            assertEqual "declaration-owned canonical FC round-trip" rendered (renderProgram reparsed)
+            case (topVariable "fn" reparsed, topReference "useLocal" reparsed, topVariable "inc#" reparsed, topReference "usePrimitive" reparsed, topReference "useImportedFirst" reparsed, topReference "useImportedSecond" reparsed) of
+              (Just parsedLocal, Just parsedLocalUse, Just parsedPrimitive, Just parsedPrimitiveUse, Just parsedImportedFirst, Just parsedImportedSecond) -> do
+                assertEqual "local reference resolves to definition" (varUnique parsedLocal) (varUnique parsedLocalUse)
+                assertEqual "primitive reference resolves to declaration" (varUnique parsedPrimitive) (varUnique parsedPrimitiveUse)
+                assertEqual "external occurrences resolve to one declaration" (varUnique parsedImportedFirst) (varUnique parsedImportedSecond)
+                assertEqual "external identity is preserved" (Just "Remote.fn") (varResolvedName parsedImportedFirst)
+                assertEqual "external type is recovered" functionType (varType parsedImportedFirst)
+              _ -> assertFailure "expected all declaration-owned references after parsing",
+      testCase "foreign call sites reference their declaration by name" $ do
+        let intType = TcTyCon (TyCon "Int#" 0) []
+            foreignCall = FcForeignCall "$ffi$id" "identity" (FcForeignSignature [FcForeignInt] FcForeignInt FcForeignPure)
+            argument = Var "x" (Unique 51) intType
+            result = Var "result" (Unique 52) intType
+            program = FcProgram [FcForeignImport foreignCall, FcTopBind (FcNonRec result (FcCallForeign foreignCall [FcVar argument]))]
+            rendered = renderProgram program
+        assertEqual "descriptor appears once" 1 (length (filter (isInfixOf "= \"identity\"") (lines rendered)))
+        assertBool "call site contains only declaration name and arguments" ("ccall $ffi$id [x]" `isInfixOf` rendered)
+        case parseProgram (T.pack rendered) of
+          Left parseError -> assertFailure ("foreign-declaration canonical FC does not parse: " <> parseError)
+          Right reparsed -> do
+            assertEqual "foreign-declaration canonical FC round-trip" rendered (renderProgram reparsed)
+            assertEqual "call descriptor is recovered from its declaration" (Just foreignCall) (topForeignCall "result" reparsed)
+        let mismatched = foreignCall {fcForeignCallSymbol = "different"}
+            invalid = FcProgram [FcForeignImport foreignCall, FcTopBind (FcNonRec result (FcCallForeign mismatched []))]
+        assertBool "descriptor disagreement is rejected" (case renderProgramChecked invalid of Left _ -> True; Right _ -> False),
+      testCase "newtype heads own their result type and kind" $ do
+        let unliftedKind = KTYPE (BoxedRep Unlifted)
+            resultType = TcTyCon (mkTyCon "Unlifted" 0 unliftedKind) []
+            representation = TcTyCon (TyCon "Int#" 0) []
+            declaration = FcNewtypeDecl "Unlifted" [] "MkUnlifted" representation resultType
+            rendered = renderProgram (FcProgram [FcNewtype declaration])
+        assertBool "result kind is declared on the head" ("newtype Unlifted :: TYPE UnliftedRep = MkUnlifted Int#;" `isInfixOf` rendered)
+        assertBool "result application is not repeated" (not ("represents" `isInfixOf` rendered))
+        case parseProgram (T.pack rendered) of
+          Left parseError -> assertFailure ("newtype-head canonical FC does not parse: " <> parseError)
+          Right (FcProgram [FcNewtype reparsed]) -> do
+            assertEqual "newtype result type" resultType (fcNewtypeResult reparsed)
+            case fcNewtypeResult reparsed of
+              TcTyCon tyCon _ -> assertEqual "newtype result kind" unliftedKind (tyConKind tyCon)
+              other -> assertFailure ("expected newtype result constructor, got " <> show other)
+          Right other -> assertFailure ("expected one reparsed newtype, got " <> show other),
       testCase "prints uniques only where lexical scope needs them" $ do
         let valueTy = TcTyCon (TyCon "Value" 0) []
             firstX = Var "x" (Unique 11) valueTy
@@ -200,6 +267,28 @@ fcDesugarTests =
         TcForAllTy _ body -> termArity body
         TcFunTy _ result -> 1 + termArity result
         _ -> 0
+
+    topVariable name (FcProgram tops) =
+      case [ variable
+           | top <- tops,
+             variable <- case top of
+               FcPrimitive primitive _ -> [primitive | varName primitive == name]
+               FcTopBind (FcNonRec binder _) -> [binder | varName binder == name]
+               FcTopBind (FcRec bindings) -> [binder | (binder, _) <- bindings, varName binder == name]
+               _ -> []
+           ] of
+        [variable] -> Just variable
+        _ -> Nothing
+
+    topReference name (FcProgram tops) =
+      case [variable | FcTopBind (FcNonRec binder (FcVar variable)) <- tops, varName binder == name] of
+        [variable] -> Just variable
+        _ -> Nothing
+
+    topForeignCall name (FcProgram tops) =
+      case [foreignCall | FcTopBind (FcNonRec binder (FcCallForeign foreignCall _)) <- tops, varName binder == name] of
+        [foreignCall] -> Just foreignCall
+        _ -> Nothing
 
 fcEvalTests :: TestTree
 fcEvalTests =

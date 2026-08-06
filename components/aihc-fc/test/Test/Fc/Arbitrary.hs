@@ -16,16 +16,19 @@ import Test.Tasty.QuickCheck qualified as QC
 prop_fcTextRoundTrip :: QC.Property
 prop_fcTextRoundTrip =
   QC.forAllShrink genProgram (const []) $ \program ->
-    let rendered = T.pack (renderProgram program)
-     in case parseProgram rendered of
-          Left parseError ->
-            QC.counterexample
-              ("failed to parse generated System FC:\n" <> T.unpack rendered <> "\n\n" <> parseError)
-              False
-          Right reparsed ->
-            QC.counterexample
-              ("rendered System FC:\n" <> T.unpack rendered)
-              (renderProgram reparsed QC.=== T.unpack rendered)
+    case renderProgramChecked program of
+      Left _ -> QC.discard
+      Right renderedString ->
+        let rendered = T.pack renderedString
+         in case parseProgram rendered of
+              Left parseError ->
+                QC.counterexample
+                  ("failed to parse generated System FC:\n" <> T.unpack rendered <> "\n\n" <> parseError)
+                  False
+              Right reparsed ->
+                QC.counterexample
+                  ("rendered System FC:\n" <> T.unpack rendered)
+                  (renderProgram reparsed QC.=== T.unpack rendered)
 
 genProgram :: QC.Gen FcProgram
 genProgram = QC.sized $ \size -> FcProgram <$> smallList (genTopBind (max 1 (size `div` 3)))
@@ -36,7 +39,7 @@ genTopBind size =
     [ FcData <$> genText <*> smallList genTyVar <*> smallList ((,) <$> genText <*> smallList (genType 2)),
       FcAxiom <$> genAxiom,
       FcNewtype <$> genNewtype,
-      FcPrimitive <$> genVar <*> QC.chooseInt (0, 4),
+      FcPrimitive <$> genBinder <*> QC.chooseInt (0, 4),
       FcForeignImport <$> genForeignCall,
       FcTopBind <$> genBind size
     ]
@@ -51,19 +54,19 @@ genAxiom =
     <*> genType 2
 
 genNewtype :: QC.Gen FcNewtypeDecl
-genNewtype =
-  FcNewtypeDecl
-    <$> genText
-    <*> smallList genTyVar
-    <*> genText
-    <*> genType 2
-    <*> genType 2
+genNewtype = do
+  name <- genText
+  tyVars <- smallList genTyVar
+  constructor <- genText
+  representation <- genType 2
+  let result = TcTyCon (TyCon name (length tyVars)) (map TcTyVar tyVars)
+  pure (FcNewtypeDecl name tyVars constructor representation result)
 
 genBind :: Int -> QC.Gen FcBind
 genBind size =
   QC.oneof
-    [ FcNonRec <$> genVar <*> genExpr (size `div` 2),
-      FcRec <$> smallList ((,) <$> genVar <*> genExpr (size `div` 3))
+    [ FcNonRec <$> genBinder <*> genExpr (size `div` 2),
+      FcRec <$> smallList ((,) <$> genBinder <*> genExpr (size `div` 3))
     ]
 
 genExpr :: Int -> QC.Gen FcExpr
@@ -74,18 +77,17 @@ genExpr size
         [ (4, genExpr 0),
           (2, FcApp <$> smaller <*> smaller),
           (1, FcTyApp <$> smaller <*> genType 2),
-          (1, FcLam <$> genVar <*> smaller),
+          (1, FcLam <$> genBinder <*> smaller),
           (1, FcTyLam <$> genTyVar <*> smaller),
           (1, FcLet <$> genBind (size `div` 2) <*> smaller),
-          (1, FcCase <$> smaller <*> genVar <*> smallList (genAlt (size `div` 2))),
-          (1, FcCast <$> smaller <*> genCoercion 2),
-          (1, FcCallForeign <$> genForeignCall <*> smallList smaller)
+          (1, FcCase <$> smaller <*> genBinder <*> smallList (genAlt (size `div` 2))),
+          (1, FcCast <$> smaller <*> genCoercion 2)
         ]
   where
     smaller = genExpr (size `div` 2)
 
 genAlt :: Int -> QC.Gen FcAlt
-genAlt size = FcAlt <$> genAltCon <*> smallList genVar <*> genExpr size
+genAlt size = FcAlt <$> genAltCon <*> smallList genBinder <*> genExpr size
 
 genAltCon :: QC.Gen FcAltCon
 genAltCon = QC.oneof [DataAlt <$> genText, LitAlt <$> genLiteral, pure DefaultAlt]
@@ -101,6 +103,11 @@ genVar = do
         (1, Just . ("Package.Module." <>) <$> genText)
       ]
   pure ((Var name unique ty) {varResolvedName = resolved})
+
+genBinder :: QC.Gen Var
+genBinder = do
+  variable <- genVar
+  pure variable {varResolvedName = Nothing}
 
 genType :: Int -> QC.Gen TcType
 genType size

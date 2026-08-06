@@ -1,8 +1,4 @@
 expected: |-
-  prefix 1 = Test
-
-  1.awaitIO# : Addr# → State# RealWorld → State# RealWorld;
-
   data State# where;
 
   data RealWorld where;
@@ -12,7 +8,7 @@ expected: |-
   await : Addr# → State# RealWorld → State# RealWorld =
     λ x1002 : Addr# →
       λ y1003 : State# RealWorld →
-        1.awaitIO# x1002 y1003;
+        awaitIO# x1002 y1003;
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim

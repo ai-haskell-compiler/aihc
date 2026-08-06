@@ -28,7 +28,7 @@ module Aihc.Fc.Lint
 where
 
 import Aihc.Fc.Axiom (AxiomInterface, extractAxiomInterface, lookupAxiomDecl)
-import Aihc.Fc.Constructor (fcDataConstructorType, typesEqual)
+import Aihc.Fc.Declaration (fcDataConstructorType, typesEqual)
 import Aihc.Fc.Subst (freeRigidTyVarsOf, substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Evidence (Coercion (..))

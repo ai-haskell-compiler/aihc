@@ -10,7 +10,7 @@ expected: |-
   data Unit where
     | Unit;
 
-  newtype $R$Wrapped$WrappedUnit = WrappedUnit Unit represents tycon $R$Wrapped$WrappedUnit;
+  newtype $R$Wrapped$WrappedUnit = WrappedUnit Unit;
 
   axiom $ax$Wrapped$WrappedUnit nominal : Wrapped Unit ~ tycon $R$Wrapped$WrappedUnit;
 status: pass

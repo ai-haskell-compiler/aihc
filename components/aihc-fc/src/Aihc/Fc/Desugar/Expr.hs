@@ -19,6 +19,7 @@ module Aihc.Fc.Desugar.Expr
     desugarBug,
     freshUnique,
     freshVar,
+    globalVar,
     lookupType,
     withDicts,
   )
@@ -87,7 +88,10 @@ data DsState = DsState
     -- | Local variable bindings (pattern-bound, lambda-bound).
     dsLocalVars :: !(Map Text Var),
     -- | Local dictionaries, keyed by class predicate.
-    dsLocalDicts :: !(Map Text Var)
+    dsLocalDicts :: !(Map Text Var),
+    -- | Canonical global occurrences. A global declaration or import owns
+    -- one variable identity regardless of how many times it is referenced.
+    dsGlobalVars :: !(Map Text Var)
   }
 
 data ClassDict = ClassDict
@@ -109,6 +113,23 @@ freshVar :: Text -> TcType -> DsM Var
 freshVar name ty = do
   u <- freshUnique
   pure (Var name u ty)
+
+globalVar :: Name -> TcType -> DsM Var
+globalVar name ty = do
+  state <- get
+  let key = nameToText name
+  case Map.lookup key (dsGlobalVars state) of
+    Just variable -> pure variable
+    Nothing -> do
+      variable <- freshVar (nameText name) ty
+      let resolved =
+            case nameQualifier name of
+              Just qualifier
+                | Just qualifier /= dsModuleName state -> Just key
+              _ -> Nothing
+          canonical = variable {varResolvedName = resolved}
+      modify' (\current -> current {dsGlobalVars = Map.insert key canonical (dsGlobalVars current)})
+      pure canonical
 
 freshInternalVar :: Text -> TcType -> DsM Var
 freshInternalVar prefix ty = do
@@ -539,16 +560,14 @@ dsExpr (EAnn ann inner)
   | Just tcAnn <- fromAnnotation ann =
       dsAnnotatedExpr tcAnn inner
 dsExpr (EVar name) = do
-  let n = nameText name
-      resolvedName = resolvedOccurrenceName name
+  let resolvedName = resolvedOccurrenceName name
   -- Check local bindings first (pattern/lambda variables).
   mLocal <- lookupLocalName resolvedName
   case mLocal of
     Just v -> pure (FcVar v)
     Nothing -> do
       ty <- lookupTypeName resolvedName
-      v <- freshVar n ty
-      pure (FcVar v {varResolvedName = nameToResolvedText resolvedName})
+      FcVar <$> globalVar resolvedName ty
 dsExpr (EInt i numericType _) = pure (FcLit (LitInt (numericRuntimeRep numericType) i))
 dsExpr (EChar c _) = pure (boxCharLiteral c)
 dsExpr (ECharHash c _) = pure (FcLit (LitChar WordRep c))
@@ -587,16 +606,14 @@ dsExpr expr =
 
 dsAnnotatedVar :: TcAnnotation -> Name -> Expr -> DsM FcExpr
 dsAnnotatedVar tcAnn name _expr = do
-  let n = nameText name
-      resolvedName = resolvedOccurrenceName name
+  let resolvedName = resolvedOccurrenceName name
   mLocal <- lookupLocalName resolvedName
   variable <-
     case mLocal of
       Just local -> pure local
       Nothing -> do
         ty <- lookupTypeName resolvedName
-        imported <- freshVar n ty
-        pure imported {varResolvedName = nameToResolvedText resolvedName}
+        globalVar resolvedName ty
   let occurrenceVar
         | isGhcPrimSeq name = variable {varName = seqPseudoOpName}
         | otherwise = variable
@@ -713,7 +730,7 @@ dsOverloadedIntegerLiteral tcAnn resolution value = do
 dsIntegerLiteral :: Integer -> DsM FcExpr
 dsIntegerLiteral value = do
   conTy <- lookupType "IS"
-  con <- freshVar "IS" conTy
+  con <- globalVar (mkName Nothing NameVarId "IS") conTy
   let small integer = FcApp (FcVar con) (FcLit (LitInt IntRep integer))
   if value >= minIntLiteral && value <= maxIntLiteral
     then pure (small value)
@@ -1727,9 +1744,6 @@ nameToText :: Name -> Text
 nameToText n = case nameQualifier n of
   Nothing -> nameText n
   Just q -> q <> "." <> nameText n
-
-nameToResolvedText :: Name -> Maybe Text
-nameToResolvedText name = (<> "." <> nameText name) <$> nameQualifier name
 
 lookupLocalName :: Name -> DsM (Maybe Var)
 lookupLocalName name = do
