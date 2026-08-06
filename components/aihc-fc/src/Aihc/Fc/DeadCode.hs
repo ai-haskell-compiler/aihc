@@ -145,7 +145,7 @@ valueDefinitionsOf topBind =
 typeDefinitionsOf :: FcTopBind -> [(Text, References)]
 typeDefinitionsOf topBind =
   case topBind of
-    FcData name _ constructors -> [(name, foldMap (foldMap referencesType . fcDataConstructorFields) constructors)]
+    FcData name _ constructors -> [(name, foldMap (referencesType . fcDataConstructorType) constructors)]
     FcAxiom declaration ->
       [ ( fcAxiomName declaration,
           referencesType (fcAxiomLeft declaration)

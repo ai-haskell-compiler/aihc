@@ -1,7 +1,7 @@
 expected: |-
   data Bool where
-    | True
-    | False;
+    | True :: Bool
+    | False :: Bool;
 
   idBool : Bool → Bool =
     λ x1001 : Bool →

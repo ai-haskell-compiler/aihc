@@ -139,7 +139,7 @@ lowerConstraintProgram (FcProgram topBinds) =
     lowerTopBind topBind =
       case topBind of
         FcData name tyVars constructors ->
-          FcData name tyVars [constructor {fcDataConstructorFields = map lowerConstraintType (fcDataConstructorFields constructor)} | constructor <- constructors]
+          FcData name tyVars [constructor {fcDataConstructorType = lowerConstraintType (fcDataConstructorType constructor)} | constructor <- constructors]
         FcAxiom declaration ->
           FcAxiom
             declaration
@@ -274,7 +274,8 @@ dsDataDeclM dd = do
         case constructorInfos of
           (_, universals, _) : _ -> universals
           [] -> []
-      constructors = [dataConstructor typeVariables name fields | (name, _, fields) <- constructorInfos]
+      resultType = TcTyCon (TyCon tyName (length typeVariables)) (map TcTyVar typeVariables)
+      constructors = [dataConstructor typeVariables resultType name fields | (name, _, fields) <- constructorInfos]
   pure (FcData tyName typeVariables constructors)
 
 -- | Retain a data-family instance as a fresh representation type and a
@@ -322,7 +323,7 @@ dataFamilyRepresentation familyInst representationName representationTyVars repr
         ( FcData
             representationName
             representationTyVars
-            [dataConstructor representationTyVars name fields | (name, _, fields) <- constructorInfos]
+            [dataConstructor representationTyVars representationType name fields | (name, _, fields) <- constructorInfos]
         )
 
 -- | Retain the nominal declaration and its representation type as an FC axiom.
@@ -759,19 +760,19 @@ dsClassDeclM classDecl classAnn = do
   let fieldTypes = superClassFieldTypes <> methodFieldTypes
   selectors <- mapM (dsClassSelector dictionaryConstructor (length superClassFieldTypes) classTyVars fieldTypes) methods
   defaults <- mapM dsClassDefault (classDefaultGroups classDecl)
-  let dictionaryDeclaration = FcData className classTyVars [dataConstructor classTyVars dictionaryConstructor fieldTypes]
+  let dictionaryType = TcTyCon (TyCon className (length classTyVars)) (map TcTyVar classTyVars)
+      dictionaryDeclaration = FcData className classTyVars [dataConstructor classTyVars dictionaryType dictionaryConstructor fieldTypes]
   pure (dictionaryDeclaration : selectors <> defaults)
   where
     className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))
     methods = tcClassMethods classAnn
     dictionaryConstructor = fcDictionaryConstructorName className
 
-dataConstructor :: [TyVarId] -> Text -> [TcType] -> FcDataConstructor
-dataConstructor dataTyVars name fields =
+dataConstructor :: [TyVarId] -> TcType -> Text -> [TcType] -> FcDataConstructor
+dataConstructor dataTyVars resultType name fields =
   FcDataConstructor
     { fcDataConstructorName = name,
-      fcDataConstructorTyVars = filter (`notElem` dataTyVars) (freeRigidTyVarsOf fields),
-      fcDataConstructorFields = fields
+      fcDataConstructorType = foldr TcForAllTy (foldr TcFunTy resultType fields) (dataTyVars <> filter (`notElem` dataTyVars) (freeRigidTyVarsOf fields))
     }
 
 dsClassSelector :: Text -> Int -> [TyVarId] -> [TcType] -> TcClassMethodAnnotation -> DsM FcTopBind

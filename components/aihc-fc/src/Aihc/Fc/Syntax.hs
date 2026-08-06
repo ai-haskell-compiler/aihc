@@ -24,6 +24,9 @@ module Aihc.Fc.Syntax
     FcBind (..),
     FcTopBind (..),
     FcDataConstructor (..),
+    fcDataConstructorTyVars,
+    fcDataConstructorFields,
+    fcDataConstructorResultType,
     FcAxiomDecl (..),
     FcAxiomRole (..),
     FcNewtypeDecl (..),
@@ -86,15 +89,41 @@ data FcTopBind
     FcTopBind !FcBind
   deriving (Eq, Show, Read)
 
--- | A data constructor declaration. Constructor-local type variables are
--- explicit binders; their occurrences in the fields are references to this
--- single source of truth.
+-- | A data constructor declaration owns one complete GADT-style signature.
+-- Quantified variables are result parameters when they occur in the result
+-- type and existentials otherwise; that classification is derived, not stored.
 data FcDataConstructor = FcDataConstructor
   { fcDataConstructorName :: !Text,
-    fcDataConstructorTyVars :: ![TyVarId],
-    fcDataConstructorFields :: ![TcType]
+    -- | The complete constructor type. Quantifiers, evidence arguments,
+    -- runtime fields, and the result application each occur exactly here.
+    fcDataConstructorType :: !TcType
   }
   deriving (Eq, Show, Read)
+
+-- | Outer type variables quantified by a constructor signature.
+fcDataConstructorTyVars :: FcDataConstructor -> [TyVarId]
+fcDataConstructorTyVars = go . fcDataConstructorType
+  where
+    go (TcForAllTy tyVar body) = tyVar : go body
+    go _ = []
+
+-- | Runtime fields obtained by decomposing a constructor signature.
+fcDataConstructorFields :: FcDataConstructor -> [TcType]
+fcDataConstructorFields = go . dropForAlls . fcDataConstructorType
+  where
+    go (TcFunTy field body) = field : go body
+    go _ = []
+
+-- | Final result after the signature's quantifiers and argument arrows.
+fcDataConstructorResultType :: FcDataConstructor -> TcType
+fcDataConstructorResultType = go . dropForAlls . fcDataConstructorType
+  where
+    go (TcFunTy _ body) = go body
+    go result = result
+
+dropForAlls :: TcType -> TcType
+dropForAlls (TcForAllTy _ body) = dropForAlls body
+dropForAlls ty = ty
 
 -- | The role at which an axiom proves equality.
 data FcAxiomRole

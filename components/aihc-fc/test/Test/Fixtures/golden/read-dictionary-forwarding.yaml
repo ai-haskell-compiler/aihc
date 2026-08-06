@@ -1,9 +1,9 @@
 expected: |-
   data Result where
-    | Result;
+    | Result :: Result;
 
   data Read a where
-    | $Dict$Read (Result → a);
+    | $Dict$Read :: ∀ a. (Result → a) → Read a;
 
   reads : ∀ a. Read a → Result → a =
     Λ a →

@@ -1,20 +1,20 @@
 expected: |-
   data Bool where
-    | False
-    | True;
+    | False :: Bool
+    | True :: Bool;
 
   data Int where
-    | I Int#;
+    | I :: Int# → Int;
 
   data Integer where
-    | IS Int#;
+    | IS :: Int# → Integer;
 
   prefix 1 = "GHC.Types"
 
   1.True : Bool;
 
   data Eq a where
-    | $Dict$Eq (a → a → Bool);
+    | $Dict$Eq :: ∀ a. (a → a → Bool) → Eq a;
 
   "==" : ∀ a. Eq a → a → a → Bool =
     Λ a →
@@ -40,7 +40,7 @@ expected: |-
   1.I : Int# → Int;
 
   data Num a where
-    | $Dict$Num (Integer → a);
+    | $Dict$Num :: ∀ a. (Integer → a) → Num a;
 
   fromInteger : ∀ a. Num a → Integer → a =
     Λ a →

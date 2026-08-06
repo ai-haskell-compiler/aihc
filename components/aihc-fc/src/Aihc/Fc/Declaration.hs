@@ -10,7 +10,6 @@ module Aihc.Fc.Declaration
   ( TermDeclarations,
     declaredConstructorTypes,
     declaredTerms,
-    fcDataConstructorType,
     hasDeclaredTermName,
     isDeclaredTerm,
     newtypeResultKind,
@@ -22,7 +21,7 @@ where
 
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
-import Aihc.Tc.Types (Kind (..), Pred (..), TcType (..), TyCon (..), TyVarId, Unique, tvKind, tyConArity, tyConKind, tyConName)
+import Aihc.Tc.Types (Kind (..), Pred (..), TcType (..), TyCon (..), Unique, tvKind, tyConArity, tyConKind, tyConName)
 import Control.Monad.Trans.State.Strict (evalState, get, modify')
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -191,6 +190,7 @@ normalizeProgramReferences currentModule program@(FcProgram tops) =
 validateDeclarationOwnership :: FcProgram -> [String]
 validateDeclarationOwnership program@(FcProgram tops) =
   duplicateForeignDeclarations
+    <> concatMap validateData tops
     <> concatMap validateNewtype tops
     <> concatMap validateTop tops
     <> externalTypeConflicts
@@ -207,6 +207,22 @@ validateDeclarationOwnership program@(FcProgram tops) =
       | (name, calls) <- Map.toList foreignDeclarations,
         length calls /= 1
       ]
+
+    validateData top =
+      case top of
+        FcData typeName tyVars constructors -> concatMap (validateConstructor typeName (length tyVars)) constructors
+        _ -> []
+
+    validateConstructor typeName arity constructor =
+      case fcDataConstructorResultType constructor of
+        TcTyCon tyCon arguments
+          | tyConName tyCon /= typeName -> invalid "result type constructor differs"
+          | tyConArity tyCon /= arity -> invalid "result type constructor arity differs"
+          | length arguments /= arity -> invalid "result application arity differs"
+          | otherwise -> []
+        _ -> invalid "result is not a type-constructor application"
+      where
+        invalid reason = ["constructor " <> T.unpack (fcDataConstructorName constructor) <> " disagrees with data declaration " <> T.unpack typeName <> ": " <> reason]
 
     validateNewtype top =
       case top of
@@ -309,22 +325,16 @@ newtypeResultKind declaration =
       | otherwise = invalid "parameter kind differs"
     consumeParameterKinds _ _ = invalid "result kind has too few parameters"
 
--- | Recover the complete term-level constructor types carried implicitly by
--- the data declarations in a program.
+-- | Collect the complete term-level constructor types owned by data
+-- constructor signatures.
 declaredConstructorTypes :: FcProgram -> Map Text [TcType]
 declaredConstructorTypes (FcProgram tops) =
   Map.fromListWith
     (<>)
-    [ (fcDataConstructorName constructor, [fcDataConstructorType (tyVars <> fcDataConstructorTyVars constructor) (fcDataConstructorFields constructor) resultType])
-    | FcData typeName tyVars constructors <- tops,
-      let resultType = TcTyCon (TyCon typeName (length tyVars)) (map TcTyVar tyVars),
+    [ (fcDataConstructorName constructor, [fcDataConstructorType constructor])
+    | FcData _ _ constructors <- tops,
       constructor <- constructors
     ]
-
--- | Construct the polymorphic term type of a data constructor.
-fcDataConstructorType :: [TyVarId] -> [TcType] -> TcType -> TcType
-fcDataConstructorType tyVars fields resultType =
-  foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars
 
 -- | Structural type equality with alpha-equivalence for quantified variables.
 typesEqual :: TcType -> TcType -> Bool

@@ -11,8 +11,8 @@ expected: |-
   "[]" : ∀ a. tycon "[]" a;
 
   data Bool where
-    | True
-    | False;
+    | True :: Bool
+    | False :: Bool;
 
   xs : tycon "[]" Bool =
     (var ":" @Bool) True (var "[]" @Bool);

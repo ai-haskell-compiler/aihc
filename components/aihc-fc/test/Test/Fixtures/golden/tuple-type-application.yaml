@@ -11,8 +11,8 @@ expected: |-
   "(,)" : ∀ a. ∀ b. a → b → Tuple2 a b;
 
   data Bool where
-    | True
-    | False;
+    | True :: Bool
+    | False :: Bool;
 
   pair : Tuple2 Bool Unit =
     (var "(,)" @Bool @Unit) True var "()";

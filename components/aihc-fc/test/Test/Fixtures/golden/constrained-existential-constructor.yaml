@@ -12,10 +12,10 @@ modules:
     inspect (Box value) = mark value
 expected: |-
   data Mark where
-    | Marked;
+    | Marked :: Mark;
 
   data Markable a where
-    | $Dict$Markable (a → Mark);
+    | $Dict$Markable :: ∀ a. (a → Mark) → Markable a;
 
   mark : ∀ a. Markable a → a → Mark =
     Λ a →
@@ -26,7 +26,7 @@ expected: |-
         };
 
   data Box where
-    | ∃ a. Box (Markable a) a;
+    | Box :: ∀ a. Markable a → a → Box;
 
   inspect : Box → Mark =
     λ x1005 : Box →

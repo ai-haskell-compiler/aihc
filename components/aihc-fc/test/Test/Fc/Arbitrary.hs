@@ -48,10 +48,13 @@ genTopBind size =
     genData = do
       name <- genText
       tyVars <- smallList genTyVar
+      let resultType = TcTyCon (TyCon name (length tyVars)) (map TcTyVar tyVars)
       constructors <- smallList $ do
         constructor <- genText
         fields <- smallList (genType 2)
-        pure (FcDataConstructor constructor (filter (`notElem` tyVars) (freeRigidTyVarsOf fields)) fields)
+        let constructorTyVars = tyVars <> filter (`notElem` tyVars) (freeRigidTyVarsOf fields)
+            constructorType = foldr TcForAllTy (foldr TcFunTy resultType fields) constructorTyVars
+        pure (FcDataConstructor constructor constructorType)
       pure (FcData name tyVars constructors)
 
 genAxiom :: QC.Gen FcAxiomDecl

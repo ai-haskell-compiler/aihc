@@ -2,7 +2,7 @@ extensions:
   - BangPatterns
 expected: |-
   data Box where
-    | Box;
+    | Box :: Box;
 
   forceBox : Box → Box =
     λ x1001 : Box →

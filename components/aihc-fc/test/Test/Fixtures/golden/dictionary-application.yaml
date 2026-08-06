@@ -1,10 +1,10 @@
 expected: |-
   data Bool where
-    | False
-    | True;
+    | False :: Bool
+    | True :: Bool;
 
   data Eq a where
-    | $Dict$Eq (a → a → Bool);
+    | $Dict$Eq :: ∀ a. (a → a → Bool) → Eq a;
 
   "==" : ∀ a. Eq a → a → a → Bool =
     Λ a →

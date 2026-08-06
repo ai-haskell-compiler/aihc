@@ -8,7 +8,7 @@ modules:
     newtype instance Wrapped Unit = WrappedUnit Unit
 expected: |-
   data Unit where
-    | Unit;
+    | Unit :: Unit;
 
   newtype $R$Wrapped$WrappedUnit = WrappedUnit Unit;
 

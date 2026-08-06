@@ -44,7 +44,7 @@ import Control.Monad (guard, void, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, modify')
 import Data.ByteString qualified as BS
-import Data.Char (isAlphaNum, isDigit, isLower, isSpace, isUpper)
+import Data.Char (chr, isAlphaNum, isDigit, isLower, isSpace, isUpper, ord)
 import Data.Either (partitionEithers)
 import Data.List (intercalate, nubBy, sortOn)
 import Data.Map.Strict (Map)
@@ -54,7 +54,6 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Word (Word8)
 import Text.ParserCombinators.ReadP hiding (count, get)
 
 data Naming = Naming
@@ -179,10 +178,9 @@ topParser prefixes =
       constructors <- many (symbol "|" *> constructorParser)
       pure (FcData name tyVars constructors)
     constructorParser = do
-      existentials <- option [] (symbol "∃" *> many1 typeBinderParser <* symbol ".")
       constructor <- nameAtom
-      fields <- many (finishTyCon <$> typeAtomParser)
-      pure (FcDataConstructor constructor existentials fields)
+      symbol "::"
+      FcDataConstructor constructor <$> typeParser
     axiomParser = do
       keyword "axiom"
       name <- nameAtom
@@ -479,9 +477,8 @@ tyConParser = do
     _ -> pfail
 
 literalParser :: ReadP Literal
-literalParser = addrLiteral <++ annotatedInt <++ annotatedChar <++ (LitString <$> textAtom)
+literalParser = (LitAddr <$> quotedBytes) <++ annotatedInt <++ annotatedChar <++ (LitString <$> textAtom)
   where
-    addrLiteral = LitAddr . BS.pack <$> (keyword "addr#" *> between (symbol "[") (symbol "]") (commaSep byteParser))
     annotatedInt = between (symbol "(") (symbol ")") $ do
       value <- integer
       symbol "::"
@@ -502,13 +499,14 @@ annotatedCharParser = between (symbol "(") (symbol ")") $ do
   FcLit . (`LitChar` value) <$> runtimeRepAtomParser
 
 addrLiteralParser :: ReadP FcExpr
-addrLiteralParser = FcLit . LitAddr . BS.pack <$> (keyword "addr#" *> between (symbol "[") (symbol "]") (commaSep byteParser))
+addrLiteralParser = FcLit . LitAddr <$> quotedBytes
 
-byteParser :: ReadP Word8
-byteParser = do
-  value <- natural
-  guard (value <= 255)
-  pure (fromIntegral value)
+quotedBytes :: ReadP BS.ByteString
+quotedBytes = lexeme $ do
+  characters <- readS_to_P reads
+  guard (all ((<= 255) . ord) characters)
+  _ <- char '#'
+  pure (BS.pack (map (fromIntegral . ord) characters))
 
 foreignCallParser :: ReadP FcForeignCall
 foreignCallParser = keyword "ccall" *> foreignCallBodyParser
@@ -540,11 +538,9 @@ renderTop naming topBind =
       where
         renderConstructor constructor =
           "\n  | "
-            <> case fcDataConstructorTyVars constructor of
-              [] -> ""
-              existentialTyVars -> "∃ " <> unwords (map (renderTyBinder naming) existentialTyVars) <> ". "
             <> renderName (fcDataConstructorName constructor)
-            <> concatMap ((" " <>) . renderType naming 3) (fcDataConstructorFields constructor)
+            <> " :: "
+            <> renderType naming 0 (fcDataConstructorType constructor)
     FcAxiom declaration ->
       "axiom "
         <> renderName (fcAxiomName declaration)
@@ -791,7 +787,7 @@ renderLiteral literal =
     LitInt runtimeRep value -> "(" <> show value <> " :: " <> renderRuntimeRep runtimeRep <> ")"
     LitChar runtimeRep value -> "(" <> show value <> " :: " <> renderRuntimeRep runtimeRep <> ")"
     LitString value -> show (T.unpack value)
-    LitAddr bytes -> "addr# [" <> intercalate ", " (map show (BS.unpack bytes)) <> "]"
+    LitAddr bytes -> show (map (chr . fromIntegral) (BS.unpack bytes)) <> "#"
 
 renderForeignCall :: FcForeignCall -> String
 renderForeignCall foreignCall = "ccall " <> renderForeignCallBody foreignCall
@@ -844,8 +840,8 @@ execProgramSeen vars tys (FcProgram tops) initialSeen = foldl (flip (visitTop va
     visitTop varScope tyScope top seen =
       case top of
         FcData _ tyVars constructors ->
-          let (dataScope, withDataTyVars) = addSimultaneousTyVars tyScope tyVars seen
-           in foldl (visitConstructor dataScope) withDataTyVars constructors
+          let (_, withDataTyVars) = addSimultaneousTyVars tyScope tyVars seen
+           in foldl (\current constructor -> visitType tyScope (fcDataConstructorType constructor) current) withDataTyVars constructors
         FcAxiom declaration ->
           let (scope, seen') = addSimultaneousTyVars tyScope (fcAxiomTyVars declaration) seen
            in visitType scope (fcAxiomRight declaration) (visitType scope (fcAxiomLeft declaration) seen')
@@ -855,10 +851,6 @@ execProgramSeen vars tys (FcProgram tops) initialSeen = foldl (flip (visitTop va
         FcPrimitive variable _ -> visitType tyScope (varType variable) seen
         FcForeignImport {} -> seen
         FcTopBind binding -> visitBind varScope tyScope binding seen
-
-    visitConstructor dataScope seen constructor =
-      let (constructorScope, withExistentials) = addSimultaneousTyVars dataScope (fcDataConstructorTyVars constructor) seen
-       in foldl (flip (visitType constructorScope)) withExistentials (fcDataConstructorFields constructor)
 
 visitBind :: VarScope -> TyScope -> FcBind -> Seen -> Seen
 visitBind vars tys binding seen =
@@ -1109,11 +1101,10 @@ resolveTop :: VarScope -> FcTopBind -> [Var] -> Resolve FcTopBind
 resolveTop vars top allocated =
   case top of
     FcData name tyVars constructors -> do
-      (resolvedTyVars, tys) <- allocateTyBinders Map.empty tyVars
+      (resolvedTyVars, _) <- allocateTyBinders Map.empty tyVars
       let resolveConstructor constructor = do
-            (constructorTyVars, constructorScope) <- allocateTyBinders tys (fcDataConstructorTyVars constructor)
-            fields <- traverse (resolveType constructorScope) (fcDataConstructorFields constructor)
-            pure constructor {fcDataConstructorTyVars = constructorTyVars, fcDataConstructorFields = fields}
+            constructorType <- resolveType Map.empty (fcDataConstructorType constructor)
+            pure constructor {fcDataConstructorType = constructorType}
       FcData name resolvedTyVars <$> traverse resolveConstructor constructors
     FcAxiom declaration -> do
       (tyVars, tys) <- allocateTyBinders Map.empty (fcAxiomTyVars declaration)
@@ -1302,9 +1293,7 @@ explicitSuffixes (FcProgram tops) = Set.fromList (concatMap topSuffixes tops)
       case top of
         FcData _ tyVars constructors ->
           tyVarSuffixes tyVars
-            <> concatMap
-              (\constructor -> tyVarSuffixes (fcDataConstructorTyVars constructor) <> concatMap typeSuffixes (fcDataConstructorFields constructor))
-              constructors
+            <> concatMap (typeSuffixes . fcDataConstructorType) constructors
         FcAxiom declaration -> tyVarSuffixes (fcAxiomTyVars declaration) <> typeSuffixes (fcAxiomLeft declaration) <> typeSuffixes (fcAxiomRight declaration)
         FcNewtype declaration -> tyVarSuffixes (fcNewtypeTyVars declaration) <> typeSuffixes (fcNewtypeRepresentation declaration) <> typeSuffixes (fcNewtypeResult declaration)
         FcPrimitive variable _ -> varSuffixes variable

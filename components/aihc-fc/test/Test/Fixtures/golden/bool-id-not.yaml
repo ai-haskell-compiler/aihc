@@ -1,7 +1,7 @@
 expected: |-
   data Bool where
-    | True
-    | False;
+    | True :: Bool
+    | False :: Bool;
 
   id : ∀ a. a → a =
     Λ a →

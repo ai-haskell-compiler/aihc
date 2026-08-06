@@ -28,11 +28,11 @@ module Aihc.Fc.Lint
 where
 
 import Aihc.Fc.Axiom (AxiomInterface, extractAxiomInterface, lookupAxiomDecl)
-import Aihc.Fc.Declaration (fcDataConstructorType, typesEqual)
+import Aihc.Fc.Declaration (typesEqual)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Evidence (Coercion (..))
-import Aihc.Tc.Types (TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc.Types (TcType (..), TyVarId (..), Unique (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -61,8 +61,8 @@ data LintEnv = LintEnv
     leTerms :: !(Map Unique TcType),
     -- | Type variables in scope.
     leTyVars :: !(Set TyVarId),
-    -- | Known data constructors: name -> (type var params, field types, result type).
-    leDataCons :: !(Map Text ([TyVarId], [TcType], TcType)),
+    -- | Known data constructors and the complete type owned by each signature.
+    leDataCons :: !(Map Text TcType),
     -- | Type equality axioms visible to coercion linting.
     leAxioms :: !AxiomInterface,
     leForeignCalls :: !(Map Text FcForeignCall)
@@ -95,20 +95,18 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
         env0 {leAxioms = leAxioms env0 <> imported <> extractAxiomInterface prog}
         (fcTopBinds prog)
 
-    registerDeclaration (FcData typeName tyVars constructors) env =
+    registerDeclaration (FcData _ _ constructors) env =
       env
         { leDataCons =
             foldr
               ( \constructor ->
                   Map.insert
                     (fcDataConstructorName constructor)
-                    (tyVars <> fcDataConstructorTyVars constructor, fcDataConstructorFields constructor, resultType)
+                    (fcDataConstructorType constructor)
               )
               (leDataCons env)
               constructors
         }
-      where
-        resultType = TcTyCon (TyCon typeName (length tyVars)) (map TcTyVar tyVars)
     registerDeclaration (FcForeignImport foreignCall) env =
       env {leForeignCalls = Map.insert (fcForeignCallName foreignCall) foreignCall (leForeignCalls env)}
     registerDeclaration _ env = env
@@ -158,11 +156,9 @@ lintExpr env (FcVar v) =
     Just ty -> Right ty
     Nothing ->
       case Map.lookup (varName v) (leDataCons env) of
-        Just (tyVars, fields, resultType)
-          | typesEqual (varType v) expectedType -> Right (varType v)
-          | otherwise -> Left (TypeMismatch "constructor occurrence" expectedType (varType v))
-          where
-            expectedType = fcDataConstructorType tyVars fields resultType
+        Just constructorType
+          | typesEqual (varType v) constructorType -> Right (varType v)
+          | otherwise -> Left (TypeMismatch "constructor occurrence" constructorType (varType v))
         Nothing -> Left (UnboundVar (varName v) (varUnique v))
 lintExpr _ (FcLit lit) =
   case literalType lit of

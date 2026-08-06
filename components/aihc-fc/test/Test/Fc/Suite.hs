@@ -17,7 +17,7 @@ import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (ResolveResult (..), resolve)
-import Aihc.Tc (Kind (..), Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), tcModuleBindings, tcModuleSuccess, tyConKind, typecheck)
+import Aihc.Tc (Kind (..), Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), tcModuleBindings, tcModuleSuccess, tyConKind, tyConName, typecheck)
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.Types (mkTyCon)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
@@ -113,7 +113,7 @@ fcDesugarTests =
             remoteConstructor = (Var "Box" (Unique 32) localType) {varResolvedName = Just "Remote.Box"}
             program =
               FcProgram
-                [ FcData "Local" [] [dataCon "Box" []],
+                [ FcData "Local" [] [dataCon "Local" "Box" []],
                   FcTopBind (FcNonRec (Var "local" (Unique 33) localType) (FcVar localConstructor)),
                   FcTopBind (FcNonRec (Var "remote" (Unique 34) localType) (FcVar remoteConstructor))
                 ]
@@ -127,17 +127,46 @@ fcDesugarTests =
       testCase "constructor existentials use Haskell-style fields" $ do
         let existential = TyVarId "a" (Unique 14)
             markable = TcTyCon (TyCon "Markable" 1) [TcTyVar existential]
-            rendered = renderProgram (FcProgram [FcData "Box" [] [FcDataConstructor "Box" [existential] [markable, TcTyVar existential]]])
+            constructorType = TcForAllTy existential (TcFunTy markable (TcFunTy (TcTyVar existential) (ty "Box")))
+            rendered = renderProgram (FcProgram [FcData "Box" [] [FcDataConstructor "Box" constructorType]])
         assertEqual
           "canonical existential declaration"
-          "data Box where\n  | ∃ a. Box (Markable a) a;\n"
+          "data Box where\n  | Box :: ∀ a. Markable a → a → Box;\n"
           rendered
         case parseProgram (T.pack rendered) of
           Left parseError -> assertFailure ("existential constructor does not parse: " <> parseError)
-          Right reparsed@(FcProgram [FcData "Box" [] [FcDataConstructor "Box" [_] [TcTyCon _ [TcTyVar constraintVar], TcTyVar fieldVar]]]) -> do
-            assertEqual "field occurrences share the existential binder" constraintVar fieldVar
+          Right reparsed@(FcProgram [FcData "Box" [] [constructor]]) -> do
+            case (fcDataConstructorTyVars constructor, fcDataConstructorFields constructor, fcDataConstructorResultType constructor) of
+              ([binder], [TcTyCon _ [TcTyVar constraintVar], TcTyVar fieldVar], TcTyCon resultTyCon []) -> do
+                assertEqual "field occurrences share the quantified binder" binder constraintVar
+                assertEqual "payload occurrence shares the quantified binder" binder fieldVar
+                assertEqual "constructor result" "Box" (tyConName resultTyCon)
+              parts -> assertFailure ("unexpected constructor decomposition: " <> show parts)
             assertEqual "existential constructor round-trip" rendered (renderProgram reparsed)
           Right other -> assertFailure ("expected one existential constructor, got: " <> show other),
+      testCase "constructor signatures own refined GADT results" $ do
+        let parameter = TyVarId "a" (Unique 16)
+            intType = ty "Int"
+            exprInt = TcTyCon (TyCon "Expr" 1) [intType]
+            program = FcProgram [FcData "Expr" [parameter] [FcDataConstructor "Lit" (TcFunTy intType exprInt)]]
+            rendered = renderProgram program
+        assertEqual "canonical GADT declaration" "data Expr a where\n  | Lit :: Int → Expr Int;\n" rendered
+        case parseProgram (T.pack rendered) of
+          Left parseError -> assertFailure ("refined GADT constructor does not parse: " <> parseError)
+          Right reparsed -> assertEqual "refined GADT constructor round-trip" rendered (renderProgram reparsed)
+        let invalid = FcProgram [FcData "Expr" [parameter] [FcDataConstructor "Bad" (ty "Other")]]
+        assertBool "constructor result must belong to its data declaration" (case renderProgramChecked invalid of Left _ -> True; Right _ -> False),
+      testCase "address literals use quoted byte strings" $ do
+        let addrType = ty "Addr#"
+            bytes = "hello world\n"
+            program = FcProgram [FcTopBind (FcNonRec (Var "address" (Unique 15) addrType) (FcLit (LitAddr bytes)))]
+            rendered = renderProgram program
+        assertBool "compact quoted address literal" ("\"hello world\\n\"#" `isInfixOf` rendered)
+        case parseProgram (T.pack rendered) of
+          Left parseError -> assertFailure ("quoted address literal does not parse: " <> parseError)
+          Right reparsed -> do
+            assertEqual "quoted address bytes" (Just bytes) (topAddressLiteral "address" reparsed)
+            assertEqual "quoted address literal round-trip" rendered (renderProgram reparsed),
       testCase "every global reference obtains metadata from one declaration" $ do
         let intType = TcTyCon (TyCon "Int" 0) []
             functionType = TcFunTy intType intType
@@ -215,8 +244,8 @@ fcDesugarTests =
               FcProgram
                 [ FcTopBind (FcNonRec (Var "left" (Unique 1) (TcFunTy valueTy valueTy)) (FcLam firstX (FcVar firstX))),
                   FcTopBind (FcNonRec (Var "right" (Unique 2) (TcFunTy valueTy valueTy)) (FcLam secondX (FcVar secondX))),
-                  FcData "LeftBox" [firstA] [dataCon "LeftBox" [TcTyVar firstA]],
-                  FcData "RightBox" [secondA] [dataCon "RightBox" [TcTyVar secondA]]
+                  FcData "LeftBox" [firstA] [polyDataCon "LeftBox" [firstA] "LeftBox" [TcTyVar firstA]],
+                  FcData "RightBox" [secondA] [polyDataCon "RightBox" [secondA] "RightBox" [TcTyVar secondA]]
                 ]
             shadowed =
               FcProgram
@@ -302,6 +331,11 @@ fcDesugarTests =
     topForeignCall name (FcProgram tops) =
       case [foreignCall | FcTopBind (FcNonRec binder (FcCallForeign foreignCall _)) <- tops, varName binder == name] of
         [foreignCall] -> Just foreignCall
+        _ -> Nothing
+
+    topAddressLiteral name (FcProgram tops) =
+      case [bytes | FcTopBind (FcNonRec binder (FcLit (LitAddr bytes))) <- tops, varName binder == name] of
+        [bytes] -> Just bytes
         _ -> Nothing
 
 fcEvalTests :: TestTree
@@ -479,9 +513,9 @@ fcOptimizationTests =
             mainVar = Var "main" (Unique 1) liveTy
             helperVar = Var "helper" (Unique 2) liveTy
             deadVar = Var "dead" (Unique 3) deadTy
-            liveData = FcData "Live" [] [dataCon "Live" [leafTy]]
-            leafData = FcData "Leaf" [] [dataCon "Leaf" []]
-            deadData = FcData "Dead" [] [dataCon "Dead" []]
+            liveData = FcData "Live" [] [dataCon "Live" "Live" [leafTy]]
+            leafData = FcData "Leaf" [] [dataCon "Leaf" "Leaf" []]
+            deadData = FcData "Dead" [] [dataCon "Dead" "Dead" []]
             helper = FcTopBind (FcNonRec helperVar (FcVar (Var "Live" (Unique 4) (TcFunTy leafTy liveTy))))
             mainBinding = FcTopBind (FcNonRec mainVar (FcVar helperVar))
             deadBinding = FcTopBind (FcNonRec deadVar (FcVar (Var "Dead" (Unique 5) deadTy)))
@@ -506,7 +540,7 @@ fcOptimizationTests =
           (eliminateDeadCode "main" program),
       testCase "retains ordinary dictionary constructor declarations" $ do
         let dictionaryTy = ty "Test"
-            dictionaryData = FcData "Test" [] [dataCon "$Dict$Test" [stringTy]]
+            dictionaryData = FcData "Test" [] [dataCon "Test" "$Dict$Test" [stringTy]]
             dictionaryConstructor = Var "$Dict$Test" (Unique 14) (TcFunTy stringTy dictionaryTy)
             dictionaryBinder = Var "$dictionary" (Unique 15) dictionaryTy
             methodBinder = Var "$method" (Unique 16) stringTy
@@ -660,5 +694,11 @@ stringTy = TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []]
 ty :: Text -> TcType
 ty name = TcTyCon (TyCon name 0) []
 
-dataCon :: Text -> [TcType] -> FcDataConstructor
-dataCon name = FcDataConstructor name []
+dataCon :: Text -> Text -> [TcType] -> FcDataConstructor
+dataCon typeName = polyDataCon typeName []
+
+polyDataCon :: Text -> [TyVarId] -> Text -> [TcType] -> FcDataConstructor
+polyDataCon typeName tyVars name fields =
+  FcDataConstructor name (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars)
+  where
+    resultType = TcTyCon (TyCon typeName (length tyVars)) (map TcTyVar tyVars)

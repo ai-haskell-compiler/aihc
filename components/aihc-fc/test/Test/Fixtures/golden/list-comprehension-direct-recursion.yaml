@@ -3,8 +3,8 @@ expected: |-
   "[]" : ∀ a. tycon "[]" a;
 
   data Bool where
-    | False
-    | True;
+    | False :: Bool
+    | True :: Bool;
 
   select : ∀ a. (a → Bool) → tycon "[]" a → tycon "[]" a =
     Λ a →
