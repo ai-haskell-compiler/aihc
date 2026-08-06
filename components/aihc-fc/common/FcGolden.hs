@@ -15,7 +15,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc.Desugar (DesugarResult (..), desugarModuleWithBindings)
+import Aihc.Fc.Desugar (DesugarResult (..), desugarModuleWithDataTypes)
 import Aihc.Fc.Pretty (renderProgram)
 import Aihc.Parser
   ( ParserConfig (..),
@@ -24,7 +24,7 @@ import Aihc.Parser
   )
 import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
 import Aihc.Resolve (ResolveResult (..), resolve)
-import Aihc.Tc (TcBindingResult, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheck)
+import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -150,11 +150,11 @@ evaluateFcCase tc =
         Right modules ->
           case resolve modules of
             ResolveResult {resolvedModules, resolveErrors = []} ->
-              let tcResults = typecheck resolvedModules
+              let (tcResults, tcInterface) = typecheckModulesWithInterface emptyTcInterface resolvedModules
                in if all tcModuleSuccess tcResults
                     then
                       let allBindings = moduleGroupBindings tcResults
-                          results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+                          results = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) tcResults resolvedModules
                           fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
                             then classifySuccess tc (renderResults fixtureResults)

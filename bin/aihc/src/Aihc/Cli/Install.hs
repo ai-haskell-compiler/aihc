@@ -38,7 +38,7 @@ import Aihc.Cli.Compile.Dependencies (LibraryPackage (..), installLibraries)
 import Aihc.Cli.Options (InstallErrorFormat (..), InstallOptions (..))
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cpp qualified as Cpp
-import Aihc.Fc (DesugarResult (..), desugarModuleWithBindings, renderProgram)
+import Aihc.Fc (DesugarResult (..), desugarModuleWithDataTypes, renderProgram)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cache (sanitizeName)
 import Aihc.Hackage.Cpp (cppMacrosFromOptions, injectSyntheticCppMacros, minVersionMacroNamesFromDeps)
@@ -75,7 +75,7 @@ import Aihc.Tc
   ( Pred (..),
     TcBindingResult (..),
     TcDiagnostic (..),
-    TcInterface,
+    TcInterface (..),
     TcSeverity (..),
     TcType (..),
     TyCon (..),
@@ -1282,7 +1282,7 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
       enrichedTcModules = map (addTcModuleDiagnosticSourceLines sourceLinesByFile) tcModules
       ownBindings = concatMap tcModuleBindings checkedModules
       allBindings = mergeBy tbName [importedBindings, ownBindings]
-      fcResults = zipWith (desugarModuleWithBindings allBindings) checkedModules (resolvedModules resolveResult)
+      fcResults = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) checkedModules (resolvedModules resolveResult)
       fcModules = zipWith fcModuleValue (resolvedModules resolveResult) fcResults
       fcDiagnostics = concatMap fcModuleDiagnosticValues fcModules
   pure

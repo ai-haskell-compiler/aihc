@@ -4,7 +4,7 @@ module Test.Wasm.Suite (tests) where
 
 import Aihc.Grin (lowerGc, toCpsGrin)
 import Aihc.Grin.Syntax
-import Aihc.Native (LinkLayout (..), buildLinkLayout, supportedNativePrimitiveNames)
+import Aihc.Native (LinkLayout (..), buildLinkLayout, renderLinkedFunctionSymbol, supportedNativePrimitiveNames)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Aihc.Wasm (WasmError (..), compileModule, compileProgram, compileProgramWithDependencies, validatePrimitiveNames, validateProgramPrimitives)
 import Control.Monad (forM_)
@@ -19,6 +19,7 @@ tests =
     "Direct WebAssembly backend"
     [ testCase "emits WebAssembly assembly without C or LLVM IR" testDirectModule,
       testCase "keeps GRIN variables in WebAssembly locals" testWasmLocals,
+      testCase "declares locals after repeated parameters" testRepeatedParameterLocals,
       testCase "compares literal alternatives against the case scrutinee" testLiteralCaseScrutinee,
       testCase "stages only explicit moving-GC roots in memory" testGcRootStaging,
       testCase "passes known direct-call arguments through typed tail calls" testDirectCallArguments,
@@ -68,6 +69,23 @@ testWasmLocals =
           assertBool "does not copy fast-entry parameters from memory" (not ("i64.load" `T.isInfixOf` fastEntry))
           assertBool "does not allocate runtime local storage" (not ("call\taihc_alloc_locals" `T.isInfixOf` source))
           assertBool "does not use C slot accessors" (not ("aihc_wasm_slot_" `T.isInfixOf` source))
+
+testRepeatedParameterLocals :: IO ()
+testRepeatedParameterLocals =
+  case toCpsGrin repeatedParameterProgram of
+    Left err -> assertFailure (show err)
+    Right cps ->
+      case compileModule (buildLinkLayout [repeatedParameterProgram]) "_aihc_init_repeated_parameters" (lowerGc cps) of
+        Left err -> assertFailure (show err)
+        Right source -> do
+          let label = "\n" <> renderLinkedFunctionSymbol "repeated_parameters" <> ":\n"
+              (_, fromFunction) = T.breakOn label source
+              function = fst (T.breakOn "\tend_function" fromFunction)
+          assertBool "uses the bound result local" ("local.set\t" `T.isInfixOf` function)
+          assertEqual
+            "declares the case local and every allocated value local"
+            ["\t.local\ti64, i64"]
+            (filter (T.isPrefixOf "\t.local\t") (T.lines function))
 
 testLiteralCaseScrutinee :: IO ()
 testLiteralCaseScrutinee =
@@ -500,6 +518,34 @@ directCallProgram =
   where
     argument = GrinVar "argument" 50 (BoxedRep Lifted)
     identityFunction = FunctionName "$identity"
+
+repeatedParameterProgram :: GrinProgram
+repeatedParameterProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [(GrinVar "+#" 51 IntRep, 2)],
+      grinForeignCalls = [],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "$repeated_parameters",
+              grinFunctionLinkName = Just "repeated_parameters",
+              grinFunctionParameters = [argument, argument],
+              grinFunctionResultRep = IntRep,
+              grinFunctionBody =
+                GrinBind
+                  [result]
+                  (GrinPrimitiveCall IntRep "+#" [GrinVarValue argument, GrinVarValue argument])
+                  (GrinConstant [GrinVarValue result])
+            }
+        ]
+    }
+  where
+    argument = GrinVar "argument" 52 IntRep
+    result = GrinVar "result" 53 IntRep
 
 gcRootProgram :: GrinProgram
 gcRootProgram =

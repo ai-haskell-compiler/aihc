@@ -8,6 +8,7 @@ module Aihc.Fc.Desugar
   ( -- * Entry point
     desugarModule,
     desugarModuleWithBindings,
+    desugarModuleWithDataTypes,
     desugarModuleWithTcResult,
     DesugarResult (..),
   )
@@ -53,7 +54,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (ResolveResult (..), resolve)
-import Aihc.Tc (DataFamilyInstanceInfo (..), TcBindingResult (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
+import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TyConFlavor (..), emptyTcInterface, renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
@@ -87,7 +88,15 @@ desugarModule :: Module -> DesugarResult
 desugarModule m =
   case resolve [m] of
     ResolveResult {resolvedModules = [resolved], resolveErrors = []} ->
-      desugarModuleWithTcResult (typecheckModule resolved) resolved
+      case typecheckModulesWithInterface emptyTcInterface [resolved] of
+        ([tcResult], tcInterface) ->
+          desugarModuleWithDataTypes (tcModuleBindings tcResult) (tcInterfaceDataTypes tcInterface) tcResult resolved
+        _ ->
+          DesugarResult
+            { dsProgram = FcProgram [],
+              dsSuccess = False,
+              dsErrors = ["type checker did not return the requested module"]
+            }
     ResolveResult {resolveErrors} ->
       DesugarResult
         { dsProgram = FcProgram [],
@@ -103,7 +112,10 @@ desugarModuleWithTcResult tcResult =
   desugarModuleWithBindings (tcModuleBindings tcResult) tcResult
 
 desugarModuleWithBindings :: [TcBindingResult] -> Module -> Module -> DesugarResult
-desugarModuleWithBindings bindings tcResult _m =
+desugarModuleWithBindings bindings = desugarModuleWithDataTypes bindings []
+
+desugarModuleWithDataTypes :: [TcBindingResult] -> [DataTypeInfo] -> Module -> Module -> DesugarResult
+desugarModuleWithDataTypes bindings dataTypes tcResult _m =
   if not (tcModuleSuccess tcResult)
     then
       DesugarResult
@@ -113,7 +125,14 @@ desugarModuleWithBindings bindings tcResult _m =
         }
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
-       in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) typeEnv Map.empty Map.empty) of
+          constructorFields =
+            Map.fromList
+              [ (dciName constructor, dciFields constructor)
+              | dataType <- dataTypes,
+                dtiFlavor dataType == DataTyCon,
+                constructor <- dtiConstructors dataType
+              ]
+       in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) typeEnv Map.empty Map.empty constructorFields) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram [],

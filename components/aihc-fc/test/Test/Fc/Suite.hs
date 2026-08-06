@@ -96,6 +96,11 @@ fcEvalTests =
         assertEvalExpr
           "\"ok\""
           (FcApp (FcLam (var "x" stringTy) (FcVar (var "x" stringTy))) (FcLit (LitString "ok"))),
+      testCase "binds evaluated case scrutinees in alternatives" $
+        let binder = var "evaluated" (ty "Int#")
+         in assertEvalExpr
+              "42"
+              (Aihc.Fc.FcCase (FcLit (LitInt IntRep 42)) binder [FcAlt DefaultAlt [] (FcVar binder)]),
       testCase "evaluates top-level bindings" $
         let program =
               FcProgram

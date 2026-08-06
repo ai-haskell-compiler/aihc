@@ -1,0 +1,35 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Complex (Complex ((:+)))
+    import Data.Fixed (Fixed (MkFixed))
+
+    class NFData a where
+      rnf :: a -> ()
+
+    instance NFData Integer where
+      rnf value = seq value ()
+
+    instance (NFData a) => NFData (Complex a) where
+      rnf (real :+ imaginary) =
+        case rnf real of
+          () -> rnf imaginary
+
+    instance NFData (Fixed a) where
+      rnf (MkFixed value) = seq value ()
+
+    result :: Bool
+    result =
+      case rnf ((3 :+ 4) :: Complex Integer) of
+        () ->
+          case rnf (MkFixed 125 :: Fixed ()) of
+            () -> True
+output: |
+  True
+expression: result
+status: pass
+reason: deepseq-style NFData instances resolve, type-check, and evaluate against both public constructors
