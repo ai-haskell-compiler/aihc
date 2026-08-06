@@ -198,7 +198,7 @@ matchOne subst (TcTyVar tv, target) =
       | existing == target -> Just subst
       | otherwise -> Nothing
 matchOne subst (TcTyCon tc args, TcTyCon targetTc targetArgs)
-  | tc == targetTc,
+  | sameTyCon tc targetTc,
     length args == length targetArgs =
       foldM matchOne subst (zip args targetArgs)
 matchOne subst (TcFunTy a b, TcFunTy targetA targetB) =

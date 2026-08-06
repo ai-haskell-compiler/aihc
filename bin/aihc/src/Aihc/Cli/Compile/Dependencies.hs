@@ -22,6 +22,8 @@ import Aihc.Cli.Store (installedLibrariesActivePath, installedLibrariesRoot)
 import Aihc.Fc (AxiomInterface, DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractAxiomInterface, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, lowerPseudoOps, optimizeProgram)
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
+import Aihc.Name (ModuleId, PackageId, moduleId, packageIdComponents, renderModuleId, renderPackageId)
+import Aihc.Name qualified as CompilerName
 import Aihc.Native
   ( LinkInterface,
     LinkLayout,
@@ -34,12 +36,9 @@ import Aihc.Native
   )
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
-  ( ImportDecl (importDeclModule),
+  ( ImportDecl (..),
     LanguageEdition (Haskell98Edition),
     Module (..),
-    Name (..),
-    NameType,
-    UnqualifiedName (..),
     effectiveExtensions,
     headerExtensionSettings,
     headerLanguageEdition,
@@ -52,8 +51,9 @@ import Aihc.Resolve
     ResolveResult (..),
     ResolvedName (..),
     Scope (..),
-    extractInterfaceWithDeps,
-    resolveWithDeps,
+    extractPackageInterfaceWithDeps,
+    lookupModuleExport,
+    resolvePackageWithDeps,
   )
 import Aihc.Tc
   ( TcBindingResult (..),
@@ -72,7 +72,7 @@ import Data.Char (isHexDigit)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (intercalate, sort, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isNothing, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -158,7 +158,7 @@ data StoredDependencyArtifact = StoredDependencyArtifact
   }
   deriving (Show, Read)
 
-newtype StoredModuleExports = StoredModuleExports [(Text, StoredScope)]
+newtype StoredModuleExports = StoredModuleExports [(ModuleId, StoredScope)]
   deriving (Show, Read)
 
 data StoredScope = StoredScope
@@ -172,16 +172,12 @@ data StoredScope = StoredScope
   }
   deriving (Show, Read)
 
-data StoredResolvedName
-  = StoredTopLevel !(Maybe Text) !NameType !Text
-  | StoredLocal !Int !NameType !Text
-  | StoredBuiltin !Text
-  | StoredError !String
+newtype StoredResolvedName = StoredResolvedName ResolvedName
   deriving (Show, Read)
 
 data LoadedModule = LoadedModule
   { loadedLibrary :: !Text,
-    loadedLibraryId :: ![Text],
+    loadedLibraryId :: !PackageId,
     loadedModuleExposed :: !Bool,
     loadedModule :: !Module
   }
@@ -189,7 +185,7 @@ data LoadedModule = LoadedModule
 -- | One Cabal-selected library package in an installation closure.
 data LibraryPackage = LibraryPackage
   { libraryPackageName :: !Text,
-    libraryPackageId :: ![Text],
+    libraryPackageId :: !PackageId,
     libraryPackageRoot :: !FilePath,
     libraryPackageFiles :: ![FilePath],
     libraryPackageExposedModules :: ![Text]
@@ -197,7 +193,7 @@ data LibraryPackage = LibraryPackage
   deriving (Eq, Show)
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 32
+cacheSchemaVersion = 33
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
@@ -211,7 +207,7 @@ buildDependencies target environment usesImplicitPrelude buildBackend mainModule
       case installed of
         Left err -> pure (Left err)
         Right (artifactRoot, artifact) ->
-          case filter (`Map.notMember` dependencyExports artifact) requiredModules of
+          case filter (\name -> isNothing (lookupModuleExport Nothing name (dependencyExports artifact))) requiredModules of
             missing@(_ : _) -> pure (Left ("library modules are not installed: " <> T.unpack (T.intercalate ", " missing)))
             []
               | buildBackend -> attachInstalledBackend target artifactRoot artifact
@@ -346,22 +342,22 @@ loadLibraryPackages packages = do
 
     rejectDuplicateModules loaded = snd <$> foldM insertModule (Map.empty, []) loaded
     insertModule (seen, loaded) modu =
-      case moduleName (loadedModule modu) of
+      case loadedModuleId modu of
         Nothing -> Left "installed library modules must have explicit module names"
-        Just name ->
-          case Map.lookup name seen of
-            Nothing -> Right (Map.insert name (loadedLibrary modu) seen, loaded <> [modu])
+        Just owner ->
+          case Map.lookup owner seen of
+            Nothing -> Right (Map.insert owner (loadedLibrary modu) seen, loaded <> [modu])
             Just previous ->
               Left
                 ( "module "
-                    <> T.unpack name
+                    <> T.unpack (renderModuleId owner)
                     <> " is provided by both "
                     <> T.unpack previous
                     <> " and "
                     <> T.unpack (loadedLibrary modu)
                 )
 
-parseModuleFile :: Text -> [Text] -> Set.Set Text -> FilePath -> IO (Either String LoadedModule)
+parseModuleFile :: Text -> PackageId -> Set.Set Text -> FilePath -> IO (Either String LoadedModule)
 parseModuleFile library libraryId exposedModules path = do
   source <- Utf8.readFile path
   pure $
@@ -380,12 +376,15 @@ parserConfig sourceName source =
     language = fromMaybe Haskell98Edition (headerLanguageEdition header)
 
 compileLoadedModules :: [LoadedModule] -> Either String DependencyArtifact
-compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedModuleSccs loaded)
+compileLoadedModules loaded = do
+  moduleSccs <- loadedModuleSccs loaded
+  finish <$> foldM compileScc initialState moduleSccs
   where
     initialState = CompileState Map.empty mempty [] mempty mempty mempty mempty [] []
 
-    compileScc state members =
-      case resolveWithDeps (compileStateExports state) (map loadedModule members) of
+    compileScc state [] = Right state
+    compileScc state members@(firstMember : _) =
+      case resolvePackageWithDeps packageId (compileStateExports state) (map loadedModule members) of
         ResolveResult {resolveErrors = errors@(_ : _)} -> Left ("library resolve error: " <> show errors)
         resolved@ResolveResult {resolvedModules} ->
           let (checkedModules, tcInterface) =
@@ -400,13 +399,13 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                         then Left ("library desugar error: " <> unlines (concatMap dsErrors desugared))
                         else
                           let libraries = sort (Set.toList (Set.fromList (map loadedLibrary members)))
-                              libraryIds = sort (Set.toList (Set.fromList (map loadedLibraryId members)))
+                              libraryIds = sort (Set.toList (Set.fromList (map (packageIdComponents . loadedLibraryId) members)))
                               modules = sort (map loadedModuleName members)
                               initializer = unitInitializerSymbol libraryIds modules
                               linkNames =
                                 mconcat
                                   [ Grin.linkNamesForProgram
-                                      (loadedLibraryId member)
+                                      (packageIdComponents (loadedLibraryId member))
                                       (T.splitOn "." (loadedModuleName member))
                                       (dsProgram desugaredModule)
                                   | (member, desugaredModule) <- zip members desugared
@@ -438,7 +437,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                                           }
                                    in Right
                                         CompileState
-                                          { compileStateExports = compileStateExports state <> extractInterfaceWithDeps (compileStateExports state) resolved,
+                                          { compileStateExports = compileStateExports state <> extractPackageInterfaceWithDeps packageId (compileStateExports state) resolved,
                                             compileStateTcInterface = tcInterface,
                                             compileStateBindings = bindings,
                                             compileStateAxioms = compileStateAxioms state <> axioms,
@@ -448,6 +447,8 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                                             compileStateLinks = compileStateLinks state <> [linkInterface],
                                             compileStateUnits = compileStateUnits state <> [unit]
                                           }
+      where
+        packageId = loadedLibraryId firstMember
 
     finish state =
       DependencyArtifact
@@ -473,10 +474,10 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
       where
         exposedModules =
           Set.fromList
-            [ name
+            [ owner
             | modu <- loaded,
               loadedModuleExposed modu,
-              Just name <- [moduleName (loadedModule modu)]
+              Just owner <- [loadedModuleId modu]
             ]
 
 data CompileState = CompileState
@@ -491,16 +492,52 @@ data CompileState = CompileState
     compileStateUnits :: ![DependencyUnit]
   }
 
-loadedModuleSccs :: [LoadedModule] -> [[LoadedModule]]
-loadedModuleSccs = map flatten . stronglyConnComp . map graphNode
+loadedModuleSccs :: [LoadedModule] -> Either String [[LoadedModule]]
+loadedModuleSccs loaded = map flatten . stronglyConnComp <$> mapM graphNode loaded
   where
-    graphNode loaded =
-      ( loaded,
-        loadedModuleName loaded,
-        map importDeclModule (moduleImports (loadedModule loaded))
-      )
+    graphNode current = do
+      owner <- maybe (Left "installed library modules must have explicit module names") Right (loadedModuleId current)
+      dependencies <- mapM (importOwner current) (moduleImports (loadedModule current))
+      pure (current, owner, catMaybes dependencies)
+
+    importOwner current importDecl =
+      case importDeclPackage importDecl of
+        Nothing ->
+          selectUnique current importDecl samePackage
+            `orElseEither` selectUnique current importDecl (const True)
+        Just qualifier ->
+          selectUnique current importDecl ((== qualifier) . renderPackageId . loadedLibraryId)
+            `orElseEither` selectUnique current importDecl ((== CompilerName.PackageName qualifier) . CompilerName.packageName . loadedLibraryId)
+      where
+        samePackage candidate = loadedLibraryId candidate == loadedLibraryId current
+
+    selectUnique current importDecl packageMatches =
+      case filter candidateMatches loaded of
+        [] -> Right Nothing
+        [candidate] -> Right (loadedModuleId candidate)
+        candidates ->
+          Left
+            ( "ambiguous import of "
+                <> T.unpack (importDeclModule importDecl)
+                <> " from "
+                <> T.unpack (renderModuleId (fromMaybe (moduleId (loadedLibraryId current) "Main") (loadedModuleId current)))
+                <> ": "
+                <> intercalate ", " (map (maybe "<unnamed>" (T.unpack . renderModuleId) . loadedModuleId) candidates)
+            )
+      where
+        candidateMatches candidate =
+          loadedModuleName candidate == importDeclModule importDecl
+            && packageMatches candidate
+            && (loadedLibraryId candidate == loadedLibraryId current || loadedModuleExposed candidate)
+
+    orElseEither (Right Nothing) fallback = fallback
+    orElseEither result _ = result
+
     flatten (AcyclicSCC member) = [member]
     flatten (CyclicSCC members) = members
+
+loadedModuleId :: LoadedModule -> Maybe ModuleId
+loadedModuleId loaded = moduleId (loadedLibraryId loaded) <$> moduleName (loadedModule loaded)
 
 loadedModuleName :: LoadedModule -> Text
 loadedModuleName = fromMaybe "Main" . moduleName . loadedModule
@@ -662,7 +699,7 @@ dependencyGraphHash packages = do
       files <- concat <$> mapM (fileChunks package) (sort (libraryPackageFiles package))
       pure
         ( [Text.encodeUtf8 (frameText (libraryPackageName package))]
-            <> map (Text.encodeUtf8 . frameText) (libraryPackageId package)
+            <> [Text.encodeUtf8 (frameText (renderPackageId (libraryPackageId package)))]
             <> [Text.encodeUtf8 (frameText (T.intercalate "," (sort (libraryPackageExposedModules package))))]
             <> files
         )
@@ -783,17 +820,7 @@ fromStoredScope scope =
     }
 
 toStoredResolvedName :: ResolvedName -> StoredResolvedName
-toStoredResolvedName resolved =
-  case resolved of
-    ResolvedTopLevel Name {nameQualifier, nameType, nameText} -> StoredTopLevel nameQualifier nameType nameText
-    ResolvedLocal unique UnqualifiedName {unqualifiedNameType, unqualifiedNameText} -> StoredLocal unique unqualifiedNameType unqualifiedNameText
-    ResolvedBuiltin name -> StoredBuiltin name
-    ResolvedError err -> StoredError err
+toStoredResolvedName = StoredResolvedName
 
 fromStoredResolvedName :: StoredResolvedName -> ResolvedName
-fromStoredResolvedName stored =
-  case stored of
-    StoredTopLevel qualifier nameType name -> ResolvedTopLevel (Name qualifier nameType name [])
-    StoredLocal unique nameType name -> ResolvedLocal unique (UnqualifiedName nameType name [])
-    StoredBuiltin name -> ResolvedBuiltin name
-    StoredError err -> ResolvedError err
+fromStoredResolvedName (StoredResolvedName resolved) = resolved

@@ -3,6 +3,7 @@ packages:
   core-libs/aihc-internal
   core-libs/aihc-prim
   bin/aihc
+  components/aihc-names
   components/aihc-resolve
   components/aihc-tc
   components/aihc-fc

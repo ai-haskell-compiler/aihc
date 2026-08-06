@@ -20,6 +20,7 @@ where
 
 import Aihc.Hackage.Stackage (loadStackageSnapshot)
 import Aihc.Hackage.Types (PackageSpec (..))
+import Aihc.Name (ModuleId (..), ModuleName (..))
 import Aihc.Resolve (ModuleExports, Scope (..))
 import BootInterface (bootPackageNames, loadBootInterfaces)
 import Control.Exception (SomeException, try)
@@ -133,10 +134,10 @@ interfaceFromExports pkg iface =
       rpiModules = map (uncurry moduleIfaceFromScope) (Map.toAscList iface)
     }
 
-moduleIfaceFromScope :: Text -> Scope -> ResolveModuleIface
-moduleIfaceFromScope modName scope =
+moduleIfaceFromScope :: ModuleId -> Scope -> ResolveModuleIface
+moduleIfaceFromScope owner scope =
   ResolveModuleIface
-    { rmiModule = modName,
+    { rmiModule = unModuleName (moduleName owner),
       rmiTerms = sort (Map.keys (scopeTerms scope)),
       rmiTypes = sort (Map.keys (scopeTypes scope)),
       rmiConstructors = fmap sort (scopeConstructors scope),

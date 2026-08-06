@@ -333,6 +333,10 @@ renderFunctionName = renderName . unFunctionName
 
 renderName :: T.Text -> String
 renderName name
+  | components <- T.splitOn separator name,
+    length components >= 6,
+    not (T.null (last components)) =
+      T.unpack (last components)
   | not (T.null name) && T.all isBareNameCharacter name = T.unpack name
   | otherwise = show (T.unpack name)
   where
@@ -340,6 +344,7 @@ renderName name
       isPrint character
         && not (isSpace character)
         && character `notElem` ['"', '(', ')', '[', ']', ',', '=', '/', '%']
+    separator = T.singleton '\0'
 
 indent :: Int -> String
 indent count = replicate count ' '

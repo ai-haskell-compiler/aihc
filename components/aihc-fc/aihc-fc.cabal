@@ -34,6 +34,7 @@ library
 
   hs-source-dirs: src
   build-depends:
+    aihc-names,
     aihc-parser,
     aihc-resolve,
     aihc-tc,
@@ -64,6 +65,7 @@ test-suite spec
   build-depends:
     aeson,
     aihc-fc,
+    aihc-names,
     aihc-parser,
     aihc-resolve,
     aihc-tc,

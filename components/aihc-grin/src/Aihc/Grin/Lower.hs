@@ -21,6 +21,7 @@ import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Syntax
+import Aihc.Name (GlobalName (..), ModuleId, Namespace (..), OccName (..), ResolvedId (..), renderLinkName, renderResolvedId)
 import Aihc.Tc.Types
   ( RuntimeRep (..),
     TcType (..),
@@ -33,7 +34,7 @@ import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
 import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, maybeToList)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -57,7 +58,8 @@ data LowerState = LowerState
     lowerCurrentProvenance :: !(Maybe Text),
     lowerUseIncrementalCodeLookup :: !Bool,
     lowerLinkNames :: !GrinLinkNames,
-    lowerLinkNameOccurrences :: !(Map Unique Int)
+    lowerLinkNameOccurrences :: !(Map Unique Int),
+    lowerCurrentModule :: !(Maybe ModuleId)
   }
 
 type LowerM = State LowerState
@@ -95,6 +97,8 @@ lowerProgram = lowerProgramWithInterface mempty
 data GrinLinkNames = GrinLinkNames
   { grinNativeLinkNames :: !(Map Unique [Text]),
     grinSourceLinkNames :: !(Map Unique [Text]),
+    grinNativeLinkNamesById :: !(Map ResolvedId Text),
+    grinSourceLinkNamesById :: !(Map ResolvedId Text),
     grinConstructorNames :: !(Map Text (Text, Int))
   }
   deriving (Eq, Show, Read)
@@ -104,11 +108,13 @@ instance Semigroup GrinLinkNames where
     GrinLinkNames
       { grinNativeLinkNames = Map.unionWith (<>) (grinNativeLinkNames left) (grinNativeLinkNames right),
         grinSourceLinkNames = Map.unionWith (<>) (grinSourceLinkNames left) (grinSourceLinkNames right),
+        grinNativeLinkNamesById = grinNativeLinkNamesById left <> grinNativeLinkNamesById right,
+        grinSourceLinkNamesById = grinSourceLinkNamesById left <> grinSourceLinkNamesById right,
         grinConstructorNames = grinConstructorNames left <> grinConstructorNames right
       }
 
 instance Monoid GrinLinkNames where
-  mempty = GrinLinkNames Map.empty Map.empty Map.empty
+  mempty = GrinLinkNames Map.empty Map.empty Map.empty Map.empty Map.empty
 
 -- | Assign every top-level value in a program a linker identity consisting
 -- of the supplied package-and-module components followed by its source name.
@@ -127,15 +133,42 @@ linkNamesForProgram libraryId moduleNameComponents program =
           [ (varUnique var, [T.intercalate "." (moduleNameComponents <> [varName var])])
           | (var, _) <- topLevelVarsWithOrdinals
           ],
+      grinNativeLinkNamesById =
+        Map.fromList
+          [ (identity, renderIdentityLinkName identity)
+          | var <- topLevelVars,
+            Just identity <- [varId var]
+          ],
+      grinSourceLinkNamesById =
+        Map.fromList
+          [ (identity, renderResolvedId identity)
+          | var <- topLevelVars,
+            Just identity <- [varId var]
+          ],
       grinConstructorNames =
         Map.fromList
-          [ (T.intercalate "." (moduleNameComponents <> [name]), (name, length fields))
-          | FcData _ _ constructors <- fcTopBinds program,
-            (name, fields) <- constructors
-          ]
+          ( [ (renderResolvedId identity, (renderIdentityLinkName identity, arity))
+            | (identity, _, arity) <- constructorDefinitions
+            ]
+              <> [ (name, (renderIdentityLinkName identity, arity))
+                 | (identity, name, arity) <- constructorDefinitions,
+                   Map.lookup name constructorNameCounts == Just 1
+                 ]
+          )
     }
   where
     topLevelVars = [var | FcTopBind bind <- fcTopBinds program, var <- topBindVars bind]
+    constructorDefinitions = concat (snd (mapAccumL collectConstructors Nothing (fcTopBinds program)))
+    constructorNameCounts = Map.fromListWith (+) [(name, 1 :: Int) | (_, name, _) <- constructorDefinitions]
+    collectConstructors _ (FcModule owner) = (Just owner, [])
+    collectConstructors owner (FcData _ _ constructors) =
+      ( owner,
+        [ (ResolvedGlobal (GlobalName owner' TermNamespace (OccName name)), name, length fields)
+        | owner' <- maybeToList owner,
+          (name, fields) <- constructors
+        ]
+      )
+    collectConstructors owner _ = (owner, [])
     nameCounts = Map.fromListWith (+) [(varName var, 1 :: Int) | var <- topLevelVars]
     topLevelVarsWithOrdinals = snd (mapAccumL annotate Map.empty topLevelVars)
     annotate :: Map Text Int -> Var -> (Map Text Int, (Var, Int))
@@ -149,6 +182,11 @@ linkNamesForProgram libraryId moduleNameComponents program =
       case bind of
         FcNonRec var _ -> [var]
         FcRec bindings -> map fst bindings
+
+    renderIdentityLinkName identity =
+      case identity of
+        ResolvedGlobal name -> renderLinkName name
+        _ -> renderResolvedId identity
 
 -- | Lower one standalone compilation unit with an explicit linker identity
 -- for each link-visible top-level definition.
@@ -304,7 +342,8 @@ lowerProgramWithEnvironment linkNames imported local environment program =
           lowerCurrentProvenance = Nothing,
           lowerUseIncrementalCodeLookup = not (grinLinkNamesEmpty linkNames),
           lowerLinkNames = linkNames,
-          lowerLinkNameOccurrences = Map.empty
+          lowerLinkNameOccurrences = Map.empty,
+          lowerCurrentModule = Nothing
         }
     (topParts, finalState) = runState (mapM lowerTopBind (fcTopBinds program)) initialState
     tops = mconcat topParts
@@ -318,8 +357,23 @@ lowerProgramWithEnvironment linkNames imported local environment program =
 lowerTopBind :: FcTopBind -> LowerM LoweredTop
 lowerTopBind topBind =
   case topBind of
-    FcData _ _ constructors ->
-      pure mempty {loweredConstructors = [(name, map (runtimeRepComponents . typeRuntimeRep) fields) | (name, fields) <- constructors]}
+    FcModule owner -> do
+      modify' (\state -> state {lowerCurrentModule = Just owner})
+      pure mempty
+    FcName {} ->
+      pure mempty
+    FcData _ _ constructors -> do
+      constructorNames <- gets (grinConstructorNames . lowerLinkNames)
+      owner <- gets lowerCurrentModule
+      pure
+        mempty
+          { loweredConstructors =
+              [ ( linkedConstructor owner constructorNames name,
+                  map (runtimeRepComponents . typeRuntimeRep) fields
+                )
+              | (name, fields) <- constructors
+              ]
+          }
     FcAxiom {} ->
       pure mempty
     FcNewtype {} ->
@@ -335,6 +389,13 @@ lowerTopBind topBind =
     FcForeignImport foreignCall ->
       pure mempty {loweredForeignCalls = [lowerForeignCall foreignCall]}
     FcTopBind bind -> lowerTopValueBind bind
+  where
+    linkedConstructor owner constructorNames name =
+      case owner of
+        Just owner' ->
+          let sourceName = renderResolvedId (ResolvedGlobal (GlobalName owner' TermNamespace (OccName name)))
+           in maybe name fst (Map.lookup sourceName constructorNames)
+        Nothing -> maybe name fst (Map.lookup name constructorNames)
 
 lowerTopValueBind :: FcBind -> LowerM LoweredTop
 lowerTopValueBind bind =
@@ -390,13 +451,15 @@ emitTopFunction linkedName _var expr = do
 lowerExpr :: FcExpr -> LowerM GrinExpr
 lowerExpr expr = do
   constructorArities <- gets lowerConstructorArities
+  globalNames <- gets lowerGlobalNames
   primitiveArities <- gets lowerPrimitiveArities
   localVars <- gets lowerLocalVars
   case constructorApplication constructorArities (Map.keysSet localVars) expr of
     Just (constructor, arguments) ->
       lowerArgumentMany arguments $ \values ->
         let remaining = constructorArities Map.! constructor - length arguments
-         in pure (GrinStore (GrinNode (GrinConstructor constructor remaining) values))
+            linkedConstructor = Map.findWithDefault constructor constructor globalNames
+         in pure (GrinStore (GrinNode (GrinConstructor linkedConstructor remaining) values))
     Nothing ->
       case primitiveApplication primitiveArities (Map.keysSet localVars) expr of
         Just ("raise#", [exception]) ->
@@ -817,12 +880,13 @@ lowerLet bind body =
 
 lowerAlt :: (Var, [GrinVar]) -> FcAlt -> LowerM GrinAlt
 lowerAlt caseBinding alt = do
+  globalNames <- gets lowerGlobalNames
   (binders, rhs) <- withBindings [caseBinding] $ withFreshLocalVars (altBinders alt) $ \groups -> do
     rhs' <- lowerExpr (altRhs alt)
     pure (concat groups, rhs')
   pure
     GrinAlt
-      { grinAltCon = lowerAltCon (altCon alt),
+      { grinAltCon = lowerAltCon globalNames (altCon alt),
         grinAltBinders = binders,
         grinAltRhs = rhs
       }
@@ -856,12 +920,14 @@ makeThunkNamed requestedName expr
 lowerStaticNode :: FcExpr -> LowerM (Maybe GrinNode)
 lowerStaticNode expr = do
   constructorArities <- gets lowerConstructorArities
+  globalNames <- gets lowerGlobalNames
   localVars <- gets lowerLocalVars
   case constructorApplication constructorArities (Map.keysSet localVars) expr of
     Just (constructor, arguments) -> do
       values <- mapM lowerStaticValues arguments
       let remaining = constructorArities Map.! constructor - length arguments
-      pure (GrinNode (GrinConstructor constructor remaining) . concat <$> sequence values)
+          linkedConstructor = Map.findWithDefault constructor constructor globalNames
+      pure (GrinNode (GrinConstructor linkedConstructor remaining) . concat <$> sequence values)
     Nothing -> pure Nothing
 
 lowerStaticValues :: FcExpr -> LowerM (Maybe [GrinValue])
@@ -1148,10 +1214,14 @@ constructorApplication constructorArities localVars expr =
   case collectApplications expr of
     (FcVar var, arguments)
       | varKey var `Set.notMember` localVars,
-        Just arity <- Map.lookup (varName var) constructorArities,
+        let resolvedName = fromMaybe (varName var) (varResolvedName var)
+            constructorName
+              | resolvedName `Map.member` constructorArities = resolvedName
+              | otherwise = varName var,
+        Just arity <- Map.lookup constructorName constructorArities,
         arity > 0,
         length arguments <= arity ->
-          Just (varName var, arguments)
+          Just (constructorName, arguments)
     _ -> Nothing
 
 collectApplications :: FcExpr -> (FcExpr, [FcExpr])
@@ -1372,7 +1442,9 @@ lookupConstructorArity var = do
   pure
     ( if varKey var `Map.member` locals
         then Nothing
-        else Map.lookup (varName var) constructorArities
+        else
+          let resolvedName = fromMaybe (varName var) (varResolvedName var)
+           in Map.lookup resolvedName constructorArities <|> Map.lookup (varName var) constructorArities
     )
 
 lookupPrimitiveArity :: Var -> LowerM (Maybe Int)
@@ -1499,10 +1571,15 @@ lowerLiteral literal =
     LitString value -> GrinLitString value
     LitAddr value -> GrinLitAddr value
 
-lowerAltCon :: FcAltCon -> GrinAltCon
-lowerAltCon altCon =
+lowerAltCon :: Map Text Text -> FcAltCon -> GrinAltCon
+lowerAltCon globalNames altCon =
   case altCon of
-    DataAlt name -> GrinDataAlt name
+    DataAlt name ->
+      GrinDataAlt $
+        case altConId altCon of
+          Just identity@(ResolvedGlobal _) -> Map.findWithDefault name (renderResolvedId identity) globalNames
+          Just identity -> renderResolvedId identity
+          Nothing -> name
     LitAlt literal -> GrinLitAlt (lowerLiteral literal)
     DefaultAlt -> GrinDefaultAlt
 
@@ -1676,11 +1753,20 @@ linkNameAt names occurrences var =
   where
     unique = varUnique var
     index = Map.findWithDefault 0 unique occurrences
-    linkedName = fromMaybe (varName var) (Map.lookup unique (grinNativeLinkNames names) >>= atIndex index)
+    linkedName =
+      fromMaybe
+        (varName var)
+        ( (varId var >>= (`Map.lookup` grinNativeLinkNamesById names))
+            <|> (Map.lookup unique (grinNativeLinkNames names) >>= atIndex index)
+        )
 
 sourceNameAt :: GrinLinkNames -> Int -> Var -> Text
 sourceNameAt names index var =
-  fromMaybe (varName var) (Map.lookup (varUnique var) (grinSourceLinkNames names) >>= atIndex index)
+  fromMaybe
+    (varName var)
+    ( (varId var >>= (`Map.lookup` grinSourceLinkNamesById names))
+        <|> (Map.lookup (varUnique var) (grinSourceLinkNames names) >>= atIndex index)
+    )
 
 atIndex :: Int -> [a] -> Maybe a
 atIndex position values = case drop position values of
@@ -1688,7 +1774,7 @@ atIndex position values = case drop position values of
   [] -> Nothing
 
 grinLinkNamesEmpty :: GrinLinkNames -> Bool
-grinLinkNamesEmpty = Map.null . grinNativeLinkNames
+grinLinkNamesEmpty names = Map.null (grinNativeLinkNames names) && Map.null (grinNativeLinkNamesById names)
 
 collectLeadingLambdas :: FcExpr -> ([Var], FcExpr)
 collectLeadingLambdas expr =
@@ -1737,6 +1823,8 @@ isStaticWhnf constructorArities expr =
 topVars :: FcTopBind -> [Var]
 topVars topBind =
   case topBind of
+    FcModule {} -> []
+    FcName {} -> []
     FcData {} -> []
     FcAxiom {} -> []
     FcNewtype {} -> []

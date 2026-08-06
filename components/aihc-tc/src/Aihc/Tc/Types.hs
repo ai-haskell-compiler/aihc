@@ -23,8 +23,12 @@ module Aihc.Tc.Types
     -- * Types
     TcType (..),
     TyCon (TyCon, tyConName, tyConArity),
+    tyConId,
     tyConKind,
     mkTyCon,
+    setTyConId,
+    setTyConKind,
+    sameTyCon,
     Kind (KTYPE, KConstraint, KRuntimeRep, KLevity, KVecCount, KVecElem, KFun, KMeta, KType),
     RuntimeRep (..),
     Levity (..),
@@ -49,6 +53,7 @@ module Aihc.Tc.Types
   )
 where
 
+import Aihc.Name (ResolvedId)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -93,30 +98,54 @@ instance Ord TyVarId where
 -- | Type constructor. Every constructor carries its fully applied kind so
 -- downstream phases can recover the kind of any 'TcType' without consulting
 -- the type-checker environment.
-data TyCon = TyConInternal !Text !Int !Kind
+data TyCon = TyConInternal !Text !Int !Kind !(Maybe ResolvedId)
   deriving (Show, Read)
 
 instance Eq TyCon where
-  left == right =
-    (tyConName left, tyConArity left) == (tyConName right, tyConArity right)
+  left == right = tyConIdentityKey left == tyConIdentityKey right
 
 instance Ord TyCon where
   compare left right =
-    compare (tyConName left, tyConArity left) (tyConName right, tyConArity right)
+    compare (tyConIdentityKey left) (tyConIdentityKey right)
+
+tyConIdentityKey :: TyCon -> Either ResolvedId (Text, Int)
+tyConIdentityKey tyCon = maybe (Right (tyConName tyCon, tyConArity tyCon)) Left (tyConId tyCon)
 
 pattern TyCon :: Text -> Int -> TyCon
-pattern TyCon {tyConName, tyConArity} <- TyConInternal tyConName tyConArity _
+pattern TyCon {tyConName, tyConArity} <- TyConInternal tyConName tyConArity _ _
   where
-    TyCon name arity = TyConInternal name arity (wiredInTyConKind name arity)
+    TyCon name arity = TyConInternal name arity (wiredInTyConKind name arity) Nothing
 
 {-# COMPLETE TyCon #-}
 
 tyConKind :: TyCon -> Kind
-tyConKind (TyConInternal _ _ kind) = kind
+tyConKind (TyConInternal _ _ kind _) = kind
+
+tyConId :: TyCon -> Maybe ResolvedId
+tyConId (TyConInternal _ _ _ identity) = identity
 
 mkTyCon :: Text -> Int -> Kind -> TyCon
 mkTyCon name arity inferredKind =
-  TyConInternal name arity (fromMaybe inferredKind (fixedTyConKind name))
+  TyConInternal name arity (fromMaybe inferredKind (fixedTyConKind name)) Nothing
+
+setTyConId :: ResolvedId -> TyCon -> TyCon
+setTyConId identity (TyConInternal name arity kind _) = TyConInternal name arity kind (Just identity)
+
+setTyConKind :: Kind -> TyCon -> TyCon
+setTyConKind kind (TyConInternal name arity _ identity) =
+  TyConInternal name arity (fromMaybe kind (fixedTyConKind name)) identity
+
+-- | Semantic comparison during the transition from wired-in textual types
+-- to resolver identities. Two identified constructors compare by identity;
+-- a legacy compiler-generated occurrence may match an identified constructor
+-- by spelling. Legacy type parsers do not always know declaration arity, so
+-- arity is intentionally excluded on this compatibility path. This relation is deliberately not the
+-- 'Eq' instance because it is not suitable as an ordered-map equivalence.
+sameTyCon :: TyCon -> TyCon -> Bool
+sameTyCon left right =
+  case (tyConId left, tyConId right) of
+    (Just leftId, Just rightId) -> leftId == rightId
+    _ -> tyConName left == tyConName right
 
 -- | Kinds for the type language checked by @aihc-tc@.
 data Kind

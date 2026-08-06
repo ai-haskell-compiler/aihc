@@ -9,13 +9,40 @@ module Aihc.Resolve
     pattern PResolution,
     pattern TResolution,
     resolve,
+    resolvePackage,
     resolveWithDeps,
+    resolvePackageWithDeps,
     extractInterface,
+    extractPackageInterface,
+    extractPackageInterfaceWithDeps,
     extractInterfaceWithDeps,
     OperatorFixity (..),
     Scope (..),
     ModuleExports,
     collectModuleExports,
+    collectModuleExportsForPackage,
+    lookupModuleExport,
+    lookupModuleExportForPackage,
+    moduleExportNames,
+    restrictModuleExports,
+    PackageName (..),
+    PackageVersion (..),
+    DependencyHash (..),
+    PackageId (..),
+    ModuleName (..),
+    ModuleId (..),
+    Namespace (..),
+    OccName (..),
+    GlobalName (..),
+    LocalName (..),
+    WiredInName (..),
+    defaultPackageId,
+    renderPackageId,
+    renderModuleId,
+    renderGlobalName,
+    renderResolvedId,
+    resolvedModuleIdentity,
+    resolvedGlobals,
     ResolveError (..),
     ResolveResult (..),
     ResolutionNamespace (..),
@@ -24,6 +51,8 @@ module Aihc.Resolve
   )
 where
 
+import Aihc.Name
+import Aihc.Name qualified as CompilerName
 import Aihc.Parser.Syntax
   ( Annotation,
     ArithSeq (..),
@@ -88,10 +117,12 @@ import Aihc.Parser.Syntax
     renderUnqualifiedName,
     unqualifiedNameAnns,
   )
+import Aihc.Parser.Syntax qualified as Parser
 import Aihc.Resolve.Monad
 import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
 import Aihc.Resolve.Types
+import Aihc.Resolve.Types qualified as ResolveTypes
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM)
 import Data.Data (Data, cast, gmapQ)
@@ -99,10 +130,48 @@ import Data.List (find, mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
+import Data.Set qualified as Set
 import Data.Text (Text)
 
 resolve :: [Module] -> ResolveResult
-resolve = resolveWithDeps Map.empty
+resolve = resolvePackage defaultPackageId
+
+resolvePackage :: PackageId -> [Module] -> ResolveResult
+resolvePackage packageId = resolvePackageWithDeps packageId Map.empty
+
+-- | Recover the owner attached by the resolver from any resolved name in a
+-- module. Downstream phases use this for compiler-generated siblings which
+-- have no source occurrence of their own.
+resolvedModuleIdentity :: Module -> Maybe ModuleId
+resolvedModuleIdentity modu =
+  find ((== ModuleName sourceModuleName) . CompilerName.moduleName) (mapMaybe targetModule (resolvedNamesIn modu))
+  where
+    sourceModuleName = fromMaybe "Main" (Parser.moduleName modu)
+    targetModule target =
+      case target of
+        ResolveTypes.ResolvedTopLevel name -> Just (globalModule name)
+        ResolveTypes.ResolvedLocal name -> Just (localModule name)
+        _ -> Nothing
+
+-- | All globally resolved symbols mentioned by a module. This is useful for
+-- downstream IR metadata: it includes declarations and external references,
+-- while preserving namespace and package/module ownership.
+resolvedGlobals :: Module -> [GlobalName]
+resolvedGlobals = Set.toAscList . Set.fromList . mapMaybe globalTarget . resolvedNamesIn
+  where
+    globalTarget target =
+      case target of
+        ResolveTypes.ResolvedTopLevel name -> Just name
+        _ -> Nothing
+
+resolvedNamesIn :: (Data a) => a -> [ResolvedName]
+resolvedNamesIn node = own node <> concat (gmapQ resolvedNamesIn node)
+  where
+    own value =
+      maybe [] nameTargets (cast value :: Maybe Name)
+        <> maybe [] unqualifiedTargets (cast value :: Maybe UnqualifiedName)
+    nameTargets = map resolutionTarget . mapMaybe fromAnnotation . nameAnns
+    unqualifiedTargets = map resolutionTarget . mapMaybe fromAnnotation . unqualifiedNameAnns
 
 collectResolveErrors :: (Data a) => a -> [ResolveError]
 collectResolveErrors node =
@@ -189,53 +258,64 @@ annotationResolveError resolution =
     _ -> Nothing
 
 resolveWithDeps :: ModuleExports -> [Module] -> ResolveResult
-resolveWithDeps depExports modules =
+resolveWithDeps = resolvePackageWithDeps defaultPackageId
+
+resolvePackageWithDeps :: PackageId -> ModuleExports -> [Module] -> ResolveResult
+resolvePackageWithDeps packageId depExports modules =
   ResolveResult
     { resolvedModules = modules',
       resolveErrors = collectResolveErrors modules'
     }
   where
     step currentNextLocal modu =
-      let (nextLocal', modu') = resolveModule exports currentNextLocal modu
+      let (nextLocal', modu') = resolveModule packageId exports currentNextLocal modu
        in (nextLocal', modu')
     (_, resolved) = mapAccumL step 0 modules
     modules' = resolved
-    ownExports = collectModuleExportsWithDeps depExports modules
+    ownExports = collectModuleExportsWithDepsForPackage packageId depExports modules
     exports = ownExports `Map.union` depExports
 
 extractInterface :: ResolveResult -> ModuleExports
 extractInterface = collectModuleExports . resolvedModules
 
+extractPackageInterface :: PackageId -> ResolveResult -> ModuleExports
+extractPackageInterface packageId = collectModuleExportsForPackage packageId . resolvedModules
+
+extractPackageInterfaceWithDeps :: PackageId -> ModuleExports -> ResolveResult -> ModuleExports
+extractPackageInterfaceWithDeps packageId depExports =
+  collectModuleExportsWithDepsForPackage packageId depExports . resolvedModules
+
 extractInterfaceWithDeps :: ModuleExports -> ResolveResult -> ModuleExports
 extractInterfaceWithDeps depExports = collectModuleExportsWithDeps depExports . resolvedModules
 
-resolveModule :: ModuleExports -> Int -> Module -> (Int, Module)
-resolveModule exports nextLocal modu =
-  let imports' = resolveModuleImports exports (moduleImports modu)
+resolveModule :: PackageId -> ModuleExports -> Int -> Module -> (Int, Module)
+resolveModule packageId exports nextLocal modu =
+  let imports' = resolveModuleImports packageId exports (moduleImports modu)
       modu' = modu {moduleImports = imports'}
-      scope = moduleScope exports modu'
-      (nextLocal', decls') = runResolveM scope (moduleInfo exports modu') nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
+      scope = moduleScope packageId exports modu'
+      (nextLocal', decls') = runResolveM scope (moduleInfo packageId exports modu') nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
    in (nextLocal', modu' {moduleDecls = decls'})
 
-moduleInfo :: ModuleExports -> Module -> ModuleInfo
-moduleInfo exports modu =
+moduleInfo :: PackageId -> ModuleExports -> Module -> ModuleInfo
+moduleInfo packageId exports modu =
   ModuleInfo
-    { moduleInfoExtensions =
+    { moduleInfoId = moduleId packageId (moduleKey modu),
+      moduleInfoExtensions =
         applyImpliedExtensions $
           foldr applyExtensionSetting [] (moduleLanguagePragmas modu),
       moduleInfoExplicitPreludeImport =
         any ((== "Prelude") . importDeclModule) (moduleImports modu),
-      moduleInfoGhcBaseScope = Map.findWithDefault emptyScope "GHC.Base" exports,
-      moduleInfoGhcClassesScope = Map.findWithDefault emptyScope "GHC.Classes" exports,
-      moduleInfoGhcNumScope = Map.findWithDefault emptyScope "GHC.Num" exports
+      moduleInfoGhcBaseScope = fromMaybe emptyScope (lookupModuleExportForPackage packageId Nothing "GHC.Base" exports),
+      moduleInfoGhcClassesScope = fromMaybe emptyScope (lookupModuleExportForPackage packageId Nothing "GHC.Classes" exports),
+      moduleInfoGhcNumScope = fromMaybe emptyScope (lookupModuleExportForPackage packageId Nothing "GHC.Num" exports)
     }
 
-resolveModuleImports :: ModuleExports -> [ImportDecl] -> [ImportDecl]
-resolveModuleImports exports =
+resolveModuleImports :: PackageId -> ModuleExports -> [ImportDecl] -> [ImportDecl]
+resolveModuleImports packageId exports =
   map resolveModuleImport
   where
     resolveModuleImport importDecl
-      | Just originScope <- Map.lookup (importDeclModule importDecl) exports =
+      | Just originScope <- lookupModuleExportForPackage packageId (importDeclPackage importDecl) (importDeclModule importDecl) exports =
           annotateMissingImportItems originScope importDecl
       | otherwise = annotateImport (missingModuleImportAnnotation importDecl) importDecl
 
@@ -710,7 +790,7 @@ rebindableFromInteger :: ModuleInfo -> Scope -> ResolvedName
 rebindableFromInteger info scope =
   case lookupTerm "fromInteger" scope of
     ResolvedTopLevel name
-      | nameQualifier name == Just "Prelude",
+      | moduleName (globalModule name) == ModuleName "Prelude",
         not (moduleInfoExplicitPreludeImport info) ->
           ResolvedError "unbound"
     resolved -> resolved
@@ -758,7 +838,7 @@ rebindableSyntaxTerm :: ModuleInfo -> Scope -> Text -> ResolvedName
 rebindableSyntaxTerm info scope name =
   case lookupTerm name scope of
     ResolvedTopLevel resolved
-      | nameQualifier resolved == Just "Prelude",
+      | moduleName (globalModule resolved) == ModuleName "Prelude",
         not (moduleInfoExplicitPreludeImport info) ->
           ResolvedError "unbound"
     resolved -> resolved

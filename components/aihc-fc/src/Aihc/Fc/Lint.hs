@@ -31,7 +31,7 @@ import Aihc.Fc.Axiom (AxiomInterface, extractAxiomInterface, lookupAxiomDecl)
 import Aihc.Fc.Subst (freeRigidTyVarsOf, substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Evidence (Coercion (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), sameTyCon)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -112,6 +112,8 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
     registerDeclaration _ env = env
 
     go _ [] = []
+    go env (FcModule {} : rest) = go env rest
+    go env (FcName {} : rest) = go env rest
     go env (FcData {} : rest) =
       -- Data declarations don't need expression-level linting.
       go env rest
@@ -279,7 +281,7 @@ typesEqual :: TcType -> TcType -> Bool
 typesEqual (TcTyVar a) (TcTyVar b) = a == b
 typesEqual (TcMetaTv a) (TcMetaTv b) = a == b
 typesEqual (TcTyCon tc1 args1) (TcTyCon tc2 args2) =
-  tc1 == tc2 && length args1 == length args2 && all (uncurry typesEqual) (zip args1 args2)
+  sameTyCon tc1 tc2 && length args1 == length args2 && all (uncurry typesEqual) (zip args1 args2)
 typesEqual (TcFunTy a1 b1) (TcFunTy a2 b2) =
   typesEqual a1 a2 && typesEqual b1 b2
 typesEqual (TcForAllTy tv1 body1) (TcForAllTy tv2 body2) =

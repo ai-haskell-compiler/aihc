@@ -29,7 +29,7 @@ zonkType ty = case ty of
   TcTyVar tv -> TcTyVar <$> zonkTyVar tv
   TcTyCon tc args -> do
     kind <- zonkKind (tyConKind tc)
-    TcTyCon (mkTyCon (tyConName tc) (tyConArity tc) kind) <$> mapM zonkType args
+    TcTyCon (setTyConKind kind tc) <$> mapM zonkType args
   TcFunTy a b -> TcFunTy <$> zonkType a <*> zonkType b
   TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> zonkType body
   TcQualTy preds body -> TcQualTy <$> mapM zonkPred preds <*> zonkType body
@@ -89,7 +89,7 @@ defaultTypeKinds ty =
     TcTyVar tv -> TcTyVar <$> defaultTyVarKinds tv
     TcTyCon tyCon args -> do
       kind <- defaultKindMetas (tyConKind tyCon)
-      let tyCon' = mkTyCon (tyConName tyCon) (tyConArity tyCon) kind
+      let tyCon' = setTyConKind kind tyCon
       TcTyCon tyCon' <$> mapM defaultTypeKinds args
     TcFunTy argument result -> TcFunTy <$> defaultTypeKinds argument <*> defaultTypeKinds result
     TcForAllTy tv body -> TcForAllTy <$> defaultTyVarKinds tv <*> defaultTypeKinds body

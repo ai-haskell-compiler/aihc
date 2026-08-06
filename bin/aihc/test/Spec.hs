@@ -27,6 +27,7 @@ import Aihc.Cli.Install
     dryRunInstallScaffold,
     installPackageLibraries,
     packageVariantLibraryId,
+    packageVariantPackageId,
     renderInstallFailure,
     renderInstallFailureWithOptions,
     writeInstallScaffold,
@@ -45,8 +46,9 @@ import Aihc.Fc
   )
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Native (NativeTarget (..))
-import Aihc.Resolve (Scope (..))
+import Aihc.Name (Namespace (..), globalName, moduleId, renderLinkName)
+import Aihc.Native (NativeTarget (..), renderLinkedFunctionSymbol)
+import Aihc.Resolve (Scope (..), lookupModuleExport)
 import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
 import Control.Exception (bracket)
 import Data.Aeson (object, (.=))
@@ -422,7 +424,7 @@ test_loadsInstalledBaseInterfaceForRepl =
           )
       )
     session <- loadReplSession (Just storeRoot)
-    case Map.lookup "Prelude" (replModuleExports session) of
+    case lookupModuleExport Nothing "Prelude" (replModuleExports session) of
       Nothing -> assertFailure "Prelude scope not loaded"
       Just preludeScope -> do
         assertBool "Prelude exposes Char" (Map.member "Char" (scopeTypes preludeScope))
@@ -1067,7 +1069,9 @@ test_installedPackage =
     case compileResult of
       Left err -> assertFailure (show err)
       Right assembly -> do
-        let identitySymbol = T.intercalate "_" (packageVariantLibraryId (planPackageKey plan) <> ["GHC", "Prim", "identity"])
+        let identitySymbol =
+              renderLinkedFunctionSymbol
+                (renderLinkName (globalName (moduleId (packageVariantPackageId (planPackageKey plan)) "GHC.Prim") TermNamespace "identity"))
         assertBool "expected installed dependency initializer" ("_aihc_init_" `T.isInfixOf` assembly)
         assertBool ("expected readable dependency symbol " <> T.unpack identitySymbol) (identitySymbol `T.isInfixOf` assembly)
     privateCompileResult <- compileSourceToAssemblyWithDependenciesFor Llvm environment "PrivateMain.hs" privateMainSource

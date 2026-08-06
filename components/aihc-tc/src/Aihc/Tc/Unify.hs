@@ -37,7 +37,7 @@ unifyTypes ty (TcMetaTv u) = unifyMetaTv u ty
 unifyTypes (TcTyVar v1) (TcTyVar v2)
   | v1 == v2 = pure (Right ())
 unifyTypes (TcTyCon tc1 args1) (TcTyCon tc2 args2)
-  | tc1 == tc2,
+  | sameTyCon tc1 tc2,
     length args1 == length args2 = do
       results <- zipWithM unifyTypes args1 args2
       pure $ sequence_ results

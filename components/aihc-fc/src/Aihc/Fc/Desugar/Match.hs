@@ -15,6 +15,7 @@ module Aihc.Fc.Desugar.Match
 where
 
 import Aihc.Fc.Syntax
+import Aihc.Name qualified as CompilerName
 import Aihc.Parser.Syntax
   ( DataConDecl (..),
     FieldDecl (..),
@@ -23,9 +24,14 @@ import Aihc.Parser.Syntax
     Pattern (..),
     TupleFlavor (..),
     UnqualifiedName (..),
+    fromAnnotation,
   )
 import Aihc.Parser.Syntax qualified as Surface
+import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve qualified as Resolve
 import Aihc.Tc.Types (RuntimeRep (..))
+import Data.List (find)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -35,9 +41,10 @@ import Data.Text qualified as T
 -- The caller is responsible for creating proper 'Var' values.
 dsPatternPure :: Pattern -> (FcAltCon, [Text])
 dsPatternPure (PCon name _typeArgs subPats) =
-  let conName = nameToText name
+  let conName = nameText name
+      constructor = maybe (DataAlt conName) (dataAltWithId conName) (resolvedConstructorId name)
       binderNames = map subPatName subPats
-   in (DataAlt conName, binderNames)
+   in (constructor, binderNames)
 dsPatternPure (PList []) =
   (DataAlt "[]", [])
 dsPatternPure (PList (_ : _)) =
@@ -120,7 +127,12 @@ unboxedSumConText pos arity =
    in "(# " <> leftBars <> "_" <> rightBars <> " #)"
 
 -- | Convert a Name to Text.
-nameToText :: Name -> Text
-nameToText n = case nameQualifier n of
-  Nothing -> nameText n
-  Just q -> q <> "." <> nameText n
+resolvedConstructorId :: Name -> Maybe CompilerName.ResolvedId
+resolvedConstructorId name =
+  case find ((== ResolutionNamespaceTerm) . resolutionNamespace) (mapMaybe fromAnnotation (nameAnns name)) of
+    Just resolution ->
+      case resolutionTarget resolution of
+        Resolve.ResolvedTopLevel target -> Just (CompilerName.ResolvedGlobal target)
+        Resolve.ResolvedBuiltin target -> Just (CompilerName.ResolvedWiredIn target)
+        _ -> Nothing
+    Nothing -> Nothing

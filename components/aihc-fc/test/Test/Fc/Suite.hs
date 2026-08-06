@@ -14,9 +14,11 @@ where
 import Aihc.Fc
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
+import Aihc.Name
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax qualified as Surface
-import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Resolve (ResolveResult (..), resolvePackage)
+import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), typecheckModule)
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.List (find)
@@ -65,7 +67,34 @@ fcDesugarTests =
             result = desugarModule parsedModule
         assertEqual "source parses" [] parseErrors
         assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
-        assertEqual "Core lint" [] (lintProgram emptyLintEnv (dsProgram result))
+        assertEqual "Core lint" [] (lintProgram emptyLintEnv (dsProgram result)),
+      testCase "retains package and module identities in System FC" $ do
+        let packageId = PackageId (PackageName "example") (PackageVersion "1.2.3") (DependencyHash "deps-a")
+            owner = moduleId packageId "Symbols"
+            source = "module Symbols where\ndata T = C\nf = C\n"
+            (parseErrors, parsedModule) = parseModule defaultConfig source
+        assertEqual "source parses" [] parseErrors
+        case resolvePackage packageId [parsedModule] of
+          ResolveResult [resolvedModule] [] -> do
+            let checkedModule = typecheckModule resolvedModule
+                result = desugarModuleWithTcResult checkedModule resolvedModule
+                tops = fcTopBinds (dsProgram result)
+                expectedGlobals =
+                  [ globalName owner TypeNamespace "T",
+                    globalName owner TermNamespace "C",
+                    globalName owner TermNamespace "f"
+                  ]
+                identities = [identity | FcName identity <- tops]
+                valueBindings = [(binder, rhs) | FcTopBind (FcNonRec binder rhs) <- tops]
+            assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
+            assertBool "module owner is explicit" (FcModule owner `elem` tops)
+            assertBool "declaration identities are explicit" (all (`elem` identities) expectedGlobals)
+            case valueBindings of
+              [(binder, FcVar constructor)] -> do
+                assertEqual "top-level identity" (Just (ResolvedGlobal (globalName owner TermNamespace "f"))) (varId binder)
+                assertEqual "constructor occurrence identity" (Just (ResolvedGlobal (globalName owner TermNamespace "C"))) (varId constructor)
+              bindings -> assertFailure ("expected one simple value binding, got " <> show bindings)
+          outcome -> assertFailure ("expected one resolved module, got " <> show outcome)
     ]
   where
     declarationConstructors declaration =

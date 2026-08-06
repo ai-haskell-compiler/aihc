@@ -13,6 +13,7 @@ where
 import Aihc.Grin.Snapshot
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
+import Control.Applicative ((<|>))
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -239,12 +240,22 @@ interpretProgramBindingWith enterValue name program = do
     action = do
       globals <- getsMachine machineGlobals
       value <-
-        case Map.lookup name globals of
+        case lookupSourceBinding name globals of
           Just binding -> pure binding
           Nothing -> throwInterpret (InterpretMissingBinding name)
       forced <- forceValue value
       result <- enterValue forced
       renderRawValueM result
+
+lookupSourceBinding :: Text -> Map Text value -> Maybe value
+lookupSourceBinding name bindings =
+  Map.lookup name bindings
+    <|> case [ value
+             | (linkedName, value) <- Map.toList bindings,
+               last (T.splitOn (T.singleton '\0') linkedName) == name
+             ] of
+      [value] -> Just value
+      _ -> Nothing
 
 initialMachine :: GrinProgram -> Machine
 initialMachine program =
@@ -1439,7 +1450,7 @@ matchAlt original inspected alt =
     (GrinLitAlt expected, RuntimeLit actual)
       | expected == actual -> Just Map.empty
     (GrinDataAlt expected, RuntimeNode (GrinConstructor actual 0) fields)
-      | expected == actual,
+      | constructorTagsMatch expected actual,
         length fields == length (grinAltBinders alt) ->
           Just (Map.fromList (zip (grinAltBinders alt) fields))
     _ -> Nothing
@@ -1462,15 +1473,16 @@ renderRawValueM value = do
     RuntimeIOError {} -> pure "<io-error>"
     RuntimeIORequest {} -> pure "<io-request>"
     RuntimeMVar {} -> pure "<mvar>"
-    RuntimeNode (GrinConstructor "C#" 0) [char] -> renderBoxedChar char
-    RuntimeNode (GrinConstructor name 0) [] -> pure name
+    RuntimeNode (GrinConstructor name 0) [char]
+      | constructorOccName name == "C#" -> renderBoxedChar char
+    RuntimeNode (GrinConstructor name 0) [] -> pure (constructorOccName name)
     RuntimeNode (GrinConstructor name 0) arguments
       | isTupleConstructor name (length arguments) -> do
           renderedArguments <- mapM renderRawArgument arguments
           pure ("(" <> T.intercalate "," renderedArguments <> ")")
     RuntimeNode (GrinConstructor name 0) arguments -> do
       renderedArguments <- mapM renderRawArgument arguments
-      pure (T.unwords (name : renderedArguments))
+      pure (T.unwords (constructorOccName name : renderedArguments))
     RuntimeNode GrinConstructor {} _ -> pure "<function>"
     RuntimeNode GrinClosure {} _ -> pure "<function>"
     RuntimeNode GrinThunk {} _ -> pure "<thunk>"
@@ -1486,7 +1498,8 @@ renderRawArgument value = do
     case exposed of
       RuntimeNode (GrinConstructor name 0) arguments
         | isTupleConstructor name (length arguments) -> rendered
-      RuntimeNode (GrinConstructor "C#" 0) [_] -> rendered
+      RuntimeNode (GrinConstructor name 0) [_]
+        | constructorOccName name == "C#" -> rendered
       RuntimeNode (GrinConstructor _ 0) (_ : _) -> "(" <> rendered <> ")"
       _ -> rendered
 
@@ -1515,9 +1528,17 @@ renderBoxedChar value = do
 isTupleConstructor :: Text -> Int -> Bool
 isTupleConstructor name arity =
   arity >= 2
-    && ( name == "(" <> T.replicate (arity - 1) "," <> ")"
-           || name == "(#" <> T.replicate (arity - 1) "," <> "#)"
+    && ( constructorOccName name == "(" <> T.replicate (arity - 1) "," <> ")"
+           || constructorOccName name == "(#" <> T.replicate (arity - 1) "," <> "#)"
        )
+
+constructorOccName :: Text -> Text
+constructorOccName = last . T.splitOn (T.singleton '\0')
+
+constructorTagsMatch :: Text -> Text -> Bool
+constructorTagsMatch expected actual =
+  expected == actual
+    || (not (T.singleton '\0' `T.isInfixOf` expected) && expected == constructorOccName actual)
 
 throwInterpret :: InterpretError -> EvalM value
 throwInterpret = throwE . EvalInterpret

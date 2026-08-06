@@ -21,6 +21,7 @@ library
 
   hs-source-dirs: src
   build-depends:
+    aihc-names,
     aihc-parser,
     base >=4.16 && <5,
     containers,

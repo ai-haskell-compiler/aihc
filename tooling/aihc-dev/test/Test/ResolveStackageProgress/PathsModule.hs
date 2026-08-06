@@ -7,21 +7,16 @@ where
 
 import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Util (chooseBestCabalFile, findCabalFiles)
-import Aihc.Parser.Syntax
-  ( NameType (..),
-    mkUnqualifiedName,
-    qualifyName,
-  )
+import Aihc.Name (Namespace (..), defaultPackageId, globalName, moduleId)
+import Aihc.Name qualified as CompilerName
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (ModuleExports, ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
 import Control.Exception (bracket)
 import Data.Aeson (Value, encode, object, (.=))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
-import Data.Char (isAlphaNum, isUpper)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import Data.Text qualified as T
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import ResolveStackageProgress qualified as Progress
 import System.Directory (createDirectory, createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
@@ -58,8 +53,8 @@ test_extractsInterfaceForGeneratedPathsPackage =
     written <- BL.readFile ifaceFile
     assertBool "expected interface JSON to be written" (not (BL.null written))
 
-    assertBool "expected user module in interface" (Map.member "PathsUser" iface)
-    case Map.lookup "Paths_paths_demo" iface of
+    assertBool "expected user module in interface" (Map.member (moduleId defaultPackageId "PathsUser") iface)
+    case Map.lookup (moduleId defaultPackageId "Paths_paths_demo") iface of
       Nothing -> assertFailure "expected generated Paths module in interface"
       Just pathsScope -> do
         assertBool "expected version export" (Map.member "version" (scopeTerms pathsScope))
@@ -89,20 +84,20 @@ parseFileInfo packageRoot info = do
 baseExports :: ModuleExports
 baseExports =
   Map.fromList
-    [ ("GHC.Classes", mkScope "GHC.Classes" ["=="] []),
-      ("GHC.Num", mkScope "GHC.Num" ["fromInteger"] []),
-      ("Prelude", mkScope "Prelude" ["return", "++", "==", "otherwise", "fromInteger"] ["IO", "FilePath", "String", "Char", "Bool"]),
-      ("Control.Exception", mkScope "Control.Exception" ["catch"] ["IOException"]),
-      ("Data.List", mkScope "Data.List" ["last"] []),
-      ("Data.Version", mkScope "Data.Version" ["Version"] ["Version"]),
-      ("System.Environment", mkScope "System.Environment" ["getEnv"] [])
+    [ (moduleId defaultPackageId "GHC.Classes", mkScope "GHC.Classes" ["=="] []),
+      (moduleId defaultPackageId "GHC.Num", mkScope "GHC.Num" ["fromInteger"] []),
+      (moduleId defaultPackageId "Prelude", mkScope "Prelude" ["return", "++", "==", "otherwise", "fromInteger"] ["IO", "FilePath", "String", "Char", "Bool"]),
+      (moduleId defaultPackageId "Control.Exception", mkScope "Control.Exception" ["catch"] ["IOException"]),
+      (moduleId defaultPackageId "Data.List", mkScope "Data.List" ["last"] []),
+      (moduleId defaultPackageId "Data.Version", mkScope "Data.Version" ["Version"] ["Version"]),
+      (moduleId defaultPackageId "System.Environment", mkScope "System.Environment" ["getEnv"] [])
     ]
 
 mkScope :: Text -> [Text] -> [Text] -> Scope
 mkScope moduleName terms types =
   Scope
-    { scopeTerms = Map.fromList [(name, resolve name) | name <- terms],
-      scopeTypes = Map.fromList [(name, resolve name) | name <- types],
+    { scopeTerms = Map.fromList [(name, resolve TermNamespace name) | name <- terms],
+      scopeTypes = Map.fromList [(name, resolve TypeNamespace name) | name <- types],
       scopeConstructors = Map.empty,
       scopeRecordFields = Map.empty,
       scopeMethods = Map.empty,
@@ -110,18 +105,8 @@ mkScope moduleName terms types =
       scopeQualifiedModules = Map.empty
     }
   where
-    resolve name =
-      ResolvedTopLevel (qualifyName (Just moduleName) (mkUnqualifiedName (inferNameType name) name))
-
-inferNameType :: Text -> NameType
-inferNameType name =
-  case T.uncons name of
-    Nothing -> NameVarId
-    Just (c, _)
-      | c == ':' -> NameConSym
-      | not (isAlphaNum c) && c /= '_' && c /= '\'' -> NameVarSym
-      | isUpper c -> NameConId
-      | otherwise -> NameVarId
+    resolve namespace name =
+      ResolvedTopLevel (globalName (moduleId defaultPackageId moduleName) namespace name)
 
 interfaceJson :: ModuleExports -> Value
 interfaceJson iface =
@@ -132,7 +117,8 @@ interfaceJson iface =
                  "terms" .= Map.keys (scopeTerms scope),
                  "types" .= Map.keys (scopeTypes scope)
                ]
-           | (moduleName, scope) <- Map.toList iface
+           | (owner, scope) <- Map.toList iface,
+             let moduleName = CompilerName.unModuleName (CompilerName.moduleName owner)
            ]
     ]
 

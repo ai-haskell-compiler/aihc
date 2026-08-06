@@ -15,11 +15,13 @@ module Aihc.Resolve.Monad
   )
 where
 
+import Aihc.Name (LocalName (..), ModuleId, Namespace (..), OccName (..))
 import Aihc.Parser.Syntax
   ( Annotation,
     Extension,
     SourceSpan (..),
     UnqualifiedName,
+    unqualifiedNameText,
   )
 import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
@@ -32,7 +34,8 @@ data ResolveEnv = ResolveEnv
   }
 
 data ModuleInfo = ModuleInfo
-  { moduleInfoExtensions :: ![Extension],
+  { moduleInfoId :: !ModuleId,
+    moduleInfoExtensions :: ![Extension],
     moduleInfoExplicitPreludeImport :: !Bool,
     moduleInfoGhcBaseScope :: !Scope,
     moduleInfoGhcClassesScope :: !Scope,
@@ -122,8 +125,9 @@ withPushedSpan ann action = do
 freshLocal :: UnqualifiedName -> ResolveM ResolvedName
 freshLocal name = do
   currentId <- gets stateNextLocal
+  owner <- moduleInfoId <$> currentModuleInfo
   modify' (\state -> state {stateNextLocal = currentId + 1})
-  pure (ResolvedLocal currentId name)
+  pure (ResolvedLocal (LocalName owner currentId TermNamespace (OccName (unqualifiedNameText name))))
 
 withLocalSupply :: Int -> ResolveM a -> ResolveM a
 withLocalSupply nextLocal action = do

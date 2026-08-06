@@ -7,6 +7,7 @@ module Test.Tc.Suite
   )
 where
 
+import Aihc.Name (DependencyHash (..), GlobalName (..), LocalName (..), OccName (..), PackageId (..), PackageName (..), PackageVersion (..), WiredInName (..))
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseModule, parseSignatureType)
 import Aihc.Parser.Syntax
   ( Annotation,
@@ -29,7 +30,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
     stripAnnotations,
   )
-import Aihc.Resolve (ResolveResult (..), extractInterface, resolve, resolveWithDeps)
+import Aihc.Resolve (ResolveResult (..), extractInterface, resolve, resolvePackage, resolveWithDeps)
 import Aihc.Tc
 import Aihc.Tc.Annotations (PendingTcAnnotation, TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -62,11 +63,33 @@ tcTests =
       testGroup "if-then-else" ifTests,
       testGroup "lambda" lambdaTests,
       testGroup "variables" variableTests,
+      testGroup "global identity" globalIdentityTests,
       testGroup "kinds" kindTests,
       testGroup "type schemes" typeSchemeTests,
       testGroup "annotations" annotationTests,
       testGroup "error-cases" errorTests
     ]
+
+globalIdentityTests :: [TestTree]
+globalIdentityTests =
+  [ testCase "same spelling in separate modules retains separate schemes" $ do
+      let packageId = PackageId (PackageName "identity-test") (PackageVersion "1") (DependencyHash "deps")
+          resolved =
+            resolvePackage
+              packageId
+              [ parseOnly "module A where\ndata T = A\nf :: T -> T\nf x = x\n",
+                parseOnly "module B where\ndata T = B\nf :: T -> T\nf x = x\n"
+              ]
+      case resolved of
+        ResolveResult {resolvedModules, resolveErrors = []} -> do
+          let (checked, interface) = typecheckModuleSccWithInterface mempty resolvedModules
+              fSchemes = [(key, scheme) | (key, scheme) <- tcInterfaceTerms interface, termKeyName key == "f"]
+          assertBool (show (concatMap tcModuleDiagnostics checked)) (all tcModuleSuccess checked)
+          assertEqual "both f bindings exported" 2 (length fSchemes)
+          assertBool "keys are globally distinct" (case map fst fSchemes of [left, right] -> left /= right; _ -> False)
+          assertBool "same-spelled type constructors remain distinct" (case map snd fSchemes of [left, right] -> left /= right; _ -> False)
+        ResolveResult {resolveErrors} -> assertFailure (show resolveErrors)
+  ]
 
 -- | Build the inline annotated golden test tree from YAML fixtures.
 tcAnnotatedGoldenTests :: IO TestTree
@@ -477,8 +500,8 @@ kindTests =
         ResolveResult {resolvedModules = baseModules, resolveErrors = []} -> do
           let (checkedBase, interface) = typecheckModuleSccWithInterface mempty baseModules
           assertBool "dependency should typecheck" (all tcModuleSuccess checkedBase)
-          assertBool "constructor term exported" ("Unit" `elem` map fst (tcInterfaceTerms interface))
-          assertBool "method term exported" ("identity" `elem` map fst (tcInterfaceTerms interface))
+          assertBool "constructor term exported" ("Unit" `elem` interfaceTermNames interface)
+          assertBool "method term exported" ("identity" `elem` interfaceTermNames interface)
           assertBool "type constructor exported" ("Unit" `elem` map tciName (tcInterfaceTyCons interface))
           assertBool "class exported" ("Identity" `elem` map ciName (tcInterfaceClasses interface))
           assertBool "instance exported" ("$fIdentityUnit" `elem` map iiDictName (tcInterfaceInstances interface))
@@ -662,7 +685,7 @@ annotationTests =
           let (checkedBase, interface) = typecheckModuleSccWithInterface mempty baseModules
           assertBool ("provider should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedBase)) (all tcModuleSuccess checkedBase)
           assertBool "record selectors are emitted as term bindings" (all (`elem` concatMap (map tbName . tcModuleBindings) checkedBase) ["left", "right"])
-          assertBool "record selectors are exported through T(..)" (all (`elem` map fst (tcInterfaceTerms interface)) ["left", "right"])
+          assertBool "record selectors are exported through T(..)" (all (`elem` interfaceTermNames interface) ["left", "right"])
           assertEqual
             "interface serialization round-trip"
             (show interface)
@@ -1094,6 +1117,17 @@ nameExprAnnotations name =
 
 caseAltExprAnnotations :: CaseAlt Expr -> [TcAnnotation]
 caseAltExprAnnotations (CaseAlt _ _ rhs) = rhsExprAnnotations rhs
+
+interfaceTermNames :: TcInterface -> [Text]
+interfaceTermNames interface = map (termKeyName . fst) (tcInterfaceTerms interface)
+
+termKeyName :: TcTermKey -> Text
+termKeyName key =
+  case key of
+    TcTermLocal name -> unOccName (localOccName name)
+    TcTermGlobal name -> unOccName (globalOccName name)
+    TcTermBuiltin name -> unOccName (wiredInOccName name)
+    TcTermLegacy name -> name
 
 -- | Tests for error cases.
 errorTests :: [TestTree]

@@ -23,17 +23,21 @@ import Aihc.Parser.Syntax
   ( Annotation,
     Extension,
     Module,
-    Name (..),
     fromAnnotation,
     moduleName,
     parseExtensionName,
-    renderName,
   )
 import Aihc.Resolve
-  ( ResolutionAnnotation (..),
+  ( GlobalName (GlobalName),
+    LocalName (LocalName),
+    ModuleId (ModuleId),
+    ModuleName (ModuleName),
+    OccName (OccName),
+    ResolutionAnnotation (..),
     ResolutionNamespace (..),
     ResolveResult (..),
     ResolvedName (..),
+    WiredInName (WiredInName),
     resolve,
   )
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
@@ -230,9 +234,9 @@ renderConciseNamespace namespace =
 renderConciseOrigin :: ResolvedName -> Text
 renderConciseOrigin resolvedName =
   case resolvedName of
-    ResolvedTopLevel name -> fromMaybe (renderName name) (nameQualifier name)
-    ResolvedLocal uniqueId _ -> T.pack (show uniqueId)
-    ResolvedBuiltin name -> "Builtin " <> name
+    ResolvedTopLevel (GlobalName (ModuleId _ (ModuleName owner)) _ _) -> owner
+    ResolvedLocal (LocalName _ uniqueId _ _) -> T.pack (show uniqueId)
+    ResolvedBuiltin (WiredInName _ (OccName name)) -> "Builtin " <> name
     ResolvedError msg -> T.pack ("Error " <> msg)
 
 listFixtureFiles :: FilePath -> IO [FilePath]

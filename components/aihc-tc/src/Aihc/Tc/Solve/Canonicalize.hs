@@ -40,7 +40,7 @@ canonEq ct t1 t2 = case (t1, t2) of
     CanonEqs [ct {ctPred = EqPred t2 t1}]
   -- Decompose type constructor application.
   (TcTyCon tc1 args1, TcTyCon tc2 args2)
-    | tc1 == tc2,
+    | sameTyCon tc1 tc2,
       length args1 == length args2 ->
         CanonEqs
           [ ct {ctPred = EqPred a1 a2}

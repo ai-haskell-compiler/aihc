@@ -27,6 +27,7 @@ module Aihc.Cli.Install
     newPackagePlanCache,
     packagePlanFailureShouldBeReportedForPackage,
     packageVariantLibraryId,
+    packageVariantPackageId,
     renderInstallFailure,
     renderInstallFailureWithOptions,
     runInstall,
@@ -46,6 +47,8 @@ import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
+import Aihc.Name (DependencyHash (..), PackageId (..), PackageName (..), PackageVersion (..))
+import Aihc.Name qualified as CompilerName
 import Aihc.Native (NativeTarget)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -68,8 +71,9 @@ import Aihc.Resolve
     ResolveError (..),
     ResolveResult (..),
     Scope (..),
-    extractInterface,
-    resolveWithDeps,
+    extractPackageInterface,
+    resolvePackageWithDeps,
+    restrictModuleExports,
   )
 import Aihc.Tc
   ( Pred (..),
@@ -211,6 +215,16 @@ packageVariantLibraryId key =
   T.splitOn "-" (T.pack (pkgName spec))
     <> T.splitOn "." (T.pack (pkgVersion spec))
     <> [T.pack (unPackageHash (packageKeyHash key))]
+  where
+    spec = packageKeySpec key
+
+packageVariantPackageId :: PackageVariantKey -> PackageId
+packageVariantPackageId key =
+  PackageId
+    { packageName = PackageName (T.pack (pkgName spec)),
+      packageVersion = PackageVersion (T.pack (pkgVersion spec)),
+      packageDependencyHash = DependencyHash (T.pack (unPackageHash (packageKeyHash key)))
+    }
   where
     spec = packageKeySpec key
 
@@ -420,7 +434,7 @@ installPackageLibraries targets plan = do
       pure
         LibraryPackage
           { libraryPackageName = T.pack (pkgName (packageKeySpec (planPackageKey package))),
-            libraryPackageId = packageVariantLibraryId (planPackageKey package),
+            libraryPackageId = packageVariantPackageId (planPackageKey package),
             libraryPackageRoot = planSourcePath package,
             libraryPackageFiles = map HackageCabal.fileInfoPath files,
             libraryPackageExposedModules = HackageCabal.collectLibraryExposedModules gpd
@@ -1272,9 +1286,10 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
       enrichDiagnostics = map (addDiagnosticSourceLines sourceLinesByFile)
       parseDiagnostics = enrichDiagnostics (concatMap parsedFileParseDiagnostics parsedFiles)
       cppDiagnostics = enrichDiagnostics (concatMap parsedFileCppDiagnostics parsedFiles)
-      resolveResult = resolveWithDeps depExports parsedModules
+      packageId = packageVariantPackageId (planPackageKey plan)
+      resolveResult = resolvePackageWithDeps packageId depExports parsedModules
       exposedModules = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
-      ownExports = Map.restrictKeys (extractInterface resolveResult) exposedModules
+      ownExports = restrictModuleExports exposedModules (extractPackageInterface packageId resolveResult)
   (checkedModules, tcModules, tcDiagnostics, tcInterface) <-
     typecheckInterfaceModules importedTcInterface (resolvedModules resolveResult)
   let resolveDiagnostics = enrichDiagnostics (map resolveErrorValue (resolveErrors resolveResult))
@@ -1583,7 +1598,8 @@ moduleExportsValue exports =
         "recordFields" .= scopeRecordFields scope,
         "methods" .= scopeMethods scope
       ]
-  | (moduleNameText, scope) <- Map.toAscList exports
+  | (moduleIdentity, scope) <- Map.toAscList exports,
+    let moduleNameText = CompilerName.unModuleName (CompilerName.moduleName moduleIdentity)
   ]
 
 tcModuleValue :: Module -> Module -> Aeson.Value

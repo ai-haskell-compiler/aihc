@@ -27,7 +27,7 @@ import Aihc.Tc.Solve.Dict (DictResult (..), solveDict, solveDictWithGivens)
 import Aihc.Tc.Solve.Equality (EqResult (..), solveEquality)
 import Aihc.Tc.Solve.InertSet (InertSet, addInertDict, emptyInertSet)
 import Aihc.Tc.Solve.Worklist
-import Aihc.Tc.Types (Pred (..), TcType (..))
+import Aihc.Tc.Types (Pred (..), TcType (..), sameTyCon)
 import Aihc.Tc.Zonk (zonkType)
 
 -- | Result of solving constraints.
@@ -146,7 +146,7 @@ canonicalizeGiven ct = case ctPred ct of
     decomposeEq t1 t2
       | t1 == t2 = []
     decomposeEq (TcTyCon tc1 args1) (TcTyCon tc2 args2)
-      | tc1 == tc2,
+      | sameTyCon tc1 tc2,
         length args1 == length args2 =
           concatMap (uncurry decomposeEq) (zip args1 args2)
     decomposeEq (TcFunTy a1 b1) (TcFunTy a2 b2) =

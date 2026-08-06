@@ -15,12 +15,13 @@ where
 
 import Aihc.Fc.Desugar.Deriving (dsDerivingPlans, moduleDerivingPlans)
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, peelForAlls, peelQuals, predType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupType, withDicts)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshGlobalVar, freshUnique, freshVar, lookupType, withDicts)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Subst (freeRigidTyVars, substType)
 import Aihc.Fc.Syntax
+import Aihc.Name (GlobalName (..), Namespace (..), OccName (..), ResolvedId (..), WiredInName (..))
 import Aihc.Parser.Syntax
   ( CallConv (..),
     ClassDecl (..),
@@ -52,8 +53,8 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Resolve (ResolveResult (..), resolve)
-import Aihc.Tc (DataFamilyInstanceInfo (..), TcBindingResult (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
+import Aihc.Resolve (ResolveResult (..), resolve, resolvedGlobals, resolvedModuleIdentity)
+import Aihc.Tc (DataFamilyInstanceInfo (..), TcBindingResult (..), TcTermKey (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
@@ -67,7 +68,7 @@ import Aihc.Tc.Types
   )
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
-import Control.Monad.Trans.State.Strict (runStateT)
+import Control.Monad.Trans.State.Strict (gets, runStateT)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
@@ -113,7 +114,7 @@ desugarModuleWithBindings bindings tcResult _m =
         }
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
-       in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) typeEnv Map.empty Map.empty) of
+       in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) (resolvedModuleIdentity tcResult) typeEnv Map.empty Map.empty) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram [],
@@ -136,6 +137,8 @@ lowerConstraintProgram (FcProgram topBinds) =
   where
     lowerTopBind topBind =
       case topBind of
+        FcModule owner -> FcModule owner
+        FcName name -> FcName name
         FcData name tyVars constructors ->
           FcData name tyVars [(constructor, map lowerConstraintType fields) | (constructor, fields) <- constructors]
         FcAxiom declaration ->
@@ -213,14 +216,17 @@ showTcFailure tcResult =
     [] -> map showBinding (tcModuleBindings tcResult)
     diagnostics -> diagnostics
 
-bindingTypeEntries :: TcBindingResult -> [(Text, TcType)]
+bindingTypeEntries :: TcBindingResult -> [(TcTermKey, TcType)]
 bindingTypeEntries b =
-  [(tbName b, tbType b)]
+  case tbTermKey b of
+    Just key -> [(key, tbType b), (TcTermLegacy (tbName b), tbType b)]
+    Nothing -> [(TcTermLegacy (tbName b), tbType b)]
 
-builtinTypeEntries :: [(Text, TcType)]
+builtinTypeEntries :: [(TcTermKey, TcType)]
 builtinTypeEntries =
-  [ (":", TcForAllTy aVar (TcFunTy aTy (TcFunTy listA listA))),
-    ("[]", TcForAllTy aVar listA)
+  [ (TcTermBuiltin (WiredInName TermNamespace (OccName ":")), TcForAllTy aVar (TcFunTy aTy (TcFunTy listA listA))),
+    (TcTermBuiltin (WiredInName TermNamespace (OccName "[]")), TcForAllTy aVar listA),
+    (TcTermBuiltin (WiredInName TermNamespace (OccName "()")), TcTyCon (TyCon "()" 0) [])
   ]
   where
     aVar = TyVarId "a" (Unique (-1000))
@@ -231,6 +237,7 @@ builtinTypeEntries =
 dsModule :: Module -> DsM [FcTopBind]
 dsModule m = do
   let decls = moduleDecls m
+      identityTops = maybe [] (pure . FcModule) (resolvedModuleIdentity m) <> map FcName (resolvedGlobals m)
   -- Phase 1: data declarations and class method selectors.
   dataTops <- concat <$> mapM dsDecl decls
   -- Phase 2: instance dictionaries.
@@ -239,7 +246,7 @@ dsModule m = do
   -- Phase 3: group and desugar value bindings.
   let grouped = groupFunctionBinds decls
   valueTops <- mapM dsGroup grouped
-  pure (dataTops ++ instanceTops ++ derivingTops ++ valueTops)
+  pure (identityTops ++ dataTops ++ instanceTops ++ derivingTops ++ valueTops)
 
 -- | Desugar a single declaration (data types only; values handled by groups).
 dsDecl :: Decl -> DsM [FcTopBind]
@@ -372,7 +379,7 @@ dsRecordSelectors constructorInfos declarations =
         case bodyType of
           TcFunTy argument result -> pure (argument, result)
           _ -> desugarBug ("record selector is not a function: " <> T.unpack selectorName)
-      selectorVar <- freshVar selectorName selectorType
+      selectorVar <- freshGlobalVar selectorName selectorType
       dictionaryVars <-
         zipWithM
           (\index predicate -> freshVar ("$d" <> T.pack (show index)) (predType predicate))
@@ -447,8 +454,8 @@ dsForeignPrim tcAnn foreignDecl = do
   let name = unqualifiedNameText (foreignName foreignDecl)
       ty = tcAnnType tcAnn
   arity <- validatePrimitiveImport name ty
-  unique <- freshUnique
-  pure (FcPrimitive (Var name unique ty) arity)
+  var <- freshGlobalVar name ty
+  pure (FcPrimitive var arity)
 
 dsForeignCcall :: TcAnnotation -> TcForeignImportAnnotation -> ForeignDecl -> DsM [FcTopBind]
 dsForeignCcall tcAnn foreignPlan foreignDecl = do
@@ -475,7 +482,7 @@ dsForeignCcall tcAnn foreignPlan foreignDecl = do
             fcForeignCallSymbol = symbol,
             fcForeignCallSignature = signature
           }
-  wrapperVar <- freshVar name wrapperType
+  wrapperVar <- freshGlobalVar name wrapperType
   argumentVars <-
     mapM
       (\(index, marshal) -> freshVar ("$ffi_arg_" <> T.pack (show index)) (tcForeignSourceType marshal))
@@ -834,7 +841,6 @@ dsClassDeclM classDecl classAnn = do
 
 dsClassSelector :: Text -> Int -> [TyVarId] -> [TcType] -> TcClassMethodAnnotation -> DsM FcTopBind
 dsClassSelector dictionaryConstructor superClassCount classTyVars fieldTypes methodAnn = do
-  methodUnique <- freshUnique
   dictVars <- zipWithM mkSelectorDict [0 :: Int ..] dictPreds
   classDictionaryVar <-
     case dictVars of
@@ -854,8 +860,8 @@ dsClassSelector dictionaryConstructor superClassCount classTyVars fieldTypes met
           (foldl FcTyApp (FcVar selectedField) (map TcTyVar extraTyVars))
           (map FcVar extraDictVars)
       selection = FcCase (FcVar classDictionaryVar) caseBinder [FcAlt (DataAlt dictionaryConstructor) fieldBinders selected]
-      methodVar = Var (tcClassMethodName methodAnn) methodUnique (tcClassMethodType methodAnn)
       body = foldr FcTyLam (foldr FcLam selection dictVars) (tcClassMethodTyVars methodAnn)
+  methodVar <- freshGlobalVar (tcClassMethodName methodAnn) (tcClassMethodType methodAnn)
   pure (FcTopBind (FcNonRec methodVar body))
   where
     (_tyVars, afterForAlls) = peelForAlls (tcClassMethodType methodAnn)
@@ -868,7 +874,7 @@ dsClassDefault (methodAnn, matches) = do
   let methodName = tcInstanceMethodName methodAnn
       methodType = tcInstanceMethodType methodAnn
       workerName = defaultMethodName methodName
-  worker <- freshVar workerName methodType
+  worker <- freshGlobalVar workerName methodType
   body <- dsMatches methodType matches
   pure (FcTopBind (FcNonRec worker body))
 
@@ -957,12 +963,12 @@ dsInstanceDict instAnn instanceDecl = do
         pure (FcTopBind bindingGroup)
   if usesDefaultMethod
     then do
-      dictVar <- freshVar (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
+      dictVar <- freshGlobalVar (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
       fields <- desugarFields (Just (selfDictionary dictVar))
       buildDictionary True dictVar fields
     else do
       fields <- desugarFields Nothing
-      dictVar <- freshVar (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
+      dictVar <- freshGlobalVar (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
       buildDictionary False dictVar fields
   where
     combineMethods (newTy, newMatches) (_oldTy, oldMatches) = (newTy, oldMatches <> newMatches)
@@ -1124,7 +1130,11 @@ dsGroup :: DeclGroup -> DsM FcTopBind
 dsGroup grp = do
   ty <- lookupType (dgName grp)
   u <- freshUnique
-  let var = Var (dgName grp) u ty
+  owner <- gets dsModuleId
+  let var =
+        (Var (dgName grp) u ty)
+          { varId = ResolvedGlobal . (\moduleId' -> GlobalName moduleId' TermNamespace (OccName (dgName grp))) <$> owner
+          }
   body <-
     case grp of
       DeclFunction _ matches -> dsMatches ty matches

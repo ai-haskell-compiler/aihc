@@ -20,6 +20,7 @@ where
 
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Fc.Syntax
+import Aihc.Name (renderGlobalName, renderModuleId)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..))
 import Data.ByteString qualified as BS
 import Data.Char (chr)
@@ -39,10 +40,19 @@ castChar = '\x25b7' -- ▷
 -- | Render a complete program.
 renderProgram :: FcProgram -> String
 renderProgram prog =
-  intercalate "\n\n" (map renderTopBind (fcTopBinds prog))
+  intercalate "\n\n" (map renderTopBind (filter isSourceBinding (fcTopBinds prog)))
+  where
+    -- Identity declarations are compiler metadata.  They remain available to
+    -- diagnostics through 'renderTopBind', but omitting them here keeps the
+    -- source-oriented program rendering concise.
+    isSourceBinding (FcModule _) = False
+    isSourceBinding (FcName _) = False
+    isSourceBinding _ = True
 
 -- | Render a top-level binding.
 renderTopBind :: FcTopBind -> String
+renderTopBind (FcModule owner) = "module " ++ T.unpack (renderModuleId owner)
+renderTopBind (FcName name) = "name " ++ T.unpack (renderGlobalName name)
 renderTopBind (FcData tyName tyVars cons) =
   "data "
     ++ T.unpack tyName

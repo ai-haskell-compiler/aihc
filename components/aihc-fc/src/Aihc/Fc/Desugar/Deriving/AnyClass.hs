@@ -7,7 +7,7 @@ module Aihc.Fc.Desugar.Deriving.AnyClass
 where
 
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, predType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshUnique, freshVar, lookupType, withDicts)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshGlobalVar, freshUnique, freshVar, lookupType, withDicts)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDictBinderAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..))
@@ -47,7 +47,7 @@ dsAnyClassDictionary plan context = do
         any
           ((`elem` tcDerivingDefaultMethods plan) . tcClassMethodName)
           (tcDerivingClassMethods plan)
-  dictVar <- freshVar (tcDerivingDictName plan) dictionaryType
+  dictVar <- freshGlobalVar (tcDerivingDictName plan) dictionaryType
   let maybeSelfDictionary
         | usesDefaultMethod = Just (selfDictionary dictVar)
         | otherwise = Nothing

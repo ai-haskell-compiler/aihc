@@ -50,7 +50,7 @@ solveEq ct t1 t2 = case (t1, t2) of
     pure EqSolved
   -- Same type constructor: decompose.
   (TcTyCon tc1 args1, TcTyCon tc2 args2)
-    | tc1 == tc2,
+    | sameTyCon tc1 tc2,
       length args1 == length args2 ->
         solveDecomposed ct t1 (zip args1 args2)
   -- Same function type shape: decompose.

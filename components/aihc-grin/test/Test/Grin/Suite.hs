@@ -10,6 +10,7 @@ where
 import Aihc.Fc.Newtype (extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
 import Aihc.Fc.Syntax
 import Aihc.Grin
+import Aihc.Name
 import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), runtimeRepOfType)
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
@@ -583,6 +584,25 @@ grinUnitTests =
             assertEqual "external link name" [T.intercalate "\0" ["aihc", "base", "4", "21", "2", "0", "dephash", "Data", "Provider", "identity"]] (map grinCodeSourceName (grinExternalFunctions consumer))
             assertEqual "other external link name" [T.intercalate "\0" ["aihc", "base", "4", "21", "2", "0", "dephash", "Data", "Other", "identity"]] (map grinCodeSourceName (grinExternalFunctions otherConsumer))
           programs -> assertFailure ("expected two pairs of FC programs, got " <> show programs),
+      testCase "constructor tags include the package variant and module" $ do
+        let packageA = PackageId (PackageName "same-package") (PackageVersion "1") (DependencyHash "deps-a")
+            packageB = PackageId (PackageName "same-package") (PackageVersion "1") (DependencyHash "deps-b")
+            ownerA = moduleId packageA "Shared"
+            ownerB = moduleId packageB "Shared"
+            constructor owner = globalName owner TermNamespace "C"
+            core owner =
+              FcProgram
+                [ FcModule owner,
+                  FcName (constructor owner),
+                  FcData "T" [] [("C", [])]
+                ]
+            lowered owner =
+              let program = core owner
+               in lowerProgramWithLinkNames (linkNamesForProgram [] [] program) program
+            constructorNames owner = map fst (grinConstructors (lowered owner))
+        assertEqual "first constructor tag" [renderLinkName (constructor ownerA)] (constructorNames ownerA)
+        assertEqual "second constructor tag" [renderLinkName (constructor ownerB)] (constructorNames ownerB)
+        assertBool "dependency hashes stay distinct" (constructorNames ownerA /= constructorNames ownerB),
       testCase "duplicate generated names receive readable unique suffixes" $ do
         let firstVar = Var "xor" (Unique 100) (TcFunTy boxedIntTy boxedIntTy)
             firstArgument = Var "value" (Unique 101) boxedIntTy

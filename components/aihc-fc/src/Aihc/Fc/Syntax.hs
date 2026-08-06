@@ -18,7 +18,7 @@ module Aihc.Fc.Syntax
     FcExpr (..),
 
     -- * Variables
-    Var (Var, varName, varUnique, varType, varResolvedName),
+    Var (Var, varName, varUnique, varType, varResolvedName, varId),
 
     -- * Bindings
     FcBind (..),
@@ -38,7 +38,9 @@ module Aihc.Fc.Syntax
 
     -- * Case alternatives
     FcAlt (..),
-    FcAltCon (..),
+    FcAltCon (DataAlt, LitAlt, DefaultAlt),
+    dataAltWithId,
+    altConId,
 
     -- * Literals
     Literal (..),
@@ -47,6 +49,7 @@ module Aihc.Fc.Syntax
   )
 where
 
+import Aihc.Name (GlobalName, ModuleId, ResolvedId)
 import Aihc.Tc.Evidence (Coercion)
 import Aihc.Tc.Types
   ( RuntimeRep (..),
@@ -68,7 +71,13 @@ newtype FcProgram = FcProgram
 
 -- | A top-level binding.
 data FcTopBind
-  = -- | Data type declaration: type name, type variable parameters,
+  = -- | Compilation-unit ownership marker for following declarations.
+    FcModule !ModuleId
+  | -- | Explicit source identity metadata for a declaration or reference.
+    -- It is erased by runtime lowering, but keeps term/type/constructor names
+    -- globally unambiguous throughout System FC transformations.
+    FcName !GlobalName
+  | -- | Data type declaration: type name, type variable parameters,
     -- list of (constructor name, field types).
     FcData !Text ![TyVarId] ![(Text, [TcType])]
   | -- | A type equality axiom. Axioms are proof metadata and have no
@@ -188,24 +197,29 @@ data Var = ResolvedVar
     varType :: !TcType,
     -- | Resolver identity for an imported occurrence. Kept separate from the
     -- display name so whole-program FC evaluation remains source-readable.
-    varResolvedName :: !(Maybe Text)
+    varResolvedName :: !(Maybe Text),
+    -- | Semantic identity selected by name resolution. Equality never
+    -- renders this value, so package/module boundaries cannot collide.
+    varId :: !(Maybe ResolvedId)
   }
   deriving (Show, Read)
 
 -- | Construct a variable without a separate imported identity.
 pattern Var :: Text -> Unique -> TcType -> Var
-pattern Var name unique ty <- ResolvedVar name unique ty _
+pattern Var name unique ty <- ResolvedVar name unique ty _ _
   where
-    Var name unique ty = ResolvedVar name unique ty Nothing
+    Var name unique ty = ResolvedVar name unique ty Nothing Nothing
 
 {-# COMPLETE Var #-}
 
--- Eq/Ord on Unique only, mirroring TyVarId.
 instance Eq Var where
-  a == b = varUnique a == varUnique b
+  a == b = varIdentityKey a == varIdentityKey b
 
 instance Ord Var where
-  compare a b = compare (varUnique a) (varUnique b)
+  compare a b = compare (varIdentityKey a) (varIdentityKey b)
+
+varIdentityKey :: Var -> Either ResolvedId Unique
+varIdentityKey var = maybe (Right (varUnique var)) Left (varId var)
 
 -- | System FC core expression.
 --
@@ -256,12 +270,29 @@ data FcAlt = FcAlt
 -- | Case alternative constructor.
 data FcAltCon
   = -- | Data constructor with type variable binders.
-    DataAlt !Text
+    ResolvedDataAlt !Text !(Maybe ResolvedId)
   | -- | Literal match.
     LitAlt !Literal
   | -- | Default/wildcard.
     DefaultAlt
   deriving (Eq, Show, Read)
+
+-- | Construct a compatibility alternative without resolver identity.
+pattern DataAlt :: Text -> FcAltCon
+pattern DataAlt name <- ResolvedDataAlt name _
+  where
+    DataAlt name = ResolvedDataAlt name Nothing
+
+{-# COMPLETE DataAlt, LitAlt, DefaultAlt #-}
+
+-- | Construct a data alternative whose semantic identity is explicit.
+dataAltWithId :: Text -> ResolvedId -> FcAltCon
+dataAltWithId name identity = ResolvedDataAlt name (Just identity)
+
+-- | Exact constructor identity, when the alternative came from resolution.
+altConId :: FcAltCon -> Maybe ResolvedId
+altConId (ResolvedDataAlt _ identity) = identity
+altConId _ = Nothing
 
 -- | Literal values.
 data Literal

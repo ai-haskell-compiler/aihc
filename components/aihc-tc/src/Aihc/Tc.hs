@@ -32,6 +32,7 @@ module Aihc.Tc
     TcResult (..),
     TcBindingResult (..),
     TcInterface (..),
+    TcTermKey (..),
     emptyTcInterface,
 
     -- * Module result projections
@@ -90,6 +91,7 @@ module Aihc.Tc
   )
 where
 
+import Aihc.Name (GlobalName (..), LocalName (..), OccName (..), ResolvedId (..), WiredInName (..))
 import Aihc.Parser.Syntax
   ( Annotation,
     ArithSeq (..),
@@ -127,6 +129,7 @@ import Aihc.Tc.Zonk (zonkType)
 import Control.Applicative ((<|>))
 import Control.Monad ((<=<))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
+import Data.Bifunctor qualified as Bifunctor
 import Data.Data (Data, gmapM, gmapQ)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, maybeToList)
@@ -148,7 +151,7 @@ data TcResult = TcResult
 -- module groups. Implementations never cross this boundary: only the facts
 -- needed to type-check downstream source are retained.
 data TcInterface = TcInterface
-  { tcInterfaceTerms :: ![(Text, TypeScheme)],
+  { tcInterfaceTerms :: ![(TcTermKey, TypeScheme)],
     tcInterfaceTyCons :: ![TyConInfo],
     tcInterfaceDataTypes :: ![DataTypeInfo],
     tcInterfaceClasses :: ![ClassInfo],
@@ -172,8 +175,8 @@ instance Semigroup TcInterface where
   left <> right =
     TcInterface
       { tcInterfaceTerms = mergeInterfaceEntries fst (tcInterfaceTerms left <> tcInterfaceTerms right),
-        tcInterfaceTyCons = mergeInterfaceEntries tciName (tcInterfaceTyCons left <> tcInterfaceTyCons right),
-        tcInterfaceDataTypes = mergeInterfaceEntries dtiName (tcInterfaceDataTypes left <> tcInterfaceDataTypes right),
+        tcInterfaceTyCons = mergeInterfaceEntries (tyConInterfaceKey . tciTyCon) (tcInterfaceTyCons left <> tcInterfaceTyCons right),
+        tcInterfaceDataTypes = mergeInterfaceEntries (tyConInterfaceKey . dtiTyCon) (tcInterfaceDataTypes left <> tcInterfaceDataTypes right),
         tcInterfaceClasses = mergeInterfaceEntries ciName (tcInterfaceClasses left <> tcInterfaceClasses right),
         tcInterfaceInstances = mergeInterfaceEntries iiDictName (tcInterfaceInstances left <> tcInterfaceInstances right),
         tcInterfaceDataFamilyInstances = mergeInterfaceEntries dfiiAxiomName (tcInterfaceDataFamilyInstances left <> tcInterfaceDataFamilyInstances right)
@@ -181,6 +184,9 @@ instance Semigroup TcInterface where
 
 instance Monoid TcInterface where
   mempty = emptyTcInterface
+
+tyConInterfaceKey :: TyCon -> Either ResolvedId (Text, Int)
+tyConInterfaceKey tyCon = maybe (Right (tyConName tyCon, tyConArity tyCon)) Left (tyConId tyCon)
 
 mergeInterfaceEntries :: (Ord key) => (value -> key) -> [value] -> [value]
 mergeInterfaceEntries key = Map.elems . Map.fromList . map (\value -> (key value, value))
@@ -278,7 +284,7 @@ typecheckModulesWithEnvAndInstances importedTerms importedInstances =
   fst
     . typecheckModulesWithInterface
       emptyTcInterface
-        { tcInterfaceTerms = importedTerms,
+        { tcInterfaceTerms = legacyTerms importedTerms,
           tcInterfaceInstances = importedInstances
         }
 
@@ -290,19 +296,19 @@ typecheckModulesWithFullEnv importedTerms importedTyCons importedInstances modul
   let (checkedModules, interface) =
         typecheckModulesWithInterface
           emptyTcInterface
-            { tcInterfaceTerms = importedTerms,
+            { tcInterfaceTerms = legacyTerms importedTerms,
               tcInterfaceTyCons = importedTyCons,
               tcInterfaceInstances = importedInstances
             }
           modules
-   in (checkedModules, tcInterfaceTerms interface, tcInterfaceTyCons interface)
+   in (checkedModules, interfaceTermsText interface, tcInterfaceTyCons interface)
 
 typecheckModulesWithClassEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo], [ClassInfo])
 typecheckModulesWithClassEnv importedTerms importedTyCons importedClasses importedInstances modules =
   let (checkedModules, interface) =
         typecheckModulesWithInterface
           TcInterface
-            { tcInterfaceTerms = importedTerms,
+            { tcInterfaceTerms = legacyTerms importedTerms,
               tcInterfaceTyCons = importedTyCons,
               tcInterfaceDataTypes = [],
               tcInterfaceClasses = importedClasses,
@@ -310,7 +316,7 @@ typecheckModulesWithClassEnv importedTerms importedTyCons importedClasses import
               tcInterfaceDataFamilyInstances = []
             }
           modules
-   in (checkedModules, tcInterfaceTerms interface, tcInterfaceTyCons interface, tcInterfaceClasses interface)
+   in (checkedModules, interfaceTermsText interface, tcInterfaceTyCons interface, tcInterfaceClasses interface)
 
 -- | Type-check dependency-ordered modules with a complete imported semantic
 -- interface and return the accumulated interface for downstream modules.
@@ -333,19 +339,19 @@ typecheckModuleSccWithFullEnv importedTerms importedTyCons importedInstances mod
   let (checkedModules, interface) =
         typecheckModuleSccWithInterface
           emptyTcInterface
-            { tcInterfaceTerms = importedTerms,
+            { tcInterfaceTerms = legacyTerms importedTerms,
               tcInterfaceTyCons = importedTyCons,
               tcInterfaceInstances = importedInstances
             }
           modules
-   in (checkedModules, tcInterfaceTerms interface, tcInterfaceTyCons interface)
+   in (checkedModules, interfaceTermsText interface, tcInterfaceTyCons interface)
 
 typecheckModuleSccWithClassEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo], [ClassInfo])
 typecheckModuleSccWithClassEnv importedTerms importedTyCons importedClasses importedInstances modules =
   let (checkedModules, interface) =
         typecheckModuleSccWithInterface
           TcInterface
-            { tcInterfaceTerms = importedTerms,
+            { tcInterfaceTerms = legacyTerms importedTerms,
               tcInterfaceTyCons = importedTyCons,
               tcInterfaceDataTypes = [],
               tcInterfaceClasses = importedClasses,
@@ -353,7 +359,23 @@ typecheckModuleSccWithClassEnv importedTerms importedTyCons importedClasses impo
               tcInterfaceDataFamilyInstances = []
             }
           modules
-   in (checkedModules, tcInterfaceTerms interface, tcInterfaceTyCons interface, tcInterfaceClasses interface)
+   in (checkedModules, interfaceTermsText interface, tcInterfaceTyCons interface, tcInterfaceClasses interface)
+
+legacyTerms :: [(Text, TypeScheme)] -> [(TcTermKey, TypeScheme)]
+legacyTerms = map (Bifunctor.first TcTermLegacy)
+
+interfaceTermsText :: TcInterface -> [(Text, TypeScheme)]
+interfaceTermsText interface =
+  [ (termKeyText key, scheme)
+  | (key, scheme) <- tcInterfaceTerms interface
+  ]
+  where
+    termKeyText key =
+      case key of
+        TcTermLocal name -> unOccName (localOccName name)
+        TcTermGlobal name -> unOccName (globalOccName name)
+        TcTermBuiltin name -> unOccName (wiredInOccName name)
+        TcTermLegacy name -> name
 
 -- | Type-check one strongly connected module component using only the
 -- supplied imported interface.
@@ -373,7 +395,7 @@ initialTcState imported =
           <> tcsGlobalTerms initTcState,
       tcsGlobalTyCons =
         Map.fromList
-          [ (tciName tyCon, tyCon)
+          [ (tyConStateKey tyCon, tyCon)
           | tyCon <- tcInterfaceTyCons imported
           ]
           <> tcsGlobalTyCons initTcState,
@@ -382,6 +404,13 @@ initialTcState imported =
       tcsInstances = tcInterfaceInstances imported,
       tcsDataFamilyInstances = tcInterfaceDataFamilyInstances imported
     }
+  where
+    tyConStateKey info =
+      case tyConId (tciTyCon info) of
+        Just (ResolvedGlobal target) -> TcTypeGlobal target
+        Just (ResolvedWiredIn target) -> TcTypeBuiltin target
+        Just (ResolvedLocal _) -> TcTypeLegacy (tciName info)
+        Nothing -> TcTypeLegacy (tciName info)
 
 tcInterfaceFromState :: TcState -> TcInterface
 tcInterfaceFromState state =

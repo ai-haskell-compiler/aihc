@@ -15,33 +15,32 @@ module Aihc.Resolve.Types
   )
 where
 
+import Aihc.Name (GlobalName, LocalName, WiredInName)
 import Aihc.Parser.Syntax
   ( Decl (..),
     Expr (..),
     ImportDecl (..),
     Module (..),
-    Name (..),
     Pattern (..),
     SourceSpan (..),
     Type (..),
-    UnqualifiedName (..),
     fromAnnotation,
   )
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 
 data ResolvedName
-  = ResolvedTopLevel Name
-  | ResolvedLocal Int UnqualifiedName
-  | ResolvedBuiltin Text
+  = ResolvedTopLevel GlobalName
+  | ResolvedLocal LocalName
+  | ResolvedBuiltin WiredInName
   | ResolvedError String
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 data ResolutionNamespace
   = ResolutionNamespaceTerm
   | ResolutionNamespaceType
   | ResolutionNamespaceModule
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 data ResolutionAnnotation = ResolutionAnnotation
   { resolutionSpan :: !SourceSpan,

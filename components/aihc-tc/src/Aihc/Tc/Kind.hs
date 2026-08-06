@@ -191,7 +191,7 @@ expandTypeSynonym :: TvKindEnv -> Type -> TcM (Maybe (TcType, Kind))
 expandTypeSynonym tvEnv ty =
   case typeApplicationSpine ty of
     (TCon name Unpromoted, arguments) -> do
-      maybeInfo <- lookupTyCon (nameText name)
+      maybeInfo <- lookupResolvedTyCon name
       case maybeInfo >>= tciTypeSynonym of
         Just synonym
           | Just {} <- tsiBody synonym -> Just <$> instantiateTypeSynonym tvEnv (nameText name) synonym arguments
@@ -289,7 +289,7 @@ inferTypeConstructor promoted name =
         "Type" -> pure (TcTyCon (TyCon "Type" 0) [], KType)
         "Constraint" -> pure (TcTyCon (TyCon "Constraint" 0) [], KType)
         raw -> do
-          mInfo <- lookupTyCon raw
+          mInfo <- lookupResolvedTyCon name
           case mInfo of
             Just info -> pure (TcTyCon (tciTyCon info) [], tciKind info)
             Nothing -> inferBuiltinOrOpenTypeConstructor raw

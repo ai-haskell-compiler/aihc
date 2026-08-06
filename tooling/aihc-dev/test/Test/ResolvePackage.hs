@@ -5,7 +5,7 @@ module Test.ResolvePackage
   )
 where
 
-import Aihc.Parser.Syntax (NameType (..), mkUnqualifiedName, qualifyName)
+import Aihc.Name (Namespace (..), defaultPackageId, globalName, moduleId)
 import Aihc.Resolve (ResolvedName (..), Scope (..))
 import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.List (isInfixOf)
@@ -71,8 +71,8 @@ test_renderInterfaceJSON = do
         interfaceFromExports
           "demo"
           ( Map.fromList
-              [ ("Z", mkScope ["zterm"] ["Zed"]),
-                ("A", (mkScope ["beta", "alpha"] ["Thing"]) {scopeConstructors = Map.singleton "Thing" ["MkThing"], scopeMethods = Map.singleton "Classy" ["method"]})
+              [ (moduleId defaultPackageId "Z", mkScope "Z" ["zterm"] ["Zed"]),
+                (moduleId defaultPackageId "A", (mkScope "A" ["beta", "alpha"] ["Thing"]) {scopeConstructors = Map.singleton "Thing" ["MkThing"], scopeMethods = Map.singleton "Classy" ["method"]})
               ]
           )
       rendered = BL8.unpack (renderInterfaceJSON iface)
@@ -109,11 +109,11 @@ test_formatDependencyFailure = do
   assertBool "mentions skipped dependency" ("Skipped because dependencies failed: other" `isInfixOf` rendered)
   assertBool "does not report target as dependency" (not ("target:" `isInfixOf` rendered))
 
-mkScope :: [Text] -> [Text] -> Scope
-mkScope terms types =
+mkScope :: Text -> [Text] -> [Text] -> Scope
+mkScope ownerName terms types =
   Scope
-    { scopeTerms = Map.fromList [(name, resolve name) | name <- terms],
-      scopeTypes = Map.fromList [(name, resolve name) | name <- types],
+    { scopeTerms = Map.fromList [(name, resolve TermNamespace name) | name <- terms],
+      scopeTypes = Map.fromList [(name, resolve TypeNamespace name) | name <- types],
       scopeConstructors = Map.empty,
       scopeRecordFields = Map.empty,
       scopeMethods = Map.empty,
@@ -121,5 +121,5 @@ mkScope terms types =
       scopeQualifiedModules = Map.empty
     }
   where
-    resolve name =
-      ResolvedTopLevel (qualifyName (Just "M") (mkUnqualifiedName NameVarId name))
+    resolve namespace name =
+      ResolvedTopLevel (globalName (moduleId defaultPackageId ownerName) namespace name)

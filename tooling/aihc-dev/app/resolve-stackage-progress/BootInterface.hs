@@ -29,12 +29,12 @@ module BootInterface
   )
 where
 
-import Aihc.Parser.Syntax (NameType (..), mkUnqualifiedName, qualifyName)
+import Aihc.Name
 import Aihc.Resolve (ModuleExports, ResolvedName (..), Scope (..))
 import Control.Exception (IOException, try)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
 import Data.Aeson qualified as Aeson
-import Data.Char (isAlphaNum, isSpace, isUpper)
+import Data.Char (isSpace)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -100,7 +100,7 @@ loadFromFile pkgName path = do
     Left err -> do
       hPutStrLn stderr ("Warning: failed to decode boot interface for " <> T.unpack pkgName <> ": " <> err)
       pure (pkgName, Nothing)
-    Right bootIface -> pure (pkgName, Just (bootIfaceToModuleExports bootIface))
+    Right bootIface -> pure (pkgName, Just (bootIfaceToModuleExports pkgName bootIface))
 
 -- | Generate a boot interface by running aihc-dev extract-resolve-iface.
 generateBootInterface :: Text -> FilePath -> IO Bool
@@ -152,14 +152,16 @@ instance FromJSON BootModuleInterface where
       <*> (fromMaybe Map.empty <$> o .:? "methods")
 
 -- | Convert a boot package interface to the resolver's ModuleExports format.
-bootIfaceToModuleExports :: BootPackageInterface -> ModuleExports
-bootIfaceToModuleExports bpi =
+bootIfaceToModuleExports :: Text -> BootPackageInterface -> ModuleExports
+bootIfaceToModuleExports packageNameText bpi =
   Map.fromList
-    [(bmiModule bmi, bootModuleToScope bmi) | bmi <- bpiModules bpi]
+    [(moduleId packageId (bmiModule bmi), bootModuleToScope packageId bmi) | bmi <- bpiModules bpi]
+  where
+    packageId = PackageId (PackageName packageNameText) (PackageVersion (_bpiPackage bpi)) (DependencyHash "ghc-boot")
 
 -- | Convert a single module interface to a Scope.
-bootModuleToScope :: BootModuleInterface -> Scope
-bootModuleToScope bmi =
+bootModuleToScope :: PackageId -> BootModuleInterface -> Scope
+bootModuleToScope packageId bmi =
   Scope
     { scopeTerms = Map.fromList termEntries,
       scopeTypes = Map.fromList typeEntries,
@@ -170,36 +172,25 @@ bootModuleToScope bmi =
       scopeQualifiedModules = Map.empty
     }
   where
-    modName = bmiModule bmi
+    owner = moduleId packageId (bmiModule bmi)
 
     termEntries =
-      [(n, resolve modName n) | n <- bmiTerms bmi]
-        ++ [ (n, resolve modName n)
+      [(n, resolveTerm n) | n <- bmiTerms bmi]
+        ++ [ (n, resolveTerm n)
            | (_, ctors) <- Map.toList (bmiConstructors bmi),
              n <- ctors
            ]
-        ++ [ (n, resolve modName n)
+        ++ [ (n, resolveTerm n)
            | (_, meths) <- Map.toList (bmiMethods bmi),
              n <- meths
            ]
 
     typeEntries =
-      [(n, resolve modName n) | n <- bmiTypes bmi]
-        ++ [(className, resolve modName className) | className <- Map.keys (bmiMethods bmi)]
+      [(n, resolveType n) | n <- bmiTypes bmi]
+        ++ [(className, resolveType className) | className <- Map.keys (bmiMethods bmi)]
 
-    resolve :: Text -> Text -> ResolvedName
-    resolve qual n =
-      ResolvedTopLevel (qualifyName (Just qual) (mkUnqualifiedName (inferNameType n) n))
-
--- | Infer the NameType from a name's lexical form.
-inferNameType :: Text -> NameType
-inferNameType n = case T.uncons n of
-  Nothing -> NameConId
-  Just (c, _)
-    | c == ':' -> NameConSym
-    | not (isAlphaNum c) && c /= '_' && c /= '\'' -> NameVarSym
-    | isUpper c -> NameConId
-    | otherwise -> NameVarId
+    resolveTerm n = ResolvedTopLevel (globalName owner TermNamespace n)
+    resolveType n = ResolvedTopLevel (globalName owner TypeNamespace n)
 
 -- | Strip leading and trailing whitespace.
 trim :: String -> String

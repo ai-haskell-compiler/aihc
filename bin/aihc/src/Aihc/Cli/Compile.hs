@@ -52,6 +52,7 @@ import Aihc.Fc
 import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
+import Aihc.Name (DependencyHash (..), Namespace (..), PackageId (..), PackageName (..), PackageVersion (..), globalName, moduleId, renderLinkName)
 import Aihc.Native
   ( LinkLayout,
     NativeTarget (..),
@@ -63,7 +64,7 @@ import Aihc.Native
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension (ImplicitPrelude), LanguageEdition (Haskell98Edition), Module, effectiveExtensions, headerExtensionSettings, headerLanguageEdition, moduleName)
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
+import Aihc.Resolve (ResolveResult (..), resolvePackageWithDeps)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
@@ -233,7 +234,7 @@ compileSourceToArtifactsWithDependencies target wholeProgram environment sourceN
 
 compileWithDependencies :: NativeTarget -> Bool -> DependencyArtifact -> Module -> Either CompileError CompileArtifacts
 compileWithDependencies target wholeProgram dependencies parsed =
-  case resolveWithDeps (dependencyExports dependencies) [parsed] of
+  case resolvePackageWithDeps executablePackageId (dependencyExports dependencies) [parsed] of
     ResolveResult {resolveErrors = errors@(_ : _)} -> Left (CompileFrontendError ["resolve error: " <> show errors])
     ResolveResult {resolvedModules} ->
       let (checkedModules, _) =
@@ -255,6 +256,14 @@ compileWithDependencies target wholeProgram dependencies parsed =
                               then compileWholeProgramArtifacts target incremental
                               else compileIncrementalArtifacts target dependencies incremental
 
+executablePackageId :: PackageId
+executablePackageId =
+  PackageId
+    { packageName = PackageName "exe",
+      packageVersion = PackageVersion "0",
+      packageDependencyHash = DependencyHash "local"
+    }
+
 -- | Compile every module SCC to its own normalized Core and GRIN unit before any
 -- optional whole-program transformation is considered.
 compileIncrementally :: Text -> DependencyArtifact -> FcProgram -> Either CompileError IncrementalCompilation
@@ -268,7 +277,7 @@ compileIncrementally mainModuleName dependencies unoptimizedMain =
             | unit <- dependencyUnits dependencies
             ],
           incrementalMainUnit = IncrementalUnit mainCore mainGrin mainCpsGrin,
-          incrementalEntryName = T.intercalate "\0" (["exe"] <> T.splitOn "." mainModuleName <> ["main"])
+          incrementalEntryName = renderLinkName (globalName (moduleId executablePackageId mainModuleName) TermNamespace "main")
         }
   where
     mainCore =
@@ -418,6 +427,8 @@ shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBi
 
     shiftTopBind topBind =
       case topBind of
+        FcModule {} -> topBind
+        FcName {} -> topBind
         FcData {} -> topBind
         FcAxiom {} -> topBind
         FcNewtype {} -> topBind
@@ -456,6 +467,8 @@ programVars (FcProgram topBinds) = concatMap topBindVarsDeep topBinds
 topBindVarsDeep :: FcTopBind -> [Var]
 topBindVarsDeep topBind =
   case topBind of
+    FcModule {} -> []
+    FcName {} -> []
     FcData {} -> []
     FcAxiom {} -> []
     FcNewtype {} -> []
