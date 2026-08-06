@@ -18,9 +18,9 @@ module Aihc.Fc.Pretty
   )
 where
 
+import Aihc.Fc.Name (renderGlobalName, renderModuleId)
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Fc.Syntax
-import Aihc.Name (renderGlobalName, renderModuleId)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..))
 import Data.ByteString qualified as BS
 import Data.Char (chr)

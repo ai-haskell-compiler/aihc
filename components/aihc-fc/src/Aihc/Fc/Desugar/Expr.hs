@@ -27,17 +27,17 @@ where
 
 import Aihc.Fc.Desugar.Match (dsPatternPure, numericRuntimeRep)
 import Aihc.Fc.Lower (seqPseudoOpName)
+import Aihc.Fc.Name
+  ( GlobalName (..),
+    ModuleId,
+    Namespace (TermNamespace),
+    OccName (..),
+    ResolvedId (ResolvedGlobal),
+    fromTcResolvedId,
+  )
+import Aihc.Fc.Name qualified as FcName
 import Aihc.Fc.Subst (substExprVar, substType)
 import Aihc.Fc.Syntax
-import Aihc.Name
-  ( GlobalName (..),
-    LocalName (..),
-    ModuleId (..),
-    ModuleName (..),
-    OccName (..),
-    WiredInName (..),
-  )
-import Aihc.Name qualified as CompilerName
 import Aihc.Parser.Syntax
   ( CaseAlt (..),
     CompStmt (..),
@@ -65,9 +65,11 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Resolve.Name qualified as ResolveName
 import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Monad (TcTermKey (..))
+import Aihc.Tc.Name qualified as TcName
 import Aihc.Tc.Types (Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType)
 import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
@@ -90,6 +92,7 @@ data DsState = DsState
   { dsNextUnique :: !Int,
     dsModuleName :: !(Maybe Text),
     dsModuleId :: !(Maybe ModuleId),
+    dsTcModuleId :: !(Maybe TcName.ModuleId),
     -- | Map from surface name to its inferred type (from TC).
     dsTypeEnv :: !(Map TcTermKey TcType),
     -- | Local variable bindings (pattern-bound, lambda-bound).
@@ -126,8 +129,8 @@ freshGlobalVar name ty = do
   owner <- gets dsModuleId
   pure
     var
-      { varId = CompilerName.ResolvedGlobal . (\moduleId' -> GlobalName moduleId' CompilerName.TermNamespace (OccName name)) <$> owner,
-        varResolvedName = CompilerName.renderResolvedId . CompilerName.ResolvedGlobal . (\moduleId' -> GlobalName moduleId' CompilerName.TermNamespace (OccName name)) <$> owner
+      { varId = ResolvedGlobal . (\moduleId' -> GlobalName moduleId' TermNamespace (OccName name)) <$> owner,
+        varResolvedName = FcName.renderResolvedId . ResolvedGlobal . (\moduleId' -> GlobalName moduleId' TermNamespace (OccName name)) <$> owner
       }
 
 freshInternalVar :: Text -> TcType -> DsM Var
@@ -150,10 +153,10 @@ lookupType name = do
 
 lookupCurrentType :: Text -> DsState -> Maybe TcType
 lookupCurrentType name state =
-  let currentKey = TcTermGlobal . (\owner -> GlobalName owner CompilerName.TermNamespace (OccName name)) <$> dsModuleId state
+  let currentKey = TcTermGlobal . (\owner -> TcName.GlobalName owner TcName.TermNamespace (TcName.OccName name)) <$> dsTcModuleId state
    in (currentKey >>= (`Map.lookup` dsTypeEnv state))
         <|> Map.lookup (TcTermLegacy name) (dsTypeEnv state)
-        <|> Map.lookup (TcTermBuiltin (WiredInName CompilerName.TermNamespace (OccName name))) (dsTypeEnv state)
+        <|> Map.lookup (TcTermBuiltin (TcName.WiredInName TcName.TermNamespace (TcName.OccName name))) (dsTypeEnv state)
 
 -- | Look up a local variable binding.
 lookupLocal :: Text -> DsM (Maybe Var)
@@ -576,7 +579,7 @@ dsExpr (EVar name) = do
       ty <- lookupTypeName name
       v <- freshVar n ty
       let identity = resolvedOccurrenceId name
-      pure (FcVar v {varResolvedName = CompilerName.renderResolvedId <$> identity, varId = identity})
+      pure (FcVar v {varResolvedName = FcName.renderResolvedId <$> identity, varId = identity})
 dsExpr (EInt i numericType _) = pure (FcLit (LitInt (numericRuntimeRep numericType) i))
 dsExpr (EChar c _) = pure (boxCharLiteral c)
 dsExpr (ECharHash c _) = pure (FcLit (LitChar WordRep c))
@@ -625,7 +628,7 @@ dsAnnotatedVar tcAnn name _expr = do
         ty <- lookupTypeName name
         imported <- freshVar n ty
         let identity = resolvedOccurrenceId name
-        pure imported {varResolvedName = CompilerName.renderResolvedId <$> identity, varId = identity}
+        pure imported {varResolvedName = FcName.renderResolvedId <$> identity, varId = identity}
   let occurrenceVar
         | isGhcPrimSeq name = variable {varName = seqPseudoOpName}
         | otherwise = variable
@@ -641,8 +644,8 @@ isGhcPrimSeq name =
       resolutionNamespace resolution == ResolutionNamespaceTerm
         && case resolutionTarget resolution of
           ResolvedTopLevel target ->
-            moduleName (globalModule target) == ModuleName "GHC.Prim"
-              && globalOccName target == OccName "seq"
+            ResolveName.moduleName (ResolveName.globalModule target) == ResolveName.ModuleName "GHC.Prim"
+              && ResolveName.globalOccName target == ResolveName.OccName "seq"
           _ -> False
 
 dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
@@ -776,11 +779,11 @@ resolvedAnnotationName resolution =
   case resolutionTarget resolution of
     ResolvedTopLevel name ->
       mkName
-        (Just (unModuleName (moduleName (globalModule name))))
+        (Just (ResolveName.unModuleName (ResolveName.moduleName (ResolveName.globalModule name))))
         NameVarId
-        (unOccName (globalOccName name))
-    ResolvedLocal name -> mkName Nothing NameVarId (unOccName (localOccName name))
-    ResolvedBuiltin name -> mkName Nothing NameVarId (unOccName (wiredInOccName name))
+        (ResolveName.unOccName (ResolveName.globalOccName name))
+    ResolvedLocal name -> mkName Nothing NameVarId (ResolveName.unOccName (ResolveName.localOccName name))
+    ResolvedBuiltin name -> mkName Nothing NameVarId (ResolveName.unOccName (ResolveName.wiredInOccName name))
     ResolvedError {} -> mkName Nothing NameVarId (resolutionName resolution)
 
 resolvedOccurrenceName :: Name -> Name
@@ -1795,16 +1798,16 @@ resolvedOccurrenceTermKey name = do
         resolutionNamespace candidate == ResolutionNamespaceTerm
       ]
   case resolutionTarget resolution of
-    ResolvedTopLevel target -> Just (TcTermGlobal target)
-    ResolvedLocal target -> Just (TcTermLocal target)
-    ResolvedBuiltin target -> Just (TcTermBuiltin target)
+    ResolvedTopLevel target -> Just (TcTermGlobal (TcName.fromResolverGlobalName target))
+    ResolvedLocal target -> Just (TcTermLocal (TcName.fromResolverLocalName target))
+    ResolvedBuiltin target -> Just (TcTermBuiltin (TcName.fromResolverWiredInName target))
     ResolvedError {} -> Nothing
 
-resolvedOccurrenceId :: Name -> Maybe CompilerName.ResolvedId
+resolvedOccurrenceId :: Name -> Maybe FcName.ResolvedId
 resolvedOccurrenceId name = do
   key <- resolvedOccurrenceTermKey name
   case key of
-    TcTermGlobal target -> Just (CompilerName.ResolvedGlobal target)
-    TcTermLocal target -> Just (CompilerName.ResolvedLocal target)
-    TcTermBuiltin target -> Just (CompilerName.ResolvedWiredIn target)
+    TcTermGlobal target -> Just (fromTcResolvedId (TcName.ResolvedGlobal target))
+    TcTermLocal target -> Just (fromTcResolvedId (TcName.ResolvedLocal target))
+    TcTermBuiltin target -> Just (fromTcResolvedId (TcName.ResolvedWiredIn target))
     TcTermLegacy {} -> Nothing

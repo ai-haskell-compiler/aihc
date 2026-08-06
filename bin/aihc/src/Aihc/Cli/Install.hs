@@ -47,8 +47,6 @@ import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
-import Aihc.Name (DependencyHash (..), PackageId (..), PackageName (..), PackageVersion (..))
-import Aihc.Name qualified as CompilerName
 import Aihc.Native (NativeTarget)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -75,6 +73,8 @@ import Aihc.Resolve
     resolvePackageWithDeps,
     restrictModuleExports,
   )
+import Aihc.Resolve.Name (DependencyHash (..), PackageId (..), PackageName (..), PackageVersion (..))
+import Aihc.Resolve.Name qualified as ResolveName
 import Aihc.Tc
   ( Pred (..),
     TcBindingResult (..),
@@ -1599,7 +1599,7 @@ moduleExportsValue exports =
         "methods" .= scopeMethods scope
       ]
   | (moduleIdentity, scope) <- Map.toAscList exports,
-    let moduleNameText = CompilerName.unModuleName (CompilerName.moduleName moduleIdentity)
+    let moduleNameText = ResolveName.unModuleName (ResolveName.moduleName moduleIdentity)
   ]
 
 tcModuleValue :: Module -> Module -> Aeson.Value

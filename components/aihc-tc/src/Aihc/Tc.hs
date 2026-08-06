@@ -91,7 +91,6 @@ module Aihc.Tc
   )
 where
 
-import Aihc.Name (GlobalName (..), LocalName (..), OccName (..), ResolvedId (..), WiredInName (..))
 import Aihc.Parser.Syntax
   ( Annotation,
     ArithSeq (..),
@@ -123,6 +122,7 @@ import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
+import Aihc.Tc.Name (GlobalName (..), LocalName (..), OccName (..), ResolvedId (..), WiredInName (..))
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)

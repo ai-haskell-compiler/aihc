@@ -7,10 +7,10 @@ module Test.Grin.Suite
   )
 where
 
+import Aihc.Fc.Name
 import Aihc.Fc.Newtype (extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
 import Aihc.Fc.Syntax
 import Aihc.Grin
-import Aihc.Name
 import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), runtimeRepOfType)
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
@@ -585,8 +585,8 @@ grinUnitTests =
             assertEqual "other external link name" [T.intercalate "\0" ["aihc", "base", "4", "21", "2", "0", "dephash", "Data", "Other", "identity"]] (map grinCodeSourceName (grinExternalFunctions otherConsumer))
           programs -> assertFailure ("expected two pairs of FC programs, got " <> show programs),
       testCase "constructor tags include the package variant and module" $ do
-        let packageA = PackageId (PackageName "same-package") (PackageVersion "1") (DependencyHash "deps-a")
-            packageB = PackageId (PackageName "same-package") (PackageVersion "1") (DependencyHash "deps-b")
+        let packageA = PackageId "same-package" "1" "deps-a"
+            packageB = PackageId "same-package" "1" "deps-b"
             ownerA = moduleId packageA "Shared"
             ownerB = moduleId packageB "Shared"
             constructor owner = globalName owner TermNamespace "C"

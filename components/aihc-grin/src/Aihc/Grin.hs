@@ -20,6 +20,7 @@ module Aihc.Grin
     lowerGc,
     lowerProgram,
     GrinLinkNames,
+    renderLinkName,
     linkNamesForProgram,
     lowerProgramWithLinkNames,
     GrinInterface,
@@ -74,6 +75,7 @@ import Aihc.Grin.Lower
     lowerProgramWithInterface,
     lowerProgramWithInterfaceAndLinkNames,
     lowerProgramWithLinkNames,
+    renderLinkName,
   )
 import Aihc.Grin.Parser (GrinParseError, parseExpr, parseProgram, renderParseError)
 import Aihc.Grin.Pretty (renderExpr, renderProgram)

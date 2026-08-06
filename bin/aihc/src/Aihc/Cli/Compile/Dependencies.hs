@@ -22,8 +22,6 @@ import Aihc.Cli.Store (installedLibrariesActivePath, installedLibrariesRoot)
 import Aihc.Fc (AxiomInterface, DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractAxiomInterface, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, lowerPseudoOps, optimizeProgram)
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
-import Aihc.Name (ModuleId, PackageId, moduleId, packageIdComponents, renderModuleId, renderPackageId)
-import Aihc.Name qualified as CompilerName
 import Aihc.Native
   ( LinkInterface,
     LinkLayout,
@@ -55,6 +53,8 @@ import Aihc.Resolve
     lookupModuleExport,
     resolvePackageWithDeps,
   )
+import Aihc.Resolve.Name (ModuleId, PackageId, moduleId, packageIdComponents, renderModuleId, renderPackageId)
+import Aihc.Resolve.Name qualified as ResolveName
 import Aihc.Tc
   ( TcBindingResult (..),
     TcInterface,
@@ -507,7 +507,7 @@ loadedModuleSccs loaded = map flatten . stronglyConnComp <$> mapM graphNode load
             `orElseEither` selectUnique current importDecl (const True)
         Just qualifier ->
           selectUnique current importDecl ((== qualifier) . renderPackageId . loadedLibraryId)
-            `orElseEither` selectUnique current importDecl ((== CompilerName.PackageName qualifier) . CompilerName.packageName . loadedLibraryId)
+            `orElseEither` selectUnique current importDecl ((== ResolveName.PackageName qualifier) . ResolveName.packageName . loadedLibraryId)
       where
         samePackage candidate = loadedLibraryId candidate == loadedLibraryId current
 

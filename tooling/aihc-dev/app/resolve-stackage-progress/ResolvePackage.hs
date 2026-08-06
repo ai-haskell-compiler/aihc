@@ -20,8 +20,8 @@ where
 
 import Aihc.Hackage.Stackage (loadStackageSnapshot)
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Name (ModuleId (..), ModuleName (..))
 import Aihc.Resolve (ModuleExports, Scope (..))
+import Aihc.Resolve.Name (ModuleId (..), ModuleName (..))
 import BootInterface (bootPackageNames, loadBootInterfaces)
 import Control.Exception (SomeException, try)
 import Data.Aeson (ToJSON (..), object, (.=))

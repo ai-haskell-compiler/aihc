@@ -7,7 +7,6 @@ module Test.Tc.Suite
   )
 where
 
-import Aihc.Name (DependencyHash (..), GlobalName (..), LocalName (..), OccName (..), PackageId (..), PackageName (..), PackageVersion (..), WiredInName (..))
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseModule, parseSignatureType)
 import Aihc.Parser.Syntax
   ( Annotation,
@@ -31,6 +30,7 @@ import Aihc.Parser.Syntax
     stripAnnotations,
   )
 import Aihc.Resolve (ResolveResult (..), extractInterface, resolve, resolvePackage, resolveWithDeps)
+import Aihc.Resolve.Name qualified as ResolveName
 import Aihc.Tc
 import Aihc.Tc.Annotations (PendingTcAnnotation, TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -39,6 +39,7 @@ import Aihc.Tc.Generalize (generalizeAndCommit)
 import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (freeTypeVars)
 import Aihc.Tc.Monad (emptyTcEnv, initTcState, runTcM)
+import Aihc.Tc.Name (GlobalName (..), LocalName (..), OccName (..), WiredInName (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme)
 import Aihc.Tc.Types (mkTyCon)
 import Aihc.Tc.Unify (unifyTypes)
@@ -73,7 +74,7 @@ tcTests =
 globalIdentityTests :: [TestTree]
 globalIdentityTests =
   [ testCase "same spelling in separate modules retains separate schemes" $ do
-      let packageId = PackageId (PackageName "identity-test") (PackageVersion "1") (DependencyHash "deps")
+      let packageId = ResolveName.PackageId (ResolveName.PackageName "identity-test") (ResolveName.PackageVersion "1") (ResolveName.DependencyHash "deps")
           resolved =
             resolvePackage
               packageId

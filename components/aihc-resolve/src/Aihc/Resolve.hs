@@ -40,7 +40,6 @@ module Aihc.Resolve
     renderPackageId,
     renderModuleId,
     renderGlobalName,
-    renderResolvedId,
     resolvedModuleIdentity,
     resolvedGlobals,
     ResolveError (..),
@@ -51,8 +50,6 @@ module Aihc.Resolve
   )
 where
 
-import Aihc.Name
-import Aihc.Name qualified as CompilerName
 import Aihc.Parser.Syntax
   ( Annotation,
     ArithSeq (..),
@@ -119,6 +116,8 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Syntax qualified as Parser
 import Aihc.Resolve.Monad
+import Aihc.Resolve.Name
+import Aihc.Resolve.Name qualified as ResolveName
 import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
 import Aihc.Resolve.Types
@@ -144,7 +143,7 @@ resolvePackage packageId = resolvePackageWithDeps packageId Map.empty
 -- have no source occurrence of their own.
 resolvedModuleIdentity :: Module -> Maybe ModuleId
 resolvedModuleIdentity modu =
-  find ((== ModuleName sourceModuleName) . CompilerName.moduleName) (mapMaybe targetModule (resolvedNamesIn modu))
+  find ((== ModuleName sourceModuleName) . ResolveName.moduleName) (mapMaybe targetModule (resolvedNamesIn modu))
   where
     sourceModuleName = fromMaybe "Main" (Parser.moduleName modu)
     targetModule target =

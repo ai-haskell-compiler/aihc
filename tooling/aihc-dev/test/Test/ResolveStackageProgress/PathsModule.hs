@@ -7,10 +7,10 @@ where
 
 import Aihc.Hackage.Cabal qualified as HC
 import Aihc.Hackage.Util (chooseBestCabalFile, findCabalFiles)
-import Aihc.Name (Namespace (..), defaultPackageId, globalName, moduleId)
-import Aihc.Name qualified as CompilerName
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (ModuleExports, ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
+import Aihc.Resolve.Name (Namespace (..), defaultPackageId, globalName, moduleId)
+import Aihc.Resolve.Name qualified as ResolveName
 import Control.Exception (bracket)
 import Data.Aeson (Value, encode, object, (.=))
 import Data.ByteString qualified as BS
@@ -118,7 +118,7 @@ interfaceJson iface =
                  "types" .= Map.keys (scopeTypes scope)
                ]
            | (owner, scope) <- Map.toList iface,
-             let moduleName = CompilerName.unModuleName (CompilerName.moduleName owner)
+             let moduleName = ResolveName.unModuleName (ResolveName.moduleName owner)
            ]
     ]
 

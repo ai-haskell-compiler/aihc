@@ -32,20 +32,6 @@ module Aihc.Resolve.Scope
   )
 where
 
-import Aihc.Name
-  ( ModuleId,
-    ModuleName (..),
-    Namespace (..),
-    OccName (..),
-    PackageId,
-    PackageName (..),
-    WiredInName (..),
-    defaultPackageId,
-    globalName,
-    moduleId,
-    renderPackageId,
-  )
-import Aihc.Name qualified as CompilerName
 import Aihc.Parser.Syntax
   ( BinderHead,
     ClassDecl (..),
@@ -87,6 +73,20 @@ import Aihc.Parser.Syntax
     recordFieldValue,
     renderUnqualifiedName,
   )
+import Aihc.Resolve.Name
+  ( ModuleId,
+    ModuleName (..),
+    Namespace (..),
+    OccName (..),
+    PackageId,
+    PackageName (..),
+    WiredInName (..),
+    defaultPackageId,
+    globalName,
+    moduleId,
+    renderPackageId,
+  )
+import Aihc.Resolve.Name qualified as ResolveName
 import Aihc.Resolve.Span (spanStartNameSpan)
 import Aihc.Resolve.Types
 import Data.List qualified as List
@@ -417,8 +417,8 @@ lookupModuleExport :: Maybe PackageName -> Text -> ModuleExports -> Maybe Scope
 lookupModuleExport maybePackage wantedModule exports =
   case [ scope
        | (owner, scope) <- Map.toList exports,
-         CompilerName.moduleName owner == ModuleName wantedModule,
-         maybe True (== CompilerName.packageName (CompilerName.modulePackage owner)) maybePackage
+         ResolveName.moduleName owner == ModuleName wantedModule,
+         maybe True (== ResolveName.packageName (ResolveName.modulePackage owner)) maybePackage
        ] of
     [scope] -> Just scope
     _ -> Nothing
@@ -431,16 +431,16 @@ lookupModuleExportForPackage :: PackageId -> Maybe Text -> Text -> ModuleExports
 lookupModuleExportForPackage currentPackage maybePackage wantedModule exports =
   case maybePackage of
     Nothing ->
-      uniqueScope (filter ((== currentPackage) . CompilerName.modulePackage . fst) candidates)
+      uniqueScope (filter ((== currentPackage) . ResolveName.modulePackage . fst) candidates)
         `orElse` uniqueScope candidates
     Just packageQualifier ->
-      uniqueScope (filter ((== packageQualifier) . renderPackageId . CompilerName.modulePackage . fst) candidates)
-        `orElse` uniqueScope (filter ((== PackageName packageQualifier) . CompilerName.packageName . CompilerName.modulePackage . fst) candidates)
+      uniqueScope (filter ((== packageQualifier) . renderPackageId . ResolveName.modulePackage . fst) candidates)
+        `orElse` uniqueScope (filter ((== PackageName packageQualifier) . ResolveName.packageName . ResolveName.modulePackage . fst) candidates)
   where
     candidates =
       [ (owner, scope)
       | (owner, scope) <- Map.toList exports,
-        CompilerName.moduleName owner == ModuleName wantedModule
+        ResolveName.moduleName owner == ModuleName wantedModule
       ]
     uniqueScope [(_, scope)] = Just scope
     uniqueScope _ = Nothing
@@ -448,12 +448,12 @@ lookupModuleExportForPackage currentPackage maybePackage wantedModule exports =
     orElse Nothing fallback = fallback
 
 moduleExportNames :: ModuleExports -> [Text]
-moduleExportNames = map (unModuleName . CompilerName.moduleName) . Map.keys
+moduleExportNames = map (unModuleName . ResolveName.moduleName) . Map.keys
 
 restrictModuleExports :: Set.Set Text -> ModuleExports -> ModuleExports
 restrictModuleExports names =
   Map.filterWithKey
-    (\owner _ -> unModuleName (CompilerName.moduleName owner) `Set.member` names)
+    (\owner _ -> unModuleName (ResolveName.moduleName owner) `Set.member` names)
 
 filterImportSpec :: Maybe ImportSpec -> Scope -> Scope
 filterImportSpec maybeSpec scope =

@@ -20,6 +20,7 @@ library
     Aihc.Fc.Eval
     Aihc.Fc.Lint
     Aihc.Fc.Lower
+    Aihc.Fc.Name
     Aihc.Fc.Newtype
     Aihc.Fc.Optimize
     Aihc.Fc.Pretty
@@ -34,7 +35,6 @@ library
 
   hs-source-dirs: src
   build-depends:
-    aihc-names,
     aihc-parser,
     aihc-resolve,
     aihc-tc,
@@ -65,7 +65,6 @@ test-suite spec
   build-depends:
     aeson,
     aihc-fc,
-    aihc-names,
     aihc-parser,
     aihc-resolve,
     aihc-tc,

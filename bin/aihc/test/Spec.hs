@@ -44,11 +44,12 @@ import Aihc.Fc
     Var (..),
     extractReachabilityInterface,
   )
+import Aihc.Fc.Name qualified as FcName
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Name (Namespace (..), globalName, moduleId, renderLinkName)
 import Aihc.Native (NativeTarget (..), renderLinkedFunctionSymbol)
 import Aihc.Resolve (Scope (..), lookupModuleExport)
+import Aihc.Resolve.Name (Namespace (..), globalName, moduleId)
 import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
 import Control.Exception (bracket)
 import Data.Aeson (object, (.=))
@@ -1071,7 +1072,7 @@ test_installedPackage =
       Right assembly -> do
         let identitySymbol =
               renderLinkedFunctionSymbol
-                (renderLinkName (globalName (moduleId (packageVariantPackageId (planPackageKey plan)) "GHC.Prim") TermNamespace "identity"))
+                (Grin.renderLinkName (FcName.fromResolverGlobalName (globalName (moduleId (packageVariantPackageId (planPackageKey plan)) "GHC.Prim") TermNamespace "identity")))
         assertBool "expected installed dependency initializer" ("_aihc_init_" `T.isInfixOf` assembly)
         assertBool ("expected readable dependency symbol " <> T.unpack identitySymbol) (identitySymbol `T.isInfixOf` assembly)
     privateCompileResult <- compileSourceToAssemblyWithDependenciesFor Llvm environment "PrivateMain.hs" privateMainSource

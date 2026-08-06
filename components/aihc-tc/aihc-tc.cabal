@@ -35,6 +35,7 @@ library
     Aihc.Tc.Instantiate
     Aihc.Tc.Kind
     Aihc.Tc.Monad
+    Aihc.Tc.Name
     Aihc.Tc.Solve
     Aihc.Tc.Solve.Canonicalize
     Aihc.Tc.Solve.Dict
@@ -48,7 +49,6 @@ library
 
   hs-source-dirs: src
   build-depends:
-    aihc-names,
     aihc-parser,
     aihc-resolve,
     base >=4.16 && <5,
@@ -98,7 +98,6 @@ test-suite spec
 
   build-depends:
     aeson,
-    aihc-names,
     aihc-parser,
     aihc-resolve,
     aihc-tc,

@@ -18,10 +18,10 @@ import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, peel
 import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshGlobalVar, freshUnique, freshVar, lookupType, withDicts)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Lower (lowerPseudoOps)
+import Aihc.Fc.Name (GlobalName (..), Namespace (..), OccName (..), ResolvedId (..), fromResolverGlobalName, fromResolverModuleId)
 import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Subst (freeRigidTyVars, substType)
 import Aihc.Fc.Syntax
-import Aihc.Name (GlobalName (..), Namespace (..), OccName (..), ResolvedId (..), WiredInName (..))
 import Aihc.Parser.Syntax
   ( CallConv (..),
     ClassDecl (..),
@@ -57,6 +57,7 @@ import Aihc.Resolve (ResolveResult (..), resolve, resolvedGlobals, resolvedModul
 import Aihc.Tc (DataFamilyInstanceInfo (..), TcBindingResult (..), TcTermKey (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModule)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
+import Aihc.Tc.Name qualified as TcName
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
 import Aihc.Tc.Types
   ( Pred (..),
@@ -114,7 +115,8 @@ desugarModuleWithBindings bindings tcResult _m =
         }
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
-       in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) (resolvedModuleIdentity tcResult) typeEnv Map.empty Map.empty) of
+          resolverOwner = resolvedModuleIdentity tcResult
+       in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) (fromResolverModuleId <$> resolverOwner) (TcName.fromResolverModuleId <$> resolverOwner) typeEnv Map.empty Map.empty) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram [],
@@ -224,9 +226,9 @@ bindingTypeEntries b =
 
 builtinTypeEntries :: [(TcTermKey, TcType)]
 builtinTypeEntries =
-  [ (TcTermBuiltin (WiredInName TermNamespace (OccName ":")), TcForAllTy aVar (TcFunTy aTy (TcFunTy listA listA))),
-    (TcTermBuiltin (WiredInName TermNamespace (OccName "[]")), TcForAllTy aVar listA),
-    (TcTermBuiltin (WiredInName TermNamespace (OccName "()")), TcTyCon (TyCon "()" 0) [])
+  [ (TcTermBuiltin (TcName.WiredInName TcName.TermNamespace (TcName.OccName ":")), TcForAllTy aVar (TcFunTy aTy (TcFunTy listA listA))),
+    (TcTermBuiltin (TcName.WiredInName TcName.TermNamespace (TcName.OccName "[]")), TcForAllTy aVar listA),
+    (TcTermBuiltin (TcName.WiredInName TcName.TermNamespace (TcName.OccName "()")), TcTyCon (TyCon "()" 0) [])
   ]
   where
     aVar = TyVarId "a" (Unique (-1000))
@@ -237,7 +239,7 @@ builtinTypeEntries =
 dsModule :: Module -> DsM [FcTopBind]
 dsModule m = do
   let decls = moduleDecls m
-      identityTops = maybe [] (pure . FcModule) (resolvedModuleIdentity m) <> map FcName (resolvedGlobals m)
+      identityTops = maybe [] (pure . FcModule . fromResolverModuleId) (resolvedModuleIdentity m) <> map (FcName . fromResolverGlobalName) (resolvedGlobals m)
   -- Phase 1: data declarations and class method selectors.
   dataTops <- concat <$> mapM dsDecl decls
   -- Phase 2: instance dictionaries.

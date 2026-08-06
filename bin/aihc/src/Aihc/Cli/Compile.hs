@@ -50,9 +50,9 @@ import Aihc.Fc
     reachablePrimitiveNames,
   )
 import Aihc.Fc qualified as Fc
+import Aihc.Fc.Name qualified as FcName
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
-import Aihc.Name (DependencyHash (..), Namespace (..), PackageId (..), PackageName (..), PackageVersion (..), globalName, moduleId, renderLinkName)
 import Aihc.Native
   ( LinkLayout,
     NativeTarget (..),
@@ -65,6 +65,7 @@ import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension (ImplicitPrelude), LanguageEdition (Haskell98Edition), Module, effectiveExtensions, headerExtensionSettings, headerLanguageEdition, moduleName)
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (ResolveResult (..), resolvePackageWithDeps)
+import Aihc.Resolve.Name (DependencyHash (..), Namespace (..), PackageId (..), PackageName (..), PackageVersion (..), globalName, moduleId)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
@@ -277,7 +278,7 @@ compileIncrementally mainModuleName dependencies unoptimizedMain =
             | unit <- dependencyUnits dependencies
             ],
           incrementalMainUnit = IncrementalUnit mainCore mainGrin mainCpsGrin,
-          incrementalEntryName = renderLinkName (globalName (moduleId executablePackageId mainModuleName) TermNamespace "main")
+          incrementalEntryName = Grin.renderLinkName (FcName.fromResolverGlobalName (globalName (moduleId executablePackageId mainModuleName) TermNamespace "main"))
         }
   where
     mainCore =

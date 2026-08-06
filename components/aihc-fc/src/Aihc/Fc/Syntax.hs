@@ -49,7 +49,7 @@ module Aihc.Fc.Syntax
   )
 where
 
-import Aihc.Name (GlobalName, ModuleId, ResolvedId)
+import Aihc.Fc.Name (GlobalName, ModuleId, ResolvedId)
 import Aihc.Tc.Evidence (Coercion)
 import Aihc.Tc.Types
   ( RuntimeRep (..),

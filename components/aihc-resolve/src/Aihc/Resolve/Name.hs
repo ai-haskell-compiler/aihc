@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Stable, structured identities shared by every compiler phase.
+-- | Names and package identities used by name resolution.
 --
--- Rendering is deliberately separate from equality. A short rendering may be
--- ambiguous; the identity never is.
-module Aihc.Name
+-- These types are deliberately owned by @aihc-resolve@. Downstream compiler
+-- stages must translate them into their own IR-specific identity types.
+module Aihc.Resolve.Name
   ( PackageName (..),
     PackageVersion (..),
     DependencyHash (..),
@@ -16,24 +16,17 @@ module Aihc.Name
     GlobalName (..),
     LocalName (..),
     WiredInName (..),
-    ResolvedId (..),
     defaultPackageId,
     moduleId,
     globalName,
-    resolvedOccName,
-    resolvedModuleId,
     renderPackageId,
     renderModuleId,
     renderGlobalName,
-    renderResolvedId,
-    renderLinkName,
     packageIdComponents,
-    moduleNameComponents,
   )
 where
 
 import Data.Text (Text)
-import Data.Text qualified as T
 
 newtype PackageName = PackageName {unPackageName :: Text}
   deriving (Eq, Ord, Show, Read)
@@ -95,12 +88,6 @@ data WiredInName = WiredInName
   }
   deriving (Eq, Ord, Show, Read)
 
-data ResolvedId
-  = ResolvedGlobal !GlobalName
-  | ResolvedLocal !LocalName
-  | ResolvedWiredIn !WiredInName
-  deriving (Eq, Ord, Show, Read)
-
 defaultPackageId :: PackageId
 defaultPackageId =
   PackageId
@@ -114,20 +101,6 @@ moduleId packageId name = ModuleId packageId (ModuleName name)
 
 globalName :: ModuleId -> Namespace -> Text -> GlobalName
 globalName owner namespace name = GlobalName owner namespace (OccName name)
-
-resolvedOccName :: ResolvedId -> OccName
-resolvedOccName resolved =
-  case resolved of
-    ResolvedGlobal name -> globalOccName name
-    ResolvedLocal name -> localOccName name
-    ResolvedWiredIn name -> wiredInOccName name
-
-resolvedModuleId :: ResolvedId -> Maybe ModuleId
-resolvedModuleId resolved =
-  case resolved of
-    ResolvedGlobal name -> Just (globalModule name)
-    ResolvedLocal name -> Just (localModule name)
-    ResolvedWiredIn _ -> Nothing
 
 renderPackageId :: PackageId -> Text
 renderPackageId packageId' =
@@ -144,48 +117,9 @@ renderModuleId moduleId' = renderPackageId (modulePackage moduleId') <> ":" <> u
 renderGlobalName :: GlobalName -> Text
 renderGlobalName name = renderModuleId (globalModule name) <> "." <> unOccName (globalOccName name)
 
-renderResolvedId :: ResolvedId -> Text
-renderResolvedId resolved =
-  case resolved of
-    ResolvedGlobal name -> renderGlobalName name
-    ResolvedLocal name ->
-      renderModuleId (localModule name)
-        <> "."
-        <> unOccName (localOccName name)
-        <> "#"
-        <> T.pack (show (localUnique name))
-    ResolvedWiredIn name -> "<wired-in>:" <> unOccName (wiredInOccName name)
-
--- | Structured logical linker name. NUL is an encoding delimiter only; it is
--- never used as the semantic identity.
-renderLinkName :: GlobalName -> Text
-renderLinkName name =
-  T.intercalate
-    "\0"
-    [ unPackageName (packageName packageId'),
-      unPackageVersion (packageVersion packageId'),
-      unDependencyHash (packageDependencyHash packageId'),
-      unModuleName (moduleName owner),
-      namespaceTag (globalNamespace name),
-      unOccName (globalOccName name)
-    ]
-  where
-    owner = globalModule name
-    packageId' = modulePackage owner
-    namespaceTag namespace =
-      case namespace of
-        TermNamespace -> "term"
-        TypeNamespace -> "type"
-        FieldNamespace -> "field"
-        ModuleNamespace -> "module"
-        AxiomNamespace -> "axiom"
-
 packageIdComponents :: PackageId -> [Text]
 packageIdComponents packageId' =
   [ unPackageName (packageName packageId'),
     unPackageVersion (packageVersion packageId'),
     unDependencyHash (packageDependencyHash packageId')
   ]
-
-moduleNameComponents :: ModuleName -> [Text]
-moduleNameComponents = T.splitOn "." . unModuleName

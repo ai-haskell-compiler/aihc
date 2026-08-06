@@ -15,7 +15,6 @@ module Aihc.Resolve.Types
   )
 where
 
-import Aihc.Name (GlobalName, LocalName, WiredInName)
 import Aihc.Parser.Syntax
   ( Decl (..),
     Expr (..),
@@ -26,6 +25,7 @@ import Aihc.Parser.Syntax
     Type (..),
     fromAnnotation,
   )
+import Aihc.Resolve.Name (GlobalName, LocalName, WiredInName)
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 

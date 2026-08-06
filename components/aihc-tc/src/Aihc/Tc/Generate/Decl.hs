@@ -98,6 +98,7 @@ import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
 import Aihc.Tc.Monad
+import Aihc.Tc.Name (fromResolverGlobalName, fromResolverLocalName, fromResolverWiredInName)
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
@@ -161,9 +162,9 @@ resolvedBinderTermKey name = do
       ((== ResolutionNamespaceTerm) . resolutionNamespace)
       (mapMaybe fromAnnotation (unqualifiedNameAnns name))
   case resolutionTarget resolution of
-    ResolvedTopLevel target -> Just (TcTermGlobal target)
-    ResolvedLocal target -> Just (TcTermLocal target)
-    ResolvedBuiltin target -> Just (TcTermBuiltin target)
+    ResolvedTopLevel target -> Just (TcTermGlobal (fromResolverGlobalName target))
+    ResolvedLocal target -> Just (TcTermLocal (fromResolverLocalName target))
+    ResolvedBuiltin target -> Just (TcTermBuiltin (fromResolverWiredInName target))
     ResolvedError {} -> Nothing
 
 data UserSig = UserSig

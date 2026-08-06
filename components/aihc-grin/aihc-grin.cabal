@@ -33,7 +33,6 @@ library
   hs-source-dirs: src
   build-depends:
     aihc-fc,
-    aihc-names,
     aihc-tc,
     base >=4.16 && <5,
     bytestring,
@@ -90,7 +89,6 @@ test-suite spec
     aeson,
     aihc-fc,
     aihc-grin,
-    aihc-names,
     aihc-parser,
     aihc-resolve,
     aihc-tc,

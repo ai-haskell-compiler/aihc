@@ -84,14 +84,13 @@ module Aihc.Tc.Monad
   )
 where
 
-import Aihc.Name (GlobalName (..), LocalName (..), ModuleId, Namespace (..), OccName (..), WiredInName (..), globalName)
-import Aihc.Name qualified as CompilerName
 import Aihc.Parser.Syntax (Annotation, Module, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
-import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName)
 import Aihc.Resolve qualified as Resolve
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo, DataTypeInfo (..), InstanceInfo, TyConInfo (..))
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
+import Aihc.Tc.Name
 import Aihc.Tc.Types
 import Control.Applicative ((<|>))
 import Control.Monad.Trans.Class (lift)
@@ -410,13 +409,13 @@ resolvedUnqualifiedTermKey name =
 resolvedNameTermKey :: Text -> ResolvedName -> TcM TcTermKey
 resolvedNameTermKey displayName resolved =
   case resolved of
-    ResolvedLocal name ->
-      pure (TcTermLocal name)
-    ResolvedTopLevel name ->
-      pure (TcTermGlobal name)
-    ResolvedBuiltin name ->
-      pure (TcTermBuiltin name)
-    ResolvedError msg ->
+    Resolve.ResolvedLocal name ->
+      pure (TcTermLocal (fromResolverLocalName name))
+    Resolve.ResolvedTopLevel name ->
+      pure (TcTermGlobal (fromResolverGlobalName name))
+    Resolve.ResolvedBuiltin name ->
+      pure (TcTermBuiltin (fromResolverWiredInName name))
+    Resolve.ResolvedError msg ->
       abortTc ("resolver error reached type checker for term " <> show displayName <> ": " <> msg)
 
 -- | Snapshot all visible term bindings keyed by resolver-selected identity.
@@ -457,7 +456,7 @@ currentTermKey name = do
 -- siblings while checking one resolved module.
 withTcModule :: Module -> TcM a -> TcM a
 withTcModule modu =
-  local $ \env -> env {tcEnvModule = Resolve.resolvedModuleIdentity modu <|> tcEnvModule env}
+  local $ \env -> env {tcEnvModule = fromResolverModuleId <$> Resolve.resolvedModuleIdentity modu <|> tcEnvModule env}
 
 resolvedTermTarget :: Name -> TcM ResolvedName
 resolvedTermTarget name =
@@ -471,7 +470,7 @@ resolvedLocalTermKey name =
   case termResolution (unqualifiedNameAnns name) of
     Just resolution ->
       case resolutionTarget resolution of
-        ResolvedLocal localName -> pure (TcTermLocal localName)
+        Resolve.ResolvedLocal localName -> pure (TcTermLocal (fromResolverLocalName localName))
         target ->
           abortTc ("expected local resolver annotation for binder " <> show (unqualifiedNameText name) <> ", got " <> show target)
     Nothing ->
@@ -490,8 +489,8 @@ lookupResolvedTyCon name =
   case typeResolution (nameAnns name) of
     Just resolution ->
       case resolutionTarget resolution of
-        ResolvedTopLevel target -> lift $ gets (Map.lookup (TcTypeGlobal target) . tcsGlobalTyCons)
-        ResolvedBuiltin target -> lift $ gets (Map.lookup (TcTypeBuiltin target) . tcsGlobalTyCons)
+        Resolve.ResolvedTopLevel target -> lift $ gets (Map.lookup (TcTypeGlobal (fromResolverGlobalName target)) . tcsGlobalTyCons)
+        Resolve.ResolvedBuiltin target -> lift $ gets (Map.lookup (TcTypeBuiltin (fromResolverWiredInName target)) . tcsGlobalTyCons)
         _ -> pure Nothing
     Nothing -> lookupTyCon (nameText name)
 
@@ -503,8 +502,8 @@ extendTyConEnvPermanent name info = do
   key <- currentTyConKey name
   let info' =
         case key of
-          TcTypeGlobal target -> info {tciTyCon = setTyConId (CompilerName.ResolvedGlobal target) (tciTyCon info)}
-          TcTypeBuiltin target -> info {tciTyCon = setTyConId (CompilerName.ResolvedWiredIn target) (tciTyCon info)}
+          TcTypeGlobal target -> info {tciTyCon = setTyConId (ResolvedGlobal target) (tciTyCon info)}
+          TcTypeBuiltin target -> info {tciTyCon = setTyConId (ResolvedWiredIn target) (tciTyCon info)}
           TcTypeLegacy {} -> info
   lift $ modify' $ \s ->
     s {tcsGlobalTyCons = Map.insert key info' (tcsGlobalTyCons s)}

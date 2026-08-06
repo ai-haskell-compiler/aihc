@@ -53,7 +53,7 @@ module Aihc.Tc.Types
   )
 where
 
-import Aihc.Name (ResolvedId)
+import Aihc.Tc.Name (ResolvedId)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T

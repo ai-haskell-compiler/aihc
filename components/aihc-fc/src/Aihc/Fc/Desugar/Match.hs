@@ -14,8 +14,8 @@ module Aihc.Fc.Desugar.Match
   )
 where
 
+import Aihc.Fc.Name qualified as FcName
 import Aihc.Fc.Syntax
-import Aihc.Name qualified as CompilerName
 import Aihc.Parser.Syntax
   ( DataConDecl (..),
     FieldDecl (..),
@@ -127,12 +127,12 @@ unboxedSumConText pos arity =
    in "(# " <> leftBars <> "_" <> rightBars <> " #)"
 
 -- | Convert a Name to Text.
-resolvedConstructorId :: Name -> Maybe CompilerName.ResolvedId
+resolvedConstructorId :: Name -> Maybe FcName.ResolvedId
 resolvedConstructorId name =
   case find ((== ResolutionNamespaceTerm) . resolutionNamespace) (mapMaybe fromAnnotation (nameAnns name)) of
     Just resolution ->
       case resolutionTarget resolution of
-        Resolve.ResolvedTopLevel target -> Just (CompilerName.ResolvedGlobal target)
-        Resolve.ResolvedBuiltin target -> Just (CompilerName.ResolvedWiredIn target)
+        Resolve.ResolvedTopLevel target -> Just (FcName.ResolvedGlobal (FcName.fromResolverGlobalName target))
+        Resolve.ResolvedBuiltin target -> Just (FcName.ResolvedWiredIn (FcName.fromResolverWiredInName target))
         _ -> Nothing
     Nothing -> Nothing

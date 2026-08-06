@@ -29,8 +29,8 @@ module BootInterface
   )
 where
 
-import Aihc.Name
 import Aihc.Resolve (ModuleExports, ResolvedName (..), Scope (..))
+import Aihc.Resolve.Name
 import Control.Exception (IOException, try)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
 import Data.Aeson qualified as Aeson

@@ -5,6 +5,7 @@
 module Aihc.Grin.Lower
   ( GrinInterface,
     GrinLinkNames,
+    renderLinkName,
     linkNamesForProgram,
     extractGrinInterface,
     extractGrinInterfaceWithLinkNames,
@@ -16,12 +17,12 @@ module Aihc.Grin.Lower
 where
 
 import Aihc.Fc.Lower (lowerPseudoOps)
+import Aihc.Fc.Name (GlobalName (..), ModuleId (..), Namespace (..), OccName (..), PackageId (..), ResolvedId (..), renderResolvedId)
 import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Syntax
-import Aihc.Name (GlobalName (..), ModuleId, Namespace (..), OccName (..), ResolvedId (..), renderLinkName, renderResolvedId)
 import Aihc.Tc.Types
   ( RuntimeRep (..),
     TcType (..),
@@ -115,6 +116,30 @@ instance Semigroup GrinLinkNames where
 
 instance Monoid GrinLinkNames where
   mempty = GrinLinkNames Map.empty Map.empty Map.empty Map.empty Map.empty
+
+-- | Encode an FC global identity for the linker. NUL is an encoding
+-- delimiter at this boundary, never the semantic representation of a name.
+renderLinkName :: GlobalName -> Text
+renderLinkName name =
+  T.intercalate
+    "\0"
+    [ packageName packageId,
+      packageVersion packageId,
+      packageDependencyHash packageId,
+      moduleName owner,
+      namespaceTag (globalNamespace name),
+      unOccName (globalOccName name)
+    ]
+  where
+    owner = globalModule name
+    packageId = modulePackage owner
+    namespaceTag namespace =
+      case namespace of
+        TermNamespace -> "term"
+        TypeNamespace -> "type"
+        FieldNamespace -> "field"
+        ModuleNamespace -> "module"
+        AxiomNamespace -> "axiom"
 
 -- | Assign every top-level value in a program a linker identity consisting
 -- of the supplied package-and-module components followed by its source name.

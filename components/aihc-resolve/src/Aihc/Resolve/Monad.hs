@@ -15,7 +15,6 @@ module Aihc.Resolve.Monad
   )
 where
 
-import Aihc.Name (LocalName (..), ModuleId, Namespace (..), OccName (..))
 import Aihc.Parser.Syntax
   ( Annotation,
     Extension,
@@ -23,6 +22,7 @@ import Aihc.Parser.Syntax
     UnqualifiedName,
     unqualifiedNameText,
   )
+import Aihc.Resolve.Name (LocalName (..), ModuleId, Namespace (..), OccName (..))
 import Aihc.Resolve.Scope
 import Aihc.Resolve.Span
 import Aihc.Resolve.Types

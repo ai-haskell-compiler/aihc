@@ -5,8 +5,8 @@ module Test.ResolvePackage
   )
 where
 
-import Aihc.Name (Namespace (..), defaultPackageId, globalName, moduleId)
 import Aihc.Resolve (ResolvedName (..), Scope (..))
+import Aihc.Resolve.Name (Namespace (..), defaultPackageId, globalName, moduleId)
 import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.List (isInfixOf)
 import Data.Map.Strict qualified as Map

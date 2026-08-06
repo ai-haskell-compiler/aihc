@@ -15,8 +15,6 @@ module Aihc.Cli.Repl
 where
 
 import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithBindings, evalProgramBinding, renderProgram, renderValue)
-import Aihc.Name (GlobalName (..), ModuleName (..), Namespace (..), OccName (..), defaultPackageId, globalName, moduleId)
-import Aihc.Name qualified as CompilerName
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr, parseModule)
 import Aihc.Parser.Shorthand (Shorthand (..))
 import Aihc.Parser.Syntax
@@ -34,6 +32,8 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, lookupModuleExport, moduleExportNames, resolveWithDeps)
+import Aihc.Resolve.Name (GlobalName (..), ModuleName (..), Namespace (..), OccName (..), defaultPackageId, globalName, moduleId)
+import Aihc.Resolve.Name qualified as ResolveName
 import Aihc.Tc
   ( InstanceInfo,
     Pred (..),
@@ -298,7 +298,7 @@ resolvedBindingKey browsingModule exportedName resolved =
   case resolved of
     ResolvedTopLevel name ->
       Just
-        ( unModuleName (CompilerName.moduleName (globalModule name)),
+        ( unModuleName (ResolveName.moduleName (globalModule name)),
           normalizeImportedBindingName (unOccName (globalOccName name))
         )
     ResolvedBuiltin _ -> Just (browsingModule, exportedName)

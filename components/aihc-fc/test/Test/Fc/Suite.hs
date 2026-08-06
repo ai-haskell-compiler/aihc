@@ -13,11 +13,12 @@ where
 
 import Aihc.Fc
 import Aihc.Fc.Desugar.Match (dsDataConPure)
+import Aihc.Fc.Name
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
-import Aihc.Name
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (ResolveResult (..), resolvePackage)
+import Aihc.Resolve.Name qualified as ResolveName
 import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), typecheckModule)
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
@@ -69,8 +70,8 @@ fcDesugarTests =
         assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
         assertEqual "Core lint" [] (lintProgram emptyLintEnv (dsProgram result)),
       testCase "retains package and module identities in System FC" $ do
-        let packageId = PackageId (PackageName "example") (PackageVersion "1.2.3") (DependencyHash "deps-a")
-            owner = moduleId packageId "Symbols"
+        let packageId = ResolveName.PackageId (ResolveName.PackageName "example") (ResolveName.PackageVersion "1.2.3") (ResolveName.DependencyHash "deps-a")
+            owner = fromResolverModuleId (ResolveName.moduleId packageId "Symbols")
             source = "module Symbols where\ndata T = C\nf = C\n"
             (parseErrors, parsedModule) = parseModule defaultConfig source
         assertEqual "source parses" [] parseErrors

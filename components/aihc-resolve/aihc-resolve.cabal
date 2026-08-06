@@ -12,6 +12,7 @@ synopsis: Name resolution for parsed Haskell modules
 library
   exposed-modules:
     Aihc.Resolve
+    Aihc.Resolve.Name
     Aihc.Resolve.Types
 
   other-modules:
@@ -21,7 +22,6 @@ library
 
   hs-source-dirs: src
   build-depends:
-    aihc-names,
     aihc-parser,
     base >=4.16 && <5,
     containers,
