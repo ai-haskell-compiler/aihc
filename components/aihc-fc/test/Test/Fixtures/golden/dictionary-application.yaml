@@ -4,7 +4,7 @@ expected: |-
     | True;
 
   data Eq a where
-    | $Dict$Eq : a → a → Bool;
+    | $Dict$Eq (a → a → Bool);
 
   "==" : ∀ a. Eq a → a → a → Bool =
     Λ a →

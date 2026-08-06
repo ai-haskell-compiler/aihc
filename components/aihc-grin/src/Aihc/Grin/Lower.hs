@@ -131,7 +131,9 @@ linkNamesForProgram libraryId moduleNameComponents program =
         Map.fromList
           [ (T.intercalate "." (moduleNameComponents <> [name]), (name, length fields))
           | FcData _ _ constructors <- fcTopBinds program,
-            (name, fields) <- constructors
+            constructor <- constructors,
+            let name = fcDataConstructorName constructor
+                fields = fcDataConstructorFields constructor
           ]
     }
   where
@@ -319,7 +321,7 @@ lowerTopBind :: FcTopBind -> LowerM LoweredTop
 lowerTopBind topBind =
   case topBind of
     FcData _ _ constructors ->
-      pure mempty {loweredConstructors = [(name, map (runtimeRepComponents . typeRuntimeRep) fields) | (name, fields) <- constructors]}
+      pure mempty {loweredConstructors = [(fcDataConstructorName constructor, map (runtimeRepComponents . typeRuntimeRep) (fcDataConstructorFields constructor)) | constructor <- constructors]}
     FcAxiom {} ->
       pure mempty
     FcNewtype {} ->
@@ -1606,7 +1608,9 @@ programConstructors :: FcProgram -> [(Text, Int)]
 programConstructors program =
   [ (name, length fields)
   | FcData _ _ constructors <- fcTopBinds program,
-    (name, fields) <- constructors
+    constructor <- constructors,
+    let name = fcDataConstructorName constructor
+        fields = fcDataConstructorFields constructor
   ]
 
 programGlobalInfos :: GrinLinkNames -> FcProgram -> [(Var, Text, Text, Bool)]

@@ -6,7 +6,7 @@ expected: |-
   data RealWorld where;
 
   data Int where
-    | I# : Int#;
+    | I# Int#;
 
   newtype IO a = IO (State# RealWorld → (tycon "(#,#)" / 2 :: TYPE TupleRep [] → Type → TYPE TupleRep [TupleRep [], LiftedRep]) (State# RealWorld) a);
 

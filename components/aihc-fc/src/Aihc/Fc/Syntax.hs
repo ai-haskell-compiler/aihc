@@ -23,6 +23,7 @@ module Aihc.Fc.Syntax
     -- * Bindings
     FcBind (..),
     FcTopBind (..),
+    FcDataConstructor (..),
     FcAxiomDecl (..),
     FcAxiomRole (..),
     FcNewtypeDecl (..),
@@ -69,8 +70,8 @@ newtype FcProgram = FcProgram
 -- | A top-level binding.
 data FcTopBind
   = -- | Data type declaration: type name, type variable parameters,
-    -- list of (constructor name, field types).
-    FcData !Text ![TyVarId] ![(Text, [TcType])]
+    -- and constructors with their constructor-local type variables.
+    FcData !Text ![TyVarId] ![FcDataConstructor]
   | -- | A type equality axiom. Axioms are proof metadata and have no
     -- runtime representation.
     FcAxiom !FcAxiomDecl
@@ -83,6 +84,16 @@ data FcTopBind
     FcForeignImport !FcForeignCall
   | -- | Value binding.
     FcTopBind !FcBind
+  deriving (Eq, Show, Read)
+
+-- | A data constructor declaration. Constructor-local type variables are
+-- explicit binders; their occurrences in the fields are references to this
+-- single source of truth.
+data FcDataConstructor = FcDataConstructor
+  { fcDataConstructorName :: !Text,
+    fcDataConstructorTyVars :: ![TyVarId],
+    fcDataConstructorFields :: ![TcType]
+  }
   deriving (Eq, Show, Read)
 
 -- | The role at which an axiom proves equality.

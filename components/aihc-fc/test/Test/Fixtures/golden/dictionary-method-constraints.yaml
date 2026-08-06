@@ -3,7 +3,7 @@ expected: |-
     | Result;
 
   data Render a where
-    | $Dict$Render : a → Result;
+    | $Dict$Render (a → Result);
 
   render : ∀ a. Render a → a → Result =
     Λ a →
@@ -14,7 +14,7 @@ expected: |-
         };
 
   data Convert a where
-    | $Dict$Convert : ∀ b. Render b → a → b → Result;
+    | $Dict$Convert (∀ b. Render b → a → b → Result);
 
   convert : ∀ a. ∀ b. Convert a → Render b → a → b → Result =
     Λ a →

@@ -1,9 +1,9 @@
 expected: |-
   data Integer where
-    | IS : Int#;
+    | IS Int#;
 
   data Num a where
-    | $Dict$Num : Integer → a;
+    | $Dict$Num (Integer → a);
 
   fromInteger : ∀ a. Num a → Integer → a =
     Λ a →

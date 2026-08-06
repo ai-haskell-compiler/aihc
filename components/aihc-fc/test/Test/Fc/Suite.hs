@@ -113,7 +113,7 @@ fcDesugarTests =
             remoteConstructor = (Var "Box" (Unique 32) localType) {varResolvedName = Just "Remote.Box"}
             program =
               FcProgram
-                [ FcData "Local" [] [("Box", [])],
+                [ FcData "Local" [] [dataCon "Box" []],
                   FcTopBind (FcNonRec (Var "local" (Unique 33) localType) (FcVar localConstructor)),
                   FcTopBind (FcNonRec (Var "remote" (Unique 34) localType) (FcVar remoteConstructor))
                 ]
@@ -124,6 +124,20 @@ fcDesugarTests =
         case parseProgram (T.pack rendered) of
           Left parseError -> assertFailure ("constructor-aware canonical FC does not parse: " <> parseError)
           Right reparsed -> assertEqual "constructor-aware canonical FC round-trip" rendered (renderProgram reparsed),
+      testCase "constructor existentials use Haskell-style fields" $ do
+        let existential = TyVarId "a" (Unique 14)
+            markable = TcTyCon (TyCon "Markable" 1) [TcTyVar existential]
+            rendered = renderProgram (FcProgram [FcData "Box" [] [FcDataConstructor "Box" [existential] [markable, TcTyVar existential]]])
+        assertEqual
+          "canonical existential declaration"
+          "data Box where\n  | ∃ a. Box (Markable a) a;\n"
+          rendered
+        case parseProgram (T.pack rendered) of
+          Left parseError -> assertFailure ("existential constructor does not parse: " <> parseError)
+          Right reparsed@(FcProgram [FcData "Box" [] [FcDataConstructor "Box" [_] [TcTyCon _ [TcTyVar constraintVar], TcTyVar fieldVar]]]) -> do
+            assertEqual "field occurrences share the existential binder" constraintVar fieldVar
+            assertEqual "existential constructor round-trip" rendered (renderProgram reparsed)
+          Right other -> assertFailure ("expected one existential constructor, got: " <> show other),
       testCase "every global reference obtains metadata from one declaration" $ do
         let intType = TcTyCon (TyCon "Int" 0) []
             functionType = TcFunTy intType intType
@@ -201,8 +215,8 @@ fcDesugarTests =
               FcProgram
                 [ FcTopBind (FcNonRec (Var "left" (Unique 1) (TcFunTy valueTy valueTy)) (FcLam firstX (FcVar firstX))),
                   FcTopBind (FcNonRec (Var "right" (Unique 2) (TcFunTy valueTy valueTy)) (FcLam secondX (FcVar secondX))),
-                  FcData "LeftBox" [firstA] [("LeftBox", [TcTyVar firstA])],
-                  FcData "RightBox" [secondA] [("RightBox", [TcTyVar secondA])]
+                  FcData "LeftBox" [firstA] [dataCon "LeftBox" [TcTyVar firstA]],
+                  FcData "RightBox" [secondA] [dataCon "RightBox" [TcTyVar secondA]]
                 ]
             shadowed =
               FcProgram
@@ -465,9 +479,9 @@ fcOptimizationTests =
             mainVar = Var "main" (Unique 1) liveTy
             helperVar = Var "helper" (Unique 2) liveTy
             deadVar = Var "dead" (Unique 3) deadTy
-            liveData = FcData "Live" [] [("Live", [leafTy])]
-            leafData = FcData "Leaf" [] [("Leaf", [])]
-            deadData = FcData "Dead" [] [("Dead", [])]
+            liveData = FcData "Live" [] [dataCon "Live" [leafTy]]
+            leafData = FcData "Leaf" [] [dataCon "Leaf" []]
+            deadData = FcData "Dead" [] [dataCon "Dead" []]
             helper = FcTopBind (FcNonRec helperVar (FcVar (Var "Live" (Unique 4) (TcFunTy leafTy liveTy))))
             mainBinding = FcTopBind (FcNonRec mainVar (FcVar helperVar))
             deadBinding = FcTopBind (FcNonRec deadVar (FcVar (Var "Dead" (Unique 5) deadTy)))
@@ -492,7 +506,7 @@ fcOptimizationTests =
           (eliminateDeadCode "main" program),
       testCase "retains ordinary dictionary constructor declarations" $ do
         let dictionaryTy = ty "Test"
-            dictionaryData = FcData "Test" [] [("$Dict$Test", [stringTy])]
+            dictionaryData = FcData "Test" [] [dataCon "$Dict$Test" [stringTy]]
             dictionaryConstructor = Var "$Dict$Test" (Unique 14) (TcFunTy stringTy dictionaryTy)
             dictionaryBinder = Var "$dictionary" (Unique 15) dictionaryTy
             methodBinder = Var "$method" (Unique 16) stringTy
@@ -645,3 +659,6 @@ stringTy = TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []]
 
 ty :: Text -> TcType
 ty name = TcTyCon (TyCon name 0) []
+
+dataCon :: Text -> [TcType] -> FcDataConstructor
+dataCon name = FcDataConstructor name []

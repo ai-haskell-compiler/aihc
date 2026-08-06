@@ -3,10 +3,10 @@ expected: |-
     | Unit;
 
   data Box a where
-    | Box : a;
+    | Box a;
 
   data Required a where
-    | $Dict$Required : a → a;
+    | $Dict$Required (a → a);
 
   required : ∀ a. Required a → a → a =
     Λ a →
@@ -17,7 +17,7 @@ expected: |-
         };
 
   data Any a where
-    | $Dict$Any : a → a;
+    | $Dict$Any (a → a);
 
   anyValue : ∀ a. Any a → a → a =
     Λ a →
@@ -35,13 +35,13 @@ expected: |-
             (required @a) $d1 x1011;
 
   data Wrapped a where
-    | Wrapped : Box a;
+    | Wrapped (Box a);
 
   data Parent a where
     | $Dict$Parent;
 
   data Child a where
-    | $Dict$Child : (Parent / 1 :: Type → Constraint) a;
+    | $Dict$Child ((Parent / 1 :: Type → Constraint) a);
 
   data Both where
     | Both;

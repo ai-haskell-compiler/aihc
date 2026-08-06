@@ -6,6 +6,7 @@ module Test.Fc.Arbitrary
 where
 
 import Aihc.Fc
+import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Tc
 import Aihc.Tc.Evidence (Coercion (..), EvVar (..))
 import Data.ByteString qualified as BS
@@ -36,13 +37,22 @@ genProgram = QC.sized $ \size -> FcProgram <$> smallList (genTopBind (max 1 (siz
 genTopBind :: Int -> QC.Gen FcTopBind
 genTopBind size =
   QC.oneof
-    [ FcData <$> genText <*> smallList genTyVar <*> smallList ((,) <$> genText <*> smallList (genType 2)),
+    [ genData,
       FcAxiom <$> genAxiom,
       FcNewtype <$> genNewtype,
       FcPrimitive <$> genBinder <*> QC.chooseInt (0, 4),
       FcForeignImport <$> genForeignCall,
       FcTopBind <$> genBind size
     ]
+  where
+    genData = do
+      name <- genText
+      tyVars <- smallList genTyVar
+      constructors <- smallList $ do
+        constructor <- genText
+        fields <- smallList (genType 2)
+        pure (FcDataConstructor constructor (filter (`notElem` tyVars) (freeRigidTyVarsOf fields)) fields)
+      pure (FcData name tyVars constructors)
 
 genAxiom :: QC.Gen FcAxiomDecl
 genAxiom =

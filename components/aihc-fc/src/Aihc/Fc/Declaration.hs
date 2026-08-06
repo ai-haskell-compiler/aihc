@@ -20,7 +20,7 @@ module Aihc.Fc.Declaration
   )
 where
 
-import Aihc.Fc.Subst (freeRigidTyVarsOf, substType)
+import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Types (Kind (..), Pred (..), TcType (..), TyCon (..), TyVarId, Unique, tvKind, tyConArity, tyConKind, tyConName)
 import Control.Monad.Trans.State.Strict (evalState, get, modify')
@@ -315,11 +315,10 @@ declaredConstructorTypes :: FcProgram -> Map Text [TcType]
 declaredConstructorTypes (FcProgram tops) =
   Map.fromListWith
     (<>)
-    [ (constructor, [fcDataConstructorType (tyVars <> existentialTyVars) fields resultType])
+    [ (fcDataConstructorName constructor, [fcDataConstructorType (tyVars <> fcDataConstructorTyVars constructor) (fcDataConstructorFields constructor) resultType])
     | FcData typeName tyVars constructors <- tops,
-      (constructor, fields) <- constructors,
-      let existentialTyVars = filter (`notElem` tyVars) (freeRigidTyVarsOf fields)
-          resultType = TcTyCon (TyCon typeName (length tyVars)) (map TcTyVar tyVars)
+      let resultType = TcTyCon (TyCon typeName (length tyVars)) (map TcTyVar tyVars),
+      constructor <- constructors
     ]
 
 -- | Construct the polymorphic term type of a data constructor.

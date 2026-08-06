@@ -176,8 +176,13 @@ topParser prefixes =
       name <- nameAtom
       tyVars <- many typeBinderParser
       keyword "where"
-      constructors <- many (symbol "|" *> ((,) <$> nameAtom <*> option [] (symbol ":" *> commaSep typeParser)))
+      constructors <- many (symbol "|" *> constructorParser)
       pure (FcData name tyVars constructors)
+    constructorParser = do
+      existentials <- option [] (symbol "∃" *> many1 typeBinderParser <* symbol ".")
+      constructor <- nameAtom
+      fields <- many (finishTyCon <$> typeAtomParser)
+      pure (FcDataConstructor constructor existentials fields)
     axiomParser = do
       keyword "axiom"
       name <- nameAtom
@@ -533,10 +538,13 @@ renderTop naming topBind =
         <> concatMap renderConstructor constructors
         <> ";"
       where
-        renderConstructor (constructor, fields) =
-          "\n  | " <> renderName constructor <> case fields of
-            [] -> ""
-            _ -> " : " <> intercalate ", " (map (renderType naming 0) fields)
+        renderConstructor constructor =
+          "\n  | "
+            <> case fcDataConstructorTyVars constructor of
+              [] -> ""
+              existentialTyVars -> "∃ " <> unwords (map (renderTyBinder naming) existentialTyVars) <> ". "
+            <> renderName (fcDataConstructorName constructor)
+            <> concatMap ((" " <>) . renderType naming 3) (fcDataConstructorFields constructor)
     FcAxiom declaration ->
       "axiom "
         <> renderName (fcAxiomName declaration)
@@ -836,8 +844,8 @@ execProgramSeen vars tys (FcProgram tops) initialSeen = foldl (flip (visitTop va
     visitTop varScope tyScope top seen =
       case top of
         FcData _ tyVars constructors ->
-          let (scope, seen') = addSimultaneousTyVars tyScope tyVars seen
-           in foldl (flip (visitType scope)) seen' (concatMap snd constructors)
+          let (dataScope, withDataTyVars) = addSimultaneousTyVars tyScope tyVars seen
+           in foldl (visitConstructor dataScope) withDataTyVars constructors
         FcAxiom declaration ->
           let (scope, seen') = addSimultaneousTyVars tyScope (fcAxiomTyVars declaration) seen
            in visitType scope (fcAxiomRight declaration) (visitType scope (fcAxiomLeft declaration) seen')
@@ -847,6 +855,10 @@ execProgramSeen vars tys (FcProgram tops) initialSeen = foldl (flip (visitTop va
         FcPrimitive variable _ -> visitType tyScope (varType variable) seen
         FcForeignImport {} -> seen
         FcTopBind binding -> visitBind varScope tyScope binding seen
+
+    visitConstructor dataScope seen constructor =
+      let (constructorScope, withExistentials) = addSimultaneousTyVars dataScope (fcDataConstructorTyVars constructor) seen
+       in foldl (flip (visitType constructorScope)) withExistentials (fcDataConstructorFields constructor)
 
 visitBind :: VarScope -> TyScope -> FcBind -> Seen -> Seen
 visitBind vars tys binding seen =
@@ -1098,7 +1110,11 @@ resolveTop vars top allocated =
   case top of
     FcData name tyVars constructors -> do
       (resolvedTyVars, tys) <- allocateTyBinders Map.empty tyVars
-      FcData name resolvedTyVars <$> traverse (\(constructor, fields) -> (constructor,) <$> traverse (resolveType tys) fields) constructors
+      let resolveConstructor constructor = do
+            (constructorTyVars, constructorScope) <- allocateTyBinders tys (fcDataConstructorTyVars constructor)
+            fields <- traverse (resolveType constructorScope) (fcDataConstructorFields constructor)
+            pure constructor {fcDataConstructorTyVars = constructorTyVars, fcDataConstructorFields = fields}
+      FcData name resolvedTyVars <$> traverse resolveConstructor constructors
     FcAxiom declaration -> do
       (tyVars, tys) <- allocateTyBinders Map.empty (fcAxiomTyVars declaration)
       FcAxiom <$> (FcAxiomDecl (fcAxiomName declaration) tyVars (fcAxiomRole declaration) <$> resolveType tys (fcAxiomLeft declaration) <*> resolveType tys (fcAxiomRight declaration))
@@ -1284,7 +1300,11 @@ explicitSuffixes (FcProgram tops) = Set.fromList (concatMap topSuffixes tops)
   where
     topSuffixes top =
       case top of
-        FcData _ tyVars constructors -> tyVarSuffixes tyVars <> concatMap (concatMap typeSuffixes . snd) constructors
+        FcData _ tyVars constructors ->
+          tyVarSuffixes tyVars
+            <> concatMap
+              (\constructor -> tyVarSuffixes (fcDataConstructorTyVars constructor) <> concatMap typeSuffixes (fcDataConstructorFields constructor))
+              constructors
         FcAxiom declaration -> tyVarSuffixes (fcAxiomTyVars declaration) <> typeSuffixes (fcAxiomLeft declaration) <> typeSuffixes (fcAxiomRight declaration)
         FcNewtype declaration -> tyVarSuffixes (fcNewtypeTyVars declaration) <> typeSuffixes (fcNewtypeRepresentation declaration) <> typeSuffixes (fcNewtypeResult declaration)
         FcPrimitive variable _ -> varSuffixes variable

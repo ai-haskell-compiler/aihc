@@ -22,7 +22,7 @@ expected: |-
     | True;
 
   data Eq a where
-    | $Dict$Eq : a → a → Bool, a → a → Bool;
+    | $Dict$Eq (a → a → Bool) (a → a → Bool);
 
   "==" : ∀ a. Eq a → a → a → Bool =
     Λ a →
@@ -41,8 +41,8 @@ expected: |-
         };
 
   data Tree a where
-    | Leaf : a
-    | Branch : Tree a, Tree a;
+    | Leaf a
+    | Branch (Tree a) (Tree a);
 
   rec {
     $fEqTreea : ∀ a. Eq a → Eq (Tree a) =

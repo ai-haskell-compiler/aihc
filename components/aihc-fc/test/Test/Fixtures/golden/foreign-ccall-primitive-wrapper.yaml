@@ -6,7 +6,7 @@ expected: |-
   data RealWorld where;
 
   data Int32 where
-    | I32# : Int32#;
+    | I32# Int32#;
 
   newtype CInt = CInt Int32;
 

@@ -29,7 +29,7 @@ where
 
 import Aihc.Fc.Axiom (AxiomInterface, extractAxiomInterface, lookupAxiomDecl)
 import Aihc.Fc.Declaration (fcDataConstructorType, typesEqual)
-import Aihc.Fc.Subst (freeRigidTyVarsOf, substType)
+import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.Types (TcType (..), TyCon (..), TyVarId (..), Unique (..))
@@ -99,9 +99,10 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
       env
         { leDataCons =
             foldr
-              ( \(constructor, fields) ->
-                  let existentialVariables = filter (`notElem` tyVars) (freeRigidTyVarsOf fields)
-                   in Map.insert constructor (tyVars <> existentialVariables, fields, resultType)
+              ( \constructor ->
+                  Map.insert
+                    (fcDataConstructorName constructor)
+                    (tyVars <> fcDataConstructorTyVars constructor, fcDataConstructorFields constructor, resultType)
               )
               (leDataCons env)
               constructors

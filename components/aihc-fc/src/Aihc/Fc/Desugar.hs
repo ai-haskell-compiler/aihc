@@ -20,7 +20,7 @@ import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEv
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
-import Aihc.Fc.Subst (freeRigidTyVars, substType)
+import Aihc.Fc.Subst (freeRigidTyVars, freeRigidTyVarsOf, substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( CallConv (..),
@@ -139,7 +139,7 @@ lowerConstraintProgram (FcProgram topBinds) =
     lowerTopBind topBind =
       case topBind of
         FcData name tyVars constructors ->
-          FcData name tyVars [(constructor, map lowerConstraintType fields) | (constructor, fields) <- constructors]
+          FcData name tyVars [constructor {fcDataConstructorFields = map lowerConstraintType (fcDataConstructorFields constructor)} | constructor <- constructors]
         FcAxiom declaration ->
           FcAxiom
             declaration
@@ -274,7 +274,7 @@ dsDataDeclM dd = do
         case constructorInfos of
           (_, universals, _) : _ -> universals
           [] -> []
-      constructors = [(name, fields) | (name, _, fields) <- constructorInfos]
+      constructors = [dataConstructor typeVariables name fields | (name, _, fields) <- constructorInfos]
   pure (FcData tyName typeVariables constructors)
 
 -- | Retain a data-family instance as a fresh representation type and a
@@ -322,7 +322,7 @@ dataFamilyRepresentation familyInst representationName representationTyVars repr
         ( FcData
             representationName
             representationTyVars
-            [(name, fields) | (name, _, fields) <- constructorInfos]
+            [dataConstructor representationTyVars name fields | (name, _, fields) <- constructorInfos]
         )
 
 -- | Retain the nominal declaration and its representation type as an FC axiom.
@@ -759,12 +759,20 @@ dsClassDeclM classDecl classAnn = do
   let fieldTypes = superClassFieldTypes <> methodFieldTypes
   selectors <- mapM (dsClassSelector dictionaryConstructor (length superClassFieldTypes) classTyVars fieldTypes) methods
   defaults <- mapM dsClassDefault (classDefaultGroups classDecl)
-  let dictionaryDeclaration = FcData className classTyVars [(dictionaryConstructor, fieldTypes)]
+  let dictionaryDeclaration = FcData className classTyVars [dataConstructor classTyVars dictionaryConstructor fieldTypes]
   pure (dictionaryDeclaration : selectors <> defaults)
   where
     className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))
     methods = tcClassMethods classAnn
     dictionaryConstructor = fcDictionaryConstructorName className
+
+dataConstructor :: [TyVarId] -> Text -> [TcType] -> FcDataConstructor
+dataConstructor dataTyVars name fields =
+  FcDataConstructor
+    { fcDataConstructorName = name,
+      fcDataConstructorTyVars = filter (`notElem` dataTyVars) (freeRigidTyVarsOf fields),
+      fcDataConstructorFields = fields
+    }
 
 dsClassSelector :: Text -> Int -> [TyVarId] -> [TcType] -> TcClassMethodAnnotation -> DsM FcTopBind
 dsClassSelector dictionaryConstructor superClassCount classTyVars fieldTypes methodAnn = do

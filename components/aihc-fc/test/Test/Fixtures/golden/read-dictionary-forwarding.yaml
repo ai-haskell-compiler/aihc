@@ -3,7 +3,7 @@ expected: |-
     | Result;
 
   data Read a where
-    | $Dict$Read : Result → a;
+    | $Dict$Read (Result → a);
 
   reads : ∀ a. Read a → Result → a =
     Λ a →
