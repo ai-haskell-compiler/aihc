@@ -320,6 +320,13 @@ grinUnitTests =
         assertBool "computes header plus element words" ("array_words" `isInfixOf` rendered && "primitive-call @IntRep +#" `isInfixOf` rendered)
         assertBool "reserves the computed word count" ("ensure-heap ($grin_array_words" `isInfixOf` rendered)
         assertBool "leaves newArray# as the initializer" ("primitive-call @(BoxedRep Unlifted) newArray#" `isInfixOf` rendered),
+      testCase "FC lowering reserves a managed cell for newMutVar#" $ do
+        let program = lowerProgram mutVarPrimitiveProgram
+            reservations = concatMap (ensureHeapReservations . grinFunctionBody) (grinFunctions program)
+            rendered = renderProgram program
+        assertEqual "lint" [] (lintProgram program)
+        assertBool "reserves the cell header, length, and value" (3 `elem` reservationLiteralWords reservations)
+        assertBool "leaves newMutVar# as the initializer" ("primitive-call @(BoxedRep Unlifted) newMutVar#" `isInfixOf` rendered),
       testCase "FC lowering wraps partially applied primitives in ordinary closures" $ do
         let program = lowerProgram partialPrimitiveProgram
             rendered = renderProgram program
@@ -763,10 +770,10 @@ mkEvalFixtureTest evalCase = testCase (EvalGolden.evalCaseId evalCase) $ do
     EvalGolden.OutcomeXPass -> assertFailure ("unexpected pass (xpass): " <> details)
     EvalGolden.OutcomeFail -> assertFailure details
 
-evaluateGrinProgram :: Text -> FcProgram -> IO (Either String Text)
+evaluateGrinProgram :: Text -> FcProgram -> IO (Either EvalGolden.EvaluationFailure Text)
 evaluateGrinProgram name fcProgram = do
   case prepareEvalProgram name (lowerNewtypes fcProgram) of
-    Left err -> pure (Left err)
+    Left err -> pure (Left (EvalGolden.EvaluationError err))
     Right (preparedProgram, entry, unwrapResult) -> do
       let program = lowerProgram preparedProgram
       case lintProgram program of
@@ -777,9 +784,10 @@ evaluateGrinProgram name fcProgram = do
               RunIoAction -> interpretProgramIoBinding name program
           pure $
             case result of
-              Left err -> Left (show err)
+              Left (InterpretRaisedException exception) -> Left (EvalGolden.EvaluationRaised exception)
+              Left err -> Left (EvalGolden.EvaluationError (show err))
               Right value -> Right (unwrapResult value)
-        lintErrors -> pure (Left ("GRIN lint error: " <> show lintErrors))
+        lintErrors -> pure (Left (EvalGolden.EvaluationError ("GRIN lint error: " <> show lintErrors)))
 
 data BindingEntry
   = EvaluateBinding
@@ -1139,6 +1147,22 @@ arrayPrimitiveProgram =
     allocateVar = Var "allocate" (Unique 222) (TcFunTy intTy (TcFunTy boxedIntTy arrayTy))
     sizeVar = Var "size" (Unique 223) intTy
     initialVar = Var "initial" (Unique 224) boxedIntTy
+
+mutVarPrimitiveProgram :: FcProgram
+mutVarPrimitiveProgram =
+  FcProgram
+    [ FcPrimitive newMutVarVar 1,
+      FcTopBind
+        ( FcNonRec
+            allocateVar
+            (FcLam initialVar (FcApp (FcVar newMutVarVar) (FcVar initialVar)))
+        )
+    ]
+  where
+    mutVarTy = TcTyCon (TyCon "MutVar#" 2) [boxedIntTy, boxedIntTy]
+    newMutVarVar = Var "newMutVar#" (Unique 225) (TcFunTy boxedIntTy mutVarTy)
+    allocateVar = Var "allocateMutVar" (Unique 226) (TcFunTy boxedIntTy mutVarTy)
+    initialVar = Var "initial" (Unique 227) boxedIntTy
 
 partialPrimitiveProgram :: FcProgram
 partialPrimitiveProgram =

@@ -67,7 +67,6 @@ import Aihc.Parser.Syntax
     nameText,
     peelClassDeclItemAnn,
     peelDeclAnn,
-    tyVarBinderName,
   )
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
@@ -240,8 +239,9 @@ declBindings decl =
       annotationBindings ann inner <> declBindings inner
     DeclData dataDecl ->
       concatMap dataConBindings (dataDeclConstructors dataDecl)
+        <> concatMap recordSelectorBindings (dataDeclConstructors dataDecl)
     DeclNewtype newtypeDecl ->
-      maybe [] dataConBindings (newtypeDeclConstructor newtypeDecl)
+      maybe [] (\constructor -> dataConBindings constructor <> recordSelectorBindings constructor) (newtypeDeclConstructor newtypeDecl)
     DeclDataFamilyInst familyInst ->
       concatMap dataConBindings (dataFamilyInstConstructors familyInst)
     _ -> []
@@ -332,6 +332,30 @@ dataConBindings dataConDecl =
           ]
         Nothing -> dataConBindings inner
     _ -> []
+
+recordSelectorBindings :: DataConDecl -> [TcBindingResult]
+recordSelectorBindings declaration =
+  case declaration of
+    DataConAnn ann inner ->
+      case fromAnnotation ann of
+        Just tcAnn -> selectorBindingsFromConstructorType (tcAnnType tcAnn) inner
+        Nothing -> recordSelectorBindings inner
+    _ -> []
+  where
+    selectorBindingsFromConstructorType constructorType inner =
+      let (typeVariables, qualifiedConstructor) = peelForAlls constructorType
+          (predicates, body) =
+            case qualifiedConstructor of
+              TcQualTy context result -> (context, result)
+              result -> ([], result)
+          (fieldTypes, resultType) = splitFunctionType body
+          (_, sourceFields, _) = dataConSourceLayout inner
+       in [ TcBindingResult label label (foldr TcForAllTy (qualify predicates (TcFunTy resultType fieldType)) typeVariables)
+          | ((maybeLabel, _), fieldType) <- zip sourceFields fieldTypes,
+            Just label <- [maybeLabel]
+          ]
+    qualify [] ty = ty
+    qualify predicates ty = TcQualTy predicates ty
 
 valueDeclBindingNames :: ValueDecl -> [(Text, Text)]
 valueDeclBindingNames valueDecl =
@@ -766,7 +790,24 @@ annotateDataConDeclTc dataConDecl = do
     [] -> pure dataConDecl
     (name, _) : _ -> do
       ty <- dataConBindingType name
-      pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [] [])) dataConDecl)
+      selectors <- annotateRecordSelectorNames dataConDecl
+      pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [] [])) selectors)
+
+annotateRecordSelectorNames :: DataConDecl -> TcM DataConDecl
+annotateRecordSelectorNames declaration =
+  case declaration of
+    RecordCon forallVars context constructor fields ->
+      RecordCon forallVars context constructor <$> mapM annotateField fields
+    GadtCon forallBinders context constructors (GadtRecordBody fields result) ->
+      GadtCon forallBinders context constructors . (`GadtRecordBody` result) <$> mapM annotateField fields
+    _ -> pure declaration
+  where
+    annotateField field = do
+      names <- mapM annotateSelectorName (fieldNames field)
+      pure field {fieldNames = names}
+    annotateSelectorName name = do
+      ty <- bindingType (unqualifiedNameText name)
+      pure (annotateUnqualifiedName (TcAnnotation ty [] [] [] []) name)
 
 dataConBindingType :: Text -> TcM TcType
 dataConBindingType name = do
@@ -900,14 +941,14 @@ annotateInstanceDeclTc classMethods instanceDecl =
     (_, []) -> pure (DeclInstance instanceDecl)
     (Nothing, _) -> pure (DeclInstance instanceDecl)
     (Just className, headArgTypes) -> do
-      let explicitTyVars = map tyVarBinderName (instanceDeclForall instanceDecl)
-          freeVars = nub (explicitTyVars <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgTypes))
-      tvIds <- mapM freshSkolemTv freeVars
-      let tvMap = Map.fromList (zip freeVars tvIds)
-          classNameText = nameText className
-      headTys <- checkInstanceHeadTypes classNameText tvMap headArgTypes
+      (rawTvIds, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgTypes
+      let classNameText = nameText className
+      rawHeadTys <- checkInstanceHeadTypes classNameText tvEnv headArgTypes
+      rawContext <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
+      tvIds <- mapM defaultTyVarKinds rawTvIds
+      headTys <- mapM defaultTypeKinds rawHeadTys
+      context <- mapM defaultPredKinds rawContext
       let dictName = instanceDictName classNameText headTys
-      context <- mapM (surfacePredToPred (simpleTvKindEnv tvMap)) (instanceDeclContext instanceDecl)
       classInfo <- lookupClass classNameText
       let classSubstitution =
             case classInfo of
@@ -1014,12 +1055,11 @@ tcInstanceDeclBodies (DeclInstance instanceDecl) =
     (_, []) -> pure (DeclInstance instanceDecl)
     (Nothing, _) -> pure (DeclInstance instanceDecl)
     (Just className, headArgTypes) -> do
-      let explicitTyVars = map tyVarBinderName (instanceDeclForall instanceDecl)
-          freeVars = nub (explicitTyVars <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgTypes))
-      tvIds <- mapM freshSkolemTv freeVars
-      let tvMap = Map.fromList (zip freeVars tvIds)
-      headTys <- checkInstanceHeadTypes (nameText className) tvMap headArgTypes
-      givens <- mapM (surfacePredToPred (simpleTvKindEnv tvMap)) (instanceDeclContext instanceDecl)
+      (_, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgTypes
+      rawHeadTys <- checkInstanceHeadTypes (nameText className) tvEnv headArgTypes
+      rawGivens <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
+      headTys <- mapM defaultTypeKinds rawHeadTys
+      givens <- mapM defaultPredKinds rawGivens
       items <- mapM (tcInstanceItemBody givens headTys) (instanceDeclItems instanceDecl)
       pure (DeclInstance (instanceDecl {instanceDeclItems = items}))
 tcInstanceDeclBodies decl =
@@ -1278,13 +1318,23 @@ splitContext (TAnn _ inner) = splitContext inner
 splitContext (TContext preds inner) = (preds, inner)
 splitContext ty = ([], ty)
 
-simpleTvKindEnv :: Map Text TyVarId -> TvKindEnv
-simpleTvKindEnv = Map.map (,KType)
+makeInstanceTyVarEnv :: InstanceDecl -> [Type] -> TcM ([TyVarId], TvKindEnv)
+makeInstanceTyVarEnv instanceDecl headArgTypes = do
+  explicitParams <- makeParamEnv (instanceDeclForall instanceDecl)
+  let explicitNames = map paramName explicitParams
+      freeVars = nub (explicitNames <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgTypes))
+      implicitNames = freeVars \\ explicitNames
+      explicitEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- explicitParams]
+  rawImplicitTyVars <- mapM freshSkolemTv implicitNames
+  implicitKinds <- mapM (const freshKindMeta) implicitNames
+  let implicitTyVars = zipWith setTyVarKind implicitKinds rawImplicitTyVars
+      implicitEnv = Map.fromList (zip implicitNames (zip implicitTyVars implicitKinds))
+  pure (map paramTyVar explicitParams <> implicitTyVars, explicitEnv <> implicitEnv)
 
-checkInstanceHeadTypes :: Text -> Map Text TyVarId -> [Type] -> TcM [TcType]
-checkInstanceHeadTypes className tvMap headArgTypes = do
+checkInstanceHeadTypes :: Text -> TvKindEnv -> [Type] -> TcM [TcType]
+checkInstanceHeadTypes className tvEnv headArgTypes = do
   argKinds <- classPredicateArgKinds className (length headArgTypes)
-  zipWithM (checkSurfaceType (simpleTvKindEnv tvMap)) headArgTypes argKinds
+  zipWithM (checkSurfaceType tvEnv) headArgTypes argKinds
 
 -- | Instantiate a type scheme with fresh skolems for type-checking while
 -- preserving the scheme predicates as scoped givens for the checked body.
@@ -1864,14 +1914,11 @@ registerInstanceDecl instanceDecl =
     Nothing -> pure []
     Just className -> do
       let headArgs = instanceHeadTypes (instanceDeclHead instanceDecl)
-          explicitTyVars = map tyVarBinderName (instanceDeclForall instanceDecl)
-          freeVars = nub (explicitTyVars <> concatMap freeTypeVars (instanceDeclContext instanceDecl <> headArgs))
-      tvIds <- mapM freshSkolemTv freeVars
-      let tvMap = Map.fromList (zip freeVars tvIds)
-          classNameText = nameText className
-      headTys <- checkInstanceHeadTypes classNameText tvMap headArgs
+      (tvIds, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgs
+      let classNameText = nameText className
+      headTys <- checkInstanceHeadTypes classNameText tvEnv headArgs
       let dictName = instanceDictName classNameText headTys
-      context <- mapM (surfacePredToPred (simpleTvKindEnv tvMap)) (instanceDeclContext instanceDecl)
+      context <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
       let dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred classNameText headTys))) tvIds
       addInstance
         InstanceInfo
@@ -2020,6 +2067,7 @@ registerDataConstructors dataDecl = do
       paramInfos <- makeParamEnv (binderHeadParams (dataDeclHead dataDecl))
       bindings <- mapM (registerDataCon (tciTyCon info) paramInfos) (dataDeclConstructors dataDecl)
       constructors <- concat <$> mapM checkedDataConInfos (dataDeclConstructors dataDecl)
+      selectorBindings <- registerRecordSelectors constructors
       addDataType
         DataTypeInfo
           { dtiName = tyName,
@@ -2028,7 +2076,7 @@ registerDataConstructors dataDecl = do
             dtiFlavor = DataTyCon,
             dtiConstructors = constructors
           }
-      pure bindings
+      pure (bindings <> selectorBindings)
 
 -- | Register a newtype declaration's type constructor and representation
 -- constructor.  Newtype erasure/coercion semantics are handled elsewhere; at
@@ -2065,6 +2113,7 @@ registerNewtypeConstructor newtypeDecl = do
       paramInfos <- makeParamEnv (binderHeadParams (newtypeDeclHead newtypeDecl))
       constructor <- mapM (registerDataCon (tciTyCon info) paramInfos) (newtypeDeclConstructor newtypeDecl)
       constructors <- maybe (pure []) checkedDataConInfos (newtypeDeclConstructor newtypeDecl)
+      selectorBindings <- registerRecordSelectors constructors
       addDataType
         DataTypeInfo
           { dtiName = tyName,
@@ -2073,7 +2122,31 @@ registerNewtypeConstructor newtypeDecl = do
             dtiFlavor = NewtypeTyCon,
             dtiConstructors = constructors
           }
-      pure (maybeToList constructor)
+      pure (maybeToList constructor <> selectorBindings)
+
+registerRecordSelectors :: [DataConInfo] -> TcM [TcBindingResult]
+registerRecordSelectors constructors =
+  mapM registerSelector (Map.toList selectors)
+  where
+    selectors =
+      Map.fromListWith
+        (++)
+        [ (label, [(constructor, field)])
+        | constructor <- constructors,
+          field <- dciFields constructor,
+          Just label <- [dcfiLabel field]
+        ]
+    registerSelector (label, (constructor, field) : _) = do
+      let scheme =
+            ForAll
+              (dciUnivTyVars constructor)
+              (dciTheta constructor)
+              (TcFunTy (dciResTy constructor) (dcfiType field))
+      extendTermEnvPermanent label (TcIdBinder scheme Closed)
+      zonkedType <- zonkType (schemeToType scheme)
+      pure (TcBindingResult label label zonkedType)
+    registerSelector (label, []) =
+      abortTc ("record selector has no fields: " <> T.unpack label)
 
 registerTypeSynonymHeader :: TypeSynDecl -> TcM [TcBindingResult]
 registerTypeSynonymHeader typeSynDecl = do

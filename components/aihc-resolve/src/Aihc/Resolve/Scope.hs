@@ -163,7 +163,11 @@ selectTypeWithMembers name scope members =
 
 allTypeMembers :: Text -> Scope -> [Text]
 allTypeMembers name scope =
-  fromMaybe [] (Map.lookup name (scopeConstructors scope) <> Map.lookup name (scopeMethods scope))
+  constructors <> recordFields <> methods
+  where
+    constructors = Map.findWithDefault [] name (scopeConstructors scope)
+    recordFields = concatMap (\constructor -> Map.findWithDefault [] constructor (scopeRecordFields scope)) constructors
+    methods = Map.findWithDefault [] name (scopeMethods scope)
 
 exportBundledMemberName :: IEBundledMember -> Text
 exportBundledMemberName = nameText . ieBundledMemberName
@@ -418,9 +422,8 @@ allowedTermNamesForItem scope item =
     bundledMemberName = nameText . ieBundledMemberName
     allBundledMembers itemName =
       let parentName = renderUnqualifiedName itemName
-          constructors = Map.lookup parentName (scopeConstructors scope)
-          methods = Map.lookup parentName (scopeMethods scope)
-       in fromMaybe [parentName] (constructors <> methods)
+          members = allTypeMembers parentName scope
+       in if null members then [parentName] else members
 
 importItemTypeName :: ImportItem -> Maybe UnqualifiedName
 importItemTypeName item =

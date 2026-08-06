@@ -15,6 +15,7 @@ modules:
     result :: Bool
     result = seq (Wrapped (raise# Unit)) True
 output: ""
+exception: Unit
 expression: result
-status: fail
-reason: seq observes through a newtype because newtype construction has no runtime WHNF boundary
+status: pass
+reason: seq observes through a newtype and raises its field's exact Unit exception because construction has no runtime WHNF boundary

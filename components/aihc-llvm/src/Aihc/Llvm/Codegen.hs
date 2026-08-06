@@ -798,6 +798,17 @@ compileDirectBinding env vars expression =
               result
             )
         _ -> internalArity "boxed-array allocation"
+    GrinPrimitiveCall _ "newMutVar#" [initial] -> do
+      (lines', initialOperand) <- materializeValue env initial
+      resultPointer <- freshValue
+      result <- freshValue
+      storeOne
+        ( lines'
+            <> [ "  " <> resultPointer <> " = call ptr @aihc_mutvar_new(ptr %machine, i64 " <> initialOperand <> ")",
+                 "  " <> result <> " = ptrtoint ptr " <> resultPointer <> " to i64"
+               ],
+          result
+        )
     GrinPrimitiveCall IntRep "compareInt#" [left, right] -> do
       (lines', operands) <- materializeValues env [left, right]
       case operands of
@@ -1692,6 +1703,7 @@ renderRuntimeDeclarations =
     "declare ptr @aihc_make_node_unchecked(ptr, ptr)",
     "declare void @aihc_ensure_heap(ptr, i64, i64, ptr)",
     "declare ptr @aihc_array_new(ptr, i64, i64)",
+    "declare ptr @aihc_mutvar_new(ptr, i64)",
     "declare void @aihc_set_field(ptr, i64, i64)",
     "declare void @aihc_update(ptr, ptr)",
     "declare void @aihc_update_blackhole(ptr, ptr, ptr)",

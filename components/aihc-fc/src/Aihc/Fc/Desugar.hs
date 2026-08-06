@@ -26,15 +26,17 @@ import Aihc.Parser.Syntax
   ( CallConv (..),
     ClassDecl (..),
     ClassDeclItem (..),
-    DataConDecl,
+    DataConDecl (..),
     DataDecl (..),
     DataFamilyInst (..),
     Decl (..),
     Expr,
+    FieldDecl (..),
     ForeignDecl (..),
     ForeignDirection (..),
     ForeignEntitySpec (..),
     ForeignSafety (..),
+    GadtBody (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
     Match (..),
@@ -68,6 +70,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
 import Control.Monad.Trans.State.Strict (runStateT)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -259,8 +262,8 @@ dsModule m = do
 
 -- | Desugar a single declaration (data types only; values handled by groups).
 dsDecl :: Decl -> DsM [FcTopBind]
-dsDecl (DeclData dd) = (: []) <$> dsDataDeclM dd
-dsDecl (DeclNewtype nd) = (: []) <$> dsNewtypeDeclM nd
+dsDecl (DeclData dd) = dsDataDeclM dd
+dsDecl (DeclNewtype nd) = dsNewtypeDeclM nd
 dsDecl (DeclAnn ann (DeclDataFamilyInst familyInst))
   | Just familyInfo <- fromAnnotation ann = dsDataFamilyInstM familyInfo familyInst
 dsDecl (DeclAnn ann inner)
@@ -277,7 +280,7 @@ dsDecl DeclDataFamilyInst {} = desugarBug "missing type-checker annotation for d
 dsDecl _ = pure []
 
 -- | Desugar a data declaration.
-dsDataDeclM :: DataDecl -> DsM FcTopBind
+dsDataDeclM :: DataDecl -> DsM [FcTopBind]
 dsDataDeclM dd = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
   constructorInfos <- mapM dsDataConM (dataDeclConstructors dd)
@@ -286,7 +289,8 @@ dsDataDeclM dd = do
           (_, universals, _) : _ -> universals
           [] -> []
       constructors = [(name, fields) | (name, _, fields) <- constructorInfos]
-  pure (FcData tyName typeVariables constructors)
+  selectors <- dsRecordSelectors constructorInfos (dataDeclConstructors dd)
+  pure (FcData tyName typeVariables constructors : selectors)
 
 -- | Retain a data-family instance as a fresh representation type and a
 -- nominal axiom connecting that representation to the family application.
@@ -338,7 +342,7 @@ dataFamilyRepresentation familyInst representationName representationTyVars repr
 
 -- | Retain the nominal declaration and its representation type as an FC axiom.
 -- 'lowerNewtypes' turns all term-level construction and matching into casts.
-dsNewtypeDeclM :: NewtypeDecl -> DsM FcTopBind
+dsNewtypeDeclM :: NewtypeDecl -> DsM [FcTopBind]
 dsNewtypeDeclM nd = do
   let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead nd))
   case newtypeDeclConstructor nd of
@@ -349,7 +353,8 @@ dsNewtypeDeclM nd = do
       case (arity, dropForAlls conTy) of
         (1, TcFunTy fieldTy resultTy@(TcTyCon resultTyCon resultArgs))
           | tyConName resultTyCon == tyName,
-            Just tyVars <- traverse asTyVar resultArgs ->
+            Just tyVars <- traverse asTyVar resultArgs -> do
+              selectors <- dsRecordSelectors [(conName, tyVars, [fieldTy])] [con]
               pure
                 ( FcNewtype
                     FcNewtypeDecl
@@ -359,11 +364,80 @@ dsNewtypeDeclM nd = do
                         fcNewtypeRepresentation = fieldTy,
                         fcNewtypeResult = resultTy
                       }
+                    : selectors
                 )
         _ -> desugarBug ("newtype constructor " <> T.unpack conName <> " does not have exactly one field")
   where
     asTyVar (TcTyVar tyVar) = Just tyVar
     asTyVar _ = Nothing
+
+dsRecordSelectors :: [(Text, [TyVarId], [TcType])] -> [DataConDecl] -> DsM [FcTopBind]
+dsRecordSelectors constructorInfos declarations =
+  mapM dsSelector (Map.toList selectorLayouts)
+  where
+    selectorLayouts =
+      Map.fromListWith
+        (++)
+        [ (label, [(constructorName, fieldIndex)])
+        | declaration <- declarations,
+          (constructorName, fields) <- recordConstructorLayouts declaration,
+          (fieldIndex, label) <- zip [0 :: Int ..] fields
+        ]
+    dsSelector (selectorName, layouts) = do
+      selectorType <- lookupType selectorName
+      let (typeVariables, qualifiedBody) = peelForAlls selectorType
+          (predicates, bodyType) = peelQuals qualifiedBody
+      (recordType, _fieldType) <-
+        case bodyType of
+          TcFunTy argument result -> pure (argument, result)
+          _ -> desugarBug ("record selector is not a function: " <> T.unpack selectorName)
+      selectorVar <- freshVar selectorName selectorType
+      dictionaryVars <-
+        zipWithM
+          (\index predicate -> freshVar ("$d" <> T.pack (show index)) (predType predicate))
+          [0 :: Int ..]
+          predicates
+      recordVar <- freshVar "$record" recordType
+      caseBinder <- freshVar "$record_case" recordType
+      alternatives <- mapM (selectorAlternative layouts) constructorInfos
+      let matchingAlternatives = catMaybes alternatives
+      failureBinder <- freshVar "$record_selector_failure" recordType
+      let needsDefault = length matchingAlternatives < length constructorInfos
+          failure = FcCase (FcVar recordVar) failureBinder []
+          completeAlternatives =
+            matchingAlternatives
+              <> [FcAlt DefaultAlt [] failure | needsDefault]
+          selection = FcCase (FcVar recordVar) caseBinder completeAlternatives
+          body = foldr FcTyLam (foldr FcLam (FcLam recordVar selection) dictionaryVars) typeVariables
+      pure (FcTopBind (FcNonRec selectorVar body))
+    selectorAlternative layouts (constructorName, _, fieldTypes) =
+      case lookup constructorName layouts of
+        Nothing -> pure Nothing
+        Just fieldIndex -> do
+          let sourceArity = maybe 0 length (lookup constructorName allConstructorFields)
+              evidenceCount = length fieldTypes - sourceArity
+              selectedIndex = evidenceCount + fieldIndex
+          fieldBinders <-
+            zipWithM
+              (\index fieldType -> freshVar ("$field" <> T.pack (show index)) fieldType)
+              [0 :: Int ..]
+              fieldTypes
+          case drop selectedIndex fieldBinders of
+            selected : _ -> pure (Just (FcAlt (DataAlt constructorName) fieldBinders (FcVar selected)))
+            [] -> desugarBug ("record selector field index is out of range: " <> T.unpack constructorName)
+    allConstructorFields = concatMap recordConstructorLayouts declarations
+
+recordConstructorLayouts :: DataConDecl -> [(Text, [Text])]
+recordConstructorLayouts declaration =
+  case declaration of
+    DataConAnn _ inner -> recordConstructorLayouts inner
+    RecordCon _ _ constructor fields ->
+      [(unqualifiedNameText constructor, concatMap (map unqualifiedNameText . fieldNames) fields)]
+    GadtCon _ _ constructors (GadtRecordBody fields _) ->
+      [ (unqualifiedNameText constructor, concatMap (map unqualifiedNameText . fieldNames) fields)
+      | constructor <- constructors
+      ]
+    _ -> []
 
 annotatedForeignDecl :: Decl -> Maybe (TcAnnotation, ForeignDecl)
 annotatedForeignDecl = go Nothing

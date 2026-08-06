@@ -19,6 +19,7 @@ import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
+import Data.List (find)
 import Data.Text (Text)
 import FcGolden
 import Test.Tasty (TestTree, testGroup)
@@ -109,6 +110,20 @@ fcEvalTests =
          in do
               result <- evalProgramBinding "answer" program >>= renderEvalResult
               assertEqual "result" (Right "\"top\"") result,
+      testCase "binds a case scrutinee for the alternative result" $
+        let caseBinder = Var "scrutinee" (Unique 1) stringTy
+            result = Var "answer" (Unique 2) stringTy
+            program =
+              FcProgram
+                [ FcTopBind
+                    ( FcNonRec
+                        result
+                        (Aihc.Fc.FcCase (FcLit (LitString "forced")) caseBinder [FcAlt DefaultAlt [] (FcVar caseBinder)])
+                    )
+                ]
+         in do
+              actual <- evalProgramBinding "answer" program >>= renderEvalResult
+              assertEqual "case result" (Right "\"forced\"") actual,
       testCase "renders raw constructor values" $ do
         result <-
           renderRawValue
@@ -391,8 +406,27 @@ fcOptimizationTests =
 fcEvalFixtureTests :: IO TestTree
 fcEvalFixtureTests = do
   cases <- EvalGolden.loadEvalCases
-  let tests = map mkEvalFixtureTest cases
+  let tests = exactExceptionContractTests cases <> map mkEvalFixtureTest cases
   pure (testGroup "shared evaluation fixtures via FC" tests)
+
+exactExceptionContractTests :: [EvalGolden.EvalCase] -> [TestTree]
+exactExceptionContractTests cases =
+  case find ((== "base/data-functor-identity-strictness.yaml") . EvalGolden.evalCaseId) cases of
+    Nothing -> [testCase "exact exception contract fixture exists" (assertFailure "Identity strictness fixture is missing")]
+    Just evalCase ->
+      let rejects label result = testCase ("exception assertion rejects " <> label) $ do
+            (outcome, _) <- EvalGolden.evaluateEvalCase (\_ _ -> pure result) evalCase
+            assertEqual "outcome" EvalGolden.OutcomeFail outcome
+       in [ rejects "a different raised value" (Left (EvalGolden.EvaluationRaised "Different")),
+            rejects "a generic evaluation error" (Left (EvalGolden.EvaluationError "evaluator failed")),
+            rejects "successful evaluation" (Right "Unit"),
+            testCase "exception assertion rejects compilation failure" $ do
+              (outcome, _) <-
+                EvalGolden.evaluateEvalCase
+                  (\_ _ -> pure (Left (EvalGolden.EvaluationRaised "Unit")))
+                  evalCase {EvalGolden.evalCaseExpression = "missingName"}
+              assertEqual "outcome" EvalGolden.OutcomeFail outcome
+          ]
 
 mkEvalFixtureTest :: EvalGolden.EvalCase -> TestTree
 mkEvalFixtureTest tc = testCase (EvalGolden.evalCaseId tc) $ do
@@ -403,16 +437,23 @@ mkEvalFixtureTest tc = testCase (EvalGolden.evalCaseId tc) $ do
     EvalGolden.OutcomeXPass -> assertFailure ("unexpected pass (xpass): " <> details)
     EvalGolden.OutcomeFail -> assertFailure details
 
-evaluateFcProgram :: Text -> FcProgram -> IO (Either String Text)
+evaluateFcProgram :: Text -> FcProgram -> IO (Either EvalGolden.EvaluationFailure Text)
 evaluateFcProgram name program = do
   result <- evalProgramBinding name program
   case result of
-    Left err -> pure (Left (show err))
+    Left (EvalRaisedException exception) -> do
+      rendered <- renderRawValue exception
+      pure $
+        Left $
+          case rendered of
+            Right value -> EvalGolden.EvaluationRaised value
+            Left err -> EvalGolden.EvaluationError (show err)
+    Left err -> pure (Left (EvalGolden.EvaluationError (show err)))
     Right value -> do
       rendered <- renderRawValue value
       pure $
         case rendered of
-          Left err -> Left (show err)
+          Left err -> Left (EvalGolden.EvaluationError (show err))
           Right text -> Right text
 
 assertEvalExpr :: Text -> FcExpr -> IO ()
