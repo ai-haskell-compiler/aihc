@@ -1,6 +1,5 @@
 expected: |-
   "(#,#)" : State# RealWorld → CInt → tycon "(#,#)" (State# RealWorld) CInt;
-  I32# : Int32# → Int32;
 
   data State# where;
 

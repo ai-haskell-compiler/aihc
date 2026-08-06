@@ -3,7 +3,6 @@ expected: |-
 
   "(#,#)" : State# RealWorld → CInt → tycon "(#,#)" (State# RealWorld) CInt;
   1.puts : Addr# → IO CInt;
-  I32# : Int32# → Int32;
 
   data State# where;
 

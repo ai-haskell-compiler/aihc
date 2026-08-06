@@ -1,13 +1,8 @@
 expected: |-
   prefix 1 = Test
 
-  $Dict$Eq : ∀ a. (a → a → Bool) → Eq a;
   $fEqBool{-199} : Eq Bool;
   1."==" : ∀ a. Eq a → a → a → Bool;
-  1.False{1007} : Bool;
-  1.False{1009} : Bool;
-  1.True{1006} : Bool;
-  1.True{1010} : Bool;
 
   data Bool where
     | False
@@ -31,16 +26,16 @@ expected: |-
           False →
             case y1005 as _scrut : Bool of {
               False →
-                1.True{1006};
+                True;
               True →
-                1.False{1007};
+                False;
             };
           True →
             case y1005 as _scrut : Bool of {
               False →
-                1.False{1009};
+                False;
               True →
-                1.True{1010};
+                True;
             };
         });
 

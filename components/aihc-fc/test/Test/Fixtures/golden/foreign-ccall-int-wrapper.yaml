@@ -1,6 +1,5 @@
 expected: |-
   "(#,#)" : State# RealWorld → Int → tycon "(#,#)" (State# RealWorld) Int;
-  I# : Int# → Int;
 
   data State# where;
 

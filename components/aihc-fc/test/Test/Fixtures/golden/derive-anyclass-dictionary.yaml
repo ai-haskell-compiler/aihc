@@ -1,11 +1,6 @@
 expected: |-
   prefix 1 = Test
 
-  $Dict$Any : ∀ a. (a → a) → Any a;
-  $Dict$Child : ∀ a. (Parent / 1 :: Type → Constraint) a → Child a;
-  $Dict$Parent : ∀ a. Parent a;
-  $Dict$Required{1016} : ∀ a. (a → a) → Required a;
-  $Dict$Required{1020} : ∀ a. (a → a) → Required a;
   $dmanyValue{1027} : ∀ a. Any a → Required a → a → a;
   $fAnyWrappeda{-199} : ∀ a. Required a → Any (Wrapped a);
   $fParentBoth{-199} : Parent Both;
@@ -63,13 +58,13 @@ expected: |-
   $fRequiredBoxa : ∀ a. Required a → Required (Box a) =
     Λ a →
       λ $d0 : Required a →
-        ($Dict$Required{1016} @(Box a)) (λ x1014 : Box a →
+        ($Dict$Required @(Box a)) (λ x1014 : Box a →
           x1014);
 
   $fRequiredWrappeda{1019} : ∀ a. Required a → Required (Wrapped a) =
     Λ a →
       λ $d0 : Required a →
-        ($Dict$Required{1020} @(Wrapped a)) (λ x1018 : Wrapped a →
+        ($Dict$Required @(Wrapped a)) (λ x1018 : Wrapped a →
           x1018);
 
   $fParentBoth{1021} : Parent Both =

@@ -27,6 +27,7 @@ library
     Aihc.Fc.Text
 
   other-modules:
+    Aihc.Fc.Constructor
     Aihc.Fc.Desugar.Deriving
     Aihc.Fc.Desugar.Deriving.AnyClass
     Aihc.Fc.Desugar.Deriving.StockEq

@@ -11,7 +11,6 @@ expected: |-
 
   prefix 1 = "GHC.Types"
 
-  $Dict$Eq : ∀ a. (a → a → Bool) → Eq a;
   1.True : Bool;
 
   data Eq a where
@@ -38,8 +37,6 @@ expected: |-
 
   prefix 1 = "GHC.Types"
 
-  $Dict$Num{1009} : ∀ a. (Integer → a) → Num a;
-  $Dict$Num{1012} : ∀ a. (Integer → a) → Num a;
   1.I : Int# → Int;
 
   data Num a where
@@ -54,14 +51,14 @@ expected: |-
         };
 
   $fNumInt : Num Int =
-    ($Dict$Num{1009} @Int) (λ x1004 : Integer →
+    ($Dict$Num @Int) (λ x1004 : Integer →
       case x1004 as _scrut : Integer of {
         IS (x : Int#) →
           1.I x;
       });
 
   $fNumInteger : Num Integer =
-    ($Dict$Num{1012} @Integer) (λ x1010 : Integer →
+    ($Dict$Num @Integer) (λ x1010 : Integer →
       x1010);
 
 

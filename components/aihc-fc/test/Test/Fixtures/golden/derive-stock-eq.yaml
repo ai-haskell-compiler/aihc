@@ -19,25 +19,8 @@ modules:
 expected: |-
   prefix 1 = Test
 
-  $Dict$Eq : ∀ a. (a → a → Bool) → (a → a → Bool) → Eq a;
   $fEqTreea{-199} : ∀ a. Eq a → Eq (Tree a);
   1."==" : ∀ a. Eq a → a → a → Bool;
-  False{1022} : Bool;
-  False{1024} : Bool;
-  False{1037} : Bool;
-  False{1039} : Bool;
-  False{1041} : Bool;
-  False{1052} : Bool;
-  False{1054} : Bool;
-  False{1067} : Bool;
-  False{1069} : Bool;
-  False{1071} : Bool;
-  False{1075} : Bool;
-  True{1023} : Bool;
-  True{1040} : Bool;
-  True{1053} : Bool;
-  True{1070} : Bool;
-  True{1074} : Bool;
 
   data Bool where
     | False
@@ -84,12 +67,12 @@ expected: |-
                             $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0;
                         }) as $stock_eq_bool : Bool of {
                           False →
-                            False{1022};
+                            False;
                           True →
-                            True{1023};
+                            True;
                         };
                       _ →
-                        False{1024};
+                        False;
                     };
                   Branch ($stock_eq_left_field0 : Tree a) ($stock_eq_left_field1 : Tree a) →
                     case $stock_eq_right as $stock_eq_inner : Tree a of {
@@ -99,20 +82,20 @@ expected: |-
                             $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0;
                         }) as $stock_eq_bool : Bool of {
                           False →
-                            False{1037};
+                            False;
                           True →
                             case (case $stock_eq_self as $stock_eq_dictionary : Eq (Tree a) of {
                               $Dict$Eq ($stock_eq_method : Tree a → Tree a → Bool) ($stock_neq_method : Tree a → Tree a → Bool) →
                                 $stock_eq_method $stock_eq_left_field1 $stock_eq_right_field1;
                             }) as $stock_eq_bool : Bool of {
                               False →
-                                False{1039};
+                                False;
                               True →
-                                True{1040};
+                                True;
                             };
                         };
                       _ →
-                        False{1041};
+                        False;
                     };
                 }) (λ $stock_eq_left : Tree a →
               λ $stock_eq_right : Tree a →
@@ -125,12 +108,12 @@ expected: |-
                             $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0;
                         }) as $stock_eq_bool : Bool of {
                           False →
-                            False{1052};
+                            False;
                           True →
-                            True{1053};
+                            True;
                         };
                       _ →
-                        False{1054};
+                        False;
                     };
                   Branch ($stock_eq_left_field0 : Tree a) ($stock_eq_left_field1 : Tree a) →
                     case $stock_eq_right as $stock_eq_inner : Tree a of {
@@ -140,26 +123,26 @@ expected: |-
                             $stock_eq_method $stock_eq_left_field0 $stock_eq_right_field0;
                         }) as $stock_eq_bool : Bool of {
                           False →
-                            False{1067};
+                            False;
                           True →
                             case (case $stock_eq_self as $stock_eq_dictionary : Eq (Tree a) of {
                               $Dict$Eq ($stock_eq_method : Tree a → Tree a → Bool) ($stock_neq_method : Tree a → Tree a → Bool) →
                                 $stock_eq_method $stock_eq_left_field1 $stock_eq_right_field1;
                             }) as $stock_eq_bool : Bool of {
                               False →
-                                False{1069};
+                                False;
                               True →
-                                True{1070};
+                                True;
                             };
                         };
                       _ →
-                        False{1071};
+                        False;
                     };
                 }) as $stock_eq_not : Bool of {
                   False →
-                    True{1074};
+                    True;
                   True →
-                    False{1075};
+                    False;
                 });
   };
 

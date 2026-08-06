@@ -28,10 +28,11 @@ module Aihc.Fc.Lint
 where
 
 import Aihc.Fc.Axiom (AxiomInterface, extractAxiomInterface, lookupAxiomDecl)
+import Aihc.Fc.Constructor (fcDataConstructorType, typesEqual)
 import Aihc.Fc.Subst (freeRigidTyVarsOf, substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Evidence (Coercion (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc.Types (TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -157,8 +158,10 @@ lintExpr env (FcVar v) =
     Nothing ->
       case Map.lookup (varName v) (leDataCons env) of
         Just (tyVars, fields, resultType)
-          | typesEqual (varType v) (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) -> Right (varType v)
-          | otherwise -> Left (TypeMismatch "constructor occurrence" (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) (varType v))
+          | typesEqual (varType v) expectedType -> Right (varType v)
+          | otherwise -> Left (TypeMismatch "constructor occurrence" expectedType (varType v))
+          where
+            expectedType = fcDataConstructorType tyVars fields resultType
         Nothing -> Left (UnboundVar (varName v) (varUnique v))
 lintExpr _ (FcLit lit) =
   case literalType lit of
@@ -273,28 +276,3 @@ coercionEndpoints env (AxiomInstCo name typeArgs) =
 extendTermEnv :: Var -> LintEnv -> LintEnv
 extendTermEnv v env =
   env {leTerms = Map.insert (varUnique v) (varType v) (leTerms env)}
-
--- | Structural type equality (no unification).
-typesEqual :: TcType -> TcType -> Bool
-typesEqual (TcTyVar a) (TcTyVar b) = a == b
-typesEqual (TcMetaTv a) (TcMetaTv b) = a == b
-typesEqual (TcTyCon tc1 args1) (TcTyCon tc2 args2) =
-  tc1 == tc2 && length args1 == length args2 && all (uncurry typesEqual) (zip args1 args2)
-typesEqual (TcFunTy a1 b1) (TcFunTy a2 b2) =
-  typesEqual a1 a2 && typesEqual b1 b2
-typesEqual (TcForAllTy tv1 body1) (TcForAllTy tv2 body2) =
-  -- Alpha-equivalence: rename tv2 to tv1 in body2.
-  typesEqual body1 (substType (Map.singleton tv2 (TcTyVar tv1)) body2)
-typesEqual (TcQualTy p1 b1) (TcQualTy p2 b2) =
-  length p1 == length p2 && all (uncurry predsEqual) (zip p1 p2) && typesEqual b1 b2
-typesEqual (TcAppTy f1 a1) (TcAppTy f2 a2) =
-  typesEqual f1 f2 && typesEqual a1 a2
-typesEqual _ _ = False
-
--- | Predicate equality.
-predsEqual :: Pred -> Pred -> Bool
-predsEqual (ClassPred c1 a1) (ClassPred c2 a2) =
-  c1 == c2 && length a1 == length a2 && all (uncurry typesEqual) (zip a1 a2)
-predsEqual (EqPred t1a t1b) (EqPred t2a t2b) =
-  typesEqual t1a t2a && typesEqual t1b t2b
-predsEqual _ _ = False

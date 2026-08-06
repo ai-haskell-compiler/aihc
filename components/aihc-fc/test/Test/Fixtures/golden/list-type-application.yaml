@@ -7,17 +7,14 @@ modules:
     xs :: [Bool]
     xs = [True]
 expected: |-
-  prefix 1 = Test
-
   ":" : ∀ a. a → tycon "[]" a → tycon "[]" a;
   "[]" : ∀ a. tycon "[]" a;
-  1.True : Bool;
 
   data Bool where
     | True
     | False;
 
   xs : tycon "[]" Bool =
-    (var ":" @Bool) 1.True (var "[]" @Bool);
+    (var ":" @Bool) True (var "[]" @Bool);
 status: pass
 reason: reifies list constructor type arguments from type-checker annotations

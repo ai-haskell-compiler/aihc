@@ -1,7 +1,6 @@
 expected: |-
   prefix 1 = Test
 
-  1.True : Bool;
   1.id : ∀ a. a → a;
 
   data Bool where
@@ -14,7 +13,7 @@ expected: |-
         x1001;
 
   true : Bool =
-    (1.id @Bool) 1.True;
+    (1.id @Bool) True;
 extensions: []
 modules:
 - |

@@ -13,6 +13,7 @@ module Aihc.Fc.Text
   )
 where
 
+import Aihc.Fc.Constructor (ConstructorTypes, declaredConstructorTypes, isDeclaredConstructor)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Evidence (Coercion (..), EvVar (..))
 import Aihc.Tc.Types
@@ -47,7 +48,7 @@ import Data.Either (partitionEithers)
 import Data.List (intercalate, nubBy, sortOn)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -60,7 +61,8 @@ data Naming = Naming
     namingAmbiguousVars :: !(Set Unique),
     namingAmbiguousTyVars :: !(Set Unique),
     namingFreeVarDeclarations :: ![Var],
-    namingFreeTyVars :: !(Set Unique)
+    namingFreeTyVars :: !(Set Unique),
+    namingDeclaredConstructors :: !ConstructorTypes
   }
 
 data Seen = Seen
@@ -68,10 +70,11 @@ data Seen = Seen
     seenFreeVarValues :: !(Map (Text, Unique) Var),
     seenFreeTyVars :: !(Map Text (Set Unique)),
     seenAmbiguousVars :: !(Set Unique),
-    seenAmbiguousTyVars :: !(Set Unique)
+    seenAmbiguousTyVars :: !(Set Unique),
+    seenDeclaredConstructors :: !ConstructorTypes
   }
 
-emptySeen :: Seen
+emptySeen :: ConstructorTypes -> Seen
 emptySeen = Seen Map.empty Map.empty Map.empty Set.empty Set.empty
 
 data ParsedProgram = ParsedProgram ![Var] !FcProgram
@@ -612,7 +615,9 @@ renderVarReference naming variable
   | startsWith "\"" label = "var " <> label
   | otherwise = label
   where
-    label = renderVarLabel naming variable
+    label
+      | isDeclaredConstructor (namingDeclaredConstructors naming) variable = renderName (varName variable)
+      | otherwise = renderVarLabel naming variable
 
 renderVarLabel :: Naming -> Var -> String
 renderVarLabel naming variable =
@@ -779,12 +784,14 @@ namingForProgram program =
       namingAmbiguousVars = seenAmbiguousVars finalSeen <> ambiguousFree seenFreeVars finalSeen,
       namingAmbiguousTyVars = seenAmbiguousTyVars finalSeen <> ambiguousFree seenFreeTyVars finalSeen,
       namingFreeVarDeclarations = Map.elems (seenFreeVarValues finalSeen),
-      namingFreeTyVars = Set.unions (Map.elems (seenFreeTyVars finalSeen))
+      namingFreeTyVars = Set.unions (Map.elems (seenFreeTyVars finalSeen)),
+      namingDeclaredConstructors = constructorTypes
     }
   where
-    prefixes = Set.toAscList (collectPrefixes program)
+    constructorTypes = declaredConstructorTypes program
+    prefixes = Set.toAscList (collectPrefixes constructorTypes program)
     topVariables = [variable | FcTopBind binding <- fcTopBinds program, variable <- binders binding] <> [variable | FcPrimitive variable _ <- fcTopBinds program]
-    (initialVars, initialSeen) = addSimultaneousVars Map.empty topVariables emptySeen
+    (initialVars, initialSeen) = addSimultaneousVars Map.empty topVariables (emptySeen constructorTypes)
     finalSeen = execProgramSeen initialVars Map.empty program initialSeen
     ambiguousFree selector seen = Set.unions [uniques | uniques <- Map.elems (selector seen), Set.size uniques > 1]
 
@@ -850,24 +857,30 @@ visitAlt vars tys seen alternative =
 
 visitVarRef :: VarScope -> Var -> Seen -> Seen
 visitVarRef scope variable seen =
-  case Map.lookup (varBase variable) scope of
-    Just variables
-      | all ((/= varUnique variable) . varUnique) variables ->
-          addFree
-            seen
-              { seenAmbiguousVars =
-                  Set.insert (varUnique variable) (seenAmbiguousVars seen)
-                    <> Set.fromList (map varUnique variables)
-              }
-    Just (innermost : _)
-      | varUnique innermost /= varUnique variable -> seen {seenAmbiguousVars = Set.insert (varUnique variable) (seenAmbiguousVars seen)}
-    Just _ -> seen
-    Nothing -> addFree seen
+  if isDeclaredConstructor (seenDeclaredConstructors seen) variable
+    then seen
+    else case Map.lookup (varBase variable) scope of
+      Just variables
+        | all ((/= varUnique variable) . varUnique) variables ->
+            addFree
+              seen
+                { seenAmbiguousVars =
+                    Set.insert (varUnique variable) (seenAmbiguousVars seen)
+                      <> Set.fromList (map varUnique variables)
+                }
+      Just (innermost : _)
+        | varUnique innermost /= varUnique variable -> seen {seenAmbiguousVars = Set.insert (varUnique variable) (seenAmbiguousVars seen)}
+      Just _ -> seen
+      Nothing -> addFree seen
   where
     addFree current =
       current
         { seenFreeVars = Map.insertWith Set.union (varBase variable) (Set.singleton (varUnique variable)) (seenFreeVars current),
-          seenFreeVarValues = Map.insertWith (\_ old -> old) (varBase variable, varUnique variable) variable (seenFreeVarValues current)
+          seenFreeVarValues = Map.insertWith (\_ old -> old) (varBase variable, varUnique variable) variable (seenFreeVarValues current),
+          seenAmbiguousVars =
+            if varBase variable == varName variable && Map.member (varName variable) (seenDeclaredConstructors current)
+              then Set.insert (varUnique variable) (seenAmbiguousVars current)
+              else seenAmbiguousVars current
         }
 
 visitType :: TyScope -> TcType -> Seen -> Seen
@@ -935,8 +948,15 @@ binders binding =
     FcNonRec variable _ -> [variable]
     FcRec bindings' -> map fst bindings'
 
-collectPrefixes :: FcProgram -> Set Text
-collectPrefixes (FcProgram tops) = Set.fromList [prefix | variable <- concatMap topVars tops, Just resolved <- [varResolvedName variable], Just (prefix, _) <- [splitResolvedName resolved]]
+collectPrefixes :: ConstructorTypes -> FcProgram -> Set Text
+collectPrefixes constructors (FcProgram tops) =
+  Set.fromList
+    [ prefix
+    | variable <- concatMap topVars tops,
+      not (isDeclaredConstructor constructors variable),
+      Just resolved <- [varResolvedName variable],
+      Just (prefix, _) <- [splitResolvedName resolved]
+    ]
   where
     topVars top =
       case top of
@@ -964,23 +984,55 @@ data ResolveState = ResolveState
   { resolveNextUnique :: !Int,
     resolveReserved :: !(Set Int),
     resolveFreeVars :: !(Map Text Var),
-    resolveFreeTyVars :: !(Map Text TyVarId)
+    resolveFreeTyVars :: !(Map Text TyVarId),
+    resolveDeclaredConstructors :: !(Map Text Var)
   }
 
 type Resolve a = StateT ResolveState (Either String) a
 
 resolveProgram :: ParsedProgram -> Either String FcProgram
 resolveProgram (ParsedProgram rawFreeVars raw) =
-  evalStateT resolve (ResolveState 0 reserved Map.empty Map.empty)
+  evalStateT resolve (ResolveState 0 reserved Map.empty Map.empty Map.empty)
   where
-    reserved = explicitSuffixes raw <> explicitSuffixes (FcProgram [FcPrimitive variable 0 | variable <- rawFreeVars])
+    rawConstructors =
+      [ Var name noUnique (unresolveBoundTyVarReferences ty)
+      | (name, [ty]) <- Map.toList (declaredConstructorTypes raw)
+      ]
+    reserved = explicitSuffixes raw <> explicitSuffixes (FcProgram [FcPrimitive variable 0 | variable <- rawFreeVars <> rawConstructors])
     resolve = do
+      constructors <- traverse (allocateVarWithType Map.empty) rawConstructors
       freeVars <- traverse (allocateVarWithType Map.empty) rawFreeVars
       let declarations = Map.fromList [(parsedVarKey rawVariable, variable) | (rawVariable, variable) <- zip rawFreeVars freeVars]
       when (Map.size declarations /= length rawFreeVars) (throwResolve "duplicate free FC variable declaration")
-      modify' (\current -> current {resolveFreeVars = declarations})
+      modify'
+        ( \current ->
+            current
+              { resolveFreeVars = declarations,
+                resolveDeclaredConstructors = Map.fromList [(varName constructor, constructor) | constructor <- constructors]
+              }
+        )
       case raw of
         FcProgram tops -> FcProgram <$> resolveTops tops
+
+unresolveBoundTyVarReferences :: TcType -> TcType
+unresolveBoundTyVarReferences = go Set.empty
+  where
+    go bound ty =
+      case ty of
+        TcTyVar tyVar
+          | Set.member (parsedTyVarKey tyVar) bound -> TcTyVar (setTyVarKind unresolvedKind tyVar)
+          | otherwise -> ty
+        TcMetaTv {} -> ty
+        TcTyCon tyCon arguments -> TcTyCon tyCon (map (go bound) arguments)
+        TcFunTy argument result -> TcFunTy (go bound argument) (go bound result)
+        TcForAllTy tyVar body -> TcForAllTy tyVar (go (Set.insert (parsedTyVarKey tyVar) bound) body)
+        TcQualTy predicates body -> TcQualTy (map (goPred bound) predicates) (go bound body)
+        TcAppTy function argument -> TcAppTy (go bound function) (go bound argument)
+
+    goPred bound predicate =
+      case predicate of
+        ClassPred name arguments -> ClassPred name (map (go bound) arguments)
+        EqPred left right -> EqPred (go bound left) (go bound right)
 
 resolveTops :: [FcTopBind] -> Resolve [FcTopBind]
 resolveTops tops = do
@@ -1082,7 +1134,13 @@ resolveVarReference vars raw =
       state <- get
       case Map.lookup (parsedVarKey raw) (resolveFreeVars state) of
         Just variable -> pure variable
-        Nothing -> throwResolve ("unbound FC variable " <> T.unpack (varName raw))
+        Nothing ->
+          case Map.lookup (varName raw) (resolveDeclaredConstructors state) of
+            Just constructor
+              | isNothing (varResolvedName raw),
+                varUnique raw == noUnique ->
+                  pure constructor
+            _ -> throwResolve ("unbound FC variable " <> T.unpack (varName raw))
 
 allocateVarWithType :: TyScope -> Var -> Resolve Var
 allocateVarWithType tys raw = do

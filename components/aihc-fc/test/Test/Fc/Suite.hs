@@ -106,6 +106,24 @@ fcDesugarTests =
                   ]
               [] -> assertFailure "expected a consumer FC program"
           ResolveResult {resolveErrors} -> assertFailure ("resolution failed: " <> show resolveErrors),
+      testCase "data declarations supply constructor types to Core text" $ do
+        let localType = TcTyCon (TyCon "Local" 0) []
+            remoteType = TcTyCon (TyCon "Remote" 0) []
+            localConstructor = (Var "Box" (Unique 31) localType) {varResolvedName = Just "Test.Box"}
+            remoteConstructor = (Var "Box" (Unique 32) remoteType) {varResolvedName = Just "Remote.Box"}
+            program =
+              FcProgram
+                [ FcData "Local" [] [("Box", [])],
+                  FcTopBind (FcNonRec (Var "local" (Unique 33) localType) (FcVar localConstructor)),
+                  FcTopBind (FcNonRec (Var "remote" (Unique 34) remoteType) (FcVar remoteConstructor))
+                ]
+            rendered = renderProgram program
+        assertBool "local constructor has no redundant signature" (not ("Test.Box :" `isInfixOf` rendered))
+        assertBool "local constructor use is unqualified" ("local : Local =\n  Box;" `isInfixOf` rendered)
+        assertBool "different imported constructor keeps its signature" ("1.Box : Remote;" `isInfixOf` rendered)
+        case parseProgram (T.pack rendered) of
+          Left parseError -> assertFailure ("constructor-aware canonical FC does not parse: " <> parseError)
+          Right reparsed -> assertEqual "constructor-aware canonical FC round-trip" rendered (renderProgram reparsed),
       testCase "prints uniques only where lexical scope needs them" $ do
         let valueTy = TcTyCon (TyCon "Value" 0) []
             firstX = Var "x" (Unique 11) valueTy

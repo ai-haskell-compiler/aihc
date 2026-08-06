@@ -7,17 +7,14 @@ modules:
     pair :: (Bool, ())
     pair = (True, ())
 expected: |-
-  prefix 1 = Test
-
   "()" : Unit;
   "(,)" : ∀ a. ∀ b. a → b → Tuple2 a b;
-  1.True : Bool;
 
   data Bool where
     | True
     | False;
 
   pair : Tuple2 Bool Unit =
-    (var "(,)" @Bool @Unit) 1.True var "()";
+    (var "(,)" @Bool @Unit) True var "()";
 status: pass
 reason: reifies tuple constructor type arguments from type-checker annotations
