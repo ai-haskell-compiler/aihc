@@ -48,12 +48,16 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve
   ( ModuleExports,
+    ModuleKey (..),
     OperatorFixity,
+    PackageId (..),
     ResolveResult (..),
     ResolvedName (..),
     Scope (..),
     extractInterfaceWithDeps,
+    modulesInPackage,
     resolveWithDeps,
+    unnamedPackage,
   )
 import Aihc.Tc
   ( TcBindingResult (..),
@@ -173,7 +177,7 @@ data StoredScope = StoredScope
   deriving (Show, Read)
 
 data StoredResolvedName
-  = StoredTopLevel !(Maybe Text) !NameType !Text
+  = StoredTopLevel !Text !(Maybe Text) !NameType !Text
   | StoredLocal !Int !NameType !Text
   | StoredBuiltin !Text
   | StoredError !String
@@ -197,7 +201,7 @@ data LibraryPackage = LibraryPackage
   deriving (Eq, Show)
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 32
+cacheSchemaVersion = 33
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
@@ -211,7 +215,7 @@ buildDependencies target environment usesImplicitPrelude buildBackend mainModule
       case installed of
         Left err -> pure (Left err)
         Right (artifactRoot, artifact) ->
-          case filter (`Map.notMember` dependencyExports artifact) requiredModules of
+          case filter (\name -> Map.notMember (ModuleKey unnamedPackage name) (dependencyExports artifact)) requiredModules of
             missing@(_ : _) -> pure (Left ("library modules are not installed: " <> T.unpack (T.intercalate ", " missing)))
             []
               | buildBackend -> attachInstalledBackend target artifactRoot artifact
@@ -385,17 +389,18 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
     initialState = CompileState Map.empty mempty [] mempty mempty mempty mempty [] []
 
     compileScc state members =
-      case resolveWithDeps (compileStateExports state) (map loadedModule members) of
+      case resolveWithDeps (compileStateExports state) (modulesInPackage unnamedPackage (map loadedModule members)) of
         ResolveResult {resolveErrors = errors@(_ : _)} -> Left ("library resolve error: " <> show errors)
         resolved@ResolveResult {resolvedModules} ->
-          let (checkedModules, tcInterface) =
-                typecheckModuleSccWithInterface (compileStateTcInterface state) resolvedModules
+          let moduleAsts = map snd resolvedModules
+              (checkedModules, tcInterface) =
+                typecheckModuleSccWithInterface (compileStateTcInterface state) moduleAsts
            in if not (all tcModuleSuccess checkedModules)
                 then Left ("library typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules))
                 else
                   let localBindings = concatMap tcModuleBindings checkedModules
                       bindings = compileStateBindings state <> localBindings
-                      desugared = zipWith (desugarModuleWithBindings bindings) checkedModules resolvedModules
+                      desugared = zipWith (desugarModuleWithBindings bindings) checkedModules moduleAsts
                    in if not (all dsSuccess desugared)
                         then Left ("library desugar error: " <> unlines (concatMap dsErrors desugared))
                         else
@@ -451,7 +456,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
 
     finish state =
       DependencyArtifact
-        { dependencyExports = Map.restrictKeys (compileStateExports state) exposedModules,
+        { dependencyExports = Map.restrictKeys (compileStateExports state) (Set.map (ModuleKey unnamedPackage) exposedModules),
           dependencyTcInterface = compileStateTcInterface state,
           dependencyBindings = compileStateBindings state,
           dependencyAxiomInterface = compileStateAxioms state,
@@ -753,10 +758,12 @@ fromStoredArtifact stored =
     }
 
 toStoredExports :: ModuleExports -> StoredModuleExports
-toStoredExports = StoredModuleExports . map (fmap toStoredScope) . Map.toAscList
+toStoredExports = StoredModuleExports . map toStoredExport . Map.toAscList
+  where
+    toStoredExport (key, scope) = (moduleKeyName key, toStoredScope scope)
 
 fromStoredExports :: StoredModuleExports -> ModuleExports
-fromStoredExports (StoredModuleExports exports) = Map.fromList (map (fmap fromStoredScope) exports)
+fromStoredExports (StoredModuleExports exports) = Map.fromList [(ModuleKey unnamedPackage name, fromStoredScope scope) | (name, scope) <- exports]
 
 toStoredScope :: Scope -> StoredScope
 toStoredScope scope =
@@ -785,7 +792,7 @@ fromStoredScope scope =
 toStoredResolvedName :: ResolvedName -> StoredResolvedName
 toStoredResolvedName resolved =
   case resolved of
-    ResolvedTopLevel Name {nameQualifier, nameType, nameText} -> StoredTopLevel nameQualifier nameType nameText
+    ResolvedTopLevel (PackageId identity) Name {nameQualifier, nameType, nameText} -> StoredTopLevel identity nameQualifier nameType nameText
     ResolvedLocal unique UnqualifiedName {unqualifiedNameType, unqualifiedNameText} -> StoredLocal unique unqualifiedNameType unqualifiedNameText
     ResolvedBuiltin name -> StoredBuiltin name
     ResolvedError err -> StoredError err
@@ -793,7 +800,7 @@ toStoredResolvedName resolved =
 fromStoredResolvedName :: StoredResolvedName -> ResolvedName
 fromStoredResolvedName stored =
   case stored of
-    StoredTopLevel qualifier nameType name -> ResolvedTopLevel (Name qualifier nameType name [])
+    StoredTopLevel identity qualifier nameType name -> ResolvedTopLevel (PackageId identity) (Name qualifier nameType name [])
     StoredLocal unique nameType name -> ResolvedLocal unique (UnqualifiedName nameType name [])
     StoredBuiltin name -> ResolvedBuiltin name
     StoredError err -> ResolvedError err

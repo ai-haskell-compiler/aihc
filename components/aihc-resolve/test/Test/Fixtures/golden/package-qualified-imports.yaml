@@ -1,0 +1,45 @@
+extensions: [PackageImports]
+modules:
+  "app-1.0-main":
+    package: app
+    modules:
+      - |
+        module Main where
+        import qualified "pkg-a" Shared as A
+        import qualified "pkg-b" Shared as B
+        a = A.value
+        b = B.value
+  "pkg-a-1.0-abc":
+    package: pkg-a
+    modules:
+      - |
+        module Shared where
+        value = 10
+  "pkg-b-1.1-def":
+    package: pkg-b
+    modules:
+      - |
+        module Shared where
+        value = 11
+annotated:
+  - |
+    module Main where
+    import qualified "pkg-a" Shared as A
+    import qualified "pkg-b" Shared as B
+    a = A.value
+    │   └─ v pkg-a-1.0-abc:Shared
+    └─ v app-1.0-main:Main
+    b = B.value
+    │   └─ v pkg-b-1.1-def:Shared
+    └─ v app-1.0-main:Main
+  - |
+    module Shared where
+    value = 10
+    │       └─ v Error unbound
+    └─ v pkg-a-1.0-abc:Shared
+  - |
+    module Shared where
+    value = 11
+    │       └─ v Error unbound
+    └─ v pkg-b-1.1-def:Shared
+status: pass

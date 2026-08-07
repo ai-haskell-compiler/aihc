@@ -14,7 +14,7 @@ import Aihc.Fc (DesugarResult (..), desugarModuleWithBindings)
 import Aihc.Grin (lintProgram, lowerProgram, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
-import Aihc.Resolve (ResolveResult (..), resolve)
+import Aihc.Resolve (ResolveResult (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (TcBindingResult, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheck)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
@@ -110,13 +110,14 @@ evaluateGrinCase fixture =
   case parseSource fixture of
     Left err -> classifyFailure fixture ("parse error: " <> err)
     Right parsed ->
-      case resolve [parsed] of
+      case resolveWithDeps mempty [(unnamedPackage, parsed)] of
         ResolveResult {resolvedModules, resolveErrors = []} ->
-          let tcResults = typecheck resolvedModules
+          let moduleAsts = map snd resolvedModules
+              tcResults = typecheck moduleAsts
            in if all tcModuleSuccess tcResults
                 then
                   let allBindings = moduleGroupBindings tcResults
-                      desugared = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+                      desugared = zipWith (desugarModuleWithBindings allBindings) tcResults moduleAsts
                    in if all dsSuccess desugared
                         then
                           let programs = map (lowerProgram . dsProgram) desugared

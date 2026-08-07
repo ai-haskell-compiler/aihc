@@ -42,7 +42,7 @@ import Aihc.Parser.Syntax
     parseLanguageEdition,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), extractInterface, resolveWithDeps)
+import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveError (..), ResolveResult (..), extractInterface, modulesInPackage, resolveWithDeps)
 import BootInterface (bootPackageNames, loadBootInterfaces)
 import Control.Concurrent.Async (replicateConcurrently_)
 import Control.Concurrent.Chan (newChan, readChan, writeChan)
@@ -292,7 +292,7 @@ resolveOnePackage offline pkg info depExports = do
     Right status -> status
 
 resolveOnePackageOrThrow :: Bool -> Text -> PackageInfo -> ModuleExports -> IO PackageStatus
-resolveOnePackageOrThrow _offline _pkg info depExports = do
+resolveOnePackageOrThrow _offline pkg info depExports = do
   let rawFiles = piFiles info
   if null rawFiles
     then pure (PkgSuccess depExports)
@@ -304,7 +304,7 @@ resolveOnePackageOrThrow _offline _pkg info depExports = do
         [] -> do
           let modules = map fst pairs
               srcTexts = Map.fromList [(path, src) | (_, (path, src)) <- pairs]
-              resolveResult = resolveWithDeps depExports modules
+              resolveResult = resolveWithDeps depExports (modulesInPackage (Package pkg (PackageId pkg)) modules)
           case resolveErrors resolveResult of
             [] -> pure (PkgSuccess (extractInterface resolveResult))
             resolveErrs -> pure (PkgFailed (unlines (map (renderResolveError srcTexts) resolveErrs)))

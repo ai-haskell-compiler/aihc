@@ -7,7 +7,7 @@ module Test.Resolver.Suite
 where
 
 import Aihc.Parser (defaultConfig, parseModule)
-import Aihc.Resolve (ResolveResult (..), extractInterface, resolve, resolveWithDeps)
+import Aihc.Resolve (ResolveResult (..), extractInterface, resolveWithDeps, unnamedPackage)
 import Control.Monad (when)
 import Data.Text (Text)
 import qualified ResolverGolden as RG
@@ -25,8 +25,8 @@ testDependencyBackedGhcNum :: Assertion
 testDependencyBackedGhcNum =
   case (parse "GHC.Num" numSource, parse "Prelude" preludeSource) of
     (Right numModule, Right preludeModule) -> do
-      let dependencyResult = resolve [numModule]
-          result = resolveWithDeps (extractInterface dependencyResult) [preludeModule]
+      let dependencyResult = resolveWithDeps mempty [(unnamedPackage, numModule)]
+          result = resolveWithDeps (extractInterface dependencyResult) [(unnamedPackage, preludeModule)]
       case resolveErrors dependencyResult of
         [] ->
           case resolveErrors result of

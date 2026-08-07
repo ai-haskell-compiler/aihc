@@ -29,7 +29,8 @@ import Aihc.Parser.Syntax
     mkAnnotation,
     stripAnnotations,
   )
-import Aihc.Resolve (ResolveResult (..), extractInterface, resolve, resolveWithDeps)
+import Aihc.Resolve (ResolveResult (..), extractInterface, modulesInPackage, unnamedPackage)
+import Aihc.Resolve qualified as Resolve
 import Aihc.Tc
 import Aihc.Tc.Annotations (PendingTcAnnotation, TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -128,7 +129,7 @@ hasResolveErrors input =
   let config = defaultConfig {parserSourceName = "<test>"}
       (errs, modu) = parseModule config input
    in null errs
-        && case resolve [modu] of
+        && case resolveModules [modu] of
           ResolveResult {resolveErrors} -> not (null resolveErrors)
 
 -- Helper to check that a type is a specific TyCon
@@ -231,7 +232,7 @@ dataFamilyTests :: [TestTree]
 dataFamilyTests =
   [ testCase "exports standalone data-family instances across module groups" $ do
       let providerResult =
-            resolve
+            resolveModules
               [ parseOnlyWithExtensions
                   [TypeFamilies]
                   "module Provider (Unit(..), Payload(..)) where\n\
@@ -242,7 +243,7 @@ dataFamilyTests =
           providerExports = extractInterface providerResult
       case providerResult of
         ResolveResult {resolvedModules = providerModules, resolveErrors = []} -> do
-          let (checkedProvider, interface) = typecheckModuleSccWithInterface mempty providerModules
+          let (checkedProvider, interface) = typecheckModuleSccWithInterface mempty (map snd providerModules)
           assertBool
             ("provider should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedProvider))
             (all tcModuleSuccess checkedProvider)
@@ -266,9 +267,9 @@ dataFamilyTests =
                   \import Provider\n\
                   \unwrap :: Payload Unit -> Unit\n\
                   \unwrap payload = case payload of PayloadValue value -> value\n"
-          case resolveWithDeps providerExports [consumer] of
+          case resolveModulesWithDeps providerExports [consumer] of
             ResolveResult {resolvedModules = consumerModules, resolveErrors = []} -> do
-              let (checkedConsumer, _) = typecheckModuleSccWithInterface interface consumerModules
+              let (checkedConsumer, _) = typecheckModuleSccWithInterface interface (map snd consumerModules)
               assertBool
                 ("consumer should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedConsumer))
                 (all tcModuleSuccess checkedConsumer)
@@ -357,9 +358,9 @@ kindTests =
             \data Product (f :: Type -> Type) (g :: Type -> Type) a = Pair (f a) (g a)\n\
             \instance (FunctorLike f, FunctorLike g) => FunctorLike (Product f g) where\n\
             \  mapLike function (Pair first second) = Pair (mapLike function first) (mapLike function second)\n"
-      case resolve [parseOnly source] of
+      case resolveModules [parseOnly source] of
         ResolveResult {resolvedModules = modules, resolveErrors = []} -> do
-          let (checkedModules, interface) = typecheckModuleSccWithInterface mempty modules
+          let (checkedModules, interface) = typecheckModuleSccWithInterface mempty (map snd modules)
               instances = [info | info <- tcInterfaceInstances interface, iiClassName info == "FunctorLike"]
           assertBool
             ("module should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedModules))
@@ -433,27 +434,27 @@ kindTests =
                 \fn = N\n"
       assertBool "module should typecheck" (tcModuleSuccess result),
     testCase "infers the kind of an imported class parameter" $ do
-      let baseResult = resolve [parseOnly "module Base (Monad) where\nclass Monad m where\n"]
+      let baseResult = resolveModules [parseOnly "module Base (Monad) where\nclass Monad m where\n"]
           depExports = extractInterface baseResult
           target = parseOnly "module Test where\nimport Base\nliftedId :: Monad m => m a -> m a\nliftedId x = x\n"
-          resolved = resolveWithDeps depExports [target]
+          resolved = resolveModulesWithDeps depExports [target]
       case resolved of
-        ResolveResult {resolvedModules = [modu], resolveErrors = []} -> do
+        ResolveResult {resolvedModules = [(_, modu)], resolveErrors = []} -> do
           let result = typecheckModule modu
           assertBool ("module should typecheck, got: " <> show (tcModuleDiagnostics result)) (tcModuleSuccess result)
         ResolveResult {resolveErrors} ->
           assertFailure ("Resolve error in imported-class kind test: " <> show resolveErrors),
     testCase "uses imported type constructor arities" $ do
-      let baseResult = resolve [parseOnly "module Base (Box) where\ndata Box a = Box a\n"]
+      let baseResult = resolveModules [parseOnly "module Base (Box) where\ndata Box a = Box a\n"]
           depExports = extractInterface baseResult
       case baseResult of
         ResolveResult {resolvedModules = baseModules, resolveErrors = []} -> do
-          let (checkedBase, _, importedTyCons) = typecheckModulesWithFullEnv [] [] [] baseModules
+          let (checkedBase, _, importedTyCons) = typecheckModulesWithFullEnv [] [] [] (map snd baseModules)
           assertBool "dependency should typecheck" (all tcModuleSuccess checkedBase)
           let target = parseOnly "module Test where\nimport Base\ndata Unit = Unit\nkeep :: Box Unit -> Box Unit\nkeep x = x\n"
-          case resolveWithDeps depExports [target] of
+          case resolveModulesWithDeps depExports [target] of
             ResolveResult {resolvedModules = targetModules, resolveErrors = []} -> do
-              let (checkedTarget, _, _) = typecheckModulesWithFullEnv [] importedTyCons [] targetModules
+              let (checkedTarget, _, _) = typecheckModulesWithFullEnv [] importedTyCons [] (map snd targetModules)
               assertBool
                 ("module should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedTarget))
                 (all tcModuleSuccess checkedTarget)
@@ -463,7 +464,7 @@ kindTests =
           assertFailure ("Resolve error in dependency-type test: " <> show resolveErrors),
     testCase "transports a complete semantic interface between module groups" $ do
       let baseResult =
-            resolve
+            resolveModules
               [ parseOnly
                   "module Base (Unit(..), Identity(..)) where\n\
                   \data Unit = Unit\n\
@@ -475,7 +476,7 @@ kindTests =
           depExports = extractInterface baseResult
       case baseResult of
         ResolveResult {resolvedModules = baseModules, resolveErrors = []} -> do
-          let (checkedBase, interface) = typecheckModuleSccWithInterface mempty baseModules
+          let (checkedBase, interface) = typecheckModuleSccWithInterface mempty (map snd baseModules)
           assertBool "dependency should typecheck" (all tcModuleSuccess checkedBase)
           assertBool "constructor term exported" ("Unit" `elem` map fst (tcInterfaceTerms interface))
           assertBool "method term exported" ("identity" `elem` map fst (tcInterfaceTerms interface))
@@ -483,9 +484,9 @@ kindTests =
           assertBool "class exported" ("Identity" `elem` map ciName (tcInterfaceClasses interface))
           assertBool "instance exported" ("$fIdentityUnit" `elem` map iiDictName (tcInterfaceInstances interface))
           let target = parseOnly "module Test where\nimport Base\nanswer :: Unit\nanswer = identity Unit\n"
-          case resolveWithDeps depExports [target] of
+          case resolveModulesWithDeps depExports [target] of
             ResolveResult {resolvedModules = targetModules, resolveErrors = []} -> do
-              let (checkedTarget, _) = typecheckModuleSccWithInterface interface targetModules
+              let (checkedTarget, _) = typecheckModuleSccWithInterface interface (map snd targetModules)
               assertBool
                 ("consumer should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedTarget))
                 (all tcModuleSuccess checkedTarget)
@@ -644,7 +645,7 @@ annotationTests =
       assertBool "superclass evidence is checked in TC" (not (all (null . tcDerivingSuperClasses) plans)),
     testCase "deriving plans consume checked datatype metadata across interfaces" $ do
       let baseResult =
-            resolve
+            resolveModules
               [ parseOnlyWithExtensions
                   [ExistentialQuantification]
                   "{-# LANGUAGE ExistentialQuantification #-}\n\
@@ -659,7 +660,7 @@ annotationTests =
           dependencyExports = extractInterface baseResult
       case baseResult of
         ResolveResult {resolvedModules = baseModules, resolveErrors = []} -> do
-          let (checkedBase, interface) = typecheckModuleSccWithInterface mempty baseModules
+          let (checkedBase, interface) = typecheckModuleSccWithInterface mempty (map snd baseModules)
           assertBool ("provider should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedBase)) (all tcModuleSuccess checkedBase)
           assertBool "record selectors are emitted as term bindings" (all (`elem` concatMap (map tbName . tcModuleBindings) checkedBase) ["left", "right"])
           assertBool "record selectors are exported through T(..)" (all (`elem` map fst (tcInterfaceTerms interface)) ["left", "right"])
@@ -694,9 +695,9 @@ annotationTests =
                       \deriving anyclass instance Marker (T a)\n\
                       \select :: T a -> a\n\
                       \select = left\n"
-              case resolveWithDeps dependencyExports [target] of
+              case resolveModulesWithDeps dependencyExports [target] of
                 ResolveResult {resolvedModules = targetModules, resolveErrors = []} -> do
-                  let (checkedTarget, _) = typecheckModuleSccWithInterface interface targetModules
+                  let (checkedTarget, _) = typecheckModuleSccWithInterface interface (map snd targetModules)
                   assertBool ("consumer should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedTarget)) (all tcModuleSuccess checkedTarget)
                   case concatMap derivingPlans checkedTarget of
                     [plan] -> assertEqual "imported constructor layout reaches deriving plan" (Just dataType) (tcDerivingDataType plan)
@@ -871,12 +872,18 @@ parseM = parseMWithExtensions []
 
 parseMWithExtensions :: [Extension] -> Text -> Module
 parseMWithExtensions extensions input =
-  case resolve [parseOnlyWithExtensions extensions input] of
-    ResolveResult {resolvedModules = [resolved], resolveErrors = []} -> resolved
+  case resolveModules [parseOnlyWithExtensions extensions input] of
+    ResolveResult {resolvedModules = [(_, resolved)], resolveErrors = []} -> resolved
     ResolveResult {resolveErrors} -> error ("Resolve error in test: " ++ show resolveErrors)
 
 parseOnly :: Text -> Module
 parseOnly = parseOnlyWithExtensions []
+
+resolveModules :: [Module] -> ResolveResult
+resolveModules = resolveModulesWithDeps mempty
+
+resolveModulesWithDeps :: Resolve.ModuleExports -> [Module] -> ResolveResult
+resolveModulesWithDeps depExports = Resolve.resolveWithDeps depExports . modulesInPackage unnamedPackage
 
 parseOnlyWithExtensions :: [Extension] -> Text -> Module
 parseOnlyWithExtensions extensions input =

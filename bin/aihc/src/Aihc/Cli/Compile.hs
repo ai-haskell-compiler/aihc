@@ -63,7 +63,7 @@ import Aihc.Native
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension (ImplicitPrelude), LanguageEdition (Haskell98Edition), Module, effectiveExtensions, headerExtensionSettings, headerLanguageEdition, moduleName)
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
+import Aihc.Resolve (ResolveResult (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
@@ -233,18 +233,19 @@ compileSourceToArtifactsWithDependencies target wholeProgram environment sourceN
 
 compileWithDependencies :: NativeTarget -> Bool -> DependencyArtifact -> Module -> Either CompileError CompileArtifacts
 compileWithDependencies target wholeProgram dependencies parsed =
-  case resolveWithDeps (dependencyExports dependencies) [parsed] of
+  case resolveWithDeps (dependencyExports dependencies) [(unnamedPackage, parsed)] of
     ResolveResult {resolveErrors = errors@(_ : _)} -> Left (CompileFrontendError ["resolve error: " <> show errors])
     ResolveResult {resolvedModules} ->
-      let (checkedModules, _) =
+      let moduleAsts = map snd resolvedModules
+          (checkedModules, _) =
             typecheckModulesWithInterface
               (dependencyTcInterface dependencies)
-              resolvedModules
+              moduleAsts
        in if not (all tcModuleSuccess checkedModules)
             then Left (CompileFrontendError ["typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules)])
             else
               let bindings = dependencyBindings dependencies <> concatMap tcModuleBindings checkedModules
-                  desugared = zipWith (desugarModuleWithBindings bindings) checkedModules resolvedModules
+                  desugared = zipWith (desugarModuleWithBindings bindings) checkedModules moduleAsts
                in if not (all dsSuccess desugared)
                     then Left (CompileFrontendError (concatMap dsErrors desugared))
                     else

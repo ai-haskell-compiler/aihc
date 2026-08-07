@@ -65,11 +65,14 @@ import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve
   ( ModuleExports,
+    ModuleKey (..),
     ResolveError (..),
     ResolveResult (..),
     Scope (..),
     extractInterface,
+    modulesInPackage,
     resolveWithDeps,
+    unnamedPackage,
   )
 import Aihc.Tc
   ( Pred (..),
@@ -1272,18 +1275,19 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
       enrichDiagnostics = map (addDiagnosticSourceLines sourceLinesByFile)
       parseDiagnostics = enrichDiagnostics (concatMap parsedFileParseDiagnostics parsedFiles)
       cppDiagnostics = enrichDiagnostics (concatMap parsedFileCppDiagnostics parsedFiles)
-      resolveResult = resolveWithDeps depExports parsedModules
+      resolveResult = resolveWithDeps depExports (modulesInPackage unnamedPackage parsedModules)
       exposedModules = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
-      ownExports = Map.restrictKeys (extractInterface resolveResult) exposedModules
+      ownExports = Map.restrictKeys (extractInterface resolveResult) (Set.map (ModuleKey unnamedPackage) exposedModules)
   (checkedModules, tcModules, tcDiagnostics, tcInterface) <-
-    typecheckInterfaceModules importedTcInterface (resolvedModules resolveResult)
+    typecheckInterfaceModules importedTcInterface (map snd (resolvedModules resolveResult))
   let resolveDiagnostics = enrichDiagnostics (map resolveErrorValue (resolveErrors resolveResult))
       enrichedTcDiagnostics = enrichDiagnostics tcDiagnostics
       enrichedTcModules = map (addTcModuleDiagnosticSourceLines sourceLinesByFile) tcModules
       ownBindings = concatMap tcModuleBindings checkedModules
       allBindings = mergeBy tbName [importedBindings, ownBindings]
-      fcResults = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) checkedModules (resolvedModules resolveResult)
-      fcModules = zipWith fcModuleValue (resolvedModules resolveResult) fcResults
+      resolvedModuleAsts = map snd (resolvedModules resolveResult)
+      fcResults = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) checkedModules resolvedModuleAsts
+      fcModules = zipWith fcModuleValue resolvedModuleAsts fcResults
       fcDiagnostics = concatMap fcModuleDiagnosticValues fcModules
   pure
     InterfaceBuildResult
@@ -1576,14 +1580,14 @@ interfaceStatus result =
 moduleExportsValue :: ModuleExports -> [Aeson.Value]
 moduleExportsValue exports =
   [ object
-      [ "module" .= moduleNameText,
+      [ "module" .= moduleKeyName moduleKey,
         "terms" .= Map.keys (scopeTerms scope),
         "types" .= Map.keys (scopeTypes scope),
         "constructors" .= scopeConstructors scope,
         "recordFields" .= scopeRecordFields scope,
         "methods" .= scopeMethods scope
       ]
-  | (moduleNameText, scope) <- Map.toAscList exports
+  | (moduleKey, scope) <- Map.toAscList exports
   ]
 
 tcModuleValue :: Module -> Module -> Aeson.Value

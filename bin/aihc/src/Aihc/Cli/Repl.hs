@@ -35,7 +35,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameFromText,
   )
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
+import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, modulesInPackage, resolveWithDeps, unnamedPackage)
 import Aihc.Tc
   ( InstanceInfo,
     Pred (..),
@@ -217,13 +217,13 @@ typecheckExpression session input = do
       ParseOk parsed -> Right parsed
       ParseErr _ -> Left ReplParseError
   let parsedModule = replModule expr
-      resolved = resolveWithDeps (replModuleExports session) [parsedModule]
+      resolved = resolveWithDeps (replModuleExports session) [(unnamedPackage, parsedModule)]
   case resolveErrors resolved of
     [] -> pure ()
     errors -> Left (ReplResolveError errors)
   resolvedModule <-
     case resolvedModules resolved of
-      [modu] -> Right modu
+      [(_, modu)] -> Right modu
       _ -> Left (ReplResolveError [ResolveNotImplemented "REPL resolver returned no module"])
   let tcResult = typecheckModuleWithEnvAndInstances (replImportedTerms session) (replImportedInstances session) resolvedModule
   if tcModuleSuccess tcResult
@@ -254,7 +254,7 @@ handleBrowseCommand session rawModuleName
       pure (ReplContinue (Just "usage: :browse <module>"))
   | otherwise =
       pure . ReplContinue . Just $
-        case Map.lookup moduleName' (replModuleExports session) of
+        case Map.lookup (ModuleKey unnamedPackage moduleName') (replModuleExports session) of
           Nothing -> "unknown module: " <> rawModuleName
           Just scope -> renderBrowseScope session moduleName' scope
   where
@@ -298,7 +298,7 @@ renderBrowseName name =
 resolvedBindingKey :: Text -> Text -> ResolvedName -> Maybe (Text, Text)
 resolvedBindingKey browsingModule exportedName resolved =
   case resolved of
-    ResolvedTopLevel name ->
+    ResolvedTopLevel _ name ->
       Just
         ( fromMaybe browsingModule (nameQualifier name),
           normalizeImportedBindingName (nameText name)
@@ -312,7 +312,7 @@ replCompletion session =
     pure
       [ Haskeline.simpleCompletion candidate
       | trim (reverse reversedBeforeWord) == ":browse",
-        candidate <- map T.unpack (Map.keys (replModuleExports session)),
+        candidate <- map (T.unpack . moduleKeyName) (Map.keys (replModuleExports session)),
         word `isPrefixOf` candidate
       ]
 
@@ -490,14 +490,15 @@ loadAihcBaseContext = do
 
 buildBaseContext :: [Module] -> IO ReplBaseContext
 buildBaseContext modules =
-  case resolveWithDeps Map.empty modules of
+  case resolveWithDeps Map.empty (modulesInPackage unnamedPackage modules) of
     resolved@ResolveResult {resolveErrors = [], resolvedModules} -> do
-      let tcResults = typecheckModulesWithEnv [] resolvedModules
+      let moduleAsts = map snd resolvedModules
+          tcResults = typecheckModulesWithEnv [] moduleAsts
       if all tcModuleSuccess tcResults
         then do
           let allBindings = concatMap tcModuleBindings tcResults
-              dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
-              bindingTypes = moduleBindingTypes resolvedModules tcResults
+              dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults moduleAsts
+              bindingTypes = moduleBindingTypes moduleAsts tcResults
           if all dsSuccess dsResults
             then
               pure
@@ -689,7 +690,7 @@ parseInterface =
     tcModules <- obj .:? "typecheck" .!= []
     pure
       Interface
-        { interfaceExports = Map.fromList [(interfaceModuleName modu, interfaceModuleScope modu) | modu <- modules],
+        { interfaceExports = Map.fromList [(ModuleKey unnamedPackage (interfaceModuleName modu), interfaceModuleScope modu) | modu <- modules],
           interfaceImportedTerms = concatMap interfaceTcModuleTerms tcModules,
           interfaceBindingTypes =
             Map.fromList
@@ -759,7 +760,7 @@ interfaceModuleScope modu =
 
 resolvedTopLevel :: Text -> Text -> ResolvedName
 resolvedTopLevel moduleName name =
-  ResolvedTopLevel (qualifyName (Just moduleName) (unqualifiedNameFromText name))
+  ResolvedTopLevel (packageId unnamedPackage) (qualifyName (Just moduleName) (unqualifiedNameFromText name))
 
 findInstalledBaseInterface :: FilePath -> IO FilePath
 findInstalledBaseInterface storeRoot = do
@@ -807,9 +808,10 @@ isBaseManifest candidate =
 
 ensurePreludeMvpScope :: ModuleExports -> ModuleExports
 ensurePreludeMvpScope exports =
-  Map.insert "Prelude" preludeScope exports
+  Map.insert preludeKey preludeScope exports
   where
-    existing = Map.findWithDefault emptyScope "Prelude" exports
+    preludeKey = ModuleKey unnamedPackage "Prelude"
+    existing = Map.findWithDefault emptyScope preludeKey exports
     preludeScope =
       existing
         { scopeTerms =

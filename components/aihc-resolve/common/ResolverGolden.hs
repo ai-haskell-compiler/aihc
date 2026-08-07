@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module ResolverGolden
   ( ExpectedStatus (..),
@@ -30,14 +31,20 @@ import Aihc.Parser.Syntax
     renderName,
   )
 import Aihc.Resolve
-  ( ResolutionAnnotation (..),
+  ( Package (..),
+    PackageId (..),
+    ResolutionAnnotation (..),
     ResolutionNamespace (..),
     ResolveResult (..),
     ResolvedName (..),
-    resolve,
+    resolveWithDeps,
+    unnamedPackage,
   )
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
+import Control.Applicative ((<|>))
 import Data.Aeson ((.!=), (.:), (.:?))
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort, sortOn)
@@ -69,7 +76,7 @@ data ResolverCase = ResolverCase
     caseCategory :: !String,
     casePath :: !FilePath,
     caseExtensions :: ![Extension],
-    caseModules :: ![Text],
+    caseModules :: ![(Package, Text)],
     caseAnnotated :: ![String],
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
@@ -120,7 +127,7 @@ parseResolverCaseText path source = do
         caseReason = reason
       }
 
-parseYamlFixture :: FilePath -> Y.Value -> Either String ([Text], [Text], [Text], Text, Text)
+parseYamlFixture :: FilePath -> Y.Value -> Either String ([Text], [(Package, Text)], [Text], Text, Text)
 parseYamlFixture path value =
   case parseEither
     ( withObject "resolver fixture" $ \obj -> do
@@ -135,10 +142,18 @@ parseYamlFixture path value =
     Left err -> Left ("Invalid resolver fixture schema in " <> path <> ": " <> err)
     Right parsed -> Right parsed
 
-parseModules :: Y.Value -> Y.Parser [Text]
-parseModules = withArray "modules" $ \arr ->
-  mapM parseModuleEntry (toList arr)
+parseModules :: Y.Value -> Y.Parser [(Package, Text)]
+parseModules value = parseList value <|> parsePackages value
   where
+    parseList = withArray "modules" $ \arr -> mapM (fmap (unnamedPackage,) . parseModuleEntry) (toList arr)
+    parsePackages = withObject "package modules" $ \obj -> concat <$> mapM parsePackage (KeyMap.toList obj)
+    parsePackage (packageIdKey, entry) = withObject "package modules" parsePackageEntry entry
+      where
+        parsePackageEntry obj = do
+          visibleName <- obj .: "package"
+          entries <- obj .: "modules"
+          let package = Package visibleName (PackageId (Key.toText packageIdKey))
+          withArray "package module list" (mapM (fmap (package,) . parseModuleEntry) . toList) entries
     toList = foldr (:) []
     parseModuleEntry (Y.String t) = pure t
     parseModuleEntry _ = fail "each module must be a string"
@@ -152,11 +167,11 @@ parseAnnotatedList = withArray "annotated" $ \arr -> do
 
 evaluateResolverCase :: ResolverCase -> (Outcome, String)
 evaluateResolverCase meta =
-  let parsedModules = map parseOne (caseModules meta)
+  let parsedModules = map (traverse parseOne) (caseModules meta)
    in case sequence parsedModules of
         Left errMsg -> (OutcomeFail, "parse error: " <> errMsg)
         Right modules ->
-          let result = resolve modules
+          let result = resolveWithDeps mempty modules
               actualAnnotated = showAnnotated result
               outputMatches = actualAnnotated == caseAnnotated meta
            in case caseStatus meta of
@@ -183,7 +198,7 @@ evaluateResolverCase meta =
        in if null errs
             then Right ast
             else Left (formatParseErrors (T.unpack (T.takeWhile (/= '\n') input)) (Just input) errs)
-    showAnnotated = renderAnnotatedResolveResult (caseModules meta)
+    showAnnotated = renderAnnotatedResolveResult (map snd (caseModules meta))
 
 progressSummary :: [(ResolverCase, Outcome, String)] -> (Int, Int, Int, Int)
 progressSummary outcomes =
@@ -204,7 +219,7 @@ renderAnnotatedResolveResult sources result =
       let moduleSources = sortOn (moduleDisplayName . fst) (zip modules sources)
        in renderAnnotatedModuleSources resolutionAnnotationDoc (map snd moduleSources) (map fst moduleSources)
   where
-    modules = resolvedModules result
+    modules = map snd (resolvedModules result)
 
 resolutionAnnotationDoc :: Annotation -> Maybe (Doc ann)
 resolutionAnnotationDoc annotation = do
@@ -230,7 +245,9 @@ renderConciseNamespace namespace =
 renderConciseOrigin :: ResolvedName -> Text
 renderConciseOrigin resolvedName =
   case resolvedName of
-    ResolvedTopLevel name -> fromMaybe (renderName name) (nameQualifier name)
+    ResolvedTopLevel identity name
+      | packageIdText identity == "" -> fromMaybe (renderName name) (nameQualifier name)
+      | otherwise -> packageIdText identity <> ":" <> fromMaybe (renderName name) (nameQualifier name)
     ResolvedLocal uniqueId _ -> T.pack (show uniqueId)
     ResolvedBuiltin name -> "Builtin " <> name
     ResolvedError msg -> T.pack ("Error " <> msg)

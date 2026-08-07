@@ -1,0 +1,43 @@
+extensions: [PackageImports]
+modules:
+  "app-1.0-main":
+    package: app
+    modules:
+      - |
+        module Main where
+        import "pkg-a" Shared
+        import qualified "pkg-a-1.0" Shared as Versioned
+        result = value
+  "pkg-a-1.0-abc":
+    package: pkg-a
+    modules:
+      - |
+        module Shared where
+        value = 10
+  "pkg-a-2.0-def":
+    package: pkg-a
+    modules:
+      - |
+        module Shared where
+        value = 20
+annotated:
+  - |
+    module Main where
+    import "pkg-a" Shared
+    └─ m Error ambiguous
+    import qualified "pkg-a-1.0" Shared as Versioned
+    └─ m Error not found
+    result = value
+    │        └─ v Error unbound
+    └─ v app-1.0-main:Main
+  - |
+    module Shared where
+    value = 10
+    │       └─ v Error unbound
+    └─ v pkg-a-1.0-abc:Shared
+  - |
+    module Shared where
+    value = 20
+    │       └─ v Error unbound
+    └─ v pkg-a-2.0-def:Shared
+status: pass
