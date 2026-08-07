@@ -18,6 +18,8 @@ module Aihc.Resolve
     ModuleExports,
     ModuleKey (..),
     PackageId (..),
+    parsePackageId,
+    renderPackageId,
     collectModuleExports,
     ResolveError (..),
     ResolveResult (..),

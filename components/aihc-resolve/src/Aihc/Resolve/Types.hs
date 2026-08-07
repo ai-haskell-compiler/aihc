@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -9,6 +10,8 @@ module Aihc.Resolve.Types
     pattern TResolution,
     ResolutionNamespace (..),
     PackageId (..),
+    parsePackageId,
+    renderPackageId,
     ResolvedName (..),
     ResolutionAnnotation (..),
     ResolveError (..),
@@ -30,11 +33,35 @@ import Aihc.Parser.Syntax
   )
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
+import Data.Text qualified as T
 
--- | An installed package identity.  The textual form is kept intact because
--- package hashes are compiler/package-manager specific.
-newtype PackageId = PackageId {renderPackageId :: Text}
+-- | An installed package identity, split at the unambiguous version and hash
+-- suffix so package names may themselves contain dashes.
+data PackageId = PackageId
+  { packageIdName :: !Text,
+    packageIdVersion :: !Text,
+    packageIdHash :: !Text
+  }
   deriving (Eq, Ord, Show)
+
+parsePackageId :: Text -> Maybe PackageId
+parsePackageId raw =
+  case reverse (T.splitOn "-" raw) of
+    packageHash : version : reversedName
+      | not (T.null packageHash),
+        validVersion version,
+        not (null reversedName),
+        let packageName = T.intercalate "-" (reverse reversedName),
+        not (T.null packageName) ->
+          Just (PackageId packageName version packageHash)
+    _ -> Nothing
+  where
+    validVersion version =
+      all (\component -> not (T.null component) && T.all (`elem` ['0' .. '9']) component) (T.splitOn "." version)
+
+renderPackageId :: PackageId -> Text
+renderPackageId packageId =
+  T.intercalate "-" [packageIdName packageId, packageIdVersion packageId, packageIdHash packageId]
 
 data ResolvedName
   = ResolvedTopLevel Name

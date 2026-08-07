@@ -3,21 +3,24 @@ modules:
   "app-1.0-main":
     - |
       module Main where
-      import "pkgA-1.0" Shared
+      import "pkg-a" Shared
+      import qualified "pkg-a-1.0" Shared as Versioned
       result = value
-  "pkgA-1.0-abc":
+  "pkg-a-1.0-abc":
     - |
       module Shared where
       value = 10
-  "pkgA-1.0-def":
+  "pkg-a-2.0-def":
     - |
       module Shared where
       value = 20
 annotated:
   - |
     module Main where
-    import "pkgA-1.0" Shared
+    import "pkg-a" Shared
     └─ m Error ambiguous
+    import qualified "pkg-a-1.0" Shared as Versioned
+    └─ m Error not found
     result = value
     │        └─ v Error unbound
     └─ v app-1.0-main:Main
@@ -25,10 +28,10 @@ annotated:
     module Shared where
     value = 10
     │       └─ v Error unbound
-    └─ v pkgA-1.0-abc:Shared
+    └─ v pkg-a-1.0-abc:Shared
   - |
     module Shared where
     value = 20
     │       └─ v Error unbound
-    └─ v pkgA-1.0-def:Shared
+    └─ v pkg-a-2.0-def:Shared
 status: pass

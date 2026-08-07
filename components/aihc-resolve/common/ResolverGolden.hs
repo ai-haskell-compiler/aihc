@@ -36,6 +36,8 @@ import Aihc.Resolve
     ResolutionNamespace (..),
     ResolveResult (..),
     ResolvedName (..),
+    parsePackageId,
+    renderPackageId,
     resolvePackages,
   )
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
@@ -145,7 +147,9 @@ parseModules value = parseList value <|> parsePackages value
   where
     parseList = withArray "modules" $ \arr -> mapM (fmap (Nothing,) . parseModuleEntry) (toList arr)
     parsePackages = withObject "package modules" $ \obj -> concat <$> mapM parsePackage (KeyMap.toList obj)
-    parsePackage (packageId, entries) = withArray "package module list" (mapM (fmap (Just (PackageId (Key.toText packageId)),) . parseModuleEntry) . toList) entries
+    parsePackage (packageIdKey, entries) = do
+      packageId <- maybe (fail ("invalid package id: " <> show (Key.toText packageIdKey))) pure (parsePackageId (Key.toText packageIdKey))
+      withArray "package module list" (mapM (fmap (Just packageId,) . parseModuleEntry) . toList) entries
     toList = foldr (:) []
     parseModuleEntry (Y.String t) = pure t
     parseModuleEntry _ = fail "each module must be a string"
@@ -238,7 +242,7 @@ renderConciseOrigin :: ResolvedName -> Text
 renderConciseOrigin resolvedName =
   case resolvedName of
     ResolvedTopLevel name -> fromMaybe (renderName name) (nameQualifier name)
-    ResolvedPackageTopLevel (PackageId packageId) name -> packageId <> ":" <> fromMaybe (renderName name) (nameQualifier name)
+    ResolvedPackageTopLevel packageId name -> renderPackageId packageId <> ":" <> fromMaybe (renderName name) (nameQualifier name)
     ResolvedLocal uniqueId _ -> T.pack (show uniqueId)
     ResolvedBuiltin name -> "Builtin " <> name
     ResolvedError msg -> T.pack ("Error " <> msg)

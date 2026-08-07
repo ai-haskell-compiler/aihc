@@ -421,8 +421,7 @@ matchingModuleScopes currentPackage requestedPackage moduleName' exports =
       Just requested -> maybe False (packageIdMatches requested) packageId
 
 packageIdMatches :: Text -> PackageId -> Bool
-packageIdMatches requested (PackageId installed) =
-  requested == installed || requested `T.isPrefixOf` installed && T.isPrefixOf "-" (T.drop (T.length requested) installed)
+packageIdMatches requested packageId = requested == packageIdName packageId
 
 filterImportSpec :: Maybe ImportSpec -> Scope -> Scope
 filterImportSpec maybeSpec scope =
