@@ -6,7 +6,7 @@ module Test.ResolvePackage
 where
 
 import Aihc.Parser.Syntax (NameType (..), mkUnqualifiedName, qualifyName)
-import Aihc.Resolve (ModuleKey (..), ResolvedName (..), Scope (..))
+import Aihc.Resolve (ModuleKey (..), Package (..), ResolvedName (..), Scope (..), unnamedPackage)
 import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.List (isInfixOf)
 import Data.Map.Strict qualified as Map
@@ -71,8 +71,8 @@ test_renderInterfaceJSON = do
         interfaceFromExports
           "demo"
           ( Map.fromList
-              [ (ModuleKey Nothing "Z", mkScope ["zterm"] ["Zed"]),
-                (ModuleKey Nothing "A", (mkScope ["beta", "alpha"] ["Thing"]) {scopeConstructors = Map.singleton "Thing" ["MkThing"], scopeMethods = Map.singleton "Classy" ["method"]})
+              [ (ModuleKey unnamedPackage "Z", mkScope ["zterm"] ["Zed"]),
+                (ModuleKey unnamedPackage "A", (mkScope ["beta", "alpha"] ["Thing"]) {scopeConstructors = Map.singleton "Thing" ["MkThing"], scopeMethods = Map.singleton "Classy" ["method"]})
               ]
           )
       rendered = BL8.unpack (renderInterfaceJSON iface)
@@ -122,4 +122,4 @@ mkScope terms types =
     }
   where
     resolve name =
-      ResolvedTopLevel (qualifyName (Just "M") (mkUnqualifiedName NameVarId name))
+      ResolvedTopLevel (packageId unnamedPackage) (qualifyName (Just "M") (mkUnqualifiedName NameVarId name))

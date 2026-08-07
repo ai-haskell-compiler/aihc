@@ -13,7 +13,7 @@ import Aihc.Parser.Syntax
     qualifyName,
   )
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Resolve (ModuleExports, ModuleKey (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
+import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, modulesInPackage, resolveWithDeps, unnamedPackage)
 import Control.Exception (bracket)
 import Data.Aeson (Value, encode, object, (.=))
 import Data.ByteString qualified as BS
@@ -50,7 +50,7 @@ test_extractsInterfaceForGeneratedPathsPackage =
 
     files <- findTargetFiles root
     modules <- mapM (parseFileInfo root) files
-    let result = resolveWithDeps baseExports modules
+    let result = resolveWithDeps baseExports (modulesInPackage unnamedPackage modules)
     assertEqual "expected generated Paths package to resolve cleanly" [] (resolveErrors result)
 
     let iface = extractInterface result
@@ -58,8 +58,8 @@ test_extractsInterfaceForGeneratedPathsPackage =
     written <- BL.readFile ifaceFile
     assertBool "expected interface JSON to be written" (not (BL.null written))
 
-    assertBool "expected user module in interface" (Map.member (ModuleKey Nothing "PathsUser") iface)
-    case Map.lookup (ModuleKey Nothing "Paths_paths_demo") iface of
+    assertBool "expected user module in interface" (Map.member (ModuleKey unnamedPackage "PathsUser") iface)
+    case Map.lookup (ModuleKey unnamedPackage "Paths_paths_demo") iface of
       Nothing -> assertFailure "expected generated Paths module in interface"
       Just pathsScope -> do
         assertBool "expected version export" (Map.member "version" (scopeTerms pathsScope))
@@ -88,7 +88,7 @@ parseFileInfo packageRoot info = do
 
 baseExports :: ModuleExports
 baseExports =
-  Map.mapKeys (ModuleKey Nothing) $
+  Map.mapKeys (ModuleKey unnamedPackage) $
     Map.fromList
       [ ("GHC.Classes", mkScope "GHC.Classes" ["=="] []),
         ("GHC.Num", mkScope "GHC.Num" ["fromInteger"] []),
@@ -112,7 +112,7 @@ mkScope moduleName terms types =
     }
   where
     resolve name =
-      ResolvedTopLevel (qualifyName (Just moduleName) (mkUnqualifiedName (inferNameType name) name))
+      ResolvedTopLevel (packageId unnamedPackage) (qualifyName (Just moduleName) (mkUnqualifiedName (inferNameType name) name))
 
 inferNameType :: Text -> NameType
 inferNameType name =

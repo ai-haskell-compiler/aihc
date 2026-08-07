@@ -53,7 +53,7 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Resolve (ResolveResult (..), resolve)
+import Aihc.Resolve (ResolveResult (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TyConFlavor (..), emptyTcInterface, renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
@@ -86,8 +86,8 @@ data DesugarResult = DesugarResult
 -- but deliberately unoptimized Core.
 desugarModule :: Module -> DesugarResult
 desugarModule m =
-  case resolve [m] of
-    ResolveResult {resolvedModules = [resolved], resolveErrors = []} ->
+  case resolveWithDeps mempty [(unnamedPackage, m)] of
+    ResolveResult {resolvedModules = [(_, resolved)], resolveErrors = []} ->
       case typecheckModulesWithInterface emptyTcInterface [resolved] of
         ([tcResult], tcInterface) ->
           desugarModuleWithDataTypes (tcModuleBindings tcResult) (tcInterfaceDataTypes tcInterface) tcResult resolved

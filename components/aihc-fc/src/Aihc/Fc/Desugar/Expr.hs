@@ -609,10 +609,7 @@ isGhcPrimSeq name =
     isSeqResolution resolution =
       resolutionNamespace resolution == ResolutionNamespaceTerm
         && case resolutionTarget resolution of
-          ResolvedTopLevel target ->
-            nameQualifier target == Just "GHC.Prim"
-              && nameText target == "seq"
-          ResolvedPackageTopLevel _ target ->
+          ResolvedTopLevel _ target ->
             nameQualifier target == Just "GHC.Prim"
               && nameText target == "seq"
           _ -> False
@@ -820,8 +817,7 @@ dsIntegerLiteral value = do
 resolvedAnnotationName :: ResolutionAnnotation -> Name
 resolvedAnnotationName resolution =
   case resolutionTarget resolution of
-    ResolvedTopLevel name -> mkName (nameQualifier name) (nameType name) (nameText name)
-    ResolvedPackageTopLevel _ name -> mkName (nameQualifier name) (nameType name) (nameText name)
+    ResolvedTopLevel _ name -> mkName (nameQualifier name) (nameType name) (nameText name)
     ResolvedLocal _ name -> qualifyName Nothing name
     ResolvedBuiltin name -> mkName Nothing NameVarId name
     ResolvedError {} -> mkName Nothing NameVarId (resolutionName resolution)

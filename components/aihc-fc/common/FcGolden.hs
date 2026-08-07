@@ -23,7 +23,7 @@ import Aihc.Parser
     parseModule,
   )
 import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
-import Aihc.Resolve (ResolveResult (..), resolve)
+import Aihc.Resolve (ResolveResult (..), modulesInPackage, resolveWithDeps, unnamedPackage)
 import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
@@ -148,13 +148,14 @@ evaluateFcCase tc =
    in case sequence parsedModules of
         Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
         Right modules ->
-          case resolve modules of
+          case resolveWithDeps mempty (modulesInPackage unnamedPackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
-              let (tcResults, tcInterface) = typecheckModulesWithInterface emptyTcInterface resolvedModules
+              let moduleAsts = map snd resolvedModules
+                  (tcResults, tcInterface) = typecheckModulesWithInterface emptyTcInterface moduleAsts
                in if all tcModuleSuccess tcResults
                     then
                       let allBindings = moduleGroupBindings tcResults
-                          results = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) tcResults resolvedModules
+                          results = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) tcResults moduleAsts
                           fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
                             then classifySuccess tc (renderResults fixtureResults)

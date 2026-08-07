@@ -7,7 +7,6 @@ module Aihc.Resolve.Scope
     ModuleKey (..),
     collectModuleExports,
     collectModuleExportsWithDeps,
-    collectPackageModuleExports,
     moduleScope,
     moduleKey,
     matchingModuleScopes,
@@ -98,41 +97,38 @@ data OperatorFixity = OperatorFixity
   deriving (Eq, Show, Read)
 
 data ModuleKey = ModuleKey
-  { moduleKeyPackage :: !(Maybe Package),
+  { moduleKeyPackage :: !Package,
     moduleKeyName :: !Text
   }
   deriving (Eq, Ord, Show)
 
 type ModuleExports = Map.Map ModuleKey Scope
 
-collectModuleExports :: [Module] -> ModuleExports
-collectModuleExports = collectPackageModuleExports Nothing Map.empty
+collectModuleExports :: [(Package, Module)] -> ModuleExports
+collectModuleExports = collectModuleExportsWithDeps Map.empty
 
 -- | Extract interfaces for a compilation unit while allowing its explicit
 -- export lists to re-export names supplied by predecessor units.
-collectModuleExportsWithDeps :: ModuleExports -> [Module] -> ModuleExports
-collectModuleExportsWithDeps = collectPackageModuleExports Nothing
-
-collectPackageModuleExports :: Maybe Package -> ModuleExports -> [Module] -> ModuleExports
-collectPackageModuleExports package depExports modules = Map.restrictKeys (closeExports initialExports) moduleKeys
+collectModuleExportsWithDeps :: ModuleExports -> [(Package, Module)] -> ModuleExports
+collectModuleExportsWithDeps depExports packageModules = Map.restrictKeys (closeExports initialExports) moduleKeys
   where
     moduleKeys = Map.keysSet localExports
     localExports =
       Map.fromList
-        [ (exportKey modu, emptyScope)
-        | modu <- modules
+        [ (exportKey package modu, emptyScope)
+        | (package, modu) <- packageModules
         ]
     initialExports =
       localExports `Map.union` depExports
 
     closeExports exports =
       let exports' =
-            Map.fromList [(exportKey modu, exportedScope package exports modu) | modu <- modules]
+            Map.fromList [(exportKey package modu, exportedScope package exports modu) | (package, modu) <- packageModules]
               `Map.union` depExports
        in if exports' == exports then exports else closeExports exports'
-    exportKey modu = ModuleKey package (moduleKey modu)
+    exportKey package modu = ModuleKey package (moduleKey modu)
 
-exportedScope :: Maybe Package -> ModuleExports -> Module -> Scope
+exportedScope :: Package -> ModuleExports -> Module -> Scope
 exportedScope package exports modu =
   case moduleExports modu of
     Nothing -> topLevelScope package modu
@@ -186,14 +182,12 @@ allTypeMembers name scope =
 exportBundledMemberName :: IEBundledMember -> Text
 exportBundledMemberName = nameText . ieBundledMemberName
 
-topLevelScope :: Maybe Package -> Module -> Scope
+topLevelScope :: Package -> Module -> Scope
 topLevelScope package modu =
   List.foldl' addDecl emptyScope (moduleDecls modu)
   where
     moduleKeyText = moduleKey modu
-    qualify name = case package of
-      Nothing -> ResolvedTopLevel (qualifyName (Just moduleKeyText) name)
-      Just definingPackage -> ResolvedPackageTopLevel (packageId definingPackage) (qualifyName (Just moduleKeyText) name)
+    qualify = ResolvedTopLevel (packageId package) . qualifyName (Just moduleKeyText)
     addDecl scope decl =
       let DeclExports termNames typeNames constructors recordFields methods fixities = declExportedNames decl
           scope' = List.foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify name) acc) scope termNames
@@ -375,7 +369,7 @@ bars n
   | n <= 0 = ""
   | otherwise = T.replicate n "|"
 
-moduleScope :: Maybe Package -> ModuleExports -> Module -> Scope
+moduleScope :: Package -> ModuleExports -> Module -> Scope
 moduleScope packageId exports modu =
   ownScope `unionScope` importedScope packageId exports modu `unionScope` implicitPrelude `unionScope` builtinScope
   where
@@ -384,7 +378,7 @@ moduleScope packageId exports modu =
     -- Implicit Prelude: names available unqualified AND as Prelude.xxx
     implicitPrelude = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
 
-importedScope :: Maybe Package -> ModuleExports -> Module -> Scope
+importedScope :: Package -> ModuleExports -> Module -> Scope
 importedScope packageId exports modu =
   List.foldl' addImport emptyScope (moduleImports modu)
   where
@@ -399,7 +393,7 @@ importedScope packageId exports modu =
         qualifier = fromMaybe originModule (importDeclAs importDecl)
         imported = filterImportSpec (importDeclSpec importDecl) (lookupImportedModule packageId (importDeclPackage importDecl) originModule exports)
 
-lookupImportedModule :: Maybe Package -> Maybe Text -> Text -> ModuleExports -> Scope
+lookupImportedModule :: Package -> Maybe Text -> Text -> ModuleExports -> Scope
 lookupImportedModule currentPackage requestedPackage moduleName' exports =
   case matchingScopes of
     [scope] -> scope
@@ -407,18 +401,18 @@ lookupImportedModule currentPackage requestedPackage moduleName' exports =
   where
     matchingScopes = matchingModuleScopes currentPackage requestedPackage moduleName' exports
 
-matchingModuleScopes :: Maybe Package -> Maybe Text -> Text -> ModuleExports -> [Scope]
+matchingModuleScopes :: Package -> Maybe Text -> Text -> ModuleExports -> [Scope]
 matchingModuleScopes currentPackage requestedPackage moduleName' exports =
   [ scope
-  | (ModuleKey packageId name, scope) <- Map.toList exports,
+  | (ModuleKey package name, scope) <- Map.toList exports,
     name == moduleName',
-    packageMatches packageId
+    packageMatches package
   ]
   where
-    packageMatches packageId = case requestedPackage of
+    packageMatches package = case requestedPackage of
       Nothing -> True
-      Just "this" -> packageId == currentPackage
-      Just requested -> maybe False ((== requested) . packageName) packageId
+      Just "this" -> package == currentPackage
+      Just requested -> requested == packageName package
 
 filterImportSpec :: Maybe ImportSpec -> Scope -> Scope
 filterImportSpec maybeSpec scope =
@@ -494,8 +488,7 @@ resolveQualifiedName scope lookupName qualifier name =
     Nothing -> ResolvedError ("unknown qualified import: " <> T.unpack qualifier)
     Just qualifiedScope ->
       case lookupName (nameText name) qualifiedScope of
-        ResolvedTopLevel resolved -> ResolvedTopLevel resolved
-        ResolvedPackageTopLevel packageId resolved -> ResolvedPackageTopLevel packageId resolved
+        ResolvedTopLevel packageId resolved -> ResolvedTopLevel packageId resolved
         other -> other
 
 moduleKey :: Module -> Text

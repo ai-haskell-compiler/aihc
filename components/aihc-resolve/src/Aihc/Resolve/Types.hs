@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -10,10 +11,13 @@ module Aihc.Resolve.Types
     ResolutionNamespace (..),
     PackageId (..),
     Package (..),
+    unnamedPackage,
+    modulesInPackage,
     ResolvedName (..),
     ResolutionAnnotation (..),
     ResolveError (..),
     ResolveResult (..),
+    resolvedModuleAsts,
   )
 where
 
@@ -43,9 +47,16 @@ data Package = Package
   }
   deriving (Eq, Ord, Show)
 
+unnamedPackage :: Package
+unnamedPackage = Package "" (PackageId "")
+
+modulesInPackage :: Package -> [Module] -> [(Package, Module)]
+modulesInPackage package = map pairWithPackage
+  where
+    pairWithPackage modu = (package, modu)
+
 data ResolvedName
-  = ResolvedTopLevel Name
-  | ResolvedPackageTopLevel PackageId Name
+  = ResolvedTopLevel PackageId Name
   | ResolvedLocal Int UnqualifiedName
   | ResolvedBuiltin Text
   | ResolvedError String
@@ -76,10 +87,13 @@ data ResolveError
   deriving (Eq, Show)
 
 data ResolveResult = ResolveResult
-  { resolvedModules :: [Module],
+  { resolvedModules :: [(Package, Module)],
     resolveErrors :: [ResolveError]
   }
   deriving (Show)
+
+resolvedModuleAsts :: ResolveResult -> [Module]
+resolvedModuleAsts = map snd . resolvedModules
 
 pattern DeclResolution :: ResolutionAnnotation -> Decl
 pattern DeclResolution resolution <- DeclAnn (fromAnnotation -> Just resolution) _
