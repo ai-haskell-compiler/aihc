@@ -1,19 +1,25 @@
 extensions: [PackageImports]
 modules:
   "app-1.0-main":
-    - |
-      module Main where
-      import "pkg-a" Shared
-      import qualified "pkg-a-1.0" Shared as Versioned
-      result = value
+    package: app
+    modules:
+      - |
+        module Main where
+        import "pkg-a" Shared
+        import qualified "pkg-a-1.0" Shared as Versioned
+        result = value
   "pkg-a-1.0-abc":
-    - |
-      module Shared where
-      value = 10
+    package: pkg-a
+    modules:
+      - |
+        module Shared where
+        value = 10
   "pkg-a-2.0-def":
-    - |
-      module Shared where
-      value = 20
+    package: pkg-a
+    modules:
+      - |
+        module Shared where
+        value = 20
 annotated:
   - |
     module Main where

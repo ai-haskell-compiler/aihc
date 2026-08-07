@@ -18,8 +18,7 @@ module Aihc.Resolve
     ModuleExports,
     ModuleKey (..),
     PackageId (..),
-    parsePackageId,
-    renderPackageId,
+    Package (..),
     collectModuleExports,
     ResolveError (..),
     ResolveResult (..),
@@ -111,7 +110,7 @@ resolve = resolveWithDeps Map.empty
 
 -- | Resolve modules whose defining installed packages are known.  A missing
 -- package id denotes the current, anonymous package used by simple callers.
-resolvePackages :: [(Maybe PackageId, Module)] -> ResolveResult
+resolvePackages :: [(Maybe Package, Module)] -> ResolveResult
 resolvePackages packageModules =
   ResolveResult
     { resolvedModules = modules',
@@ -231,7 +230,7 @@ extractInterface = collectModuleExports . resolvedModules
 extractInterfaceWithDeps :: ModuleExports -> ResolveResult -> ModuleExports
 extractInterfaceWithDeps depExports = collectModuleExportsWithDeps depExports . resolvedModules
 
-resolveModule :: Maybe PackageId -> ModuleExports -> Int -> Module -> (Int, Module)
+resolveModule :: Maybe Package -> ModuleExports -> Int -> Module -> (Int, Module)
 resolveModule packageId exports nextLocal modu =
   let imports' = resolveModuleImports packageId exports (moduleImports modu)
       modu' = modu {moduleImports = imports'}
@@ -252,7 +251,7 @@ moduleInfo exports modu =
       moduleInfoGhcNumScope = lookupImportedModule Nothing Nothing "GHC.Num" exports
     }
 
-resolveModuleImports :: Maybe PackageId -> ModuleExports -> [ImportDecl] -> [ImportDecl]
+resolveModuleImports :: Maybe Package -> ModuleExports -> [ImportDecl] -> [ImportDecl]
 resolveModuleImports packageId exports =
   map resolveModuleImport
   where

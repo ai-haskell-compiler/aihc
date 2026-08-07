@@ -31,13 +31,12 @@ import Aihc.Parser.Syntax
     renderName,
   )
 import Aihc.Resolve
-  ( PackageId (..),
+  ( Package (..),
+    PackageId (..),
     ResolutionAnnotation (..),
     ResolutionNamespace (..),
     ResolveResult (..),
     ResolvedName (..),
-    parsePackageId,
-    renderPackageId,
     resolvePackages,
   )
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
@@ -76,7 +75,7 @@ data ResolverCase = ResolverCase
     caseCategory :: !String,
     casePath :: !FilePath,
     caseExtensions :: ![Extension],
-    caseModules :: ![(Maybe PackageId, Text)],
+    caseModules :: ![(Maybe Package, Text)],
     caseAnnotated :: ![String],
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
@@ -127,7 +126,7 @@ parseResolverCaseText path source = do
         caseReason = reason
       }
 
-parseYamlFixture :: FilePath -> Y.Value -> Either String ([Text], [(Maybe PackageId, Text)], [Text], Text, Text)
+parseYamlFixture :: FilePath -> Y.Value -> Either String ([Text], [(Maybe Package, Text)], [Text], Text, Text)
 parseYamlFixture path value =
   case parseEither
     ( withObject "resolver fixture" $ \obj -> do
@@ -142,14 +141,18 @@ parseYamlFixture path value =
     Left err -> Left ("Invalid resolver fixture schema in " <> path <> ": " <> err)
     Right parsed -> Right parsed
 
-parseModules :: Y.Value -> Y.Parser [(Maybe PackageId, Text)]
+parseModules :: Y.Value -> Y.Parser [(Maybe Package, Text)]
 parseModules value = parseList value <|> parsePackages value
   where
     parseList = withArray "modules" $ \arr -> mapM (fmap (Nothing,) . parseModuleEntry) (toList arr)
     parsePackages = withObject "package modules" $ \obj -> concat <$> mapM parsePackage (KeyMap.toList obj)
-    parsePackage (packageIdKey, entries) = do
-      packageId <- maybe (fail ("invalid package id: " <> show (Key.toText packageIdKey))) pure (parsePackageId (Key.toText packageIdKey))
-      withArray "package module list" (mapM (fmap (Just packageId,) . parseModuleEntry) . toList) entries
+    parsePackage (packageIdKey, entry) = withObject "package modules" parsePackageEntry entry
+      where
+        parsePackageEntry obj = do
+          visibleName <- obj .: "package"
+          entries <- obj .: "modules"
+          let package = Package visibleName (PackageId (Key.toText packageIdKey))
+          withArray "package module list" (mapM (fmap (Just package,) . parseModuleEntry) . toList) entries
     toList = foldr (:) []
     parseModuleEntry (Y.String t) = pure t
     parseModuleEntry _ = fail "each module must be a string"
@@ -242,7 +245,7 @@ renderConciseOrigin :: ResolvedName -> Text
 renderConciseOrigin resolvedName =
   case resolvedName of
     ResolvedTopLevel name -> fromMaybe (renderName name) (nameQualifier name)
-    ResolvedPackageTopLevel packageId name -> renderPackageId packageId <> ":" <> fromMaybe (renderName name) (nameQualifier name)
+    ResolvedPackageTopLevel identity name -> packageIdText identity <> ":" <> fromMaybe (renderName name) (nameQualifier name)
     ResolvedLocal uniqueId _ -> T.pack (show uniqueId)
     ResolvedBuiltin name -> "Builtin " <> name
     ResolvedError msg -> T.pack ("Error " <> msg)
