@@ -48,6 +48,7 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve
   ( ModuleExports,
+    ModuleKey (..),
     OperatorFixity,
     ResolveResult (..),
     ResolvedName (..),
@@ -211,7 +212,7 @@ buildDependencies target environment usesImplicitPrelude buildBackend mainModule
       case installed of
         Left err -> pure (Left err)
         Right (artifactRoot, artifact) ->
-          case filter (`Map.notMember` dependencyExports artifact) requiredModules of
+          case filter (\name -> Map.notMember (ModuleKey Nothing name) (dependencyExports artifact)) requiredModules of
             missing@(_ : _) -> pure (Left ("library modules are not installed: " <> T.unpack (T.intercalate ", " missing)))
             []
               | buildBackend -> attachInstalledBackend target artifactRoot artifact
@@ -451,7 +452,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
 
     finish state =
       DependencyArtifact
-        { dependencyExports = Map.restrictKeys (compileStateExports state) exposedModules,
+        { dependencyExports = Map.restrictKeys (compileStateExports state) (Set.map (ModuleKey Nothing) exposedModules),
           dependencyTcInterface = compileStateTcInterface state,
           dependencyBindings = compileStateBindings state,
           dependencyAxiomInterface = compileStateAxioms state,
@@ -753,10 +754,12 @@ fromStoredArtifact stored =
     }
 
 toStoredExports :: ModuleExports -> StoredModuleExports
-toStoredExports = StoredModuleExports . map (fmap toStoredScope) . Map.toAscList
+toStoredExports = StoredModuleExports . map toStoredExport . Map.toAscList
+  where
+    toStoredExport (key, scope) = (moduleKeyName key, toStoredScope scope)
 
 fromStoredExports :: StoredModuleExports -> ModuleExports
-fromStoredExports (StoredModuleExports exports) = Map.fromList (map (fmap fromStoredScope) exports)
+fromStoredExports (StoredModuleExports exports) = Map.fromList [(ModuleKey Nothing name, fromStoredScope scope) | (name, scope) <- exports]
 
 toStoredScope :: Scope -> StoredScope
 toStoredScope scope =
@@ -786,6 +789,7 @@ toStoredResolvedName :: ResolvedName -> StoredResolvedName
 toStoredResolvedName resolved =
   case resolved of
     ResolvedTopLevel Name {nameQualifier, nameType, nameText} -> StoredTopLevel nameQualifier nameType nameText
+    ResolvedPackageTopLevel _ Name {nameQualifier, nameType, nameText} -> StoredTopLevel nameQualifier nameType nameText
     ResolvedLocal unique UnqualifiedName {unqualifiedNameType, unqualifiedNameText} -> StoredLocal unique unqualifiedNameType unqualifiedNameText
     ResolvedBuiltin name -> StoredBuiltin name
     ResolvedError err -> StoredError err

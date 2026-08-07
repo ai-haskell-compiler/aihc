@@ -8,6 +8,7 @@ module Aihc.Resolve.Types
     pattern PResolution,
     pattern TResolution,
     ResolutionNamespace (..),
+    PackageId (..),
     ResolvedName (..),
     ResolutionAnnotation (..),
     ResolveError (..),
@@ -30,8 +31,14 @@ import Aihc.Parser.Syntax
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 
+-- | An installed package identity.  The textual form is kept intact because
+-- package hashes are compiler/package-manager specific.
+newtype PackageId = PackageId {renderPackageId :: Text}
+  deriving (Eq, Ord, Show)
+
 data ResolvedName
   = ResolvedTopLevel Name
+  | ResolvedPackageTopLevel PackageId Name
   | ResolvedLocal Int UnqualifiedName
   | ResolvedBuiltin Text
   | ResolvedError String

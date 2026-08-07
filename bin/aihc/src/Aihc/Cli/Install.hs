@@ -65,6 +65,7 @@ import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve
   ( ModuleExports,
+    ModuleKey (..),
     ResolveError (..),
     ResolveResult (..),
     Scope (..),
@@ -1274,7 +1275,7 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
       cppDiagnostics = enrichDiagnostics (concatMap parsedFileCppDiagnostics parsedFiles)
       resolveResult = resolveWithDeps depExports parsedModules
       exposedModules = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
-      ownExports = Map.restrictKeys (extractInterface resolveResult) exposedModules
+      ownExports = Map.restrictKeys (extractInterface resolveResult) (Set.map (ModuleKey Nothing) exposedModules)
   (checkedModules, tcModules, tcDiagnostics, tcInterface) <-
     typecheckInterfaceModules importedTcInterface (resolvedModules resolveResult)
   let resolveDiagnostics = enrichDiagnostics (map resolveErrorValue (resolveErrors resolveResult))
@@ -1576,14 +1577,14 @@ interfaceStatus result =
 moduleExportsValue :: ModuleExports -> [Aeson.Value]
 moduleExportsValue exports =
   [ object
-      [ "module" .= moduleNameText,
+      [ "module" .= moduleKeyName moduleKey,
         "terms" .= Map.keys (scopeTerms scope),
         "types" .= Map.keys (scopeTypes scope),
         "constructors" .= scopeConstructors scope,
         "recordFields" .= scopeRecordFields scope,
         "methods" .= scopeMethods scope
       ]
-  | (moduleNameText, scope) <- Map.toAscList exports
+  | (moduleKey, scope) <- Map.toAscList exports
   ]
 
 tcModuleValue :: Module -> Module -> Aeson.Value

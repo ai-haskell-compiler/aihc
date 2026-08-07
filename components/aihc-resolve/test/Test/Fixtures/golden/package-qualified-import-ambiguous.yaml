@@ -1,0 +1,34 @@
+extensions: [PackageImports]
+modules:
+  "app-1.0-main":
+    - |
+      module Main where
+      import "pkgA-1.0" Shared
+      result = value
+  "pkgA-1.0-abc":
+    - |
+      module Shared where
+      value = 10
+  "pkgA-1.0-def":
+    - |
+      module Shared where
+      value = 20
+annotated:
+  - |
+    module Main where
+    import "pkgA-1.0" Shared
+    └─ m Error ambiguous
+    result = value
+    │        └─ v Error unbound
+    └─ v app-1.0-main:Main
+  - |
+    module Shared where
+    value = 10
+    │       └─ v Error unbound
+    └─ v pkgA-1.0-abc:Shared
+  - |
+    module Shared where
+    value = 20
+    │       └─ v Error unbound
+    └─ v pkgA-1.0-def:Shared
+status: pass

@@ -6,7 +6,7 @@ module Test.ResolvePackage
 where
 
 import Aihc.Parser.Syntax (NameType (..), mkUnqualifiedName, qualifyName)
-import Aihc.Resolve (ResolvedName (..), Scope (..))
+import Aihc.Resolve (ModuleKey (..), ResolvedName (..), Scope (..))
 import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.List (isInfixOf)
 import Data.Map.Strict qualified as Map
@@ -71,8 +71,8 @@ test_renderInterfaceJSON = do
         interfaceFromExports
           "demo"
           ( Map.fromList
-              [ ("Z", mkScope ["zterm"] ["Zed"]),
-                ("A", (mkScope ["beta", "alpha"] ["Thing"]) {scopeConstructors = Map.singleton "Thing" ["MkThing"], scopeMethods = Map.singleton "Classy" ["method"]})
+              [ (ModuleKey Nothing "Z", mkScope ["zterm"] ["Zed"]),
+                (ModuleKey Nothing "A", (mkScope ["beta", "alpha"] ["Thing"]) {scopeConstructors = Map.singleton "Thing" ["MkThing"], scopeMethods = Map.singleton "Classy" ["method"]})
               ]
           )
       rendered = BL8.unpack (renderInterfaceJSON iface)

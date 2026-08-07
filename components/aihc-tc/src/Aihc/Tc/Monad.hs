@@ -358,6 +358,8 @@ resolvedNameTermKey displayName resolved =
       pure (TcTermLocal unique)
     ResolvedTopLevel name ->
       pure (TcTermGlobal (nameText name))
+    ResolvedPackageTopLevel _ name ->
+      pure (TcTermGlobal (nameText name))
     ResolvedBuiltin name ->
       pure (TcTermGlobal name)
     ResolvedError msg ->

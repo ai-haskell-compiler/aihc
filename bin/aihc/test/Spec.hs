@@ -46,7 +46,7 @@ import Aihc.Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..))
-import Aihc.Resolve (Scope (..))
+import Aihc.Resolve (ModuleKey (..), Scope (..))
 import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
 import Control.Exception (bracket)
 import Data.Aeson (object, (.=))
@@ -422,7 +422,7 @@ test_loadsInstalledBaseInterfaceForRepl =
           )
       )
     session <- loadReplSession (Just storeRoot)
-    case Map.lookup "Prelude" (replModuleExports session) of
+    case Map.lookup (ModuleKey Nothing "Prelude") (replModuleExports session) of
       Nothing -> assertFailure "Prelude scope not loaded"
       Just preludeScope -> do
         assertBool "Prelude exposes Char" (Map.member "Char" (scopeTypes preludeScope))

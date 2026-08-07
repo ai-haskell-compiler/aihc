@@ -35,7 +35,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameFromText,
   )
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Resolve (ModuleExports, ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
+import Aihc.Resolve (ModuleExports, ModuleKey (..), ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
 import Aihc.Tc
   ( InstanceInfo,
     Pred (..),
@@ -254,7 +254,7 @@ handleBrowseCommand session rawModuleName
       pure (ReplContinue (Just "usage: :browse <module>"))
   | otherwise =
       pure . ReplContinue . Just $
-        case Map.lookup moduleName' (replModuleExports session) of
+        case Map.lookup (ModuleKey Nothing moduleName') (replModuleExports session) of
           Nothing -> "unknown module: " <> rawModuleName
           Just scope -> renderBrowseScope session moduleName' scope
   where
@@ -303,6 +303,11 @@ resolvedBindingKey browsingModule exportedName resolved =
         ( fromMaybe browsingModule (nameQualifier name),
           normalizeImportedBindingName (nameText name)
         )
+    ResolvedPackageTopLevel _ name ->
+      Just
+        ( fromMaybe browsingModule (nameQualifier name),
+          normalizeImportedBindingName (nameText name)
+        )
     ResolvedBuiltin _ -> Just (browsingModule, exportedName)
     _ -> Nothing
 
@@ -312,7 +317,7 @@ replCompletion session =
     pure
       [ Haskeline.simpleCompletion candidate
       | trim (reverse reversedBeforeWord) == ":browse",
-        candidate <- map T.unpack (Map.keys (replModuleExports session)),
+        candidate <- map (T.unpack . moduleKeyName) (Map.keys (replModuleExports session)),
         word `isPrefixOf` candidate
       ]
 
@@ -689,7 +694,7 @@ parseInterface =
     tcModules <- obj .:? "typecheck" .!= []
     pure
       Interface
-        { interfaceExports = Map.fromList [(interfaceModuleName modu, interfaceModuleScope modu) | modu <- modules],
+        { interfaceExports = Map.fromList [(ModuleKey Nothing (interfaceModuleName modu), interfaceModuleScope modu) | modu <- modules],
           interfaceImportedTerms = concatMap interfaceTcModuleTerms tcModules,
           interfaceBindingTypes =
             Map.fromList
@@ -807,9 +812,10 @@ isBaseManifest candidate =
 
 ensurePreludeMvpScope :: ModuleExports -> ModuleExports
 ensurePreludeMvpScope exports =
-  Map.insert "Prelude" preludeScope exports
+  Map.insert preludeKey preludeScope exports
   where
-    existing = Map.findWithDefault emptyScope "Prelude" exports
+    preludeKey = ModuleKey Nothing "Prelude"
+    existing = Map.findWithDefault emptyScope preludeKey exports
     preludeScope =
       existing
         { scopeTerms =

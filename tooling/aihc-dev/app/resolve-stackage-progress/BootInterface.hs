@@ -30,7 +30,7 @@ module BootInterface
 where
 
 import Aihc.Parser.Syntax (NameType (..), mkUnqualifiedName, qualifyName)
-import Aihc.Resolve (ModuleExports, ResolvedName (..), Scope (..))
+import Aihc.Resolve (ModuleExports, ModuleKey (..), ResolvedName (..), Scope (..))
 import Control.Exception (IOException, try)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
 import Data.Aeson qualified as Aeson
@@ -155,7 +155,7 @@ instance FromJSON BootModuleInterface where
 bootIfaceToModuleExports :: BootPackageInterface -> ModuleExports
 bootIfaceToModuleExports bpi =
   Map.fromList
-    [(bmiModule bmi, bootModuleToScope bmi) | bmi <- bpiModules bpi]
+    [(ModuleKey Nothing (bmiModule bmi), bootModuleToScope bmi) | bmi <- bpiModules bpi]
 
 -- | Convert a single module interface to a Scope.
 bootModuleToScope :: BootModuleInterface -> Scope

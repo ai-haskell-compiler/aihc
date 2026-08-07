@@ -1,0 +1,39 @@
+extensions: [PackageImports]
+modules:
+  "app-1.0-main":
+    - |
+      module Main where
+      import qualified "pkgA-1.0" Shared as Old
+      import qualified "pkgA-1.1" Shared as New
+      old = Old.value
+      new = New.value
+  "pkgA-1.0-abc":
+    - |
+      module Shared where
+      value = 10
+  "pkgA-1.1-def":
+    - |
+      module Shared where
+      value = 11
+annotated:
+  - |
+    module Main where
+    import qualified "pkgA-1.0" Shared as Old
+    import qualified "pkgA-1.1" Shared as New
+    old = Old.value
+    │     └─ v pkgA-1.0-abc:Shared
+    └─ v app-1.0-main:Main
+    new = New.value
+    │     └─ v pkgA-1.1-def:Shared
+    └─ v app-1.0-main:Main
+  - |
+    module Shared where
+    value = 10
+    │       └─ v Error unbound
+    └─ v pkgA-1.0-abc:Shared
+  - |
+    module Shared where
+    value = 11
+    │       └─ v Error unbound
+    └─ v pkgA-1.1-def:Shared
+status: pass
