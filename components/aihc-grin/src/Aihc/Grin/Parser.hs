@@ -351,6 +351,7 @@ atomicExpr =
       continueExpr,
       twoValuesExpr "raise-cps" GrinCpsRaise,
       unaryValuesExpr "halt" GrinHalt,
+      unaryValueExpr "exit" GrinExit,
       unaryValueExpr "throw" GrinThrow,
       catchExpr,
       foreignCallExpr

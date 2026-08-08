@@ -6,7 +6,9 @@ module GHC.IO.IOMode
   )
 where
 
-import Prelude
+import Data.Bool (Bool (..))
+import GHC.Int (Int)
+import GHC.Num (Num (..))
 
 data IOMode
   = ReadMode

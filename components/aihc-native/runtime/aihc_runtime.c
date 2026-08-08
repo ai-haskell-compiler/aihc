@@ -564,6 +564,14 @@ void aihc_set_field(AihcValue *value, uint64_t index, AihcSlot field) {
   aihc_value_fields(value)[index] = field;
 }
 
+void aihc_set_exit_status(AihcMachine *machine, int64_t status) {
+  machine->exit_status = status;
+}
+
+int64_t aihc_get_exit_status(const AihcMachine *machine) {
+  return machine->exit_status;
+}
+
 AihcMachine *aihc_machine_new(uint64_t global_count) {
   AihcMachine *machine = aihc_allocate_zeroed(sizeof(*machine));
   machine->allocation_count = 1;

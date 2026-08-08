@@ -68,6 +68,7 @@ data InterpretError
   | InterpretBlackhole !Int
   | InterpretNoRunnableThreads
   | InterpretCpsExpression !GrinExpr
+  | InterpretProcessExit !Integer
   | InterpretRaisedException !Text
   deriving (Eq, Show)
 
@@ -360,6 +361,9 @@ evalScheduledExpr env expr continue =
     GrinContinue {} -> rejectCpsExpression
     GrinCpsRaise {} -> rejectCpsExpression
     GrinHalt {} -> rejectCpsExpression
+    GrinExit status -> do
+      statusValue <- materializeValue env status
+      throwInterpret . InterpretProcessExit =<< expectIntPrimitiveArgument "exit" statusValue
     GrinCase scrutinee binder alternatives -> do
       value <- materializeValue env scrutinee
       matchScheduledAlternative (Map.insert binder value env) value alternatives continue
@@ -376,7 +380,7 @@ evalScheduledExpr env expr continue =
               0 -> continue results
               1 -> continue (drop 1 results)
               _ -> throwInterpret (InterpretResultArity expectedCount (length results))
-      applyScheduledValue actionValue stateValues receive
+      forceScheduledValue actionValue (\forcedAction -> applyScheduledValue forcedAction stateValues receive)
         `catchE` handleScheduledRaised handlerValue stateValues receive
     GrinForeignCallExpr foreignCall arguments -> do
       argumentValues <- mapM (materializeValue env) arguments

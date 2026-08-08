@@ -236,6 +236,7 @@ transformTail updateName parent bound resultRep continuation expression =
     GrinContinue {} -> alreadyTransformed
     GrinCpsRaise {} -> alreadyTransformed
     GrinHalt {} -> alreadyTransformed
+    GrinExit status -> pure (GrinExit status)
     GrinCase scrutinee binder alternatives ->
       GrinCase scrutinee binder <$> mapM transformAlternative alternatives
       where
@@ -253,11 +254,24 @@ transformTail updateName parent bound resultRep continuation expression =
     GrinThrow exception -> pure (GrinCpsRaise exception continuation)
     GrinCatch runtimeRep action handler state -> do
       (catchVar, catchNode) <- makeCatchContinuation parent runtimeRep continuation handler
+      evaluatedAction <- freshVar "$cps_catch_action" (grinValueRuntimeRep action)
+      protectedAction <-
+        transformTail
+          updateName
+          parent
+          (Set.insert catchVar bound)
+          runtimeRep
+          (GrinVarValue catchVar)
+          ( GrinBind
+              [evaluatedAction]
+              (GrinEval (grinValueRuntimeRep action) action)
+              (GrinApply runtimeRep (GrinVarValue evaluatedAction) state)
+          )
       pure
         ( GrinBind
             [catchVar]
             (GrinStore catchNode)
-            (GrinCpsApply runtimeRep action state (GrinVarValue catchVar))
+            protectedAction
         )
     GrinForeignCallExpr foreignCall arguments ->
       continueDirect resultRep continuation (GrinForeignCallExpr foreignCall arguments)
@@ -478,6 +492,7 @@ exprUniques expression =
     GrinContinue continuation values -> valueUniques continuation <> concatMap valueUniques values
     GrinCpsRaise exception continuation -> valueUniques exception <> valueUniques continuation
     GrinHalt values -> concatMap valueUniques values
+    GrinExit status -> valueUniques status
     GrinCase scrutinee binder alternatives ->
       valueUniques scrutinee
         <> (grinVarUnique binder : concatMap alternativeUniques alternatives)

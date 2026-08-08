@@ -31,6 +31,8 @@
     ".cabal"
     "args"
     "exit"
+    "exit.ghc"
+    "exit.wasm32-wasip3"
     "stdin"
     "stderr"
     "stdout"

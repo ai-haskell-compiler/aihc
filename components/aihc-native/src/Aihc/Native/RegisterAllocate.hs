@@ -227,6 +227,7 @@ grinExprFreeVariables expression =
     GrinCpsRaise exception continuation -> valueUses exception <> valueUses continuation
     GrinUpdateBlackhole pointer value -> valueUses pointer <> valueUses value
     GrinHalt values -> foldMap valueUses values
+    GrinExit status -> valueUses status
     GrinCase scrutinee binder alternatives ->
       valueUses scrutinee
         <> foldMap

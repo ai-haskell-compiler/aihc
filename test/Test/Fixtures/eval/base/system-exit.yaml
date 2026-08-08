@@ -1,0 +1,64 @@
+extensions: []
+dependencies: [aihc-base]
+modules:
+  - |
+    module Main where
+
+    import Control.Exception (SomeException, try)
+    import GHC.TopHandler
+    import System.Exit (ExitCode(..), exitWith)
+
+    catchesExitCode :: IO Bool
+    catchesExitCode = do
+      result <- try (exitWith (ExitFailure 5) :: IO ())
+      case result of
+        Left (ExitFailure 5) -> return True
+        _ -> return False
+
+    apiRunMainIO :: IO a -> IO a
+    apiRunMainIO = runMainIO
+
+    apiRunIO :: IO a -> IO a
+    apiRunIO = runIO
+
+    apiRunIOFastExit :: IO a -> IO a
+    apiRunIOFastExit = runIOFastExit
+
+    apiRunNonIO :: a -> IO a
+    apiRunNonIO = runNonIO
+
+    apiTopHandler :: SomeException -> IO a
+    apiTopHandler = topHandler
+
+    apiTopHandlerFastExit :: SomeException -> IO a
+    apiTopHandlerFastExit = topHandlerFastExit
+
+    apiReportError :: SomeException -> IO ()
+    apiReportError = reportError
+
+    apiReportStackOverflow :: IO ()
+    apiReportStackOverflow = reportStackOverflow
+
+    apiFlushStdHandles :: IO ()
+    apiFlushStdHandles = flushStdHandles
+
+    readsExitCode :: Bool
+    readsExitCode =
+      case reads "ExitFailure 7" of
+        [(ExitFailure 7, "")] -> True
+        _ -> False
+
+    result :: IO Bool
+    result = do
+      catches <- catchesExitCode
+      return
+        ( catches
+            && ExitSuccess < ExitFailure 1
+            && show ExitSuccess == "ExitSuccess"
+            && show (ExitFailure 7) == "ExitFailure 7"
+            && readsExitCode
+        )
+output: "True"
+expression: result
+status: pass
+reason: System.Exit values and the complete GHC.TopHandler interface match base

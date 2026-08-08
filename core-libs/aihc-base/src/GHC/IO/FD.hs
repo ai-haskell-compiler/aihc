@@ -20,6 +20,9 @@ module GHC.IO.FD
   )
 where
 
+import Data.Bool (Bool (..))
+import Data.Either (Either (..))
+import GHC.Base (Monad (..))
 import GHC.Event (awaitIO)
 import GHC.IO (IO (..))
 import GHC.IO.Runtime
@@ -38,9 +41,10 @@ import GHC.IO.Runtime
     writeMemoryByte,
   )
 import GHC.Int (Int (..))
+import GHC.Internal.Classes (Eq (..))
+import GHC.Num (Num (..))
 import GHC.Prim (MutableByteArray#, RealWorld, copyAddrToByteArray#, mutableByteArrayContents#)
 import GHC.Ptr (Ptr (..))
-import Prelude hiding (Int)
 
 openIOHandle :: Addr# -> Int -> Int -> IO (Either Int (Ptr IOHandle))
 openIOHandle path length mode = do
@@ -48,9 +52,9 @@ openIOHandle path length mode = do
   awaitIO request
   result <- takeOpenResult request
   openCode <- openResultError result
-  case openCode of
-    0 -> return (Right result)
-    _ -> return (Left openCode)
+  case openCode == 0 of
+    True -> return (Right result)
+    False -> return (Left openCode)
 
 copyAddrToByteArray :: Addr# -> MutableByteArray# RealWorld -> Int# -> Int# -> IO ()
 copyAddrToByteArray source buffer offset length =

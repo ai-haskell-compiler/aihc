@@ -401,6 +401,16 @@ compileExpr env prefix label expression =
             <> ["  " <> entry <> " = call ptr @aihc_halt(ptr %machine)"]
             <> ["  musttail call tailcc void " <> entry <> "(ptr %machine)"]
         )
+    GrinExit status -> do
+      (statusLines, statusOperand) <- materializeValue env status
+      terminal
+        label
+        ( prefix
+            <> statusLines
+            <> [ "  call void @aihc_exit_process(i64 " <> statusOperand <> ")",
+                 "  unreachable"
+               ]
+        )
     GrinCase scrutinee binder alternatives -> compileCase env prefix label scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
     GrinStore {} -> unsupported "direct-style store return after CPS"
@@ -1732,6 +1742,7 @@ renderRuntimeDeclarations =
     "declare ptr @aihc_await_io(ptr, ptr, ptr)",
     "declare ptr @aihc_thread_done(ptr)",
     "declare void @aihc_set_thread_done_continuation(ptr, ptr)",
+    "declare void @aihc_exit_process(i64) noreturn",
     "declare ptr @aihc_halt(ptr)",
     "declare void @aihc_no_match()",
     "declare void @aihc_unsupported_primitive()",
