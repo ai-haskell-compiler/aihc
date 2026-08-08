@@ -18,6 +18,7 @@ import Aihc.Tc.Types
     Unique (..),
     VecCount (..),
     VecElem (..),
+    liftedRuntimeRep,
     setTyConKind,
     setTyVarKind,
   )
@@ -39,7 +40,11 @@ fcPropertyTests =
     [ testProperty "parseProgram . renderProgram = id" prop_programRoundTrip,
       testProperty "parseExpr . renderExpr = id" prop_exprRoundTrip,
       testProperty "parseType . renderType = id" prop_typeRoundTrip,
-      testProperty "package origins distinguish equal symbol names" prop_packageOrigins
+      testProperty "package origins distinguish equal symbol names" prop_packageOrigins,
+      testProperty "external signatures occur once" prop_externalSignatures,
+      testProperty "local definition signatures serve local occurrences" prop_localSignatures,
+      testProperty "undeclared external occurrences are rejected" prop_undeclaredExternal,
+      testProperty "duplicate external declarations are rejected" prop_duplicateExternal
     ]
 
 prop_programRoundTrip :: Property
@@ -68,12 +73,64 @@ prop_packageOrigins = property $ do
           )
       renderedA = T.pack (renderExpr (occurrence "pkgA"))
       renderedB = T.pack (renderExpr (occurrence "pkgB"))
+      externalA = fcExternalVar (FcTopLevelOrigin "pkgA" "Module" "id") ty
+      externalB = fcExternalVar (FcTopLevelOrigin "pkgB" "Module" "id") ty
   annotate (T.unpack renderedA)
   annotate (T.unpack renderedB)
   when (renderedA == renderedB) failure
+  (varUnique externalA == varUnique externalB) === False
   case parseExpr renderedA of
     Left parseError -> annotate (show parseError) >> failure
     Right (FcVar var) -> varResolvedName var === Just (FcTopLevelOrigin "pkgA" "Module" "id")
+    Right parsed -> annotate (show parsed) >> failure
+
+prop_externalSignatures :: Property
+prop_externalSignatures = property $ do
+  let ty = TcForAllTy typeVariable (TcFunTy (TcTyVar typeVariable) (TcTyVar typeVariable))
+      origin = FcTopLevelOrigin "pkg" "Module" "id"
+      imported = (Var "id" (Unique 1) ty) {varResolvedName = Just origin}
+      result = Var "result" (Unique 2) ty
+      program = FcProgram [FcExternal origin ty, FcTopBind (FcNonRec result (FcVar imported))]
+      rendered = T.pack (renderProgram program)
+  annotate (T.unpack rendered)
+  T.count "Module.id :" rendered === 1
+  T.count "\"pkg\" Module.id" rendered === 2
+  roundTrip renderProgram parseProgram program
+  where
+    typeVariable = setTyVarKind (KTYPE liftedRuntimeRep) (TyVarId "a" (Unique 3))
+
+prop_undeclaredExternal :: Property
+prop_undeclaredExternal = property $ do
+  let source = "result : Int =\n  \"pkg\" Module.value"
+  annotate (T.unpack source)
+  case parseProgram source of
+    Left _ -> pure ()
+    Right parsed -> annotate (show parsed) >> failure
+
+prop_localSignatures :: Property
+prop_localSignatures = property $ do
+  let boolType = TcTyCon (TyCon "Bool" 0) []
+      origin = FcTopLevelOrigin "pkg" "Module" "True"
+      constructor = (Var "True" (Unique 1) boolType) {varResolvedName = Just origin}
+      result = Var "result" (Unique 2) boolType
+      program =
+        FcProgram
+          [ FcModule "pkg" "Module",
+            FcData "Bool" [] [("True", [])],
+            FcTopBind (FcNonRec result (FcVar constructor))
+          ]
+      rendered = T.pack (renderProgram program)
+  annotate (T.unpack rendered)
+  T.count "external" rendered === 0
+  T.count "True" rendered === 2
+  roundTrip renderProgram parseProgram program
+
+prop_duplicateExternal :: Property
+prop_duplicateExternal = property $ do
+  let source = "external \"pkg\" Module.value : Int\n\nexternal \"pkg\" Module.value : Int"
+  annotate (T.unpack source)
+  case parseProgram source of
+    Left _ -> pure ()
     Right parsed -> annotate (show parsed) >> failure
 
 roundTrip :: (Eq a, Show a, Show error) => (a -> String) -> (Text -> Either error a) -> a -> PropertyT IO ()

@@ -1427,7 +1427,7 @@ tupleConExpr flavor elemTys = do
     case flavor of
       Boxed -> lookupType name
       Unboxed -> pure (unboxedTupleConType elemTys)
-  pure (List.foldl' FcTyApp (FcVar (Var name (Unique (-20 - arity)) constructorTy)) elemTys)
+  pure (List.foldl' FcTyApp (FcVar (builtinVar name (Unique (-20 - arity)) constructorTy)) elemTys)
 
 unboxedTupleConType :: [TcType] -> TcType
 unboxedTupleConType elemTys =
@@ -1450,7 +1450,7 @@ consChar char =
 boxCharLiteral :: Char -> FcExpr
 boxCharLiteral char =
   FcApp
-    (FcVar (Var "C#" (Unique (-12)) (TcFunTy charHashTy charTy)))
+    (FcVar (builtinVar "C#" (Unique (-12)) (TcFunTy charHashTy charTy)))
     (FcLit (LitChar WordRep char))
 
 consList :: TcType -> FcExpr -> FcExpr -> FcExpr
@@ -1459,11 +1459,11 @@ consList elemTy headExpr =
 
 nilList :: TcType -> FcExpr
 nilList =
-  FcTyApp (FcVar (Var "[]" (Unique (-10)) nilListType))
+  FcTyApp (FcVar (builtinVar "[]" (Unique (-10)) nilListType))
 
 consExpr :: TcType -> FcExpr
 consExpr =
-  FcTyApp (FcVar (Var ":" (Unique (-11)) consListType))
+  FcTyApp (FcVar (builtinVar ":" (Unique (-11)) consListType))
 
 nilListType :: TcType
 nilListType =
@@ -1477,6 +1477,10 @@ consListType =
 
 listElemVar :: TyVarId
 listElemVar = TyVarId "a" (Unique (-2000))
+
+builtinVar :: Text -> Unique -> TcType -> Var
+builtinVar name unique ty =
+  (Var name unique ty) {varResolvedName = Just (FcBuiltinOrigin name)}
 
 listType :: TcType -> TcType
 listType ty =

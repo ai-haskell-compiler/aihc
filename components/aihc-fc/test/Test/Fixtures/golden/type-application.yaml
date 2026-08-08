@@ -1,4 +1,6 @@
 expected: |-
+  module Test where
+
   data Bool
    = True
    | False
@@ -9,7 +11,7 @@ expected: |-
         x1001
 
   true : Bool =
-    ((Test.id : ∀ (a : TYPE BoxedRep Lifted). a → a) @Bool) (Test.True : Bool)
+    (id @Bool) True
 extensions: []
 modules:
 - |

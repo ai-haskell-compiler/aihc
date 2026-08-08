@@ -7,6 +7,8 @@ modules:
     data family Wrapped a
     newtype instance Wrapped Unit = WrappedUnit Unit
 expected: |-
+  module Test where
+
   data Unit
    = Unit
 

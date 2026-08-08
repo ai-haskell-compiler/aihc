@@ -7,11 +7,17 @@ modules:
     xs :: [Bool]
     xs = [True]
 expected: |-
+  module Test where
+
+  external builtin.: : ∀ (a : TYPE BoxedRep Lifted). a → [a] → [a]
+
+  external builtin.[] : ∀ (a : TYPE BoxedRep Lifted). [a]
+
   data Bool
    = True
    | False
 
   xs : [Bool] =
-    (((: : ∀ (a : TYPE BoxedRep Lifted). a → [a] → [a]) @Bool) (Test.True : Bool)) (([] : ∀ (a : TYPE BoxedRep Lifted). [a]) @Bool)
+    ((builtin.: @Bool) True) (builtin.[] @Bool)
 status: pass
 reason: reifies list constructor type arguments from type-checker annotations

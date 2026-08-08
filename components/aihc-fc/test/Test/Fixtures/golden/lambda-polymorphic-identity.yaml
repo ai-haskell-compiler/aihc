@@ -1,4 +1,6 @@
 expected: |-
+  module Test where
+
   id : ∀ (a : TYPE BoxedRep Lifted). a → a =
     Λ(a : TYPE BoxedRep Lifted).
       λ(x1001 : a).

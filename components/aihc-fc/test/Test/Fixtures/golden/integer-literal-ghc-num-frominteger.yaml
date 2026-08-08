@@ -1,4 +1,6 @@
 expected: |-
+  module GHC.Num where
+
   data Integer
    = IS (Int#)
 
@@ -12,6 +14,8 @@ expected: |-
           $Dict$Num ($method0 : Integer → a) →
             $method0
         }
+  module Main where
+
   one : ∀ (a : TYPE BoxedRep Lifted). (Num a) → a =
     Λ(a : TYPE BoxedRep Lifted).
       λ($d0 : Num a).

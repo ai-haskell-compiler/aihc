@@ -6,6 +6,8 @@ modules:
     data family Payload a
     data instance Payload a = PayloadValue a
 expected: |-
+  module Test where
+
   data $R$Payload$PayloadValue (a : TYPE BoxedRep Lifted)
    = PayloadValue (a)
 

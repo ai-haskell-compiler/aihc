@@ -1,4 +1,6 @@
 expected: |-
+  module Test where
+
   data Bool
    = True
    | False
@@ -12,9 +14,9 @@ expected: |-
     λ(x1003 : Bool).
       case x1003 as (_scrut : Bool) of {
         True →
-          (Test.False : Bool);
+          False;
         False →
-          (Test.True : Bool)
+          True
       }
 extensions: []
 modules:

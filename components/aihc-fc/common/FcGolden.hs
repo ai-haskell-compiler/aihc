@@ -17,6 +17,7 @@ module FcGolden
 where
 
 import Aihc.Fc.Desugar (DesugarResult (..), desugarModuleWithDataTypes)
+import Aihc.Fc.Parser (parseProgram, renderParseError)
 import Aihc.Fc.Pretty (renderProgram)
 import Aihc.Parser
   ( ParserConfig (..),
@@ -165,7 +166,7 @@ renderFcCase tc =
                           results = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) tcResults moduleAsts
                           fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
-                            then Right (renderResults fixtureResults)
+                            then renderResults fixtureResults
                             else Left (renderErrors results)
                     else Left ("typecheck error: " <> renderTcErrors tcResults)
             ResolveResult {resolveErrors} ->
@@ -182,7 +183,16 @@ renderFcCase tc =
             then Right ast
             else Left (show errs)
     renderResults results =
-      unlines (map (renderProgram . dsProgram) results)
+      unlines <$> traverse renderResult results
+    renderResult result =
+      let rendered = renderProgram (dsProgram result)
+       in case parseProgram (T.pack rendered) of
+            Left parseError -> Left ("System FC round-trip parse error:\n" <> renderParseError parseError <> "\n" <> rendered)
+            Right parsed ->
+              let canonical = renderProgram parsed
+               in if canonical == rendered
+                    then Right rendered
+                    else Left ("System FC round trip changed canonical syntax:\n" <> canonical <> "\noriginal:\n" <> rendered)
     renderErrors results =
       unlines [err | r <- results, err <- dsErrors r]
 

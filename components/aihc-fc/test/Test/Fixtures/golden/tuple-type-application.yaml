@@ -7,11 +7,17 @@ modules:
     pair :: (Bool, ())
     pair = (True, ())
 expected: |-
+  module Test where
+
+  external builtin.() : Unit
+
+  external builtin.(,) : ∀ (a : TYPE BoxedRep Lifted) (b : TYPE BoxedRep Lifted). a → b → Tuple2 a b
+
   data Bool
    = True
    | False
 
   pair : Tuple2 Bool Unit =
-    (((((,) : ∀ (a : TYPE BoxedRep Lifted) (b : TYPE BoxedRep Lifted). a → b → Tuple2 a b) @Bool) @Unit) (Test.True : Bool)) (() : Unit)
+    (((builtin.(,) @Bool) @Unit) True) builtin.()
 status: pass
 reason: reifies tuple constructor type arguments from type-checker annotations

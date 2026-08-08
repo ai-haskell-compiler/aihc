@@ -1,4 +1,6 @@
 expected: |-
+  module Test where
+
   data State#
 
   data MutVar#

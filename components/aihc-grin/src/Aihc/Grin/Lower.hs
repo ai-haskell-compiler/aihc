@@ -33,7 +33,7 @@ import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
 import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -124,12 +124,12 @@ linkNamesForProgram libraryId moduleNameComponents program =
       grinSourceLinkNames =
         Map.fromListWith
           (flip (<>))
-          [ (varUnique var, [T.intercalate "." (moduleNameComponents <> [varName var])])
+          [ (varUnique var, [sourceSymbolName (varName var)])
           | (var, _) <- topLevelVarsWithOrdinals
           ],
       grinConstructorNames =
         Map.fromList
-          [ (T.intercalate "." (moduleNameComponents <> [name]), (name, length fields))
+          [ (sourceSymbolName name, (name, length fields))
           | FcData _ _ constructors <- fcTopBinds program,
             (name, fields) <- constructors
           ]
@@ -145,6 +145,18 @@ linkNamesForProgram libraryId moduleNameComponents program =
     symbolComponents ordinal var =
       [varName var]
         <> ["u" <> T.pack (show (sourceUnique var)) <> "n" <> T.pack (show ordinal) | Map.findWithDefault 0 (varName var) nameCounts > 1]
+    sourceSymbolName symbolName =
+      (if packageIdentity == "" then "" else packageIdentity <> ":")
+        <> T.intercalate "." (moduleNameComponents <> [symbolName])
+    packageIdentity =
+      fromMaybe
+        ""
+        ( listToMaybe
+            [ packageName
+            | FcModule packageName declaredModuleName <- fcTopBinds program,
+              T.splitOn "." declaredModuleName == moduleNameComponents
+            ]
+        )
     topBindVars bind =
       case bind of
         FcNonRec var _ -> [var]
@@ -318,6 +330,8 @@ lowerProgramWithEnvironment linkNames imported local environment program =
 lowerTopBind :: FcTopBind -> LowerM LoweredTop
 lowerTopBind topBind =
   case topBind of
+    FcModule {} -> pure mempty
+    FcExternal {} -> pure mempty
     FcData _ _ constructors ->
       pure mempty {loweredConstructors = [(name, map (runtimeRepComponents . typeRuntimeRep) fields) | (name, fields) <- constructors]}
     FcAxiom {} ->
@@ -1481,7 +1495,7 @@ lookupLocalVars var = do
   locals <- gets lowerLocalVars
   case Map.lookup (varKey var) locals of
     Just values -> pure values
-    Nothing -> error ("GRIN lowering lost local binding for " <> T.unpack (varName var))
+    Nothing -> error ("GRIN lowering lost local binding for " <> T.unpack (varName var) <> " (origin " <> show (varResolvedName var) <> ")")
 
 varKey :: Var -> (Text, Unique)
 varKey var = (varName var, varUnique var)
@@ -1737,6 +1751,8 @@ isStaticWhnf constructorArities expr =
 topVars :: FcTopBind -> [Var]
 topVars topBind =
   case topBind of
+    FcModule {} -> []
+    FcExternal {} -> []
     FcData {} -> []
     FcAxiom {} -> []
     FcNewtype {} -> []

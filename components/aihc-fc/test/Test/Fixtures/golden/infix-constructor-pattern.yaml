@@ -10,6 +10,8 @@ modules:
     first :: Pair a -> a
     first (value :*: _) = value
 expected: |-
+  module Test where
+
   data Pair (a : TYPE BoxedRep Lifted)
    = :*: (a) (a)
 

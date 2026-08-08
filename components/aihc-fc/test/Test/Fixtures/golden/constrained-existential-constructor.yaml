@@ -11,6 +11,8 @@ modules:
     inspect :: Box -> Mark
     inspect (Box value) = mark value
 expected: |-
+  module Test where
+
   data Mark
    = Marked
 
@@ -32,7 +34,7 @@ expected: |-
     λ(x1005 : Box).
       case x1005 as (_scrut : Box) of {
         Box ($dpattern : Markable (a : TYPE BoxedRep Lifted)) (value : (a : TYPE BoxedRep Lifted)) →
-          (((Test.mark : ∀ (a : TYPE BoxedRep Lifted). (Markable a) → a → Mark) @(a : TYPE BoxedRep Lifted)) $dpattern) value
+          ((mark @(a : TYPE BoxedRep Lifted)) $dpattern) value
       }
 status: pass
 reason: System FC stores the constructor dictionary and binds it before the existential payload

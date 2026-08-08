@@ -1,4 +1,6 @@
 expected: |-
+  module GHC.Types where
+
   data Bool
    = False
    | True
@@ -8,6 +10,10 @@ expected: |-
 
   data Integer
    = IS (Int#)
+  module GHC.Classes where
+
+  external GHC.Types.True : Bool
+
   data Eq (a : TYPE BoxedRep Lifted)
    = $Dict$Eq (a → a → Bool)
 
@@ -20,15 +26,19 @@ expected: |-
         }
 
   $fEqInt : Eq Int =
-    (($Dict$Eq : ∀ (a : TYPE BoxedRep Lifted). (a → a → Bool) → Eq a) @Int) (λ(x1004 : Int).
+    ($Dict$Eq @Int) (λ(x1004 : Int).
       λ(y1005 : Int).
         case x1004 as (_scrut : Int) of {
           I (x : Int#) →
             case y1005 as (_scrut : Int) of {
               I (y : Int#) →
-                (GHC.Types.True : Bool)
+                GHC.Types.True
             }
         })
+  module GHC.Num where
+
+  external GHC.Types.I : Int# → Int
+
   data Num (a : TYPE BoxedRep Lifted)
    = $Dict$Num (Integer → a)
 
@@ -41,15 +51,19 @@ expected: |-
         }
 
   $fNumInt : Num Int =
-    (($Dict$Num : ∀ (a : TYPE BoxedRep Lifted). (Integer → a) → Num a) @Int) (λ(x1004 : Integer).
+    ($Dict$Num @Int) (λ(x1004 : Integer).
       case x1004 as (_scrut : Integer) of {
         IS (x : Int#) →
-          (GHC.Types.I : Int# → Int) x
+          GHC.Types.I x
       })
 
   $fNumInteger : Num Integer =
-    (($Dict$Num : ∀ (a : TYPE BoxedRep Lifted). (Integer → a) → Num a) @Integer) (λ(x1010 : Integer).
+    ($Dict$Num @Integer) (λ(x1010 : Integer).
       x1010)
+  module Prelude where
+  module Main where
+
+  external builtin.() : Unit
 
   asInt : Int =
     (((fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a) @Int) ($fNumInt : Num Int)) ((IS : Int# → Integer) 1#IntRep)
@@ -64,7 +78,7 @@ expected: |-
     } in
       case ((((== : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool) @Int) ($fEqInt : Eq Int)) _case_value) ((((fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a) @Int) ($fNumInt : Num Int)) ((IS : Int# → Integer) 1#IntRep)) as (_case_guard : Bool) of {
         True →
-          (() : Unit);
+          builtin.();
         False →
           case _case_value as (_case_nomatch : Int) of {}
       }

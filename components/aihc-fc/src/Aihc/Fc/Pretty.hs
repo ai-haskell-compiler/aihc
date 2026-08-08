@@ -6,6 +6,7 @@ module Aihc.Fc.Pretty
     renderExpr,
     renderType,
     renderTopBind,
+    declareExternalSymbols,
   )
 where
 
@@ -16,14 +17,69 @@ import Aihc.Tc.Types
 import Data.ByteString qualified as BS
 import Data.Char (chr)
 import Data.List (intercalate)
+import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text qualified as T
 
 renderProgram :: FcProgram -> String
-renderProgram = intercalate "\n\n" . map renderTopBind . fcTopBinds
+renderProgram program =
+  intercalate "\n\n" (map (renderTopBindWith symbols) canonicalBinds)
+  where
+    canonicalBinds = fcTopBinds (declareExternalSymbols program)
+    symbols = renderSymbols canonicalBinds
+
+-- | Materialize the one-per-origin external signature table represented by
+-- the canonical syntax. Desugaring calls this as well as rendering so the
+-- declarations are part of the System FC tree, not merely presentation.
+declareExternalSymbols :: FcProgram -> FcProgram
+declareExternalSymbols program =
+  FcProgram (map (normalizeExternalTopBind externalVars) canonicalBinds)
+  where
+    canonicalBinds = canonicalProgramBinds program
+    externalVars = Map.fromList [(origin, fcExternalVar origin ty) | FcExternal origin ty <- canonicalBinds]
+
+normalizeExternalTopBind :: Map.Map FcSymbolOrigin Var -> FcTopBind -> FcTopBind
+normalizeExternalTopBind externalVars topBind =
+  case topBind of
+    FcTopBind bind -> FcTopBind (normalizeExternalBind externalVars bind)
+    _ -> topBind
+
+normalizeExternalBind :: Map.Map FcSymbolOrigin Var -> FcBind -> FcBind
+normalizeExternalBind externalVars bind =
+  case bind of
+    FcNonRec var rhs -> FcNonRec var (normalizeExternalExpr externalVars rhs)
+    FcRec bindings -> FcRec [(var, normalizeExternalExpr externalVars rhs) | (var, rhs) <- bindings]
+
+normalizeExternalExpr :: Map.Map FcSymbolOrigin Var -> FcExpr -> FcExpr
+normalizeExternalExpr externalVars expression =
+  case expression of
+    FcVar var ->
+      FcVar (fromMaybe var (varResolvedName var >>= (`Map.lookup` externalVars)))
+    FcLit {} -> expression
+    FcApp function argument -> FcApp (recur function) (recur argument)
+    FcTyApp function ty -> FcTyApp (recur function) ty
+    FcLam var body -> FcLam var (recur body)
+    FcTyLam tyVar body -> FcTyLam tyVar (recur body)
+    FcLet bind body -> FcLet (normalizeExternalBind externalVars bind) (recur body)
+    FcCase scrutinee binder alternatives -> FcCase (recur scrutinee) binder (map normalizeAlternative alternatives)
+    FcCast body coercion -> FcCast (recur body) coercion
+    FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map recur arguments)
+  where
+    recur = normalizeExternalExpr externalVars
+    normalizeAlternative alternative = alternative {altRhs = recur (altRhs alternative)}
 
 renderTopBind :: FcTopBind -> String
-renderTopBind topBind =
+renderTopBind = renderTopBindWith emptyRenderSymbols
+
+renderTopBindWith :: RenderSymbols -> FcTopBind -> String
+renderTopBindWith symbols topBind =
   case topBind of
+    FcModule packageName moduleName ->
+      "module " <> renderModuleOrigin packageName moduleName <> " where"
+    FcExternal origin ty ->
+      "external " <> renderOrigin origin <> " : " <> renderType ty
     FcData name tyVars constructors ->
       "data "
         <> T.unpack name
@@ -50,7 +106,97 @@ renderTopBind topBind =
     FcPrimitive var arity ->
       "foreign prim " <> renderBinder var <> "/" <> show arity <> " : " <> renderType (varType var)
     FcForeignImport foreignCall -> renderForeignImport foreignCall
-    FcTopBind bind -> renderBind 0 [] [] bind
+    FcTopBind bind -> renderBind symbols 0 [] [] bind
+
+data RenderSymbols = RenderSymbols
+  { renderExternalOrigins :: !(Set FcSymbolOrigin),
+    renderLocalOrigin :: !(Maybe (T.Text, T.Text)),
+    renderLocalNames :: !(Set T.Text)
+  }
+
+emptyRenderSymbols :: RenderSymbols
+emptyRenderSymbols = RenderSymbols Set.empty Nothing Set.empty
+
+renderSymbols :: [FcTopBind] -> RenderSymbols
+renderSymbols topBinds =
+  RenderSymbols
+    { renderExternalOrigins = Set.fromList [origin | FcExternal origin _ <- topBinds],
+      renderLocalOrigin = listToMaybe [(packageName, moduleName) | FcModule packageName moduleName <- topBinds],
+      renderLocalNames = Set.fromList (concatMap topBindDefinedNames topBinds)
+    }
+
+renderModuleOrigin :: T.Text -> T.Text -> String
+renderModuleOrigin packageName moduleName =
+  (if packageName == "" then "" else show (T.unpack packageName) <> " ") <> T.unpack moduleName
+
+canonicalProgramBinds :: FcProgram -> [FcTopBind]
+canonicalProgramBinds (FcProgram topBinds) =
+  moduleDeclarations
+    <> [FcExternal origin ty | (origin, ty) <- Map.toAscList externalTypes, not (originIsLocal origin)]
+    <> definitions
+  where
+    moduleDeclarations = [topBind | topBind@FcModule {} <- topBinds]
+    definitions = [topBind | topBind <- topBinds, not (isHeader topBind)]
+    moduleOrigin = listToMaybe [(packageName, moduleName) | FcModule packageName moduleName <- moduleDeclarations]
+    declaredTypes = Map.fromList [(origin, ty) | FcExternal origin ty <- topBinds]
+    referencedTypes = Map.fromList [(origin, varType var) | var <- concatMap topBindOccurrences definitions, Just origin <- [varResolvedName var]]
+    externalTypes = Map.union declaredTypes referencedTypes
+    originIsLocal (FcTopLevelOrigin packageName moduleName _) = Just (packageName, moduleName) == moduleOrigin
+    originIsLocal FcBuiltinOrigin {} = False
+    isHeader FcModule {} = True
+    isHeader FcExternal {} = True
+    isHeader _ = False
+
+topBindDefinedNames :: FcTopBind -> [T.Text]
+topBindDefinedNames topBind =
+  case topBind of
+    FcModule {} -> []
+    FcExternal {} -> []
+    FcData _ _ constructors -> map fst constructors
+    FcAxiom {} -> []
+    FcNewtype declaration -> [fcNewtypeConstructor declaration]
+    FcPrimitive var _ -> [varName var]
+    FcForeignImport {} -> []
+    FcTopBind bind -> map varName (bindersOf bind)
+
+topBindOccurrences :: FcTopBind -> [Var]
+topBindOccurrences topBind =
+  case topBind of
+    FcTopBind bind -> bindOccurrences bind
+    _ -> []
+
+bindOccurrences :: FcBind -> [Var]
+bindOccurrences bind =
+  case bind of
+    FcNonRec _ rhs -> expressionOccurrences rhs
+    FcRec bindings -> concatMap (expressionOccurrences . snd) bindings
+
+bindersOf :: FcBind -> [Var]
+bindersOf bind =
+  case bind of
+    FcNonRec var _ -> [var]
+    FcRec bindings -> map fst bindings
+
+expressionOccurrences :: FcExpr -> [Var]
+expressionOccurrences expression =
+  case expression of
+    FcVar var -> [var]
+    FcLit {} -> []
+    FcApp function argument -> expressionOccurrences function <> expressionOccurrences argument
+    FcTyApp function _ -> expressionOccurrences function
+    FcLam _ body -> expressionOccurrences body
+    FcTyLam _ body -> expressionOccurrences body
+    FcLet bind body -> bindOccurrences bind <> expressionOccurrences body
+    FcCase scrutinee _ alternatives -> expressionOccurrences scrutinee <> concatMap (expressionOccurrences . altRhs) alternatives
+    FcCast body _ -> expressionOccurrences body
+    FcCallForeign _ arguments -> concatMap expressionOccurrences arguments
+
+isLocalOrigin :: RenderSymbols -> FcSymbolOrigin -> Bool
+isLocalOrigin symbols origin =
+  case (renderLocalOrigin symbols, origin) of
+    (Just (localPackage, localModule), FcTopLevelOrigin packageName moduleName _) ->
+      localPackage == packageName && localModule == moduleName
+    _ -> False
 
 renderConstructors :: [TyVarId] -> [(T.Text, [TcType])] -> String
 renderConstructors _ [] = ""
@@ -106,10 +252,10 @@ renderForeignEffect effect =
 
 type TermScope = [(Unique, T.Text)]
 
-renderBind :: Int -> TermScope -> [TyVarId] -> FcBind -> String
-renderBind indentation scope tyScope bind =
+renderBind :: RenderSymbols -> Int -> TermScope -> [TyVarId] -> FcBind -> String
+renderBind symbols indentation scope tyScope bind =
   case bind of
-    FcNonRec var rhs -> renderOne indentation scope tyScope var rhs
+    FcNonRec var rhs -> renderOne symbols indentation scope tyScope var rhs
     FcRec [] -> indent indentation <> "rec {}"
     FcRec bindings ->
       indent indentation
@@ -121,7 +267,7 @@ renderBind indentation scope tyScope bind =
           [ indent (indentation + 2)
               <> renderBinder var
               <> " =\n"
-              <> renderExprIndented (indentation + 4) recursiveScope tyScope rhs
+              <> renderExprIndented symbols (indentation + 4) recursiveScope tyScope rhs
           | (var, rhs) <- bindings
           ]
         <> "\n"
@@ -130,31 +276,31 @@ renderBind indentation scope tyScope bind =
       where
         recursiveScope = map (scopeEntry . fst) bindings <> scope
 
-renderOne :: Int -> TermScope -> [TyVarId] -> Var -> FcExpr -> String
-renderOne indentation scope tyScope var rhs =
+renderOne :: RenderSymbols -> Int -> TermScope -> [TyVarId] -> Var -> FcExpr -> String
+renderOne symbols indentation scope tyScope var rhs =
   indent indentation
     <> renderBinder var
     <> " : "
     <> renderTypeWith tyScope (varType var)
     <> " =\n"
-    <> renderExprIndented (indentation + 2) (scopeEntry var : scope) tyScope rhs
+    <> renderExprIndented symbols (indentation + 2) (scopeEntry var : scope) tyScope rhs
 
 renderExpr :: FcExpr -> String
-renderExpr = renderExprWith [] [] 0 False
+renderExpr = renderExprWith emptyRenderSymbols [] [] 0 False
 
-renderExprIndented :: Int -> TermScope -> [TyVarId] -> FcExpr -> String
-renderExprIndented indentation scope tyScope expression =
-  indent indentation <> renderExprWith scope tyScope indentation False expression
+renderExprIndented :: RenderSymbols -> Int -> TermScope -> [TyVarId] -> FcExpr -> String
+renderExprIndented symbols indentation scope tyScope expression =
+  indent indentation <> renderExprWith symbols scope tyScope indentation False expression
 
-renderExprWith :: TermScope -> [TyVarId] -> Int -> Bool -> FcExpr -> String
-renderExprWith scope tyScope indentation parenthesize expression =
+renderExprWith :: RenderSymbols -> TermScope -> [TyVarId] -> Int -> Bool -> FcExpr -> String
+renderExprWith symbols scope tyScope indentation parenthesize expression =
   case expression of
-    FcVar var -> renderOccurrence scope tyScope var
+    FcVar var -> renderOccurrence symbols scope tyScope var
     FcLit literal -> renderLiteral literal
     FcApp function argument ->
-      paren parenthesize (renderExprWith scope tyScope indentation True function <> " " <> renderExprWith scope tyScope indentation True argument)
+      paren parenthesize (renderExprWith symbols scope tyScope indentation True function <> " " <> renderExprWith symbols scope tyScope indentation True argument)
     FcTyApp function argument ->
-      paren parenthesize (renderExprWith scope tyScope indentation True function <> " @" <> renderTypeAtomWith tyScope argument)
+      paren parenthesize (renderExprWith symbols scope tyScope indentation True function <> " @" <> renderTypeAtomWith tyScope argument)
     FcLam var body ->
       paren parenthesize $
         "λ("
@@ -162,25 +308,25 @@ renderExprWith scope tyScope indentation parenthesize expression =
           <> " : "
           <> renderTypeWith tyScope (varType var)
           <> ").\n"
-          <> renderExprIndented (indentation + 2) (scopeEntry var : scope) tyScope body
+          <> renderExprIndented symbols (indentation + 2) (scopeEntry var : scope) tyScope body
     FcTyLam tyVar body ->
       paren parenthesize $
         "Λ"
           <> renderTyVarBinder tyVar
           <> ".\n"
-          <> renderExprIndented (indentation + 2) scope (tyVar : tyScope) body
+          <> renderExprIndented symbols (indentation + 2) scope (tyVar : tyScope) body
     FcLet bind body ->
       paren parenthesize $
         "let {\n"
-          <> renderBind (indentation + 2) scope tyScope bind
+          <> renderBind symbols (indentation + 2) scope tyScope bind
           <> "\n"
           <> indent indentation
           <> "} in\n"
-          <> renderExprIndented (indentation + 2) (bindScope bind <> scope) tyScope body
+          <> renderExprIndented symbols (indentation + 2) (bindScope bind <> scope) tyScope body
     FcCase scrutinee binder alternatives ->
       paren parenthesize $
         "case "
-          <> renderExprWith scope tyScope indentation False scrutinee
+          <> renderExprWith symbols scope tyScope indentation False scrutinee
           <> " as ("
           <> renderBinder binder
           <> " : "
@@ -188,17 +334,17 @@ renderExprWith scope tyScope indentation parenthesize expression =
           <> ") of "
           <> renderAlternatives binder alternatives
     FcCast body coercion ->
-      paren parenthesize (renderExprWith scope tyScope indentation True body <> " ▷ " <> renderCoercionWith tyScope coercion)
+      paren parenthesize (renderExprWith symbols scope tyScope indentation True body <> " ▷ " <> renderCoercionWith tyScope coercion)
     FcCallForeign foreignCall arguments ->
       paren parenthesize $
         "foreign-call "
           <> renderForeignCallHeader foreignCall
-          <> concatMap ((" " <>) . renderExprWith scope tyScope indentation True) arguments
+          <> concatMap ((" " <>) . renderExprWith symbols scope tyScope indentation True) arguments
   where
     renderAlternatives _ [] = "{}"
     renderAlternatives binder' alternatives' =
       "{\n"
-        <> intercalate ";\n" (map (renderAlt (indentation + 2) (scopeEntry binder' : scope) tyScope) alternatives')
+        <> intercalate ";\n" (map (renderAlt symbols (indentation + 2) (scopeEntry binder' : scope) tyScope) alternatives')
         <> "\n"
         <> indent indentation
         <> "}"
@@ -209,13 +355,13 @@ bindScope bind =
     FcNonRec var _ -> [scopeEntry var]
     FcRec bindings -> map (scopeEntry . fst) bindings
 
-renderAlt :: Int -> TermScope -> [TyVarId] -> FcAlt -> String
-renderAlt indentation scope tyScope alternative =
+renderAlt :: RenderSymbols -> Int -> TermScope -> [TyVarId] -> FcAlt -> String
+renderAlt symbols indentation scope tyScope alternative =
   indent indentation
     <> renderAltCon (altCon alternative)
     <> concatMap (\binder -> " (" <> renderBinder binder <> " : " <> renderTypeWith tyScope (varType binder) <> ")") binders
     <> " →\n"
-    <> renderExprIndented (indentation + 2) (map scopeEntry binders <> scope) tyScope (altRhs alternative)
+    <> renderExprIndented symbols (indentation + 2) (map scopeEntry binders <> scope) tyScope (altRhs alternative)
   where
     binders = altBinders alternative
 
@@ -229,9 +375,16 @@ renderAltCon alternative =
 renderBinder :: Var -> String
 renderBinder = T.unpack . varName
 
-renderOccurrence :: TermScope -> [TyVarId] -> Var -> String
-renderOccurrence scope tyScope var
+renderOccurrence :: RenderSymbols -> TermScope -> [TyVarId] -> Var -> String
+renderOccurrence symbols scope tyScope var
   | scopeEntry var `elem` scope = renderBinder var
+  | Just origin <- varResolvedName var,
+    origin `Set.member` renderExternalOrigins symbols =
+      renderOrigin origin
+  | Just origin <- varResolvedName var,
+    isLocalOrigin symbols origin =
+      renderBinder var
+  | varName var `Set.member` renderLocalNames symbols = renderBinder var
   | otherwise =
       "("
         <> maybe (renderBinder var) renderOrigin (varResolvedName var)

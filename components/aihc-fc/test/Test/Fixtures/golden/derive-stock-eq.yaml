@@ -17,6 +17,8 @@ modules:
     sameTree :: Eq a => Tree a -> Tree a -> Bool
     sameTree = (==)
 expected: |-
+  module Test where
+
   data Bool
    = False
    | True
@@ -53,7 +55,7 @@ expected: |-
             $stock_eq_self : Eq (Tree a) =
               ($fEqTreea @a) $d0
           } in
-            ((($Dict$Eq : ∀ (a : TYPE BoxedRep Lifted). (a → a → Bool) → (a → a → Bool) → Eq a) @(Tree a)) (λ($stock_eq_left : Tree a).
+            (($Dict$Eq @(Tree a)) (λ($stock_eq_left : Tree a).
               λ($stock_eq_right : Tree a).
                 case $stock_eq_left as ($stock_eq_outer : Tree a) of {
                   Leaf ($stock_eq_left_field0 : a) →
@@ -64,12 +66,12 @@ expected: |-
                             ($stock_eq_method $stock_eq_left_field0) $stock_eq_right_field0
                         } as ($stock_eq_bool : Bool) of {
                           False →
-                            (False : Bool);
+                            False;
                           True →
-                            (True : Bool)
+                            True
                         };
                       _ →
-                        (False : Bool)
+                        False
                     };
                   Branch ($stock_eq_left_field0 : Tree a) ($stock_eq_left_field1 : Tree a) →
                     case $stock_eq_right as ($stock_eq_inner : Tree a) of {
@@ -79,20 +81,20 @@ expected: |-
                             ($stock_eq_method $stock_eq_left_field0) $stock_eq_right_field0
                         } as ($stock_eq_bool : Bool) of {
                           False →
-                            (False : Bool);
+                            False;
                           True →
                             case case $stock_eq_self as ($stock_eq_dictionary : Eq (Tree a)) of {
                               $Dict$Eq ($stock_eq_method : (Tree a) → (Tree a) → Bool) ($stock_neq_method : (Tree a) → (Tree a) → Bool) →
                                 ($stock_eq_method $stock_eq_left_field1) $stock_eq_right_field1
                             } as ($stock_eq_bool : Bool) of {
                               False →
-                                (False : Bool);
+                                False;
                               True →
-                                (True : Bool)
+                                True
                             }
                         };
                       _ →
-                        (False : Bool)
+                        False
                     }
                 })) (λ($stock_eq_left : Tree a).
               λ($stock_eq_right : Tree a).
@@ -105,12 +107,12 @@ expected: |-
                             ($stock_eq_method $stock_eq_left_field0) $stock_eq_right_field0
                         } as ($stock_eq_bool : Bool) of {
                           False →
-                            (False : Bool);
+                            False;
                           True →
-                            (True : Bool)
+                            True
                         };
                       _ →
-                        (False : Bool)
+                        False
                     };
                   Branch ($stock_eq_left_field0 : Tree a) ($stock_eq_left_field1 : Tree a) →
                     case $stock_eq_right as ($stock_eq_inner : Tree a) of {
@@ -120,32 +122,32 @@ expected: |-
                             ($stock_eq_method $stock_eq_left_field0) $stock_eq_right_field0
                         } as ($stock_eq_bool : Bool) of {
                           False →
-                            (False : Bool);
+                            False;
                           True →
                             case case $stock_eq_self as ($stock_eq_dictionary : Eq (Tree a)) of {
                               $Dict$Eq ($stock_eq_method : (Tree a) → (Tree a) → Bool) ($stock_neq_method : (Tree a) → (Tree a) → Bool) →
                                 ($stock_eq_method $stock_eq_left_field1) $stock_eq_right_field1
                             } as ($stock_eq_bool : Bool) of {
                               False →
-                                (False : Bool);
+                                False;
                               True →
-                                (True : Bool)
+                                True
                             }
                         };
                       _ →
-                        (False : Bool)
+                        False
                     }
                 } as ($stock_eq_not : Bool) of {
                   False →
-                    (True : Bool);
+                    True;
                   True →
-                    (False : Bool)
+                    False
                 })
   }
 
   sameTree : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → (Tree a) → (Tree a) → Bool =
     Λ(a : TYPE BoxedRep Lifted).
       λ($d0 : Eq a).
-        ((Test.== : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool) @(Tree (a : TYPE BoxedRep Lifted))) ((($fEqTreea : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → Eq (Tree a)) @(a : TYPE BoxedRep Lifted)) $d0)
+        (== @(Tree (a : TYPE BoxedRep Lifted))) (($fEqTreea @(a : TYPE BoxedRep Lifted)) $d0)
 status: pass
 reason: stock Eq lowering consumes checked constructor layouts and field evidence

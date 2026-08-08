@@ -1,4 +1,6 @@
 expected: |-
+  module Test where
+
   data State#
 
   data RealWorld
@@ -27,7 +29,7 @@ expected: |-
               (λ($ffi_state : State# RealWorld).
                 case foreign-call "putchar" $ffi$putchar [Int32 → Int32; real-world] $ffi_arg_0_field $ffi_state as ($ffi_result : (#,#) (State# RealWorld) Int32#) of {
                   (#,#) ($ffi_next_state : State# RealWorld) ($ffi_raw_result : Int32#) →
-                    (((#,#) : (State# RealWorld) → CInt → (#,#) (State# RealWorld) CInt) $ffi_next_state) (((I32# : Int32# → Int32) $ffi_raw_result) ▷ sym (axiom-co CInt))
+                    (((#,#) : (State# RealWorld) → CInt → (#,#) (State# RealWorld) CInt) $ffi_next_state) ((I32# $ffi_raw_result) ▷ sym (axiom-co CInt))
                 }) ▷ sym (axiom-co IO @CInt)
           }
 extensions:

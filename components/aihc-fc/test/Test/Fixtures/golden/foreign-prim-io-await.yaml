@@ -1,4 +1,6 @@
 expected: |-
+  module Test where
+
   data State#
 
   data RealWorld
@@ -8,7 +10,7 @@ expected: |-
   await : Addr# → (State# RealWorld) → State# RealWorld =
     λ(x1002 : Addr#).
       λ(y1003 : State# RealWorld).
-        ((Test.awaitIO# : Addr# → (State# RealWorld) → State# RealWorld) x1002) y1003
+        (awaitIO# x1002) y1003
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim

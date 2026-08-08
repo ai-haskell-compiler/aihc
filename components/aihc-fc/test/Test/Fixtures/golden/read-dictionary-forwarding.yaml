@@ -1,4 +1,6 @@
 expected: |-
+  module Test where
+
   data Result
    = Result
 
@@ -16,7 +18,7 @@ expected: |-
   parse : ∀ (a : TYPE BoxedRep Lifted). (Read a) → Result → a =
     Λ(a : TYPE BoxedRep Lifted).
       λ($d0 : Read a).
-        ((Test.reads : ∀ (a : TYPE BoxedRep Lifted). (Read a) → Result → a) @(a : TYPE BoxedRep Lifted)) $d0
+        (reads @(a : TYPE BoxedRep Lifted)) $d0
 extensions: []
 modules:
 - |

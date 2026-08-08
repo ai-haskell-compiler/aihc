@@ -124,6 +124,8 @@ definitionReferences definitions name = maybe mempty snd (Map.lookup name defini
 keepTopBind :: Map Text (Int, References) -> Map Text (Int, References) -> Set Text -> Set Text -> Int -> FcTopBind -> Bool
 keepTopBind valueDefinitions typeDefinitions values types index topBind =
   case topBind of
+    FcModule {} -> True
+    FcExternal {} -> True
     FcData name _ _ -> selectedType name
     FcAxiom declaration -> selectedType (fcAxiomName declaration)
     FcNewtype declaration -> selectedType (fcNewtypeName declaration)
@@ -135,6 +137,8 @@ keepTopBind valueDefinitions typeDefinitions values types index topBind =
 valueDefinitionsOf :: FcTopBind -> [(Text, References)]
 valueDefinitionsOf topBind =
   case topBind of
+    FcModule {} -> []
+    FcExternal {} -> []
     FcPrimitive var _ -> [(varName var, referencesVarType var)]
     FcForeignImport foreignCall -> [(fcForeignCallName foreignCall, mempty)]
     FcTopBind bind -> [(varName var, referencesTopLevelBind bind) | var <- bindersOf bind]

@@ -1,4 +1,6 @@
 expected: |-
+  module Test where
+
   data State#
 
   data RealWorld
@@ -13,11 +15,11 @@ expected: |-
     Λ(a : TYPE BoxedRep Lifted).
       λ(x1003 : (State# RealWorld) → (#,#) (State# RealWorld) a).
         λ(y1004 : State# RealWorld).
-          (((Test.fork# : ∀ (a : TYPE BoxedRep Lifted). ((State# RealWorld) → (#,#) (State# RealWorld) a) → (State# RealWorld) → (#,#) (State# RealWorld) ThreadId#) @a) x1003) y1004
+          ((fork# @a) x1003) y1004
 
   reschedule : (State# RealWorld) → State# RealWorld =
     λ(x1007 : State# RealWorld).
-      (Test.yield# : (State# RealWorld) → State# RealWorld) x1007
+      yield# x1007
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim

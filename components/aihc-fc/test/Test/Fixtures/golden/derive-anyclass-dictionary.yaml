@@ -1,4 +1,6 @@
 expected: |-
+  module Test where
+
   data Unit
    = Unit
 
@@ -32,7 +34,7 @@ expected: |-
       λ($d0 : Any a).
         λ($d1 : Required a).
           λ(x1011 : a).
-            (((Test.required : ∀ (a : TYPE BoxedRep Lifted). (Required a) → a → a) @a) $d1) x1011
+            ((required @a) $d1) x1011
 
   data Wrapped (a : TYPE BoxedRep Lifted)
    = Wrapped (Box a)
@@ -49,33 +51,33 @@ expected: |-
   $fRequiredBoxa : ∀ (a : TYPE BoxedRep Lifted). (Required a) → Required (Box a) =
     Λ(a : TYPE BoxedRep Lifted).
       λ($d0 : Required a).
-        (($Dict$Required : ∀ (a : TYPE BoxedRep Lifted). (a → a) → Required a) @(Box a)) (λ(x1014 : Box a).
+        ($Dict$Required @(Box a)) (λ(x1014 : Box a).
           x1014)
 
   $fRequiredWrappeda : ∀ (a : TYPE BoxedRep Lifted). (Required a) → Required (Wrapped a) =
     Λ(a : TYPE BoxedRep Lifted).
       λ($d0 : Required a).
-        (($Dict$Required : ∀ (a : TYPE BoxedRep Lifted). (a → a) → Required a) @(Wrapped a)) (λ(x1018 : Wrapped a).
+        ($Dict$Required @(Wrapped a)) (λ(x1018 : Wrapped a).
           x1018)
 
   $fParentBoth : Parent Both =
-    ($Dict$Parent : ∀ (a : TYPE BoxedRep Lifted). Parent a) @Both
+    $Dict$Parent @Both
 
   $fChildBoth : Child Both =
-    (($Dict$Child : ∀ (a : TYPE BoxedRep Lifted). (Parent a) → Child a) @Both) ($fParentBoth : Parent Both)
+    ($Dict$Child @Both) $fParentBoth
 
   rec {
     $fAnyWrappeda : ∀ (a : TYPE BoxedRep Lifted). (Required a) → Any (Wrapped a);
     $fAnyWrappeda =
       Λ(a : TYPE BoxedRep Lifted).
         λ($d0 : Required a).
-          (($Dict$Any : ∀ (a : TYPE BoxedRep Lifted). (a → a) → Any a) @(Wrapped a)) (((($dmanyValue : ∀ (a : TYPE BoxedRep Lifted). (Any a) → (Required a) → a → a) @(Wrapped a)) (($fAnyWrappeda @a) $d0)) ((($fRequiredWrappeda : ∀ (a : TYPE BoxedRep Lifted). (Required a) → Required (Wrapped a)) @a) $d0))
+          ($Dict$Any @(Wrapped a)) ((($dmanyValue @(Wrapped a)) (($fAnyWrappeda @a) $d0)) (($fRequiredWrappeda @a) $d0))
   }
 
   useAny : ∀ (a : TYPE BoxedRep Lifted). (Required a) → (Wrapped a) → Wrapped a =
     Λ(a : TYPE BoxedRep Lifted).
       λ($d0 : Required a).
-        ((Test.anyValue : ∀ (a : TYPE BoxedRep Lifted). (Any a) → a → a) @(Wrapped (a : TYPE BoxedRep Lifted))) ((($fAnyWrappeda : ∀ (a : TYPE BoxedRep Lifted). (Required a) → Any (Wrapped a)) @(a : TYPE BoxedRep Lifted)) $d0)
+        (anyValue @(Wrapped (a : TYPE BoxedRep Lifted))) (($fAnyWrappeda @(a : TYPE BoxedRep Lifted)) $d0)
 extensions:
 - DefaultSignatures
 - DeriveAnyClass
