@@ -10,7 +10,9 @@ module Aihc.Fc.Optimize
   )
 where
 
+import Aihc.Fc.Subst (OccurrenceCount (..), countExprVar)
 import Aihc.Fc.Syntax
+import Aihc.Tc.Types (isLiftedType)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -27,7 +29,7 @@ optimizeProgram = untilStable runOptimizations
 -- Keep this list ordered from local canonicalizations to broader rewrites so
 -- later rules see the simplest output available from earlier rules.
 coreOptimizations :: [CoreOptimization]
-coreOptimizations = [copyPropagateProgram]
+coreOptimizations = [copyPropagateProgram, eliminateDeadLetsProgram]
 
 untilStable :: (Eq value) => (value -> value) -> value -> value
 untilStable transform input =
@@ -104,3 +106,43 @@ resolveAlias aliases var =
   case Map.lookup var aliases of
     Just target -> resolveAlias aliases target
     Nothing -> var
+
+-- | Remove lazy non-recursive bindings whose values are never demanded. An
+-- unlifted binding is strict, so its right-hand side must be retained even
+-- when the binder is absent from the body.
+eliminateDeadLetsProgram :: FcProgram -> FcProgram
+eliminateDeadLetsProgram (FcProgram topBinds) = FcProgram (map eliminateTopBind topBinds)
+  where
+    eliminateTopBind topBind =
+      case topBind of
+        FcTopBind bind -> FcTopBind (eliminateBind bind)
+        _ -> topBind
+
+eliminateBind :: FcBind -> FcBind
+eliminateBind bind =
+  case bind of
+    FcNonRec binder rhs -> FcNonRec binder (eliminateExpr rhs)
+    FcRec bindings -> FcRec [(binder, eliminateExpr rhs) | (binder, rhs) <- bindings]
+
+eliminateExpr :: FcExpr -> FcExpr
+eliminateExpr expression =
+  case expression of
+    FcVar {} -> expression
+    FcLit {} -> expression
+    FcApp function argument -> FcApp (eliminateExpr function) (eliminateExpr argument)
+    FcTyApp function ty -> FcTyApp (eliminateExpr function) ty
+    FcLam binder body -> FcLam binder (eliminateExpr body)
+    FcTyLam tyVar body -> FcTyLam tyVar (eliminateExpr body)
+    FcLet (FcNonRec binder rhs) body
+      | Dead <- countExprVar binder body,
+        isLiftedType (varType binder) ->
+          eliminateExpr body
+      | otherwise -> FcLet (FcNonRec binder (eliminateExpr rhs)) (eliminateExpr body)
+    FcLet bind body -> FcLet (eliminateBind bind) (eliminateExpr body)
+    FcCase scrutinee binder alternatives ->
+      FcCase
+        (eliminateExpr scrutinee)
+        binder
+        [alternative {altRhs = eliminateExpr (altRhs alternative)} | alternative <- alternatives]
+    FcCast inner coercion -> FcCast (eliminateExpr inner) coercion
+    FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map eliminateExpr arguments)
