@@ -1,20 +1,8 @@
 expected: |-
-  data Integer
-   = IS Int#
-
-  data Num a
-   = $Dict$Num (Integer → a)
-
-  fromInteger : ∀ a. (Num a) → Integer → a =
-    Λa.
-      λ$d0 : Num a.
-        case $d0 as $dict : Num a of
-          $Dict$Num $method0 →
-            $method0
-  one : ∀ a. (Num a) → a =
-    Λa.
-      λ$d0 : Num a.
-        fromInteger @a $d0 (IS 1)
+  data("Integer",[],[constructor("IS",[type-con(ty-con("Int#",0,type-kind(int-rep)),[])])])
+  data("Num",[ty-var("a",12,type-kind(boxed-rep(lifted)))],[constructor("$Dict$Num",[function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))))])])
+  top-bind(non-rec(var("fromInteger",1000,forall-type(ty-var("a",12,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))))),none),type-lambda(ty-var("a",12,type-kind(boxed-rep(lifted))),lambda(var("$d0",1001,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),none),case(var-expr(var("$d0",1001,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),none)),var("$dict",1002,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),none),[alt(data-alt("$Dict$Num"),[var("$method0",1003,function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))),none)],var-expr(var("$method0",1003,function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))),none)))])))))
+  top-bind(non-rec(var("one",1000,forall-type(ty-var("a",19,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",19,type-kind(boxed-rep(lifted))))]),type-var(ty-var("a",19,type-kind(boxed-rep(lifted)))))),none),type-lambda(ty-var("a",19,type-kind(boxed-rep(lifted))),lambda(var("$d0",1001,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",19,type-kind(boxed-rep(lifted))))]),none),app(app(type-app-expr(var-expr(var("fromInteger",1002,forall-type(ty-var("a",12,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))))),some("GHC.Num.fromInteger"))),type-var(ty-var("a",19,type-kind(boxed-rep(lifted))))),var-expr(var("$d0",1001,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",19,type-kind(boxed-rep(lifted))))]),none))),app(var-expr(var("IS",1003,function-type(type-con(ty-con("Int#",0,type-kind(int-rep)),[]),type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[])),none)),lit(int-literal(int-rep,1))))))))
 extensions:
 - MagicHash
 modules:

@@ -1,9 +1,7 @@
 expected: |-
-  data State#
-
-  data MutVar#
-
-  foreign prim newMutVar#/2 : ∀ value domain. value → (State# domain) → (#,#) (State# domain) (MutVar# domain value)
+  data("State#",[],[])
+  data("MutVar#",[],[])
+  primitive(var("newMutVar#",1000,forall-type(ty-var("value",38,type-kind(boxed-rep(lifted))),forall-type(ty-var("domain",39,type-kind(boxed-rep(lifted))),function-type(type-var(ty-var("value",38,type-kind(boxed-rep(lifted)))),function-type(type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-var(ty-var("domain",39,type-kind(boxed-rep(lifted))))]),type-con(ty-con("(#,#)",2,kind-function(type-kind(tuple-rep([])),kind-function(type-kind(boxed-rep(unlifted)),type-kind(tuple-rep([tuple-rep([]),boxed-rep(unlifted)]))))),[type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-var(ty-var("domain",39,type-kind(boxed-rep(lifted))))]),type-con(ty-con("MutVar#",2,kind-function(type-kind(boxed-rep(lifted)),kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(unlifted))))),[type-var(ty-var("domain",39,type-kind(boxed-rep(lifted)))),type-var(ty-var("value",38,type-kind(boxed-rep(lifted))))])]))))),none),2)
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim

@@ -1,77 +1,21 @@
 expected: |-
-  data Unit
-   = Unit
-
-  data Box a
-   = Box a
-
-  data Required a
-   = $Dict$Required (a → a)
-
-  required : ∀ a. (Required a) → a → a =
-    Λa.
-      λ$d0 : Required a.
-        case $d0 as $dict : Required a of
-          $Dict$Required $method0 →
-            $method0
-
-  data Any a
-   = $Dict$Any (a → a)
-
-  anyValue : ∀ a. (Any a) → a → a =
-    Λa.
-      λ$d0 : Any a.
-        case $d0 as $dict : Any a of
-          $Dict$Any $method0 →
-            $method0
-
-  $dmanyValue : ∀ a. (Any a) → (Required a) → a → a =
-    Λa.
-      λ$d0 : Any a.
-        λ$d1 : Required a.
-          λx1011 : a.
-            required @a $d1 x1011
-
-  data Wrapped a
-   = Wrapped (Box a)
-
-  data Parent a
-   = $Dict$Parent
-
-  data Child a
-   = $Dict$Child (Parent a)
-
-  data Both
-   = Both
-
-  $fRequiredBoxa : ∀ a. (Required a) → Required (Box a) =
-    Λa.
-      λ$d0 : Required a.
-        $Dict$Required @(Box a) (λx1014 : Box a.
-          x1014)
-
-  $fRequiredWrappeda : ∀ a. (Required a) → Required (Wrapped a) =
-    Λa.
-      λ$d0 : Required a.
-        $Dict$Required @(Wrapped a) (λx1018 : Wrapped a.
-          x1018)
-
-  $fParentBoth : Parent Both =
-    $Dict$Parent @Both
-
-  $fChildBoth : Child Both =
-    $Dict$Child @Both $fParentBoth
-
-  rec
-    $fAnyWrappeda : ∀ a. (Required a) → Any (Wrapped a) =
-      Λa.
-        λ$d0 : Required a.
-          $Dict$Any @(Wrapped a) ($dmanyValue @(Wrapped a) ($fAnyWrappeda @a $d0) ($fRequiredWrappeda @a $d0))
-
-  useAny : ∀ a. (Required a) → (Wrapped a) → Wrapped a =
-    Λa.
-      λ$d0 : Required a.
-        anyValue @(Wrapped a) ($fAnyWrappeda @a $d0)
+  data("Unit",[],[constructor("Unit",[])])
+  data("Box",[ty-var("a",16,type-kind(boxed-rep(lifted)))],[constructor("Box",[type-var(ty-var("a",16,type-kind(boxed-rep(lifted))))])])
+  data("Required",[ty-var("a",18,type-kind(boxed-rep(lifted)))],[constructor("$Dict$Required",[function-type(type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))))])])
+  top-bind(non-rec(var("required",1000,forall-type(ty-var("a",18,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))]),function-type(type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))))),none),type-lambda(ty-var("a",18,type-kind(boxed-rep(lifted))),lambda(var("$d0",1001,type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))]),none),case(var-expr(var("$d0",1001,type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))]),none)),var("$dict",1002,type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))]),none),[alt(data-alt("$Dict$Required"),[var("$method0",1003,function-type(type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))),none)],var-expr(var("$method0",1003,function-type(type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))),none)))])))))
+  data("Any",[ty-var("a",23,type-kind(boxed-rep(lifted)))],[constructor("$Dict$Any",[function-type(type-var(ty-var("a",23,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",23,type-kind(boxed-rep(lifted)))))])])
+  top-bind(non-rec(var("anyValue",1004,forall-type(ty-var("a",23,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Any",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))]),function-type(type-var(ty-var("a",23,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))))),none),type-lambda(ty-var("a",23,type-kind(boxed-rep(lifted))),lambda(var("$d0",1005,type-con(ty-con("Any",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))]),none),case(var-expr(var("$d0",1005,type-con(ty-con("Any",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))]),none)),var("$dict",1006,type-con(ty-con("Any",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))]),none),[alt(data-alt("$Dict$Any"),[var("$method0",1007,function-type(type-var(ty-var("a",23,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))),none)],var-expr(var("$method0",1007,function-type(type-var(ty-var("a",23,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))),none)))])))))
+  top-bind(non-rec(var("$dmanyValue",1008,forall-type(ty-var("a",23,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Any",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))]),function-type(type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))]),function-type(type-var(ty-var("a",23,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",23,type-kind(boxed-rep(lifted)))))))),none),type-lambda(ty-var("a",23,type-kind(boxed-rep(lifted))),lambda(var("$d0",1009,type-con(ty-con("Any",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))]),none),lambda(var("$d1",1010,type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))]),none),lambda(var("x1011",1011,type-var(ty-var("a",23,type-kind(boxed-rep(lifted)))),none),app(app(type-app-expr(var-expr(var("required",1012,forall-type(ty-var("a",18,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))]),function-type(type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))))),some("Test.required"))),type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))),var-expr(var("$d1",1010,type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))]),none))),var-expr(var("x1011",1011,type-var(ty-var("a",23,type-kind(boxed-rep(lifted)))),none)))))))))
+  data("Wrapped",[ty-var("a",25,type-kind(boxed-rep(lifted)))],[constructor("Wrapped",[type-con(ty-con("Box",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",25,type-kind(boxed-rep(lifted))))])])])
+  data("Parent",[ty-var("a",31,type-kind(boxed-rep(lifted)))],[constructor("$Dict$Parent",[])])
+  data("Child",[ty-var("a",33,type-kind(boxed-rep(lifted)))],[constructor("$Dict$Child",[type-con(ty-con("Parent",1,kind-function(type-kind(boxed-rep(lifted)),constraint-kind)),[type-var(ty-var("a",33,type-kind(boxed-rep(lifted))))])])])
+  data("Both",[],[constructor("Both",[])])
+  top-bind(non-rec(var("$fRequiredBoxa",1015,forall-type(ty-var("a",66,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",66,type-kind(boxed-rep(lifted))))]),type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Box",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",66,type-kind(boxed-rep(lifted))))])]))),none),type-lambda(ty-var("a",66,type-kind(boxed-rep(lifted))),lambda(var("$d0",1013,type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",66,type-kind(boxed-rep(lifted))))]),none),app(type-app-expr(var-expr(var("$Dict$Required",1016,forall-type(ty-var("a",18,type-kind(boxed-rep(lifted))),function-type(function-type(type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))),type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))]))),none)),type-con(ty-con("Box",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",66,type-kind(boxed-rep(lifted))))])),lambda(var("x1014",1014,type-con(ty-con("Box",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",66,type-kind(boxed-rep(lifted))))]),none),var-expr(var("x1014",1014,type-con(ty-con("Box",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",66,type-kind(boxed-rep(lifted))))]),none))))))))
+  top-bind(non-rec(var("$fRequiredWrappeda",1019,forall-type(ty-var("a",69,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",69,type-kind(boxed-rep(lifted))))]),type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",69,type-kind(boxed-rep(lifted))))])]))),none),type-lambda(ty-var("a",69,type-kind(boxed-rep(lifted))),lambda(var("$d0",1017,type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",69,type-kind(boxed-rep(lifted))))]),none),app(type-app-expr(var-expr(var("$Dict$Required",1020,forall-type(ty-var("a",18,type-kind(boxed-rep(lifted))),function-type(function-type(type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))),type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))]))),none)),type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",69,type-kind(boxed-rep(lifted))))])),lambda(var("x1018",1018,type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",69,type-kind(boxed-rep(lifted))))]),none),var-expr(var("x1018",1018,type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",69,type-kind(boxed-rep(lifted))))]),none))))))))
+  top-bind(non-rec(var("$fParentBoth",1021,type-con(ty-con("Parent",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Both",0,type-kind(boxed-rep(lifted))),[])]),none),type-app-expr(var-expr(var("$Dict$Parent",1022,forall-type(ty-var("a",31,type-kind(boxed-rep(lifted))),type-con(ty-con("Parent",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",31,type-kind(boxed-rep(lifted))))])),none)),type-con(ty-con("Both",0,type-kind(boxed-rep(lifted))),[]))))
+  top-bind(non-rec(var("$fChildBoth",1023,type-con(ty-con("Child",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Both",0,type-kind(boxed-rep(lifted))),[])]),none),app(type-app-expr(var-expr(var("$Dict$Child",1024,forall-type(ty-var("a",33,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Parent",1,kind-function(type-kind(boxed-rep(lifted)),constraint-kind)),[type-var(ty-var("a",33,type-kind(boxed-rep(lifted))))]),type-con(ty-con("Child",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",33,type-kind(boxed-rep(lifted))))]))),none)),type-con(ty-con("Both",0,type-kind(boxed-rep(lifted))),[])),var-expr(var("$fParentBoth",-199,type-con(ty-con("Parent",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Both",0,type-kind(boxed-rep(lifted))),[])]),none)))))
+  top-bind(rec([binding(var("$fAnyWrappeda",1026,forall-type(ty-var("a",38,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",38,type-kind(boxed-rep(lifted))))]),type-con(ty-con("Any",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",38,type-kind(boxed-rep(lifted))))])]))),none),type-lambda(ty-var("a",38,type-kind(boxed-rep(lifted))),lambda(var("$d0",1025,type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",38,type-kind(boxed-rep(lifted))))]),none),app(type-app-expr(var-expr(var("$Dict$Any",1028,forall-type(ty-var("a",23,type-kind(boxed-rep(lifted))),function-type(function-type(type-var(ty-var("a",23,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))),type-con(ty-con("Any",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))]))),none)),type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",38,type-kind(boxed-rep(lifted))))])),app(app(type-app-expr(var-expr(var("$dmanyValue",1027,forall-type(ty-var("a",23,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Any",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))]),function-type(type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))]),function-type(type-var(ty-var("a",23,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",23,type-kind(boxed-rep(lifted)))))))),none)),type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",38,type-kind(boxed-rep(lifted))))])),app(type-app-expr(var-expr(var("$fAnyWrappeda",1026,forall-type(ty-var("a",38,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",38,type-kind(boxed-rep(lifted))))]),type-con(ty-con("Any",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",38,type-kind(boxed-rep(lifted))))])]))),none)),type-var(ty-var("a",38,type-kind(boxed-rep(lifted))))),var-expr(var("$d0",1025,type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",38,type-kind(boxed-rep(lifted))))]),none)))),app(type-app-expr(var-expr(var("$fRequiredWrappeda",-199,forall-type(ty-var("a",69,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",69,type-kind(boxed-rep(lifted))))]),type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",69,type-kind(boxed-rep(lifted))))])]))),none)),type-var(ty-var("a",38,type-kind(boxed-rep(lifted))))),var-expr(var("$d0",1025,type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",38,type-kind(boxed-rep(lifted))))]),none))))))))]))
+  top-bind(non-rec(var("useAny",1029,forall-type(ty-var("a",43,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",43,type-kind(boxed-rep(lifted))))]),function-type(type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",43,type-kind(boxed-rep(lifted))))]),type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",43,type-kind(boxed-rep(lifted))))])))),none),type-lambda(ty-var("a",43,type-kind(boxed-rep(lifted))),lambda(var("$d0",1030,type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",43,type-kind(boxed-rep(lifted))))]),none),app(type-app-expr(var-expr(var("anyValue",1031,forall-type(ty-var("a",23,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Any",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))]),function-type(type-var(ty-var("a",23,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",23,type-kind(boxed-rep(lifted))))))),some("Test.anyValue"))),type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",47,type-kind(boxed-rep(lifted))))])),app(type-app-expr(var-expr(var("$fAnyWrappeda",-199,forall-type(ty-var("a",38,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",38,type-kind(boxed-rep(lifted))))]),type-con(ty-con("Any",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",38,type-kind(boxed-rep(lifted))))])]))),none)),type-var(ty-var("a",47,type-kind(boxed-rep(lifted))))),var-expr(var("$d0",1030,type-con(ty-con("Required",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",43,type-kind(boxed-rep(lifted))))]),none))))))))
 extensions:
 - DefaultSignatures
 - DeriveAnyClass

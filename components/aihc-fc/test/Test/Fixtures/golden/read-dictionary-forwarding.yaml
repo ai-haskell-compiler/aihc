@@ -1,21 +1,8 @@
 expected: |-
-  data Result
-   = Result
-
-  data Read a
-   = $Dict$Read (Result → a)
-
-  reads : ∀ a. (Read a) → Result → a =
-    Λa.
-      λ$d0 : Read a.
-        case $d0 as $dict : Read a of
-          $Dict$Read $method0 →
-            $method0
-
-  parse : ∀ a. (Read a) → Result → a =
-    Λa.
-      λ$d0 : Read a.
-        reads @a $d0
+  data("Result",[],[constructor("Result",[])])
+  data("Read",[ty-var("a",12,type-kind(boxed-rep(lifted)))],[constructor("$Dict$Read",[function-type(type-con(ty-con("Result",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))))])])
+  top-bind(non-rec(var("reads",1000,forall-type(ty-var("a",12,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Read",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),function-type(type-con(ty-con("Result",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))))),none),type-lambda(ty-var("a",12,type-kind(boxed-rep(lifted))),lambda(var("$d0",1001,type-con(ty-con("Read",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),none),case(var-expr(var("$d0",1001,type-con(ty-con("Read",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),none)),var("$dict",1002,type-con(ty-con("Read",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),none),[alt(data-alt("$Dict$Read"),[var("$method0",1003,function-type(type-con(ty-con("Result",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))),none)],var-expr(var("$method0",1003,function-type(type-con(ty-con("Result",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))),none)))])))))
+  top-bind(non-rec(var("parse",1004,forall-type(ty-var("a",14,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Read",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",14,type-kind(boxed-rep(lifted))))]),function-type(type-con(ty-con("Result",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",14,type-kind(boxed-rep(lifted))))))),none),type-lambda(ty-var("a",14,type-kind(boxed-rep(lifted))),lambda(var("$d0",1005,type-con(ty-con("Read",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",14,type-kind(boxed-rep(lifted))))]),none),app(type-app-expr(var-expr(var("reads",1006,forall-type(ty-var("a",12,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Read",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),function-type(type-con(ty-con("Result",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))))),some("Test.reads"))),type-var(ty-var("a",16,type-kind(boxed-rep(lifted))))),var-expr(var("$d0",1005,type-con(ty-con("Read",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",14,type-kind(boxed-rep(lifted))))]),none)))))))
 extensions: []
 modules:
 - |

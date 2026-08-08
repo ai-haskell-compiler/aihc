@@ -1,67 +1,18 @@
 expected: |-
-  data Bool
-   = False
-   | True
+  data("Bool",[],[constructor("False",[]),constructor("True",[])])
+  data("Int",[],[constructor("I",[type-con(ty-con("Int#",0,type-kind(int-rep)),[])])])
+  data("Integer",[],[constructor("IS",[type-con(ty-con("Int#",0,type-kind(int-rep)),[])])])
+  data("Eq",[ty-var("a",12,type-kind(boxed-rep(lifted)))],[constructor("$Dict$Eq",[function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[])))])])
+  top-bind(non-rec(var("==",1000,forall-type(ty-var("a",12,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Eq",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]))))),none),type-lambda(ty-var("a",12,type-kind(boxed-rep(lifted))),lambda(var("$d0",1001,type-con(ty-con("Eq",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),none),case(var-expr(var("$d0",1001,type-con(ty-con("Eq",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),none)),var("$dict",1002,type-con(ty-con("Eq",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),none),[alt(data-alt("$Dict$Eq"),[var("$method0",1003,function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]))),none)],var-expr(var("$method0",1003,function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]))),none)))])))))
+  top-bind(non-rec(var("$fEqInt",1011,type-con(ty-con("Eq",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[])]),none),app(type-app-expr(var-expr(var("$Dict$Eq",1012,forall-type(ty-var("a",12,type-kind(boxed-rep(lifted))),function-type(function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]))),type-con(ty-con("Eq",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]))),none)),type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[])),lambda(var("x1004",1004,type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[]),none),lambda(var("y1005",1005,type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[]),none),case(var-expr(var("x1004",1004,type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[]),none)),var("_scrut",1010,type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[]),none),[alt(data-alt("I"),[var("x",1006,type-con(ty-con("Int#",0,type-kind(int-rep)),[]),none)],case(var-expr(var("y1005",1005,type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[]),none)),var("_scrut",1009,type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[]),none),[alt(data-alt("I"),[var("y",1007,type-con(ty-con("Int#",0,type-kind(int-rep)),[]),none)],var-expr(var("True",1008,type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]),some("GHC.Types.True"))))]))]))))))
+  data("Num",[ty-var("a",17,type-kind(boxed-rep(lifted)))],[constructor("$Dict$Num",[function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",17,type-kind(boxed-rep(lifted)))))])])
+  top-bind(non-rec(var("fromInteger",1000,forall-type(ty-var("a",17,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))]),function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))))),none),type-lambda(ty-var("a",17,type-kind(boxed-rep(lifted))),lambda(var("$d0",1001,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))]),none),case(var-expr(var("$d0",1001,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))]),none)),var("$dict",1002,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))]),none),[alt(data-alt("$Dict$Num"),[var("$method0",1003,function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))),none)],var-expr(var("$method0",1003,function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))),none)))])))))
+  top-bind(non-rec(var("$fNumInt",1008,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[])]),none),app(type-app-expr(var-expr(var("$Dict$Num",1009,forall-type(ty-var("a",17,type-kind(boxed-rep(lifted))),function-type(function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))),type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))]))),none)),type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[])),lambda(var("x1004",1004,type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),none),case(var-expr(var("x1004",1004,type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),none)),var("_scrut",1007,type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),none),[alt(data-alt("IS"),[var("x",1005,type-con(ty-con("Int#",0,type-kind(int-rep)),[]),none)],app(var-expr(var("I",1006,function-type(type-con(ty-con("Int#",0,type-kind(int-rep)),[]),type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[])),some("GHC.Types.I"))),var-expr(var("x",1005,type-con(ty-con("Int#",0,type-kind(int-rep)),[]),none))))])))))
+  top-bind(non-rec(var("$fNumInteger",1011,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[])]),none),app(type-app-expr(var-expr(var("$Dict$Num",1012,forall-type(ty-var("a",17,type-kind(boxed-rep(lifted))),function-type(function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))),type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))]))),none)),type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[])),lambda(var("x1010",1010,type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),none),var-expr(var("x1010",1010,type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),none))))))
 
-  data Int
-   = I Int#
-
-  data Integer
-   = IS Int#
-  data Eq a
-   = $Dict$Eq (a → a → Bool)
-
-  == : ∀ a. (Eq a) → a → a → Bool =
-    Λa.
-      λ$d0 : Eq a.
-        case $d0 as $dict : Eq a of
-          $Dict$Eq $method0 →
-            $method0
-
-  $fEqInt : Eq Int =
-    $Dict$Eq @Int (λx1004 : Int.
-      λy1005 : Int.
-        case x1004 as _scrut : Int of
-          I x →
-            case y1005 as _scrut : Int of
-              I y →
-                True)
-  data Num a
-   = $Dict$Num (Integer → a)
-
-  fromInteger : ∀ a. (Num a) → Integer → a =
-    Λa.
-      λ$d0 : Num a.
-        case $d0 as $dict : Num a of
-          $Dict$Num $method0 →
-            $method0
-
-  $fNumInt : Num Int =
-    $Dict$Num @Int (λx1004 : Integer.
-      case x1004 as _scrut : Integer of
-        IS x →
-          I x)
-
-  $fNumInteger : Num Integer =
-    $Dict$Num @Integer (λx1010 : Integer.
-      x1010)
-
-  asInt : Int =
-    fromInteger @Int $fNumInt (IS 1)
-
-  asInteger : Integer =
-    fromInteger @Integer $fNumInteger (IS 1)
-
-  caseInt : Unit =
-    let
-      _case_value : Int =
-        fromInteger @Int $fNumInt (IS 1)
-    in
-      case == @Int $fEqInt _case_value (fromInteger @Int $fNumInt (IS 1)) as _case_guard : Bool of
-        True →
-          ()
-        False →
-          case _case_value as _case_nomatch : Int of
+  top-bind(non-rec(var("asInt",1000,type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[]),none),app(app(type-app-expr(var-expr(var("fromInteger",1001,forall-type(ty-var("a",17,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))]),function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))))),some("GHC.Num.fromInteger"))),type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[])),var-expr(var("$fNumInt",-199,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[])]),none))),app(var-expr(var("IS",1002,function-type(type-con(ty-con("Int#",0,type-kind(int-rep)),[]),type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[])),none)),lit(int-literal(int-rep,1))))))
+  top-bind(non-rec(var("asInteger",1003,type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),none),app(app(type-app-expr(var-expr(var("fromInteger",1004,forall-type(ty-var("a",17,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))]),function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))))),some("GHC.Num.fromInteger"))),type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[])),var-expr(var("$fNumInteger",-199,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[])]),none))),app(var-expr(var("IS",1005,function-type(type-con(ty-con("Int#",0,type-kind(int-rep)),[]),type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[])),none)),lit(int-literal(int-rep,1))))))
+  top-bind(non-rec(var("caseInt",1006,type-con(ty-con("Unit",0,type-kind(boxed-rep(lifted))),[]),none),let(non-rec(var("_case_value",1009,type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[]),none),app(app(type-app-expr(var-expr(var("fromInteger",1007,forall-type(ty-var("a",17,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))]),function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))))),some("GHC.Num.fromInteger"))),type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[])),var-expr(var("$fNumInt",-199,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[])]),none))),app(var-expr(var("IS",1008,function-type(type-con(ty-con("Int#",0,type-kind(int-rep)),[]),type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[])),none)),lit(int-literal(int-rep,1))))),case(app(app(app(type-app-expr(var-expr(var("==",1013,forall-type(ty-var("a",12,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Eq",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]))))),some("GHC.Classes.=="))),type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[])),var-expr(var("$fEqInt",-199,type-con(ty-con("Eq",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[])]),none))),var-expr(var("_case_value",1009,type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[]),none))),app(app(type-app-expr(var-expr(var("fromInteger",1011,forall-type(ty-var("a",17,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))]),function-type(type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[]),type-var(ty-var("a",17,type-kind(boxed-rep(lifted))))))),some("GHC.Num.fromInteger"))),type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[])),var-expr(var("$fNumInt",-199,type-con(ty-con("Num",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[])]),none))),app(var-expr(var("IS",1012,function-type(type-con(ty-con("Int#",0,type-kind(int-rep)),[]),type-con(ty-con("Integer",0,type-kind(boxed-rep(lifted))),[])),none)),lit(int-literal(int-rep,1))))),var("_case_guard",1014,type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]),none),[alt(data-alt("True"),[],var-expr(var("()",-20,type-con(ty-con("Unit",0,type-kind(boxed-rep(lifted))),[]),none))),alt(data-alt("False"),[],case(var-expr(var("_case_value",1009,type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[]),none)),var("_case_nomatch",1010,type-con(ty-con("Int",0,type-kind(boxed-rep(lifted))),[]),none),[]))]))))
 extensions:
 - MagicHash
 modules:

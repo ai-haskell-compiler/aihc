@@ -25,6 +25,7 @@ module Aihc.Tc.Types
     TyCon (TyCon, tyConName, tyConArity),
     tyConKind,
     mkTyCon,
+    setTyConKind,
     Kind (KTYPE, KConstraint, KRuntimeRep, KLevity, KVecCount, KVecElem, KFun, KMeta, KType),
     RuntimeRep (..),
     Levity (..),
@@ -117,6 +118,12 @@ tyConKind (TyConInternal _ _ kind) = kind
 mkTyCon :: Text -> Int -> Kind -> TyCon
 mkTyCon name arity inferredKind =
   TyConInternal name arity (fromMaybe inferredKind (fixedTyConKind name))
+
+-- | Replace a type constructor's kind without applying wired-in defaults.
+-- This is used when reconstructing canonical System FC syntax, where the
+-- serialized kind is authoritative.
+setTyConKind :: Kind -> TyCon -> TyCon
+setTyConKind kind (TyConInternal name arity _) = TyConInternal name arity kind
 
 -- | Kinds for the type language checked by @aihc-tc@.
 data Kind

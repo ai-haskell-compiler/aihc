@@ -1,11 +1,6 @@
 expected: |-
-  data Bool
-   = True
-   | False
-
-  idBool : Bool → Bool =
-    λx1001 : Bool.
-      x1001
+  data("Bool",[],[constructor("True",[]),constructor("False",[])])
+  top-bind(non-rec(var("idBool",1000,function-type(type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]),type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[])),none),lambda(var("x1001",1001,type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]),none),var-expr(var("x1001",1001,type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]),none)))))
 extensions: []
 modules:
 - |

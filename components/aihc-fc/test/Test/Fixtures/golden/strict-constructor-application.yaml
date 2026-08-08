@@ -7,18 +7,8 @@ modules:
 
     makePair :: a -> a -> StrictPair a
     makePair left right = StrictPair left right
-expected: |
-  data StrictPair a
-   = StrictPair a a
-
-  makePair : ∀ a. a → a → StrictPair a =
-    Λa.
-      λx1001 : a.
-        λy1002 : a.
-          case x1001 as _strict_field1004 : a of
-            _ →
-              case y1002 as _strict_field1005 : a of
-                _ →
-                  StrictPair @a _strict_field1004 _strict_field1005
+expected: |-
+  data("StrictPair",[ty-var("a",14,type-kind(boxed-rep(lifted)))],[constructor("StrictPair",[type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",14,type-kind(boxed-rep(lifted))))])])
+  top-bind(non-rec(var("makePair",1000,forall-type(ty-var("a",18,type-kind(boxed-rep(lifted))),function-type(type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))),function-type(type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))),type-con(ty-con("StrictPair",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))])))),none),type-lambda(ty-var("a",18,type-kind(boxed-rep(lifted))),lambda(var("x1001",1001,type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))),none),lambda(var("y1002",1002,type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))),none),case(var-expr(var("x1001",1001,type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))),none)),var("_strict_field1004",1004,type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),none),[alt(default-alt,[],case(var-expr(var("y1002",1002,type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))),none)),var("_strict_field1005",1005,type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),none),[alt(default-alt,[],app(app(type-app-expr(var-expr(var("StrictPair",1003,forall-type(ty-var("a",14,type-kind(boxed-rep(lifted))),function-type(type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),function-type(type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),type-con(ty-con("StrictPair",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",14,type-kind(boxed-rep(lifted))))])))),some("Test.StrictPair"))),type-var(ty-var("a",21,type-kind(boxed-rep(lifted))))),var-expr(var("_strict_field1004",1004,type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),none))),var-expr(var("_strict_field1005",1005,type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),none))))]))]))))))
 status: pass
 reason: saturated applications force source-strict constructor fields before allocating the constructor

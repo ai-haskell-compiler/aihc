@@ -200,7 +200,9 @@ pattern Var name unique ty <- ResolvedVar name unique ty _
 
 {-# COMPLETE Var #-}
 
--- Eq/Ord on Unique only, mirroring TyVarId.
+-- Eq/Ord on Unique only, mirroring TyVarId. Exact syntax-tree comparisons
+-- must inspect every field because imported occurrences can carry additional
+-- source identity in 'varResolvedName'.
 instance Eq Var where
   a == b = varUnique a == varUnique b
 

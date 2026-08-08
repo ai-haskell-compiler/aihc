@@ -6,12 +6,8 @@ modules:
 
     xs :: [Bool]
     xs = [True]
-expected: |
-  data Bool
-   = True
-   | False
-
-  xs : [Bool] =
-    : @Bool True ([] @Bool)
+expected: |-
+  data("Bool",[],[constructor("True",[]),constructor("False",[])])
+  top-bind(non-rec(var("xs",1000,type-con(ty-con("[]",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[])]),none),app(app(type-app-expr(var-expr(var(":",-11,forall-type(ty-var("a",-2000,type-kind(boxed-rep(lifted))),function-type(type-var(ty-var("a",-2000,type-kind(boxed-rep(lifted)))),function-type(type-con(ty-con("[]",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",-2000,type-kind(boxed-rep(lifted))))]),type-con(ty-con("[]",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",-2000,type-kind(boxed-rep(lifted))))])))),none)),type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[])),var-expr(var("True",1001,type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]),some("Test.True")))),type-app-expr(var-expr(var("[]",-10,forall-type(ty-var("a",-2000,type-kind(boxed-rep(lifted))),type-con(ty-con("[]",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",-2000,type-kind(boxed-rep(lifted))))])),none)),type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[])))))
 status: pass
 reason: reifies list constructor type arguments from type-checker annotations

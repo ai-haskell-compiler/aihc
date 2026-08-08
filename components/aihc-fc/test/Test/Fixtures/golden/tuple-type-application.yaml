@@ -6,12 +6,8 @@ modules:
 
     pair :: (Bool, ())
     pair = (True, ())
-expected: |
-  data Bool
-   = True
-   | False
-
-  pair : Tuple2 Bool Unit =
-    (,) @Bool @Unit True ()
+expected: |-
+  data("Bool",[],[constructor("True",[]),constructor("False",[])])
+  top-bind(non-rec(var("pair",1000,type-con(ty-con("Tuple2",2,kind-function(type-kind(boxed-rep(lifted)),kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted))))),[type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]),type-con(ty-con("Unit",0,type-kind(boxed-rep(lifted))),[])]),none),app(app(type-app-expr(type-app-expr(var-expr(var("(,)",-22,forall-type(ty-var("a",4,type-kind(boxed-rep(lifted))),forall-type(ty-var("b",6,type-kind(boxed-rep(lifted))),function-type(type-var(ty-var("a",4,type-kind(boxed-rep(lifted)))),function-type(type-var(ty-var("b",6,type-kind(boxed-rep(lifted)))),type-con(ty-con("Tuple2",2,kind-function(type-kind(boxed-rep(lifted)),kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted))))),[type-var(ty-var("a",4,type-kind(boxed-rep(lifted)))),type-var(ty-var("b",6,type-kind(boxed-rep(lifted))))]))))),none)),type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[])),type-con(ty-con("Unit",0,type-kind(boxed-rep(lifted))),[])),var-expr(var("True",1001,type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]),some("Test.True")))),var-expr(var("()",-20,type-con(ty-con("Unit",0,type-kind(boxed-rep(lifted))),[]),none)))))
 status: pass
 reason: reifies tuple constructor type arguments from type-checker annotations

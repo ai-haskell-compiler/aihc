@@ -1,15 +1,8 @@
-{-# LANGUAGE OverloadedStrings #-}
-
--- | Pretty-printer for System FC core.
+-- | Canonical, lossless pretty-printer for System FC.
 --
--- Produces multi-line, nested output with unicode characters:
---
--- * \x03bb (\955) for term lambda
--- * \x039b (\923) for type lambda
--- * \x2192 (\8594) for function arrows
--- * \x2200 (\8704) for forall
--- * \x21d2 (\8658) for double arrow (=>)
--- * \x25b7 (\9655) for cast
+-- The rendered language is deliberately explicit: identities, kinds, runtime
+-- representations, imported names, and coercions are syntax rather than
+-- out-of-band compiler state.  "Aihc.Fc.Parser" accepts exactly this format.
 module Aihc.Fc.Pretty
   ( renderProgram,
     renderExpr,
@@ -18,248 +11,278 @@ module Aihc.Fc.Pretty
   )
 where
 
-import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Fc.Syntax
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..))
+import Aihc.Tc.Evidence (Coercion (..), EvVar (..))
+import Aihc.Tc.Types
+  ( Kind (..),
+    Levity (..),
+    Pred (..),
+    RuntimeRep (..),
+    TcType (..),
+    TyCon,
+    TyVarId,
+    Unique (..),
+    VecCount (..),
+    VecElem (..),
+    tvKind,
+    tvName,
+    tvUnique,
+    tyConArity,
+    tyConKind,
+    tyConName,
+  )
 import Data.ByteString qualified as BS
-import Data.Char (chr)
 import Data.List (intercalate)
 import Data.Text (Text)
 import Data.Text qualified as T
 
--- | Unicode characters for pretty-printing.
-lamChar, bigLamChar, arrowChar, forallChar, fatArrowChar, castChar :: Char
-lamChar = '\x03bb' -- λ
-bigLamChar = '\x039b' -- Λ
-arrowChar = '\x2192' -- →
-forallChar = '\x2200' -- ∀
-fatArrowChar = '\x21d2' -- ⇒
-castChar = '\x25b7' -- ▷
-
--- | Render a complete program.
 renderProgram :: FcProgram -> String
-renderProgram prog =
-  intercalate "\n\n" (map renderTopBind (fcTopBinds prog))
+renderProgram = intercalate "\n" . map renderTopBind . fcTopBinds
 
--- | Render a top-level binding.
 renderTopBind :: FcTopBind -> String
-renderTopBind (FcData tyName tyVars cons) =
-  "data "
-    ++ T.unpack tyName
-    ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) tyVars
-    ++ renderDataCons tyVars cons
-renderTopBind (FcAxiom declaration) =
-  "axiom "
-    ++ T.unpack (fcAxiomName declaration)
-    ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) (fcAxiomTyVars declaration)
-    ++ " : "
-    ++ renderType (fcAxiomLeft declaration)
-    ++ roleEquality (fcAxiomRole declaration)
-    ++ renderType (fcAxiomRight declaration)
+renderTopBind topBind =
+  case topBind of
+    FcData name tyVars constructors ->
+      tagged "data" [renderText name, renderList renderTyVar tyVars, renderList renderConstructor constructors]
+    FcAxiom declaration -> tagged "axiom" [renderAxiomDecl declaration]
+    FcNewtype declaration -> tagged "newtype" [renderNewtypeDecl declaration]
+    FcPrimitive var arity -> tagged "primitive" [renderVar var, show arity]
+    FcForeignImport foreignCall -> tagged "foreign-import" [renderForeignCall foreignCall]
+    FcTopBind bind -> tagged "top-bind" [renderBind bind]
+
+renderConstructor :: (Text, [TcType]) -> String
+renderConstructor (name, fields) = tagged "constructor" [renderText name, renderList renderType fields]
+
+renderAxiomDecl :: FcAxiomDecl -> String
+renderAxiomDecl declaration =
+  tagged
+    "axiom-decl"
+    [ renderText (fcAxiomName declaration),
+      renderList renderTyVar (fcAxiomTyVars declaration),
+      renderAxiomRole (fcAxiomRole declaration),
+      renderType (fcAxiomLeft declaration),
+      renderType (fcAxiomRight declaration)
+    ]
+
+renderAxiomRole :: FcAxiomRole -> String
+renderAxiomRole role =
+  case role of
+    FcNominal -> "nominal"
+    FcRepresentational -> "representational"
+
+renderNewtypeDecl :: FcNewtypeDecl -> String
+renderNewtypeDecl declaration =
+  tagged
+    "newtype-decl"
+    [ renderText (fcNewtypeName declaration),
+      renderList renderTyVar (fcNewtypeTyVars declaration),
+      renderText (fcNewtypeConstructor declaration),
+      renderType (fcNewtypeRepresentation declaration),
+      renderType (fcNewtypeResult declaration)
+    ]
+
+renderForeignCall :: FcForeignCall -> String
+renderForeignCall foreignCall =
+  tagged
+    "foreign-call"
+    [ renderText (fcForeignCallName foreignCall),
+      renderText (fcForeignCallSymbol foreignCall),
+      renderForeignSignature (fcForeignCallSignature foreignCall)
+    ]
+
+renderForeignSignature :: FcForeignSignature -> String
+renderForeignSignature signature =
+  tagged
+    "foreign-signature"
+    [ renderList renderForeignType (fcForeignArgumentTypes signature),
+      renderForeignType (fcForeignResultType signature),
+      renderForeignEffect (fcForeignEffect signature)
+    ]
+
+renderForeignEffect :: FcForeignEffect -> String
+renderForeignEffect effect =
+  case effect of
+    FcForeignPure -> "pure"
+    FcForeignRealWorld -> "real-world"
+
+renderForeignType :: FcForeignType -> String
+renderForeignType foreignType =
+  case foreignType of
+    FcForeignInt -> "int"
+    FcForeignInt32 -> "int32"
+    FcForeignWord64 -> "word64"
+    FcForeignAddr -> "addr"
+
+renderBind :: FcBind -> String
+renderBind bind =
+  case bind of
+    FcNonRec var expression -> tagged "non-rec" [renderVar var, renderExpr expression]
+    FcRec bindings -> tagged "rec" [renderList renderBinding bindings]
   where
-    roleEquality role =
-      case role of
-        FcNominal -> " ~N "
-        FcRepresentational -> " ~R "
-renderTopBind (FcNewtype declaration) =
-  "newtype "
-    ++ T.unpack (fcNewtypeName declaration)
-    ++ concatMap (\tv -> " " ++ T.unpack (tvName tv)) (fcNewtypeTyVars declaration)
-    ++ " = "
-    ++ T.unpack (fcNewtypeConstructor declaration)
-    ++ " "
-    ++ renderTypePrec True (fcNewtypeRepresentation declaration)
-renderTopBind (FcPrimitive var arity) =
-  "foreign prim "
-    ++ renderVar var
-    ++ "/"
-    ++ show arity
-    ++ " : "
-    ++ renderType (varType var)
-renderTopBind (FcForeignImport foreignCall) =
-  "foreign ccall \""
-    ++ T.unpack (fcForeignCallSymbol foreignCall)
-    ++ "\" "
-    ++ T.unpack (fcForeignCallName foreignCall)
-    ++ " : "
-    ++ renderType (fcForeignCallType (fcForeignCallSignature foreignCall))
-renderTopBind (FcTopBind bind) = renderBind 0 bind
+    renderBinding (var, expression) = tagged "binding" [renderVar var, renderExpr expression]
 
--- | Render data constructors.
-renderDataCons :: [TyVarId] -> [(Text, [TcType])] -> String
-renderDataCons _ [] = ""
-renderDataCons dataTyVars cons =
-  "\n" ++ intercalate "\n" (zipWith renderOne (" = " : repeat " | ") cons)
-  where
-    renderOne prefix (name, args) =
-      prefix
-        ++ renderExistentials args
-        ++ T.unpack name
-        ++ concatMap (\ty -> " " ++ renderTypePrec True ty) args
-
-    renderExistentials arguments =
-      case filter (`notElem` dataTyVars) (freeRigidTyVarsOf arguments) of
-        [] -> ""
-        existentials ->
-          "forall "
-            ++ unwords (map (T.unpack . tvName) existentials)
-            ++ ". "
-
--- | Render a binding at a given indentation level.
-renderBind :: Int -> FcBind -> String
-renderBind n (FcNonRec v e) =
-  indent n
-    ++ renderVar v
-    ++ " : "
-    ++ renderType (varType v)
-    ++ " =\n"
-    ++ renderExprIndented (n + 2) e
-renderBind n (FcRec binds) =
-  indent n
-    ++ "rec\n"
-    ++ intercalate "\n" (map renderRecBind binds)
-  where
-    renderRecBind (v, e) =
-      indent (n + 2)
-        ++ renderVar v
-        ++ " : "
-        ++ renderType (varType v)
-        ++ " =\n"
-        ++ renderExprIndented (n + 4) e
-
--- | Render a single expression (for debugging).
 renderExpr :: FcExpr -> String
-renderExpr = renderExprPrec 0 False
+renderExpr expression =
+  case expression of
+    FcVar var -> tagged "var-expr" [renderVar var]
+    FcLit literal -> tagged "lit" [renderLiteral literal]
+    FcApp function argument -> tagged "app" [renderExpr function, renderExpr argument]
+    FcTyApp function argument -> tagged "type-app-expr" [renderExpr function, renderType argument]
+    FcLam var body -> tagged "lambda" [renderVar var, renderExpr body]
+    FcTyLam tyVar body -> tagged "type-lambda" [renderTyVar tyVar, renderExpr body]
+    FcLet bind body -> tagged "let" [renderBind bind, renderExpr body]
+    FcCase scrutinee binder alternatives ->
+      tagged "case" [renderExpr scrutinee, renderVar binder, renderList renderAlt alternatives]
+    FcCast body coercion -> tagged "cast" [renderExpr body, renderCoercion coercion]
+    FcCallForeign foreignCall arguments ->
+      tagged "call-foreign" [renderForeignCall foreignCall, renderList renderExpr arguments]
 
--- | Render a variable name.
-renderVar :: Var -> String
-renderVar v = T.unpack (varName v)
+renderAlt :: FcAlt -> String
+renderAlt alternative =
+  tagged
+    "alt"
+    [ renderAltCon (altCon alternative),
+      renderList renderVar (altBinders alternative),
+      renderExpr (altRhs alternative)
+    ]
 
--- | Render an expression at a given indentation level.
-renderExprIndented :: Int -> FcExpr -> String
-renderExprIndented n expr = indent n ++ renderExprPrec n False expr
-
--- | Render an expression with optional parenthesization.
-renderExprPrec :: Int -> Bool -> FcExpr -> String
-renderExprPrec _ _ (FcVar v) = renderVar v
-renderExprPrec _ _ (FcLit lit) = renderLiteral lit
-renderExprPrec n parens (FcApp f a) =
-  paren parens $
-    renderExprPrec n False f ++ " " ++ renderExprPrec n True a
-renderExprPrec n parens (FcTyApp e ty) =
-  paren parens $
-    renderExprPrec n False e ++ " @" ++ renderTypePrec True ty
-renderExprPrec n parens (FcLam v body) =
-  paren parens $
-    [lamChar]
-      ++ renderVar v
-      ++ " : "
-      ++ renderType (varType v)
-      ++ ".\n"
-      ++ renderExprIndented (n + 2) body
-renderExprPrec n parens (FcTyLam tv body) =
-  paren parens $
-    [bigLamChar]
-      ++ T.unpack (tvName tv)
-      ++ ".\n"
-      ++ renderExprIndented (n + 2) body
-renderExprPrec n parens (FcLet bind body) =
-  paren parens $
-    "let\n"
-      ++ renderBind (n + 2) bind
-      ++ "\n"
-      ++ indent n
-      ++ "in\n"
-      ++ renderExprIndented (n + 2) body
-renderExprPrec n parens (FcCase scrut binder alts) =
-  paren parens $
-    "case "
-      ++ renderExprPrec n False scrut
-      ++ " as "
-      ++ renderVar binder
-      ++ " : "
-      ++ renderType (varType binder)
-      ++ " of\n"
-      ++ intercalate "\n" (map (renderAlt (n + 2)) alts)
-renderExprPrec n parens (FcCast e _co) =
-  paren parens $
-    renderExprPrec n True e ++ " " ++ [castChar] ++ " <co>"
-renderExprPrec n parens (FcCallForeign foreignCall arguments) =
-  paren parens $
-    "foreign-call "
-      ++ T.unpack (fcForeignCallName foreignCall)
-      ++ concatMap ((" " ++) . renderExprPrec n True) arguments
-
--- | Render a case alternative.
-renderAlt :: Int -> FcAlt -> String
-renderAlt n (FcAlt con binders rhs) =
-  indent n
-    ++ renderAltCon con
-    ++ concatMap (\v -> " " ++ renderVar v) binders
-    ++ " "
-    ++ [arrowChar]
-    ++ "\n"
-    ++ renderExprIndented (n + 2) rhs
-
--- | Render an alternative constructor.
 renderAltCon :: FcAltCon -> String
-renderAltCon (DataAlt name) = T.unpack name
-renderAltCon (LitAlt lit) = renderLiteral lit
-renderAltCon DefaultAlt = "_"
+renderAltCon alternative =
+  case alternative of
+    DataAlt name -> tagged "data-alt" [renderText name]
+    LitAlt literal -> tagged "lit-alt" [renderLiteral literal]
+    DefaultAlt -> "default-alt"
 
--- | Render a literal.
+renderVar :: Var -> String
+renderVar var =
+  tagged
+    "var"
+    [ renderText (varName var),
+      renderUnique (varUnique var),
+      renderType (varType var),
+      renderMaybe renderText (varResolvedName var)
+    ]
+
 renderLiteral :: Literal -> String
-renderLiteral (LitInt _ i) = show i
-renderLiteral (LitChar _ c) = show c <> "#"
-renderLiteral (LitString s) = show (T.unpack s)
-renderLiteral (LitAddr s) = show (map (chr . fromIntegral) (BS.unpack s)) <> "#"
+renderLiteral literal =
+  case literal of
+    LitInt runtimeRep value -> tagged "int-literal" [renderRuntimeRep runtimeRep, show value]
+    LitChar runtimeRep value -> tagged "char-literal" [renderRuntimeRep runtimeRep, show value]
+    LitString value -> tagged "string-literal" [renderText value]
+    LitAddr value -> tagged "addr-literal" [renderList show (BS.unpack value)]
 
--- | Render a type.
 renderType :: TcType -> String
-renderType = renderTypePrec False
+renderType ty =
+  case ty of
+    TcTyVar tyVar -> tagged "type-var" [renderTyVar tyVar]
+    TcMetaTv unique -> tagged "meta-type" [renderUnique unique]
+    TcTyCon tyCon arguments -> tagged "type-con" [renderTyCon tyCon, renderList renderType arguments]
+    TcFunTy argument result -> tagged "function-type" [renderType argument, renderType result]
+    TcForAllTy tyVar body -> tagged "forall-type" [renderTyVar tyVar, renderType body]
+    TcQualTy predicates body -> tagged "qualified-type" [renderList renderPred predicates, renderType body]
+    TcAppTy function argument -> tagged "type-app" [renderType function, renderType argument]
 
--- | Render a type with optional parenthesization.
-renderTypePrec :: Bool -> TcType -> String
-renderTypePrec _ (TcTyVar tv) = T.unpack (tvName tv)
-renderTypePrec _ (TcMetaTv _) = "?"
-renderTypePrec _ (TcTyCon tc []) = T.unpack (tyConName tc)
-renderTypePrec _ (TcTyCon (TyCon "[]" 1) [arg]) = "[" ++ renderTypePrec False arg ++ "]"
-renderTypePrec parens (TcTyCon tc args) =
-  paren parens $
-    unwords (T.unpack (tyConName tc) : map (renderTypePrec True) args)
-renderTypePrec parens (TcFunTy a b) =
-  paren parens $
-    renderTypePrec True a ++ " " ++ [arrowChar] ++ " " ++ renderTypePrec False b
-renderTypePrec parens (TcForAllTy tv body) =
-  let (tvs, inner) = collectForAlls body
-   in paren parens $
-        [forallChar] ++ " " ++ unwords (map (T.unpack . tvName) (tv : tvs)) ++ ". " ++ renderTypePrec False inner
-renderTypePrec parens (TcQualTy preds body) =
-  paren parens $
-    "(" ++ unwords (map renderPred preds) ++ ") " ++ [fatArrowChar] ++ " " ++ renderTypePrec False body
-renderTypePrec parens (TcAppTy f a) =
-  paren parens $
-    renderTypePrec True f ++ " " ++ renderTypePrec True a
-
--- | Collect nested forall binders.
-collectForAlls :: TcType -> ([TyVarId], TcType)
-collectForAlls (TcForAllTy tv body) =
-  let (tvs, inner) = collectForAlls body
-   in (tv : tvs, inner)
-collectForAlls ty = ([], ty)
-
--- | Render a predicate.
 renderPred :: Pred -> String
-renderPred (ClassPred cls args) =
-  T.unpack cls ++ " " ++ unwords (map (renderTypePrec True) args)
-renderPred (EqPred t1 t2) =
-  renderTypePrec True t1 ++ " ~ " ++ renderTypePrec True t2
+renderPred predicate =
+  case predicate of
+    ClassPred name arguments -> tagged "class-pred" [renderText name, renderList renderType arguments]
+    EqPred left right -> tagged "equality-pred" [renderType left, renderType right]
 
--- | Parenthesize if needed.
-paren :: Bool -> String -> String
-paren False s = s
-paren True s = "(" ++ s ++ ")"
+renderTyVar :: TyVarId -> String
+renderTyVar tyVar =
+  tagged "ty-var" [renderText (tvName tyVar), renderUnique (tvUnique tyVar), renderKind (tvKind tyVar)]
 
--- | Produce indentation.
-indent :: Int -> String
-indent n = replicate n ' '
+renderTyCon :: TyCon -> String
+renderTyCon tyCon =
+  tagged "ty-con" [renderText (tyConName tyCon), show (tyConArity tyCon), renderKind (tyConKind tyCon)]
+
+renderKind :: Kind -> String
+renderKind kind =
+  case kind of
+    KTYPE runtimeRep -> tagged "type-kind" [renderRuntimeRep runtimeRep]
+    KConstraint -> "constraint-kind"
+    KRuntimeRep -> "runtime-rep-kind"
+    KLevity -> "levity-kind"
+    KVecCount -> "vec-count-kind"
+    KVecElem -> "vec-elem-kind"
+    KFun argument result -> tagged "kind-function" [renderKind argument, renderKind result]
+    KMeta unique -> tagged "meta-kind" [renderUnique unique]
+
+renderRuntimeRep :: RuntimeRep -> String
+renderRuntimeRep runtimeRep =
+  case runtimeRep of
+    VecRep count element -> tagged "vec-rep" [renderVecCount count, renderVecElem element]
+    TupleRep fields -> tagged "tuple-rep" [renderList renderRuntimeRep fields]
+    SumRep fields -> tagged "sum-rep" [renderList renderRuntimeRep fields]
+    BoxedRep levity -> tagged "boxed-rep" [renderLevity levity]
+    IntRep -> "int-rep"
+    Int8Rep -> "int8-rep"
+    Int16Rep -> "int16-rep"
+    Int32Rep -> "int32-rep"
+    Int64Rep -> "int64-rep"
+    WordRep -> "word-rep"
+    Word8Rep -> "word8-rep"
+    Word16Rep -> "word16-rep"
+    Word32Rep -> "word32-rep"
+    Word64Rep -> "word64-rep"
+    AddrRep -> "addr-rep"
+    FloatRep -> "float-rep"
+    DoubleRep -> "double-rep"
+    RuntimeRepVar unique -> tagged "runtime-rep-var" [renderUnique unique]
+    RuntimeRepMeta unique -> tagged "runtime-rep-meta" [renderUnique unique]
+
+renderLevity :: Levity -> String
+renderLevity levity =
+  case levity of
+    Lifted -> "lifted"
+    Unlifted -> "unlifted"
+
+renderVecCount :: VecCount -> String
+renderVecCount count =
+  case count of
+    Vec2 -> "vec2"
+    Vec4 -> "vec4"
+    Vec8 -> "vec8"
+    Vec16 -> "vec16"
+    Vec32 -> "vec32"
+    Vec64 -> "vec64"
+
+renderVecElem :: VecElem -> String
+renderVecElem element =
+  case element of
+    Int8ElemRep -> "int8-elem-rep"
+    Int16ElemRep -> "int16-elem-rep"
+    Int32ElemRep -> "int32-elem-rep"
+    Int64ElemRep -> "int64-elem-rep"
+    Word8ElemRep -> "word8-elem-rep"
+    Word16ElemRep -> "word16-elem-rep"
+    Word32ElemRep -> "word32-elem-rep"
+    Word64ElemRep -> "word64-elem-rep"
+    FloatElemRep -> "float-elem-rep"
+    DoubleElemRep -> "double-elem-rep"
+
+renderCoercion :: Coercion -> String
+renderCoercion coercion =
+  case coercion of
+    CoVar (EvVar unique) -> tagged "co-var" [renderUnique unique]
+    Refl ty -> tagged "refl" [renderType ty]
+    Sym inner -> tagged "sym" [renderCoercion inner]
+    Trans left right -> tagged "trans" [renderCoercion left, renderCoercion right]
+    TyConAppCo tyCon arguments -> tagged "ty-con-app-co" [renderTyCon tyCon, renderList renderCoercion arguments]
+    AxiomInstCo name arguments -> tagged "axiom-inst-co" [renderText name, renderList renderType arguments]
+
+renderUnique :: Unique -> String
+renderUnique (Unique value) = show value
+
+renderText :: Text -> String
+renderText = show . T.unpack
+
+renderMaybe :: (a -> String) -> Maybe a -> String
+renderMaybe _ Nothing = "none"
+renderMaybe render (Just value) = tagged "some" [render value]
+
+renderList :: (a -> String) -> [a] -> String
+renderList render values = "[" <> intercalate "," (map render values) <> "]"
+
+tagged :: String -> [String] -> String
+tagged name arguments = name <> "(" <> intercalate "," arguments <> ")"

@@ -11,26 +11,10 @@ modules:
     inspect :: Box -> Mark
     inspect (Box value) = mark value
 expected: |-
-  data Mark
-   = Marked
-
-  data Markable a
-   = $Dict$Markable (a → Mark)
-
-  mark : ∀ a. (Markable a) → a → Mark =
-    Λa.
-      λ$d0 : Markable a.
-        case $d0 as $dict : Markable a of
-          $Dict$Markable $method0 →
-            $method0
-
-  data Box
-   = forall a. Box (Markable a) a
-
-  inspect : Box → Mark =
-    λx1005 : Box.
-      case x1005 as _scrut : Box of
-        Box $dpattern value →
-          mark @a $dpattern value
+  data("Mark",[],[constructor("Marked",[])])
+  data("Markable",[ty-var("a",12,type-kind(boxed-rep(lifted)))],[constructor("$Dict$Markable",[function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),type-con(ty-con("Mark",0,type-kind(boxed-rep(lifted))),[]))])])
+  top-bind(non-rec(var("mark",1000,forall-type(ty-var("a",12,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Markable",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),type-con(ty-con("Mark",0,type-kind(boxed-rep(lifted))),[])))),none),type-lambda(ty-var("a",12,type-kind(boxed-rep(lifted))),lambda(var("$d0",1001,type-con(ty-con("Markable",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),none),case(var-expr(var("$d0",1001,type-con(ty-con("Markable",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),none)),var("$dict",1002,type-con(ty-con("Markable",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),none),[alt(data-alt("$Dict$Markable"),[var("$method0",1003,function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),type-con(ty-con("Mark",0,type-kind(boxed-rep(lifted))),[])),none)],var-expr(var("$method0",1003,function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),type-con(ty-con("Mark",0,type-kind(boxed-rep(lifted))),[])),none)))])))))
+  data("Box",[],[constructor("Box",[type-con(ty-con("Markable",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",14,type-kind(boxed-rep(lifted))))]),type-var(ty-var("a",14,type-kind(boxed-rep(lifted))))])])
+  top-bind(non-rec(var("inspect",1004,function-type(type-con(ty-con("Box",0,type-kind(boxed-rep(lifted))),[]),type-con(ty-con("Mark",0,type-kind(boxed-rep(lifted))),[])),none),lambda(var("x1005",1005,type-con(ty-con("Box",0,type-kind(boxed-rep(lifted))),[]),none),case(var-expr(var("x1005",1005,type-con(ty-con("Box",0,type-kind(boxed-rep(lifted))),[]),none)),var("_scrut",1009,type-con(ty-con("Box",0,type-kind(boxed-rep(lifted))),[]),none),[alt(data-alt("Box"),[var("$dpattern",1007,type-con(ty-con("Markable",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",16,type-kind(boxed-rep(lifted))))]),none),var("value",1006,type-var(ty-var("a",16,type-kind(boxed-rep(lifted)))),none)],app(app(type-app-expr(var-expr(var("mark",1008,forall-type(ty-var("a",12,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Markable",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",12,type-kind(boxed-rep(lifted))))]),function-type(type-var(ty-var("a",12,type-kind(boxed-rep(lifted)))),type-con(ty-con("Mark",0,type-kind(boxed-rep(lifted))),[])))),some("Test.mark"))),type-var(ty-var("a",16,type-kind(boxed-rep(lifted))))),var-expr(var("$dpattern",1007,type-con(ty-con("Markable",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",16,type-kind(boxed-rep(lifted))))]),none))),var-expr(var("value",1006,type-var(ty-var("a",16,type-kind(boxed-rep(lifted)))),none))))]))))
 status: pass
 reason: System FC stores the constructor dictionary and binds it before the existential payload
