@@ -17,7 +17,7 @@ where
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
 import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
-import Aihc.Native (LinkLayout (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, renderLinkedFunctionSymbol, supportedNativePrimitiveNames)
+import Aihc.Native (LinkLayout (..), NativeRuntimeCall (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, renderLinkedFunctionSymbol, supportedNativePrimitiveNames)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
@@ -612,8 +612,8 @@ compileDirectBinding env vars expression =
             <> ["i64.extend_i32_u"]
         )
     GrinPrimitiveCall _ name arguments
-      | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
-          instructions <- compileForeignCall env foreignCall arguments
+      | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
+          instructions <- compileForeignCall env (nativeRuntimeCallForeignCall runtimeCall) arguments
           case vars of
             [] -> pure (instructions <> ["drop"])
             [_] -> storeSingle instructions

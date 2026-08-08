@@ -5,10 +5,11 @@ module Test.Native.Primitive
   )
 where
 
-import Aihc.Grin.Syntax (grinForeignCallSymbol)
+import Aihc.Grin.Syntax (GrinForeignType (..), grinForeignArgumentTypes, grinForeignCallSignature, grinForeignCallSymbol)
 import Aihc.Native
   ( NativeCpsCall (..),
     NativeCpsTransfer (..),
+    NativeRuntimeCall (..),
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
     supportedNativePrimitiveNames,
@@ -27,7 +28,7 @@ tests =
               assertEqual
                 ("runtime call for " <> show primitive)
                 (Just symbol)
-                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           byteArrayRuntimeSymbols,
       testCase "maps address indexing primitives to the shared runtime ABI" $
@@ -36,7 +37,7 @@ tests =
               assertEqual
                 ("runtime call for " <> show primitive)
                 (Just symbol)
-                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           addressIndexRuntimeSymbols,
       testCase "maps boxed-array primitives to the shared runtime ABI" $
@@ -45,7 +46,7 @@ tests =
               assertEqual
                 ("runtime call for " <> show primitive)
                 (Just symbol)
-                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           arrayRuntimeSymbols,
       testCase "maps mutable-reference primitives to the shared runtime ABI" $
@@ -54,7 +55,7 @@ tests =
               assertEqual
                 ("runtime call for " <> show primitive)
                 (Just symbol)
-                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           mutVarRuntimeSymbols,
       testCase "maps stable-name primitives to the shared runtime ABI" $
@@ -63,7 +64,7 @@ tests =
               assertEqual
                 ("runtime call for " <> show primitive)
                 (Just symbol)
-                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           stableNameRuntimeSymbols,
       testCase "keeps freeze and thaw representation-preserving" $
@@ -99,11 +100,34 @@ tests =
                 (nativeCpsPrimitiveCall primitive)
           )
           cpsRuntimeCalls,
+      testCase "describes allocating primitive runtime signatures" $
+        mapM_
+          ( \(primitive, symbol, operands) ->
+              assertEqual
+                ("allocating runtime call for " <> show primitive)
+                (Just (symbol, operands, True, 1))
+                (runtimeCallDescription <$> nativeRuntimePrimitiveCall primitive)
+          )
+          [ ("newArray#", "aihc_array_new", [GrinForeignWord64, GrinForeignWord64]),
+            ("newMutVar#", "aihc_mutvar_new", [GrinForeignWord64]),
+            ("makeStableName#", "aihc_stable_name_make", [GrinForeignAddr])
+          ],
       testCase "accepts the Prelude Int# primitive API in native programs" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           ["+#", "-#", "*#", "compareInt#", "<#", "==#", "ord#", "chr#"]
     ]
+
+runtimeCallSymbol :: NativeRuntimeCall -> Text
+runtimeCallSymbol = grinForeignCallSymbol . nativeRuntimeCallForeignCall
+
+runtimeCallDescription :: NativeRuntimeCall -> (Text, [GrinForeignType], Bool, Int)
+runtimeCallDescription runtimeCall =
+  ( runtimeCallSymbol runtimeCall,
+    grinForeignArgumentTypes (grinForeignCallSignature (nativeRuntimeCallForeignCall runtimeCall)),
+    nativeRuntimeCallPassMachine runtimeCall,
+    nativeRuntimeCallResultCount runtimeCall
+  )
 
 byteArrayRuntimeSymbols :: [(Text, Text)]
 byteArrayRuntimeSymbols =
