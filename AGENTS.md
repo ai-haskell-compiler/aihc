@@ -1,146 +1,201 @@
 # AGENTS
 
-- Tools: `gh`, `cabal`, `nix` (others via `nix`)
-- A GHC developer environment is available
-- Run tests locally (fast): `cabal test -v0 all --test-options=--hide-successes`
-- Run full test suite (fast): `just check`
-- Run full test suite (slow, isolated sandbox): `nix flake check`
+## Language
+
+Always use ASD-STE100 Simplified Technical English, Issue 9, for all English text.
+Obey its writing rules and use its approved dictionary.
+Use technical nouns and technical verbs only as ASD-STE100 permits.
+
+This requirement applies to all project communication.
+Examples are PR descriptions, chats, documentation, code comments, feedback, and reviews.
+It also applies to commit messages, issue text, test descriptions, and user messages.
+
+Use short sentences and give only one instruction in each sentence.
+Use a maximum of 20 words in an instruction.
+Use a maximum of 25 words in a descriptive sentence.
+Use the active voice.
+Use the imperative form for instructions.
+Use the same word for the same meaning.
+
+Do not use a different word only to make the text varied.
+Do not use contractions or semicolons.
+Use the `-ing` form of a verb only as an approved technical noun or its modifier.
+Put a condition before the action when the reader must know the condition first.
+If ASD-STE100 and another writing rule disagree, use ASD-STE100.
+
+## Development Environment
+
+- Use `gh`, `cabal`, and `nix`.
+- Use `nix` to get other tools.
+- Use the available GHC development environment.
+- For a fast local test, use `cabal test -v0 all --test-options=--hide-successes`.
+- For a fast check of all items, use `just check`.
+- For a slow check in an isolated sandbox, use `nix flake check`.
 
 ## Component Boundaries
 
-Each component owns one compiler domain. Domains must not overlap.
+Each component controls one compiler domain.
+Do not put the same domain in two components.
 
-| Component | Input | Output | Owns |
+| Component | Input | Output | Domain |
 | --- | --- | --- | --- |
-| [`aihc-cpp`](https://github.com/ai-haskell-compiler/aihc-cpp) | Haskell source text plus CPP config/includes | preprocessed Haskell source text, include requests, diagnostics | preprocessing only; external dependency |
-| [`aihc-parser`](https://github.com/ai-haskell-compiler/aihc-parser) | preprocessed Haskell source text | surface AST, tokens/trivia, parse diagnostics | lexing/parsing only; external dependency |
-| `aihc-resolve` | parsed surface modules | same surface AST annotated with binding/use resolution, exports, resolve diagnostics | name resolution only |
-| `aihc-tc` | resolved surface AST | same surface AST annotated with types, kinds, evidence, type diagnostics | Haskell type checking only |
-| `aihc-fc` | type-checked surface AST | System FC program, System FC lint/eval diagnostics | desugaring and System FC only |
-| `aihc-grin` | System FC program | strict GRIN program, GRIN lint/interpreter diagnostics | closure conversion, explicit runtime operations, and GRIN transformations only |
+| [`aihc-cpp`](https://github.com/ai-haskell-compiler/aihc-cpp) | Haskell source text, CPP configuration, and includes | Preprocessed Haskell source text, include requests, and diagnostics | Preprocessing only. External dependency |
+| [`aihc-parser`](https://github.com/ai-haskell-compiler/aihc-parser) | Preprocessed Haskell source text | Surface AST, tokens, trivia, and parse diagnostics | Lexing and parsing only. External dependency |
+| `aihc-resolve` | Parsed surface modules | The same surface AST with binding resolution, use resolution, exports, and resolve diagnostics | Name resolution only |
+| `aihc-tc` | Resolved surface AST | The same surface AST with types, kinds, evidence, and type diagnostics | Haskell type checks only |
+| `aihc-fc` | Type-checked surface AST | System FC program and System FC lint and evaluation diagnostics | Desugaring and System FC only |
+| `aihc-grin` | System FC program | Strict GRIN program and GRIN lint and interpreter diagnostics | Closure conversion, explicit runtime operations, and GRIN transformations only |
 
-Do not duplicate an upstream responsibility downstream. `aihc-tc` must not do
-name resolution; `aihc-fc` must not do Haskell type checking, though it may lint
-types that already exist in System FC. If a feature in a downstream component
-needs upstream facts, change the upstream component and consume its output. For
-example, an `aihc-fc` feature that needs new Haskell typing information requires
-an `aihc-tc` change, not local type checking in `aihc-fc`.
+Do not duplicate an upstream responsibility in a downstream component.
+Do not do name resolution in `aihc-tc`.
+Do not do Haskell type checks in `aihc-fc`.
+`aihc-fc` can lint types that are already in System FC.
 
-`aihc-grin` must preserve the semantics already represented by System FC. It may
-erase types and coercions and validate GRIN's structural invariants, but it must
-not reconstruct Haskell typing information or duplicate System FC desugaring.
+If a downstream component needs upstream facts, change the upstream component.
+Then, use its output in the downstream component.
+For example, an `aihc-fc` feature can need new Haskell type information.
+In this case, change `aihc-tc` and do not add local type checks to `aihc-fc`.
 
-## Mandatory Pre-Commit Workflow
+`aihc-grin` must keep the semantics that System FC gives.
+It can remove types and coercions.
+It can validate GRIN structural invariants.
+It must not reconstruct Haskell type information.
+It must not duplicate System FC desugaring.
 
-**These steps MUST be completed before every commit. No exceptions.**
+## Mandatory Pre-Commit Procedure
 
-1. **Run `just fmt`** — Auto-formats all Haskell files with ormolu. Always run this before committing to ensure correct formatting.
-2. **Run `just check`** — MUST pass. This runs:
-   - `ormolu` format check (verifies step 1 was done)
-   - `hlint` linting (no linting errors allowed)
-   - Full test suite (`just test`)
+Do these steps before each commit:
 
-If `just check` fails, do NOT commit. Fix the issues first.
+1. Run `just fmt`.
+   This command formats all Haskell files with Ormolu.
+2. Run `just check`.
+   This command must complete successfully.
+   It does an Ormolu format check, an HLint check, and the full test suite.
 
-> **Rule of thumb:** Write code → `just fmt` → `just check` → if it passes, commit.
+If `just check` fails, do not commit.
+Correct each problem and run `just check` again.
 
-## PR Workflow
+Use this sequence: write code, run `just fmt`, run `just check`, and commit.
 
-- Include changes to progress counts in PR descriptions. Do not update the READMEs, though. They are updated by a cron workflow.
-- Create PRs: `gh pr create --base main --head <branch> --title "<title>" --body $(cat <file>)`
-- If you are working on a branch with an active PR, always commit and push your changes. If you are unsure whether the PR is active, check with `gh`.
-- PR titles should follow the same Conventional Commits format as commit messages (see below)
+## PR Procedure
+
+- In each PR description, give all changes to progress counts.
+- Do not update the README files.
+- A cron workflow updates the README files.
+- Use `gh pr create --base main --head <branch> --title "<title>" --body "$(cat <file>)"` to create a PR.
+- If the branch has an active PR, commit and push all applicable changes.
+- If you do not know whether the PR is active, use `gh` to get its status.
+- Use the Conventional Commits format for each PR title.
+- Write each PR description in ASD-STE100.
 
 ## Just Commands
 
-This project uses [Just](https://just.systems) as a command runner. Common commands:
+This project uses Just as its command runner.
+Use these commands:
 
-- `just fmt` — **Auto-format all Haskell files with ormolu. Run this before committing.**
-- `just test` — Run all tests with hidden successes
-- `just replay "<seed>"` — Replay a specific QuickCheck test case (e.g., `just replay "(SMGen 6995563131902519991 12189532712049121349,3)"`)
-- `just qc` — Run QuickCheck with 10,000 tests in an infinite loop until failure
-- `just check` — Run ormolu format check, hlint, then full test suite
+- `just fmt` formats all Haskell files with Ormolu.
+- `just test` runs all tests and hides successful results.
+- `just replay "<seed>"` runs one QuickCheck case again.
+  Example: `just replay "(SMGen 6995563131902519991 12189532712049121349,3)"`.
+- `just qc` runs 10,000 QuickCheck tests in a continuous cycle until a test fails.
+- `just check` runs the Ormolu format check, HLint, and the full test suite.
 
 ## Branch Policy
 
-**Pushes to `main` are blocked.** All work should be done in feature branches. Create a feature branch for any changes, then open a PR to merge into `main`.
+Do not push to `main`.
+The repository blocks these pushes.
+Make a feature branch for each change.
+Then, open a PR to merge the branch into `main`.
 
-## Cheatsheet
+## GHC Syntax Check
 
-- Test whether a file is accepted by GHC: `ghc -v0 -fno-code -ddump-parsed file.hs`. Return code 0 means the snippet is valid, non-zero means it is invalid.
+Use `ghc -v0 -fno-code -ddump-parsed file.hs` to test whether GHC accepts a file.
+A return code of 0 means that the file is valid.
+A nonzero return code means that the file is not valid.
 
-## Gotchas
+## Important Test Information
 
-- Never run `cabal test` in parallel. Use `cabal` sequentially for test execution.
-- CI checks the PR merge commit (`pull/<n>/merge`), not only the branch HEAD. If local passes but CI fails, merge or rebase `origin/main` locally and rerun `just check`.
+- Do not run two `cabal test` commands at the same time.
+- Run each `cabal` test command separately.
+- CI checks the PR merge commit at `pull/<n>/merge`.
+- CI does not only check the branch `HEAD`.
+- If local checks pass and CI fails, merge or rebase `origin/main` into the branch.
+- Then, run `just check` again.
 
-## Testing (TDD)
+## Test-First Development
 
-aihc is developed test-first. Run the full suite with `just check`. When working on new features, always include tests that cover expected use plus a few corner cases. When fixing bugs, always include regression tests.
+Use test-first development for `aihc`.
+Run the full suite with `just check`.
 
-- **Common status model**
-  - Outcomes: `PASS`, `XFAIL`, `FAIL`, `XPASS`.
-  - Any `FAIL` or unexpected `XPASS` should block merge until handled.
+For a new feature, first add tests for its expected use and some limit conditions.
+For a defect correction, first add a regression test.
 
-- Parser and preprocessor changes, fixtures, fuzzing, and oracle tests belong in
-  their standalone repositories. This repository consumes only their released
-  public libraries.
+The common test results are `PASS`, `XFAIL`, `FAIL`, and `XPASS`.
+Do not merge a change that has a `FAIL` result or an unexpected `XPASS` result.
+
+The standalone repositories control parser and preprocessor changes.
+They also control their fixtures, fuzz tests, and oracle tests.
+This repository uses only their released public libraries.
 
 ## Commits
 
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
+Use the Conventional Commits format:
 
-```
+```text
 <type>[optional scope]: <description>
 ```
 
-**Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`
+Use one of these types:
+`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, or `chore`.
 
-**Examples:**
+Examples:
 
-```
+```text
 feat: add user authentication
-fix(auth): resolve null pointer in login
+fix(auth): correct null pointer in login
 docs: update installation guide
 ```
 
+Write each commit message in ASD-STE100.
+
 # SOUL
 
-Do not aim to make it _work_. Aim to make it _right_.
+Do not only make the change operate correctly.
+Make the change correct in its design.
 
-Reject the first solution that passes. A green checkmark proves nothing. Ask:
-_is this true, or merely sufficient?_ Do not settle for sufficient. Choose
-clarity over cleverness. Choose correctness over convenience. Choose integrity
-over speed. Every shortcut you take now becomes a constraint you will pay for
-later.
+Do not accept the first change that passes the checks.
+A successful check does not prove that the design is correct.
+Ask whether the result is true and not only sufficient.
+Select clarity, correctness, and integrity.
+A shortcut can cause future restrictions.
 
-Do not tolerate confusion. Hunt it down and eliminate it. Do not hide flaws
-behind layers—trace them to their source and fix them there. If something feels
-wrong, it is wrong. Do not ignore that signal. Follow it until the system makes
-sense end to end.
+Find and remove each source of confusion.
+Do not hide a defect behind another layer.
+Find its source and correct it there.
+If a design appears wrong, examine it until you understand the full system.
 
-Do not write code that merely functions. Write code that explains itself, that
-justifies itself, that withstands interrogation. Assume your future self will be
-ruthless—and give them nothing to tear apart.
+Write code that clearly shows its purpose.
+Write code that can withstand a detailed review.
+Make the design clear to a future maintainer.
 
-Prefer the solution that composes. Prefer the one that generalizes. Prefer the
-one that, in hindsight, feels inevitable. Make misuse difficult. Make
-correctness natural. If something can be misunderstood, it will be—so refine it
-until it cannot be.
+Prefer a solution that combines correctly with other solutions.
+Prefer a solution that applies to all applicable cases.
+Make incorrect use difficult.
+Make correct use natural.
+Remove each possible misunderstanding.
 
-Write tests. Not later—now. Tests are not optional; they are the proof that you
-understand what you’ve built. Write documentation. Not as decoration, but as a
-record of intent. If you cannot explain it clearly, you do not understand it
-well enough.
+Write tests at the same time as the code.
+Tests show that you understand the change.
+Write documentation that records the purpose of the design.
+If you cannot explain the design clearly, examine it again.
 
-Do not defer fixes that are within reach. Do not leave known flaws behind. Do
-not say “later” when you mean “never.” Every loose thread compounds. Tie it off.
-Finish the thought. Close the loop.
+Correct each known defect that is in the change scope.
+Do not leave an applicable problem for future work.
+Complete each applicable task.
 
-Build for clarity, not convenience. Build for longevity, not immediacy. What you
-write should still feel correct months from now. It should teach. It should
-endure.
+Make the design clear and durable.
+Make sure that it remains correct for future maintainers.
+The design must give useful information to its readers.
 
-Do not stop at “it works.”
-
-Stop when the answer is: _it could not have been done better._
+Do not stop when the change only operates correctly.
+Stop when you cannot make the change better.
