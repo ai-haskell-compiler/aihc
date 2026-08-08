@@ -1,26 +1,36 @@
 expected: |-
+  module Test where
+
+  external builtin.: : ∀ (a : TYPE BoxedRep Lifted). a → [a] → [a]
+
+  external builtin.[] : ∀ (a : TYPE BoxedRep Lifted). [a]
+
   data Bool
    = False
    | True
 
-  select : ∀ a. (a → Bool) → [a] → [a] =
-    Λa.
-      λx1001 : a → Bool.
-        λy1002 : [a].
-          let
-            rec
-              $lc1003 : [a] → [a] =
-                λ_lc_list1004 : [a].
-                  case _lc_list1004 as _lc_scrut1007 : [a] of
+  select : ∀ (a : TYPE BoxedRep Lifted). (a → Bool) → [a] → [a] =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ(x1001 : a → Bool).
+        λ(y1002 : [a]).
+          let {
+            rec {
+              $lc1003 : [a] → [a];
+              $lc1003 =
+                λ(_lc_list1004 : [a]).
+                  case _lc_list1004 as (_lc_scrut1007 : [a]) of {
                     [] →
-                      [] @a
-                    : _lc_head1005 _lc_tail1006 →
-                      case x1001 _lc_head1005 as _lc_guard1008 : Bool of
+                      builtin.[] @a;
+                    : (_lc_head1005 : a) (_lc_tail1006 : [a]) →
+                      case x1001 _lc_head1005 as (_lc_guard1008 : Bool) of {
                         True →
-                          : @a _lc_head1005 ($lc1003 _lc_tail1006)
+                          ((builtin.: @a) _lc_head1005) ($lc1003 _lc_tail1006);
                         False →
                           $lc1003 _lc_tail1006
-          in
+                      }
+                  }
+            }
+          } in
             $lc1003 y1002
 extensions: []
 modules:

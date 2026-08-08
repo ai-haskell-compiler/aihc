@@ -12,10 +12,12 @@ module FcGolden
     fixtureRoot,
     loadFcCases,
     evaluateFcCase,
+    updateFcGoldens,
   )
 where
 
 import Aihc.Fc.Desugar (DesugarResult (..), desugarModuleWithDataTypes)
+import Aihc.Fc.Parser (parseProgram, renderParseError)
 import Aihc.Fc.Pretty (renderProgram)
 import Aihc.Parser
   ( ParserConfig (..),
@@ -28,7 +30,7 @@ import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBin
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, sort)
+import Data.List (dropWhileEnd, isPrefixOf, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Yaml qualified as Y
@@ -143,10 +145,16 @@ parseExpectedValue _ = fail "expected must be a string or list"
 
 evaluateFcCase :: FcCase -> (Outcome, String)
 evaluateFcCase tc =
+  case renderFcCase tc of
+    Left details -> classifyFailure tc details
+    Right actual -> classifySuccess tc actual
+
+renderFcCase :: FcCase -> Either String String
+renderFcCase tc =
   let supportModuleCount = length (caseSupportModules tc)
       parsedModules = map parseOne (caseSupportModules tc <> caseModules tc)
    in case sequence parsedModules of
-        Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
+        Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
           case resolveWithDeps mempty (modulesInPackage unnamedPackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
@@ -158,11 +166,11 @@ evaluateFcCase tc =
                           results = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) tcResults moduleAsts
                           fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
-                            then classifySuccess tc (renderResults fixtureResults)
-                            else classifyFailure tc (renderErrors results)
-                    else classifyFailure tc ("typecheck error: " <> renderTcErrors tcResults)
+                            then renderResults fixtureResults
+                            else Left (renderErrors results)
+                    else Left ("typecheck error: " <> renderTcErrors tcResults)
             ResolveResult {resolveErrors} ->
-              classifyFailure tc ("resolve error: " <> show resolveErrors)
+              Left ("resolve error: " <> show resolveErrors)
   where
     parseOne input =
       let config =
@@ -175,9 +183,55 @@ evaluateFcCase tc =
             then Right ast
             else Left (show errs)
     renderResults results =
-      unlines (map (renderProgram . dsProgram) results)
+      unlines <$> traverse renderResult results
+    renderResult result =
+      let rendered = renderProgram (dsProgram result)
+       in case parseProgram (T.pack rendered) of
+            Left parseError -> Left ("System FC round-trip parse error:\n" <> renderParseError parseError <> "\n" <> rendered)
+            Right parsed ->
+              let canonical = renderProgram parsed
+               in if canonical == rendered
+                    then Right rendered
+                    else Left ("System FC round trip changed canonical syntax:\n" <> canonical <> "\noriginal:\n" <> rendered)
     renderErrors results =
       unlines [err | r <- results, err <- dsErrors r]
+
+-- | Refresh passing FC fixtures with the current canonical rendering while
+-- preserving their source and metadata layout.
+updateFcGoldens :: IO ()
+updateFcGoldens = do
+  cases <- loadFcCases
+  mapM_ updateCase [testCase | testCase <- cases, caseStatus testCase == StatusPass]
+  where
+    updateCase testCase =
+      case renderFcCase testCase of
+        Left details -> fail (caseId testCase <> ": " <> details)
+        Right actual -> do
+          let path = fixtureRoot </> casePath testCase
+          contents <- readFile path
+          let updated = replaceExpected actual contents
+          length updated `seq` writeFile path updated
+
+    replaceExpected actual contents =
+      let sourceLines = lines contents
+          (beforeExpected, fromExpected) = break ("expected:" `isPrefixOf`) sourceLines
+          (beforeStatus, fromStatus) = break ("status:" `isPrefixOf`) sourceLines
+          renderedExpected = "expected: |-" : map indentExpectedLine (lines (trim actual))
+          resultLines =
+            case fromExpected of
+              [] -> beforeStatus <> renderedExpected <> fromStatus
+              _ : afterExpected ->
+                beforeExpected <> renderedExpected <> dropWhile isExpectedBody afterExpected
+       in unlines resultLines
+
+    isExpectedBody line =
+      case line of
+        [] -> True
+        first : _ -> isSpace first
+
+    indentExpectedLine line
+      | null line = ""
+      | otherwise = "  " <> line
 
 moduleGroupBindings :: [Module] -> [TcBindingResult]
 moduleGroupBindings =

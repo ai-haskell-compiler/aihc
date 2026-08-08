@@ -66,13 +66,14 @@ import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve
   ( ModuleExports,
     ModuleKey (..),
+    Package (..),
+    PackageId (..),
     ResolveError (..),
     ResolveResult (..),
     Scope (..),
     extractInterface,
     modulesInPackage,
     resolveWithDeps,
-    unnamedPackage,
   )
 import Aihc.Tc
   ( Pred (..),
@@ -1275,9 +1276,10 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
       enrichDiagnostics = map (addDiagnosticSourceLines sourceLinesByFile)
       parseDiagnostics = enrichDiagnostics (concatMap parsedFileParseDiagnostics parsedFiles)
       cppDiagnostics = enrichDiagnostics (concatMap parsedFileCppDiagnostics parsedFiles)
-      resolveResult = resolveWithDeps depExports (modulesInPackage unnamedPackage parsedModules)
+      currentPackage = packageVariantResolvePackage (planPackageKey plan)
+      resolveResult = resolveWithDeps depExports (modulesInPackage currentPackage parsedModules)
       exposedModules = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
-      ownExports = Map.restrictKeys (extractInterface resolveResult) (Set.map (ModuleKey unnamedPackage) exposedModules)
+      ownExports = Map.restrictKeys (extractInterface resolveResult) (Set.map (ModuleKey currentPackage) exposedModules)
   (checkedModules, tcModules, tcDiagnostics, tcInterface) <-
     typecheckInterfaceModules importedTcInterface (map snd (resolvedModules resolveResult))
   let resolveDiagnostics = enrichDiagnostics (map resolveErrorValue (resolveErrors resolveResult))
@@ -1304,6 +1306,13 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
         interfaceFcDiagnostics = fcDiagnostics,
         interfaceFcModules = fcModules
       }
+
+packageVariantResolvePackage :: PackageVariantKey -> Package
+packageVariantResolvePackage key =
+  Package
+    { packageName = T.pack (pkgName (packageKeySpec key)),
+      packageId = PackageId (T.intercalate "-" (packageVariantLibraryId key))
+    }
 
 typecheckInterfaceModules :: TcInterface -> [Module] -> IO ([Module], [Aeson.Value], [Aeson.Value], TcInterface)
 typecheckInterfaceModules importedTcInterface modules = do

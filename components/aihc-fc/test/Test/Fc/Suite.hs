@@ -379,7 +379,10 @@ fcOptimizationTests =
             program = FcProgram [FcAxiom declaration, binding]
         assertEqual "Core lint" [] (lintProgram emptyLintEnv program)
         assertEqual "reachable axiom" program (eliminateDeadCode "main" program)
-        assertEqual "pretty axiom" "axiom axFamily : Family ~N Int#" (renderTopBind (FcAxiom declaration)),
+        assertEqual
+          "pretty axiom"
+          "axiom axFamily : Family ~N Int#"
+          (renderTopBind (FcAxiom declaration)),
       testCase "imports equality axioms across compilation units" $ do
         let parameter = TyVarId "a" (Unique 42)
             representationTy = ty "Int#"

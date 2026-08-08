@@ -419,6 +419,8 @@ shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBi
 
     shiftTopBind topBind =
       case topBind of
+        FcModule {} -> topBind
+        FcExternal {} -> topBind
         FcData {} -> topBind
         FcAxiom {} -> topBind
         FcNewtype {} -> topBind
@@ -457,6 +459,8 @@ programVars (FcProgram topBinds) = concatMap topBindVarsDeep topBinds
 topBindVarsDeep :: FcTopBind -> [Var]
 topBindVarsDeep topBind =
   case topBind of
+    FcModule {} -> []
+    FcExternal {} -> []
     FcData {} -> []
     FcAxiom {} -> []
     FcNewtype {} -> []

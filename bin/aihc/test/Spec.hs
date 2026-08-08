@@ -54,7 +54,7 @@ import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.IORef (newIORef)
-import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort)
+import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort, tails)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -304,7 +304,11 @@ main =
             case result of
               Right output -> do
                 assertBool ("expected type output, got:\n" <> T.unpack output) ("type:\n[Char]" `T.isInfixOf` output)
-                assertBool ("expected system-fc output, got:\n" <> T.unpack output) ("system-fc:\n__aihc_repl_it : [Char] =" `T.isInfixOf` output)
+                assertBool
+                  ("expected system-fc output, got:\n" <> T.unpack output)
+                  ( "system-fc:\nmodule Aihc.Repl where" `T.isInfixOf` output
+                      && "__aihc_repl_it : [Char] =" `T.isInfixOf` output
+                  )
                 assertBool ("expected desugared char list, got:\n" <> T.unpack output) (not ("LitString" `T.isInfixOf` output))
               Left err -> assertFailure ("expected success, got " <> show err),
           testCase "loads bundled aihc-base Prelude by default" $ do
@@ -814,8 +818,12 @@ test_checksCastStyleDependencyId =
     result <- expectInstallSuccess (writeInstallScaffold plan)
     fcJson <- BL8.readFile (resultFcPath result)
     let renderedFc = BL8.unpack fcJson
-    assertBool "FC artifact constructs an ordinary Cast dictionary" ("$Dict$Cast @a @a" `isInfixOf` renderedFc)
-    assertBool "FC artifact applies imported id" ("id @a" `isInfixOf` renderedFc)
+    assertBool "FC artifact constructs an ordinary Cast dictionary" ("$Dict$Cast" `isInfixOf` renderedFc)
+    assertBool
+      ("FC artifact declares imported Dep.id once:\n" <> renderedFc)
+      ( "external \\\"dep" `isInfixOf` renderedFc
+          && length (filter (isPrefixOf "Dep.id :") (tails renderedFc)) == 1
+      )
 
 test_checksConstraintKindedMultiParameterClasses :: Assertion
 test_checksConstraintKindedMultiParameterClasses =

@@ -1,14 +1,17 @@
 extensions:
   - BangPatterns
 expected: |-
+  module Test where
+
   data Box
    = Box
 
   forceBox : Box → Box =
-    λx1001 : Box.
-      case x1001 as _bang1002 : Box of
+    λ(x1001 : Box).
+      case x1001 as (_bang1002 : Box) of {
         _ →
           _bang1002
+      }
 modules:
   - |
     module Test where

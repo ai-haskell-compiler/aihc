@@ -34,7 +34,7 @@ import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
 import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -125,12 +125,12 @@ linkNamesForProgram libraryId moduleNameComponents program =
       grinSourceLinkNames =
         Map.fromListWith
           (flip (<>))
-          [ (varUnique var, [T.intercalate "." (moduleNameComponents <> [varName var])])
+          [ (varUnique var, [sourceSymbolName (varName var)])
           | (var, _) <- topLevelVarsWithOrdinals
           ],
       grinConstructorNames =
         Map.fromList
-          [ (T.intercalate "." (moduleNameComponents <> [name]), (name, length fields))
+          [ (sourceSymbolName name, (name, length fields))
           | FcData _ _ constructors <- fcTopBinds program,
             (name, fields) <- constructors
           ]
@@ -146,6 +146,18 @@ linkNamesForProgram libraryId moduleNameComponents program =
     symbolComponents ordinal var =
       [varName var]
         <> ["u" <> T.pack (show (sourceUnique var)) <> "n" <> T.pack (show ordinal) | Map.findWithDefault 0 (varName var) nameCounts > 1]
+    sourceSymbolName symbolName =
+      (if packageIdentity == "" then "" else packageIdentity <> ":")
+        <> T.intercalate "." (moduleNameComponents <> [symbolName])
+    packageIdentity =
+      fromMaybe
+        ""
+        ( listToMaybe
+            [ packageName
+            | FcModule packageName declaredModuleName <- fcTopBinds program,
+              T.splitOn "." declaredModuleName == moduleNameComponents
+            ]
+        )
     topBindVars bind =
       case bind of
         FcNonRec var _ -> [var]
@@ -320,6 +332,8 @@ lowerProgramWithEnvironment linkNames imported local environment program =
 lowerTopBind :: FcTopBind -> LowerM LoweredTop
 lowerTopBind topBind =
   case topBind of
+    FcModule {} -> pure mempty
+    FcExternal {} -> pure mempty
     FcData _ _ constructors ->
       pure mempty {loweredConstructors = [(name, map (runtimeRepComponents . typeRuntimeRep) fields) | (name, fields) <- constructors]}
     FcAxiom {} ->
@@ -1241,9 +1255,7 @@ lowerGlobalVar :: Var -> LowerM GrinVar
 lowerGlobalVar var = do
   globalNames <- gets lowerGlobalNames
   incremental <- gets lowerUseIncrementalCodeLookup
-  let sourceName
-        | incremental = fromMaybe (varName var) (varResolvedName var)
-        | otherwise = varName var
+  let sourceName = sourceLookupName incremental var
       linkedName = Map.findWithDefault (varName var) sourceName globalNames
   pure (GrinVar linkedName (sourceUnique var) liftedRuntimeRep)
 
@@ -1268,9 +1280,7 @@ isGlobalVar var = do
   localVars <- gets lowerLocalVars
   globalNames <- gets lowerGlobalNames
   incremental <- gets lowerUseIncrementalCodeLookup
-  let sourceName
-        | incremental = fromMaybe (varName var) (varResolvedName var)
-        | otherwise = varName var
+  let sourceName = sourceLookupName incremental var
   pure
     ( varKey var `Map.notMember` localVars
         && (sourceName `Map.member` globalNames || isUnboxedTupleConstructor (varName var))
@@ -1388,9 +1398,7 @@ lookupCodeInfo var = do
         case varResolvedName var of
           Nothing -> Map.lookup (varUnique var) localCodeInfosByUnique >>= lookup (varType var)
           Just _ -> Nothing
-      sourceName
-        | incremental = fromMaybe (varName var) (varResolvedName var)
-        | otherwise = varName var
+      sourceName = sourceLookupName incremental var
       sourceInfo = Map.lookup sourceName codeInfosByName
       selected = if incremental then localInfo <|> sourceInfo else sourceInfo
   if varKey var `Map.member` locals
@@ -1480,10 +1488,19 @@ isWhnfGlobalVar var = do
   localVars <- gets lowerLocalVars
   whnfGlobalNames <- gets lowerWhnfGlobalNames
   incremental <- gets lowerUseIncrementalCodeLookup
-  let sourceName
-        | incremental = fromMaybe (varName var) (varResolvedName var)
-        | otherwise = varName var
+  let sourceName = sourceLookupName incremental var
   pure (varKey var `Map.notMember` localVars && sourceName `Map.member` whnfGlobalNames)
+
+-- Builtin origins are syntax-level provenance, not linker namespaces. Their
+-- runtime definitions keep the established constructor and primitive names,
+-- while package symbols use their fully qualified origin during incremental
+-- lowering.
+sourceLookupName :: Bool -> Var -> Text
+sourceLookupName incremental var =
+  case varResolvedName var of
+    Just FcBuiltinOrigin {} -> varName var
+    Just origin | incremental -> fcSymbolOriginText origin
+    _ -> varName var
 
 withFreshLocalVars :: [Var] -> ([[GrinVar]] -> LowerM a) -> LowerM a
 withFreshLocalVars vars action = do
@@ -1523,7 +1540,7 @@ lookupLocalVars var = do
   locals <- gets lowerLocalVars
   case Map.lookup (varKey var) locals of
     Just values -> pure values
-    Nothing -> error ("GRIN lowering lost local binding for " <> T.unpack (varName var))
+    Nothing -> error ("GRIN lowering lost local binding for " <> T.unpack (varName var) <> " (origin " <> show (varResolvedName var) <> ")")
 
 varKey :: Var -> (Text, Unique)
 varKey var = (varName var, varUnique var)
@@ -1779,6 +1796,8 @@ isStaticWhnf constructorArities expr =
 topVars :: FcTopBind -> [Var]
 topVars topBind =
   case topBind of
+    FcModule {} -> []
+    FcExternal {} -> []
     FcData {} -> []
     FcAxiom {} -> []
     FcNewtype {} -> []

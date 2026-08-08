@@ -50,14 +50,13 @@ import Aihc.Resolve
   ( ModuleExports,
     ModuleKey (..),
     OperatorFixity,
+    Package (..),
     PackageId (..),
     ResolveResult (..),
     ResolvedName (..),
     Scope (..),
     extractInterfaceWithDeps,
-    modulesInPackage,
     resolveWithDeps,
-    unnamedPackage,
   )
 import Aihc.Tc
   ( TcBindingResult (..),
@@ -162,7 +161,7 @@ data StoredDependencyArtifact = StoredDependencyArtifact
   }
   deriving (Show, Read)
 
-newtype StoredModuleExports = StoredModuleExports [(Text, StoredScope)]
+newtype StoredModuleExports = StoredModuleExports [(Text, Text, Text, StoredScope)]
   deriving (Show, Read)
 
 data StoredScope = StoredScope
@@ -201,7 +200,7 @@ data LibraryPackage = LibraryPackage
   deriving (Eq, Show)
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 33
+cacheSchemaVersion = 34
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
@@ -215,7 +214,7 @@ buildDependencies target environment usesImplicitPrelude buildBackend mainModule
       case installed of
         Left err -> pure (Left err)
         Right (artifactRoot, artifact) ->
-          case filter (\name -> Map.notMember (ModuleKey unnamedPackage name) (dependencyExports artifact)) requiredModules of
+          case filter (\name -> not (any ((== name) . moduleKeyName) (Map.keys (dependencyExports artifact)))) requiredModules of
             missing@(_ : _) -> pure (Left ("library modules are not installed: " <> T.unpack (T.intercalate ", " missing)))
             []
               | buildBackend -> attachInstalledBackend target artifactRoot artifact
@@ -389,7 +388,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
     initialState = CompileState Map.empty mempty [] mempty mempty mempty mempty [] []
 
     compileScc state members =
-      case resolveWithDeps (compileStateExports state) (modulesInPackage unnamedPackage (map loadedModule members)) of
+      case resolveWithDeps (compileStateExports state) [(loadedResolvePackage member, loadedModule member) | member <- members] of
         ResolveResult {resolveErrors = errors@(_ : _)} -> Left ("library resolve error: " <> show errors)
         resolved@ResolveResult {resolvedModules} ->
           let moduleAsts = map snd resolvedModules
@@ -456,7 +455,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
 
     finish state =
       DependencyArtifact
-        { dependencyExports = Map.restrictKeys (compileStateExports state) (Set.map (ModuleKey unnamedPackage) exposedModules),
+        { dependencyExports = Map.filterWithKey (\key _ -> moduleKeyName key `Set.member` exposedModules) (compileStateExports state),
           dependencyTcInterface = compileStateTcInterface state,
           dependencyBindings = compileStateBindings state,
           dependencyAxiomInterface = compileStateAxioms state,
@@ -509,6 +508,13 @@ loadedModuleSccs = map flatten . stronglyConnComp . map graphNode
 
 loadedModuleName :: LoadedModule -> Text
 loadedModuleName = fromMaybe "Main" . moduleName . loadedModule
+
+loadedResolvePackage :: LoadedModule -> Package
+loadedResolvePackage loadedModule' =
+  Package
+    { packageName = loadedLibrary loadedModule',
+      packageId = PackageId (T.intercalate "-" (loadedLibraryId loadedModule'))
+    }
 
 buildBackendArtifacts :: NativeTarget -> FilePath -> [DependencyUnit] -> IO (Either String ([Text], [FilePath]))
 buildBackendArtifacts target artifactRoot units = do
@@ -760,10 +766,19 @@ fromStoredArtifact stored =
 toStoredExports :: ModuleExports -> StoredModuleExports
 toStoredExports = StoredModuleExports . map toStoredExport . Map.toAscList
   where
-    toStoredExport (key, scope) = (moduleKeyName key, toStoredScope scope)
+    toStoredExport (key, scope) =
+      ( packageName (moduleKeyPackage key),
+        packageIdText (packageId (moduleKeyPackage key)),
+        moduleKeyName key,
+        toStoredScope scope
+      )
 
 fromStoredExports :: StoredModuleExports -> ModuleExports
-fromStoredExports (StoredModuleExports exports) = Map.fromList [(ModuleKey unnamedPackage name, fromStoredScope scope) | (name, scope) <- exports]
+fromStoredExports (StoredModuleExports exports) =
+  Map.fromList
+    [ (ModuleKey (Package visibleName (PackageId identity)) storedModuleName, fromStoredScope scope)
+    | (visibleName, identity, storedModuleName, scope) <- exports
+    ]
 
 toStoredScope :: Scope -> StoredScope
 toStoredScope scope =

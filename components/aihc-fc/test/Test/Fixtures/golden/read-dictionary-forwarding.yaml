@@ -1,21 +1,24 @@
 expected: |-
+  module Test where
+
   data Result
    = Result
 
-  data Read a
+  data Read (a : TYPE BoxedRep Lifted)
    = $Dict$Read (Result → a)
 
-  reads : ∀ a. (Read a) → Result → a =
-    Λa.
-      λ$d0 : Read a.
-        case $d0 as $dict : Read a of
-          $Dict$Read $method0 →
+  reads : ∀ (a : TYPE BoxedRep Lifted). (Read a) → Result → a =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ($d0 : Read a).
+        case $d0 as ($dict : Read a) of {
+          $Dict$Read ($method0 : Result → a) →
             $method0
+        }
 
-  parse : ∀ a. (Read a) → Result → a =
-    Λa.
-      λ$d0 : Read a.
-        reads @a $d0
+  parse : ∀ (a : TYPE BoxedRep Lifted). (Read a) → Result → a =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ($d0 : Read a).
+        (reads @(a : TYPE BoxedRep Lifted)) $d0
 extensions: []
 modules:
 - |

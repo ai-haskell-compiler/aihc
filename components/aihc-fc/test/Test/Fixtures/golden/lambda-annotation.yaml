@@ -1,10 +1,12 @@
 expected: |-
+  module Test where
+
   data Bool
    = True
    | False
 
   idBool : Bool → Bool =
-    λx1001 : Bool.
+    λ(x1001 : Bool).
       x1001
 extensions: []
 modules:

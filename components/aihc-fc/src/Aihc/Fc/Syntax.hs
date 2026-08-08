@@ -19,6 +19,9 @@ module Aihc.Fc.Syntax
 
     -- * Variables
     Var (Var, varName, varUnique, varType, varResolvedName),
+    FcSymbolOrigin (..),
+    fcSymbolOriginText,
+    fcExternalVar,
 
     -- * Bindings
     FcBind (..),
@@ -53,11 +56,13 @@ import Aihc.Tc.Types
     TcType (..),
     TyCon (..),
     TyVarId,
-    Unique,
+    Unique (..),
     liftedRuntimeRep,
   )
 import Data.ByteString (ByteString)
+import Data.Char (ord)
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | A System FC program: a collection of top-level bindings.
 newtype FcProgram = FcProgram
@@ -68,7 +73,12 @@ newtype FcProgram = FcProgram
 
 -- | A top-level binding.
 data FcTopBind
-  = -- | Data type declaration: type name, type variable parameters,
+  = -- | Identity of the compilation unit that owns the following definitions.
+    FcModule !Text !Text
+  | -- | A term symbol defined by another compilation unit. Its type is
+    -- declared once here and omitted from every occurrence.
+    FcExternal !FcSymbolOrigin !TcType
+  | -- | Data type declaration: type name, type variable parameters,
     -- list of (constructor name, field types).
     FcData !Text ![TyVarId] ![(Text, [TcType])]
   | -- | A type equality axiom. Axioms are proof metadata and have no
@@ -188,9 +198,47 @@ data Var = ResolvedVar
     varType :: !TcType,
     -- | Resolver identity for an imported occurrence. Kept separate from the
     -- display name so whole-program FC evaluation remains source-readable.
-    varResolvedName :: !(Maybe Text)
+    varResolvedName :: !(Maybe FcSymbolOrigin)
   }
   deriving (Show, Read)
+
+-- | Stable source identity for a non-local symbol. Unlike the display name,
+-- this includes the package selected by name resolution.
+data FcSymbolOrigin
+  = FcTopLevelOrigin
+      { fcOriginPackage :: !Text,
+        fcOriginModule :: !Text,
+        fcOriginName :: !Text
+      }
+  | FcBuiltinOrigin
+      { fcOriginName :: !Text
+      }
+  deriving (Eq, Ord, Show, Read)
+
+fcSymbolOriginText :: FcSymbolOrigin -> Text
+fcSymbolOriginText origin =
+  case origin of
+    FcTopLevelOrigin packageName moduleName symbolName ->
+      (if packageName == "" then "" else packageName <> ":")
+        <> moduleName
+        <> "."
+        <> symbolName
+    FcBuiltinOrigin symbolName -> "builtin:" <> symbolName
+
+-- | Rebuild the alpha-renamed variable introduced by an external declaration.
+-- The complete origin participates so equal names from different packages are
+-- distinct variables after parsing.
+fcExternalVar :: FcSymbolOrigin -> TcType -> Var
+fcExternalVar origin ty =
+  ResolvedVar
+    { varName = fcOriginName origin,
+      varUnique = Unique (-2000000000 - abs (hash `rem` 1000000000)),
+      varType = ty,
+      varResolvedName = Just origin
+    }
+  where
+    key = fcSymbolOriginText origin <> T.pack (show ty)
+    hash = T.foldl' (\value character -> value * 33 + ord character) 5381 key
 
 -- | Construct a variable without a separate imported identity.
 pattern Var :: Text -> Unique -> TcType -> Var
@@ -200,7 +248,9 @@ pattern Var name unique ty <- ResolvedVar name unique ty _
 
 {-# COMPLETE Var #-}
 
--- Eq/Ord on Unique only, mirroring TyVarId.
+-- Eq/Ord on Unique only, mirroring TyVarId. Exact syntax-tree comparisons
+-- must inspect every field because imported occurrences can carry additional
+-- source identity in 'varResolvedName'.
 instance Eq Var where
   a == b = varUnique a == varUnique b
 

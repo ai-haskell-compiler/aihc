@@ -1,28 +1,32 @@
 expected: |-
+  module Test where
+
   data Result
    = Result
 
-  data Render a
+  data Render (a : TYPE BoxedRep Lifted)
    = $Dict$Render (a → Result)
 
-  render : ∀ a. (Render a) → a → Result =
-    Λa.
-      λ$d0 : Render a.
-        case $d0 as $dict : Render a of
-          $Dict$Render $method0 →
+  render : ∀ (a : TYPE BoxedRep Lifted). (Render a) → a → Result =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ($d0 : Render a).
+        case $d0 as ($dict : Render a) of {
+          $Dict$Render ($method0 : a → Result) →
             $method0
+        }
 
-  data Convert a
-   = $Dict$Convert (∀ b. (Render b) → a → b → Result)
+  data Convert (a : TYPE BoxedRep Lifted)
+   = $Dict$Convert (∀ (b : TYPE BoxedRep Lifted). (Render b) → a → b → Result)
 
-  convert : ∀ a b. (Convert a) → (Render b) → a → b → Result =
-    Λa.
-      Λb.
-        λ$d0 : Convert a.
-          λ$d1 : Render b.
-            case $d0 as $dict : Convert a of
-              $Dict$Convert $method0 →
-                $method0 @b $d1
+  convert : ∀ (a : TYPE BoxedRep Lifted) (b : TYPE BoxedRep Lifted). (Convert a) → (Render b) → a → b → Result =
+    Λ(a : TYPE BoxedRep Lifted).
+      Λ(b : TYPE BoxedRep Lifted).
+        λ($d0 : Convert a).
+          λ($d1 : Render b).
+            case $d0 as ($dict : Convert a) of {
+              $Dict$Convert ($method0 : ∀ (b : TYPE BoxedRep Lifted). (Render b) → a → b → Result) →
+                ($method0 @b) $d1
+            }
 extensions: []
 modules:
 - |
