@@ -67,6 +67,7 @@ lowerTopBind :: NewtypeEnv -> FcTopBind -> LowerM FcTopBind
 lowerTopBind env topBind =
   case topBind of
     FcTopBind bind -> FcTopBind <$> lowerBind env bind
+    FcNoInline bind -> FcNoInline <$> lowerBind env bind
     _ -> pure topBind
 
 lowerBind :: NewtypeEnv -> FcBind -> LowerM FcBind
@@ -200,6 +201,7 @@ topBindUniques topBind =
     FcPrimitive var _ -> varUniques var
     FcForeignImport {} -> []
     FcTopBind bind -> bindUniques bind
+    FcNoInline bind -> bindUniques bind
     _ -> []
 
 bindUniques :: FcBind -> [Int]

@@ -4,9 +4,6 @@
 -- rules may remove structure, but must not trade one form for another form of
 -- equal complexity. This makes it safe to run the complete rule set to a
 -- fixpoint and keeps interactions between independent rules predictable.
--- Reachable top-level binding boundaries are semantic: optimizations must not
--- inline or merge them, because a computed binding is lowered to one updateable
--- CAF whose evaluation is shared by every use.
 -- Compiler correctness must never depend on running this module.
 module Aihc.Fc.Optimize
   ( optimizeProgram,
@@ -48,6 +45,7 @@ copyPropagateProgram (FcProgram topBinds) =
     copyTopBind topBind =
       case topBind of
         FcTopBind bind -> FcTopBind (copyBind Map.empty bind)
+        FcNoInline bind -> FcNoInline (copyBind Map.empty bind)
         _ -> topBind
 
 copyBind :: Map Var Var -> FcBind -> FcBind

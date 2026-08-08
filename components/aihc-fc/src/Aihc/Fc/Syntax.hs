@@ -83,6 +83,8 @@ data FcTopBind
     FcForeignImport !FcForeignCall
   | -- | Value binding.
     FcTopBind !FcBind
+  | -- | Value binding protected from inlining by a @NOINLINE@ pragma.
+    FcNoInline !FcBind
   deriving (Eq, Show, Read)
 
 -- | The role at which an axiom proves equality.

@@ -135,7 +135,7 @@ linkNamesForProgram libraryId moduleNameComponents program =
           ]
     }
   where
-    topLevelVars = [var | FcTopBind bind <- fcTopBinds program, var <- topBindVars bind]
+    topLevelVars = [var | topBind <- fcTopBinds program, Just bind <- [fcTopValueBind topBind], var <- topBindVars bind]
     nameCounts = Map.fromListWith (+) [(varName var, 1 :: Int) | var <- topLevelVars]
     topLevelVarsWithOrdinals = snd (mapAccumL annotate Map.empty topLevelVars)
     annotate :: Map Text Int -> Var -> (Map Text Int, (Var, Int))
@@ -343,6 +343,7 @@ lowerTopBind topBind =
     FcForeignImport foreignCall ->
       pure mempty {loweredForeignCalls = [lowerForeignCall foreignCall]}
     FcTopBind bind -> lowerTopValueBind bind
+    FcNoInline bind -> lowerTopValueBind bind
 
 lowerTopValueBind :: FcBind -> LowerM LoweredTop
 lowerTopValueBind bind =
@@ -1662,7 +1663,7 @@ programGlobalInfos linkNames program = concat (snd (mapAccumL buildInfo Map.empt
     constructorArities =
       Map.fromList [(name, length layouts) | (name, layouts) <- builtinConstructors]
         <> Map.fromList (programConstructors program)
-    bindings = [(var, expr) | FcTopBind bind <- fcTopBinds program, (var, expr) <- topBindings bind]
+    bindings = [(var, expr) | topBind <- fcTopBinds program, Just bind <- [fcTopValueBind topBind], (var, expr) <- topBindings bind]
     buildInfo occurrences (var, expr) =
       let (occurrences', index, linkedName) = linkNameAt linkNames occurrences var
           sourceName = sourceNameAt linkNames index var
@@ -1675,7 +1676,7 @@ programGlobalInfos linkNames program = concat (snd (mapAccumL buildInfo Map.empt
 programCodeInfos :: GrinLinkNames -> FcProgram -> [(Var, Text, GrinCodeInfo)]
 programCodeInfos linkNames program = concat (snd (mapAccumL buildInfo Map.empty bindings))
   where
-    bindings = [(var, expr) | FcTopBind bind <- fcTopBinds program, (var, expr) <- topBindings bind]
+    bindings = [(var, expr) | topBind <- fcTopBinds program, Just bind <- [fcTopValueBind topBind], (var, expr) <- topBindings bind]
     buildInfo occurrences (var, expr) =
       let (occurrences', index, linkedName) = linkNameAt linkNames occurrences var
           sourceName = sourceNameAt linkNames index var
@@ -1783,6 +1784,14 @@ topVars topBind =
     FcPrimitive var _ -> [var]
     FcForeignImport {} -> []
     FcTopBind bind -> bindVars bind
+    FcNoInline bind -> bindVars bind
+
+fcTopValueBind :: FcTopBind -> Maybe FcBind
+fcTopValueBind topBind =
+  case topBind of
+    FcTopBind bind -> Just bind
+    FcNoInline bind -> Just bind
+    _ -> Nothing
 
 bindVars :: FcBind -> [Var]
 bindVars bind =

@@ -128,6 +128,9 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
     go env (FcTopBind bind : rest) =
       let (errs, env') = lintBind env bind
        in errs ++ go env' rest
+    go env (FcNoInline bind : rest) =
+      let (errs, env') = lintBind env bind
+       in errs ++ go env' rest
 
 -- | Lint a binding, returning errors and the extended environment.
 lintBind :: LintEnv -> FcBind -> ([LintError], LintEnv)

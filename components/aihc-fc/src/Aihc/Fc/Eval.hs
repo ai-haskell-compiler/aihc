@@ -207,7 +207,8 @@ evalProgramBinding name sourceProgram = runExceptT $ do
     ioBindings =
       Map.fromList
         [ (varName var, ())
-        | FcTopBind bind <- fcTopBinds program,
+        | topBind <- fcTopBinds program,
+          bind <- topValueBinds topBind,
           var <- bindersOf bind,
           isIOType (varType var)
         ]
@@ -228,13 +229,27 @@ buildProgramEnv program = do
       ref <- lift (newIORef ThunkEvaluating)
       pure (var, expression, EvalThunk ref)
 
-    topValueBindings (FcTopBind (FcNonRec var expression)) = [(var, expression)]
-    topValueBindings (FcTopBind (FcRec bindings)) = bindings
-    topValueBindings _ = []
+    topValueBindings topBind =
+      case topBind of
+        FcTopBind bind -> bindValues bind
+        FcNoInline bind -> bindValues bind
+        _ -> []
+
+    bindValues bind =
+      case bind of
+        FcNonRec var expression -> [(var, expression)]
+        FcRec bindings -> bindings
 
     directTopBindings (FcPrimitive var arity) = [(varName var, VPrim (varName var) arity [])]
     directTopBindings (FcData _ _ constructors) = [(conName, VConstructor conName []) | (conName, _) <- constructors]
     directTopBindings _ = []
+
+topValueBinds :: FcTopBind -> [FcBind]
+topValueBinds topBind =
+  case topBind of
+    FcTopBind bind -> [bind]
+    FcNoInline bind -> [bind]
+    _ -> []
 
 evalExpr :: FcExpr -> IO (Either EvalError Value)
 evalExpr = runExceptT . evalWithEnv builtinConstructorEnv

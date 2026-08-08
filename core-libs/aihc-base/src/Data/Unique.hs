@@ -1,7 +1,5 @@
 {-# LANGUAGE MagicHash #-}
 
-{-# HLINT ignore "Missing NOINLINE pragma" #-}
-
 module Data.Unique
   ( Unique,
     newUnique,
@@ -38,9 +36,8 @@ instance Ord Unique where
       False -> right
 
 uniqueSource :: IORef Integer
--- AIHC's FC optimizer preserves reachable top-level binding boundaries, and
--- GRIN lowers this computation to one updateable CAF shared by every use.
 uniqueSource = unsafePerformIO (newIORef 0)
+{-# NOINLINE uniqueSource #-}
 
 -- | Create a value distinct from every value returned by an earlier call.
 newUnique :: IO Unique

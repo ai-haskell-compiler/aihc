@@ -138,6 +138,7 @@ valueDefinitionsOf topBind =
     FcPrimitive var _ -> [(varName var, referencesVarType var)]
     FcForeignImport foreignCall -> [(fcForeignCallName foreignCall, mempty)]
     FcTopBind bind -> [(varName var, referencesTopLevelBind bind) | var <- bindersOf bind]
+    FcNoInline bind -> [(varName var, referencesTopLevelBind bind) | var <- bindersOf bind]
     FcData {} -> []
     FcAxiom {} -> []
     FcNewtype {} -> []
