@@ -441,7 +441,7 @@ processExitProgram :: GrinProgram
 processExitProgram =
   GrinProgram
     { grinConstructors = [],
-      grinPrimitives = [(GrinVar "aihcExit#" 121 (BoxedRep Lifted), 1)],
+      grinPrimitives = [],
       grinForeignCalls = [],
       grinExternalGlobals = [],
       grinExternalFunctions = [],
@@ -453,7 +453,7 @@ processExitProgram =
               grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = IntRep,
-              grinFunctionBody = GrinPrimitiveCall IntRep "aihcExit#" [intValue 7]
+              grinFunctionBody = GrinExit (intValue 7)
             }
         ]
     }

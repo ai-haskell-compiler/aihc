@@ -353,7 +353,7 @@ lowerTopBind topBind =
         mempty
           { loweredPrimitives =
               [ (plainGlobalVar var, arity)
-              | varName var `notElem` ["unsafeCoerce#", "raise#", "catch#", "seq"]
+              | varName var `notElem` ["aihcExit#", "unsafeCoerce#", "raise#", "catch#", "seq"]
               ]
           }
     FcForeignImport foreignCall ->
@@ -425,6 +425,8 @@ lowerExpr expr = do
       case primitiveApplication primitiveArities (Map.keysSet localVars) expr of
         Just ("raise#", [exception]) ->
           lowerSingleOperand "exception" exception (pure . GrinThrow)
+        Just ("aihcExit#", [status, _state]) ->
+          lowerSingleOperand "exit_status" status (pure . GrinExit)
         Just ("catch#", [action, handler, _state]) ->
           lowerSingleArgument action $ \actionValue ->
             lowerCatchHandler (exprRuntimeRep expr) handler $ \handlerValue ->
@@ -626,6 +628,7 @@ makePrimitiveClosure originalExpr name remaining captured = do
       resultRep = typeRuntimeRep resultType
   body <-
     case (name, arguments) of
+      ("aihcExit#", [status]) -> pure (GrinExit status)
       ("unsafeCoerce#", _) -> pure (GrinConstant arguments)
       ("raise#", [exception]) -> pure (GrinThrow exception)
       ("catch#", [action, handler]) ->
@@ -748,14 +751,18 @@ splitWidths widths values =
       let (field, remaining) = splitAt width values
        in field : splitWidths rest remaining
 
--- | Sequence an expression only when its results are used by the body.
--- Forwarding every bound result unchanged is exactly the value expression.
+-- | Remove unreachable work after a terminal expression. Otherwise, sequence
+-- an expression only when its results are used by the body. Forwarding every
+-- bound result unchanged is exactly the value expression.
 bindExpr :: [GrinVar] -> GrinExpr -> GrinExpr -> GrinExpr
 bindExpr vars valueExpr body =
-  case body of
-    GrinConstant values
-      | values == map GrinVarValue vars -> valueExpr
-    _ -> GrinBind vars valueExpr body
+  case valueExpr of
+    GrinExit {} -> valueExpr
+    _ ->
+      case body of
+        GrinConstant values
+          | values == map GrinVarValue vars -> valueExpr
+        _ -> GrinBind vars valueExpr body
 
 -- | A non-recursive lifted binding whose pointer is forced immediately and is
 -- dead afterward needs neither an updateable cell nor an outlined entry. The

@@ -92,8 +92,7 @@ toCpsGrin sourceProgram = do
     CpsGrinProgram
       { cpsGrinProgram =
           program
-            { grinPrimitives = filter ((/= "aihcExit#") . grinVarName . fst) (grinPrimitives program),
-              grinExternalFunctions = map addExternalContinuation (grinExternalFunctions program),
+            { grinExternalFunctions = map addExternalContinuation (grinExternalFunctions program),
               grinFunctions =
                 functions
                   <> reverse (cpsGeneratedFunctionsRev finalState)
@@ -171,8 +170,6 @@ transformTail updateName parent bound resultRep continuation expression =
               (GrinBind resultVars (grinAltRhs alternative) body)
           pure alternative {grinAltRhs = rhs}
     GrinBind resultVars valueExpression body
-      | GrinPrimitiveCall _ "aihcExit#" (status : _) <- valueExpression ->
-          pure (GrinExit status)
       | isDirectExpression valueExpression -> do
           transformedBody <-
             transformTail
@@ -228,9 +225,6 @@ transformTail updateName parent bound resultRep continuation expression =
     GrinCall runtimeRep functionName arguments ->
       pure (GrinCall runtimeRep functionName (arguments <> [continuation]))
     GrinPrimitiveCall runtimeRep name arguments
-      | name == "aihcExit#",
-        status : _ <- arguments ->
-          pure (GrinExit status)
       | isControlPrimitive name ->
           pure (GrinCpsPrimitiveCall runtimeRep name arguments continuation)
       | otherwise ->
@@ -242,7 +236,7 @@ transformTail updateName parent bound resultRep continuation expression =
     GrinContinue {} -> alreadyTransformed
     GrinCpsRaise {} -> alreadyTransformed
     GrinHalt {} -> alreadyTransformed
-    GrinExit {} -> alreadyTransformed
+    GrinExit status -> pure (GrinExit status)
     GrinCase scrutinee binder alternatives ->
       GrinCase scrutinee binder <$> mapM transformAlternative alternatives
       where

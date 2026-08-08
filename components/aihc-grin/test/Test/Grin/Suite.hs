@@ -119,6 +119,9 @@ grinUnitTests =
         forM_ cpsOnlyExpressions $ \expression -> do
           result <- interpretProgramFunctionSnapshot cpsOnlyFunction (cpsOnlyProgram expression)
           assertEqual (show expression) (Left (InterpretCpsExpression expression)) result,
+      testCase "direct interpreter reports a terminal process exit" $ do
+        result <- interpretProgramFunctionSnapshot (FunctionName "process_exit") processExitProgram
+        assertEqual "process status" (Left (InterpretProcessExit 7)) result,
       testCase "lint rejects unlifted thunk results and heap updates" $
         forM_ unliftedRuntimeReps $ \runtimeRep ->
           let errors = lintProgram (unliftedHeapProgram runtimeRep)
@@ -141,6 +144,14 @@ grinUnitTests =
         assertBool "contains explicit throw" ("throw " `isInfixOf` rendered)
         assertBool "contains explicit catch" ("catch " `isInfixOf` rendered)
         assertEqual "exception primitives are represented by GRIN control nodes" [] (grinPrimitives program),
+      testCase "FC lowering makes process exit terminal" $ do
+        let program = lowerProgram exitPrimitiveProgram
+            exits = [body | function <- grinFunctions program, let body = grinFunctionBody function, GrinExit {} <- [body]]
+        assertEqual "lint" [] (lintProgram program)
+        assertEqual "direct and partial exits" 2 (length exits)
+        assertEqual "raw exit status" [IntRep, IntRep] [grinValueRuntimeRep status | GrinExit status <- exits]
+        assertBool "literal exit status" (GrinExit (GrinLitValue (GrinLitInt IntRep 7)) `elem` exits)
+        assertEqual "compiler-only primitive is removed" [] (grinPrimitives program),
       testCase "FC lowering preserves catch# through partial application" $ do
         let program = lowerProgram partialCatchProgram
             rendered = renderProgram program
@@ -225,7 +236,7 @@ grinUnitTests =
             "one reified continuation"
             1
             (Set.size (cpsContinuationFunctions cps `Set.difference` Set.singleton (cpsUpdateFunction cps))),
-      testCase "CPS-GRIN lowers process exit to an unboxed terminal status" $ do
+      testCase "CPS-GRIN preserves an unboxed terminal process status" $ do
         cps <- expectCpsGrin processExitProgram
         let bodies =
               [ grinFunctionBody function
@@ -236,7 +247,6 @@ grinUnitTests =
           "raw exit status"
           [GrinExit (GrinLitValue (GrinLitInt IntRep 7))]
           bodies
-        assertEqual "removes the compiler-only primitive" [] (grinPrimitives (cpsGrinProgram cps))
         assertEqual
           "does not reify a return continuation"
           Set.empty
@@ -1455,6 +1465,36 @@ partialCatchProgram =
     actionTy = TcFunTy stateTy resultTy
     handlerTy = TcFunTy boxedIntTy actionTy
 
+exitPrimitiveProgram :: FcProgram
+exitPrimitiveProgram =
+  FcProgram
+    [ FcPrimitive exitVar 2,
+      FcTopBind (FcNonRec exitActionVar (FcApp (FcVar exitVar) (FcLit (LitInt IntRep 7)))),
+      FcTopBind
+        ( FcNonRec
+            processExitVar
+            ( FcLam
+                stateVar
+                ( FcCase
+                    exitCall
+                    tupleBinder
+                    [FcAlt (DataAlt "(#,#)") [nextStateVar, resultVar] (FcVar resultVar)]
+                )
+            )
+        )
+    ]
+  where
+    stateTy = TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
+    resultTy = TcTyCon (TyCon "(#,#)" 2) [stateTy, intTy]
+    exitVar = Var "aihcExit#" (Unique 11) (TcFunTy intTy (TcFunTy stateTy resultTy))
+    processExitVar = Var "processExit" (Unique 12) (TcFunTy stateTy intTy)
+    stateVar = Var "state" (Unique 13) stateTy
+    tupleBinder = Var "resultTuple" (Unique 14) resultTy
+    nextStateVar = Var "nextState" (Unique 15) stateTy
+    resultVar = Var "result" (Unique 16) intTy
+    exitActionVar = Var "exitAction" (Unique 17) (TcFunTy stateTy resultTy)
+    exitCall = FcApp (FcApp (FcVar exitVar) (FcLit (LitInt IntRep 7))) (FcVar stateVar)
+
 multiValueContinuationProgram :: GrinProgram
 multiValueContinuationProgram =
   GrinProgram
@@ -1977,8 +2017,7 @@ cpsOnlyExpressions =
     GrinCpsApply lifted string [] string,
     GrinContinue string [],
     GrinUpdateBlackhole string string,
-    GrinHalt [],
-    GrinExit (GrinLitValue (GrinLitInt IntRep 1))
+    GrinHalt []
   ]
   where
     lifted = BoxedRep Lifted
@@ -2409,7 +2448,7 @@ processExitProgram :: GrinProgram
 processExitProgram =
   GrinProgram
     { grinConstructors = [],
-      grinPrimitives = [(GrinVar "aihcExit#" 1 lifted, 1)],
+      grinPrimitives = [],
       grinForeignCalls = [],
       grinExternalGlobals = [],
       grinExternalFunctions = [],
@@ -2421,13 +2460,7 @@ processExitProgram =
               grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = TupleRep [],
-              grinFunctionBody =
-                GrinBind
-                  []
-                  (GrinPrimitiveCall (TupleRep []) "aihcExit#" [GrinLitValue (GrinLitInt IntRep 7)])
-                  (GrinConstant [])
+              grinFunctionBody = GrinExit (GrinLitValue (GrinLitInt IntRep 7))
             }
         ]
     }
-  where
-    lifted = BoxedRep Lifted

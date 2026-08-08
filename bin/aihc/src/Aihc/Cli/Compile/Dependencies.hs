@@ -200,7 +200,7 @@ data LibraryPackage = LibraryPackage
   deriving (Eq, Show)
 
 cacheSchemaVersion :: Int
-cacheSchemaVersion = 35
+cacheSchemaVersion = 34
 
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
@@ -467,7 +467,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
             Set.fromList
               [ Grin.grinVarName primitive
               | unit <- compileStateUnits state,
-                (primitive, _) <- Grin.grinPrimitives (Grin.cpsGrinProgram (dependencyUnitCpsGrin unit))
+                (primitive, _) <- Grin.grinPrimitives (dependencyUnitGrin unit)
               ],
           dependencyUnits = compileStateUnits state,
           dependencyUnitMetadata = map dependencyMetadata (compileStateUnits state),
