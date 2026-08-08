@@ -261,6 +261,22 @@ fcOptimizationTests =
             computed = FcApp (FcVar identity) (FcVar value)
             source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcNonRec binder computed) (FcVar binder)))]
         assertEqual "optimized program" source (optimizeProgram source),
+      testCase "eliminates unused lifted non-recursive lets" $ do
+        let value = Var "value" (Unique 17) stringTy
+            unused = Var "unused" (Unique 18) stringTy
+            result = Var "result" (Unique 19) stringTy
+            compute = Var "compute" (Unique 20) (TcFunTy stringTy stringTy)
+            source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcNonRec unused (FcApp (FcVar compute) (FcVar value))) (FcLit (LitString "result"))))]
+            expected = FcProgram [FcTopBind (FcNonRec result (FcLit (LitString "result")))]
+        assertEqual "optimized program" expected (optimizeProgram source),
+      testCase "retains unused unlifted non-recursive lets" $ do
+        let intHashTy = ty "Int#"
+            value = Var "value" (Unique 21) intHashTy
+            unused = Var "unused" (Unique 22) intHashTy
+            result = Var "result" (Unique 23) stringTy
+            compute = Var "compute" (Unique 24) (TcFunTy intHashTy intHashTy)
+            source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcNonRec unused (FcApp (FcVar compute) (FcVar value))) (FcLit (LitString "result"))))]
+        assertEqual "optimized program" source (optimizeProgram source),
       testCase "eliminates values and types unreachable from the entry point" $ do
         let liveTy = ty "Live"
             leafTy = ty "Leaf"

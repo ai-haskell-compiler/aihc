@@ -4,6 +4,9 @@
 -- instantiated with a concrete type.
 module Aihc.Fc.Subst
   ( substType,
+    OccurrenceCount (..),
+    countExprVar,
+    substExpr,
     substExprVar,
     freeRigidTyVars,
     freeRigidTyVarsOf,
@@ -15,6 +18,24 @@ import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId (..))
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+
+-- | A deliberately capped occurrence count. Simplifications only need to
+-- distinguish dead variables, single uses, and uses that may benefit from
+-- sharing.
+data OccurrenceCount
+  = Dead
+  | Once
+  | Many
+  deriving (Eq, Show)
+
+instance Semigroup OccurrenceCount where
+  Dead <> count = count
+  Once <> Dead = Once
+  Once <> _ = Many
+  Many <> _ = Many
+
+instance Monoid OccurrenceCount where
+  mempty = Dead
 
 -- | Free rigid type variables in stable left-to-right order.
 freeRigidTyVars :: TcType -> [TyVarId]
@@ -66,20 +87,52 @@ substType subst ty
     goPred s (ClassPred cls args) = ClassPred cls (map (go s) args)
     goPred s (EqPred t1 t2) = EqPred (go s t1) (go s t2)
 
--- | Scope-aware substitution of one System FC term variable. The replacement
--- must be fresh for the expression's scope.
---
--- Case lowering uses this to make the evaluated case binder authoritative in
--- an alternative. In particular, primitives that consume an already-entered
--- value must not receive the original thunk merely because the source body
--- referred to the scrutinee by its old name.
-substExprVar :: Var -> Var -> FcExpr -> FcExpr
-substExprVar source replacement = go
+-- | Count the free occurrences of a System FC term variable, stopping once
+-- more than one occurrence has been found.
+countExprVar :: Var -> FcExpr -> OccurrenceCount
+countExprVar target = go
   where
     go expression =
       case expression of
         FcVar var
-          | var == source -> FcVar replacement
+          | var == target -> Once
+          | otherwise -> Dead
+        FcLit {} -> Dead
+        FcApp function argument -> go function <> go argument
+        FcTyApp function _ -> go function
+        FcLam binder body
+          | binder == target -> Dead
+          | otherwise -> go body
+        FcTyLam _ body -> go body
+        FcLet bind body ->
+          case bind of
+            FcNonRec binder rhs ->
+              go rhs <> if binder == target then Dead else go body
+            FcRec bindings
+              | target `elem` map fst bindings -> Dead
+              | otherwise -> foldMap (go . snd) bindings <> go body
+        FcCase scrutinee binder alternatives ->
+          go scrutinee
+            <> if binder == target
+              then Dead
+              else foldMap goAlternative alternatives
+        FcCast inner _ -> go inner
+        FcCallForeign _ arguments -> foldMap go arguments
+
+    goAlternative alternative
+      | target `elem` altBinders alternative = Dead
+      | otherwise = go (altRhs alternative)
+
+-- | Scope-aware substitution of one System FC term variable with an
+-- expression. Free variables in the replacement must be fresh for the target
+-- expression's nested scopes.
+substExpr :: Var -> FcExpr -> FcExpr -> FcExpr
+substExpr source replacement = go
+  where
+    go expression =
+      case expression of
+        FcVar var
+          | var == source -> replacement
           | otherwise -> expression
         FcLit {} -> expression
         FcApp function argument -> FcApp (go function) (go argument)
@@ -108,3 +161,13 @@ substExprVar source replacement = go
     goAlternative alternative
       | source `elem` altBinders alternative = alternative
       | otherwise = alternative {altRhs = go (altRhs alternative)}
+
+-- | Scope-aware substitution of one System FC term variable. The replacement
+-- must be fresh for the expression's scope.
+--
+-- Case lowering uses this to make the evaluated case binder authoritative in
+-- an alternative. In particular, primitives that consume an already-entered
+-- value must not receive the original thunk merely because the source body
+-- referred to the scrutinee by its old name.
+substExprVar :: Var -> Var -> FcExpr -> FcExpr
+substExprVar source replacement = substExpr source (FcVar replacement)
