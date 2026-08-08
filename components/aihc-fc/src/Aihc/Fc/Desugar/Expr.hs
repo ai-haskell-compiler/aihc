@@ -26,7 +26,7 @@ where
 
 import Aihc.Fc.Desugar.Match (dsPatternPure, numericRuntimeRep)
 import Aihc.Fc.Lower (seqPseudoOpName)
-import Aihc.Fc.Subst (substExprVar, substType)
+import Aihc.Fc.Subst (OccurrenceCount (..), countExprVar, substExpr, substExprVar, substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( CaseAlt (..),
@@ -302,8 +302,19 @@ dsOrderedMatches resultTy scrutVars matches =
         then do
           failureVar <- freshInternalVar "_next_match" resultTy
           matched <- dsMatchPatterns scrutVars (matchPats match) (dsRhs (matchRhs match)) (FcVar failureVar)
-          pure (FcLet (FcNonRec failureVar failure) matched)
+          pure (shareFailure failureVar failure matched)
         else dsMatchPatterns scrutVars (matchPats match) (dsRhs (matchRhs match)) failure
+
+-- | Materialize a pattern-match failure continuation only when its decision
+-- tree contains enough failure leaves to benefit from sharing. Match binders
+-- are globally fresh, so substituting the already-built failure expression
+-- into its sole use cannot capture any of its free variables.
+shareFailure :: Var -> FcExpr -> FcExpr -> FcExpr
+shareFailure failureVar failure matched =
+  case countExprVar failureVar matched of
+    Dead -> matched
+    Once -> substExpr failureVar failure matched
+    Many -> FcLet (FcNonRec failureVar failure) matched
 
 hasDefaultFallback :: [Match] -> Bool
 hasDefaultFallback matches =

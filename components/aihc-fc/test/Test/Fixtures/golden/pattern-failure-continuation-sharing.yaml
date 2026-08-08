@@ -1,0 +1,64 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Bool = False | True
+    data MaybeBool = Nothing | Just Bool
+
+    unused :: Bool -> Bool
+    unused value =
+      case value of
+        _ -> True
+        False -> False
+
+    single :: [Bool] -> Bool
+    single [] = True
+    single _ = False
+
+    shared :: MaybeBool -> Bool
+    shared (Just True) = True
+    shared _ = False
+expected: |-
+  module Test where
+
+  data Bool
+   = False
+   | True
+
+  data MaybeBool
+   = Nothing
+   | Just (Bool)
+
+  unused : Bool → Bool =
+    λ(x1001 : Bool).
+      True
+
+  single : [Bool] → Bool =
+    λ(x1004 : [Bool]).
+      case x1004 as (_match1010 : [Bool]) of {
+        [] →
+          True;
+        _ →
+          False
+      }
+
+  shared : MaybeBool → Bool =
+    λ(x1012 : MaybeBool).
+      let {
+        _next_match1016 : Bool =
+          False
+      } in
+        case x1012 as (_match1020 : MaybeBool) of {
+          Just (_pat : Bool) →
+            case _pat as (_match1019 : Bool) of {
+              True →
+                True;
+              _ →
+                _next_match1016
+            };
+          _ →
+            _next_match1016
+        }
+status: pass
+reason: pattern failure continuations are omitted, inlined, or shared according to their occurrence count
