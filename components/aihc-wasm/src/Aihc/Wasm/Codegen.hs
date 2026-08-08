@@ -386,7 +386,7 @@ compileFunction env function = do
       parameterCount = length parameters
       caseLocal = parameterCount + 1
       valueLocals = functionValueLocals function
-      boundLocalCount = Map.size valueLocals - parameterCount
+      localCount = maximum (caseLocal : Map.elems valueLocals) - parameterCount
       scratchCount = maximumScratchSlots (grinFunctionBody function)
       valueEnv = ValueEnv env valueLocals caseLocal
   body <- compileExpr valueEnv (grinFunctionBody function)
@@ -394,7 +394,7 @@ compileFunction env function = do
     CompiledFunction
       { compiledFunctionScratchSlots = scratchCount,
         compiledFunctionLines =
-          functionStartWithParameters label (I32 : replicate parameterCount I64) (replicate (1 + boundLocalCount) I64)
+          functionStartWithParameters label (I32 : replicate parameterCount I64) (replicate localCount I64)
             <> indent body
             <> functionEnd
       }

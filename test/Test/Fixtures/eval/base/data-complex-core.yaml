@@ -1,0 +1,39 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Complex
+    import Data.Foldable (foldr)
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : values) = allTrue values
+    allTrue (False : _) = False
+
+    isComplex :: Integer -> Integer -> Complex Integer -> Bool
+    isComplex expectedReal expectedImaginary (real :+ imaginary) =
+      real == expectedReal && imaginary == expectedImaginary
+
+    results :: Bool
+    results =
+      allTrue
+        [ realPart ((3 :+ 4) :: Complex Integer) == 3,
+          imagPart ((3 :+ 4) :: Complex Integer) == 4,
+          ((3 :+ 4) :: Complex Integer) == (3 :+ 4),
+          isComplex 3 (negate 4) (conjugate ((3 :+ 4) :: Complex Integer)),
+          isComplex 4 5 (fmap (\value -> value + 1) ((3 :+ 4) :: Complex Integer)),
+          isComplex 7 7 (pure 7 :: Complex Integer),
+          isComplex 4 8 (((\value -> value + 1) :+ (\value -> value * 2)) <*> ((3 :+ 4) :: Complex Integer)),
+          isComplex 3 14 (((3 :+ 4) :: Complex Integer) >>= (\value -> value :+ (value + 10))),
+          foldr (:) [] ((3 :+ 4) :: Complex Integer) == [3, 4],
+          show ((3 :+ negate 4) :: Complex Integer) == "3 :+ (-4)"
+        ]
+output: |
+  True
+expression: |
+  results
+status: pass
+reason: Data.Complex exposes its strict rectangular representation and non-floating standard behavior

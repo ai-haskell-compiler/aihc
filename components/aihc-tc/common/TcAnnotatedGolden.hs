@@ -25,7 +25,7 @@ import Aihc.Parser.Syntax
   ( Extension,
     parseExtensionName,
   )
-import Aihc.Resolve (ResolveResult (..), resolve)
+import Aihc.Resolve (ResolveResult (..), modulesInPackage, resolveWithDeps, unnamedPackage)
 import Aihc.Tc (typecheck)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
@@ -135,9 +135,9 @@ evaluateTcAnnotatedCase tc =
    in case sequence parsedModules of
         Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
         Right modules ->
-          case resolve modules of
+          case resolveWithDeps mempty (modulesInPackage unnamedPackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
-              let results = typecheck resolvedModules
+              let results = typecheck (map snd resolvedModules)
                   actual = renderAnnotatedTcResults (caseModules tc) results
                in classifySuccess tc actual
             ResolveResult {resolveErrors} ->

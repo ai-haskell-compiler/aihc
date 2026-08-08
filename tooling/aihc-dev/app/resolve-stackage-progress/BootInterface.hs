@@ -30,7 +30,7 @@ module BootInterface
 where
 
 import Aihc.Parser.Syntax (NameType (..), mkUnqualifiedName, qualifyName)
-import Aihc.Resolve (ModuleExports, ResolvedName (..), Scope (..))
+import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), ResolvedName (..), Scope (..), unnamedPackage)
 import Control.Exception (IOException, try)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
 import Data.Aeson qualified as Aeson
@@ -155,7 +155,7 @@ instance FromJSON BootModuleInterface where
 bootIfaceToModuleExports :: BootPackageInterface -> ModuleExports
 bootIfaceToModuleExports bpi =
   Map.fromList
-    [(bmiModule bmi, bootModuleToScope bmi) | bmi <- bpiModules bpi]
+    [(ModuleKey unnamedPackage (bmiModule bmi), bootModuleToScope bmi) | bmi <- bpiModules bpi]
 
 -- | Convert a single module interface to a Scope.
 bootModuleToScope :: BootModuleInterface -> Scope
@@ -189,7 +189,7 @@ bootModuleToScope bmi =
 
     resolve :: Text -> Text -> ResolvedName
     resolve qual n =
-      ResolvedTopLevel (qualifyName (Just qual) (mkUnqualifiedName (inferNameType n) n))
+      ResolvedTopLevel (packageId unnamedPackage) (qualifyName (Just qual) (mkUnqualifiedName (inferNameType n) n))
 
 -- | Infer the NameType from a name's lexical form.
 inferNameType :: Text -> NameType

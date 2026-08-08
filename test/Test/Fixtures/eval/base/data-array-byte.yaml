@@ -1,0 +1,121 @@
+extensions:
+  - MagicHash
+  - UnboxedTuples
+dependencies:
+  - aihc-base
+  - aihc-prim
+modules:
+  - |
+    module Test where
+
+    import Data.Array.Byte (ByteArray (..), MutableByteArray (..))
+    import GHC.Int (Int (..))
+    import GHC.Prim
+      ( getSizeofMutableByteArray#,
+        indexWordArray#,
+        int2Word#,
+        isByteArrayPinned#,
+        isMutableByteArrayPinned#,
+        newByteArray#,
+        newPinnedByteArray#,
+        readWordArray#,
+        sizeofByteArray#,
+        unsafeFreezeByteArray#,
+        unsafeThawByteArray#,
+        word2Int#,
+        writeWordArray#,
+        copyByteArray#,
+      )
+    import GHC.ST (ST (..), runST)
+
+    class NFData a where
+      rnf :: a -> ()
+
+    instance NFData ByteArray where
+      rnf (ByteArray _) = ()
+
+    instance NFData (MutableByteArray s) where
+      rnf (MutableByteArray _) = ()
+
+    newArray :: Int -> ST s (MutableByteArray s)
+    newArray (I# size) =
+      ST (\state -> case newByteArray# size state of
+        (# nextState, array #) -> (# nextState, MutableByteArray array #))
+
+    newPinnedArray :: Int -> ST s (MutableByteArray s)
+    newPinnedArray (I# size) =
+      ST (\state -> case newPinnedByteArray# size state of
+        (# nextState, array #) -> (# nextState, MutableByteArray array #))
+
+    writeWord :: MutableByteArray s -> Int -> Int -> ST s ()
+    writeWord (MutableByteArray array) (I# index) (I# value) =
+      ST (\state -> case writeWordArray# array index (int2Word# value) state of
+        nextState -> (# nextState, () #))
+
+    readWord :: MutableByteArray s -> Int -> ST s Int
+    readWord (MutableByteArray array) (I# index) =
+      ST (\state -> case readWordArray# array index state of
+        (# nextState, value #) -> (# nextState, I# (word2Int# value) #))
+
+    freeze :: MutableByteArray s -> ST s ByteArray
+    freeze (MutableByteArray array) =
+      ST (\state -> case unsafeFreezeByteArray# array state of
+        (# nextState, frozen #) -> (# nextState, ByteArray frozen #))
+
+    thaw :: ByteArray -> ST s (MutableByteArray s)
+    thaw (ByteArray array) =
+      ST (\state -> case unsafeThawByteArray# array state of
+        (# nextState, mutable #) -> (# nextState, MutableByteArray mutable #))
+
+    copyWord :: ByteArray -> MutableByteArray s -> ST s ()
+    copyWord (ByteArray source) (MutableByteArray destination) =
+      ST (\state -> case copyByteArray# source 8# destination 0# 8# state of
+        nextState -> (# nextState, () #))
+
+    mutableSize :: MutableByteArray s -> ST s Int
+    mutableSize (MutableByteArray array) =
+      ST (\state -> case getSizeofMutableByteArray# array state of
+        (# nextState, size #) -> (# nextState, I# size #))
+
+    indexWord :: ByteArray -> Int -> Int
+    indexWord (ByteArray array) (I# index) = I# (word2Int# (indexWordArray# array index))
+
+    immutableSize :: ByteArray -> Int
+    immutableSize (ByteArray array) = I# (sizeofByteArray# array)
+
+    immutablePinned :: ByteArray -> Bool
+    immutablePinned (ByteArray array) = I# (isByteArrayPinned# array) /= 0
+
+    mutablePinned :: MutableByteArray s -> Bool
+    mutablePinned (MutableByteArray array) = I# (isMutableByteArrayPinned# array) /= 0
+
+    results :: Bool
+    results = runST (do
+      source <- newArray 16
+      sourceSize <- mutableSize source
+      writeWord source 0 11
+      writeWord source 1 29
+      frozen <- freeze source
+      destination <- newPinnedArray 8
+      copyWord frozen destination
+      copied <- freeze destination
+      thawed <- thaw copied
+      copiedValue <- readWord thawed 0
+      return
+        ( sourceSize == 16
+            && immutableSize frozen == 16
+            && indexWord frozen 0 == 11
+            && indexWord frozen 1 == 29
+            && not (immutablePinned frozen)
+            && immutablePinned copied
+            && mutablePinned thawed
+            && copiedValue == 29
+            && case rnf frozen of
+              () -> case rnf thawed of
+                () -> True
+        ))
+output: |
+  True
+expression: results
+status: pass
+reason: lifted byte-array wrappers support deepseq-style pattern matching and preserve allocation, word access, size, freeze/thaw, copy, and pinning behavior through FC and GRIN

@@ -57,6 +57,7 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations (TcAnnotation (..))
+import Aihc.Tc.Env (DataConFieldInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Types (Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType)
 import Control.Applicative ((<|>))
@@ -84,7 +85,9 @@ data DsState = DsState
     -- | Local variable bindings (pattern-bound, lambda-bound).
     dsLocalVars :: !(Map Text Var),
     -- | Local dictionaries, keyed by class predicate.
-    dsLocalDicts :: !(Map Text Var)
+    dsLocalDicts :: !(Map Text Var),
+    -- | Checked constructor fields, including source strictness.
+    dsConstructorFields :: !(Map Text [DataConFieldInfo])
   }
 
 data ClassDict = ClassDict
@@ -427,8 +430,7 @@ constructorSubpatterns (PParen inner) = constructorSubpatterns inner
 constructorSubpatterns (PCon _ _ subpatterns) = subpatterns
 constructorSubpatterns (PList []) = []
 constructorSubpatterns (PList (item : items)) = [item, PList items]
-constructorSubpatterns (PInfix left operator right)
-  | nameText operator == ":" = [left, right]
+constructorSubpatterns (PInfix left _operator right) = [left, right]
 constructorSubpatterns (PTuple _ subpatterns) = subpatterns
 constructorSubpatterns _ = []
 
@@ -551,8 +553,7 @@ dsExpr (EChar c _) = pure (boxCharLiteral c)
 dsExpr (ECharHash c _) = pure (FcLit (LitChar WordRep c))
 dsExpr (EString s _) = dsStringLiteral s
 dsExpr (EStringHash s _) = FcLit . LitAddr <$> primitiveStringBytes s
-dsExpr (EApp fun arg) =
-  FcApp <$> dsExpr fun <*> dsExpr arg
+dsExpr application@EApp {} = dsApplication application
 dsExpr (EInfix lhs op rhs) =
   dsInfix lhs op rhs
 dsExpr EList {} =
@@ -608,7 +609,7 @@ isGhcPrimSeq name =
     isSeqResolution resolution =
       resolutionNamespace resolution == ResolutionNamespaceTerm
         && case resolutionTarget resolution of
-          ResolvedTopLevel target ->
+          ResolvedTopLevel _ target ->
             nameQualifier target == Just "GHC.Prim"
               && nameText target == "seq"
           _ -> False
@@ -622,7 +623,7 @@ dsAnnotatedExpr tcAnn inner = do
           dsOverloadedIntegerLiteral tcAnn resolution value
     EAnn _ nested -> dsExpr nested
     EVar name -> dsAnnotatedVar tcAnn name inner
-    EApp fun arg -> FcApp <$> dsExpr fun <*> dsExpr arg
+    application@EApp {} -> dsApplication application
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)
     EList elems -> dsList tcAnn elems
     EListComp body quals -> dsListComp tcAnn body quals
@@ -636,6 +637,80 @@ dsAnnotatedExpr tcAnn inner = do
     ECase scrut alts -> dsCase scrut alts
     _ -> desugarBug ("unsupported annotated expression form after type checking: " <> take 80 (show inner))
   pure (foldr FcTyLam body (tcAnnTypeBinders tcAnn))
+
+dsApplication :: Expr -> DsM FcExpr
+dsApplication expression = do
+  let (headExpression, arguments) = collectApplications expression
+  headCore <- dsExpr headExpression
+  argumentCores <- mapM dsExpr arguments
+  fields <- constructorApplicationFields headExpression
+  case fields of
+    Just constructorFields
+      | length arguments >= length constructorFields ->
+          dsStrictConstructorApplication headCore arguments argumentCores constructorFields
+    _ -> pure (foldl FcApp headCore argumentCores)
+
+collectApplications :: Expr -> (Expr, [Expr])
+collectApplications expression =
+  case applicationView expression of
+    Just (function, argument) ->
+      case collectApplications function of
+        (headExpression, arguments) -> (headExpression, arguments <> [argument])
+    Nothing -> (expression, [])
+
+applicationView :: Expr -> Maybe (Expr, Expr)
+applicationView expression =
+  case expression of
+    EAnn _ inner -> applicationView inner
+    EParen inner -> applicationView inner
+    ETypeSig inner _ -> applicationView inner
+    EApp function argument -> Just (function, argument)
+    _ -> Nothing
+
+constructorApplicationFields :: Expr -> DsM (Maybe [DataConFieldInfo])
+constructorApplicationFields expression =
+  case peelApplicationHead expression of
+    EVar name -> do
+      fields <- dsConstructorFields <$> get
+      pure (Map.lookup (nameText name) fields)
+    _ -> pure Nothing
+
+peelApplicationHead :: Expr -> Expr
+peelApplicationHead expression =
+  case expression of
+    EAnn _ inner -> peelApplicationHead inner
+    EParen inner -> peelApplicationHead inner
+    ETypeSig inner _ -> peelApplicationHead inner
+    ETypeApp inner _ -> peelApplicationHead inner
+    _ -> expression
+
+dsStrictConstructorApplication :: FcExpr -> [Expr] -> [FcExpr] -> [DataConFieldInfo] -> DsM FcExpr
+dsStrictConstructorApplication headCore argumentExpressions argumentCores fields = do
+  strictBinders <- mapM strictFieldBinder (zip3 argumentExpressions argumentCores fields)
+  let replacements =
+        zipWith replaceStrictArgument strictBinders argumentCores
+          <> drop (length strictBinders) argumentCores
+      application = foldl FcApp headCore replacements
+      strictArguments =
+        [ (argumentCore, binder)
+        | (argumentCore, Just binder) <- zip argumentCores strictBinders
+        ]
+  pure (foldr forceStrictArgument application strictArguments)
+  where
+    strictFieldBinder (argumentExpression, _, field) =
+      case dcfiStrict field of
+        False -> pure Nothing
+        True ->
+          Just
+            <$> freshInternalVar
+              "_strict_field"
+              (fromMaybe (dcfiType field) (exprAnnotationType argumentExpression))
+
+    replaceStrictArgument maybeBinder argumentCore =
+      maybe argumentCore FcVar maybeBinder
+
+    forceStrictArgument (argumentCore, binder) body =
+      FcCase argumentCore binder [FcAlt DefaultAlt [] body]
 
 dsDo :: [DoStmt Expr] -> DsM FcExpr
 dsDo stmts =
@@ -742,7 +817,7 @@ dsIntegerLiteral value = do
 resolvedAnnotationName :: ResolutionAnnotation -> Name
 resolvedAnnotationName resolution =
   case resolutionTarget resolution of
-    ResolvedTopLevel name -> mkName (nameQualifier name) (nameType name) (nameText name)
+    ResolvedTopLevel _ name -> mkName (nameQualifier name) (nameType name) (nameText name)
     ResolvedLocal _ name -> qualifyName Nothing name
     ResolvedBuiltin name -> mkName Nothing NameVarId name
     ResolvedError {} -> mkName Nothing NameVarId (resolutionName resolution)
@@ -765,8 +840,16 @@ isFromIntegerResolution resolution =
     && resolutionName resolution == "fromInteger"
 
 dsInfix :: Expr -> Name -> Expr -> DsM FcExpr
-dsInfix lhs op rhs =
-  FcApp <$> (FcApp <$> dsInfixOperator op <*> dsExpr lhs) <*> dsExpr rhs
+dsInfix lhs op rhs = do
+  operator <- dsInfixOperator op
+  left <- dsExpr lhs
+  right <- dsExpr rhs
+  fields <- Map.lookup (nameText op) . dsConstructorFields <$> get
+  case fields of
+    Just constructorFields
+      | length constructorFields == 2 ->
+          dsStrictConstructorApplication operator [lhs, rhs] [left, right] constructorFields
+    _ -> pure (FcApp (FcApp operator left) right)
 
 dsInfixOperator :: Name -> DsM FcExpr
 dsInfixOperator op =
@@ -1555,6 +1638,7 @@ patternBinderTypesM pat scrutTy =
     PInfix _lhs op _rhs
       | nameText op == ":" ->
           (\elemTy -> [elemTy, scrutTy]) <$> listElemTyM scrutTy
+      | otherwise -> constructorFieldTypesM op 2
     PList (_ : _) ->
       (\elemTy -> [elemTy, scrutTy]) <$> listElemTyM scrutTy
     PCon _ _ [] -> pure []

@@ -15,7 +15,7 @@ module Aihc.Testing.EvalFixture
   )
 where
 
-import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithBindings)
+import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithDataTypes)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -37,8 +37,8 @@ import Aihc.Parser.Syntax
     mkUnqualifiedName,
     parseExtensionName,
   )
-import Aihc.Resolve (ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (TcBindingResult, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithEnv)
+import Aihc.Resolve (ResolveResult (..), modulesInPackage, resolveWithDeps, unnamedPackage)
+import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (bracket, mask, onException)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -232,14 +232,15 @@ compileEvalCase tc =
       case dependencyModules of
         Left errMsg -> pure (Left errMsg)
         Right deps ->
-          let resolved = resolveWithDeps mempty (deps <> evalModules)
+          let resolved = resolveWithDeps mempty (modulesInPackage unnamedPackage (deps <> evalModules))
            in case resolved of
                 ResolveResult {resolvedModules, resolveErrors = []} ->
-                  let tcResults = typecheckModulesWithEnv [] resolvedModules
+                  let moduleAsts = map snd resolvedModules
+                      (tcResults, tcInterface) = typecheckModulesWithInterface emptyTcInterface moduleAsts
                    in if all tcModuleSuccess tcResults
                         then do
                           let allBindings = moduleGroupBindings tcResults
-                              results = zipWith (desugarModuleWithBindings allBindings) tcResults resolvedModules
+                              results = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) tcResults moduleAsts
                           if all dsSuccess results
                             then pure (Right (concatPrograms (map dsProgram results)))
                             else pure (Left ("desugar error: " <> unlines (concatMap dsErrors results)))

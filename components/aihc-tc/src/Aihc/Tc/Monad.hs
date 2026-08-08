@@ -356,7 +356,7 @@ resolvedNameTermKey displayName resolved =
   case resolved of
     ResolvedLocal unique _ ->
       pure (TcTermLocal unique)
-    ResolvedTopLevel name ->
+    ResolvedTopLevel _ name ->
       pure (TcTermGlobal (nameText name))
     ResolvedBuiltin name ->
       pure (TcTermGlobal name)

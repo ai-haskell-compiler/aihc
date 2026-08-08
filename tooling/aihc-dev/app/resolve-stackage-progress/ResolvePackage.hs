@@ -20,7 +20,7 @@ where
 
 import Aihc.Hackage.Stackage (loadStackageSnapshot)
 import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Resolve (ModuleExports, Scope (..))
+import Aihc.Resolve (ModuleExports, ModuleKey (..), Scope (..))
 import BootInterface (bootPackageNames, loadBootInterfaces)
 import Control.Exception (SomeException, try)
 import Data.Aeson (ToJSON (..), object, (.=))
@@ -130,7 +130,7 @@ interfaceFromExports :: Text -> ModuleExports -> ResolvePackageIface
 interfaceFromExports pkg iface =
   ResolvePackageIface
     { rpiPackage = pkg,
-      rpiModules = map (uncurry moduleIfaceFromScope) (Map.toAscList iface)
+      rpiModules = map (\(key, scope) -> moduleIfaceFromScope (moduleKeyName key) scope) (Map.toAscList iface)
     }
 
 moduleIfaceFromScope :: Text -> Scope -> ResolveModuleIface

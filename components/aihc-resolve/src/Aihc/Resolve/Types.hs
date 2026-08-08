@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -8,10 +9,15 @@ module Aihc.Resolve.Types
     pattern PResolution,
     pattern TResolution,
     ResolutionNamespace (..),
+    PackageId (..),
+    Package (..),
+    unnamedPackage,
+    modulesInPackage,
     ResolvedName (..),
     ResolutionAnnotation (..),
     ResolveError (..),
     ResolveResult (..),
+    resolvedModuleAsts,
   )
 where
 
@@ -30,8 +36,27 @@ import Aihc.Parser.Syntax
 import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 
+-- | An opaque identity for one installed package instance.
+newtype PackageId = PackageId {packageIdText :: Text}
+  deriving (Eq, Ord, Show)
+
+-- | The user-visible package name used in imports and its opaque identity.
+data Package = Package
+  { packageName :: !Text,
+    packageId :: !PackageId
+  }
+  deriving (Eq, Ord, Show)
+
+unnamedPackage :: Package
+unnamedPackage = Package "" (PackageId "")
+
+modulesInPackage :: Package -> [Module] -> [(Package, Module)]
+modulesInPackage package = map pairWithPackage
+  where
+    pairWithPackage modu = (package, modu)
+
 data ResolvedName
-  = ResolvedTopLevel Name
+  = ResolvedTopLevel PackageId Name
   | ResolvedLocal Int UnqualifiedName
   | ResolvedBuiltin Text
   | ResolvedError String
@@ -62,10 +87,13 @@ data ResolveError
   deriving (Eq, Show)
 
 data ResolveResult = ResolveResult
-  { resolvedModules :: [Module],
+  { resolvedModules :: [(Package, Module)],
     resolveErrors :: [ResolveError]
   }
   deriving (Show)
+
+resolvedModuleAsts :: ResolveResult -> [Module]
+resolvedModuleAsts = map snd . resolvedModules
 
 pattern DeclResolution :: ResolutionAnnotation -> Decl
 pattern DeclResolution resolution <- DeclAnn (fromAnnotation -> Just resolution) _
