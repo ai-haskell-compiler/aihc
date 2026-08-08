@@ -425,7 +425,6 @@ shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBi
         FcPrimitive var arity -> FcPrimitive (shiftVar var) arity
         FcForeignImport {} -> topBind
         FcTopBind bind -> FcTopBind (shiftBind bind)
-        FcNoInline bind -> FcNoInline (shiftBind bind)
 
     shiftBind bind =
       case bind of
@@ -464,7 +463,6 @@ topBindVarsDeep topBind =
     FcPrimitive var _ -> [var]
     FcForeignImport {} -> []
     FcTopBind bind -> bindVarsDeep bind
-    FcNoInline bind -> bindVarsDeep bind
 
 bindVarsDeep :: FcBind -> [Var]
 bindVarsDeep bind =

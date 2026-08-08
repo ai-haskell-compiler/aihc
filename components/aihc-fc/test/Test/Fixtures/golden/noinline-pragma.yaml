@@ -5,10 +5,9 @@ modules:
     id x = x
     {-# NOINLINE id #-}
 expected: |-
-  {-# NOINLINE id #-}
   id : ∀ a. a → a =
     Λa.
       λx1001 : a.
         x1001
 status: pass
-reason: NOINLINE survives desugaring as System FC binding metadata
+reason: NOINLINE is accepted and ignored before System FC desugaring

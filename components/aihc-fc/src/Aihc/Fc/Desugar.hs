@@ -44,8 +44,6 @@ import Aihc.Parser.Syntax
     Module (..),
     NewtypeDecl (..),
     Pattern (..),
-    Pragma (..),
-    PragmaType (..),
     Rhs,
     UnqualifiedName (..),
     ValueDecl (..),
@@ -72,8 +70,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
 import Control.Monad.Trans.State.Strict (runStateT)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, maybeToList)
-import Data.Set qualified as Set
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -175,7 +172,6 @@ lowerConstraintProgram (FcProgram topBinds) =
         FcPrimitive var arity -> FcPrimitive (lowerVar var) arity
         FcForeignImport foreignCall -> FcForeignImport foreignCall
         FcTopBind bind -> FcTopBind (lowerBind bind)
-        FcNoInline bind -> FcNoInline (lowerBind bind)
 
     lowerBind bind =
       case bind of
@@ -261,31 +257,8 @@ dsModule m = do
   derivingTops <- dsDerivingPlans (moduleDerivingPlans decls)
   -- Phase 3: group and desugar value bindings.
   let grouped = groupFunctionBinds decls
-  valueTops <- mapM (dsGroup (noInlineBindingNames decls)) grouped
+  valueTops <- mapM dsGroup grouped
   pure (dataTops ++ instanceTops ++ derivingTops ++ valueTops)
-
-noInlineBindingNames :: [Decl] -> Set.Set Text
-noInlineBindingNames = Set.fromList . concatMap noInlineBindingName
-  where
-    noInlineBindingName declaration =
-      case peelDeclAnn declaration of
-        DeclPragma pragma ->
-          case pragmaType pragma of
-            PragmaInline "NOINLINE" target -> maybeToList (pragmaBinderName target)
-            _ -> []
-        _ -> []
-
-pragmaBinderName :: Text -> Maybe Text
-pragmaBinderName rawTarget =
-  case reverse (T.words rawTarget) of
-    target : _
-      | T.length target >= 2,
-        T.head target == '(',
-        T.last target == ')' ->
-          Just (T.init (T.tail target))
-      | not (T.null target) -> Just target
-      | otherwise -> Nothing
-    [] -> Nothing
 
 -- | Desugar a single declaration (data types only; values handled by groups).
 dsDecl :: Decl -> DsM [FcTopBind]
@@ -1175,8 +1148,8 @@ barePatternName pat =
     _ -> Nothing
 
 -- | Desugar a function binding group.
-dsGroup :: Set.Set Text -> DeclGroup -> DsM FcTopBind
-dsGroup noInlineNames grp = do
+dsGroup :: DeclGroup -> DsM FcTopBind
+dsGroup grp = do
   ty <- lookupType (dgName grp)
   u <- freshUnique
   let var = Var (dgName grp) u ty
@@ -1184,12 +1157,7 @@ dsGroup noInlineNames grp = do
     case grp of
       DeclFunction _ matches -> dsMatches ty matches
       DeclPattern _ rhs -> dsMatches ty [rhsAsMatch rhs]
-  let binding = FcNonRec var body
-  pure
-    ( if dgName grp `Set.member` noInlineNames
-        then FcNoInline binding
-        else FcTopBind binding
-    )
+  pure (FcTopBind (FcNonRec var body))
 
 rhsAsMatch :: Rhs Expr -> Match
 rhsAsMatch rhs =

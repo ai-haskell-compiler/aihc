@@ -45,7 +45,6 @@ copyPropagateProgram (FcProgram topBinds) =
     copyTopBind topBind =
       case topBind of
         FcTopBind bind -> FcTopBind (copyBind Map.empty bind)
-        FcNoInline bind -> FcNoInline (copyBind Map.empty bind)
         _ -> topBind
 
 copyBind :: Map Var Var -> FcBind -> FcBind

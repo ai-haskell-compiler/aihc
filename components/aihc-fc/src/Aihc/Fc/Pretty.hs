@@ -84,15 +84,6 @@ renderTopBind (FcForeignImport foreignCall) =
     ++ " : "
     ++ renderType (fcForeignCallType (fcForeignCallSignature foreignCall))
 renderTopBind (FcTopBind bind) = renderBind 0 bind
-renderTopBind (FcNoInline bind) =
-  unlines (map renderNoInlineBinder (bindersOf bind)) ++ renderBind 0 bind
-  where
-    renderNoInlineBinder var = "{-# NOINLINE " ++ T.unpack (varName var) ++ " #-}"
-
-    bindersOf topLevelBind =
-      case topLevelBind of
-        FcNonRec var _ -> [var]
-        FcRec bindings -> map fst bindings
 
 -- | Render data constructors.
 renderDataCons :: [TyVarId] -> [(Text, [TcType])] -> String

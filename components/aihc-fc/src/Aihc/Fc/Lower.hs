@@ -37,7 +37,6 @@ expandTopBind :: FcTopBind -> ExpandM FcTopBind
 expandTopBind topBind =
   case topBind of
     FcTopBind bind -> FcTopBind <$> expandBind bind
-    FcNoInline bind -> FcNoInline <$> expandBind bind
     _ -> pure topBind
 
 expandBind :: FcBind -> ExpandM FcBind
@@ -160,7 +159,6 @@ topBindUniques topBind =
     FcPrimitive var _ -> varUniques var
     FcForeignImport _ -> []
     FcTopBind bind -> bindUniques bind
-    FcNoInline bind -> bindUniques bind
 
 bindUniques :: FcBind -> [Int]
 bindUniques bind =

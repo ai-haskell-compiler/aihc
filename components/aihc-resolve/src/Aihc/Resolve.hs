@@ -329,32 +329,30 @@ missingImportedName item namespace itemName candidates
 
 type TermDefinition = UnqualifiedName -> Maybe ResolvedName
 
-data BindingContext = TopLevelBinding | LocalBinding
-
 resolveTopLevelDecls :: Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
 resolveTopLevelDecls signatureScopes decls = do
   scope <- currentScope
-  resolveBindingGroup TopLevelBinding (topLevelTermDefinition scope) signatureScopes decls
+  resolveBindingGroup (topLevelTermDefinition scope) signatureScopes decls
 
-resolveBindingGroup :: BindingContext -> TermDefinition -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
-resolveBindingGroup _ _ _ [] = pure []
-resolveBindingGroup bindingContext termDefinition signatureScopes (decl : rest) = do
-  (signatureScopes', decl') <- resolveBindingDecl bindingContext termDefinition signatureScopes decl
-  decls' <- resolveBindingGroup bindingContext termDefinition signatureScopes' rest
+resolveBindingGroup :: TermDefinition -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
+resolveBindingGroup _ _ [] = pure []
+resolveBindingGroup termDefinition signatureScopes (decl : rest) = do
+  (signatureScopes', decl') <- resolveBindingDecl termDefinition signatureScopes decl
+  decls' <- resolveBindingGroup termDefinition signatureScopes' rest
   pure (decl' : decls')
 
-resolveBindingDecl :: BindingContext -> TermDefinition -> Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
-resolveBindingDecl bindingContext termDefinition signatureScopes decl = do
+resolveBindingDecl :: TermDefinition -> Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
+resolveBindingDecl termDefinition signatureScopes decl = do
   scope <- currentScope
   let scoped = maybe scope (`unionScope` scope) (declSignatureScope decl signatureScopes)
-  withScope scoped (resolveDeclWithSignatureScope bindingContext termDefinition signatureScopes decl)
+  withScope scoped (resolveDeclWithSignatureScope termDefinition signatureScopes decl)
 
-resolveDeclWithSignatureScope :: BindingContext -> TermDefinition -> Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
-resolveDeclWithSignatureScope bindingContext termDefinition signatureScopes decl =
+resolveDeclWithSignatureScope :: TermDefinition -> Map.Map Text Scope -> Decl -> ResolveM (Map.Map Text Scope, Decl)
+resolveDeclWithSignatureScope termDefinition signatureScopes decl =
   case decl of
     DeclAnn ann inner ->
       withPushedSpan ann $ do
-        (signatureScopes', inner') <- resolveDeclWithSignatureScope bindingContext termDefinition signatureScopes inner
+        (signatureScopes', inner') <- resolveDeclWithSignatureScope termDefinition signatureScopes inner
         pure (signatureScopes', DeclAnn ann inner')
     DeclTypeSig names ty -> do
       sp <- currentSpan
@@ -367,24 +365,24 @@ resolveDeclWithSignatureScope bindingContext termDefinition signatureScopes decl
               names
       pure (signatureScopes', DeclTypeSig names' ty')
     _ -> do
-      decl' <- resolveDecl bindingContext termDefinition decl
+      decl' <- resolveDecl termDefinition decl
       let signatureScopes' =
             case declBinderCandidate decl of
               Just (_, name) -> Map.delete (renderUnqualifiedName name) signatureScopes
               Nothing -> signatureScopes
       pure (signatureScopes', decl')
 
-resolveDecl :: BindingContext -> TermDefinition -> Decl -> ResolveM Decl
-resolveDecl bindingContext termDefinition (DeclAnn ann inner) =
-  withPushedSpan ann (resolveDecl bindingContext termDefinition inner)
-resolveDecl bindingContext termDefinition decl =
-  resolveDeclCore bindingContext termDefinition decl
+resolveDecl :: TermDefinition -> Decl -> ResolveM Decl
+resolveDecl termDefinition (DeclAnn ann inner) =
+  withPushedSpan ann (resolveDecl termDefinition inner)
+resolveDecl termDefinition decl =
+  resolveDeclCore termDefinition decl
 
-resolveDeclCore :: BindingContext -> TermDefinition -> Decl -> ResolveM Decl
-resolveDeclCore bindingContext termDefinition decl =
+resolveDeclCore :: TermDefinition -> Decl -> ResolveM Decl
+resolveDeclCore termDefinition decl =
   case decl of
     DeclAnn ann inner ->
-      withPushedSpan ann (resolveDeclCore bindingContext termDefinition inner)
+      withPushedSpan ann (resolveDeclCore termDefinition inner)
     DeclValue valueDecl ->
       DeclValue <$> resolveValueDecl termDefinition valueDecl
     DeclTypeSig names ty -> do
@@ -411,8 +409,7 @@ resolveDeclCore bindingContext termDefinition decl =
     DeclRoleAnnotation {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPragma pragma ->
       case pragmaType pragma of
-        PragmaInline "NOINLINE" _
-          | TopLevelBinding <- bindingContext -> pure decl
+        PragmaInline "NOINLINE" _ -> pure decl
         _ -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSyn {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSynSig {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
@@ -926,7 +923,7 @@ resolveArithSeq arithSeq =
 
 resolveBoundDecls :: Map.Map Text ResolvedName -> Map.Map Text Scope -> [Decl] -> ResolveM [Decl]
 resolveBoundDecls binderTargets =
-  resolveBindingGroup LocalBinding (\name -> Map.lookup (renderUnqualifiedName name) binderTargets)
+  resolveBindingGroup (\name -> Map.lookup (renderUnqualifiedName name) binderTargets)
 
 declSignatureScope :: Decl -> Map.Map Text Scope -> Maybe Scope
 declSignatureScope decl signatureScopes =

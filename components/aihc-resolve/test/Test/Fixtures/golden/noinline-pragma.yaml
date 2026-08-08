@@ -12,4 +12,4 @@ annotated:
     └─ v Main
     {-# NOINLINE x #-}
 status: pass
-reason: NOINLINE is binding metadata and must not be rejected as unhandled syntax
+reason: NOINLINE is accepted without resolver annotations or diagnostics

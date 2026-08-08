@@ -215,13 +215,6 @@ fcOptimizationTests =
                     (FcNonRec result (FcApp (FcApp (FcVar seqVar) (FcVar first)) (FcVar second)))
                 ]
         assertEqual "optimization leaves pseudo-op intact" source (optimizeProgram source),
-      testCase "preserves NOINLINE metadata while simplifying its RHS" $ do
-        let value = Var "value" (Unique 20) stringTy
-            alias = Var "alias" (Unique 21) stringTy
-            result = Var "result" (Unique 22) stringTy
-            source = FcProgram [FcNoInline (FcNonRec result (FcLet (FcNonRec alias (FcVar value)) (FcVar alias)))]
-            expected = FcProgram [FcNoInline (FcNonRec result (FcVar value))]
-        assertEqual "optimized NOINLINE binding" expected (optimizeProgram source),
       testCase "copy propagates simple non-recursive lets" $ do
         let value = Var "value" (Unique 1) stringTy
             alias = Var "alias" (Unique 2) stringTy
