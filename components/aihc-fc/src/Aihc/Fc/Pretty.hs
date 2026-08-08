@@ -530,7 +530,7 @@ renderRuntimeRepWith scope runtimeRep =
       maybe
         ("RuntimeRepVar " <> showUnique unique)
         (T.unpack . tvName)
-        (find ((== unique) . tvUnique) scope)
+        (find (\tyVar -> tvUnique tyVar == unique && tvKind tyVar == KRuntimeRep) scope)
     RuntimeRepMeta (Unique unique) -> "RuntimeRepMeta " <> show unique
   where
     showUnique (Unique unique) = show unique
