@@ -1,8 +1,14 @@
 expected: |-
-  data("State#",[],[])
-  data("RealWorld",[],[])
-  primitive(var("awaitIO#",1000,function-type(type-con(ty-con("Addr#",0,type-kind(addr-rep)),[]),function-type(type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]))),none),2)
-  top-bind(non-rec(var("await",1001,function-type(type-con(ty-con("Addr#",0,type-kind(addr-rep)),[]),function-type(type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]))),none),lambda(var("x1002",1002,type-con(ty-con("Addr#",0,type-kind(addr-rep)),[]),none),lambda(var("y1003",1003,type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),none),app(app(var-expr(var("awaitIO#",1004,function-type(type-con(ty-con("Addr#",0,type-kind(addr-rep)),[]),function-type(type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]))),some("Test.awaitIO#"))),var-expr(var("x1002",1002,type-con(ty-con("Addr#",0,type-kind(addr-rep)),[]),none))),var-expr(var("y1003",1003,type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),none)))))))
+  data State#
+
+  data RealWorld
+
+  foreign prim awaitIO#/2 : Addr# → (State# RealWorld) → State# RealWorld
+
+  await : Addr# → (State# RealWorld) → State# RealWorld =
+    λ(x1002 : Addr#).
+      λ(y1003 : State# RealWorld).
+        ((Test.awaitIO# : Addr# → (State# RealWorld) → State# RealWorld) x1002) y1003
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim

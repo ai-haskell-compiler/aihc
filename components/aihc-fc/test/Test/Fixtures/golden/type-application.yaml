@@ -1,7 +1,15 @@
 expected: |-
-  data("Bool",[],[constructor("True",[]),constructor("False",[])])
-  top-bind(non-rec(var("id",1000,forall-type(ty-var("a",16,type-kind(boxed-rep(lifted))),function-type(type-var(ty-var("a",16,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",16,type-kind(boxed-rep(lifted)))))),none),type-lambda(ty-var("a",16,type-kind(boxed-rep(lifted))),lambda(var("x1001",1001,type-var(ty-var("a",16,type-kind(boxed-rep(lifted)))),none),var-expr(var("x1001",1001,type-var(ty-var("a",16,type-kind(boxed-rep(lifted)))),none))))))
-  top-bind(non-rec(var("true",1002,type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]),none),app(type-app-expr(var-expr(var("id",1003,forall-type(ty-var("a",16,type-kind(boxed-rep(lifted))),function-type(type-var(ty-var("a",16,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",16,type-kind(boxed-rep(lifted)))))),some("Test.id"))),type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[])),var-expr(var("True",1004,type-con(ty-con("Bool",0,type-kind(boxed-rep(lifted))),[]),some("Test.True"))))))
+  data Bool
+   = True
+   | False
+
+  id : ∀ (a : TYPE BoxedRep Lifted). a → a =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ(x1001 : a).
+        x1001
+
+  true : Bool =
+    ((Test.id : ∀ (a : TYPE BoxedRep Lifted). a → a) @Bool) (Test.True : Bool)
 extensions: []
 modules:
 - |

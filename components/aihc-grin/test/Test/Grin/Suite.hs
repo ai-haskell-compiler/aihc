@@ -2214,7 +2214,10 @@ separateLinkableFunctionPrograms qualifier uniqueBase =
   where
     identityType = TcFunTy boxedIntTy boxedIntTy
     identityVar = Var "identity" (Unique uniqueBase) identityType
-    importedIdentityVar = (Var "identity" (Unique uniqueBase) identityType) {varResolvedName = Just (qualifier <> ".identity")}
+    importedIdentityVar =
+      (Var "identity" (Unique uniqueBase) identityType)
+        { varResolvedName = Just (FcTopLevelOrigin "" qualifier "identity")
+        }
     argumentVar = Var "argument" (Unique (uniqueBase + 1)) boxedIntTy
     answerVar = Var "answer" (Unique (uniqueBase + 2)) boxedIntTy
 
@@ -2225,7 +2228,10 @@ separateLinkableGlobalPrograms qualifier uniqueBase =
   ]
   where
     valueVar = Var "value" (Unique uniqueBase) boxedIntTy
-    importedValueVar = (Var "value" (Unique uniqueBase) boxedIntTy) {varResolvedName = Just (qualifier <> ".value")}
+    importedValueVar =
+      (Var "value" (Unique uniqueBase) boxedIntTy)
+        { varResolvedName = Just (FcTopLevelOrigin "" qualifier "value")
+        }
     answerVar = Var "answer" (Unique (uniqueBase + 1)) boxedIntTy
 
 separateNewtypePrograms :: [FcProgram]

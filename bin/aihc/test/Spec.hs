@@ -306,7 +306,7 @@ main =
                 assertBool ("expected type output, got:\n" <> T.unpack output) ("type:\n[Char]" `T.isInfixOf` output)
                 assertBool
                   ("expected system-fc output, got:\n" <> T.unpack output)
-                  ("system-fc:\ntop-bind(non-rec(var(\"__aihc_repl_it\"" `T.isInfixOf` output)
+                  ("system-fc:\n__aihc_repl_it : [Char] =" `T.isInfixOf` output)
                 assertBool ("expected desugared char list, got:\n" <> T.unpack output) (not ("LitString" `T.isInfixOf` output))
               Left err -> assertFailure ("expected success, got " <> show err),
           testCase "loads bundled aihc-base Prelude by default" $ do
@@ -816,8 +816,8 @@ test_checksCastStyleDependencyId =
     result <- expectInstallSuccess (writeInstallScaffold plan)
     fcJson <- BL8.readFile (resultFcPath result)
     let renderedFc = BL8.unpack fcJson
-    assertBool "FC artifact constructs an ordinary Cast dictionary" ("var(\\\"$Dict$Cast\\\"" `isInfixOf` renderedFc)
-    assertBool "FC artifact applies imported id" ("var(\\\"id\\\"" `isInfixOf` renderedFc)
+    assertBool "FC artifact constructs an ordinary Cast dictionary" ("$Dict$Cast :" `isInfixOf` renderedFc)
+    assertBool "FC artifact applies imported id" ("Dep.id" `isInfixOf` renderedFc)
 
 test_checksConstraintKindedMultiParameterClasses :: Assertion
 test_checksConstraintKindedMultiParameterClasses =

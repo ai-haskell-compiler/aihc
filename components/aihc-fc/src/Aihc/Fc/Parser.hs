@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Parser for the canonical System FC syntax emitted by
--- "Aihc.Fc.Pretty".
+-- | Parser for the human-readable System FC syntax emitted by
+-- "Aihc.Fc.Pretty". Compiler uniques are regenerated from lexical names;
+-- package/module symbol origins remain explicit syntax.
 module Aihc.Fc.Parser
   ( FcParseError,
     parseProgram,
@@ -14,28 +15,16 @@ where
 import Aihc.Fc.Syntax
 import Aihc.Tc.Evidence (Coercion (..), EvVar (..))
 import Aihc.Tc.Types
-  ( Kind (..),
-    Levity (..),
-    Pred (..),
-    RuntimeRep (..),
-    TcType (..),
-    TyCon,
-    TyVarId (..),
-    Unique (..),
-    VecCount (..),
-    VecElem (..),
-    mkTyCon,
-    setTyConKind,
-    setTyVarKind,
-  )
 import Control.Applicative ((<|>))
-import Control.Monad (guard)
+import Control.Monad (guard, void)
 import Data.ByteString qualified as BS
-import Data.Char (isAlphaNum)
+import Data.Char (isAlphaNum, isSpace, ord)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Void (Void)
-import Data.Word (Word8)
 import Text.Megaparsec (ParseErrorBundle, Parsec)
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
@@ -46,14 +35,22 @@ type Parser = Parsec Void Text
 
 type FcParseError = ParseErrorBundle Text Void
 
+type TermEnv = Map Text Var
+
+type TyEnv = Map Text TyVarId
+
 parseProgram :: Text -> Either FcParseError FcProgram
-parseProgram = MP.parse (FcProgram <$> (space *> MP.many topBind <* MP.eof)) "<system-fc>"
+parseProgram input =
+  FcProgram <$> traverse parseBlock blocks
+  where
+    blocks = filter (not . T.null) (map T.strip (T.splitOn "\n\n" input))
+    parseBlock = MP.parse (space *> topBind <* MP.eof) "<system-fc>"
 
 parseExpr :: Text -> Either FcParseError FcExpr
-parseExpr = MP.parse (space *> expression <* MP.eof) "<system-fc-expression>"
+parseExpr = MP.parse (space *> expression mempty mempty <* MP.eof) "<system-fc-expression>"
 
 parseType :: Text -> Either FcParseError TcType
-parseType = MP.parse (space *> tcType <* MP.eof) "<system-fc-type>"
+parseType = MP.parse (space *> tcType mempty <* MP.eof) "<system-fc-type>"
 
 renderParseError :: FcParseError -> String
 renderParseError = MP.errorBundlePretty
@@ -61,253 +58,469 @@ renderParseError = MP.errorBundlePretty
 topBind :: Parser FcTopBind
 topBind =
   MP.choice
-    [ makeData <$> form "data" ((,,) <$> text <* comma <*> list tyVar <* comma <*> list dataConstructor),
-      FcAxiom <$> form "axiom" axiomDecl,
-      FcNewtype <$> form "newtype" newtypeDecl,
-      uncurry FcPrimitive <$> form "primitive" ((,) <$> var <* comma <*> int),
-      FcForeignImport <$> form "foreign-import" foreignCall,
-      FcTopBind <$> form "top-bind" bind
+    [ MP.try dataDeclaration,
+      MP.try axiomDeclaration,
+      MP.try newtypeDeclaration,
+      MP.try primitiveDeclaration,
+      MP.try foreignImportDeclaration,
+      FcTopBind <$> bind mempty mempty
     ]
-  where
-    makeData (name, tyVars, constructors) = FcData name tyVars constructors
 
-dataConstructor :: Parser (Text, [TcType])
-dataConstructor = form "constructor" ((,) <$> text <* comma <*> list tcType)
+dataDeclaration :: Parser FcTopBind
+dataDeclaration = do
+  _ <- keyword "data"
+  dataName <- name
+  tyVars <- MP.many tyVarBinder
+  let tyEnv = tyVarEnv tyVars
+  constructors <- MP.many (MP.try ((symbol "=" <|> symbol "|") *> constructor tyEnv))
+  pure (FcData dataName tyVars constructors)
 
-axiomDecl :: Parser FcAxiomDecl
-axiomDecl =
-  form "axiom-decl" $
-    FcAxiomDecl
-      <$> text
-      <* comma
-      <*> list tyVar
-      <* comma
-      <*> axiomRole
-      <* comma
-      <*> tcType
-      <* comma
-      <*> tcType
+constructor :: TyEnv -> Parser (Text, [TcType])
+constructor tyEnv = do
+  existentialTyVars <- MP.option [] (symbol "∀" *> MP.some tyVarBinder <* symbol ".")
+  constructorName <- name
+  let fieldEnv = Map.union (tyVarEnv existentialTyVars) tyEnv
+  fields <- MP.many (between "(" ")" (tcType fieldEnv))
+  pure (constructorName, fields)
 
-axiomRole :: Parser FcAxiomRole
-axiomRole = FcNominal <$ keyword "nominal" <|> FcRepresentational <$ keyword "representational"
+axiomDeclaration :: Parser FcTopBind
+axiomDeclaration = do
+  _ <- keyword "axiom"
+  axiomName <- name
+  tyVars <- MP.many tyVarBinder
+  let tyEnv = tyVarEnv tyVars
+  _ <- symbol ":"
+  left <- tcType tyEnv
+  role <- FcNominal <$ symbol "~N" <|> FcRepresentational <$ symbol "~R"
+  right <- tcType tyEnv
+  pure (FcAxiom (FcAxiomDecl axiomName tyVars role left right))
 
-newtypeDecl :: Parser FcNewtypeDecl
-newtypeDecl =
-  form "newtype-decl" $
-    FcNewtypeDecl
-      <$> text
-      <* comma
-      <*> list tyVar
-      <* comma
-      <*> text
-      <* comma
-      <*> tcType
-      <* comma
-      <*> tcType
+newtypeDeclaration :: Parser FcTopBind
+newtypeDeclaration = do
+  _ <- keyword "newtype"
+  newtypeName <- name
+  tyVars <- MP.many tyVarBinder
+  let tyEnv = tyVarEnv tyVars
+  _ <- symbol ":"
+  result <- tcType tyEnv
+  _ <- symbol "="
+  constructorName <- name
+  representation <- tcType tyEnv
+  pure (FcNewtype (FcNewtypeDecl newtypeName tyVars constructorName representation result))
 
-foreignCall :: Parser FcForeignCall
-foreignCall =
-  form "foreign-call" $
-    FcForeignCall <$> text <* comma <*> text <* comma <*> foreignSignature
+primitiveDeclaration :: Parser FcTopBind
+primitiveDeclaration = do
+  _ <- keyword "foreign"
+  _ <- keyword "prim"
+  binderName <- name
+  _ <- symbol "/"
+  arity <- int
+  _ <- symbol ":"
+  ty <- tcType mempty
+  pure (FcPrimitive (mkVar binderName ty) arity)
+
+foreignImportDeclaration :: Parser FcTopBind
+foreignImportDeclaration = do
+  _ <- keyword "foreign"
+  _ <- keyword "ccall"
+  foreignCall <- foreignCallHeader
+  _ <- symbol ":"
+  _ <- tcType mempty
+  pure (FcForeignImport foreignCall)
+
+foreignCallHeader :: Parser FcForeignCall
+foreignCallHeader = do
+  foreignSymbol <- text
+  foreignName <- name
+  signature <- between "[" "]" foreignSignature
+  pure (FcForeignCall foreignName foreignSymbol signature)
 
 foreignSignature :: Parser FcForeignSignature
-foreignSignature =
-  form "foreign-signature" $
-    FcForeignSignature <$> list foreignType <* comma <*> foreignType <* comma <*> foreignEffect
-
-foreignEffect :: Parser FcForeignEffect
-foreignEffect = FcForeignPure <$ keyword "pure" <|> FcForeignRealWorld <$ keyword "real-world"
+foreignSignature = do
+  arguments <- foreignType `MP.sepBy` symbol ","
+  _ <- symbol "→"
+  result <- foreignType
+  _ <- symbol ";"
+  effect <- FcForeignPure <$ keyword "pure" <|> FcForeignRealWorld <$ keyword "real-world"
+  pure (FcForeignSignature arguments result effect)
 
 foreignType :: Parser FcForeignType
 foreignType =
   MP.choice
-    [ FcForeignInt32 <$ keyword "int32",
-      FcForeignInt <$ keyword "int",
-      FcForeignWord64 <$ keyword "word64",
-      FcForeignAddr <$ keyword "addr"
+    [ FcForeignInt32 <$ keyword "Int32",
+      FcForeignInt <$ keyword "Int",
+      FcForeignWord64 <$ keyword "Word64",
+      FcForeignAddr <$ keyword "Addr"
     ]
 
-bind :: Parser FcBind
-bind =
-  MP.choice
-    [ uncurry FcNonRec <$> form "non-rec" ((,) <$> var <* comma <*> expression),
-      FcRec <$> form "rec" (list binding)
-    ]
+bind :: TermEnv -> TyEnv -> Parser FcBind
+bind termEnv tyEnv = MP.try (recBind termEnv tyEnv) <|> nonRecBind termEnv tyEnv
 
-binding :: Parser (Var, FcExpr)
-binding = form "binding" ((,) <$> var <* comma <*> expression)
+nonRecBind :: TermEnv -> TyEnv -> Parser FcBind
+nonRecBind termEnv tyEnv = do
+  binderName <- name
+  _ <- symbol ":"
+  ty <- tcType tyEnv
+  let var = mkVar binderName ty
+      scoped = Map.insert binderName var termEnv
+  _ <- symbol "="
+  FcNonRec var <$> expression scoped tyEnv
 
-expression :: Parser FcExpr
-expression =
-  MP.choice
-    [ FcVar <$> form "var-expr" var,
-      FcLit <$> form "lit" literal,
-      uncurry FcApp <$> form "app" ((,) <$> expression <* comma <*> expression),
-      uncurry FcTyApp <$> form "type-app-expr" ((,) <$> expression <* comma <*> tcType),
-      uncurry FcLam <$> form "lambda" ((,) <$> var <* comma <*> expression),
-      uncurry FcTyLam <$> form "type-lambda" ((,) <$> tyVar <* comma <*> expression),
-      uncurry FcLet <$> form "let" ((,) <$> bind <* comma <*> expression),
-      makeCase <$> form "case" ((,,) <$> expression <* comma <*> var <* comma <*> list alternative),
-      uncurry FcCast <$> form "cast" ((,) <$> expression <* comma <*> coercion),
-      uncurry FcCallForeign <$> form "call-foreign" ((,) <$> foreignCall <* comma <*> list expression)
-    ]
+recBind :: TermEnv -> TyEnv -> Parser FcBind
+recBind termEnv tyEnv = do
+  _ <- keyword "rec"
+  between "{" "}" $ do
+    emptyRec <|> nonEmptyRec
   where
-    makeCase (scrutinee, binder, alternatives) = FcCase scrutinee binder alternatives
+    emptyRec = FcRec [] <$ MP.lookAhead (symbol "}")
+    nonEmptyRec = do
+      declarations <- MP.some (MP.try (recDeclaration tyEnv <* symbol ";"))
+      let vars = map snd declarations
+          recursiveEnv = Map.union (Map.fromList declarations) termEnv
+      equations <- recEquation recursiveEnv tyEnv `MP.sepBy1` symbol ";"
+      let rhsByName = Map.fromList equations
+      FcRec <$> traverse (attachRhs rhsByName) vars
+    attachRhs rhsByName var =
+      case Map.lookup (varName var) rhsByName of
+        Just rhs -> pure (var, rhs)
+        Nothing -> fail ("missing recursive equation for " <> T.unpack (varName var))
 
-alternative :: Parser FcAlt
-alternative =
-  form "alt" $
-    FcAlt <$> altConstructor <* comma <*> list var <* comma <*> expression
+recDeclaration :: TyEnv -> Parser (Text, Var)
+recDeclaration tyEnv = do
+  binderName <- name
+  _ <- symbol ":"
+  ty <- tcType tyEnv
+  pure (binderName, mkVar binderName ty)
+
+recEquation :: TermEnv -> TyEnv -> Parser (Text, FcExpr)
+recEquation termEnv tyEnv = do
+  binderName <- name
+  _ <- symbol "="
+  (binderName,) <$> expression termEnv tyEnv
+
+expression :: TermEnv -> TyEnv -> Parser FcExpr
+expression termEnv tyEnv =
+  MP.choice
+    [ lambda termEnv tyEnv,
+      typeLambda termEnv tyEnv,
+      letExpression termEnv tyEnv,
+      caseExpression termEnv tyEnv,
+      castExpression termEnv tyEnv
+    ]
+
+lambda :: TermEnv -> TyEnv -> Parser FcExpr
+lambda termEnv tyEnv = do
+  _ <- symbol "λ"
+  (binderName, ty) <- between "(" ")" ((,) <$> name <* symbol ":" <*> tcType tyEnv)
+  _ <- symbol "."
+  let var = mkVar binderName ty
+  FcLam var <$> expression (Map.insert binderName var termEnv) tyEnv
+
+typeLambda :: TermEnv -> TyEnv -> Parser FcExpr
+typeLambda termEnv tyEnv = do
+  _ <- symbol "Λ"
+  tyVar <- tyVarBinder
+  _ <- symbol "."
+  FcTyLam tyVar <$> expression termEnv (Map.insert (tvName tyVar) tyVar tyEnv)
+
+letExpression :: TermEnv -> TyEnv -> Parser FcExpr
+letExpression termEnv tyEnv = do
+  _ <- keyword "let"
+  binding <- between "{" "}" (bind termEnv tyEnv)
+  _ <- keyword "in"
+  let bodyEnv = Map.union (bindTermEnv binding) termEnv
+  FcLet binding <$> expression bodyEnv tyEnv
+
+bindTermEnv :: FcBind -> TermEnv
+bindTermEnv binding =
+  case binding of
+    FcNonRec var _ -> Map.singleton (varName var) var
+    FcRec bindings -> Map.fromList [(varName var, var) | (var, _) <- bindings]
+
+caseExpression :: TermEnv -> TyEnv -> Parser FcExpr
+caseExpression termEnv tyEnv = do
+  _ <- keyword "case"
+  scrutinee <- expression termEnv tyEnv
+  _ <- keyword "as"
+  (binderName, binderType) <- between "(" ")" ((,) <$> name <* symbol ":" <*> tcType tyEnv)
+  _ <- keyword "of"
+  let binder = mkVar binderName binderType
+      caseEnv = Map.insert binderName binder termEnv
+  alternatives <- between "{" "}" (alternative caseEnv tyEnv `MP.sepBy` symbol ";")
+  pure (FcCase scrutinee binder alternatives)
+
+alternative :: TermEnv -> TyEnv -> Parser FcAlt
+alternative termEnv tyEnv = do
+  alternativeConstructor <- altConstructor
+  binders <- MP.many (between "(" ")" (typedVar tyEnv))
+  _ <- symbol "→"
+  let altEnv = Map.union (Map.fromList [(varName var, var) | var <- binders]) termEnv
+  FcAlt alternativeConstructor binders <$> expression altEnv tyEnv
 
 altConstructor :: Parser FcAltCon
 altConstructor =
+  DefaultAlt <$ symbol "_"
+    <|> MP.try (LitAlt <$> literal)
+    <|> DataAlt <$> name
+
+typedVar :: TyEnv -> Parser Var
+typedVar tyEnv = mkVar <$> name <* symbol ":" <*> tcType tyEnv
+
+castExpression :: TermEnv -> TyEnv -> Parser FcExpr
+castExpression termEnv tyEnv = do
+  base <- application termEnv tyEnv
+  maybe base (FcCast base) <$> MP.optional (symbol "▷" *> coercion tyEnv)
+
+application :: TermEnv -> TyEnv -> Parser FcExpr
+application termEnv tyEnv = do
+  function <- atom termEnv tyEnv
+  arguments <- MP.many (MP.try (Left <$> (symbol "@" *> typeAtom tyEnv)) <|> MP.try (Right <$> atom termEnv tyEnv))
+  pure (foldl' apply function arguments)
+  where
+    apply function (Left ty) = FcTyApp function ty
+    apply function (Right argument) = FcApp function argument
+
+atom :: TermEnv -> TyEnv -> Parser FcExpr
+atom termEnv tyEnv =
   MP.choice
-    [ DataAlt <$> form "data-alt" text,
-      LitAlt <$> form "lit-alt" literal,
-      DefaultAlt <$ keyword "default-alt"
+    [ MP.try (freeOccurrence tyEnv),
+      between "(" ")" (expression termEnv tyEnv),
+      MP.try (FcLit <$> literal),
+      MP.try (foreignCallExpression termEnv tyEnv),
+      localOccurrence termEnv
     ]
 
-var :: Parser Var
-var = form "var" $ do
-  name <- text <* comma
-  identifier <- unique <* comma
-  ty <- tcType <* comma
-  resolvedName <- maybeValue text
-  pure ((Var name identifier ty) {varResolvedName = resolvedName})
+freeOccurrence :: TyEnv -> Parser FcExpr
+freeOccurrence tyEnv = between "(" ")" $ do
+  (displayName, origin) <- originName
+  _ <- symbol ":"
+  ty <- tcType tyEnv
+  pure (FcVar ((mkVar displayName ty) {varResolvedName = origin}))
+
+originName :: Parser (Text, Maybe FcSymbolOrigin)
+originName = MP.try topLevelOrigin <|> MP.try builtinOrigin <|> ((,Nothing) <$> name)
+
+topLevelOrigin :: Parser (Text, Maybe FcSymbolOrigin)
+topLevelOrigin = do
+  packageName <- MP.optional (MP.try text)
+  qualified <- qualifiedName
+  let (moduleName, symbolName) = splitQualified qualified
+  guard (moduleName /= "")
+  pure (symbolName, Just (FcTopLevelOrigin (fromMaybe "" packageName) moduleName symbolName))
+
+builtinOrigin :: Parser (Text, Maybe FcSymbolOrigin)
+builtinOrigin = do
+  _ <- symbol "builtin."
+  symbolName <- name
+  pure (symbolName, Just (FcBuiltinOrigin symbolName))
+
+qualifiedName :: Parser Text
+qualifiedName = lexeme (T.pack <$> MP.some (MP.satisfy qualifiedNameCharacter))
+
+qualifiedNameCharacter :: Char -> Bool
+qualifiedNameCharacter character =
+  not (isSpace character) && character `notElem` (":(){}[];," :: String)
+
+splitQualified :: Text -> (Text, Text)
+splitQualified value =
+  let (prefix, suffix) = T.breakOnEnd "." value
+   in (T.dropEnd 1 prefix, suffix)
+
+localOccurrence :: TermEnv -> Parser FcExpr
+localOccurrence termEnv = do
+  occurrenceName <- name
+  case Map.lookup occurrenceName termEnv of
+    Just var -> pure (FcVar var)
+    Nothing -> fail ("unbound System FC variable " <> T.unpack occurrenceName)
+
+foreignCallExpression :: TermEnv -> TyEnv -> Parser FcExpr
+foreignCallExpression termEnv tyEnv = do
+  _ <- keyword "foreign-call"
+  foreignCall <- foreignCallHeader
+  arguments <- MP.many (MP.try (atom termEnv tyEnv))
+  pure (FcCallForeign foreignCall arguments)
 
 literal :: Parser Literal
 literal =
   MP.choice
-    [ uncurry LitInt <$> form "int-literal" ((,) <$> runtimeRep <* comma <*> integer),
-      uncurry LitChar <$> form "char-literal" ((,) <$> runtimeRep <* comma <*> char),
-      LitString <$> form "string-literal" text,
-      LitAddr . BS.pack <$> form "addr-literal" (list word8)
+    [ MP.try addressLiteral,
+      MP.try stringLiteral,
+      MP.try charLiteral,
+      intLiteral
     ]
 
-tcType :: Parser TcType
-tcType =
+addressLiteral :: Parser Literal
+addressLiteral = do
+  value <- text
+  _ <- symbol "#AddrRep"
+  LitAddr . BS.pack <$> traverse latin1 (T.unpack value)
+  where
+    latin1 character = guard (ord character <= 255) >> pure (fromIntegral (ord character))
+
+stringLiteral :: Parser Literal
+stringLiteral = LitString <$> text
+
+charLiteral :: Parser Literal
+charLiteral = do
+  value <- char
+  void (symbol "#")
+  LitChar <$> runtimeRep <*> pure value
+
+intLiteral :: Parser Literal
+intLiteral = do
+  value <- integer
+  void (symbol "#")
+  flip LitInt value <$> runtimeRep
+
+tcType :: TyEnv -> Parser TcType
+tcType tyEnv =
+  MP.try (forallType tyEnv)
+    <|> MP.try (qualifiedType tyEnv)
+    <|> functionType tyEnv
+
+forallType :: TyEnv -> Parser TcType
+forallType tyEnv = do
+  _ <- symbol "∀"
+  tyVars <- MP.some tyVarBinder
+  _ <- symbol "."
+  body <- tcType (Map.union (tyVarEnv tyVars) tyEnv)
+  pure (foldr TcForAllTy body tyVars)
+
+qualifiedType :: TyEnv -> Parser TcType
+qualifiedType tyEnv = do
+  predicates <- between "(" ")" (predicate tyEnv `MP.sepBy` symbol ",")
+  _ <- symbol "⇒"
+  TcQualTy predicates <$> tcType tyEnv
+
+predicate :: TyEnv -> Parser Pred
+predicate tyEnv = MP.try equalityPredicate <|> classPredicate
+  where
+    equalityPredicate = EqPred <$> typeAtom tyEnv <* symbol "~" <*> typeAtom tyEnv
+    classPredicate = ClassPred <$> name <*> MP.many (typeAtom tyEnv)
+
+functionType :: TyEnv -> Parser TcType
+functionType tyEnv = do
+  argument <- typeApplication tyEnv
+  maybe argument (TcFunTy argument) <$> MP.optional (symbol "→" *> tcType tyEnv)
+
+typeApplication :: TyEnv -> Parser TcType
+typeApplication tyEnv = do
+  function <- typeAtom tyEnv
+  explicit <- MP.many (MP.try (symbol "·" *> typeAtom tyEnv))
+  if null explicit
+    then do
+      arguments <- MP.many (MP.try (typeAtom tyEnv))
+      pure (applyTyCon function arguments)
+    else pure (foldl' TcAppTy function explicit)
+
+applyTyCon :: TcType -> [TcType] -> TcType
+applyTyCon (TcTyCon tyCon existing) arguments =
+  let allArguments = existing <> arguments
+   in TcTyCon (TyCon (tyConName tyCon) (length allArguments)) allArguments
+applyTyCon function arguments = foldl' TcAppTy function arguments
+
+typeAtom :: TyEnv -> Parser TcType
+typeAtom tyEnv =
   MP.choice
-    [ TcTyVar <$> form "type-var" tyVar,
-      TcMetaTv <$> form "meta-type" unique,
-      uncurry TcTyCon <$> form "type-con" ((,) <$> tyCon <* comma <*> list tcType),
-      uncurry TcFunTy <$> form "function-type" ((,) <$> tcType <* comma <*> tcType),
-      uncurry TcForAllTy <$> form "forall-type" ((,) <$> tyVar <* comma <*> tcType),
-      uncurry TcQualTy <$> form "qualified-type" ((,) <$> list predType <* comma <*> tcType),
-      uncurry TcAppTy <$> form "type-app" ((,) <$> tcType <* comma <*> tcType)
+    [ between "[" "]" (TcTyCon (TyCon "[]" 1) . pure <$> tcType tyEnv),
+      MP.try (freeTyVar tyEnv),
+      MP.try (namedType tyEnv),
+      between "(" ")" (tcType tyEnv),
+      metaType
     ]
 
-predType :: Parser Pred
-predType =
-  MP.choice
-    [ uncurry ClassPred <$> form "class-pred" ((,) <$> text <* comma <*> list tcType),
-      uncurry EqPred <$> form "equality-pred" ((,) <$> tcType <* comma <*> tcType)
-    ]
+freeTyVar :: TyEnv -> Parser TcType
+freeTyVar _ = do
+  tyVar <- tyVarBinder
+  let freeUnique = uniqueFor ("free:" <> tvName tyVar <> T.pack (show (tvKind tyVar)))
+  pure (TcTyVar (setTyVarKind (tvKind tyVar) (TyVarId (tvName tyVar) freeUnique)))
 
-tyVar :: Parser TyVarId
-tyVar = form "ty-var" $ do
-  name <- text <* comma
-  identifier <- unique <* comma
-  kind <- kindType
-  pure (setTyVarKind kind (TyVarId name identifier))
+metaType :: Parser TcType
+metaType = TcMetaTv . Unique <$> (symbol "?" *> int)
 
-tyCon :: Parser TyCon
-tyCon = form "ty-con" $ do
-  name <- text <* comma
-  arity <- int <* comma
+namedType :: TyEnv -> Parser TcType
+namedType tyEnv = do
+  typeName <- name
+  pure $ maybe (TcTyCon (TyCon typeName 0) []) TcTyVar (Map.lookup typeName tyEnv)
+
+tyVarBinder :: Parser TyVarId
+tyVarBinder = between "(" ")" $ do
+  typeName <- name
+  _ <- symbol ":"
   kind <- kindType
-  pure (setTyConKind kind (mkTyCon name arity kind))
+  pure (setTyVarKind kind (TyVarId typeName (uniqueFor typeName)))
+
+tyVarEnv :: [TyVarId] -> TyEnv
+tyVarEnv = Map.fromList . map (\tyVar -> (tvName tyVar, tyVar))
 
 kindType :: Parser Kind
-kindType =
+kindType = do
+  argument <- kindAtom
+  maybe argument (KFun argument) <$> MP.optional (symbol "→" *> kindType)
+
+kindAtom :: Parser Kind
+kindAtom =
   MP.choice
-    [ KTYPE <$> form "type-kind" runtimeRep,
-      KConstraint <$ keyword "constraint-kind",
-      KRuntimeRep <$ keyword "runtime-rep-kind",
-      KLevity <$ keyword "levity-kind",
-      KVecCount <$ keyword "vec-count-kind",
-      KVecElem <$ keyword "vec-elem-kind",
-      uncurry KFun <$> form "kind-function" ((,) <$> kindType <* comma <*> kindType),
-      KMeta <$> form "meta-kind" unique
+    [ KTYPE <$> (keyword "TYPE" *> runtimeRep),
+      KConstraint <$ keyword "Constraint",
+      KRuntimeRep <$ keyword "RuntimeRep",
+      KLevity <$ keyword "Levity",
+      KVecCount <$ keyword "VecCount",
+      KVecElem <$ keyword "VecElem",
+      KMeta . Unique <$> (symbol "?k" *> int),
+      between "(" ")" kindType
     ]
 
 runtimeRep :: Parser RuntimeRep
 runtimeRep =
   MP.choice
-    [ uncurry VecRep <$> form "vec-rep" ((,) <$> vecCount <* comma <*> vecElem),
-      TupleRep <$> form "tuple-rep" (list runtimeRep),
-      SumRep <$> form "sum-rep" (list runtimeRep),
-      BoxedRep <$> form "boxed-rep" levity,
-      Int8Rep <$ keyword "int8-rep",
-      Int16Rep <$ keyword "int16-rep",
-      Int32Rep <$ keyword "int32-rep",
-      Int64Rep <$ keyword "int64-rep",
-      IntRep <$ keyword "int-rep",
-      Word8Rep <$ keyword "word8-rep",
-      Word16Rep <$ keyword "word16-rep",
-      Word32Rep <$ keyword "word32-rep",
-      Word64Rep <$ keyword "word64-rep",
-      WordRep <$ keyword "word-rep",
-      AddrRep <$ keyword "addr-rep",
-      FloatRep <$ keyword "float-rep",
-      DoubleRep <$ keyword "double-rep",
-      RuntimeRepVar <$> form "runtime-rep-var" unique,
-      RuntimeRepMeta <$> form "runtime-rep-meta" unique
+    [ VecRep <$> (keyword "VecRep" *> readValue) <*> readValue,
+      TupleRep <$> (keyword "TupleRep" *> list runtimeRep),
+      SumRep <$> (keyword "SumRep" *> list runtimeRep),
+      BoxedRep <$> (keyword "BoxedRep" *> readValue),
+      Int8Rep <$ keyword "Int8Rep",
+      Int16Rep <$ keyword "Int16Rep",
+      Int32Rep <$ keyword "Int32Rep",
+      Int64Rep <$ keyword "Int64Rep",
+      IntRep <$ keyword "IntRep",
+      Word8Rep <$ keyword "Word8Rep",
+      Word16Rep <$ keyword "Word16Rep",
+      Word32Rep <$ keyword "Word32Rep",
+      Word64Rep <$ keyword "Word64Rep",
+      WordRep <$ keyword "WordRep",
+      AddrRep <$ keyword "AddrRep",
+      FloatRep <$ keyword "FloatRep",
+      DoubleRep <$ keyword "DoubleRep",
+      RuntimeRepVar . Unique <$> (keyword "RuntimeRepVar" *> int),
+      RuntimeRepMeta . Unique <$> (keyword "RuntimeRepMeta" *> int)
     ]
 
-levity :: Parser Levity
-levity = Lifted <$ keyword "lifted" <|> Unlifted <$ keyword "unlifted"
-
-vecCount :: Parser VecCount
-vecCount =
+coercion :: TyEnv -> Parser Coercion
+coercion tyEnv =
   MP.choice
-    [ Vec16 <$ keyword "vec16",
-      Vec32 <$ keyword "vec32",
-      Vec64 <$ keyword "vec64",
-      Vec2 <$ keyword "vec2",
-      Vec4 <$ keyword "vec4",
-      Vec8 <$ keyword "vec8"
+    [ CoVar . EvVar . Unique <$> (symbol "co#" *> int),
+      Refl <$> (keyword "refl" *> between "(" ")" (tcType tyEnv)),
+      Sym <$> (keyword "sym" *> between "(" ")" (coercion tyEnv)),
+      Trans <$> (keyword "trans" *> between "(" ")" (coercion tyEnv)) <*> between "(" ")" (coercion tyEnv),
+      TyConAppCo <$> (keyword "tycon-co" *> (TyCon <$> name <*> pure 0)) <*> MP.many (between "(" ")" (coercion tyEnv)),
+      AxiomInstCo <$> (keyword "axiom-co" *> name) <*> MP.many (symbol "@" *> typeAtom tyEnv)
     ]
 
-vecElem :: Parser VecElem
-vecElem =
-  MP.choice
-    [ Int8ElemRep <$ keyword "int8-elem-rep",
-      Int16ElemRep <$ keyword "int16-elem-rep",
-      Int32ElemRep <$ keyword "int32-elem-rep",
-      Int64ElemRep <$ keyword "int64-elem-rep",
-      Word8ElemRep <$ keyword "word8-elem-rep",
-      Word16ElemRep <$ keyword "word16-elem-rep",
-      Word32ElemRep <$ keyword "word32-elem-rep",
-      Word64ElemRep <$ keyword "word64-elem-rep",
-      FloatElemRep <$ keyword "float-elem-rep",
-      DoubleElemRep <$ keyword "double-elem-rep"
-    ]
+mkVar :: Text -> TcType -> Var
+mkVar varName' varType' = Var varName' (uniqueFor (varName' <> T.pack (show varType'))) varType'
 
-coercion :: Parser Coercion
-coercion =
-  MP.choice
-    [ CoVar . EvVar <$> form "co-var" unique,
-      Refl <$> form "refl" tcType,
-      Sym <$> form "sym" coercion,
-      uncurry Trans <$> form "trans" ((,) <$> coercion <* comma <*> coercion),
-      uncurry TyConAppCo <$> form "ty-con-app-co" ((,) <$> tyCon <* comma <*> list coercion),
-      uncurry AxiomInstCo <$> form "axiom-inst-co" ((,) <$> text <* comma <*> list tcType)
-    ]
+uniqueFor :: Text -> Unique
+uniqueFor = Unique . T.foldl' (\hash character -> hash * 33 + ord character) 5381
 
-form :: Text -> Parser a -> Parser a
-form name contents = keyword name *> between "(" ")" contents
+name :: Parser Text
+name = lexeme (specialName <|> ordinaryName)
+  where
+    specialName = MP.choice (map MPC.string ["(#,#)", "(,)", "()", "[]", ":"])
+    ordinaryName = T.pack <$> MP.some (MP.satisfy nameCharacter)
 
-list :: Parser a -> Parser [a]
-list parser = between "[" "]" (parser `MP.sepBy` comma)
-
-maybeValue :: Parser a -> Parser (Maybe a)
-maybeValue parser = Nothing <$ keyword "none" <|> Just <$> form "some" parser
-
-between :: Text -> Text -> Parser a -> Parser a
-between open close = MP.between (symbol open) (symbol close)
-
-comma :: Parser Text
-comma = symbol ","
+nameCharacter :: Char -> Bool
+nameCharacter character =
+  isAlphaNum character || character `elem` ("_$#'" :: String)
 
 text :: Parser Text
 text = T.pack <$> haskellLiteral "string" '"'
@@ -320,34 +533,25 @@ haskellLiteral description delimiter = do
   source <- lexeme $ do
     contents <- MPC.char delimiter *> MP.many literalPiece <* MPC.char delimiter
     pure (delimiter : concat contents <> [delimiter])
-  case readMaybe source of
-    Just value -> pure value
-    Nothing -> fail ("invalid Haskell " <> description <> " literal")
+  maybe (fail ("invalid Haskell " <> description <> " literal")) pure (readMaybe source)
   where
     literalPiece =
       (\escaped -> ['\\', escaped]) <$> (MPC.char '\\' *> MP.anySingle)
         <|> (: []) <$> MP.satisfy (\character -> character /= delimiter && character /= '\\')
 
-unique :: Parser Unique
-unique = Unique <$> int
+readValue :: (Read value) => Parser value
+readValue = do
+  value <- lexeme (MP.some (MP.satisfy (\character -> isAlphaNum character || character `elem` ("_" :: String))))
+  maybe (fail "invalid constructor") pure (readMaybe value)
 
-word8 :: Parser Word8
-word8 = do
-  value <- integer
-  guard (value >= 0 && value <= 255)
-  pure (fromInteger value)
+list :: Parser a -> Parser [a]
+list parser = between "[" "]" (parser `MP.sepBy` symbol ",")
 
-int :: Parser Int
-int = lexeme (L.signed space L.decimal)
-
-integer :: Parser Integer
-integer = lexeme (L.signed space L.decimal)
+between :: Text -> Text -> Parser a -> Parser a
+between open close = MP.between (symbol open) (symbol close)
 
 keyword :: Text -> Parser Text
-keyword value = lexeme (MP.try (MPC.string value <* MP.notFollowedBy nameCharacter))
-
-nameCharacter :: Parser Char
-nameCharacter = MP.satisfy (\character -> isAlphaNum character || character == '-')
+keyword value = lexeme (MP.try (MPC.string value <* MP.notFollowedBy (MP.satisfy nameCharacter)))
 
 symbol :: Text -> Parser Text
 symbol = L.symbol space
@@ -357,3 +561,9 @@ lexeme = L.lexeme space
 
 space :: Parser ()
 space = L.space MPC.space1 (L.skipLineComment "--") (L.skipBlockComment "{-" "-}")
+
+int :: Parser Int
+int = lexeme (L.signed space L.decimal)
+
+integer :: Parser Integer
+integer = lexeme (L.signed space L.decimal)

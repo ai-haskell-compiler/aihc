@@ -55,7 +55,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Parser.Syntax qualified as Surface
-import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Env (DataConFieldInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -540,6 +540,7 @@ dsExpr (EAnn ann inner)
 dsExpr (EVar name) = do
   let n = nameText name
       resolvedName = resolvedOccurrenceName name
+      resolvedOrigin = resolvedOccurrenceOrigin name
   -- Check local bindings first (pattern/lambda variables).
   mLocal <- lookupLocalName resolvedName
   case mLocal of
@@ -547,7 +548,7 @@ dsExpr (EVar name) = do
     Nothing -> do
       ty <- lookupTypeName resolvedName
       v <- freshVar n ty
-      pure (FcVar v {varResolvedName = nameToResolvedText resolvedName})
+      pure (FcVar v {varResolvedName = resolvedOrigin})
 dsExpr (EInt i numericType _) = pure (FcLit (LitInt (numericRuntimeRep numericType) i))
 dsExpr (EChar c _) = pure (boxCharLiteral c)
 dsExpr (ECharHash c _) = pure (FcLit (LitChar WordRep c))
@@ -587,6 +588,7 @@ dsAnnotatedVar :: TcAnnotation -> Name -> Expr -> DsM FcExpr
 dsAnnotatedVar tcAnn name _expr = do
   let n = nameText name
       resolvedName = resolvedOccurrenceName name
+      resolvedOrigin = resolvedOccurrenceOrigin name
   mLocal <- lookupLocalName resolvedName
   variable <-
     case mLocal of
@@ -594,7 +596,7 @@ dsAnnotatedVar tcAnn name _expr = do
       Nothing -> do
         ty <- lookupTypeName resolvedName
         imported <- freshVar n ty
-        pure imported {varResolvedName = nameToResolvedText resolvedName}
+        pure imported {varResolvedName = resolvedOrigin}
   let occurrenceVar
         | isGhcPrimSeq name = variable {varName = seqPseudoOpName}
         | otherwise = variable
@@ -833,6 +835,29 @@ resolvedOccurrenceName name =
           resolutionNamespace resolution == ResolutionNamespaceTerm
         ]
     )
+
+resolvedOccurrenceOrigin :: Name -> Maybe FcSymbolOrigin
+resolvedOccurrenceOrigin name =
+  resolvedNameOrigin . resolutionTarget
+    =<< listToMaybe
+      [ resolution
+      | resolution <- mapMaybe fromAnnotation (nameAnns name),
+        resolutionNamespace resolution == ResolutionNamespaceTerm
+      ]
+
+resolvedNameOrigin :: ResolvedName -> Maybe FcSymbolOrigin
+resolvedNameOrigin resolved =
+  case resolved of
+    ResolvedTopLevel packageId name ->
+      Just
+        FcTopLevelOrigin
+          { fcOriginPackage = packageIdText packageId,
+            fcOriginModule = fromMaybe "" (nameQualifier name),
+            fcOriginName = nameText name
+          }
+    ResolvedBuiltin name -> Just (FcBuiltinOrigin name)
+    ResolvedLocal {} -> Nothing
+    ResolvedError {} -> Nothing
 
 isFromIntegerResolution :: ResolutionAnnotation -> Bool
 isFromIntegerResolution resolution =
@@ -1808,9 +1833,6 @@ nameToText :: Name -> Text
 nameToText n = case nameQualifier n of
   Nothing -> nameText n
   Just q -> q <> "." <> nameText n
-
-nameToResolvedText :: Name -> Maybe Text
-nameToResolvedText name = (<> "." <> nameText name) <$> nameQualifier name
 
 lookupLocalName :: Name -> DsM (Maybe Var)
 lookupLocalName name = do

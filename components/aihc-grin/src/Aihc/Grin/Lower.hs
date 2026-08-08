@@ -1200,7 +1200,7 @@ lowerGlobalVar var = do
   globalNames <- gets lowerGlobalNames
   incremental <- gets lowerUseIncrementalCodeLookup
   let sourceName
-        | incremental = fromMaybe (varName var) (varResolvedName var)
+        | incremental = maybe (varName var) fcSymbolOriginText (varResolvedName var)
         | otherwise = varName var
       linkedName = Map.findWithDefault (varName var) sourceName globalNames
   pure (GrinVar linkedName (sourceUnique var) liftedRuntimeRep)
@@ -1227,7 +1227,7 @@ isGlobalVar var = do
   globalNames <- gets lowerGlobalNames
   incremental <- gets lowerUseIncrementalCodeLookup
   let sourceName
-        | incremental = fromMaybe (varName var) (varResolvedName var)
+        | incremental = maybe (varName var) fcSymbolOriginText (varResolvedName var)
         | otherwise = varName var
   pure
     ( varKey var `Map.notMember` localVars
@@ -1347,7 +1347,7 @@ lookupCodeInfo var = do
           Nothing -> Map.lookup (varUnique var) localCodeInfosByUnique >>= lookup (varType var)
           Just _ -> Nothing
       sourceName
-        | incremental = fromMaybe (varName var) (varResolvedName var)
+        | incremental = maybe (varName var) fcSymbolOriginText (varResolvedName var)
         | otherwise = varName var
       sourceInfo = Map.lookup sourceName codeInfosByName
       selected = if incremental then localInfo <|> sourceInfo else sourceInfo
@@ -1439,7 +1439,7 @@ isWhnfGlobalVar var = do
   whnfGlobalNames <- gets lowerWhnfGlobalNames
   incremental <- gets lowerUseIncrementalCodeLookup
   let sourceName
-        | incremental = fromMaybe (varName var) (varResolvedName var)
+        | incremental = maybe (varName var) fcSymbolOriginText (varResolvedName var)
         | otherwise = varName var
   pure (varKey var `Map.notMember` localVars && sourceName `Map.member` whnfGlobalNames)
 

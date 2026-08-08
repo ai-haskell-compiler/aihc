@@ -1,12 +1,27 @@
 expected: |-
-  data("State#",[],[])
-  data("RealWorld",[],[])
-  data("Int32",[],[constructor("I32#",[type-con(ty-con("Int32#",0,type-kind(int32-rep)),[])])])
-  newtype(newtype-decl("CInt",[],"CInt",type-con(ty-con("Int32",0,type-kind(boxed-rep(lifted))),[]),type-con(ty-con("CInt",0,type-kind(boxed-rep(lifted))),[])))
-  newtype(newtype-decl("IO",[ty-var("a",18,type-kind(boxed-rep(lifted)))],"IO",function-type(type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),type-con(ty-con("(#,#)",2,kind-function(type-kind(tuple-rep([])),kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([tuple-rep([]),boxed-rep(lifted)]))))),[type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))])),type-con(ty-con("IO",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))])))
-  foreign-import(foreign-call("$ffi$puts","puts",foreign-signature([addr],int32,real-world)))
-  top-bind(non-rec(var("puts",1000,function-type(type-con(ty-con("Addr#",0,type-kind(addr-rep)),[]),type-con(ty-con("IO",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("CInt",0,type-kind(boxed-rep(lifted))),[])])),none),lambda(var("$ffi_arg_0",1001,type-con(ty-con("Addr#",0,type-kind(addr-rep)),[]),none),cast(lambda(var("$ffi_state",1002,type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),none),case(call-foreign(foreign-call("$ffi$puts","puts",foreign-signature([addr],int32,real-world)),[var-expr(var("$ffi_arg_0",1001,type-con(ty-con("Addr#",0,type-kind(addr-rep)),[]),none)),var-expr(var("$ffi_state",1002,type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),none))]),var("$ffi_result",1003,type-con(ty-con("(#,#)",2,kind-function(type-kind(boxed-rep(lifted)),kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted))))),[type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),type-con(ty-con("Int32#",0,type-kind(int32-rep)),[])]),none),[alt(data-alt("(#,#)"),[var("$ffi_next_state",1004,type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),none),var("$ffi_raw_result",1005,type-con(ty-con("Int32#",0,type-kind(int32-rep)),[]),none)],app(app(var-expr(var("(#,#)",1008,function-type(type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),function-type(type-con(ty-con("CInt",0,type-kind(boxed-rep(lifted))),[]),type-con(ty-con("(#,#)",2,kind-function(type-kind(boxed-rep(lifted)),kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted))))),[type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),type-con(ty-con("CInt",0,type-kind(boxed-rep(lifted))),[])]))),none)),var-expr(var("$ffi_next_state",1004,type-con(ty-con("State#",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(tuple-rep([])))),[type-con(ty-con("RealWorld",0,type-kind(boxed-rep(lifted))),[])]),none))),cast(app(var-expr(var("I32#",1007,function-type(type-con(ty-con("Int32#",0,type-kind(int32-rep)),[]),type-con(ty-con("Int32",0,type-kind(boxed-rep(lifted))),[])),none)),var-expr(var("$ffi_raw_result",1005,type-con(ty-con("Int32#",0,type-kind(int32-rep)),[]),none))),sym(axiom-inst-co("CInt",[])))))])),sym(axiom-inst-co("IO",[type-con(ty-con("CInt",0,type-kind(boxed-rep(lifted))),[])]))))))
-  top-bind(non-rec(var("main",1010,type-con(ty-con("IO",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("CInt",0,type-kind(boxed-rep(lifted))),[])]),none),app(var-expr(var("puts",1011,function-type(type-con(ty-con("Addr#",0,type-kind(addr-rep)),[]),type-con(ty-con("IO",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("CInt",0,type-kind(boxed-rep(lifted))),[])])),some("Test.puts"))),lit(addr-literal([104,101,108,108,111,32,119,111,114,108,100,10])))))
+  data State#
+
+  data RealWorld
+
+  data Int32
+   = I32# (Int32#)
+
+  newtype CInt : CInt = CInt Int32
+
+  newtype IO (a : TYPE BoxedRep Lifted) : IO a = IO ((State# RealWorld) → (#,#) (State# RealWorld) a)
+
+  foreign ccall "puts" $ffi$puts [Addr → Int32; real-world] : Addr# → (State# RealWorld) → (#,#) (State# RealWorld) Int32#
+
+  puts : Addr# → IO CInt =
+    λ($ffi_arg_0 : Addr#).
+      (λ($ffi_state : State# RealWorld).
+        case foreign-call "puts" $ffi$puts [Addr → Int32; real-world] $ffi_arg_0 $ffi_state as ($ffi_result : (#,#) (State# RealWorld) Int32#) of {
+          (#,#) ($ffi_next_state : State# RealWorld) ($ffi_raw_result : Int32#) →
+            (((#,#) : (State# RealWorld) → CInt → (#,#) (State# RealWorld) CInt) $ffi_next_state) (((I32# : Int32# → Int32) $ffi_raw_result) ▷ sym (axiom-co CInt))
+        }) ▷ sym (axiom-co IO @CInt)
+
+  main : IO CInt =
+    (Test.puts : Addr# → IO CInt) "hello world\n"#AddrRep
 extensions:
 - ForeignFunctionInterface
 - MagicHash

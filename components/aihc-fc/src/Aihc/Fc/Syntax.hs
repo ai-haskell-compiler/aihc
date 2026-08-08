@@ -19,6 +19,8 @@ module Aihc.Fc.Syntax
 
     -- * Variables
     Var (Var, varName, varUnique, varType, varResolvedName),
+    FcSymbolOrigin (..),
+    fcSymbolOriginText,
 
     -- * Bindings
     FcBind (..),
@@ -188,9 +190,32 @@ data Var = ResolvedVar
     varType :: !TcType,
     -- | Resolver identity for an imported occurrence. Kept separate from the
     -- display name so whole-program FC evaluation remains source-readable.
-    varResolvedName :: !(Maybe Text)
+    varResolvedName :: !(Maybe FcSymbolOrigin)
   }
   deriving (Show, Read)
+
+-- | Stable source identity for a non-local symbol. Unlike the display name,
+-- this includes the package selected by name resolution.
+data FcSymbolOrigin
+  = FcTopLevelOrigin
+      { fcOriginPackage :: !Text,
+        fcOriginModule :: !Text,
+        fcOriginName :: !Text
+      }
+  | FcBuiltinOrigin
+      { fcOriginName :: !Text
+      }
+  deriving (Eq, Ord, Show, Read)
+
+fcSymbolOriginText :: FcSymbolOrigin -> Text
+fcSymbolOriginText origin =
+  case origin of
+    FcTopLevelOrigin packageName moduleName symbolName ->
+      (if packageName == "" then "" else packageName <> ":")
+        <> moduleName
+        <> "."
+        <> symbolName
+    FcBuiltinOrigin symbolName -> "builtin:" <> symbolName
 
 -- | Construct a variable without a separate imported identity.
 pattern Var :: Text -> Unique -> TcType -> Var

@@ -6,7 +6,9 @@ modules:
     data family Payload a
     data instance Payload a = PayloadValue a
 expected: |-
-  data("$R$Payload$PayloadValue",[ty-var("a",14,type-kind(boxed-rep(lifted)))],[constructor("PayloadValue",[type-var(ty-var("a",14,type-kind(boxed-rep(lifted))))])])
-  axiom(axiom-decl("$ax$Payload$PayloadValue",[ty-var("a",14,type-kind(boxed-rep(lifted)))],nominal,type-con(ty-con("Payload",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",14,type-kind(boxed-rep(lifted))))]),type-con(ty-con("$R$Payload$PayloadValue",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",14,type-kind(boxed-rep(lifted))))])))
+  data $R$Payload$PayloadValue (a : TYPE BoxedRep Lifted)
+   = PayloadValue (a)
+
+  axiom $ax$Payload$PayloadValue (a : TYPE BoxedRep Lifted) : Payload a ~N $R$Payload$PayloadValue a
 status: pass
 reason: data-family instances retain an explicit representation type and nominal equality axiom in System FC

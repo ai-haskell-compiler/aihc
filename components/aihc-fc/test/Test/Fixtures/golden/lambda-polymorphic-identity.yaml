@@ -1,5 +1,8 @@
 expected: |-
-  top-bind(non-rec(var("id",1000,forall-type(ty-var("a",14,type-kind(boxed-rep(lifted))),function-type(type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))))),none),type-lambda(ty-var("a",14,type-kind(boxed-rep(lifted))),lambda(var("x1001",1001,type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),none),var-expr(var("x1001",1001,type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),none))))))
+  id : ∀ (a : TYPE BoxedRep Lifted). a → a =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ(x1001 : a).
+        x1001
 extensions: []
 modules:
 - |

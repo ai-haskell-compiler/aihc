@@ -21,7 +21,9 @@ import Aihc.Tc.Types
     setTyConKind,
     setTyVarKind,
   )
+import Control.Monad (when)
 import Data.ByteString qualified as BS
+import Data.List (nubBy)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Hedgehog (Gen, Property, PropertyT, annotate, failure, forAll, property, (===))
@@ -36,7 +38,8 @@ fcPropertyTests =
     "System FC properties"
     [ testProperty "parseProgram . renderProgram = id" prop_programRoundTrip,
       testProperty "parseExpr . renderExpr = id" prop_exprRoundTrip,
-      testProperty "parseType . renderType = id" prop_typeRoundTrip
+      testProperty "parseType . renderType = id" prop_typeRoundTrip,
+      testProperty "package origins distinguish equal symbol names" prop_packageOrigins
     ]
 
 prop_programRoundTrip :: Property
@@ -54,16 +57,34 @@ prop_typeRoundTrip = property $ do
   value <- forAll genType
   roundTrip renderType parseType value
 
+prop_packageOrigins :: Property
+prop_packageOrigins = property $ do
+  let ty = TcTyCon (TyCon "Identity" 0) []
+      occurrence packageName =
+        FcVar
+          ( (Var "id" (Unique 1) ty)
+              { varResolvedName = Just (FcTopLevelOrigin packageName "Module" "id")
+              }
+          )
+      renderedA = T.pack (renderExpr (occurrence "pkgA"))
+      renderedB = T.pack (renderExpr (occurrence "pkgB"))
+  annotate (T.unpack renderedA)
+  annotate (T.unpack renderedB)
+  when (renderedA == renderedB) failure
+  case parseExpr renderedA of
+    Left parseError -> annotate (show parseError) >> failure
+    Right (FcVar var) -> varResolvedName var === Just (FcTopLevelOrigin "pkgA" "Module" "id")
+    Right parsed -> annotate (show parsed) >> failure
+
 roundTrip :: (Eq a, Show a, Show error) => (a -> String) -> (Text -> Either error a) -> a -> PropertyT IO ()
 roundTrip pretty parse value = do
   let rendered = T.pack (pretty value)
   annotate (T.unpack rendered)
   case parse rendered of
     Left parseError -> annotate (show parseError) >> failure
-    -- Several compiler identities have intentionally semantic Eq instances
-    -- (for example TyCon ignores a refined kind).  Derived Show contains every
-    -- constructor field, so this comparison is the exact syntax-tree oracle.
-    Right actual -> show actual === show value
+    -- Compiler uniques are regenerated from lexical scope. The canonical
+    -- semantic syntax itself must be a fixed point.
+    Right actual -> pretty actual === pretty value
 
 genProgram :: Gen FcProgram
 genProgram = FcProgram <$> smallList genTopBind
@@ -71,7 +92,7 @@ genProgram = FcProgram <$> smallList genTopBind
 genTopBind :: Gen FcTopBind
 genTopBind =
   Gen.choice
-    [ FcData <$> genText <*> smallList genTyVar <*> smallList genDataConstructor,
+    [ FcData <$> genTypeName <*> smallList genTyVar <*> smallList genDataConstructor,
       FcAxiom <$> genAxiomDecl,
       FcNewtype <$> genNewtypeDecl,
       FcPrimitive <$> genVar <*> genInt,
@@ -80,12 +101,12 @@ genTopBind =
     ]
 
 genDataConstructor :: Gen (Text, [TcType])
-genDataConstructor = (,) <$> genText <*> smallList genType
+genDataConstructor = (,) <$> genTypeName <*> smallList genType
 
 genAxiomDecl :: Gen FcAxiomDecl
 genAxiomDecl =
   FcAxiomDecl
-    <$> genText
+    <$> genTypeName
     <*> smallList genTyVar
     <*> Gen.element [FcNominal, FcRepresentational]
     <*> genType
@@ -94,14 +115,14 @@ genAxiomDecl =
 genNewtypeDecl :: Gen FcNewtypeDecl
 genNewtypeDecl =
   FcNewtypeDecl
-    <$> genText
+    <$> genTypeName
     <*> smallList genTyVar
-    <*> genText
+    <*> genTypeName
     <*> genType
     <*> genType
 
 genForeignCall :: Gen FcForeignCall
-genForeignCall = FcForeignCall <$> genText <*> genText <*> genForeignSignature
+genForeignCall = FcForeignCall <$> genVarName <*> genLiteralText <*> genForeignSignature
 
 genForeignSignature :: Gen FcForeignSignature
 genForeignSignature =
@@ -134,29 +155,38 @@ genBindWith :: Gen FcExpr -> Gen FcBind
 genBindWith child =
   Gen.choice
     [ FcNonRec <$> genVar <*> child,
-      FcRec <$> smallList ((,) <$> genVar <*> child)
+      FcRec . nubBy sameBinder <$> smallList ((,) <$> genVar <*> child)
     ]
+  where
+    sameBinder (left, _) (right, _) = varUnique left == varUnique right
 
 genAltWith :: Gen FcExpr -> Gen FcAlt
 genAltWith child = FcAlt <$> genAltCon <*> smallList genVar <*> child
 
 genAltCon :: Gen FcAltCon
-genAltCon = Gen.choice [DataAlt <$> genText, LitAlt <$> genLiteral, pure DefaultAlt]
+genAltCon = Gen.choice [DataAlt <$> genTypeName, LitAlt <$> genLiteral, pure DefaultAlt]
 
 genVar :: Gen Var
 genVar = do
-  name <- genText
   identifier <- genUnique
+  let name = generatedName "v" identifier
   ty <- genType
-  resolvedName <- Gen.maybe genText
+  resolvedName <- Gen.maybe genSymbolOrigin
   pure ((Var name identifier ty) {varResolvedName = resolvedName})
+
+genSymbolOrigin :: Gen FcSymbolOrigin
+genSymbolOrigin =
+  Gen.choice
+    [ FcTopLevelOrigin <$> genText <*> genTypeName <*> genVarName,
+      FcBuiltinOrigin <$> genVarName
+    ]
 
 genLiteral :: Gen Literal
 genLiteral =
   Gen.choice
     [ LitInt <$> genRuntimeRep <*> genInteger,
       LitChar <$> genRuntimeRep <*> Gen.unicode,
-      LitString <$> genText,
+      LitString <$> genLiteralText,
       LitAddr . BS.pack <$> smallList (Gen.word8 Range.constantBounded)
     ]
 
@@ -176,13 +206,16 @@ genType =
     ]
 
 genPred :: Gen Pred
-genPred = Gen.choice [ClassPred <$> genText <*> smallList genType, EqPred <$> genType <*> genType]
+genPred = Gen.choice [ClassPred <$> genTypeName <*> smallList genType, EqPred <$> genType <*> genType]
 
 genTyVar :: Gen TyVarId
-genTyVar = setTyVarKind <$> genKind <*> (TyVarId <$> genText <*> genUnique)
+genTyVar = do
+  identifier <- genUnique
+  kind <- genKind
+  pure (setTyVarKind kind (TyVarId (generatedName "a" identifier) identifier))
 
 genTyCon :: Gen TyCon
-genTyCon = setTyConKind <$> genKind <*> (TyCon <$> genText <*> Gen.int (Range.linear 0 4))
+genTyCon = setTyConKind <$> genKind <*> (TyCon <$> genTypeName <*> Gen.int (Range.linear 0 4))
 
 genKind :: Gen Kind
 genKind =
@@ -248,7 +281,7 @@ genCoercion =
     Gen.choice
     [ CoVar . EvVar <$> genUnique,
       Refl <$> genType,
-      AxiomInstCo <$> genText <*> smallList genType
+      AxiomInstCo <$> genTypeName <*> smallList genType
     ]
     [ Sym <$> genCoercion,
       Trans <$> genCoercion <*> genCoercion,
@@ -258,6 +291,11 @@ genCoercion =
 genUnique :: Gen Unique
 genUnique = Unique <$> genInt
 
+generatedName :: Text -> Unique -> Text
+generatedName prefix (Unique identifier)
+  | identifier < 0 = prefix <> "_n" <> T.pack (show (abs identifier))
+  | otherwise = prefix <> "_" <> T.pack (show identifier)
+
 genInt :: Gen Int
 genInt = Gen.int (Range.linear (-1000) 1000)
 
@@ -265,7 +303,25 @@ genInteger :: Gen Integer
 genInteger = Gen.integral (Range.linear (-100000) 100000)
 
 genText :: Gen Text
-genText = Gen.text (Range.linear 0 12) Gen.unicode
+genText = do
+  first <- Gen.element (['a' .. 'z'] <> ['A' .. 'Z'] <> "_$")
+  rest <- Gen.list (Range.linear 0 11) (Gen.element (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_$#'"))
+  pure (T.pack (first : rest))
+
+genVarName :: Gen Text
+genVarName = do
+  first <- Gen.element (['a' .. 'z'] <> "_$")
+  rest <- Gen.list (Range.linear 0 11) (Gen.element (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_$#'"))
+  pure (T.pack (first : rest))
+
+genTypeName :: Gen Text
+genTypeName = do
+  first <- Gen.element ['A' .. 'Z']
+  rest <- Gen.list (Range.linear 0 11) (Gen.element (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_$#'"))
+  pure (T.pack (first : rest))
+
+genLiteralText :: Gen Text
+genLiteralText = Gen.text (Range.linear 0 12) Gen.unicode
 
 smallList :: Gen a -> Gen [a]
 smallList = Gen.list (Range.linear 0 3)

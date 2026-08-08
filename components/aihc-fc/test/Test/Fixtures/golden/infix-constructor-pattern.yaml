@@ -10,7 +10,15 @@ modules:
     first :: Pair a -> a
     first (value :*: _) = value
 expected: |-
-  data("Pair",[ty-var("a",14,type-kind(boxed-rep(lifted)))],[constructor(":*:",[type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),type-var(ty-var("a",14,type-kind(boxed-rep(lifted))))])])
-  top-bind(non-rec(var("first",1000,forall-type(ty-var("a",18,type-kind(boxed-rep(lifted))),function-type(type-con(ty-con("Pair",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))]),type-var(ty-var("a",18,type-kind(boxed-rep(lifted)))))),none),type-lambda(ty-var("a",18,type-kind(boxed-rep(lifted))),lambda(var("x1001",1001,type-con(ty-con("Pair",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))]),none),case(var-expr(var("x1001",1001,type-con(ty-con("Pair",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))]),none)),var("_scrut",1004,type-con(ty-con("Pair",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-var(ty-var("a",18,type-kind(boxed-rep(lifted))))]),none),[alt(data-alt(":*:"),[var("value",1002,type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),none),var("_",1003,type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),none)],var-expr(var("value",1002,type-var(ty-var("a",14,type-kind(boxed-rep(lifted)))),none)))])))))
+  data Pair (a : TYPE BoxedRep Lifted)
+   = :*: (a) (a)
+
+  first : ∀ (a : TYPE BoxedRep Lifted). (Pair a) → a =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ(x1001 : Pair a).
+        case x1001 as (_scrut : Pair a) of {
+          :*: (value : (a : TYPE BoxedRep Lifted)) (_ : (a : TYPE BoxedRep Lifted)) →
+            value
+        }
 status: pass
 reason: arbitrary infix constructor patterns retain their field binders and types during FC desugaring

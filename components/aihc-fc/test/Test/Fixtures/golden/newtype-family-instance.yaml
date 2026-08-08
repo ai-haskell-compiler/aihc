@@ -7,8 +7,11 @@ modules:
     data family Wrapped a
     newtype instance Wrapped Unit = WrappedUnit Unit
 expected: |-
-  data("Unit",[],[constructor("Unit",[])])
-  newtype(newtype-decl("$R$Wrapped$WrappedUnit",[],"WrappedUnit",type-con(ty-con("Unit",0,type-kind(boxed-rep(lifted))),[]),type-con(ty-con("$R$Wrapped$WrappedUnit",0,type-kind(boxed-rep(lifted))),[])))
-  axiom(axiom-decl("$ax$Wrapped$WrappedUnit",[],nominal,type-con(ty-con("Wrapped",1,kind-function(type-kind(boxed-rep(lifted)),type-kind(boxed-rep(lifted)))),[type-con(ty-con("Unit",0,type-kind(boxed-rep(lifted))),[])]),type-con(ty-con("$R$Wrapped$WrappedUnit",0,type-kind(boxed-rep(lifted))),[])))
+  data Unit
+   = Unit
+
+  newtype $R$Wrapped$WrappedUnit : $R$Wrapped$WrappedUnit = WrappedUnit Unit
+
+  axiom $ax$Wrapped$WrappedUnit : Wrapped Unit ~N $R$Wrapped$WrappedUnit
 status: pass
 reason: newtype-family instances retain a representation newtype and their nominal family equation

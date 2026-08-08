@@ -381,7 +381,7 @@ fcOptimizationTests =
         assertEqual "reachable axiom" program (eliminateDeadCode "main" program)
         assertEqual
           "pretty axiom"
-          "axiom(axiom-decl(\"axFamily\",[],nominal,type-con(ty-con(\"Family\",0,type-kind(boxed-rep(lifted))),[]),type-con(ty-con(\"Int#\",0,type-kind(int-rep)),[])))"
+          "axiom axFamily : Family ~N Int#"
           (renderTopBind (FcAxiom declaration)),
       testCase "imports equality axioms across compilation units" $ do
         let parameter = TyVarId "a" (Unique 42)
