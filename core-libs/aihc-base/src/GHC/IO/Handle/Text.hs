@@ -8,6 +8,9 @@ module GHC.IO.Handle.Text
   )
 where
 
+import Data.Bool (Bool (..))
+import Data.Either (Either (..))
+import GHC.Base (List (..), Maybe (..), Monad (..), String)
 import GHC.IO (IO (..))
 import GHC.IO.Console (writeOutputByte)
 import GHC.IO.Exception (illegalOperationError, ioError, ioErrorFromErrno)
@@ -16,10 +19,11 @@ import GHC.IO.Handle.Types (Handle (..), HandleState (..))
 import GHC.IO.IOMode (isReadableMode, isWritableMode)
 import GHC.Int (Int (..))
 import GHC.Internal.Char (Char (C#))
+import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.MVar (putMVar, takeMVar)
+import GHC.Num (Num (..))
 import GHC.Prim (MutableByteArray#, RealWorld, and#, int2Word#, mutableByteArrayContents#, newPinnedByteArray#, ord#, word2Int#, (+#), (==#))
 import GHC.Ptr (Ptr (..))
-import Prelude
 
 hGetBuf :: Handle -> Ptr a -> Int -> IO Int
 hGetBuf (FileHandle name stateVariable) buffer count =

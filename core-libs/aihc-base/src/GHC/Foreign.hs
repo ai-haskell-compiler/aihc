@@ -4,13 +4,17 @@
 -- | Minimal UTF-8 marshalling used for POSIX file paths.
 module GHC.Foreign (openUtf8FilePath) where
 
+import Data.Bool (Bool (..), (&&))
+import Data.Either (Either (..))
+import GHC.Base (List (..), Monad (..), String)
 import GHC.Char (ord)
 import GHC.IO (IO (..))
 import GHC.IO.FD (IOHandle, openIOHandle, writeMemoryByte)
 import GHC.Int (Int (..))
+import GHC.Internal.Classes (Eq (..), Ord (..))
+import GHC.Num (Num (..))
 import GHC.Prim (Addr#, MutableByteArray#, RealWorld, mutableByteArrayContents#, newPinnedByteArray#)
 import GHC.Ptr (Ptr)
-import Prelude hiding (Int)
 
 -- | Marshal a 'String' to stable UTF-8 bytes. Embedded NUL and surrogate
 -- code points are rejected before the action runs.

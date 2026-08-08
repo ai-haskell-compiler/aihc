@@ -6,6 +6,8 @@ modules:
   - |
     module Test where
 
+    import System.IO (hPutStr, stdout)
+
     writeWithMonad :: IO ()
     writeWithMonad = putStr "monad\n" >>= \ignored -> return ()
 
@@ -16,16 +18,18 @@ modules:
       putStr "BC"
       putStrLn ""
       putStrLn "line"
+      hPutStr stdout "handle\n"
       print True
       print (42 :: Int)
 stdout: |
   monad
   ABC
   line
+  handle
   True
   42
 output: |
   ()
 expression: main
 status: pass
-reason: Prelude character, string, line, and Show-based output writes to stdout
+reason: Prelude output and System.IO.hPutStr share stdout text handling

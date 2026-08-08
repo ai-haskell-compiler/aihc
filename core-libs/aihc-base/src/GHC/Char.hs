@@ -7,8 +7,8 @@ module GHC.Char
 where
 
 import GHC.Int (Int (..))
+import GHC.Internal.Char (Char (C#))
 import GHC.Prim (chr#, ord#)
-import Prelude (Char (C#))
 
 chr :: Int -> Char
 chr (I# value) = C# (chr# value)

@@ -13,7 +13,10 @@ module GHC.IO.StdHandles
   )
 where
 
+import Data.Either (Either (..))
+import GHC.Base (Maybe (..), Monad (..), String)
 import GHC.Foreign (openUtf8FilePath)
+import GHC.IO (IO)
 import GHC.IO.Exception (ioError, ioErrorFromErrno)
 import GHC.IO.FD
   ( IOHandle,
@@ -28,7 +31,6 @@ import GHC.IO.Handle.Types (Handle, newHandle)
 import GHC.IO.IOMode (IOMode (..), ioModeNumber)
 import GHC.Ptr (Ptr)
 import System.IO.Unsafe (unsafePerformIO)
-import Prelude
 
 stdin :: Handle
 stdin = makeStandardHandle "<stdin>" ReadMode stdinHandle
