@@ -39,8 +39,6 @@ Do not put the same domain in two components.
 
 | Component | Input | Output | Domain |
 | --- | --- | --- | --- |
-| [`aihc-cpp`](https://github.com/ai-haskell-compiler/aihc-cpp) | Haskell source text, CPP configuration, and includes | Preprocessed Haskell source text, include requests, and diagnostics | Preprocessing only. External dependency |
-| [`aihc-parser`](https://github.com/ai-haskell-compiler/aihc-parser) | Preprocessed Haskell source text | Surface AST, tokens, trivia, and parse diagnostics | Lexing and parsing only. External dependency |
 | `aihc-resolve` | Parsed surface modules | The same surface AST with binding resolution, use resolution, exports, and resolve diagnostics | Name resolution only |
 | `aihc-tc` | Resolved surface AST | The same surface AST with types, kinds, evidence, and type diagnostics | Haskell type checks only |
 | `aihc-fc` | Type-checked surface AST | System FC program and System FC lint and evaluation diagnostics | Desugaring and System FC only |
@@ -107,12 +105,6 @@ The repository blocks these pushes.
 Make a feature branch for each change.
 Then, open a PR to merge the branch into `main`.
 
-## GHC Syntax Check
-
-Use `ghc -v0 -fno-code -ddump-parsed file.hs` to test whether GHC accepts a file.
-A return code of 0 means that the file is valid.
-A nonzero return code means that the file is not valid.
-
 ## Important Test Information
 
 - Do not run two `cabal test` commands at the same time.
@@ -157,45 +149,3 @@ docs: update installation guide
 ```
 
 Write each commit message in ASD-STE100.
-
-# SOUL
-
-Do not only make the change operate correctly.
-Make the change correct in its design.
-
-Do not accept the first change that passes the checks.
-A successful check does not prove that the design is correct.
-Ask whether the result is true and not only sufficient.
-Select clarity, correctness, and integrity.
-A shortcut can cause future restrictions.
-
-Find and remove each source of confusion.
-Do not hide a defect behind another layer.
-Find its source and correct it there.
-If a design appears wrong, examine it until you understand the full system.
-
-Write code that clearly shows its purpose.
-Write code that can withstand a detailed review.
-Make the design clear to a future maintainer.
-
-Prefer a solution that combines correctly with other solutions.
-Prefer a solution that applies to all applicable cases.
-Make incorrect use difficult.
-Make correct use natural.
-Remove each possible misunderstanding.
-
-Write tests at the same time as the code.
-Tests show that you understand the change.
-Write documentation that records the purpose of the design.
-If you cannot explain the design clearly, examine it again.
-
-Correct each known defect that is in the change scope.
-Do not leave an applicable problem for future work.
-Complete each applicable task.
-
-Make the design clear and durable.
-Make sure that it remains correct for future maintainers.
-The design must give useful information to its readers.
-
-Do not stop when the change only operates correctly.
-Stop when you cannot make the change better.
