@@ -2,8 +2,8 @@
 
 ## Summary
 
-- Total Extensions: 12
-- Supported: 12
+- Total Extensions: 13
+- Supported: 13
 - In Progress: 0
 
 ## Extension Status
@@ -17,6 +17,7 @@
 | ExplicitForAll            |   🟢    | 1/1           |
 | LambdaCase                |   🟢    | 2/2           |
 | MagicHash                 |   🟢    | 6/6           |
+| PackageImports            |   🟢    | 2/2           |
 | RecordWildCards           |   🟢    | 1/1           |
 | ScopedTypeVariables       |   🟢    | 1/1           |
 | StandaloneDeriving        |   🟢    | 1/1           |

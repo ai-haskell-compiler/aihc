@@ -22,7 +22,7 @@ Find more information here:
 | aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `450/10057` (`4.47%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
-| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `44/45` (`97.77%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
+| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `46/47` (`97.87%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
 
 ## Lines of code
 
@@ -32,14 +32,14 @@ Find more information here:
 |--------------|--------|---------|---------|
 | aihc-amd64   |   2175 |     833 |    3008 |
 | aihc-arm64   |   2066 |     917 |    2983 |
-| aihc-fc      |   5953 |    1598 |    7551 |
-| aihc-grin    |   5692 |    2516 |    8208 |
+| aihc-fc      |   5953 |    1599 |    7552 |
+| aihc-grin    |   5692 |    2517 |    8209 |
 | aihc-llvm    |   1877 |     454 |    2331 |
 | aihc-native  |   3312 |     389 |    3701 |
-| aihc-resolve |   2444 |    1644 |    4088 |
-| aihc-tc      |   8876 |    3423 |   12299 |
+| aihc-resolve |   2499 |    1748 |    4247 |
+| aihc-tc      |   8876 |    3428 |   12304 |
 | aihc-wasm    |   2139 |     717 |    2856 |
-| **Total**    |  34534 |   12491 |   47025 |
+| **Total**    |  34589 |   12602 |   47191 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
