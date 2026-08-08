@@ -426,7 +426,7 @@ lowerExpr expr = do
         Just ("raise#", [exception]) ->
           lowerSingleOperand "exception" exception (pure . GrinThrow)
         Just ("catch#", [action, handler, _state]) ->
-          lowerSingleEvaluatedOperand "catch_action" action $ \actionValue ->
+          lowerSingleArgument action $ \actionValue ->
             lowerCatchHandler (exprRuntimeRep expr) handler $ \handlerValue ->
               pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue [])
         Just ("unsafeCoerce#", argument : extraArguments) ->
@@ -629,9 +629,8 @@ makePrimitiveClosure originalExpr name remaining captured = do
       ("unsafeCoerce#", _) -> pure (GrinConstant arguments)
       ("raise#", [exception]) -> pure (GrinThrow exception)
       ("catch#", [action, handler]) ->
-        evaluateGrinValue "catch_action" liftedRuntimeRep action $ \actionValue ->
-          wrapCatchHandlerValue resultRep liftedRuntimeRep liftedRuntimeRep liftedRuntimeRep handler $ \handlerValue ->
-            pure (GrinCatch resultRep actionValue handlerValue [])
+        wrapCatchHandlerValue resultRep liftedRuntimeRep liftedRuntimeRep liftedRuntimeRep handler $ \handlerValue ->
+          pure (GrinCatch resultRep action handlerValue [])
       _ -> lowerSaturatedPrimitive resultRep name arguments
   emitFunction
     GrinFunction

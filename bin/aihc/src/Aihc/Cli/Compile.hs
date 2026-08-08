@@ -247,7 +247,7 @@ compileSourceToArtifactsWithDependencies target wholeProgram environment sourceN
       pure $ do
         artifact <- either (Left . CompileDependencyError) Right dependencies
         (entryBindingName, executableModule) <-
-          if Map.member (ModuleKey unnamedPackage "GHC.TopHandler") (dependencyExports artifact)
+          if any ((== "GHC.TopHandler") . moduleKeyName) (Map.keys (dependencyExports artifact))
             then do
               wrapped <- addMainHandler parsed
               Right (mainEntryBindingName, wrapped)

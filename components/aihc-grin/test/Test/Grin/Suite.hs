@@ -332,6 +332,9 @@ grinUnitTests =
         case catchNodes of
           [(catchName, fields)] -> do
             assertEqual "catch frame fields" [GrinVarValue continuation, exceptionHandler] fields
+            case [function | function <- grinFunctions program, grinFunctionName function == exceptionBoundaryFunction] of
+              [function] -> assertBool "evaluates the action beneath the catch frame" (containsCpsEval (grinFunctionBody function))
+              _ -> assertFailure "missing exception boundary function"
             case [function | function <- grinFunctions program, grinFunctionName function == catchName] of
               [function] -> assertBool "normal completion forwards to the parent" (containsContinueTo continuation (grinFunctionBody function))
               _ -> assertFailure "missing catch continuation entry"

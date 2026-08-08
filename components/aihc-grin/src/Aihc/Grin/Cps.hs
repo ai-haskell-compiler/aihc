@@ -257,11 +257,24 @@ transformTail updateName parent bound resultRep continuation expression =
     GrinThrow exception -> pure (GrinCpsRaise exception continuation)
     GrinCatch runtimeRep action handler state -> do
       (catchVar, catchNode) <- makeCatchContinuation parent runtimeRep continuation handler
+      evaluatedAction <- freshVar "$cps_catch_action" (grinValueRuntimeRep action)
+      protectedAction <-
+        transformTail
+          updateName
+          parent
+          (Set.insert catchVar bound)
+          runtimeRep
+          (GrinVarValue catchVar)
+          ( GrinBind
+              [evaluatedAction]
+              (GrinEval (grinValueRuntimeRep action) action)
+              (GrinApply runtimeRep (GrinVarValue evaluatedAction) state)
+          )
       pure
         ( GrinBind
             [catchVar]
             (GrinStore catchNode)
-            (GrinCpsApply runtimeRep action state (GrinVarValue catchVar))
+            protectedAction
         )
     GrinForeignCallExpr foreignCall arguments
       | grinForeignCallSymbol foreignCall == "shutdownHaskellAndExit",

@@ -377,7 +377,7 @@ evalScheduledExpr env expr continue =
               0 -> continue results
               1 -> continue (drop 1 results)
               _ -> throwInterpret (InterpretResultArity expectedCount (length results))
-      applyScheduledValue actionValue stateValues receive
+      forceScheduledValue actionValue (\forcedAction -> applyScheduledValue forcedAction stateValues receive)
         `catchE` handleScheduledRaised handlerValue stateValues receive
     GrinForeignCallExpr foreignCall arguments -> do
       argumentValues <- mapM (materializeValue env) arguments
