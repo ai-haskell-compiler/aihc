@@ -334,6 +334,9 @@ runtimeFunctionTypes =
     ("aihc_mutvar_write", ([I32, I64], [I64])),
     ("aihc_mutvar_compare_and_swap", ([I32, I64, I64], [I64])),
     ("aihc_mutvar_same", ([I32, I32], [I64])),
+    ("aihc_stable_name_make", ([I32, I32], [I32])),
+    ("aihc_stable_name_equal", ([I32, I32], [I64])),
+    ("aihc_stable_name_hash", ([I32], [I64])),
     ("aihc_wasm_set_field", ([I64, I64, I64], [])),
     ("aihc_wasm_update", ([I64, I64], [])),
     ("aihc_wasm_update_blackhole", ([I32, I64, I64], [])),
@@ -598,6 +601,14 @@ compileDirectBinding env vars expression =
         ( machine
             <> materializeValue env initial
             <> call "aihc_mutvar_new"
+            <> ["i64.extend_i32_u"]
+        )
+    GrinPrimitiveCall _ "makeStableName#" [value] ->
+      storeSingle
+        ( machine
+            <> materializeValue env value
+            <> ["i32.wrap_i64"]
+            <> call "aihc_stable_name_make"
             <> ["i64.extend_i32_u"]
         )
     GrinPrimitiveCall _ name arguments

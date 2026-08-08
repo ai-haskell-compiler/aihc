@@ -52,6 +52,9 @@ testDirectModule =
           assertBool "generated entry is object-local" (not (".globl\t.Laihc_wasm_function_0" `T.isInfixOf` source))
           assertBool "does not emit C source" (not ("#include" `T.isInfixOf` source))
           assertBool "not LLVM IR" (not ("target triple" `T.isInfixOf` source))
+          assertBool "declares stable-name allocation" (".functype\taihc_stable_name_make (i32, i32) -> (i32)" `T.isInfixOf` source)
+          assertBool "declares stable-name equality" (".functype\taihc_stable_name_equal (i32, i32) -> (i64)" `T.isInfixOf` source)
+          assertBool "declares stable-name hashing" (".functype\taihc_stable_name_hash (i32) -> (i64)" `T.isInfixOf` source)
           assertBool "stores closure kind in the shared info-table ABI" ("\t.int64\t3\n\t.int64\t1\n\t.size\t.Laihc_wasm_update_info, 56" `T.isInfixOf` source)
           assertBool "emits stop continuation frame metadata" ("\t.int64\t5\n\t.int64\t1\n\t.size\t.Laihc_wasm_final_info, 56" `T.isInfixOf` source)
 

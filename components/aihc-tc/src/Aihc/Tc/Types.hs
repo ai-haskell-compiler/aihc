@@ -284,6 +284,7 @@ fixedTyConKind name =
     "MutableByteArray#" -> Just (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted)))
     "MVar#" -> Just (KFun liftedTypeKind (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted))))
     "MutVar#" -> Just (KFun liftedTypeKind (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted))))
+    "StableName#" -> Just (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted)))
     "ThreadId#" -> Just (KTYPE (BoxedRep Unlifted))
     _
       | Just runtimeRep <- primitiveRuntimeRep name -> Just (KTYPE runtimeRep)

@@ -352,6 +352,18 @@ compileDirectBinding env vars expression =
                    ]
             )
         _ -> lift (Left (Amd64UnsupportedExpression "mutable-reference allocation arity"))
+    GrinPrimitiveCall _ "makeStableName#" arguments@[_] -> do
+      (argumentLines, argumentSlots) <- materializeIntoFreshSlots env arguments
+      case argumentSlots of
+        [valueSlot] ->
+          storeSingleResult
+            ( argumentLines
+                <> [ "  mov rdi, r15",
+                     loadAt "rsi" "r14" valueSlot,
+                     "  call aihc_stable_name_make"
+                   ]
+            )
+        _ -> lift (Left (Amd64UnsupportedExpression "stable-name allocation arity"))
     GrinPrimitiveCall _ name [left, right]
       | Just instructions <- lookup name singleResultBinaryPrimitives ->
           compileBinary "r10" "rax" storeSingleResult instructions left right

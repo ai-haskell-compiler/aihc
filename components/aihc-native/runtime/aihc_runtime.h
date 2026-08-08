@@ -28,6 +28,7 @@ typedef struct AihcIoHandle AihcIoHandle;
 typedef struct AihcIoRequest AihcIoRequest;
 typedef struct AihcIoBackend AihcIoBackend;
 typedef struct AihcMVar AihcMVar;
+typedef struct AihcStableName AihcStableName;
 typedef uint64_t AihcSlot;
 typedef void (*AihcEntry)(AihcSlot *arguments);
 /* The backend entry is interpreted by the selected code generator. Common
@@ -98,6 +99,8 @@ struct AihcMachine {
   AihcThread *run_queue_tail;
   AihcBlackhole *blackholes;
   AihcMVar *mvars;
+  AihcStableName *stable_names;
+  uint64_t next_stable_name;
   AihcIoRequest *io_requests_head;
   AihcIoRequest *io_requests_tail;
   uint64_t io_request_count;
@@ -175,6 +178,11 @@ AihcSlot aihc_mutvar_write(AihcValue *mutvar, AihcSlot value);
 uint64_t aihc_mutvar_compare_and_swap(AihcValue *mutvar, AihcSlot expected,
                                       AihcSlot replacement);
 uint64_t aihc_mutvar_same(AihcValue *left, AihcValue *right);
+/* Stable-name handles are auxiliary, non-moving objects. The machine-owned
+   table keeps their referents synchronized with a moving collector. */
+void *aihc_stable_name_make(AihcMachine *machine, AihcValue *value);
+uint64_t aihc_stable_name_equal(const void *left, const void *right);
+int64_t aihc_stable_name_hash(const void *name);
 /* State and allocation helpers used by native code. None of these functions
    transfers control to a generated user function. */
 AihcValue *aihc_apply_slow(AihcMachine *machine, AihcValue *function,

@@ -761,6 +761,9 @@ primitiveImportSpecs =
       seqPrimitive,
       primitive "realWorld#" "State# RealWorld",
       primitive "noDuplicate#" "State# d -> State# d",
+      primitive "makeStableName#" "a -> State# RealWorld -> (# State# RealWorld, StableName# a #)",
+      primitive "stableNameToInt#" "StableName# a -> Int#",
+      primitive "eqStableName#" "StableName# a -> StableName# b -> Int#",
       primitive
         "catch#"
         "(State# RealWorld -> (# State# RealWorld, a #)) -> (b -> State# RealWorld -> (# State# RealWorld, a #)) -> State# RealWorld -> (# State# RealWorld, a #)",

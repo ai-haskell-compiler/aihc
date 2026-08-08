@@ -57,6 +57,15 @@ tests =
                 (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           mutVarRuntimeSymbols,
+      testCase "maps stable-name primitives to the shared runtime ABI" $
+        mapM_
+          ( \(primitive, symbol) ->
+              assertEqual
+                ("runtime call for " <> show primitive)
+                (Just symbol)
+                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+          )
+          stableNameRuntimeSymbols,
       testCase "keeps freeze and thaw representation-preserving" $
         mapM_
           (\primitive -> assertEqual ("runtime call for " <> show primitive) Nothing (nativeRuntimePrimitiveCall primitive))
@@ -73,6 +82,10 @@ tests =
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           ("newMutVar#" : map fst mutVarRuntimeSymbols),
+      testCase "accepts the complete stable-name API in native programs" $
+        mapM_
+          (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
+          ("makeStableName#" : map fst stableNameRuntimeSymbols),
       testCase "accepts the Integer arithmetic primitive API" $
         mapM_
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
@@ -133,6 +146,12 @@ mutVarRuntimeSymbols =
     ("writeMutVar#", "aihc_mutvar_write"),
     ("aihcCasMutVarFlag", "aihc_mutvar_compare_and_swap"),
     ("sameMutVar#", "aihc_mutvar_same")
+  ]
+
+stableNameRuntimeSymbols :: [(Text, Text)]
+stableNameRuntimeSymbols =
+  [ ("eqStableName#", "aihc_stable_name_equal"),
+    ("stableNameToInt#", "aihc_stable_name_hash")
   ]
 
 integerPrimitiveNames :: [Text]

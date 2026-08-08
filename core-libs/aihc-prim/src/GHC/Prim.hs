@@ -69,6 +69,7 @@ module GHC.Prim
     subIntC#,
     subWordC#,
     State#,
+    StableName#,
     takeMVar#,
     ThreadId#,
     RealWorld,
@@ -77,6 +78,8 @@ module GHC.Prim
     unsafeFreezeArray#,
     unsafeThawByteArray#,
     unsafeThawArray#,
+    makeStableName#,
+    stableNameToInt#,
     putMVar#,
     uncheckedShiftL#,
     uncheckedShiftRL#,
@@ -125,6 +128,8 @@ data MutVar# d a
 
 data ThreadId#
 
+data StableName# a
+
 data RealWorld
 
 foreign import prim raise# :: a -> b
@@ -138,6 +143,10 @@ infixr 0 `seq`
 foreign import prim realWorld# :: State# RealWorld
 
 foreign import prim noDuplicate# :: State# d -> State# d
+
+foreign import prim makeStableName# :: a -> State# RealWorld -> (# State# RealWorld, StableName# a #)
+
+foreign import prim stableNameToInt# :: StableName# a -> Int#
 
 foreign import prim compareInt# :: Int# -> Int# -> Int#
 
