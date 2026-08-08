@@ -9,6 +9,7 @@ import Aihc.Grin.Syntax (grinForeignCallSymbol)
 import Aihc.Native
   ( NativeCpsCall (..),
     NativeCpsTransfer (..),
+    NativeRuntimeCall (..),
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
     supportedNativePrimitiveNames,
@@ -27,7 +28,7 @@ tests =
               assertEqual
                 ("runtime call for " <> show primitive)
                 (Just symbol)
-                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           byteArrayRuntimeSymbols,
       testCase "maps address indexing primitives to the shared runtime ABI" $
@@ -36,7 +37,7 @@ tests =
               assertEqual
                 ("runtime call for " <> show primitive)
                 (Just symbol)
-                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           addressIndexRuntimeSymbols,
       testCase "maps boxed-array primitives to the shared runtime ABI" $
@@ -45,7 +46,7 @@ tests =
               assertEqual
                 ("runtime call for " <> show primitive)
                 (Just symbol)
-                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           arrayRuntimeSymbols,
       testCase "maps mutable-reference primitives to the shared runtime ABI" $
@@ -54,7 +55,7 @@ tests =
               assertEqual
                 ("runtime call for " <> show primitive)
                 (Just symbol)
-                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           mutVarRuntimeSymbols,
       testCase "maps stable-name primitives to the shared runtime ABI" $
@@ -63,7 +64,7 @@ tests =
               assertEqual
                 ("runtime call for " <> show primitive)
                 (Just symbol)
-                (grinForeignCallSymbol <$> nativeRuntimePrimitiveCall primitive)
+                (runtimeCallSymbol <$> nativeRuntimePrimitiveCall primitive)
           )
           stableNameRuntimeSymbols,
       testCase "keeps freeze and thaw representation-preserving" $
@@ -104,6 +105,9 @@ tests =
           (\primitive -> assertEqual ("native support for " <> show primitive) True (primitive `elem` supportedNativePrimitiveNames))
           ["+#", "-#", "*#", "compareInt#", "<#", "==#", "ord#", "chr#"]
     ]
+
+runtimeCallSymbol :: NativeRuntimeCall -> Text
+runtimeCallSymbol = grinForeignCallSymbol . nativeRuntimeCallForeignCall
 
 byteArrayRuntimeSymbols :: [(Text, Text)]
 byteArrayRuntimeSymbols =

@@ -4,6 +4,7 @@
 module Aihc.Native
   ( NativeCpsCall (..),
     NativeCpsTransfer (..),
+    NativeRuntimeCall (..),
     NativeTarget (..),
     RuntimeGarbageCollector (..),
     RuntimePlan (..),
@@ -245,9 +246,6 @@ supportedNativePrimitiveNames =
     "gtWord#",
     "geWord#",
     "realWorld#",
-    "newMutVar#",
-    "makeStableName#",
-    "newArray#",
     "unsafeFreezeArray#",
     "unsafeThawArray#",
     "unsafeFreezeByteArray#",
@@ -268,6 +266,17 @@ data NativeCpsCall = NativeCpsCall
     nativeCpsCallOperandCount :: !Int,
     nativeCpsCallPassContinuation :: !Bool,
     nativeCpsCallTransfer :: !NativeCpsTransfer
+  }
+  deriving (Eq, Show)
+
+-- | Architecture-neutral native ABI description for a direct runtime
+-- primitive. The machine is an implicit runtime argument rather than a GRIN
+-- operand, and the result count describes the logical GRIN result independently
+-- of the C function's return type.
+data NativeRuntimeCall = NativeRuntimeCall
+  { nativeRuntimeCallForeignCall :: !GrinForeignCall,
+    nativeRuntimeCallPassMachine :: !Bool,
+    nativeRuntimeCallResultCount :: !Int
   }
   deriving (Eq, Show)
 
@@ -292,13 +301,16 @@ nativeCpsPrimitiveCalls =
 
 -- | Runtime calls shared by native backends. Representation-preserving
 -- primitives such as freeze and thaw deliberately have no entry here.
-nativeRuntimePrimitiveCall :: Text -> Maybe GrinForeignCall
+nativeRuntimePrimitiveCall :: Text -> Maybe NativeRuntimeCall
 nativeRuntimePrimitiveCall name = lookup name nativeRuntimePrimitiveCalls
 
-nativeRuntimePrimitiveCalls :: [(Text, GrinForeignCall)]
+nativeRuntimePrimitiveCalls :: [(Text, NativeRuntimeCall)]
 nativeRuntimePrimitiveCalls =
-  [ call "readMutVar#" "aihc_mutvar_read" [GrinForeignAddr] GrinForeignWord64,
-    call "writeMutVar#" "aihc_mutvar_write" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+  [ machineCall "newArray#" "aihc_array_new" [GrinForeignWord64, GrinForeignWord64] GrinForeignAddr,
+    machineCall "newMutVar#" "aihc_mutvar_new" [GrinForeignWord64] GrinForeignAddr,
+    machineCall "makeStableName#" "aihc_stable_name_make" [GrinForeignAddr] GrinForeignAddr,
+    call "readMutVar#" "aihc_mutvar_read" [GrinForeignAddr] GrinForeignWord64,
+    procedure "writeMutVar#" "aihc_mutvar_write" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "aihcCasMutVarFlag" "aihc_mutvar_compare_and_swap" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "sameMutVar#" "aihc_mutvar_same" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
     call "eqStableName#" "aihc_stable_name_equal" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
@@ -308,7 +320,7 @@ nativeRuntimePrimitiveCalls =
     call "indexWord64OffAddr#" "aihc_addr_index_word64" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "indexArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "readArray#" "aihc_array_index" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "writeArray#" "aihc_array_write" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    procedure "writeArray#" "aihc_array_write" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "sameMutableArray#" "aihc_array_same" [GrinForeignAddr, GrinForeignAddr] GrinForeignWord64,
     call "newByteArray#" "aihc_byte_array_new" [GrinForeignWord64] GrinForeignAddr,
     call "newPinnedByteArray#" "aihc_byte_array_new_pinned" [GrinForeignWord64] GrinForeignAddr,
@@ -317,31 +329,39 @@ nativeRuntimePrimitiveCalls =
     call "isByteArrayPinned#" "aihc_byte_array_is_pinned" [GrinForeignAddr] GrinForeignWord64,
     call "byteArrayContents#" "aihc_byte_array_contents" [GrinForeignAddr] GrinForeignAddr,
     call "mutableByteArrayContents#" "aihc_byte_array_contents" [GrinForeignAddr] GrinForeignAddr,
-    call "shrinkMutableByteArray#" "aihc_byte_array_shrink" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
+    procedure "shrinkMutableByteArray#" "aihc_byte_array_shrink" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "resizeMutableByteArray#" "aihc_byte_array_resize" [GrinForeignAddr, GrinForeignWord64] GrinForeignAddr,
     call "sizeofByteArray#" "aihc_byte_array_get_size" [GrinForeignAddr] GrinForeignWord64,
     call "getSizeofMutableByteArray#" "aihc_byte_array_get_size" [GrinForeignAddr] GrinForeignWord64,
-    call "copyAddrToByteArray#" "aihc_byte_array_copy_from_addr" [GrinForeignAddr, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    procedure "copyAddrToByteArray#" "aihc_byte_array_copy_from_addr" [GrinForeignAddr, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "indexWordArray#" "aihc_byte_array_index_word" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
     call "readWordArray#" "aihc_byte_array_read_word" [GrinForeignAddr, GrinForeignWord64] GrinForeignWord64,
-    call "writeWordArray#" "aihc_byte_array_write_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
-    call "copyByteArray#" "aihc_byte_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    procedure "writeWordArray#" "aihc_byte_array_write_word" [GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
+    procedure "copyByteArray#" "aihc_byte_array_copy" [GrinForeignAddr, GrinForeignWord64, GrinForeignAddr, GrinForeignWord64, GrinForeignWord64] GrinForeignWord64,
     call "clz#" "aihc_word_clz" [GrinForeignWord64] GrinForeignWord64,
     call "ctz#" "aihc_word_ctz" [GrinForeignWord64] GrinForeignWord64,
     call "popCnt#" "aihc_word_popcount" [GrinForeignWord64] GrinForeignWord64
   ]
   where
-    call primitive symbol arguments result =
+    call = runtimeCall False 1
+    procedure = runtimeCall False 0
+    machineCall = runtimeCall True 1
+    runtimeCall passMachine resultCount primitive symbol arguments result =
       ( primitive,
-        GrinForeignCall
-          { grinForeignCallName = "$runtime$" <> symbol,
-            grinForeignCallSymbol = symbol,
-            grinForeignCallSignature =
-              GrinForeignSignature
-                { grinForeignArgumentTypes = arguments,
-                  grinForeignResultType = result,
-                  grinForeignEffect = GrinForeignPure
-                }
+        NativeRuntimeCall
+          { nativeRuntimeCallForeignCall =
+              GrinForeignCall
+                { grinForeignCallName = "$runtime$" <> symbol,
+                  grinForeignCallSymbol = symbol,
+                  grinForeignCallSignature =
+                    GrinForeignSignature
+                      { grinForeignArgumentTypes = arguments,
+                        grinForeignResultType = result,
+                        grinForeignEffect = GrinForeignPure
+                      }
+                },
+            nativeRuntimeCallPassMachine = passMachine,
+            nativeRuntimeCallResultCount = resultCount
           }
       )
 
