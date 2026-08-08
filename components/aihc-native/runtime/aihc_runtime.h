@@ -107,6 +107,7 @@ struct AihcMachine {
   uint64_t locals_capacity;
   void *trampoline_state;
   AihcResume selected_resume;
+  int64_t exit_status;
 };
 
 _Static_assert(sizeof(AihcValue) == sizeof(AihcSlot),
@@ -243,5 +244,7 @@ int64_t aihc_io_take_result(void *request);
 void *aihc_io_take_open_result(void *request);
 void aihc_set_thread_done_continuation(AihcMachine *machine,
                                        AihcValue *thread_done_continuation);
+void aihc_set_exit_status(AihcMachine *machine, int64_t status);
+int64_t aihc_get_exit_status(const AihcMachine *machine);
 AihcEntry aihc_halt(AihcMachine *machine);
 #endif

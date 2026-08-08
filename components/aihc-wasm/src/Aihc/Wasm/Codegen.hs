@@ -7,7 +7,6 @@
 module Aihc.Wasm.Codegen
   ( WasmError (..),
     compileModule,
-    compileMainProgramWithDependencies,
     compileProgram,
     compileProgramWithDependencies,
     validatePrimitiveNames,
@@ -116,13 +115,7 @@ compileProgram entryName gcProgram =
     program = gcGrinProgram gcProgram
 
 compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either WasmError Text
-compileProgramWithDependencies = compileProgramWithDependenciesReturningStatus False
-
-compileMainProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either WasmError Text
-compileMainProgramWithDependencies = compileProgramWithDependenciesReturningStatus True
-
-compileProgramWithDependenciesReturningStatus :: Bool -> LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either WasmError Text
-compileProgramWithDependenciesReturningStatus returnsStatus layout dependencyInitializers entryName gcProgram = do
+compileProgramWithDependencies layout dependencyInitializers entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   validateProgramPrimitives program
   rootSlot <- maybe (Left (WasmMissingEntry entryName)) Right (Map.lookup entryName (compileGlobalSlots env))
@@ -132,17 +125,6 @@ compileProgramWithDependenciesReturningStatus returnsStatus layout dependencyIni
   constructorInit <- compileConstructorInitializers env
   programInit <- compileInitializers env program
   let specialInfo label entry fields remaining next frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next Nothing (Just frameKind) runtimeObjectClosure
-      finalInfo =
-        RuntimeInfo
-          "aihc_wasm_final_info"
-          Nothing
-          (Just "aihc_wasm_final_applied_continuation")
-          []
-          1
-          (Just "aihc_wasm_final_applied_info")
-          (Just (RuntimeAdapter "aihc_wasm_final_supplied_continuation" 1 (Just (RuntimeEnter 0 1 False))))
-          (Just ContinuationFrameStop)
-          runtimeObjectClosure
       updateInfo label fields remaining next enter =
         RuntimeInfo
           label
@@ -155,8 +137,8 @@ compileProgramWithDependenciesReturningStatus returnsStatus layout dependencyIni
           (Just ContinuationFrameUpdate)
           runtimeObjectClosure
       specialInfos =
-        [ finalInfo,
-          specialInfo "aihc_wasm_final_applied_info" "aihc_wasm_final_applied_continuation" [BoxedRep Lifted] 0 Nothing ContinuationFrameStop,
+        [ specialInfo "aihc_wasm_final_info" "aihc_wasm_final_continuation" [] 1 (Just "aihc_wasm_final_applied_info") ContinuationFrameStop,
+          specialInfo "aihc_wasm_final_applied_info" "aihc_wasm_final_continuation" [BoxedRep Lifted] 0 Nothing ContinuationFrameStop,
           specialInfo "aihc_wasm_top_info" "aihc_wasm_top_continuation" [BoxedRep Lifted] 1 (Just "aihc_wasm_top_applied_info") ContinuationFrameNormal,
           specialInfo "aihc_wasm_top_applied_info" "aihc_wasm_top_continuation" [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing ContinuationFrameNormal,
           updateInfo "aihc_wasm_update_info" [BoxedRep Lifted, BoxedRep Lifted] 1 (Just "aihc_wasm_update_applied_info") (Just (RuntimeEnter 2 1 False)),
@@ -167,9 +149,9 @@ compileProgramWithDependenciesReturningStatus returnsStatus layout dependencyIni
       runtimeInfos = compileRuntimeInfos env <> specialInfos
       source =
         moduleHeader env dependencyInitializers program
-          <> renderSpecialFunctions returnsStatus
           <> renderEntryAdapters runtimeInfos
           <> concatMap compiledFunctionLines functions
+          <> renderSpecialFunctions
           <> renderProgramInitializer (length (linkGlobalNames layout)) rootSlot dependencyInitializers constructorInit programInit
           <> renderRuntimeSymbols
           <> renderAddrLiterals env
@@ -378,7 +360,6 @@ runtimeFunctionTypes =
     ("aihc_wasm_times_word2_high", ([I64, I64], [I64])),
     ("aihc_wasm_quot_rem_word2_quotient", ([I64, I64, I64], [I64])),
     ("aihc_wasm_transfer_direct", ([I32, I32, I64, I32], [])),
-    ("aihc_wasm_set_exit_status", ([I64], [])),
     ("aihc_wasm_transfer_eval", ([I32, I64, I64, I64, I64], [])),
     ("aihc_wasm_transfer_apply", ([I32, I64, I64, I32, I64], [])),
     ("aihc_wasm_transfer_continue", ([I32, I64, I64, I32], [])),
@@ -392,6 +373,7 @@ runtimeFunctionTypes =
     ("aihc_wasm_transfer_put_mvar", ([I32, I64, I64, I64], [])),
     ("aihc_wasm_transfer_thread_done", ([I32], [])),
     ("aihc_wasm_transfer_halt", ([I32], [])),
+    ("aihc_set_exit_status", ([I32, I64], [])),
     ("aihc_wasm_transfer_start", ([I32, I64, I64, I64, I64, I32], [])),
     ("aihc_set_thread_done_continuation", ([I32, I32], [])),
     ("aihc_no_match", ([], [])),
@@ -470,6 +452,13 @@ compileExpr env expression =
             )
         )
     GrinHalt _ -> pure (terminal (machine <> call "aihc_wasm_transfer_halt"))
+    GrinExit status ->
+      pure . terminal $
+        machine
+          <> materializeValue env status
+          <> call "aihc_set_exit_status"
+          <> machine
+          <> call "aihc_wasm_transfer_halt"
     GrinCase scrutinee binder alternatives -> compileCase env scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
     GrinStore {} -> unsupported "direct-style store return after CPS"
@@ -843,8 +832,8 @@ functionVisibility label
   | ".L" `T.isPrefixOf` label = []
   | otherwise = ["\t.hidden\t" <> label, "\t.globl\t" <> label]
 
-renderSpecialFunctions :: Bool -> [Text]
-renderSpecialFunctions returnsStatus =
+renderSpecialFunctions :: [Text]
+renderSpecialFunctions =
   functionStart "aihc_wasm_top_continuation" []
     <> indent
       ( ["i32.const\t0", "i32.load\taihc_machine"]
@@ -859,34 +848,8 @@ renderSpecialFunctions returnsStatus =
     <> functionStart "aihc_wasm_thread_done_continuation" []
     <> indent (["i32.const\t0", "i32.load\taihc_machine"] <> call "aihc_wasm_transfer_thread_done" <> ["return"])
     <> functionEnd
-    <> functionStartWithParameters "aihc_wasm_final_supplied_continuation" [I32, I64] []
-    <> indent
-      ( ( if returnsStatus
-            then
-              ["local.get\t1", "i32.wrap_i64"]
-                <> loadSlot [] 1
-                <> call "aihc_wasm_set_exit_status"
-            else []
-        )
-          <> ["i32.const\t0", "i32.load\taihc_machine"]
-          <> call "aihc_wasm_transfer_halt"
-          <> ["return"]
-      )
-    <> functionEnd
-    <> functionStart "aihc_wasm_final_applied_continuation" []
-    <> indent
-      ( ( if returnsStatus
-            then
-              loadSlot ["local.get\t0"] 1
-                <> ["i32.wrap_i64"]
-                <> loadSlot [] 1
-                <> call "aihc_wasm_set_exit_status"
-            else []
-        )
-          <> ["i32.const\t0", "i32.load\taihc_machine"]
-          <> call "aihc_wasm_transfer_halt"
-          <> ["return"]
-      )
+    <> functionStart "aihc_wasm_final_continuation" []
+    <> indent (["i32.const\t0", "i32.load\taihc_machine"] <> call "aihc_wasm_transfer_halt" <> ["return"])
     <> functionEnd
     <> functionStart "aihc_wasm_exit" []
     <> indent (["i32.const\t0", "i32.load\taihc_machine"] <> i32Const "0" <> i64Const "0" <> i32Const "0" <> call "aihc_wasm_transfer_direct" <> ["return"])

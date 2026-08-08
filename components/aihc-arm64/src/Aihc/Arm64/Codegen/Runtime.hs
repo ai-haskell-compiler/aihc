@@ -21,7 +21,6 @@ module Aihc.Arm64.Codegen.Runtime
     constructorId,
     constructorStageLabel,
     continuationRuntimeInfos,
-    continuationRuntimeInfosWithAppliedTarget,
     functionCodeLabel,
     globalSlot,
     immediate,
@@ -179,14 +178,10 @@ makeNodeUncheckedLines info =
 -- The result can occupy several machine slots even though it is one GRIN
 -- argument, hence the distinct runtime arity and supplied-slot count.
 continuationRuntimeInfos :: ContinuationFrameKind -> Text -> Text -> Text -> [RuntimeRep] -> [RuntimeRep] -> [RuntimeInfo]
-continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target =
-  continuationRuntimeInfosWithAppliedTarget frameKind infoLabel appliedInfoLabel target target
-
-continuationRuntimeInfosWithAppliedTarget :: ContinuationFrameKind -> Text -> Text -> Text -> Text -> [RuntimeRep] -> [RuntimeRep] -> [RuntimeInfo]
-continuationRuntimeInfosWithAppliedTarget frameKind infoLabel appliedInfoLabel target appliedTarget storedFields suppliedFields =
+continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedFields suppliedFields =
   [ RuntimeInfo
       infoLabel
-      (InfoAddress appliedTarget)
+      (InfoAddress target)
       storedFields
       1
       (Just appliedInfoLabel)
@@ -195,7 +190,7 @@ continuationRuntimeInfosWithAppliedTarget frameKind infoLabel appliedInfoLabel t
       runtimeObjectClosure,
     RuntimeInfo
       appliedInfoLabel
-      (InfoAddress appliedTarget)
+      (InfoAddress target)
       (storedFields <> suppliedFields)
       0
       Nothing

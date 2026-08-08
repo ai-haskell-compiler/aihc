@@ -170,6 +170,7 @@ renderExprIndented indentation expr =
         <> " "
         <> renderValue continuation
     GrinHalt values -> indent indentation <> "halt" <> renderValues values
+    GrinExit status -> indent indentation <> "exit " <> renderValue status
     GrinCase scrutinee binder alternatives ->
       indent indentation
         <> "case "

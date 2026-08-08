@@ -408,10 +408,10 @@ compileBackendProgram target entry program =
 compileBackendProgramWithDependencies :: NativeTarget -> LinkLayout -> [Text] -> Text -> Grin.GcGrinProgram -> Either BackendError Text
 compileBackendProgramWithDependencies target layout initializers entry program =
   case target of
-    AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.compileMainProgramWithDependencies layout initializers entry program)
-    LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileMainProgramWithDependencies layout initializers entry program)
-    Llvm -> either (Left . BackendLlvmError) Right (Llvm.compileMainProgramWithDependencies layout initializers entry program)
-    Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.compileMainProgramWithDependencies layout initializers entry program)
+    AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.compileProgramWithDependencies layout initializers entry program)
+    LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileProgramWithDependencies layout initializers entry program)
+    Llvm -> either (Left . BackendLlvmError) Right (Llvm.compileProgramWithDependencies layout initializers entry program)
+    Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.compileProgramWithDependencies layout initializers entry program)
 
 renderCore :: FcProgram -> Text
 renderCore = withFinalNewline . Fc.renderProgram

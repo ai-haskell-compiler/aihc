@@ -225,6 +225,21 @@ grinUnitTests =
             "one reified continuation"
             1
             (Set.size (cpsContinuationFunctions cps `Set.difference` Set.singleton (cpsUpdateFunction cps))),
+      testCase "CPS-GRIN lowers process exit to an unboxed terminal status" $ do
+        cps <- expectCpsGrin processExitProgram
+        let bodies =
+              [ grinFunctionBody function
+              | function <- grinFunctions (cpsGrinProgram cps),
+                grinFunctionName function == FunctionName "process_exit"
+              ]
+        assertEqual
+          "raw exit status"
+          [GrinExit (GrinLitValue (GrinLitInt IntRep 7))]
+          bodies
+        assertEqual
+          "does not reify a return continuation"
+          Set.empty
+          (cpsContinuationFunctions cps `Set.difference` Set.singleton (cpsUpdateFunction cps)),
       testCase "CPS-GRIN keeps non-call binds in direct style" $ do
         cps <- expectCpsGrin directBindProgram
         let rendered = renderProgram (cpsGrinProgram cps)
@@ -1948,7 +1963,8 @@ cpsOnlyExpressions =
     GrinCpsApply lifted string [] string,
     GrinContinue string [],
     GrinUpdateBlackhole string string,
-    GrinHalt []
+    GrinHalt [],
+    GrinExit (GrinLitValue (GrinLitInt IntRep 1))
   ]
   where
     lifted = BoxedRep Lifted
@@ -2350,3 +2366,45 @@ separateNewtypePrograms =
     constructorVar = Var "Wrap" (Unique 40) (TcFunTy intTy wrapperTy)
     answerVar = Var "answer" (Unique 41) (TcFunTy boxedIntTy wrapperTy)
     argumentVar = Var "argument" (Unique 42) boxedIntTy
+
+processExitProgram :: GrinProgram
+processExitProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [shutdownCall],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "process_exit",
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = TupleRep [],
+              grinFunctionBody =
+                GrinBind
+                  [GrinVar "unreachable" 1 IntRep]
+                  ( GrinForeignCallExpr
+                      shutdownCall
+                      [ GrinLitValue (GrinLitInt IntRep 7),
+                        GrinLitValue (GrinLitInt IntRep 0)
+                      ]
+                  )
+                  (GrinConstant [])
+            }
+        ]
+    }
+  where
+    shutdownCall =
+      GrinForeignCall
+        { grinForeignCallName = "$ffi$shutdownHaskellAndExit",
+          grinForeignCallSymbol = "shutdownHaskellAndExit",
+          grinForeignCallSignature =
+            GrinForeignSignature
+              { grinForeignArgumentTypes = [GrinForeignInt, GrinForeignInt],
+                grinForeignResultType = GrinForeignInt,
+                grinForeignEffect = GrinForeignRealWorld
+              }
+        }

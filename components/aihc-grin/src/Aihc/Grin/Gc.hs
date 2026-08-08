@@ -90,6 +90,7 @@ lowerExpr bound expression =
     GrinContinue {} -> pure expression
     GrinCpsRaise {} -> pure expression
     GrinHalt {} -> pure expression
+    GrinExit {} -> pure expression
     GrinThrow {} -> pure expression
     GrinCatch {} -> pure expression
     GrinForeignCallExpr {} -> pure expression
@@ -212,6 +213,7 @@ substituteExpr substitutions expression =
     GrinContinue continuation values -> GrinContinue (substituteValue substitutions continuation) (map (substituteValue substitutions) values)
     GrinCpsRaise exception continuation -> GrinCpsRaise (substituteValue substitutions exception) (substituteValue substitutions continuation)
     GrinHalt values -> GrinHalt (map (substituteValue substitutions) values)
+    GrinExit status -> GrinExit (substituteValue substitutions status)
     GrinCase scrutinee binder alternatives ->
       GrinCase
         (substituteValue substitutions scrutinee)
@@ -287,6 +289,7 @@ maximumProgramVarUnique program =
         GrinContinue continuation values -> concatMap valueUnique (continuation : values)
         GrinCpsRaise exception continuation -> concatMap valueUnique [exception, continuation]
         GrinHalt values -> concatMap valueUnique values
+        GrinExit status -> valueUnique status
         GrinCase scrutinee binder alternatives ->
           valueUnique scrutinee
             <> (grinVarUnique binder : concatMap altUniques alternatives)

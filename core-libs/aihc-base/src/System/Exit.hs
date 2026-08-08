@@ -1,3 +1,6 @@
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+
 module System.Exit
   ( ExitCode (..),
     exitWith,
@@ -8,9 +11,15 @@ module System.Exit
 where
 
 import Control.Exception (Exception (..), throwIO)
+import GHC.IO (IO (..))
+import GHC.IO.Console (writeOutputByte)
 import GHC.IO.Exception (ioError, userError)
-import GHC.IO.Output (writeStderrString)
+import GHC.Int (Int (..))
+import GHC.Internal.Char (Char (C#))
+import GHC.Prim (MutableByteArray#, RealWorld, and#, int2Word#, mutableByteArrayContents#, newPinnedByteArray#, ord#, word2Int#, (+#), (==#))
+import GHC.Ptr (Ptr (..))
 import GHC.Read ()
+import System.IO (hPutBuf, stderr)
 import Prelude
 
 data ExitCode
@@ -94,5 +103,45 @@ exitSuccess = exitWith ExitSuccess
 
 die :: String -> IO a
 die message = do
-  writeStderrString message
+  writeDieMessage message
   exitFailure
+
+writeDieMessage :: String -> IO ()
+writeDieMessage characters = do
+  buffer <- newDieBuffer 4096#
+  case buffer of
+    DieBuffer rawBuffer -> writeDieChunks rawBuffer 0# (characters ++ "\n")
+
+data DieBuffer = DieBuffer (MutableByteArray# RealWorld)
+
+newDieBuffer :: Int# -> IO DieBuffer
+newDieBuffer size =
+  IO
+    ( \state ->
+        case newPinnedByteArray# size state of
+          (# allocatedState, buffer #) ->
+            (# allocatedState, DieBuffer buffer #)
+    )
+
+writeDieChunks :: MutableByteArray# RealWorld -> Int# -> String -> IO ()
+writeDieChunks buffer count characters =
+  case characters of
+    [] -> writeDieBuffer buffer count
+    character : remaining ->
+      case (==#) count 4096# of
+        1# -> do
+          writeDieBuffer buffer count
+          writeDieChunks buffer 0# characters
+        _ -> do
+          writeDieByte buffer count character
+          writeDieChunks buffer ((+#) count 1#) remaining
+
+writeDieBuffer :: MutableByteArray# RealWorld -> Int# -> IO ()
+writeDieBuffer buffer count =
+  case (==#) count 0# of
+    1# -> return ()
+    _ -> hPutBuf stderr (Ptr (mutableByteArrayContents# buffer) :: Ptr ()) (I# count)
+
+writeDieByte :: MutableByteArray# RealWorld -> Int# -> Char -> IO ()
+writeDieByte buffer offset (C# character) =
+  writeOutputByte buffer offset (word2Int# (and# (int2Word# (ord# character)) (int2Word# 255#)))

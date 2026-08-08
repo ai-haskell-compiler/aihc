@@ -164,6 +164,8 @@ data GrinExpr
     GrinUpdateBlackhole !GrinValue !GrinValue
   | -- | Terminate CPS execution with the supplied observable result values.
     GrinHalt ![GrinValue]
+  | -- | Terminate the process with an already-unboxed machine status.
+    GrinExit !GrinValue
   | -- | Match a value that is already in weak-head normal form.
     GrinCase !GrinValue !GrinVar ![GrinAlt]
   | GrinThrow !GrinValue
@@ -248,6 +250,7 @@ grinProgramLiterals program =
         GrinCpsRaise exception continuation -> valueLiterals exception <> valueLiterals continuation
         GrinUpdateBlackhole pointer value -> valueLiterals pointer <> valueLiterals value
         GrinHalt values -> concatMap valueLiterals values
+        GrinExit status -> valueLiterals status
         GrinCase scrutinee _ alternatives -> valueLiterals scrutinee <> concatMap altLiterals alternatives
         GrinThrow exception -> valueLiterals exception
         GrinCatch _ action handler state ->

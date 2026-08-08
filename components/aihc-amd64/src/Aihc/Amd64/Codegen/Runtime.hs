@@ -21,7 +21,6 @@ module Aihc.Amd64.Codegen.Runtime
     applyFunctionRegister,
     applyStackBytes,
     continuationRuntimeInfos,
-    continuationRuntimeInfosWithAppliedTarget,
     constructorId,
     constructorStageLabel,
     functionCodeLabel,
@@ -157,14 +156,10 @@ data RuntimeInfoKey
   deriving (Eq, Ord, Show)
 
 continuationRuntimeInfos :: ContinuationFrameKind -> Text -> Text -> Text -> [RuntimeRep] -> [RuntimeRep] -> [RuntimeInfo]
-continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target =
-  continuationRuntimeInfosWithAppliedTarget frameKind infoLabel appliedInfoLabel target target
-
-continuationRuntimeInfosWithAppliedTarget :: ContinuationFrameKind -> Text -> Text -> Text -> Text -> [RuntimeRep] -> [RuntimeRep] -> [RuntimeInfo]
-continuationRuntimeInfosWithAppliedTarget frameKind infoLabel appliedInfoLabel target appliedTarget storedFields suppliedFields =
+continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedFields suppliedFields =
   [ RuntimeInfo
       infoLabel
-      (InfoAddress appliedTarget)
+      (InfoAddress target)
       storedFields
       1
       (Just appliedInfoLabel)
@@ -173,7 +168,7 @@ continuationRuntimeInfosWithAppliedTarget frameKind infoLabel appliedInfoLabel t
       runtimeObjectClosure,
     RuntimeInfo
       appliedInfoLabel
-      (InfoAddress appliedTarget)
+      (InfoAddress target)
       (storedFields <> suppliedFields)
       0
       Nothing

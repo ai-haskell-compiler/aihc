@@ -168,7 +168,6 @@ library
     GHC.IO.Handle.Text
     GHC.IO.Handle.Types
     GHC.IO.IOMode
-    GHC.IO.Output
     GHC.IO.StdHandles
     GHC.IO.SubSystem
     GHC.IO.Unsafe

@@ -5,7 +5,6 @@
 -- supplies the public 'String' traversal and encoding policy.
 module GHC.IO.Console
   ( writeOutputByte,
-    writeStderr,
     writeStdout,
   )
 where
@@ -13,7 +12,7 @@ where
 import GHC.Base (Monad (return))
 import GHC.Event (awaitIO)
 import GHC.IO (IO)
-import GHC.IO.Runtime (IOHandle, raiseIOErrorRaw, stderrHandle, stdoutHandle, submitWrite, takeResult, writeMemoryByte)
+import GHC.IO.Runtime (IOHandle, raiseIOErrorRaw, stdoutHandle, submitWrite, takeResult, writeMemoryByte)
 import GHC.Int (Int (..))
 import GHC.Prim
   ( MutableByteArray#,
@@ -43,18 +42,10 @@ writeStdout buffer count =
     1# -> return ()
     _ -> do
       handle <- stdoutHandle
-      writeOutputLoop handle (mutableByteArrayContents# buffer) 0# count
+      writeStdoutLoop handle (mutableByteArrayContents# buffer) 0# count
 
-writeStderr :: MutableByteArray# RealWorld -> Int# -> IO ()
-writeStderr buffer count =
-  case (==#) count 0# of
-    1# -> return ()
-    _ -> do
-      handle <- stderrHandle
-      writeOutputLoop handle (mutableByteArrayContents# buffer) 0# count
-
-writeOutputLoop :: Ptr IOHandle -> Addr# -> Int# -> Int# -> IO ()
-writeOutputLoop handle buffer offset remaining = do
+writeStdoutLoop :: Ptr IOHandle -> Addr# -> Int# -> Int# -> IO ()
+writeStdoutLoop handle buffer offset remaining = do
   request <- submitWrite handle buffer (I# offset) (I# remaining)
   awaitIO request
   transferred <- takeResult request
@@ -70,7 +61,7 @@ finishWriteResult handle buffer offset remaining (I# transferred) =
         _ ->
           case (==#) transferred remaining of
             1# -> return ()
-            _ -> writeOutputLoop handle buffer ((+#) offset transferred) ((-#) remaining transferred)
+            _ -> writeStdoutLoop handle buffer ((+#) offset transferred) ((-#) remaining transferred)
 
 raiseConsoleIOError :: Int# -> IO ()
 raiseConsoleIOError exceptionCode = do

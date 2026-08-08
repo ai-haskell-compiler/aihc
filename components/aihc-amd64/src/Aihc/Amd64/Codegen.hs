@@ -12,7 +12,6 @@ module Aihc.Amd64.Codegen
     compileModule,
     ObservedProgram (..),
     compileObservedFunction,
-    compileMainProgramWithDependencies,
     compileProgram,
     compileProgramWithDependencies,
     extendLinkLayout,
@@ -169,13 +168,7 @@ compileModule layout initializerSymbol gcProgram = do
 -- Dependency initializers are called after constructors are installed and
 -- before the user module's own globals are initialized.
 compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either Amd64Error Text
-compileProgramWithDependencies = compileProgramWithDependenciesReturningStatus False
-
-compileMainProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either Amd64Error Text
-compileMainProgramWithDependencies = compileProgramWithDependenciesReturningStatus True
-
-compileProgramWithDependenciesReturningStatus :: Bool -> LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either Amd64Error Text
-compileProgramWithDependenciesReturningStatus returnsStatus layout dependencyInitializers entryName gcProgram = do
+compileProgramWithDependencies layout dependencyInitializers entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   rootSlot <- maybe (Left (Amd64MissingEntry entryName)) Right (Map.lookup entryName globalSlots)
   constructorLines <- compileConstructorInitializers compileEnv
@@ -237,22 +230,13 @@ compileProgramWithDependenciesReturningStatus returnsStatus layout dependencyIni
          ]
       <> threadDoneContinuation
       <> [ ".p2align 3",
-           ".Laihc_final_supplied_continuation:"
+           ".Laihc_final_continuation:",
+           "  jmp .Laihc_exit"
          ]
-      <> ( if returnsStatus
-             then ["  mov eax, DWORD PTR [rdi + 8]"]
-             else ["  xor eax, eax"]
-         )
-      <> [ "  jmp .Laihc_exit",
-           ".p2align 3",
-           ".Laihc_final_applied_continuation:"
+      <> [ ".Laihc_exit:",
+           "  mov rdi, r15",
+           "  call aihc_get_exit_status"
          ]
-      <> ( if returnsStatus
-             then [loadAt "rax" "rdi" 0, "  mov eax, DWORD PTR [rax + 8]"]
-             else ["  xor eax, eax"]
-         )
-      <> ["  jmp .Laihc_exit"]
-      <> [".Laihc_exit:"]
       <> mainEpilogue
       <> renderCompiledSupport compileEnv functions (programRuntimeInfos updateLabel)
       <> nonExecutableStack
@@ -263,12 +247,11 @@ compileProgramWithDependenciesReturningStatus returnsStatus layout dependencyIni
     globalNames = linkGlobalNames layout
     pointerRep = BoxedRep Lifted
     programRuntimeInfos updateLabel =
-      continuationRuntimeInfosWithAppliedTarget
+      continuationRuntimeInfos
         ContinuationFrameStop
         ".Laihc_final_info"
         ".Laihc_final_applied_info"
-        ".Laihc_final_supplied_continuation"
-        ".Laihc_final_applied_continuation"
+        ".Laihc_final_continuation"
         []
         [pointerRep]
         <> continuationRuntimeInfos
@@ -517,6 +500,7 @@ exprNodes expression =
     GrinContinue {} -> []
     GrinCpsRaise {} -> []
     GrinHalt {} -> []
+    GrinExit {} -> []
     GrinThrow {} -> []
     GrinCatch {} -> []
     GrinForeignCallExpr {} -> []
@@ -559,6 +543,7 @@ exprRuntimeReps expression =
     GrinCpsRaise exception continuation ->
       valueRuntimeReps exception <> valueRuntimeReps continuation
     GrinHalt values -> concatMap valueRuntimeReps values
+    GrinExit status -> valueRuntimeReps status
     GrinCase scrutinee binder alternatives ->
       valueRuntimeReps scrutinee
         <> (grinVarRuntimeRep binder : concatMap altRuntimeReps alternatives)

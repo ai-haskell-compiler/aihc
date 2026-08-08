@@ -169,6 +169,9 @@ transformTail updateName parent bound resultRep continuation expression =
               continuation
               (GrinBind resultVars (grinAltRhs alternative) body)
           pure alternative {grinAltRhs = rhs}
+    GrinBind _ (GrinForeignCallExpr foreignCall (status : _)) _
+      | grinForeignCallSymbol foreignCall == "shutdownHaskellAndExit" ->
+          pure (GrinExit status)
     GrinBind resultVars valueExpression body
       | isDirectExpression valueExpression -> do
           transformedBody <-
@@ -236,6 +239,7 @@ transformTail updateName parent bound resultRep continuation expression =
     GrinContinue {} -> alreadyTransformed
     GrinCpsRaise {} -> alreadyTransformed
     GrinHalt {} -> alreadyTransformed
+    GrinExit {} -> alreadyTransformed
     GrinCase scrutinee binder alternatives ->
       GrinCase scrutinee binder <$> mapM transformAlternative alternatives
       where
@@ -259,8 +263,12 @@ transformTail updateName parent bound resultRep continuation expression =
             (GrinStore catchNode)
             (GrinCpsApply runtimeRep action state (GrinVarValue catchVar))
         )
-    GrinForeignCallExpr foreignCall arguments ->
-      continueDirect resultRep continuation (GrinForeignCallExpr foreignCall arguments)
+    GrinForeignCallExpr foreignCall arguments
+      | grinForeignCallSymbol foreignCall == "shutdownHaskellAndExit",
+        status : _ <- arguments ->
+          pure (GrinExit status)
+      | otherwise ->
+          continueDirect resultRep continuation (GrinForeignCallExpr foreignCall arguments)
   where
     alreadyTransformed = lift (Left (CpsGrinAlreadyTransformed parent))
 
@@ -478,6 +486,7 @@ exprUniques expression =
     GrinContinue continuation values -> valueUniques continuation <> concatMap valueUniques values
     GrinCpsRaise exception continuation -> valueUniques exception <> valueUniques continuation
     GrinHalt values -> concatMap valueUniques values
+    GrinExit status -> valueUniques status
     GrinCase scrutinee binder alternatives ->
       valueUniques scrutinee
         <> (grinVarUnique binder : concatMap alternativeUniques alternatives)

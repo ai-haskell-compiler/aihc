@@ -350,6 +350,7 @@ evalScheduledExpr env expr continue =
     GrinContinue {} -> rejectCpsExpression
     GrinCpsRaise {} -> rejectCpsExpression
     GrinHalt {} -> rejectCpsExpression
+    GrinExit {} -> rejectCpsExpression
     GrinCase scrutinee binder alternatives -> do
       value <- materializeValue env scrutinee
       matchScheduledAlternative (Map.insert binder value env) value alternatives continue

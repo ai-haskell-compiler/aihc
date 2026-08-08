@@ -21,7 +21,6 @@ AihcTrampolineTransfer aihc_next_transfer;
 
 static AihcWasmObjectTransfer aihc_next_object_transfer;
 static int aihc_wasm_finished;
-static int64_t aihc_wasm_exit_status;
 
 uint64_t aihc_wasm_times_word2_high(uint64_t left, uint64_t right) {
   uint64_t left_low = (uint32_t)left;
@@ -255,12 +254,6 @@ void aihc_wasm_complete_io(int64_t result) {
   aihc_set_transfer(aihc_trampoline_resume(
       aihc_machine, aihc_complete_io(aihc_machine, result)));
 }
-
-void aihc_wasm_set_exit_status(int64_t status) {
-  aihc_wasm_exit_status = status;
-}
-
-int aihc_wasm_exit_succeeded(void) { return aihc_wasm_exit_status == 0; }
 
 int aihc_wasm_pump_transfers(void) {
   while (aihc_next_object_transfer.entry != NULL ||
