@@ -21,6 +21,7 @@ module Aihc.Grin.Cps
 where
 
 import Aihc.Grin.Analysis (freeExprVars)
+import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types (RuntimeRep (..), liftedRuntimeRep)
 import Control.Monad.Trans.Class (lift)
@@ -83,7 +84,7 @@ data CpsState = CpsState
 type CpsM = StateT CpsState (Either CpsGrinError)
 
 toCpsGrin :: GrinProgram -> Either CpsGrinError CpsGrinProgram
-toCpsGrin program = do
+toCpsGrin sourceProgram = do
   ((functions, updateFunction), finalState) <- runStateT transform initialState
   let continuationFrames =
         Map.insert (grinFunctionName updateFunction) ContinuationFrameUpdate (cpsContinuationFramesState finalState)
@@ -103,6 +104,7 @@ toCpsGrin program = do
         cpsUpdateFunction = grinFunctionName updateFunction
       }
   where
+    program = normalizeGrinProgram sourceProgram
     sourceFunctions = grinFunctions program
     initialState =
       CpsState

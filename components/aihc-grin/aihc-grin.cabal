@@ -17,6 +17,7 @@ flag fuzz
 library
   exposed-modules:
     Aihc.Grin
+    Aihc.Grin.Anf
     Aihc.Grin.Cps
     Aihc.Grin.Gc
     Aihc.Grin.Interpret
