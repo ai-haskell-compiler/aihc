@@ -10,6 +10,7 @@
 module Aihc.Llvm.Codegen
   ( LlvmError (..),
     compileModule,
+    compileMainProgramWithDependencies,
     compileProgram,
     compileProgramWithDependencies,
     validatePrimitiveNames,
@@ -114,7 +115,13 @@ compileProgram entryName gcProgram =
     program = gcGrinProgram gcProgram
 
 compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either LlvmError Text
-compileProgramWithDependencies layout dependencyInitializers entryName gcProgram = do
+compileProgramWithDependencies = compileProgramWithDependenciesReturningStatus False
+
+compileMainProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either LlvmError Text
+compileMainProgramWithDependencies = compileProgramWithDependenciesReturningStatus True
+
+compileProgramWithDependenciesReturningStatus :: Bool -> LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either LlvmError Text
+compileProgramWithDependenciesReturningStatus returnsStatus layout dependencyInitializers entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   validateProgramPrimitives program
   rootSlot <- maybe (Left (LlvmMissingEntry entryName)) Right (Map.lookup entryName (compileGlobalSlots env))
@@ -125,8 +132,8 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
     globals <- compileInitializers env program
     pure (constructors, globals)
   let specialInfos =
-        [ specialInfo "aihc_llvm_final_info" "aihc_llvm_final_continuation" [] 1 (Just "aihc_llvm_final_applied_info") (Just (continuationEnter "aihc_llvm_final_continuation" 0 1)) ContinuationFrameStop,
-          specialInfo "aihc_llvm_final_applied_info" "aihc_llvm_final_continuation" [BoxedRep Lifted] 0 Nothing Nothing ContinuationFrameStop,
+        [ specialInfo "aihc_llvm_final_info" "aihc_llvm_final_applied_continuation" [] 1 (Just "aihc_llvm_final_applied_info") (Just (continuationEnter "aihc_llvm_final_supplied_continuation" 0 1)) ContinuationFrameStop,
+          specialInfo "aihc_llvm_final_applied_info" "aihc_llvm_final_applied_continuation" [BoxedRep Lifted] 0 Nothing Nothing ContinuationFrameStop,
           specialInfo "aihc_llvm_top_info" "aihc_llvm_top_continuation" [BoxedRep Lifted] 1 (Just "aihc_llvm_top_applied_info") (Just (continuationEnter "aihc_llvm_top_continuation" 1 1)) ContinuationFrameNormal,
           specialInfo "aihc_llvm_top_applied_info" "aihc_llvm_top_continuation" [BoxedRep Lifted, BoxedRep Lifted] 0 Nothing Nothing ContinuationFrameNormal,
           specialInfo "aihc_llvm_update_info" updateLabel [BoxedRep Lifted, BoxedRep Lifted] 1 (Just "aihc_llvm_update_applied_info") (Just (continuationEnter updateLabel 2 1)) ContinuationFrameUpdate,
@@ -136,7 +143,10 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
         ]
       source =
         llvmPreamble
-          <> ["@aihc_machine = global ptr null, align 8", ""]
+          <> [ "@aihc_machine = global ptr null, align 8",
+               "@aihc_exit_status = internal global i32 0, align 4",
+               ""
+             ]
           <> renderRuntimeDeclarations
           <> renderForeignDeclarations program
           <> renderExternalFunctionDeclarations env program
@@ -147,8 +157,8 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
           <> renderEnterStubs (compileRuntimeInfos env <> specialInfos)
           <> concatMap compiledFunctionLines functions
           <> renderNativeControlFunctions
-          <> renderSpecialFunctions
-          <> renderMain env rootSlot dependencyInitializers constructorInitialization initialization
+          <> renderSpecialFunctions returnsStatus
+          <> renderMain returnsStatus env rootSlot dependencyInitializers constructorInitialization initialization
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
@@ -1184,8 +1194,8 @@ compileInitializers env program = do
 runInitializer :: FunctionM value -> Either LlvmError value
 runInitializer action = fst <$> runStateT action (FunctionState 0 0 0 [])
 
-renderMain :: CompileEnv -> Int -> [Text] -> [Text] -> [Text] -> [Text]
-renderMain env rootSlot dependencyInitializers constructorInitialization initialization =
+renderMain :: Bool -> CompileEnv -> Int -> [Text] -> [Text] -> [Text] -> [Text]
+renderMain returnsStatus env rootSlot dependencyInitializers constructorInitialization initialization =
   [ "define i32 @main(i32 %argc, ptr %argv) {",
     "entry:",
     "  call void @aihc_program_arguments_initialize(i32 %argc, ptr %argv)",
@@ -1214,16 +1224,20 @@ renderMain env rootSlot dependencyInitializers constructorInitialization initial
          "  store ptr @aihc_llvm_exit, ptr %exit_field, align 8",
          "  %root_ptr = inttoptr i64 %root to ptr",
          "  call tailcc void @aihc_llvm_eval(ptr %machine, ptr %root_ptr, i64 1, ptr %top, ptr %update)",
-         "  ret i32 0",
+         if returnsStatus
+           then "  %exit_status = load i32, ptr @aihc_exit_status, align 4"
+           else "  %exit_status = add i32 0, 0",
+         "  ret i32 %exit_status",
          "}",
          ""
        ]
 
-renderSpecialFunctions :: [Text]
-renderSpecialFunctions =
+renderSpecialFunctions :: Bool -> [Text]
+renderSpecialFunctions returnsStatus =
   renderSpecial "aihc_llvm_top_continuation" 2 topBody
     <> renderSpecial "aihc_llvm_thread_done_continuation" 1 threadDoneBody
-    <> renderSpecial "aihc_llvm_final_continuation" 1 finalBody
+    <> renderSpecial "aihc_llvm_final_supplied_continuation" 1 (finalBody False)
+    <> renderSpecial "aihc_llvm_final_applied_continuation" 1 (finalBody True)
     <> [ "define internal tailcc void @aihc_llvm_exit(ptr %machine) {",
          "entry:",
          "  ret void",
@@ -1248,11 +1262,29 @@ renderSpecialFunctions =
         "  musttail call tailcc void @aihc_llvm_resume(ptr %machine, ptr %resume)",
         "  ret void"
       ]
-    finalBody =
-      [ "  %exit = call ptr @aihc_halt(ptr %machine)",
-        "  musttail call tailcc void %exit(ptr %machine)",
-        "  ret void"
-      ]
+    finalBody receivesAppliedClosure =
+      ( if returnsStatus
+          then
+            ( if receivesAppliedClosure
+                then
+                  [ "  %final_continuation = inttoptr i64 %arg_0 to ptr",
+                    "  %final_result_field = getelementptr i64, ptr %final_continuation, i64 1",
+                    "  %final_result = load i64, ptr %final_result_field, align 8",
+                    "  %final_result_ptr = inttoptr i64 %final_result to ptr"
+                  ]
+                else ["  %final_result_ptr = inttoptr i64 %arg_0 to ptr"]
+            )
+              <> [ "  %final_status_field = getelementptr i64, ptr %final_result_ptr, i64 1",
+                   "  %final_status = load i64, ptr %final_status_field, align 8",
+                   "  %final_status_i32 = trunc i64 %final_status to i32",
+                   "  store i32 %final_status_i32, ptr @aihc_exit_status, align 4"
+                 ]
+          else []
+      )
+        <> [ "  %exit = call ptr @aihc_halt(ptr %machine)",
+             "  musttail call tailcc void %exit(ptr %machine)",
+             "  ret void"
+           ]
 
 renderNativeControlFunctions :: [Text]
 renderNativeControlFunctions =

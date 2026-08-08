@@ -60,14 +60,30 @@ import Aihc.Native
     extendLinkLayout,
     hostNativeTarget,
   )
-import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
-import Aihc.Parser.Syntax (Extension (ImplicitPrelude), LanguageEdition (Haskell98Edition), Module, effectiveExtensions, headerExtensionSettings, headerLanguageEdition, moduleName)
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr, parseModule)
+import Aihc.Parser.Syntax
+  ( Decl (..),
+    Extension (ImplicitPrelude),
+    LanguageEdition (Haskell98Edition),
+    Match (..),
+    MatchHeadForm (..),
+    Module (..),
+    NameType (NameVarId),
+    Rhs (..),
+    ValueDecl (..),
+    effectiveExtensions,
+    headerExtensionSettings,
+    headerLanguageEdition,
+    mkUnqualifiedName,
+    moduleName,
+  )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Resolve (ResolveResult (..), resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (ModuleKey (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
 import Control.Monad (forM_, when)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -120,6 +136,7 @@ data IncrementalUnit = IncrementalUnit
 data IncrementalCompilation = IncrementalCompilation
   { incrementalDependencyUnits :: ![IncrementalUnit],
     incrementalMainUnit :: !IncrementalUnit,
+    incrementalEntryBindingName :: !Text,
     incrementalEntryName :: !Text
   }
 
@@ -229,10 +246,16 @@ compileSourceToArtifactsWithDependencies target wholeProgram environment sourceN
       dependencies <- buildDependencies target environment (ImplicitPrelude `elem` sourceExtensions source) (not wholeProgram) parsed
       pure $ do
         artifact <- either (Left . CompileDependencyError) Right dependencies
-        compileWithDependencies target wholeProgram artifact parsed
+        (entryBindingName, executableModule) <-
+          if Map.member (ModuleKey unnamedPackage "GHC.TopHandler") (dependencyExports artifact)
+            then do
+              wrapped <- addMainHandler parsed
+              Right (mainEntryBindingName, wrapped)
+            else Right ("main", parsed)
+        compileWithDependencies target wholeProgram entryBindingName artifact executableModule
 
-compileWithDependencies :: NativeTarget -> Bool -> DependencyArtifact -> Module -> Either CompileError CompileArtifacts
-compileWithDependencies target wholeProgram dependencies parsed =
+compileWithDependencies :: NativeTarget -> Bool -> Text -> DependencyArtifact -> Module -> Either CompileError CompileArtifacts
+compileWithDependencies target wholeProgram entryBindingName dependencies parsed =
   case resolveWithDeps (dependencyExports dependencies) [(unnamedPackage, parsed)] of
     ResolveResult {resolveErrors = errors@(_ : _)} -> Left (CompileFrontendError ["resolve error: " <> show errors])
     ResolveResult {resolvedModules} ->
@@ -251,15 +274,15 @@ compileWithDependencies target wholeProgram dependencies parsed =
                     else
                       let mainProgram = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
                        in do
-                            incremental <- compileIncrementally (fromMaybe "Main" (moduleName parsed)) dependencies mainProgram
+                            incremental <- compileIncrementally entryBindingName (fromMaybe "Main" (moduleName parsed)) dependencies mainProgram
                             if wholeProgram
                               then compileWholeProgramArtifacts target incremental
                               else compileIncrementalArtifacts target dependencies incremental
 
 -- | Compile every module SCC to its own normalized Core and GRIN unit before any
 -- optional whole-program transformation is considered.
-compileIncrementally :: Text -> DependencyArtifact -> FcProgram -> Either CompileError IncrementalCompilation
-compileIncrementally mainModuleName dependencies unoptimizedMain =
+compileIncrementally :: Text -> Text -> DependencyArtifact -> FcProgram -> Either CompileError IncrementalCompilation
+compileIncrementally entryBindingName mainModuleName dependencies unoptimizedMain =
   do
     mainCpsGrin <- either (Left . CompileCpsGrinError) Right (Grin.toCpsGrin mainGrin)
     pure
@@ -269,12 +292,13 @@ compileIncrementally mainModuleName dependencies unoptimizedMain =
             | unit <- dependencyUnits dependencies
             ],
           incrementalMainUnit = IncrementalUnit mainCore mainGrin mainCpsGrin,
-          incrementalEntryName = T.intercalate "\0" (["exe"] <> T.splitOn "." mainModuleName <> ["main"])
+          incrementalEntryBindingName = entryBindingName,
+          incrementalEntryName = T.intercalate "\0" (["exe"] <> T.splitOn "." mainModuleName <> [entryBindingName])
         }
   where
     mainCore =
       Fc.optimizeProgram
-        (Fc.lowerPseudoOps (Fc.lowerNewtypesWithInterface (dependencyNewtypeInterface dependencies) (eliminateDeadCode "main" unoptimizedMain)))
+        (Fc.lowerPseudoOps (Fc.lowerNewtypesWithInterface (dependencyNewtypeInterface dependencies) (eliminateDeadCode entryBindingName unoptimizedMain)))
     mainLinkNames = Grin.linkNamesForProgram ["exe"] (T.splitOn "." mainModuleName) mainCore
     mainGrin = Grin.lowerProgramWithInterfaceAndLinkNames mainLinkNames (dependencyGrinInterface dependencies) mainCore
 
@@ -295,7 +319,8 @@ freshenPrograms nextUnique (program : programs) =
     shifted = shiftProgramVars nextUnique program
 
 reachableLinkedCore :: IncrementalCompilation -> FcProgram
-reachableLinkedCore = eliminateDeadCode "main" . mergeIncrementalCore
+reachableLinkedCore compilation =
+  eliminateDeadCode (incrementalEntryBindingName compilation) (mergeIncrementalCore compilation)
 
 -- | The optional whole-program phase consumes incremental Core; it does not
 -- rerun the frontend or bypass per-SCC GRIN lowering.
@@ -315,7 +340,7 @@ compileIncrementalArtifacts target dependencies compilation = do
       declaredPrimitives =
         dependencyRuntimePrimitiveNames dependencies
           <> Set.fromList [Grin.grinVarName primitive | (primitive, _) <- Grin.grinPrimitives mainGrin]
-      primitives = Set.toAscList (Set.intersection (reachablePrimitiveNames "main" reachability) declaredPrimitives)
+      primitives = Set.toAscList (Set.intersection (reachablePrimitiveNames (incrementalEntryBindingName compilation) reachability) declaredPrimitives)
   either (Left . CompileBackendError) Right (validateBackendPrimitiveNames target primitives)
   assembly <-
     either
@@ -383,10 +408,10 @@ compileBackendProgram target entry program =
 compileBackendProgramWithDependencies :: NativeTarget -> LinkLayout -> [Text] -> Text -> Grin.GcGrinProgram -> Either BackendError Text
 compileBackendProgramWithDependencies target layout initializers entry program =
   case target of
-    AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.compileProgramWithDependencies layout initializers entry program)
-    LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileProgramWithDependencies layout initializers entry program)
-    Llvm -> either (Left . BackendLlvmError) Right (Llvm.compileProgramWithDependencies layout initializers entry program)
-    Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.compileProgramWithDependencies layout initializers entry program)
+    AppleArm64 -> either (Left . BackendArm64Error) Right (Arm64.compileMainProgramWithDependencies layout initializers entry program)
+    LinuxAmd64 -> either (Left . BackendAmd64Error) Right (Amd64.compileMainProgramWithDependencies layout initializers entry program)
+    Llvm -> either (Left . BackendLlvmError) Right (Llvm.compileMainProgramWithDependencies layout initializers entry program)
+    Wasm32Wasip3 -> either (Left . BackendWasmError) Right (Wasm.compileMainProgramWithDependencies layout initializers entry program)
 
 renderCore :: FcProgram -> Text
 renderCore = withFinalNewline . Fc.renderProgram
@@ -497,6 +522,45 @@ parseCompileModule sourceName source =
         { parserSourceName = sourceName,
           parserExtensions = sourceExtensions source
         }
+
+mainEntryBindingName :: Text
+mainEntryBindingName = "$aihc.main"
+
+-- | Add the executable-only wrapper that gives uncaught exceptions Haskell's
+-- top-level semantics. Keeping the wrapper in the surface program lets normal
+-- resolution, type checking, desugaring, and dependency reachability account
+-- for every value it uses.
+addMainHandler :: Module -> Either CompileError Module
+addMainHandler modu = do
+  topHandlerImport <-
+    case parseModule defaultConfig "module AihcMainWrapper where\nimport GHC.TopHandler\n" of
+      ([], wrapper) ->
+        case moduleImports wrapper of
+          [importDecl] -> Right importDecl
+          _ -> Left internalWrapperParseError
+      _ -> Left internalWrapperParseError
+  wrapperExpression <-
+    case parseExpr defaultConfig "GHC.TopHandler.runMainIO main" of
+      ParseOk expression -> Right expression
+      ParseErr _ -> Left internalWrapperParseError
+  let wrapperDecl =
+        DeclValue $
+          FunctionBind
+            (mkUnqualifiedName NameVarId mainEntryBindingName)
+            [ Match
+                { matchAnns = [],
+                  matchHeadForm = MatchHeadPrefix,
+                  matchPats = [],
+                  matchRhs = UnguardedRhs [] wrapperExpression Nothing
+                }
+            ]
+  pure
+    modu
+      { moduleImports = moduleImports modu <> [topHandlerImport],
+        moduleDecls = moduleDecls modu <> [wrapperDecl]
+      }
+  where
+    internalWrapperParseError = CompileParseError "compiler-generated main wrapper did not parse"
 
 sourceExtensions :: Text -> [Extension]
 sourceExtensions source = effectiveExtensions language (headerExtensionSettings header)

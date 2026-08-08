@@ -240,6 +240,9 @@
     if [[ -f "$example_directory/exit" ]]; then
       expected_exit=$(<"$example_directory/exit")
     fi
+    if [[ -f "$example_directory/exit.wasm32-wasip3" ]]; then
+      expected_exit=$(<"$example_directory/exit.wasm32-wasip3")
+    fi
     if timeout --foreground --kill-after=5s 120s ${aihcExe} compile "$source" \
       --target wasm32-wasip3 \
       --store ${exampleToolchain} \
@@ -488,6 +491,9 @@
       expected_exit=0
       if [[ -f "$example_directory/exit" ]]; then
         expected_exit=$(<"$example_directory/exit")
+      fi
+      if [[ -f "$example_directory/exit.ghc" ]]; then
+        expected_exit=$(<"$example_directory/exit.ghc")
       fi
 
       actual_stdout="$TMPDIR/$example_name.stdout"

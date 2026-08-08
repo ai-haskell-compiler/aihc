@@ -8,6 +8,7 @@ module Aihc.Amd64
     compileModule,
     ObservedProgram (..),
     compileObservedFunction,
+    compileMainProgramWithDependencies,
     compileProgram,
     compileProgramWithDependencies,
     extendLinkLayout,
@@ -23,6 +24,7 @@ where
 import Aihc.Amd64.Codegen
   ( Amd64Error (..),
     ObservedProgram (..),
+    compileMainProgramWithDependencies,
     compileModule,
     compileObservedFunction,
     compileProgram,

@@ -512,6 +512,7 @@ void aihc_wasip3_close(int32_t descriptor) {
 static command_callback_code_t aihc_pump(void) {
   if (aihc_wasm_pump_transfers()) {
     exports_wasi_cli_run_result_void_void_t result = {0};
+    result.is_err = !aihc_wasm_exit_succeeded();
     exports_wasi_cli_run_run_return(result);
     return COMMAND_CALLBACK_CODE_EXIT;
   }

@@ -2,6 +2,7 @@
 module Aihc.Llvm
   ( LlvmError (..),
     compileModule,
+    compileMainProgramWithDependencies,
     compileProgram,
     compileProgramWithDependencies,
     validatePrimitiveNames,

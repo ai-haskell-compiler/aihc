@@ -2,6 +2,7 @@
 module Aihc.Wasm
   ( WasmError (..),
     compileModule,
+    compileMainProgramWithDependencies,
     compileProgram,
     compileProgramWithDependencies,
     validatePrimitiveNames,

@@ -8,6 +8,7 @@ module Aihc.Arm64
     compileModule,
     ObservedProgram (..),
     compileObservedFunction,
+    compileMainProgramWithDependencies,
     compileProgram,
     compileProgramWithDependencies,
     extendLinkLayout,
@@ -23,6 +24,7 @@ where
 import Aihc.Arm64.Codegen
   ( Arm64Error (..),
     ObservedProgram (..),
+    compileMainProgramWithDependencies,
     compileModule,
     compileObservedFunction,
     compileProgram,

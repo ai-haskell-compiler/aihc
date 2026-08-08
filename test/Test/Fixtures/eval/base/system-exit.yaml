@@ -1,0 +1,45 @@
+extensions: []
+dependencies: [aihc-base]
+modules:
+  - |
+    module Main where
+
+    import Control.Exception (try)
+    import GHC.TopHandler (runMainIO)
+    import System.Exit (ExitCode(..), exitWith)
+
+    catchesExitCode :: IO Bool
+    catchesExitCode = do
+      result <- try (exitWith (ExitFailure 5) :: IO ())
+      case result of
+        Left (ExitFailure 5) -> return True
+        _ -> return False
+
+    handlesMainExit :: IO Bool
+    handlesMainExit = do
+      success <- runMainIO (exitWith ExitSuccess :: IO ())
+      failure <- runMainIO (exitWith (ExitFailure 7) :: IO ())
+      return (success == 0 && failure == 7)
+
+    readsExitCode :: Bool
+    readsExitCode =
+      case reads "ExitFailure 7" of
+        [(ExitFailure 7, "")] -> True
+        _ -> False
+
+    result :: IO Bool
+    result = do
+      catches <- catchesExitCode
+      handles <- handlesMainExit
+      return
+        ( catches
+            && handles
+            && ExitSuccess < ExitFailure 1
+            && show ExitSuccess == "ExitSuccess"
+            && show (ExitFailure 7) == "ExitFailure 7"
+            && readsExitCode
+        )
+output: "True"
+expression: result
+status: pass
+reason: System.Exit exposes compatible values and throws ExitCode for the compiler-installed top handler

@@ -12,6 +12,7 @@ module Aihc.Arm64.Codegen
     compileModule,
     ObservedProgram (..),
     compileObservedFunction,
+    compileMainProgramWithDependencies,
     compileProgram,
     compileProgramWithDependencies,
     extendLinkLayout,
@@ -155,7 +156,13 @@ compileModule layout initializerSymbol gcProgram = do
 -- Dependency initializers are called after constructors are installed and
 -- before the user module's own globals are initialized.
 compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either Arm64Error Text
-compileProgramWithDependencies layout dependencyInitializers entryName gcProgram = do
+compileProgramWithDependencies = compileProgramWithDependenciesReturningStatus False
+
+compileMainProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either Arm64Error Text
+compileMainProgramWithDependencies = compileProgramWithDependenciesReturningStatus True
+
+compileProgramWithDependenciesReturningStatus :: Bool -> LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either Arm64Error Text
+compileProgramWithDependenciesReturningStatus returnsStatus layout dependencyInitializers entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   rootSlot <- maybe (Left (Arm64MissingEntry entryName)) Right (Map.lookup entryName globalSlots)
   constructorLines <- compileConstructorInitializers compileEnv
@@ -216,12 +223,22 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
          ]
       <> threadDoneContinuation
       <> [ ".p2align 3",
-           ".Laihc_final_continuation:",
-           "  b .Laihc_exit"
+           ".Laihc_final_supplied_continuation:"
          ]
-      <> [ ".Laihc_exit:",
-           "  mov w0, #0"
+      <> ( if returnsStatus
+             then ["  ldr w0, [x0, #8]"]
+             else ["  mov w0, #0"]
+         )
+      <> [ "  b .Laihc_exit",
+           ".p2align 3",
+           ".Laihc_final_applied_continuation:"
          ]
+      <> ( if returnsStatus
+             then ["  ldr x9, [x0, #8]", "  ldr w0, [x9, #8]"]
+             else ["  mov w0, #0"]
+         )
+      <> ["  b .Laihc_exit"]
+      <> [".Laihc_exit:"]
       <> entryEpilogue
       <> renderCompiledSupport compileEnv functions (programRuntimeInfos updateLabel)
   where
@@ -231,11 +248,12 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
     globalNames = linkGlobalNames layout
     pointerRep = BoxedRep Lifted
     programRuntimeInfos updateLabel =
-      continuationRuntimeInfos
+      continuationRuntimeInfosWithAppliedTarget
         ContinuationFrameStop
         ".Laihc_final_info"
         ".Laihc_final_applied_info"
-        ".Laihc_final_continuation"
+        ".Laihc_final_supplied_continuation"
+        ".Laihc_final_applied_continuation"
         []
         [pointerRep]
         <> continuationRuntimeInfos
