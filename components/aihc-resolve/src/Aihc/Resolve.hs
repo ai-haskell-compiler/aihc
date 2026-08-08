@@ -71,6 +71,8 @@ import Aihc.Parser.Syntax
     NewtypeDecl (..),
     NumericType (..),
     Pattern (..),
+    Pragma (..),
+    PragmaType (..),
     RecordField (..),
     Rhs (..),
     SourceSpan (..),
@@ -405,7 +407,10 @@ resolveDeclCore termDefinition decl =
     DeclForeign foreignDecl ->
       DeclForeign <$> resolveForeignDecl termDefinition foreignDecl
     DeclRoleAnnotation {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
-    DeclPragma {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclPragma pragma ->
+      case pragmaType pragma of
+        PragmaInline "NOINLINE" _ -> pure decl
+        _ -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSyn {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclPatSynSig {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclInstance instanceDecl ->

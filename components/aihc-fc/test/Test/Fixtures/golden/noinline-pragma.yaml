@@ -1,0 +1,13 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    id x = x
+    {-# NOINLINE id #-}
+expected: |-
+  id : ∀ a. a → a =
+    Λa.
+      λx1001 : a.
+        x1001
+status: pass
+reason: NOINLINE is accepted and ignored before System FC desugaring

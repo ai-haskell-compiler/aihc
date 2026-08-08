@@ -1,0 +1,26 @@
+dependencies:
+  - aihc-base
+evaluators:
+  - grin
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar)
+    import Data.Unique (Unique, newUnique)
+
+    concurrentPairIsDistinct :: IO Bool
+    concurrentPairIsDistinct = do
+      firstResult <- newEmptyMVar
+      secondResult <- newEmptyMVar
+      forkIO (newUnique >>= putMVar firstResult)
+      forkIO (newUnique >>= putMVar secondResult)
+      first <- takeMVar firstResult
+      second <- takeMVar secondResult
+      return (first /= second)
+expression: concurrentPairIsDistinct
+output: |
+  True
+status: pass
+reason: Data.Unique uses an atomic global source so concurrent callers cannot receive the same value
