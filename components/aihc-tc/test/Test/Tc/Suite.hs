@@ -413,6 +413,20 @@ kindTests =
           assertEqual "result representation argument" repVar resultRepVar
           assertEqual "result value argument" valueVar resultValueVar
         other -> assertFailure ("unexpected R constructor types: " <> show other),
+    testCase "accepts GHC's levity-polymorphic casMutVar# type" $ do
+      let result =
+            typecheckModule $
+              parseM
+                "{-# LANGUAGE ExplicitForAll #-}\n\
+                \{-# LANGUAGE GHCForeignImportPrim #-}\n\
+                \{-# LANGUAGE KindSignatures #-}\n\
+                \{-# LANGUAGE MagicHash #-}\n\
+                \{-# LANGUAGE UnboxedTuples #-}\n\
+                \module Test where\n\
+                \data State# s\n\
+                \data MutVar# d a\n\
+                \foreign import prim casMutVar# :: forall (r :: RuntimeRep) d (a :: TYPE r). MutVar# d a -> a -> a -> State# d -> (# State# d, Int#, a #)\n"
+      assertBool ("module should typecheck, got: " <> show (tcModuleDiagnostics result)) (tcModuleSuccess result),
     testCase "rejects unsaturated type constructor in signature" $ do
       let result =
             typecheckModule $

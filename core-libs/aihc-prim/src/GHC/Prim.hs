@@ -19,6 +19,7 @@ module GHC.Prim
     ByteArray#,
     byteArrayContents#,
     catch#,
+    casMutVar#,
     compareInt#,
     copyByteArray#,
     copyAddrToByteArray#,
@@ -218,7 +219,7 @@ foreign import prim ctz# :: Word# -> Word#
 
 foreign import prim popCnt# :: Word# -> Word#
 
-foreign import prim newMutVar# :: a -> State# d -> (# State# d, MutVar# d a #)
+foreign import prim newMutVar# :: forall (r :: RuntimeRep) (a :: TYPE r) d. a -> State# d -> (# State# d, MutVar# d a #)
 
 foreign import prim newMVar# :: State# d -> (# State# d, MVar# d a #)
 
@@ -228,9 +229,14 @@ foreign import prim takeMVar# :: MVar# d a -> State# d -> (# State# d, a #)
 
 foreign import prim putMVar# :: MVar# d a -> a -> State# d -> State# d
 
-foreign import prim readMutVar# :: MutVar# d a -> State# d -> (# State# d, a #)
+foreign import prim readMutVar# :: forall (r :: RuntimeRep) d (a :: TYPE r). MutVar# d a -> State# d -> (# State# d, a #)
 
-foreign import prim writeMutVar# :: MutVar# d a -> a -> State# d -> State# d
+foreign import prim writeMutVar# :: forall (r :: RuntimeRep) d (a :: TYPE r). MutVar# d a -> a -> State# d -> State# d
+
+-- | Replace a mutable variable when its current value is pointer-identical to
+-- the expected value. The flag is @0#@ when the swap succeeds and @1#@ when it
+-- fails; the final field is the value left in the mutable variable.
+foreign import prim casMutVar# :: forall (r :: RuntimeRep) d (a :: TYPE r). MutVar# d a -> a -> a -> State# d -> (# State# d, Int#, a #)
 
 foreign import prim sameMutVar# :: MutVar# d a -> MutVar# d a -> Int#
 

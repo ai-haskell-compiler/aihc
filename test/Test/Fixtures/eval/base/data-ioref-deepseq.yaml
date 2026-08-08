@@ -1,0 +1,35 @@
+extensions:
+  - FlexibleInstances
+  - KindSignatures
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.IORef (IORef, newIORef)
+    import Data.Kind (Type)
+
+    class NFData a where
+      rnf :: a -> ()
+
+    class NFData1 (f :: Type -> Type) where
+      liftRnf :: (a -> ()) -> f a -> ()
+
+    rwhnf :: a -> ()
+    rwhnf value = value `seq` ()
+
+    instance NFData (IORef a) where
+      rnf = rwhnf
+
+    instance NFData1 IORef where
+      liftRnf _ = rwhnf
+
+    deepseqStyleInstances :: IO Bool
+    deepseqStyleInstances = do
+      reference <- newIORef False
+      reference `seq` return True
+output: "True"
+expression: deepseqStyleInstances
+status: pass
+reason: the IORef type constructor supports the NFData and NFData1 instance heads used by deepseq without forcing the referenced value

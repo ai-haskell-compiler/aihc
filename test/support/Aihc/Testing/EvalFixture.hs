@@ -86,6 +86,7 @@ data EvalCase = EvalCase
     evalCaseOutput :: !String,
     evalCaseException :: !(Maybe String),
     evalCaseStdout :: !(Maybe String),
+    evalCaseEvaluators :: ![Text],
     evalCaseStatus :: !ExpectedStatus,
     evalCaseReason :: !String
   }
@@ -145,7 +146,7 @@ loadEvalCase root path = do
 
 parseEvalFixture :: FilePath -> FilePath -> Y.Value -> Either String EvalCase
 parseEvalFixture root path value = do
-  (extNames, dependencies, modules, expression, output, expectedException, expectedStdout, statusText, reasonText) <-
+  (extNames, dependencies, modules, expression, output, expectedException, expectedStdout, evaluators, statusText, reasonText) <-
     parseEither
       ( withObject "eval fixture" $ \obj -> do
           exts <- obj .: "extensions"
@@ -155,9 +156,10 @@ parseEvalFixture root path value = do
           expected <- obj .: "output"
           exception <- obj .:? "exception"
           stdoutOutput <- obj .:? "stdout"
+          fixtureEvaluators <- obj .:? "evaluators" .!= ["fc", "grin"]
           status <- obj .: "status"
           reason <- obj .:? "reason" .!= ""
-          pure (exts, deps, mods, expr, expected, exception, stdoutOutput, status, reason)
+          pure (exts, deps, mods, expr, expected, exception, stdoutOutput, fixtureEvaluators, status, reason)
       )
       value
   if null modules
@@ -165,6 +167,7 @@ parseEvalFixture root path value = do
     else do
       exts <- validateExtensions path extNames
       status <- parseStatus path statusText
+      validateEvaluators path evaluators
       let relPath = makeRelative root path
           category = categoryFromPath relPath
           exception = trim . T.unpack <$> expectedException
@@ -186,9 +189,18 @@ parseEvalFixture root path value = do
             evalCaseOutput = trim (T.unpack output),
             evalCaseException = exception,
             evalCaseStdout = T.unpack <$> expectedStdout,
+            evalCaseEvaluators = evaluators,
             evalCaseStatus = status,
             evalCaseReason = trim (T.unpack reasonText)
           }
+
+validateEvaluators :: FilePath -> [Text] -> Either String ()
+validateEvaluators path evaluators
+  | null evaluators = Left ("Eval fixture evaluators must not be empty in " <> path)
+  | otherwise =
+      case filter (`notElem` ["fc", "grin"]) evaluators of
+        [] -> Right ()
+        invalid -> Left ("Unknown eval fixture evaluators " <> show invalid <> " in " <> path)
 
 parseModules :: Y.Value -> Y.Parser [Text]
 parseModules = withArray "modules" $ \arr ->

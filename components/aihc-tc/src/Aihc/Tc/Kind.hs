@@ -126,6 +126,19 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       inferBuiltinTypeConstructor builtin
     TStar {} ->
       pure (TcTyCon (TyCon "*" 0) [], KType)
+    -- GHC's MutVar# has an inferred RuntimeRep parameter, so its value
+    -- argument may have any TYPE r kind even though r is not a visible type
+    -- constructor argument.
+    TApp function value
+      | (TCon name Unpromoted, [state]) <- typeApplicationSpine function,
+        nameText name == "MutVar#" -> do
+          (mutVarType, _) <- inferTypeConstructor Unpromoted name
+          stateType <- checkSurfaceType tvEnv state KType
+          valueType <- checkRuntimeType tvEnv value
+          pure
+            ( applyType (applyType mutVarType stateType) valueType,
+              KTYPE (BoxedRep Unlifted)
+            )
     TApp f a -> do
       (fTy, fKind) <- convertSurfaceTypeWithKinds tvEnv f
       (aTy, aKind) <- convertSurfaceTypeWithKinds tvEnv a
@@ -505,6 +518,7 @@ wiredInTypeKind name =
 runtimeRepFromSurfaceType :: TvKindEnv -> Type -> TcM RuntimeRep
 runtimeRepFromSurfaceType tvEnv ty =
   case peelTypeHead ty of
+    TAnn _ inner -> runtimeRepFromSurfaceType tvEnv inner
     TVar name ->
       case Map.lookup (unqualifiedNameText name) tvEnv of
         Just (tyVar, KRuntimeRep) -> pure (RuntimeRepVar (tvUnique tyVar))
