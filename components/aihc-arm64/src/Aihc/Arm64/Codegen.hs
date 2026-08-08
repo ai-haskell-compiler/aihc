@@ -220,8 +220,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
            "  b .Laihc_exit"
          ]
       <> [ ".Laihc_exit:",
-           "  mov x0, x22",
-           "  bl _aihc_get_exit_status"
+           "  mov w0, #0"
          ]
       <> entryEpilogue
       <> renderCompiledSupport compileEnv functions (programRuntimeInfos updateLabel)

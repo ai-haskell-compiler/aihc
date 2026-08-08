@@ -21,6 +21,8 @@ _Noreturn void aihc_host_fail(const char *message) {
   abort();
 }
 
+_Noreturn void aihc_exit_process(int64_t status) { exit((int)status); }
+
 void *aihc_io_stdin(void) { return &aihc_standard_input; }
 
 void *aihc_io_stdout(void) { return &aihc_standard_output; }

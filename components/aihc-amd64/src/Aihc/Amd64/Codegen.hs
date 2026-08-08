@@ -234,8 +234,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
            "  jmp .Laihc_exit"
          ]
       <> [ ".Laihc_exit:",
-           "  mov rdi, r15",
-           "  call aihc_get_exit_status"
+           "  xor eax, eax"
          ]
       <> mainEpilogue
       <> renderCompiledSupport compileEnv functions (programRuntimeInfos updateLabel)

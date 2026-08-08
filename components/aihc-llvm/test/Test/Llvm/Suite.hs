@@ -43,7 +43,8 @@ tests =
       testCase "preserves first-match case semantics" (testProgram "F" firstMatchCaseProgram),
       testCase "executes thunk entry updates" (testProgram "T" thunkEntryProgram),
       testCase "executes cooperative scheduling" (testProgram "PCAB" schedulerProgram),
-      testCase "executes synchronous exception unwinding" (testProgram "E" synchronousExceptionProgram)
+      testCase "executes synchronous exception unwinding" (testProgram "E" synchronousExceptionProgram),
+      testCase "exits directly with an unboxed process status" testProcessExit
     ]
 
 testGuaranteedTailCalls :: IO ()
@@ -407,6 +408,69 @@ labsCall =
             grinForeignEffect = GrinForeignPure
           }
     }
+
+testProcessExit :: IO ()
+testProcessExit = do
+  source <- compile processExitProgram
+  assertBool
+    "LLVM exit lowering must call the non-returning host operation"
+    ("call void @aihc_exit_process(i64 7)" `T.isInfixOf` source)
+  assertBool
+    "LLVM main must not recover an exit status after the tail-call chain"
+    (not ("call i64 @aihc_get_exit_status" `T.isInfixOf` source))
+  withTempDirectory "aihc-llvm-exit" $ \directory -> do
+    runtimeArguments <- llvmRuntimeArguments
+    let sourcePath = directory </> "program.ll"
+        executablePath = directory </> "program"
+    TIO.writeFile sourcePath source
+    (clangExit, _clangOut, clangErr) <-
+      readProcessWithExitCode
+        "clang"
+        ( ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-override-module", "-O2"]
+            <> runtimeArguments
+            <> [sourcePath, "-o", executablePath]
+        )
+        ""
+    assertEqual ("clang rejected generated LLVM IR:\n" <> clangErr) ExitSuccess clangExit
+    (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
+    assertEqual "generated process exit" (ExitFailure 7) programExit
+    assertEqual "generated process stdout" "" programOut
+    assertEqual "generated process stderr" "" programErr
+
+processExitProgram :: GrinProgram
+processExitProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [shutdownCall],
+      grinExternalGlobals = [],
+      grinExternalFunctions = [],
+      grinWhnfGlobals = [(mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
+      grinCafs = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = mainFunction,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = IntRep,
+              grinFunctionBody = GrinForeignCallExpr shutdownCall [intValue 7, intValue 0]
+            }
+        ]
+    }
+  where
+    mainFunction = FunctionName "$process_exit_main"
+    mainClosure = GrinVar "main" 120 (BoxedRep Lifted)
+    shutdownCall =
+      GrinForeignCall
+        { grinForeignCallName = "$ffi$shutdownHaskellAndExit",
+          grinForeignCallSymbol = "shutdownHaskellAndExit",
+          grinForeignCallSignature =
+            GrinForeignSignature
+              { grinForeignArgumentTypes = [GrinForeignInt, GrinForeignInt],
+                grinForeignResultType = GrinForeignInt,
+                grinForeignEffect = GrinForeignRealWorld
+              }
+        }
 
 testProgram :: String -> GrinProgram -> IO ()
 testProgram expected program = do

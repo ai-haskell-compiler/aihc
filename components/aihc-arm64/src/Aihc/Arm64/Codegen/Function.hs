@@ -219,16 +219,13 @@ compileExpr env prefix label expression =
         (prefix <> ["  mov x0, x22", "  bl _aihc_halt", "  br x0"])
         BlockLayout.Exit
     GrinExit status -> do
-      statusLines <- liftEither (materializeValueTo env "x1" status)
+      statusLines <- liftEither (materializeValueTo env "x0" status)
       addBlock
         label
         ( prefix
             <> statusLines
-            <> [ "  mov x0, x22",
-                 "  bl _aihc_set_exit_status",
-                 "  mov x0, x22",
-                 "  bl _aihc_halt",
-                 "  br x0"
+            <> [ "  bl _aihc_exit_process",
+                 "  brk #0"
                ]
         )
         BlockLayout.Exit

@@ -402,14 +402,12 @@ compileExpr env prefix label expression =
         )
     GrinExit status -> do
       (statusLines, statusOperand) <- materializeValue env status
-      entry <- freshValue
       terminal
         label
         ( prefix
             <> statusLines
-            <> [ "  call void @aihc_set_exit_status(ptr %machine, i64 " <> statusOperand <> ")",
-                 "  " <> entry <> " = call ptr @aihc_halt(ptr %machine)",
-                 "  musttail call tailcc void " <> entry <> "(ptr %machine)"
+            <> [ "  call void @aihc_exit_process(i64 " <> statusOperand <> ")",
+                 "  unreachable"
                ]
         )
     GrinCase scrutinee binder alternatives -> compileCase env prefix label scrutinee binder alternatives
@@ -1226,9 +1224,7 @@ renderMain env rootSlot dependencyInitializers constructorInitialization initial
          "  store ptr @aihc_llvm_exit, ptr %exit_field, align 8",
          "  %root_ptr = inttoptr i64 %root to ptr",
          "  call tailcc void @aihc_llvm_eval(ptr %machine, ptr %root_ptr, i64 1, ptr %top, ptr %update)",
-         "  %exit_status_i64 = call i64 @aihc_get_exit_status(ptr %machine)",
-         "  %exit_status = trunc i64 %exit_status_i64 to i32",
-         "  ret i32 %exit_status",
+         "  ret i32 0",
          "}",
          ""
        ]
@@ -1734,8 +1730,7 @@ renderRuntimeDeclarations =
     "declare ptr @aihc_await_io(ptr, ptr, ptr)",
     "declare ptr @aihc_thread_done(ptr)",
     "declare void @aihc_set_thread_done_continuation(ptr, ptr)",
-    "declare void @aihc_set_exit_status(ptr, i64)",
-    "declare i64 @aihc_get_exit_status(ptr)",
+    "declare void @aihc_exit_process(i64) noreturn",
     "declare ptr @aihc_halt(ptr)",
     "declare void @aihc_no_match()",
     "declare void @aihc_unsupported_primitive()",
