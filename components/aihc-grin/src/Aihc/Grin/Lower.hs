@@ -20,6 +20,7 @@ import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Grin.Analysis (freeExprVars)
+import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types
   ( RuntimeRep (..),
@@ -286,16 +287,17 @@ programEnvironment interface =
 
 lowerProgramWithEnvironment :: GrinLinkNames -> GrinInterface -> GrinInterface -> ProgramEnvironment -> FcProgram -> GrinProgram
 lowerProgramWithEnvironment linkNames imported local environment program =
-  GrinProgram
-    { grinConstructors = loweredConstructors tops,
-      grinPrimitives = loweredPrimitives tops,
-      grinForeignCalls = loweredForeignCalls tops,
-      grinExternalGlobals = Set.toAscList (lowerReferencedExternalGlobalNames finalState),
-      grinExternalFunctions = externalCodeInfos,
-      grinWhnfGlobals = loweredWhnfGlobals tops,
-      grinCafs = loweredCafs tops,
-      grinFunctions = reverse (lowerFunctionsRev finalState)
-    }
+  normalizeGrinProgram
+    GrinProgram
+      { grinConstructors = loweredConstructors tops,
+        grinPrimitives = loweredPrimitives tops,
+        grinForeignCalls = loweredForeignCalls tops,
+        grinExternalGlobals = Set.toAscList (lowerReferencedExternalGlobalNames finalState),
+        grinExternalFunctions = externalCodeInfos,
+        grinWhnfGlobals = loweredWhnfGlobals tops,
+        grinCafs = loweredCafs tops,
+        grinFunctions = reverse (lowerFunctionsRev finalState)
+      }
   where
     initialState =
       LowerState
@@ -338,6 +340,14 @@ lowerTopBind topBind =
       pure mempty
     FcNewtype {} ->
       pure mempty
+    FcPrimitive var _
+      | varName var == "casMutVar#" ->
+          pure
+            mempty
+              { loweredPrimitives =
+                  [ (GrinVar "aihcCasMutVarFlag" (sourceUnique var) IntRep, 3)
+                  ]
+              }
     FcPrimitive var arity ->
       pure
         mempty
@@ -550,6 +560,38 @@ lowerSaturatedPrimitive resultRep "newMutVar#" arguments@[_] =
         []
         (GrinEnsureHeap (GrinLitValue (GrinLitInt IntRep 3)) [])
         (GrinPrimitiveCall resultRep "newMutVar#" arguments)
+    )
+-- Native foreign calls return one machine value, while GHC's casMutVar#
+-- returns both a failure flag and the final MutVar# contents. Keep the atomic
+-- operation in a single internal runtime call, then recover the final value:
+-- the replacement was installed on success, and a non-preemptible read
+-- observes the failed CAS value on failure.
+lowerSaturatedPrimitive _ "casMutVar#" arguments@[reference, _, replacement] = do
+  flag <- freshVar "cas_flag" IntRep
+  caseFlag <- freshVar "cas_case" IntRep
+  current <- freshVar "cas_current" (grinValueRuntimeRep replacement)
+  let flagValue = GrinVarValue flag
+      success =
+        GrinAlt
+          { grinAltCon = GrinLitAlt (GrinLitInt IntRep 0),
+            grinAltBinders = [],
+            grinAltRhs = GrinConstant [flagValue, replacement]
+          }
+      failure =
+        GrinAlt
+          { grinAltCon = GrinDefaultAlt,
+            grinAltBinders = [],
+            grinAltRhs =
+              GrinBind
+                [current]
+                (GrinPrimitiveCall (grinVarRuntimeRep current) "readMutVar#" [reference])
+                (GrinConstant [flagValue, GrinVarValue current])
+          }
+  pure
+    ( GrinBind
+        [flag]
+        (GrinPrimitiveCall IntRep "aihcCasMutVarFlag" arguments)
+        (GrinCase flagValue caseFlag [success, failure])
     )
 lowerSaturatedPrimitive resultRep name arguments =
   pure (GrinPrimitiveCall resultRep name arguments)

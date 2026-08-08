@@ -5,10 +5,12 @@ expected: |-
 
   data MutVar#
 
-  foreign prim newMutVar#/2 : ∀ (value : TYPE BoxedRep Lifted) (domain : TYPE BoxedRep Lifted). value → (State# domain) → (#,#) (State# domain) (MutVar# domain value)
+  foreign prim newMutVar#/2 : ∀ (rep : RuntimeRep) (value : TYPE rep) (domain : TYPE BoxedRep Lifted). value → (State# domain) → (#,#) (State# domain) (MutVar# domain value)
 extensions:
+- ExplicitForAll
 - ForeignFunctionInterface
 - GHCForeignImportPrim
+- KindSignatures
 - MagicHash
 - UnboxedTuples
 modules:
@@ -19,6 +21,7 @@ modules:
   data MutVar# d a
 
   foreign import prim newMutVar# ::
+    forall (rep :: RuntimeRep) (value :: TYPE rep) domain.
     value -> State# domain -> (# State# domain, MutVar# domain value #)
-reason: primitive import types match after normalizing quantified variable names
+reason: primitive import types match after normalizing quantified names and levity-polymorphic kinds
 status: pass

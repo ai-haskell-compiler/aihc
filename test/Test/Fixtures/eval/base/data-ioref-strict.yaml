@@ -1,0 +1,20 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.IORef (modifyIORef', newIORef)
+    import GHC.Prim (raise#)
+
+    strictModification :: IO Bool
+    strictModification = do
+      reference <- newIORef True
+      modifyIORef' reference (\_ -> raise# False)
+      return True
+output: ""
+expression: strictModification
+status: fail
+reason: modifyIORef' forces the updated value to weak head normal form before storing it

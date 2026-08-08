@@ -40,6 +40,7 @@ fcPropertyTests =
     [ testProperty "parseProgram . renderProgram = id" prop_programRoundTrip,
       testProperty "parseExpr . renderExpr = id" prop_exprRoundTrip,
       testProperty "parseType . renderType = id" prop_typeRoundTrip,
+      testProperty "dependent runtime representations use their binder" prop_dependentRuntimeRep,
       testProperty "package origins distinguish equal symbol names" prop_packageOrigins,
       testProperty "external signatures occur once" prop_externalSignatures,
       testProperty "local definition signatures serve local occurrences" prop_localSignatures,
@@ -61,6 +62,16 @@ prop_typeRoundTrip :: Property
 prop_typeRoundTrip = property $ do
   value <- forAll genType
   roundTrip renderType parseType value
+
+prop_dependentRuntimeRep :: Property
+prop_dependentRuntimeRep = property $ do
+  let rep = setTyVarKind KRuntimeRep (TyVarId "rep" (Unique 1))
+      value = setTyVarKind (KTYPE (RuntimeRepVar (tvUnique rep))) (TyVarId "value" (Unique 2))
+      ty = TcForAllTy rep (TcForAllTy value (TcTyVar value))
+      rendered = T.pack (renderType ty)
+  annotate (T.unpack rendered)
+  rendered === "∀ (rep : RuntimeRep) (value : TYPE rep). value"
+  roundTrip renderType parseType ty
 
 prop_packageOrigins :: Property
 prop_packageOrigins = property $ do

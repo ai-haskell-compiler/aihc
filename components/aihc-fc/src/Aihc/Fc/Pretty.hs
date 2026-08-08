@@ -16,7 +16,7 @@ import Aihc.Tc.Evidence (Coercion (..), EvVar (..))
 import Aihc.Tc.Types
 import Data.ByteString qualified as BS
 import Data.Char (chr)
-import Data.List (intercalate)
+import Data.List (find, intercalate)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set (Set)
@@ -83,12 +83,12 @@ renderTopBindWith symbols topBind =
     FcData name tyVars constructors ->
       "data "
         <> T.unpack name
-        <> concatMap ((" " <>) . renderTyVarBinder) tyVars
+        <> concatMap (" " <>) (renderTyVarBinders [] tyVars)
         <> renderConstructors tyVars constructors
     FcAxiom declaration ->
       "axiom "
         <> T.unpack (fcAxiomName declaration)
-        <> concatMap ((" " <>) . renderTyVarBinder) (fcAxiomTyVars declaration)
+        <> concatMap (" " <>) (renderTyVarBinders [] (fcAxiomTyVars declaration))
         <> " : "
         <> renderTypeWith (fcAxiomTyVars declaration) (fcAxiomLeft declaration)
         <> renderAxiomRole (fcAxiomRole declaration)
@@ -96,7 +96,7 @@ renderTopBindWith symbols topBind =
     FcNewtype declaration ->
       "newtype "
         <> T.unpack (fcNewtypeName declaration)
-        <> concatMap ((" " <>) . renderTyVarBinder) (fcNewtypeTyVars declaration)
+        <> concatMap (" " <>) (renderTyVarBinders [] (fcNewtypeTyVars declaration))
         <> " : "
         <> renderTypeWith (fcNewtypeTyVars declaration) (fcNewtypeResult declaration)
         <> " = "
@@ -211,7 +211,7 @@ renderConstructors tyVars constructors =
     renderExistentials fields =
       case filter (`notElem` tyVars) (freeRigidTyVarsOf fields) of
         [] -> ""
-        existentialTyVars -> "∀ " <> unwords (map renderTyVarBinder existentialTyVars) <> ". "
+        existentialTyVars -> "∀ " <> unwords (renderTyVarBinders tyVars existentialTyVars) <> ". "
 
 renderAxiomRole :: FcAxiomRole -> String
 renderAxiomRole role =
@@ -312,7 +312,7 @@ renderExprWith symbols scope tyScope indentation parenthesize expression =
     FcTyLam tyVar body ->
       paren parenthesize $
         "Λ"
-          <> renderTyVarBinder tyVar
+          <> renderTyVarBinderWith tyScope tyVar
           <> ".\n"
           <> renderExprIndented symbols (indentation + 2) scope (tyVar : tyScope) body
     FcLet bind body ->
@@ -444,7 +444,7 @@ renderTypeWith scope ty =
     TcForAllTy tyVar body ->
       let (tyVars, inner) = collectForAlls body
           allTyVars = tyVar : tyVars
-       in "∀ " <> unwords (map renderTyVarBinder allTyVars) <> ". " <> renderTypeWith (allTyVars <> scope) inner
+       in "∀ " <> unwords (renderTyVarBinders scope allTyVars) <> ". " <> renderTypeWith (allTyVars <> scope) inner
     TcQualTy predicates body ->
       "(" <> intercalate ", " (map (renderPred scope) predicates) <> ") ⇒ " <> renderTypeWith scope body
     TcAppTy function argument ->
@@ -459,13 +459,19 @@ renderTypeAtomWith scope ty =
     TcTyCon (TyCon "[]" _) [_] -> renderTypeWith scope ty
     _ -> "(" <> renderTypeWith scope ty <> ")"
 
-renderTyVarBinder :: TyVarId -> String
-renderTyVarBinder tyVar = "(" <> T.unpack (tvName tyVar) <> " : " <> renderKind (tvKind tyVar) <> ")"
+renderTyVarBinders :: [TyVarId] -> [TyVarId] -> [String]
+renderTyVarBinders _ [] = []
+renderTyVarBinders scope (tyVar : tyVars) =
+  renderTyVarBinderWith scope tyVar : renderTyVarBinders (tyVar : scope) tyVars
+
+renderTyVarBinderWith :: [TyVarId] -> TyVarId -> String
+renderTyVarBinderWith scope tyVar =
+  "(" <> T.unpack (tvName tyVar) <> " : " <> renderKindWith scope (tvKind tyVar) <> ")"
 
 renderTyVarOccurrence :: [TyVarId] -> TyVarId -> String
 renderTyVarOccurrence scope tyVar
   | tyVar `elem` scope = T.unpack (tvName tyVar)
-  | otherwise = renderTyVarBinder tyVar
+  | otherwise = renderTyVarBinderWith scope tyVar
 
 renderPred :: [TyVarId] -> Pred -> String
 renderPred scope predicate =
@@ -479,30 +485,33 @@ collectForAlls (TcForAllTy tyVar body) =
    in (tyVar : tyVars, inner)
 collectForAlls ty = ([], ty)
 
-renderKind :: Kind -> String
-renderKind kind =
+renderKindWith :: [TyVarId] -> Kind -> String
+renderKindWith scope kind =
   case kind of
-    KTYPE runtimeRep -> "TYPE " <> renderRuntimeRep runtimeRep
+    KTYPE runtimeRep -> "TYPE " <> renderRuntimeRepWith scope runtimeRep
     KConstraint -> "Constraint"
     KRuntimeRep -> "RuntimeRep"
     KLevity -> "Levity"
     KVecCount -> "VecCount"
     KVecElem -> "VecElem"
-    KFun argument result -> renderKindAtom argument <> " → " <> renderKind result
+    KFun argument result -> renderKindAtomWith scope argument <> " → " <> renderKindWith scope result
     KMeta (Unique unique) -> "?k" <> show unique
 
-renderKindAtom :: Kind -> String
-renderKindAtom kind =
+renderKindAtomWith :: [TyVarId] -> Kind -> String
+renderKindAtomWith scope kind =
   case kind of
-    KFun {} -> "(" <> renderKind kind <> ")"
-    _ -> renderKind kind
+    KFun {} -> "(" <> renderKindWith scope kind <> ")"
+    _ -> renderKindWith scope kind
 
 renderRuntimeRep :: RuntimeRep -> String
-renderRuntimeRep runtimeRep =
+renderRuntimeRep = renderRuntimeRepWith []
+
+renderRuntimeRepWith :: [TyVarId] -> RuntimeRep -> String
+renderRuntimeRepWith scope runtimeRep =
   case runtimeRep of
     VecRep count element -> "VecRep " <> show count <> " " <> show element
-    TupleRep fields -> "TupleRep [" <> intercalate ", " (map renderRuntimeRep fields) <> "]"
-    SumRep fields -> "SumRep [" <> intercalate ", " (map renderRuntimeRep fields) <> "]"
+    TupleRep fields -> "TupleRep [" <> intercalate ", " (map (renderRuntimeRepWith scope) fields) <> "]"
+    SumRep fields -> "SumRep [" <> intercalate ", " (map (renderRuntimeRepWith scope) fields) <> "]"
     BoxedRep levity -> "BoxedRep " <> show levity
     IntRep -> "IntRep"
     Int8Rep -> "Int8Rep"
@@ -517,8 +526,14 @@ renderRuntimeRep runtimeRep =
     AddrRep -> "AddrRep"
     FloatRep -> "FloatRep"
     DoubleRep -> "DoubleRep"
-    RuntimeRepVar (Unique unique) -> "RuntimeRepVar " <> show unique
+    RuntimeRepVar unique ->
+      maybe
+        ("RuntimeRepVar " <> showUnique unique)
+        (T.unpack . tvName)
+        (find ((== unique) . tvUnique) scope)
     RuntimeRepMeta (Unique unique) -> "RuntimeRepMeta " <> show unique
+  where
+    showUnique (Unique unique) = show unique
 
 renderCoercionWith :: [TyVarId] -> Coercion -> String
 renderCoercionWith tyScope coercion =

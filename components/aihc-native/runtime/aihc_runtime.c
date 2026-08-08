@@ -267,6 +267,16 @@ AihcSlot aihc_mutvar_write(AihcValue *mutvar, AihcSlot value) {
   return aihc_array_write(mutvar, 0, value);
 }
 
+uint64_t aihc_mutvar_compare_and_swap(AihcValue *mutvar, AihcSlot expected,
+                                      AihcSlot replacement) {
+  AihcSlot *current = &aihc_array_elements(mutvar)[0];
+  if (*current != expected) {
+    return 1;
+  }
+  *current = replacement;
+  return 0;
+}
+
 uint64_t aihc_mutvar_same(AihcValue *left, AihcValue *right) {
   return aihc_array_same(left, right);
 }

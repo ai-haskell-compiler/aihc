@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    id x = x
+    {-# NOINLINE id #-}
+expected: |-
+  module Test where
+
+  id : ∀ (a : TYPE BoxedRep Lifted). a → a =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ(x1001 : a).
+        x1001
+status: pass
+reason: NOINLINE is accepted and ignored before System FC desugaring

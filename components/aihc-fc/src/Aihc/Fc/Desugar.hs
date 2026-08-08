@@ -772,9 +772,18 @@ primitiveImportSpecs =
       primitive "readMVar#" "MVar# d a -> State# d -> (# State# d, a #)",
       primitive "takeMVar#" "MVar# d a -> State# d -> (# State# d, a #)",
       primitive "putMVar#" "MVar# d a -> a -> State# d -> State# d",
-      primitive "newMutVar#" "a -> State# d -> (# State# d, MutVar# d a #)",
-      primitive "readMutVar#" "MutVar# d a -> State# d -> (# State# d, a #)",
-      primitive "writeMutVar#" "MutVar# d a -> a -> State# d -> State# d",
+      primitive
+        "newMutVar#"
+        "forall (r :: RuntimeRep) (a :: TYPE r) d. a -> State# d -> (# State# d, MutVar# d a #)",
+      primitive
+        "readMutVar#"
+        "forall (r :: RuntimeRep) d (a :: TYPE r). MutVar# d a -> State# d -> (# State# d, a #)",
+      primitive
+        "writeMutVar#"
+        "forall (r :: RuntimeRep) d (a :: TYPE r). MutVar# d a -> a -> State# d -> State# d",
+      primitive
+        "casMutVar#"
+        "forall (r :: RuntimeRep) d (a :: TYPE r). MutVar# d a -> a -> a -> State# d -> (# State# d, Int#, a #)",
       primitive "sameMutVar#" "MutVar# d a -> MutVar# d a -> Int#",
       primitive "newArray#" "Int# -> a -> State# d -> (# State# d, MutableArray# d a #)",
       primitive "indexArray#" "Array# a -> Int# -> a",

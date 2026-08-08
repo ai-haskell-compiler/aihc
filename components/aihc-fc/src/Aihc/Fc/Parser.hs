@@ -201,14 +201,14 @@ dataDeclaration :: Parser FcTopBind
 dataDeclaration = do
   _ <- keyword "data"
   dataName <- name
-  tyVars <- MP.many tyVarBinder
+  tyVars <- tyVarBinders mempty
   let tyEnv = tyVarEnv tyVars
   constructors <- MP.many (MP.try ((symbol "=" <|> symbol "|") *> constructor tyEnv))
   pure (FcData dataName tyVars constructors)
 
 constructor :: TyEnv -> Parser (Text, [TcType])
 constructor tyEnv = do
-  existentialTyVars <- MP.option [] (symbol "∀" *> MP.some tyVarBinder <* symbol ".")
+  existentialTyVars <- MP.option [] (symbol "∀" *> someTyVarBinders tyEnv <* symbol ".")
   constructorName <- name
   let fieldEnv = Map.union (tyVarEnv existentialTyVars) tyEnv
   fields <- MP.many (between "(" ")" (tcType fieldEnv))
@@ -218,7 +218,7 @@ axiomDeclaration :: Parser FcTopBind
 axiomDeclaration = do
   _ <- keyword "axiom"
   axiomName <- name
-  tyVars <- MP.many tyVarBinder
+  tyVars <- tyVarBinders mempty
   let tyEnv = tyVarEnv tyVars
   _ <- symbol ":"
   left <- tcType tyEnv
@@ -230,7 +230,7 @@ newtypeDeclaration :: Parser FcTopBind
 newtypeDeclaration = do
   _ <- keyword "newtype"
   newtypeName <- name
-  tyVars <- MP.many tyVarBinder
+  tyVars <- tyVarBinders mempty
   let tyEnv = tyVarEnv tyVars
   _ <- symbol ":"
   result <- tcType tyEnv
@@ -350,7 +350,7 @@ lambda termEnv tyEnv = do
 typeLambda :: TermEnv -> TyEnv -> Parser FcExpr
 typeLambda termEnv tyEnv = do
   _ <- symbol "Λ"
-  tyVar <- tyVarBinder
+  tyVar <- tyVarBinder tyEnv
   _ <- symbol "."
   FcTyLam tyVar <$> expression termEnv (Map.insert (tvName tyVar) tyVar tyEnv)
 
@@ -516,13 +516,13 @@ charLiteral :: Parser Literal
 charLiteral = do
   value <- char
   void (symbol "#")
-  LitChar <$> runtimeRep <*> pure value
+  LitChar <$> runtimeRep mempty <*> pure value
 
 intLiteral :: Parser Literal
 intLiteral = do
   value <- integer
   void (symbol "#")
-  flip LitInt value <$> runtimeRep
+  flip LitInt value <$> runtimeRep mempty
 
 tcType :: TyEnv -> Parser TcType
 tcType tyEnv =
@@ -533,7 +533,7 @@ tcType tyEnv =
 forallType :: TyEnv -> Parser TcType
 forallType tyEnv = do
   _ <- symbol "∀"
-  tyVars <- MP.some tyVarBinder
+  tyVars <- someTyVarBinders tyEnv
   _ <- symbol "."
   body <- tcType (Map.union (tyVarEnv tyVars) tyEnv)
   pure (foldr TcForAllTy body tyVars)
@@ -582,8 +582,8 @@ typeAtom tyEnv =
     ]
 
 freeTyVar :: TyEnv -> Parser TcType
-freeTyVar _ = do
-  tyVar <- tyVarBinder
+freeTyVar tyEnv = do
+  tyVar <- tyVarBinder tyEnv
   let freeUnique = uniqueFor ("free:" <> tvName tyVar <> T.pack (show (tvKind tyVar)))
   pure (TcTyVar (setTyVarKind (tvKind tyVar) (TyVarId (tvName tyVar) freeUnique)))
 
@@ -595,40 +595,53 @@ namedType tyEnv = do
   typeName <- name
   pure $ maybe (TcTyCon (TyCon typeName 0) []) TcTyVar (Map.lookup typeName tyEnv)
 
-tyVarBinder :: Parser TyVarId
-tyVarBinder = between "(" ")" $ do
+tyVarBinder :: TyEnv -> Parser TyVarId
+tyVarBinder tyEnv = between "(" ")" $ do
   typeName <- name
   _ <- symbol ":"
-  kind <- kindType
+  kind <- kindType tyEnv
   pure (setTyVarKind kind (TyVarId typeName (uniqueFor typeName)))
+
+tyVarBinders :: TyEnv -> Parser [TyVarId]
+tyVarBinders tyEnv =
+  MP.option [] $ MP.try $ do
+    tyVar <- tyVarBinder tyEnv
+    tyVars <- tyVarBinders (Map.insert (tvName tyVar) tyVar tyEnv)
+    pure (tyVar : tyVars)
+
+someTyVarBinders :: TyEnv -> Parser [TyVarId]
+someTyVarBinders tyEnv = do
+  tyVar <- tyVarBinder tyEnv
+  tyVars <- tyVarBinders (Map.insert (tvName tyVar) tyVar tyEnv)
+  pure (tyVar : tyVars)
 
 tyVarEnv :: [TyVarId] -> TyEnv
 tyVarEnv = Map.fromList . map (\tyVar -> (tvName tyVar, tyVar))
 
-kindType :: Parser Kind
-kindType = do
-  argument <- kindAtom
-  maybe argument (KFun argument) <$> MP.optional (symbol "→" *> kindType)
+kindType :: TyEnv -> Parser Kind
+kindType tyEnv = do
+  argument <- kindAtom tyEnv
+  maybe argument (KFun argument) <$> MP.optional (symbol "→" *> kindType tyEnv)
 
-kindAtom :: Parser Kind
-kindAtom =
+kindAtom :: TyEnv -> Parser Kind
+kindAtom tyEnv =
   MP.choice
-    [ KTYPE <$> (keyword "TYPE" *> runtimeRep),
+    [ KTYPE <$> (keyword "TYPE" *> runtimeRep tyEnv),
       KConstraint <$ keyword "Constraint",
       KRuntimeRep <$ keyword "RuntimeRep",
       KLevity <$ keyword "Levity",
       KVecCount <$ keyword "VecCount",
       KVecElem <$ keyword "VecElem",
       KMeta . Unique <$> (symbol "?k" *> int),
-      between "(" ")" kindType
+      between "(" ")" (kindType tyEnv)
     ]
 
-runtimeRep :: Parser RuntimeRep
-runtimeRep =
+runtimeRep :: TyEnv -> Parser RuntimeRep
+runtimeRep tyEnv =
   MP.choice
     [ VecRep <$> (keyword "VecRep" *> readValue) <*> readValue,
-      TupleRep <$> (keyword "TupleRep" *> list runtimeRep),
-      SumRep <$> (keyword "SumRep" *> list runtimeRep),
+      TupleRep <$> (keyword "TupleRep" *> list (runtimeRep tyEnv)),
+      SumRep <$> (keyword "SumRep" *> list (runtimeRep tyEnv)),
       BoxedRep <$> (keyword "BoxedRep" *> readValue),
       Int8Rep <$ keyword "Int8Rep",
       Int16Rep <$ keyword "Int16Rep",
@@ -644,8 +657,16 @@ runtimeRep =
       FloatRep <$ keyword "FloatRep",
       DoubleRep <$ keyword "DoubleRep",
       RuntimeRepVar . Unique <$> (keyword "RuntimeRepVar" *> int),
-      RuntimeRepMeta . Unique <$> (keyword "RuntimeRepMeta" *> int)
+      RuntimeRepMeta . Unique <$> (keyword "RuntimeRepMeta" *> int),
+      runtimeRepVariable tyEnv
     ]
+
+runtimeRepVariable :: TyEnv -> Parser RuntimeRep
+runtimeRepVariable tyEnv = do
+  variableName <- name
+  case Map.lookup variableName tyEnv of
+    Just tyVar | tvKind tyVar == KRuntimeRep -> pure (RuntimeRepVar (tvUnique tyVar))
+    _ -> fail ("unknown runtime representation variable " <> T.unpack variableName)
 
 coercion :: TyEnv -> Parser Coercion
 coercion tyEnv =

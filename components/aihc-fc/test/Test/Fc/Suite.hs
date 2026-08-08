@@ -408,7 +408,7 @@ fcOptimizationTests =
 
 fcEvalFixtureTests :: IO TestTree
 fcEvalFixtureTests = do
-  cases <- EvalGolden.loadEvalCases
+  cases <- filter (("fc" `elem`) . EvalGolden.evalCaseEvaluators) <$> EvalGolden.loadEvalCases
   let tests = exactExceptionContractTests cases <> map mkEvalFixtureTest cases
   pure (testGroup "shared evaluation fixtures via FC" tests)
 

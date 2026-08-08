@@ -172,6 +172,8 @@ uint64_t aihc_array_same(AihcValue *left, AihcValue *right);
 AihcValue *aihc_mutvar_new(AihcMachine *machine, AihcSlot initial);
 AihcSlot aihc_mutvar_read(AihcValue *mutvar);
 AihcSlot aihc_mutvar_write(AihcValue *mutvar, AihcSlot value);
+uint64_t aihc_mutvar_compare_and_swap(AihcValue *mutvar, AihcSlot expected,
+                                      AihcSlot replacement);
 uint64_t aihc_mutvar_same(AihcValue *left, AihcValue *right);
 /* State and allocation helpers used by native code. None of these functions
    transfers control to a generated user function. */

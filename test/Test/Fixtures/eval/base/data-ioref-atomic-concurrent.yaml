@@ -1,0 +1,39 @@
+extensions: []
+evaluators:
+  - grin
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Control.Concurrent (forkIO, newEmptyMVar, putMVar, takeMVar, yield)
+    import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
+    import System.IO.Unsafe (unsafePerformIO)
+
+    increment :: IORef Int -> IO ()
+    increment reference =
+      atomicModifyIORef' reference (\value ->
+        let updated = unsafePerformIO (yield >> return (value + 1))
+         in (updated, ()))
+
+    worker :: IORef Int -> Int -> IO () -> IO ()
+    worker reference remaining done =
+      if remaining == 0
+        then done
+        else increment reference >> worker reference (remaining - 1) done
+
+    concurrentIncrements :: IO Int
+    concurrentIncrements = do
+      reference <- newIORef 0
+      firstDone <- newEmptyMVar
+      secondDone <- newEmptyMVar
+      forkIO (worker reference 20 (putMVar firstDone ()))
+      forkIO (worker reference 20 (putMVar secondDone ()))
+      takeMVar firstDone
+      takeMVar secondDone
+      readIORef reference
+output: I# 40
+expression: concurrentIncrements
+status: pass
+reason: strict atomic updates retry after adversarial yields and do not lose increments between green threads

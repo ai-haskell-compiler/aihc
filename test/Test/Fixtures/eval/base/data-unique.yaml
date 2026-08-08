@@ -1,0 +1,30 @@
+dependencies:
+  - aihc-base
+extensions: []
+modules:
+  - |
+    module Test where
+
+    import Data.Unique (hashUnique, newUnique)
+
+    reverseOrdering :: Ordering -> Ordering
+    reverseOrdering LT = GT
+    reverseOrdering EQ = EQ
+    reverseOrdering GT = LT
+
+    uniqueBehavior :: IO (Bool, Bool, Bool, Bool, Bool)
+    uniqueBehavior = do
+      first <- newUnique
+      second <- newUnique
+      return
+        ( first == first,
+          first /= second,
+          compare first second /= EQ,
+          compare first second == reverseOrdering (compare second first),
+          hashUnique first == hashUnique first
+        )
+expression: uniqueBehavior
+output: |
+  (True,True,True,True,True)
+status: pass
+reason: Data.Unique generates distinct values with lawful equality, ordering, and stable hashes through FC and GRIN
