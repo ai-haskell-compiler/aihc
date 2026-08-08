@@ -40,6 +40,12 @@ module Aihc.Fc
     -- * Optional optimization
     eliminateDeadCode,
     optimizeProgram,
+    maximumProgramUnique,
+
+    -- * Executable entry point
+    MainEntrypointError (..),
+    addMainEntrypoint,
+    mainEntryBindingName,
 
     -- * Analysis and interfaces
     ReachabilityInterface,
@@ -72,8 +78,10 @@ import Aihc.Fc.Desugar (DesugarResult (..), desugarModule, desugarModuleWithBind
 import Aihc.Fc.Eval (EvalError (..), Value (..), evalExpr, evalProgramBinding, renderRawValue, renderValue)
 import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram, lintProgramWithAxiomInterface)
 import Aihc.Fc.Lower (lowerPseudoOps)
+import Aihc.Fc.Main (MainEntrypointError (..), addMainEntrypoint, mainEntryBindingName)
 import Aihc.Fc.Newtype (NewtypeInterface, extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
 import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Parser (FcParseError, parseExpr, parseProgram, parseType, renderParseError)
 import Aihc.Fc.Pretty (renderExpr, renderProgram, renderTopBind, renderType)
+import Aihc.Fc.Subst (maximumProgramUnique)
 import Aihc.Fc.Syntax

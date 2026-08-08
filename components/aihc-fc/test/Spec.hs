@@ -4,7 +4,7 @@ import Data.Proxy (Proxy (..))
 import FcGolden (updateFcGoldens)
 import System.Environment (lookupEnv)
 import Test.Fc.Properties (fcPropertyTests)
-import Test.Fc.Suite (fcDesugarTests, fcEvalFixtureTests, fcEvalTests, fcGoldenTests, fcLoweringTests, fcOptimizationTests)
+import Test.Fc.Suite (fcDesugarTests, fcEvalFixtureTests, fcEvalTests, fcGoldenTests, fcLoweringTests, fcMainTests, fcOptimizationTests)
 import Test.Tasty (defaultIngredients, defaultMainWithIngredients, includingOptions, testGroup)
 import Test.Tasty.Options (IsOption (..), OptionDescription (..), safeRead)
 
@@ -35,6 +35,7 @@ main = do
               fcDesugarTests,
               fcEvalTests,
               fcLoweringTests,
+              fcMainTests,
               fcOptimizationTests,
               evalFixtures,
               fcPropertyTests

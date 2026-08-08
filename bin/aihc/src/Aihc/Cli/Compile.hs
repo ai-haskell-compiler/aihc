@@ -60,25 +60,17 @@ import Aihc.Native
     extendLinkLayout,
     hostNativeTarget,
   )
-import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr, parseModule)
+import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
-  ( Decl (..),
-    Extension (ImplicitPrelude),
+  ( Extension (ImplicitPrelude),
     LanguageEdition (Haskell98Edition),
-    Match (..),
-    MatchHeadForm (..),
     Module (..),
-    NameType (NameVarId),
-    Rhs (..),
-    ValueDecl (..),
     effectiveExtensions,
     headerExtensionSettings,
     headerLanguageEdition,
-    mkUnqualifiedName,
-    moduleName,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Resolve (ModuleKey (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), ResolveResult (..), Scope (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
@@ -246,16 +238,10 @@ compileSourceToArtifactsWithDependencies target wholeProgram environment sourceN
       dependencies <- buildDependencies target environment (ImplicitPrelude `elem` sourceExtensions source) (not wholeProgram) parsed
       pure $ do
         artifact <- either (Left . CompileDependencyError) Right dependencies
-        (entryBindingName, executableModule) <-
-          if any ((== "GHC.TopHandler") . moduleKeyName) (Map.keys (dependencyExports artifact))
-            then do
-              wrapped <- addMainHandler parsed
-              Right (mainEntryBindingName, wrapped)
-            else Right ("main", parsed)
-        compileWithDependencies target wholeProgram entryBindingName artifact executableModule
+        compileWithDependencies target wholeProgram artifact parsed
 
-compileWithDependencies :: NativeTarget -> Bool -> Text -> DependencyArtifact -> Module -> Either CompileError CompileArtifacts
-compileWithDependencies target wholeProgram entryBindingName dependencies parsed =
+compileWithDependencies :: NativeTarget -> Bool -> DependencyArtifact -> Module -> Either CompileError CompileArtifacts
+compileWithDependencies target wholeProgram dependencies parsed =
   case resolveWithDeps (dependencyExports dependencies) [(unnamedPackage, parsed)] of
     ResolveResult {resolveErrors = errors@(_ : _)} -> Left (CompileFrontendError ["resolve error: " <> show errors])
     ResolveResult {resolvedModules} ->
@@ -272,12 +258,29 @@ compileWithDependencies target wholeProgram entryBindingName dependencies parsed
                in if not (all dsSuccess desugared)
                     then Left (CompileFrontendError (concatMap dsErrors desugared))
                     else
-                      let mainProgram = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
+                      let sourceMainProgram = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
                        in do
-                            incremental <- compileIncrementally entryBindingName (fromMaybe "Main" (moduleName parsed)) dependencies mainProgram
+                            runMainOrigin <- topHandlerRunMainOrigin dependencies
+                            mainProgram <-
+                              either
+                                (Left . CompileFrontendError . pure . ("entry point error: " <>) . show)
+                                Right
+                                (Fc.addMainEntrypoint runMainOrigin sourceMainProgram)
+                            incremental <- compileIncrementally Fc.mainEntryBindingName "Main" dependencies mainProgram
                             if wholeProgram
                               then compileWholeProgramArtifacts target incremental
                               else compileIncrementalArtifacts target dependencies incremental
+
+topHandlerRunMainOrigin :: DependencyArtifact -> Either CompileError Fc.FcSymbolOrigin
+topHandlerRunMainOrigin dependencies =
+  case [ Fc.FcTopLevelOrigin (packageIdText (packageId (moduleKeyPackage key))) "GHC.TopHandler" "runMainIO"
+       | (key, scope) <- Map.toList (dependencyExports dependencies),
+         moduleKeyName key == "GHC.TopHandler",
+         Map.member "runMainIO" (scopeTerms scope)
+       ] of
+    [origin] -> Right origin
+    [] -> Left (CompileDependencyError "GHC.TopHandler.runMainIO is not installed")
+    _ -> Left (CompileDependencyError "GHC.TopHandler.runMainIO is provided by more than one package")
 
 -- | Compile every module SCC to its own normalized Core and GRIN unit before any
 -- optional whole-program transformation is considered.
@@ -309,12 +312,12 @@ mergeIncrementalCore compilation =
   appendPrograms freshDependencies mainCore
   where
     mainCore = incrementalUnitCore (incrementalMainUnit compilation)
-    freshDependencies = freshenPrograms (1 + maximumProgramUnique mainCore) (map incrementalUnitCore (incrementalDependencyUnits compilation))
+    freshDependencies = freshenPrograms (1 + Fc.maximumProgramUnique mainCore) (map incrementalUnitCore (incrementalDependencyUnits compilation))
 
 freshenPrograms :: Int -> [FcProgram] -> FcProgram
 freshenPrograms _ [] = FcProgram []
 freshenPrograms nextUnique (program : programs) =
-  appendPrograms shifted (freshenPrograms (1 + maximumProgramUnique shifted) programs)
+  appendPrograms shifted (freshenPrograms (1 + Fc.maximumProgramUnique shifted) programs)
   where
     shifted = shiftProgramVars nextUnique program
 
@@ -431,12 +434,6 @@ withFinalNewline rendered = T.pack rendered <> "\n"
 appendPrograms :: FcProgram -> FcProgram -> FcProgram
 appendPrograms (FcProgram left) (FcProgram right) = FcProgram (left <> right)
 
-maximumProgramUnique :: FcProgram -> Int
-maximumProgramUnique = maximum . (0 :) . map varUniqueInt . programVars
-
-varUniqueInt :: Var -> Int
-varUniqueInt var = case varUnique var of Unique unique -> unique
-
 shiftProgramVars :: Int -> FcProgram -> FcProgram
 shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBinds)
   where
@@ -478,43 +475,6 @@ shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBi
           altRhs = shiftExpr (altRhs alternative)
         }
 
-programVars :: FcProgram -> [Var]
-programVars (FcProgram topBinds) = concatMap topBindVarsDeep topBinds
-
-topBindVarsDeep :: FcTopBind -> [Var]
-topBindVarsDeep topBind =
-  case topBind of
-    FcModule {} -> []
-    FcExternal {} -> []
-    FcData {} -> []
-    FcAxiom {} -> []
-    FcNewtype {} -> []
-    FcPrimitive var _ -> [var]
-    FcForeignImport {} -> []
-    FcTopBind bind -> bindVarsDeep bind
-
-bindVarsDeep :: FcBind -> [Var]
-bindVarsDeep bind =
-  case bind of
-    FcNonRec var expression -> var : exprVars expression
-    FcRec bindings -> concat [var : exprVars expression | (var, expression) <- bindings]
-
-exprVars :: FcExpr -> [Var]
-exprVars expression =
-  case expression of
-    FcVar var -> [var]
-    FcLit {} -> []
-    FcApp function argument -> exprVars function <> exprVars argument
-    FcTyApp inner _ -> exprVars inner
-    FcLam var body -> var : exprVars body
-    FcTyLam _ body -> exprVars body
-    FcLet bind body -> bindVarsDeep bind <> exprVars body
-    FcCase scrutinee binder alternatives -> exprVars scrutinee <> (binder : concatMap altVars alternatives)
-    FcCast inner _ -> exprVars inner
-    FcCallForeign _ arguments -> concatMap exprVars arguments
-  where
-    altVars alternative = altBinders alternative <> exprVars (altRhs alternative)
-
 parseCompileModule :: FilePath -> Text -> Either CompileError Module
 parseCompileModule sourceName source =
   case parseModule config source of
@@ -526,45 +486,6 @@ parseCompileModule sourceName source =
         { parserSourceName = sourceName,
           parserExtensions = sourceExtensions source
         }
-
-mainEntryBindingName :: Text
-mainEntryBindingName = "$aihc.main"
-
--- | Add the executable-only wrapper that gives uncaught exceptions Haskell's
--- top-level semantics. Keeping the wrapper in the surface program lets normal
--- resolution, type checking, desugaring, and dependency reachability account
--- for every value it uses.
-addMainHandler :: Module -> Either CompileError Module
-addMainHandler modu = do
-  topHandlerImport <-
-    case parseModule defaultConfig "module AihcMainWrapper where\nimport GHC.TopHandler\n" of
-      ([], wrapper) ->
-        case moduleImports wrapper of
-          [importDecl] -> Right importDecl
-          _ -> Left internalWrapperParseError
-      _ -> Left internalWrapperParseError
-  wrapperExpression <-
-    case parseExpr defaultConfig "GHC.TopHandler.runMainIO main" of
-      ParseOk expression -> Right expression
-      ParseErr _ -> Left internalWrapperParseError
-  let wrapperDecl =
-        DeclValue $
-          FunctionBind
-            (mkUnqualifiedName NameVarId mainEntryBindingName)
-            [ Match
-                { matchAnns = [],
-                  matchHeadForm = MatchHeadPrefix,
-                  matchPats = [],
-                  matchRhs = UnguardedRhs [] wrapperExpression Nothing
-                }
-            ]
-  pure
-    modu
-      { moduleImports = moduleImports modu <> [topHandlerImport],
-        moduleDecls = moduleDecls modu <> [wrapperDecl]
-      }
-  where
-    internalWrapperParseError = CompileParseError "compiler-generated main wrapper did not parse"
 
 sourceExtensions :: Text -> [Extension]
 sourceExtensions source = effectiveExtensions language (headerExtensionSettings header)

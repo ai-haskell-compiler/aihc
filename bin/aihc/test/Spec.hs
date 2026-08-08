@@ -1010,6 +1010,7 @@ test_installedPackage =
     let sourceRoot = root </> "prim-fixture"
         primSource = sourceRoot </> "src" </> "GHC" </> "Prim.hs"
         internalSource = sourceRoot </> "src" </> "GHC" </> "Prim" </> "Internal.hs"
+        topHandlerSource = sourceRoot </> "src" </> "GHC" </> "TopHandler.hs"
         cabalFile = sourceRoot </> "prim-fixture.cabal"
         storeRoot = root </> "store"
         environment = CompileEnvironment storeRoot
@@ -1021,7 +1022,7 @@ test_installedPackage =
               "import qualified GHC.Prim as Prim",
               "data Local = Local",
               "identity value = value",
-              "main = Prim.identity Local"
+              "main = Prim.IO (Prim.identity Local)"
             ]
         privateMainSource =
           T.unlines
@@ -1039,7 +1040,7 @@ test_installedPackage =
             "version: 0.1.0.0",
             "build-type: Simple",
             "library",
-            "  exposed-modules: GHC.Prim",
+            "  exposed-modules: GHC.Prim, GHC.TopHandler",
             "  other-modules: GHC.Prim.Internal",
             "  hs-source-dirs: src",
             "  default-extensions: NoImplicitPrelude",
@@ -1051,8 +1052,8 @@ test_installedPackage =
       ( unlines
           [ "{-# LANGUAGE MagicHash #-}",
             "{-# LANGUAGE NoImplicitPrelude #-}",
-            "module GHC.Prim (Unit(..), identity) where",
-            "import GHC.Prim.Internal (Unit(..))",
+            "module GHC.Prim (Unit(..), IO(..), identity) where",
+            "import GHC.Prim.Internal (Unit(..), IO(..))",
             "identity value = value"
           ]
       )
@@ -1062,7 +1063,18 @@ test_installedPackage =
       ( unlines
           [ "{-# LANGUAGE NoImplicitPrelude #-}",
             "module GHC.Prim.Internal where",
-            "data Unit = Unit"
+            "data Unit = Unit",
+            "data IO a = IO a"
+          ]
+      )
+    writeFile
+      topHandlerSource
+      ( unlines
+          [ "{-# LANGUAGE NoImplicitPrelude #-}",
+            "module GHC.TopHandler (runMainIO) where",
+            "import GHC.Prim.Internal (IO)",
+            "runMainIO :: IO a -> IO a",
+            "runMainIO action = action"
           ]
       )
     plan <- buildPackagePlanFromSource storeRoot (PackageSpec "prim-fixture" "0.1.0.0") sourceRoot
@@ -1085,7 +1097,10 @@ test_installedPackage =
     wholeResult <- compileSourceToWholeCoreWithDependencies environment "Main.hs" mainSource
     case wholeResult of
       Left err -> assertFailure (show err)
-      Right core -> assertBool "expected installed dependency body" ("main" `T.isInfixOf` core)
+      Right core -> do
+        assertBool "expected generated entry point" ("$aihc.main" `T.isInfixOf` core)
+        assertBool "expected top-level handler call" ("runMainIO" `T.isInfixOf` core)
+        assertBool "expected installed dependency body" ("main" `T.isInfixOf` core)
 
 test_preparedRuntime :: Assertion
 test_preparedRuntime =
