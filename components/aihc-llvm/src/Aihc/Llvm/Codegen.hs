@@ -809,6 +809,19 @@ compileDirectBinding env vars expression =
                ],
           result
         )
+    GrinPrimitiveCall _ "makeStableName#" [value] -> do
+      (lines', operand) <- materializeValue env value
+      valuePointer <- freshValue
+      namePointer <- freshValue
+      result <- freshValue
+      storeOne
+        ( lines'
+            <> [ "  " <> valuePointer <> " = inttoptr i64 " <> operand <> " to ptr",
+                 "  " <> namePointer <> " = call ptr @aihc_stable_name_make(ptr %machine, ptr " <> valuePointer <> ")",
+                 "  " <> result <> " = ptrtoint ptr " <> namePointer <> " to i64"
+               ],
+          result
+        )
     GrinPrimitiveCall IntRep "compareInt#" [left, right] -> do
       (lines', operands) <- materializeValues env [left, right]
       case operands of
@@ -1704,6 +1717,7 @@ renderRuntimeDeclarations =
     "declare void @aihc_ensure_heap(ptr, i64, i64, ptr)",
     "declare ptr @aihc_array_new(ptr, i64, i64)",
     "declare ptr @aihc_mutvar_new(ptr, i64)",
+    "declare ptr @aihc_stable_name_make(ptr, ptr)",
     "declare void @aihc_set_field(ptr, i64, i64)",
     "declare void @aihc_update(ptr, ptr)",
     "declare void @aihc_update_blackhole(ptr, ptr, ptr)",

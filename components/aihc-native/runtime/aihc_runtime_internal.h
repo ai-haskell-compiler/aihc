@@ -83,6 +83,12 @@ struct AihcMVar {
   AihcMVar *next;
 };
 
+struct AihcStableName {
+  AihcValue *value;
+  uint64_t hash;
+  AihcStableName *next;
+};
+
 struct AihcIoHandle {
   uintptr_t backend_token;
   uint64_t position;
