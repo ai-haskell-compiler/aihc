@@ -236,6 +236,7 @@ grinUnitTests =
           "raw exit status"
           [GrinExit (GrinLitValue (GrinLitInt IntRep 7))]
           bodies
+        assertEqual "removes the compiler-only primitive" [] (grinPrimitives (cpsGrinProgram cps))
         assertEqual
           "does not reify a return continuation"
           Set.empty
@@ -2408,8 +2409,8 @@ processExitProgram :: GrinProgram
 processExitProgram =
   GrinProgram
     { grinConstructors = [],
-      grinPrimitives = [],
-      grinForeignCalls = [shutdownCall],
+      grinPrimitives = [(GrinVar "aihcExit#" 1 lifted, 1)],
+      grinForeignCalls = [],
       grinExternalGlobals = [],
       grinExternalFunctions = [],
       grinWhnfGlobals = [],
@@ -2422,26 +2423,11 @@ processExitProgram =
               grinFunctionResultRep = TupleRep [],
               grinFunctionBody =
                 GrinBind
-                  [GrinVar "unreachable" 1 IntRep]
-                  ( GrinForeignCallExpr
-                      shutdownCall
-                      [ GrinLitValue (GrinLitInt IntRep 7),
-                        GrinLitValue (GrinLitInt IntRep 0)
-                      ]
-                  )
+                  []
+                  (GrinPrimitiveCall (TupleRep []) "aihcExit#" [GrinLitValue (GrinLitInt IntRep 7)])
                   (GrinConstant [])
             }
         ]
     }
   where
-    shutdownCall =
-      GrinForeignCall
-        { grinForeignCallName = "$ffi$shutdownHaskellAndExit",
-          grinForeignCallSymbol = "shutdownHaskellAndExit",
-          grinForeignCallSignature =
-            GrinForeignSignature
-              { grinForeignArgumentTypes = [GrinForeignInt, GrinForeignInt],
-                grinForeignResultType = GrinForeignInt,
-                grinForeignEffect = GrinForeignRealWorld
-              }
-        }
+    lifted = BoxedRep Lifted

@@ -92,7 +92,8 @@ toCpsGrin sourceProgram = do
     CpsGrinProgram
       { cpsGrinProgram =
           program
-            { grinExternalFunctions = map addExternalContinuation (grinExternalFunctions program),
+            { grinPrimitives = filter ((/= "aihcExit#") . grinVarName . fst) (grinPrimitives program),
+              grinExternalFunctions = map addExternalContinuation (grinExternalFunctions program),
               grinFunctions =
                 functions
                   <> reverse (cpsGeneratedFunctionsRev finalState)
@@ -169,10 +170,9 @@ transformTail updateName parent bound resultRep continuation expression =
               continuation
               (GrinBind resultVars (grinAltRhs alternative) body)
           pure alternative {grinAltRhs = rhs}
-    GrinBind _ (GrinForeignCallExpr foreignCall (status : _)) _
-      | grinForeignCallSymbol foreignCall == "shutdownHaskellAndExit" ->
-          pure (GrinExit status)
     GrinBind resultVars valueExpression body
+      | GrinPrimitiveCall _ "aihcExit#" (status : _) <- valueExpression ->
+          pure (GrinExit status)
       | isDirectExpression valueExpression -> do
           transformedBody <-
             transformTail
@@ -228,6 +228,9 @@ transformTail updateName parent bound resultRep continuation expression =
     GrinCall runtimeRep functionName arguments ->
       pure (GrinCall runtimeRep functionName (arguments <> [continuation]))
     GrinPrimitiveCall runtimeRep name arguments
+      | name == "aihcExit#",
+        status : _ <- arguments ->
+          pure (GrinExit status)
       | isControlPrimitive name ->
           pure (GrinCpsPrimitiveCall runtimeRep name arguments continuation)
       | otherwise ->
@@ -276,12 +279,8 @@ transformTail updateName parent bound resultRep continuation expression =
             (GrinStore catchNode)
             protectedAction
         )
-    GrinForeignCallExpr foreignCall arguments
-      | grinForeignCallSymbol foreignCall == "shutdownHaskellAndExit",
-        status : _ <- arguments ->
-          pure (GrinExit status)
-      | otherwise ->
-          continueDirect resultRep continuation (GrinForeignCallExpr foreignCall arguments)
+    GrinForeignCallExpr foreignCall arguments ->
+      continueDirect resultRep continuation (GrinForeignCallExpr foreignCall arguments)
   where
     alreadyTransformed = lift (Left (CpsGrinAlreadyTransformed parent))
 

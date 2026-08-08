@@ -339,7 +339,10 @@ compileIncrementalArtifacts target dependencies compilation = do
       reachability = dependencyReachabilityInterface dependencies <> extractReachabilityInterface mainCore
       declaredPrimitives =
         dependencyRuntimePrimitiveNames dependencies
-          <> Set.fromList [Grin.grinVarName primitive | (primitive, _) <- Grin.grinPrimitives mainGrin]
+          <> Set.fromList
+            [ Grin.grinVarName primitive
+            | (primitive, _) <- Grin.grinPrimitives (Grin.cpsGrinProgram mainCpsGrin)
+            ]
       primitives = Set.toAscList (Set.intersection (reachablePrimitiveNames (incrementalEntryBindingName compilation) reachability) declaredPrimitives)
   either (Left . CompileBackendError) Right (validateBackendPrimitiveNames target primitives)
   assembly <-

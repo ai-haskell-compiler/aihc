@@ -441,8 +441,8 @@ processExitProgram :: GrinProgram
 processExitProgram =
   GrinProgram
     { grinConstructors = [],
-      grinPrimitives = [],
-      grinForeignCalls = [shutdownCall],
+      grinPrimitives = [(GrinVar "aihcExit#" 121 (BoxedRep Lifted), 1)],
+      grinForeignCalls = [],
       grinExternalGlobals = [],
       grinExternalFunctions = [],
       grinWhnfGlobals = [(mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
@@ -453,24 +453,13 @@ processExitProgram =
               grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = IntRep,
-              grinFunctionBody = GrinForeignCallExpr shutdownCall [intValue 7, intValue 0]
+              grinFunctionBody = GrinPrimitiveCall IntRep "aihcExit#" [intValue 7]
             }
         ]
     }
   where
     mainFunction = FunctionName "$process_exit_main"
     mainClosure = GrinVar "main" 120 (BoxedRep Lifted)
-    shutdownCall =
-      GrinForeignCall
-        { grinForeignCallName = "$ffi$shutdownHaskellAndExit",
-          grinForeignCallSymbol = "shutdownHaskellAndExit",
-          grinForeignCallSignature =
-            GrinForeignSignature
-              { grinForeignArgumentTypes = [GrinForeignInt, GrinForeignInt],
-                grinForeignResultType = GrinForeignInt,
-                grinForeignEffect = GrinForeignRealWorld
-              }
-        }
 
 testProgram :: String -> GrinProgram -> IO ()
 testProgram expected program = do

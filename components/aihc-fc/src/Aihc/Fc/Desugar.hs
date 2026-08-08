@@ -757,6 +757,7 @@ primitiveImportSpecs =
       primitive "ctz#" "Word# -> Word#",
       primitive "popCnt#" "Word# -> Word#",
       primitive "raise#" "a -> b",
+      primitive "aihcExit#" "Int# -> State# RealWorld -> (# State# RealWorld, a #)",
       primitive "unsafeCoerce#" "a -> b",
       seqPrimitive,
       primitive "realWorld#" "State# RealWorld",
