@@ -1,7 +1,9 @@
 expected: |-
-  id : ∀ a. a → a =
-    Λa.
-      λx1001 : a.
+  module Test where
+
+  id : ∀ (a : TYPE BoxedRep Lifted). a → a =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ(x1001 : a).
         x1001
 extensions: []
 modules:

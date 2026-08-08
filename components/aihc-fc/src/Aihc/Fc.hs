@@ -16,6 +16,11 @@ module Aihc.Fc
     renderExpr,
     renderType,
     renderTopBind,
+    FcParseError,
+    parseProgram,
+    parseExpr,
+    parseType,
+    renderParseError,
 
     -- * Evaluation
     evalProgramBinding,
@@ -69,5 +74,6 @@ import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintP
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (NewtypeInterface, extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
 import Aihc.Fc.Optimize (optimizeProgram)
+import Aihc.Fc.Parser (FcParseError, parseExpr, parseProgram, parseType, renderParseError)
 import Aihc.Fc.Pretty (renderExpr, renderProgram, renderTopBind, renderType)
 import Aihc.Fc.Syntax

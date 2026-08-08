@@ -1,37 +1,43 @@
 expected: |-
+  module Test where
+
   data Bool
    = False
    | True
 
-  data Eq a
+  data Eq (a : TYPE BoxedRep Lifted)
    = $Dict$Eq (a → a → Bool)
 
-  == : ∀ a. (Eq a) → a → a → Bool =
-    Λa.
-      λ$d0 : Eq a.
-        case $d0 as $dict : Eq a of
-          $Dict$Eq $method0 →
+  == : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ($d0 : Eq a).
+        case $d0 as ($dict : Eq a) of {
+          $Dict$Eq ($method0 : a → a → Bool) →
             $method0
+        }
 
   $fEqBool : Eq Bool =
-    $Dict$Eq @Bool (λx1004 : Bool.
-      λy1005 : Bool.
-        case x1004 as _scrut : Bool of
+    ($Dict$Eq @Bool) (λ(x1004 : Bool).
+      λ(y1005 : Bool).
+        case x1004 as (_scrut : Bool) of {
           False →
-            case y1005 as _scrut : Bool of
+            case y1005 as (_scrut : Bool) of {
               False →
-                True
+                True;
               True →
                 False
+            };
           True →
-            case y1005 as _scrut : Bool of
+            case y1005 as (_scrut : Bool) of {
               False →
-                False
+                False;
               True →
-                True)
+                True
+            }
+        })
 
   eqBool : Bool → Bool → Bool =
-    == @Bool $fEqBool
+    (== @Bool) $fEqBool
 extensions: []
 modules:
 - |

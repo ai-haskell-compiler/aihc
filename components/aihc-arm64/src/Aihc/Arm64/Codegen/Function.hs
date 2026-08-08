@@ -13,6 +13,7 @@ import Aihc.Grin.Syntax
 import Aihc.Native
   ( NativeCpsCall (..),
     NativeCpsTransfer (..),
+    NativeRuntimeCall (..),
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
   )
@@ -331,31 +332,6 @@ compileDirectBinding env vars expression =
     GrinFetch _ pointer -> liftEither (materializeValue env pointer) >>= storeSingleResult
     GrinUpdate pointer value -> compileUpdateBinding False "_aihc_update" pointer value
     GrinUpdateBlackhole pointer value -> compileUpdateBinding True "_aihc_update_blackhole" pointer value
-    GrinPrimitiveCall _ "newArray#" arguments@[_, _] -> do
-      (argumentLines, argumentSlots) <- materializeIntoFreshSlots env arguments
-      case argumentSlots of
-        [sizeSlot, initialSlot] ->
-          storeSingleResult
-            ( argumentLines
-                <> [ "  mov x0, x22",
-                     loadAt "x1" "x19" sizeSlot,
-                     loadAt "x2" "x19" initialSlot,
-                     "  bl _aihc_array_new"
-                   ]
-            )
-        _ -> lift (Left (Arm64UnsupportedExpression "boxed-array allocation arity"))
-    GrinPrimitiveCall _ "newMutVar#" arguments@[_] -> do
-      (argumentLines, argumentSlots) <- materializeIntoFreshSlots env arguments
-      case argumentSlots of
-        [initialSlot] ->
-          storeSingleResult
-            ( argumentLines
-                <> [ "  mov x0, x22",
-                     loadAt "x1" "x19" initialSlot,
-                     "  bl _aihc_mutvar_new"
-                   ]
-            )
-        _ -> lift (Left (Arm64UnsupportedExpression "mutable-reference allocation arity"))
     GrinPrimitiveCall _ name [left, right]
       | Just instructions <- lookup name singleResultBinaryPrimitives ->
           compileBinary storeSingleResult instructions left right
@@ -418,11 +394,11 @@ compileDirectBinding env vars expression =
           valueLines <- liftEither (materializeValue env value)
           storeSingleResult (valueLines <> instructions)
     GrinPrimitiveCall _ name arguments
-      | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
-          callLines <- compileForeignCallLines env foreignCall arguments
-          case vars of
-            [] -> pure callLines
-            [_] -> storeSingleResult callLines
+      | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
+          callLines <- compileRuntimeCallLines env runtimeCall arguments
+          case nativeRuntimeCallResultCount runtimeCall of
+            0 | null vars -> pure callLines
+            1 -> storeSingleResult callLines
             _ -> lift (Left (Arm64UnsupportedExpression ("runtime primitive result arity " <> name)))
       | compileAllowUnsupportedPrimitives (valueCompileEnv env) ->
           pure ["  bl _aihc_unsupported_primitive"]
@@ -512,9 +488,17 @@ compileDirectBinding env vars expression =
       )
 
 compileForeignCallLines :: ValueEnv -> GrinForeignCall -> [GrinValue] -> FunctionM [Text]
-compileForeignCallLines env foreignCall arguments = do
+compileForeignCallLines env = compileCallLines env False
+
+compileRuntimeCallLines :: ValueEnv -> NativeRuntimeCall -> [GrinValue] -> FunctionM [Text]
+compileRuntimeCallLines env runtimeCall =
+  compileCallLines env (nativeRuntimeCallPassMachine runtimeCall) (nativeRuntimeCallForeignCall runtimeCall)
+
+compileCallLines :: ValueEnv -> Bool -> GrinForeignCall -> [GrinValue] -> FunctionM [Text]
+compileCallLines env passMachine foreignCall arguments = do
   let signature = grinForeignCallSignature foreignCall
-      abiArity = length (grinForeignArgumentTypes signature)
+      operandArity = length (grinForeignArgumentTypes signature)
+      abiArity = operandArity + fromEnum passMachine
       expectedArity = length (grinForeignOperandReps signature)
   if length arguments /= expectedArity
     then lift (Left (Arm64UnsupportedExpression "foreign call arity mismatch"))
@@ -523,13 +507,14 @@ compileForeignCallLines env foreignCall arguments = do
         then lift (Left (Arm64UnsupportedExpression "foreign calls with more than eight arguments"))
         else do
           (argumentLines, argumentSlots) <- materializeIntoFreshSlots env arguments
-          let abiSlots = take abiArity argumentSlots
+          let argumentRegisters = drop (fromEnum passMachine) ["x" <> tshow index | index <- [0 :: Int .. 7]]
               loadAbiArguments =
-                [ loadAt ("x" <> tshow index) "x19" slot
-                | (index, slot) <- zip [0 :: Int ..] abiSlots
+                [ loadAt register "x19" slot
+                | (register, slot) <- zip argumentRegisters argumentSlots
                 ]
               callLines =
                 argumentLines
+                  <> ["  mov x0, x22" | passMachine]
                   <> loadAbiArguments
                   <> ["  bl _" <> grinForeignCallSymbol foreignCall]
                   <> normalizeForeignResult (grinForeignResultType signature)

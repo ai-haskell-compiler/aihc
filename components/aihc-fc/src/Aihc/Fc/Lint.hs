@@ -112,6 +112,9 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
     registerDeclaration _ env = env
 
     go _ [] = []
+    go env (FcModule {} : rest) = go env rest
+    go env (FcExternal origin ty : rest) =
+      go (extendTermEnv (fcExternalVar origin ty) env) rest
     go env (FcData {} : rest) =
       -- Data declarations don't need expression-level linting.
       go env rest

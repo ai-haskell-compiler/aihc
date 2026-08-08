@@ -647,6 +647,16 @@ grinUnitTests =
             assertEqual "provider external global" [T.intercalate "\0" (libraryId <> ["Data", "Provider", "value"])] (grinExternalGlobals consumer)
             assertEqual "other external global" [T.intercalate "\0" (libraryId <> ["Data", "Other", "value"])] (grinExternalGlobals otherConsumer)
           programs -> assertFailure ("expected two global pairs, got " <> show programs),
+      testCase "incremental lowering resolves builtin-origin constructors by runtime name" $ do
+        case separateBuiltinUnitPrograms of
+          [providerCore, consumerCore] -> do
+            let providerNames = linkNamesForProgram ["aihc-prim"] ["GHC", "Tuple"] providerCore
+                consumerNames = linkNamesForProgram ["exe"] ["Main"] consumerCore
+                providerInterface = extractGrinInterfaceWithLinkNames providerNames providerCore
+                consumer = lowerProgramWithInterfaceAndLinkNames consumerNames providerInterface consumerCore
+            assertEqual "lint" [] (lintProgram consumer)
+            assertEqual "builtin unit runtime global" ["()"] (grinExternalGlobals consumer)
+          programs -> assertFailure ("expected two FC programs, got " <> show programs),
       testCase "separate FC units store saturated dependency constructors directly" $ do
         case separateConstructorPrograms of
           [providerCore, consumerCore] -> do
@@ -2334,7 +2344,10 @@ separateLinkableFunctionPrograms qualifier uniqueBase =
   where
     identityType = TcFunTy boxedIntTy boxedIntTy
     identityVar = Var "identity" (Unique uniqueBase) identityType
-    importedIdentityVar = (Var "identity" (Unique uniqueBase) identityType) {varResolvedName = Just (qualifier <> ".identity")}
+    importedIdentityVar =
+      (Var "identity" (Unique uniqueBase) identityType)
+        { varResolvedName = Just (FcTopLevelOrigin "" qualifier "identity")
+        }
     argumentVar = Var "argument" (Unique (uniqueBase + 1)) boxedIntTy
     answerVar = Var "answer" (Unique (uniqueBase + 2)) boxedIntTy
 
@@ -2345,8 +2358,29 @@ separateLinkableGlobalPrograms qualifier uniqueBase =
   ]
   where
     valueVar = Var "value" (Unique uniqueBase) boxedIntTy
-    importedValueVar = (Var "value" (Unique uniqueBase) boxedIntTy) {varResolvedName = Just (qualifier <> ".value")}
+    importedValueVar =
+      (Var "value" (Unique uniqueBase) boxedIntTy)
+        { varResolvedName = Just (FcTopLevelOrigin "" qualifier "value")
+        }
     answerVar = Var "answer" (Unique (uniqueBase + 1)) boxedIntTy
+
+separateBuiltinUnitPrograms :: [FcProgram]
+separateBuiltinUnitPrograms =
+  [ FcProgram
+      [ FcModule "aihc-prim" "GHC.Tuple",
+        FcData "Unit" [] [("()", [])]
+      ],
+    FcProgram
+      [ FcModule "" "Main",
+        FcExternal unitOrigin unitTy,
+        FcTopBind (FcNonRec answerVar (FcVar importedUnitVar))
+      ]
+  ]
+  where
+    unitOrigin = FcBuiltinOrigin "()"
+    unitTy = TcTyCon (TyCon "Unit" 0) []
+    importedUnitVar = (Var "()" (Unique 130) unitTy) {varResolvedName = Just unitOrigin}
+    answerVar = Var "answer" (Unique 131) unitTy
 
 separateNewtypePrograms :: [FcProgram]
 separateNewtypePrograms =

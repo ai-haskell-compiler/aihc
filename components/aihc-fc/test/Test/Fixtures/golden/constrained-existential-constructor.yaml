@@ -11,26 +11,30 @@ modules:
     inspect :: Box -> Mark
     inspect (Box value) = mark value
 expected: |-
+  module Test where
+
   data Mark
    = Marked
 
-  data Markable a
+  data Markable (a : TYPE BoxedRep Lifted)
    = $Dict$Markable (a → Mark)
 
-  mark : ∀ a. (Markable a) → a → Mark =
-    Λa.
-      λ$d0 : Markable a.
-        case $d0 as $dict : Markable a of
-          $Dict$Markable $method0 →
+  mark : ∀ (a : TYPE BoxedRep Lifted). (Markable a) → a → Mark =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ($d0 : Markable a).
+        case $d0 as ($dict : Markable a) of {
+          $Dict$Markable ($method0 : a → Mark) →
             $method0
+        }
 
   data Box
-   = forall a. Box (Markable a) a
+   = ∀ (a : TYPE BoxedRep Lifted). Box (Markable a) (a)
 
   inspect : Box → Mark =
-    λx1005 : Box.
-      case x1005 as _scrut : Box of
-        Box $dpattern value →
-          mark @a $dpattern value
+    λ(x1005 : Box).
+      case x1005 as (_scrut : Box) of {
+        Box ($dpattern : Markable (a : TYPE BoxedRep Lifted)) (value : (a : TYPE BoxedRep Lifted)) →
+          ((mark @(a : TYPE BoxedRep Lifted)) $dpattern) value
+      }
 status: pass
 reason: System FC stores the constructor dictionary and binds it before the existential payload

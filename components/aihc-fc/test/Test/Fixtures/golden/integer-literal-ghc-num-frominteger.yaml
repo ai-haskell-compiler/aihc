@@ -1,20 +1,25 @@
 expected: |-
-  data Integer
-   = IS Int#
+  module GHC.Num where
 
-  data Num a
+  data Integer
+   = IS (Int#)
+
+  data Num (a : TYPE BoxedRep Lifted)
    = $Dict$Num (Integer → a)
 
-  fromInteger : ∀ a. (Num a) → Integer → a =
-    Λa.
-      λ$d0 : Num a.
-        case $d0 as $dict : Num a of
-          $Dict$Num $method0 →
+  fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ($d0 : Num a).
+        case $d0 as ($dict : Num a) of {
+          $Dict$Num ($method0 : Integer → a) →
             $method0
-  one : ∀ a. (Num a) → a =
-    Λa.
-      λ$d0 : Num a.
-        fromInteger @a $d0 (IS 1)
+        }
+  module Main where
+
+  one : ∀ (a : TYPE BoxedRep Lifted). (Num a) → a =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ($d0 : Num a).
+        (((fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a) @a) $d0) ((IS : Int# → Integer) 1#IntRep)
 extensions:
 - MagicHash
 modules:

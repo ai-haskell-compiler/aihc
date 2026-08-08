@@ -41,6 +41,7 @@ import Foreign.Marshal.Utils (copyBytes, fillBytes)
 import Foreign.Ptr (FunPtr, Ptr, alignPtr, castPtr, plusPtr)
 import Foreign.Storable (peekByteOff, pokeByteOff)
 import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile, stderr, stdin, stdout)
+import System.Mem.StableName qualified as Host
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
 data InterpretError
@@ -82,10 +83,19 @@ data RuntimeValue
   | RuntimeNode !GrinNodeTag ![RuntimeValue]
   | RuntimeLocation !Int
   | RuntimeMutVar !GrinMutVar
+  | RuntimeStableName !GrinStableName
   | RuntimeStateToken
   deriving (Eq, Show)
 
 newtype GrinMutVar = GrinMutVar (IORef RuntimeValue)
+
+newtype GrinStableName = GrinStableName (Host.StableName RuntimeValue)
+
+instance Eq GrinStableName where
+  GrinStableName left == GrinStableName right = Host.eqStableName left right
+
+instance Show GrinStableName where
+  show _ = "<stable-name>"
 
 newtype GrinArray = GrinArray (IORef [RuntimeValue])
 
@@ -707,6 +717,7 @@ isLiftedRuntimeValue value =
     RuntimeNode {} -> True
     RuntimeLocation {} -> True
     RuntimeMutVar {} -> False
+    RuntimeStableName {} -> False
     RuntimeStateToken -> False
 
 evalPrimitive :: Text -> [RuntimeValue] -> EvalM [RuntimeValue]
@@ -783,6 +794,16 @@ evalPrimitive "chr#" [value] = do
     else throwInterpret (InterpretPrimitiveTypeError "chr#" (RuntimeLit (GrinLitInt IntRep intValue)))
 evalPrimitive "realWorld#" [] = pure []
 evalPrimitive "noDuplicate#" [] = pure []
+evalPrimitive "makeStableName#" [value] = do
+  name <- liftEvalIO (Host.makeStableName value)
+  pure [RuntimeStableName (GrinStableName name)]
+evalPrimitive "stableNameToInt#" [name] = do
+  GrinStableName stableName <- expectStableNamePrimitiveArgument "stableNameToInt#" name
+  pure [intRuntimeValue (toInteger (Host.hashStableName stableName))]
+evalPrimitive "eqStableName#" [left, right] = do
+  GrinStableName leftName <- expectStableNamePrimitiveArgument "eqStableName#" left
+  GrinStableName rightName <- expectStableNamePrimitiveArgument "eqStableName#" right
+  pure [intRuntimeValue (if Host.eqStableName leftName rightName then 1 else 0)]
 evalPrimitive "raise#" [exception] =
   throwE (EvalRaised exception)
 evalPrimitive "catch#" [action, handler] =
@@ -1134,6 +1155,12 @@ expectMutVarPrimitiveArgument name value =
     RuntimeMutVar mutVar -> pure mutVar
     other -> throwInterpret (InterpretPrimitiveTypeError name other)
 
+expectStableNamePrimitiveArgument :: Text -> RuntimeValue -> EvalM GrinStableName
+expectStableNamePrimitiveArgument name value =
+  case value of
+    RuntimeStableName stableName -> pure stableName
+    other -> throwInterpret (InterpretPrimitiveTypeError name other)
+
 compareInts :: Integer -> Integer -> Integer
 compareInts left right =
   case compare left right of
@@ -1483,6 +1510,7 @@ renderRawValueM value = do
     RuntimeNode GrinThunk {} _ -> pure "<thunk>"
     RuntimeLocation location -> throwInterpret (InterpretInvalidLocation location)
     RuntimeMutVar {} -> pure "<mutvar>"
+    RuntimeStableName {} -> pure "<stable-name>"
     RuntimeStateToken -> pure "<state>"
 
 renderRawArgument :: RuntimeValue -> EvalM Text
@@ -1605,6 +1633,7 @@ snapshotRuntimeValue value =
         Nothing -> snapshotStoredValue value
     RuntimeLocation sourceLocation -> SnapshotLocation <$> snapshotLocation sourceLocation
     RuntimeMutVar {} -> pure SnapshotMutVar
+    RuntimeStableName {} -> pure SnapshotAddress
     RuntimeStateToken -> pure SnapshotStateToken
 
 -- Heap-cell payloads define locations and therefore render their node inline.

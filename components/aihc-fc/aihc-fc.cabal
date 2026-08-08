@@ -22,6 +22,7 @@ library
     Aihc.Fc.Lower
     Aihc.Fc.Newtype
     Aihc.Fc.Optimize
+    Aihc.Fc.Parser
     Aihc.Fc.Pretty
     Aihc.Fc.Subst
     Aihc.Fc.Syntax
@@ -41,6 +42,7 @@ library
     bytestring,
     containers,
     libffi >=0.2 && <0.3,
+    megaparsec >=9.0 && <10,
     text >=1.2,
     transformers,
     unix,
@@ -59,6 +61,7 @@ test-suite spec
   other-modules:
     Aihc.Testing.EvalFixture
     FcGolden
+    Test.Fc.Properties
     Test.Fc.Suite
 
   build-depends:
@@ -72,10 +75,11 @@ test-suite spec
     containers,
     directory,
     filepath,
+    hedgehog,
     libffi >=0.2 && <0.3,
     tasty,
+    tasty-hedgehog,
     tasty-hunit,
-    tasty-quickcheck,
     text,
     unix,
     yaml,

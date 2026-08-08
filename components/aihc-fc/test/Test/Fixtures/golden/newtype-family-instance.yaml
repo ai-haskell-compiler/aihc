@@ -6,11 +6,13 @@ modules:
     data Unit = Unit
     data family Wrapped a
     newtype instance Wrapped Unit = WrappedUnit Unit
-expected: |
+expected: |-
+  module Test where
+
   data Unit
    = Unit
 
-  newtype $R$Wrapped$WrappedUnit = WrappedUnit Unit
+  newtype $R$Wrapped$WrappedUnit : $R$Wrapped$WrappedUnit = WrappedUnit Unit
 
   axiom $ax$Wrapped$WrappedUnit : Wrapped Unit ~N $R$Wrapped$WrappedUnit
 status: pass

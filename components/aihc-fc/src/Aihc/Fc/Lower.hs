@@ -153,6 +153,8 @@ nextUnique (FcProgram topBinds) = maximum (0 : concatMap topBindUniques topBinds
 topBindUniques :: FcTopBind -> [Int]
 topBindUniques topBind =
   case topBind of
+    FcModule {} -> []
+    FcExternal {} -> []
     FcData {} -> []
     FcAxiom {} -> []
     FcNewtype {} -> []

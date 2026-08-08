@@ -51,6 +51,7 @@ test-suite spec
     Test.Native.Compiler
     Test.Native.Primitive
     Test.Native.RegisterAllocate
+    Test.Native.Runtime
 
   build-depends:
     aihc-grin,
@@ -58,9 +59,12 @@ test-suite spec
     aihc-tc,
     base >=4.16 && <5,
     containers,
+    filepath,
+    process,
     tasty,
     tasty-hunit,
     tasty-quickcheck,
+    temporary,
     text,
 
   ghc-options:

@@ -9,15 +9,18 @@ modules:
 
     first :: Pair a -> a
     first (value :*: _) = value
-expected: |
-  data Pair a
-   = :*: a a
+expected: |-
+  module Test where
 
-  first : ∀ a. (Pair a) → a =
-    Λa.
-      λx1001 : Pair a.
-        case x1001 as _scrut : Pair a of
-          :*: value _ →
+  data Pair (a : TYPE BoxedRep Lifted)
+   = :*: (a) (a)
+
+  first : ∀ (a : TYPE BoxedRep Lifted). (Pair a) → a =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ(x1001 : Pair a).
+        case x1001 as (_scrut : Pair a) of {
+          :*: (value : (a : TYPE BoxedRep Lifted)) (_ : (a : TYPE BoxedRep Lifted)) →
             value
+        }
 status: pass
 reason: arbitrary infix constructor patterns retain their field binders and types during FC desugaring

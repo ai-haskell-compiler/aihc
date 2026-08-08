@@ -20,6 +20,7 @@ import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEv
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
+import Aihc.Fc.Pretty (declareExternalSymbols)
 import Aihc.Fc.Subst (freeRigidTyVars, substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
@@ -50,10 +51,11 @@ import Aihc.Parser.Syntax
     binderHeadName,
     fromAnnotation,
     moduleName,
+    nameQualifier,
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Resolve (ResolveResult (..), resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolveResult (..), ResolvedName (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TyConFlavor (..), emptyTcInterface, renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
@@ -70,7 +72,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
 import Control.Monad.Trans.State.Strict (runStateT)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -115,7 +117,7 @@ desugarModuleWithBindings :: [TcBindingResult] -> Module -> Module -> DesugarRes
 desugarModuleWithBindings bindings = desugarModuleWithDataTypes bindings []
 
 desugarModuleWithDataTypes :: [TcBindingResult] -> [DataTypeInfo] -> Module -> Module -> DesugarResult
-desugarModuleWithDataTypes bindings dataTypes tcResult _m =
+desugarModuleWithDataTypes bindings dataTypes tcResult resolvedModule =
   if not (tcModuleSuccess tcResult)
     then
       DesugarResult
@@ -140,11 +142,47 @@ desugarModuleWithDataTypes bindings dataTypes tcResult _m =
                   dsErrors = [err]
                 }
             Right (binds, _) ->
-              DesugarResult
-                { dsProgram = lowerPseudoOps (lowerConstraintProgram (lowerNewtypes (FcProgram binds))),
-                  dsSuccess = True,
-                  dsErrors = []
-                }
+              let (packageName, currentModuleName) = resolvedModuleOrigin resolvedModule
+                  program = FcProgram (FcModule packageName currentModuleName : binds)
+               in DesugarResult
+                    { dsProgram = declareExternalSymbols (lowerPseudoOps (lowerConstraintProgram (lowerNewtypes program))),
+                      dsSuccess = True,
+                      dsErrors = []
+                    }
+
+resolvedModuleOrigin :: Module -> (Text, Text)
+resolvedModuleOrigin resolvedModule =
+  fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $ do
+    resolved <- listToMaybe (mapMaybe definitionResolution (moduleDecls resolvedModule))
+    case resolutionTarget resolved of
+      ResolvedTopLevel packageId name ->
+        pure (packageIdText packageId, fromMaybe (fromMaybe "Main" (moduleName resolvedModule)) (nameQualifier name))
+      _ -> Nothing
+
+definitionResolution :: Decl -> Maybe ResolutionAnnotation
+definitionResolution declaration =
+  case peelDeclAnn declaration of
+    DeclValue (FunctionBind name _) -> nameResolution name
+    DeclValue (PatternBind _ pattern' _) -> patternResolution pattern'
+    DeclData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
+    DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (newtypeDeclHead newtypeDeclaration))
+    DeclClass classDeclaration -> nameResolution (binderHeadName (classDeclHead classDeclaration))
+    _ -> Nothing
+
+patternResolution :: Pattern -> Maybe ResolutionAnnotation
+patternResolution pattern' =
+  case pattern' of
+    PVar name -> nameResolution name
+    PAnn _ inner -> patternResolution inner
+    PParen inner -> patternResolution inner
+    PStrict inner -> patternResolution inner
+    PIrrefutable inner -> patternResolution inner
+    PAs name _ -> nameResolution name
+    PTypeSig inner _ -> patternResolution inner
+    _ -> Nothing
+
+nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
+nameResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
 
 -- | Type-class evidence is ordinary term-level data in FC. Replace qualified
 -- source types with explicit dictionary arrows after desugaring has consumed
@@ -155,6 +193,8 @@ lowerConstraintProgram (FcProgram topBinds) =
   where
     lowerTopBind topBind =
       case topBind of
+        FcModule packageName declaredModuleName -> FcModule packageName declaredModuleName
+        FcExternal origin ty -> FcExternal origin (lowerConstraintType ty)
         FcData name tyVars constructors ->
           FcData name tyVars [(constructor, map lowerConstraintType fields) | (constructor, fields) <- constructors]
         FcAxiom declaration ->
@@ -721,6 +761,9 @@ primitiveImportSpecs =
       seqPrimitive,
       primitive "realWorld#" "State# RealWorld",
       primitive "noDuplicate#" "State# d -> State# d",
+      primitive "makeStableName#" "a -> State# RealWorld -> (# State# RealWorld, StableName# a #)",
+      primitive "stableNameToInt#" "StableName# a -> Int#",
+      primitive "eqStableName#" "StableName# a -> StableName# b -> Int#",
       primitive
         "catch#"
         "(State# RealWorld -> (# State# RealWorld, a #)) -> (b -> State# RealWorld -> (# State# RealWorld, a #)) -> State# RealWorld -> (# State# RealWorld, a #)",

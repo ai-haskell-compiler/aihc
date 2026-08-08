@@ -1,4 +1,6 @@
 expected: |-
+  module Test where
+
   data State#
 
   data RealWorld
@@ -6,9 +8,9 @@ expected: |-
   foreign prim awaitIO#/2 : Addr# → (State# RealWorld) → State# RealWorld
 
   await : Addr# → (State# RealWorld) → State# RealWorld =
-    λx1002 : Addr#.
-      λy1003 : State# RealWorld.
-        awaitIO# x1002 y1003
+    λ(x1002 : Addr#).
+      λ(y1003 : State# RealWorld).
+        (awaitIO# x1002) y1003
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim

@@ -22,6 +22,7 @@ import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunction
 import Aihc.Grin.Syntax
 import Aihc.Native
   ( LinkLayout (..),
+    NativeRuntimeCall (..),
     buildAddrLiteralPool,
     buildLinkLayout,
     nativeRuntimePrimitiveCall,
@@ -819,6 +820,19 @@ compileDirectBinding env vars expression =
                ],
           result
         )
+    GrinPrimitiveCall _ "makeStableName#" [value] -> do
+      (lines', operand) <- materializeValue env value
+      valuePointer <- freshValue
+      namePointer <- freshValue
+      result <- freshValue
+      storeOne
+        ( lines'
+            <> [ "  " <> valuePointer <> " = inttoptr i64 " <> operand <> " to ptr",
+                 "  " <> namePointer <> " = call ptr @aihc_stable_name_make(ptr %machine, ptr " <> valuePointer <> ")",
+                 "  " <> result <> " = ptrtoint ptr " <> namePointer <> " to i64"
+               ],
+          result
+        )
     GrinPrimitiveCall IntRep "compareInt#" [left, right] -> do
       (lines', operands) <- materializeValues env [left, right]
       case operands of
@@ -842,8 +856,8 @@ compileDirectBinding env vars expression =
     GrinPrimitiveCall runtimeRep "realWorld#" []
       | null vars && null (runtimeRepComponents runtimeRep) -> pure []
     GrinPrimitiveCall _ name arguments
-      | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
-          result <- compileForeignCall env foreignCall arguments
+      | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
+          result <- compileForeignCall env (nativeRuntimeCallForeignCall runtimeCall) arguments
           case vars of
             [] -> pure (fst result)
             [_] -> storeOne result
@@ -1653,22 +1667,22 @@ renderForeignDeclarations program =
       <> " @"
       <> grinForeignCallSymbol foreignCall
       <> "("
-      <> T.intercalate ", " (map llvmForeignType (grinForeignArgumentTypes signature))
+      <> T.intercalate ", " (["ptr" | passMachine] <> map llvmForeignType (grinForeignArgumentTypes signature))
       <> ")"
-  | foreignCall <- foreignCalls,
+  | (passMachine, foreignCall) <- foreignCalls,
     let signature = grinForeignCallSignature foreignCall
   ]
     <> ["" | not (null foreignCalls)]
   where
     foreignCalls =
       Map.elems . Map.fromList $
-        [ (grinForeignCallSymbol foreignCall, foreignCall)
-        | foreignCall <- grinForeignCalls program <> runtimePrimitiveCalls
+        [ (grinForeignCallSymbol foreignCall, call)
+        | call@(_, foreignCall) <- [(False, programForeignCall) | programForeignCall <- grinForeignCalls program] <> runtimePrimitiveCalls
         ]
     runtimePrimitiveCalls =
-      [ foreignCall
+      [ (nativeRuntimeCallPassMachine runtimeCall, nativeRuntimeCallForeignCall runtimeCall)
       | primitive <- supportedNativePrimitiveNames,
-        Just foreignCall <- [nativeRuntimePrimitiveCall primitive]
+        Just runtimeCall <- [nativeRuntimePrimitiveCall primitive]
       ]
 
 renderExternalFunctionDeclarations :: CompileEnv -> GrinProgram -> [Text]
@@ -1712,8 +1726,6 @@ renderRuntimeDeclarations =
     "declare ptr @aihc_make_node(ptr, ptr)",
     "declare ptr @aihc_make_node_unchecked(ptr, ptr)",
     "declare void @aihc_ensure_heap(ptr, i64, i64, ptr)",
-    "declare ptr @aihc_array_new(ptr, i64, i64)",
-    "declare ptr @aihc_mutvar_new(ptr, i64)",
     "declare void @aihc_set_field(ptr, i64, i64)",
     "declare void @aihc_update(ptr, ptr)",
     "declare void @aihc_update_blackhole(ptr, ptr, ptr)",

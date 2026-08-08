@@ -17,7 +17,7 @@ where
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
 import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
-import Aihc.Native (LinkLayout (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, renderLinkedFunctionSymbol, supportedNativePrimitiveNames)
+import Aihc.Native (LinkLayout (..), NativeRuntimeCall (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, renderLinkedFunctionSymbol, supportedNativePrimitiveNames)
 import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
@@ -334,6 +334,9 @@ runtimeFunctionTypes =
     ("aihc_mutvar_write", ([I32, I64], [I64])),
     ("aihc_mutvar_compare_and_swap", ([I32, I64, I64], [I64])),
     ("aihc_mutvar_same", ([I32, I32], [I64])),
+    ("aihc_stable_name_make", ([I32, I32], [I32])),
+    ("aihc_stable_name_equal", ([I32, I32], [I64])),
+    ("aihc_stable_name_hash", ([I32], [I64])),
     ("aihc_wasm_set_field", ([I64, I64, I64], [])),
     ("aihc_wasm_update", ([I64, I64], [])),
     ("aihc_wasm_update_blackhole", ([I32, I64, I64], [])),
@@ -608,9 +611,17 @@ compileDirectBinding env vars expression =
             <> call "aihc_mutvar_new"
             <> ["i64.extend_i32_u"]
         )
+    GrinPrimitiveCall _ "makeStableName#" [value] ->
+      storeSingle
+        ( machine
+            <> materializeValue env value
+            <> ["i32.wrap_i64"]
+            <> call "aihc_stable_name_make"
+            <> ["i64.extend_i32_u"]
+        )
     GrinPrimitiveCall _ name arguments
-      | Just foreignCall <- nativeRuntimePrimitiveCall name -> do
-          instructions <- compileForeignCall env foreignCall arguments
+      | Just runtimeCall <- nativeRuntimePrimitiveCall name -> do
+          instructions <- compileForeignCall env (nativeRuntimeCallForeignCall runtimeCall) arguments
           case vars of
             [] -> pure (instructions <> ["drop"])
             [_] -> storeSingle instructions

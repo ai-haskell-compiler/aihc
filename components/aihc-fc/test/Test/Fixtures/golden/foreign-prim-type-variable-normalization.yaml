@@ -1,9 +1,11 @@
 expected: |-
+  module Test where
+
   data State#
 
   data MutVar#
 
-  foreign prim newMutVar#/2 : ∀ rep value domain. value → (State# domain) → (#,#) (State# domain) (MutVar# domain value)
+  foreign prim newMutVar#/2 : ∀ (rep : RuntimeRep) (value : TYPE rep) (domain : TYPE BoxedRep Lifted). value → (State# domain) → (#,#) (State# domain) (MutVar# domain value)
 extensions:
 - ExplicitForAll
 - ForeignFunctionInterface

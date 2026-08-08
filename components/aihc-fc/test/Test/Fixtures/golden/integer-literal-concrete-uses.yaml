@@ -1,67 +1,87 @@
 expected: |-
+  module GHC.Types where
+
   data Bool
    = False
    | True
 
   data Int
-   = I Int#
+   = I (Int#)
 
   data Integer
-   = IS Int#
-  data Eq a
+   = IS (Int#)
+  module GHC.Classes where
+
+  external GHC.Types.True : Bool
+
+  data Eq (a : TYPE BoxedRep Lifted)
    = $Dict$Eq (a → a → Bool)
 
-  == : ∀ a. (Eq a) → a → a → Bool =
-    Λa.
-      λ$d0 : Eq a.
-        case $d0 as $dict : Eq a of
-          $Dict$Eq $method0 →
+  == : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ($d0 : Eq a).
+        case $d0 as ($dict : Eq a) of {
+          $Dict$Eq ($method0 : a → a → Bool) →
             $method0
+        }
 
   $fEqInt : Eq Int =
-    $Dict$Eq @Int (λx1004 : Int.
-      λy1005 : Int.
-        case x1004 as _scrut : Int of
-          I x →
-            case y1005 as _scrut : Int of
-              I y →
-                True)
-  data Num a
+    ($Dict$Eq @Int) (λ(x1004 : Int).
+      λ(y1005 : Int).
+        case x1004 as (_scrut : Int) of {
+          I (x : Int#) →
+            case y1005 as (_scrut : Int) of {
+              I (y : Int#) →
+                GHC.Types.True
+            }
+        })
+  module GHC.Num where
+
+  external GHC.Types.I : Int# → Int
+
+  data Num (a : TYPE BoxedRep Lifted)
    = $Dict$Num (Integer → a)
 
-  fromInteger : ∀ a. (Num a) → Integer → a =
-    Λa.
-      λ$d0 : Num a.
-        case $d0 as $dict : Num a of
-          $Dict$Num $method0 →
+  fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ($d0 : Num a).
+        case $d0 as ($dict : Num a) of {
+          $Dict$Num ($method0 : Integer → a) →
             $method0
+        }
 
   $fNumInt : Num Int =
-    $Dict$Num @Int (λx1004 : Integer.
-      case x1004 as _scrut : Integer of
-        IS x →
-          I x)
+    ($Dict$Num @Int) (λ(x1004 : Integer).
+      case x1004 as (_scrut : Integer) of {
+        IS (x : Int#) →
+          GHC.Types.I x
+      })
 
   $fNumInteger : Num Integer =
-    $Dict$Num @Integer (λx1010 : Integer.
+    ($Dict$Num @Integer) (λ(x1010 : Integer).
       x1010)
+  module Prelude where
+  module Main where
+
+  external builtin.() : Unit
 
   asInt : Int =
-    fromInteger @Int $fNumInt (IS 1)
+    (((fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a) @Int) ($fNumInt : Num Int)) ((IS : Int# → Integer) 1#IntRep)
 
   asInteger : Integer =
-    fromInteger @Integer $fNumInteger (IS 1)
+    (((fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a) @Integer) ($fNumInteger : Num Integer)) ((IS : Int# → Integer) 1#IntRep)
 
   caseInt : Unit =
-    let
+    let {
       _case_value : Int =
-        fromInteger @Int $fNumInt (IS 1)
-    in
-      case == @Int $fEqInt _case_value (fromInteger @Int $fNumInt (IS 1)) as _case_guard : Bool of
+        (((fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a) @Int) ($fNumInt : Num Int)) ((IS : Int# → Integer) 1#IntRep)
+    } in
+      case ((((== : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool) @Int) ($fEqInt : Eq Int)) _case_value) ((((fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a) @Int) ($fNumInt : Num Int)) ((IS : Int# → Integer) 1#IntRep)) as (_case_guard : Bool) of {
         True →
-          ()
+          builtin.();
         False →
-          case _case_value as _case_nomatch : Int of
+          case _case_value as (_case_nomatch : Int) of {}
+      }
 extensions:
 - MagicHash
 modules:

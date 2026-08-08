@@ -1,0 +1,26 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import GHC.StableName qualified as GHC
+    import System.Mem.StableName qualified as System
+
+    data Box = Box Int
+
+    test = do
+      let shared = Box 1
+      first <- GHC.makeStableName shared
+      again <- System.makeStableName shared
+      distinct <- System.makeStableName (Box 1)
+      return
+        ( GHC.eqStableName first again
+        , GHC.hashStableName first == System.hashStableName again
+        , GHC.eqStableName first distinct
+        )
+output: (True,True,False)
+expression: test
+status: pass
+reason: GHC.StableName and System.Mem.StableName preserve identity across their shared API

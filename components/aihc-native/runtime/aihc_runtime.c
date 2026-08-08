@@ -281,6 +281,39 @@ uint64_t aihc_mutvar_same(AihcValue *left, AihcValue *right) {
   return aihc_array_same(left, right);
 }
 
+void *aihc_stable_name_make(AihcMachine *machine, AihcValue *value) {
+  if (value == NULL) {
+    aihc_fail("stable-name primitive received null");
+  }
+  for (AihcStableName *name = machine->stable_names; name != NULL;
+       name = name->next) {
+    if (name->value == value) {
+      return name;
+    }
+  }
+  if (machine->next_stable_name > (uint64_t)INT64_MAX) {
+    aihc_fail("stable-name counter overflow");
+  }
+  AihcStableName *name = aihc_allocate_auxiliary(machine, sizeof(*name));
+  name->value = value;
+  name->hash = machine->next_stable_name++;
+  name->next = machine->stable_names;
+  machine->stable_names = name;
+  return name;
+}
+
+uint64_t aihc_stable_name_equal(const void *left, const void *right) {
+  return left == right;
+}
+
+int64_t aihc_stable_name_hash(const void *opaque_name) {
+  if (opaque_name == NULL) {
+    aihc_fail("stable-name hash received null");
+  }
+  const AihcStableName *name = opaque_name;
+  return (int64_t)name->hash;
+}
+
 static void aihc_visit_value(AihcValue **value, AihcRootVisitor visitor,
                              void *context) {
   *value =
@@ -348,6 +381,10 @@ void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
         aihc_visit_thread(waiter->thread, visitor, context);
       }
     }
+  }
+  for (AihcStableName *name = machine->stable_names; name != NULL;
+       name = name->next) {
+    aihc_visit_value(&name->value, visitor, context);
   }
   for (AihcIoRequest *request = machine->io_requests_head; request != NULL;
        request = request->next) {
@@ -542,6 +579,7 @@ AihcMachine *aihc_machine_new(uint64_t global_count) {
   machine->globals = aihc_allocate_auxiliary(
       machine,
       sizeof(*machine->globals) * (global_count == 0 ? 1 : global_count));
+  machine->next_stable_name = 1;
   aihc_gc_init(machine);
   machine->current_thread = aihc_thread_new(machine);
   machine->io_backend = aihc_host_io_backend();

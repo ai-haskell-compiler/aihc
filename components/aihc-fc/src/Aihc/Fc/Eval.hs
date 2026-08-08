@@ -39,6 +39,7 @@ import Foreign.Marshal.Utils (copyBytes, fillBytes)
 import Foreign.Ptr (FunPtr, Ptr, alignPtr, castPtr, plusPtr)
 import Foreign.Storable (peekByteOff, peekElemOff, pokeElemOff)
 import System.IO (Handle, IOMode (..), hClose, hFlush, openBinaryFile, stderr, stdin, stdout)
+import System.Mem.StableName qualified as Host
 import System.Posix.DynamicLinker (DL (Default), dlsym)
 
 data EvalError
@@ -72,6 +73,7 @@ data Value
   | VIORequest EvalIORequest
   | VMVar EvalMVar
   | VMutVar EvalMutVar
+  | VStableName EvalStableName
   | VStateToken
   | VThunk EvalThunk
   deriving (Eq, Show)
@@ -90,6 +92,14 @@ data EvalThunkState
   | ThunkEvaluating
 
 newtype EvalMutVar = EvalMutVar (IORef Value)
+
+newtype EvalStableName = EvalStableName (Host.StableName Value)
+
+instance Eq EvalStableName where
+  EvalStableName left == EvalStableName right = Host.eqStableName left right
+
+instance Show EvalStableName where
+  show _ = "<stable-name>"
 
 newtype EvalArray = EvalArray (IORef [Value])
 
@@ -412,6 +422,16 @@ evalPrimitive "realWorld#" [] =
   pure VStateToken
 evalPrimitive "noDuplicate#" [state] =
   pure state
+evalPrimitive "makeStableName#" [value, state] = do
+  name <- lift (Host.makeStableName value)
+  pure (VConstructor "(#,#)" [state, VStableName (EvalStableName name)])
+evalPrimitive "stableNameToInt#" [name] = do
+  EvalStableName stableName <- forceStableNamePrimitiveArg "stableNameToInt#" name
+  pure (intPrimitiveValue (toInteger (Host.hashStableName stableName)))
+evalPrimitive "eqStableName#" [left, right] = do
+  EvalStableName leftName <- forceStableNamePrimitiveArg "eqStableName#" left
+  EvalStableName rightName <- forceStableNamePrimitiveArg "eqStableName#" right
+  pure (intPrimitiveValue (if Host.eqStableName leftName rightName then 1 else 0))
 evalPrimitive "catch#" [action, handler, state] =
   applyValue action state `catchE` handleRaised
   where
@@ -809,6 +829,13 @@ forceMutVarPrimitiveArg name value = do
   forced <- forceValue value
   case forced of
     VMutVar mutVar -> pure mutVar
+    other -> throwE (EvalPrimitiveTypeError name other)
+
+forceStableNamePrimitiveArg :: Text -> Value -> EvalM EvalStableName
+forceStableNamePrimitiveArg name value = do
+  forced <- forceValue value
+  case forced of
+    VStableName stableName -> pure stableName
     other -> throwE (EvalPrimitiveTypeError name other)
 
 forceIORequestPrimitiveArg :: Text -> Value -> EvalM EvalIORequest
@@ -1218,6 +1245,7 @@ renderForcedValue value =
     VIORequest {} -> pure "<io-request>"
     VMVar {} -> pure "<mvar>"
     VMutVar {} -> pure "<mutvar>"
+    VStableName {} -> pure "<stable-name>"
     VStateToken -> pure "<state>"
     VThunk {} -> renderValueM value
   where
@@ -1297,6 +1325,7 @@ renderRawValueM value = do
     VIORequest {} -> pure "<io-request>"
     VMVar {} -> pure "<mvar>"
     VMutVar {} -> pure "<mutvar>"
+    VStableName {} -> pure "<stable-name>"
     VStateToken -> pure "<state>"
     VThunk {} -> renderRawValueM forced
 
