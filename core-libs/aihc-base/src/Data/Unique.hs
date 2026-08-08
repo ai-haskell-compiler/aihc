@@ -38,8 +38,8 @@ instance Ord Unique where
       False -> right
 
 uniqueSource :: IORef Integer
--- AIHC does not inline or eliminate common top-level bindings, so this remains
--- a single shared CAF without the declaration pragma that its resolver rejects.
+-- AIHC's FC optimizer preserves reachable top-level binding boundaries, and
+-- GRIN lowers this computation to one updateable CAF shared by every use.
 uniqueSource = unsafePerformIO (newIORef 0)
 
 -- | Create a value distinct from every value returned by an earlier call.
