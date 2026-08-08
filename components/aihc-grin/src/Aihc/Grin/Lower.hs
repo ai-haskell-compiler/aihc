@@ -20,6 +20,7 @@ import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Grin.Analysis (freeExprVars)
+import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types
   ( RuntimeRep (..),
@@ -274,16 +275,17 @@ programEnvironment interface =
 
 lowerProgramWithEnvironment :: GrinLinkNames -> GrinInterface -> GrinInterface -> ProgramEnvironment -> FcProgram -> GrinProgram
 lowerProgramWithEnvironment linkNames imported local environment program =
-  GrinProgram
-    { grinConstructors = loweredConstructors tops,
-      grinPrimitives = loweredPrimitives tops,
-      grinForeignCalls = loweredForeignCalls tops,
-      grinExternalGlobals = Set.toAscList (lowerReferencedExternalGlobalNames finalState),
-      grinExternalFunctions = externalCodeInfos,
-      grinWhnfGlobals = loweredWhnfGlobals tops,
-      grinCafs = loweredCafs tops,
-      grinFunctions = reverse (lowerFunctionsRev finalState)
-    }
+  normalizeGrinProgram
+    GrinProgram
+      { grinConstructors = loweredConstructors tops,
+        grinPrimitives = loweredPrimitives tops,
+        grinForeignCalls = loweredForeignCalls tops,
+        grinExternalGlobals = Set.toAscList (lowerReferencedExternalGlobalNames finalState),
+        grinExternalFunctions = externalCodeInfos,
+        grinWhnfGlobals = loweredWhnfGlobals tops,
+        grinCafs = loweredCafs tops,
+        grinFunctions = reverse (lowerFunctionsRev finalState)
+      }
   where
     initialState =
       LowerState

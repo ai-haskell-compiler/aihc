@@ -147,6 +147,27 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertBool "primitive wrapper contains explicit catch" ("catch " `isInfixOf` rendered)
         assertEqual "catch# is represented by GRIN control nodes" [] (grinPrimitives program),
+      testCase "GRIN ANF normalization reassociates nested binds" $ do
+        let normalized = normalizeGrinProgram nestedDirectBindProgram
+        assertBool "source contains a nested bind" (programHasNestedBind nestedDirectBindProgram)
+        assertBool "normalized program has a flat bind spine" (not (programHasNestedBind normalized))
+        assertEqual "normalization is idempotent" normalized (normalizeGrinProgram normalized),
+      testCase "GRIN ANF normalization preserves nested-bind semantics" $ do
+        original <- interpretProgramFunctionSnapshot nestedDirectBindEntry nestedDirectBindProgram
+        normalized <- interpretProgramFunctionSnapshot nestedDirectBindEntry (normalizeGrinProgram nestedDirectBindProgram)
+        assertEqual "normalized result" original normalized,
+      testCase "CPS-GRIN does not reify continuations for nested direct binds" $ do
+        cps <- expectCpsGrin nestedDirectBindProgram
+        assertEqual
+          "normal continuations"
+          Set.empty
+          (cpsContinuationFunctions cps `Set.difference` Set.singleton (cpsUpdateFunction cps)),
+      testCase "CPS-GRIN retains transfers found inside nested binds" $ do
+        cps <- expectCpsGrin nestedCallBindProgram
+        assertEqual
+          "one call continuation"
+          1
+          (Set.size (cpsContinuationFunctions cps `Set.difference` Set.singleton (cpsUpdateFunction cps))),
       testCase "CPS-GRIN allocates and applies ordinary continuation closures" $ do
         cps <- expectCpsGrin callBindProgram
         let program = cpsGrinProgram cps
@@ -671,6 +692,20 @@ expressionStoredNodes expression =
     GrinStoreRecUnchecked bindings body -> map snd bindings <> expressionStoredNodes body
     GrinCase _ _ alternatives -> concatMap (expressionStoredNodes . grinAltRhs) alternatives
     _ -> []
+
+programHasNestedBind :: GrinProgram -> Bool
+programHasNestedBind = any (hasNestedBind . grinFunctionBody) . grinFunctions
+
+hasNestedBind :: GrinExpr -> Bool
+hasNestedBind expression =
+  case expression of
+    GrinBind _ (GrinBind {}) _ -> True
+    GrinBind _ valueExpression body ->
+      hasNestedBind valueExpression || hasNestedBind body
+    GrinStoreRec _ body -> hasNestedBind body
+    GrinStoreRecUnchecked _ body -> hasNestedBind body
+    GrinCase _ _ alternatives -> any (hasNestedBind . grinAltRhs) alternatives
+    _ -> False
 
 updateContinuationNodes :: FunctionName -> GrinProgram -> [(FunctionName, GrinNode)]
 updateContinuationNodes updateName program =
@@ -1737,6 +1772,75 @@ directBindProgram =
           grinAltBinders = [],
           grinAltRhs = GrinConstant [GrinVarValue pointer]
         }
+
+nestedDirectBindEntry :: FunctionName
+nestedDirectBindEntry = FunctionName "nested_direct_bind"
+
+nestedDirectBindProgram :: GrinProgram
+nestedDirectBindProgram =
+  emptyGrinProgram
+    { grinConstructors = [("Box", [[IntRep]])],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = nestedDirectBindEntry,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind
+                  [outer]
+                  ( GrinBind
+                      [middle]
+                      ( GrinBind
+                          [inner]
+                          (GrinStore box)
+                          (GrinConstant [GrinVarValue inner])
+                      )
+                      (GrinConstant [GrinVarValue middle])
+                  )
+                  (GrinConstant [GrinVarValue outer])
+            }
+        ]
+    }
+  where
+    inner = GrinVar "inner" 220 (BoxedRep Lifted)
+    middle = GrinVar "middle" 221 (BoxedRep Lifted)
+    outer = GrinVar "outer" 222 (BoxedRep Lifted)
+    box = GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt IntRep 1)]
+
+nestedCallBindProgram :: GrinProgram
+nestedCallBindProgram =
+  nestedDirectBindProgram
+    { grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = nestedDirectBindEntry,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinBind
+                  [outer]
+                  ( GrinBind
+                      [inner]
+                      (GrinCall (BoxedRep Lifted) callee [])
+                      (GrinConstant [GrinVarValue inner])
+                  )
+                  (GrinConstant [GrinVarValue outer])
+            },
+          GrinFunction
+            { grinFunctionName = callee,
+              grinFunctionLinkName = Nothing,
+              grinFunctionParameters = [],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody = GrinStore box
+            }
+        ]
+    }
+  where
+    callee = FunctionName "nested_call_callee"
+    inner = GrinVar "inner" 223 (BoxedRep Lifted)
+    outer = GrinVar "outer" 224 (BoxedRep Lifted)
+    box = GrinNode (GrinConstructor "Box" 0) [GrinLitValue (GrinLitInt IntRep 1)]
 
 gcRootProgram :: GrinProgram
 gcRootProgram =

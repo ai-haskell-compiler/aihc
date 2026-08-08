@@ -1,6 +1,8 @@
 -- | AIHC's strict Graph Reduction Intermediate Notation dialect.
 module Aihc.Grin
   ( module Aihc.Grin.Syntax,
+    normalizeGrinProgram,
+    normalizeGrinExpr,
     CpsGrinProgram,
     CpsGrinError (..),
     ContinuationFrameKind (..),
@@ -49,6 +51,7 @@ module Aihc.Grin
   )
 where
 
+import Aihc.Grin.Anf (normalizeGrinExpr, normalizeGrinProgram)
 import Aihc.Grin.Cps
   ( ContinuationFrameKind (..),
     CpsGrinError (..),
