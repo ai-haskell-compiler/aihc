@@ -20,6 +20,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (guard, void)
 import Data.ByteString qualified as BS
 import Data.Char (isAlphaNum, isSpace, ord)
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
@@ -406,7 +407,7 @@ application :: TermEnv -> TyEnv -> Parser FcExpr
 application termEnv tyEnv = do
   function <- atom termEnv tyEnv
   arguments <- MP.many (MP.try (Left <$> (symbol "@" *> typeAtom tyEnv)) <|> MP.try (Right <$> atom termEnv tyEnv))
-  pure (foldl' apply function arguments)
+  pure (List.foldl' apply function arguments)
   where
     apply function (Left ty) = FcTyApp function ty
     apply function (Right argument) = FcApp function argument
@@ -563,13 +564,13 @@ typeApplication tyEnv = do
     then do
       arguments <- MP.many (MP.try (typeAtom tyEnv))
       pure (applyTyCon function arguments)
-    else pure (foldl' TcAppTy function explicit)
+    else pure (List.foldl' TcAppTy function explicit)
 
 applyTyCon :: TcType -> [TcType] -> TcType
 applyTyCon (TcTyCon tyCon existing) arguments =
   let allArguments = existing <> arguments
    in TcTyCon (TyCon (tyConName tyCon) (length allArguments)) allArguments
-applyTyCon function arguments = foldl' TcAppTy function arguments
+applyTyCon function arguments = List.foldl' TcAppTy function arguments
 
 typeAtom :: TyEnv -> Parser TcType
 typeAtom tyEnv =

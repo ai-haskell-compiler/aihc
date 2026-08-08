@@ -1255,9 +1255,7 @@ lowerGlobalVar :: Var -> LowerM GrinVar
 lowerGlobalVar var = do
   globalNames <- gets lowerGlobalNames
   incremental <- gets lowerUseIncrementalCodeLookup
-  let sourceName
-        | incremental = maybe (varName var) fcSymbolOriginText (varResolvedName var)
-        | otherwise = varName var
+  let sourceName = sourceLookupName incremental var
       linkedName = Map.findWithDefault (varName var) sourceName globalNames
   pure (GrinVar linkedName (sourceUnique var) liftedRuntimeRep)
 
@@ -1282,9 +1280,7 @@ isGlobalVar var = do
   localVars <- gets lowerLocalVars
   globalNames <- gets lowerGlobalNames
   incremental <- gets lowerUseIncrementalCodeLookup
-  let sourceName
-        | incremental = maybe (varName var) fcSymbolOriginText (varResolvedName var)
-        | otherwise = varName var
+  let sourceName = sourceLookupName incremental var
   pure
     ( varKey var `Map.notMember` localVars
         && (sourceName `Map.member` globalNames || isUnboxedTupleConstructor (varName var))
@@ -1402,9 +1398,7 @@ lookupCodeInfo var = do
         case varResolvedName var of
           Nothing -> Map.lookup (varUnique var) localCodeInfosByUnique >>= lookup (varType var)
           Just _ -> Nothing
-      sourceName
-        | incremental = maybe (varName var) fcSymbolOriginText (varResolvedName var)
-        | otherwise = varName var
+      sourceName = sourceLookupName incremental var
       sourceInfo = Map.lookup sourceName codeInfosByName
       selected = if incremental then localInfo <|> sourceInfo else sourceInfo
   if varKey var `Map.member` locals
@@ -1494,10 +1488,19 @@ isWhnfGlobalVar var = do
   localVars <- gets lowerLocalVars
   whnfGlobalNames <- gets lowerWhnfGlobalNames
   incremental <- gets lowerUseIncrementalCodeLookup
-  let sourceName
-        | incremental = maybe (varName var) fcSymbolOriginText (varResolvedName var)
-        | otherwise = varName var
+  let sourceName = sourceLookupName incremental var
   pure (varKey var `Map.notMember` localVars && sourceName `Map.member` whnfGlobalNames)
+
+-- Builtin origins are syntax-level provenance, not linker namespaces. Their
+-- runtime definitions keep the established constructor and primitive names,
+-- while package symbols use their fully qualified origin during incremental
+-- lowering.
+sourceLookupName :: Bool -> Var -> Text
+sourceLookupName incremental var =
+  case varResolvedName var of
+    Just FcBuiltinOrigin {} -> varName var
+    Just origin | incremental -> fcSymbolOriginText origin
+    _ -> varName var
 
 withFreshLocalVars :: [Var] -> ([[GrinVar]] -> LowerM a) -> LowerM a
 withFreshLocalVars vars action = do
