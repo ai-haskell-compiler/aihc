@@ -82,6 +82,8 @@ dsAnyClassMethod plan maybeSelfDictionary fieldType method =
       let workerName = defaultMethodName methodName
       workerType <- lookupType workerName
       worker <- freshVar workerName workerType
+      let workerOrigin = fmap (\(packageName, moduleName) -> FcTopLevelOrigin packageName moduleName workerName) (tcDerivingClassOrigin plan)
+          resolvedWorker = worker {varResolvedName = workerOrigin}
       checkedEvidence <-
         case lookup methodName (tcDerivingDefaultMethodEvidence plan) of
           Just terms -> pure terms
@@ -93,7 +95,7 @@ dsAnyClassMethod plan maybeSelfDictionary fieldType method =
       pure
         ( foldl
             FcApp
-            (FcApp (foldl FcTyApp (FcVar worker) (tcDerivingHeadTypes plan)) selfDictionary)
+            (FcApp (foldl FcTyApp (FcVar resolvedWorker) (tcDerivingHeadTypes plan)) selfDictionary)
             evidence
         )
     else do

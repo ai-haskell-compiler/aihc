@@ -149,6 +149,8 @@ dataConArgTypes = map dcfiType . dciFields
 -- | Information about a type class.
 data ClassInfo = ClassInfo
   { ciName :: !Text,
+    -- | Package and module that define the class.
+    ciOrigin :: !(Maybe (Text, Text)),
     -- | Type parameters of the class.
     ciTyVars :: ![TyVarId],
     -- | Superclass constraint types. Keeping the full type permits a class
@@ -170,6 +172,8 @@ data InstanceInfo = InstanceInfo
   { iiClassName :: !Text,
     -- | Dictionary binding generated for this instance.
     iiDictName :: !Text,
+    -- | Package and module that define the dictionary binding.
+    iiDictOrigin :: !(Maybe (Text, Text)),
     iiDictType :: !TcType,
     -- | Type variables quantified over.
     iiTyVars :: ![TyVarId],

@@ -221,6 +221,7 @@ mkDerivingPlan sourceSpan strategy classInfo tyVars headTypes dataType context m
     { tcDerivingSourceSpan = sourceSpan,
       tcDerivingStrategy = strategy,
       tcDerivingClassName = className,
+      tcDerivingClassOrigin = ciOrigin classInfo,
       tcDerivingDictName = instanceDictName className headTypes,
       tcDerivingTyVars = tyVars,
       tcDerivingHeadTypes = headTypes,

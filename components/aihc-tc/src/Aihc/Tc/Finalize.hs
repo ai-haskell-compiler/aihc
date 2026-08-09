@@ -97,8 +97,8 @@ zonkEvTerm evTerm =
       pure (EvVarTerm ev)
     EvGiven pred' ->
       EvGiven <$> zonkPred pred'
-    EvDict name typeArgs evidence ->
-      EvDict name <$> mapM zonkType typeArgs <*> mapM zonkEvTerm evidence
+    EvDict origin name typeArgs evidence ->
+      EvDict origin name <$> mapM zonkType typeArgs <*> mapM zonkEvTerm evidence
     EvCoercion coercion ->
       EvCoercion <$> zonkCoercion coercion
     EvSuperClass evidence sourcePredicate fieldTypes index ->
@@ -246,7 +246,7 @@ firstMetaEvTerm evTerm =
       Nothing
     EvGiven pred' ->
       firstMetaPred pred'
-    EvDict _ typeArgs evidence ->
+    EvDict _ _ typeArgs evidence ->
       firstJusts (map firstMetaType typeArgs ++ map firstMetaEvTerm evidence)
     EvCoercion coercion ->
       firstMetaCoercion coercion

@@ -1,0 +1,67 @@
+extensions: []
+modules:
+- |
+  module Types where
+  data Bool = False | True
+
+  class Eq a where
+    (==) :: a -> a -> Bool
+
+  instance Eq Bool where
+    False == False = True
+    False == True = False
+    True == False = False
+    True == True = True
+- |
+  module Test where
+  import Types
+
+  eqBool :: Bool -> Bool -> Bool
+  eqBool = (==)
+expected: |-
+  module Types where
+
+  data Bool
+   = False
+   | True
+
+  data Eq (a : TYPE BoxedRep Lifted)
+   = $Dict$Eq (a → a → Bool)
+
+  == : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ($d0 : Eq a).
+        case $d0 as ($dict : Eq a) of {
+          $Dict$Eq ($method0 : a → a → Bool) →
+            $method0
+        }
+
+  $fEqBool : Eq Bool =
+    ($Dict$Eq @Bool) (λ(x1004 : Bool).
+      λ(y1005 : Bool).
+        case x1004 as (_scrut : Bool) of {
+          False →
+            case y1005 as (_scrut : Bool) of {
+              False →
+                True;
+              True →
+                False
+            };
+          True →
+            case y1005 as (_scrut : Bool) of {
+              False →
+                False;
+              True →
+                True
+            }
+        })
+  module Test where
+
+  external Types.$fEqBool : Eq Bool
+
+  external Types.== : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool
+
+  eqBool : Bool → Bool → Bool =
+    (Types.== @Bool) Types.$fEqBool
+reason: keeps the defining module origin on an imported instance dictionary
+status: pass

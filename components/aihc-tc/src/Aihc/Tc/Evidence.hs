@@ -33,8 +33,8 @@ data EvTerm
     EvVarTerm !EvVar
   | -- | Given dictionary from a qualified type.
     EvGiven !Pred
-  | -- | Dictionary construction: dictionary name, type args, sub-evidence.
-    EvDict !Text ![TcType] ![EvTerm]
+  | -- | Dictionary construction: origin, dictionary name, type args, sub-evidence.
+    EvDict !(Maybe (Text, Text)) !Text ![TcType] ![EvTerm]
   | -- | Coercion evidence (for equality constraints).
     EvCoercion !Coercion
   | -- | Superclass selection from a dictionary. The source predicate and its

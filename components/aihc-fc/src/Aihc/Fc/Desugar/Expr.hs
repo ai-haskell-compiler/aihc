@@ -743,7 +743,8 @@ dsDo stmts =
 dsDoBind :: DoStmt Expr -> Expr -> DsM FcExpr -> DsM FcExpr
 dsDoBind stmt action continuation = do
   (tcAnn, resolution) <- requiredDoBindOccurrence stmt
-  bind <- dsAnnotatedVar tcAnn (resolvedAnnotationName resolution) (EVar (resolvedAnnotationName resolution))
+  let bindName = resolvedAnnotationName resolution
+  bind <- dsAnnotatedVar tcAnn bindName (EVar bindName)
   action' <- dsExpr action
   FcApp (FcApp bind action') <$> continuation
 
@@ -792,14 +793,15 @@ doBindOccurrence = go Nothing Nothing
 dsOverloadedIntegerLiteral :: TcAnnotation -> ResolutionAnnotation -> Integer -> DsM FcExpr
 dsOverloadedIntegerLiteral tcAnn resolution value = do
   fromIntegerExpr <- dsAnnotatedVar tcAnn (resolvedAnnotationName resolution) (EInt value TInteger (T.pack (show value)))
-  integerExpr <- dsIntegerLiteral value
+  integerExpr <- dsIntegerLiteral resolution value
   pure (FcApp fromIntegerExpr integerExpr)
 
-dsIntegerLiteral :: Integer -> DsM FcExpr
-dsIntegerLiteral value = do
+dsIntegerLiteral :: ResolutionAnnotation -> Integer -> DsM FcExpr
+dsIntegerLiteral resolution value = do
   conTy <- lookupType "IS"
   con <- freshVar "IS" conTy
-  let small integer = FcApp (FcVar con) (FcLit (LitInt IntRep integer))
+  let resolved name var = var {varResolvedName = integerHelperOrigin resolution name}
+      small integer = FcApp (FcVar (resolved "IS" con)) (FcLit (LitInt IntRep integer))
   if value >= minIntLiteral && value <= maxIntLiteral
     then pure (small value)
     else do
@@ -809,17 +811,20 @@ dsIntegerLiteral value = do
       add <- freshVar "integerAdd" binaryTy
       multiply <- freshVar "integerMul" binaryTy
       negateInteger <- freshVar "integerNegate" unaryTy
+      let resolvedAdd = resolved "integerAdd" add
+          resolvedMultiply = resolved "integerMul" multiply
+          resolvedNegate = resolved "integerNegate" negateInteger
       let buildPositive integer
             | integer <= maxIntLiteral = small integer
             | otherwise =
                 let (quotient, remainder) = integer `quotRem` literalBase
                  in FcApp
-                      (FcApp (FcVar add) (FcApp (FcApp (FcVar multiply) (buildPositive quotient)) (small literalBase)))
+                      (FcApp (FcVar resolvedAdd) (FcApp (FcApp (FcVar resolvedMultiply) (buildPositive quotient)) (small literalBase)))
                       (small remainder)
           magnitude = buildPositive (abs value)
       pure
         ( if value < 0
-            then FcApp (FcVar negateInteger) magnitude
+            then FcApp (FcVar resolvedNegate) magnitude
             else magnitude
         )
   where
@@ -827,13 +832,22 @@ dsIntegerLiteral value = do
     minIntLiteral = -9223372036854775808
     maxIntLiteral = 9223372036854775807
 
+integerHelperOrigin :: ResolutionAnnotation -> Text -> Maybe FcSymbolOrigin
+integerHelperOrigin resolution symbolName =
+  case resolvedNameOrigin (resolutionTarget resolution) of
+    Just (FcTopLevelOrigin packageName _ _) -> Just (FcTopLevelOrigin packageName "GHC.Internal.Integer" symbolName)
+    _ -> Nothing
+
 resolvedAnnotationName :: ResolutionAnnotation -> Name
 resolvedAnnotationName resolution =
-  case resolutionTarget resolution of
-    ResolvedTopLevel _ name -> mkName (nameQualifier name) (nameType name) (nameText name)
-    ResolvedLocal _ name -> qualifyName Nothing name
-    ResolvedBuiltin name -> mkName Nothing NameVarId name
-    ResolvedError {} -> mkName Nothing NameVarId (resolutionName resolution)
+  name {nameAnns = Surface.mkAnnotation resolution : nameAnns name}
+  where
+    name =
+      case resolutionTarget resolution of
+        ResolvedTopLevel _ target -> mkName (nameQualifier target) (nameType target) (nameText target)
+        ResolvedLocal _ target -> qualifyName Nothing target
+        ResolvedBuiltin target -> mkName Nothing NameVarId target
+        ResolvedError {} -> mkName Nothing NameVarId (resolutionName resolution)
 
 resolvedOccurrenceName :: Name -> Name
 resolvedOccurrenceName name =
@@ -1058,7 +1072,7 @@ dsOverloadedIntegerPatternTest scrutValue pat =
       (fromIntegerTc, fromIntegerResolution) <- requiredPatternOccurrence "fromInteger" pat
       (eqTc, eqResolution) <- requiredPatternOccurrence "==" pat
       fromIntegerExpr <- dsAnnotatedVar fromIntegerTc (resolvedAnnotationName fromIntegerResolution) (EInt value TInteger (T.pack (show value)))
-      integerExpr <- dsIntegerLiteral value
+      integerExpr <- dsIntegerLiteral fromIntegerResolution value
       eqExpr <- dsAnnotatedVar eqTc (resolvedAnnotationName eqResolution) (EVar (resolvedAnnotationName eqResolution))
       let positiveValue = FcApp fromIntegerExpr integerExpr
       patternValue <-
@@ -1508,10 +1522,11 @@ dsEvidence evidence =
           desugarBug ("missing local dictionary for " <> T.unpack (dictKey className args))
     EvGiven EqPred {} ->
       unitConstructor
-    EvDict dictName typeArgs contextEvidence -> do
+    EvDict dictOrigin dictName typeArgs contextEvidence -> do
       dictTy <- lookupType dictName
       contextDicts <- mapM dsEvidence contextEvidence
-      let dictExpr = List.foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy)) typeArgs
+      let origin = fmap (\(packageName, moduleName) -> FcTopLevelOrigin packageName moduleName dictName) dictOrigin
+          dictExpr = List.foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy) {varResolvedName = origin}) typeArgs
       pure (List.foldl' FcApp dictExpr contextDicts)
     EvCoercion {} ->
       unitConstructor

@@ -1005,7 +1005,7 @@ dsInstanceDict instAnn instanceDecl = do
         superClassFields <- withDicts contextDicts (mapM (dsEvidence . snd) (tcInstanceSuperClasses instAnn))
         methodFields <-
           mapM
-            (dsInstanceMethod contextDicts methods maybeSelfDictionary (tcInstanceHeadTypes instAnn) (tcInstanceDefaultMethods instAnn))
+            (dsInstanceMethod contextDicts methods maybeSelfDictionary (tcInstanceHeadTypes instAnn) (tcInstanceClassOrigin instAnn) (tcInstanceDefaultMethods instAnn))
             methodOrder
         pure (superClassFields <> methodFields)
       buildDictionary recursive dictVar fields = do
@@ -1077,8 +1077,8 @@ mkContextDict ix dictAnn = do
   dictVar <- freshVar ("$d" <> T.pack (show ix)) (tcDictBinderType dictAnn)
   pure (ClassDict (tcDictBinderClassName dictAnn) (tcDictBinderArgs dictAnn) dictVar)
 
-dsInstanceMethod :: [ClassDict] -> Map.Map Text (TcType, [Match]) -> Maybe FcExpr -> [TcType] -> [Text] -> Text -> DsM FcExpr
-dsInstanceMethod contextDicts methods maybeSelfDictionary headTypes defaults methodName =
+dsInstanceMethod :: [ClassDict] -> Map.Map Text (TcType, [Match]) -> Maybe FcExpr -> [TcType] -> Maybe (Text, Text) -> [Text] -> Text -> DsM FcExpr
+dsInstanceMethod contextDicts methods maybeSelfDictionary headTypes classOrigin defaults methodName =
   case Map.lookup methodName methods of
     Just (expected, matches) ->
       dsMatchesWithEnclosingDicts contextDicts expected matches
@@ -1091,7 +1091,8 @@ dsInstanceMethod contextDicts methods maybeSelfDictionary headTypes defaults met
           let workerName = defaultMethodName methodName
           workerType <- lookupType workerName
           worker <- freshVar workerName workerType
-          pure (FcApp (foldl FcTyApp (FcVar worker) headTypes) selfDictionary)
+          let origin = fmap (\(packageName, originModule) -> FcTopLevelOrigin packageName originModule workerName) classOrigin
+          pure (FcApp (foldl FcTyApp (FcVar worker {varResolvedName = origin}) headTypes) selfDictionary)
       | otherwise ->
           desugarBug ("missing method " <> T.unpack methodName <> " in instance dictionary")
 
