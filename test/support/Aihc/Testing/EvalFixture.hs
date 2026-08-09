@@ -9,13 +9,14 @@ module Aihc.Testing.EvalFixture
     ProgramEvaluator,
     evalFixtureRoot,
     evalBindingName,
+    evalBindingNameInProgram,
     loadEvalCases,
     compileEvalCase,
     evaluateEvalCase,
   )
 where
 
-import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithDataTypes)
+import Aihc.Fc (DesugarResult (..), FcBind (..), FcModuleId (..), FcProgram (..), FcSymbolOrigin (..), FcTopBind (..), Var (..), desugarModuleWithDataTypes, mergePrograms)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -45,7 +46,8 @@ import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, nub, sort)
-import Data.Maybe (isNothing)
+import Data.List.NonEmpty qualified as NonEmpty
+import Data.Maybe (fromMaybe, isNothing, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -124,6 +126,23 @@ defaultEvalFixtureRoot = do
 
 evalBindingName :: Text
 evalBindingName = "__aihc_eval__"
+
+evalBindingNameInProgram :: FcProgram -> Text
+evalBindingNameInProgram program =
+  fromMaybe
+    evalBindingName
+    ( listToMaybe
+        [ varName var
+        | FcTopBind bind <- fcTopBinds program,
+          var <- binders bind,
+          maybe (varName var) fcOriginName (varResolvedName var) == evalBindingName
+        ]
+    )
+  where
+    binders bind =
+      case bind of
+        FcNonRec var _ -> [var]
+        FcRec bindings -> map fst bindings
 
 loadEvalCases :: IO [EvalCase]
 loadEvalCases = do
@@ -325,7 +344,13 @@ moduleGroupBindings =
 
 concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs =
-  FcProgram (concatMap fcTopBinds programs)
+  case NonEmpty.nonEmpty programs of
+    Nothing -> FcProgram (FcModuleId "test" "Merged") []
+    Just nonEmptyPrograms ->
+      either
+        (error . ("System FC merge error: " <>) . show)
+        id
+        (mergePrograms (FcModuleId "test" "Merged") nonEmptyPrograms)
 
 loadDependencyModules :: EvalCase -> [Module] -> IO (Either String [Module])
 loadDependencyModules tc evalModules = do

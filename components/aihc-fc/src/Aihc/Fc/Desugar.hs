@@ -95,13 +95,13 @@ desugarModule m =
           desugarModuleWithDataTypes (tcModuleBindings tcResult) (tcInterfaceDataTypes tcInterface) tcResult resolved
         _ ->
           DesugarResult
-            { dsProgram = FcProgram [],
+            { dsProgram = FcProgram (sourceModuleId m) [],
               dsSuccess = False,
               dsErrors = ["type checker did not return the requested module"]
             }
     ResolveResult {resolveErrors} ->
       DesugarResult
-        { dsProgram = FcProgram [],
+        { dsProgram = FcProgram (sourceModuleId m) [],
           dsSuccess = False,
           dsErrors = ["resolve error: " <> show resolveErrors]
         }
@@ -121,7 +121,7 @@ desugarModuleWithDataTypes bindings dataTypes tcResult resolvedModule =
   if not (tcModuleSuccess tcResult)
     then
       DesugarResult
-        { dsProgram = FcProgram [],
+        { dsProgram = FcProgram (sourceModuleId resolvedModule) [],
           dsSuccess = False,
           dsErrors = showTcFailure tcResult
         }
@@ -137,13 +137,13 @@ desugarModuleWithDataTypes bindings dataTypes tcResult resolvedModule =
        in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) typeEnv Map.empty Map.empty constructorFields) of
             Left err ->
               DesugarResult
-                { dsProgram = FcProgram [],
+                { dsProgram = FcProgram (sourceModuleId resolvedModule) [],
                   dsSuccess = False,
                   dsErrors = [err]
                 }
             Right (binds, _) ->
               let (packageName, currentModuleName) = resolvedModuleOrigin resolvedModule
-                  program = FcProgram (FcModule packageName currentModuleName : binds)
+                  program = FcProgram (FcModuleId packageName currentModuleName) binds
                in DesugarResult
                     { dsProgram = declareExternalSymbols (lowerPseudoOps (lowerConstraintProgram (lowerNewtypes program))),
                       dsSuccess = True,
@@ -158,6 +158,9 @@ resolvedModuleOrigin resolvedModule =
       ResolvedTopLevel packageId name ->
         pure (packageIdText packageId, fromMaybe (fromMaybe "Main" (moduleName resolvedModule)) (nameQualifier name))
       _ -> Nothing
+
+sourceModuleId :: Module -> FcModuleId
+sourceModuleId modu = FcModuleId "" (fromMaybe "Main" (moduleName modu))
 
 definitionResolution :: Decl -> Maybe ResolutionAnnotation
 definitionResolution declaration =
@@ -188,12 +191,11 @@ nameResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
 -- source types with explicit dictionary arrows after desugaring has consumed
 -- their predicate structure.
 lowerConstraintProgram :: FcProgram -> FcProgram
-lowerConstraintProgram (FcProgram topBinds) =
-  FcProgram (map lowerTopBind topBinds)
+lowerConstraintProgram (FcProgram moduleId topBinds) =
+  FcProgram moduleId (map lowerTopBind topBinds)
   where
     lowerTopBind topBind =
       case topBind of
-        FcModule packageName declaredModuleName -> FcModule packageName declaredModuleName
         FcExternal origin ty -> FcExternal origin (lowerConstraintType ty)
         FcData name tyVars constructors ->
           FcData name tyVars [(constructor, map lowerConstraintType fields) | (constructor, fields) <- constructors]

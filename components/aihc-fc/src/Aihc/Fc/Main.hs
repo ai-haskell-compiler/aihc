@@ -27,18 +27,18 @@ mainEntryBindingName = "$aihc.main"
 -- | Add @$aihc.main = GHC.TopHandler.runMainIO Main.main@ directly in
 -- System FC. The caller supplies the installed origin of @runMainIO@.
 addMainEntrypoint :: FcSymbolOrigin -> FcProgram -> Either MainEntrypointError FcProgram
-addMainEntrypoint runMainOrigin program@(FcProgram topBinds)
-  | not (hasMainModule topBinds) = Left MainModuleMissing
-  | any ((== mainEntryBindingName) . varName) topLevelBinders = Left MainEntrypointAlreadyPresent
+addMainEntrypoint runMainOrigin program@(FcProgram moduleId topBinds)
+  | fcModuleName moduleId /= "Main" = Left MainModuleMissing
+  | any ((== mainEntryBindingName) . sourceName) topLevelBinders = Left MainEntrypointAlreadyPresent
   | otherwise =
-      case filter ((== "main") . varName) topLevelBinders of
+      case filter ((== "main") . sourceName) topLevelBinders of
         [] -> Left MainBindingMissing
         [mainVar] -> do
           resultType <- maybe (Left (MainBindingNotIO (varType mainVar))) Right (ioResultType (varType mainVar))
           let runMainVar = fcExternalVar runMainOrigin selectedRunMainType
               entryVar = Var mainEntryBindingName (freshTermUnique program) (varType mainVar)
               entryExpression = FcApp (FcTyApp (FcVar runMainVar) resultType) (FcVar mainVar)
-          pure (FcProgram (topBinds <> runMainDeclarations <> [FcTopBind (FcNonRec entryVar entryExpression)]))
+          pure (FcProgram moduleId (topBinds <> runMainDeclarations <> [FcTopBind (FcNonRec entryVar entryExpression)]))
         _ -> Left MainBindingAmbiguous
   where
     topLevelBinders = concatMap binders topBinds
@@ -54,11 +54,7 @@ addMainEntrypoint runMainOrigin program@(FcProgram topBinds)
         [] -> [FcExternal runMainOrigin selectedRunMainType]
         _ -> []
 
-hasMainModule :: [FcTopBind] -> Bool
-hasMainModule = any isMainModule
-  where
-    isMainModule (FcModule _ "Main") = True
-    isMainModule _ = False
+    sourceName var = maybe (varName var) fcOriginName (varResolvedName var)
 
 binders :: FcTopBind -> [Var]
 binders (FcTopBind (FcNonRec var _)) = [var]

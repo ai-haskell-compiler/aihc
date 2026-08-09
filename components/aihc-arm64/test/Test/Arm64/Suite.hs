@@ -24,7 +24,7 @@ import Aihc.Native
     runtimePlan,
   )
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
-import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingName, loadEvalCases)
+import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingNameInProgram, loadEvalCases)
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
@@ -768,7 +768,7 @@ testNativeHelloWorld = do
   let grinProgram = lowerProgram fcProgram
   assertBool "GRIN has no unboxed-tuple nodes" (not ("(#,#)" `isInfixOf` renderProgram grinProgram))
   assembly <-
-    case compileProgram evalBindingName (expectGcGrin grinProgram) of
+    case compileProgram (evalBindingNameInProgram fcProgram) (expectGcGrin grinProgram) of
       Right value -> pure value
       Left err -> assertFailure ("ARM64 lowering failed: " <> show err)
   let rendered = T.unpack assembly

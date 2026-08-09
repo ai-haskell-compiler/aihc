@@ -205,15 +205,19 @@ type EvalM = ExceptT EvalError IO
 evalProgramBinding :: Text -> FcProgram -> IO (Either EvalError Value)
 evalProgramBinding name sourceProgram = runExceptT $ do
   env <- buildProgramEnv program
-  case Map.lookup name (envGlobals env) of
+  case Map.lookup selectedName (envGlobals env) of
     Just value -> do
       forced <- forceValue value
-      if name `Map.member` ioBindings
+      if selectedName `Map.member` ioBindings
         then runIOValue forced
         else pure forced
     Nothing -> throwE (EvalMissingBinding name)
   where
     program = lowerPseudoOps (lowerNewtypes sourceProgram)
+    selectedName =
+      case [varName var | FcTopBind bind <- fcTopBinds program, var <- bindersOf bind, sourceName var == name] of
+        matched : _ -> matched
+        [] -> name
     ioBindings =
       Map.fromList
         [ (varName var, ())
@@ -221,6 +225,7 @@ evalProgramBinding name sourceProgram = runExceptT $ do
           var <- bindersOf bind,
           isIOType (varType var)
         ]
+    sourceName var = maybe (varName var) fcOriginName (varResolvedName var)
 
 buildProgramEnv :: FcProgram -> EvalM Env
 buildProgramEnv program = do

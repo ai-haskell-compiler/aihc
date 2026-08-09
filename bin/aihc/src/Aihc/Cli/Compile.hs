@@ -37,12 +37,7 @@ import Aihc.Cli.Runtime (readWasmClangProcessWithExitCode, runtimeGarbageCollect
 import Aihc.Cli.Store (defaultStoreRoot, installedRuntimeArchivePath)
 import Aihc.Fc
   ( DesugarResult (..),
-    FcAlt (..),
-    FcBind (..),
-    FcExpr (..),
     FcProgram (..),
-    FcTopBind (..),
-    Var (..),
     desugarModule,
     desugarModuleWithBindings,
     eliminateDeadCode,
@@ -71,10 +66,11 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), ResolveResult (..), Scope (..), resolveWithDeps, unnamedPackage)
-import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Tc (tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
 import Control.Monad (forM_, when)
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -257,19 +253,26 @@ compileWithDependencies target wholeProgram dependencies parsed =
                   desugared = zipWith (desugarModuleWithBindings bindings) checkedModules moduleAsts
                in if not (all dsSuccess desugared)
                     then Left (CompileFrontendError (concatMap dsErrors desugared))
-                    else
-                      let sourceMainProgram = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
-                       in do
-                            runMainOrigin <- topHandlerRunMainOrigin dependencies
-                            mainProgram <-
-                              either
-                                (Left . CompileFrontendError . pure . ("entry point error: " <>) . show)
-                                Right
-                                (Fc.addMainEntrypoint runMainOrigin sourceMainProgram)
-                            incremental <- compileIncrementally Fc.mainEntryBindingName "Main" dependencies mainProgram
-                            if wholeProgram
-                              then compileWholeProgramArtifacts target incremental
-                              else compileIncrementalArtifacts target dependencies incremental
+                    else do
+                      sourceMainProgram <-
+                        case NonEmpty.nonEmpty (map dsProgram desugared) of
+                          Nothing -> Left (CompileFrontendError ["desugaring produced no System FC modules"])
+                          Just programs ->
+                            either
+                              (Left . CompileFrontendError . pure . ("System FC merge error: " <>) . show)
+                              Right
+                              (Fc.mergePrograms (Fc.FcModuleId "exe" "Main") programs)
+                      do
+                        runMainOrigin <- topHandlerRunMainOrigin dependencies
+                        mainProgram <-
+                          either
+                            (Left . CompileFrontendError . pure . ("entry point error: " <>) . show)
+                            Right
+                            (Fc.addMainEntrypoint runMainOrigin sourceMainProgram)
+                        incremental <- compileIncrementally Fc.mainEntryBindingName "Main" dependencies mainProgram
+                        if wholeProgram
+                          then compileWholeProgramArtifacts target incremental
+                          else compileIncrementalArtifacts target dependencies incremental
 
 topHandlerRunMainOrigin :: DependencyArtifact -> Either CompileError Fc.FcSymbolOrigin
 topHandlerRunMainOrigin dependencies =
@@ -307,28 +310,29 @@ compileIncrementally entryBindingName mainModuleName dependencies unoptimizedMai
 
 -- | Link already-incremental Core units for whole-program analysis. Unique
 -- namespaces are separated only while constructing the merged view.
-mergeIncrementalCore :: IncrementalCompilation -> FcProgram
+mergeIncrementalCore :: IncrementalCompilation -> Either CompileError FcProgram
 mergeIncrementalCore compilation =
-  appendPrograms freshDependencies mainCore
+  case NonEmpty.nonEmpty (dependencyPrograms <> [mainCore]) of
+    Nothing -> Left (CompileFrontendError ["incremental compilation produced no System FC modules"])
+    Just programs ->
+      either
+        (Left . CompileFrontendError . pure . ("System FC merge error: " <>) . show)
+        Right
+        (Fc.mergePrograms (Fc.FcModuleId "exe" "Main") programs)
   where
     mainCore = incrementalUnitCore (incrementalMainUnit compilation)
-    freshDependencies = freshenPrograms (1 + Fc.maximumProgramUnique mainCore) (map incrementalUnitCore (incrementalDependencyUnits compilation))
+    dependencyPrograms = map incrementalUnitCore (incrementalDependencyUnits compilation)
 
-freshenPrograms :: Int -> [FcProgram] -> FcProgram
-freshenPrograms _ [] = FcProgram []
-freshenPrograms nextUnique (program : programs) =
-  appendPrograms shifted (freshenPrograms (1 + Fc.maximumProgramUnique shifted) programs)
-  where
-    shifted = shiftProgramVars nextUnique program
-
-reachableLinkedCore :: IncrementalCompilation -> FcProgram
+reachableLinkedCore :: IncrementalCompilation -> Either CompileError FcProgram
 reachableLinkedCore compilation =
-  eliminateDeadCode (incrementalEntryBindingName compilation) (mergeIncrementalCore compilation)
+  eliminateDeadCode (incrementalEntryBindingName compilation) <$> mergeIncrementalCore compilation
 
 -- | The optional whole-program phase consumes incremental Core; it does not
 -- rerun the frontend or bypass per-SCC GRIN lowering.
 compileWholeProgramArtifacts :: NativeTarget -> IncrementalCompilation -> Either CompileError CompileArtifacts
-compileWholeProgramArtifacts target = compileProgramArtifacts target . reachableLinkedCore
+compileWholeProgramArtifacts target compilation = do
+  core <- reachableLinkedCore compilation
+  compileProgramArtifactsWithEntry target (programBindingName (incrementalEntryBindingName compilation) core) core
 
 compileIncrementalArtifacts :: NativeTarget -> DependencyArtifact -> IncrementalCompilation -> Either CompileError CompileArtifacts
 compileIncrementalArtifacts target dependencies compilation = do
@@ -376,12 +380,15 @@ reachableRuntimePrimitiveNames entry reachability programs =
     )
 
 compileProgramArtifacts :: NativeTarget -> FcProgram -> Either CompileError CompileArtifacts
-compileProgramArtifacts target sourceCore = do
+compileProgramArtifacts target = compileProgramArtifactsWithEntry target "main"
+
+compileProgramArtifactsWithEntry :: NativeTarget -> Text -> FcProgram -> Either CompileError CompileArtifacts
+compileProgramArtifactsWithEntry target entryName sourceCore = do
   let core = Fc.optimizeProgram (Fc.lowerPseudoOps (Fc.lowerNewtypes sourceCore))
   let grin = Grin.lowerProgram core
   cpsGrin <- either (Left . CompileCpsGrinError) Right (Grin.toCpsGrin grin)
   let gcGrin = Grin.lowerGc cpsGrin
-  assembly <- either (Left . CompileBackendError) Right (compileBackendProgram target "main" gcGrin)
+  assembly <- either (Left . CompileBackendError) Right (compileBackendProgram target entryName gcGrin)
   pure
     CompileArtifacts
       { compiledCore = renderCore core,
@@ -391,6 +398,21 @@ compileProgramArtifacts target sourceCore = do
         compiledAssembly = assembly,
         compiledArchives = []
       }
+
+programBindingName :: Text -> FcProgram -> Text
+programBindingName sourceName program =
+  case [ Fc.varName var
+       | Fc.FcTopBind bind <- Fc.fcTopBinds program,
+         var <- binders bind,
+         maybe (Fc.varName var) Fc.fcOriginName (Fc.varResolvedName var) == sourceName
+       ] of
+    name : _ -> name
+    [] -> sourceName
+  where
+    binders bind =
+      case bind of
+        Fc.FcNonRec var _ -> [var]
+        Fc.FcRec bindings -> map fst bindings
 
 validateBackendPrimitiveNames :: NativeTarget -> [Text] -> Either BackendError ()
 validateBackendPrimitiveNames target names =
@@ -430,50 +452,6 @@ renderGcGrin = renderGrin . Grin.gcGrinProgram
 
 withFinalNewline :: String -> Text
 withFinalNewline rendered = T.pack rendered <> "\n"
-
-appendPrograms :: FcProgram -> FcProgram -> FcProgram
-appendPrograms (FcProgram left) (FcProgram right) = FcProgram (left <> right)
-
-shiftProgramVars :: Int -> FcProgram -> FcProgram
-shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBinds)
-  where
-    shiftVar var = case varUnique var of Unique unique -> var {varUnique = Unique (unique + offset)}
-
-    shiftTopBind topBind =
-      case topBind of
-        FcModule {} -> topBind
-        FcExternal {} -> topBind
-        FcData {} -> topBind
-        FcAxiom {} -> topBind
-        FcNewtype {} -> topBind
-        FcPrimitive var arity -> FcPrimitive (shiftVar var) arity
-        FcForeignImport {} -> topBind
-        FcTopBind bind -> FcTopBind (shiftBind bind)
-
-    shiftBind bind =
-      case bind of
-        FcNonRec var expression -> FcNonRec (shiftVar var) (shiftExpr expression)
-        FcRec bindings -> FcRec [(shiftVar var, shiftExpr expression) | (var, expression) <- bindings]
-
-    shiftExpr expression =
-      case expression of
-        FcVar var -> FcVar (shiftVar var)
-        FcLit {} -> expression
-        FcApp function argument -> FcApp (shiftExpr function) (shiftExpr argument)
-        FcTyApp inner ty -> FcTyApp (shiftExpr inner) ty
-        FcLam var body -> FcLam (shiftVar var) (shiftExpr body)
-        FcTyLam tyVar body -> FcTyLam tyVar (shiftExpr body)
-        FcLet bind body -> FcLet (shiftBind bind) (shiftExpr body)
-        FcCase scrutinee binder alternatives ->
-          FcCase (shiftExpr scrutinee) (shiftVar binder) (map shiftAlt alternatives)
-        FcCast inner coercion -> FcCast (shiftExpr inner) coercion
-        FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map shiftExpr arguments)
-
-    shiftAlt alternative =
-      alternative
-        { altBinders = map shiftVar (altBinders alternative),
-          altRhs = shiftExpr (altRhs alternative)
-        }
 
 parseCompileModule :: FilePath -> Text -> Either CompileError Module
 parseCompileModule sourceName source =

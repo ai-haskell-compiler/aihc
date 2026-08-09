@@ -23,7 +23,7 @@ import Data.Char (isAlphaNum, isSpace, ord)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, listToMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -44,16 +44,28 @@ type TyEnv = Map Text TyVarId
 
 parseProgram :: Text -> Either FcParseError FcProgram
 parseProgram input = do
-  headers <- traverse parseHeader blocks
+  moduleHeaders <- traverse parseModuleHeader blocks
+  moduleId <- validateModuleDeclaration input (catMaybes moduleHeaders)
+  let definitionBlocks = [block | (block, Nothing) <- zip blocks moduleHeaders]
+  headers <- traverse parseExternalHeader definitionBlocks
   validateExternalDeclarations input headers
-  let moduleOrigin = listToMaybe [(packageName, moduleName) | Just (FcModule packageName moduleName) <- headers]
-  signatures <- traverse (parseSignatures moduleOrigin) blocks
+  let moduleOrigin = Just (fcModulePackage moduleId, fcModuleName moduleId)
+  signatures <- traverse (parseSignatures moduleOrigin) definitionBlocks
   let globals = Map.unions (catMaybes signatures) <> externalEnv headers
-  FcProgram <$> traverse (parseBlock globals) blocks
+  FcProgram moduleId <$> traverse (parseBlock globals) definitionBlocks
   where
     blocks = filter (not . T.null) (map T.strip (T.splitOn "\n\n" input))
-    parseHeader = MP.parse (space *> MP.optional (MP.try moduleDeclaration <|> MP.try externalDeclaration) <* MP.takeRest) "<system-fc-header>"
+    parseModuleHeader = MP.parse (space *> MP.optional (MP.try moduleDeclaration) <* MP.takeRest) "<system-fc-header>"
+    parseExternalHeader = MP.parse (space *> MP.optional (MP.try externalDeclaration) <* MP.takeRest) "<system-fc-header>"
     parseBlock globals = MP.parse (space *> topBind globals <* MP.eof) "<system-fc>"
+
+validateModuleDeclaration :: Text -> [FcModuleId] -> Either FcParseError FcModuleId
+validateModuleDeclaration _ [moduleId] = Right moduleId
+validateModuleDeclaration input [] = parseProgramFailure input "missing System FC module declaration"
+validateModuleDeclaration input _ = parseProgramFailure input "multiple System FC module declarations"
+
+parseProgramFailure :: Text -> String -> Either FcParseError value
+parseProgramFailure input message = MP.parse (fail message) "<system-fc>" input
 
 validateExternalDeclarations :: Text -> [Maybe FcTopBind] -> Either FcParseError ()
 validateExternalDeclarations input headers =
@@ -87,8 +99,7 @@ renderParseError = MP.errorBundlePretty
 topBind :: TermEnv -> Parser FcTopBind
 topBind termEnv =
   MP.choice
-    [ MP.try moduleDeclaration,
-      MP.try externalDeclaration,
+    [ MP.try externalDeclaration,
       MP.try dataDeclaration,
       MP.try axiomDeclaration,
       MP.try newtypeDeclaration,
@@ -97,13 +108,13 @@ topBind termEnv =
       FcTopBind <$> bind termEnv mempty
     ]
 
-moduleDeclaration :: Parser FcTopBind
+moduleDeclaration :: Parser FcModuleId
 moduleDeclaration = do
   _ <- keyword "module"
   packageName <- MP.optional (MP.try text)
   moduleName <- qualifiedName
   _ <- keyword "where"
-  pure (FcModule (fromMaybe "" packageName) moduleName)
+  pure (FcModuleId (fromMaybe "" packageName) moduleName)
 
 externalDeclaration :: Parser FcTopBind
 externalDeclaration = do

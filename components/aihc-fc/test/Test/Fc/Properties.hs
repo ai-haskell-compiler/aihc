@@ -101,7 +101,7 @@ prop_externalSignatures = property $ do
       origin = FcTopLevelOrigin "pkg" "Module" "id"
       imported = (Var "id" (Unique 1) ty) {varResolvedName = Just origin}
       result = Var "result" (Unique 2) ty
-      program = FcProgram [FcExternal origin ty, FcTopBind (FcNonRec result (FcVar imported))]
+      program = FcProgram (FcModuleId "test" "Test") [FcExternal origin ty, FcTopBind (FcNonRec result (FcVar imported))]
       rendered = T.pack (renderProgram program)
   annotate (T.unpack rendered)
   T.count "Module.id :" rendered === 1
@@ -112,7 +112,7 @@ prop_externalSignatures = property $ do
 
 prop_undeclaredExternal :: Property
 prop_undeclaredExternal = property $ do
-  let source = "result : Int =\n  \"pkg\" Module.value"
+  let source = "module \"test\" Test where\n\nresult : Int =\n  \"pkg\" Module.value"
   annotate (T.unpack source)
   case parseProgram source of
     Left _ -> pure ()
@@ -126,8 +126,8 @@ prop_localSignatures = property $ do
       result = Var "result" (Unique 2) boolType
       program =
         FcProgram
-          [ FcModule "pkg" "Module",
-            FcData "Bool" [] [("True", [])],
+          (FcModuleId "pkg" "Module")
+          [ FcData "Bool" [] [("True", [])],
             FcTopBind (FcNonRec result (FcVar constructor))
           ]
       rendered = T.pack (renderProgram program)
@@ -138,7 +138,7 @@ prop_localSignatures = property $ do
 
 prop_duplicateExternal :: Property
 prop_duplicateExternal = property $ do
-  let source = "external \"pkg\" Module.value : Int\n\nexternal \"pkg\" Module.value : Int"
+  let source = "module \"test\" Test where\n\nexternal \"pkg\" Module.value : Int\n\nexternal \"pkg\" Module.value : Int"
   annotate (T.unpack source)
   case parseProgram source of
     Left _ -> pure ()
@@ -155,7 +155,7 @@ roundTrip pretty parse value = do
     Right actual -> pretty actual === pretty value
 
 genProgram :: Gen FcProgram
-genProgram = FcProgram <$> smallList genTopBind
+genProgram = FcProgram (FcModuleId "test" "Test") <$> smallList genTopBind
 
 genTopBind :: Gen FcTopBind
 genTopBind =

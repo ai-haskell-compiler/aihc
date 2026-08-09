@@ -27,7 +27,7 @@ instance Monoid AxiomInterface where
 -- | Collect explicit axioms and the implicit representational axioms carried
 -- by newtype declarations.
 extractAxiomInterface :: FcProgram -> AxiomInterface
-extractAxiomInterface (FcProgram topBinds) =
+extractAxiomInterface (FcProgram _ topBinds) =
   AxiomInterface
     ( Map.fromList
         [ (fcAxiomName declaration, declaration)

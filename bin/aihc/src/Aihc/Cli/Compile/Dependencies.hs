@@ -19,7 +19,7 @@ import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
 import Aihc.Cli.Runtime (readWasmClangProcessWithExitCode, wasmClangCommand)
 import Aihc.Cli.Store (installedLibrariesActivePath, installedLibrariesRoot)
-import Aihc.Fc (AxiomInterface, DesugarResult (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractAxiomInterface, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, lowerPseudoOps, optimizeProgram)
+import Aihc.Fc (AxiomInterface, DesugarResult (..), FcModuleId (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractAxiomInterface, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, lowerPseudoOps, mergePrograms, optimizeProgram)
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
 import Aihc.Native
@@ -74,6 +74,7 @@ import Data.ByteString qualified as BS
 import Data.Char (isHexDigit)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (intercalate, sort, sortOn)
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set qualified as Set
@@ -381,20 +382,22 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                       desugared = zipWith (desugarModuleWithBindings bindings) checkedModules moduleAsts
                    in if not (all dsSuccess desugared)
                         then Left ("library desugar error: " <> unlines (concatMap dsErrors desugared))
-                        else
+                        else do
                           let libraries = sort (Set.toList (Set.fromList (map loadedLibrary members)))
                               libraryIds = sort (Set.toList (Set.fromList (map loadedLibraryId members)))
                               modules = sort (map loadedModuleName members)
                               initializer = unitInitializerSymbol libraryIds modules
-                              linkNames =
-                                mconcat
-                                  [ Grin.linkNamesForProgram
-                                      (loadedLibraryId member)
-                                      (T.splitOn "." (loadedModuleName member))
-                                      (dsProgram desugaredModule)
-                                  | (member, desugaredModule) <- zip members desugared
-                                  ]
-                              sourceCore = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
+                          programs <- maybe (Left "library desugaring produced no System FC modules") Right (NonEmpty.nonEmpty (map dsProgram desugared))
+                          let mergedModuleId =
+                                case NonEmpty.toList programs of
+                                  [program] -> fcProgramModule program
+                                  _ -> FcModuleId (T.intercalate "+" (concat libraryIds)) (T.intercalate "+" modules)
+                          sourceCore <-
+                            either
+                              (Left . ("System FC merge error: " <>) . show)
+                              Right
+                              (mergePrograms mergedModuleId programs)
+                          let linkNames = Grin.linkNamesForProgram (concat libraryIds) modules sourceCore
                               core = optimizeProgram (lowerPseudoOps (lowerNewtypesWithInterface (compileStateNewtypes state) sourceCore))
                               axioms = extractAxiomInterface core
                               newtypes = extractNewtypeInterface core
@@ -402,35 +405,35 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                               reachabilityInterface = extractReachabilityInterface core
                               grin = Grin.lowerProgramWithInterfaceAndLinkNames linkNames (compileStateGrin state) core
                               linkInterface = extractLinkInterface grin
-                           in case Grin.toCpsGrin grin of
-                                Left err -> Left ("library CPS-GRIN error: " <> show err)
-                                Right cpsGrin ->
-                                  let unit =
-                                        DependencyUnit
-                                          { dependencyUnitLibraries = libraries,
-                                            dependencyUnitModules = modules,
-                                            dependencyUnitInitializer = initializer,
-                                            dependencyUnitProgram = core,
-                                            dependencyUnitGrin = grin,
-                                            dependencyUnitCpsGrin = cpsGrin,
-                                            dependencyUnitAxiomInterface = axioms,
-                                            dependencyUnitNewtypeInterface = newtypes,
-                                            dependencyUnitGrinInterface = grinInterface,
-                                            dependencyUnitReachabilityInterface = reachabilityInterface,
-                                            dependencyUnitLinkInterface = linkInterface
-                                          }
-                                   in Right
-                                        CompileState
-                                          { compileStateExports = compileStateExports state <> extractInterfaceWithDeps (compileStateExports state) resolved,
-                                            compileStateTcInterface = tcInterface,
-                                            compileStateBindings = bindings,
-                                            compileStateAxioms = compileStateAxioms state <> axioms,
-                                            compileStateNewtypes = compileStateNewtypes state <> newtypes,
-                                            compileStateGrin = compileStateGrin state <> grinInterface,
-                                            compileStateReachability = compileStateReachability state <> reachabilityInterface,
-                                            compileStateLinks = compileStateLinks state <> [linkInterface],
-                                            compileStateUnits = compileStateUnits state <> [unit]
-                                          }
+                          case Grin.toCpsGrin grin of
+                            Left err -> Left ("library CPS-GRIN error: " <> show err)
+                            Right cpsGrin ->
+                              let unit =
+                                    DependencyUnit
+                                      { dependencyUnitLibraries = libraries,
+                                        dependencyUnitModules = modules,
+                                        dependencyUnitInitializer = initializer,
+                                        dependencyUnitProgram = core,
+                                        dependencyUnitGrin = grin,
+                                        dependencyUnitCpsGrin = cpsGrin,
+                                        dependencyUnitAxiomInterface = axioms,
+                                        dependencyUnitNewtypeInterface = newtypes,
+                                        dependencyUnitGrinInterface = grinInterface,
+                                        dependencyUnitReachabilityInterface = reachabilityInterface,
+                                        dependencyUnitLinkInterface = linkInterface
+                                      }
+                               in Right
+                                    CompileState
+                                      { compileStateExports = compileStateExports state <> extractInterfaceWithDeps (compileStateExports state) resolved,
+                                        compileStateTcInterface = tcInterface,
+                                        compileStateBindings = bindings,
+                                        compileStateAxioms = compileStateAxioms state <> axioms,
+                                        compileStateNewtypes = compileStateNewtypes state <> newtypes,
+                                        compileStateGrin = compileStateGrin state <> grinInterface,
+                                        compileStateReachability = compileStateReachability state <> reachabilityInterface,
+                                        compileStateLinks = compileStateLinks state <> [linkInterface],
+                                        compileStateUnits = compileStateUnits state <> [unit]
+                                      }
 
     finish state =
       DependencyArtifact

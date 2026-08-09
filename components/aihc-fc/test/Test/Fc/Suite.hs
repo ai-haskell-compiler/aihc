@@ -8,6 +8,7 @@ module Test.Fc.Suite
     fcEvalFixtureTests,
     fcLoweringTests,
     fcMainTests,
+    fcMergeTests,
     fcOptimizationTests,
   )
 where
@@ -21,7 +22,9 @@ import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.List (find)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
+import Data.Text qualified as Text
 import FcGolden
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
@@ -105,6 +108,7 @@ fcEvalTests =
       testCase "evaluates top-level bindings" $
         let program =
               FcProgram
+                (FcModuleId "test" "Test")
                 [ FcTopBind
                     (FcNonRec (var "answer" stringTy) (FcLit (LitString "top")))
                 ]
@@ -116,6 +120,7 @@ fcEvalTests =
             result = Var "answer" (Unique 2) stringTy
             program =
               FcProgram
+                (FcModuleId "test" "Test")
                 [ FcTopBind
                     ( FcNonRec
                         result
@@ -141,10 +146,59 @@ fcEvalTests =
               FcApp
                 (FcApp (FcVar primitive) (FcLit (LitInt WordRep 0xffffffffffffffff)))
                 (FcLit (LitInt WordRep 2))
-            program = FcProgram [FcPrimitive primitive 2, FcTopBind (FcNonRec result expression)]
+            program = FcProgram (FcModuleId "test" "Test") [FcPrimitive primitive 2, FcTopBind (FcNonRec result expression)]
         actual <- evalProgramBinding "wideProduct" program >>= traverse renderRawValue
         assertEqual "high and low words" (Right (Right "(1,18446744073709551614)")) actual
     ]
+
+fcMergeTests :: TestTree
+fcMergeTests =
+  testGroup
+    "FC module merge"
+    [ testCase "keeps equal source names from different modules separate" $ do
+        let valueType = stringTy
+            secondOrigin = FcTopLevelOrigin "pkg-b" "Data.Sequence" "toList"
+            imported = (Var "toList" (Unique 30) valueType) {varResolvedName = Just secondOrigin}
+            first = FcProgram (FcModuleId "pkg-a" "Data.Foldable") [FcTopBind (FcNonRec (Var "toList" (Unique 1) valueType) (FcLit (LitString "first")))]
+            second = FcProgram (FcModuleId "pkg-b" "Data.Sequence") [FcTopBind (FcNonRec (Var "toList" (Unique 1) valueType) (FcLit (LitString "second")))]
+            consumer =
+              FcProgram
+                (FcModuleId "exe" "Consumer")
+                [ FcExternal secondOrigin valueType,
+                  FcTopBind (FcNonRec (Var "result" (Unique 1) valueType) (FcVar imported))
+                ]
+        case mergePrograms (FcModuleId "exe" "Main") (first :| [second, consumer]) of
+          Left errors -> assertFailure (show errors)
+          Right merged -> do
+            let binderNames = [varName binder | FcTopBind bind <- fcTopBinds merged, binder <- binders bind]
+            assertBool "first global name is present" (any ("pkg_2d_a$Data_2e_Foldable$toList" `Text.isInfixOf`) binderNames)
+            assertBool "second global name is present" (any ("pkg_2d_b$Data_2e_Sequence$toList" `Text.isInfixOf`) binderNames)
+            assertEqual "resolved imports" [] [origin | FcExternal origin _ <- fcTopBinds merged, origin == secondOrigin]
+            result <- evalProgramBinding "result" merged >>= renderEvalResult
+            assertEqual "selected definition" (Right "\"second\"") result,
+      testCase "keeps an import without a provider" $ do
+        let origin = FcTopLevelOrigin "missing" "Module" "value"
+            valueType = stringTy
+            imported = fcExternalVar origin valueType
+            consumer = FcProgram (FcModuleId "exe" "Consumer") [FcExternal origin valueType, FcTopBind (FcNonRec (Var "result" (Unique 1) valueType) (FcVar imported))]
+        case mergePrograms (FcModuleId "exe" "Main") (consumer :| []) of
+          Left errors -> assertFailure (show errors)
+          Right merged -> assertEqual "unresolved import" [origin] [externalOrigin | FcExternal externalOrigin _ <- fcTopBinds merged],
+      testCase "requires one module declaration during parsing" $ do
+        assertBool "missing module declaration" (isLeft (parseProgram "value : Int =\n  1"))
+        assertBool
+          "multiple module declarations"
+          (isLeft (parseProgram "module \"one\" One where\n\nmodule \"two\" Two where"))
+    ]
+  where
+    binders bind =
+      case bind of
+        FcNonRec binder _ -> [binder]
+        FcRec bindings -> map fst bindings
+    isLeft result =
+      case result of
+        Left _ -> True
+        Right _ -> False
 
 fcLoweringTests :: TestTree
 fcLoweringTests =
@@ -158,11 +212,12 @@ fcLoweringTests =
             result = Var "result" (Unique 4) boolTy
             source =
               FcProgram
+                (FcModuleId "test" "Test")
                 [ FcTopBind
                     (FcNonRec result (FcApp (FcApp (FcVar seqVar) (FcVar first)) (FcVar second)))
                 ]
             caseBinder = Var "$seq_whnf" (Unique 5) stringTy
-            expected = FcProgram [FcTopBind (FcNonRec result (Aihc.Fc.FcCase (FcVar first) caseBinder [FcAlt DefaultAlt [] (FcVar second)]))]
+            expected = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec result (Aihc.Fc.FcCase (FcVar first) caseBinder [FcAlt DefaultAlt [] (FcVar second)]))]
         assertEqual "lowered program" expected (lowerPseudoOps source),
       testCase "expands partially applied seq to an explicit lambda" $ do
         let boolTy = ty "Bool"
@@ -171,8 +226,8 @@ fcLoweringTests =
             result = Var "forceFirst" (Unique 3) (TcFunTy boolTy boolTy)
             second = Var "$seq_second" (Unique 4) boolTy
             caseBinder = Var "$seq_whnf" (Unique 5) stringTy
-            source = FcProgram [FcTopBind (FcNonRec result (FcApp (FcVar seqVar) (FcVar first)))]
-            expected = FcProgram [FcTopBind (FcNonRec result (FcLam second (Aihc.Fc.FcCase (FcVar first) caseBinder [FcAlt DefaultAlt [] (FcVar second)])))]
+            source = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec result (FcApp (FcVar seqVar) (FcVar first)))]
+            expected = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec result (FcLam second (Aihc.Fc.FcCase (FcVar first) caseBinder [FcAlt DefaultAlt [] (FcVar second)])))]
         assertEqual "lowered program" expected (lowerPseudoOps source),
       testCase "uses the evaluated case binder for later references to the first argument" $ do
         let boolTy = ty "Bool"
@@ -182,6 +237,7 @@ fcLoweringTests =
             result = Var "result" (Unique 4) boolTy
             source =
               FcProgram
+                (FcModuleId "test" "Test")
                 [ FcTopBind
                     ( FcNonRec
                         result
@@ -191,6 +247,7 @@ fcLoweringTests =
             caseBinder = Var "$seq_whnf" (Unique 5) stringTy
             expected =
               FcProgram
+                (FcModuleId "test" "Test")
                 [ FcTopBind
                     ( FcNonRec
                         result
@@ -212,6 +269,7 @@ fcOptimizationTests =
             result = Var "result" (Unique 4) boolTy
             source =
               FcProgram
+                (FcModuleId "test" "Test")
                 [ FcTopBind
                     (FcNonRec result (FcApp (FcApp (FcVar seqVar) (FcVar first)) (FcVar second)))
                 ]
@@ -221,8 +279,8 @@ fcOptimizationTests =
             alias = Var "alias" (Unique 2) stringTy
             consume = Var "consume" (Unique 3) (TcFunTy stringTy stringTy)
             result = Var "result" (Unique 4) stringTy
-            source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcNonRec alias (FcVar value)) (FcApp (FcVar consume) (FcVar alias))))]
-            expected = FcProgram [FcTopBind (FcNonRec result (FcApp (FcVar consume) (FcVar value)))]
+            source = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec result (FcLet (FcNonRec alias (FcVar value)) (FcApp (FcVar consume) (FcVar alias))))]
+            expected = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec result (FcApp (FcVar consume) (FcVar value)))]
         assertEqual "optimized program" expected (optimizeProgram source),
       testCase "runs the Core optimization set to a fixpoint" $ do
         let value = Var "value" (Unique 5) stringTy
@@ -231,6 +289,7 @@ fcOptimizationTests =
             result = Var "result" (Unique 8) stringTy
             source =
               FcProgram
+                (FcModuleId "test" "Test")
                 [ FcTopBind
                     ( FcNonRec
                         result
@@ -240,19 +299,19 @@ fcOptimizationTests =
                         )
                     )
                 ]
-            expected = FcProgram [FcTopBind (FcNonRec result (FcVar value))]
+            expected = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec result (FcVar value))]
         assertEqual "optimized program" expected (optimizeProgram source),
       testCase "copy propagates non-recursive singleton rec groups" $ do
         let value = Var "value" (Unique 13) stringTy
             alias = Var "alias" (Unique 14) stringTy
             result = Var "result" (Unique 15) stringTy
-            source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcRec [(alias, FcVar value)]) (FcVar alias)))]
-            expected = FcProgram [FcTopBind (FcNonRec result (FcVar value))]
+            source = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec result (FcLet (FcRec [(alias, FcVar value)]) (FcVar alias)))]
+            expected = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec result (FcVar value))]
         assertEqual "optimized program" expected (optimizeProgram source),
       testCase "retains genuinely recursive singleton aliases" $ do
         let alias = Var "alias" (Unique 16) stringTy
             result = Var "result" (Unique 17) stringTy
-            source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcRec [(alias, FcVar alias)]) (FcVar alias)))]
+            source = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec result (FcLet (FcRec [(alias, FcVar alias)]) (FcVar alias)))]
         assertEqual "optimized program" source (optimizeProgram source),
       testCase "retains non-trivial let right-hand sides" $ do
         let value = Var "value" (Unique 9) stringTy
@@ -260,15 +319,15 @@ fcOptimizationTests =
             identity = Var "identity" (Unique 11) (TcFunTy stringTy stringTy)
             result = Var "result" (Unique 12) stringTy
             computed = FcApp (FcVar identity) (FcVar value)
-            source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcNonRec binder computed) (FcVar binder)))]
+            source = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec result (FcLet (FcNonRec binder computed) (FcVar binder)))]
         assertEqual "optimized program" source (optimizeProgram source),
       testCase "eliminates unused lifted non-recursive lets" $ do
         let value = Var "value" (Unique 17) stringTy
             unused = Var "unused" (Unique 18) stringTy
             result = Var "result" (Unique 19) stringTy
             compute = Var "compute" (Unique 20) (TcFunTy stringTy stringTy)
-            source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcNonRec unused (FcApp (FcVar compute) (FcVar value))) (FcLit (LitString "result"))))]
-            expected = FcProgram [FcTopBind (FcNonRec result (FcLit (LitString "result")))]
+            source = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec result (FcLet (FcNonRec unused (FcApp (FcVar compute) (FcVar value))) (FcLit (LitString "result"))))]
+            expected = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec result (FcLit (LitString "result")))]
         assertEqual "optimized program" expected (optimizeProgram source),
       testCase "retains unused unlifted non-recursive lets" $ do
         let intHashTy = ty "Int#"
@@ -276,7 +335,7 @@ fcOptimizationTests =
             unused = Var "unused" (Unique 22) intHashTy
             result = Var "result" (Unique 23) stringTy
             compute = Var "compute" (Unique 24) (TcFunTy intHashTy intHashTy)
-            source = FcProgram [FcTopBind (FcNonRec result (FcLet (FcNonRec unused (FcApp (FcVar compute) (FcVar value))) (FcLit (LitString "result"))))]
+            source = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec result (FcLet (FcNonRec unused (FcApp (FcVar compute) (FcVar value))) (FcLit (LitString "result"))))]
         assertEqual "optimized program" source (optimizeProgram source),
       testCase "eliminates values and types unreachable from the entry point" $ do
         let liveTy = ty "Live"
@@ -291,10 +350,10 @@ fcOptimizationTests =
             helper = FcTopBind (FcNonRec helperVar (FcVar (Var "Live" (Unique 4) (TcFunTy leafTy liveTy))))
             mainBinding = FcTopBind (FcNonRec mainVar (FcVar helperVar))
             deadBinding = FcTopBind (FcNonRec deadVar (FcVar (Var "Dead" (Unique 5) deadTy)))
-            program = FcProgram [deadData, deadBinding, leafData, liveData, helper, mainBinding]
+            program = FcProgram (FcModuleId "test" "Test") [deadData, deadBinding, leafData, liveData, helper, mainBinding]
         assertEqual
           "reachable program"
-          (FcProgram [leafData, liveData, helper, mainBinding])
+          (FcProgram (FcModuleId "test" "Test") [leafData, liveData, helper, mainBinding])
           (eliminateDeadCode "main" program),
       testCase "does not confuse a local binder with a top-level definition" $ do
         let valueTy = ty "Value"
@@ -303,12 +362,13 @@ fcOptimizationTests =
             mainVar = Var "main" (Unique 12) (TcFunTy valueTy valueTy)
             program =
               FcProgram
+                (FcModuleId "test" "Test")
                 [ FcTopBind (FcNonRec global (FcVar global)),
                   FcTopBind (FcNonRec mainVar (FcLam local (FcVar local)))
                 ]
         assertEqual
           "reachable program"
-          (FcProgram [FcTopBind (FcNonRec mainVar (FcLam local (FcVar local)))])
+          (FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec mainVar (FcLam local (FcVar local)))])
           (eliminateDeadCode "main" program),
       testCase "retains ordinary dictionary constructor declarations" $ do
         let dictionaryTy = ty "Test"
@@ -326,7 +386,7 @@ fcOptimizationTests =
                         [FcAlt (DataAlt "$Dict$Test") [methodBinder] (FcVar methodBinder)]
                     )
                 )
-            program = FcProgram [dictionaryData, mainBinding]
+            program = FcProgram (FcModuleId "test" "Test") [dictionaryData, mainBinding]
         assertEqual
           "reachable dictionary declaration"
           program
@@ -347,6 +407,7 @@ fcOptimizationTests =
             value = Var "value" (Unique 21) metersTy
             source =
               FcProgram
+                (FcModuleId "test" "Test")
                 [ FcNewtype declaration,
                   FcTopBind (FcNonRec value (FcApp (FcVar constructor) (FcLit (LitInt IntRep 42))))
                 ]
@@ -369,9 +430,9 @@ fcOptimizationTests =
             constructor = Var "Wrap" (Unique 30) (TcFunTy intHashTy wrapperTy)
             value = Var "value" (Unique 31) wrapperTy
             literal = FcLit (LitInt IntRep 42)
-            provider = FcProgram [FcNewtype declaration]
-            consumer = FcProgram [FcTopBind (FcNonRec value (FcApp (FcVar constructor) literal))]
-            loweredConsumer = FcProgram [FcTopBind (FcNonRec value (FcCast literal (Sym (AxiomInstCo "Wrapper" []))))]
+            provider = FcProgram (FcModuleId "test" "Test") [FcNewtype declaration]
+            consumer = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec value (FcApp (FcVar constructor) literal))]
+            loweredConsumer = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec value (FcCast literal (Sym (AxiomInstCo "Wrapper" []))))]
         assertEqual
           "consumer body"
           loweredConsumer
@@ -393,7 +454,7 @@ fcOptimizationTests =
                 }
             value = Var "main" (Unique 40) familyTy
             binding = FcTopBind (FcNonRec value (FcCast (FcLit (LitInt IntRep 42)) (Sym (AxiomInstCo "axFamily" []))))
-            program = FcProgram [FcAxiom declaration, binding]
+            program = FcProgram (FcModuleId "test" "Test") [FcAxiom declaration, binding]
         assertEqual "Core lint" [] (lintProgram emptyLintEnv program)
         assertEqual "reachable axiom" program (eliminateDeadCode "main" program)
         assertEqual
@@ -413,9 +474,9 @@ fcOptimizationTests =
                   fcAxiomRight = TcTyVar parameter
                 }
             value = Var "main" (Unique 41) (familyTy representationTy)
-            provider = FcProgram [FcAxiom declaration]
-            consumer = FcProgram [FcTopBind (FcNonRec value (FcCast (FcLit (LitInt IntRep 42)) (Sym (AxiomInstCo "axFamily" [representationTy]))))]
-            wrongArity = FcProgram [FcTopBind (FcNonRec value (FcCast (FcLit (LitInt IntRep 42)) (Sym (AxiomInstCo "axFamily" []))))]
+            provider = FcProgram (FcModuleId "test" "Test") [FcAxiom declaration]
+            consumer = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec value (FcCast (FcLit (LitInt IntRep 42)) (Sym (AxiomInstCo "axFamily" [representationTy]))))]
+            wrongArity = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec value (FcCast (FcLit (LitInt IntRep 42)) (Sym (AxiomInstCo "axFamily" []))))]
             interface = extractAxiomInterface provider
         assertBool "consumer needs imported axiom" (not (null (lintProgram emptyLintEnv consumer)))
         assertBool "axiom arity is checked" (not (null (lintProgramWithAxiomInterface interface emptyLintEnv wrongArity)))
@@ -436,13 +497,13 @@ fcMainTests =
             runMainOrigin = FcTopLevelOrigin "test-base" "GHC.TopHandler" "runMainIO"
             source =
               FcProgram
-                [ FcModule "" "Main",
-                  FcExternal actionOrigin mainType,
+                (FcModuleId "" "Main")
+                [ FcExternal actionOrigin mainType,
                   FcTopBind (FcNonRec mainVar (FcVar actionVar))
                 ]
         case addMainEntrypoint runMainOrigin source of
           Left err -> assertFailure (show err)
-          Right program@(FcProgram topBinds) -> do
+          Right program@(FcProgram _ topBinds) -> do
             assertEqual "Core lint" [] (lintProgram emptyLintEnv program)
             case reverse topBinds of
               FcTopBind (FcNonRec entryVar (FcApp (FcTyApp (FcVar runMainVar) typeArgument) (FcVar calledMain))) : FcExternal externalOrigin externalType : _ -> do
@@ -456,11 +517,11 @@ fcMainTests =
               _ -> assertFailure ("unexpected entry point: " <> show topBinds),
       testCase "requires the Main module" $ do
         let mainType = TcTyCon (TyCon "IO" 1) [ty "Unit"]
-            program = FcProgram [FcModule "" "Other", FcTopBind (FcNonRec (Var "main" (Unique 1) mainType) (FcLit (LitString "unused")))]
+            program = FcProgram (FcModuleId "" "Other") [FcTopBind (FcNonRec (Var "main" (Unique 1) mainType) (FcLit (LitString "unused")))]
         assertEqual "entry point error" (Left MainModuleMissing) (addMainEntrypoint testRunMainOrigin program),
       testCase "requires an IO main binding" $ do
         let valueType = ty "Value"
-            program = FcProgram [FcModule "" "Main", FcTopBind (FcNonRec (Var "main" (Unique 1) valueType) (FcLit (LitString "unused")))]
+            program = FcProgram (FcModuleId "" "Main") [FcTopBind (FcNonRec (Var "main" (Unique 1) valueType) (FcLit (LitString "unused")))]
         assertEqual "entry point error" (Left (MainBindingNotIO valueType)) (addMainEntrypoint testRunMainOrigin program)
     ]
   where
