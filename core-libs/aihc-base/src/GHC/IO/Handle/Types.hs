@@ -5,11 +5,12 @@ module GHC.IO.Handle.Types
   )
 where
 
+import GHC.Base (Monad (..), String)
+import GHC.IO (IO)
 import GHC.IO.FD (IOHandle)
 import GHC.IO.IOMode (IOMode)
 import GHC.MVar (MVar, newMVar)
 import GHC.Ptr (Ptr)
-import Prelude
 
 -- | A named, serialized reference to mutable IO resource state.
 data Handle = FileHandle String (MVar HandleState)

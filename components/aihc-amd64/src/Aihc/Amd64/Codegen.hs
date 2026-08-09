@@ -499,6 +499,7 @@ exprNodes expression =
     GrinContinue {} -> []
     GrinCpsRaise {} -> []
     GrinHalt {} -> []
+    GrinExit {} -> []
     GrinThrow {} -> []
     GrinCatch {} -> []
     GrinForeignCallExpr {} -> []
@@ -541,6 +542,7 @@ exprRuntimeReps expression =
     GrinCpsRaise exception continuation ->
       valueRuntimeReps exception <> valueRuntimeReps continuation
     GrinHalt values -> concatMap valueRuntimeReps values
+    GrinExit status -> valueRuntimeReps status
     GrinCase scrutinee binder alternatives ->
       valueRuntimeReps scrutinee
         <> (grinVarRuntimeRep binder : concatMap altRuntimeReps alternatives)

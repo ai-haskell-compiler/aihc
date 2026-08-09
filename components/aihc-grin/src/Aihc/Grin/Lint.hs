@@ -219,6 +219,9 @@ lintExpr env bound expr =
     GrinCpsRaise exception continuation ->
       lintValue env bound exception <> lintValue env bound continuation
     GrinHalt values -> concatMap (lintValue env bound) values
+    GrinExit status ->
+      [GrinLintRepresentationMismatch "exit status" (grinValueRuntimeRep status) IntRep | grinValueRuntimeRep status /= IntRep]
+        <> lintValue env bound status
     GrinCase scrutinee binder alternatives ->
       lintValue env bound scrutinee
         <> concatMap (lintAlt env (Set.insert binder bound)) alternatives
@@ -354,6 +357,7 @@ exprRuntimeReps expr =
     GrinContinue {} -> Nothing
     GrinCpsRaise {} -> Nothing
     GrinHalt {} -> Nothing
+    GrinExit {} -> Nothing
     GrinCase _ _ alternatives ->
       case alternatives of
         first : _ -> exprRuntimeReps (grinAltRhs first)

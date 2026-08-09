@@ -11,7 +11,10 @@ module Data.Either
   )
 where
 
-import Prelude (Bool (..), Either (..))
+import Data.Bool (Bool (..))
+import GHC.Base (List (..))
+
+data Either a b = Left a | Right b
 
 either :: (a -> c) -> (b -> c) -> Either a b -> c
 either f g value =

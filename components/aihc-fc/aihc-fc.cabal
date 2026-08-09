@@ -20,6 +20,7 @@ library
     Aihc.Fc.Eval
     Aihc.Fc.Lint
     Aihc.Fc.Lower
+    Aihc.Fc.Main
     Aihc.Fc.Newtype
     Aihc.Fc.Optimize
     Aihc.Fc.Parser

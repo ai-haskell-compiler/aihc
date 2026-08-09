@@ -36,6 +36,7 @@ freeExprVars expression =
     GrinContinue continuation values -> freeValueVars continuation <> foldMap freeValueVars values
     GrinCpsRaise exception continuation -> freeValueVars exception <> freeValueVars continuation
     GrinHalt values -> foldMap freeValueVars values
+    GrinExit status -> freeValueVars status
     GrinCase scrutinee binder alternatives ->
       freeValueVars scrutinee <> foldMap (freeAlternativeVars binder) alternatives
     GrinThrow exception -> freeValueVars exception

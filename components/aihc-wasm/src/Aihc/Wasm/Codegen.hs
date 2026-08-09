@@ -376,6 +376,7 @@ runtimeFunctionTypes =
     ("aihc_wasm_transfer_put_mvar", ([I32, I64, I64, I64], [])),
     ("aihc_wasm_transfer_thread_done", ([I32], [])),
     ("aihc_wasm_transfer_halt", ([I32], [])),
+    ("aihc_set_exit_status", ([I32, I64], [])),
     ("aihc_wasm_transfer_start", ([I32, I64, I64, I64, I64, I32], [])),
     ("aihc_set_thread_done_continuation", ([I32, I32], [])),
     ("aihc_no_match", ([], [])),
@@ -454,6 +455,13 @@ compileExpr env expression =
             )
         )
     GrinHalt _ -> pure (terminal (machine <> call "aihc_wasm_transfer_halt"))
+    GrinExit status ->
+      pure . terminal $
+        machine
+          <> materializeValue env status
+          <> call "aihc_set_exit_status"
+          <> machine
+          <> call "aihc_wasm_transfer_halt"
     GrinCase scrutinee binder alternatives -> compileCase env scrutinee binder alternatives
     GrinConstant {} -> unsupported "direct-style constant return after CPS"
     GrinStore {} -> unsupported "direct-style store return after CPS"

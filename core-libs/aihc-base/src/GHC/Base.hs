@@ -3,7 +3,10 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Base
-  ( Applicative (..),
+  ( List (..),
+    String,
+    Maybe (..),
+    Applicative (..),
     Functor (..),
     Monad (..),
     bindIO,
@@ -14,7 +17,16 @@ where
 
 import Data.Kind (Type)
 import GHC.IO (IO (..))
+import GHC.Internal.Char (Char)
 import GHC.Prim (RealWorld, State#)
+
+data List a = [] | a : [a]
+
+infixr 5 :
+
+type String = [Char]
+
+data Maybe a = Nothing | Just a
 
 class Functor (f :: Type -> Type) where
   fmap :: (a -> b) -> f a -> f b

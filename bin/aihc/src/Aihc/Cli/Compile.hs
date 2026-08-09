@@ -61,13 +61,21 @@ import Aihc.Native
     hostNativeTarget,
   )
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
-import Aihc.Parser.Syntax (Extension (ImplicitPrelude), LanguageEdition (Haskell98Edition), Module, effectiveExtensions, headerExtensionSettings, headerLanguageEdition, moduleName)
+import Aihc.Parser.Syntax
+  ( Extension (ImplicitPrelude),
+    LanguageEdition (Haskell98Edition),
+    Module (..),
+    effectiveExtensions,
+    headerExtensionSettings,
+    headerLanguageEdition,
+  )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Resolve (ResolveResult (..), resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), ResolveResult (..), Scope (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (Unique (..), tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
 import Control.Monad (forM_, when)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -120,6 +128,7 @@ data IncrementalUnit = IncrementalUnit
 data IncrementalCompilation = IncrementalCompilation
   { incrementalDependencyUnits :: ![IncrementalUnit],
     incrementalMainUnit :: !IncrementalUnit,
+    incrementalEntryBindingName :: !Text,
     incrementalEntryName :: !Text
   }
 
@@ -249,17 +258,34 @@ compileWithDependencies target wholeProgram dependencies parsed =
                in if not (all dsSuccess desugared)
                     then Left (CompileFrontendError (concatMap dsErrors desugared))
                     else
-                      let mainProgram = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
+                      let sourceMainProgram = FcProgram (concatMap (fcTopBinds . dsProgram) desugared)
                        in do
-                            incremental <- compileIncrementally (fromMaybe "Main" (moduleName parsed)) dependencies mainProgram
+                            runMainOrigin <- topHandlerRunMainOrigin dependencies
+                            mainProgram <-
+                              either
+                                (Left . CompileFrontendError . pure . ("entry point error: " <>) . show)
+                                Right
+                                (Fc.addMainEntrypoint runMainOrigin sourceMainProgram)
+                            incremental <- compileIncrementally Fc.mainEntryBindingName "Main" dependencies mainProgram
                             if wholeProgram
                               then compileWholeProgramArtifacts target incremental
                               else compileIncrementalArtifacts target dependencies incremental
 
+topHandlerRunMainOrigin :: DependencyArtifact -> Either CompileError Fc.FcSymbolOrigin
+topHandlerRunMainOrigin dependencies =
+  case [ Fc.FcTopLevelOrigin (packageIdText (packageId (moduleKeyPackage key))) "GHC.TopHandler" "runMainIO"
+       | (key, scope) <- Map.toList (dependencyExports dependencies),
+         moduleKeyName key == "GHC.TopHandler",
+         Map.member "runMainIO" (scopeTerms scope)
+       ] of
+    [origin] -> Right origin
+    [] -> Left (CompileDependencyError "GHC.TopHandler.runMainIO is not installed")
+    _ -> Left (CompileDependencyError "GHC.TopHandler.runMainIO is provided by more than one package")
+
 -- | Compile every module SCC to its own normalized Core and GRIN unit before any
 -- optional whole-program transformation is considered.
-compileIncrementally :: Text -> DependencyArtifact -> FcProgram -> Either CompileError IncrementalCompilation
-compileIncrementally mainModuleName dependencies unoptimizedMain =
+compileIncrementally :: Text -> Text -> DependencyArtifact -> FcProgram -> Either CompileError IncrementalCompilation
+compileIncrementally entryBindingName mainModuleName dependencies unoptimizedMain =
   do
     mainCpsGrin <- either (Left . CompileCpsGrinError) Right (Grin.toCpsGrin mainGrin)
     pure
@@ -269,12 +295,13 @@ compileIncrementally mainModuleName dependencies unoptimizedMain =
             | unit <- dependencyUnits dependencies
             ],
           incrementalMainUnit = IncrementalUnit mainCore mainGrin mainCpsGrin,
-          incrementalEntryName = T.intercalate "\0" (["exe"] <> T.splitOn "." mainModuleName <> ["main"])
+          incrementalEntryBindingName = entryBindingName,
+          incrementalEntryName = T.intercalate "\0" (["exe"] <> T.splitOn "." mainModuleName <> [entryBindingName])
         }
   where
     mainCore =
       Fc.optimizeProgram
-        (Fc.lowerPseudoOps (Fc.lowerNewtypesWithInterface (dependencyNewtypeInterface dependencies) (eliminateDeadCode "main" unoptimizedMain)))
+        (Fc.lowerPseudoOps (Fc.lowerNewtypesWithInterface (dependencyNewtypeInterface dependencies) (eliminateDeadCode entryBindingName unoptimizedMain)))
     mainLinkNames = Grin.linkNamesForProgram ["exe"] (T.splitOn "." mainModuleName) mainCore
     mainGrin = Grin.lowerProgramWithInterfaceAndLinkNames mainLinkNames (dependencyGrinInterface dependencies) mainCore
 
@@ -285,17 +312,18 @@ mergeIncrementalCore compilation =
   appendPrograms freshDependencies mainCore
   where
     mainCore = incrementalUnitCore (incrementalMainUnit compilation)
-    freshDependencies = freshenPrograms (1 + maximumProgramUnique mainCore) (map incrementalUnitCore (incrementalDependencyUnits compilation))
+    freshDependencies = freshenPrograms (1 + Fc.maximumProgramUnique mainCore) (map incrementalUnitCore (incrementalDependencyUnits compilation))
 
 freshenPrograms :: Int -> [FcProgram] -> FcProgram
 freshenPrograms _ [] = FcProgram []
 freshenPrograms nextUnique (program : programs) =
-  appendPrograms shifted (freshenPrograms (1 + maximumProgramUnique shifted) programs)
+  appendPrograms shifted (freshenPrograms (1 + Fc.maximumProgramUnique shifted) programs)
   where
     shifted = shiftProgramVars nextUnique program
 
 reachableLinkedCore :: IncrementalCompilation -> FcProgram
-reachableLinkedCore = eliminateDeadCode "main" . mergeIncrementalCore
+reachableLinkedCore compilation =
+  eliminateDeadCode (incrementalEntryBindingName compilation) (mergeIncrementalCore compilation)
 
 -- | The optional whole-program phase consumes incremental Core; it does not
 -- rerun the frontend or bypass per-SCC GRIN lowering.
@@ -315,7 +343,7 @@ compileIncrementalArtifacts target dependencies compilation = do
       declaredPrimitives =
         dependencyRuntimePrimitiveNames dependencies
           <> Set.fromList [Grin.grinVarName primitive | (primitive, _) <- Grin.grinPrimitives mainGrin]
-      primitives = Set.toAscList (Set.intersection (reachablePrimitiveNames "main" reachability) declaredPrimitives)
+      primitives = Set.toAscList (Set.intersection (reachablePrimitiveNames (incrementalEntryBindingName compilation) reachability) declaredPrimitives)
   either (Left . CompileBackendError) Right (validateBackendPrimitiveNames target primitives)
   assembly <-
     either
@@ -406,12 +434,6 @@ withFinalNewline rendered = T.pack rendered <> "\n"
 appendPrograms :: FcProgram -> FcProgram -> FcProgram
 appendPrograms (FcProgram left) (FcProgram right) = FcProgram (left <> right)
 
-maximumProgramUnique :: FcProgram -> Int
-maximumProgramUnique = maximum . (0 :) . map varUniqueInt . programVars
-
-varUniqueInt :: Var -> Int
-varUniqueInt var = case varUnique var of Unique unique -> unique
-
 shiftProgramVars :: Int -> FcProgram -> FcProgram
 shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBinds)
   where
@@ -452,43 +474,6 @@ shiftProgramVars offset (FcProgram topBinds) = FcProgram (map shiftTopBind topBi
         { altBinders = map shiftVar (altBinders alternative),
           altRhs = shiftExpr (altRhs alternative)
         }
-
-programVars :: FcProgram -> [Var]
-programVars (FcProgram topBinds) = concatMap topBindVarsDeep topBinds
-
-topBindVarsDeep :: FcTopBind -> [Var]
-topBindVarsDeep topBind =
-  case topBind of
-    FcModule {} -> []
-    FcExternal {} -> []
-    FcData {} -> []
-    FcAxiom {} -> []
-    FcNewtype {} -> []
-    FcPrimitive var _ -> [var]
-    FcForeignImport {} -> []
-    FcTopBind bind -> bindVarsDeep bind
-
-bindVarsDeep :: FcBind -> [Var]
-bindVarsDeep bind =
-  case bind of
-    FcNonRec var expression -> var : exprVars expression
-    FcRec bindings -> concat [var : exprVars expression | (var, expression) <- bindings]
-
-exprVars :: FcExpr -> [Var]
-exprVars expression =
-  case expression of
-    FcVar var -> [var]
-    FcLit {} -> []
-    FcApp function argument -> exprVars function <> exprVars argument
-    FcTyApp inner _ -> exprVars inner
-    FcLam var body -> var : exprVars body
-    FcTyLam _ body -> exprVars body
-    FcLet bind body -> bindVarsDeep bind <> exprVars body
-    FcCase scrutinee binder alternatives -> exprVars scrutinee <> (binder : concatMap altVars alternatives)
-    FcCast inner _ -> exprVars inner
-    FcCallForeign _ arguments -> concatMap exprVars arguments
-  where
-    altVars alternative = altBinders alternative <> exprVars (altRhs alternative)
 
 parseCompileModule :: FilePath -> Text -> Either CompileError Module
 parseCompileModule sourceName source =

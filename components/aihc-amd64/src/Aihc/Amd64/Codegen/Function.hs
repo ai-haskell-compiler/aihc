@@ -226,6 +226,17 @@ compileExpr env prefix label expression =
         label
         (prefix <> ["  mov rdi, r15", "  call aihc_halt", "  jmp rax"])
         BlockLayout.Exit
+    GrinExit status -> do
+      statusLines <- liftEither (materializeValueTo env "rdi" status)
+      addBlock
+        label
+        ( prefix
+            <> statusLines
+            <> [ "  call aihc_exit_process",
+                 "  ud2"
+               ]
+        )
+        BlockLayout.Exit
     GrinCase scrutinee binder alternatives ->
       compileCase env prefix label scrutinee binder alternatives
     GrinThrow {} -> unsupportedExpression "direct-style throw after CPS"

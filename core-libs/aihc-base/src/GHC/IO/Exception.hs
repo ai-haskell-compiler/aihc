@@ -10,10 +10,10 @@ module GHC.IO.Exception
   )
 where
 
+import GHC.Base (Maybe, Monad (..), String)
 import GHC.IO (IO)
 import GHC.IO.Runtime (raiseIOErrorRaw)
 import GHC.Int (Int)
-import Prelude hiding (Int)
 
 data IOErrorType
   = AlreadyExists

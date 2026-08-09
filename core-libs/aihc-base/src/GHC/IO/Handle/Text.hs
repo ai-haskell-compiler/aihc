@@ -1,16 +1,29 @@
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+
 module GHC.IO.Handle.Text
   ( hGetBuf,
     hPutBuf,
+    hPutStr,
   )
 where
 
+import Data.Bool (Bool (..))
+import Data.Either (Either (..))
+import GHC.Base (List (..), Maybe (..), Monad (..), String)
+import GHC.IO (IO (..))
+import GHC.IO.Console (writeOutputByte)
 import GHC.IO.Exception (illegalOperationError, ioError, ioErrorFromErrno)
 import GHC.IO.FD (IOHandle, readIntoPtr, writeFromPtr)
 import GHC.IO.Handle.Types (Handle (..), HandleState (..))
 import GHC.IO.IOMode (isReadableMode, isWritableMode)
+import GHC.Int (Int (..))
+import GHC.Internal.Char (Char (C#))
+import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.MVar (putMVar, takeMVar)
-import GHC.Ptr (Ptr)
-import Prelude
+import GHC.Num (Num (..))
+import GHC.Prim (MutableByteArray#, RealWorld, and#, int2Word#, mutableByteArrayContents#, newPinnedByteArray#, ord#, word2Int#, (+#), (==#))
+import GHC.Ptr (Ptr (..))
 
 hGetBuf :: Handle -> Ptr a -> Int -> IO Int
 hGetBuf (FileHandle name stateVariable) buffer count =
@@ -61,6 +74,46 @@ hPutBuf (FileHandle name stateVariable) buffer count =
                   case result of
                     Left encodedError -> ioError (ioErrorFromErrno "hPutBuf" (Just name) (decodeBufferError encodedError))
                     Right () -> return ()
+
+hPutStr :: Handle -> String -> IO ()
+hPutStr handle characters = do
+  buffer <- newTextBuffer 4096#
+  case buffer of
+    TextBuffer rawBuffer -> writeTextChunks handle rawBuffer 0# characters
+
+data TextBuffer = TextBuffer (MutableByteArray# RealWorld)
+
+newTextBuffer :: Int# -> IO TextBuffer
+newTextBuffer size =
+  IO
+    ( \state ->
+        case newPinnedByteArray# size state of
+          (# allocatedState, buffer #) ->
+            (# allocatedState, TextBuffer buffer #)
+    )
+
+writeTextChunks :: Handle -> MutableByteArray# RealWorld -> Int# -> String -> IO ()
+writeTextChunks handle buffer count characters =
+  case characters of
+    [] -> writeTextBuffer handle buffer count
+    character : remaining ->
+      case (==#) count 4096# of
+        1# -> do
+          writeTextBuffer handle buffer count
+          writeTextChunks handle buffer 0# characters
+        _ -> do
+          writeTextByte buffer count character
+          writeTextChunks handle buffer ((+#) count 1#) remaining
+
+writeTextBuffer :: Handle -> MutableByteArray# RealWorld -> Int# -> IO ()
+writeTextBuffer handle buffer count =
+  case (==#) count 0# of
+    1# -> return ()
+    _ -> hPutBuf handle (Ptr (mutableByteArrayContents# buffer) :: Ptr ()) (I# count)
+
+writeTextByte :: MutableByteArray# RealWorld -> Int# -> Char -> IO ()
+writeTextByte buffer offset (C# character) =
+  writeOutputByte buffer offset (word2Int# (and# (int2Word# (ord# character)) (int2Word# 255#)))
 
 readLoop :: Ptr IOHandle -> Ptr a -> Int -> Int -> IO (Either Int Int)
 readLoop rawHandle buffer offset remaining = do

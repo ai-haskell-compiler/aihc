@@ -7,6 +7,7 @@ module Test.Fc.Suite
     fcEvalTests,
     fcEvalFixtureTests,
     fcLoweringTests,
+    fcMainTests,
     fcOptimizationTests,
   )
 where
@@ -421,6 +422,49 @@ fcOptimizationTests =
         assertEqual "consumer lint" [] (lintProgramWithAxiomInterface interface emptyLintEnv consumer)
         assertEqual "serialized interface" interface (read (show interface))
     ]
+
+fcMainTests :: TestTree
+fcMainTests =
+  testGroup
+    "FC executable entry point"
+    [ testCase "calls GHC.TopHandler.runMainIO with Main.main" $ do
+        let unitType = ty "Unit"
+            mainType = TcTyCon (TyCon "IO" 1) [unitType]
+            actionOrigin = FcTopLevelOrigin "test-base" "Test.Runtime" "action"
+            actionVar = fcExternalVar actionOrigin mainType
+            mainVar = Var "main" (Unique 1) mainType
+            runMainOrigin = FcTopLevelOrigin "test-base" "GHC.TopHandler" "runMainIO"
+            source =
+              FcProgram
+                [ FcModule "" "Main",
+                  FcExternal actionOrigin mainType,
+                  FcTopBind (FcNonRec mainVar (FcVar actionVar))
+                ]
+        case addMainEntrypoint runMainOrigin source of
+          Left err -> assertFailure (show err)
+          Right program@(FcProgram topBinds) -> do
+            assertEqual "Core lint" [] (lintProgram emptyLintEnv program)
+            case reverse topBinds of
+              FcTopBind (FcNonRec entryVar (FcApp (FcTyApp (FcVar runMainVar) typeArgument) (FcVar calledMain))) : FcExternal externalOrigin externalType : _ -> do
+                assertEqual "entry name" mainEntryBindingName (varName entryVar)
+                assertEqual "entry type" mainType (varType entryVar)
+                assertEqual "type argument" unitType typeArgument
+                assertEqual "called main" mainVar calledMain
+                assertEqual "runMainIO origin" runMainOrigin externalOrigin
+                assertEqual "runMainIO occurrence origin" (Just runMainOrigin) (varResolvedName runMainVar)
+                assertEqual "runMainIO type" externalType (varType runMainVar)
+              _ -> assertFailure ("unexpected entry point: " <> show topBinds),
+      testCase "requires the Main module" $ do
+        let mainType = TcTyCon (TyCon "IO" 1) [ty "Unit"]
+            program = FcProgram [FcModule "" "Other", FcTopBind (FcNonRec (Var "main" (Unique 1) mainType) (FcLit (LitString "unused")))]
+        assertEqual "entry point error" (Left MainModuleMissing) (addMainEntrypoint testRunMainOrigin program),
+      testCase "requires an IO main binding" $ do
+        let valueType = ty "Value"
+            program = FcProgram [FcModule "" "Main", FcTopBind (FcNonRec (Var "main" (Unique 1) valueType) (FcLit (LitString "unused")))]
+        assertEqual "entry point error" (Left (MainBindingNotIO valueType)) (addMainEntrypoint testRunMainOrigin program)
+    ]
+  where
+    testRunMainOrigin = FcTopLevelOrigin "test-base" "GHC.TopHandler" "runMainIO"
 
 fcEvalFixtureTests :: IO TestTree
 fcEvalFixtureTests = do

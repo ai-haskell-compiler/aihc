@@ -93,6 +93,7 @@ genExprSized size =
         GrinCpsRaise <$> genValue <*> genValue,
         GrinUpdateBlackhole <$> genValue <*> genValue,
         GrinHalt <$> smallList genValue,
+        GrinExit <$> genValue,
         GrinThrow <$> genValue,
         GrinCatch <$> genRuntimeRep <*> genValue <*> genValue <*> smallList genValue,
         GrinForeignCallExpr <$> genForeignCall <*> smallList genValue

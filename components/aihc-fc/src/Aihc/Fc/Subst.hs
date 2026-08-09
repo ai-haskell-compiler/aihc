@@ -8,16 +8,54 @@ module Aihc.Fc.Subst
     countExprVar,
     substExpr,
     substExprVar,
+    maximumProgramUnique,
+    programVars,
     freeRigidTyVars,
     freeRigidTyVarsOf,
   )
 where
 
 import Aihc.Fc.Syntax
-import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId (..))
+import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId (..), Unique (..))
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+
+-- | The greatest term-variable unique used anywhere in a program.
+maximumProgramUnique :: FcProgram -> Int
+maximumProgramUnique = maximum . (0 :) . map uniqueInt . programVars
+  where
+    uniqueInt var = case varUnique var of Unique value -> value
+
+-- | All term variables in a program, including nested binders and occurrences.
+programVars :: FcProgram -> [Var]
+programVars (FcProgram topBinds) = concatMap topBindVars topBinds
+  where
+    topBindVars topBind =
+      case topBind of
+        FcPrimitive var _ -> [var]
+        FcTopBind bind -> bindVars bind
+        _ -> []
+
+    bindVars bind =
+      case bind of
+        FcNonRec var expression -> var : exprVars expression
+        FcRec bindings -> concat [var : exprVars expression | (var, expression) <- bindings]
+
+    exprVars expression =
+      case expression of
+        FcVar var -> [var]
+        FcLit {} -> []
+        FcApp function argument -> exprVars function <> exprVars argument
+        FcTyApp inner _ -> exprVars inner
+        FcLam var body -> var : exprVars body
+        FcTyLam _ body -> exprVars body
+        FcLet bind body -> bindVars bind <> exprVars body
+        FcCase scrutinee binder alternatives -> exprVars scrutinee <> (binder : concatMap alternativeVars alternatives)
+        FcCast inner _ -> exprVars inner
+        FcCallForeign _ arguments -> concatMap exprVars arguments
+
+    alternativeVars alternative = altBinders alternative <> exprVars (altRhs alternative)
 
 -- | A deliberately capped occurrence count. Simplifications only need to
 -- distinguish dead variables, single uses, and uses that may benefit from

@@ -84,18 +84,20 @@ module Prelude
 where
 
 import Data.Bool (Bool (..), not, otherwise, (&&), (||))
-import GHC.Base (Applicative (..), Functor (..), Monad (..))
+import Data.Either (Either (..))
+import GHC.Base (Applicative (..), Functor (..), List (..), Maybe (..), Monad (..), String)
 import GHC.Enum (Bounded (..), Enum (..))
 import GHC.Float (Floating (..), RealFloat (..))
 import GHC.IO (IO (..))
-import GHC.IO.Console (writeOutputByte, writeStdout)
+import GHC.IO.Handle.Text (hPutStr)
+import GHC.IO.StdHandles (stdout)
 import GHC.Int (Int (..))
 import GHC.Integer (Integer)
 import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
-import GHC.Prim (MutableByteArray#, RealWorld, and#, chr#, int2Word#, newPinnedByteArray#, ord#, seq, word2Int#, (+#), (<#), (==#))
+import GHC.Prim (chr#, int2Word#, ord#, seq, word2Int#, (+#), (<#), (==#))
 import GHC.Real
   ( Fractional (..),
     Integral (..),
@@ -116,12 +118,6 @@ import GHC.Real
     (^^),
   )
 import GHC.Tuple ()
-
-data List a = [] | a : [a]
-
-infixr 5 :
-
-type String = [Char]
 
 type ReadS a = String -> [(a, String)]
 
@@ -340,10 +336,6 @@ f . g = compose
     compose value = f (g value)
 
 infixr 9 .
-
-data Maybe a = Nothing | Just a
-
-data Either a b = Left a | Right b
 
 instance Eq Char where
   C# x == C# y =
@@ -664,22 +656,7 @@ putChar :: Char -> IO ()
 putChar character = putStr [character]
 
 putStr :: String -> IO ()
-putStr [] = return ()
-putStr characters = do
-  buffer <- newOutputBuffer 4096#
-  case buffer of
-    OutputBuffer rawBuffer -> writeStringChunks rawBuffer 0# characters
-
-data OutputBuffer = OutputBuffer (MutableByteArray# RealWorld)
-
-newOutputBuffer :: Int# -> IO OutputBuffer
-newOutputBuffer size =
-  IO
-    ( \state ->
-        case newPinnedByteArray# size state of
-          (# allocatedState, buffer #) ->
-            (# allocatedState, OutputBuffer buffer #)
-    )
+putStr = hPutStr stdout
 
 putStrLn :: String -> IO ()
 putStrLn characters = do
@@ -688,25 +665,6 @@ putStrLn characters = do
 
 print :: (Show a) => a -> IO ()
 print value = putStrLn (show value)
-
-writeStringChunks :: MutableByteArray# RealWorld -> Int# -> String -> IO ()
-writeStringChunks buffer count characters =
-  case characters of
-    [] -> writeStdout buffer count
-    character : remaining ->
-      case (==#) count 4096# of
-        1# -> do
-          writeStdout buffer count
-          writeStringChunks buffer 0# characters
-        _ -> do
-          writeCharacterByte buffer count character
-          writeStringChunks buffer ((+#) count 1#) remaining
-
-writeCharacterByte :: MutableByteArray# RealWorld -> Int# -> Char -> IO ()
-writeCharacterByte buffer offset (C# character) =
-  -- This initial text layer is intentionally byte-oriented. Handle encoding
-  -- will replace the low-byte mapping when the encoding API is implemented.
-  writeOutputByte buffer offset (word2Int# (and# (int2Word# (ord# character)) (int2Word# 255#)))
 
 (++) :: [a] -> [a] -> [a]
 (++) [] ys = ys

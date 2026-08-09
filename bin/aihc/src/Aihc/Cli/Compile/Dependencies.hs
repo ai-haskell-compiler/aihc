@@ -205,20 +205,17 @@ cacheSchemaVersion = 34
 buildDependencies :: NativeTarget -> CompileEnvironment -> Bool -> Bool -> Module -> IO (Either String DependencyArtifact)
 buildDependencies target environment usesImplicitPrelude buildBackend mainModule = do
   let importedRoots = map importDeclModule (moduleImports mainModule)
-      defaultRoots = if usesImplicitPrelude then ["GHC.Prim", "Prelude"] else []
+      defaultRoots = ["GHC.Prim", "GHC.TopHandler"] <> ["Prelude" | usesImplicitPrelude]
       requiredModules = sort (Set.toList (Set.fromList (defaultRoots <> importedRoots)))
-  if null requiredModules
-    then pure (Right emptyDependencyArtifact)
-    else do
-      installed <- readInstalledLibraries environment buildBackend
-      case installed of
-        Left err -> pure (Left err)
-        Right (artifactRoot, artifact) ->
-          case filter (\name -> not (any ((== name) . moduleKeyName) (Map.keys (dependencyExports artifact)))) requiredModules of
-            missing@(_ : _) -> pure (Left ("library modules are not installed: " <> T.unpack (T.intercalate ", " missing)))
-            []
-              | buildBackend -> attachInstalledBackend target artifactRoot artifact
-              | otherwise -> pure (Right artifact)
+  installed <- readInstalledLibraries environment buildBackend
+  case installed of
+    Left err -> pure (Left err)
+    Right (artifactRoot, artifact) ->
+      case filter (\name -> not (any ((== name) . moduleKeyName) (Map.keys (dependencyExports artifact)))) requiredModules of
+        missing@(_ : _) -> pure (Left ("library modules are not installed: " <> T.unpack (T.intercalate ", " missing)))
+        []
+          | buildBackend -> attachInstalledBackend target artifactRoot artifact
+          | otherwise -> pure (Right artifact)
 
 -- | Compile a package closure once, then install its frontend interfaces,
 -- whole-program bodies, and one archive set per requested target.
@@ -317,24 +314,6 @@ metadataInitializerSymbol = dependencyMetadataInitializer
 
 metadataPrimaryLibrary :: DependencyUnitMetadata -> Text
 metadataPrimaryLibrary = fromMaybe "dependencies" . listToMaybe . dependencyMetadataLibraries
-
-emptyDependencyArtifact :: DependencyArtifact
-emptyDependencyArtifact =
-  DependencyArtifact
-    { dependencyExports = Map.empty,
-      dependencyTcInterface = mempty,
-      dependencyBindings = [],
-      dependencyAxiomInterface = mempty,
-      dependencyNewtypeInterface = mempty,
-      dependencyGrinInterface = mempty,
-      dependencyReachabilityInterface = mempty,
-      dependencyLinkInterfaces = [],
-      dependencyRuntimePrimitiveNames = Set.empty,
-      dependencyUnits = [],
-      dependencyUnitMetadata = [],
-      dependencyInitializerSymbols = [],
-      dependencyArchivePaths = []
-    }
 
 loadLibraryPackages :: [LibraryPackage] -> IO (Either String [LoadedModule])
 loadLibraryPackages packages = do
