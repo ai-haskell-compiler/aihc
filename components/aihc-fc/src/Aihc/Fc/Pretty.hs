@@ -86,6 +86,7 @@ renderTopBindWith symbols topBind =
       "data "
         <> renderDeclarationName symbols (fcDataOrigin declaration) (fcDataName declaration)
         <> concatMap (" " <>) (renderTyVarBinders [] (fcDataTyVars declaration))
+        <> renderDataResultKind declaration
         <> renderConstructors symbols (fcDataTyVars declaration) (fcDataConstructors declaration)
     FcAxiom declaration ->
       "axiom "
@@ -109,6 +110,12 @@ renderTopBindWith symbols topBind =
       "foreign prim " <> renderBinder var <> "/" <> show arity <> " : " <> renderType (varType var)
     FcForeignImport foreignCall -> renderForeignImport foreignCall
     FcTopBind bind -> renderBind symbols 0 [] [] bind
+
+renderDataResultKind :: FcDataDecl -> String
+renderDataResultKind declaration =
+  case fcDataResultKind declaration of
+    KType -> ""
+    resultKind -> " : " <> renderKindWith (fcDataTyVars declaration) resultKind
 
 data RenderSymbols = RenderSymbols
   { renderExternalOrigins :: !(Set FcSymbolOrigin),
@@ -466,6 +473,9 @@ renderTypeWith scope ty =
   case ty of
     TcTyVar tyVar -> renderTyVarOccurrence scope tyVar
     TcMetaTv (Unique unique) -> "?" <> show unique
+    TcTyCon tyCon arguments
+      | unboxedTupleTyConArity (tyConName tyCon) == Just (length arguments) ->
+          unwords (unboxedTupleConstructorName (length arguments) : map (renderTypeAtomWith scope) arguments)
     TcTyCon tyCon [] -> T.unpack (tyConName tyCon)
     TcTyCon (TyCon "[]" _) [argument] -> "[" <> renderTypeWith scope argument <> "]"
     TcTyCon tyCon arguments ->
@@ -479,6 +489,10 @@ renderTypeWith scope ty =
       "(" <> intercalate ", " (map (renderPred scope) predicates) <> ") ⇒ " <> renderTypeWith scope body
     TcAppTy function argument ->
       renderTypeAtomWith scope function <> " · " <> renderTypeAtomWith scope argument
+
+unboxedTupleConstructorName :: Int -> String
+unboxedTupleConstructorName arity =
+  "(#" <> replicate (max 0 (arity - 1)) ',' <> "#)"
 
 renderTypeAtomWith :: [TyVarId] -> TcType -> String
 renderTypeAtomWith scope ty =

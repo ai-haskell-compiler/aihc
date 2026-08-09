@@ -11,7 +11,7 @@ import Aihc.Fc.Pretty (declareExternalSymbols)
 import Aihc.Fc.Subst (freeRigidTyVarsOf, maximumProgramUnique, programVars)
 import Aihc.Fc.Syntax
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, typeSchemeFromType)
-import Aihc.Tc.Types (TcType (..), TyCon (..), Unique (..))
+import Aihc.Tc.Types (TcType (..), Unique (..))
 import Data.Char (isAlphaNum, ord)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
@@ -179,10 +179,10 @@ dataConstructorType :: FcDataDecl -> FcDataConDecl -> TcType
 dataConstructorType declaration constructor =
   foldr TcForAllTy body (universalTyVars <> existentialTyVars)
   where
-    universalTyVars = fcDataTyVars declaration
+    universalTyVars = fcDataKindTyVars declaration <> fcDataTyVars declaration
     fields = fcDataConFields constructor
     existentialTyVars = filter (`notElem` universalTyVars) (freeRigidTyVarsOf fields)
-    result = TcTyCon (TyCon (fcDataName declaration) (length universalTyVars)) (map TcTyVar universalTyVars)
+    result = fcDataResultType declaration
     body = foldr TcFunTy result fields
 
 newtypeConstructorType :: FcNewtypeDecl -> TcType
@@ -249,9 +249,9 @@ resolveExpr providers sourceProviders bound expression =
     FcVar var ->
       FcVar
         ( case varResolvedName var of
-            Just origin -> Map.findWithDefault var origin providers
+            Just origin -> resolveOccurrence var (Map.lookup origin providers)
             Nothing
-              | varUnique var `Set.notMember` bound -> Map.findWithDefault var (varName var) sourceProviders
+              | varUnique var `Set.notMember` bound -> resolveOccurrence var (Map.lookup (varName var) sourceProviders)
               | otherwise -> var
         )
     FcLit {} -> expression
@@ -280,6 +280,12 @@ resolveExpr providers sourceProviders bound expression =
     FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map recur arguments)
   where
     recur = resolveExpr providers sourceProviders bound
+
+resolveOccurrence :: Var -> Maybe Var -> Var
+resolveOccurrence occurrence provider =
+  case provider of
+    Just resolved -> resolved {varType = varType occurrence}
+    Nothing -> occurrence
 
 shiftProgramVars :: Int -> FcProgram -> FcProgram
 shiftProgramVars offset program = program {fcTopBinds = map shiftTopBind (fcTopBinds program)}

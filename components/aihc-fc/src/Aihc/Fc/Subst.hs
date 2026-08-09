@@ -16,10 +16,12 @@ module Aihc.Fc.Subst
 where
 
 import Aihc.Fc.Syntax
-import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId (..), Unique (..))
+import Aihc.Tc.Types (Kind (..), Levity (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (tyConName), TyVarId (..), Unique (..), setTyConKind, setTyVarKind, tvKind, tyConKind)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
+import Data.Text qualified as T
 
 -- | The greatest term-variable unique used anywhere in a program.
 maximumProgramUnique :: FcProgram -> Int
@@ -111,19 +113,61 @@ substType subst ty
   where
     go s (TcTyVar tv) = case Map.lookup tv s of
       Just t -> t
-      Nothing -> TcTyVar tv
+      Nothing -> TcTyVar (setTyVarKind (goKind s (tvKind tv)) tv)
     go _ t@(TcMetaTv _) = t
-    go s (TcTyCon tc args) = TcTyCon tc (map (go s) args)
+    go s (TcTyCon tc args) = TcTyCon (setTyConKind (goKind s (tyConKind tc)) tc) (map (go s) args)
     go s (TcFunTy a b) = TcFunTy (go s a) (go s b)
     go s (TcForAllTy tv body) =
       -- Remove the bound variable from substitution to avoid capture.
       let s' = Map.delete tv s
-       in TcForAllTy tv (go s' body)
+       in TcForAllTy (setTyVarKind (goKind s (tvKind tv)) tv) (go s' body)
     go s (TcQualTy preds body) = TcQualTy (map (goPred s) preds) (go s body)
     go s (TcAppTy f a) = TcAppTy (go s f) (go s a)
 
     goPred s (ClassPred cls args) = ClassPred cls (map (go s) args)
     goPred s (EqPred t1 t2) = EqPred (go s t1) (go s t2)
+
+    goKind s kind =
+      case kind of
+        KTYPE runtimeRep -> KTYPE (goRuntimeRep s runtimeRep)
+        KFun argument result -> KFun (goKind s argument) (goKind s result)
+        _ -> kind
+
+    goRuntimeRep s runtimeRep =
+      case runtimeRep of
+        RuntimeRepVar unique ->
+          case [replacement | (variable, replacement) <- Map.toList s, tvUnique variable == unique] of
+            replacement : _ -> fromMaybe runtimeRep (runtimeRepType replacement)
+            [] -> runtimeRep
+        TupleRep fields -> TupleRep (map (goRuntimeRep s) fields)
+        SumRep fields -> SumRep (map (goRuntimeRep s) fields)
+        _ -> runtimeRep
+
+    runtimeRepType replacement =
+      case replacement of
+        TcTyVar variable
+          | tvKind variable == KRuntimeRep -> Just (RuntimeRepVar (tvUnique variable))
+        TcMetaTv unique -> Just (RuntimeRepMeta unique)
+        TcTyCon tyCon [] ->
+          lookup
+            (T.unpack (tyConName tyCon))
+            [ ("'LiftedRep", BoxedRep Lifted),
+              ("'UnliftedRep", BoxedRep Unlifted),
+              ("'IntRep", IntRep),
+              ("'Int8Rep", Int8Rep),
+              ("'Int16Rep", Int16Rep),
+              ("'Int32Rep", Int32Rep),
+              ("'Int64Rep", Int64Rep),
+              ("'WordRep", WordRep),
+              ("'Word8Rep", Word8Rep),
+              ("'Word16Rep", Word16Rep),
+              ("'Word32Rep", Word32Rep),
+              ("'Word64Rep", Word64Rep),
+              ("'AddrRep", AddrRep),
+              ("'FloatRep", FloatRep),
+              ("'DoubleRep", DoubleRep)
+            ]
+        _ -> Nothing
 
 -- | Count the free occurrences of a System FC term variable, stopping once
 -- more than one occurrence has been found.

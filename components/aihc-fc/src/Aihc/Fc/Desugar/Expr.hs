@@ -59,13 +59,15 @@ import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamesp
 import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Env (DataConFieldInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Types (Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType)
+import Aihc.Tc.Kind (runtimeRepToTcType)
+import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType, liftedRuntimeRep, mkTyCon, runtimeRepOfType, setTyVarKind, tvKind, unboxedTupleTyConName)
 import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify')
 import Data.ByteString qualified as BS
 import Data.Char (ord)
+import Data.Either (fromRight)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -88,7 +90,8 @@ data DsState = DsState
     -- | Local dictionaries, keyed by class predicate.
     dsLocalDicts :: !(Map Text Var),
     -- | Checked constructor fields, including source strictness.
-    dsConstructorFields :: !(Map Text [DataConFieldInfo])
+    dsConstructorFields :: !(Map Text [DataConFieldInfo]),
+    dsTupleConstructorOrigin :: !(Maybe FcSymbolOrigin)
   }
 
 data ClassDict = ClassDict
@@ -546,6 +549,10 @@ dsRhs GuardedRhss {} =
   desugarBug "unsupported guarded RHS after type checking"
 
 dsExpr :: Expr -> DsM FcExpr
+dsExpr (EAnn ann inner)
+  | Just resolution <- fromAnnotation ann,
+    isTupleResolution resolution =
+      withTupleConstructorOrigin (resolvedNameOrigin (resolutionTarget resolution)) (dsExpr inner)
 dsExpr (EAnn ann inner)
   | Just tcAnn <- fromAnnotation ann =
       dsAnnotatedExpr tcAnn inner
@@ -1449,19 +1456,52 @@ tupleConExpr :: TupleFlavor -> [TcType] -> DsM FcExpr
 tupleConExpr flavor elemTys = do
   let arity = length elemTys
       name = tupleConName flavor arity
-  constructorTy <-
-    case flavor of
-      Boxed -> lookupType name
-      Unboxed -> pure (unboxedTupleConType elemTys)
-  pure (List.foldl' FcTyApp (FcVar (builtinVar name (Unique (-20 - arity)) constructorTy)) elemTys)
+  constructorOrigin <- gets dsTupleConstructorOrigin
+  (constructorTy, resolvedOrigin) <-
+    case (flavor, constructorOrigin) of
+      (Unboxed, Just origin@FcTopLevelOrigin {}) -> (,Just origin) <$> lookupType name
+      (Unboxed, _) -> pure (unboxedTupleConType arity, Just (FcBuiltinOrigin name))
+      (Boxed, _) -> (,Just (FcBuiltinOrigin name)) <$> lookupType name
+  constructor <-
+    case resolvedOrigin of
+      Just FcBuiltinOrigin {} -> pure (builtinVar name (Unique (-20 - arity)) constructorTy)
+      _ -> freshVar name constructorTy
+  let representationTypes =
+        case flavor of
+          Boxed -> []
+          Unboxed -> map (runtimeRepToTcType . fromRight liftedRuntimeRep . runtimeRepOfType) elemTys
+      typeArguments = representationTypes <> elemTys
+  pure (List.foldl' FcTyApp (FcVar constructor {varResolvedName = resolvedOrigin}) typeArguments)
 
-unboxedTupleConType :: [TcType] -> TcType
-unboxedTupleConType elemTys =
-  foldr TcForAllTy (foldr (TcFunTy . TcTyVar) resultTy tyVars) tyVars
+unboxedTupleConType :: Int -> TcType
+unboxedTupleConType arity =
+  foldr TcForAllTy (foldr (TcFunTy . TcTyVar) resultType valueVariables) (representationVariables <> valueVariables)
   where
-    arity = length elemTys
-    tyVars = [TyVarId ("t" <> T.pack (show i)) (Unique (-2100 - i)) | i <- [0 .. arity - 1]]
-    resultTy = TcTyCon (TyCon (tupleConName Unboxed arity) arity) (map TcTyVar tyVars)
+    representationVariables =
+      [ setTyVarKind KRuntimeRep (TyVarId ("r" <> T.pack (show index)) (Unique (-2000000 - arity * 200 - index)))
+      | index <- [1 .. arity]
+      ]
+    valueVariables =
+      [ setTyVarKind (KTYPE (RuntimeRepVar (tvUnique representation))) (TyVarId ("a" <> T.pack (show index)) (Unique (-2000000 - arity * 200 - 100 - index)))
+      | (index, representation) <- zip [1 ..] representationVariables
+      ]
+    resultKind = KTYPE (TupleRep [runtimeRep | variable <- valueVariables, KTYPE runtimeRep <- [tvKind variable]])
+    tyConKind = foldr (KFun . tvKind) resultKind valueVariables
+    resultType = TcTyCon (mkTyCon (unboxedTupleTyConName arity) arity tyConKind) (map TcTyVar valueVariables)
+
+isTupleResolution :: ResolutionAnnotation -> Bool
+isTupleResolution resolution =
+  let name = resolutionName resolution
+   in (T.isPrefixOf "(" name && T.isSuffixOf ")" name)
+        || (T.isPrefixOf "(#" name && T.isSuffixOf "#)" name)
+
+withTupleConstructorOrigin :: Maybe FcSymbolOrigin -> DsM a -> DsM a
+withTupleConstructorOrigin origin action = do
+  previous <- gets dsTupleConstructorOrigin
+  modify' (\state -> state {dsTupleConstructorOrigin = origin})
+  result <- action
+  modify' (\state -> state {dsTupleConstructorOrigin = previous})
+  pure result
 
 tupleConName :: TupleFlavor -> Int -> Text
 tupleConName flavor arity =

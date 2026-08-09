@@ -580,6 +580,8 @@ builtinTypeNames =
     "ThreadId#",
     "TYPE",
     "RuntimeRep",
+    "TupleRep",
+    "[]",
     "LiftedRep",
     "UnliftedRep"
   ]

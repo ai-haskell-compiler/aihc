@@ -30,11 +30,13 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations (PendingTcAnnotation, pendingAnnotation)
 import Aihc.Tc.Constraint
+import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Instantiate (Instantiation (..), applySubst, instantiateWithArgs)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
+import Data.Either (fromRight)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Set qualified as Set
@@ -126,7 +128,14 @@ checkPatternCore gadtHandling sp pat scrutTy =
       pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [PList (pcPatterns itemChecks)]}
     PTuple flavor items -> do
       elemTys <- mapM (const freshMetaTv) items
-      let tupleTy = TcTyCon (TyCon (tupleConText flavor (length items)) (length items)) elemTys
+      let arity = length items
+          typeName = tupleTyConText flavor arity
+      maybeTyCon <- lookupTyCon typeName
+      let fallbackKind =
+            case flavor of
+              Boxed -> foldr (KFun . typeKind) KType elemTys
+              Unboxed -> foldr (KFun . typeKind) (KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) elemTys))) elemTys
+          tupleTy = TcTyCon (maybe (mkTyCon typeName arity fallbackKind) tciTyCon maybeTyCon) elemTys
       eqCt <- wantedEq sp scrutTy tupleTy
       itemChecks <- checkPatternsWith gadtHandling sp (zip items elemTys)
       pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [PTuple flavor (pcPatterns itemChecks)]}
@@ -466,16 +475,11 @@ withPatternBindings ((name, ty) : rest) action =
 listType :: TcType -> TcType
 listType elemTy = TcTyCon (TyCon "[]" 1) [elemTy]
 
-tupleConText :: TupleFlavor -> Int -> Text
-tupleConText flavor arity =
+tupleTyConText :: TupleFlavor -> Int -> Text
+tupleTyConText flavor arity =
   case flavor of
     Boxed -> boxedTupleTyConName arity
-    Unboxed -> "(#" <> commas arity <> "#)"
-
-commas :: Int -> Text
-commas n
-  | n <= 1 = ""
-  | otherwise = T.replicate (n - 1) ","
+    Unboxed -> unboxedTupleTyConName arity
 
 patternNameText :: Name -> Text
 patternNameText name =

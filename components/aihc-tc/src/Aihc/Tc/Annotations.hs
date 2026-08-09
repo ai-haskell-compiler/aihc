@@ -55,7 +55,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Env (DataTypeInfo)
 import Aihc.Tc.Evidence (EvTerm, EvVar)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, unboxedTupleTyConArity)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -332,11 +332,7 @@ renderTcType = go 0
       arity /= 1 && name == boxedTupleTyConName arity
 
     isUnboxedTupleCon name arity =
-      name == T.pack "(#" <> commas arity <> T.pack "#)"
-
-    commas arity
-      | arity <= 1 = T.empty
-      | otherwise = T.replicate (arity - 1) (T.pack ",")
+      unboxedTupleTyConArity name == Just arity
 
 -- | Collect nested forall binders into a list.
 collectForAlls :: TcType -> ([TyVarId], TcType)

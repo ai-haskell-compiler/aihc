@@ -34,6 +34,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
+import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
@@ -45,10 +46,10 @@ import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (when)
+import Data.Either (fromRight)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
-import Data.Text qualified as T
 
 -- | Infer the type of an expression.
 --
@@ -560,7 +561,13 @@ inferTuple sp flavor elems = do
       tys = map (\(_, ty, _) -> ty) results
       cts = concatMap (\(_, _, elemCts) -> elemCts) results
       n = length tys
-      tc = TyCon {tyConName = tupleConText flavor n, tyConArity = n}
+      typeName = tupleTyConText flavor n
+  maybeTyCon <- lookupTyCon typeName
+  let fallbackKind =
+        case flavor of
+          Boxed -> foldr (KFun . typeKind) KType tys
+          Unboxed -> foldr (KFun . typeKind) (KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) tys))) tys
+      tc = maybe (mkTyCon typeName n fallbackKind) tciTyCon maybeTyCon
       tupleTy = TcTyCon tc tys
       pending = pendingAnnotation tupleTy tys [] []
   pure (annotatePendingExprAt sp pending (ETuple flavor elems'), tupleTy, cts)
@@ -572,11 +579,11 @@ inferTuple sp flavor elems = do
       (e', ty, cts) <- inferExpr e
       pure (Just e', ty, cts)
 
-tupleConText :: TupleFlavor -> Int -> Text
-tupleConText flavor arity =
+tupleTyConText :: TupleFlavor -> Int -> Text
+tupleTyConText flavor arity =
   case flavor of
     Boxed -> boxedTupleTyConName arity
-    Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
+    Unboxed -> unboxedTupleTyConName arity
 
 inferList :: SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
 inferList sp elems = case elems of

@@ -127,7 +127,7 @@ prop_localSignatures = property $ do
       program =
         FcProgram
           (FcModuleId "pkg" "Module")
-          [ FcData (FcDataDecl (FcTopLevelOrigin "pkg" "Module" "Bool") "Bool" [] [FcDataConDecl origin "True" []]),
+          [ FcData (FcDataDecl (FcTopLevelOrigin "pkg" "Module" "Bool") "Bool" [] KType [FcDataConDecl origin "True" []]),
             FcTopBind (FcNonRec result (FcVar constructor))
           ]
       rendered = T.pack (renderProgram program)
@@ -171,7 +171,7 @@ genTopBind =
 genDataDecl :: Gen FcDataDecl
 genDataDecl = do
   dataName <- genTypeName
-  FcDataDecl (testOrigin dataName) dataName <$> smallList genTyVar <*> smallList genDataConstructor
+  FcDataDecl (testOrigin dataName) dataName <$> smallList genTyVar <*> pure KType <*> smallList genDataConstructor
 
 genDataConstructor :: Gen FcDataConDecl
 genDataConstructor = do

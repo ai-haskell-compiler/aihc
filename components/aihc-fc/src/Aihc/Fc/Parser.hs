@@ -20,6 +20,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (guard, void)
 import Data.ByteString qualified as BS
 import Data.Char (isAlphaNum, isSpace, ord)
+import Data.Either (fromRight)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -154,7 +155,7 @@ signaturesOf top =
       Map.fromList
         [ entry
         | constructorDeclaration <- fcDataConstructors declaration,
-          entry <- originSignatureEntries (fcDataConOrigin constructorDeclaration) (constructorType (fcDataName declaration) (fcDataTyVars declaration) (fcDataConFields constructorDeclaration))
+          entry <- originSignatureEntries (fcDataConOrigin constructorDeclaration) (constructorType declaration constructorDeclaration)
         ]
     FcNewtype declaration ->
       Map.fromList
@@ -165,12 +166,14 @@ signaturesOf top =
     FcPrimitive var _ -> Map.singleton (varName var) var
     _ -> Map.empty
 
-constructorType :: Text -> [TyVarId] -> [TcType] -> TcType
-constructorType dataName universalTyVars fields =
+constructorType :: FcDataDecl -> FcDataConDecl -> TcType
+constructorType declaration constructorDeclaration =
   foldr TcForAllTy body (universalTyVars <> existentialTyVars)
   where
+    universalTyVars = fcDataKindTyVars declaration <> fcDataTyVars declaration
+    fields = fcDataConFields constructorDeclaration
     existentialTyVars = filter (`notElem` universalTyVars) (freeRigidTyVarsOf fields)
-    result = TcTyCon (TyCon dataName (length universalTyVars)) (map TcTyVar universalTyVars)
+    result = fcDataResultType declaration
     body = foldr TcFunTy result fields
 
 newtypeConstructorType :: FcNewtypeDecl -> TcType
@@ -220,8 +223,9 @@ dataDeclaration moduleOrigin = do
   (dataName, dataOrigin) <- declarationName moduleOrigin
   tyVars <- tyVarBinders mempty
   let tyEnv = tyVarEnv tyVars
+  resultKind <- MP.option KType (symbol ":" *> kindType tyEnv)
   constructors <- MP.many (MP.try ((symbol "=" <|> symbol "|") *> constructor moduleOrigin tyEnv))
-  pure (FcData (FcDataDecl dataOrigin dataName tyVars constructors))
+  pure (FcData (FcDataDecl dataOrigin dataName tyVars resultKind constructors))
 
 constructor :: Maybe (Text, Text) -> TyEnv -> Parser FcDataConDecl
 constructor moduleOrigin tyEnv = do
@@ -592,8 +596,20 @@ typeApplication tyEnv = do
 applyTyCon :: TcType -> [TcType] -> TcType
 applyTyCon (TcTyCon tyCon existing) arguments =
   let allArguments = existing <> arguments
-   in TcTyCon (TyCon (tyConName tyCon) (length allArguments)) allArguments
+      arity = length allArguments
+      typeName = tyConName tyCon
+      resultKind = KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) allArguments))
+      tupleKind = foldr (KFun . typeKind) resultKind allArguments
+      appliedTyCon =
+        if isLegacyUnboxedTupleName typeName arity
+          then mkTyCon typeName arity tupleKind
+          else TyCon typeName arity
+   in TcTyCon appliedTyCon allArguments
 applyTyCon function arguments = List.foldl' TcAppTy function arguments
+
+isLegacyUnboxedTupleName :: Text -> Int -> Bool
+isLegacyUnboxedTupleName typeName arity =
+  arity /= 1 && typeName == "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
 
 typeAtom :: TyEnv -> Parser TcType
 typeAtom tyEnv =

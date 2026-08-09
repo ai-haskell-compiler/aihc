@@ -61,16 +61,26 @@ import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMe
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
 import Aihc.Tc.Types
-  ( Pred (..),
+  ( Kind (KFun, KTYPE, KType),
+    Pred (..),
+    RuntimeRep (..),
     TcType (..),
     TyCon (..),
     TyVarId (..),
     TypeScheme,
     Unique (..),
+    liftedRuntimeRep,
+    mkTyCon,
+    runtimeRepOfType,
+    tvKind,
+    tyConKind,
+    typeKind,
+    unboxedTupleTyConName,
   )
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
 import Control.Monad.Trans.State.Strict (gets, runStateT)
+import Data.Either (fromRight)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
@@ -135,7 +145,7 @@ desugarModuleWithDataTypes bindings dataTypes tcResult resolvedModule =
                 dtiFlavor dataType == DataTyCon,
                 constructor <- dtiConstructors dataType
               ]
-       in case runStateT (dsModule tcResult) (DsState 1000 packageName (Just currentModuleName) typeEnv Map.empty Map.empty constructorFields) of
+       in case runStateT (dsModule tcResult) (DsState 1000 packageName (Just currentModuleName) typeEnv Map.empty Map.empty constructorFields Nothing) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram (sourceModuleId resolvedModule) [],
@@ -333,13 +343,13 @@ dsDataDeclM dd = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
   tyOrigin <- localDeclarationOrigin tyName
   constructorInfos <- mapM dsDataConM (dataDeclConstructors dd)
-  let typeVariables =
+  let (typeVariables, resultKind) =
         case constructorInfos of
-          (_, universals, _) : _ -> universals
-          [] -> []
-  constructors <- mapM (\(name, _, fields) -> FcDataConDecl <$> localDeclarationOrigin name <*> pure name <*> pure fields) constructorInfos
-  selectors <- dsRecordSelectors constructorInfos (dataDeclConstructors dd)
-  pure (FcData (FcDataDecl tyOrigin tyName typeVariables constructors) : selectors)
+          (_, _, _, resultType) : _ -> (dataResultVariables resultType, typeKind resultType)
+          [] -> ([], KType)
+  constructors <- mapM (\(name, _, fields, _) -> FcDataConDecl <$> localDeclarationOrigin name <*> pure name <*> pure fields) constructorInfos
+  selectors <- dsRecordSelectors [(name, variables, fields) | (name, variables, fields, _) <- constructorInfos] (dataDeclConstructors dd)
+  pure (FcData (FcDataDecl tyOrigin tyName typeVariables resultKind constructors) : selectors)
 
 -- | Retain a data-family instance as a fresh representation type and a
 -- nominal axiom connecting that representation to the family application.
@@ -365,11 +375,11 @@ dsDataFamilyInstM familyInfo familyInst = do
       representation <- dataFamilyRepresentation familyInst representationName representationTyVars representationType constructorInfos
       pure [representation, axiom]
 
-dataFamilyRepresentation :: DataFamilyInst -> Text -> [TyVarId] -> TcType -> [(Text, [TyVarId], [TcType])] -> DsM FcTopBind
+dataFamilyRepresentation :: DataFamilyInst -> Text -> [TyVarId] -> TcType -> [(Text, [TyVarId], [TcType], TcType)] -> DsM FcTopBind
 dataFamilyRepresentation familyInst representationName representationTyVars representationType constructorInfos
   | dataFamilyInstIsNewtype familyInst =
       case constructorInfos of
-        [(constructorName, _, [fieldType])] -> do
+        [(constructorName, _, [fieldType], _)] -> do
           newtypeOrigin <- localDeclarationOrigin representationName
           constructorOrigin <- localDeclarationOrigin constructorName
           pure
@@ -388,10 +398,10 @@ dataFamilyRepresentation familyInst representationName representationTyVars repr
   | otherwise =
       do
         dataOrigin <- localDeclarationOrigin representationName
-        constructors <- mapM (\(name, _, fields) -> FcDataConDecl <$> localDeclarationOrigin name <*> pure name <*> pure fields) constructorInfos
+        constructors <- mapM (\(name, _, fields, _) -> FcDataConDecl <$> localDeclarationOrigin name <*> pure name <*> pure fields) constructorInfos
         pure
           ( FcData
-              (FcDataDecl dataOrigin representationName representationTyVars constructors)
+              (FcDataDecl dataOrigin representationName representationTyVars (typeKind representationType) constructors)
           )
 
 -- | Retain the nominal declaration and its representation type as an FC axiom.
@@ -869,11 +879,12 @@ realWorldTy = TcTyCon (TyCon "RealWorld" 0) []
 
 unboxedTupleTy :: [TcType] -> TcType
 unboxedTupleTy tys =
-  TcTyCon (TyCon (unboxedTupleTyConName (length tys)) (length tys)) tys
-
-unboxedTupleTyConName :: Int -> Text
-unboxedTupleTyConName arity =
-  "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
+  TcTyCon
+    (mkTyCon (unboxedTupleTyConName (length tys)) (length tys) tupleKind)
+    tys
+  where
+    tupleKind = foldr (KFun . typeKind) (KTYPE (TupleRep (map runtimeRep tys))) tys
+    runtimeRep ty = fromRight liftedRuntimeRep (runtimeRepOfType ty)
 
 collectForAlls :: TcType -> ([TyVarId], TcType)
 collectForAlls (TcForAllTy tv body) =
@@ -881,16 +892,51 @@ collectForAlls (TcForAllTy tv body) =
    in (tv : tvs, inner)
 collectForAlls ty = ([], ty)
 
-dsDataConM :: DataConDecl -> DsM (Text, [TyVarId], [TcType])
+dsDataConM :: DataConDecl -> DsM (Text, [TyVarId], [TcType], TcType)
 dsDataConM con = do
   let (name, arity) = dsDataConPure con
   ty <- lookupType name
   let (quantifiedVariables, qualifiedConstructorTy) = collectForAlls ty
       (predicates, constructorTy) = splitConstructorContext qualifiedConstructorTy
-      resultVariables = freeRigidTyVars (constructorResultType constructorTy)
-      universalVariables = filter (`elem` resultVariables) quantifiedVariables
+      resultType = constructorResultType constructorTy
+      resultVariables = freeRigidTyVars resultType
+      resultRepUniques = typeRuntimeRepVariables resultType
+      universalVariables = filter (\variable -> variable `elem` resultVariables || tvUnique variable `elem` resultRepUniques) quantifiedVariables
   fields <- dataConFieldTypes name arity constructorTy
-  pure (name, universalVariables, map predType predicates <> fields)
+  pure (name, universalVariables, map predType predicates <> fields, resultType)
+
+dataResultVariables :: TcType -> [TyVarId]
+dataResultVariables (TcTyCon _ arguments) = mapMaybe typeVariable arguments
+  where
+    typeVariable (TcTyVar variable) = Just variable
+    typeVariable _ = Nothing
+dataResultVariables _ = []
+
+typeRuntimeRepVariables :: TcType -> [Unique]
+typeRuntimeRepVariables ty =
+  case ty of
+    TcTyVar variable -> kindRuntimeRepVariables (tvKind variable)
+    TcMetaTv {} -> []
+    TcTyCon tyCon arguments -> kindRuntimeRepVariables (tyConKind tyCon) <> concatMap typeRuntimeRepVariables arguments
+    TcFunTy argument result -> typeRuntimeRepVariables argument <> typeRuntimeRepVariables result
+    TcForAllTy _ body -> typeRuntimeRepVariables body
+    TcQualTy _ body -> typeRuntimeRepVariables body
+    TcAppTy function argument -> typeRuntimeRepVariables function <> typeRuntimeRepVariables argument
+
+kindRuntimeRepVariables :: Kind -> [Unique]
+kindRuntimeRepVariables kind =
+  case kind of
+    KTYPE runtimeRep -> runtimeRepVariables runtimeRep
+    KFun argument result -> kindRuntimeRepVariables argument <> kindRuntimeRepVariables result
+    _ -> []
+
+runtimeRepVariables :: RuntimeRep -> [Unique]
+runtimeRepVariables runtimeRep =
+  case runtimeRep of
+    RuntimeRepVar unique -> [unique]
+    TupleRep fields -> concatMap runtimeRepVariables fields
+    SumRep fields -> concatMap runtimeRepVariables fields
+    _ -> []
 
 splitConstructorContext :: TcType -> ([Pred], TcType)
 splitConstructorContext (TcQualTy predicates body) = (predicates, body)
@@ -917,7 +963,7 @@ dsClassDeclM classDecl classAnn = do
   defaults <- mapM dsClassDefault (classDefaultGroups classDecl)
   classOrigin <- localDeclarationOrigin className
   constructorOrigin <- localDeclarationOrigin dictionaryConstructor
-  let dictionaryDeclaration = FcData (FcDataDecl classOrigin className classTyVars [FcDataConDecl constructorOrigin dictionaryConstructor fieldTypes])
+  let dictionaryDeclaration = FcData (FcDataDecl classOrigin className classTyVars KType [FcDataConDecl constructorOrigin dictionaryConstructor fieldTypes])
   pure (dictionaryDeclaration : selectors <> defaults)
   where
     className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))

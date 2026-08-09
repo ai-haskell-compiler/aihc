@@ -51,6 +51,7 @@ import Aihc.Parser.Syntax
     Rhs (..),
     SourceSpan (..),
     TupleFlavor (..),
+    TyVarBinder (..),
     Type (..),
     TypeSynDecl (..),
     UnqualifiedName (..),
@@ -98,14 +99,14 @@ import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams, tyConKindFromParamsWith)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
-import Control.Monad (foldM, forM_, unless, when, zipWithM)
+import Control.Monad (foldM, forM_, unless, when, zipWithM, (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -1799,13 +1800,30 @@ rejectEscapingExistentials outerType implications = do
 typeMentionsTyVar :: TyVarId -> TcType -> Bool
 typeMentionsTyVar target ty =
   case ty of
-    TcTyVar tyVar -> tyVar == target
+    TcTyVar tyVar -> tyVar == target || kindMentionsUnique (tvUnique target) (tvKind tyVar)
     TcMetaTv {} -> False
     TcTyCon _ arguments -> any (typeMentionsTyVar target) arguments
     TcFunTy argument result -> typeMentionsTyVar target argument || typeMentionsTyVar target result
     TcForAllTy tyVar body -> tyVar /= target && typeMentionsTyVar target body
     TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
     TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
+
+kindMentionsUnique :: Unique -> Kind -> Bool
+kindMentionsUnique target kind =
+  case kind of
+    KTYPE runtimeRep -> runtimeRepMentionsUnique target runtimeRep
+    KFun argument result -> kindMentionsUnique target argument || kindMentionsUnique target result
+    KMeta unique -> unique == target
+    _ -> False
+
+runtimeRepMentionsUnique :: Unique -> RuntimeRep -> Bool
+runtimeRepMentionsUnique target runtimeRep =
+  case runtimeRep of
+    RuntimeRepVar unique -> unique == target
+    RuntimeRepMeta unique -> unique == target
+    TupleRep fields -> any (runtimeRepMentionsUnique target) fields
+    SumRep fields -> any (runtimeRepMentionsUnique target) fields
+    _ -> False
 
 predicateMentionsTyVar :: TyVarId -> Pred -> Bool
 predicateMentionsTyVar target predicate =
@@ -2085,13 +2103,74 @@ dataFamilyInstanceParams familyInst = do
 --   - @Bool :: *@
 --   - @True :: Bool@
 --   - @False :: Bool@
+dataDeclParamInfos :: Text -> [TyVarBinder] -> TcM ([ParamInfo], [ParamInfo])
+dataDeclParamInfos typeName params =
+  case unboxedTupleTyConArity typeName of
+    Just arity
+      | arity == length params -> pure (unboxedTupleParamInfos arity params)
+    _ -> ([],) <$> makeParamEnv params
+
+dataDeclConstructorParamInfos :: DataDecl -> TyCon -> TcM ([ParamInfo], [ParamInfo])
+dataDeclConstructorParamInfos declaration _tyCon =
+  case unboxedTupleTyConArity typeName of
+    Just arity
+      | arity == length params -> pure (unboxedTupleParamInfos arity params)
+    _ -> ([],) <$> makeParamEnv params
+  where
+    typeName = unqualifiedNameText (binderHeadName (dataDeclHead declaration))
+    params = binderHeadParams (dataDeclHead declaration)
+
+unboxedTupleParamInfos :: Int -> [TyVarBinder] -> ([ParamInfo], [ParamInfo])
+unboxedTupleParamInfos arity params = (kindParams, valueParams)
+  where
+    kindParams =
+      [ ParamInfo name (setTyVarKind KRuntimeRep (TyVarId name (tupleKindUnique index))) KRuntimeRep
+      | (index, name) <- zip [1 ..] (tupleRuntimeRepNames params)
+      ]
+    valueParams =
+      [ ParamInfo name (setTyVarKind kind (TyVarId name (tupleValueUnique index))) kind
+      | (index, binder, kindParam) <- zip3 [1 ..] params kindParams,
+        let name = tyVarBinderName binder
+            kind = KTYPE (RuntimeRepVar (tvUnique (paramTyVar kindParam)))
+      ]
+    tupleKindUnique index = Unique (-1000000 - arity * 200 - index)
+    tupleValueUnique index = Unique (-1000000 - arity * 200 - 100 - index)
+
+tupleRuntimeRepNames :: [TyVarBinder] -> [Text]
+tupleRuntimeRepNames = mapMaybe (tyVarBinderKind >=> runtimeRepVariableName)
+  where
+    runtimeRepVariableName ty =
+      case ty of
+        TAnn _ inner -> runtimeRepVariableName inner
+        TParen inner -> runtimeRepVariableName inner
+        TApp function representation
+          | surfaceTypeConstructorName function == Just "TYPE" -> surfaceTypeVariableName representation
+        _ -> Nothing
+    surfaceTypeConstructorName ty =
+      case ty of
+        TAnn _ inner -> surfaceTypeConstructorName inner
+        TParen inner -> surfaceTypeConstructorName inner
+        TCon name _ -> Just (nameText name)
+        _ -> Nothing
+    surfaceTypeVariableName ty =
+      case ty of
+        TAnn _ inner -> surfaceTypeVariableName inner
+        TParen inner -> surfaceTypeVariableName inner
+        TVar name -> Just (unqualifiedNameText name)
+        _ -> Nothing
+
 registerDataDeclHeader :: DataDecl -> TcM [TcBindingResult]
 registerDataDeclHeader dd = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
       params = binderHeadParams (dataDeclHead dd)
       arity = length params
-  paramInfos <- makeParamEnv params
-  declaredKind <- tyConKindFromParams paramInfos (dataDeclKind dd)
+  (kindParams, paramInfos) <- dataDeclParamInfos tyName params
+  let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
+  declaredKind <-
+    case unboxedTupleTyConArity tyName of
+      Just tupleArity
+        | tupleArity == arity -> pure (unboxedTupleDeclarationKind paramInfos)
+      _ -> tyConKindFromParamsWith kindEnv paramInfos (dataDeclKind dd)
   let tc = dataDeclTyCon tyName arity declaredKind
   extendTyConEnvPermanent
     tyName
@@ -2107,6 +2186,15 @@ registerDataDeclHeader dd = do
   let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind)
   pure [tyConResult]
 
+unboxedTupleDeclarationKind :: [ParamInfo] -> Kind
+unboxedTupleDeclarationKind params =
+  foldr (KFun . paramKind) (KTYPE (TupleRep (map paramRuntimeRep params))) params
+  where
+    paramRuntimeRep param =
+      case paramKind param of
+        KTYPE runtimeRep -> runtimeRep
+        _ -> liftedRuntimeRep
+
 registerDataConstructors :: DataDecl -> TcM [TcBindingResult]
 registerDataConstructors dataDecl = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
@@ -2114,8 +2202,8 @@ registerDataConstructors dataDecl = do
   case maybeInfo of
     Nothing -> missingTypeInfo ("data type " <> T.unpack tyName)
     Just info -> do
-      paramInfos <- makeParamEnv (binderHeadParams (dataDeclHead dataDecl))
-      bindings <- mapM (registerDataCon (tciTyCon info) paramInfos) (dataDeclConstructors dataDecl)
+      (kindParams, paramInfos) <- dataDeclConstructorParamInfos dataDecl (tciTyCon info)
+      bindings <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (dataDeclConstructors dataDecl)
       constructors <- concat <$> mapM checkedDataConInfos (dataDeclConstructors dataDecl)
       selectorBindings <- registerRecordSelectors constructors
       addDataType
@@ -2161,7 +2249,7 @@ registerNewtypeConstructor newtypeDecl = do
     Nothing -> missingTypeInfo ("newtype " <> T.unpack tyName)
     Just info -> do
       paramInfos <- makeParamEnv (binderHeadParams (newtypeDeclHead newtypeDecl))
-      constructor <- mapM (registerDataCon (tciTyCon info) paramInfos) (newtypeDeclConstructor newtypeDecl)
+      constructor <- mapM (registerDataCon (tciTyCon info) [] paramInfos) (newtypeDeclConstructor newtypeDecl)
       constructors <- maybe (pure []) checkedDataConInfos (newtypeDeclConstructor newtypeDecl)
       selectorBindings <- registerRecordSelectors constructors
       addDataType
@@ -2240,9 +2328,9 @@ dataDeclTyCon name arity kind = mkTyCon name arity kind
 
 -- | Register a single data constructor as a polymorphic binding.
 -- Returns the binding result for the constructor.
-registerDataCon :: TyCon -> [ParamInfo] -> DataConDecl -> TcM TcBindingResult
-registerDataCon tc paramInfos =
-  registerDataConWithResult paramInfos (TcTyCon tc (map (TcTyVar . paramTyVar) paramInfos))
+registerDataCon :: TyCon -> [ParamInfo] -> [ParamInfo] -> DataConDecl -> TcM TcBindingResult
+registerDataCon tc kindParams paramInfos =
+  registerDataConWithResult (kindParams <> paramInfos) (TcTyCon tc (map (TcTyVar . paramTyVar) paramInfos))
 
 registerDataConWithResult :: [ParamInfo] -> TcType -> DataConDecl -> TcM TcBindingResult
 registerDataConWithResult paramInfos resTy con = case con of

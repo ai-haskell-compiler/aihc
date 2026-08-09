@@ -33,6 +33,8 @@ module Aihc.Tc.Types
     VecElem (..),
     TypeScheme (..),
     boxedTupleTyConName,
+    unboxedTupleTyConName,
+    unboxedTupleTyConArity,
     liftedRuntimeRep,
     liftedTypeKind,
     typeKind,
@@ -62,6 +64,17 @@ boxedTupleTyConName arity =
     0 -> "Unit"
     1 -> "Solo"
     _ -> "Tuple" <> T.pack (show arity)
+
+-- | Source-level names of the unboxed tuple types declared by @GHC.Types@.
+unboxedTupleTyConName :: Int -> Text
+unboxedTupleTyConName arity = "Tuple" <> T.pack (show arity) <> "#"
+
+unboxedTupleTyConArity :: Text -> Maybe Int
+unboxedTupleTyConArity name = do
+  digits <- T.stripPrefix "Tuple" name >>= T.stripSuffix "#"
+  case reads (T.unpack digits) of
+    [(arity, "")] | arity /= 1 -> Just arity
+    _ -> Nothing
 
 -- | Unique identifier for type variables and evidence variables.
 newtype Unique = Unique Int
@@ -237,33 +250,29 @@ typeKind ty =
     TcTyVar tyVar -> tvKind tyVar
     TcMetaTv {} -> liftedTypeKind
     TcTyCon tyCon args
-      | isUnboxedTupleTyCon (tyConName tyCon) (tyConArity tyCon),
-        length args == tyConArity tyCon ->
+      | length args == tyConArity tyCon,
+        KTYPE (TupleRep fields) <- applyKindArgumentCount (tyConKind tyCon) (length args),
+        length fields == length args ->
           KTYPE (TupleRep (map runtimeRepOrLifted args))
       | isUnboxedSumTyCon (tyConName tyCon) (tyConArity tyCon),
         length args == tyConArity tyCon ->
           KTYPE (SumRep (map runtimeRepOrLifted args))
-      | otherwise -> applyKindArguments (tyConKind tyCon) (length args)
+      | otherwise -> applyKindArgumentCount (tyConKind tyCon) (length args)
     TcFunTy {} -> liftedTypeKind
     TcForAllTy _ body -> typeKind body
     TcQualTy _ body -> typeKind body
-    TcAppTy function _ -> applyKindArguments (typeKind function) 1
+    TcAppTy function _ -> applyKindArgumentCount (typeKind function) 1
   where
     runtimeRepOrLifted argument =
       case runtimeRepOfType argument of
         Right runtimeRep -> runtimeRep
         Left _ -> liftedRuntimeRep
 
-applyKindArguments :: Kind -> Int -> Kind
-applyKindArguments kind count
+applyKindArgumentCount :: Kind -> Int -> Kind
+applyKindArgumentCount kind count
   | count <= 0 = kind
-applyKindArguments (KFun _ result) count = applyKindArguments result (count - 1)
-applyKindArguments kind _ = kind
-
-isUnboxedTupleTyCon :: Text -> Int -> Bool
-isUnboxedTupleTyCon name arity =
-  arity /= 1
-    && name == "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
+applyKindArgumentCount (KFun _ result) count = applyKindArgumentCount result (count - 1)
+applyKindArgumentCount kind _ = kind
 
 isUnboxedSumTyCon :: Text -> Int -> Bool
 isUnboxedSumTyCon name arity =
