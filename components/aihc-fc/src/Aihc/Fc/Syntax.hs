@@ -26,6 +26,8 @@ module Aihc.Fc.Syntax
     -- * Bindings
     FcBind (..),
     FcTopBind (..),
+    FcDataDecl (..),
+    FcDataConDecl (..),
     FcAxiomDecl (..),
     FcAxiomRole (..),
     FcNewtypeDecl (..),
@@ -85,9 +87,8 @@ data FcTopBind
   = -- | A term symbol defined by another compilation unit. Its type is
     -- declared once here and omitted from every occurrence.
     FcExternal !FcSymbolOrigin !TcType
-  | -- | Data type declaration: type name, type variable parameters,
-    -- list of (constructor name, field types).
-    FcData !Text ![TyVarId] ![(Text, [TcType])]
+  | -- | A data type declaration.
+    FcData !FcDataDecl
   | -- | A type equality axiom. Axioms are proof metadata and have no
     -- runtime representation.
     FcAxiom !FcAxiomDecl
@@ -108,6 +109,23 @@ data FcAxiomRole
   | FcRepresentational
   deriving (Eq, Show, Read)
 
+-- | A data type with its stable source identity.
+data FcDataDecl = FcDataDecl
+  { fcDataOrigin :: !FcSymbolOrigin,
+    fcDataName :: !Text,
+    fcDataTyVars :: ![TyVarId],
+    fcDataConstructors :: ![FcDataConDecl]
+  }
+  deriving (Eq, Show, Read)
+
+-- | A data constructor with its stable source identity.
+data FcDataConDecl = FcDataConDecl
+  { fcDataConOrigin :: !FcSymbolOrigin,
+    fcDataConName :: !Text,
+    fcDataConFields :: ![TcType]
+  }
+  deriving (Eq, Show, Read)
+
 -- | A named, parameterized type equality retained in System FC.
 data FcAxiomDecl = FcAxiomDecl
   { fcAxiomName :: !Text,
@@ -123,8 +141,10 @@ data FcAxiomDecl = FcAxiomDecl
 --
 -- This declaration is proof metadata, not a runtime constructor declaration.
 data FcNewtypeDecl = FcNewtypeDecl
-  { fcNewtypeName :: !Text,
+  { fcNewtypeOrigin :: !FcSymbolOrigin,
+    fcNewtypeName :: !Text,
     fcNewtypeTyVars :: ![TyVarId],
+    fcNewtypeConstructorOrigin :: !FcSymbolOrigin,
     fcNewtypeConstructor :: !Text,
     fcNewtypeRepresentation :: !TcType,
     fcNewtypeResult :: !TcType

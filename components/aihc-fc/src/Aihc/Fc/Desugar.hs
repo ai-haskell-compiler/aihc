@@ -70,7 +70,7 @@ import Aihc.Tc.Types
   )
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
-import Control.Monad.Trans.State.Strict (runStateT)
+import Control.Monad.Trans.State.Strict (gets, runStateT)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
@@ -127,6 +127,7 @@ desugarModuleWithDataTypes bindings dataTypes tcResult resolvedModule =
         }
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
+          (packageName, currentModuleName) = resolvedModuleOrigin resolvedModule
           constructorFields =
             Map.fromList
               [ (dciName constructor, dciFields constructor)
@@ -134,7 +135,7 @@ desugarModuleWithDataTypes bindings dataTypes tcResult resolvedModule =
                 dtiFlavor dataType == DataTyCon,
                 constructor <- dtiConstructors dataType
               ]
-       in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) typeEnv Map.empty Map.empty constructorFields) of
+       in case runStateT (dsModule tcResult) (DsState 1000 packageName (Just currentModuleName) typeEnv Map.empty Map.empty constructorFields) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram (sourceModuleId resolvedModule) [],
@@ -142,8 +143,7 @@ desugarModuleWithDataTypes bindings dataTypes tcResult resolvedModule =
                   dsErrors = [err]
                 }
             Right (binds, _) ->
-              let (packageName, currentModuleName) = resolvedModuleOrigin resolvedModule
-                  program = FcProgram (FcModuleId packageName currentModuleName) binds
+              let program = FcProgram (FcModuleId packageName currentModuleName) binds
                in DesugarResult
                     { dsProgram = declareExternalSymbols (lowerPseudoOps (lowerConstraintProgram (lowerNewtypes program))),
                       dsSuccess = True,
@@ -197,8 +197,14 @@ lowerConstraintProgram (FcProgram moduleId topBinds) =
     lowerTopBind topBind =
       case topBind of
         FcExternal origin ty -> FcExternal origin (lowerConstraintType ty)
-        FcData name tyVars constructors ->
-          FcData name tyVars [(constructor, map lowerConstraintType fields) | (constructor, fields) <- constructors]
+        FcData declaration ->
+          FcData
+            declaration
+              { fcDataConstructors =
+                  [ constructor {fcDataConFields = map lowerConstraintType (fcDataConFields constructor)}
+                  | constructor <- fcDataConstructors declaration
+                  ]
+              }
         FcAxiom declaration ->
           FcAxiom
             declaration
@@ -325,14 +331,15 @@ dsDecl _ = pure []
 dsDataDeclM :: DataDecl -> DsM [FcTopBind]
 dsDataDeclM dd = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
+  tyOrigin <- localDeclarationOrigin tyName
   constructorInfos <- mapM dsDataConM (dataDeclConstructors dd)
   let typeVariables =
         case constructorInfos of
           (_, universals, _) : _ -> universals
           [] -> []
-      constructors = [(name, fields) | (name, _, fields) <- constructorInfos]
+  constructors <- mapM (\(name, _, fields) -> FcDataConDecl <$> localDeclarationOrigin name <*> pure name <*> pure fields) constructorInfos
   selectors <- dsRecordSelectors constructorInfos (dataDeclConstructors dd)
-  pure (FcData tyName typeVariables constructors : selectors)
+  pure (FcData (FcDataDecl tyOrigin tyName typeVariables constructors) : selectors)
 
 -- | Retain a data-family instance as a fresh representation type and a
 -- nominal axiom connecting that representation to the family application.
@@ -362,12 +369,16 @@ dataFamilyRepresentation :: DataFamilyInst -> Text -> [TyVarId] -> TcType -> [(T
 dataFamilyRepresentation familyInst representationName representationTyVars representationType constructorInfos
   | dataFamilyInstIsNewtype familyInst =
       case constructorInfos of
-        [(constructorName, _, [fieldType])] ->
+        [(constructorName, _, [fieldType])] -> do
+          newtypeOrigin <- localDeclarationOrigin representationName
+          constructorOrigin <- localDeclarationOrigin constructorName
           pure
             ( FcNewtype
                 FcNewtypeDecl
-                  { fcNewtypeName = representationName,
+                  { fcNewtypeOrigin = newtypeOrigin,
+                    fcNewtypeName = representationName,
                     fcNewtypeTyVars = representationTyVars,
+                    fcNewtypeConstructorOrigin = constructorOrigin,
                     fcNewtypeConstructor = constructorName,
                     fcNewtypeRepresentation = fieldType,
                     fcNewtypeResult = representationType
@@ -375,12 +386,13 @@ dataFamilyRepresentation familyInst representationName representationTyVars repr
             )
         _ -> desugarBug "newtype family instance does not have exactly one constructor with one field"
   | otherwise =
-      pure
-        ( FcData
-            representationName
-            representationTyVars
-            [(name, fields) | (name, _, fields) <- constructorInfos]
-        )
+      do
+        dataOrigin <- localDeclarationOrigin representationName
+        constructors <- mapM (\(name, _, fields) -> FcDataConDecl <$> localDeclarationOrigin name <*> pure name <*> pure fields) constructorInfos
+        pure
+          ( FcData
+              (FcDataDecl dataOrigin representationName representationTyVars constructors)
+          )
 
 -- | Retain the nominal declaration and its representation type as an FC axiom.
 -- 'lowerNewtypes' turns all term-level construction and matching into casts.
@@ -396,12 +408,16 @@ dsNewtypeDeclM nd = do
         (1, TcFunTy fieldTy resultTy@(TcTyCon resultTyCon resultArgs))
           | tyConName resultTyCon == tyName,
             Just tyVars <- traverse asTyVar resultArgs -> do
+              newtypeOrigin <- localDeclarationOrigin tyName
+              constructorOrigin <- localDeclarationOrigin conName
               selectors <- dsRecordSelectors [(conName, tyVars, [fieldTy])] [con]
               pure
                 ( FcNewtype
                     FcNewtypeDecl
-                      { fcNewtypeName = tyName,
+                      { fcNewtypeOrigin = newtypeOrigin,
+                        fcNewtypeName = tyName,
                         fcNewtypeTyVars = tyVars,
+                        fcNewtypeConstructorOrigin = constructorOrigin,
                         fcNewtypeConstructor = conName,
                         fcNewtypeRepresentation = fieldTy,
                         fcNewtypeResult = resultTy
@@ -899,12 +915,20 @@ dsClassDeclM classDecl classAnn = do
   let fieldTypes = superClassFieldTypes <> methodFieldTypes
   selectors <- mapM (dsClassSelector dictionaryConstructor (length superClassFieldTypes) classTyVars fieldTypes) methods
   defaults <- mapM dsClassDefault (classDefaultGroups classDecl)
-  let dictionaryDeclaration = FcData className classTyVars [(dictionaryConstructor, fieldTypes)]
+  classOrigin <- localDeclarationOrigin className
+  constructorOrigin <- localDeclarationOrigin dictionaryConstructor
+  let dictionaryDeclaration = FcData (FcDataDecl classOrigin className classTyVars [FcDataConDecl constructorOrigin dictionaryConstructor fieldTypes])
   pure (dictionaryDeclaration : selectors <> defaults)
   where
     className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))
     methods = tcClassMethods classAnn
     dictionaryConstructor = fcDictionaryConstructorName className
+
+localDeclarationOrigin :: Text -> DsM FcSymbolOrigin
+localDeclarationOrigin declarationName = do
+  packageName <- gets dsModulePackage
+  moduleName' <- gets dsModuleName
+  pure (FcTopLevelOrigin packageName (fromMaybe "Main" moduleName') declarationName)
 
 dsClassSelector :: Text -> Int -> [TyVarId] -> [TcType] -> TcClassMethodAnnotation -> DsM FcTopBind
 dsClassSelector dictionaryConstructor superClassCount classTyVars fieldTypes methodAnn = do

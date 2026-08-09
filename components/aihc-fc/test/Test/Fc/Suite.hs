@@ -344,9 +344,9 @@ fcOptimizationTests =
             mainVar = Var "main" (Unique 1) liveTy
             helperVar = Var "helper" (Unique 2) liveTy
             deadVar = Var "dead" (Unique 3) deadTy
-            liveData = FcData "Live" [] [("Live", [leafTy])]
-            leafData = FcData "Leaf" [] [("Leaf", [])]
-            deadData = FcData "Dead" [] [("Dead", [])]
+            liveData = fcData "Live" [] [("Live", [leafTy])]
+            leafData = fcData "Leaf" [] [("Leaf", [])]
+            deadData = fcData "Dead" [] [("Dead", [])]
             helper = FcTopBind (FcNonRec helperVar (FcVar (Var "Live" (Unique 4) (TcFunTy leafTy liveTy))))
             mainBinding = FcTopBind (FcNonRec mainVar (FcVar helperVar))
             deadBinding = FcTopBind (FcNonRec deadVar (FcVar (Var "Dead" (Unique 5) deadTy)))
@@ -372,7 +372,7 @@ fcOptimizationTests =
           (eliminateDeadCode "main" program),
       testCase "retains ordinary dictionary constructor declarations" $ do
         let dictionaryTy = ty "Test"
-            dictionaryData = FcData "Test" [] [("$Dict$Test", [stringTy])]
+            dictionaryData = fcData "Test" [] [("$Dict$Test", [stringTy])]
             dictionaryConstructor = Var "$Dict$Test" (Unique 14) (TcFunTy stringTy dictionaryTy)
             dictionaryBinder = Var "$dictionary" (Unique 15) dictionaryTy
             methodBinder = Var "$method" (Unique 16) stringTy
@@ -397,8 +397,10 @@ fcOptimizationTests =
             intHashTy = ty "Int#"
             declaration =
               FcNewtypeDecl
-                { fcNewtypeName = "Meters",
+                { fcNewtypeOrigin = FcTopLevelOrigin "test" "Test" "Meters",
+                  fcNewtypeName = "Meters",
                   fcNewtypeTyVars = [],
+                  fcNewtypeConstructorOrigin = FcTopLevelOrigin "test" "Test" "Meters",
                   fcNewtypeConstructor = "Meters",
                   fcNewtypeRepresentation = intHashTy,
                   fcNewtypeResult = metersTy
@@ -421,8 +423,10 @@ fcOptimizationTests =
             intHashTy = ty "Int#"
             declaration =
               FcNewtypeDecl
-                { fcNewtypeName = "Wrapper",
+                { fcNewtypeOrigin = FcTopLevelOrigin "test" "Test" "Wrapper",
+                  fcNewtypeName = "Wrapper",
                   fcNewtypeTyVars = [],
+                  fcNewtypeConstructorOrigin = FcTopLevelOrigin "test" "Test" "Wrap",
                   fcNewtypeConstructor = "Wrap",
                   fcNewtypeRepresentation = intHashTy,
                   fcNewtypeResult = wrapperTy
@@ -599,3 +603,15 @@ stringTy = TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []]
 
 ty :: Text -> TcType
 ty name = TcTyCon (TyCon name 0) []
+
+fcData :: Text -> [TyVarId] -> [(Text, [TcType])] -> FcTopBind
+fcData dataName tyVars constructors =
+  FcData
+    ( FcDataDecl
+        (testOrigin dataName)
+        dataName
+        tyVars
+        [FcDataConDecl (testOrigin constructorName) constructorName fields | (constructorName, fields) <- constructors]
+    )
+  where
+    testOrigin = FcTopLevelOrigin "test" "Test"

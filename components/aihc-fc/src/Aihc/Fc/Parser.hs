@@ -52,12 +52,12 @@ parseProgram input = do
   let moduleOrigin = Just (fcModulePackage moduleId, fcModuleName moduleId)
   signatures <- traverse (parseSignatures moduleOrigin) definitionBlocks
   let globals = Map.unions (catMaybes signatures) <> externalEnv headers
-  FcProgram moduleId <$> traverse (parseBlock globals) definitionBlocks
+  FcProgram moduleId <$> traverse (parseBlock moduleOrigin globals) definitionBlocks
   where
     blocks = filter (not . T.null) (map T.strip (T.splitOn "\n\n" input))
     parseModuleHeader = MP.parse (space *> MP.optional (MP.try moduleDeclaration) <* MP.takeRest) "<system-fc-header>"
     parseExternalHeader = MP.parse (space *> MP.optional (MP.try externalDeclaration) <* MP.takeRest) "<system-fc-header>"
-    parseBlock globals = MP.parse (space *> topBind globals <* MP.eof) "<system-fc>"
+    parseBlock moduleOrigin globals = MP.parse (space *> topBind moduleOrigin globals <* MP.eof) "<system-fc>"
 
 validateModuleDeclaration :: Text -> [FcModuleId] -> Either FcParseError FcModuleId
 validateModuleDeclaration _ [moduleId] = Right moduleId
@@ -96,13 +96,13 @@ parseType = MP.parse (space *> tcType mempty <* MP.eof) "<system-fc-type>"
 renderParseError :: FcParseError -> String
 renderParseError = MP.errorBundlePretty
 
-topBind :: TermEnv -> Parser FcTopBind
-topBind termEnv =
+topBind :: Maybe (Text, Text) -> TermEnv -> Parser FcTopBind
+topBind moduleOrigin termEnv =
   MP.choice
     [ MP.try externalDeclaration,
-      MP.try dataDeclaration,
+      MP.try (dataDeclaration moduleOrigin),
       MP.try axiomDeclaration,
-      MP.try newtypeDeclaration,
+      MP.try (newtypeDeclaration moduleOrigin),
       MP.try primitiveDeclaration,
       MP.try foreignImportDeclaration,
       FcTopBind <$> bind termEnv mempty
@@ -140,27 +140,26 @@ parseSignatures moduleOrigin =
 declarationSignatures :: Maybe (Text, Text) -> Parser TermEnv
 declarationSignatures moduleOrigin =
   MP.choice
-    [ signaturesOf moduleOrigin <$> MP.try dataDeclaration,
-      signaturesOf moduleOrigin <$> MP.try newtypeDeclaration,
-      signaturesOf moduleOrigin <$> MP.try primitiveDeclaration,
+    [ signaturesOf <$> MP.try (dataDeclaration moduleOrigin),
+      signaturesOf <$> MP.try (newtypeDeclaration moduleOrigin),
+      signaturesOf <$> MP.try primitiveDeclaration,
       MP.try (nonRecSignature moduleOrigin),
       MP.try (recSignatures moduleOrigin)
     ]
 
-signaturesOf :: Maybe (Text, Text) -> FcTopBind -> TermEnv
-signaturesOf moduleOrigin top =
+signaturesOf :: FcTopBind -> TermEnv
+signaturesOf top =
   case top of
-    FcData dataName tyVars constructors ->
+    FcData declaration ->
       Map.fromList
         [ entry
-        | (constructorName, fields) <- constructors,
-          entry <- localSignatureEntries moduleOrigin constructorName (constructorType dataName tyVars fields)
+        | constructorDeclaration <- fcDataConstructors declaration,
+          entry <- originSignatureEntries (fcDataConOrigin constructorDeclaration) (constructorType (fcDataName declaration) (fcDataTyVars declaration) (fcDataConFields constructorDeclaration))
         ]
     FcNewtype declaration ->
       Map.fromList
-        ( localSignatureEntries
-            moduleOrigin
-            (fcNewtypeConstructor declaration)
+        ( originSignatureEntries
+            (fcNewtypeConstructorOrigin declaration)
             (newtypeConstructorType declaration)
         )
     FcPrimitive var _ -> Map.singleton (varName var) var
@@ -200,6 +199,12 @@ localSignatureEntries moduleOrigin binderName ty =
   where
     var = localVar moduleOrigin binderName ty
 
+originSignatureEntries :: FcSymbolOrigin -> TcType -> [(Text, Var)]
+originSignatureEntries origin ty =
+  [(fcOriginName origin, var), (originKey origin, var)]
+  where
+    var = fcExternalVar origin ty
+
 localVar :: Maybe (Text, Text) -> Text -> TcType -> Var
 localVar moduleOrigin binderName ty =
   (mkVar binderName ty)
@@ -209,22 +214,22 @@ localVar moduleOrigin binderName ty =
 originKey :: FcSymbolOrigin -> Text
 originKey = fcSymbolOriginText
 
-dataDeclaration :: Parser FcTopBind
-dataDeclaration = do
+dataDeclaration :: Maybe (Text, Text) -> Parser FcTopBind
+dataDeclaration moduleOrigin = do
   _ <- keyword "data"
-  dataName <- name
+  (dataName, dataOrigin) <- declarationName moduleOrigin
   tyVars <- tyVarBinders mempty
   let tyEnv = tyVarEnv tyVars
-  constructors <- MP.many (MP.try ((symbol "=" <|> symbol "|") *> constructor tyEnv))
-  pure (FcData dataName tyVars constructors)
+  constructors <- MP.many (MP.try ((symbol "=" <|> symbol "|") *> constructor moduleOrigin tyEnv))
+  pure (FcData (FcDataDecl dataOrigin dataName tyVars constructors))
 
-constructor :: TyEnv -> Parser (Text, [TcType])
-constructor tyEnv = do
+constructor :: Maybe (Text, Text) -> TyEnv -> Parser FcDataConDecl
+constructor moduleOrigin tyEnv = do
   existentialTyVars <- MP.option [] (symbol "∀" *> someTyVarBinders tyEnv <* symbol ".")
-  constructorName <- name
+  (constructorName, constructorOrigin) <- declarationName moduleOrigin
   let fieldEnv = Map.union (tyVarEnv existentialTyVars) tyEnv
   fields <- MP.many (between "(" ")" (tcType fieldEnv))
-  pure (constructorName, fields)
+  pure (FcDataConDecl constructorOrigin constructorName fields)
 
 axiomDeclaration :: Parser FcTopBind
 axiomDeclaration = do
@@ -238,18 +243,25 @@ axiomDeclaration = do
   right <- tcType tyEnv
   pure (FcAxiom (FcAxiomDecl axiomName tyVars role left right))
 
-newtypeDeclaration :: Parser FcTopBind
-newtypeDeclaration = do
+newtypeDeclaration :: Maybe (Text, Text) -> Parser FcTopBind
+newtypeDeclaration moduleOrigin = do
   _ <- keyword "newtype"
-  newtypeName <- name
+  (newtypeName, newtypeOrigin) <- declarationName moduleOrigin
   tyVars <- tyVarBinders mempty
   let tyEnv = tyVarEnv tyVars
   _ <- symbol ":"
   result <- tcType tyEnv
   _ <- symbol "="
-  constructorName <- name
+  (constructorName, constructorOrigin) <- declarationName moduleOrigin
   representation <- tcType tyEnv
-  pure (FcNewtype (FcNewtypeDecl newtypeName tyVars constructorName representation result))
+  pure (FcNewtype (FcNewtypeDecl newtypeOrigin newtypeName tyVars constructorOrigin constructorName representation result))
+
+declarationName :: Maybe (Text, Text) -> Parser (Text, FcSymbolOrigin)
+declarationName moduleOrigin = do
+  (declarationName', maybeOrigin) <- originName
+  case maybeOrigin <|> fmap (\(packageName, moduleName) -> FcTopLevelOrigin packageName moduleName declarationName') moduleOrigin of
+    Just origin -> pure (declarationName', origin)
+    Nothing -> fail "declaration has no System FC module origin"
 
 primitiveDeclaration :: Parser FcTopBind
 primitiveDeclaration = do

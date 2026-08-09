@@ -8,10 +8,10 @@ module Aihc.Fc.Merge
 where
 
 import Aihc.Fc.Pretty (declareExternalSymbols)
-import Aihc.Fc.Subst (maximumProgramUnique, programVars)
+import Aihc.Fc.Subst (freeRigidTyVarsOf, maximumProgramUnique, programVars)
 import Aihc.Fc.Syntax
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, typeSchemeFromType)
-import Aihc.Tc.Types (TcType, Unique (..))
+import Aihc.Tc.Types (TcType (..), TyCon (..), Unique (..))
 import Data.Char (isAlphaNum, ord)
 import Data.List.NonEmpty (NonEmpty)
 import Data.List.NonEmpty qualified as NonEmpty
@@ -37,7 +37,8 @@ mergePrograms target programs =
   where
     freshPrograms = freshenPrograms (NonEmpty.toList programs)
     qualifiedPrograms = map qualifyTopLevelBinders freshPrograms
-    providerEntries = concatMap programProviders qualifiedPrograms
+    importedTypes = Map.fromList [(origin, ty) | program <- qualifiedPrograms, FcExternal origin ty <- fcTopBinds program]
+    providerEntries = concatMap (programProviders importedTypes) qualifiedPrograms
     providers = Map.fromList providerEntries
     sourceProviders = fallbackSourceProviders providerEntries
     duplicateErrors = map FcDuplicateDefinition (duplicates (map fst providerEntries))
@@ -152,13 +153,43 @@ globalBinderName origin =
       | isAlphaNum character = T.singleton character
       | otherwise = "_" <> T.pack (showHex (ord character) "") <> "_"
 
-programProviders :: FcProgram -> [(FcSymbolOrigin, Var)]
-programProviders program =
+programProviders :: Map FcSymbolOrigin TcType -> FcProgram -> [(FcSymbolOrigin, Var)]
+programProviders importedTypes program =
   [ (origin, var)
   | topBind <- fcTopBinds program,
-    var <- topBinders topBind,
+    var <- topBinders topBind <> declarationConstructorVars importedTypes topBind,
     Just origin <- [varResolvedName var]
   ]
+
+declarationConstructorVars :: Map FcSymbolOrigin TcType -> FcTopBind -> [Var]
+declarationConstructorVars importedTypes topBind =
+  case topBind of
+    FcData declaration ->
+      [ fcExternalVar origin (Map.findWithDefault (dataConstructorType declaration constructor) origin importedTypes)
+      | constructor <- fcDataConstructors declaration,
+        let origin = fcDataConOrigin constructor
+      ]
+    FcNewtype declaration ->
+      [fcExternalVar origin (Map.findWithDefault (newtypeConstructorType declaration) origin importedTypes)]
+      where
+        origin = fcNewtypeConstructorOrigin declaration
+    _ -> []
+
+dataConstructorType :: FcDataDecl -> FcDataConDecl -> TcType
+dataConstructorType declaration constructor =
+  foldr TcForAllTy body (universalTyVars <> existentialTyVars)
+  where
+    universalTyVars = fcDataTyVars declaration
+    fields = fcDataConFields constructor
+    existentialTyVars = filter (`notElem` universalTyVars) (freeRigidTyVarsOf fields)
+    result = TcTyCon (TyCon (fcDataName declaration) (length universalTyVars)) (map TcTyVar universalTyVars)
+    body = foldr TcFunTy result fields
+
+newtypeConstructorType :: FcNewtypeDecl -> TcType
+newtypeConstructorType declaration =
+  foldr TcForAllTy body (fcNewtypeTyVars declaration)
+  where
+    body = TcFunTy (fcNewtypeRepresentation declaration) (fcNewtypeResult declaration)
 
 -- The type checker does not yet attach an origin to all compiler-generated
 -- evidence references. Keep the prior last-definition fallback for those

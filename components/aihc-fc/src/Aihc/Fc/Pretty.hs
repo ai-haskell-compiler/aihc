@@ -82,11 +82,11 @@ renderTopBindWith symbols topBind =
   case topBind of
     FcExternal origin ty ->
       "external " <> renderOrigin origin <> " : " <> renderType ty
-    FcData name tyVars constructors ->
+    FcData declaration ->
       "data "
-        <> T.unpack name
-        <> concatMap (" " <>) (renderTyVarBinders [] tyVars)
-        <> renderConstructors tyVars constructors
+        <> renderDeclarationName symbols (fcDataOrigin declaration) (fcDataName declaration)
+        <> concatMap (" " <>) (renderTyVarBinders [] (fcDataTyVars declaration))
+        <> renderConstructors symbols (fcDataTyVars declaration) (fcDataConstructors declaration)
     FcAxiom declaration ->
       "axiom "
         <> T.unpack (fcAxiomName declaration)
@@ -97,12 +97,12 @@ renderTopBindWith symbols topBind =
         <> renderTypeWith (fcAxiomTyVars declaration) (fcAxiomRight declaration)
     FcNewtype declaration ->
       "newtype "
-        <> T.unpack (fcNewtypeName declaration)
+        <> renderDeclarationName symbols (fcNewtypeOrigin declaration) (fcNewtypeName declaration)
         <> concatMap (" " <>) (renderTyVarBinders [] (fcNewtypeTyVars declaration))
         <> " : "
         <> renderTypeWith (fcNewtypeTyVars declaration) (fcNewtypeResult declaration)
         <> " = "
-        <> T.unpack (fcNewtypeConstructor declaration)
+        <> renderDeclarationName symbols (fcNewtypeConstructorOrigin declaration) (fcNewtypeConstructor declaration)
         <> " "
         <> renderTypeAtomWith (fcNewtypeTyVars declaration) (fcNewtypeRepresentation declaration)
     FcPrimitive var arity ->
@@ -144,6 +144,7 @@ canonicalProgramBinds (FcProgram moduleId topBinds) =
     definedNames = Set.fromList (concatMap topBindDefinedNames definitions)
     localOrigins =
       Set.fromList [origin | topBind <- definitions, var <- topBindDefinedVars topBind, Just origin <- [varResolvedName var]]
+        <> Set.fromList (concatMap topBindDefinedOrigins definitions)
         <> Set.fromList
           [ origin
           | topBind <- definitions,
@@ -160,12 +161,19 @@ topBindDefinedNames :: FcTopBind -> [T.Text]
 topBindDefinedNames topBind =
   case topBind of
     FcExternal {} -> []
-    FcData _ _ constructors -> map fst constructors
+    FcData declaration -> map fcDataConName (fcDataConstructors declaration)
     FcAxiom {} -> []
     FcNewtype declaration -> [fcNewtypeConstructor declaration]
     FcPrimitive var _ -> [varName var]
     FcForeignImport {} -> []
     FcTopBind bind -> map varName (bindersOf bind)
+
+topBindDefinedOrigins :: FcTopBind -> [FcSymbolOrigin]
+topBindDefinedOrigins topBind =
+  case topBind of
+    FcData declaration -> fcDataOrigin declaration : map fcDataConOrigin (fcDataConstructors declaration)
+    FcNewtype declaration -> [fcNewtypeOrigin declaration, fcNewtypeConstructorOrigin declaration]
+    _ -> []
 
 topBindDefinedVars :: FcTopBind -> [Var]
 topBindDefinedVars topBind =
@@ -213,20 +221,27 @@ isLocalOrigin symbols origin =
       localPackage == packageName && localModule == moduleName
     _ -> False
 
-renderConstructors :: [TyVarId] -> [(T.Text, [TcType])] -> String
-renderConstructors _ [] = ""
-renderConstructors tyVars constructors =
+renderConstructors :: RenderSymbols -> [TyVarId] -> [FcDataConDecl] -> String
+renderConstructors _ _ [] = ""
+renderConstructors symbols tyVars constructors =
   "\n" <> intercalate "\n" (zipWith renderConstructor (" = " : repeat " | ") constructors)
   where
-    renderConstructor prefix (name, fields) =
+    renderConstructor prefix declaration =
       prefix
         <> renderExistentials fields
-        <> T.unpack name
+        <> renderDeclarationName symbols (fcDataConOrigin declaration) (fcDataConName declaration)
         <> concatMap (\field -> " (" <> renderTypeWith (tyVars <> freeRigidTyVarsOf fields) field <> ")") fields
+      where
+        fields = fcDataConFields declaration
     renderExistentials fields =
       case filter (`notElem` tyVars) (freeRigidTyVarsOf fields) of
         [] -> ""
         existentialTyVars -> "∀ " <> unwords (renderTyVarBinders tyVars existentialTyVars) <> ". "
+
+renderDeclarationName :: RenderSymbols -> FcSymbolOrigin -> T.Text -> String
+renderDeclarationName symbols origin declarationName
+  | isLocalOrigin symbols origin = T.unpack declarationName
+  | otherwise = renderOrigin origin
 
 renderAxiomRole :: FcAxiomRole -> String
 renderAxiomRole role =

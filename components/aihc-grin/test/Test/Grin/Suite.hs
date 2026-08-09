@@ -898,7 +898,7 @@ prepareEvalProgram name program@(FcProgram _ topBinds) =
               wrapperType = TcTyCon (TyCon "__AihcEvalResultType" 0) []
               constructorVar = Var constructorName (Unique (-1000000)) (TcFunTy (varType var) wrapperType)
               wrappedVar = var {varType = wrapperType}
-              declaration = FcData "__AihcEvalResultType" [] [(constructorName, [varType var])]
+              declaration = fcData "__AihcEvalResultType" [] [(constructorName, [varType var])]
               wrappedBinding = FcTopBind (FcNonRec wrappedVar (FcApp (FcVar constructorVar) rhs))
           Right
             ( FcProgram (fcProgramModule program) (declaration : before <> (wrappedBinding : after)),
@@ -983,7 +983,7 @@ applicationProgram :: FcProgram
 applicationProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+    [ fcData "BoxedInt" [] [("BoxedInt", [intTy])],
       FcTopBind
         ( FcNonRec
             answerVar
@@ -1043,7 +1043,7 @@ hiddenLambdaProgram :: FcExpr -> FcProgram
 hiddenLambdaProgram aliasRhs =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "Holder" [] [("Holder", [binaryFunctionTy])],
+    [ fcData "Holder" [] [("Holder", [binaryFunctionTy])],
       FcTopBind
         ( FcNonRec
             dictionaryVar
@@ -1092,7 +1092,7 @@ sharedForcedLetProgram :: FcProgram
 sharedForcedLetProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "FunctionPair" [] [("FunctionPair", [unaryFunctionTy, unaryFunctionTy])],
+    [ fcData "FunctionPair" [] [("FunctionPair", [unaryFunctionTy, unaryFunctionTy])],
       FcTopBind
         ( FcNonRec
             ownerVar
@@ -1123,7 +1123,7 @@ unboxedApplicationProgram :: FcProgram
 unboxedApplicationProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+    [ fcData "BoxedInt" [] [("BoxedInt", [intTy])],
       FcTopBind
         ( FcNonRec
             answerVar
@@ -1142,7 +1142,7 @@ shadowingProgram :: FcProgram
 shadowingProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+    [ fcData "BoxedInt" [] [("BoxedInt", [intTy])],
       FcTopBind
         ( FcNonRec
             answerVar
@@ -1161,7 +1161,7 @@ cafReferenceProgram :: FcProgram
 cafReferenceProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+    [ fcData "BoxedInt" [] [("BoxedInt", [intTy])],
       FcTopBind
         ( FcNonRec
             sourceVar
@@ -1182,7 +1182,7 @@ staticConstructorProgram :: FcProgram
 staticConstructorProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+    [ fcData "BoxedInt" [] [("BoxedInt", [intTy])],
       FcTopBind
         ( FcNonRec
             sourceVar
@@ -1349,7 +1349,7 @@ zeroWidthConstructorProgram :: FcProgram
 zeroWidthConstructorProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "StateBox" [] [("StateBox", [stateTy, boxedIntTy])],
+    [ fcData "StateBox" [] [("StateBox", [stateTy, boxedIntTy])],
       FcTopBind
         ( FcNonRec
             partialVar
@@ -1367,7 +1367,7 @@ functionClassificationProgram :: FcProgram
 functionClassificationProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+    [ fcData "BoxedInt" [] [("BoxedInt", [intTy])],
       FcTopBind
         ( FcNonRec
             directVar
@@ -1403,7 +1403,7 @@ knownFunctionWrapperProgram :: Bool -> FcProgram
 knownFunctionWrapperProgram isEtaExpansion =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "Applicative" [] [("$Dict$Applicative", [unaryFunctionTy])],
+    [ fcData "Applicative" [] [("$Dict$Applicative", [unaryFunctionTy])],
       FcTopBind
         ( FcNonRec
             pureIoVar
@@ -1436,8 +1436,8 @@ dictionaryProgram :: FcProgram
 dictionaryProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "Box" [] [("Box", [intTy])],
-      FcData "Test" [] [("$Dict$Test", [boxedIntTy, boxedIntTy])],
+    [ fcData "Box" [] [("Box", [intTy])],
+      fcData "Test" [] [("$Dict$Test", [boxedIntTy, boxedIntTy])],
       FcTopBind
         ( FcNonRec
             answerVar
@@ -1463,7 +1463,7 @@ exceptionProgram :: FcProgram
 exceptionProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "BoxedInt" [] [("BoxedInt", [intTy])],
+    [ fcData "BoxedInt" [] [("BoxedInt", [intTy])],
       FcPrimitive raiseVar 1,
       FcPrimitive catchVar 3,
       FcTopBind (FcNonRec answerVar (FcApp (FcVar boxConstructorVar) caughtExpression))
@@ -2279,7 +2279,7 @@ foreignProgram :: FcProgram
 foreignProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "BoxedInt32" [] [("BoxedInt32", [int32Ty])],
+    [ fcData "BoxedInt32" [] [("BoxedInt32", [int32Ty])],
       FcForeignImport foreignCall,
       FcTopBind
         ( FcNonRec
@@ -2292,7 +2292,7 @@ undersaturatedForeignProgram :: FcProgram
 undersaturatedForeignProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "BoxedInt32" [] [("BoxedInt32", [int32Ty])],
+    [ fcData "BoxedInt32" [] [("BoxedInt32", [int32Ty])],
       FcForeignImport foreignCall,
       FcTopBind (FcNonRec foreignAnswerVar (FcApp (FcVar foreignBoxConstructorVar) (FcCallForeign foreignCall [])))
     ]
@@ -2323,7 +2323,7 @@ saturatedConstructorProgram :: FcProgram
 saturatedConstructorProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "Int32" [] [("I32#", [int32Ty])],
+    [ fcData "Int32" [] [("I32#", [int32Ty])],
       FcTopBind
         ( FcNonRec
             int32WrapperVar
@@ -2338,7 +2338,7 @@ tailStoredTupleProgram :: FcProgram
 tailStoredTupleProgram =
   FcProgram
     (FcModuleId "test" "Test")
-    [ FcData "Box" [] [("Box", [intTy])],
+    [ fcData "Box" [] [("Box", [intTy])],
       FcPrimitive tailStoredStateVar 0,
       FcTopBind
         ( FcNonRec
@@ -2386,7 +2386,7 @@ int32ArgumentVar = Var "value" (Unique 62) int32Ty
 
 separateConstructorPrograms :: [FcProgram]
 separateConstructorPrograms =
-  [ FcProgram (FcModuleId "test" "Test") [FcData "Int32" [] [("I32#", [int32Ty])]],
+  [ FcProgram (FcModuleId "test" "Test") [fcData "Int32" [] [("I32#", [int32Ty])]],
     FcProgram
       (FcModuleId "test" "Test")
       [ FcTopBind
@@ -2458,7 +2458,7 @@ separateBuiltinUnitPrograms :: [FcProgram]
 separateBuiltinUnitPrograms =
   [ FcProgram
       (FcModuleId "aihc-prim" "GHC.Tuple")
-      [ FcData "Unit" [] [("()", [])]
+      [ FcData (FcDataDecl (FcBuiltinOrigin "Unit") "Unit" [] [FcDataConDecl (FcBuiltinOrigin "()") "()" []])
       ],
     FcProgram
       (FcModuleId "" "Main")
@@ -2480,8 +2480,10 @@ separateNewtypePrograms =
   where
     declaration =
       FcNewtypeDecl
-        { fcNewtypeName = "Wrapper",
+        { fcNewtypeOrigin = FcTopLevelOrigin "test" "Test" "Wrapper",
+          fcNewtypeName = "Wrapper",
           fcNewtypeTyVars = [],
+          fcNewtypeConstructorOrigin = FcTopLevelOrigin "test" "Test" "Wrap",
           fcNewtypeConstructor = "Wrap",
           fcNewtypeRepresentation = intTy,
           fcNewtypeResult = wrapperTy
@@ -2511,3 +2513,15 @@ processExitProgram =
             }
         ]
     }
+
+fcData :: Text -> [TyVarId] -> [(Text, [TcType])] -> FcTopBind
+fcData dataName tyVars constructors =
+  FcData
+    ( FcDataDecl
+        (testOrigin dataName)
+        dataName
+        tyVars
+        [FcDataConDecl (testOrigin constructorName) constructorName fields | (constructorName, fields) <- constructors]
+    )
+  where
+    testOrigin = FcTopLevelOrigin "test" "Test"
