@@ -155,33 +155,39 @@ main =
           testCase "parses install package" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False [] False InstallErrorsHuman)))
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False False False [] False InstallErrorsHuman)))
               (parseCommandPure ["install", "text"]),
           testCase "parses install version" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False False [] False InstallErrorsHuman)))
+              (Right (CmdInstall (InstallOptions "text" (Just "2.1") Nothing False False False False [] False InstallErrorsHuman)))
               (parseCommandPure ["install", "text", "--version", "2.1"]),
           testCase "parses install offline and store" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True False [] False InstallErrorsHuman)))
+              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") True False False False [] False InstallErrorsHuman)))
               (parseCommandPure ["install", "text", "--offline", "--store", "/tmp/aihc-store"]),
           testCase "parses install dry run" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False True [] False InstallErrorsHuman)))
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False True False False [] False InstallErrorsHuman)))
               (parseCommandPure ["install", "text", "--dry-run"]),
           testCase "parses first error module and JSON errors" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False [] True InstallErrorsJson)))
+              (Right (CmdInstall (InstallOptions "text" Nothing Nothing False False False False [] True InstallErrorsJson)))
               (parseCommandPure ["install", "text", "--first-error-module", "--json-errors"]),
           testCase "parses install targets" $
             assertEqual
               "command"
-              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") False False [Llvm, Wasm32Wasip3] False InstallErrorsHuman)))
+              (Right (CmdInstall (InstallOptions "text" Nothing (Just "/tmp/aihc-store") False False False False [Llvm, Wasm32Wasip3] False InstallErrorsHuman)))
               (parseCommandPure ["install", "text", "--store", "/tmp/aihc-store", "--target", "llvm", "--target", "wasm32-wasip3"]),
+          testCase "parses install keep-core and keep-grin" $
+            case parseCommandPure ["install", "text", "--target", "llvm", "--keep-core", "--keep-grin"] of
+              Right (CmdInstall options) -> do
+                assertBool "keeps Core" (installKeepCore options)
+                assertBool "keeps GRIN" (installKeepGrin options)
+              result -> assertFailure ("expected install options, got: " <> show result),
           testCase "rejects explicit dependency variants" $
             assertLeftContains "dependency" (parseCommandPure ["install", "a", "--dependency", "b=1.0.0:abcdef"]),
           testCase "parses repl" $
@@ -330,6 +336,7 @@ main =
           testCase "plans library components without executables" test_plansLibraryComponentsWithoutExecutables,
           testCase "writes scaffold artifacts" test_writeInstallScaffold,
           testCase "writes dependency scaffold artifacts first" test_writeInstallScaffoldWritesDependencies,
+          testCase "keeps selected library intermediate files" test_keepsLibraryIntermediateFiles,
           testCase "reports parse errors and writes no artifacts" test_reportsParseErrorsAndWritesNoArtifacts,
           testCase "reports rename errors and writes no artifacts" test_reportsRenameErrorsAndWritesNoArtifacts,
           testCase "renders preprocessed source for rename errors" test_rendersPreprocessedSourceForRenameErrors,
@@ -557,6 +564,32 @@ test_writeInstallScaffoldWritesDependencies =
     assertFileExists (planStorePath dependencyPlan </> "interfaces" </> "package-interface.json")
     assertFileExists (planStorePath dependencyPlan </> "fc" </> "package-fc.json")
 
+test_keepsLibraryIntermediateFiles :: Assertion
+test_keepsLibraryIntermediateFiles =
+  withTempDir "aihc-library-intermediates" $ \root -> do
+    let sourceRoot = root </> "source"
+        storeRoot = root </> "store"
+    createFixturePackage sourceRoot "demo" "0.1.0.0" "Demo" []
+    createDirectoryIfMissing True storeRoot
+    plan <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
+    initialResult <- installPackageLibraries [Llvm] False False plan
+    artifactRoot <- either assertFailure pure initialResult
+    let corePath = artifactRoot </> "core" </> "demo" </> "Demo.core"
+        grinPath = artifactRoot </> "grin" </> "demo" </> "Demo.grin"
+        cpsGrinPath = artifactRoot </> "grin" </> "demo" </> "Demo.cps.grin"
+        gcGrinPath = artifactRoot </> "grin" </> "demo" </> "Demo.gc.grin"
+    assertFileDoesNotExist corePath
+    assertFileDoesNotExist grinPath
+    coreResult <- installPackageLibraries [Llvm] True False plan
+    either assertFailure (assertEqual "Core artifact root" artifactRoot) coreResult
+    assertFileExists corePath
+    assertFileDoesNotExist grinPath
+    grinResult <- installPackageLibraries [Llvm] False True plan
+    either assertFailure (assertEqual "GRIN artifact root" artifactRoot) grinResult
+    assertFileExists grinPath
+    assertFileExists cpsGrinPath
+    assertFileExists gcGrinPath
+
 test_reportsParseErrorsAndWritesNoArtifacts :: Assertion
 test_reportsParseErrorsAndWritesNoArtifacts =
   withTempDir "aihc-cli" $ \root -> do
@@ -668,7 +701,7 @@ test_rendersPreprocessedSourceForRenameErrors =
 
 defaultInstallOptionsForTest :: InstallOptions
 defaultInstallOptionsForTest =
-  InstallOptions "demo" Nothing Nothing False False [] False InstallErrorsHuman
+  InstallOptions "demo" Nothing Nothing False False False False [] False InstallErrorsHuman
 
 syntheticInstallFailure :: InstallFailure
 syntheticInstallFailure =
@@ -1080,7 +1113,7 @@ test_installedPackage =
           ]
       )
     plan <- buildPackagePlanFromSource storeRoot (PackageSpec "prim-fixture" "0.1.0.0") sourceRoot
-    installResult <- installPackageLibraries [Llvm] plan
+    installResult <- installPackageLibraries [Llvm] False False plan
     case installResult of
       Left err -> assertFailure err
       Right _ -> pure ()

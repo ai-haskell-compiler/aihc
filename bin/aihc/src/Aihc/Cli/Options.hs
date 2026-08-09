@@ -60,6 +60,8 @@ data InstallOptions = InstallOptions
     installStoreRoot :: !(Maybe FilePath),
     installOffline :: !Bool,
     installDryRun :: !Bool,
+    installKeepCore :: !Bool,
+    installKeepGrin :: !Bool,
     installTargets :: ![NativeTarget],
     installFirstErrorModule :: !Bool,
     installErrorFormat :: !InstallErrorFormat
@@ -262,6 +264,14 @@ installOptionsParser =
     <*> OA.switch
       ( OA.long "dry-run"
           <> OA.help "Plan the install without writing store artifacts or package cache files"
+      )
+    <*> OA.switch
+      ( OA.long "keep-core"
+          <> OA.help "Keep the generated System FC core in the library cache"
+      )
+    <*> OA.switch
+      ( OA.long "keep-grin"
+          <> OA.help "Keep the generated GRIN in the library cache"
       )
     <*> many nativeTargetOption
     <*> OA.switch
