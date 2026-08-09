@@ -56,5 +56,9 @@ jobs:
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
+      - name: Free self-hosted Nix store space
+        if: needs.select-runner.outputs.use_self_hosted == 'true'
+        run: nix store gc
+
       - name: Run flake checks
         run: nix flake check
