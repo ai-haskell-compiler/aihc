@@ -18,7 +18,6 @@ where
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Subst (substType)
-import Aihc.Fc.Subst qualified as Fc
 import Aihc.Fc.Syntax
 import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Anf (normalizeGrinProgram)
@@ -32,7 +31,7 @@ import Aihc.Tc.Types
   )
 import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
-import Data.List (find, mapAccumL)
+import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -131,9 +130,9 @@ linkNamesForProgram libraryId moduleNameComponents program =
           ],
       grinConstructorNames =
         Map.fromList
-          [ (constructorSourceName name, (name, length fields))
-          | FcData _ _ constructors <- fcTopBinds program,
-            (name, fields) <- constructors
+          [ (fcSymbolOriginText (fcDataConOrigin constructor), (fcDataConName constructor, length (fcDataConFields constructor)))
+          | FcData declaration <- fcTopBinds program,
+            constructor <- fcDataConstructors declaration
           ]
     }
   where
@@ -166,31 +165,6 @@ linkNamesForProgram libraryId moduleNameComponents program =
     sourceSymbolName symbolName =
       (if packageIdentity == "" then "" else packageIdentity <> ":")
         <> T.intercalate "." (moduleNameComponents <> [symbolName])
-    constructorSourceName constructorName =
-      case matchingOrigins constructorName of
-        [origin] -> fcSymbolOriginText origin
-        origins ->
-          maybe
-            (sourceSymbolName constructorName)
-            fcSymbolOriginText
-            (findProgramOrigin origins)
-    matchingOrigins constructorName =
-      Set.toList
-        ( Set.fromList
-            [ origin
-            | var <- Fc.programVars program,
-              Just origin@FcTopLevelOrigin {} <- [varResolvedName var],
-              fcOriginName origin == constructorName || varName var == constructorName
-            ]
-        )
-    findProgramOrigin =
-      find
-        ( \case
-            FcTopLevelOrigin packageName moduleName _ ->
-              packageName == fcModulePackage (fcProgramModule program)
-                && moduleName == fcModuleName (fcProgramModule program)
-            FcBuiltinOrigin {} -> False
-        )
     packageIdentity =
       fromMaybe
         ""
@@ -370,8 +344,8 @@ lowerTopBind :: FcTopBind -> LowerM LoweredTop
 lowerTopBind topBind =
   case topBind of
     FcExternal {} -> pure mempty
-    FcData _ _ constructors ->
-      pure mempty {loweredConstructors = [(name, map (runtimeRepComponents . typeRuntimeRep) fields) | (name, fields) <- constructors]}
+    FcData declaration ->
+      pure mempty {loweredConstructors = [(fcDataConName constructor, map (runtimeRepComponents . typeRuntimeRep) (fcDataConFields constructor)) | constructor <- fcDataConstructors declaration]}
     FcAxiom {} ->
       pure mempty
     FcNewtype {} ->
@@ -1712,9 +1686,9 @@ programVars program = concatMap topVars (fcTopBinds program)
 
 programConstructors :: FcProgram -> [(Text, Int)]
 programConstructors program =
-  [ (name, length fields)
-  | FcData _ _ constructors <- fcTopBinds program,
-    (name, fields) <- constructors
+  [ (fcDataConName constructor, length (fcDataConFields constructor))
+  | FcData declaration <- fcTopBinds program,
+    constructor <- fcDataConstructors declaration
   ]
 
 programGlobalInfos :: GrinLinkNames -> FcProgram -> [(Var, Text, Text, Bool)]

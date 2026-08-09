@@ -248,7 +248,7 @@ buildProgramEnv program = do
     topValueBindings _ = []
 
     directTopBindings (FcPrimitive var arity) = [(varName var, VPrim (varName var) arity [])]
-    directTopBindings (FcData _ _ constructors) = [(conName, VConstructor conName []) | (conName, _) <- constructors]
+    directTopBindings (FcData declaration) = [(fcDataConName constructor, VConstructor (fcDataConName constructor) []) | constructor <- fcDataConstructors declaration]
     directTopBindings _ = []
 
 evalExpr :: FcExpr -> IO (Either EvalError Value)

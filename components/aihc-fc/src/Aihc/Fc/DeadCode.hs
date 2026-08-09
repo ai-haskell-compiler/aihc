@@ -135,7 +135,7 @@ keepTopBind :: Map Text (Int, References) -> Map Text (Int, References) -> Set T
 keepTopBind valueDefinitions typeDefinitions values types index topBind =
   case topBind of
     FcExternal {} -> True
-    FcData name _ _ -> selectedType name
+    FcData declaration -> selectedType (fcDataName declaration)
     FcAxiom declaration -> selectedType (fcAxiomName declaration)
     FcNewtype declaration -> selectedType (fcNewtypeName declaration)
     _ -> any selectedValue [name | (name, _) <- valueDefinitionsOf topBind]
@@ -157,7 +157,7 @@ valueDefinitionsOf topBind =
 typeDefinitionsOf :: FcTopBind -> [(Text, References)]
 typeDefinitionsOf topBind =
   case topBind of
-    FcData name _ constructors -> [(name, foldMap (foldMap referencesType . snd) constructors)]
+    FcData declaration -> [(fcDataName declaration, foldMap (foldMap referencesType . fcDataConFields) (fcDataConstructors declaration))]
     FcAxiom declaration ->
       [ ( fcAxiomName declaration,
           referencesType (fcAxiomLeft declaration)
@@ -175,7 +175,7 @@ typeDefinitionsOf topBind =
 typeConstructorsOf :: FcTopBind -> [(Text, [Text])]
 typeConstructorsOf topBind =
   case topBind of
-    FcData name _ constructors -> [(name, map fst constructors)]
+    FcData declaration -> [(fcDataName declaration, map fcDataConName (fcDataConstructors declaration))]
     FcAxiom {} -> []
     FcNewtype declaration -> [(fcNewtypeName declaration, [fcNewtypeConstructor declaration])]
     _ -> []

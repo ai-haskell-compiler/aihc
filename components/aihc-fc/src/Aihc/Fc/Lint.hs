@@ -94,18 +94,22 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
         env0 {leAxioms = leAxioms env0 <> imported <> extractAxiomInterface prog}
         (fcTopBinds prog)
 
-    registerDeclaration (FcData typeName tyVars constructors) env =
+    registerDeclaration (FcData declaration) env =
       env
         { leDataCons =
             foldr
-              ( \(constructor, fields) ->
-                  let existentialVariables = filter (`notElem` tyVars) (freeRigidTyVarsOf fields)
-                   in Map.insert constructor (tyVars <> existentialVariables, fields, resultType)
+              ( \constructor ->
+                  let fields = fcDataConFields constructor
+                      existentialVariables = filter (`notElem` tyVars) (freeRigidTyVarsOf fields)
+                   in Map.insert (fcDataConName constructor) (tyVars <> existentialVariables, fields, resultType)
               )
               (leDataCons env)
               constructors
         }
       where
+        typeName = fcDataName declaration
+        tyVars = fcDataTyVars declaration
+        constructors = fcDataConstructors declaration
         resultType = TcTyCon (TyCon typeName (length tyVars)) (map TcTyVar tyVars)
     registerDeclaration (FcForeignImport foreignCall) env =
       env {leForeignCalls = Map.insert (fcForeignCallName foreignCall) foreignCall (leForeignCalls env)}

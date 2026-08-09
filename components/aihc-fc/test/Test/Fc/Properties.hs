@@ -127,7 +127,7 @@ prop_localSignatures = property $ do
       program =
         FcProgram
           (FcModuleId "pkg" "Module")
-          [ FcData "Bool" [] [("True", [])],
+          [ FcData (FcDataDecl (FcTopLevelOrigin "pkg" "Module" "Bool") "Bool" [] [FcDataConDecl origin "True" []]),
             FcTopBind (FcNonRec result (FcVar constructor))
           ]
       rendered = T.pack (renderProgram program)
@@ -160,7 +160,7 @@ genProgram = FcProgram (FcModuleId "test" "Test") <$> smallList genTopBind
 genTopBind :: Gen FcTopBind
 genTopBind =
   Gen.choice
-    [ FcData <$> genTypeName <*> smallList genTyVar <*> smallList genDataConstructor,
+    [ FcData <$> genDataDecl,
       FcAxiom <$> genAxiomDecl,
       FcNewtype <$> genNewtypeDecl,
       FcPrimitive <$> genVar <*> genInt,
@@ -168,8 +168,15 @@ genTopBind =
       FcTopBind <$> genBindWith genExpr
     ]
 
-genDataConstructor :: Gen (Text, [TcType])
-genDataConstructor = (,) <$> genTypeName <*> smallList genType
+genDataDecl :: Gen FcDataDecl
+genDataDecl = do
+  dataName <- genTypeName
+  FcDataDecl (testOrigin dataName) dataName <$> smallList genTyVar <*> smallList genDataConstructor
+
+genDataConstructor :: Gen FcDataConDecl
+genDataConstructor = do
+  constructorName <- genTypeName
+  FcDataConDecl (testOrigin constructorName) constructorName <$> smallList genType
 
 genAxiomDecl :: Gen FcAxiomDecl
 genAxiomDecl =
@@ -182,12 +189,20 @@ genAxiomDecl =
 
 genNewtypeDecl :: Gen FcNewtypeDecl
 genNewtypeDecl =
-  FcNewtypeDecl
-    <$> genTypeName
-    <*> smallList genTyVar
-    <*> genTypeName
-    <*> genType
-    <*> genType
+  do
+    newtypeName <- genTypeName
+    constructorName <- genTypeName
+    FcNewtypeDecl
+      (testOrigin newtypeName)
+      newtypeName
+      <$> smallList genTyVar
+      <*> pure (testOrigin constructorName)
+      <*> pure constructorName
+      <*> genType
+      <*> genType
+
+testOrigin :: Text -> FcSymbolOrigin
+testOrigin = FcTopLevelOrigin "test" "Test"
 
 genForeignCall :: Gen FcForeignCall
 genForeignCall = FcForeignCall <$> genVarName <*> genLiteralText <*> genForeignSignature
