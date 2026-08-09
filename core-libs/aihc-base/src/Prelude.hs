@@ -97,7 +97,7 @@ import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
-import GHC.Prim (chr#, int2Word#, ord#, seq, word2Int#, (+#), (<#), (==#))
+import GHC.Prim (chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, (+#), (<#), (==#))
 import GHC.Real
   ( Fractional (..),
     Integral (..),
@@ -485,7 +485,10 @@ instance Show Bool where
   showsPrec _ True = showString "True"
 
 instance Show Int where
-  showsPrec precedence (I# value) = showsSignedInteger precedence (IS value)
+  showsPrec precedence (I# value) =
+    case (<#) value 0# of
+      0# -> showsUnsignedInt (int2Word# value)
+      _ -> showParen (precedence > 6) (showChar '-' . showsUnsignedInt (minusWord# (int2Word# 0#) (int2Word# value)))
 
 instance Show Integer where
   showsPrec = showsSignedInteger
@@ -549,6 +552,14 @@ showsUnsignedInteger value suffix =
       case eqInteger# quotient (IS 0#) of
         1# -> digitChar remainder : suffix
         _ -> showsUnsignedInteger quotient (digitChar remainder : suffix)
+
+showsUnsignedInt :: Word# -> ShowS
+showsUnsignedInt value suffix =
+  case quotRemWord# value (int2Word# 10#) of
+    (# quotient, remainder #) ->
+      case eqWord# quotient (int2Word# 0#) of
+        1# -> digitChar remainder : suffix
+        _ -> showsUnsignedInt quotient (digitChar remainder : suffix)
 
 digitChar :: Word# -> Char
 digitChar digit = C# (chr# ((+#) (word2Int# digit) 48#))
