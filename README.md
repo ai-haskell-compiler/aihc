@@ -17,12 +17,12 @@ Find more information here:
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
 | TypeCheck Stackage | <!-- AUTO-GENERATED: START tc-stackage-progress --> `84/3427` (`2.45%`) ○○○○○ <!-- AUTO-GENERATED: END tc-stackage-progress -->             |
-| Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `241/3427` (`7.03%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
+| Resolve Stackage   | <!-- AUTO-GENERATED: START resolve-stackage-progress --> `244/3427` (`7.12%`) ○○○○○ <!-- AUTO-GENERATED: END resolve-stackage-progress -->  |
 | aihc-prim / ghc-prim | <!-- AUTO-GENERATED: START ghc-prim-progress --> `52/3425` (`1.52%`) ○○○○○ <!-- AUTO-GENERATED: END ghc-prim-progress -->                    |
-| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `450/10057` (`4.47%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
+| aihc-base / base   | <!-- AUTO-GENERATED: START base-progress --> `465/10057` (`4.62%`) ○○○○○ <!-- AUTO-GENERATED: END base-progress -->                             |
 | &nbsp; | &nbsp; |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `29/39` (`74.35%`) ●●●○○ <!-- AUTO-GENERATED: END tc-progress -->                                |
-| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `46/47` (`97.87%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
+| Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `47/48` (`97.91%`) ●●●●○ <!-- AUTO-GENERATED: END resolve-progress -->                      |
 
 ## Lines of code
 
@@ -30,16 +30,16 @@ Find more information here:
 ```
 | Component    |   Code |   Tests |   Total |
 |--------------|--------|---------|---------|
-| aihc-amd64   |   2175 |     833 |    3008 |
-| aihc-arm64   |   2066 |     917 |    2983 |
-| aihc-fc      |   5953 |    1599 |    7552 |
-| aihc-grin    |   5692 |    2517 |    8209 |
-| aihc-llvm    |   1877 |     454 |    2331 |
-| aihc-native  |   3312 |     389 |    3701 |
-| aihc-resolve |   2499 |    1748 |    4247 |
-| aihc-tc      |   8876 |    3428 |   12304 |
-| aihc-wasm    |   2139 |     717 |    2856 |
-| **Total**    |  34589 |   12602 |   47191 |
+| aihc-amd64   |   2158 |     833 |    2991 |
+| aihc-arm64   |   2049 |     920 |    2969 |
+| aihc-fc      |   7131 |    2192 |    9323 |
+| aihc-grin    |   5811 |    2649 |    8460 |
+| aihc-llvm    |   1889 |     454 |    2343 |
+| aihc-native  |   3392 |     471 |    3863 |
+| aihc-resolve |   2504 |    1763 |    4267 |
+| aihc-tc      |   8891 |    3442 |   12333 |
+| aihc-wasm    |   2151 |     720 |    2871 |
+| **Total**    |  35976 |   13444 |   49420 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
