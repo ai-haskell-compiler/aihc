@@ -41,12 +41,13 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 
-finalizeDerivingModulesTc :: [Module] -> TcM [Module]
-finalizeDerivingModulesTc modules = do
+finalizeDerivingModulesTc :: [(Text, Text)] -> [Module] -> TcM [Module]
+finalizeDerivingModulesTc moduleOrigins modules = do
   existingInstances <- getInstances
   let originalPlans = concatMap moduleDerivingPlans modules
+      originalOrigins = concat (zipWith (\origin modu -> replicate (length (moduleDerivingPlans modu)) origin) moduleOrigins modules)
   contextPlans <- mapM (inferPlanContext existingInstances originalPlans) originalPlans
-  let derivedInstances = mapMaybe derivingPlanInstanceInfo contextPlans
+  let derivedInstances = mapMaybe (uncurry derivingPlanInstanceInfoWithOrigin) (zip originalOrigins contextPlans)
   mapM_ addInstance derivedInstances
   evidencePlans <- mapM attachDerivingEvidence contextPlans
   pure (map (replaceModulePlans evidencePlans) modules)
@@ -236,7 +237,11 @@ instantiatedDefaultSignaturePredicates plan =
         ]
 
 derivingPlanInstanceInfo :: TcDerivingPlan -> Maybe InstanceInfo
-derivingPlanInstanceInfo plan =
+derivingPlanInstanceInfo =
+  derivingPlanInstanceInfoWithOrigin ("", "")
+
+derivingPlanInstanceInfoWithOrigin :: (Text, Text) -> TcDerivingPlan -> Maybe InstanceInfo
+derivingPlanInstanceInfoWithOrigin origin plan =
   case (tcDerivingStrategy plan, tcDerivingContext plan) of
     (strategy, TcDerivingExplicitContext context)
       | strategy == TcDerivingAnyclass || isValidStockEqPlan plan ->
@@ -244,6 +249,7 @@ derivingPlanInstanceInfo plan =
             InstanceInfo
               { iiClassName = tcDerivingClassName plan,
                 iiDictName = tcDerivingDictName plan,
+                iiDictOrigin = Just origin,
                 iiDictType = foldr TcForAllTy (TcQualTy context (predType (planPredicate plan))) (tcDerivingTyVars plan),
                 iiTyVars = tcDerivingTyVars plan,
                 iiContext = context,

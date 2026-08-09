@@ -29,7 +29,7 @@ maximumProgramUnique = maximum . (0 :) . map uniqueInt . programVars
 
 -- | All term variables in a program, including nested binders and occurrences.
 programVars :: FcProgram -> [Var]
-programVars (FcProgram topBinds) = concatMap topBindVars topBinds
+programVars (FcProgram _ topBinds) = concatMap topBindVars topBinds
   where
     topBindVars topBind =
       case topBind of

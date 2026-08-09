@@ -48,7 +48,7 @@ instance Monoid ReachabilityInterface where
   mempty = ReachabilityInterface Map.empty Set.empty
 
 extractReachabilityInterface :: FcProgram -> ReachabilityInterface
-extractReachabilityInterface (FcProgram topBinds) =
+extractReachabilityInterface (FcProgram _ topBinds) =
   ReachabilityInterface
     { reachabilityValueEdges =
         Map.fromList
@@ -75,8 +75,9 @@ reachablePrimitiveNames entry interface =
 -- the named entry point. The input is expected to be the combined program so
 -- references can cross module and package boundaries.
 eliminateDeadCode :: Text -> FcProgram -> FcProgram
-eliminateDeadCode entry (FcProgram topBinds) =
+eliminateDeadCode entry (FcProgram moduleId topBinds) =
   FcProgram
+    moduleId
     [ topBind
     | (index, topBind) <- indexedTopBinds,
       keepTopBind valueDefinitions typeDefinitions reachableValues reachableTypes index topBind
@@ -102,7 +103,16 @@ eliminateDeadCode entry (FcProgram topBinds) =
           (name, constructors) <- typeConstructorsOf topBind,
           constructor <- constructors
         ]
-    (reachableValues, reachableTypes) = closeReachable valueDefinitions typeDefinitions constructorOwners (Set.singleton entry) Set.empty
+    entryNames =
+      [ varName var
+      | topBind <- topBinds,
+        var <- topBindersOf topBind,
+        sourceName var == entry
+      ]
+    initialValues = Set.fromList (if null entryNames then [entry] else entryNames)
+    (reachableValues, reachableTypes) = closeReachable valueDefinitions typeDefinitions constructorOwners initialValues Set.empty
+
+    sourceName var = maybe (varName var) fcOriginName (varResolvedName var)
 
 closeReachable :: Map Text (Int, References) -> Map Text (Int, References) -> Map Text Text -> Set Text -> Set Text -> (Set Text, Set Text)
 closeReachable valueDefinitions typeDefinitions constructorOwners values types =
@@ -124,7 +134,6 @@ definitionReferences definitions name = maybe mempty snd (Map.lookup name defini
 keepTopBind :: Map Text (Int, References) -> Map Text (Int, References) -> Set Text -> Set Text -> Int -> FcTopBind -> Bool
 keepTopBind valueDefinitions typeDefinitions values types index topBind =
   case topBind of
-    FcModule {} -> True
     FcExternal {} -> True
     FcData name _ _ -> selectedType name
     FcAxiom declaration -> selectedType (fcAxiomName declaration)
@@ -137,7 +146,6 @@ keepTopBind valueDefinitions typeDefinitions values types index topBind =
 valueDefinitionsOf :: FcTopBind -> [(Text, References)]
 valueDefinitionsOf topBind =
   case topBind of
-    FcModule {} -> []
     FcExternal {} -> []
     FcPrimitive var _ -> [(varName var, referencesVarType var)]
     FcForeignImport foreignCall -> [(fcForeignCallName foreignCall, mempty)]
@@ -177,6 +185,13 @@ bindersOf bind =
   case bind of
     FcNonRec var _ -> [var]
     FcRec bindings -> map fst bindings
+
+topBindersOf :: FcTopBind -> [Var]
+topBindersOf topBind =
+  case topBind of
+    FcPrimitive var _ -> [var]
+    FcTopBind bind -> bindersOf bind
+    _ -> []
 
 referencesTopLevelBind :: FcBind -> References
 referencesTopLevelBind bind =

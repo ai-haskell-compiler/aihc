@@ -1,0 +1,40 @@
+extensions: []
+modules:
+- |
+  module GHC.Base where
+  data Box a = Box a
+  (>>=) (Box value) next = next value
+- |
+  module Test where
+  import GHC.Base
+  run action = do
+    value <- action
+    Box value
+expected: |-
+  module GHC.Base where
+
+  data Box (a : TYPE BoxedRep Lifted)
+   = Box (a)
+
+  >>= : ∀ (a : TYPE BoxedRep Lifted) (b : TYPE BoxedRep Lifted). (Box a) → (a → b) → b =
+    Λ(a : TYPE BoxedRep Lifted).
+      Λ(b : TYPE BoxedRep Lifted).
+        λ(x1001 : Box a).
+          λ(y1002 : a → b).
+            case x1001 as (_scrut : Box a) of {
+              Box (value : a) →
+                y1002 value
+            }
+  module Test where
+
+  external GHC.Base.>>= : ∀ (a : TYPE BoxedRep Lifted) (b : TYPE BoxedRep Lifted). (Box a) → (a → b) → b
+
+  external GHC.Base.Box : ∀ (a : TYPE BoxedRep Lifted). a → Box a
+
+  run : ∀ (a : TYPE BoxedRep Lifted). (Box a) → Box a =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ(x1001 : Box a).
+        (((GHC.Base.>>= @a) @(Box a)) x1001) (λ(_do1003 : a).
+          (GHC.Base.Box @a) _do1003)
+reason: keeps the resolved GHC.Base origin on the do-notation bind operation
+status: pass

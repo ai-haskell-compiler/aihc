@@ -64,10 +64,14 @@ import Aihc.Parser.Syntax
     instanceHeadName,
     instanceHeadTypes,
     mkAnnotation,
+    moduleName,
+    nameQualifier,
     nameText,
     peelClassDeclItemAnn,
     peelDeclAnn,
+    unqualifiedNameAnns,
   )
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..))
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -108,7 +112,7 @@ import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (find, mapAccumL, nub, nubBy, partition, (\\))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, mapMaybe, maybeToList)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -157,11 +161,50 @@ moduleBindings modu =
 -- | Recover instance-environment entries from finalized module annotations.
 moduleInstances :: Module -> [InstanceInfo]
 moduleInstances modu =
-  concatMap declInstances (moduleDecls modu)
+  map (setInstanceOrigin (resolvedModuleOrigin modu)) (concatMap declInstances (moduleDecls modu))
+
+setInstanceOrigin :: (Text, Text) -> InstanceInfo -> InstanceInfo
+setInstanceOrigin origin instanceInfo = instanceInfo {iiDictOrigin = Just origin}
+
+resolvedModuleOrigin :: Module -> (Text, Text)
+resolvedModuleOrigin resolvedModule =
+  fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $ do
+    resolved <- listToMaybe (mapMaybe definitionResolution (moduleDecls resolvedModule))
+    case resolutionTarget resolved of
+      ResolvedTopLevel packageId name ->
+        pure (packageIdText packageId, fromMaybe (fromMaybe "Main" (moduleName resolvedModule)) (nameQualifier name))
+      _ -> Nothing
+
+definitionResolution :: Decl -> Maybe ResolutionAnnotation
+definitionResolution declaration =
+  case peelDeclAnn declaration of
+    DeclValue (FunctionBind name _) -> nameResolution name
+    DeclValue (PatternBind _ pattern' _) -> patternResolution pattern'
+    DeclData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
+    DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (newtypeDeclHead newtypeDeclaration))
+    DeclClass classDeclaration -> nameResolution (binderHeadName (classDeclHead classDeclaration))
+    _ -> Nothing
+
+patternResolution :: Pattern -> Maybe ResolutionAnnotation
+patternResolution pattern' =
+  case pattern' of
+    PVar name -> nameResolution name
+    PAnn _ inner -> patternResolution inner
+    PParen inner -> patternResolution inner
+    PStrict inner -> patternResolution inner
+    PIrrefutable inner -> patternResolution inner
+    PAs name _ -> nameResolution name
+    PTypeSig inner _ -> patternResolution inner
+    _ -> Nothing
+
+nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
+nameResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
 
 -- | Recover class-environment entries from finalized module annotations.
 moduleClasses :: Module -> [ClassInfo]
-moduleClasses modu = concatMap declClasses (moduleDecls modu)
+moduleClasses modu = map setOrigin (concatMap declClasses (moduleDecls modu))
+  where
+    setOrigin classInfo = classInfo {ciOrigin = Just (resolvedModuleOrigin modu)}
 
 declClasses :: Decl -> [ClassInfo]
 declClasses decl =
@@ -176,6 +219,7 @@ annotationClasses ann decl =
     (Just classAnn, DeclClass classDecl) ->
       [ ClassInfo
           { ciName = unqualifiedNameText (binderHeadName (classDeclHead classDecl)),
+            ciOrigin = Nothing,
             ciTyVars = tcClassTyVars classAnn,
             ciSuperClassTypes = map tcDictBinderType (tcClassSuperClasses classAnn),
             ciMethods =
@@ -216,6 +260,7 @@ annotationInstances ann decl =
               [ InstanceInfo
                   { iiClassName = nameText className,
                     iiDictName = tcInstanceDictName instAnn,
+                    iiDictOrigin = Nothing,
                     iiDictType = tcInstanceDictType instAnn,
                     iiTyVars = tcInstanceTyVars instAnn,
                     iiContext = map dictBinderPred (tcInstanceContextDicts instAnn),
@@ -424,14 +469,14 @@ tcModuleScc modules = do
   let declarations = concatMap moduleDecls modules
   mapM_ registerTypeDeclHeader declarations
   mapM_ registerTypeSynonymBody declarations
-  mapM_ registerValueLevelDecl declarations
+  mapM_ (\modu -> mapM_ (registerValueLevelDecl (resolvedModuleOrigin modu)) (moduleDecls modu)) modules
   -- Deriving strategy and context inference depends only on registered type,
   -- class, and explicit-instance information. Finalize the entire SCC as one
   -- batch before checking signatures and bodies so sibling derived instances
   -- are mutually visible and ordinary values can use them.
   defaultGlobalKindMetas
   derivingAnnotated <- mapM annotateModuleDerivingTc modules
-  derivingFinalized <- finalizeDerivingModulesTc derivingAnnotated
+  derivingFinalized <- finalizeDerivingModulesTc (map resolvedModuleOrigin modules) derivingAnnotated
   -- Phase 2: collect type signatures and convert them to schemes.
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
   schemes <- mapM (traverse checkUserSig) rawSigs
@@ -553,6 +598,7 @@ defaultGlobalKindMetas = do
     defaultClassKinds info =
       ClassInfo
         (ciName info)
+        (ciOrigin info)
         <$> mapM defaultTyVarKinds (ciTyVars info)
         <*> mapM defaultTypeKinds (ciSuperClassTypes info)
         <*> mapM (traverse defaultTypeSchemeKinds) (ciMethods info)
@@ -562,6 +608,7 @@ defaultGlobalKindMetas = do
       InstanceInfo
         (iiClassName info)
         (iiDictName info)
+        (iiDictOrigin info)
         <$> defaultTypeKinds (iiDictType info)
         <*> mapM defaultTyVarKinds (iiTyVars info)
         <*> mapM defaultPredKinds (iiContext info)
@@ -968,6 +1015,7 @@ annotateInstanceDeclTc classMethods instanceDecl =
                 tcInstanceTyVars = tvIds,
                 tcInstanceHeadTypes = headTys,
                 tcInstanceClassTyVars = maybe [] ciTyVars classInfo,
+                tcInstanceClassOrigin = classInfo >>= ciOrigin,
                 tcInstanceClassSuperClasses = maybe [] (map constraintTypeDictBinder . ciSuperClassTypes) classInfo,
                 tcInstanceContextDicts = contextDicts,
                 tcInstanceSuperClasses = zip (map predDictBinder superClasses) superClassEvidence,
@@ -1779,17 +1827,17 @@ registerTypeDeclHeader (DeclTypeSyn typeSynDecl) = registerTypeSynonymHeader typ
 registerTypeDeclHeader (DeclAnn _ inner) = registerTypeDeclHeader inner
 registerTypeDeclHeader _ = pure []
 
-registerValueLevelDecl :: Decl -> TcM [TcBindingResult]
-registerValueLevelDecl (DeclData dataDecl) = registerDataConstructors dataDecl
-registerValueLevelDecl (DeclNewtype newtypeDecl) = registerNewtypeConstructor newtypeDecl
-registerValueLevelDecl (DeclDataFamilyInst familyInst) = registerDataFamilyInstance familyInst
-registerValueLevelDecl (DeclClass classDecl) = registerClassDecl classDecl
-registerValueLevelDecl (DeclInstance instanceDecl) = registerInstanceDecl instanceDecl
-registerValueLevelDecl (DeclForeign foreignDecl)
+registerValueLevelDecl :: (Text, Text) -> Decl -> TcM [TcBindingResult]
+registerValueLevelDecl _ (DeclData dataDecl) = registerDataConstructors dataDecl
+registerValueLevelDecl _ (DeclNewtype newtypeDecl) = registerNewtypeConstructor newtypeDecl
+registerValueLevelDecl _ (DeclDataFamilyInst familyInst) = registerDataFamilyInstance familyInst
+registerValueLevelDecl origin (DeclClass classDecl) = registerClassDecl origin classDecl
+registerValueLevelDecl origin (DeclInstance instanceDecl) = registerInstanceDecl origin instanceDecl
+registerValueLevelDecl _ (DeclForeign foreignDecl)
   | isForeignImport foreignDecl =
       registerForeignImport foreignDecl
-registerValueLevelDecl (DeclAnn _ inner) = registerValueLevelDecl inner
-registerValueLevelDecl _ = pure []
+registerValueLevelDecl origin (DeclAnn _ inner) = registerValueLevelDecl origin inner
+registerValueLevelDecl _ _ = pure []
 
 isForeignImport :: ForeignDecl -> Bool
 isForeignImport foreignDecl =
@@ -1805,8 +1853,8 @@ registerForeignImport foreignDecl = do
   zonkedTy <- zonkType declaredTy
   pure [TcBindingResult name displayName zonkedTy]
 
-registerClassDecl :: ClassDecl -> TcM [TcBindingResult]
-registerClassDecl classDecl = do
+registerClassDecl :: (Text, Text) -> ClassDecl -> TcM [TcBindingResult]
+registerClassDecl origin classDecl = do
   let className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))
       params = binderHeadParams (classDeclHead classDecl)
   paramInfos <- makeParamEnv params
@@ -1834,6 +1882,7 @@ registerClassDecl classDecl = do
   addClass
     ClassInfo
       { ciName = className,
+        ciOrigin = Just origin,
         ciTyVars = paramTyVars,
         ciSuperClassTypes = superClassTypes,
         ciMethods = methods,
@@ -1908,8 +1957,8 @@ registerClassDefaultSignature classTvEnv classTyVars item =
         )
     _ -> pure Nothing
 
-registerInstanceDecl :: InstanceDecl -> TcM [TcBindingResult]
-registerInstanceDecl instanceDecl =
+registerInstanceDecl :: (Text, Text) -> InstanceDecl -> TcM [TcBindingResult]
+registerInstanceDecl origin instanceDecl =
   case instanceHeadName (instanceDeclHead instanceDecl) of
     Nothing -> pure []
     Just className -> do
@@ -1924,6 +1973,7 @@ registerInstanceDecl instanceDecl =
         InstanceInfo
           { iiClassName = classNameText,
             iiDictName = dictName,
+            iiDictOrigin = Just origin,
             iiDictType = dictTy,
             iiTyVars = tvIds,
             iiContext = context,

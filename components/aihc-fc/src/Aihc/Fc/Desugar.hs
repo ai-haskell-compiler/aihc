@@ -95,13 +95,13 @@ desugarModule m =
           desugarModuleWithDataTypes (tcModuleBindings tcResult) (tcInterfaceDataTypes tcInterface) tcResult resolved
         _ ->
           DesugarResult
-            { dsProgram = FcProgram [],
+            { dsProgram = FcProgram (sourceModuleId m) [],
               dsSuccess = False,
               dsErrors = ["type checker did not return the requested module"]
             }
     ResolveResult {resolveErrors} ->
       DesugarResult
-        { dsProgram = FcProgram [],
+        { dsProgram = FcProgram (sourceModuleId m) [],
           dsSuccess = False,
           dsErrors = ["resolve error: " <> show resolveErrors]
         }
@@ -121,7 +121,7 @@ desugarModuleWithDataTypes bindings dataTypes tcResult resolvedModule =
   if not (tcModuleSuccess tcResult)
     then
       DesugarResult
-        { dsProgram = FcProgram [],
+        { dsProgram = FcProgram (sourceModuleId resolvedModule) [],
           dsSuccess = False,
           dsErrors = showTcFailure tcResult
         }
@@ -137,13 +137,13 @@ desugarModuleWithDataTypes bindings dataTypes tcResult resolvedModule =
        in case runStateT (dsModule tcResult) (DsState 1000 (moduleName tcResult) typeEnv Map.empty Map.empty constructorFields) of
             Left err ->
               DesugarResult
-                { dsProgram = FcProgram [],
+                { dsProgram = FcProgram (sourceModuleId resolvedModule) [],
                   dsSuccess = False,
                   dsErrors = [err]
                 }
             Right (binds, _) ->
               let (packageName, currentModuleName) = resolvedModuleOrigin resolvedModule
-                  program = FcProgram (FcModule packageName currentModuleName : binds)
+                  program = FcProgram (FcModuleId packageName currentModuleName) binds
                in DesugarResult
                     { dsProgram = declareExternalSymbols (lowerPseudoOps (lowerConstraintProgram (lowerNewtypes program))),
                       dsSuccess = True,
@@ -158,6 +158,9 @@ resolvedModuleOrigin resolvedModule =
       ResolvedTopLevel packageId name ->
         pure (packageIdText packageId, fromMaybe (fromMaybe "Main" (moduleName resolvedModule)) (nameQualifier name))
       _ -> Nothing
+
+sourceModuleId :: Module -> FcModuleId
+sourceModuleId modu = FcModuleId "" (fromMaybe "Main" (moduleName modu))
 
 definitionResolution :: Decl -> Maybe ResolutionAnnotation
 definitionResolution declaration =
@@ -188,12 +191,11 @@ nameResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
 -- source types with explicit dictionary arrows after desugaring has consumed
 -- their predicate structure.
 lowerConstraintProgram :: FcProgram -> FcProgram
-lowerConstraintProgram (FcProgram topBinds) =
-  FcProgram (map lowerTopBind topBinds)
+lowerConstraintProgram (FcProgram moduleId topBinds) =
+  FcProgram moduleId (map lowerTopBind topBinds)
   where
     lowerTopBind topBind =
       case topBind of
-        FcModule packageName declaredModuleName -> FcModule packageName declaredModuleName
         FcExternal origin ty -> FcExternal origin (lowerConstraintType ty)
         FcData name tyVars constructors ->
           FcData name tyVars [(constructor, map lowerConstraintType fields) | (constructor, fields) <- constructors]
@@ -1003,7 +1005,7 @@ dsInstanceDict instAnn instanceDecl = do
         superClassFields <- withDicts contextDicts (mapM (dsEvidence . snd) (tcInstanceSuperClasses instAnn))
         methodFields <-
           mapM
-            (dsInstanceMethod contextDicts methods maybeSelfDictionary (tcInstanceHeadTypes instAnn) (tcInstanceDefaultMethods instAnn))
+            (dsInstanceMethod contextDicts methods maybeSelfDictionary (tcInstanceHeadTypes instAnn) (tcInstanceClassOrigin instAnn) (tcInstanceDefaultMethods instAnn))
             methodOrder
         pure (superClassFields <> methodFields)
       buildDictionary recursive dictVar fields = do
@@ -1075,8 +1077,8 @@ mkContextDict ix dictAnn = do
   dictVar <- freshVar ("$d" <> T.pack (show ix)) (tcDictBinderType dictAnn)
   pure (ClassDict (tcDictBinderClassName dictAnn) (tcDictBinderArgs dictAnn) dictVar)
 
-dsInstanceMethod :: [ClassDict] -> Map.Map Text (TcType, [Match]) -> Maybe FcExpr -> [TcType] -> [Text] -> Text -> DsM FcExpr
-dsInstanceMethod contextDicts methods maybeSelfDictionary headTypes defaults methodName =
+dsInstanceMethod :: [ClassDict] -> Map.Map Text (TcType, [Match]) -> Maybe FcExpr -> [TcType] -> Maybe (Text, Text) -> [Text] -> Text -> DsM FcExpr
+dsInstanceMethod contextDicts methods maybeSelfDictionary headTypes classOrigin defaults methodName =
   case Map.lookup methodName methods of
     Just (expected, matches) ->
       dsMatchesWithEnclosingDicts contextDicts expected matches
@@ -1089,7 +1091,8 @@ dsInstanceMethod contextDicts methods maybeSelfDictionary headTypes defaults met
           let workerName = defaultMethodName methodName
           workerType <- lookupType workerName
           worker <- freshVar workerName workerType
-          pure (FcApp (foldl FcTyApp (FcVar worker) headTypes) selfDictionary)
+          let origin = fmap (\(packageName, originModule) -> FcTopLevelOrigin packageName originModule workerName) classOrigin
+          pure (FcApp (foldl FcTyApp (FcVar worker {varResolvedName = origin}) headTypes) selfDictionary)
       | otherwise ->
           desugarBug ("missing method " <> T.unpack methodName <> " in instance dictionary")
 

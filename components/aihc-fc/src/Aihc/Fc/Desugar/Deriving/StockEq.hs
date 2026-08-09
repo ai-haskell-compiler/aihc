@@ -223,11 +223,11 @@ qualifyType predicates body = TcQualTy predicates body
 rewriteSelfEvidence :: TcDerivingPlan -> TcType -> EvTerm -> EvTerm
 rewriteSelfEvidence plan targetType evidence =
   case evidence of
-    EvDict dictionaryName _ _
+    EvDict _ dictionaryName _ _
       | dictionaryName == tcDerivingDictName plan ->
           EvGiven (ClassPred "Eq" [targetType])
-    EvDict dictionaryName typeArguments contextEvidence ->
-      EvDict dictionaryName typeArguments (map recurse contextEvidence)
+    EvDict origin dictionaryName typeArguments contextEvidence ->
+      EvDict origin dictionaryName typeArguments (map recurse contextEvidence)
     EvSuperClass source sourcePredicate fieldTypes fieldIndex ->
       EvSuperClass (recurse source) sourcePredicate fieldTypes fieldIndex
     EvCast source coercion -> EvCast (recurse source) coercion

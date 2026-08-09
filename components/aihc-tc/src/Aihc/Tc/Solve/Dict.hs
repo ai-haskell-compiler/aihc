@@ -115,7 +115,7 @@ solveDictWithGivens givens ct =
               contextEvidence <- mapM solveSubPred context
               case sequence contextEvidence of
                 Just evidence -> do
-                  bindEvidence (ctEvVar ct) (EvDict (iiDictName instanceInfo) typeArgs evidence)
+                  bindEvidence (ctEvVar ct) (EvDict (iiDictOrigin instanceInfo) (iiDictName instanceInfo) typeArgs evidence)
                   pure DictSolved
                 Nothing -> tryInstances className args rest
 

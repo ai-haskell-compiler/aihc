@@ -14,7 +14,7 @@ module Aihc.Cli.Repl
   )
 where
 
-import Aihc.Fc (DesugarResult (..), FcProgram (..), desugarModuleWithBindings, evalProgramBinding, renderProgram, renderValue)
+import Aihc.Fc (DesugarResult (..), FcModuleId (..), FcProgram (..), desugarModuleWithBindings, evalProgramBinding, mergePrograms, renderProgram, renderValue)
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr, parseModule)
 import Aihc.Parser.Shorthand (Shorthand (..))
 import Aihc.Parser.Syntax
@@ -65,6 +65,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Char (isAlpha, isSpace)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List (find, intercalate, isPrefixOf, sortOn, stripPrefix)
+import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -558,7 +559,13 @@ instantiateSchemeBody (ForAll tvs preds body) =
 
 concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs =
-  FcProgram (concatMap fcTopBinds programs)
+  case NonEmpty.nonEmpty programs of
+    Nothing -> FcProgram (FcModuleId "repl" "Interactive") []
+    Just nonEmptyPrograms ->
+      either
+        (error . ("System FC merge error: " <>) . show)
+        id
+        (mergePrograms (FcModuleId "repl" "Interactive") nonEmptyPrograms)
 
 loadExplicitStoreInterface :: Maybe FilePath -> IO (Maybe Interface)
 loadExplicitStoreInterface Nothing = pure Nothing

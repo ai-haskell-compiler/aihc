@@ -37,6 +37,7 @@ import Aihc.Cli.Runtime (prepareRuntimeArchive, readWasmClangProcessWithExitCode
 import Aihc.Fc
   ( FcBind (..),
     FcExpr (..),
+    FcModuleId (..),
     FcProgram (..),
     FcTopBind (..),
     Literal (..),
@@ -387,7 +388,7 @@ testReplSession = do
         replImportedTerms = [],
         replBindingTypes = Map.empty,
         replImportedInstances = [],
-        replDependencyProgram = FcProgram [],
+        replDependencyProgram = FcProgram (FcModuleId "test" "Test") [],
         replSettings = settingsRef
       }
 
@@ -996,6 +997,7 @@ test_runtimePrimitiveValidation = do
       mainVar = Var "main" (Unique 3) valueTy
       core =
         FcProgram
+          (FcModuleId "test" "Test")
           [ FcPrimitive kept 1,
             FcPrimitive unsafeCoerce 1,
             FcTopBind (FcNonRec mainVar (FcApp (FcVar unsafeCoerce) (FcApp (FcVar kept) (FcLit (LitInt IntRep 1)))))
@@ -1098,9 +1100,10 @@ test_installedPackage =
     case wholeResult of
       Left err -> assertFailure (show err)
       Right core -> do
-        assertBool "expected generated entry point" ("$aihc.main" `T.isInfixOf` core)
+        assertBool "expected qualified generated entry point" ("$g$exe$Main$_24_aihc_2e_main" `T.isInfixOf` core)
         assertBool "expected top-level handler call" ("runMainIO" `T.isInfixOf` core)
         assertBool "expected installed dependency body" ("main" `T.isInfixOf` core)
+        assertBool ("expected no external references in:\n" <> T.unpack core) (not ("external " `T.isInfixOf` core))
 
 test_preparedRuntime :: Assertion
 test_preparedRuntime =

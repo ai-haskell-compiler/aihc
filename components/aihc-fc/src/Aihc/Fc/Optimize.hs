@@ -41,8 +41,8 @@ untilStable transform input =
 -- when it is not genuinely recursive. Computed right-hand sides are
 -- intentionally retained.
 copyPropagateProgram :: FcProgram -> FcProgram
-copyPropagateProgram (FcProgram topBinds) =
-  FcProgram (map copyTopBind topBinds)
+copyPropagateProgram (FcProgram moduleId topBinds) =
+  FcProgram moduleId (map copyTopBind topBinds)
   where
     copyTopBind topBind =
       case topBind of
@@ -111,7 +111,7 @@ resolveAlias aliases var =
 -- unlifted binding is strict, so its right-hand side must be retained even
 -- when the binder is absent from the body.
 eliminateDeadLetsProgram :: FcProgram -> FcProgram
-eliminateDeadLetsProgram (FcProgram topBinds) = FcProgram (map eliminateTopBind topBinds)
+eliminateDeadLetsProgram (FcProgram moduleId topBinds) = FcProgram moduleId (map eliminateTopBind topBinds)
   where
     eliminateTopBind topBind =
       case topBind of

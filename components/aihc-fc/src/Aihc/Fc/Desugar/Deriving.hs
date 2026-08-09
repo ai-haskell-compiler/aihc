@@ -71,7 +71,7 @@ evidenceDependencies :: EvTerm -> [Text]
 evidenceDependencies evidence =
   case evidence of
     EvGiven {} -> []
-    EvDict dictName _ contextEvidence -> dictName : concatMap evidenceDependencies contextEvidence
+    EvDict _ dictName _ contextEvidence -> dictName : concatMap evidenceDependencies contextEvidence
     EvCoercion {} -> []
     EvSuperClass source _ _ _ -> evidenceDependencies source
     EvCast source _ -> evidenceDependencies source

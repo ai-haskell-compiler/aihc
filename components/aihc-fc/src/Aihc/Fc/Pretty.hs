@@ -18,24 +18,28 @@ import Data.ByteString qualified as BS
 import Data.Char (chr)
 import Data.List (find, intercalate)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text qualified as T
 
 renderProgram :: FcProgram -> String
 renderProgram program =
-  intercalate "\n\n" (map (renderTopBindWith symbols) canonicalBinds)
+  intercalate "\n\n" (renderModuleDeclaration (fcProgramModule program) : map (renderTopBindWith symbols) canonicalBinds)
   where
     canonicalBinds = fcTopBinds (declareExternalSymbols program)
-    symbols = renderSymbols canonicalBinds
+    symbols = renderSymbols (fcProgramModule program) canonicalBinds
+
+renderModuleDeclaration :: FcModuleId -> String
+renderModuleDeclaration moduleId =
+  "module " <> renderModuleOrigin (fcModulePackage moduleId) (fcModuleName moduleId) <> " where"
 
 -- | Materialize the one-per-origin external signature table represented by
 -- the canonical syntax. Desugaring calls this as well as rendering so the
 -- declarations are part of the System FC tree, not merely presentation.
 declareExternalSymbols :: FcProgram -> FcProgram
 declareExternalSymbols program =
-  FcProgram (map (normalizeExternalTopBind externalVars) canonicalBinds)
+  FcProgram (fcProgramModule program) (map (normalizeExternalTopBind externalVars) canonicalBinds)
   where
     canonicalBinds = canonicalProgramBinds program
     externalVars = Map.fromList [(origin, fcExternalVar origin ty) | FcExternal origin ty <- canonicalBinds]
@@ -76,8 +80,6 @@ renderTopBind = renderTopBindWith emptyRenderSymbols
 renderTopBindWith :: RenderSymbols -> FcTopBind -> String
 renderTopBindWith symbols topBind =
   case topBind of
-    FcModule packageName moduleName ->
-      "module " <> renderModuleOrigin packageName moduleName <> " where"
     FcExternal origin ty ->
       "external " <> renderOrigin origin <> " : " <> renderType ty
     FcData name tyVars constructors ->
@@ -117,11 +119,11 @@ data RenderSymbols = RenderSymbols
 emptyRenderSymbols :: RenderSymbols
 emptyRenderSymbols = RenderSymbols Set.empty Nothing Set.empty
 
-renderSymbols :: [FcTopBind] -> RenderSymbols
-renderSymbols topBinds =
+renderSymbols :: FcModuleId -> [FcTopBind] -> RenderSymbols
+renderSymbols moduleId topBinds =
   RenderSymbols
     { renderExternalOrigins = Set.fromList [origin | FcExternal origin _ <- topBinds],
-      renderLocalOrigin = listToMaybe [(packageName, moduleName) | FcModule packageName moduleName <- topBinds],
+      renderLocalOrigin = Just (fcModulePackage moduleId, fcModuleName moduleId),
       renderLocalNames = Set.fromList (concatMap topBindDefinedNames topBinds)
     }
 
@@ -130,27 +132,33 @@ renderModuleOrigin packageName moduleName =
   (if packageName == "" then "" else show (T.unpack packageName) <> " ") <> T.unpack moduleName
 
 canonicalProgramBinds :: FcProgram -> [FcTopBind]
-canonicalProgramBinds (FcProgram topBinds) =
-  moduleDeclarations
-    <> [FcExternal origin ty | (origin, ty) <- Map.toAscList externalTypes, not (originIsLocal origin)]
+canonicalProgramBinds (FcProgram moduleId topBinds) =
+  [FcExternal origin ty | (origin, ty) <- Map.toAscList externalTypes, not (originIsLocal origin)]
     <> definitions
   where
-    moduleDeclarations = [topBind | topBind@FcModule {} <- topBinds]
     definitions = [topBind | topBind <- topBinds, not (isHeader topBind)]
-    moduleOrigin = listToMaybe [(packageName, moduleName) | FcModule packageName moduleName <- moduleDeclarations]
+    moduleOrigin = Just (fcModulePackage moduleId, fcModuleName moduleId)
     declaredTypes = Map.fromList [(origin, ty) | FcExternal origin ty <- topBinds]
     referencedTypes = Map.fromList [(origin, varType var) | var <- concatMap topBindOccurrences definitions, Just origin <- [varResolvedName var]]
     externalTypes = Map.union declaredTypes referencedTypes
-    originIsLocal (FcTopLevelOrigin packageName moduleName _) = Just (packageName, moduleName) == moduleOrigin
-    originIsLocal FcBuiltinOrigin {} = False
-    isHeader FcModule {} = True
+    definedNames = Set.fromList (concatMap topBindDefinedNames definitions)
+    localOrigins =
+      Set.fromList [origin | topBind <- definitions, var <- topBindDefinedVars topBind, Just origin <- [varResolvedName var]]
+        <> Set.fromList
+          [ origin
+          | topBind <- definitions,
+            var <- topBindOccurrences topBind,
+            varName var `Set.member` definedNames,
+            Just origin <- [varResolvedName var]
+          ]
+    originIsLocal origin@(FcTopLevelOrigin packageName moduleName _) = origin `Set.member` localOrigins || Just (packageName, moduleName) == moduleOrigin
+    originIsLocal origin@FcBuiltinOrigin {} = origin `Set.member` localOrigins
     isHeader FcExternal {} = True
     isHeader _ = False
 
 topBindDefinedNames :: FcTopBind -> [T.Text]
 topBindDefinedNames topBind =
   case topBind of
-    FcModule {} -> []
     FcExternal {} -> []
     FcData _ _ constructors -> map fst constructors
     FcAxiom {} -> []
@@ -158,6 +166,13 @@ topBindDefinedNames topBind =
     FcPrimitive var _ -> [varName var]
     FcForeignImport {} -> []
     FcTopBind bind -> map varName (bindersOf bind)
+
+topBindDefinedVars :: FcTopBind -> [Var]
+topBindDefinedVars topBind =
+  case topBind of
+    FcPrimitive var _ -> [var]
+    FcTopBind bind -> bindersOf bind
+    _ -> []
 
 topBindOccurrences :: FcTopBind -> [Var]
 topBindOccurrences topBind =

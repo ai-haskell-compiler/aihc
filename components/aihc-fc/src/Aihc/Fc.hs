@@ -47,6 +47,10 @@ module Aihc.Fc
     addMainEntrypoint,
     mainEntryBindingName,
 
+    -- * Module merge
+    FcMergeError (..),
+    mergePrograms,
+
     -- * Analysis and interfaces
     ReachabilityInterface,
     extractReachabilityInterface,
@@ -79,6 +83,7 @@ import Aihc.Fc.Eval (EvalError (..), Value (..), evalExpr, evalProgramBinding, r
 import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram, lintProgramWithAxiomInterface)
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Main (MainEntrypointError (..), addMainEntrypoint, mainEntryBindingName)
+import Aihc.Fc.Merge (FcMergeError (..), mergePrograms)
 import Aihc.Fc.Newtype (NewtypeInterface, extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
 import Aihc.Fc.Optimize (optimizeProgram)
 import Aihc.Fc.Parser (FcParseError, parseExpr, parseProgram, parseType, renderParseError)

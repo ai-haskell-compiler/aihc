@@ -63,20 +63,32 @@ expected: |-
   module Prelude where
   module Main where
 
+  external GHC.Classes.$fEqInt : Eq Int
+
+  external GHC.Classes.== : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool
+
+  external GHC.Internal.Integer.IS : Int# → Integer
+
+  external GHC.Num.$fNumInt : Num Int
+
+  external GHC.Num.$fNumInteger : Num Integer
+
+  external GHC.Num.fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a
+
   external builtin.() : Unit
 
   asInt : Int =
-    (((fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a) @Int) ($fNumInt : Num Int)) ((IS : Int# → Integer) 1#IntRep)
+    ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Internal.Integer.IS 1#IntRep)
 
   asInteger : Integer =
-    (((fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a) @Integer) ($fNumInteger : Num Integer)) ((IS : Int# → Integer) 1#IntRep)
+    ((GHC.Num.fromInteger @Integer) GHC.Num.$fNumInteger) (GHC.Internal.Integer.IS 1#IntRep)
 
   caseInt : Unit =
     let {
       _case_value : Int =
-        (((fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a) @Int) ($fNumInt : Num Int)) ((IS : Int# → Integer) 1#IntRep)
+        ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Internal.Integer.IS 1#IntRep)
     } in
-      case ((((== : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool) @Int) ($fEqInt : Eq Int)) _case_value) ((((fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a) @Int) ($fNumInt : Num Int)) ((IS : Int# → Integer) 1#IntRep)) as (_case_guard : Bool) of {
+      case (((GHC.Classes.== @Int) GHC.Classes.$fEqInt) _case_value) (((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Internal.Integer.IS 1#IntRep)) as (_case_guard : Bool) of {
         True →
           builtin.();
         False →

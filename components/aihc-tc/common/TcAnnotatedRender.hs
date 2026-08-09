@@ -239,7 +239,7 @@ renderEvTerm ev =
   case ev of
     EvVarTerm evVar -> renderEvVar evVar
     EvGiven pred' -> "given " <> renderPred pred'
-    EvDict name typeArgs evidence ->
+    EvDict _ name typeArgs evidence ->
       T.unpack name
         <> renderTypeArgs typeArgs
         <> renderEvidenceArgs evidence

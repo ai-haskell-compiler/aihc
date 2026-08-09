@@ -912,7 +912,7 @@ evidenceDictNames =
   concatMap evDictNames . concatMap tcAnnEvidenceTerms . exprAnnotations
 
 evDictNames :: EvTerm -> [Text]
-evDictNames (EvDict name _ evidence) = name : concatMap evDictNames evidence
+evDictNames (EvDict _ name _ evidence) = name : concatMap evDictNames evidence
 evDictNames (EvSuperClass ev _ _ _) = evDictNames ev
 evDictNames (EvCast ev _) = evDictNames ev
 evDictNames _ = []
@@ -922,7 +922,7 @@ hasGivenClass className =
   any (any isGiven . tcAnnEvidenceTerms) . exprAnnotations
   where
     isGiven (EvGiven (ClassPred cls _)) = cls == className
-    isGiven (EvDict _ _ evidence) = any isGiven evidence
+    isGiven (EvDict _ _ _ evidence) = any isGiven evidence
     isGiven (EvSuperClass ev _ _ _) = isGiven ev
     isGiven (EvCast ev _) = isGiven ev
     isGiven _ = False

@@ -18,6 +18,7 @@ where
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Subst (substType)
+import Aihc.Fc.Subst qualified as Fc
 import Aihc.Fc.Syntax
 import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Anf (normalizeGrinProgram)
@@ -31,10 +32,10 @@ import Aihc.Tc.Types
   )
 import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
-import Data.List (mapAccumL)
+import Data.List (find, mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -119,45 +120,81 @@ linkNamesForProgram libraryId moduleNameComponents program =
     { grinNativeLinkNames =
         Map.fromListWith
           (flip (<>))
-          [ (varUnique var, [T.intercalate "\0" (libraryId <> moduleNameComponents <> symbolComponents ordinal var)])
+          [ (varUnique var, [T.intercalate "\0" (nativeSymbolComponents ordinal var)])
           | (var, ordinal) <- topLevelVarsWithOrdinals
           ],
       grinSourceLinkNames =
         Map.fromListWith
           (flip (<>))
-          [ (varUnique var, [sourceSymbolName (varName var)])
+          [ (varUnique var, [sourceSymbolNameFor var])
           | (var, _) <- topLevelVarsWithOrdinals
           ],
       grinConstructorNames =
         Map.fromList
-          [ (sourceSymbolName name, (name, length fields))
+          [ (constructorSourceName name, (name, length fields))
           | FcData _ _ constructors <- fcTopBinds program,
             (name, fields) <- constructors
           ]
     }
   where
     topLevelVars = [var | FcTopBind bind <- fcTopBinds program, var <- topBindVars bind]
-    nameCounts = Map.fromListWith (+) [(varName var, 1 :: Int) | var <- topLevelVars]
+    nameCounts = Map.fromListWith (+) [(identityKey var, 1 :: Int) | var <- topLevelVars]
     topLevelVarsWithOrdinals = snd (mapAccumL annotate Map.empty topLevelVars)
     annotate :: Map Text Int -> Var -> (Map Text Int, (Var, Int))
     annotate ordinals var =
-      let ordinal = Map.findWithDefault 0 (varName var) ordinals + 1
-       in (Map.insert (varName var) ordinal ordinals, (var, ordinal))
+      let key = identityKey var
+          ordinal = Map.findWithDefault 0 key ordinals + 1
+       in (Map.insert key ordinal ordinals, (var, ordinal))
+    nativeSymbolComponents ordinal var =
+      case varResolvedName var of
+        Just (FcTopLevelOrigin _ moduleName symbolName) ->
+          libraryId
+            <> T.splitOn "." moduleName
+            <> [symbolName]
+            <> uniqueSuffix ordinal var
+        _ -> libraryId <> moduleNameComponents <> symbolComponents ordinal var
     symbolComponents ordinal var =
-      [varName var]
-        <> ["u" <> T.pack (show (sourceUnique var)) <> "n" <> T.pack (show ordinal) | Map.findWithDefault 0 (varName var) nameCounts > 1]
+      [varName var] <> uniqueSuffix ordinal var
+    uniqueSuffix ordinal var =
+      ["u" <> T.pack (show (sourceUnique var)) <> "n" <> T.pack (show ordinal) | Map.findWithDefault 0 (identityKey var) nameCounts > 1]
+    identityKey var = maybe (varName var) fcSymbolOriginText (varResolvedName var)
+    sourceSymbolNameFor var =
+      case varResolvedName var of
+        Just origin@FcTopLevelOrigin {} -> fcSymbolOriginText origin
+        Just FcBuiltinOrigin {} -> varName var
+        Nothing -> sourceSymbolName (varName var)
     sourceSymbolName symbolName =
       (if packageIdentity == "" then "" else packageIdentity <> ":")
         <> T.intercalate "." (moduleNameComponents <> [symbolName])
+    constructorSourceName constructorName =
+      case matchingOrigins constructorName of
+        [origin] -> fcSymbolOriginText origin
+        origins ->
+          maybe
+            (sourceSymbolName constructorName)
+            fcSymbolOriginText
+            (findProgramOrigin origins)
+    matchingOrigins constructorName =
+      Set.toList
+        ( Set.fromList
+            [ origin
+            | var <- Fc.programVars program,
+              Just origin@FcTopLevelOrigin {} <- [varResolvedName var],
+              fcOriginName origin == constructorName || varName var == constructorName
+            ]
+        )
+    findProgramOrigin =
+      find
+        ( \case
+            FcTopLevelOrigin packageName moduleName _ ->
+              packageName == fcModulePackage (fcProgramModule program)
+                && moduleName == fcModuleName (fcProgramModule program)
+            FcBuiltinOrigin {} -> False
+        )
     packageIdentity =
       fromMaybe
         ""
-        ( listToMaybe
-            [ packageName
-            | FcModule packageName declaredModuleName <- fcTopBinds program,
-              T.splitOn "." declaredModuleName == moduleNameComponents
-            ]
-        )
+        (Just (fcModulePackage (fcProgramModule program)))
     topBindVars bind =
       case bind of
         FcNonRec var _ -> [var]
@@ -332,7 +369,6 @@ lowerProgramWithEnvironment linkNames imported local environment program =
 lowerTopBind :: FcTopBind -> LowerM LoweredTop
 lowerTopBind topBind =
   case topBind of
-    FcModule {} -> pure mempty
     FcExternal {} -> pure mempty
     FcData _ _ constructors ->
       pure mempty {loweredConstructors = [(name, map (runtimeRepComponents . typeRuntimeRep) fields) | (name, fields) <- constructors]}
@@ -1802,7 +1838,6 @@ isStaticWhnf constructorArities expr =
 topVars :: FcTopBind -> [Var]
 topVars topBind =
   case topBind of
-    FcModule {} -> []
     FcExternal {} -> []
     FcData {} -> []
     FcAxiom {} -> []

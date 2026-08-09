@@ -29,6 +29,7 @@ module Aihc.Fc.Syntax
     FcAxiomDecl (..),
     FcAxiomRole (..),
     FcNewtypeDecl (..),
+    FcModuleId (..),
     FcProgram (..),
     FcForeignCall (..),
     FcForeignSignature (..),
@@ -64,18 +65,24 @@ import Data.Char (ord)
 import Data.Text (Text)
 import Data.Text qualified as T
 
--- | A System FC program: a collection of top-level bindings.
-newtype FcProgram = FcProgram
-  { -- | Top-level bindings in dependency order.
-    fcTopBinds :: [FcTopBind]
+-- | The required identity of one System FC module container.
+data FcModuleId = FcModuleId
+  { fcModulePackage :: !Text,
+    fcModuleName :: !Text
+  }
+  deriving (Eq, Ord, Show, Read)
+
+-- | A System FC program with one module identity.
+data FcProgram = FcProgram
+  { fcProgramModule :: !FcModuleId,
+    -- | Declarative top-level bindings.
+    fcTopBinds :: ![FcTopBind]
   }
   deriving (Eq, Show, Read)
 
 -- | A top-level binding.
 data FcTopBind
-  = -- | Identity of the compilation unit that owns the following definitions.
-    FcModule !Text !Text
-  | -- | A term symbol defined by another compilation unit. Its type is
+  = -- | A term symbol defined by another compilation unit. Its type is
     -- declared once here and omitted from every occurrence.
     FcExternal !FcSymbolOrigin !TcType
   | -- | Data type declaration: type name, type variable parameters,
