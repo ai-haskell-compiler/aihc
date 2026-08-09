@@ -19,7 +19,7 @@ import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
 import Aihc.Cli.Runtime (readWasmClangProcessWithExitCode, wasmClangCommand)
 import Aihc.Cli.Store (installedLibrariesActivePath, installedLibrariesRoot)
-import Aihc.Fc (AxiomInterface, DesugarResult (..), FcModuleId (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractAxiomInterface, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, lowerPseudoOps, mergePrograms, optimizeProgram)
+import Aihc.Fc (AxiomInterface, DesugarResult (..), FcModuleId (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithBindings, extractAxiomInterface, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, lowerPseudoOps, mergePrograms, optimizeProgram, renderProgram)
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
 import Aihc.Native
@@ -68,7 +68,7 @@ import Aihc.Tc
   )
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket, bracketOnError)
-import Control.Monad (foldM)
+import Control.Monad (foldM, when)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.Char (isHexDigit)
@@ -220,8 +220,8 @@ buildDependencies target environment usesImplicitPrelude buildBackend mainModule
 
 -- | Compile a package closure once, then install its frontend interfaces,
 -- whole-program bodies, and one archive set per requested target.
-installLibraries :: FilePath -> [LibraryPackage] -> [NativeTarget] -> IO (Either String FilePath)
-installLibraries storeRoot packages targets
+installLibraries :: FilePath -> [LibraryPackage] -> [NativeTarget] -> Bool -> Bool -> IO (Either String FilePath)
+installLibraries storeRoot packages targets keepCore keepGrin
   | all (null . libraryPackageFiles) packages = pure (Left "the package closure contains no library modules")
   | otherwise = do
       graphHash <- dependencyGraphHash packages
@@ -250,8 +250,30 @@ installLibraries storeRoot packages targets
           case sequence backendResults of
             Left err -> pure (Left err)
             Right _ -> do
+              writeIntermediateArtifacts artifactRoot keepCore keepGrin (dependencyUnits artifact)
               writeActiveLibraries storeRoot graphHash
               pure (Right artifactRoot)
+
+writeIntermediateArtifacts :: FilePath -> Bool -> Bool -> [DependencyUnit] -> IO ()
+writeIntermediateArtifacts artifactRoot keepCore keepGrin =
+  mapM_ writeUnit
+  where
+    writeUnit unit = do
+      let library = T.unpack (dependencyUnitPrimaryLibrary unit)
+          unitName = T.unpack (T.intercalate "+" (dependencyUnitModules unit))
+          corePath = artifactRoot </> "core" </> library </> unitName <> ".core"
+          grinRoot = artifactRoot </> "grin" </> library </> unitName
+      when keepCore $ do
+        createDirectoryIfMissing True (takeDirectory corePath)
+        TIO.writeFile corePath (withFinalNewline (renderProgram (dependencyUnitProgram unit)))
+      when keepGrin $ do
+        createDirectoryIfMissing True (takeDirectory grinRoot)
+        TIO.writeFile (grinRoot <> ".grin") (renderGrin (dependencyUnitGrin unit))
+        TIO.writeFile (grinRoot <> ".cps.grin") (renderGrin (Grin.cpsGrinProgram (dependencyUnitCpsGrin unit)))
+        TIO.writeFile (grinRoot <> ".gc.grin") (renderGrin (Grin.gcGrinProgram (Grin.lowerGc (dependencyUnitCpsGrin unit))))
+
+    renderGrin = withFinalNewline . Grin.renderProgram
+    withFinalNewline rendered = T.pack rendered <> "\n"
 
 readInstalledLibraries :: CompileEnvironment -> Bool -> IO (Either String (FilePath, DependencyArtifact))
 readInstalledLibraries environment incremental = do

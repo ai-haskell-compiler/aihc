@@ -345,7 +345,7 @@ runInstall opts = do
               hPutStrLn stderr (renderInstallFailureWithOptions opts failure)
               exitFailure
         else do
-          libraryResult <- installPackageLibraries (installTargets opts) plan
+          libraryResult <- installPackageLibraries (installTargets opts) (installKeepCore opts) (installKeepGrin opts) plan
           artifactRoot <- either (ioError . userError) pure libraryResult
           putStrLn ("libraries: " <> artifactRoot)
   where
@@ -413,10 +413,10 @@ packageSpecFromSource sourcePath = do
 
 -- | Install the compiled library closure represented by a generic package
 -- plan. Cabal chooses the modules; callers never enumerate them.
-installPackageLibraries :: [NativeTarget] -> PackagePlan -> IO (Either String FilePath)
-installPackageLibraries targets plan = do
+installPackageLibraries :: [NativeTarget] -> Bool -> Bool -> PackagePlan -> IO (Either String FilePath)
+installPackageLibraries targets keepCore keepGrin plan = do
   packages <- mapM packageLibrary (flattenPackagePlan plan)
-  installLibraries (planStoreRoot plan) packages targets
+  installLibraries (planStoreRoot plan) packages targets keepCore keepGrin
   where
     packageLibrary package = do
       gpd <- readPlanPackageDescription package
