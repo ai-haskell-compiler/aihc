@@ -34,7 +34,7 @@ module Aihc.Tc.Types
     TypeScheme (..),
     boxedTupleTyConName,
     unboxedTupleTyConName,
-    unboxedTupleTyConArity,
+    isUnboxedTupleType,
     liftedRuntimeRep,
     liftedTypeKind,
     typeKind,
@@ -68,13 +68,6 @@ boxedTupleTyConName arity =
 -- | Source-level names of the unboxed tuple types declared by @GHC.Types@.
 unboxedTupleTyConName :: Int -> Text
 unboxedTupleTyConName arity = "Tuple" <> T.pack (show arity) <> "#"
-
-unboxedTupleTyConArity :: Text -> Maybe Int
-unboxedTupleTyConArity name = do
-  digits <- T.stripPrefix "Tuple" name >>= T.stripSuffix "#"
-  case reads (T.unpack digits) of
-    [(arity, "")] | arity /= 1 -> Just arity
-    _ -> Nothing
 
 -- | Unique identifier for type variables and evidence variables.
 newtype Unique = Unique Int
@@ -249,11 +242,10 @@ typeKind ty =
   case ty of
     TcTyVar tyVar -> tvKind tyVar
     TcMetaTv {} -> liftedTypeKind
-    TcTyCon tyCon args
-      | length args == tyConArity tyCon,
-        KTYPE (TupleRep fields) <- applyKindArgumentCount (tyConKind tyCon) (length args),
-        length fields == length args ->
+    tupleType@(TcTyCon _ args)
+      | isUnboxedTupleType tupleType ->
           KTYPE (TupleRep (map runtimeRepOrLifted args))
+    TcTyCon tyCon args
       | isUnboxedSumTyCon (tyConName tyCon) (tyConArity tyCon),
         length args == tyConArity tyCon ->
           KTYPE (SumRep (map runtimeRepOrLifted args))
@@ -273,6 +265,17 @@ applyKindArgumentCount kind count
   | count <= 0 = kind
 applyKindArgumentCount (KFun _ result) count = applyKindArgumentCount result (count - 1)
 applyKindArgumentCount kind _ = kind
+
+-- | Test whether a constructed type has an explicit unboxed-tuple representation.
+isUnboxedTupleType :: TcType -> Bool
+isUnboxedTupleType (TcTyCon tyCon arguments) =
+  let arity = length arguments
+   in tyConName tyCon == unboxedTupleTyConName arity
+        && arity == tyConArity tyCon
+        && case applyKindArgumentCount (tyConKind tyCon) (length arguments) of
+          KTYPE (TupleRep fields) -> length fields == length arguments
+          _ -> False
+isUnboxedTupleType _ = False
 
 isUnboxedSumTyCon :: Text -> Int -> Bool
 isUnboxedSumTyCon name arity =

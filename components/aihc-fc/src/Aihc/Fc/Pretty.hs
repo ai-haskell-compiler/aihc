@@ -473,8 +473,8 @@ renderTypeWith scope ty =
   case ty of
     TcTyVar tyVar -> renderTyVarOccurrence scope tyVar
     TcMetaTv (Unique unique) -> "?" <> show unique
-    TcTyCon tyCon arguments
-      | unboxedTupleTyConArity (tyConName tyCon) == Just (length arguments) ->
+    tupleType@(TcTyCon _ arguments)
+      | isUnboxedTupleType tupleType ->
           unwords (unboxedTupleConstructorName (length arguments) : map (renderTypeAtomWith scope) arguments)
     TcTyCon tyCon [] -> T.unpack (tyConName tyCon)
     TcTyCon (TyCon "[]" _) [argument] -> "[" <> renderTypeWith scope argument <> "]"

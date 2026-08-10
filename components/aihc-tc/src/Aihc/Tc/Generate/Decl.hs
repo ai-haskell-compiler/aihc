@@ -2103,22 +2103,26 @@ dataFamilyInstanceParams familyInst = do
 --   - @Bool :: *@
 --   - @True :: Bool@
 --   - @False :: Bool@
-dataDeclParamInfos :: Text -> [TyVarBinder] -> TcM ([ParamInfo], [ParamInfo])
-dataDeclParamInfos typeName params =
-  case unboxedTupleTyConArity typeName of
-    Just arity
-      | arity == length params -> pure (unboxedTupleParamInfos arity params)
-    _ -> ([],) <$> makeParamEnv params
-
-dataDeclConstructorParamInfos :: DataDecl -> TyCon -> TcM ([ParamInfo], [ParamInfo])
-dataDeclConstructorParamInfos declaration _tyCon =
-  case unboxedTupleTyConArity typeName of
+dataDeclParamInfos :: DataDecl -> TcM ([ParamInfo], [ParamInfo])
+dataDeclParamInfos declaration =
+  case unboxedTupleDataDeclArity declaration of
     Just arity
       | arity == length params -> pure (unboxedTupleParamInfos arity params)
     _ -> ([],) <$> makeParamEnv params
   where
-    typeName = unqualifiedNameText (binderHeadName (dataDeclHead declaration))
     params = binderHeadParams (dataDeclHead declaration)
+
+unboxedTupleDataDeclArity :: DataDecl -> Maybe Int
+unboxedTupleDataDeclArity declaration =
+  case dataDeclConstructors declaration of
+    [constructor] -> tupleConstructorArity constructor
+    _ -> Nothing
+  where
+    tupleConstructorArity dataConstructor =
+      case dataConstructor of
+        DataConAnn _ inner -> tupleConstructorArity inner
+        TupleCon _ _ Unboxed fields -> Just (length fields)
+        _ -> Nothing
 
 unboxedTupleParamInfos :: Int -> [TyVarBinder] -> ([ParamInfo], [ParamInfo])
 unboxedTupleParamInfos arity params = (kindParams, valueParams)
@@ -2164,10 +2168,10 @@ registerDataDeclHeader dd = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
       params = binderHeadParams (dataDeclHead dd)
       arity = length params
-  (kindParams, paramInfos) <- dataDeclParamInfos tyName params
+  (kindParams, paramInfos) <- dataDeclParamInfos dd
   let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
   declaredKind <-
-    case unboxedTupleTyConArity tyName of
+    case unboxedTupleDataDeclArity dd of
       Just tupleArity
         | tupleArity == arity -> pure (unboxedTupleDeclarationKind paramInfos)
       _ -> tyConKindFromParamsWith kindEnv paramInfos (dataDeclKind dd)
@@ -2202,7 +2206,7 @@ registerDataConstructors dataDecl = do
   case maybeInfo of
     Nothing -> missingTypeInfo ("data type " <> T.unpack tyName)
     Just info -> do
-      (kindParams, paramInfos) <- dataDeclConstructorParamInfos dataDecl (tciTyCon info)
+      (kindParams, paramInfos) <- dataDeclParamInfos dataDecl
       bindings <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (dataDeclConstructors dataDecl)
       constructors <- concat <$> mapM checkedDataConInfos (dataDeclConstructors dataDecl)
       selectorBindings <- registerRecordSelectors constructors
