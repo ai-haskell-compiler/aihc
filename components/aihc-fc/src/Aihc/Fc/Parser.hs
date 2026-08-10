@@ -43,6 +43,11 @@ type TermEnv = Map Text Var
 
 type TyEnv = Map Text TyVarId
 
+data UnboxedTupleSyntax = UnboxedTupleSyntax
+  { unboxedTupleSyntaxText :: !Text,
+    unboxedTupleSyntaxArity :: !Int
+  }
+
 parseProgram :: Text -> Either FcParseError FcProgram
 parseProgram input = do
   moduleHeaders <- traverse parseModuleHeader blocks
@@ -584,7 +589,10 @@ functionType tyEnv = do
   maybe argument (TcFunTy argument) <$> MP.optional (symbol "→" *> tcType tyEnv)
 
 typeApplication :: TyEnv -> Parser TcType
-typeApplication tyEnv = do
+typeApplication tyEnv = unboxedTupleTypeApplication tyEnv <|> ordinaryTypeApplication tyEnv
+
+ordinaryTypeApplication :: TyEnv -> Parser TcType
+ordinaryTypeApplication tyEnv = do
   function <- typeAtom tyEnv
   explicit <- MP.many (MP.try (symbol "·" *> typeAtom tyEnv))
   if null explicit
@@ -597,19 +605,25 @@ applyTyCon :: TcType -> [TcType] -> TcType
 applyTyCon (TcTyCon tyCon existing) arguments =
   let allArguments = existing <> arguments
       arity = length allArguments
-      typeName = tyConName tyCon
-      resultKind = KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) allArguments))
-      tupleKind = foldr (KFun . typeKind) resultKind allArguments
-      appliedTyCon =
-        if isLegacyUnboxedTupleName typeName arity
-          then mkTyCon typeName arity tupleKind
-          else TyCon typeName arity
-   in TcTyCon appliedTyCon allArguments
+   in TcTyCon (TyCon (tyConName tyCon) arity) allArguments
 applyTyCon function arguments = List.foldl' TcAppTy function arguments
 
-isLegacyUnboxedTupleName :: Text -> Int -> Bool
-isLegacyUnboxedTupleName typeName arity =
-  arity /= 1 && typeName == "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
+unboxedTupleTypeApplication :: TyEnv -> Parser TcType
+unboxedTupleTypeApplication tyEnv = do
+  arity <- unboxedTupleSyntaxArity <$> MP.try (lexeme unboxedTupleSyntax)
+  arguments <- MP.count arity (typeAtom tyEnv)
+  let resultKind = KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) arguments))
+      tupleKind = foldr (KFun . typeKind) resultKind arguments
+  pure (TcTyCon (mkTyCon (unboxedTupleTyConName arity) arity tupleKind) arguments)
+
+unboxedTupleSyntax :: Parser UnboxedTupleSyntax
+unboxedTupleSyntax = do
+  (source, commaCount) <- MP.match $ do
+    _ <- MPC.string "(#"
+    count <- length <$> MP.many (MPC.char ',')
+    _ <- MPC.string "#)"
+    pure count
+  pure (UnboxedTupleSyntax source (if commaCount == 0 then 0 else commaCount + 1))
 
 typeAtom :: TyEnv -> Parser TcType
 typeAtom tyEnv =
@@ -617,6 +631,7 @@ typeAtom tyEnv =
     [ between "[" "]" (TcTyCon (TyCon "[]" 1) . pure <$> tcType tyEnv),
       MP.try (freeTyVar tyEnv),
       metaType,
+      unboxedTupleTypeApplication tyEnv,
       MP.try (namedType tyEnv),
       between "(" ")" (tcType tyEnv)
     ]
@@ -726,9 +741,12 @@ uniqueFor :: Text -> Unique
 uniqueFor = Unique . T.foldl' (\hash character -> hash * 33 + ord character) 5381
 
 name :: Parser Text
-name = lexeme (specialName <|> ordinaryName <|> MP.try operatorName)
+name = lexeme (unboxedTupleName <|> specialName <|> ordinaryName <|> MP.try operatorName)
   where
-    specialName = MP.choice (map MPC.string ["(#,#)", "(,)", "()", "[]"])
+    unboxedTupleName = do
+      syntax <- MP.try unboxedTupleSyntax
+      pure (unboxedTupleSyntaxText syntax)
+    specialName = MP.choice (map MPC.string ["(,)", "()", "[]"])
     operatorName = do
       value <- T.pack <$> MP.some (MP.satisfy (`elem` ("!#$%&*+./<=>?@\\^|-~:" :: String)))
       guard (value `notElem` ["=", "|", "~", "@"])
