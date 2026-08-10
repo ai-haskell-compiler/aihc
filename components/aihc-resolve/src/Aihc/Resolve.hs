@@ -24,6 +24,7 @@ module Aihc.Resolve
     ResolveResult (..),
     resolvedModuleAsts,
     ResolutionNamespace (..),
+    ResolutionForm (..),
     ResolvedName (..),
     ResolutionAnnotation (..),
   )
@@ -259,6 +260,7 @@ missingModuleImportAnnotation message importDecl =
         importedModule
         ResolutionNamespaceModule
         (ResolvedError message)
+        ResolutionNamed
 
 annotateMissingImportItems :: Scope -> ImportDecl -> ImportDecl
 annotateMissingImportItems originScope importDecl =
@@ -316,6 +318,7 @@ missingImportMemberAnnotation originScope item members =
             memberName
             ResolutionNamespaceTerm
             (ResolvedError "not exported")
+            ResolutionNamed
 
 missingImportedName :: ImportItem -> ResolutionNamespace -> UnqualifiedName -> Map.Map Text ResolvedName -> Maybe ResolutionAnnotation
 missingImportedName item namespace itemName candidates
@@ -327,6 +330,7 @@ missingImportedName item namespace itemName candidates
             rendered
             namespace
             (ResolvedError "not exported")
+            ResolutionNamed
         )
   where
     rendered = renderUnqualifiedName itemName
@@ -692,7 +696,7 @@ resolveExpr expr =
                 case lookupTerm renderedName (moduleInfoGhcTypesScope info) of
                   ResolvedError {} -> ResolvedBuiltin renderedName
                   sourceName -> sourceName
-              annotation = ResolutionAnnotation sp renderedName ResolutionNamespaceTerm resolved
+              annotation = ResolutionAnnotation sp renderedName ResolutionNamespaceTerm resolved (ResolutionUnboxedTuple (length items))
           pure (EAnn (mkAnnotation annotation) (ETuple flavor items'))
     EUnboxedSum alt arity inner ->
       EUnboxedSum alt arity <$> resolveExpr inner
@@ -739,6 +743,7 @@ resolveIntegerLiteral expr = do
           "fromInteger"
           ResolutionNamespaceTerm
           resolved
+          ResolutionNamed
   pure (EAnn (mkAnnotation annotation) expr)
 
 rebindableFromInteger :: ModuleInfo -> Scope -> ResolvedName
@@ -770,7 +775,7 @@ literalSpan ambient _ = ambient
 syntaxTermAnnotation :: SourceSpan -> Text -> ResolveM ResolutionAnnotation
 syntaxTermAnnotation sp name = do
   resolved <- resolveSyntaxTerm name
-  pure (ResolutionAnnotation sp name ResolutionNamespaceTerm resolved)
+  pure (ResolutionAnnotation sp name ResolutionNamespaceTerm resolved ResolutionNamed)
 
 resolveSyntaxTerm :: Text -> ResolveM ResolvedName
 resolveSyntaxTerm name = do
@@ -929,7 +934,7 @@ doBindAnnotation sp = do
         if RebindableSyntax `elem` moduleInfoExtensions info
           then rebindableSyntaxTerm info scope ">>="
           else lookupTerm ">>=" (moduleInfoGhcBaseScope info)
-  pure (ResolutionAnnotation sp ">>=" ResolutionNamespaceTerm resolved)
+  pure (ResolutionAnnotation sp ">>=" ResolutionNamespaceTerm resolved ResolutionNamed)
 
 resolveArithSeq :: ArithSeq -> ResolveM ArithSeq
 resolveArithSeq arithSeq =
@@ -1426,7 +1431,7 @@ resolveUnqualifiedNameTo :: SourceSpan -> ResolutionNamespace -> ResolvedName ->
 resolveUnqualifiedNameTo span' namespace resolved name =
   name
     { unqualifiedNameAnns =
-        mkAnnotation (ResolutionAnnotation span' (renderUnqualifiedName name) namespace resolved)
+        mkAnnotation (ResolutionAnnotation span' (renderUnqualifiedName name) namespace resolved ResolutionNamed)
           : unqualifiedNameAnns name
     }
 
@@ -1434,7 +1439,7 @@ resolveNameTo :: SourceSpan -> ResolutionNamespace -> ResolvedName -> Name -> Na
 resolveNameTo span' namespace resolved name =
   name
     { nameAnns =
-        mkAnnotation (ResolutionAnnotation span' (nameText name) namespace resolved)
+        mkAnnotation (ResolutionAnnotation span' (nameText name) namespace resolved ResolutionNamed)
           : nameAnns name
     }
 
@@ -1488,6 +1493,7 @@ ambiguousFixityName ambient op =
               (nameText name)
               ResolutionNamespaceTerm
               (ResolvedError "ambiguous fixity")
+              ResolutionNamed
           )
           : filter (not . isResolutionAnnotation) (nameAnns name)
     }

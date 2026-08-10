@@ -55,7 +55,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Parser.Syntax qualified as Surface
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionForm (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Env (DataConFieldInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
@@ -551,7 +551,7 @@ dsRhs GuardedRhss {} =
 dsExpr :: Expr -> DsM FcExpr
 dsExpr (EAnn ann inner)
   | Just resolution <- fromAnnotation ann,
-    isTupleResolution resolution =
+    isUnboxedTupleResolution resolution =
       withTupleConstructorOrigin (resolvedNameOrigin (resolutionTarget resolution)) (dsExpr inner)
 dsExpr (EAnn ann inner)
   | Just tcAnn <- fromAnnotation ann =
@@ -1489,11 +1489,11 @@ unboxedTupleConType arity =
     tyConKind = foldr (KFun . tvKind) resultKind valueVariables
     resultType = TcTyCon (mkTyCon (unboxedTupleTyConName arity) arity tyConKind) (map TcTyVar valueVariables)
 
-isTupleResolution :: ResolutionAnnotation -> Bool
-isTupleResolution resolution =
-  let name = resolutionName resolution
-   in (T.isPrefixOf "(" name && T.isSuffixOf ")" name)
-        || (T.isPrefixOf "(#" name && T.isSuffixOf "#)" name)
+isUnboxedTupleResolution :: ResolutionAnnotation -> Bool
+isUnboxedTupleResolution resolution =
+  case resolutionForm resolution of
+    ResolutionUnboxedTuple {} -> True
+    ResolutionNamed -> False
 
 withTupleConstructorOrigin :: Maybe FcSymbolOrigin -> DsM a -> DsM a
 withTupleConstructorOrigin origin action = do
