@@ -551,7 +551,7 @@ dsRhs GuardedRhss {} =
 dsExpr :: Expr -> DsM FcExpr
 dsExpr (EAnn ann inner)
   | Just resolution <- fromAnnotation ann,
-    isUnboxedTupleResolution resolution =
+    isTupleResolution resolution =
       withTupleConstructorOrigin (resolvedNameOrigin (resolutionTarget resolution)) (dsExpr inner)
 dsExpr (EAnn ann inner)
   | Just tcAnn <- fromAnnotation ann =
@@ -1459,7 +1459,7 @@ tupleConExpr flavor elemTys = do
   constructorOrigin <- gets dsTupleConstructorOrigin
   (constructorTy, resolvedOrigin) <-
     case (flavor, constructorOrigin) of
-      (Unboxed, Just origin@FcTopLevelOrigin {}) -> (,Just origin) <$> lookupType name
+      (_, Just origin@FcTopLevelOrigin {}) -> (,Just origin) <$> lookupType name
       (Unboxed, _) -> pure (unboxedTupleConType arity, Just (FcBuiltinOrigin name))
       (Boxed, _) -> (,Just (FcBuiltinOrigin name)) <$> lookupType name
   constructor <-
@@ -1489,10 +1489,10 @@ unboxedTupleConType arity =
     tyConKind = foldr (KFun . tvKind) resultKind valueVariables
     resultType = TcTyCon (mkTyCon (unboxedTupleTyConName arity) arity tyConKind) (map TcTyVar valueVariables)
 
-isUnboxedTupleResolution :: ResolutionAnnotation -> Bool
-isUnboxedTupleResolution resolution =
+isTupleResolution :: ResolutionAnnotation -> Bool
+isTupleResolution resolution =
   case resolutionForm resolution of
-    ResolutionUnboxedTuple {} -> True
+    ResolutionTuple -> True
     ResolutionNamed -> False
 
 withTupleConstructorOrigin :: Maybe FcSymbolOrigin -> DsM a -> DsM a

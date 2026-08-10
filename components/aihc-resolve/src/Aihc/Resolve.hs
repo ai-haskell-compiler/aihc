@@ -237,6 +237,7 @@ moduleInfo package exports modu =
       moduleInfoGhcBaseScope = lookupImportedModule package Nothing "GHC.Base" exports,
       moduleInfoGhcClassesScope = lookupImportedModule package Nothing "GHC.Classes" exports,
       moduleInfoGhcNumScope = lookupImportedModule package Nothing "GHC.Num" exports,
+      moduleInfoGhcTupleScope = lookupImportedModule package Nothing "GHC.Tuple" exports,
       moduleInfoGhcTypesScope = lookupImportedModule package Nothing "GHC.Types" exports
     }
 
@@ -685,19 +686,20 @@ resolveExpr expr =
       EList <$> mapM resolveExpr items
     ETuple flavor items -> do
       items' <- mapM resolveMaybeExpr items
-      case flavor of
-        Boxed -> pure (ETuple flavor items')
-        Unboxed -> do
-          sp <- currentSpan
-          info <- currentModuleInfo
-          let constructorName = tupleConName flavor (length items)
-              renderedName = renderUnqualifiedName constructorName
-              resolved =
-                case lookupTerm renderedName (moduleInfoGhcTypesScope info) of
-                  ResolvedError {} -> ResolvedBuiltin renderedName
-                  sourceName -> sourceName
-              annotation = ResolutionAnnotation sp renderedName ResolutionNamespaceTerm resolved (ResolutionUnboxedTuple (length items))
-          pure (EAnn (mkAnnotation annotation) (ETuple flavor items'))
+      sp <- currentSpan
+      info <- currentModuleInfo
+      let constructorName = tupleConName flavor (length items)
+          renderedName = renderUnqualifiedName constructorName
+          tupleScope =
+            case flavor of
+              Boxed -> moduleInfoGhcTupleScope info
+              Unboxed -> moduleInfoGhcTypesScope info
+          resolved =
+            case lookupTerm renderedName tupleScope of
+              ResolvedError {} -> ResolvedBuiltin renderedName
+              sourceName -> sourceName
+          annotation = ResolutionAnnotation sp renderedName ResolutionNamespaceTerm resolved ResolutionTuple
+      pure (EAnn (mkAnnotation annotation) (ETuple flavor items'))
     EUnboxedSum alt arity inner ->
       EUnboxedSum alt arity <$> resolveExpr inner
     ETypeApp fun ty ->

@@ -31,11 +31,12 @@ annotated:
 - |-
   module Main where
   x = (not False, True && False)
-  │    │   │      │    │  └─ v Data.Bool
-  │    │   │      │    └─ v Data.Bool
-  │    │   │      └─ v Data.Bool
-  │    │   └─ v Data.Bool
-  │    └─ v Data.Bool
+  │   ││   │      │    │  └─ v Data.Bool
+  │   ││   │      │    └─ v Data.Bool
+  │   ││   │      └─ v Data.Bool
+  │   ││   └─ v Data.Bool
+  │   │└─ v Data.Bool
+  │   └─ v Builtin (,)
   └─ v Main
 - |-
   module Prelude

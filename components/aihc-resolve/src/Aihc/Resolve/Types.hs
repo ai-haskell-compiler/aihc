@@ -72,7 +72,7 @@ data ResolutionNamespace
 -- | The syntax form that caused one resolution request.
 data ResolutionForm
   = ResolutionNamed
-  | ResolutionUnboxedTuple !Int
+  | ResolutionTuple
   deriving (Eq, Show)
 
 data ResolutionAnnotation = ResolutionAnnotation

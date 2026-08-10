@@ -9,15 +9,15 @@ modules:
 expected: |-
   module Test where
 
-  external builtin.() : Unit
+  external GHC.Tuple.() : Unit
 
-  external builtin.(,) : ∀ (a : TYPE BoxedRep Lifted) (b : TYPE BoxedRep Lifted). a → b → Tuple2 a b
+  external GHC.Tuple.(,) : ∀ (a : TYPE BoxedRep Lifted) (b : TYPE BoxedRep Lifted). a → b → Tuple2 a b
 
   data Bool
    = True
    | False
 
   pair : Tuple2 Bool Unit =
-    (((builtin.(,) @Bool) @Unit) True) builtin.()
+    (((GHC.Tuple.(,) @Bool) @Unit) True) GHC.Tuple.()
 status: pass
 reason: reifies tuple constructor type arguments from type-checker annotations

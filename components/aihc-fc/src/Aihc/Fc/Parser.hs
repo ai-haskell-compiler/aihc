@@ -489,9 +489,14 @@ topLevelOrigin :: Parser (Text, Maybe FcSymbolOrigin)
 topLevelOrigin = do
   packageName <- MP.optional (MP.try text)
   qualified <- qualifiedName
-  let (moduleName, symbolName) = splitQualified qualified
-  guard (moduleName /= "")
-  pure (symbolName, Just (FcTopLevelOrigin (fromMaybe "" packageName) moduleName symbolName))
+  case T.stripSuffix "." qualified of
+    Just moduleName -> do
+      symbolName <- name
+      pure (symbolName, Just (FcTopLevelOrigin (fromMaybe "" packageName) moduleName symbolName))
+    Nothing -> do
+      let (moduleName, symbolName) = splitQualified qualified
+      guard (moduleName /= "")
+      pure (symbolName, Just (FcTopLevelOrigin (fromMaybe "" packageName) moduleName symbolName))
 
 builtinOrigin :: Parser (Text, Maybe FcSymbolOrigin)
 builtinOrigin = do
