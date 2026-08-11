@@ -59,6 +59,27 @@ grinUnitTests =
               ]
           )
           (renderProgram program <> "\n"),
+      testCase "pretty printer does not repeat layout arities" $ do
+        let layouts = [[IntRep], []]
+            externalInfo = GrinCodeInfo "source" (FunctionName "external_code") layouts IntRep
+            function =
+              GrinFunction
+                { grinFunctionName = FunctionName "entry",
+                  grinFunctionLinkName = Nothing,
+                  grinFunctionParameters = [],
+                  grinFunctionResultRep = BoxedRep Lifted,
+                  grinFunctionBody = GrinStore (GrinNode (GrinClosure (FunctionName "worker") layouts) [])
+                }
+            program =
+              emptyGrinProgram
+                { grinConstructors = [("Pair", layouts)],
+                  grinExternalFunctions = [externalInfo],
+                  grinFunctions = [function]
+                }
+            rendered = renderProgram program
+        assertBool "constructor has only its layouts" ("constructor Pair [IntRep, []]" `isInfixOf` rendered)
+        assertBool "external function has only its layouts" ("external source [[IntRep], []] -> IntRep" `isInfixOf` rendered)
+        assertBool "closure has only its layouts" ("store (Pworker/[[IntRep], []])" `isInfixOf` rendered),
       testCase "FC lowering passes known WHNF arguments without thunk cells" $ do
         let program = lowerProgram applicationProgram
             rendered = renderProgram program
@@ -394,7 +415,7 @@ grinUnitTests =
         let program = lowerProgram zeroWidthSaturatedApplicationProgram
             rendered = renderProgram program
         assertEqual "lint" [] (lintProgram program)
-        assertBool "one logical argument remains" ("P$entry$zeroWidthTarget/1" `isInfixOf` rendered)
+        assertBool "one logical argument remains" ("P$entry$zeroWidthTarget/[[]]" `isInfixOf` rendered)
         assertBool "closure is not saturated" (not ("P$entry$zeroWidthTarget/0" `isInfixOf` rendered)),
       testCase "FC lowering preserves a zero-width application" $ do
         let program = lowerProgram zeroWidthUnknownApplicationProgram

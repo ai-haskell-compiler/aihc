@@ -1,5 +1,5 @@
 expected: |-
-  constructor Box/1 [IntRep]
+  constructor Box [IntRep]
 
   primitive realWorld#%1000 :: BoxedRep Lifted/0
 
