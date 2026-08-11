@@ -337,7 +337,7 @@ lowerProgramWithEnvironment linkNames imported local environment program =
           lowerReferencedExternalCodeLinkNames = Set.empty,
           lowerLocalGlobalNames =
             Set.fromList
-              ( [name | (name, arity) <- programConstructors program, arity == 0]
+              ( Map.elems (grinInterfaceWhnfGlobals local)
                   <> [linkedName | (_, _, linkedName, _) <- programGlobalInfos linkNames program]
               ),
           lowerReferencedExternalGlobalNames = Set.empty,
