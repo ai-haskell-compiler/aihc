@@ -598,6 +598,21 @@ grinUnitTests =
         assertBool "no projection operation" (not ("project " `isInfixOf` rendered))
         result <- interpretProgramBinding "answer" program
         assertEqual "selected field is evaluated" (Right "Box 2") result,
+      testCase "FC lowering keeps local nullary constructors out of external globals" $ do
+        let localTy = TcTyCon (TyCon "Local" 0) []
+            localConstructor = Var "Local" (Unique 60) localTy
+            boxConstructor = Var "Box" (Unique 61) (TcFunTy localTy boxedIntTy)
+            answer = Var "answer" (Unique 62) boxedIntTy
+            core =
+              FcProgram
+                (FcModuleId "test" "Test")
+                [ fcData "Local" [] [("Local", [])],
+                  fcData "Box" [] [("Box", [localTy])],
+                  FcTopBind (FcNonRec answer (FcApp (FcVar boxConstructor) (FcVar localConstructor)))
+                ]
+            program = lowerProgramWithLinkNames (linkNamesForProgram ["test"] ["Test"] core) core
+        assertEqual "lint" [] (lintProgram program)
+        assertEqual "external globals" [] (grinExternalGlobals program),
       testCase "separate FC units do not capture dependency globals" $ do
         case separatePrograms of
           [providerCore, consumerCore] -> do

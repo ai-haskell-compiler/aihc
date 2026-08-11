@@ -335,7 +335,11 @@ lowerProgramWithEnvironment linkNames imported local environment program =
           lowerCodeInfosByName = programEnvironmentCodeInfosByName environment,
           lowerLocalCodeLinkNames = localCodeLinkNames,
           lowerReferencedExternalCodeLinkNames = Set.empty,
-          lowerLocalGlobalNames = Set.fromList [linkedName | (_, _, linkedName, _) <- programGlobalInfos linkNames program],
+          lowerLocalGlobalNames =
+            Set.fromList
+              ( Map.elems (grinInterfaceWhnfGlobals local)
+                  <> [linkedName | (_, _, linkedName, _) <- programGlobalInfos linkNames program]
+              ),
           lowerReferencedExternalGlobalNames = Set.empty,
           lowerGlobalNames = programEnvironmentGlobals environment,
           lowerWhnfGlobalNames = programEnvironmentWhnfGlobals environment,
