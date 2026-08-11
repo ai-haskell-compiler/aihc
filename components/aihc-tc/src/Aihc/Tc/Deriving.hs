@@ -66,6 +66,9 @@ annotateDerivingPlans plans decl =
   DeclAnn (mkAnnotation (TcDerivingAnnotation plans)) decl
 
 checkAttachedDerivingPlans :: [Extension] -> TyConFlavor -> BinderHead UnqualifiedName -> [DerivingClause] -> TcM [TcDerivingPlan]
+checkAttachedDerivingPlans _ _ targetHead [] = do
+  mapM_ (freshSkolemTv . tyVarBinderName) (binderHeadParams targetHead)
+  pure []
 checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
   rawParams <- makeParamEnv (binderHeadParams targetHead)
   params <- mapM defaultParam rawParams

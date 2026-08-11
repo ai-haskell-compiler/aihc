@@ -24,6 +24,7 @@ module Aihc.Resolve
     ResolveResult (..),
     resolvedModuleAsts,
     ResolutionNamespace (..),
+    ResolutionForm (..),
     ResolvedName (..),
     ResolutionAnnotation (..),
   )
@@ -77,6 +78,7 @@ import Aihc.Parser.Syntax
     Rhs (..),
     SourceSpan (..),
     StandaloneDerivingDecl (..),
+    TupleFlavor (..),
     TyVarBinder (..),
     Type (..),
     TypeSynDecl (..),
@@ -101,12 +103,14 @@ import Aihc.Resolve.Span
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM)
+import Data.Char (isDigit)
 import Data.Data (Data, cast, gmapQ)
 import Data.List (find, mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
+import Data.Text qualified as T
 
 collectResolveErrors :: (Data a) => a -> [ResolveError]
 collectResolveErrors node =
@@ -232,7 +236,9 @@ moduleInfo package exports modu =
         any ((== "Prelude") . importDeclModule) (moduleImports modu),
       moduleInfoGhcBaseScope = lookupImportedModule package Nothing "GHC.Base" exports,
       moduleInfoGhcClassesScope = lookupImportedModule package Nothing "GHC.Classes" exports,
-      moduleInfoGhcNumScope = lookupImportedModule package Nothing "GHC.Num" exports
+      moduleInfoGhcNumScope = lookupImportedModule package Nothing "GHC.Num" exports,
+      moduleInfoGhcTupleScope = lookupImportedModule package Nothing "GHC.Tuple" exports,
+      moduleInfoGhcTypesScope = lookupImportedModule package Nothing "GHC.Types" exports
     }
 
 resolveModuleImports :: Package -> ModuleExports -> [ImportDecl] -> [ImportDecl]
@@ -255,6 +261,7 @@ missingModuleImportAnnotation message importDecl =
         importedModule
         ResolutionNamespaceModule
         (ResolvedError message)
+        ResolutionNamed
 
 annotateMissingImportItems :: Scope -> ImportDecl -> ImportDecl
 annotateMissingImportItems originScope importDecl =
@@ -312,6 +319,7 @@ missingImportMemberAnnotation originScope item members =
             memberName
             ResolutionNamespaceTerm
             (ResolvedError "not exported")
+            ResolutionNamed
 
 missingImportedName :: ImportItem -> ResolutionNamespace -> UnqualifiedName -> Map.Map Text ResolvedName -> Maybe ResolutionAnnotation
 missingImportedName item namespace itemName candidates
@@ -323,6 +331,7 @@ missingImportedName item namespace itemName candidates
             rendered
             namespace
             (ResolvedError "not exported")
+            ResolutionNamed
         )
   where
     rendered = renderUnqualifiedName itemName
@@ -378,6 +387,12 @@ resolveDecl termDefinition (DeclAnn ann inner) =
 resolveDecl termDefinition decl =
   resolveDeclCore termDefinition decl
 
+isUnboxedTupleTypeName :: UnqualifiedName -> Bool
+isUnboxedTupleTypeName name =
+  case T.stripPrefix "Tuple" (renderUnqualifiedName name) >>= T.stripSuffix "#" of
+    Just arity -> not (T.null arity) && T.all isDigit arity
+    Nothing -> False
+
 resolveDeclCore :: TermDefinition -> Decl -> ResolveM Decl
 resolveDeclCore termDefinition decl =
   case decl of
@@ -388,8 +403,9 @@ resolveDeclCore termDefinition decl =
     DeclTypeSig names ty -> do
       ty' <- resolveType ty
       pure (DeclTypeSig names ty')
-    DeclStandaloneKindSig {} ->
-      annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclStandaloneKindSig name _
+      | isUnboxedTupleTypeName name -> pure decl
+      | otherwise -> annotateUnhandledDecl <$> currentSpan <*> pure decl
     DeclTypeData dataDecl ->
       DeclTypeData <$> resolveDataDecl "type data " dataDecl
     DeclData dataDecl ->
@@ -668,8 +684,22 @@ resolveExpr expr =
       EParen <$> resolveExpr inner
     EList items ->
       EList <$> mapM resolveExpr items
-    ETuple flavor items ->
-      ETuple flavor <$> mapM resolveMaybeExpr items
+    ETuple flavor items -> do
+      items' <- mapM resolveMaybeExpr items
+      sp <- currentSpan
+      info <- currentModuleInfo
+      let constructorName = tupleConName flavor (length items)
+          renderedName = renderUnqualifiedName constructorName
+          tupleScope =
+            case flavor of
+              Boxed -> moduleInfoGhcTupleScope info
+              Unboxed -> moduleInfoGhcTypesScope info
+          resolved =
+            case lookupTerm renderedName tupleScope of
+              ResolvedError {} -> ResolvedBuiltin renderedName
+              sourceName -> sourceName
+          annotation = ResolutionAnnotation sp renderedName ResolutionNamespaceTerm resolved ResolutionTuple
+      pure (EAnn (mkAnnotation annotation) (ETuple flavor items'))
     EUnboxedSum alt arity inner ->
       EUnboxedSum alt arity <$> resolveExpr inner
     ETypeApp fun ty ->
@@ -715,6 +745,7 @@ resolveIntegerLiteral expr = do
           "fromInteger"
           ResolutionNamespaceTerm
           resolved
+          ResolutionNamed
   pure (EAnn (mkAnnotation annotation) expr)
 
 rebindableFromInteger :: ModuleInfo -> Scope -> ResolvedName
@@ -746,7 +777,7 @@ literalSpan ambient _ = ambient
 syntaxTermAnnotation :: SourceSpan -> Text -> ResolveM ResolutionAnnotation
 syntaxTermAnnotation sp name = do
   resolved <- resolveSyntaxTerm name
-  pure (ResolutionAnnotation sp name ResolutionNamespaceTerm resolved)
+  pure (ResolutionAnnotation sp name ResolutionNamespaceTerm resolved ResolutionNamed)
 
 resolveSyntaxTerm :: Text -> ResolveM ResolvedName
 resolveSyntaxTerm name = do
@@ -905,7 +936,7 @@ doBindAnnotation sp = do
         if RebindableSyntax `elem` moduleInfoExtensions info
           then rebindableSyntaxTerm info scope ">>="
           else lookupTerm ">>=" (moduleInfoGhcBaseScope info)
-  pure (ResolutionAnnotation sp ">>=" ResolutionNamespaceTerm resolved)
+  pure (ResolutionAnnotation sp ">>=" ResolutionNamespaceTerm resolved ResolutionNamed)
 
 resolveArithSeq :: ArithSeq -> ResolveM ArithSeq
 resolveArithSeq arithSeq =
@@ -1402,7 +1433,7 @@ resolveUnqualifiedNameTo :: SourceSpan -> ResolutionNamespace -> ResolvedName ->
 resolveUnqualifiedNameTo span' namespace resolved name =
   name
     { unqualifiedNameAnns =
-        mkAnnotation (ResolutionAnnotation span' (renderUnqualifiedName name) namespace resolved)
+        mkAnnotation (ResolutionAnnotation span' (renderUnqualifiedName name) namespace resolved ResolutionNamed)
           : unqualifiedNameAnns name
     }
 
@@ -1410,7 +1441,7 @@ resolveNameTo :: SourceSpan -> ResolutionNamespace -> ResolvedName -> Name -> Na
 resolveNameTo span' namespace resolved name =
   name
     { nameAnns =
-        mkAnnotation (ResolutionAnnotation span' (nameText name) namespace resolved)
+        mkAnnotation (ResolutionAnnotation span' (nameText name) namespace resolved ResolutionNamed)
           : nameAnns name
     }
 
@@ -1464,6 +1495,7 @@ ambiguousFixityName ambient op =
               (nameText name)
               ResolutionNamespaceTerm
               (ResolvedError "ambiguous fixity")
+              ResolutionNamed
           )
           : filter (not . isResolutionAnnotation) (nameAnns name)
     }

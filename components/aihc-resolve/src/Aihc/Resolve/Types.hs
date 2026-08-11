@@ -9,6 +9,7 @@ module Aihc.Resolve.Types
     pattern PResolution,
     pattern TResolution,
     ResolutionNamespace (..),
+    ResolutionForm (..),
     PackageId (..),
     Package (..),
     unnamedPackage,
@@ -68,11 +69,18 @@ data ResolutionNamespace
   | ResolutionNamespaceModule
   deriving (Eq, Show)
 
+-- | The syntax form that caused one resolution request.
+data ResolutionForm
+  = ResolutionNamed
+  | ResolutionTuple
+  deriving (Eq, Show)
+
 data ResolutionAnnotation = ResolutionAnnotation
   { resolutionSpan :: !SourceSpan,
     resolutionName :: !Text,
     resolutionNamespace :: !ResolutionNamespace,
-    resolutionTarget :: !ResolvedName
+    resolutionTarget :: !ResolvedName,
+    resolutionForm :: !ResolutionForm
   }
   deriving (Eq, Show)
 

@@ -63,7 +63,7 @@ annotated:
   │      └─ v 1  └─ v 1
   └─ v Main
   left == right = ()
-  │    │  └─ v 3
+  │    │  └─ v 3  └─ v Builtin ()
   │    └─ v Main
   └─ v 2
 
@@ -74,8 +74,9 @@ annotated:
   match = \case
   └─ v Main
     -1 -> ()
-    └─ v GHC.Classes
+    │││     └─ v Builtin ()
     └─ v GHC.Num
+    └─ v GHC.Classes
     └─ v GHC.Num
 status: pass
 reason: ordinary integer syntax resolves canonical methods from GHC.Num and

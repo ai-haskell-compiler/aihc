@@ -23,7 +23,8 @@ import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types
-  ( RuntimeRep (..),
+  ( Kind (KTYPE),
+    RuntimeRep (..),
     TcType (..),
     Unique (..),
     liftedRuntimeRep,
@@ -58,7 +59,8 @@ data LowerState = LowerState
     lowerCurrentProvenance :: !(Maybe Text),
     lowerUseIncrementalCodeLookup :: !Bool,
     lowerLinkNames :: !GrinLinkNames,
-    lowerLinkNameOccurrences :: !(Map Unique Int)
+    lowerLinkNameOccurrences :: !(Map Unique Int),
+    lowerUnboxedTupleConstructors :: !(Set Text)
   }
 
 type LowerM = State LowerState
@@ -132,6 +134,7 @@ linkNamesForProgram libraryId moduleNameComponents program =
         Map.fromList
           [ (fcSymbolOriginText (fcDataConOrigin constructor), (fcDataConName constructor, length (fcDataConFields constructor)))
           | FcData declaration <- fcTopBinds program,
+            not (isUnboxedTupleData declaration),
             constructor <- fcDataConstructors declaration
           ]
     }
@@ -187,6 +190,7 @@ data GrinInterface = GrinInterface
     grinInterfaceWhnfGlobals :: !(Map Text Text),
     grinInterfaceConstructorArities :: !(Map Text Int),
     grinInterfacePrimitiveArities :: !(Map Text Int),
+    grinInterfaceUnboxedTupleConstructors :: !(Set Text),
     grinInterfaceCodeInfosByUnique :: !(Map Unique [(TcType, GrinCodeInfo)]),
     grinInterfaceCodeInfosByName :: !(Map Text GrinCodeInfo),
     grinInterfaceCodeInfosByLinkName :: !(Map Text GrinCodeInfo)
@@ -200,13 +204,14 @@ instance Semigroup GrinInterface where
         grinInterfaceWhnfGlobals = grinInterfaceWhnfGlobals left <> grinInterfaceWhnfGlobals right,
         grinInterfaceConstructorArities = grinInterfaceConstructorArities left <> grinInterfaceConstructorArities right,
         grinInterfacePrimitiveArities = grinInterfacePrimitiveArities left <> grinInterfacePrimitiveArities right,
+        grinInterfaceUnboxedTupleConstructors = grinInterfaceUnboxedTupleConstructors left <> grinInterfaceUnboxedTupleConstructors right,
         grinInterfaceCodeInfosByUnique = Map.unionWith (<>) (grinInterfaceCodeInfosByUnique left) (grinInterfaceCodeInfosByUnique right),
         grinInterfaceCodeInfosByName = grinInterfaceCodeInfosByName left <> grinInterfaceCodeInfosByName right,
         grinInterfaceCodeInfosByLinkName = grinInterfaceCodeInfosByLinkName left <> grinInterfaceCodeInfosByLinkName right
       }
 
 instance Monoid GrinInterface where
-  mempty = GrinInterface Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
+  mempty = GrinInterface Map.empty Map.empty Map.empty Map.empty Set.empty Map.empty Map.empty Map.empty
 
 extractGrinInterface :: FcProgram -> GrinInterface
 extractGrinInterface = extractGrinInterfaceWithLinkNames mempty
@@ -243,6 +248,13 @@ extractPreparedGrinInterface linkNames program =
           [ (varName var, arity)
           | FcPrimitive var arity <- fcTopBinds program,
             varName var /= "seq"
+          ],
+      grinInterfaceUnboxedTupleConstructors =
+        Set.fromList
+          [ fcSymbolOriginText (fcDataConOrigin constructor)
+          | FcData declaration <- fcTopBinds program,
+            isUnboxedTupleData declaration,
+            constructor <- fcDataConstructors declaration
           ],
       grinInterfaceCodeInfosByUnique = Map.fromListWith (<>) [(varUnique var, [(varType var, info)]) | (var, _, info) <- codeInfos],
       grinInterfaceCodeInfosByName =
@@ -283,6 +295,7 @@ data ProgramEnvironment = ProgramEnvironment
     programEnvironmentWhnfGlobals :: !(Map Text Text),
     programEnvironmentConstructorArities :: !(Map Text Int),
     programEnvironmentPrimitiveArities :: !(Map Text Int),
+    programEnvironmentUnboxedTupleConstructors :: !(Set Text),
     programEnvironmentCodeInfosByName :: !(Map Text GrinCodeInfo)
   }
 
@@ -293,6 +306,7 @@ programEnvironment interface =
       programEnvironmentWhnfGlobals = Map.fromList [(name, name) | (name, layouts) <- builtinConstructors, null layouts] <> grinInterfaceWhnfGlobals interface,
       programEnvironmentConstructorArities = Map.fromList [(name, length layouts) | (name, layouts) <- builtinConstructors] <> grinInterfaceConstructorArities interface,
       programEnvironmentPrimitiveArities = grinInterfacePrimitiveArities interface,
+      programEnvironmentUnboxedTupleConstructors = grinInterfaceUnboxedTupleConstructors interface,
       programEnvironmentCodeInfosByName = grinInterfaceCodeInfosByName interface
     }
 
@@ -329,7 +343,8 @@ lowerProgramWithEnvironment linkNames imported local environment program =
           lowerCurrentProvenance = Nothing,
           lowerUseIncrementalCodeLookup = not (grinLinkNamesEmpty linkNames),
           lowerLinkNames = linkNames,
-          lowerLinkNameOccurrences = Map.empty
+          lowerLinkNameOccurrences = Map.empty,
+          lowerUnboxedTupleConstructors = programEnvironmentUnboxedTupleConstructors environment
         }
     (topParts, finalState) = runState (mapM lowerTopBind (fcTopBinds program)) initialState
     tops = mconcat topParts
@@ -345,7 +360,9 @@ lowerTopBind topBind =
   case topBind of
     FcExternal {} -> pure mempty
     FcData declaration ->
-      pure mempty {loweredConstructors = [(fcDataConName constructor, map (runtimeRepComponents . typeRuntimeRep) (fcDataConFields constructor)) | constructor <- fcDataConstructors declaration]}
+      if isUnboxedTupleData declaration
+        then pure mempty
+        else pure mempty {loweredConstructors = [(fcDataConName constructor, map (runtimeRepComponents . typeRuntimeRep) (fcDataConFields constructor)) | constructor <- fcDataConstructors declaration]}
     FcAxiom {} ->
       pure mempty
     FcNewtype {} ->
@@ -452,8 +469,9 @@ lowerExpr expr = do
         Nothing -> lowerOrdinaryExpr expr
 
 lowerOrdinaryExpr :: FcExpr -> LowerM GrinExpr
-lowerOrdinaryExpr expr =
-  case unboxedTupleArguments expr of
+lowerOrdinaryExpr expr = do
+  tupleArguments <- unboxedTupleArguments expr
+  case tupleArguments of
     Just arguments ->
       lowerArgumentMany arguments (pure . GrinConstant)
     Nothing -> lowerNonTupleExpr expr
@@ -719,7 +737,7 @@ lowerCase scrutinee binder alternatives =
       pure (bindExpr [] scrutineeExpr rhs)
     (_, TupleRep _, alternative : _)
       | DataAlt constructor <- altCon alternative,
-        isUnboxedTupleConstructor constructor ->
+        unboxedTuplePunctuation constructor ->
           -- An unboxed tuple has exactly one constructor. The source match
           -- compiler may retain a syntactic fall-through alternative while
           -- compiling nested refutable fields, but that alternative is
@@ -1112,19 +1130,30 @@ lowerStrictMany expressions continuation =
 freshVars :: Text -> RuntimeRep -> LowerM [GrinVar]
 freshVars hint = mapM (freshVar hint) . runtimeRepComponents
 
-unboxedTupleArguments :: FcExpr -> Maybe [FcExpr]
-unboxedTupleArguments expr =
+unboxedTupleArguments :: FcExpr -> LowerM (Maybe [FcExpr])
+unboxedTupleArguments expr = do
+  tupleConstructors <- gets lowerUnboxedTupleConstructors
   case collectApplications expr of
     (FcVar constructor, arguments)
-      | isUnboxedTupleConstructor (varName constructor) ->
+      | isKnownUnboxedTupleConstructor tupleConstructors constructor ->
           case exprRuntimeRep expr of
             TupleRep fieldReps
-              | length arguments == length fieldReps -> Just arguments
-            _ -> Nothing
-    _ -> Nothing
+              | length arguments == length fieldReps -> pure (Just arguments)
+            _ -> pure Nothing
+    _ -> pure Nothing
 
-isUnboxedTupleConstructor :: Text -> Bool
-isUnboxedTupleConstructor name =
+isKnownUnboxedTupleConstructor :: Set Text -> Var -> Bool
+isKnownUnboxedTupleConstructor knownOrigins constructor =
+  case varResolvedName constructor of
+    Just origin
+      | fcSymbolOriginText origin `Set.member` knownOrigins -> True
+    Just (FcTopLevelOrigin _ "GHC.Types" originName) -> unboxedTuplePunctuation originName
+    Just FcBuiltinOrigin {} -> unboxedTuplePunctuation (varName constructor)
+    Nothing -> unboxedTuplePunctuation (varName constructor)
+    _ -> False
+
+unboxedTuplePunctuation :: Text -> Bool
+unboxedTuplePunctuation name =
   case T.stripPrefix "(#" name >>= T.stripSuffix "#)" of
     Just punctuation -> T.all (== ',') punctuation
     Nothing -> False
@@ -1295,11 +1324,12 @@ isGlobalVar :: Var -> LowerM Bool
 isGlobalVar var = do
   localVars <- gets lowerLocalVars
   globalNames <- gets lowerGlobalNames
+  tupleConstructors <- gets lowerUnboxedTupleConstructors
   incremental <- gets lowerUseIncrementalCodeLookup
   let sourceName = sourceLookupName incremental var
   pure
     ( varKey var `Map.notMember` localVars
-        && (sourceName `Map.member` globalNames || isUnboxedTupleConstructor (varName var))
+        && (sourceName `Map.member` globalNames || isKnownUnboxedTupleConstructor tupleConstructors var)
     )
 
 -- | Values that can be embedded directly in a non-allocating GRIN operation.
@@ -1688,8 +1718,15 @@ programConstructors :: FcProgram -> [(Text, Int)]
 programConstructors program =
   [ (fcDataConName constructor, length (fcDataConFields constructor))
   | FcData declaration <- fcTopBinds program,
+    not (isUnboxedTupleData declaration),
     constructor <- fcDataConstructors declaration
   ]
+
+isUnboxedTupleData :: FcDataDecl -> Bool
+isUnboxedTupleData declaration =
+  case fcDataResultKind declaration of
+    KTYPE TupleRep {} -> True
+    _ -> False
 
 programGlobalInfos :: GrinLinkNames -> FcProgram -> [(Var, Text, Text, Bool)]
 programGlobalInfos linkNames program = concat (snd (mapAccumL buildInfo Map.empty bindings))

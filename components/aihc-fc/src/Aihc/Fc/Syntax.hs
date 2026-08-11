@@ -27,6 +27,9 @@ module Aihc.Fc.Syntax
     FcBind (..),
     FcTopBind (..),
     FcDataDecl (..),
+    fcDataKindTyVars,
+    fcDataResultType,
+    fcDataTyCon,
     FcDataConDecl (..),
     FcAxiomDecl (..),
     FcAxiomRole (..),
@@ -55,15 +58,24 @@ where
 
 import Aihc.Tc.Evidence (Coercion)
 import Aihc.Tc.Types
-  ( RuntimeRep (..),
+  ( Kind (..),
+    RuntimeRep (..),
     TcType (..),
     TyCon (..),
-    TyVarId,
+    TyVarId (..),
     Unique (..),
     liftedRuntimeRep,
+    mkTyCon,
+    runtimeRepOfType,
+    setTyVarKind,
+    tvKind,
+    typeKind,
+    unboxedTupleTyConName,
   )
 import Data.ByteString (ByteString)
 import Data.Char (ord)
+import Data.Either (fromRight)
+import Data.List (nub)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -114,9 +126,39 @@ data FcDataDecl = FcDataDecl
   { fcDataOrigin :: !FcSymbolOrigin,
     fcDataName :: !Text,
     fcDataTyVars :: ![TyVarId],
+    fcDataResultKind :: !Kind,
     fcDataConstructors :: ![FcDataConDecl]
   }
   deriving (Eq, Show, Read)
+
+fcDataTyCon :: FcDataDecl -> TyCon
+fcDataTyCon declaration =
+  mkTyCon
+    (fcDataName declaration)
+    (length (fcDataTyVars declaration))
+    (foldr (KFun . tvKind) (fcDataResultKind declaration) (fcDataTyVars declaration))
+
+fcDataKindTyVars :: FcDataDecl -> [TyVarId]
+fcDataKindTyVars declaration =
+  [ setTyVarKind KRuntimeRep (TyVarId ("r" <> T.pack (show unique)) (Unique unique))
+  | Unique unique <- nub (concatMap (kindRuntimeRepVariables . tvKind) (fcDataTyVars declaration) <> kindRuntimeRepVariables (fcDataResultKind declaration))
+  ]
+  where
+    kindRuntimeRepVariables kind =
+      case kind of
+        KTYPE runtimeRep -> runtimeRepVariables runtimeRep
+        KFun argument result -> kindRuntimeRepVariables argument <> kindRuntimeRepVariables result
+        _ -> []
+    runtimeRepVariables runtimeRep =
+      case runtimeRep of
+        RuntimeRepVar unique -> [unique]
+        TupleRep fields -> concatMap runtimeRepVariables fields
+        SumRep fields -> concatMap runtimeRepVariables fields
+        _ -> []
+
+fcDataResultType :: FcDataDecl -> TcType
+fcDataResultType declaration =
+  TcTyCon (fcDataTyCon declaration) (map TcTyVar (fcDataTyVars declaration))
 
 -- | A data constructor with its stable source identity.
 data FcDataConDecl = FcDataConDecl
@@ -195,9 +237,11 @@ fcForeignCallResultType signature =
   case fcForeignEffect signature of
     FcForeignPure -> foreignPrimitiveType (fcForeignResultType signature)
     FcForeignRealWorld ->
-      TcTyCon
-        (TyCon "(#,#)" 2)
-        [statePrimRealWorldType, foreignPrimitiveType (fcForeignResultType signature)]
+      let fields = [statePrimRealWorldType, foreignPrimitiveType (fcForeignResultType signature)]
+          fieldRep field = fromRight liftedRuntimeRep (runtimeRepOfType field)
+          resultKind = KTYPE (TupleRep (map fieldRep fields))
+          tupleKind = foldr (KFun . typeKind) resultKind fields
+       in TcTyCon (mkTyCon (unboxedTupleTyConName 2) 2 tupleKind) fields
 
 fcForeignCallType :: FcForeignSignature -> TcType
 fcForeignCallType signature =

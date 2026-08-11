@@ -75,7 +75,7 @@ expected: |-
 
   external GHC.Num.fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a
 
-  external builtin.() : Unit
+  external GHC.Tuple.() : Unit
 
   asInt : Int =
     ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Internal.Integer.IS 1#IntRep)
@@ -90,7 +90,7 @@ expected: |-
     } in
       case (((GHC.Classes.== @Int) GHC.Classes.$fEqInt) _case_value) (((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Internal.Integer.IS 1#IntRep)) as (_case_guard : Bool) of {
         True →
-          builtin.();
+          GHC.Tuple.();
         False →
           case _case_value as (_case_nomatch : Int) of {}
       }

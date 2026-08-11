@@ -106,6 +106,7 @@ unhandledSyntaxAnnotation namespace span' node =
     (T.pack (showConstr (toConstr node)))
     namespace
     (ResolvedError "unhandled syntax")
+    ResolutionNamed
 
 annotateUnhandledDecl :: SourceSpan -> Decl -> Decl
 annotateUnhandledDecl span' decl =

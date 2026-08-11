@@ -55,7 +55,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Env (DataTypeInfo)
 import Aihc.Tc.Evidence (EvTerm, EvVar)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, isUnboxedTupleType)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -296,9 +296,8 @@ renderTcType = go 0
       | isBoxedTupleCon name arity,
         arity == length args =
           "(" ++ commaSep (map (go 0) args) ++ ")"
-    go _ (TcTyCon (TyCon name arity) args)
-      | isUnboxedTupleCon name arity,
-        arity == length args =
+    go _ tupleType@(TcTyCon _ args)
+      | isUnboxedTupleType tupleType =
           "(# " ++ commaSep (map (go 0) args) ++ " #)"
     go _ (TcTyCon tc []) = T.unpack (tyConName tc)
     go p (TcTyCon tc args) =
@@ -330,13 +329,6 @@ renderTcType = go 0
 
     isBoxedTupleCon name arity =
       arity /= 1 && name == boxedTupleTyConName arity
-
-    isUnboxedTupleCon name arity =
-      name == T.pack "(#" <> commas arity <> T.pack "#)"
-
-    commas arity
-      | arity <= 1 = T.empty
-      | otherwise = T.replicate (arity - 1) (T.pack ",")
 
 -- | Collect nested forall binders into a list.
 collectForAlls :: TcType -> ([TyVarId], TcType)

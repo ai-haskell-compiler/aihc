@@ -20,6 +20,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (guard, void)
 import Data.ByteString qualified as BS
 import Data.Char (isAlphaNum, isSpace, ord)
+import Data.Either (fromRight)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -41,6 +42,11 @@ type FcParseError = ParseErrorBundle Text Void
 type TermEnv = Map Text Var
 
 type TyEnv = Map Text TyVarId
+
+data UnboxedTupleSyntax = UnboxedTupleSyntax
+  { unboxedTupleSyntaxText :: !Text,
+    unboxedTupleSyntaxArity :: !Int
+  }
 
 parseProgram :: Text -> Either FcParseError FcProgram
 parseProgram input = do
@@ -154,7 +160,7 @@ signaturesOf top =
       Map.fromList
         [ entry
         | constructorDeclaration <- fcDataConstructors declaration,
-          entry <- originSignatureEntries (fcDataConOrigin constructorDeclaration) (constructorType (fcDataName declaration) (fcDataTyVars declaration) (fcDataConFields constructorDeclaration))
+          entry <- originSignatureEntries (fcDataConOrigin constructorDeclaration) (constructorType declaration constructorDeclaration)
         ]
     FcNewtype declaration ->
       Map.fromList
@@ -165,12 +171,14 @@ signaturesOf top =
     FcPrimitive var _ -> Map.singleton (varName var) var
     _ -> Map.empty
 
-constructorType :: Text -> [TyVarId] -> [TcType] -> TcType
-constructorType dataName universalTyVars fields =
+constructorType :: FcDataDecl -> FcDataConDecl -> TcType
+constructorType declaration constructorDeclaration =
   foldr TcForAllTy body (universalTyVars <> existentialTyVars)
   where
+    universalTyVars = fcDataKindTyVars declaration <> fcDataTyVars declaration
+    fields = fcDataConFields constructorDeclaration
     existentialTyVars = filter (`notElem` universalTyVars) (freeRigidTyVarsOf fields)
-    result = TcTyCon (TyCon dataName (length universalTyVars)) (map TcTyVar universalTyVars)
+    result = fcDataResultType declaration
     body = foldr TcFunTy result fields
 
 newtypeConstructorType :: FcNewtypeDecl -> TcType
@@ -220,8 +228,9 @@ dataDeclaration moduleOrigin = do
   (dataName, dataOrigin) <- declarationName moduleOrigin
   tyVars <- tyVarBinders mempty
   let tyEnv = tyVarEnv tyVars
+  resultKind <- MP.option KType (symbol ":" *> kindType tyEnv)
   constructors <- MP.many (MP.try ((symbol "=" <|> symbol "|") *> constructor moduleOrigin tyEnv))
-  pure (FcData (FcDataDecl dataOrigin dataName tyVars constructors))
+  pure (FcData (FcDataDecl dataOrigin dataName tyVars resultKind constructors))
 
 constructor :: Maybe (Text, Text) -> TyEnv -> Parser FcDataConDecl
 constructor moduleOrigin tyEnv = do
@@ -480,9 +489,14 @@ topLevelOrigin :: Parser (Text, Maybe FcSymbolOrigin)
 topLevelOrigin = do
   packageName <- MP.optional (MP.try text)
   qualified <- qualifiedName
-  let (moduleName, symbolName) = splitQualified qualified
-  guard (moduleName /= "")
-  pure (symbolName, Just (FcTopLevelOrigin (fromMaybe "" packageName) moduleName symbolName))
+  case T.stripSuffix "." qualified of
+    Just moduleName -> do
+      symbolName <- name
+      pure (symbolName, Just (FcTopLevelOrigin (fromMaybe "" packageName) moduleName symbolName))
+    Nothing -> do
+      let (moduleName, symbolName) = splitQualified qualified
+      guard (moduleName /= "")
+      pure (symbolName, Just (FcTopLevelOrigin (fromMaybe "" packageName) moduleName symbolName))
 
 builtinOrigin :: Parser (Text, Maybe FcSymbolOrigin)
 builtinOrigin = do
@@ -580,7 +594,10 @@ functionType tyEnv = do
   maybe argument (TcFunTy argument) <$> MP.optional (symbol "→" *> tcType tyEnv)
 
 typeApplication :: TyEnv -> Parser TcType
-typeApplication tyEnv = do
+typeApplication tyEnv = unboxedTupleTypeApplication tyEnv <|> ordinaryTypeApplication tyEnv
+
+ordinaryTypeApplication :: TyEnv -> Parser TcType
+ordinaryTypeApplication tyEnv = do
   function <- typeAtom tyEnv
   explicit <- MP.many (MP.try (symbol "·" *> typeAtom tyEnv))
   if null explicit
@@ -592,8 +609,26 @@ typeApplication tyEnv = do
 applyTyCon :: TcType -> [TcType] -> TcType
 applyTyCon (TcTyCon tyCon existing) arguments =
   let allArguments = existing <> arguments
-   in TcTyCon (TyCon (tyConName tyCon) (length allArguments)) allArguments
+      arity = length allArguments
+   in TcTyCon (TyCon (tyConName tyCon) arity) allArguments
 applyTyCon function arguments = List.foldl' TcAppTy function arguments
+
+unboxedTupleTypeApplication :: TyEnv -> Parser TcType
+unboxedTupleTypeApplication tyEnv = do
+  arity <- unboxedTupleSyntaxArity <$> MP.try (lexeme unboxedTupleSyntax)
+  arguments <- MP.count arity (typeAtom tyEnv)
+  let resultKind = KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) arguments))
+      tupleKind = foldr (KFun . typeKind) resultKind arguments
+  pure (TcTyCon (mkTyCon (unboxedTupleTyConName arity) arity tupleKind) arguments)
+
+unboxedTupleSyntax :: Parser UnboxedTupleSyntax
+unboxedTupleSyntax = do
+  (source, commaCount) <- MP.match $ do
+    _ <- MPC.string "(#"
+    count <- length <$> MP.many (MPC.char ',')
+    _ <- MPC.string "#)"
+    pure count
+  pure (UnboxedTupleSyntax source (if commaCount == 0 then 0 else commaCount + 1))
 
 typeAtom :: TyEnv -> Parser TcType
 typeAtom tyEnv =
@@ -601,6 +636,7 @@ typeAtom tyEnv =
     [ between "[" "]" (TcTyCon (TyCon "[]" 1) . pure <$> tcType tyEnv),
       MP.try (freeTyVar tyEnv),
       metaType,
+      unboxedTupleTypeApplication tyEnv,
       MP.try (namedType tyEnv),
       between "(" ")" (tcType tyEnv)
     ]
@@ -710,9 +746,12 @@ uniqueFor :: Text -> Unique
 uniqueFor = Unique . T.foldl' (\hash character -> hash * 33 + ord character) 5381
 
 name :: Parser Text
-name = lexeme (specialName <|> ordinaryName <|> MP.try operatorName)
+name = lexeme (unboxedTupleName <|> specialName <|> ordinaryName <|> MP.try operatorName)
   where
-    specialName = MP.choice (map MPC.string ["(#,#)", "(,)", "()", "[]"])
+    unboxedTupleName = do
+      syntax <- MP.try unboxedTupleSyntax
+      pure (unboxedTupleSyntaxText syntax)
+    specialName = MP.choice (map MPC.string ["(,)", "()", "[]"])
     operatorName = do
       value <- T.pack <$> MP.some (MP.satisfy (`elem` ("!#$%&*+./<=>?@\\^|-~:" :: String)))
       guard (value `notElem` ["=", "|", "~", "@"])

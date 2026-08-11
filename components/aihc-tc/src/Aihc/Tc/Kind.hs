@@ -13,10 +13,12 @@ module Aihc.Tc.Kind
     kindToTcType,
     classPredicateArgKinds,
     makeParamEnv,
+    makeParamEnvWith,
     runtimeRepToTcType,
     sigToScheme,
     surfacePredToPred,
     tyConKindFromParams,
+    tyConKindFromParamsWith,
     zonkKind,
   )
 where
@@ -165,12 +167,16 @@ convertNonSynonymTypeWithKinds tvEnv ty =
           Boxed -> mapM (\arg -> checkSurfaceType tvEnv arg KType) args
           Unboxed -> mapM (checkRuntimeType tvEnv) args
       let arity = length tys
-          resultKind =
+          fallbackResultKind =
             case flavor of
               Boxed -> KType
               Unboxed -> KTYPE (TupleRep (map runtimeRepOrLifted tys))
-          tyConKind' = foldr (KFun . typeKind) resultKind tys
-      pure (TcTyCon (mkTyCon (tupleConText flavor arity) arity tyConKind') tys, resultKind)
+          fallbackKind = foldr (KFun . typeKind) fallbackResultKind tys
+          typeName = tupleTyConText flavor arity
+      maybeTyCon <- lookupTyCon typeName
+      let tyCon = maybe (mkTyCon typeName arity fallbackKind) tciTyCon maybeTyCon
+          tupleType = TcTyCon tyCon tys
+      pure (tupleType, typeKind tupleType)
     TUnboxedSum args -> do
       tys <- mapM (checkRuntimeType tvEnv) args
       let arity = length tys
@@ -316,7 +322,7 @@ inferBuiltinTypeConstructor builtin =
       pure (TcTyCon (TyCon ":" 2) [], KFun KType (KFun (listTypeKind KType) (listTypeKind KType)))
     TBuiltinTuple arity ->
       let argKinds = replicate arity KType
-       in pure (TcTyCon (TyCon (tupleConText Boxed arity) arity) [], foldr KFun KType argKinds)
+       in pure (TcTyCon (TyCon (tupleTyConText Boxed arity) arity) [], foldr KFun KType argKinds)
     TBuiltinArrow ->
       pure (TcTyCon (TyCon "(->)" 2) [], KFun KType (KFun KType KType))
 
@@ -358,8 +364,11 @@ makeParamEnvWith = go
       (param :) <$> go tvEnv' rest
 
 tyConKindFromParams :: [ParamInfo] -> Maybe Type -> TcM Kind
-tyConKindFromParams params maybeResultKind = do
-  let tvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- params]
+tyConKindFromParams = tyConKindFromParamsWith Map.empty
+
+tyConKindFromParamsWith :: TvKindEnv -> [ParamInfo] -> Maybe Type -> TcM Kind
+tyConKindFromParamsWith outerEnv params maybeResultKind = do
+  let tvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- params] <> outerEnv
   resultKind <- maybe (pure KType) (kindFromSurfaceType tvEnv) maybeResultKind
   pure (foldr (KFun . paramKind) resultKind params)
 
@@ -517,8 +526,9 @@ wiredInTypeKind name =
 
 runtimeRepFromSurfaceType :: TvKindEnv -> Type -> TcM RuntimeRep
 runtimeRepFromSurfaceType tvEnv ty =
-  case peelTypeHead ty of
+  case ty of
     TAnn _ inner -> runtimeRepFromSurfaceType tvEnv inner
+    TParen inner -> runtimeRepFromSurfaceType tvEnv inner
     TVar name ->
       case Map.lookup (unqualifiedNameText name) tvEnv of
         Just (tyVar, KRuntimeRep) -> pure (RuntimeRepVar (tvUnique tyVar))
@@ -529,11 +539,25 @@ runtimeRepFromSurfaceType tvEnv ty =
       | TCon name _ <- peelTypeHead function,
         nameText name == "BoxedRep" ->
           BoxedRep <$> levityFromSurfaceType levityTy
+    TApp function fieldsTy
+      | TCon name _ <- peelTypeHead function,
+        T.dropWhile (== '\'') (nameText name) == "TupleRep" ->
+          TupleRep <$> runtimeRepListFromSurfaceType tvEnv fieldsTy
     _ -> invalidRuntimeRep
   where
     invalidRuntimeRep = do
       emitError NoSourceSpan (OtherError ("invalid RuntimeRep: " <> take 80 (show ty)))
       pure liftedRuntimeRep
+
+runtimeRepListFromSurfaceType :: TvKindEnv -> Type -> TcM [RuntimeRep]
+runtimeRepListFromSurfaceType tvEnv ty =
+  case ty of
+    TAnn _ inner -> runtimeRepListFromSurfaceType tvEnv inner
+    TParen inner -> runtimeRepListFromSurfaceType tvEnv inner
+    TList Promoted fields -> mapM (runtimeRepFromSurfaceType tvEnv) fields
+    _ -> do
+      emitError NoSourceSpan (OtherError ("invalid RuntimeRep list: " <> take 80 (show ty)))
+      pure []
 
 runtimeRepConstructor :: Text -> Maybe RuntimeRep
 runtimeRepConstructor rawName =
@@ -674,16 +698,11 @@ takeClassArgKinds n kind
         KFun arg rest -> arg : takeClassArgKinds (n - 1) rest
         _ -> replicate n KType
 
-tupleConText :: TupleFlavor -> Int -> Text
-tupleConText flavor arity =
+tupleTyConText :: TupleFlavor -> Int -> Text
+tupleTyConText flavor arity =
   case flavor of
     Boxed -> boxedTupleTyConName arity
-    Unboxed -> "(#" <> commas arity <> "#)"
-
-commas :: Int -> Text
-commas n
-  | n <= 1 = ""
-  | otherwise = mconcat (replicate (n - 1) ",")
+    Unboxed -> unboxedTupleTyConName arity
 
 bars :: Int -> Text
 bars n

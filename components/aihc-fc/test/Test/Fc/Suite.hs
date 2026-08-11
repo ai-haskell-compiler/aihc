@@ -18,7 +18,7 @@ import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax qualified as Surface
-import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc (Kind (KType), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.List (find)
@@ -611,6 +611,7 @@ fcData dataName tyVars constructors =
         (testOrigin dataName)
         dataName
         tyVars
+        KType
         [FcDataConDecl (testOrigin constructorName) constructorName fields | (constructorName, fields) <- constructors]
     )
   where

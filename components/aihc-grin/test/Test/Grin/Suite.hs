@@ -10,8 +10,9 @@ where
 import Aihc.Fc.Newtype (extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
 import Aihc.Fc.Syntax
 import Aihc.Grin
-import Aihc.Tc (Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), runtimeRepOfType)
+import Aihc.Tc (Kind (..), Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), runtimeRepOfType, typeKind)
 import Aihc.Tc.Evidence (Coercion (..))
+import Aihc.Tc.Types (mkTyCon)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Control.Monad (forM_)
 import Data.List (isInfixOf)
@@ -2376,7 +2377,10 @@ tailStoredBoxTy :: TcType
 tailStoredBoxTy = TcTyCon (TyCon "Box" 0) []
 
 tailStoredTupleTy :: TcType
-tailStoredTupleTy = TcTyCon (TyCon "(#,#)" 2) [tailStoredStateTy, tailStoredBoxTy]
+tailStoredTupleTy = TcTyCon tupleTyCon fields
+  where
+    fields = [tailStoredStateTy, tailStoredBoxTy]
+    tupleTyCon = mkTyCon "Tuple2#" 2 (foldr (KFun . typeKind) (KTYPE (TupleRep [TupleRep [], BoxedRep Lifted])) fields)
 
 boxedInt32Ty :: TcType
 boxedInt32Ty = TcTyCon (TyCon "Int32" 0) []
@@ -2458,7 +2462,7 @@ separateBuiltinUnitPrograms :: [FcProgram]
 separateBuiltinUnitPrograms =
   [ FcProgram
       (FcModuleId "aihc-prim" "GHC.Tuple")
-      [ FcData (FcDataDecl (FcBuiltinOrigin "Unit") "Unit" [] [FcDataConDecl (FcBuiltinOrigin "()") "()" []])
+      [ FcData (FcDataDecl (FcBuiltinOrigin "Unit") "Unit" [] KType [FcDataConDecl (FcBuiltinOrigin "()") "()" []])
       ],
     FcProgram
       (FcModuleId "" "Main")
@@ -2521,6 +2525,7 @@ fcData dataName tyVars constructors =
         (testOrigin dataName)
         dataName
         tyVars
+        KType
         [FcDataConDecl (testOrigin constructorName) constructorName fields | (constructorName, fields) <- constructors]
     )
   where

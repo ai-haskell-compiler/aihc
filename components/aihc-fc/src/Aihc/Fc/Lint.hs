@@ -31,7 +31,7 @@ import Aihc.Fc.Axiom (AxiomInterface, extractAxiomInterface, lookupAxiomDecl)
 import Aihc.Fc.Subst (freeRigidTyVarsOf, substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Evidence (Coercion (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId (..), Unique (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -101,16 +101,16 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
               ( \constructor ->
                   let fields = fcDataConFields constructor
                       existentialVariables = filter (`notElem` tyVars) (freeRigidTyVarsOf fields)
-                   in Map.insert (fcDataConName constructor) (tyVars <> existentialVariables, fields, resultType)
+                   in Map.insert (fcDataConName constructor) (kindTyVars <> tyVars <> existentialVariables, fields, resultType)
               )
               (leDataCons env)
               constructors
         }
       where
-        typeName = fcDataName declaration
         tyVars = fcDataTyVars declaration
+        kindTyVars = fcDataKindTyVars declaration
         constructors = fcDataConstructors declaration
-        resultType = TcTyCon (TyCon typeName (length tyVars)) (map TcTyVar tyVars)
+        resultType = fcDataResultType declaration
     registerDeclaration (FcForeignImport foreignCall) env =
       env {leForeignCalls = Map.insert (fcForeignCallName foreignCall) foreignCall (leForeignCalls env)}
     registerDeclaration _ env = env

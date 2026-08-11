@@ -36,7 +36,9 @@ data ModuleInfo = ModuleInfo
     moduleInfoExplicitPreludeImport :: !Bool,
     moduleInfoGhcBaseScope :: !Scope,
     moduleInfoGhcClassesScope :: !Scope,
-    moduleInfoGhcNumScope :: !Scope
+    moduleInfoGhcNumScope :: !Scope,
+    moduleInfoGhcTupleScope :: !Scope,
+    moduleInfoGhcTypesScope :: !Scope
   }
 
 newtype ResolveState = ResolveState
