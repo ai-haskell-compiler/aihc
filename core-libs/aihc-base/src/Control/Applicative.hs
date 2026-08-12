@@ -1,10 +1,33 @@
+{-# LANGUAGE PolyKinds #-}
+
 module Control.Applicative
   ( Applicative (..),
     Alternative (..),
+    Const (..),
+    ZipList (..),
   )
 where
 
+import Data.Monoid (Monoid (..))
 import Prelude (Applicative (..), Functor (..), Maybe (..), (++))
+
+newtype Const a b = Const {getConst :: a}
+
+instance Functor (Const a) where
+  fmap _ (Const value) = Const value
+
+instance (Monoid a) => Applicative (Const a) where
+  pure _ = Const mempty
+  Const left <*> Const right = Const (left `mappend` right)
+
+newtype ZipList a = ZipList {getZipList :: [a]}
+
+instance Functor ZipList where
+  fmap f (ZipList values) = ZipList (mapZipList f values)
+
+instance Applicative ZipList where
+  pure value = ZipList (repeatZipList value)
+  ZipList functions <*> ZipList values = ZipList (applyZipList functions values)
 
 class (Applicative f) => Alternative f where
   empty :: f a
@@ -19,6 +42,18 @@ infixl 3 <|>
 
 prepend :: a -> [a] -> [a]
 prepend value values = value : values
+
+mapZipList :: (a -> b) -> [a] -> [b]
+mapZipList _ [] = []
+mapZipList f (value : values) = f value : mapZipList f values
+
+repeatZipList :: a -> [a]
+repeatZipList value = value : repeatZipList value
+
+applyZipList :: [a -> b] -> [a] -> [b]
+applyZipList [] _ = []
+applyZipList _ [] = []
+applyZipList (f : functions) (value : values) = f value : applyZipList functions values
 
 instance Alternative [] where
   empty = []
