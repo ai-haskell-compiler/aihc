@@ -159,8 +159,14 @@ canonicalProgramBinds (FcProgram moduleId topBinds) =
             varName var `Set.member` definedNames,
             Just origin <- [varResolvedName var]
           ]
+    localBuiltinOrigins =
+      Set.fromList
+        [ origin
+        | FcPrimitive var _ <- definitions,
+          Just origin@FcBuiltinOrigin {} <- [varResolvedName var]
+        ]
     originIsLocal origin@(FcTopLevelOrigin packageName moduleName _) = origin `Set.member` localOrigins || Just (packageName, moduleName) == moduleOrigin
-    originIsLocal origin@FcBuiltinOrigin {} = origin `Set.member` localOrigins
+    originIsLocal origin@FcBuiltinOrigin {} = origin `Set.member` localBuiltinOrigins
     isHeader FcExternal {} = True
     isHeader _ = False
 

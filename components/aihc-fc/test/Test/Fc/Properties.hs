@@ -43,6 +43,7 @@ fcPropertyTests =
       testProperty "dependent runtime representations use their binder" prop_dependentRuntimeRep,
       testProperty "package origins distinguish equal symbol names" prop_packageOrigins,
       testProperty "external signatures occur once" prop_externalSignatures,
+      testProperty "non-primitive bindings do not define built-in symbols" prop_nonPrimitiveBuiltinOrigin,
       testProperty "local definition signatures serve local occurrences" prop_localSignatures,
       testProperty "undeclared external occurrences are rejected" prop_undeclaredExternal,
       testProperty "duplicate external declarations are rejected" prop_duplicateExternal
@@ -109,6 +110,18 @@ prop_externalSignatures = property $ do
   roundTrip renderProgram parseProgram program
   where
     typeVariable = setTyVarKind (KTYPE liftedRuntimeRep) (TyVarId "a" (Unique 3))
+
+prop_nonPrimitiveBuiltinOrigin :: Property
+prop_nonPrimitiveBuiltinOrigin = property $ do
+  let ty = TcTyCon (TyCon "Int" 0) []
+      origin = FcBuiltinOrigin "value"
+      binder = (Var "local" (Unique 1) ty) {varResolvedName = Just origin}
+      occurrence = (Var "external" (Unique 2) ty) {varResolvedName = Just origin}
+      program = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcRec [(binder, FcVar occurrence)])]
+      rendered = T.pack (renderProgram program)
+  annotate (T.unpack rendered)
+  T.count "external builtin.value" rendered === 1
+  roundTrip renderProgram parseProgram program
 
 prop_undeclaredExternal :: Property
 prop_undeclaredExternal = property $ do
