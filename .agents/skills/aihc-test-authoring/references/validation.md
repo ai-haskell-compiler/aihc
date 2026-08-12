@@ -9,8 +9,8 @@ Use narrow commands while developing, then run the mandatory checks before commi
 - Parser golden/equivalent group: `cabal test -v0 aihc-parser:spec --test-options="--pattern parser --hide-successes"`
 - Parser oracle group: `cabal test -v0 aihc-parser:spec --test-options="--pattern oracle --hide-successes"`
 - Parser lexer golden group: `cabal test -v0 aihc-parser:spec --test-options="--pattern lexer-golden --hide-successes"`
-- Parser properties: `cabal test -v0 aihc-parser:spec --test-options="--pattern properties --quickcheck-tests 1000 --hide-successes"`
-- Deep parser fuzzing: `cabal test -v0 aihc-parser:spec --test-options="--pattern properties --quickcheck-tests 10000"`
+- Parser properties: `cabal test -v0 aihc-parser:spec --test-options="--pattern properties --hedgehog-tests 1000 --hide-successes"`
+- Deep parser fuzzing: `cabal test -v0 aihc-parser:spec --test-options="--pattern properties --hedgehog-tests 10000"`
 - Resolve golden: `cabal test -v0 aihc-resolve:spec --test-options="--pattern resolver-golden --hide-successes"`
 - Type checker annotated golden/unit/properties: `cabal test -v0 aihc-tc:spec --test-options="--hide-successes"`
 - FC golden/eval: `cabal test -v0 aihc-fc:spec --test-options="--hide-successes"`

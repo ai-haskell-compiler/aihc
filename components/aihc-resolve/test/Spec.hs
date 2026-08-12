@@ -1,16 +1,16 @@
 module Main (main) where
 
+import Hedgehog (Property, property, success)
 import Test.Resolver.Suite (resolverGoldenTests, resolverUnitTests)
 import Test.Tasty
-import qualified Test.Tasty.QuickCheck as QC
+import Test.Tasty.Hedgehog (testProperty)
 
 main :: IO ()
 main = do
   resolverGolden <- resolverGoldenTests
-  let dummyQC = QC.testProperty "dummy quickcheck property" prop_dummy
-  defaultMain (testGroup "aihc-resolve" [resolverGolden, resolverUnitTests, dummyQC])
+  let hedgehogOptions = testProperty "Hedgehog options" prop_dummy
+  defaultMain (testGroup "aihc-resolve" [resolverGolden, resolverUnitTests, hedgehogOptions])
 
--- | Dummy QuickCheck property that always passes.
--- Added so that --quickcheck-tests flag is accepted by the test suite.
-prop_dummy :: Bool
-prop_dummy = True
+-- | Keep the repository Hedgehog options accepted by this test suite.
+prop_dummy :: Property
+prop_dummy = property success

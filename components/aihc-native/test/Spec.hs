@@ -1,12 +1,13 @@
 module Main (main) where
 
+import Hedgehog (Property, property, success)
 import Test.Native.BlockLayout qualified as BlockLayout
 import Test.Native.Compiler qualified as Compiler
 import Test.Native.Primitive qualified as Primitive
 import Test.Native.RegisterAllocate (tests)
 import Test.Native.Runtime qualified as Runtime
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.QuickCheck qualified as QC
+import Test.Tasty.Hedgehog (testProperty)
 
 main :: IO ()
 main =
@@ -18,10 +19,10 @@ main =
           Primitive.tests,
           Runtime.tests,
           tests,
-          QC.testProperty "dummy quickcheck property" prop_dummy
+          testProperty "Hedgehog options" prop_dummy
         ]
     )
 
--- | Keep the workspace-wide QuickCheck controls accepted by this suite.
-prop_dummy :: Bool -> Bool
-prop_dummy _ = True
+-- | Keep the workspace-wide Hedgehog controls accepted by this suite.
+prop_dummy :: Property
+prop_dummy = property success

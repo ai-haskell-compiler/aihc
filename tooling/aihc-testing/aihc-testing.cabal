@@ -34,10 +34,11 @@ test-suite spec
     aihc-parser,
     aihc-testing,
     base >=4.16 && <5,
+    hedgehog,
     prettyprinter,
     tasty,
+    tasty-hedgehog,
     tasty-hunit,
-    tasty-quickcheck,
     text,
 
   ghc-options:

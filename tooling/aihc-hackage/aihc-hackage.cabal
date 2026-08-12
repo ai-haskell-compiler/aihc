@@ -51,10 +51,11 @@ test-suite spec
     bytestring,
     directory,
     filepath,
+    hedgehog,
     tar,
     tasty,
+    tasty-hedgehog,
     tasty-hunit,
-    tasty-quickcheck,
     text,
     zlib,
 

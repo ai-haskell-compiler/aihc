@@ -1,21 +1,21 @@
 # Test runner for aihc project
 # See https://just.systems for Just documentation
 
-# Run all tests with hidden successes (1000 QuickCheck tests per property)
+# Run all tests with hidden successes (1000 Hedgehog tests per property)
 test:
-  cabal test -v0 all --test-options='--hide-successes --quickcheck-tests 1000 --quickcheck-timeout 20s --quickcheck-shrinks 10000'
+  cabal test -v0 all --test-options='--hide-successes --hedgehog-tests 1000 --hedgehog-shrinks 10000'
 
-# Replay a specific QuickCheck test case
+# Replay a specific Hedgehog test case
 # Usage: just replay "<replay-string>"
 replay ARGUMENT:
-  cabal test all --jobs=1 -v0 --test-options='--pattern properties --quickcheck-replay="{{ARGUMENT}}" --hide-successes'
+  cabal test all --jobs=1 -v0 --test-options='--pattern properties --hedgehog-replay="{{ARGUMENT}}" --hide-successes'
 
-# Run QuickCheck with 10000 tests in a loop until failure
-qc:
-  while true; do just qc1 || break; done
+# Run Hedgehog with 10000 tests in a loop until failure
+hedgehog:
+  while true; do just hedgehog1 || break; done
 
-qc1:
-  cabal test all -v0 --jobs=1 --test-options="--quickcheck-tests 10000 --quickcheck-shrinks 1000000 --hide-successes"
+hedgehog1:
+  cabal test all -v0 --jobs=1 --test-options="--hedgehog-tests 10000 --hedgehog-shrinks 1000000 --hide-successes"
 
 # Auto-format Nix, Cabal, Haskell, and C files (excludes dist-newstyle, result, .git; Haskell excludes test fixtures)
 fmt:
@@ -39,7 +39,7 @@ check:
   nix develop --quiet --command bash -c 'hlint -j $(find components tooling bin core-libs scripts/nix/ucd2haskell-aihc test/support -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   nix develop --quiet --command bash -c 'find components tooling bin core-libs scripts test -type f \( -name "*.c" -o -name "*.h" \) -not -path "*/dist-newstyle/*" -print0 | xargs -0 -r clang-format --dry-run --Werror'
   nix develop --quiet --command bash -c 'set -euo pipefail; bindings_directory=$(mktemp -d); trap '\''rm -rf "$bindings_directory"'\'' EXIT; wit-bindgen c --world command --out-dir "$bindings_directory" components/aihc-wasm/runtime/wit; while IFS= read -r -d "" file; do if [[ "$file" == *components/aihc-wasm/runtime/*.c || "$file" == *aihc_host_wasip3.c ]]; then clang-tidy-unwrapped --quiet "$file" -- --target=wasm32-unknown-unknown -std=c11 -ffreestanding -Wall -Wextra -Wpedantic -Icomponents/aihc-wasm/runtime/include -Icomponents/aihc-wasm/runtime -Icomponents/aihc-native/runtime -isystem "$bindings_directory"; else clang-tidy --quiet "$file" -- -std=c11 -Wall -Wextra -Wpedantic; fi; done < <(find components tooling bin core-libs scripts test -type f -name "*.c" -not -path "*/dist-newstyle/*" -print0)'
-  cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --quickcheck-tests 1000'
+  cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --hedgehog-tests 1000'
 
 # Preview the user guide at http://127.0.0.1:8000/.
 docs:

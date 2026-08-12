@@ -646,7 +646,7 @@ For each test case:
 | reject  | accept  | FAIL   |
 | accept  | accept  | FAIL (if types differ) |
 
-### 12.3 Property tests (QuickCheck)
+### 12.3 Property tests (Hedgehog)
 
 - **Zonking idempotence**: zonking a fully-zonked type is a no-op.
 - **Instantiation/generalization roundtrip**: generalizing an instantiated
@@ -719,7 +719,7 @@ components/aihc-tc/
       Tc/
         Suite.hs        -- golden test runner
         Oracle.hs       -- GHC oracle comparison
-        Properties.hs   -- QuickCheck properties
+        Properties.hs   -- Hedgehog properties
       Fixtures/
         golden/         -- .hs input files + .expected output
         oracle/         -- oracle test fixtures

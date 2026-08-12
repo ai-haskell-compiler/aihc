@@ -38,7 +38,7 @@ commandParser =
         "list"
         ( info
             (List <$> selectionParser <**> helper)
-            (progDesc "List available QuickCheck properties")
+            (progDesc "List available Hedgehog properties")
         )
     )
     <|> (Run <$> optionsParser)

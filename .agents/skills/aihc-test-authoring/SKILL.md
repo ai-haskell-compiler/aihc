@@ -1,6 +1,6 @@
 ---
 name: aihc-test-authoring
-description: Choose, author, and validate tests for the AIHC repository. Use when Codex needs to add or update tests in components/aihc-cpp, components/aihc-parser, components/aihc-resolve, components/aihc-tc, components/aihc-fc, components/aihc-grin, or related compatibility/property suites, including unit tests, golden YAML fixtures, oracle fixtures, lexer fixtures, error-message fixtures, eval fixtures, and QuickCheck properties.
+description: Choose, author, and validate tests for the AIHC repository. Use when Codex needs to add or update tests in components/aihc-cpp, components/aihc-parser, components/aihc-resolve, components/aihc-tc, components/aihc-fc, components/aihc-grin, or related compatibility/property suites, including unit tests, golden YAML fixtures, oracle fixtures, lexer fixtures, error-message fixtures, eval fixtures, and Hedgehog properties.
 ---
 
 # AIHC Test Authoring
@@ -22,7 +22,7 @@ Use this skill to decide which AIHC test framework matches a change, then load t
 - Use a golden fixture when the important contract is the component's rendered output: parsed AST shorthand, resolver annotations, inferred types, System FC output, lexer token kinds, or diagnostics.
 - Use an oracle fixture when there is an external source of truth. Parser oracle tests compare with GHC and round-trip/fingerprint validation; CPP progress tests compare with `cpphs`.
 - Use an equivalent parser fixture when several source spellings should normalize to the same parsed tree after annotation stripping and paren normalization.
-- Use a QuickCheck property when the requirement is broad, algebraic, or generative: round trips, idempotency, no exceptions, shrinking, coverage, or compatibility over generated syntax.
+- Use a Hedgehog property when the requirement is broad, algebraic, or generative: round trips, idempotency, no exceptions, shrinking, coverage, or compatibility over generated syntax.
 - Use an `xfail` fixture only to record a known gap while preventing silent regressions. Always include a concrete reason, and expect unexpected passes to fail CI until the fixture is promoted. Use `xpass` only in fixture formats that explicitly support it.
 
 Prefer a single focused fixture over a large scenario unless the behavior only appears through cross-module interaction.

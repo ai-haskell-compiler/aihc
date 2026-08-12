@@ -89,7 +89,7 @@ commandParser =
           "fuzz"
           ( info
               (Fuzz <$> FuzzCLI.commandParser <**> helper)
-              (progDesc "Continuously run QuickCheck properties in parallel")
+              (progDesc "Continuously run Hedgehog properties in parallel")
           )
         <> command
           "resolve"

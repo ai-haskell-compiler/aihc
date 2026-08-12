@@ -60,10 +60,11 @@ test-suite spec
     base >=4.16 && <5,
     containers,
     filepath,
+    hedgehog,
     process,
     tasty,
+    tasty-hedgehog,
     tasty-hunit,
-    tasty-quickcheck,
     temporary,
     text,
 

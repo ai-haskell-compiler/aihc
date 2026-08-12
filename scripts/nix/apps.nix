@@ -132,7 +132,7 @@ in {
           app_lines=$(tokei "$comp_path/app" --output json | jq '.Total.code // 0')
           test_lines=$((test_lines + app_lines))
         fi
-        # Common contains shared test infrastructure (golden, quickcheck, oracle, etc.).
+        # Common contains shared test infrastructure (golden, Hedgehog, oracle, etc.).
         if [ -d "$comp_path/common" ]; then
           common_lines=$(tokei "$comp_path/common" --output json | jq '.Total.code // 0')
           test_lines=$((test_lines + common_lines))

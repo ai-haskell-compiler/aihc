@@ -10,7 +10,7 @@ Use `aihc-parser` tests for lexing, parsing, pretty-printing, error messages, GH
 - Use error-message fixtures when both GHC rejection and AIHC diagnostic rendering matter.
 - Use oracle fixtures when GHC is the authority for accepting a full module and AIHC must also pass round-trip/fingerprint validation.
 - Use unit tests in `components/aihc-parser/test/Spec.hs` for small internal behaviors, pretty-printer expectations, regression checks around shrunk examples, and assertions that need custom setup.
-- Use QuickCheck properties under `components/aihc-parser/test/Test/Properties` for generators, round trips, paren insertion, no-exception guarantees, coverage, and idempotency.
+- Use Hedgehog properties under `components/aihc-parser/test/Test/Properties` for generators, round trips, paren insertion, no-exception guarantees, coverage, and idempotency.
 - Use parser-compat tests under `components/aihc-parser-compat/test` when AIHC syntax conversion to normalized GHC AST is the contract.
 
 ## Parser Golden Fixtures
@@ -119,7 +119,7 @@ Use `{- ORACLE_TEST xfail <reason> -}` for known gaps. The runner derives extens
 
 ## Unit And Property Tests
 
-Add unit tests to `components/aihc-parser/test/Spec.hs` when a fixture cannot express the assertion or a reduced QuickCheck counterexample should be pinned directly.
+Add unit tests to `components/aihc-parser/test/Spec.hs` when a fixture cannot express the assertion or a reduced Hedgehog counterexample must become a direct test.
 
 Add properties under `components/aihc-parser/test/Test/Properties`. Reuse existing arbitrary modules under `Test/Properties/Arb` and preserve the existing group names in `Spec.hs`, especially `properties` and `no exceptions`, so `just replay` and pattern filters keep working.
 
@@ -129,5 +129,5 @@ Add properties under `components/aihc-parser/test/Test/Properties`. Reuse existi
 cabal test -v0 aihc-parser:spec --test-options="--pattern parser --hide-successes"
 cabal test -v0 aihc-parser:spec --test-options="--pattern lexer-golden --hide-successes"
 cabal test -v0 aihc-parser:spec --test-options="--pattern oracle --hide-successes"
-cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000"
+cabal test aihc-parser:spec -v0 --test-options="--pattern properties --hedgehog-tests 10000"
 ```

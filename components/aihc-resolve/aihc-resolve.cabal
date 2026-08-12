@@ -50,10 +50,11 @@ test-suite spec
     containers,
     directory,
     filepath,
+    hedgehog,
     prettyprinter,
     tasty,
+    tasty-hedgehog,
     tasty-hunit,
-    tasty-quickcheck,
     text,
     yaml,
 

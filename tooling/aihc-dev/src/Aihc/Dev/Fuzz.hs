@@ -1,6 +1,6 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
--- | Parallel, round-robin QuickCheck fuzz runner with a terminal dashboard.
+-- | Parallel, round-robin Hedgehog fuzz runner with a terminal dashboard.
 module Aihc.Dev.Fuzz
   ( batchSize,
     cycleProperties,
@@ -21,19 +21,24 @@ import Control.Concurrent.STM
 import Control.Exception (SomeException, bracket_, displayException, finally, onException)
 import Control.Monad (forM, forM_, unless, void, when)
 import Data.Char (toLower)
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.List (groupBy, intercalate, isInfixOf, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock (NominalDiffTime, UTCTime, diffUTCTime, getCurrentTime)
 import GHC.Conc (getNumCapabilities)
+import Hedgehog (withTests)
+import Hedgehog.Internal.Config (UseColor (DisableColor))
+import Hedgehog.Internal.Property (Property (..), TestCount (..))
+import Hedgehog.Internal.Report (Progress (Running), Report (..), Result (..), renderResult)
+import Hedgehog.Internal.Runner (checkReport)
+import Hedgehog.Internal.Seed qualified as Seed
 import System.Console.Terminal.Size qualified as Terminal
 import System.Exit (exitFailure)
 import System.IO (BufferMode (NoBuffering), hFlush, hGetBuffering, hIsTerminalDevice, hPutStr, hPutStrLn, hReady, hSetBuffering, stderr, stdin)
 import System.Posix.IO (stdInput)
 import System.Posix.Terminal qualified as Posix
-import Test.QuickCheck qualified as QC
-import Test.QuickCheck.Property qualified as QCP
 
 -- | Number of successful cases a worker runs before rotating the property.
 batchSize :: Int
@@ -56,7 +61,7 @@ data Stats = Stats
 
 data WorkerFailure = WorkerFailure
   { workerFailureProperty :: FuzzProperty,
-    workerFailureResult :: QC.Result
+    workerFailureResult :: String
   }
 
 runCommand :: Command -> IO ()
@@ -119,12 +124,12 @@ runFuzzer Options {optionsSelection, optionsJobs, optionsTimeLimit} = do
   successfulCases <- readTVarIO (statsSuccessfulCases stats)
   case outcome of
     TimeLimitReached ->
-      putStrLn ("Time limit reached after " <> formatInteger successfulCases <> " successful QuickCheck cases.")
+      putStrLn ("Time limit reached after " <> formatInteger successfulCases <> " successful Hedgehog cases.")
     UserQuit ->
-      putStrLn ("Stopped after " <> formatInteger successfulCases <> " successful QuickCheck cases.")
+      putStrLn ("Stopped after " <> formatInteger successfulCases <> " successful Hedgehog cases.")
     PropertyFailed WorkerFailure {workerFailureProperty, workerFailureResult} -> do
       hPutStrLn stderr ("Fuzz failure in " <> fuzzPropertyId workerFailureProperty)
-      hPutStr stderr (QC.output workerFailureResult)
+      hPutStr stderr workerFailureResult
       exitFailure
     WorkerCrashed exception -> do
       hPutStrLn stderr ("Fuzz worker crashed: " <> displayException exception)
@@ -187,27 +192,40 @@ worker scheduler stats workerId = do
   atomically $ modifyTVar' (statsActive stats) (IntMap.insert workerId (ActiveProperty propertyId 0))
   result <- runBatch stats workerId fuzzProperty `finally` clearActive
   case result of
-    QC.Success {} -> do
+    Right () -> do
       atomically $ modifyTVar' (statsCompletedBatches stats) (+ 1)
       worker scheduler stats workerId
-    _ -> pure (WorkerFailure fuzzProperty result)
+    Left failureResult -> pure (WorkerFailure fuzzProperty failureResult)
 
-runBatch :: Stats -> Int -> FuzzProperty -> IO QC.Result
-runBatch stats workerId FuzzProperty {fuzzPropertyValue} =
-  QC.quickCheckWithResult
-    QC.stdArgs
-      { QC.chatty = False,
-        QC.maxSuccess = batchSize
-      }
-    (QCP.callback progressCallback fuzzPropertyValue)
+runBatch :: Stats -> Int -> FuzzProperty -> IO (Either String ())
+runBatch stats workerId FuzzProperty {fuzzPropertyValue} = do
+  seed <- Seed.random
+  previousCount <- newIORef 0
+  let batchProperty = withTests (fromIntegral batchSize) fuzzPropertyValue
+  result <-
+    checkReport
+      (propertyConfig batchProperty)
+      0
+      seed
+      (propertyTest batchProperty)
+      (progressCallback previousCount)
+  case reportStatus result of
+    OK -> pure (Right ())
+    _ -> Left <$> renderResult DisableColor Nothing result
   where
-    progressCallback =
-      QCP.PostTest QCP.NotCounterexample $ \_ result ->
-        when (QCP.ok result == Just True) $ atomically $ do
-          modifyTVar' (statsSuccessfulCases stats) (+ 1)
-          modifyTVar' (statsActive stats) $ IntMap.adjust increment workerId
-    increment active =
-      active {activeSuccessfulCases = activeSuccessfulCases active + 1}
+    progressCallback previousCount report =
+      case reportStatus report of
+        Running -> do
+          let TestCount currentCount = reportTests report
+          priorCount <- readIORef previousCount
+          let completed = max 0 (currentCount - priorCount)
+          writeIORef previousCount currentCount
+          atomically $ do
+            modifyTVar' (statsSuccessfulCases stats) (+ completed)
+            modifyTVar' (statsActive stats) $ IntMap.adjust (setCount currentCount) workerId
+        _ -> pure ()
+    setCount currentCount active =
+      active {activeSuccessfulCases = currentCount}
 
 withDashboard :: Bool -> TMVar () -> UTCTime -> Int -> Int -> Stats -> IO Outcome -> IO Outcome
 withDashboard keyboardEnabled quitSignal startedAt propertyCount jobs stats action = do

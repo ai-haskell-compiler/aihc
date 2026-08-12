@@ -87,10 +87,11 @@ test-suite spec
     directory,
     filepath,
     haskeline,
+    hedgehog,
     process,
     tasty,
+    tasty-hedgehog,
     tasty-hunit,
-    tasty-quickcheck,
     text,
     time,
 

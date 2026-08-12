@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | QuickCheck property tests for the type checker.
+-- | Hedgehog property tests for the type checker.
 module Test.Tc.Properties
   ( prop_reflexiveEq,
     prop_zonkIdempotent,
@@ -11,8 +11,11 @@ where
 import Aihc.Tc.Monad (emptyTcEnv, freshMetaTv, initTcState, runTcM, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Hedgehog (Gen, Property, forAll, property, (===))
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.QuickCheck (Arbitrary (..), Gen, elements, oneof, resize, sized, testProperty)
+import Test.Tasty.Hedgehog (testProperty)
 
 tcProperties :: TestTree
 tcProperties =
@@ -23,8 +26,9 @@ tcProperties =
     ]
 
 -- | Zonking a fully-zonked type is a no-op.
-prop_zonkIdempotent :: SimpleType -> Bool
-prop_zonkIdempotent (SimpleType ty) =
+prop_zonkIdempotent :: Property
+prop_zonkIdempotent = property $ do
+  ty <- forAll genSimpleType
   case runTcM
     emptyTcEnv
     initTcState
@@ -33,12 +37,12 @@ prop_zonkIdempotent (SimpleType ty) =
         z2 <- zonkType z1
         pure (z1, z2)
     ) of
-    Right ((t1, t2), _) -> t1 == t2
-    Left _ -> False
+    Right ((t1, t2), _) -> t1 === t2
+    Left err -> fail (show err)
 
 -- | A reflexive equality (a ~ a) should be trivially solvable.
-prop_reflexiveEq :: Bool
-prop_reflexiveEq =
+prop_reflexiveEq :: Property
+prop_reflexiveEq = property $
   case runTcM
     emptyTcEnv
     initTcState
@@ -53,46 +57,44 @@ prop_reflexiveEq =
             pure (result == intTy)
           _ -> pure False
     ) of
-    Right (True, _) -> True
-    _ -> False
-
--- | Wrapper for generating simple types suitable for property testing.
-newtype SimpleType = SimpleType TcType
-  deriving (Show)
-
-instance Arbitrary SimpleType where
-  arbitrary = SimpleType <$> genSimpleType
+    Right (result, _) -> result === True
+    Left err -> fail (show err)
 
 genSimpleType :: Gen TcType
-genSimpleType = sized $ \n ->
-  if n <= 0
+genSimpleType = do
+  depth <- Gen.int (Range.linear 0 6)
+  genSimpleTypeSized depth
+
+genSimpleTypeSized :: Int -> Gen TcType
+genSimpleTypeSized depth =
+  if depth <= 0
     then genAtomicType
     else
-      oneof
+      Gen.choice
         [ genAtomicType,
-          resize (n `div` 2) genFunType,
-          resize (n `div` 2) genAppType
+          genFunType (depth - 1),
+          genAppType (depth - 1)
         ]
 
 genAtomicType :: Gen TcType
 genAtomicType =
-  oneof
+  Gen.choice
     [ TcTyCon <$> genTyCon <*> pure [],
       TcMetaTv <$> genUnique
     ]
 
-genFunType :: Gen TcType
-genFunType = TcFunTy <$> genSimpleType <*> genSimpleType
+genFunType :: Int -> Gen TcType
+genFunType depth = TcFunTy <$> genSimpleTypeSized depth <*> genSimpleTypeSized depth
 
-genAppType :: Gen TcType
-genAppType = do
+genAppType :: Int -> Gen TcType
+genAppType depth = do
   tc <- genTyCon1
-  arg <- genSimpleType
+  arg <- genSimpleTypeSized depth
   pure (TcTyCon tc [arg])
 
 genTyCon :: Gen TyCon
 genTyCon =
-  elements
+  Gen.element
     [ TyCon "Int" 0,
       TyCon "Bool" 0,
       TyCon "Char" 0,
@@ -101,11 +103,11 @@ genTyCon =
 
 genTyCon1 :: Gen TyCon
 genTyCon1 =
-  elements
+  Gen.element
     [ TyCon "Maybe" 1,
       TyCon "[]" 1,
       TyCon "IO" 1
     ]
 
 genUnique :: Gen Unique
-genUnique = Unique <$> elements [100 .. 199]
+genUnique = Unique <$> Gen.int (Range.linear 100 199)
