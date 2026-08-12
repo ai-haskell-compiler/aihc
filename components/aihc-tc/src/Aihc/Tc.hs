@@ -87,6 +87,7 @@ module Aihc.Tc
     renderPred,
     renderTcSignature,
     renderTcType,
+    renderTcTypeInModule,
   )
 where
 
@@ -115,7 +116,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType)
+import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
@@ -172,7 +173,7 @@ instance Semigroup TcInterface where
   left <> right =
     TcInterface
       { tcInterfaceTerms = mergeInterfaceEntries fst (tcInterfaceTerms left <> tcInterfaceTerms right),
-        tcInterfaceTyCons = mergeInterfaceEntries tciName (tcInterfaceTyCons left <> tcInterfaceTyCons right),
+        tcInterfaceTyCons = mergeInterfaceEntries tciTyCon (tcInterfaceTyCons left <> tcInterfaceTyCons right),
         tcInterfaceDataTypes = mergeInterfaceEntries dtiName (tcInterfaceDataTypes left <> tcInterfaceDataTypes right),
         tcInterfaceClasses = mergeInterfaceEntries ciName (tcInterfaceClasses left <> tcInterfaceClasses right),
         tcInterfaceInstances = mergeInterfaceEntries iiDictName (tcInterfaceInstances left <> tcInterfaceInstances right),
@@ -373,7 +374,7 @@ initialTcState imported =
           <> tcsGlobalTerms initTcState,
       tcsGlobalTyCons =
         Map.fromList
-          [ (tciName tyCon, tyCon)
+          [ (tciTyCon tyCon, tyCon)
           | tyCon <- tcInterfaceTyCons imported
           ]
           <> tcsGlobalTyCons initTcState,

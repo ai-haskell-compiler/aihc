@@ -1,0 +1,35 @@
+annotated:
+- |-
+  module A where
+  data Ty = Con
+       │    └─ type: Ty
+       └─ type: *
+- |-
+  module B where
+  data Ty = Con
+       │    └─ type: Ty
+       └─ type: *
+- |-
+  module C where
+  import qualified A
+  import qualified B
+  val1 = A.Con
+  └─ type: A.Ty
+  val2 = B.Con
+  └─ type: B.Ty
+extensions: []
+modules:
+- |
+  module A where
+  data Ty = Con
+- |
+  module B where
+  data Ty = Con
+- |
+  module C where
+  import qualified A
+  import qualified B
+  val1 = A.Con
+  val2 = B.Con
+reason: Different module namespaces must not clash
+status: pass

@@ -29,7 +29,7 @@ zonkType ty = case ty of
   TcTyVar tv -> TcTyVar <$> zonkTyVar tv
   TcTyCon tc args -> do
     kind <- zonkKind (tyConKind tc)
-    TcTyCon (mkTyCon (tyConName tc) (tyConArity tc) kind) <$> mapM zonkType args
+    TcTyCon (finalizeTyConKind kind tc) <$> mapM zonkType args
   TcFunTy a b -> TcFunTy <$> zonkType a <*> zonkType b
   TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> zonkType body
   TcQualTy preds body -> TcQualTy <$> mapM zonkPred preds <*> zonkType body
@@ -89,12 +89,21 @@ defaultTypeKinds ty =
     TcTyVar tv -> TcTyVar <$> defaultTyVarKinds tv
     TcTyCon tyCon args -> do
       kind <- defaultKindMetas (tyConKind tyCon)
-      let tyCon' = mkTyCon (tyConName tyCon) (tyConArity tyCon) kind
+      let tyCon' = finalizeTyConKind kind tyCon
       TcTyCon tyCon' <$> mapM defaultTypeKinds args
     TcFunTy argument result -> TcFunTy <$> defaultTypeKinds argument <*> defaultTypeKinds result
     TcForAllTy tv body -> TcForAllTy <$> defaultTyVarKinds tv <*> defaultTypeKinds body
     TcQualTy predicates body -> TcQualTy <$> mapM defaultPredKinds predicates <*> defaultTypeKinds body
     TcAppTy function argument -> TcAppTy <$> defaultTypeKinds function <*> defaultTypeKinds argument
+
+finalizeTyConKind :: Kind -> TyCon -> TyCon
+finalizeTyConKind kind tyCon =
+  mkTyConWithOrigin
+    (tyConPackageId tyCon)
+    (tyConModuleName tyCon)
+    (tyConName tyCon)
+    (tyConArity tyCon)
+    kind
 
 defaultTypeSchemeKinds :: TypeScheme -> TcM TypeScheme
 defaultTypeSchemeKinds (ForAll tyVars predicates body) =

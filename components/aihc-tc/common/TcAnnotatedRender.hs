@@ -13,7 +13,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     moduleName,
   )
-import Aihc.Tc (TcType (..), renderTcSignature, renderTcType)
+import Aihc.Tc (TcType (..), renderTcSignature, renderTcType, renderTcTypeInModule)
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -44,15 +44,18 @@ renderAnnotatedTcResults sources results =
     GT -> error "renderAnnotatedTcResults: more source texts than modules"
     EQ ->
       let moduleSources = sortOn (moduleDisplayName . snd) (zip sources results)
-       in renderAnnotatedModuleSources renderTcAnnotation (map fst moduleSources) (map snd moduleSources)
+       in concatMap renderModule moduleSources
+  where
+    renderModule (source, modu) =
+      renderAnnotatedModuleSources (renderTcAnnotation (moduleName modu)) [source] [modu]
 
 moduleDisplayName :: Module -> Text
 moduleDisplayName modu = fromMaybe "<unnamed>" (moduleName modu)
 
-renderTcAnnotation :: Annotation -> Maybe (Doc ann)
-renderTcAnnotation annotation =
+renderTcAnnotation :: Maybe Text -> Annotation -> Maybe (Doc ann)
+renderTcAnnotation currentModule annotation =
   pretty
-    <$> ( renderTypeAnnotation <$> fromAnnotation @TcAnnotation annotation
+    <$> ( renderTypeAnnotation currentModule <$> fromAnnotation @TcAnnotation annotation
             <|> renderClassAnnotation <$> fromAnnotation @TcClassAnnotation annotation
             <|> renderDerivingAnnotation <$> fromAnnotation @TcDerivingAnnotation annotation
             <|> renderInstanceAnnotation <$> fromAnnotation @TcInstanceAnnotation annotation
@@ -60,9 +63,9 @@ renderTcAnnotation annotation =
             <|> renderDiagnostic <$> fromAnnotation @TcDiagnostic annotation
         )
 
-renderTypeAnnotation :: TcAnnotation -> String
-renderTypeAnnotation ann =
-  intercalate "; " ("type: " <> renderTcType (tcAnnType ann) : renderElaboration ann)
+renderTypeAnnotation :: Maybe Text -> TcAnnotation -> String
+renderTypeAnnotation currentModule ann =
+  intercalate "; " ("type: " <> renderTcTypeInModule currentModule (tcAnnType ann) : renderElaboration ann)
 
 renderClassAnnotation :: TcClassAnnotation -> String
 renderClassAnnotation classAnnotation =

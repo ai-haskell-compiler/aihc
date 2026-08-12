@@ -561,7 +561,7 @@ defaultGlobalKindMetas = do
       let tyCon = tciTyCon info
       pure
         info
-          { tciTyCon = mkTyCon (tyConName tyCon) (tyConArity tyCon) kind,
+          { tciTyCon = finalizeTyConKind kind tyCon,
             tciKind = kind,
             tciTypeSynonym = synonym
           }
@@ -575,7 +575,7 @@ defaultGlobalKindMetas = do
       kind <- defaultKindMetas (tyConKind (dtiTyCon info))
       pure
         info
-          { dtiTyCon = mkTyCon (dtiName info) (tyConArity (dtiTyCon info)) kind,
+          { dtiTyCon = finalizeTyConKind kind (dtiTyCon info),
             dtiTyVars = tyVars,
             dtiConstructors = constructors
           }
@@ -593,6 +593,13 @@ defaultGlobalKindMetas = do
             dciFields = fields,
             dciResTy = resultType
           }
+    finalizeTyConKind kind tyCon =
+      mkTyConWithOrigin
+        (tyConPackageId tyCon)
+        (tyConModuleName tyCon)
+        (tyConName tyCon)
+        (tyConArity tyCon)
+        kind
     defaultDataConFieldKinds field = do
       fieldType' <- defaultTypeKinds (dcfiType field)
       pure field {dcfiType = fieldType'}
@@ -623,11 +630,7 @@ defaultGlobalKindMetas = do
         info
           { dfiiFamilyType = familyType,
             dfiiTyVars = tyVars,
-            dfiiRepresentationTyCon =
-              mkTyCon
-                (tyConName representationTyCon)
-                (tyConArity representationTyCon)
-                representationKind
+            dfiiRepresentationTyCon = setTyConKind representationKind representationTyCon
           }
 
 data TcDeclGroupResult = TcDeclGroupResult
@@ -1873,7 +1876,8 @@ registerForeignImport foreignDecl = do
 
 registerClassDecl :: (Text, Text) -> ClassDecl -> TcM [TcBindingResult]
 registerClassDecl origin classDecl = do
-  let className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))
+  let classBinder = binderHeadName (classDeclHead classDecl)
+      className = unqualifiedNameText classBinder
       params = binderHeadParams (classDeclHead classDecl)
   paramInfos <- makeParamEnv params
   let paramTyVars = map paramTyVar paramInfos
@@ -1887,7 +1891,7 @@ registerClassDecl origin classDecl = do
     TyConInfo
       { tciName = className,
         tciArity = length params,
-        tciTyCon = mkTyCon className (length params) classKind,
+        tciTyCon = mkDeclaredTyCon classBinder className (length params) classKind,
         tciKind = classKind,
         tciFlavor = ClassTyCon,
         tciTypeSynonym = Nothing
@@ -2017,12 +2021,13 @@ typeSuffix ty =
 
 registerDataFamilyDeclHeader :: DataFamilyDecl -> TcM [TcBindingResult]
 registerDataFamilyDeclHeader familyDecl = do
-  let familyName = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
+  let familyBinder = binderHeadName (dataFamilyDeclHead familyDecl)
+      familyName = unqualifiedNameText familyBinder
       params = binderHeadParams (dataFamilyDeclHead familyDecl)
       arity = length params
   paramInfos <- makeParamEnv params
   declaredKind <- tyConKindFromParams paramInfos (dataFamilyDeclKind familyDecl)
-  let familyTyCon = mkTyCon familyName arity declaredKind
+  let familyTyCon = mkDeclaredTyCon familyBinder familyName arity declaredKind
   extendTyConEnvPermanent
     familyName
     TyConInfo
@@ -2051,7 +2056,7 @@ registerDataFamilyInstance familyInst = do
       emitError NoSourceSpan (OtherError "data-family instances without constructors are not supported")
       pure []
     (TcTyCon familyTyCon _, firstConstructor : _) -> do
-      maybeFamilyInfo <- lookupTyCon (tyConName familyTyCon)
+      maybeFamilyInfo <- lookupTyConByIdentity familyTyCon
       case maybeFamilyInfo of
         Just familyInfo
           | tciFlavor familyInfo == DataFamilyTyCon -> do
@@ -2165,7 +2170,8 @@ tupleRuntimeRepNames = mapMaybe (tyVarBinderKind >=> runtimeRepVariableName)
 
 registerDataDeclHeader :: DataDecl -> TcM [TcBindingResult]
 registerDataDeclHeader dd = do
-  let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
+  let tyBinder = binderHeadName (dataDeclHead dd)
+      tyName = unqualifiedNameText tyBinder
       params = binderHeadParams (dataDeclHead dd)
       arity = length params
   (kindParams, paramInfos) <- dataDeclParamInfos dd
@@ -2175,7 +2181,7 @@ registerDataDeclHeader dd = do
       Just tupleArity
         | tupleArity == arity -> pure (unboxedTupleDeclarationKind paramInfos)
       _ -> tyConKindFromParamsWith kindEnv paramInfos (dataDeclKind dd)
-  let tc = dataDeclTyCon tyName arity declaredKind
+  let tc = dataDeclTyCon tyBinder tyName arity declaredKind
   extendTyConEnvPermanent
     tyName
     TyConInfo
@@ -2201,8 +2207,12 @@ unboxedTupleDeclarationKind params =
 
 registerDataConstructors :: DataDecl -> TcM [TcBindingResult]
 registerDataConstructors dataDecl = do
-  let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
-  maybeInfo <- lookupTyCon tyName
+  let tyBinder = binderHeadName (dataDeclHead dataDecl)
+      tyName = unqualifiedNameText tyBinder
+  maybeInfo <-
+    if tyName == "List"
+      then lookupTyConByIdentity (TyCon "[]" 1)
+      else lookupDeclaredTyCon tyBinder
   case maybeInfo of
     Nothing -> missingTypeInfo ("data type " <> T.unpack tyName)
     Just info -> do
@@ -2225,12 +2235,13 @@ registerDataConstructors dataDecl = do
 -- this stage the type checker only needs the source-level names and types.
 registerNewtypeDeclHeader :: NewtypeDecl -> TcM [TcBindingResult]
 registerNewtypeDeclHeader nd = do
-  let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead nd))
+  let tyBinder = binderHeadName (newtypeDeclHead nd)
+      tyName = unqualifiedNameText tyBinder
       params = binderHeadParams (newtypeDeclHead nd)
       arity = length params
   paramInfos <- makeParamEnv params
   declaredKind <- tyConKindFromParams paramInfos (newtypeDeclKind nd)
-  let tc = mkTyCon tyName arity declaredKind
+  let tc = mkDeclaredTyCon tyBinder tyName arity declaredKind
   extendTyConEnvPermanent
     tyName
     TyConInfo
@@ -2247,8 +2258,9 @@ registerNewtypeDeclHeader nd = do
 
 registerNewtypeConstructor :: NewtypeDecl -> TcM [TcBindingResult]
 registerNewtypeConstructor newtypeDecl = do
-  let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
-  maybeInfo <- lookupTyCon tyName
+  let tyBinder = binderHeadName (newtypeDeclHead newtypeDecl)
+      tyName = unqualifiedNameText tyBinder
+  maybeInfo <- lookupDeclaredTyCon tyBinder
   case maybeInfo of
     Nothing -> missingTypeInfo ("newtype " <> T.unpack tyName)
     Just info -> do
@@ -2292,12 +2304,13 @@ registerRecordSelectors constructors =
 
 registerTypeSynonymHeader :: TypeSynDecl -> TcM [TcBindingResult]
 registerTypeSynonymHeader typeSynDecl = do
-  let tyName = unqualifiedNameText (binderHeadName (typeSynHead typeSynDecl))
+  let tyBinder = binderHeadName (typeSynHead typeSynDecl)
+      tyName = unqualifiedNameText tyBinder
       params = binderHeadParams (typeSynHead typeSynDecl)
       arity = length params
   paramInfos <- makeParamEnv params
   let declaredKind = foldr (KFun . paramKind) KType paramInfos
-      tyCon = mkTyCon tyName arity declaredKind
+      tyCon = mkDeclaredTyCon tyBinder tyName arity declaredKind
       synonym = TypeSynonymInfo (map paramTyVar paramInfos) Nothing
   extendTyConEnvPermanent
     tyName
@@ -2314,8 +2327,9 @@ registerTypeSynonymHeader typeSynDecl = do
 registerTypeSynonymBody :: Decl -> TcM ()
 registerTypeSynonymBody (DeclAnn _ inner) = registerTypeSynonymBody inner
 registerTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
-  let tyName = unqualifiedNameText (binderHeadName (typeSynHead typeSynDecl))
-  maybeInfo <- lookupTyCon tyName
+  let tyBinder = binderHeadName (typeSynHead typeSynDecl)
+      tyName = unqualifiedNameText tyBinder
+  maybeInfo <- lookupDeclaredTyCon tyBinder
   case maybeInfo of
     Just info
       | Just synonym <- tciTypeSynonym info -> do
@@ -2326,9 +2340,23 @@ registerTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
     _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
 registerTypeSynonymBody _ = pure ()
 
-dataDeclTyCon :: Text -> Int -> Kind -> TyCon
-dataDeclTyCon "List" 1 kind = mkTyCon "[]" 1 kind
-dataDeclTyCon name arity kind = mkTyCon name arity kind
+dataDeclTyCon :: UnqualifiedName -> Text -> Int -> Kind -> TyCon
+dataDeclTyCon _ "List" 1 kind = mkTyCon "[]" 1 kind
+dataDeclTyCon binder name arity kind = mkDeclaredTyCon binder name arity kind
+
+mkDeclaredTyCon :: UnqualifiedName -> Text -> Int -> Kind -> TyCon
+mkDeclaredTyCon binder name arity kind =
+  if isWiredInTyConName name
+    then mkTyCon name arity kind
+    else case nameResolution binder of
+      Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} ->
+        mkTyConWithOrigin
+          (packageIdText packageId)
+          (fromMaybe "" (nameQualifier resolvedName))
+          name
+          arity
+          kind
+      _ -> mkTyCon name arity kind
 
 -- | Register a single data constructor as a polymorphic binding.
 -- Returns the binding result for the constructor.
@@ -2340,17 +2368,17 @@ registerDataConWithResult :: [ParamInfo] -> TcType -> DataConDecl -> TcM TcBindi
 registerDataConWithResult paramInfos resTy con = case con of
   DataConAnn _ inner -> registerDataConWithResult paramInfos resTy inner
   PrefixCon forallVars context conName args ->
-    registerH98DataCon forallVars context (unqualifiedNameText conName) (map bangType args)
+    registerH98DataCon forallVars context (Just conName) (unqualifiedNameText conName) (map bangType args)
   InfixCon forallVars context lhs conName rhs ->
-    registerH98DataCon forallVars context (unqualifiedNameText conName) (map bangType [lhs, rhs])
+    registerH98DataCon forallVars context (Just conName) (unqualifiedNameText conName) (map bangType [lhs, rhs])
   RecordCon forallVars context conName fields ->
-    registerH98DataCon forallVars context (unqualifiedNameText conName) (map bangType (recordBangFields fields))
+    registerH98DataCon forallVars context (Just conName) (unqualifiedNameText conName) (map bangType (recordBangFields fields))
   TupleCon forallVars context flavor fields ->
-    registerH98DataCon forallVars context (tupleConText flavor (length fields)) (map bangType fields)
+    registerH98DataCon forallVars context Nothing (tupleConText flavor (length fields)) (map bangType fields)
   UnboxedSumCon forallVars context pos arity field ->
-    registerH98DataCon forallVars context (unboxedSumConText pos arity) [bangType field]
+    registerH98DataCon forallVars context Nothing (unboxedSumConText pos arity) [bangType field]
   ListCon forallVars context ->
-    registerH98DataCon forallVars context "[]" []
+    registerH98DataCon forallVars context Nothing "[]" []
   GadtCon forallBinders context names body -> do
     constructorParams <- makeParamEnv (concatMap forallTelescopeBinders forallBinders)
     let constructorEnv =
@@ -2372,7 +2400,7 @@ registerDataConWithResult paramInfos resTy con = case con of
     mapM_
       ( \n -> do
           let nm = unqualifiedNameText n
-          extendTermEnvPermanent nm (TcIdBinder gadtScheme Closed)
+          extendResolvedTermEnvPermanent n (TcIdBinder gadtScheme Closed)
           markGadtCon nm
       )
       names
@@ -2389,7 +2417,7 @@ registerDataConWithResult paramInfos resTy con = case con of
         | param <- paramInfos
         ]
     paramVarIds = map paramTyVar paramInfos
-    registerH98DataCon forallVars context name fieldTypes = do
+    registerH98DataCon forallVars context maybeName name fieldTypes = do
       constructorParams <- makeParamEnv forallVars
       let constructorEnv =
             Map.fromList
@@ -2402,7 +2430,9 @@ registerDataConWithResult paramInfos resTy con = case con of
       predicates <- mapM (surfacePredToPred constructorEnv) context
       let conTy = foldr TcFunTy resTy argTys
           scheme = ForAll (paramVarIds <> constructorTyVars) predicates conTy
-      extendTermEnvPermanent name (TcIdBinder scheme Closed)
+      case maybeName of
+        Just sourceName -> extendResolvedTermEnvPermanent sourceName (TcIdBinder scheme Closed)
+        Nothing -> extendTermEnvPermanent name (TcIdBinder scheme Closed)
       zonkedTy <- zonkType (schemeToType scheme)
       pure (TcBindingResult name name zonkedTy)
 

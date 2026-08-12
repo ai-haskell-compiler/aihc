@@ -48,8 +48,12 @@ module Aihc.Tc.Monad
     extendTermEnv,
     extendResolvedTermEnv,
     extendTermEnvPermanent,
+    extendResolvedTermEnvPermanent,
     getTermEnv,
     lookupTyCon,
+    lookupResolvedTyCon,
+    lookupDeclaredTyCon,
+    lookupTyConByIdentity,
     extendTyConEnvPermanent,
     getTyConEnv,
     addDataType,
@@ -82,8 +86,8 @@ module Aihc.Tc.Monad
 where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
-import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo, DataTypeInfo (..), InstanceInfo, TyConInfo)
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo, DataTypeInfo (..), InstanceInfo, TyConInfo (..))
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -93,7 +97,7 @@ import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', runStateT)
 import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -195,7 +199,7 @@ data TcState = TcState
     -- selected global name to retrieve the type.
     tcsGlobalTerms :: !(Map Text TcBinder),
     -- | Global type constructors accumulated by top-level declarations.
-    tcsGlobalTyCons :: !(Map Text TyConInfo),
+    tcsGlobalTyCons :: !(Map TyCon TyConInfo),
     -- | Checked constructor layouts for data and newtype declarations.
     tcsDataTypes :: !(Map Text DataTypeInfo),
     -- | Type classes in scope, including their superclass layouts and defaults.
@@ -328,8 +332,11 @@ lookupTerm name =
   lift $ gets $ \s -> Map.lookup name (tcsGlobalTerms s)
 
 lookupResolvedTerm :: Text -> ResolvedName -> TcM (Maybe TcBinder)
-lookupResolvedTerm displayName resolved =
-  resolvedNameTermKey displayName resolved >>= lookupTermKey
+lookupResolvedTerm displayName resolved = do
+  exact <- resolvedNameTermKey displayName resolved >>= lookupTermKey
+  case (exact, resolved) of
+    (Nothing, ResolvedTopLevel _ name) -> lookupTerm (nameText name)
+    _ -> pure exact
 
 lookupTermKey :: TcTermKey -> TcM (Maybe TcBinder)
 lookupTermKey key =
@@ -356,8 +363,8 @@ resolvedNameTermKey displayName resolved =
   case resolved of
     ResolvedLocal unique _ ->
       pure (TcTermLocal unique)
-    ResolvedTopLevel _ name ->
-      pure (TcTermGlobal (nameText name))
+    ResolvedTopLevel packageId name ->
+      pure (TcTermGlobal (resolvedGlobalKey packageId name))
     ResolvedBuiltin name ->
       pure (TcTermGlobal name)
     ResolvedError msg ->
@@ -388,6 +395,19 @@ extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
 extendTermEnvPermanent name binder = lift $ modify' $ \s ->
   s {tcsGlobalTerms = Map.insert name binder (tcsGlobalTerms s)}
 
+-- | Add a source binder under its resolver identity and its source name.
+extendResolvedTermEnvPermanent :: UnqualifiedName -> TcBinder -> TcM ()
+extendResolvedTermEnvPermanent name binder = do
+  extendTermEnvPermanent (unqualifiedNameText name) binder
+  case termResolution (unqualifiedNameAnns name) of
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} ->
+      extendTermEnvPermanent (resolvedGlobalKey packageId resolvedName) binder
+    _ -> pure ()
+
+resolvedGlobalKey :: PackageId -> Name -> Text
+resolvedGlobalKey packageId name =
+  packageIdText packageId <> "\NUL" <> fromMaybe "" (nameQualifier name) <> "\NUL" <> nameText name
+
 resolvedTermTarget :: Name -> TcM ResolvedName
 resolvedTermTarget name =
   case termResolution (nameAnns name) of
@@ -412,14 +432,49 @@ termResolution =
     . mapMaybe fromAnnotation
 
 lookupTyCon :: Text -> TcM (Maybe TyConInfo)
-lookupTyCon name = lift $ gets $ \s -> Map.lookup name (tcsGlobalTyCons s)
+lookupTyCon name =
+  lift $ gets $ find ((== name) . tciName) . Map.elems . tcsGlobalTyCons
 
-getTyConEnv :: TcM (Map Text TyConInfo)
+lookupResolvedTyCon :: Name -> TcM (Maybe TyConInfo)
+lookupResolvedTyCon name =
+  case typeResolution (nameAnns name) of
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
+      exact <- lookupTyConOrigin (packageIdText packageId) (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+      maybe (lookupTyCon (nameText name)) (pure . Just) exact
+    _ -> lookupTyCon (nameText name)
+
+lookupDeclaredTyCon :: UnqualifiedName -> TcM (Maybe TyConInfo)
+lookupDeclaredTyCon name =
+  case typeResolution (unqualifiedNameAnns name) of
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
+      exact <- lookupTyConOrigin (packageIdText packageId) (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+      maybe (lookupTyCon (unqualifiedNameText name)) (pure . Just) exact
+    _ -> lookupTyCon (unqualifiedNameText name)
+
+lookupTyConByIdentity :: TyCon -> TcM (Maybe TyConInfo)
+lookupTyConByIdentity tyCon = lift $ gets $ Map.lookup tyCon . tcsGlobalTyCons
+
+lookupTyConOrigin :: Text -> Text -> Text -> TcM (Maybe TyConInfo)
+lookupTyConOrigin packageId moduleName name =
+  lift $ gets $ find matches . Map.elems . tcsGlobalTyCons
+  where
+    matches info =
+      let tyCon = tciTyCon info
+       in tyConPackageId tyCon == packageId
+            && tyConModuleName tyCon == moduleName
+            && tyConName tyCon == name
+
+typeResolution :: [Annotation] -> Maybe ResolutionAnnotation
+typeResolution =
+  find ((== ResolutionNamespaceType) . resolutionNamespace)
+    . mapMaybe fromAnnotation
+
+getTyConEnv :: TcM (Map TyCon TyConInfo)
 getTyConEnv = lift $ gets tcsGlobalTyCons
 
 extendTyConEnvPermanent :: Text -> TyConInfo -> TcM ()
-extendTyConEnvPermanent name info = lift $ modify' $ \s ->
-  s {tcsGlobalTyCons = Map.insert name info (tcsGlobalTyCons s)}
+extendTyConEnvPermanent _ info = lift $ modify' $ \s ->
+  s {tcsGlobalTyCons = Map.insert (tciTyCon info) info (tcsGlobalTyCons s)}
 
 addDataType :: DataTypeInfo -> TcM ()
 addDataType info = lift $ modify' $ \state ->
