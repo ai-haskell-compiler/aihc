@@ -1,0 +1,80 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import GHC.Stack.Types
+
+    firstLocation :: SrcLoc
+    firstLocation = SrcLoc "package" "Module" "File.hs" 1 2 3 4
+
+    secondLocation :: SrcLoc
+    secondLocation = SrcLoc "dependency" "Other" "Other.hs" 5 6 7 8
+
+    locationFields :: Bool
+    locationFields =
+      srcLocPackage firstLocation == "package"
+        && srcLocModule firstLocation == "Module"
+        && srcLocFile firstLocation == "File.hs"
+        && srcLocStartLine firstLocation == 1
+        && srcLocStartCol firstLocation == 2
+        && srcLocEndLine firstLocation == 3
+        && srcLocEndCol firstLocation == 4
+
+    sameLocation :: SrcLoc -> SrcLoc -> Bool
+    sameLocation
+      (SrcLoc leftPackage leftModule leftFile leftStartLine leftStartCol leftEndLine leftEndCol)
+      (SrcLoc rightPackage rightModule rightFile rightStartLine rightStartCol rightEndLine rightEndCol) =
+        leftPackage == rightPackage
+          && leftModule == rightModule
+          && leftFile == rightFile
+          && leftStartLine == rightStartLine
+          && leftStartCol == rightStartCol
+          && leftEndLine == rightEndLine
+          && leftEndCol == rightEndCol
+
+    sameEntry :: (String, SrcLoc) -> (String, SrcLoc) -> Bool
+    sameEntry (leftName, leftLocation) (rightName, rightLocation) =
+      leftName == rightName && sameLocation leftLocation rightLocation
+
+    sameEntries :: [(String, SrcLoc)] -> [(String, SrcLoc)] -> Bool
+    sameEntries [] [] = True
+    sameEntries (left : lefts) (right : rights) =
+      sameEntry left right && sameEntries lefts rights
+    sameEntries _ _ = False
+
+    expectedEntries :: [(String, SrcLoc)]
+    expectedEntries = [("first", firstLocation), ("second", secondLocation)]
+
+    constructorStack :: CallStack
+    constructorStack =
+      PushCallStack "first" firstLocation
+        (PushCallStack "second" secondLocation EmptyCallStack)
+
+    frozenPushIsIgnored :: Bool
+    frozenPushIsIgnored =
+      sameEntries
+        (getCallStack (pushCallStack ("ignored", secondLocation) (freezeCallStack constructorStack)))
+        expectedEntries
+
+    deepseqPatterns :: CallStack -> ()
+    deepseqPatterns EmptyCallStack = ()
+    deepseqPatterns (PushCallStack name location rest) =
+      name `seq` location `seq` deepseqPatterns rest
+    deepseqPatterns (FreezeCallStack rest) = deepseqPatterns rest
+
+    results :: Bool
+    results =
+      locationFields
+        && sameEntries (getCallStack emptyCallStack) []
+        && sameEntries (getCallStack constructorStack) expectedEntries
+        && sameEntries (getCallStack (fromCallSiteList expectedEntries)) expectedEntries
+        && frozenPushIsIgnored
+        && case deepseqPatterns (freezeCallStack constructorStack) of
+          () -> True
+output: "True"
+expression: results
+status: pass
+reason: GHC.Stack.Types provides the call-stack data API and the shallow stack operations that deepseq needs
