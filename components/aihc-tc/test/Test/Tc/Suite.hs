@@ -29,7 +29,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
     stripAnnotations,
   )
-import Aihc.Resolve (ResolveResult (..), extractInterface, modulesInPackage, unnamedPackage)
+import Aihc.Resolve (PackageId (..), ResolveResult (..), extractInterface, modulesInPackage, unnamedPackage)
 import Aihc.Resolve qualified as Resolve
 import Aihc.Tc
 import Aihc.Tc.Annotations (PendingTcAnnotation, TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..), pendingAnnotation)
@@ -491,9 +491,13 @@ kindTests =
       case baseResult of
         ResolveResult {resolvedModules = baseModules, resolveErrors = []} -> do
           let (checkedBase, interface) = typecheckModuleSccWithInterface mempty (map snd baseModules)
+              interfaceTermNames = mapMaybe (tcTermKeyIdentifier . fst) (tcInterfaceTerms interface)
           assertBool "dependency should typecheck" (all tcModuleSuccess checkedBase)
-          assertBool "constructor term exported" ("Unit" `elem` map fst (tcInterfaceTerms interface))
-          assertBool "method term exported" ("identity" `elem` map fst (tcInterfaceTerms interface))
+          assertBool "constructor term exported" ("Unit" `elem` interfaceTermNames)
+          assertBool "method term exported" ("identity" `elem` interfaceTermNames)
+          assertBool
+            "constructor term keeps its resolved identity"
+            (TcTermGlobal (PackageId "") "Base" "Unit" `elem` map fst (tcInterfaceTerms interface))
           assertBool "type constructor exported" ("Unit" `elem` map tciName (tcInterfaceTyCons interface))
           assertBool "class exported" ("Identity" `elem` map ciName (tcInterfaceClasses interface))
           assertBool "instance exported" ("$fIdentityUnit" `elem` map iiDictName (tcInterfaceInstances interface))
@@ -675,9 +679,10 @@ annotationTests =
       case baseResult of
         ResolveResult {resolvedModules = baseModules, resolveErrors = []} -> do
           let (checkedBase, interface) = typecheckModuleSccWithInterface mempty (map snd baseModules)
+              interfaceTermNames = mapMaybe (tcTermKeyIdentifier . fst) (tcInterfaceTerms interface)
           assertBool ("provider should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedBase)) (all tcModuleSuccess checkedBase)
           assertBool "record selectors are emitted as term bindings" (all (`elem` concatMap (map tbName . tcModuleBindings) checkedBase) ["left", "right"])
-          assertBool "record selectors are exported through T(..)" (all (`elem` map fst (tcInterfaceTerms interface)) ["left", "right"])
+          assertBool "record selectors are exported through T(..)" (all (`elem` interfaceTermNames) ["left", "right"])
           assertEqual
             "interface serialization round-trip"
             (show interface)

@@ -1754,7 +1754,7 @@ tcFunctionInfer displayName name matches = do
   if failed
     then pure (Nothing, [])
     else do
-      scheme <- generalizeAndCommitIgnoring (Set.singleton (TcTermGlobal name)) ty residualPreds
+      scheme <- generalizeAndCommitIgnoring (Set.singleton (unqualifiedTermKey name)) ty residualPreds
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
       extendTermEnvPermanent name (TcIdBinder scheme Closed)

@@ -37,6 +37,7 @@ module Aihc.Tc.Monad
     TcEnv (..),
     TcBinder (..),
     TcTermKey (..),
+    unqualifiedTermKey,
     Closedness (..),
     emptyTcEnv,
     lookupTerm,
@@ -160,8 +161,11 @@ data TcBinder
 
 data TcTermKey
   = TcTermLocal !Int
-  | TcTermGlobal !Text
-  deriving (Eq, Ord, Show)
+  | TcTermGlobal !PackageId !Text !Text
+  deriving (Eq, Ord, Show, Read)
+
+unqualifiedTermKey :: Text -> TcTermKey
+unqualifiedTermKey = TcTermGlobal (PackageId "") ""
 
 -- | An empty environment at the top level.
 emptyTcEnv :: TcEnv
@@ -193,11 +197,9 @@ data TcState = TcState
     -- | Global term bindings accumulated from declarations and imported
     -- interfaces.
     --
-    -- This map remains text-keyed because it is not used to decide lexical
-    -- scope. Occurrences reach it only after @aihc-resolve@ has attached a
-    -- 'ResolvedTopLevel' or 'ResolvedBuiltin' target; TC then uses the target's
-    -- selected global name to retrieve the type.
-    tcsGlobalTerms :: !(Map Text TcBinder),
+    -- Global keys store the package, module, and identifier selected by
+    -- @aihc-resolve@.
+    tcsGlobalTerms :: !(Map TcTermKey TcBinder),
     -- | Global type constructors accumulated by top-level declarations.
     tcsGlobalTyCons :: !(Map TyCon TyConInfo),
     -- | Checked constructor layouts for data and newtype declarations.
@@ -233,11 +235,11 @@ initTcState =
       tcsGadtCons = Set.empty
     }
 
-builtinTerms :: Map Text TcBinder
+builtinTerms :: Map TcTermKey TcBinder
 builtinTerms =
   Map.fromList
-    [ (":", TcIdBinder consScheme Closed),
-      ("[]", TcIdBinder nilScheme Closed)
+    [ (unqualifiedTermKey ":", TcIdBinder consScheme Closed),
+      (unqualifiedTermKey "[]", TcIdBinder nilScheme Closed)
     ]
   where
     aVar = TyVarId "a" (Unique (-1000))
@@ -329,7 +331,7 @@ lookupEvidence (EvVar u) = lift $ gets $ \s ->
 -- | Look up a global term by its selected global name.
 lookupTerm :: Text -> TcM (Maybe TcBinder)
 lookupTerm name =
-  lift $ gets $ \s -> Map.lookup name (tcsGlobalTerms s)
+  lift $ gets $ \s -> Map.lookup (unqualifiedTermKey name) (tcsGlobalTerms s)
 
 lookupResolvedTerm :: Text -> ResolvedName -> TcM (Maybe TcBinder)
 lookupResolvedTerm displayName resolved = do
@@ -343,8 +345,8 @@ lookupTermKey key =
   case key of
     TcTermLocal _ ->
       asks $ \env -> Map.lookup key (tcEnvTerms env)
-    TcTermGlobal name ->
-      lift $ gets $ \s -> Map.lookup name (tcsGlobalTerms s)
+    TcTermGlobal {} ->
+      lift $ gets $ \s -> Map.lookup key (tcsGlobalTerms s)
 
 resolvedTermKey :: Name -> TcM TcTermKey
 resolvedTermKey name =
@@ -364,9 +366,9 @@ resolvedNameTermKey displayName resolved =
     ResolvedLocal unique _ ->
       pure (TcTermLocal unique)
     ResolvedTopLevel packageId name ->
-      pure (TcTermGlobal (resolvedGlobalKey packageId name))
+      pure (TcTermGlobal packageId (fromMaybe "" (nameQualifier name)) (nameText name))
     ResolvedBuiltin name ->
-      pure (TcTermGlobal name)
+      pure (unqualifiedTermKey name)
     ResolvedError msg ->
       abortTc ("resolver error reached type checker for term " <> show displayName <> ": " <> msg)
 
@@ -375,7 +377,7 @@ getTermEnv :: TcM (Map TcTermKey TcBinder)
 getTermEnv = do
   locals <- asks tcEnvTerms
   globals <- lift $ gets tcsGlobalTerms
-  pure (locals <> Map.mapKeys TcTermGlobal globals)
+  pure (locals <> globals)
 
 -- | Extend the term environment with a new binding for the duration
 -- of the given computation.
@@ -393,7 +395,7 @@ extendResolvedTermEnv name binder action = do
 -- declarations like data constructors and top-level bindings).
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
 extendTermEnvPermanent name binder = lift $ modify' $ \s ->
-  s {tcsGlobalTerms = Map.insert name binder (tcsGlobalTerms s)}
+  s {tcsGlobalTerms = Map.insert (unqualifiedTermKey name) binder (tcsGlobalTerms s)}
 
 -- | Add a source binder under its resolver identity and its source name.
 extendResolvedTermEnvPermanent :: UnqualifiedName -> TcBinder -> TcM ()
@@ -401,12 +403,15 @@ extendResolvedTermEnvPermanent name binder = do
   extendTermEnvPermanent (unqualifiedNameText name) binder
   case termResolution (unqualifiedNameAnns name) of
     Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} ->
-      extendTermEnvPermanent (resolvedGlobalKey packageId resolvedName) binder
+      lift $ modify' $ \state ->
+        state
+          { tcsGlobalTerms =
+              Map.insert
+                (TcTermGlobal packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName))
+                binder
+                (tcsGlobalTerms state)
+          }
     _ -> pure ()
-
-resolvedGlobalKey :: PackageId -> Name -> Text
-resolvedGlobalKey packageId name =
-  packageIdText packageId <> "\NUL" <> fromMaybe "" (nameQualifier name) <> "\NUL" <> nameText name
 
 resolvedTermTarget :: Name -> TcM ResolvedName
 resolvedTermTarget name =
