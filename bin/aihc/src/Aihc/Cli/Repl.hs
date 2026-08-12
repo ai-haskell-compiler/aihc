@@ -160,7 +160,7 @@ loadReplSession maybeStoreRoot = do
       installedBindingTypes = maybe Map.empty interfaceBindingTypes installedInterface
   pure
     ReplSession
-      { replModuleExports = replBaseExports baseContext `Map.union` ensurePreludeMvpScope installedExports,
+      { replModuleExports = ensurePreludeMvpScope (unionModuleExports (replBaseExports baseContext) installedExports),
         replImportedTerms = mergeImportedTerms (replBaseImportedTerms baseContext) (ensurePreludeMvpTerms installedTerms),
         replBindingTypes =
           ensurePreludeMvpBindingTypes
@@ -257,11 +257,16 @@ handleBrowseCommand session rawModuleName
       pure (ReplContinue (Just "usage: :browse <module>"))
   | otherwise =
       pure . ReplContinue . Just $
-        case Map.lookup (ModuleKey unnamedPackage moduleName') (replModuleExports session) of
-          Nothing -> "unknown module: " <> rawModuleName
-          Just scope -> renderBrowseScope session moduleName' scope
+        case matchingScopes of
+          [scope] -> renderBrowseScope session moduleName' scope
+          _ -> "unknown module: " <> rawModuleName
   where
     moduleName' = T.pack rawModuleName
+    matchingScopes =
+      [ scope
+      | (moduleKey, scope) <- Map.toList (replModuleExports session),
+        moduleKeyName moduleKey == moduleName'
+      ]
 
 renderBrowseScope :: ReplSession -> Text -> Scope -> String
 renderBrowseScope session browsingModule scope =
@@ -485,15 +490,17 @@ loadAihcBaseContext = do
   primRoot <- defaultAihcPrimRoot
   modulesResult <-
     loadTransitiveModules
-      [("aihc-base", baseRoot), ("aihc-prim", primRoot)]
+      [ (Package "aihc-base" (PackageId "aihc-base"), baseRoot),
+        (Package "aihc-prim" (PackageId "aihc-prim"), primRoot)
+      ]
       (Set.singleton "Prelude")
   case modulesResult of
     Left err -> ioError (userError ("repl error: could not load bundled aihc-base Prelude: " <> err))
     Right modules -> buildBaseContext modules
 
-buildBaseContext :: [Module] -> IO ReplBaseContext
+buildBaseContext :: [(Package, Module)] -> IO ReplBaseContext
 buildBaseContext modules =
-  case resolveWithDeps Map.empty (map modulePackage modules) of
+  case resolveWithDeps Map.empty modules of
     resolved@ResolveResult {resolveErrors = [], resolvedModules} -> do
       let moduleAsts = map snd resolvedModules
           (tcResults, _) =
@@ -520,11 +527,6 @@ buildBaseContext modules =
         else ioError (userError ("repl error: could not type-check bundled aihc-base Prelude: " <> unwords (concatMap (map show . tcModuleDiagnostics) tcResults)))
     ResolveResult {resolveErrors} ->
       ioError (userError ("repl error: could not resolve bundled aihc-base Prelude: " <> show resolveErrors))
-  where
-    modulePackage modu
-      | Syntax.moduleName modu `elem` [Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
-          (Package "aihc-prim" (PackageId "aihc-prim"), modu)
-      | otherwise = (unnamedPackage, modu)
 
 bindingImportedTerm :: TcBindingResult -> (Text, TypeScheme)
 bindingImportedTerm binding =
@@ -533,6 +535,13 @@ bindingImportedTerm binding =
 mergeImportedTerms :: [(Text, TypeScheme)] -> [(Text, TypeScheme)] -> [(Text, TypeScheme)]
 mergeImportedTerms preferred fallback =
   Map.toList (Map.fromList fallback <> Map.fromList preferred)
+
+unionModuleExports :: ModuleExports -> ModuleExports -> ModuleExports
+unionModuleExports preferred fallback =
+  preferred `Map.union` Map.filterWithKey keepFallback fallback
+  where
+    preferredNames = Set.fromList (map moduleKeyName (Map.keys preferred))
+    keepFallback moduleKey _ = moduleKeyName moduleKey `Set.notMember` preferredNames
 
 unionBindingTypes :: Map.Map Text (Map.Map Text TcType) -> Map.Map Text (Map.Map Text TcType) -> Map.Map Text (Map.Map Text TcType)
 unionBindingTypes = Map.unionWith Map.union
@@ -614,7 +623,7 @@ defaultCoreLibraryRoot sourceEnv packageName = do
             then pure candidate
             else findUp parent
 
-loadTransitiveModules :: [(Text, FilePath)] -> Set.Set Text -> IO (Either String [Module])
+loadTransitiveModules :: [(Package, FilePath)] -> Set.Set Text -> IO (Either String [(Package, Module)])
 loadTransitiveModules packageRoots initialModules =
   fmap snd <$> go Set.empty [] (Set.toAscList initialModules)
   where
@@ -627,9 +636,9 @@ loadTransitiveModules packageRoots initialModules =
           maybePath <- findModulePathInDependencies packageRoots moduleName
           case maybePath of
             Nothing -> do
-              let dependencyNames = T.intercalate ", " (map fst packageRoots)
+              let dependencyNames = T.intercalate ", " (map (packageName . fst) packageRoots)
               pure (Left ("dependency module " <> T.unpack moduleName <> " not found in dependencies: " <> T.unpack dependencyNames))
-            Just path -> do
+            Just (package, path) -> do
               source <- Utf8.readFile path
               case parseOneModule path source of
                 Left errMsg -> pure (Left ("dependency module " <> T.unpack moduleName <> " parse error: " <> errMsg))
@@ -640,15 +649,15 @@ loadTransitiveModules packageRoots initialModules =
                   case depResult of
                     Left errMsg -> pure (Left errMsg)
                     Right (seenWithDeps, loadedWithDeps) ->
-                      go seenWithDeps (loadedWithDeps <> [modu]) pending
+                      go seenWithDeps (loadedWithDeps <> [(package, modu)]) pending
 
-findModulePathInDependencies :: [(Text, FilePath)] -> Text -> IO (Maybe FilePath)
+findModulePathInDependencies :: [(Package, FilePath)] -> Text -> IO (Maybe (Package, FilePath))
 findModulePathInDependencies [] _ = pure Nothing
-findModulePathInDependencies ((_dependency, root) : rest) moduleName = do
+findModulePathInDependencies ((package, root) : rest) moduleName = do
   let path = root </> "src" </> moduleNamePath moduleName
   exists <- doesFileExist path
   if exists
-    then pure (Just path)
+    then pure (Just (package, path))
     else findModulePathInDependencies rest moduleName
 
 moduleNamePath :: Text -> FilePath
@@ -828,21 +837,28 @@ ensurePreludeMvpScope :: ModuleExports -> ModuleExports
 ensurePreludeMvpScope exports =
   Map.insert preludeKey preludeScope exports
   where
-    preludeKey = ModuleKey unnamedPackage "Prelude"
+    preludeKey =
+      fromMaybe
+        (ModuleKey unnamedPackage "Prelude")
+        (find ((== "Prelude") . moduleKeyName) (Map.keys exports))
     existing = Map.findWithDefault emptyScope preludeKey exports
+    resolvePreludeName =
+      ResolvedTopLevel (packageId (moduleKeyPackage preludeKey))
+        . qualifyName (Just "Prelude")
+        . unqualifiedNameFromText
     preludeScope =
       existing
         { scopeTerms =
-            Map.fromList
-              [ ("++", resolvedTopLevel "Prelude" "++")
-              ]
-              <> scopeTerms existing,
+            scopeTerms existing
+              <> Map.fromList
+                [ ("++", resolvePreludeName "++")
+                ],
           scopeTypes =
-            Map.fromList
-              [ ("Char", resolvedTopLevel "Prelude" "Char"),
-                ("String", resolvedTopLevel "Prelude" "String")
-              ]
-              <> scopeTypes existing
+            scopeTypes existing
+              <> Map.fromList
+                [ ("Char", resolvePreludeName "Char"),
+                  ("String", resolvePreludeName "String")
+                ]
         }
 
 ensurePreludeMvpTerms :: [(Text, TypeScheme)] -> [(Text, TypeScheme)]
