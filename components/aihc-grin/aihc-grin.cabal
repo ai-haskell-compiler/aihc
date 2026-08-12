@@ -67,6 +67,7 @@ library fuzz
     aihc-tc,
     base >=4.16 && <5,
     bytestring,
+    hedgehog,
     tasty-quickcheck,
     text,
 
@@ -84,6 +85,7 @@ test-suite spec
     Aihc.Testing.EvalFixture
     GrinGolden
     Test.Grin.Arbitrary
+    Test.Grin.Properties
     Test.Grin.Suite
 
   build-depends:
@@ -98,8 +100,10 @@ test-suite spec
     containers,
     directory,
     filepath,
+    hedgehog,
     libffi >=0.2 && <0.3,
     tasty,
+    tasty-hedgehog,
     tasty-hunit,
     tasty-quickcheck,
     text,

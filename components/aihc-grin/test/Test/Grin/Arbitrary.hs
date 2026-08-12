@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.Grin.Arbitrary
-  ( prop_grinPrettyRoundTrip,
+  ( genGrinProgram,
+    prop_grinPrettyRoundTrip,
   )
 where
 
@@ -18,6 +19,10 @@ import Aihc.Tc.Types
 import Data.ByteString qualified as BS
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Word (Word8)
+import Hedgehog (Gen)
+import Hedgehog.Gen qualified as Gen
+import Hedgehog.Range qualified as Range
 import Test.Tasty.QuickCheck qualified as QC
 
 prop_grinPrettyRoundTrip :: QC.Property
@@ -30,149 +35,179 @@ prop_grinPrettyRoundTrip =
               ("failed to parse generated GRIN:\n" <> T.unpack rendered <> "\n\n" <> renderParseError err)
               False
           Right reparsed ->
-            -- GrinVar's semantic Eq instance intentionally ignores runtime
-            -- representations, so compare the complete derived structure.
+            -- GrinVar equality ignores runtime representations. Compare derived forms to include all fields.
             QC.counterexample
               ("rendered GRIN:\n" <> T.unpack rendered)
               (show reparsed QC.=== show program)
 
-genGrinProgram :: QC.Gen GrinProgram
-genGrinProgram =
-  QC.sized $ \size ->
-    QC.resize (max 1 (size `div` 4)) $
-      GrinProgram
-        <$> smallList ((,) <$> genText <*> smallList (smallList genRuntimeRep))
-        <*> smallList ((,) <$> genVar <*> QC.arbitrary)
-        <*> smallList genForeignCall
-        <*> smallList genText
-        <*> smallList genCodeInfo
-        <*> smallList ((,) <$> genVar <*> genNode)
-        <*> smallList ((,) <$> genVar <*> genNode)
-        <*> smallList genFunction
+class (Monad generator) => GrinGenerator generator where
+  genChoice :: [generator value] -> generator value
+  genElement :: [value] -> generator value
+  genSmallList :: generator value -> generator [value]
+  genInt :: generator Int
+  genInteger :: generator Integer
+  genChar :: generator Char
+  genWord8 :: generator Word8
+  genTextValue :: generator Text
+  genDepth :: generator Int
 
-genCodeInfo :: QC.Gen GrinCodeInfo
+instance GrinGenerator QC.Gen where
+  genChoice = QC.oneof
+  genElement = QC.elements
+  genSmallList = QC.resize 3 . QC.listOf
+  genInt = QC.arbitrary
+  genInteger = QC.arbitrary
+  genChar = QC.arbitrary
+  genWord8 = QC.arbitrary
+  genTextValue = T.pack <$> QC.arbitrary
+  genDepth = QC.chooseInt (0, 3)
+
+instance GrinGenerator Gen where
+  genChoice = Gen.choice
+  genElement = Gen.element
+  genSmallList = Gen.list (Range.linear 0 3)
+  genInt = Gen.int (Range.linear (-1000) 1000)
+  genInteger = Gen.integral (Range.linear (-100000) 100000)
+  genChar = Gen.unicode
+  genWord8 = Gen.word8 Range.constantBounded
+  genTextValue = Gen.text (Range.linear 0 12) Gen.unicode
+  genDepth = Gen.int (Range.linear 0 3)
+
+genGrinProgram :: (GrinGenerator generator) => generator GrinProgram
+genGrinProgram =
+  GrinProgram
+    <$> genSmallList ((,) <$> genTextValue <*> genSmallList (genSmallList genRuntimeRep))
+    <*> genSmallList ((,) <$> genVar <*> genInt)
+    <*> genSmallList genForeignCall
+    <*> genSmallList genTextValue
+    <*> genSmallList genCodeInfo
+    <*> genSmallList ((,) <$> genVar <*> genNode)
+    <*> genSmallList ((,) <$> genVar <*> genNode)
+    <*> genSmallList genFunction
+
+genCodeInfo :: (GrinGenerator generator) => generator GrinCodeInfo
 genCodeInfo =
   GrinCodeInfo
-    <$> genText
+    <$> genTextValue
     <*> genFunctionName
-    <*> smallList (smallList genRuntimeRep)
+    <*> genSmallList (genSmallList genRuntimeRep)
     <*> genRuntimeRep
 
-genFunction :: QC.Gen GrinFunction
+genFunction :: (GrinGenerator generator) => generator GrinFunction
 genFunction =
   GrinFunction
     <$> genFunctionName
-    <*> QC.oneof [pure Nothing, Just <$> genText]
-    <*> smallList genVar
+    <*> genChoice [pure Nothing, Just <$> genTextValue]
+    <*> genSmallList genVar
     <*> genRuntimeRep
     <*> genExpr
 
-genExpr :: QC.Gen GrinExpr
-genExpr = QC.sized genExprSized
+genExpr :: (GrinGenerator generator) => generator GrinExpr
+genExpr = genDepth >>= genExprSized
 
-genExprSized :: Int -> QC.Gen GrinExpr
-genExprSized size =
-  QC.oneof (atomicExpressions <> recursiveExpressions)
+genExprSized :: (GrinGenerator generator) => Int -> generator GrinExpr
+genExprSized depth =
+  genChoice (atomicExpressions <> recursiveExpressions)
   where
-    smaller = QC.resize (size `div` 2) (genExprSized (size `div` 2))
+    smaller = genExprSized (depth - 1)
     atomicExpressions =
-      [ GrinConstant <$> smallList genValue,
+      [ GrinConstant <$> genSmallList genValue,
         GrinStore <$> genNode,
-        GrinEnsureHeap <$> genValue <*> smallList genValue,
+        GrinEnsureHeap <$> genValue <*> genSmallList genValue,
         GrinStoreUnchecked <$> genNode,
         GrinFetch <$> genRuntimeRep <*> genValue,
         GrinUpdate <$> genValue <*> genValue,
         GrinEval <$> genRuntimeRep <*> genValue,
         GrinCpsEval <$> genRuntimeRep <*> genValue <*> genValue <*> genValue,
-        GrinCall <$> genRuntimeRep <*> genFunctionName <*> smallList genValue,
-        GrinPrimitiveCall <$> genRuntimeRep <*> genText <*> smallList genValue,
-        GrinCpsPrimitiveCall <$> genRuntimeRep <*> genText <*> smallList genValue <*> genValue,
-        GrinApply <$> genRuntimeRep <*> genValue <*> smallList genValue,
-        GrinCpsApply <$> genRuntimeRep <*> genValue <*> smallList genValue <*> genValue,
-        GrinContinue <$> genValue <*> smallList genValue,
+        GrinCall <$> genRuntimeRep <*> genFunctionName <*> genSmallList genValue,
+        GrinPrimitiveCall <$> genRuntimeRep <*> genTextValue <*> genSmallList genValue,
+        GrinCpsPrimitiveCall <$> genRuntimeRep <*> genTextValue <*> genSmallList genValue <*> genValue,
+        GrinApply <$> genRuntimeRep <*> genValue <*> genSmallList genValue,
+        GrinCpsApply <$> genRuntimeRep <*> genValue <*> genSmallList genValue <*> genValue,
+        GrinContinue <$> genValue <*> genSmallList genValue,
         GrinCpsRaise <$> genValue <*> genValue,
         GrinUpdateBlackhole <$> genValue <*> genValue,
-        GrinHalt <$> smallList genValue,
+        GrinHalt <$> genSmallList genValue,
         GrinExit <$> genValue,
         GrinThrow <$> genValue,
-        GrinCatch <$> genRuntimeRep <*> genValue <*> genValue <*> smallList genValue,
-        GrinForeignCallExpr <$> genForeignCall <*> smallList genValue
+        GrinCatch <$> genRuntimeRep <*> genValue <*> genValue <*> genSmallList genValue,
+        GrinForeignCallExpr <$> genForeignCall <*> genSmallList genValue
       ]
     recursiveExpressions
-      | size <= 0 = []
+      | depth <= 0 = []
       | otherwise =
-          [ GrinBind <$> smallList genVar <*> smaller <*> smaller,
-            GrinStoreRec <$> smallList ((,) <$> genVar <*> genNode) <*> smaller,
-            GrinStoreRecUnchecked <$> smallList ((,) <$> genVar <*> genNode) <*> smaller,
-            GrinCase <$> genValue <*> genVar <*> smallList (genAlt smaller)
+          [ GrinBind <$> genSmallList genVar <*> smaller <*> smaller,
+            GrinStoreRec <$> genSmallList ((,) <$> genVar <*> genNode) <*> smaller,
+            GrinStoreRecUnchecked <$> genSmallList ((,) <$> genVar <*> genNode) <*> smaller,
+            GrinCase <$> genValue <*> genVar <*> genSmallList (genAlt smaller)
           ]
 
-genAlt :: QC.Gen GrinExpr -> QC.Gen GrinAlt
-genAlt rhs = GrinAlt <$> genAltCon <*> smallList genVar <*> rhs
+genAlt :: (GrinGenerator generator) => generator GrinExpr -> generator GrinAlt
+genAlt rhs = GrinAlt <$> genAltCon <*> genSmallList genVar <*> rhs
 
-genAltCon :: QC.Gen GrinAltCon
+genAltCon :: (GrinGenerator generator) => generator GrinAltCon
 genAltCon =
-  QC.oneof
-    [ GrinDataAlt <$> genText,
+  genChoice
+    [ GrinDataAlt <$> genTextValue,
       GrinLitAlt <$> genLiteral,
       pure GrinDefaultAlt
     ]
 
-genValue :: QC.Gen GrinValue
-genValue = QC.oneof [GrinVarValue <$> genVar, GrinLitValue <$> genLiteral]
+genValue :: (GrinGenerator generator) => generator GrinValue
+genValue = genChoice [GrinVarValue <$> genVar, GrinLitValue <$> genLiteral]
 
-genNode :: QC.Gen GrinNode
-genNode = GrinNode <$> genNodeTag <*> smallList genValue
+genNode :: (GrinGenerator generator) => generator GrinNode
+genNode = GrinNode <$> genNodeTag <*> genSmallList genValue
 
-genNodeTag :: QC.Gen GrinNodeTag
+genNodeTag :: (GrinGenerator generator) => generator GrinNodeTag
 genNodeTag =
-  QC.oneof
-    [ GrinConstructor <$> genText <*> QC.arbitrary,
-      GrinClosure <$> genFunctionName <*> smallList (smallList genRuntimeRep),
+  genChoice
+    [ GrinConstructor <$> genTextValue <*> genInt,
+      GrinClosure <$> genFunctionName <*> genSmallList (genSmallList genRuntimeRep),
       GrinThunk <$> genFunctionName
     ]
 
-genLiteral :: QC.Gen GrinLiteral
+genLiteral :: (GrinGenerator generator) => generator GrinLiteral
 genLiteral =
-  QC.oneof
-    [ GrinLitInt <$> genRuntimeRep <*> QC.arbitrary,
-      GrinLitChar <$> genRuntimeRep <*> QC.arbitrary,
-      GrinLitString <$> genText,
-      GrinLitAddr . BS.pack <$> smallList QC.arbitrary
+  genChoice
+    [ GrinLitInt <$> genRuntimeRep <*> genInteger,
+      GrinLitChar <$> genRuntimeRep <*> genChar,
+      GrinLitString <$> genTextValue,
+      GrinLitAddr . BS.pack <$> genSmallList genWord8
     ]
 
-genVar :: QC.Gen GrinVar
-genVar = GrinVar <$> genText <*> QC.arbitrary <*> genRuntimeRep
+genVar :: (GrinGenerator generator) => generator GrinVar
+genVar = GrinVar <$> genTextValue <*> genInt <*> genRuntimeRep
 
-genFunctionName :: QC.Gen FunctionName
-genFunctionName = FunctionName <$> genText
+genFunctionName :: (GrinGenerator generator) => generator FunctionName
+genFunctionName = FunctionName <$> genTextValue
 
-genForeignCall :: QC.Gen GrinForeignCall
+genForeignCall :: (GrinGenerator generator) => generator GrinForeignCall
 genForeignCall =
   GrinForeignCall
-    <$> genText
-    <*> genText
-    <*> (GrinForeignSignature <$> smallList genForeignType <*> genForeignType <*> genForeignEffect)
+    <$> genTextValue
+    <*> genTextValue
+    <*> (GrinForeignSignature <$> genSmallList genForeignType <*> genForeignType <*> genForeignEffect)
 
-genForeignEffect :: QC.Gen GrinForeignEffect
-genForeignEffect = QC.elements [GrinForeignPure, GrinForeignRealWorld]
+genForeignEffect :: (GrinGenerator generator) => generator GrinForeignEffect
+genForeignEffect = genElement [GrinForeignPure, GrinForeignRealWorld]
 
-genForeignType :: QC.Gen GrinForeignType
-genForeignType = QC.elements [GrinForeignInt, GrinForeignInt32, GrinForeignWord64, GrinForeignAddr]
+genForeignType :: (GrinGenerator generator) => generator GrinForeignType
+genForeignType = genElement [GrinForeignInt, GrinForeignInt32, GrinForeignWord64, GrinForeignAddr]
 
-genRuntimeRep :: QC.Gen RuntimeRep
-genRuntimeRep = QC.sized genRuntimeRepSized
+genRuntimeRep :: (GrinGenerator generator) => generator RuntimeRep
+genRuntimeRep = genDepth >>= genRuntimeRepSized
 
-genRuntimeRepSized :: Int -> QC.Gen RuntimeRep
-genRuntimeRepSized size =
-  QC.oneof (baseRepresentations <> recursiveRepresentations)
+genRuntimeRepSized :: (GrinGenerator generator) => Int -> generator RuntimeRep
+genRuntimeRepSized depth =
+  genChoice (baseRepresentations <> recursiveRepresentations)
   where
     baseRepresentations =
-      [ VecRep <$> QC.elements allVecCounts <*> QC.elements allVecElems,
-        BoxedRep <$> QC.elements [Lifted, Unlifted],
-        RuntimeRepVar . Unique <$> QC.arbitrary,
-        RuntimeRepMeta . Unique <$> QC.arbitrary,
-        QC.elements
+      [ VecRep <$> genElement allVecCounts <*> genElement allVecElems,
+        BoxedRep <$> genElement [Lifted, Unlifted],
+        RuntimeRepVar . Unique <$> genInt,
+        RuntimeRepMeta . Unique <$> genInt,
+        genElement
           [ IntRep,
             Int8Rep,
             Int16Rep,
@@ -189,10 +224,10 @@ genRuntimeRepSized size =
           ]
       ]
     recursiveRepresentations
-      | size <= 0 = []
+      | depth <= 0 = []
       | otherwise =
-          [ TupleRep <$> QC.resize (size `div` 2) (smallList genRuntimeRep),
-            SumRep <$> QC.resize (size `div` 2) (smallList genRuntimeRep)
+          [ TupleRep <$> genSmallList (genRuntimeRepSized (depth - 1)),
+            SumRep <$> genSmallList (genRuntimeRepSized (depth - 1))
           ]
 
 allVecCounts :: [VecCount]
@@ -211,11 +246,3 @@ allVecElems =
     FloatElemRep,
     DoubleElemRep
   ]
-
-genText :: QC.Gen Text
-genText = T.pack <$> QC.arbitrary
-
-smallList :: QC.Gen value -> QC.Gen [value]
-smallList generator = QC.sized $ \size -> do
-  length' <- QC.chooseInt (0, min 3 size)
-  QC.vectorOf length' generator
