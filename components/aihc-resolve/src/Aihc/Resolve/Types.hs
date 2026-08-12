@@ -39,7 +39,7 @@ import Data.Text (Text)
 
 -- | An opaque identity for one installed package instance.
 newtype PackageId = PackageId {packageIdText :: Text}
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Read)
 
 -- | The user-visible package name used in imports and its opaque identity.
 data Package = Package
@@ -49,7 +49,7 @@ data Package = Package
   deriving (Eq, Ord, Show)
 
 unnamedPackage :: Package
-unnamedPackage = Package "" (PackageId "")
+unnamedPackage = Package "" (PackageId "main")
 
 modulesInPackage :: Package -> [Module] -> [(Package, Module)]
 modulesInPackage package = map pairWithPackage

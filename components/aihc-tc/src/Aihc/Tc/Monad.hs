@@ -34,11 +34,15 @@ module Aihc.Tc.Monad
     lookupEvidence,
 
     -- * Environment
+    TcConfig,
+    tcConfig,
     TcEnv (..),
     TcBinder (..),
     TcTermKey (..),
+    unqualifiedTermKey,
     Closedness (..),
     emptyTcEnv,
+    mkKnownTyCon,
     lookupTerm,
     lookupResolvedTerm,
     resolvedTermKey,
@@ -48,8 +52,12 @@ module Aihc.Tc.Monad
     extendTermEnv,
     extendResolvedTermEnv,
     extendTermEnvPermanent,
+    extendResolvedTermEnvPermanent,
     getTermEnv,
     lookupTyCon,
+    lookupResolvedTyCon,
+    lookupDeclaredTyCon,
+    lookupTyConByIdentity,
     extendTyConEnvPermanent,
     getTyConEnv,
     addDataType,
@@ -82,8 +90,8 @@ module Aihc.Tc.Monad
 where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
-import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo, DataTypeInfo (..), InstanceInfo, TyConInfo)
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo, DataTypeInfo (..), InstanceInfo, TyConInfo (..))
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -93,7 +101,7 @@ import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', runStateT)
 import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -125,7 +133,8 @@ tcAbortMessage (TcAbort msg) = msg
 
 -- | The local typing environment (read-only within a scope).
 data TcEnv = TcEnv
-  { -- | Local term bindings in scope.
+  { tcEnvConfig :: !TcConfig,
+    -- | Local term bindings in scope.
     --
     -- The keys come from @aihc-resolve@'s 'ResolvedLocal' identifiers, not
     -- from source text. This lets TC preserve lexical identity without doing
@@ -139,6 +148,17 @@ data TcEnv = TcEnv
     tcEnvTcLevel :: !TcLevel
   }
   deriving (Show)
+
+newtype TcConfig = TcConfig PackageId
+  deriving (Show)
+
+tcConfig :: PackageId -> TcConfig
+tcConfig = TcConfig
+
+mkKnownTyCon :: Text -> Text -> Int -> Kind -> TcM TyCon
+mkKnownTyCon moduleName name arity kind = do
+  TcConfig packageIdentity <- asks tcEnvConfig
+  pure (mkTyConWithOrigin packageIdentity moduleName name arity kind)
 
 -- | Whether a polymorphic binding is known to have no free type variables.
 data Closedness
@@ -156,14 +176,18 @@ data TcBinder
 
 data TcTermKey
   = TcTermLocal !Int
-  | TcTermGlobal !Text
-  deriving (Eq, Ord, Show)
+  | TcTermGlobal !PackageId !Text !Text
+  deriving (Eq, Ord, Show, Read)
+
+unqualifiedTermKey :: Text -> TcTermKey
+unqualifiedTermKey = TcTermGlobal (PackageId "") ""
 
 -- | An empty environment at the top level.
 emptyTcEnv :: TcEnv
 emptyTcEnv =
   TcEnv
-    { tcEnvTerms = Map.empty,
+    { tcEnvConfig = tcConfig (PackageId "aihc-prim"),
+      tcEnvTerms = Map.empty,
       tcEnvMonoLocalBinds = True,
       tcEnvMonomorphismRestriction = True,
       tcEnvTcLevel = topTcLevel
@@ -189,13 +213,11 @@ data TcState = TcState
     -- | Global term bindings accumulated from declarations and imported
     -- interfaces.
     --
-    -- This map remains text-keyed because it is not used to decide lexical
-    -- scope. Occurrences reach it only after @aihc-resolve@ has attached a
-    -- 'ResolvedTopLevel' or 'ResolvedBuiltin' target; TC then uses the target's
-    -- selected global name to retrieve the type.
-    tcsGlobalTerms :: !(Map Text TcBinder),
+    -- Global keys store the package, module, and identifier selected by
+    -- @aihc-resolve@.
+    tcsGlobalTerms :: !(Map TcTermKey TcBinder),
     -- | Global type constructors accumulated by top-level declarations.
-    tcsGlobalTyCons :: !(Map Text TyConInfo),
+    tcsGlobalTyCons :: !(Map TyCon TyConInfo),
     -- | Checked constructor layouts for data and newtype declarations.
     tcsDataTypes :: !(Map Text DataTypeInfo),
     -- | Type classes in scope, including their superclass layouts and defaults.
@@ -229,11 +251,11 @@ initTcState =
       tcsGadtCons = Set.empty
     }
 
-builtinTerms :: Map Text TcBinder
+builtinTerms :: Map TcTermKey TcBinder
 builtinTerms =
   Map.fromList
-    [ (":", TcIdBinder consScheme Closed),
-      ("[]", TcIdBinder nilScheme Closed)
+    [ (unqualifiedTermKey ":", TcIdBinder consScheme Closed),
+      (unqualifiedTermKey "[]", TcIdBinder nilScheme Closed)
     ]
   where
     aVar = TyVarId "a" (Unique (-1000))
@@ -325,19 +347,22 @@ lookupEvidence (EvVar u) = lift $ gets $ \s ->
 -- | Look up a global term by its selected global name.
 lookupTerm :: Text -> TcM (Maybe TcBinder)
 lookupTerm name =
-  lift $ gets $ \s -> Map.lookup name (tcsGlobalTerms s)
+  lift $ gets $ \s -> Map.lookup (unqualifiedTermKey name) (tcsGlobalTerms s)
 
 lookupResolvedTerm :: Text -> ResolvedName -> TcM (Maybe TcBinder)
-lookupResolvedTerm displayName resolved =
-  resolvedNameTermKey displayName resolved >>= lookupTermKey
+lookupResolvedTerm displayName resolved = do
+  exact <- resolvedNameTermKey displayName resolved >>= lookupTermKey
+  case (exact, resolved) of
+    (Nothing, ResolvedTopLevel _ name) -> lookupTerm (nameText name)
+    _ -> pure exact
 
 lookupTermKey :: TcTermKey -> TcM (Maybe TcBinder)
 lookupTermKey key =
   case key of
     TcTermLocal _ ->
       asks $ \env -> Map.lookup key (tcEnvTerms env)
-    TcTermGlobal name ->
-      lift $ gets $ \s -> Map.lookup name (tcsGlobalTerms s)
+    TcTermGlobal {} ->
+      lift $ gets $ \s -> Map.lookup key (tcsGlobalTerms s)
 
 resolvedTermKey :: Name -> TcM TcTermKey
 resolvedTermKey name =
@@ -356,10 +381,10 @@ resolvedNameTermKey displayName resolved =
   case resolved of
     ResolvedLocal unique _ ->
       pure (TcTermLocal unique)
-    ResolvedTopLevel _ name ->
-      pure (TcTermGlobal (nameText name))
+    ResolvedTopLevel packageId name ->
+      pure (TcTermGlobal packageId (fromMaybe "" (nameQualifier name)) (nameText name))
     ResolvedBuiltin name ->
-      pure (TcTermGlobal name)
+      pure (unqualifiedTermKey name)
     ResolvedError msg ->
       abortTc ("resolver error reached type checker for term " <> show displayName <> ": " <> msg)
 
@@ -368,7 +393,7 @@ getTermEnv :: TcM (Map TcTermKey TcBinder)
 getTermEnv = do
   locals <- asks tcEnvTerms
   globals <- lift $ gets tcsGlobalTerms
-  pure (locals <> Map.mapKeys TcTermGlobal globals)
+  pure (locals <> globals)
 
 -- | Extend the term environment with a new binding for the duration
 -- of the given computation.
@@ -386,7 +411,23 @@ extendResolvedTermEnv name binder action = do
 -- declarations like data constructors and top-level bindings).
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
 extendTermEnvPermanent name binder = lift $ modify' $ \s ->
-  s {tcsGlobalTerms = Map.insert name binder (tcsGlobalTerms s)}
+  s {tcsGlobalTerms = Map.insert (unqualifiedTermKey name) binder (tcsGlobalTerms s)}
+
+-- | Add a source binder under its resolver identity and its source name.
+extendResolvedTermEnvPermanent :: UnqualifiedName -> TcBinder -> TcM ()
+extendResolvedTermEnvPermanent name binder = do
+  extendTermEnvPermanent (unqualifiedNameText name) binder
+  case termResolution (unqualifiedNameAnns name) of
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} ->
+      lift $ modify' $ \state ->
+        state
+          { tcsGlobalTerms =
+              Map.insert
+                (TcTermGlobal packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName))
+                binder
+                (tcsGlobalTerms state)
+          }
+    _ -> pure ()
 
 resolvedTermTarget :: Name -> TcM ResolvedName
 resolvedTermTarget name =
@@ -412,14 +453,51 @@ termResolution =
     . mapMaybe fromAnnotation
 
 lookupTyCon :: Text -> TcM (Maybe TyConInfo)
-lookupTyCon name = lift $ gets $ \s -> Map.lookup name (tcsGlobalTyCons s)
+lookupTyCon name =
+  lift $ gets $ find matches . Map.elems . tcsGlobalTyCons
+  where
+    matches info = tciName info == name || tyConName (tciTyCon info) == name
 
-getTyConEnv :: TcM (Map Text TyConInfo)
+lookupResolvedTyCon :: Name -> TcM (Maybe TyConInfo)
+lookupResolvedTyCon name =
+  case typeResolution (nameAnns name) of
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
+      exact <- lookupTyConOrigin packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+      maybe (lookupTyCon (nameText name)) (pure . Just) exact
+    _ -> lookupTyCon (nameText name)
+
+lookupDeclaredTyCon :: UnqualifiedName -> TcM (Maybe TyConInfo)
+lookupDeclaredTyCon name =
+  case typeResolution (unqualifiedNameAnns name) of
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
+      exact <- lookupTyConOrigin packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+      maybe (lookupTyCon (unqualifiedNameText name)) (pure . Just) exact
+    _ -> lookupTyCon (unqualifiedNameText name)
+
+lookupTyConByIdentity :: TyCon -> TcM (Maybe TyConInfo)
+lookupTyConByIdentity tyCon = lift $ gets $ Map.lookup tyCon . tcsGlobalTyCons
+
+lookupTyConOrigin :: PackageId -> Text -> Text -> TcM (Maybe TyConInfo)
+lookupTyConOrigin packageId moduleName name =
+  lift $ gets $ find matches . Map.elems . tcsGlobalTyCons
+  where
+    matches info =
+      let tyCon = tciTyCon info
+       in tyConPackageId tyCon == packageId
+            && tyConModuleName tyCon == moduleName
+            && tyConName tyCon == name
+
+typeResolution :: [Annotation] -> Maybe ResolutionAnnotation
+typeResolution =
+  find ((== ResolutionNamespaceType) . resolutionNamespace)
+    . mapMaybe fromAnnotation
+
+getTyConEnv :: TcM (Map TyCon TyConInfo)
 getTyConEnv = lift $ gets tcsGlobalTyCons
 
 extendTyConEnvPermanent :: Text -> TyConInfo -> TcM ()
-extendTyConEnvPermanent name info = lift $ modify' $ \s ->
-  s {tcsGlobalTyCons = Map.insert name info (tcsGlobalTyCons s)}
+extendTyConEnvPermanent _ info = lift $ modify' $ \s ->
+  s {tcsGlobalTyCons = Map.insert (tciTyCon info) info (tcsGlobalTyCons s)}
 
 addDataType :: DataTypeInfo -> TcM ()
 addDataType info = lift $ modify' $ \state ->

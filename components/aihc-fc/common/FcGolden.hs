@@ -25,7 +25,7 @@ import Aihc.Parser
     parseModule,
   )
 import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
-import Aihc.Resolve (ResolveResult (..), modulesInPackage, resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (PackageId (..), ResolveResult (..), modulesInPackage, resolveWithDeps, unnamedPackage)
 import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
@@ -163,7 +163,7 @@ renderFcCase tc =
                in if all tcModuleSuccess tcResults
                     then
                       let allBindings = moduleGroupBindings tcResults
-                          results = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) tcResults moduleAsts
+                          results = zipWith (desugarModuleWithDataTypes (PackageId "aihc-prim") allBindings (tcInterfaceDataTypes tcInterface)) tcResults moduleAsts
                           fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
                             then renderResults fixtureResults

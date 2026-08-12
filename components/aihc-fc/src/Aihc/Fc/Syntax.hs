@@ -56,6 +56,7 @@ module Aihc.Fc.Syntax
   )
 where
 
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Evidence (Coercion)
 import Aihc.Tc.Types
   ( Kind (..),
@@ -66,6 +67,7 @@ import Aihc.Tc.Types
     Unique (..),
     liftedRuntimeRep,
     mkTyCon,
+    mkTyConWithOrigin,
     runtimeRepOfType,
     setTyVarKind,
     tvKind,
@@ -133,10 +135,21 @@ data FcDataDecl = FcDataDecl
 
 fcDataTyCon :: FcDataDecl -> TyCon
 fcDataTyCon declaration =
-  mkTyCon
-    (fcDataName declaration)
-    (length (fcDataTyVars declaration))
-    (foldr (KFun . tvKind) (fcDataResultKind declaration) (fcDataTyVars declaration))
+  case fcDataOrigin declaration of
+    FcTopLevelOrigin packageId moduleName _ ->
+      mkTyConWithOrigin
+        (PackageId packageId)
+        moduleName
+        (fcDataName declaration)
+        (length (fcDataTyVars declaration))
+        kind
+    FcBuiltinOrigin {} ->
+      mkTyCon
+        (fcDataName declaration)
+        (length (fcDataTyVars declaration))
+        kind
+  where
+    kind = foldr (KFun . tvKind) (fcDataResultKind declaration) (fcDataTyVars declaration)
 
 fcDataKindTyVars :: FcDataDecl -> [TyVarId]
 fcDataKindTyVars declaration =

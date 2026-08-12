@@ -40,6 +40,7 @@ module Aihc.Tc.Annotations
     -- * Pretty-printing
     renderPred,
     renderTcType,
+    renderTcTypeInModule,
     renderTcSignature,
   )
 where
@@ -55,7 +56,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Env (DataTypeInfo)
 import Aihc.Tc.Evidence (EvTerm, EvVar)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, isUnboxedTupleType)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, isUnboxedTupleType, tyConModuleName)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -285,7 +286,10 @@ renderPred pred' =
 --   1 = parens needed for function types (left of ->)
 --   2 = parens needed for function types and type applications (inside type con args)
 renderTcType :: TcType -> String
-renderTcType = go 0
+renderTcType = renderTcTypeInModule Nothing
+
+renderTcTypeInModule :: Maybe Text -> TcType -> String
+renderTcTypeInModule currentModule = go 0
   where
     go :: Int -> TcType -> String
     go _ (TcTyVar tv) = T.unpack (tvName tv)
@@ -299,10 +303,10 @@ renderTcType = go 0
     go _ tupleType@(TcTyCon _ args)
       | isUnboxedTupleType tupleType =
           "(# " ++ commaSep (map (go 0) args) ++ " #)"
-    go _ (TcTyCon tc []) = T.unpack (tyConName tc)
+    go _ (TcTyCon tc []) = T.unpack (renderTyConName tc)
     go p (TcTyCon tc args) =
       parenIf (p >= 2) $
-        unwords (T.unpack (tyConName tc) : map (go 2) args)
+        unwords (T.unpack (renderTyConName tc) : map (go 2) args)
     go p (TcFunTy a b) =
       parenIf (p >= 1) $
         go 1 a ++ " → " ++ go 0 b
@@ -329,6 +333,14 @@ renderTcType = go 0
 
     isBoxedTupleCon name arity =
       arity /= 1 && name == boxedTupleTyConName arity
+
+    renderTyConName tyCon
+      | definingModule `elem` map T.pack ["Aihc.Internal", "GHC.Prim", "GHC.Tuple", "GHC.Types"] = tyConName tyCon
+      | Nothing <- currentModule = tyConName tyCon
+      | Just definingModule == currentModule = tyConName tyCon
+      | otherwise = definingModule <> T.pack "." <> tyConName tyCon
+      where
+        definingModule = tyConModuleName tyCon
 
 -- | Collect nested forall binders into a list.
 collectForAlls :: TcType -> ([TyVarId], TcType)

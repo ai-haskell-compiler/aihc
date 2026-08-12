@@ -20,6 +20,7 @@ module Aihc.Fc.Desugar.Expr
     freshUnique,
     freshVar,
     lookupType,
+    primBoolType,
     withDicts,
   )
 where
@@ -60,7 +61,7 @@ import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Env (DataConFieldInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Kind (runtimeRepToTcType)
-import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType, liftedRuntimeRep, mkTyCon, runtimeRepOfType, setTyVarKind, tvKind, unboxedTupleTyConName)
+import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType, liftedRuntimeRep, mkTyCon, mkTyConWithOrigin, runtimeRepOfType, setTyVarKind, tvKind, unboxedTupleTyConName)
 import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -81,6 +82,7 @@ type DsM = StateT DsState (Either String)
 -- | Desugaring state.
 data DsState = DsState
   { dsNextUnique :: !Int,
+    dsPrimPackageId :: !PackageId,
     dsModulePackage :: !Text,
     dsModuleName :: !(Maybe Text),
     -- | Map from surface name to its inferred type (from TC).
@@ -131,6 +133,11 @@ lookupType name = do
     Nothing -> case Map.lookup name (dsTypeEnv st) of
       Just ty -> pure ty
       Nothing -> desugarBug ("missing type information for name: " <> T.unpack name)
+
+primBoolType :: DsM TcType
+primBoolType = do
+  primPackageId <- gets dsPrimPackageId
+  pure (TcTyCon (mkTyConWithOrigin primPackageId "GHC.Types" "Bool" 0 KType) [])
 
 -- | Look up a local variable binding.
 lookupLocal :: Text -> DsM (Maybe Var)
@@ -920,6 +927,7 @@ dsIf cond thenE elseE = do
   cond' <- dsExpr cond
   then' <- dsExpr thenE
   else' <- dsExpr elseE
+  boolTy <- primBoolType
   binder <- freshVar "_if" boolTy
   pure
     ( FcCase
@@ -1063,6 +1071,7 @@ dsOverloadedIntegerPatternMatch :: Var -> Pattern -> DsM FcExpr -> FcExpr -> DsM
 dsOverloadedIntegerPatternMatch scrutVar pat success failure = do
   test <- dsOverloadedIntegerPatternTest (FcVar scrutVar) pat
   trueBranch <- success
+  boolTy <- primBoolType
   binder <- freshVar "_case_guard" boolTy
   pure
     ( FcCase
@@ -1319,6 +1328,7 @@ dsCompGuard :: TcType -> Expr -> Expr -> [CompStmt] -> FcExpr -> DsM FcExpr
 dsCompGuard elemTy body guard rest tailExpr = do
   guard' <- dsExpr guard
   trueBranch <- dsCompQuals elemTy body rest tailExpr
+  boolTy <- primBoolType
   binder <- freshInternalVar "_lc_guard" boolTy
   pure
     ( FcCase
@@ -1889,9 +1899,6 @@ typeKey ty =
     TcFunTy a b -> typeKey a <> "->" <> typeKey b
     TcForAllTy _ body -> typeKey body
     TcQualTy _ body -> typeKey body
-
-boolTy :: TcType
-boolTy = TcTyCon (TyCon "Bool" 0) []
 
 charTy :: TcType
 charTy = TcTyCon (TyCon "Char" 0) []

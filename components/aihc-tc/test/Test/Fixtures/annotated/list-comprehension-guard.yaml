@@ -1,10 +1,13 @@
 annotated:
 - |-
-  module Test where
+  module GHC.Types where
   data Bool = True | False
        │      │      └─ type: Bool
        │      └─ type: Bool
        └─ type: *
+- |-
+  module Test where
+  import GHC.Types (Bool)
   filter f list = [ x | x <- list, f x ]
   │      │ │      │     └─ type: a
   │      │ │      └─ type: [a]; type-args: a
@@ -14,8 +17,11 @@ annotated:
 extensions: []
 modules:
 - |
-  module Test where
+  module GHC.Types where
   data Bool = True | False
+- |
+  module Test where
+  import GHC.Types (Bool)
   filter f list = [ x | x <- list, f x ]
 reason: list comprehension guards must typecheck as Bool
 status: pass

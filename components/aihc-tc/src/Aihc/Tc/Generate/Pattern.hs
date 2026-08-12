@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Shared type-checking support for term patterns.
@@ -100,8 +101,9 @@ checkPatternCore gadtHandling sp pat scrutTy =
       innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
       pure innerCheck {pcPatterns = [PParen (checkedPattern innerCheck)]}
     PWildcard {} -> pure (checkedOnly pat)
-    PLit lit ->
-      case charLiteralPatternType lit of
+    PLit lit -> do
+      maybeLiteralTy <- charLiteralPatternType lit
+      case maybeLiteralTy of
         Just literalTy -> do
           eqCt <- wantedEq sp scrutTy literalTy
           pure (checkedOnly pat) {pcWantedCts = [eqCt]}
@@ -122,7 +124,7 @@ checkPatternCore gadtHandling sp pat scrutTy =
       checkConPattern gadtHandling sp pat op [lhs, rhs] scrutTy
     PList items -> do
       elemTy <- freshMetaTv
-      let listTy = listType elemTy
+      listTy <- listType elemTy
       eqCt <- wantedEq sp scrutTy listTy
       itemChecks <- checkPatternsWith gadtHandling sp [(item, elemTy) | item <- items]
       pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [PList (pcPatterns itemChecks)]}
@@ -135,7 +137,11 @@ checkPatternCore gadtHandling sp pat scrutTy =
             case flavor of
               Boxed -> foldr (KFun . typeKind) KType elemTys
               Unboxed -> foldr (KFun . typeKind) (KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) elemTys))) elemTys
-          tupleTy = TcTyCon (maybe (mkTyCon typeName arity fallbackKind) tciTyCon maybeTyCon) elemTys
+      tupleTyCon <-
+        case maybeTyCon of
+          Just info -> pure (tciTyCon info)
+          Nothing -> mkKnownTyCon (tupleTyConModule flavor) typeName arity fallbackKind
+      let tupleTy = TcTyCon tupleTyCon elemTys
       eqCt <- wantedEq sp scrutTy tupleTy
       itemChecks <- checkPatternsWith gadtHandling sp (zip items elemTys)
       pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [PTuple flavor (pcPatterns itemChecks)]}
@@ -150,12 +156,16 @@ checkedPattern check =
     [pat] -> pat
     _ -> error "checkedPattern: expected exactly one checked pattern"
 
-charLiteralPatternType :: Literal -> Maybe TcType
+charLiteralPatternType :: Literal -> TcM (Maybe TcType)
 charLiteralPatternType literal =
   case peelLiteralAnn literal of
-    LitChar {} -> Just (TcTyCon (TyCon "Char" 0) [])
-    LitCharHash {} -> Just (TcTyCon (TyCon "Char#" 0) [])
-    _ -> Nothing
+    LitChar {} -> do
+      maybeInfo <- lookupTyCon "Char"
+      pure (Just (TcTyCon (maybe (mkTyCon "Char" 0 liftedTypeKind) tciTyCon maybeInfo) []))
+    LitCharHash {} -> do
+      tyCon <- mkKnownTyCon "GHC.Prim" "Char#" 0 liftedTypeKind
+      pure (Just (TcTyCon tyCon []))
+    _ -> pure Nothing
 
 overloadedIntegerPatternLiteral :: Pattern -> Maybe Bool
 overloadedIntegerPatternLiteral pat =
@@ -174,13 +184,20 @@ isOverloadedIntegerLiteral lit =
 
 checkOverloadedIntegerPattern :: SourceSpan -> Pattern -> Bool -> TcType -> TcM PatternCheck
 checkOverloadedIntegerPattern sp pat isNegative scrutTy = do
-  (fromIntegerPending, fromIntegerCts) <- checkPatternMethod sp pat "fromInteger" scrutTy (TcFunTy integerTy scrutTy)
+  (fromIntegerPending, fromIntegerCts) <-
+    checkPatternMethodWithExpected sp pat "fromInteger" $ \case
+      TcFunTy integerTy _ -> pure (scrutTy, TcFunTy integerTy scrutTy)
+      _ -> abortTc "fromInteger does not have a function type"
   negateCheck <-
     if isNegative
       then Just <$> checkPatternMethod sp pat "negate" scrutTy (TcFunTy scrutTy scrutTy)
       else pure Nothing
-  let eqTy = TcFunTy scrutTy (TcFunTy scrutTy boolTy)
-  (eqPending, eqCts) <- checkPatternMethod sp pat "==" eqTy eqTy
+  (eqPending, eqCts) <-
+    checkPatternMethodWithExpected sp pat "==" $ \case
+      TcFunTy _ (TcFunTy _ boolTy) ->
+        let expectedTy = TcFunTy scrutTy (TcFunTy scrutTy boolTy)
+         in pure (expectedTy, expectedTy)
+      _ -> abortTc "== does not have a binary function type"
   let methodAnnotations =
         [("fromInteger", fromIntegerPending)]
           <> maybe [] (\(pending, _) -> [("negate", pending)]) negateCheck
@@ -197,9 +214,14 @@ checkOverloadedIntegerPattern sp pat isNegative scrutTy = do
       }
 
 checkPatternMethod :: SourceSpan -> Pattern -> Text -> TcType -> TcType -> TcM (PendingTcAnnotation, [Ct])
-checkPatternMethod sp pat name annotationTy expectedTy = do
+checkPatternMethod sp pat name annotationTy expectedTy =
+  checkPatternMethodWithExpected sp pat name (const (pure (annotationTy, expectedTy)))
+
+checkPatternMethodWithExpected :: SourceSpan -> Pattern -> Text -> (TcType -> TcM (TcType, TcType)) -> TcM (PendingTcAnnotation, [Ct])
+checkPatternMethodWithExpected sp pat name expectedTypes = do
   resolution <- requiredPatternResolution name pat
   (actualTy, typeArgs, methodCts) <- inferResolvedPatternMethod sp name resolution
+  (annotationTy, expectedTy) <- expectedTypes actualTy
   methodEq <- wantedMethodEq sp name actualTy expectedTy
   pure
     ( pendingAnnotation
@@ -209,12 +231,6 @@ checkPatternMethod sp pat name annotationTy expectedTy = do
         [],
       methodCts <> [methodEq]
     )
-
-integerTy :: TcType
-integerTy = TcTyCon (TyCon "Integer" 0) []
-
-boolTy :: TcType
-boolTy = TcTyCon (TyCon "Bool" 0) []
 
 wantedMethodEq :: SourceSpan -> Text -> TcType -> TcType -> TcM Ct
 wantedMethodEq sp method actual expected = do
@@ -472,14 +488,22 @@ withPatternBindings [] action = action
 withPatternBindings ((name, ty) : rest) action =
   extendResolvedTermEnv name (TcMonoIdBinder ty) (withPatternBindings rest action)
 
-listType :: TcType -> TcType
-listType elemTy = TcTyCon (TyCon "[]" 1) [elemTy]
+listType :: TcType -> TcM TcType
+listType elemTy = do
+  maybeInfo <- lookupTyCon "[]"
+  pure (TcTyCon (maybe (mkTyCon "[]" 1 (KFun KType KType)) tciTyCon maybeInfo) [elemTy])
 
 tupleTyConText :: TupleFlavor -> Int -> Text
 tupleTyConText flavor arity =
   case flavor of
     Boxed -> boxedTupleTyConName arity
     Unboxed -> unboxedTupleTyConName arity
+
+tupleTyConModule :: TupleFlavor -> Text
+tupleTyConModule flavor =
+  case flavor of
+    Boxed -> "GHC.Tuple"
+    Unboxed -> "GHC.Types"
 
 patternNameText :: Name -> Text
 patternNameText name =

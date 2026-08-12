@@ -61,10 +61,11 @@ import Aihc.Resolve
 import Aihc.Tc
   ( TcBindingResult (..),
     TcInterface,
+    tcConfig,
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
-    typecheckModuleSccWithInterface,
+    typecheckModuleSccWithInterfaceConfig,
   )
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket, bracketOnError)
@@ -73,7 +74,7 @@ import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.Char (isHexDigit)
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.List (intercalate, sort, sortOn)
+import Data.List (find, intercalate, sort, sortOn)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe)
@@ -385,23 +386,29 @@ parserConfig sourceName source =
     language = fromMaybe Haskell98Edition (headerLanguageEdition header)
 
 compileLoadedModules :: [LoadedModule] -> Either String DependencyArtifact
-compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedModuleSccs loaded)
+compileLoadedModules loaded = do
+  let primPackageId =
+        maybe
+          (PackageId "aihc-prim")
+          packageId
+          (find ((== "aihc-prim") . packageName) (map loadedResolvePackage loaded))
+  finish <$> foldM (compileScc primPackageId) initialState (loadedModuleSccs loaded)
   where
     initialState = CompileState Map.empty mempty [] mempty mempty mempty mempty [] []
 
-    compileScc state members =
+    compileScc primPackageId state members =
       case resolveWithDeps (compileStateExports state) [(loadedResolvePackage member, loadedModule member) | member <- members] of
         ResolveResult {resolveErrors = errors@(_ : _)} -> Left ("library resolve error: " <> show errors)
         resolved@ResolveResult {resolvedModules} ->
           let moduleAsts = map snd resolvedModules
               (checkedModules, tcInterface) =
-                typecheckModuleSccWithInterface (compileStateTcInterface state) moduleAsts
+                typecheckModuleSccWithInterfaceConfig (tcConfig primPackageId) (compileStateTcInterface state) moduleAsts
            in if not (all tcModuleSuccess checkedModules)
                 then Left ("library typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules))
                 else
                   let localBindings = concatMap tcModuleBindings checkedModules
                       bindings = compileStateBindings state <> localBindings
-                      desugared = zipWith (desugarModuleWithBindings bindings) checkedModules moduleAsts
+                      desugared = zipWith (desugarModuleWithBindings primPackageId bindings) checkedModules moduleAsts
                    in if not (all dsSuccess desugared)
                         then Left ("library desugar error: " <> unlines (concatMap dsErrors desugared))
                         else do

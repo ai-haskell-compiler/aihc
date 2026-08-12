@@ -14,7 +14,7 @@ import Aihc.Fc (DesugarResult (..), desugarModuleWithBindings)
 import Aihc.Grin (lintProgram, lowerProgram, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
-import Aihc.Resolve (ResolveResult (..), resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (TcBindingResult, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheck)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
@@ -117,7 +117,7 @@ evaluateGrinCase fixture =
            in if all tcModuleSuccess tcResults
                 then
                   let allBindings = moduleGroupBindings tcResults
-                      desugared = zipWith (desugarModuleWithBindings allBindings) tcResults moduleAsts
+                      desugared = zipWith (desugarModuleWithBindings (PackageId "aihc-prim") allBindings) tcResults moduleAsts
                    in if all dsSuccess desugared
                         then
                           let programs = map (lowerProgram . dsProgram) desugared

@@ -86,10 +86,11 @@ import Aihc.Tc
     TyVarId (..),
     Unique (..),
     renderTcType,
+    tcConfig,
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
-    typecheckModulesWithInterface,
+    typecheckModulesWithInterfaceConfig,
   )
 import Control.Applicative ((<|>))
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar)
@@ -1280,15 +1281,25 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
       resolveResult = resolveWithDeps depExports (modulesInPackage currentPackage parsedModules)
       exposedModules = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
       ownExports = Map.restrictKeys (extractInterface resolveResult) (Set.map (ModuleKey currentPackage) exposedModules)
+      primPackageId =
+        if packageName currentPackage == "aihc-prim"
+          then Just (packageId currentPackage)
+          else
+            listToMaybe
+              [ packageId package
+              | ModuleKey package _ <- Map.keys depExports,
+                packageName package == "aihc-prim"
+              ]
+  let primIdentity = fromMaybe (PackageId "aihc-prim") primPackageId
   (checkedModules, tcModules, tcDiagnostics, tcInterface) <-
-    typecheckInterfaceModules importedTcInterface (map snd (resolvedModules resolveResult))
+    typecheckInterfaceModules primIdentity importedTcInterface (map snd (resolvedModules resolveResult))
   let resolveDiagnostics = enrichDiagnostics (map resolveErrorValue (resolveErrors resolveResult))
       enrichedTcDiagnostics = enrichDiagnostics tcDiagnostics
       enrichedTcModules = map (addTcModuleDiagnosticSourceLines sourceLinesByFile) tcModules
       ownBindings = concatMap tcModuleBindings checkedModules
       allBindings = mergeBy tbName [importedBindings, ownBindings]
       resolvedModuleAsts = map snd (resolvedModules resolveResult)
-      fcResults = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) checkedModules resolvedModuleAsts
+      fcResults = zipWith (desugarModuleWithDataTypes primIdentity allBindings (tcInterfaceDataTypes tcInterface)) checkedModules resolvedModuleAsts
       fcModules = zipWith fcModuleValue resolvedModuleAsts fcResults
       fcDiagnostics = concatMap fcModuleDiagnosticValues fcModules
   pure
@@ -1314,8 +1325,8 @@ packageVariantResolvePackage key =
       packageId = PackageId (T.intercalate "-" (packageVariantLibraryId key))
     }
 
-typecheckInterfaceModules :: TcInterface -> [Module] -> IO ([Module], [Aeson.Value], [Aeson.Value], TcInterface)
-typecheckInterfaceModules importedTcInterface modules = do
+typecheckInterfaceModules :: PackageId -> TcInterface -> [Module] -> IO ([Module], [Aeson.Value], [Aeson.Value], TcInterface)
+typecheckInterfaceModules primPackageId importedTcInterface modules = do
   currentModule <- newIORef (listToMaybe sortedModules)
   result <- timeout typecheckPhaseTimeoutMicros (go currentModule)
   case result of
@@ -1329,7 +1340,7 @@ typecheckInterfaceModules importedTcInterface modules = do
     go current = do
       mapM_ (writeIORef current . Just) sortedModules
       let (checkedModules, tcInterface) =
-            typecheckModulesWithInterface importedTcInterface sortedModules
+            typecheckModulesWithInterfaceConfig (tcConfig primPackageId) importedTcInterface sortedModules
           tcModules = zipWith tcModuleValue sortedModules checkedModules
       _ <- evaluate (forceJsonValue (Aeson.toJSON tcModules))
       length (show tcInterface) `seq`

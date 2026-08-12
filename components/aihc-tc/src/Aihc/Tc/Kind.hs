@@ -174,8 +174,11 @@ convertNonSynonymTypeWithKinds tvEnv ty =
           fallbackKind = foldr (KFun . typeKind) fallbackResultKind tys
           typeName = tupleTyConText flavor arity
       maybeTyCon <- lookupTyCon typeName
-      let tyCon = maybe (mkTyCon typeName arity fallbackKind) tciTyCon maybeTyCon
-          tupleType = TcTyCon tyCon tys
+      tyCon <-
+        case maybeTyCon of
+          Just info -> pure (tciTyCon info)
+          Nothing -> mkKnownTyCon (tupleTyConModule flavor) typeName arity fallbackKind
+      let tupleType = TcTyCon tyCon tys
       pure (tupleType, typeKind tupleType)
     TUnboxedSum args -> do
       tys <- mapM (checkRuntimeType tvEnv) args
@@ -185,7 +188,8 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       pure (TcTyCon (mkTyCon ("(#" <> bars (arity - 1) <> "#)") arity tyConKind') tys, resultKind)
     TList Unpromoted [arg] -> do
       argTy <- checkSurfaceType tvEnv arg KType
-      pure (listType argTy, KType)
+      listTy <- listType argTy
+      pure (listTy, KType)
     TList Promoted args -> do
       elemKind <- freshKindMeta
       args' <- mapM (\arg -> checkSurfaceType tvEnv arg elemKind) args
@@ -210,7 +214,7 @@ expandTypeSynonym :: TvKindEnv -> Type -> TcM (Maybe (TcType, Kind))
 expandTypeSynonym tvEnv ty =
   case typeApplicationSpine ty of
     (TCon name Unpromoted, arguments) -> do
-      maybeInfo <- lookupTyCon (nameText name)
+      maybeInfo <- lookupResolvedTyCon name
       case maybeInfo >>= tciTypeSynonym of
         Just synonym
           | Just {} <- tsiBody synonym -> Just <$> instantiateTypeSynonym tvEnv (nameText name) synonym arguments
@@ -264,7 +268,7 @@ expandTcTypeSynonyms expanding ty =
     TcMetaTv {} -> pure ty
     TcTyCon tyCon arguments -> do
       expandedArguments <- mapM (expandTcTypeSynonyms expanding) arguments
-      maybeInfo <- lookupTyCon (tyConName tyCon)
+      maybeInfo <- lookupTyConByIdentity tyCon
       case maybeInfo >>= tciTypeSynonym of
         Just synonym
           | Just body <- tsiBody synonym,
@@ -304,11 +308,10 @@ inferTypeConstructor promoted name =
     Promoted -> inferPromotedTypeConstructor (nameText name)
     Unpromoted ->
       case nameText name of
-        "String" -> pure (listType (TcTyCon (TyCon "Char" 0) []), KType)
-        "Type" -> pure (TcTyCon (TyCon "Type" 0) [], KType)
-        "Constraint" -> pure (TcTyCon (TyCon "Constraint" 0) [], KType)
+        "Type" -> knownType "GHC.Types" "Type" KType
+        "Constraint" -> knownType "GHC.Types" "Constraint" KType
         raw -> do
-          mInfo <- lookupTyCon raw
+          mInfo <- lookupResolvedTyCon name
           case mInfo of
             Just info -> pure (TcTyCon (tciTyCon info) [], tciKind info)
             Nothing -> inferBuiltinOrOpenTypeConstructor raw
@@ -317,20 +320,36 @@ inferBuiltinTypeConstructor :: TypeBuiltinCon -> TcM (TcType, Kind)
 inferBuiltinTypeConstructor builtin =
   case builtin of
     TBuiltinList ->
-      pure (TcTyCon (TyCon "[]" 1) [], KFun KType KType)
+      do
+        maybeInfo <- lookupTyCon "[]"
+        pure (TcTyCon (maybe (mkTyCon "[]" 1 (KFun KType KType)) tciTyCon maybeInfo) [], KFun KType KType)
     TBuiltinCons ->
       pure (TcTyCon (TyCon ":" 2) [], KFun KType (KFun (listTypeKind KType) (listTypeKind KType)))
     TBuiltinTuple arity ->
       let argKinds = replicate arity KType
-       in pure (TcTyCon (TyCon (tupleTyConText Boxed arity) arity) [], foldr KFun KType argKinds)
+          kind = foldr KFun KType argKinds
+       in knownTypeWithArity "GHC.Tuple" (tupleTyConText Boxed arity) arity kind
     TBuiltinArrow ->
       pure (TcTyCon (TyCon "(->)" 2) [], KFun KType (KFun KType KType))
 
 inferBuiltinOrOpenTypeConstructor :: Text -> TcM (TcType, Kind)
 inferBuiltinOrOpenTypeConstructor name =
   case wiredInTypeKind name of
-    Just kind -> pure (TcTyCon (mkTyCon name 0 kind) [], kind)
+    Just kind -> knownType (knownTypeModule name) name kind
     Nothing -> inferOpenTypeConstructor name
+
+knownType :: Text -> Text -> Kind -> TcM (TcType, Kind)
+knownType moduleName name = knownTypeWithArity moduleName name 0
+
+knownTypeWithArity :: Text -> Text -> Int -> Kind -> TcM (TcType, Kind)
+knownTypeWithArity moduleName name arity kind = do
+  tyCon <- mkKnownTyCon moduleName name arity kind
+  pure (TcTyCon tyCon [], kind)
+
+knownTypeModule :: Text -> Text
+knownTypeModule name
+  | "#" `T.isSuffixOf` name = "GHC.Prim"
+  | otherwise = "GHC.Types"
 
 inferPromotedTypeConstructor :: Text -> TcM (TcType, Kind)
 inferPromotedTypeConstructor name =
@@ -483,8 +502,10 @@ applyType :: TcType -> TcType -> TcType
 applyType (TcTyCon tc args) arg = TcTyCon tc (args ++ [arg])
 applyType f arg = TcAppTy f arg
 
-listType :: TcType -> TcType
-listType ty = TcTyCon (TyCon "[]" 1) [ty]
+listType :: TcType -> TcM TcType
+listType ty = do
+  maybeInfo <- lookupTyCon "[]"
+  pure (TcTyCon (maybe (mkTyCon "[]" 1 (KFun KType KType)) tciTyCon maybeInfo) [ty])
 
 listTypeKind :: Kind -> Kind
 listTypeKind kind = KFun kind kind
@@ -703,6 +724,12 @@ tupleTyConText flavor arity =
   case flavor of
     Boxed -> boxedTupleTyConName arity
     Unboxed -> unboxedTupleTyConName arity
+
+tupleTyConModule :: TupleFlavor -> Text
+tupleTyConModule flavor =
+  case flavor of
+    Boxed -> "GHC.Tuple"
+    Unboxed -> "GHC.Types"
 
 bars :: Int -> Text
 bars n

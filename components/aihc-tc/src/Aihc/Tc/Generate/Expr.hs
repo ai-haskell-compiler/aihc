@@ -67,18 +67,19 @@ inferExprAt ambient expr = case expr of
         inferOverloadedIntegerLiteral ambient ann resolution inner
   EVar name ->
     inferVar (exprSpan expr `orSourceSpan` ambient) name
-  EInt _ numericType _ ->
-    pure (expr, numericLiteralType numericType, [])
+  EInt _ numericType _ -> do
+    literalTy <- numericLiteralType numericType
+    pure (expr, literalTy, [])
   EFloat {} ->
-    pure (expr, doubleTyCon, [])
+    literalResult expr doubleTyCon
   EChar _ _ ->
-    pure (expr, charTyCon, [])
+    literalResult expr (resolvedType "Char")
   ECharHash _ _ ->
-    pure (expr, charHashTyCon, [])
+    literalResult expr (primType "Char#")
   EString _ _ ->
-    pure (expr, stringTyCon, [])
+    literalResult expr stringTyCon
   EStringHash _ _ ->
-    pure (expr, addrHashTyCon, [])
+    literalResult expr (primType "Addr#")
   ELambdaPats pats body ->
     inferLambda (exprSpan expr `orSourceSpan` ambient) pats body
   ELambdaCase alts ->
@@ -121,6 +122,11 @@ inferExprAt ambient expr = case expr of
     emitError (exprSpan expr `orSourceSpan` ambient) (OtherError ("unsupported expression form in TC MVP: " ++ take 50 (show other)))
     ty <- freshMetaTv
     pure (expr, ty, [])
+
+literalResult :: Expr -> TcM TcType -> TcM (Expr, TcType, [Ct])
+literalResult expr typeAction = do
+  ty <- typeAction
+  pure (expr, ty, [])
 
 -- | Infer the type of a variable reference.
 inferVar :: SourceSpan -> Name -> TcM (Expr, TcType, [Ct])
@@ -193,8 +199,11 @@ inferOverloadedIntegerLiteral ambient resolutionAnn resolution literalExpr = do
   (methodTy, typeArgs, methodCts) <- inferResolvedFromInteger sp resolution
   resultTy <- freshMetaTv
   ev <- freshEvVar
-  let integerArgTy = TcTyCon (TyCon "Integer" 0) []
-      expectedMethodTy = TcFunTy integerArgTy resultTy
+  integerArgTy <-
+    case methodTy of
+      TcFunTy argumentTy _ -> pure argumentTy
+      _ -> abortTc "fromInteger does not have a function type"
+  let expectedMethodTy = TcFunTy integerArgTy resultTy
       methodEq =
         mkWantedEqCt
           TypeTrace
@@ -549,7 +558,8 @@ inferIf sp cond thenE elseE = do
   (thenE', thenTy, thenCts) <- inferExpr thenE
   (elseE', elseTy, elseCts) <- inferExpr elseE
   condEv <- freshEvVar
-  let condCt = mkWantedCt (EqPred condTy boolTyCon) condEv (AppOrigin sp) sp
+  expectedBoolTy <- boolTyCon
+  let condCt = mkWantedCt (EqPred condTy expectedBoolTy) condEv (AppOrigin sp) sp
   branchEv <- freshEvVar
   let branchCt = mkWantedCt (EqPred thenTy elseTy) branchEv (AppOrigin sp) sp
   pure (EIf cond' thenE' elseE', thenTy, condCts ++ thenCts ++ elseCts ++ [condCt, branchCt])
@@ -567,8 +577,11 @@ inferTuple sp flavor elems = do
         case flavor of
           Boxed -> foldr (KFun . typeKind) KType tys
           Unboxed -> foldr (KFun . typeKind) (KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) tys))) tys
-      tc = maybe (mkTyCon typeName n fallbackKind) tciTyCon maybeTyCon
-      tupleTy = TcTyCon tc tys
+  tc <-
+    case maybeTyCon of
+      Just info -> pure (tciTyCon info)
+      Nothing -> mkKnownTyCon (tupleTyConModule flavor) typeName n fallbackKind
+  let tupleTy = TcTyCon tc tys
       pending = pendingAnnotation tupleTy tys [] []
   pure (annotatePendingExprAt sp pending (ETuple flavor elems'), tupleTy, cts)
   where
@@ -585,25 +598,32 @@ tupleTyConText flavor arity =
     Boxed -> boxedTupleTyConName arity
     Unboxed -> unboxedTupleTyConName arity
 
+tupleTyConModule :: TupleFlavor -> Text
+tupleTyConModule flavor =
+  case flavor of
+    Boxed -> "GHC.Tuple"
+    Unboxed -> "GHC.Types"
+
 inferList :: SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
-inferList sp elems = case elems of
-  [] -> do
-    elemTy <- freshMetaTv
-    let listTy = TcTyCon listTyCon' [elemTy]
-        pending = pendingAnnotation listTy [elemTy] [] []
-    pure (annotatePendingExprAt sp pending (EList []), listTy, [])
-  (e : es) -> do
-    let headSp = exprSpan e `orSourceSpan` sp
-    (headExpr, headTy, headCts) <- inferExpr e
-    results <- mapM inferElem es
-    let elems' = headExpr : map (\(expr, _, _, _) -> expr) results
-        tailCts = concatMap (\(_, _, elemCts, _) -> elemCts) results
-    eqCts <- mapM (mkElemEq headSp headTy) results
-    let listTy = TcTyCon listTyCon' [headTy]
-        pending = pendingAnnotation listTy [headTy] [] []
-    pure (annotatePendingExprAt sp pending (EList elems'), listTy, headCts ++ tailCts ++ eqCts)
+inferList sp elems = do
+  listTyCon' <- resolvedListTyCon
+  case elems of
+    [] -> do
+      elemTy <- freshMetaTv
+      let listTy = TcTyCon listTyCon' [elemTy]
+          pending = pendingAnnotation listTy [elemTy] [] []
+      pure (annotatePendingExprAt sp pending (EList []), listTy, [])
+    (e : es) -> do
+      let headSp = exprSpan e `orSourceSpan` sp
+      (headExpr, headTy, headCts) <- inferExpr e
+      results <- mapM inferElem es
+      let elems' = headExpr : map (\(expr, _, _, _) -> expr) results
+          tailCts = concatMap (\(_, _, elemCts, _) -> elemCts) results
+      eqCts <- mapM (mkElemEq headSp headTy) results
+      let listTy = TcTyCon listTyCon' [headTy]
+          pending = pendingAnnotation listTy [headTy] [] []
+      pure (annotatePendingExprAt sp pending (EList elems'), listTy, headCts ++ tailCts ++ eqCts)
   where
-    listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
     inferElem elemExpr = do
       (elemExpr', elemTy, elemCts) <- inferExpr elemExpr
       pure (elemExpr', elemTy, elemCts, exprSpan elemExpr `orSourceSpan` sp)
@@ -627,21 +647,20 @@ inferList sp elems = case elems of
 
 inferListComp :: SourceSpan -> Expr -> [CompStmt] -> TcM (Expr, TcType, [Ct])
 inferListComp sp body quals = do
-  (quals', body', bodyTy, cts) <- inferCompQuals sp quals (inferExpr body)
-  let resultTy = listType bodyTy
+  listTyCon' <- resolvedListTyCon
+  (quals', body', bodyTy, cts) <- inferCompQuals listTyCon' sp quals (inferExpr body)
+  let resultTy = listType listTyCon' bodyTy
       pending = pendingAnnotation resultTy [bodyTy] [] []
   pure (annotatePendingExprAt sp pending (EListComp body' quals'), resultTy, cts)
   where
-    listType elemTy = TcTyCon listTyCon' [elemTy]
-    listTyCon' = TyCon {tyConName = "[]", tyConArity = 1}
-
-    inferCompQuals _ [] action = do
+    listType tyCon elemTy = TcTyCon tyCon [elemTy]
+    inferCompQuals _ _ [] action = do
       (body', bodyTy, bodyCts) <- action
       pure ([], body', bodyTy, bodyCts)
-    inferCompQuals ambient (qual : rest) action =
+    inferCompQuals listTyCon' ambient (qual : rest) action =
       case qual of
         CompAnn ann inner -> do
-          (stmts', body', bodyTy, cts) <- inferCompQuals (compStmtSpan qual `orSourceSpan` ambient) (inner : rest) action
+          (stmts', body', bodyTy, cts) <- inferCompQuals listTyCon' (compStmtSpan qual `orSourceSpan` ambient) (inner : rest) action
           case stmts' of
             inner' : rest' -> pure (CompAnn ann inner' : rest', body', bodyTy, cts)
             [] -> pure ([], body', bodyTy, cts)
@@ -651,32 +670,38 @@ inferListComp sp body quals = do
           patCheck <- checkPattern ambient pat elemTy
           ev <- freshEvVar
           let srcSp = exprSpan src `orSourceSpan` ambient
-              srcListCt = mkWantedCt (EqPred srcTy (listType elemTy)) ev (AppOrigin srcSp) srcSp
-          (rest', body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferCompQuals ambient rest action)
+              srcListCt = mkWantedCt (EqPred srcTy (listType listTyCon' elemTy)) ev (AppOrigin srcSp) srcSp
+          (rest', body', bodyTy, bodyCts) <- withPatternBindings (pcBindings patCheck) (inferCompQuals listTyCon' ambient rest action)
           remainingCts <- solvePatternBranch ambient patCheck bodyTy bodyCts
           pure (CompGen (annotatePatternBindings (pcBindings patCheck) (checkedPattern patCheck)) src' : rest', body', bodyTy, srcCts ++ [srcListCt] ++ remainingCts)
         CompGuard guard -> do
           (guard', guardTy, guardCts) <- inferExpr guard
           ev <- freshEvVar
+          expectedBoolTy <- boolTyCon
           let guardSp = exprSpan guard `orSourceSpan` ambient
-              guardCt = mkWantedCt (EqPred guardTy boolTyCon) ev (AppOrigin guardSp) guardSp
-          (rest', body', bodyTy, bodyCts) <- inferCompQuals ambient rest action
+              guardCt = mkWantedCt (EqPred guardTy expectedBoolTy) ev (AppOrigin guardSp) guardSp
+          (rest', body', bodyTy, bodyCts) <- inferCompQuals listTyCon' ambient rest action
           pure (CompGuard guard' : rest', body', bodyTy, guardCts ++ [guardCt] ++ bodyCts)
         CompLetDecls decls -> do
           (decls', (rest', body'), bodyTy, bodyCts) <-
             inferLocalDecls inferExpr decls $ do
-              (rest', body', bodyTy, bodyCts) <- inferCompQuals ambient rest action
+              (rest', body', bodyTy, bodyCts) <- inferCompQuals listTyCon' ambient rest action
               pure ((rest', body'), bodyTy, bodyCts)
           pure (CompLetDecls decls' : rest', body', bodyTy, bodyCts)
-        CompThen {} -> unsupportedQual qual ambient rest action
-        CompThenBy {} -> unsupportedQual qual ambient rest action
-        CompGroupUsing {} -> unsupportedQual qual ambient rest action
-        CompGroupByUsing {} -> unsupportedQual qual ambient rest action
+        CompThen {} -> unsupportedQual listTyCon' qual ambient rest action
+        CompThenBy {} -> unsupportedQual listTyCon' qual ambient rest action
+        CompGroupUsing {} -> unsupportedQual listTyCon' qual ambient rest action
+        CompGroupByUsing {} -> unsupportedQual listTyCon' qual ambient rest action
 
-    unsupportedQual qual ambient rest action = do
+    unsupportedQual listTyCon' qual ambient rest action = do
       let qualSp = compStmtSpan qual `orSourceSpan` ambient
       emitError qualSp (OtherError ("unsupported list comprehension qualifier in TC MVP: " ++ take 50 (show qual)))
-      inferCompQuals ambient rest action
+      inferCompQuals listTyCon' ambient rest action
+
+resolvedListTyCon :: TcM TyCon
+resolvedListTyCon = do
+  maybeInfo <- lookupTyCon "[]"
+  pure (maybe (mkTyCon "[]" 1 (KFun KType KType)) tciTyCon maybeInfo)
 
 inferDo :: SourceSpan -> DoFlavor -> [DoStmt Expr] -> TcM (Expr, TcType, [Ct])
 inferDo sp flavor stmts =
@@ -860,47 +885,48 @@ nameToText n = case nameQualifier n of
   Nothing -> nameText n
   Just q -> q <> "." <> nameText n
 
-intTyCon :: TcType
-intTyCon = TcTyCon (TyCon "Int" 0) []
+intTyCon :: TcM TcType
+intTyCon = TcTyCon <$> mkKnownTyCon "GHC.Types" "Int" 0 liftedTypeKind <*> pure []
 
-intHashTyCon :: TcType
-intHashTyCon = TcTyCon (TyCon "Int#" 0) []
-
-wordHashTyCon :: TcType
-wordHashTyCon = TcTyCon (TyCon "Word#" 0) []
-
-numericLiteralType :: NumericType -> TcType
+numericLiteralType :: NumericType -> TcM TcType
 numericLiteralType numericType =
   case numericType of
     TInteger -> intTyCon
-    TIntHash -> intHashTyCon
-    TWordHash -> wordHashTyCon
-    TInt8Hash -> primNumericTyCon "Int8#"
-    TInt16Hash -> primNumericTyCon "Int16#"
-    TInt32Hash -> primNumericTyCon "Int32#"
-    TInt64Hash -> primNumericTyCon "Int64#"
-    TWord8Hash -> primNumericTyCon "Word8#"
-    TWord16Hash -> primNumericTyCon "Word16#"
-    TWord32Hash -> primNumericTyCon "Word32#"
-    TWord64Hash -> primNumericTyCon "Word64#"
+    TIntHash -> primType "Int#"
+    TWordHash -> primType "Word#"
+    TInt8Hash -> primType "Int8#"
+    TInt16Hash -> primType "Int16#"
+    TInt32Hash -> primType "Int32#"
+    TInt64Hash -> primType "Int64#"
+    TWord8Hash -> primType "Word8#"
+    TWord16Hash -> primType "Word16#"
+    TWord32Hash -> primType "Word32#"
+    TWord64Hash -> primType "Word64#"
 
-primNumericTyCon :: Text -> TcType
-primNumericTyCon name = TcTyCon (TyCon name 0) []
+primType :: Text -> TcM TcType
+primType name = TcTyCon <$> mkKnownTyCon "GHC.Prim" name 0 liftedTypeKind <*> pure []
 
-doubleTyCon :: TcType
-doubleTyCon = TcTyCon (TyCon "Double" 0) []
+doubleTyCon :: TcM TcType
+doubleTyCon = do
+  maybeInfo <- lookupTyCon "Double"
+  case maybeInfo of
+    Just info -> pure (TcTyCon (tciTyCon info) [])
+    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Double" 0 liftedTypeKind <*> pure []
 
-charTyCon :: TcType
-charTyCon = TcTyCon (TyCon "Char" 0) []
+resolvedType :: Text -> TcM TcType
+resolvedType name = do
+  maybeInfo <- lookupTyCon name
+  pure (TcTyCon (maybe (mkTyCon name 0 liftedTypeKind) tciTyCon maybeInfo) [])
 
-charHashTyCon :: TcType
-charHashTyCon = TcTyCon (TyCon "Char#" 0) []
+stringTyCon :: TcM TcType
+stringTyCon = do
+  listTyCon <- resolvedListTyCon
+  charType <- resolvedType "Char"
+  pure (TcTyCon listTyCon [charType])
 
-addrHashTyCon :: TcType
-addrHashTyCon = TcTyCon (TyCon "Addr#" 0) []
-
-stringTyCon :: TcType
-stringTyCon = TcTyCon (TyCon "[]" 1) [charTyCon]
-
-boolTyCon :: TcType
-boolTyCon = TcTyCon (TyCon "Bool" 0) []
+boolTyCon :: TcM TcType
+boolTyCon = do
+  maybeInfo <- lookupTyCon "Bool"
+  case maybeInfo of
+    Just info -> pure (TcTyCon (tciTyCon info) [])
+    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Bool" 0 liftedTypeKind <*> pure []

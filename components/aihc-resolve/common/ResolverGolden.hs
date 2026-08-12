@@ -246,7 +246,7 @@ renderConciseOrigin :: ResolvedName -> Text
 renderConciseOrigin resolvedName =
   case resolvedName of
     ResolvedTopLevel identity name
-      | packageIdText identity == "" -> fromMaybe (renderName name) (nameQualifier name)
+      | packageIdText identity `elem` ["", "main"] -> fromMaybe (renderName name) (nameQualifier name)
       | otherwise -> packageIdText identity <> ":" <> fromMaybe (renderName name) (nameQualifier name)
     ResolvedLocal uniqueId _ -> T.pack (show uniqueId)
     ResolvedBuiltin name -> "Builtin " <> name

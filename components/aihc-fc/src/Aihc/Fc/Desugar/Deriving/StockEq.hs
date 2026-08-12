@@ -7,7 +7,7 @@ module Aihc.Fc.Desugar.Deriving.StockEq
 where
 
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, predType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshVar, lookupType, withDicts)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshVar, lookupType, primBoolType, withDicts)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcStockDerivingPlan (..))
@@ -33,6 +33,7 @@ dsStockEqDictionaryPlan plan =
 
 dsStockEqDictionary :: TcDerivingPlan -> [Pred] -> DataTypeInfo -> [[EvTerm]] -> DsM (Var, FcExpr)
 dsStockEqDictionary plan context dataType fieldEvidence = do
+  eqTyCon <- stockEqTyCon plan
   contextDicts <- zipWithM mkPredicateDict [0 :: Int ..] context
   genericMethodTypes <-
     mapM
@@ -50,10 +51,10 @@ dsStockEqDictionary plan context dataType fieldEvidence = do
   let dictionaryType =
         foldr
           TcForAllTy
-          (qualifyType context (TcTyCon (TyCon "Eq" 1) [targetType]))
+          (qualifyType context (TcTyCon eqTyCon [targetType]))
           (tcDerivingTyVars plan)
   dictVar <- freshVar (tcDerivingDictName plan) dictionaryType
-  let selfDictionaryType = TcTyCon (TyCon "Eq" 1) [targetType]
+  let selfDictionaryType = TcTyCon eqTyCon [targetType]
       selfDictionaryExpression =
         foldl
           FcApp
@@ -64,11 +65,11 @@ dsStockEqDictionary plan context dataType fieldEvidence = do
   methodFields <-
     withDicts (selfDictionary : contextDicts) $
       mapM
-        (dsStockEqMethod dataType constructors targetType)
+        (dsStockEqMethod eqTyCon dataType constructors targetType)
         (tcDerivingClassMethods plan)
   let classTyVars = tcDerivingClassTyVars plan
       dictionaryConstructor = fcDictionaryConstructorName "Eq"
-      genericDictionaryType = TcTyCon (TyCon "Eq" 1) (map TcTyVar classTyVars)
+      genericDictionaryType = TcTyCon eqTyCon (map TcTyVar classTyVars)
       constructorType = foldr TcForAllTy (foldr TcFunTy genericDictionaryType genericMethodTypes) classTyVars
   constructorVar <- freshVar dictionaryConstructor constructorType
   let constructor = foldl FcTyApp (FcVar constructorVar) (tcDerivingHeadTypes plan)
@@ -79,40 +80,40 @@ dsStockEqDictionary plan context dataType fieldEvidence = do
       body = foldr FcTyLam (foldr (FcLam . classDictVar) dictionary contextDicts) (tcDerivingTyVars plan)
   pure (dictVar, body)
 
-dsStockEqMethod :: DataTypeInfo -> [(DataConInfo, [EvTerm])] -> TcType -> TcClassMethodAnnotation -> DsM FcExpr
-dsStockEqMethod dataType constructors targetType method =
+dsStockEqMethod :: TyCon -> DataTypeInfo -> [(DataConInfo, [EvTerm])] -> TcType -> TcClassMethodAnnotation -> DsM FcExpr
+dsStockEqMethod eqTyCon dataType constructors targetType method =
   case tcClassMethodName method of
-    "==" -> dsEqualityMethod dataType constructors targetType
+    "==" -> dsEqualityMethod eqTyCon dataType constructors targetType
     "/=" -> do
       left <- freshVar "$stock_eq_left" targetType
       right <- freshVar "$stock_eq_right" targetType
-      equality <- equalityBody dataType constructors targetType left right
+      equality <- equalityBody eqTyCon dataType constructors targetType left right
       negated <- negateBoolean equality
       pure (FcLam left (FcLam right negated))
     name -> desugarBug ("unsupported method in stock Eq dictionary: " <> T.unpack name)
 
-dsEqualityMethod :: DataTypeInfo -> [(DataConInfo, [EvTerm])] -> TcType -> DsM FcExpr
-dsEqualityMethod dataType constructors targetType = do
+dsEqualityMethod :: TyCon -> DataTypeInfo -> [(DataConInfo, [EvTerm])] -> TcType -> DsM FcExpr
+dsEqualityMethod eqTyCon dataType constructors targetType = do
   left <- freshVar "$stock_eq_left" targetType
   right <- freshVar "$stock_eq_right" targetType
-  body <- equalityBody dataType constructors targetType left right
+  body <- equalityBody eqTyCon dataType constructors targetType left right
   pure (FcLam left (FcLam right body))
 
-equalityBody :: DataTypeInfo -> [(DataConInfo, [EvTerm])] -> TcType -> Var -> Var -> DsM FcExpr
-equalityBody dataType constructors targetType left right = do
+equalityBody :: TyCon -> DataTypeInfo -> [(DataConInfo, [EvTerm])] -> TcType -> Var -> Var -> DsM FcExpr
+equalityBody eqTyCon dataType constructors targetType left right = do
   outerBinder <- freshVar "$stock_eq_outer" targetType
-  alternatives <- mapM (constructorEqualityAlternative dataType right targetType) constructors
+  alternatives <- mapM (constructorEqualityAlternative eqTyCon dataType right targetType) constructors
   pure (FcCase (FcVar left) outerBinder alternatives)
 
-constructorEqualityAlternative :: DataTypeInfo -> Var -> TcType -> (DataConInfo, [EvTerm]) -> DsM FcAlt
-constructorEqualityAlternative dataType right targetType (constructor, evidence) = do
+constructorEqualityAlternative :: TyCon -> DataTypeInfo -> Var -> TcType -> (DataConInfo, [EvTerm]) -> DsM FcAlt
+constructorEqualityAlternative eqTyCon dataType right targetType (constructor, evidence) = do
   fields <- instantiatedFields dataType targetType constructor
   fieldEvidence <- zipExact ("field evidence for " <> T.unpack (dciName constructor)) fields evidence
   leftFields <- zipWithM (fieldVar "$stock_eq_left_field") [0 :: Int ..] fields
   rightFields <- zipWithM (fieldVar "$stock_eq_right_field") [0 :: Int ..] fields
   comparisons <-
     zipWithM
-      (fieldEquality leftFields rightFields)
+      (fieldEquality eqTyCon leftFields rightFields)
       [0 :: Int ..]
       fieldEvidence
   equalFields <- andComparisons comparisons
@@ -140,14 +141,15 @@ instantiatedFields dataType targetType constructor =
 fieldVar :: Text -> Int -> DataConFieldInfo -> DsM Var
 fieldVar prefix index field = freshVar (prefix <> T.pack (show index)) (dcfiType field)
 
-fieldEquality :: [Var] -> [Var] -> Int -> (DataConFieldInfo, EvTerm) -> DsM FcExpr
-fieldEquality leftFields rightFields index (field, evidence) = do
+fieldEquality :: TyCon -> [Var] -> [Var] -> Int -> (DataConFieldInfo, EvTerm) -> DsM FcExpr
+fieldEquality eqTyCon leftFields rightFields index (field, evidence) = do
   left <- indexVar "left" index leftFields
   right <- indexVar "right" index rightFields
   dictionary <- dsEvidence evidence
+  boolTy <- boolType
   let fieldType = dcfiType field
-      methodType = TcFunTy fieldType (TcFunTy fieldType boolType)
-      dictionaryType = TcTyCon (TyCon "Eq" 1) [fieldType]
+      methodType = TcFunTy fieldType (TcFunTy fieldType boolTy)
+      dictionaryType = TcTyCon eqTyCon [fieldType]
   dictionaryBinder <- freshVar "$stock_eq_dictionary" dictionaryType
   equalityMethod <- freshVar "$stock_eq_method" methodType
   inequalityMethod <- freshVar "$stock_neq_method" methodType
@@ -173,7 +175,8 @@ andComparisons comparisons =
   case comparisons of
     [] -> boolConstructor "True"
     comparison : rest -> do
-      binder <- freshVar "$stock_eq_bool" boolType
+      boolTy <- boolType
+      binder <- freshVar "$stock_eq_bool" boolTy
       false <- boolConstructor "False"
       trueBranch <- andComparisons rest
       pure
@@ -187,7 +190,8 @@ andComparisons comparisons =
 
 negateBoolean :: FcExpr -> DsM FcExpr
 negateBoolean expression = do
-  binder <- freshVar "$stock_eq_not" boolType
+  boolTy <- boolType
+  binder <- freshVar "$stock_eq_not" boolTy
   true <- boolConstructor "True"
   false <- boolConstructor "False"
   pure
@@ -205,8 +209,17 @@ boolConstructor name = do
   constructor <- freshVar name constructorType
   pure (FcVar constructor)
 
-boolType :: TcType
-boolType = TcTyCon (TyCon "Bool" 0) []
+boolType :: DsM TcType
+boolType = primBoolType
+
+stockEqTyCon :: TcDerivingPlan -> DsM TyCon
+stockEqTyCon plan =
+  case tcDerivingClassMethods plan of
+    method : _ ->
+      case tcClassMethodDictType method of
+        TcTyCon tyCon [_] -> pure tyCon
+        ty -> desugarBug ("invalid stock Eq dictionary type: " <> show ty)
+    [] -> desugarBug "stock Eq has no class methods"
 
 mkPredicateDict :: Int -> Pred -> DsM ClassDict
 mkPredicateDict index predicate = do

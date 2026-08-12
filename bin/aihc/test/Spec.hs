@@ -47,7 +47,7 @@ import Aihc.Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..))
-import Aihc.Resolve (ModuleKey (..), Scope (..), unnamedPackage)
+import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), Scope (..), unnamedPackage)
 import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
 import Control.Exception (bracket)
 import Data.Aeson (object, (.=))
@@ -323,6 +323,18 @@ main =
             session <- loadReplSession Nothing
             result <- evaluateExpression session "otherwise"
             assertEqual "result" (Right "True") result,
+          testCase "keeps bundled package identities" $ do
+            session <- loadReplSession Nothing
+            let exports = replModuleExports session
+            assertBool
+              "aihc-base Prelude"
+              (Map.member (ModuleKey (Package "aihc-base" (PackageId "aihc-base")) "Prelude") exports)
+            assertBool
+              "aihc-prim GHC.Types"
+              (Map.member (ModuleKey (Package "aihc-prim" (PackageId "aihc-prim")) "GHC.Types") exports)
+            assertBool
+              "no unnamed Prelude"
+              (Map.notMember (ModuleKey unnamedPackage "Prelude") exports),
           testCase "loads installed base interface for Prelude MVP scope" test_loadsInstalledBaseInterfaceForRepl
         ],
       testGroup
@@ -435,7 +447,7 @@ test_loadsInstalledBaseInterfaceForRepl =
           )
       )
     session <- loadReplSession (Just storeRoot)
-    case Map.lookup (ModuleKey unnamedPackage "Prelude") (replModuleExports session) of
+    case Map.lookup (ModuleKey (Package "aihc-base" (PackageId "aihc-base")) "Prelude") (replModuleExports session) of
       Nothing -> assertFailure "Prelude scope not loaded"
       Just preludeScope -> do
         assertBool "Prelude exposes Char" (Map.member "Char" (scopeTypes preludeScope))

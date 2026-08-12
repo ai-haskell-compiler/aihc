@@ -136,7 +136,7 @@ renderSymbols moduleId topBinds =
 
 renderModuleOrigin :: T.Text -> T.Text -> String
 renderModuleOrigin packageName moduleName =
-  (if packageName == "" then "" else show (T.unpack packageName) <> " ") <> T.unpack moduleName
+  (if packageName `elem` ["", "main"] then "" else show (T.unpack packageName) <> " ") <> T.unpack moduleName
 
 canonicalProgramBinds :: FcProgram -> [FcTopBind]
 canonicalProgramBinds (FcProgram moduleId topBinds) =
@@ -159,8 +159,14 @@ canonicalProgramBinds (FcProgram moduleId topBinds) =
             varName var `Set.member` definedNames,
             Just origin <- [varResolvedName var]
           ]
+    localBuiltinOrigins =
+      Set.fromList
+        [ origin
+        | FcPrimitive var _ <- definitions,
+          Just origin@FcBuiltinOrigin {} <- [varResolvedName var]
+        ]
     originIsLocal origin@(FcTopLevelOrigin packageName moduleName _) = origin `Set.member` localOrigins || Just (packageName, moduleName) == moduleOrigin
-    originIsLocal origin@FcBuiltinOrigin {} = origin `Set.member` localOrigins
+    originIsLocal origin@FcBuiltinOrigin {} = origin `Set.member` localBuiltinOrigins
     isHeader FcExternal {} = True
     isHeader _ = False
 
@@ -433,7 +439,7 @@ renderOrigin :: FcSymbolOrigin -> String
 renderOrigin origin =
   case origin of
     FcTopLevelOrigin packageName moduleName symbolName ->
-      (if packageName == "" then "" else show (T.unpack packageName) <> " ")
+      (if packageName `elem` ["", "main"] then "" else show (T.unpack packageName) <> " ")
         <> T.unpack moduleName
         <> "."
         <> T.unpack symbolName

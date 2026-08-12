@@ -23,8 +23,11 @@ module Aihc.Tc.Types
     -- * Types
     TcType (..),
     TyCon (TyCon, tyConName, tyConArity),
+    tyConPackageId,
+    tyConModuleName,
     tyConKind,
     mkTyCon,
+    mkTyConWithOrigin,
     setTyConKind,
     Kind (KTYPE, KConstraint, KRuntimeRep, KLevity, KVecCount, KVecElem, KFun, KMeta, KType),
     RuntimeRep (..),
@@ -52,6 +55,7 @@ module Aihc.Tc.Types
   )
 where
 
+import Aihc.Resolve (PackageId (..))
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -100,36 +104,50 @@ instance Ord TyVarId where
 -- | Type constructor. Every constructor carries its fully applied kind so
 -- downstream phases can recover the kind of any 'TcType' without consulting
 -- the type-checker environment.
-data TyCon = TyConInternal !Text !Int !Kind
+data TyCon = TyConInternal !PackageId !Text !Text !Int !Kind
   deriving (Show, Read)
 
 instance Eq TyCon where
   left == right =
-    (tyConName left, tyConArity left) == (tyConName right, tyConArity right)
+    (tyConPackageId left, tyConModuleName left, tyConName left, tyConArity left)
+      == (tyConPackageId right, tyConModuleName right, tyConName right, tyConArity right)
 
 instance Ord TyCon where
   compare left right =
-    compare (tyConName left, tyConArity left) (tyConName right, tyConArity right)
+    compare
+      (tyConPackageId left, tyConModuleName left, tyConName left, tyConArity left)
+      (tyConPackageId right, tyConModuleName right, tyConName right, tyConArity right)
 
 pattern TyCon :: Text -> Int -> TyCon
-pattern TyCon {tyConName, tyConArity} <- TyConInternal tyConName tyConArity _
+pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ tyConName tyConArity _
   where
-    TyCon name arity = TyConInternal name arity (wiredInTyConKind name arity)
+    TyCon name arity = TyConInternal (PackageId "aihc-internal") "Aihc.Internal" name arity (wiredInTyConKind name arity)
 
 {-# COMPLETE TyCon #-}
 
 tyConKind :: TyCon -> Kind
-tyConKind (TyConInternal _ _ kind) = kind
+tyConKind (TyConInternal _ _ _ _ kind) = kind
+
+tyConPackageId :: TyCon -> PackageId
+tyConPackageId (TyConInternal packageId _ _ _ _) = packageId
+
+tyConModuleName :: TyCon -> Text
+tyConModuleName (TyConInternal _ moduleName _ _ _) = moduleName
 
 mkTyCon :: Text -> Int -> Kind -> TyCon
-mkTyCon name arity inferredKind =
-  TyConInternal name arity (fromMaybe inferredKind (fixedTyConKind name))
+mkTyCon = mkTyConWithOrigin (PackageId "aihc-internal") "Aihc.Internal"
+
+-- | Make a type constructor with its installed package and module identity.
+mkTyConWithOrigin :: PackageId -> Text -> Text -> Int -> Kind -> TyCon
+mkTyConWithOrigin packageId moduleName name arity inferredKind =
+  TyConInternal packageId moduleName name arity (fromMaybe inferredKind (fixedTyConKind name))
 
 -- | Replace a type constructor's kind without applying wired-in defaults.
 -- This is used when reconstructing canonical System FC syntax, where the
 -- serialized kind is authoritative.
 setTyConKind :: Kind -> TyCon -> TyCon
-setTyConKind kind (TyConInternal name arity _) = TyConInternal name arity kind
+setTyConKind kind (TyConInternal packageId moduleName name arity _) =
+  TyConInternal packageId moduleName name arity kind
 
 -- | Kinds for the type language checked by @aihc-tc@.
 data Kind
