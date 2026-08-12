@@ -2,7 +2,7 @@ name: Generated Reports Update
 
 on:
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "17 3 * * 0"
   workflow_dispatch:
 
 permissions:
@@ -82,6 +82,6 @@ jobs:
           branch: "automation/generated-reports-update"
           title: "chore(reports): update generated reports"
           body: |
-            This PR was created automatically by the daily generated reports workflow.
+            This PR was created automatically by the weekly generated reports workflow.
 
             It updates generated README sections and report artifacts when they drift.
