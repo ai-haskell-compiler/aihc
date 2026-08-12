@@ -1,0 +1,47 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Int (Int (..), Int8 (..), Int16 (..), Int32 (..), Int64 (..))
+    import Data.Word (Word (..), Word8 (..), Word16 (..), Word32 (..), Word64 (..))
+
+    unwrapInt :: Int -> Int#
+    unwrapInt (I# value) = value
+
+    unwrapInt8 :: Int8 -> Int8#
+    unwrapInt8 (I8# value) = value
+
+    unwrapInt16 :: Int16 -> Int16#
+    unwrapInt16 (I16# value) = value
+
+    unwrapInt32 :: Int32 -> Int32#
+    unwrapInt32 (I32# value) = value
+
+    unwrapInt64 :: Int64 -> Int64#
+    unwrapInt64 (I64# value) = value
+
+    unwrapWord :: Word -> Word#
+    unwrapWord (W# value) = value
+
+    unwrapWord8 :: Word8 -> Word8#
+    unwrapWord8 (W8# value) = value
+
+    unwrapWord16 :: Word16 -> Word16#
+    unwrapWord16 (W16# value) = value
+
+    unwrapWord32 :: Word32 -> Word32#
+    unwrapWord32 (W32# value) = value
+
+    unwrapWord64 :: Word64 -> Word64#
+    unwrapWord64 (W64# value) = value
+
+    results :: Bool
+    results = True
+output: "True"
+expression: results
+status: pass
+reason: Data.Int and Data.Word expose each fixed-width wrapper with its matching primitive representation
