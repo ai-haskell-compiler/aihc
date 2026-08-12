@@ -314,7 +314,7 @@ main =
                 assertBool ("expected type output, got:\n" <> T.unpack output) ("type:\n[Char]" `T.isInfixOf` output)
                 assertBool
                   ("expected system-fc output, got:\n" <> T.unpack output)
-                  ( "system-fc:\nmodule Aihc.Repl where" `T.isInfixOf` output
+                  ( "system-fc:\nmodule \"repl\" Aihc.Repl where" `T.isInfixOf` output
                       && "__aihc_repl_it : [Char] =" `T.isInfixOf` output
                   )
                 assertBool ("expected desugared char list, got:\n" <> T.unpack output) (not ("LitString" `T.isInfixOf` output))
@@ -433,9 +433,22 @@ test_loadsInstalledBaseInterfaceForRepl =
       interfacePath
       ( Aeson.encode
           ( object
-              [ "modules"
+              [ "packageKey"
+                  .= object
+                    [ "hash" .= ("dephash" :: String),
+                      "package" .= object ["name" .= ("aihc-base" :: String), "version" .= ("4.21.2.0" :: String)]
+                    ],
+                "modules"
                   .= [ object
                          [ "module" .= ("Prelude" :: String),
+                           "terms" .= ([] :: [String]),
+                           "types" .= ([] :: [String]),
+                           "constructors" .= object [],
+                           "recordFields" .= object [],
+                           "methods" .= object []
+                         ],
+                       object
+                         [ "module" .= ("Data.Installed" :: String),
                            "terms" .= ([] :: [String]),
                            "types" .= ([] :: [String]),
                            "constructors" .= object [],
@@ -447,6 +460,12 @@ test_loadsInstalledBaseInterfaceForRepl =
           )
       )
     session <- loadReplSession (Just storeRoot)
+    assertBool
+      "installed package identity"
+      ( Map.member
+          (ModuleKey (Package "aihc-base" (PackageId "aihc-base-4-21-2-0-dephash")) "Data.Installed")
+          (replModuleExports session)
+      )
     case Map.lookup (ModuleKey (Package "aihc-base" (PackageId "aihc-base")) "Prelude") (replModuleExports session) of
       Nothing -> assertFailure "Prelude scope not loaded"
       Just preludeScope -> do
@@ -1147,6 +1166,8 @@ test_installedPackage =
       Left err -> assertFailure (show err)
       Right core -> do
         assertBool "expected qualified generated entry point" ("$g$exe$Main$_24_aihc_2e_main" `T.isInfixOf` core)
+        assertBool "expected executable source binding" ("$g$exe$Main$main" `T.isInfixOf` core)
+        assertBool "expected no unnamed source binding" (not ("$g$main$Main$main" `T.isInfixOf` core))
         assertBool "expected top-level handler call" ("runMainIO" `T.isInfixOf` core)
         assertBool "expected installed dependency body" ("main" `T.isInfixOf` core)
         assertBool ("expected no external references in:\n" <> T.unpack core) (not ("external " `T.isInfixOf` core))

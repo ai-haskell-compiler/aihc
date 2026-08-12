@@ -35,7 +35,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameFromText,
   )
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), PackageId (..), ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), PackageId (..), ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
 import Aihc.Tc
   ( InstanceInfo,
     Pred (..),
@@ -220,7 +220,7 @@ typecheckExpression session input = do
       ParseOk parsed -> Right parsed
       ParseErr _ -> Left ReplParseError
   let parsedModule = replModule expr
-      resolved = resolveWithDeps (replModuleExports session) [(unnamedPackage, parsedModule)]
+      resolved = resolveWithDeps (replModuleExports session) [(replPackage, parsedModule)]
   case resolveErrors resolved of
     [] -> pure ()
     errors -> Left (ReplResolveError errors)
@@ -429,6 +429,15 @@ replModule expr =
 replBindingName :: Text
 replBindingName = "__aihc_repl_it"
 
+replPackage :: Package
+replPackage = Package "repl" (PackageId "repl")
+
+aihcBasePackage :: Package
+aihcBasePackage = Package "aihc-base" (PackageId "aihc-base")
+
+aihcPrimPackage :: Package
+aihcPrimPackage = Package "aihc-prim" (PackageId "aihc-prim")
+
 renderReplError :: ReplError -> String
 renderReplError err =
   case err of
@@ -490,8 +499,8 @@ loadAihcBaseContext = do
   primRoot <- defaultAihcPrimRoot
   modulesResult <-
     loadTransitiveModules
-      [ (Package "aihc-base" (PackageId "aihc-base"), baseRoot),
-        (Package "aihc-prim" (PackageId "aihc-prim"), primRoot)
+      [ (aihcBasePackage, baseRoot),
+        (aihcPrimPackage, primRoot)
       ]
       (Set.singleton "Prelude")
   case modulesResult of
@@ -713,11 +722,12 @@ loadInterface path = do
 parseInterface :: Aeson.Value -> AesonTypes.Parser Interface
 parseInterface =
   Aeson.withObject "package interface" $ \obj -> do
+    package <- obj .: "packageKey" >>= parseInterfacePackage
     modules <- obj .: "modules"
     tcModules <- obj .:? "typecheck" .!= []
     pure
       Interface
-        { interfaceExports = Map.fromList [(ModuleKey unnamedPackage (interfaceModuleName modu), interfaceModuleScope modu) | modu <- modules],
+        { interfaceExports = Map.fromList [(ModuleKey package (interfaceModuleName modu), interfaceModuleScope package modu) | modu <- modules],
           interfaceImportedTerms = concatMap interfaceTcModuleTerms tcModules,
           interfaceBindingTypes =
             Map.fromList
@@ -725,6 +735,19 @@ parseInterface =
               | modu <- tcModules
               ]
         }
+
+parseInterfacePackage :: Aeson.Value -> AesonTypes.Parser Package
+parseInterfacePackage =
+  Aeson.withObject "package key" $ \obj -> do
+    hash <- obj .: "hash"
+    spec <- obj .: "package"
+    Aeson.withObject "package" (parsePackageSpec hash) spec
+  where
+    parsePackageSpec hash obj = do
+      name <- obj .: "name"
+      version <- obj .: "version"
+      let identity = T.intercalate "-" (T.splitOn "-" name <> T.splitOn "." version <> [hash])
+      pure (Package name (PackageId identity))
 
 data InterfaceTcModule = InterfaceTcModule
   { interfaceTcModuleName :: !Text,
@@ -765,17 +788,17 @@ interfaceTcModuleBindingTypes modu =
     | InterfaceTcBinding name (Just ty) <- interfaceTcModuleBindings modu
     ]
 
-interfaceModuleScope :: InterfaceModule -> Scope
-interfaceModuleScope modu =
+interfaceModuleScope :: Package -> InterfaceModule -> Scope
+interfaceModuleScope package modu =
   Scope
     { scopeTerms =
         Map.fromList
-          [ (name, resolvedTopLevel (interfaceModuleName modu) name)
+          [ (name, resolvedTopLevel package (interfaceModuleName modu) name)
           | name <- interfaceModuleTerms modu
           ],
       scopeTypes =
         Map.fromList
-          [ (name, resolvedTopLevel (interfaceModuleName modu) name)
+          [ (name, resolvedTopLevel package (interfaceModuleName modu) name)
           | name <- interfaceModuleTypes modu
           ],
       scopeConstructors = interfaceModuleConstructors modu,
@@ -785,9 +808,9 @@ interfaceModuleScope modu =
       scopeQualifiedModules = Map.empty
     }
 
-resolvedTopLevel :: Text -> Text -> ResolvedName
-resolvedTopLevel moduleName name =
-  ResolvedTopLevel (packageId unnamedPackage) (qualifyName (Just moduleName) (unqualifiedNameFromText name))
+resolvedTopLevel :: Package -> Text -> Text -> ResolvedName
+resolvedTopLevel package moduleName name =
+  ResolvedTopLevel (packageId package) (qualifyName (Just moduleName) (unqualifiedNameFromText name))
 
 findInstalledBaseInterface :: FilePath -> IO FilePath
 findInstalledBaseInterface storeRoot = do
@@ -839,7 +862,7 @@ ensurePreludeMvpScope exports =
   where
     preludeKey =
       fromMaybe
-        (ModuleKey unnamedPackage "Prelude")
+        (ModuleKey aihcBasePackage "Prelude")
         (find ((== "Prelude") . moduleKeyName) (Map.keys exports))
     existing = Map.findWithDefault emptyScope preludeKey exports
     resolvePreludeName =

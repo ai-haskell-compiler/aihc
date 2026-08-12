@@ -65,7 +65,7 @@ import Aihc.Parser.Syntax
     headerLanguageEdition,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), ResolveResult (..), Scope (..), resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), ResolveResult (..), Scope (..), resolveWithDeps)
 import Aihc.Tc (tcConfig, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterfaceConfig)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
@@ -245,7 +245,7 @@ compileWithDependencies target wholeProgram dependencies parsed = do
             | ModuleKey package _ <- Map.keys (dependencyExports dependencies),
               packageName package == "aihc-prim"
             ]
-  case resolveWithDeps (dependencyExports dependencies) [(unnamedPackage, parsed)] of
+  case resolveWithDeps (dependencyExports dependencies) [(executablePackage, parsed)] of
     ResolveResult {resolveErrors = errors@(_ : _)} -> Left (CompileFrontendError ["resolve error: " <> show errors])
     ResolveResult {resolvedModules} ->
       let moduleAsts = map snd resolvedModules
@@ -281,6 +281,9 @@ compileWithDependencies target wholeProgram dependencies parsed = do
                         if wholeProgram
                           then compileWholeProgramArtifacts target incremental
                           else compileIncrementalArtifacts target dependencies incremental
+
+executablePackage :: Package
+executablePackage = Package "exe" (PackageId "exe")
 
 topHandlerRunMainOrigin :: DependencyArtifact -> Either CompileError Fc.FcSymbolOrigin
 topHandlerRunMainOrigin dependencies =
