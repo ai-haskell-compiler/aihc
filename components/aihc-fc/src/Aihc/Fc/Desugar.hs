@@ -16,7 +16,7 @@ where
 
 import Aihc.Fc.Desugar.Deriving (dsDerivingPlans, moduleDerivingPlans)
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, peelForAlls, peelQuals, predType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupType, lookupTypeAt, lookupTypeAtOrigin, withDicts)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), bindingIdForOrigin, desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupTypeAt, withDicts)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
@@ -386,7 +386,8 @@ dsNewtypeDeclM nd = do
     Nothing -> desugarBug ("newtype " <> T.unpack tyName <> " has no constructor")
     Just con -> do
       let (conName, arity) = dsDataConPure con
-      conTy <- lookupType conName
+      conIdentity <- bindingIdForOrigin Nothing conName
+      conTy <- lookupTypeAt conIdentity
       case (arity, dropForAlls conTy) of
         (1, TcFunTy fieldTy resultTy@(TcTyCon resultTyCon resultArgs))
           | tyConName resultTyCon == tyName,
@@ -425,7 +426,8 @@ dsRecordSelectors constructorInfos declarations =
           (fieldIndex, label) <- zip [0 :: Int ..] fields
         ]
     dsSelector (selectorName, layouts) = do
-      selectorType <- lookupType selectorName
+      selectorIdentity <- bindingIdForOrigin Nothing selectorName
+      selectorType <- lookupTypeAt selectorIdentity
       let (typeVariables, qualifiedBody) = peelForAlls selectorType
           (predicates, bodyType) = peelQuals qualifiedBody
       (recordType, _fieldType) <-
@@ -875,7 +877,8 @@ collectForAlls ty = ([], ty)
 dsDataConM :: DataConDecl -> DsM (Text, [TyVarId], [TcType], TcType)
 dsDataConM con = do
   let (name, arity) = dsDataConPure con
-  ty <- lookupType name
+  identity <- bindingIdForOrigin Nothing name
+  ty <- lookupTypeAt identity
   let (quantifiedVariables, qualifiedConstructorTy) = collectForAlls ty
       (predicates, constructorTy) = splitConstructorContext qualifiedConstructorTy
       resultType = constructorResultType constructorTy
@@ -1059,10 +1062,8 @@ dsInstanceDict instAnn instanceDecl = do
             methodOrder
         pure (superClassFields <> methodFields)
       buildDictionary recursive dictVar fields = do
-        methodTypes <-
-          mapM
-            (maybe lookupType lookupTypeAtOrigin (tcInstanceClassOrigin instAnn))
-            methodOrder
+        methodIdentities <- mapM (bindingIdForOrigin (tcInstanceClassOrigin instAnn)) methodOrder
+        methodTypes <- mapM lookupTypeAt methodIdentities
         let superClassFieldTypes = map tcDictBinderType (tcInstanceClassSuperClasses instAnn)
         (classTyVars, fieldTypes) <-
           case methodTypes of
@@ -1142,7 +1143,8 @@ dsInstanceMethod contextDicts methods maybeSelfDictionary headTypes classOrigin 
               Just dictionary -> pure dictionary
               Nothing -> desugarBug ("default method " <> T.unpack methodName <> " requires a recursive instance dictionary")
           let workerName = defaultMethodName methodName
-          workerType <- maybe (lookupType workerName) (`lookupTypeAtOrigin` workerName) classOrigin
+          workerIdentity <- bindingIdForOrigin classOrigin workerName
+          workerType <- lookupTypeAt workerIdentity
           worker <- freshVar workerName workerType
           let origin = fmap (\(packageName, originModule) -> FcTopLevelOrigin packageName originModule workerName) classOrigin
           pure (FcApp (foldl FcTyApp (FcVar worker {varResolvedName = origin}) headTypes) selfDictionary)
@@ -1250,7 +1252,8 @@ barePatternName pat =
 -- | Desugar a function binding group.
 dsGroup :: DeclGroup -> DsM FcTopBind
 dsGroup grp = do
-  ty <- lookupType (dgName grp)
+  identity <- bindingIdForOrigin Nothing (dgName grp)
+  ty <- lookupTypeAt identity
   u <- freshUnique
   let var = Var (dgName grp) u ty
   body <-

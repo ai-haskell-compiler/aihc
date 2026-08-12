@@ -19,9 +19,8 @@ module Aihc.Fc.Desugar.Expr
     desugarBug,
     freshUnique,
     freshVar,
-    lookupType,
     lookupTypeAt,
-    lookupTypeAtOrigin,
+    bindingIdForOrigin,
     withDicts,
   )
 where
@@ -124,14 +123,6 @@ freshInternalVar prefix ty = do
 desugarBug :: String -> DsM a
 desugarBug = lift . Left
 
--- | Look up a name's type (locals first, then global TC env).
-lookupType :: Text -> DsM TcType
-lookupType name = do
-  st <- get
-  case Map.lookup name (dsLocalVars st) of
-    Just v -> pure (varType v)
-    Nothing -> lookupTypeAt (TcBindingId (dsModulePackage st) (fromMaybe "Main" (dsModuleName st)) name)
-
 lookupTypeAt :: TcBindingId -> DsM TcType
 lookupTypeAt identity = do
   st <- get
@@ -139,9 +130,13 @@ lookupTypeAt identity = do
     Just ty -> pure ty
     Nothing -> desugarBug ("missing type information for binding: " <> show identity)
 
-lookupTypeAtOrigin :: (Text, Text) -> Text -> DsM TcType
-lookupTypeAtOrigin (packageId, moduleName) name =
-  lookupTypeAt (TcBindingId packageId moduleName name)
+bindingIdForOrigin :: Maybe (Text, Text) -> Text -> DsM TcBindingId
+bindingIdForOrigin maybeOrigin name =
+  case maybeOrigin of
+    Just (packageId, moduleName) -> pure (TcBindingId packageId moduleName name)
+    Nothing -> do
+      st <- get
+      pure (TcBindingId (dsModulePackage st) (fromMaybe "Main" (dsModuleName st)) name)
 
 -- | Look up a local variable binding.
 lookupLocal :: Text -> DsM (Maybe Var)
@@ -1488,7 +1483,7 @@ tupleConExpr flavor elemTys = do
   constructorOrigin <- gets dsTupleConstructorOrigin
   (constructorTy, resolvedOrigin) <-
     case (flavor, constructorOrigin) of
-      (_, Just origin@(FcTopLevelOrigin packageId moduleName _)) -> (,Just origin) <$> lookupTypeAtOrigin (packageId, moduleName) name
+      (_, Just origin@(FcTopLevelOrigin packageId moduleName _)) -> (,Just origin) <$> lookupTypeAt (TcBindingId packageId moduleName name)
       (Unboxed, _) -> pure (unboxedTupleConType arity, Just (FcBuiltinOrigin name))
       (Boxed, _) -> pure (boxedTupleConType arity, Just (FcBuiltinOrigin name))
   constructor <-
@@ -1600,7 +1595,8 @@ dsEvidence evidence =
     EvGiven EqPred {} ->
       unitConstructor
     EvDict dictOrigin dictName typeArgs contextEvidence -> do
-      dictTy <- maybe (lookupType dictName) (`lookupTypeAtOrigin` dictName) dictOrigin
+      dictIdentity <- bindingIdForOrigin dictOrigin dictName
+      dictTy <- lookupTypeAt dictIdentity
       contextDicts <- mapM dsEvidence contextEvidence
       let origin = fmap (\(packageName, moduleName) -> FcTopLevelOrigin packageName moduleName dictName) dictOrigin
           dictExpr = List.foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy) {varResolvedName = origin}) typeArgs

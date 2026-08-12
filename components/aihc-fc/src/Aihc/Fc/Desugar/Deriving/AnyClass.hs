@@ -7,7 +7,7 @@ module Aihc.Fc.Desugar.Deriving.AnyClass
 where
 
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, predType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshUnique, freshVar, lookupType, withDicts)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, bindingIdForOrigin, desugarBug, dsEvidence, freshUnique, freshVar, lookupTypeAt, withDicts)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDictBinderAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..))
@@ -80,7 +80,8 @@ dsAnyClassMethod plan maybeSelfDictionary fieldType method =
           Just dictionary -> pure dictionary
           Nothing -> desugarBug ("default method " <> T.unpack methodName <> " requires a recursive derived dictionary")
       let workerName = defaultMethodName methodName
-      workerType <- lookupType workerName
+      workerIdentity <- bindingIdForOrigin (tcDerivingClassOrigin plan) workerName
+      workerType <- lookupTypeAt workerIdentity
       worker <- freshVar workerName workerType
       let workerOrigin = fmap (\(packageName, moduleName) -> FcTopLevelOrigin packageName moduleName workerName) (tcDerivingClassOrigin plan)
           resolvedWorker = worker {varResolvedName = workerOrigin}
