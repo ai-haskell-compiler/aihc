@@ -350,6 +350,8 @@ main =
           testCase "type-checks with dependency type environments" test_typeChecksWithDependencyTypeEnvironments,
           testCase "checks cast-style instance methods using dependency id" test_checksCastStyleDependencyId,
           testCase "checks constraint-kinded multi-parameter classes" test_checksConstraintKindedMultiParameterClasses,
+          testCase "keeps class method types separate between modules" test_keepsClassMethodTypesSeparateBetweenModules,
+          testCase "keeps resolved and checked modules paired" test_keepsResolvedAndCheckedModulesPaired,
           testCase "checks packages without writing install artifacts" test_checkPackagePlanWritesNoArtifacts,
           testCase "uses local provider for base dependencies" test_usesLocalProviderForBase,
           testCase "uses local provider for ghc-prim dependencies" test_usesLocalProviderForGhcPrim,
@@ -858,6 +860,93 @@ test_checksCastStyleDependencyId =
       ( "external \\\"dep" `isInfixOf` renderedFc
           && length (filter (isPrefixOf "Dep.id :") (tails renderedFc)) == 1
       )
+
+test_keepsClassMethodTypesSeparateBetweenModules :: Assertion
+test_keepsClassMethodTypesSeparateBetweenModules =
+  withTempDir "aihc-class-method-types" $ \root -> do
+    let sourceRoot = root </> "source"
+        sourceDir = sourceRoot </> "src"
+        storeRoot = root </> "store"
+        classSource =
+          unlines
+            [ "{-# LANGUAGE NoImplicitPrelude #-}",
+              "module ClassBits where",
+              "data Bool = False | True",
+              "class Bits a where",
+              "  xor :: a -> a -> a",
+              "instance Bits Bool where",
+              "  xor left _ = left",
+              "applyXor :: Bits a => a -> a -> a",
+              "applyXor = xor"
+            ]
+        collisionSource =
+          unlines
+            [ "{-# LANGUAGE NoImplicitPrelude #-}",
+              "module Collision where",
+              "import ClassBits (Bool)",
+              "xor :: Bool -> Bool",
+              "xor value = value",
+              "applyXor :: Bool -> Bool",
+              "applyXor value = value"
+            ]
+    createFixturePackageWithOtherModules sourceRoot "demo" "0.1.0.0" "ClassBits" ["Collision"] []
+    writeFile (sourceDir </> "ClassBits.hs") (classSource <> fixtureTupleDeclaration)
+    writeFile (sourceDir </> "Collision.hs") collisionSource
+    createDirectoryIfMissing True storeRoot
+    plan <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
+
+    _ <- expectInstallSuccess (writeInstallScaffold plan)
+    pure ()
+
+test_keepsResolvedAndCheckedModulesPaired :: Assertion
+test_keepsResolvedAndCheckedModulesPaired =
+  withTempDir "aihc-module-pairs" $ \root -> do
+    let sourceRoot = root </> "source"
+        sourceDir = sourceRoot </> "src"
+        storeRoot = root </> "store"
+        originSource =
+          unlines
+            [ "{-# LANGUAGE NoImplicitPrelude #-}",
+              "module Origin where",
+              "data Flag = Clear | Set",
+              "class Marks a where",
+              "  mark :: a -> a",
+              "instance Marks Flag where",
+              "  mark value = value"
+            ]
+        useSource =
+          unlines
+            [ "{-# LANGUAGE NoImplicitPrelude #-}",
+              "module Use where",
+              "import Origin (Flag)",
+              "use :: Flag -> Flag",
+              "use value = value"
+            ]
+    createFixturePackageWithOtherModules sourceRoot "demo" "0.1.0.0" "Use" ["Origin"] []
+    writeFile (sourceDir </> "Origin.hs") (originSource <> fixtureTupleDeclaration)
+    writeFile (sourceDir </> "Use.hs") useSource
+    createDirectoryIfMissing True storeRoot
+    plan <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
+
+    result <- expectInstallSuccess (writeInstallScaffold plan)
+    fcJson <- BL8.readFile (resultFcPath result)
+    artifact <- maybe (assertFailure "expected an FC artifact") pure (Aeson.decode fcJson)
+    let modulePrograms =
+          case artifact of
+            Aeson.Object artifactObject ->
+              case KeyMap.lookup "modules" artifactObject of
+                Just (Aeson.Array modules) ->
+                  [ (moduleName, program)
+                  | Aeson.Object moduleObject <- foldr (:) [] modules,
+                    Just (Aeson.String moduleName) <- [KeyMap.lookup "module" moduleObject],
+                    Just (Aeson.String program) <- [KeyMap.lookup "program" moduleObject]
+                  ]
+                _ -> []
+            _ -> []
+        useProgram = lookup "Use" modulePrograms
+        originProgram = lookup "Origin" modulePrograms
+    assertBool ("Use module has the wrong FC program: " <> show modulePrograms) (maybe False ("use :" `T.isInfixOf`) useProgram)
+    assertBool ("Origin module has the wrong FC program: " <> show modulePrograms) (maybe False ("$fMarksFlag" `T.isInfixOf`) originProgram)
 
 test_checksConstraintKindedMultiParameterClasses :: Assertion
 test_checksConstraintKindedMultiParameterClasses =

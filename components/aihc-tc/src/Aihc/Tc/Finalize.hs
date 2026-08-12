@@ -212,6 +212,7 @@ firstMetaInstanceAnnotation ann =
   firstJusts
     ( firstMetaType (tcInstanceDictType ann)
         : map firstMetaType (tcInstanceHeadTypes ann)
+        ++ map (firstMetaType . snd) (tcInstanceClassMethods ann)
         ++ map firstMetaDictBinderAnnotation (tcInstanceClassSuperClasses ann)
         ++ map firstMetaDictBinderAnnotation (tcInstanceContextDicts ann)
         ++ [ firstMetaDictBinderAnnotation superClass <|> firstMetaEvTerm evidence

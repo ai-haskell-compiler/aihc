@@ -1079,8 +1079,8 @@ dsInstanceDict instAnn instanceDecl = do
             methodOrder
         pure (superClassFields <> methodFields)
       buildDictionary recursive dictVar fields = do
-        methodTypes <- mapM lookupType methodOrder
-        let superClassFieldTypes = map tcDictBinderType (tcInstanceClassSuperClasses instAnn)
+        let methodTypes = map snd (tcInstanceClassMethods instAnn)
+            superClassFieldTypes = map tcDictBinderType (tcInstanceClassSuperClasses instAnn)
         (classTyVars, fieldTypes) <-
           case methodTypes of
             [] -> pure (tcInstanceClassTyVars instAnn, superClassFieldTypes)

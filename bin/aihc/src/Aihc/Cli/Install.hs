@@ -1280,17 +1280,19 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
       resolveResult = resolveWithDeps depExports (modulesInPackage currentPackage parsedModules)
       exposedModules = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
       ownExports = Map.restrictKeys (extractInterface resolveResult) (Set.map (ModuleKey currentPackage) exposedModules)
-  (checkedModules, tcModules, tcDiagnostics, tcInterface) <-
+  (resolvedModuleAsts, checkedModules, tcModules, tcDiagnostics, tcInterface) <-
     typecheckInterfaceModules importedTcInterface (map snd (resolvedModules resolveResult))
   let resolveDiagnostics = enrichDiagnostics (map resolveErrorValue (resolveErrors resolveResult))
       enrichedTcDiagnostics = enrichDiagnostics tcDiagnostics
       enrichedTcModules = map (addTcModuleDiagnosticSourceLines sourceLinesByFile) tcModules
       ownBindings = concatMap tcModuleBindings checkedModules
       allBindings = mergeBy tbName [importedBindings, ownBindings]
-      resolvedModuleAsts = map snd (resolvedModules resolveResult)
-      fcResults = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) checkedModules resolvedModuleAsts
+      fcResults = zipWith desugarCheckedModule checkedModules resolvedModuleAsts
       fcModules = zipWith fcModuleValue resolvedModuleAsts fcResults
       fcDiagnostics = concatMap fcModuleDiagnosticValues fcModules
+      desugarCheckedModule checkedModule resolvedModule =
+        let moduleBindings = mergeBy tbName [allBindings, tcModuleBindings checkedModule]
+         in desugarModuleWithDataTypes moduleBindings (tcInterfaceDataTypes tcInterface) checkedModule resolvedModule
   pure
     InterfaceBuildResult
       { interfaceModuleExports = ownExports,
@@ -1314,16 +1316,16 @@ packageVariantResolvePackage key =
       packageId = PackageId (T.intercalate "-" (packageVariantLibraryId key))
     }
 
-typecheckInterfaceModules :: TcInterface -> [Module] -> IO ([Module], [Aeson.Value], [Aeson.Value], TcInterface)
+typecheckInterfaceModules :: TcInterface -> [Module] -> IO ([Module], [Module], [Aeson.Value], [Aeson.Value], TcInterface)
 typecheckInterfaceModules importedTcInterface modules = do
   currentModule <- newIORef (listToMaybe sortedModules)
   result <- timeout typecheckPhaseTimeoutMicros (go currentModule)
   case result of
     Just (checkedModules, tcModules, tcInterface) ->
-      pure (checkedModules, tcModules, concatMap tcModuleDiagnosticValues tcModules, tcInterface)
+      pure (sortedModules, checkedModules, tcModules, concatMap tcModuleDiagnosticValues tcModules, tcInterface)
     Nothing -> do
       current <- readIORef currentModule
-      pure ([], [], [typecheckTimeoutDiagnostic current], mempty)
+      pure (sortedModules, [], [], [typecheckTimeoutDiagnostic current], mempty)
   where
     sortedModules = sortModulesByImports modules
     go current = do
