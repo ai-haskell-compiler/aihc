@@ -1,5 +1,5 @@
 expected: |-
-  constructor Box/1 [IntRep]
+  constructor Box [IntRep]
 
   global value%1002 :: BoxedRep Lifted = (CBox (42 :: IntRep))
 extensions:

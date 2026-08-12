@@ -1,5 +1,5 @@
 expected: |-
-  constructor Box/1 [IntRep]
+  constructor Box [IntRep]
 
   caf value%1007 :: BoxedRep Lifted = (Fvalue_thunk)
 

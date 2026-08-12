@@ -106,12 +106,11 @@ constructorDeclaration = do
   keyword "constructor"
   horizontal1
   constructorName <- name
-  _ <- MPC.char '/'
-  arity <- natural
+  legacyArity <- optional (MPC.char '/' *> natural)
   horizontal1
   fieldLayouts <- constructorLayouts
   lineEnd
-  when (arity /= length fieldLayouts) $ fail "constructor arity does not match its layout"
+  when (maybe False (/= length fieldLayouts) legacyArity) $ fail "constructor arity does not match its layout"
   pure (TopConstructor (constructorName, fieldLayouts))
 
 primitiveDeclaration :: Parser TopDeclaration
@@ -145,8 +144,7 @@ externalFunctionDeclaration = do
   keyword "external"
   horizontal1
   sourceName <- name
-  _ <- MPC.char '/'
-  arity <- natural
+  legacyArity <- optional (MPC.char '/' *> natural)
   horizontal1
   parameterLayouts <- layouts
   horizontal1
@@ -158,7 +156,7 @@ externalFunctionDeclaration = do
   horizontal1
   functionName <- FunctionName <$> name
   lineEnd
-  when (arity /= length parameterLayouts) $ fail "external function arity does not match its layouts"
+  when (maybe False (/= length parameterLayouts) legacyArity) $ fail "external function arity does not match its layouts"
   pure
     ( TopExternalFunction
         GrinCodeInfo

@@ -30,8 +30,6 @@ renderExternalFunction :: GrinCodeInfo -> String
 renderExternalFunction info =
   "external "
     <> renderName (grinCodeSourceName info)
-    <> "/"
-    <> show (length (grinCodeParameterLayouts info))
     <> " "
     <> renderLayouts (grinCodeParameterLayouts info)
     <> " -> "
@@ -43,8 +41,6 @@ renderConstructor :: (T.Text, [[RuntimeRep]]) -> String
 renderConstructor (name, fieldLayouts) =
   "constructor "
     <> renderName name
-    <> "/"
-    <> show (length fieldLayouts)
     <> " ["
     <> intercalate ", " (map renderLayout fieldLayouts)
     <> "]"
@@ -262,7 +258,7 @@ renderNodeTag nodeTag =
         <> "/"
         <> if all (== [BoxedRep Lifted]) argumentLayouts
           then show (length argumentLayouts)
-          else show (length argumentLayouts) <> renderLayouts argumentLayouts
+          else renderLayouts argumentLayouts
     GrinThunk functionName -> "F" <> renderFunctionName functionName
 
 renderLiteral :: GrinLiteral -> String
