@@ -459,7 +459,10 @@ fcOptimizationTests =
                   fcNewtypeRepresentation = intHashTy,
                   fcNewtypeResult = wrapperTy
                 }
-            constructor = Var "Wrap" (Unique 30) (TcFunTy intHashTy wrapperTy)
+            constructor =
+              (Var "Wrap" (Unique 30) (TcFunTy intHashTy wrapperTy))
+                { varResolvedName = Just (FcTopLevelOrigin "consumer" "Test" "Wrap")
+                }
             value = Var "value" (Unique 31) wrapperTy
             literal = FcLit (LitInt IntRep 42)
             provider = FcProgram (FcModuleId "test" "Test") [FcNewtype declaration]
@@ -473,6 +476,54 @@ fcOptimizationTests =
           "consumer lint"
           []
           (lintProgramWithAxiomInterface (extractAxiomInterface provider) emptyLintEnv loweredConsumer),
+      testCase "does not lower a data constructor with an imported newtype constructor name" $ do
+        let intHashTy = ty "Int#"
+            importedTy = ty "ImportedFirst"
+            localTy = ty "Local"
+            importedOrigin = FcTopLevelOrigin "dependency" "Data.Wrapper" "First"
+            localTypeOrigin = FcTopLevelOrigin "test" "Test" "Local"
+            localConstructorOrigin = FcTopLevelOrigin "test" "Test" "First"
+            importedDeclaration =
+              FcNewtypeDecl
+                { fcNewtypeOrigin = FcTopLevelOrigin "dependency" "Data.Wrapper" "ImportedFirst",
+                  fcNewtypeName = "ImportedFirst",
+                  fcNewtypeTyVars = [],
+                  fcNewtypeConstructorOrigin = importedOrigin,
+                  fcNewtypeConstructor = "First",
+                  fcNewtypeRepresentation = intHashTy,
+                  fcNewtypeResult = importedTy
+                }
+            localDeclaration =
+              FcDataDecl
+                { fcDataOrigin = localTypeOrigin,
+                  fcDataName = "Local",
+                  fcDataTyVars = [],
+                  fcDataResultKind = KType,
+                  fcDataConstructors = [FcDataConDecl localConstructorOrigin "First" [intHashTy]]
+                }
+            constructor =
+              (Var "First" (Unique 50) (TcFunTy intHashTy localTy))
+                { varResolvedName = Just localConstructorOrigin
+                }
+            caseBinder = Var "value" (Unique 51) localTy
+            fieldBinder = Var "field" (Unique 52) intHashTy
+            result = Var "result" (Unique 53) intHashTy
+            source =
+              FcProgram
+                (FcModuleId "test" "Test")
+                [ FcData localDeclaration,
+                  FcTopBind
+                    ( FcNonRec
+                        result
+                        ( Aihc.Fc.FcCase
+                            (FcApp (FcVar constructor) (FcLit (LitInt IntRep 42)))
+                            caseBinder
+                            [FcAlt (DataAlt "First") [fieldBinder] (FcVar fieldBinder)]
+                        )
+                    )
+                ]
+            imported = extractNewtypeInterface (FcProgram (FcModuleId "dependency" "Data.Wrapper") [FcNewtype importedDeclaration])
+        assertEqual "unchanged data constructor" source (lowerNewtypesWithInterface imported source),
       testCase "lints explicit equality axioms" $ do
         let familyTy = ty "Family"
             representationTy = ty "Int#"
