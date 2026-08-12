@@ -1,0 +1,42 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    import Control.Applicative
+
+    flipBool :: Bool -> Bool
+    flipBool False = True
+    flipBool True = False
+
+    constFunction :: Const [Bool] (Bool -> Bool)
+    constFunction = Const [True]
+
+    constValue :: Const [Bool] Bool
+    constValue = Const [False]
+
+    constResult :: [Bool]
+    constResult = getConst (constFunction <*> constValue)
+
+    zipListFunctions :: ZipList (Bool -> Bool)
+    zipListFunctions = ZipList [flipBool, flipBool]
+
+    zipListValues :: ZipList Bool
+    zipListValues = ZipList [False]
+
+    zipListResult :: [Bool]
+    zipListResult = getZipList (zipListFunctions <*> zipListValues)
+
+    zipListPureFunctions :: ZipList (Bool -> Bool)
+    zipListPureFunctions = pure flipBool
+
+    zipListPureResult :: [Bool]
+    zipListPureResult = getZipList (zipListPureFunctions <*> ZipList [False, True])
+
+output: |
+  ((: True (: False [])),((: True []),(: True (: False []))))
+expression: |
+  (constResult, (zipListResult, zipListPureResult))
+status: pass
+reason: Control.Applicative exports Const and ZipList with their access functions and applicative behavior
