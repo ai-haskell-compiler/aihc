@@ -1260,7 +1260,7 @@ plannedPhases =
 fcArtifactValue :: PackagePlan -> InterfaceBuildResult -> Aeson.Value
 fcArtifactValue plan result =
   object
-    [ "schemaVersion" .= (2 :: Int),
+    [ "schemaVersion" .= (1 :: Int),
       "packageKey" .= packageVariantKeyValue (planPackageKey plan),
       "status" .= if null (interfaceFcDiagnostics result) then ("complete" :: String) else "partial",
       "contains" .= (["system-fc"] :: [String]),
@@ -1282,15 +1282,15 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
       resolveResult = resolveWithDeps depExports (modulesInPackage currentPackage parsedModules)
       exposedModules = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
       ownExports = Map.restrictKeys (extractInterface resolveResult) (Set.map (ModuleKey currentPackage) exposedModules)
-  (resolvedModuleAsts, checkedModules, tcModules, tcDiagnostics, tcInterface) <-
+  (checkedModules, tcModules, tcDiagnostics, tcInterface) <-
     typecheckInterfaceModules importedTcInterface (map snd (resolvedModules resolveResult))
   let resolveDiagnostics = enrichDiagnostics (map resolveErrorValue (resolveErrors resolveResult))
       enrichedTcDiagnostics = enrichDiagnostics tcDiagnostics
       enrichedTcModules = map (addTcModuleDiagnosticSourceLines sourceLinesByFile) tcModules
       ownBindings = concatMap tcModuleBindings checkedModules
       allBindings = mergeBy tbIdentity [importedBindings, ownBindings]
-      fcResults = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) checkedModules resolvedModuleAsts
-      fcModules = zipWith fcModuleValue resolvedModuleAsts fcResults
+      fcResults = map (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) checkedModules
+      fcModules = zipWith fcModuleValue checkedModules fcResults
       fcDiagnostics = concatMap fcModuleDiagnosticValues fcModules
   pure
     InterfaceBuildResult
@@ -1315,16 +1315,16 @@ packageVariantResolvePackage key =
       packageId = PackageId (T.intercalate "-" (packageVariantLibraryId key))
     }
 
-typecheckInterfaceModules :: TcInterface -> [Module] -> IO ([Module], [Module], [Aeson.Value], [Aeson.Value], TcInterface)
+typecheckInterfaceModules :: TcInterface -> [Module] -> IO ([Module], [Aeson.Value], [Aeson.Value], TcInterface)
 typecheckInterfaceModules importedTcInterface modules = do
   currentModule <- newIORef (listToMaybe sortedModules)
   result <- timeout typecheckPhaseTimeoutMicros (go currentModule)
   case result of
     Just (checkedModules, tcModules, tcInterface) ->
-      pure (sortedModules, checkedModules, tcModules, concatMap tcModuleDiagnosticValues tcModules, tcInterface)
+      pure (checkedModules, tcModules, concatMap tcModuleDiagnosticValues tcModules, tcInterface)
     Nothing -> do
       current <- readIORef currentModule
-      pure (sortedModules, [], [], [typecheckTimeoutDiagnostic current], mempty)
+      pure ([], [], [typecheckTimeoutDiagnostic current], mempty)
   where
     sortedModules = sortModulesByImports modules
     go current = do
@@ -1561,7 +1561,7 @@ unlitBird =
 interfaceArtifactValue :: PackagePlan -> InterfaceBuildResult -> Aeson.Value
 interfaceArtifactValue plan result =
   object
-    [ "schemaVersion" .= (1 :: Int),
+    [ "schemaVersion" .= (2 :: Int),
       "packageName" .= packageName currentPackage,
       "packageId" .= packageIdText (packageId currentPackage),
       "packageKey" .= packageVariantKeyValue (planPackageKey plan),

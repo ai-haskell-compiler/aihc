@@ -125,7 +125,6 @@ data ReplStep
 
 data CheckedExpression = CheckedExpression
   { checkedExpr :: !Expr,
-    checkedResolvedModule :: !Module,
     checkedTcModule :: !Module,
     checkedType :: !TcType
   }
@@ -196,11 +195,10 @@ evaluateExpression session input = do
     Left err -> pure (Left err)
     Right checked -> do
       let expr = checkedExpr checked
-          resolvedModule = checkedResolvedModule checked
           tcResult = checkedTcModule checked
           inferredType = checkedType checked
           allBindings = importedTermBindings (replImportedTerms session) <> tcModuleBindings tcResult
-          dsResult = desugarModuleWithBindings allBindings tcResult resolvedModule
+          dsResult = desugarModuleWithBindings allBindings tcResult
       if not (dsSuccess dsResult)
         then pure (Left (ReplDesugarError (dsErrors dsResult)))
         else do
@@ -239,7 +237,6 @@ typecheckExpression session input = do
   Right
     CheckedExpression
       { checkedExpr = expr,
-        checkedResolvedModule = resolvedModule,
         checkedTcModule = tcResult,
         checkedType = inferredType
       }
@@ -500,8 +497,8 @@ buildBaseContext modules =
       if all tcModuleSuccess tcResults
         then do
           let allBindings = concatMap tcModuleBindings tcResults
-              dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults moduleAsts
-              bindingTypes = moduleBindingTypes moduleAsts tcResults
+              dsResults = map (desugarModuleWithBindings allBindings) tcResults
+              bindingTypes = moduleBindingTypes tcResults
           if all dsSuccess dsResults
             then
               pure
@@ -528,12 +525,12 @@ mergeImportedTerms preferred fallback =
 unionBindingTypes :: Map.Map Text (Map.Map Text TcType) -> Map.Map Text (Map.Map Text TcType) -> Map.Map Text (Map.Map Text TcType)
 unionBindingTypes = Map.unionWith Map.union
 
-moduleBindingTypes :: [Module] -> [Module] -> Map.Map Text (Map.Map Text TcType)
-moduleBindingTypes sourceModules checkedModules =
+moduleBindingTypes :: [Module] -> Map.Map Text (Map.Map Text TcType)
+moduleBindingTypes checkedModules =
   Map.fromList
     [ (moduleName', bindingTypesForModule checkedModule)
-    | (sourceModule, checkedModule) <- zip sourceModules checkedModules,
-      Just moduleName' <- [Syntax.moduleName sourceModule]
+    | checkedModule <- checkedModules,
+      Just moduleName' <- [Syntax.moduleName checkedModule]
     ]
 
 bindingTypesForModule :: Module -> Map.Map Text TcType

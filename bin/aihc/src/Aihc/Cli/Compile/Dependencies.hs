@@ -401,7 +401,7 @@ compileLoadedModules loaded = finish <$> foldM compileScc initialState (loadedMo
                 else
                   let localBindings = concatMap tcModuleBindings checkedModules
                       bindings = compileStateBindings state <> localBindings
-                      desugared = zipWith (desugarModuleWithBindings bindings) checkedModules moduleAsts
+                      desugared = map (desugarModuleWithBindings bindings) checkedModules
                    in if not (all dsSuccess desugared)
                         then Left ("library desugar error: " <> unlines (concatMap dsErrors desugared))
                         else do

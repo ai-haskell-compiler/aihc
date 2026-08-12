@@ -109,7 +109,6 @@ import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, defa
 import Control.Monad (foldM, forM_, unless, when, zipWithM, zipWithM_, (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
-import Data.Bifunctor (second)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (find, mapAccumL, nub, nubBy, partition, (\\))
 import Data.Map.Strict (Map)
@@ -1010,7 +1009,6 @@ annotateInstanceDeclTc classMethods instanceDecl =
               Nothing -> Map.empty
           superClassTypes = maybe [] (map (substType classSubstitution) . ciSuperClassTypes) classInfo
           defaults = maybe [] ciDefaultMethods classInfo
-          classMethodTypes = maybe [] (map (second schemeToType) . ciMethods) classInfo
       superClasses <- mapM constraintTypePred superClassTypes
       superClassEvidence <- mapM (solveInstanceSuperClass classNameText context) superClasses
       let contextDicts = map predDictBinder context
@@ -1027,7 +1025,6 @@ annotateInstanceDeclTc classMethods instanceDecl =
                 tcInstanceClassSuperClasses = maybe [] (map constraintTypeDictBinder . ciSuperClassTypes) classInfo,
                 tcInstanceContextDicts = contextDicts,
                 tcInstanceSuperClasses = zip (map predDictBinder superClasses) superClassEvidence,
-                tcInstanceClassMethods = classMethodTypes,
                 tcInstanceMethodOrder = methodOrder,
                 tcInstanceDefaultMethods = defaults
               }

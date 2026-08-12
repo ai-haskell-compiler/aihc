@@ -103,7 +103,7 @@ desugarModule m =
     ResolveResult {resolvedModules = [(_, resolved)], resolveErrors = []} ->
       case typecheckModulesWithInterface emptyTcInterface [resolved] of
         ([tcResult], tcInterface) ->
-          desugarModuleWithDataTypes (tcModuleBindings tcResult) (tcInterfaceDataTypes tcInterface) tcResult resolved
+          desugarModuleWithDataTypes (tcModuleBindings tcResult) (tcInterfaceDataTypes tcInterface) tcResult
         _ ->
           DesugarResult
             { dsProgram = FcProgram (sourceModuleId m) [],
@@ -120,25 +120,25 @@ desugarModule m =
 -- | Desugar a module using a type-checking result already computed by
 -- the caller. This is useful for clients such as the REPL that preload
 -- imported bindings into the type-checker environment.
-desugarModuleWithTcResult :: Module -> Module -> DesugarResult
+desugarModuleWithTcResult :: Module -> DesugarResult
 desugarModuleWithTcResult tcResult =
   desugarModuleWithBindings (tcModuleBindings tcResult) tcResult
 
-desugarModuleWithBindings :: [TcBindingResult] -> Module -> Module -> DesugarResult
+desugarModuleWithBindings :: [TcBindingResult] -> Module -> DesugarResult
 desugarModuleWithBindings bindings = desugarModuleWithDataTypes bindings []
 
-desugarModuleWithDataTypes :: [TcBindingResult] -> [DataTypeInfo] -> Module -> Module -> DesugarResult
-desugarModuleWithDataTypes bindings dataTypes tcResult resolvedModule =
+desugarModuleWithDataTypes :: [TcBindingResult] -> [DataTypeInfo] -> Module -> DesugarResult
+desugarModuleWithDataTypes bindings dataTypes tcResult =
   if not (tcModuleSuccess tcResult)
     then
       DesugarResult
-        { dsProgram = FcProgram (sourceModuleId resolvedModule) [],
+        { dsProgram = FcProgram (sourceModuleId tcResult) [],
           dsSuccess = False,
           dsErrors = showTcFailure tcResult
         }
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
-          (packageName, currentModuleName) = resolvedModuleOrigin resolvedModule
+          (packageName, currentModuleName) = resolvedModuleOrigin tcResult
           constructorFields =
             Map.fromList
               [ (dciName constructor, dciFields constructor)
@@ -149,7 +149,7 @@ desugarModuleWithDataTypes bindings dataTypes tcResult resolvedModule =
        in case runStateT (dsModule tcResult) (DsState 1000 packageName (Just currentModuleName) typeEnv Map.empty Map.empty constructorFields Nothing) of
             Left err ->
               DesugarResult
-                { dsProgram = FcProgram (sourceModuleId resolvedModule) [],
+                { dsProgram = FcProgram (sourceModuleId tcResult) [],
                   dsSuccess = False,
                   dsErrors = [err]
                 }
@@ -1059,8 +1059,11 @@ dsInstanceDict instAnn instanceDecl = do
             methodOrder
         pure (superClassFields <> methodFields)
       buildDictionary recursive dictVar fields = do
-        let methodTypes = map snd (tcInstanceClassMethods instAnn)
-            superClassFieldTypes = map tcDictBinderType (tcInstanceClassSuperClasses instAnn)
+        methodTypes <-
+          mapM
+            (maybe lookupType lookupTypeAtOrigin (tcInstanceClassOrigin instAnn))
+            methodOrder
+        let superClassFieldTypes = map tcDictBinderType (tcInstanceClassSuperClasses instAnn)
         (classTyVars, fieldTypes) <-
           case methodTypes of
             [] -> pure (tcInstanceClassTyVars instAnn, superClassFieldTypes)

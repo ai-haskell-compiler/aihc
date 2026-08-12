@@ -117,7 +117,7 @@ evaluateGrinCase fixture =
            in if all tcModuleSuccess tcResults
                 then
                   let allBindings = moduleGroupBindings tcResults
-                      desugared = zipWith (desugarModuleWithBindings allBindings) tcResults moduleAsts
+                      desugared = map (desugarModuleWithBindings allBindings) tcResults
                    in if all dsSuccess desugared
                         then
                           let programs = map (lowerProgram . dsProgram) desugared

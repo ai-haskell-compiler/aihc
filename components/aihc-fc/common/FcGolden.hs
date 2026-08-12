@@ -163,7 +163,7 @@ renderFcCase tc =
                in if all tcModuleSuccess tcResults
                     then
                       let allBindings = moduleGroupBindings tcResults
-                          results = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) tcResults moduleAsts
+                          results = map (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) tcResults
                           fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
                             then renderResults fixtureResults

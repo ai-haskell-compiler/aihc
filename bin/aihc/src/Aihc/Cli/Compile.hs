@@ -250,7 +250,7 @@ compileWithDependencies target wholeProgram dependencies parsed =
             then Left (CompileFrontendError ["typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules)])
             else
               let bindings = dependencyBindings dependencies <> concatMap tcModuleBindings checkedModules
-                  desugared = zipWith (desugarModuleWithBindings bindings) checkedModules moduleAsts
+                  desugared = map (desugarModuleWithBindings bindings) checkedModules
                in if not (all dsSuccess desugared)
                     then Left (CompileFrontendError (concatMap dsErrors desugared))
                     else do

@@ -231,7 +231,6 @@ data TcInstanceAnnotation = TcInstanceAnnotation
     tcInstanceClassSuperClasses :: ![TcDictBinderAnnotation],
     tcInstanceContextDicts :: ![TcDictBinderAnnotation],
     tcInstanceSuperClasses :: ![(TcDictBinderAnnotation, EvTerm)],
-    tcInstanceClassMethods :: ![(Text, TcType)],
     tcInstanceMethodOrder :: ![Text],
     tcInstanceDefaultMethods :: ![Text]
   }
