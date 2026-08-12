@@ -36,6 +36,18 @@ where
 
 import Aihc.Cli.Compile.Dependencies (LibraryPackage (..), installLibraries)
 import Aihc.Cli.Options (InstallErrorFormat (..), InstallOptions (..))
+import Aihc.Cli.PackageInterface
+  ( PackageInterface (..),
+    PackageInterfaceBinding (..),
+    PackageInterfaceDependency (..),
+    PackageInterfaceDiagnostics (..),
+    PackageInterfaceFlag (..),
+    PackageInterfacePackageKey (..),
+    PackageInterfacePackageSpec (..),
+    PackageInterfaceTcModule (..),
+    packageInterfaceModulesFromExports,
+    writePackageInterface,
+  )
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cpp qualified as Cpp
 import Aihc.Fc (DesugarResult (..), desugarModuleWithDataTypes, renderProgram)
@@ -70,22 +82,15 @@ import Aihc.Resolve
     PackageId (..),
     ResolveError (..),
     ResolveResult (..),
-    Scope (..),
     extractInterface,
     modulesInPackage,
     resolveWithDeps,
   )
 import Aihc.Tc
-  ( Pred (..),
-    TcBindingResult (..),
+  ( TcBindingResult (..),
     TcDiagnostic (..),
     TcInterface (..),
     TcSeverity (..),
-    TcType (..),
-    TyCon (..),
-    TyVarId (..),
-    Unique (..),
-    renderTcType,
     tcConfig,
     tcModuleBindings,
     tcModuleDiagnostics,
@@ -104,7 +109,6 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy qualified as BL
 import Data.Either (rights)
-import Data.Foldable (toList)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List (nub, nubBy, sort, sortOn)
 import Data.Map.Strict qualified as Map
@@ -262,7 +266,7 @@ data InterfaceBuildResult = InterfaceBuildResult
     interfaceCppDiagnostics :: ![Aeson.Value],
     interfaceResolveDiagnostics :: ![Aeson.Value],
     interfaceTcDiagnostics :: ![Aeson.Value],
-    interfaceTcModules :: ![Aeson.Value],
+    interfaceTcModules :: ![PackageInterfaceTcModule],
     interfaceTcInterface :: !TcInterface,
     interfaceTcBindings :: ![TcBindingResult],
     interfaceFcDiagnostics :: ![Aeson.Value],
@@ -848,7 +852,7 @@ writeOnePreparedInstallScaffold plan interfaceResult = do
   createDirectoryIfMissing True (takeDirectory interfacePath)
   createDirectoryIfMissing True (takeDirectory fcPath)
   BL.writeFile manifestPath (Aeson.encode manifest)
-  BL.writeFile interfacePath (Aeson.encode (interfaceArtifactValue plan interfaceResult))
+  writePackageInterface interfacePath (packageInterfaceArtifact plan interfaceResult)
   BL.writeFile fcPath (Aeson.encode (fcArtifactValue plan interfaceResult))
 
 blockingInterfaceFailures :: InterfaceBuildResult -> [(String, [Aeson.Value])]
@@ -1148,19 +1152,12 @@ diagnosticSummary =
 
 type DiagnosticSourceMap = Map.Map FilePath (Map.Map Int Text)
 
-addTcModuleDiagnosticSourceLines :: DiagnosticSourceMap -> Aeson.Value -> Aeson.Value
-addTcModuleDiagnosticSourceLines sourceLinesByFile value =
-  case value of
-    Aeson.Object obj ->
-      case KeyMap.lookup "diagnostics" obj of
-        Just (Aeson.Array diagnostics) ->
-          Aeson.Object $
-            KeyMap.insert
-              "diagnostics"
-              (Aeson.toJSON (map (addDiagnosticSourceLines sourceLinesByFile) (toList diagnostics)))
-              obj
-        _ -> value
-    _ -> value
+addTcModuleDiagnosticSourceLines :: DiagnosticSourceMap -> PackageInterfaceTcModule -> PackageInterfaceTcModule
+addTcModuleDiagnosticSourceLines sourceLinesByFile modu =
+  modu
+    { packageInterfaceTcModuleDiagnostics =
+        map (addDiagnosticSourceLines sourceLinesByFile) (packageInterfaceTcModuleDiagnostics modu)
+    }
 
 addDiagnosticSourceLines :: DiagnosticSourceMap -> Aeson.Value -> Aeson.Value
 addDiagnosticSourceLines sourceLinesByFile diagnostic =
@@ -1325,7 +1322,7 @@ packageVariantResolvePackage key =
       packageId = PackageId (T.intercalate "-" (packageVariantLibraryId key))
     }
 
-typecheckInterfaceModules :: PackageId -> TcInterface -> [Module] -> IO ([Module], [Aeson.Value], [Aeson.Value], TcInterface)
+typecheckInterfaceModules :: PackageId -> TcInterface -> [Module] -> IO ([Module], [PackageInterfaceTcModule], [Aeson.Value], TcInterface)
 typecheckInterfaceModules primPackageId importedTcInterface modules = do
   currentModule <- newIORef (listToMaybe sortedModules)
   result <- timeout typecheckPhaseTimeoutMicros (go currentModule)
@@ -1568,27 +1565,26 @@ unlitBird =
       Just ('>', rest) -> rest
       _ -> ""
 
-interfaceArtifactValue :: PackagePlan -> InterfaceBuildResult -> Aeson.Value
-interfaceArtifactValue plan result =
-  object
-    [ "schemaVersion" .= (1 :: Int),
-      "packageKey" .= packageVariantKeyValue (planPackageKey plan),
-      "status" .= interfaceStatus result,
-      "contains" .= (["name-resolution", "types", "fixities"] :: [String]),
-      "sourceFiles" .= interfaceSourceFiles result,
-      "moduleCount" .= interfaceModuleCount result,
-      "modules" .= moduleExportsValue (interfaceModuleExports result),
-      "diagnostics"
-        .= object
-          [ "cpp" .= interfaceCppDiagnostics result,
-            "parse" .= interfaceParseDiagnostics result,
-            "resolve" .= interfaceResolveDiagnostics result,
-            "typecheck" .= interfaceTcDiagnostics result
-          ],
-      "typecheck" .= interfaceTcModules result
-    ]
+packageInterfaceArtifact :: PackagePlan -> InterfaceBuildResult -> PackageInterface
+packageInterfaceArtifact plan result =
+  PackageInterface
+    { packageInterfacePackageKey = packageInterfaceKey (planPackageKey plan),
+      packageInterfaceStatus = interfaceStatus result,
+      packageInterfaceContains = ["name-resolution", "types", "fixities"],
+      packageInterfaceSourceFiles = interfaceSourceFiles result,
+      packageInterfaceModuleCount = interfaceModuleCount result,
+      packageInterfaceModules = packageInterfaceModulesFromExports (interfaceModuleExports result),
+      packageInterfaceDiagnostics =
+        PackageInterfaceDiagnostics
+          { packageInterfaceCppDiagnostics = interfaceCppDiagnostics result,
+            packageInterfaceParseDiagnostics = interfaceParseDiagnostics result,
+            packageInterfaceResolveDiagnostics = interfaceResolveDiagnostics result,
+            packageInterfaceTcDiagnostics = interfaceTcDiagnostics result
+          },
+      packageInterfaceTypecheck = interfaceTcModules result
+    }
 
-interfaceStatus :: InterfaceBuildResult -> String
+interfaceStatus :: InterfaceBuildResult -> Text
 interfaceStatus result =
   if null (interfaceCppDiagnostics result)
     && null (interfaceParseDiagnostics result)
@@ -1597,34 +1593,19 @@ interfaceStatus result =
     then "complete"
     else "partial"
 
-moduleExportsValue :: ModuleExports -> [Aeson.Value]
-moduleExportsValue exports =
-  [ object
-      [ "module" .= moduleKeyName moduleKey,
-        "terms" .= Map.keys (scopeTerms scope),
-        "types" .= Map.keys (scopeTypes scope),
-        "constructors" .= scopeConstructors scope,
-        "recordFields" .= scopeRecordFields scope,
-        "methods" .= scopeMethods scope
-      ]
-  | (moduleKey, scope) <- Map.toAscList exports
-  ]
-
-tcModuleValue :: Module -> Module -> Aeson.Value
+tcModuleValue :: Module -> Module -> PackageInterfaceTcModule
 tcModuleValue modu result =
-  object
-    [ "module" .= moduleDisplayName modu,
-      "success" .= tcModuleSuccess result,
-      "bindings" .= map tcBindingValue (tcModuleBindings result),
-      "diagnostics" .= map (tcDiagnosticValue (moduleDisplayName modu)) (tcModuleDiagnostics result)
-    ]
+  PackageInterfaceTcModule
+    { packageInterfaceTcModuleName = moduleDisplayName modu,
+      packageInterfaceTcModuleSuccess = tcModuleSuccess result,
+      packageInterfaceTcModuleBindings = map tcBinding (tcModuleBindings result),
+      packageInterfaceTcModuleDiagnostics = map (tcDiagnosticValue (moduleDisplayName modu)) (tcModuleDiagnostics result)
+    }
+  where
+    tcBinding binding = PackageInterfaceBinding (tbName binding) (tbType binding)
 
-tcModuleDiagnosticValues :: Aeson.Value -> [Aeson.Value]
-tcModuleDiagnosticValues (Aeson.Object obj) =
-  case KeyMap.lookup "diagnostics" obj of
-    Just (Aeson.Array arr) -> foldr (:) [] arr
-    _ -> []
-tcModuleDiagnosticValues _ = []
+tcModuleDiagnosticValues :: PackageInterfaceTcModule -> [Aeson.Value]
+tcModuleDiagnosticValues = packageInterfaceTcModuleDiagnostics
 
 fcModuleValue :: Module -> DesugarResult -> Aeson.Value
 fcModuleValue modu result =
@@ -1648,86 +1629,6 @@ fcModuleDiagnosticValues (Aeson.Object obj) =
     Just (Aeson.Array arr) -> foldr (:) [] arr
     _ -> []
 fcModuleDiagnosticValues _ = []
-
-tcBindingValue :: TcBindingResult -> Aeson.Value
-tcBindingValue binding =
-  object
-    [ "name" .= tbName binding,
-      "type" .= renderTcType (tbType binding),
-      "typeJson" .= tcTypeValue (tbType binding)
-    ]
-
-tcTypeValue :: TcType -> Aeson.Value
-tcTypeValue ty =
-  case ty of
-    TcTyVar tv ->
-      object
-        [ "tag" .= ("var" :: String),
-          "name" .= tvName tv,
-          "unique" .= uniqueValue (tvUnique tv)
-        ]
-    TcMetaTv unique ->
-      object
-        [ "tag" .= ("meta" :: String),
-          "unique" .= uniqueValue unique
-        ]
-    TcTyCon tyCon args ->
-      object
-        [ "tag" .= ("con" :: String),
-          "name" .= tyConName tyCon,
-          "arity" .= tyConArity tyCon,
-          "args" .= map tcTypeValue args
-        ]
-    TcFunTy arg result ->
-      object
-        [ "tag" .= ("fun" :: String),
-          "arg" .= tcTypeValue arg,
-          "result" .= tcTypeValue result
-        ]
-    TcForAllTy tv body ->
-      object
-        [ "tag" .= ("forall" :: String),
-          "binder" .= tyVarValue tv,
-          "body" .= tcTypeValue body
-        ]
-    TcQualTy preds body ->
-      object
-        [ "tag" .= ("qual" :: String),
-          "predicates" .= map predValue preds,
-          "body" .= tcTypeValue body
-        ]
-    TcAppTy fun arg ->
-      object
-        [ "tag" .= ("app" :: String),
-          "fun" .= tcTypeValue fun,
-          "arg" .= tcTypeValue arg
-        ]
-
-predValue :: Pred -> Aeson.Value
-predValue pred' =
-  case pred' of
-    ClassPred cls args ->
-      object
-        [ "tag" .= ("class" :: String),
-          "class" .= cls,
-          "args" .= map tcTypeValue args
-        ]
-    EqPred left right ->
-      object
-        [ "tag" .= ("eq" :: String),
-          "left" .= tcTypeValue left,
-          "right" .= tcTypeValue right
-        ]
-
-tyVarValue :: TyVarId -> Aeson.Value
-tyVarValue tv =
-  object
-    [ "name" .= tvName tv,
-      "unique" .= uniqueValue (tvUnique tv)
-    ]
-
-uniqueValue :: Unique -> Int
-uniqueValue (Unique unique) = unique
 
 tcDiagnosticValue :: Text -> TcDiagnostic -> Aeson.Value
 tcDiagnosticValue moduleName diag =
@@ -1835,27 +1736,30 @@ packageSpecValue spec =
     ]
 
 packageVariantKeyValue :: PackageVariantKey -> Aeson.Value
-packageVariantKeyValue key =
-  object
-    [ "hash" .= unPackageHash (packageKeyHash key),
-      "package" .= packageSpecValue (packageKeySpec key),
-      "flags" .= map flagAssignmentValue (packageKeyFlags key),
-      "dependencies" .= map resolvedDependencyValue (packageKeyDependencies key)
-    ]
+packageVariantKeyValue = Aeson.toJSON . packageInterfaceKey
 
-resolvedDependencyValue :: ResolvedDependency -> Aeson.Value
-resolvedDependencyValue dependency =
-  object
-    [ "package" .= packageSpecValue (resolvedDependencySpec dependency),
-      "hash" .= unPackageHash (resolvedDependencyHash dependency)
-    ]
+packageInterfaceKey :: PackageVariantKey -> PackageInterfacePackageKey
+packageInterfaceKey key =
+  PackageInterfacePackageKey
+    { packageInterfaceKeyHash = T.pack (unPackageHash (packageKeyHash key)),
+      packageInterfaceKeyPackage = packageInterfaceSpec (packageKeySpec key),
+      packageInterfaceKeyFlags = [PackageInterfaceFlag (T.pack name) enabled | (name, enabled) <- packageKeyFlags key],
+      packageInterfaceKeyDependencies = map packageInterfaceDependency (packageKeyDependencies key)
+    }
 
-flagAssignmentValue :: (String, Bool) -> Aeson.Value
-flagAssignmentValue (flag, enabled) =
-  object
-    [ "name" .= flag,
-      "enabled" .= enabled
-    ]
+packageInterfaceSpec :: PackageSpec -> PackageInterfacePackageSpec
+packageInterfaceSpec spec =
+  PackageInterfacePackageSpec
+    { packageInterfacePackageName = T.pack (pkgName spec),
+      packageInterfacePackageVersion = T.pack (pkgVersion spec)
+    }
+
+packageInterfaceDependency :: ResolvedDependency -> PackageInterfaceDependency
+packageInterfaceDependency dependency =
+  PackageInterfaceDependency
+    { packageInterfaceDependencyPackage = packageInterfaceSpec (resolvedDependencySpec dependency),
+      packageInterfaceDependencyHash = T.pack (unPackageHash (resolvedDependencyHash dependency))
+    }
 
 packageFlagAssignments :: GenericPackageDescription -> [(String, Bool)]
 packageFlagAssignments gpd =

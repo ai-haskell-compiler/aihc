@@ -32,6 +32,19 @@ import Aihc.Cli.Install
     writeInstallScaffold,
   )
 import Aihc.Cli.Options (Command (..), CompileOptions (..), GarbageCollector (..), InstallErrorFormat (..), InstallOptions (..), PrepareRuntimeOptions (..), ReplOptions (..), parseCommandPure)
+import Aihc.Cli.PackageInterface
+  ( PackageInterface (..),
+    PackageInterfaceBinding (..),
+    PackageInterfaceDependency (..),
+    PackageInterfaceDiagnostics (..),
+    PackageInterfaceFlag (..),
+    PackageInterfaceModule (..),
+    PackageInterfacePackageKey (..),
+    PackageInterfacePackageSpec (..),
+    PackageInterfaceTcModule (..),
+    packageInterfaceExports,
+    readPackageInterface,
+  )
 import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession, replCompletion)
 import Aihc.Cli.Runtime (prepareRuntimeArchive, readWasmClangProcessWithExitCode)
 import Aihc.Fc
@@ -48,7 +61,7 @@ import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..))
 import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), Scope (..), unnamedPackage)
-import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
+import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Exception (bracket)
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
@@ -335,7 +348,11 @@ main =
             assertBool
               "no unnamed Prelude"
               (Map.notMember (ModuleKey unnamedPackage "Prelude") exports),
-          testCase "loads installed base interface for Prelude MVP scope" test_loadsInstalledBaseInterfaceForRepl
+          testCase "loads installed base interface for Prelude MVP scope" test_loadsInstalledBaseInterfaceForRepl,
+          testCase "round-trips the shared package interface" test_packageInterfaceRoundTrip,
+          testCase "rejects unsupported package interface schemas" $
+            let decoded = Aeson.eitherDecode (Aeson.encode (object ["schemaVersion" .= (2 :: Int)])) :: Either String PackageInterface
+             in assertLeftContains "unsupported package interface schema version" decoded
         ],
       testGroup
         "install"
@@ -433,11 +450,18 @@ test_loadsInstalledBaseInterfaceForRepl =
       interfacePath
       ( Aeson.encode
           ( object
-              [ "packageKey"
+              [ "schemaVersion" .= (1 :: Int),
+                "packageKey"
                   .= object
                     [ "hash" .= ("dephash" :: String),
-                      "package" .= object ["name" .= ("aihc-base" :: String), "version" .= ("4.21.2.0" :: String)]
+                      "package" .= object ["name" .= ("aihc-base" :: String), "version" .= ("4.21.2.0" :: String)],
+                      "flags" .= ([] :: [Aeson.Value]),
+                      "dependencies" .= ([] :: [Aeson.Value])
                     ],
+                "status" .= ("complete" :: String),
+                "contains" .= (["name-resolution", "types", "fixities"] :: [String]),
+                "sourceFiles" .= ([] :: [FilePath]),
+                "moduleCount" .= (2 :: Int),
                 "modules"
                   .= [ object
                          [ "module" .= ("Prelude" :: String),
@@ -455,7 +479,15 @@ test_loadsInstalledBaseInterfaceForRepl =
                            "recordFields" .= object [],
                            "methods" .= object []
                          ]
-                     ]
+                     ],
+                "diagnostics"
+                  .= object
+                    [ "cpp" .= ([] :: [Aeson.Value]),
+                      "parse" .= ([] :: [Aeson.Value]),
+                      "resolve" .= ([] :: [Aeson.Value]),
+                      "typecheck" .= ([] :: [Aeson.Value])
+                    ],
+                "typecheck" .= ([] :: [Aeson.Value])
               ]
           )
       )
@@ -479,6 +511,45 @@ test_loadsInstalledBaseInterfaceForRepl =
       Right output ->
         assertBool ("expected [Char] type, got:\n" <> T.unpack output) ("type:\n[Char]" `T.isInfixOf` output)
       Left err -> assertFailure ("expected typed string success, got " <> show err)
+
+test_packageInterfaceRoundTrip :: Assertion
+test_packageInterfaceRoundTrip = do
+  let typeVariable = TyVarId "a" (Unique 11)
+      identityType = TcForAllTy typeVariable (TcFunTy (TcTyVar typeVariable) (TcTyVar typeVariable))
+      packageKey =
+        PackageInterfacePackageKey
+          { packageInterfaceKeyHash = "dephash",
+            packageInterfaceKeyPackage = PackageInterfacePackageSpec "demo" "1.2.3",
+            packageInterfaceKeyFlags = [PackageInterfaceFlag "debug" True],
+            packageInterfaceKeyDependencies =
+              [PackageInterfaceDependency (PackageInterfacePackageSpec "base" "4.21.2.0") "basehash"]
+          }
+      interface =
+        PackageInterface
+          { packageInterfacePackageKey = packageKey,
+            packageInterfaceStatus = "complete",
+            packageInterfaceContains = ["name-resolution", "types", "fixities"],
+            packageInterfaceSourceFiles = ["src/Demo.hs"],
+            packageInterfaceModuleCount = 1,
+            packageInterfaceModules =
+              [ PackageInterfaceModule
+                  { packageInterfaceModuleName = "Demo",
+                    packageInterfaceModuleTerms = ["identity"],
+                    packageInterfaceModuleTypes = [],
+                    packageInterfaceModuleConstructors = Map.empty,
+                    packageInterfaceModuleRecordFields = Map.empty,
+                    packageInterfaceModuleMethods = Map.empty
+                  }
+              ],
+            packageInterfaceDiagnostics = PackageInterfaceDiagnostics [] [] [] [],
+            packageInterfaceTypecheck =
+              [PackageInterfaceTcModule "Demo" True [PackageInterfaceBinding "identity" identityType] []]
+          }
+      decoded = Aeson.eitherDecode (Aeson.encode interface)
+  assertEqual "package interface" (Right interface) decoded
+  assertBool
+    "decoded package identity"
+    (Map.member (ModuleKey (Package "demo" (PackageId "demo-1-2-3-dephash")) "Demo") (packageInterfaceExports interface))
 
 test_stableStorePath :: Assertion
 test_stableStorePath =
@@ -575,6 +646,10 @@ test_writeInstallScaffold =
     assertBool "interface includes modules" ("modules" `isInfixOf` renderedInterface)
     assertBool "interface includes typecheck data" ("typecheck" `isInfixOf` renderedInterface)
     assertBool "interface is implemented" (not ("unimplemented" `isInfixOf` renderedInterface))
+    decodedInterface <- readPackageInterface (resultInterfacePath result)
+    case decodedInterface of
+      Left err -> assertFailure ("expected valid package interface, got " <> err)
+      Right interface -> assertEqual "decoded interface module count" 1 (packageInterfaceModuleCount interface)
 
     fcJson <- BL8.readFile (resultFcPath result)
     let renderedFc = BL8.unpack fcJson
