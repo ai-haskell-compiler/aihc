@@ -200,7 +200,7 @@ evaluateExpression session input = do
           tcResult = checkedTcModule checked
           inferredType = checkedType checked
           allBindings = importedTermBindings (replImportedTerms session) <> tcModuleBindings tcResult
-          dsResult = desugarModuleWithBindings allBindings tcResult resolvedModule
+          dsResult = desugarModuleWithBindings (PackageId "aihc-prim") allBindings tcResult resolvedModule
       if not (dsSuccess dsResult)
         then pure (Left (ReplDesugarError (dsErrors dsResult)))
         else do
@@ -511,7 +511,7 @@ buildBaseContext modules =
       if all tcModuleSuccess tcResults
         then do
           let allBindings = concatMap tcModuleBindings tcResults
-              dsResults = zipWith (desugarModuleWithBindings allBindings) tcResults moduleAsts
+              dsResults = zipWith (desugarModuleWithBindings (PackageId "aihc-prim") allBindings) tcResults moduleAsts
               bindingTypes = moduleBindingTypes moduleAsts tcResults
           if all dsSuccess dsResults
             then

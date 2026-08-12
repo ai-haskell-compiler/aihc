@@ -14,12 +14,15 @@ module Test.Fc.Suite
 where
 
 import Aihc.Fc
+import Aihc.Fc qualified as Fc
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax qualified as Surface
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (Kind (KType), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Aihc.Tc.Evidence (Coercion (..))
+import Aihc.Tc.Types (tyConModuleName, tyConPackageId)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -69,7 +72,25 @@ fcDesugarTests =
             result = desugarModule parsedModule
         assertEqual "source parses" [] parseErrors
         assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
-        assertEqual "Core lint" [] (lintProgram emptyLintEnv (dsProgram result))
+        assertEqual "Core lint" [] (lintProgram emptyLintEnv (dsProgram result)),
+      testCase "uses the aihc-prim Bool type for if binders" $ do
+        let source =
+              "module Test where\n\
+              \data Bool = False | True\n\
+              \value = if True then True else False\n"
+            (parseErrors, parsedModule) = parseModule defaultConfig source
+            result = desugarModule parsedModule
+            ifBinderTypes =
+              [ varType binder
+              | FcTopBind (FcNonRec _ (Fc.FcCase _ binder _)) <- fcTopBinds (dsProgram result)
+              ]
+        assertEqual "source parses" [] parseErrors
+        assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
+        case ifBinderTypes of
+          [TcTyCon tyCon []] -> do
+            assertEqual "package ID" (PackageId "aihc-prim") (tyConPackageId tyCon)
+            assertEqual "module name" "GHC.Types" (tyConModuleName tyCon)
+          other -> assertFailure ("expected one Bool case binder, got: " <> show other)
     ]
   where
     declarationConstructors declaration =

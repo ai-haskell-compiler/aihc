@@ -260,7 +260,7 @@ compileEvalCase tc =
                    in if all tcModuleSuccess tcResults
                         then do
                           let allBindings = moduleGroupBindings tcResults
-                              results = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) tcResults moduleAsts
+                              results = zipWith (desugarModuleWithDataTypes (PackageId "aihc-prim") allBindings (tcInterfaceDataTypes tcInterface)) tcResults moduleAsts
                           if all dsSuccess results
                             then pure (Right (concatPrograms (map dsProgram results)))
                             else pure (Left ("desugar error: " <> unlines (concatMap dsErrors results)))

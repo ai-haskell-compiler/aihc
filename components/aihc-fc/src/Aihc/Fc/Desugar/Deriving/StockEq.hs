@@ -7,7 +7,7 @@ module Aihc.Fc.Desugar.Deriving.StockEq
 where
 
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, predType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshVar, lookupType, withDicts)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshVar, lookupType, primBoolType, withDicts)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcStockDerivingPlan (..))
@@ -210,7 +210,7 @@ boolConstructor name = do
   pure (FcVar constructor)
 
 boolType :: DsM TcType
-boolType = lookupType "True"
+boolType = primBoolType
 
 stockEqTyCon :: TcDerivingPlan -> DsM TyCon
 stockEqTyCon plan =

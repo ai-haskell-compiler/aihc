@@ -408,7 +408,7 @@ compileLoadedModules loaded = do
                 else
                   let localBindings = concatMap tcModuleBindings checkedModules
                       bindings = compileStateBindings state <> localBindings
-                      desugared = zipWith (desugarModuleWithBindings bindings) checkedModules moduleAsts
+                      desugared = zipWith (desugarModuleWithBindings primPackageId bindings) checkedModules moduleAsts
                    in if not (all dsSuccess desugared)
                         then Left ("library desugar error: " <> unlines (concatMap dsErrors desugared))
                         else do

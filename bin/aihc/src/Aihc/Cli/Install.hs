@@ -1299,7 +1299,7 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
       ownBindings = concatMap tcModuleBindings checkedModules
       allBindings = mergeBy tbName [importedBindings, ownBindings]
       resolvedModuleAsts = map snd (resolvedModules resolveResult)
-      fcResults = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) checkedModules resolvedModuleAsts
+      fcResults = zipWith (desugarModuleWithDataTypes primIdentity allBindings (tcInterfaceDataTypes tcInterface)) checkedModules resolvedModuleAsts
       fcModules = zipWith fcModuleValue resolvedModuleAsts fcResults
       fcDiagnostics = concatMap fcModuleDiagnosticValues fcModules
   pure
