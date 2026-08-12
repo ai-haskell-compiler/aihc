@@ -67,8 +67,6 @@ expected: |-
 
   external GHC.Classes.== : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool
 
-  external GHC.Internal.Integer.IS : Int# → Integer
-
   external GHC.Num.$fNumInt : Num Int
 
   external GHC.Num.$fNumInteger : Num Integer
@@ -77,18 +75,20 @@ expected: |-
 
   external GHC.Tuple.() : Unit
 
+  external GHC.Types.IS : Int# → Integer
+
   asInt : Int =
-    ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Internal.Integer.IS 1#IntRep)
+    ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Types.IS 1#IntRep)
 
   asInteger : Integer =
-    ((GHC.Num.fromInteger @Integer) GHC.Num.$fNumInteger) (GHC.Internal.Integer.IS 1#IntRep)
+    ((GHC.Num.fromInteger @Integer) GHC.Num.$fNumInteger) (GHC.Types.IS 1#IntRep)
 
   caseInt : Unit =
     let {
       _case_value : Int =
-        ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Internal.Integer.IS 1#IntRep)
+        ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Types.IS 1#IntRep)
     } in
-      case (((GHC.Classes.== @Int) GHC.Classes.$fEqInt) _case_value) (((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Internal.Integer.IS 1#IntRep)) as (_case_guard : Bool) of {
+      case (((GHC.Classes.== @Int) GHC.Classes.$fEqInt) _case_value) (((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Types.IS 1#IntRep)) as (_case_guard : Bool) of {
         True →
           GHC.Tuple.();
         False →

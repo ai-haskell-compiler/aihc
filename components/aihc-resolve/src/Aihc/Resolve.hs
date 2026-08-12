@@ -17,6 +17,7 @@ module Aihc.Resolve
     ModuleKey (..),
     PackageId (..),
     Package (..),
+    ModuleOrigin (..),
     unnamedPackage,
     modulesInPackage,
     collectModuleExports,
@@ -89,6 +90,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
     mkUnqualifiedName,
+    moduleName,
     peelGuardQualifierAnn,
     peelLiteralAnn,
     peelPatternAnn,
@@ -224,7 +226,8 @@ resolveModule package exports nextLocal modu =
       modu' = modu {moduleImports = imports'}
       scope = moduleScope package exports modu'
       (nextLocal', decls') = runResolveM scope (moduleInfo package exports modu') nextLocal (resolveTopLevelDecls Map.empty (moduleDecls modu))
-   in (nextLocal', modu' {moduleDecls = decls'})
+      origin = ModuleOrigin (packageId package) (fromMaybe "Main" (moduleName modu))
+   in (nextLocal', modu' {moduleAnns = mkAnnotation origin : moduleAnns modu', moduleDecls = decls'})
 
 moduleInfo :: Package -> ModuleExports -> Module -> ModuleInfo
 moduleInfo package exports modu =

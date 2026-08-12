@@ -40,14 +40,19 @@ module Aihc.Tc.Monad
     Closedness (..),
     emptyTcEnv,
     lookupTerm,
+    lookupTermAtOrigin,
+    uniqueGlobalTermId,
+    findGlobalTermId,
     lookupResolvedTerm,
     resolvedTermKey,
     resolvedTermTarget,
     resolvedUnqualifiedTermKey,
     resolvedLocalTermKey,
+    currentTermKey,
     extendTermEnv,
     extendResolvedTermEnv,
     extendTermEnvPermanent,
+    withGlobalTermOrigin,
     getTermEnv,
     lookupTyCon,
     extendTyConEnvPermanent,
@@ -81,8 +86,8 @@ module Aihc.Tc.Monad
   )
 where
 
-import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
-import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameQualifier, nameText, unqualifiedNameText)
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo, DataTypeInfo (..), InstanceInfo, TyConInfo)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
@@ -97,6 +102,7 @@ import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | The type checker monad.
 --
@@ -131,6 +137,8 @@ data TcEnv = TcEnv
     -- from source text. This lets TC preserve lexical identity without doing
     -- name resolution or conflating duplicate textual names.
     tcEnvTerms :: !(Map TcTermKey TcBinder),
+    -- | Package and module identity for generated global bindings.
+    tcEnvGlobalTermOrigin :: !(Text, Text),
     -- | Whether local binding groups follow GHC's MonoLocalBinds rule.
     tcEnvMonoLocalBinds :: !Bool,
     -- | Whether the monomorphism restriction is active.
@@ -156,7 +164,7 @@ data TcBinder
 
 data TcTermKey
   = TcTermLocal !Int
-  | TcTermGlobal !Text
+  | TcTermGlobal !TcBindingId
   deriving (Eq, Ord, Show)
 
 -- | An empty environment at the top level.
@@ -164,6 +172,7 @@ emptyTcEnv :: TcEnv
 emptyTcEnv =
   TcEnv
     { tcEnvTerms = Map.empty,
+      tcEnvGlobalTermOrigin = ("", "Main"),
       tcEnvMonoLocalBinds = True,
       tcEnvMonomorphismRestriction = True,
       tcEnvTcLevel = topTcLevel
@@ -188,12 +197,7 @@ data TcState = TcState
     tcsDiagnostics :: ![TcDiagnostic],
     -- | Global term bindings accumulated from declarations and imported
     -- interfaces.
-    --
-    -- This map remains text-keyed because it is not used to decide lexical
-    -- scope. Occurrences reach it only after @aihc-resolve@ has attached a
-    -- 'ResolvedTopLevel' or 'ResolvedBuiltin' target; TC then uses the target's
-    -- selected global name to retrieve the type.
-    tcsGlobalTerms :: !(Map Text TcBinder),
+    tcsGlobalTerms :: !(Map TcBindingId TcBinder),
     -- | Global type constructors accumulated by top-level declarations.
     tcsGlobalTyCons :: !(Map Text TyConInfo),
     -- | Checked constructor layouts for data and newtype declarations.
@@ -229,11 +233,11 @@ initTcState =
       tcsGadtCons = Set.empty
     }
 
-builtinTerms :: Map Text TcBinder
+builtinTerms :: Map TcBindingId TcBinder
 builtinTerms =
   Map.fromList
-    [ (":", TcIdBinder consScheme Closed),
-      ("[]", TcIdBinder nilScheme Closed)
+    [ (builtinBindingId ":", TcIdBinder consScheme Closed),
+      (builtinBindingId "[]", TcIdBinder nilScheme Closed)
     ]
   where
     aVar = TyVarId "a" (Unique (-1000))
@@ -324,8 +328,33 @@ lookupEvidence (EvVar u) = lift $ gets $ \s ->
 
 -- | Look up a global term by its selected global name.
 lookupTerm :: Text -> TcM (Maybe TcBinder)
-lookupTerm name =
-  lift $ gets $ \s -> Map.lookup name (tcsGlobalTerms s)
+lookupTerm name = do
+  identity <- currentBindingId name
+  lift $ gets $ \s -> Map.lookup identity (tcsGlobalTerms s)
+
+lookupTermAtOrigin :: (Text, Text) -> Text -> TcM (Maybe TcBinder)
+lookupTermAtOrigin (packageId, moduleName) name =
+  lift $ gets $ \state -> Map.lookup (TcBindingId packageId moduleName name) (tcsGlobalTerms state)
+
+uniqueGlobalTermId :: Text -> TcM TcBindingId
+uniqueGlobalTermId name = do
+  identities <- globalTermIds name
+  case identities of
+    [identity] -> pure identity
+    [] -> abortTc ("missing global binding identity for " <> T.unpack name)
+    _ -> abortTc ("ambiguous global binding identity for " <> T.unpack name)
+
+findGlobalTermId :: Text -> TcM (Maybe TcBindingId)
+findGlobalTermId name = do
+  identities <- globalTermIds name
+  case identities of
+    [identity] -> pure (Just identity)
+    [] -> pure Nothing
+    _ -> abortTc ("ambiguous global binding identity for " <> T.unpack name)
+
+globalTermIds :: Text -> TcM [TcBindingId]
+globalTermIds name =
+  lift $ gets $ filter ((== name) . tcBindingName) . Map.keys . tcsGlobalTerms
 
 lookupResolvedTerm :: Text -> ResolvedName -> TcM (Maybe TcBinder)
 lookupResolvedTerm displayName resolved =
@@ -336,8 +365,8 @@ lookupTermKey key =
   case key of
     TcTermLocal _ ->
       asks $ \env -> Map.lookup key (tcEnvTerms env)
-    TcTermGlobal name ->
-      lift $ gets $ \s -> Map.lookup name (tcsGlobalTerms s)
+    TcTermGlobal identity ->
+      lift $ gets $ \s -> Map.lookup identity (tcsGlobalTerms s)
 
 resolvedTermKey :: Name -> TcM TcTermKey
 resolvedTermKey name =
@@ -356,10 +385,10 @@ resolvedNameTermKey displayName resolved =
   case resolved of
     ResolvedLocal unique _ ->
       pure (TcTermLocal unique)
-    ResolvedTopLevel _ name ->
-      pure (TcTermGlobal (nameText name))
+    ResolvedTopLevel packageId name ->
+      TcTermGlobal <$> topLevelBindingId displayName packageId name
     ResolvedBuiltin name ->
-      pure (TcTermGlobal name)
+      pure (TcTermGlobal (builtinBindingId name))
     ResolvedError msg ->
       abortTc ("resolver error reached type checker for term " <> show displayName <> ": " <> msg)
 
@@ -385,8 +414,28 @@ extendResolvedTermEnv name binder action = do
 -- | Permanently extend the global term environment (for top-level
 -- declarations like data constructors and top-level bindings).
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
-extendTermEnvPermanent name binder = lift $ modify' $ \s ->
-  s {tcsGlobalTerms = Map.insert name binder (tcsGlobalTerms s)}
+extendTermEnvPermanent name binder = do
+  identity <- currentBindingId name
+  lift $ modify' $ \s ->
+    s {tcsGlobalTerms = Map.insert identity binder (tcsGlobalTerms s)}
+
+currentTermKey :: Text -> TcM TcTermKey
+currentTermKey = fmap TcTermGlobal . currentBindingId
+
+currentBindingId :: Text -> TcM TcBindingId
+currentBindingId name = do
+  (packageId, moduleName) <- asks tcEnvGlobalTermOrigin
+  pure (TcBindingId packageId moduleName name)
+
+withGlobalTermOrigin :: (Text, Text) -> TcM a -> TcM a
+withGlobalTermOrigin origin =
+  local (\environment -> environment {tcEnvGlobalTermOrigin = origin})
+
+topLevelBindingId :: Text -> PackageId -> Name -> TcM TcBindingId
+topLevelBindingId displayName packageId name =
+  case nameQualifier name of
+    Just moduleName -> pure (TcBindingId (packageIdText packageId) moduleName (nameText name))
+    Nothing -> abortTc ("top-level resolver identity lacks a module for " <> show displayName)
 
 resolvedTermTarget :: Name -> TcM ResolvedName
 resolvedTermTarget name =

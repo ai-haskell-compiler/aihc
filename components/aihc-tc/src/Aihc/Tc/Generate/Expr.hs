@@ -32,7 +32,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
-import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcIntegerLiteralAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -193,6 +193,7 @@ inferOverloadedIntegerLiteral ambient resolutionAnn resolution literalExpr = do
   (methodTy, typeArgs, methodCts) <- inferResolvedFromInteger sp resolution
   resultTy <- freshMetaTv
   ev <- freshEvVar
+  integerConstructor <- uniqueGlobalTermId "IS"
   let integerArgTy = TcTyCon (TyCon "Integer" 0) []
       expectedMethodTy = TcFunTy integerArgTy resultTy
       methodEq =
@@ -216,7 +217,7 @@ inferOverloadedIntegerLiteral ambient resolutionAnn resolution literalExpr = do
           typeArgs
           (map ctEvVar methodCts)
           []
-  pure (annotatePendingExprAt sp pending (EAnn resolutionAnn literalExpr), resultTy, methodCts <> [methodEq])
+  pure (annotatePendingExprAt sp pending (EAnn (mkAnnotation (TcIntegerLiteralAnnotation integerConstructor)) (EAnn resolutionAnn literalExpr)), resultTy, methodCts <> [methodEq])
 
 inferResolvedFromInteger :: SourceSpan -> ResolutionAnnotation -> TcM (TcType, [TcType], [Ct])
 inferResolvedFromInteger sp resolution = do

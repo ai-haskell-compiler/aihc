@@ -16,7 +16,7 @@ where
 
 import Aihc.Fc.Desugar.Deriving (dsDerivingPlans, moduleDerivingPlans)
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, peelForAlls, peelQuals, predType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupType, withDicts)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupType, lookupTypeAt, lookupTypeAtOrigin, withDicts)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
@@ -51,11 +51,10 @@ import Aihc.Parser.Syntax
     binderHeadName,
     fromAnnotation,
     moduleName,
-    nameQualifier,
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolveResult (..), ResolvedName (..), resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (ModuleOrigin (..), PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TyConFlavor (..), emptyTcInterface, renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
@@ -64,11 +63,13 @@ import Aihc.Tc.Types
   ( Kind (KFun, KTYPE, KType),
     Pred (..),
     RuntimeRep (..),
+    TcBindingId (..),
     TcType (..),
     TyCon (..),
     TyVarId (..),
     TypeScheme,
     Unique (..),
+    builtinBindingId,
     liftedRuntimeRep,
     mkTyCon,
     runtimeRepOfType,
@@ -82,7 +83,7 @@ import Control.Monad (foldM, zipWithM)
 import Control.Monad.Trans.State.Strict (gets, runStateT)
 import Data.Either (fromRight)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -162,40 +163,12 @@ desugarModuleWithDataTypes bindings dataTypes tcResult resolvedModule =
 
 resolvedModuleOrigin :: Module -> (Text, Text)
 resolvedModuleOrigin resolvedModule =
-  fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $ do
-    resolved <- listToMaybe (mapMaybe definitionResolution (moduleDecls resolvedModule))
-    case resolutionTarget resolved of
-      ResolvedTopLevel packageId name ->
-        pure (packageIdText packageId, fromMaybe (fromMaybe "Main" (moduleName resolvedModule)) (nameQualifier name))
-      _ -> Nothing
+  case mapMaybe (fromAnnotation @ModuleOrigin) (moduleAnns resolvedModule) of
+    ModuleOrigin packageId moduleName' : _ -> (packageIdText packageId, moduleName')
+    [] -> ("", fromMaybe "Main" (moduleName resolvedModule))
 
 sourceModuleId :: Module -> FcModuleId
-sourceModuleId modu = FcModuleId "" (fromMaybe "Main" (moduleName modu))
-
-definitionResolution :: Decl -> Maybe ResolutionAnnotation
-definitionResolution declaration =
-  case peelDeclAnn declaration of
-    DeclValue (FunctionBind name _) -> nameResolution name
-    DeclValue (PatternBind _ pattern' _) -> patternResolution pattern'
-    DeclData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
-    DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (newtypeDeclHead newtypeDeclaration))
-    DeclClass classDeclaration -> nameResolution (binderHeadName (classDeclHead classDeclaration))
-    _ -> Nothing
-
-patternResolution :: Pattern -> Maybe ResolutionAnnotation
-patternResolution pattern' =
-  case pattern' of
-    PVar name -> nameResolution name
-    PAnn _ inner -> patternResolution inner
-    PParen inner -> patternResolution inner
-    PStrict inner -> patternResolution inner
-    PIrrefutable inner -> patternResolution inner
-    PAs name _ -> nameResolution name
-    PTypeSig inner _ -> patternResolution inner
-    _ -> Nothing
-
-nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
-nameResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
+sourceModuleId modu = uncurry FcModuleId (resolvedModuleOrigin modu)
 
 -- | Type-class evidence is ordinary term-level data in FC. Replace qualified
 -- source types with explicit dictionary arrows after desugaring has consumed
@@ -290,14 +263,14 @@ showTcFailure tcResult =
     [] -> map showBinding (tcModuleBindings tcResult)
     diagnostics -> diagnostics
 
-bindingTypeEntries :: TcBindingResult -> [(Text, TcType)]
+bindingTypeEntries :: TcBindingResult -> [(TcBindingId, TcType)]
 bindingTypeEntries b =
-  [(tbName b, tbType b)]
+  [(tbIdentity b, tbType b)]
 
-builtinTypeEntries :: [(Text, TcType)]
+builtinTypeEntries :: [(TcBindingId, TcType)]
 builtinTypeEntries =
-  [ (":", TcForAllTy aVar (TcFunTy aTy (TcFunTy listA listA))),
-    ("[]", TcForAllTy aVar listA)
+  [ (builtinBindingId ":", TcForAllTy aVar (TcFunTy aTy (TcFunTy listA listA))),
+    (builtinBindingId "[]", TcForAllTy aVar listA)
   ]
   where
     aVar = TyVarId "a" (Unique (-1000))
@@ -572,7 +545,10 @@ dsForeignCcall tcAnn foreignPlan foreignDecl = do
       case tcForeignEffect foreignPlan of
         TcForeignPure ->
           boxForeignValue (tcForeignResult foreignPlan) (FcCallForeign foreignCall arguments)
-        TcForeignRealWorld -> makeForeignIoWrapper foreignCall (tcForeignResult foreignPlan) arguments
+        TcForeignRealWorld ->
+          case tcForeignIoConstructor foreignPlan of
+            Just ioConstructor -> makeForeignIoWrapper ioConstructor foreignCall (tcForeignResult foreignPlan) arguments
+            Nothing -> desugarBug "foreign IO wrapper lacks its constructor identity"
   pure
     [ FcForeignImport foreignCall,
       FcTopBind (FcNonRec wrapperVar (foldr FcLam wrapperBody argumentVars))
@@ -604,8 +580,9 @@ unboxForeignValue binderName marshal expression continuation =
   go (tcForeignSourceType marshal) (tcForeignConstructors marshal) expression
   where
     go _ [] value = continuation value
-    go valueType (constructor : constructors) value = do
-      constructorType <- dropForAlls <$> lookupType constructor
+    go valueType (constructorIdentity : constructors) value = do
+      let constructor = tcBindingName constructorIdentity
+      constructorType <- dropForAlls <$> lookupTypeAt constructorIdentity
       fieldType <-
         case constructorType of
           TcFunTy field _ -> pure field
@@ -625,12 +602,14 @@ boxForeignValue marshal =
   applyConstructors (tcForeignSourceType marshal) (tcForeignConstructors marshal)
   where
     applyConstructors _ [] value = pure value
-    applyConstructors resultType (constructor : constructors) value = do
-      constructorType <- lookupType constructor
+    applyConstructors resultType (constructorIdentity : constructors) value = do
+      let constructor = tcBindingName constructorIdentity
+      constructorType <- lookupTypeAt constructorIdentity
       constructorVar <- freshVar constructor constructorType
+      let resolvedConstructor = constructorVar {varResolvedName = Just (FcTopLevelOrigin (tcBindingPackageId constructorIdentity) (tcBindingModuleName constructorIdentity) constructor)}
       (typeArguments, fieldType) <- instantiateUnaryConstructor constructor resultType constructorType
       fieldValue <- applyConstructors fieldType constructors value
-      pure (FcApp (foldl FcTyApp (FcVar constructorVar) typeArguments) fieldValue)
+      pure (FcApp (foldl FcTyApp (FcVar resolvedConstructor) typeArguments) fieldValue)
 
 instantiateUnaryConstructor :: Text -> TcType -> TcType -> DsM ([TcType], TcType)
 instantiateUnaryConstructor constructor expectedResult constructorType = do
@@ -693,8 +672,8 @@ matchConstructorResult quantified patternType actualType substitution =
     TcForAllTy {} -> Nothing
     TcQualTy {} -> Nothing
 
-makeForeignIoWrapper :: FcForeignCall -> TcForeignMarshal -> [FcExpr] -> DsM FcExpr
-makeForeignIoWrapper foreignCall resultMarshal arguments = do
+makeForeignIoWrapper :: TcBindingId -> FcForeignCall -> TcForeignMarshal -> [FcExpr] -> DsM FcExpr
+makeForeignIoWrapper ioConstructorIdentity foreignCall resultMarshal arguments = do
   stateVar <- freshVar "$ffi_state" statePrimRealWorldTy
   tupleBinder <- freshVar "$ffi_result" (fcForeignCallResultType (fcForeignCallSignature foreignCall))
   nextStateVar <- freshVar "$ffi_next_state" statePrimRealWorldTy
@@ -704,8 +683,9 @@ makeForeignIoWrapper foreignCall resultMarshal arguments = do
     freshVar
       "(#,#)"
       (TcFunTy statePrimRealWorldTy (TcFunTy (tcForeignSourceType resultMarshal) (unboxedTupleTy [statePrimRealWorldTy, tcForeignSourceType resultMarshal])))
-  ioConstructorType <- lookupType "IO"
+  ioConstructorType <- lookupTypeAt ioConstructorIdentity
   ioConstructor <- freshVar "IO" ioConstructorType
+  let resolvedIoConstructor = ioConstructor {varResolvedName = Just (FcTopLevelOrigin (tcBindingPackageId ioConstructorIdentity) (tcBindingModuleName ioConstructorIdentity) "IO")}
   let resultTuple = FcApp (FcApp (FcVar tupleConstructor) (FcVar nextStateVar)) boxedResult
       call = FcCallForeign foreignCall (arguments <> [FcVar stateVar])
       stateAction =
@@ -716,7 +696,7 @@ makeForeignIoWrapper foreignCall resultMarshal arguments = do
               tupleBinder
               [FcAlt (DataAlt "(#,#)") [nextStateVar, rawResultVar] resultTuple]
           )
-  pure (FcApp (FcTyApp (FcVar ioConstructor) (tcForeignSourceType resultMarshal)) stateAction)
+  pure (FcApp (FcTyApp (FcVar resolvedIoConstructor) (tcForeignSourceType resultMarshal)) stateAction)
 
 validatePrimitiveImport :: Text -> TcType -> DsM Int
 validatePrimitiveImport name ty =
@@ -1159,7 +1139,7 @@ dsInstanceMethod contextDicts methods maybeSelfDictionary headTypes classOrigin 
               Just dictionary -> pure dictionary
               Nothing -> desugarBug ("default method " <> T.unpack methodName <> " requires a recursive instance dictionary")
           let workerName = defaultMethodName methodName
-          workerType <- lookupType workerName
+          workerType <- maybe (lookupType workerName) (`lookupTypeAtOrigin` workerName) classOrigin
           worker <- freshVar workerName workerType
           let origin = fmap (\(packageName, originModule) -> FcTopLevelOrigin packageName originModule workerName) classOrigin
           pure (FcApp (foldl FcTyApp (FcVar worker {varResolvedName = origin}) headTypes) selfDictionary)

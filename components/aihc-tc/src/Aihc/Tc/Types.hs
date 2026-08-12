@@ -12,7 +12,11 @@
 -- functionally equivalent. The module structure supports migrating to
 -- STRef-backed meta-variables later without changing the public interface.
 module Aihc.Tc.Types
-  ( -- * Unique identifiers
+  ( -- * Binding identifiers
+    TcBindingId (..),
+    builtinBindingId,
+
+    -- * Unique identifiers
     Unique (..),
 
     -- * Type variables
@@ -55,6 +59,18 @@ where
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+
+-- | Complete identity for one global term binding.
+data TcBindingId = TcBindingId
+  { tcBindingPackageId :: !Text,
+    tcBindingModuleName :: !Text,
+    tcBindingName :: !Text
+  }
+  deriving (Eq, Ord, Show, Read)
+
+-- | Complete identity for a compiler-provided term binding.
+builtinBindingId :: Text -> TcBindingId
+builtinBindingId = TcBindingId "<builtin>" "<builtin>"
 
 -- | Source-level names of the lifted tuple types declared by @ghc-prim@.
 -- Their data constructors retain the familiar parenthesized comma syntax.

@@ -20,6 +20,8 @@ module Aihc.Fc.Desugar.Expr
     freshUnique,
     freshVar,
     lookupType,
+    lookupTypeAt,
+    lookupTypeAtOrigin,
     withDicts,
   )
 where
@@ -56,11 +58,11 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionForm (..), ResolutionNamespace (..), ResolvedName (..))
-import Aihc.Tc.Annotations (TcAnnotation (..))
+import Aihc.Tc.Annotations (TcAnnotation (..), TcIntegerLiteralAnnotation (..))
 import Aihc.Tc.Env (DataConFieldInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Kind (runtimeRepToTcType)
-import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType, liftedRuntimeRep, mkTyCon, runtimeRepOfType, setTyVarKind, tvKind, unboxedTupleTyConName)
+import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcBindingId (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, builtinBindingId, isLiftedType, liftedRuntimeRep, mkTyCon, runtimeRepOfType, setTyVarKind, tvKind, unboxedTupleTyConName)
 import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -84,7 +86,7 @@ data DsState = DsState
     dsModulePackage :: !Text,
     dsModuleName :: !(Maybe Text),
     -- | Map from surface name to its inferred type (from TC).
-    dsTypeEnv :: !(Map Text TcType),
+    dsTypeEnv :: !(Map TcBindingId TcType),
     -- | Local variable bindings (pattern-bound, lambda-bound).
     dsLocalVars :: !(Map Text Var),
     -- | Local dictionaries, keyed by class predicate.
@@ -128,9 +130,18 @@ lookupType name = do
   st <- get
   case Map.lookup name (dsLocalVars st) of
     Just v -> pure (varType v)
-    Nothing -> case Map.lookup name (dsTypeEnv st) of
-      Just ty -> pure ty
-      Nothing -> desugarBug ("missing type information for name: " <> T.unpack name)
+    Nothing -> lookupTypeAt (TcBindingId (dsModulePackage st) (fromMaybe "Main" (dsModuleName st)) name)
+
+lookupTypeAt :: TcBindingId -> DsM TcType
+lookupTypeAt identity = do
+  st <- get
+  case Map.lookup identity (dsTypeEnv st) of
+    Just ty -> pure ty
+    Nothing -> desugarBug ("missing type information for binding: " <> show identity)
+
+lookupTypeAtOrigin :: (Text, Text) -> Text -> DsM TcType
+lookupTypeAtOrigin (packageId, moduleName) name =
+  lookupTypeAt (TcBindingId packageId moduleName name)
 
 -- | Look up a local variable binding.
 lookupLocal :: Text -> DsM (Maybe Var)
@@ -638,10 +649,11 @@ isGhcPrimSeq name =
 dsAnnotatedExpr :: TcAnnotation -> Expr -> DsM FcExpr
 dsAnnotatedExpr tcAnn inner = do
   body <- case inner of
-    EAnn ann (EInt value TInteger _)
+    EAnn integerAnn (EAnn ann (EInt value TInteger _))
       | Just resolution <- fromAnnotation ann,
+        Just literalAnnotation <- fromAnnotation integerAnn,
         isFromIntegerResolution resolution ->
-          dsOverloadedIntegerLiteral tcAnn resolution value
+          dsOverloadedIntegerLiteral tcAnn literalAnnotation resolution value
     EAnn _ nested -> dsExpr nested
     EVar name -> dsAnnotatedVar tcAnn name inner
     application@EApp {} -> dsApplication application
@@ -798,17 +810,18 @@ doBindOccurrence = go Nothing Nothing
            in go maybeTc' maybeResolution' inner
         _ -> (,) <$> maybeTc <*> maybeResolution
 
-dsOverloadedIntegerLiteral :: TcAnnotation -> ResolutionAnnotation -> Integer -> DsM FcExpr
-dsOverloadedIntegerLiteral tcAnn resolution value = do
+dsOverloadedIntegerLiteral :: TcAnnotation -> TcIntegerLiteralAnnotation -> ResolutionAnnotation -> Integer -> DsM FcExpr
+dsOverloadedIntegerLiteral tcAnn literalAnnotation resolution value = do
   fromIntegerExpr <- dsAnnotatedVar tcAnn (resolvedAnnotationName resolution) (EInt value TInteger (T.pack (show value)))
-  integerExpr <- dsIntegerLiteral resolution value
+  integerExpr <- dsIntegerLiteral literalAnnotation value
   pure (FcApp fromIntegerExpr integerExpr)
 
-dsIntegerLiteral :: ResolutionAnnotation -> Integer -> DsM FcExpr
-dsIntegerLiteral resolution value = do
-  conTy <- lookupType "IS"
+dsIntegerLiteral :: TcIntegerLiteralAnnotation -> Integer -> DsM FcExpr
+dsIntegerLiteral literalAnnotation value = do
+  let constructorIdentity = tcIntegerConstructor literalAnnotation
+  conTy <- lookupTypeAt constructorIdentity
   con <- freshVar "IS" conTy
-  let resolved name var = var {varResolvedName = integerHelperOrigin resolution name}
+  let resolved name var = var {varResolvedName = integerHelperOrigin constructorIdentity name}
       small integer = FcApp (FcVar (resolved "IS" con)) (FcLit (LitInt IntRep integer))
   if value >= minIntLiteral && value <= maxIntLiteral
     then pure (small value)
@@ -840,11 +853,9 @@ dsIntegerLiteral resolution value = do
     minIntLiteral = -9223372036854775808
     maxIntLiteral = 9223372036854775807
 
-integerHelperOrigin :: ResolutionAnnotation -> Text -> Maybe FcSymbolOrigin
-integerHelperOrigin resolution symbolName =
-  case resolvedNameOrigin (resolutionTarget resolution) of
-    Just (FcTopLevelOrigin packageName _ _) -> Just (FcTopLevelOrigin packageName "GHC.Internal.Integer" symbolName)
-    _ -> Nothing
+integerHelperOrigin :: TcBindingId -> Text -> Maybe FcSymbolOrigin
+integerHelperOrigin identity symbolName =
+  Just (FcTopLevelOrigin (tcBindingPackageId identity) (tcBindingModuleName identity) symbolName)
 
 resolvedAnnotationName :: ResolutionAnnotation -> Name
 resolvedAnnotationName resolution =
@@ -1078,9 +1089,10 @@ dsOverloadedIntegerPatternTest scrutValue pat =
   case integerPatternValue pat of
     Just (value, isNegative) -> do
       (fromIntegerTc, fromIntegerResolution) <- requiredPatternOccurrence "fromInteger" pat
+      literalAnnotation <- requiredIntegerPatternAnnotation pat
       (eqTc, eqResolution) <- requiredPatternOccurrence "==" pat
       fromIntegerExpr <- dsAnnotatedVar fromIntegerTc (resolvedAnnotationName fromIntegerResolution) (EInt value TInteger (T.pack (show value)))
-      integerExpr <- dsIntegerLiteral fromIntegerResolution value
+      integerExpr <- dsIntegerLiteral literalAnnotation value
       eqExpr <- dsAnnotatedVar eqTc (resolvedAnnotationName eqResolution) (EVar (resolvedAnnotationName eqResolution))
       let positiveValue = FcApp fromIntegerExpr integerExpr
       patternValue <-
@@ -1117,6 +1129,23 @@ requiredPatternOccurrence name pat =
   case patternOccurrence name pat of
     Just occurrence -> pure occurrence
     Nothing -> desugarBug ("missing " <> T.unpack name <> " annotation for overloaded integer pattern")
+
+requiredIntegerPatternAnnotation :: Pattern -> DsM TcIntegerLiteralAnnotation
+requiredIntegerPatternAnnotation pat =
+  case integerPatternAnnotation pat of
+    Just annotation -> pure annotation
+    Nothing -> desugarBug "missing constructor identity for overloaded integer pattern"
+
+integerPatternAnnotation :: Pattern -> Maybe TcIntegerLiteralAnnotation
+integerPatternAnnotation pat =
+  case pat of
+    PAnn ann inner -> (fromAnnotation ann :: Maybe TcIntegerLiteralAnnotation) <|> integerPatternAnnotation inner
+    PParen inner -> integerPatternAnnotation inner
+    PStrict inner -> integerPatternAnnotation inner
+    PIrrefutable inner -> integerPatternAnnotation inner
+    PAs _ inner -> integerPatternAnnotation inner
+    PTypeSig inner _ -> integerPatternAnnotation inner
+    _ -> Nothing
 
 patternOccurrence :: Text -> Pattern -> Maybe (TcAnnotation, ResolutionAnnotation)
 patternOccurrence target =
@@ -1459,9 +1488,9 @@ tupleConExpr flavor elemTys = do
   constructorOrigin <- gets dsTupleConstructorOrigin
   (constructorTy, resolvedOrigin) <-
     case (flavor, constructorOrigin) of
-      (_, Just origin@FcTopLevelOrigin {}) -> (,Just origin) <$> lookupType name
+      (_, Just origin@(FcTopLevelOrigin packageId moduleName _)) -> (,Just origin) <$> lookupTypeAtOrigin (packageId, moduleName) name
       (Unboxed, _) -> pure (unboxedTupleConType arity, Just (FcBuiltinOrigin name))
-      (Boxed, _) -> (,Just (FcBuiltinOrigin name)) <$> lookupType name
+      (Boxed, _) -> pure (boxedTupleConType arity, Just (FcBuiltinOrigin name))
   constructor <-
     case resolvedOrigin of
       Just FcBuiltinOrigin {} -> pure (builtinVar name (Unique (-20 - arity)) constructorTy)
@@ -1488,6 +1517,13 @@ unboxedTupleConType arity =
     resultKind = KTYPE (TupleRep [runtimeRep | variable <- valueVariables, KTYPE runtimeRep <- [tvKind variable]])
     tyConKind = foldr (KFun . tvKind) resultKind valueVariables
     resultType = TcTyCon (mkTyCon (unboxedTupleTyConName arity) arity tyConKind) (map TcTyVar valueVariables)
+
+boxedTupleConType :: Int -> TcType
+boxedTupleConType arity =
+  foldr TcForAllTy (foldr (TcFunTy . TcTyVar) resultType variables) variables
+  where
+    variables = [TyVarId ("a" <> T.pack (show index)) (Unique (-2100000 - arity * 100 - index)) | index <- [1 .. arity]]
+    resultType = TcTyCon (TyCon (boxedTupleTyConName arity) arity) (map TcTyVar variables)
 
 isTupleResolution :: ResolutionAnnotation -> Bool
 isTupleResolution resolution =
@@ -1564,7 +1600,7 @@ dsEvidence evidence =
     EvGiven EqPred {} ->
       unitConstructor
     EvDict dictOrigin dictName typeArgs contextEvidence -> do
-      dictTy <- lookupType dictName
+      dictTy <- maybe (lookupType dictName) (`lookupTypeAtOrigin` dictName) dictOrigin
       contextDicts <- mapM dsEvidence contextEvidence
       let origin = fmap (\(packageName, moduleName) -> FcTopLevelOrigin packageName moduleName dictName) dictOrigin
           dictExpr = List.foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy) {varResolvedName = origin}) typeArgs
@@ -1682,7 +1718,7 @@ stringTy = listType charTy
 
 unitConstructor :: DsM FcExpr
 unitConstructor = do
-  ty <- lookupType "()"
+  let ty = TcTyCon (TyCon "Unit" 0) []
   pure (FcVar (Var "()" (Unique (-13)) ty))
 
 exprAnnotationType :: Expr -> Maybe TcType
@@ -1924,4 +1960,14 @@ lookupTypeName name = do
 lookupTypeMaybeName :: Name -> DsM (Maybe TcType)
 lookupTypeMaybeName name = do
   st <- get
-  pure (Map.lookup (nameToText name) (dsTypeEnv st) <|> Map.lookup (nameText name) (dsTypeEnv st))
+  case bindingIdentityForName name of
+    Just identity -> pure (Map.lookup identity (dsTypeEnv st))
+    Nothing -> pure Nothing
+
+bindingIdentityForName :: Name -> Maybe TcBindingId
+bindingIdentityForName name =
+  case listToMaybe [resolutionTarget resolution | resolution <- mapMaybe fromAnnotation (nameAnns name), resolutionNamespace resolution == ResolutionNamespaceTerm] of
+    Just (ResolvedTopLevel (PackageId packageId) target) ->
+      TcBindingId packageId <$> nameQualifier target <*> pure (nameText target)
+    Just (ResolvedBuiltin builtinName) -> Just (builtinBindingId builtinName)
+    _ -> Nothing

@@ -47,8 +47,8 @@ import Aihc.Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..))
-import Aihc.Resolve (ModuleKey (..), Scope (..), unnamedPackage)
-import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), Unique (..))
+import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), Scope (..))
+import Aihc.Tc (RuntimeRep (..), TcBindingId (..), TcType (..), TyCon (..), Unique (..))
 import Control.Exception (bracket)
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
@@ -422,21 +422,39 @@ test_loadsInstalledBaseInterfaceForRepl =
       interfacePath
       ( Aeson.encode
           ( object
-              [ "modules"
+              [ "packageName" .= ("aihc-base" :: String),
+                "packageId" .= ("aihc-base-id" :: String),
+                "modules"
                   .= [ object
                          [ "module" .= ("Prelude" :: String),
-                           "terms" .= ([] :: [String]),
+                           "terms" .= (["installedValue"] :: [String]),
                            "types" .= ([] :: [String]),
                            "constructors" .= object [],
                            "recordFields" .= object [],
                            "methods" .= object []
+                         ]
+                     ],
+                "typecheck"
+                  .= [ object
+                         [ "module" .= ("Prelude" :: String),
+                           "bindings"
+                             .= [ object
+                                    [ "name" .= ("installedValue" :: String),
+                                      "packageId" .= ("aihc-base-id" :: String),
+                                      "originModule" .= ("Prelude" :: String),
+                                      "typeJson" .= object ["tag" .= ("con" :: String), "name" .= ("Int" :: String), "arity" .= (0 :: Int), "args" .= ([] :: [Aeson.Value])]
+                                    ]
+                                ]
                          ]
                      ]
               ]
           )
       )
     session <- loadReplSession (Just storeRoot)
-    case Map.lookup (ModuleKey unnamedPackage "Prelude") (replModuleExports session) of
+    let installedBase = Package "aihc-base" (PackageId "aihc-base-id")
+        installedIdentity = TcBindingId "aihc-base-id" "Prelude" "installedValue"
+    assertBool "installed binding keeps its identity" (installedIdentity `elem` map fst (replImportedTerms session))
+    case Map.lookup (ModuleKey installedBase "Prelude") (replModuleExports session) of
       Nothing -> assertFailure "Prelude scope not loaded"
       Just preludeScope -> do
         assertBool "Prelude exposes Char" (Map.member "Char" (scopeTypes preludeScope))

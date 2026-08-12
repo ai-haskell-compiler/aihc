@@ -40,14 +40,13 @@ mergePrograms target programs =
     importedTypes = Map.fromList [(origin, ty) | program <- qualifiedPrograms, FcExternal origin ty <- fcTopBinds program]
     providerEntries = concatMap (programProviders importedTypes) qualifiedPrograms
     providers = Map.fromList providerEntries
-    sourceProviders = fallbackSourceProviders providerEntries
     duplicateErrors = map FcDuplicateDefinition (duplicates (map fst providerEntries))
     typeErrors = concatMap (checkExternalTypes providers) qualifiedPrograms
     merged =
       FcProgram
         target
         ( concatMap
-            (map (resolveTopBind providers sourceProviders) . filter (keepExternal providers) . fcTopBinds)
+            (map (resolveTopBind providers) . filter (keepExternal providers) . fcTopBinds)
             qualifiedPrograms
         )
 
@@ -191,13 +190,6 @@ newtypeConstructorType declaration =
   where
     body = TcFunTy (fcNewtypeRepresentation declaration) (fcNewtypeResult declaration)
 
--- The type checker does not yet attach an origin to all compiler-generated
--- evidence references. Keep the prior last-definition fallback for those
--- references. Source references with an origin never use this table.
-fallbackSourceProviders :: [(FcSymbolOrigin, Var)] -> Map Text Var
-fallbackSourceProviders entries =
-  Map.fromList [(fcOriginName origin, var) | (origin, var) <- entries]
-
 topBinders :: FcTopBind -> [Var]
 topBinders topBind =
   case topBind of
@@ -229,39 +221,37 @@ keepExternal providers topBind =
     FcExternal origin _ -> Map.notMember origin providers
     _ -> True
 
-resolveTopBind :: Map FcSymbolOrigin Var -> Map Text Var -> FcTopBind -> FcTopBind
-resolveTopBind providers sourceProviders topBind =
+resolveTopBind :: Map FcSymbolOrigin Var -> FcTopBind -> FcTopBind
+resolveTopBind providers topBind =
   case topBind of
-    FcTopBind bind -> FcTopBind (resolveBind providers sourceProviders Set.empty bind)
+    FcTopBind bind -> FcTopBind (resolveBind providers Set.empty bind)
     _ -> topBind
 
-resolveBind :: Map FcSymbolOrigin Var -> Map Text Var -> Set.Set Unique -> FcBind -> FcBind
-resolveBind providers sourceProviders bound bind =
+resolveBind :: Map FcSymbolOrigin Var -> Set.Set Unique -> FcBind -> FcBind
+resolveBind providers bound bind =
   case bind of
-    FcNonRec var rhs -> FcNonRec var (resolveExpr providers sourceProviders bound rhs)
+    FcNonRec var rhs -> FcNonRec var (resolveExpr providers bound rhs)
     FcRec bindings ->
       let recursiveBound = bound <> Set.fromList (map (varUnique . fst) bindings)
-       in FcRec [(var, resolveExpr providers sourceProviders recursiveBound rhs) | (var, rhs) <- bindings]
+       in FcRec [(var, resolveExpr providers recursiveBound rhs) | (var, rhs) <- bindings]
 
-resolveExpr :: Map FcSymbolOrigin Var -> Map Text Var -> Set.Set Unique -> FcExpr -> FcExpr
-resolveExpr providers sourceProviders bound expression =
+resolveExpr :: Map FcSymbolOrigin Var -> Set.Set Unique -> FcExpr -> FcExpr
+resolveExpr providers bound expression =
   case expression of
     FcVar var ->
       FcVar
         ( case varResolvedName var of
             Just origin -> resolveOccurrence var (Map.lookup origin providers)
-            Nothing
-              | varUnique var `Set.notMember` bound -> resolveOccurrence var (Map.lookup (varName var) sourceProviders)
-              | otherwise -> var
+            Nothing -> var
         )
     FcLit {} -> expression
     FcApp function argument -> FcApp (recur function) (recur argument)
     FcTyApp function ty -> FcTyApp (recur function) ty
-    FcLam var body -> FcLam var (resolveExpr providers sourceProviders (Set.insert (varUnique var) bound) body)
+    FcLam var body -> FcLam var (resolveExpr providers (Set.insert (varUnique var) bound) body)
     FcTyLam tyVar body -> FcTyLam tyVar (recur body)
     FcLet bind body ->
       let bodyBound = bound <> Set.fromList (map varUnique (bindersOf bind))
-       in FcLet (resolveBind providers sourceProviders bound bind) (resolveExpr providers sourceProviders bodyBound body)
+       in FcLet (resolveBind providers bound bind) (resolveExpr providers bodyBound body)
     FcCase scrutinee binder alternatives ->
       FcCase
         (recur scrutinee)
@@ -270,7 +260,6 @@ resolveExpr providers sourceProviders bound expression =
             { altRhs =
                 resolveExpr
                   providers
-                  sourceProviders
                   (bound <> Set.fromList (map varUnique (binder : altBinders alternative)))
                   (altRhs alternative)
             }
@@ -279,7 +268,7 @@ resolveExpr providers sourceProviders bound expression =
     FcCast body coercion -> FcCast (recur body) coercion
     FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map recur arguments)
   where
-    recur = resolveExpr providers sourceProviders bound
+    recur = resolveExpr providers bound
 
 resolveOccurrence :: Var -> Maybe Var -> Var
 resolveOccurrence occurrence provider =

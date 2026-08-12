@@ -77,6 +77,7 @@ import Aihc.Resolve
   )
 import Aihc.Tc
   ( Pred (..),
+    TcBindingId (..),
     TcBindingResult (..),
     TcDiagnostic (..),
     TcInterface (..),
@@ -86,6 +87,7 @@ import Aihc.Tc
     TyVarId (..),
     Unique (..),
     renderTcType,
+    tbName,
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
@@ -809,7 +811,7 @@ prepareInstallScaffoldUncached cache plan = do
           depExports = foldl' Map.union Map.empty (map (interfaceModuleExports . preparedInterface) preparedDependencies)
           dependencyInterfaces = map preparedInterface preparedDependencies
           importedTcInterface = mconcat (map interfaceTcInterface dependencyInterfaces)
-          importedBindings = mergeBy tbName (map interfaceTcBindings dependencyInterfaces)
+          importedBindings = mergeBy tbIdentity (map interfaceTcBindings dependencyInterfaces)
       interfaceResult <- generatePackageInterface depExports importedTcInterface importedBindings plan
       pure $
         case blockingInterfaceFailures interfaceResult of
@@ -1258,7 +1260,7 @@ plannedPhases =
 fcArtifactValue :: PackagePlan -> InterfaceBuildResult -> Aeson.Value
 fcArtifactValue plan result =
   object
-    [ "schemaVersion" .= (1 :: Int),
+    [ "schemaVersion" .= (2 :: Int),
       "packageKey" .= packageVariantKeyValue (planPackageKey plan),
       "status" .= if null (interfaceFcDiagnostics result) then ("complete" :: String) else "partial",
       "contains" .= (["system-fc"] :: [String]),
@@ -1286,13 +1288,10 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
       enrichedTcDiagnostics = enrichDiagnostics tcDiagnostics
       enrichedTcModules = map (addTcModuleDiagnosticSourceLines sourceLinesByFile) tcModules
       ownBindings = concatMap tcModuleBindings checkedModules
-      allBindings = mergeBy tbName [importedBindings, ownBindings]
-      fcResults = zipWith desugarCheckedModule checkedModules resolvedModuleAsts
+      allBindings = mergeBy tbIdentity [importedBindings, ownBindings]
+      fcResults = zipWith (desugarModuleWithDataTypes allBindings (tcInterfaceDataTypes tcInterface)) checkedModules resolvedModuleAsts
       fcModules = zipWith fcModuleValue resolvedModuleAsts fcResults
       fcDiagnostics = concatMap fcModuleDiagnosticValues fcModules
-      desugarCheckedModule checkedModule resolvedModule =
-        let moduleBindings = mergeBy tbName [allBindings, tcModuleBindings checkedModule]
-         in desugarModuleWithDataTypes moduleBindings (tcInterfaceDataTypes tcInterface) checkedModule resolvedModule
   pure
     InterfaceBuildResult
       { interfaceModuleExports = ownExports,
@@ -1563,6 +1562,8 @@ interfaceArtifactValue :: PackagePlan -> InterfaceBuildResult -> Aeson.Value
 interfaceArtifactValue plan result =
   object
     [ "schemaVersion" .= (1 :: Int),
+      "packageName" .= packageName currentPackage,
+      "packageId" .= packageIdText (packageId currentPackage),
       "packageKey" .= packageVariantKeyValue (planPackageKey plan),
       "status" .= interfaceStatus result,
       "contains" .= (["name-resolution", "types", "fixities"] :: [String]),
@@ -1578,6 +1579,8 @@ interfaceArtifactValue plan result =
           ],
       "typecheck" .= interfaceTcModules result
     ]
+  where
+    currentPackage = packageVariantResolvePackage (planPackageKey plan)
 
 interfaceStatus :: InterfaceBuildResult -> String
 interfaceStatus result =
@@ -1644,6 +1647,8 @@ tcBindingValue :: TcBindingResult -> Aeson.Value
 tcBindingValue binding =
   object
     [ "name" .= tbName binding,
+      "packageId" .= tcBindingPackageId (tbIdentity binding),
+      "originModule" .= tcBindingModuleName (tbIdentity binding),
       "type" .= renderTcType (tbType binding),
       "typeJson" .= tcTypeValue (tbType binding)
     ]

@@ -35,10 +35,11 @@ import Aihc.Parser.Syntax
     unqualifiedNameFromText,
   )
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, modulesInPackage, resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), PackageId (..), ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, modulesInPackage, resolveWithDeps, unnamedPackage)
 import Aihc.Tc
   ( InstanceInfo,
     Pred (..),
+    TcBindingId (..),
     TcBindingResult (..),
     TcDiagnostic (..),
     TcErrorKind (..),
@@ -50,6 +51,7 @@ import Aihc.Tc
     renderPred,
     renderTcSignature,
     renderTcType,
+    tbName,
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleInstances,
@@ -82,7 +84,7 @@ import System.FilePath qualified as FilePath
 
 data ReplSession = ReplSession
   { replModuleExports :: !ModuleExports,
-    replImportedTerms :: ![(Text, TypeScheme)],
+    replImportedTerms :: ![(TcBindingId, TypeScheme)],
     replBindingTypes :: !(Map.Map Text (Map.Map Text TcType)),
     replImportedInstances :: ![InstanceInfo],
     replDependencyProgram :: !FcProgram,
@@ -465,13 +467,13 @@ dropWhileEnd predicate = reverse . dropWhile predicate . reverse
 
 data Interface = Interface
   { interfaceExports :: ModuleExports,
-    interfaceImportedTerms :: [(Text, TypeScheme)],
+    interfaceImportedTerms :: [(TcBindingId, TypeScheme)],
     interfaceBindingTypes :: Map.Map Text (Map.Map Text TcType)
   }
 
 data ReplBaseContext = ReplBaseContext
   { replBaseExports :: !ModuleExports,
-    replBaseImportedTerms :: ![(Text, TypeScheme)],
+    replBaseImportedTerms :: ![(TcBindingId, TypeScheme)],
     replBaseBindingTypes :: !(Map.Map Text (Map.Map Text TcType)),
     replBaseImportedInstances :: ![InstanceInfo],
     replBaseProgram :: !FcProgram
@@ -515,11 +517,11 @@ buildBaseContext modules =
     ResolveResult {resolveErrors} ->
       ioError (userError ("repl error: could not resolve bundled aihc-base Prelude: " <> show resolveErrors))
 
-bindingImportedTerm :: TcBindingResult -> (Text, TypeScheme)
+bindingImportedTerm :: TcBindingResult -> (TcBindingId, TypeScheme)
 bindingImportedTerm binding =
-  (tbName binding, tcTypeScheme (tbType binding))
+  (tbIdentity binding, tcTypeScheme (tbType binding))
 
-mergeImportedTerms :: [(Text, TypeScheme)] -> [(Text, TypeScheme)] -> [(Text, TypeScheme)]
+mergeImportedTerms :: [(TcBindingId, TypeScheme)] -> [(TcBindingId, TypeScheme)] -> [(TcBindingId, TypeScheme)]
 mergeImportedTerms preferred fallback =
   Map.toList (Map.fromList fallback <> Map.fromList preferred)
 
@@ -540,14 +542,14 @@ bindingTypesForModule =
     . map (\binding -> (normalizeImportedBindingName (tbName binding), tbType binding))
     . tcModuleBindings
 
-importedTermBindings :: [(Text, TypeScheme)] -> [TcBindingResult]
+importedTermBindings :: [(TcBindingId, TypeScheme)] -> [TcBindingResult]
 importedTermBindings terms =
   [ TcBindingResult
-      { tbName = name,
-        tbDisplayName = name,
+      { tbIdentity = identity,
+        tbDisplayName = tcBindingName identity,
         tbType = instantiateSchemeBody scheme
       }
-  | (name, scheme) <- terms
+  | (identity, scheme) <- terms
   ]
 
 instantiateSchemeBody :: TypeScheme -> TcType
@@ -693,11 +695,13 @@ loadInterface path = do
 parseInterface :: Aeson.Value -> AesonTypes.Parser Interface
 parseInterface =
   Aeson.withObject "package interface" $ \obj -> do
+    interfacePackage <- Package <$> obj .: "packageName" <*> (PackageId <$> obj .: "packageId")
     modules <- obj .: "modules"
     tcModules <- obj .:? "typecheck" .!= []
+    mapM_ (validateTcModule interfacePackage) tcModules
     pure
       Interface
-        { interfaceExports = Map.fromList [(ModuleKey unnamedPackage (interfaceModuleName modu), interfaceModuleScope modu) | modu <- modules],
+        { interfaceExports = Map.fromList [(ModuleKey interfacePackage (interfaceModuleName modu), interfaceModuleScope interfacePackage modu) | modu <- modules],
           interfaceImportedTerms = concatMap interfaceTcModuleTerms tcModules,
           interfaceBindingTypes =
             Map.fromList
@@ -705,6 +709,19 @@ parseInterface =
               | modu <- tcModules
               ]
         }
+
+validateTcModule :: Package -> InterfaceTcModule -> AesonTypes.Parser ()
+validateTcModule interfacePackage modu =
+  mapM_ validateBinding (interfaceTcModuleBindings modu)
+  where
+    expectedPackageId = packageIdText (packageId interfacePackage)
+    expectedModuleName = interfaceTcModuleName modu
+    validateBinding binding
+      | interfaceTcBindingPackageId binding /= expectedPackageId =
+          fail "typecheck binding packageId does not match the interface packageId"
+      | interfaceTcBindingModuleName binding /= expectedModuleName =
+          fail "typecheck binding originModule does not match its typecheck module"
+      | otherwise = pure ()
 
 data InterfaceTcModule = InterfaceTcModule
   { interfaceTcModuleName :: !Text,
@@ -714,6 +731,8 @@ data InterfaceTcModule = InterfaceTcModule
 
 data InterfaceTcBinding = InterfaceTcBinding
   { interfaceTcBindingName :: !Text,
+    interfaceTcBindingPackageId :: !Text,
+    interfaceTcBindingModuleName :: !Text,
     interfaceTcBindingType :: !(Maybe TcType)
   }
   deriving (Show)
@@ -730,32 +749,34 @@ instance Aeson.FromJSON InterfaceTcBinding where
     Aeson.withObject "typecheck binding" $ \obj ->
       InterfaceTcBinding
         <$> obj .: "name"
+        <*> obj .: "packageId"
+        <*> obj .: "originModule"
         <*> (obj .:? "typeJson" >>= traverse parseTcTypeJson)
 
-interfaceTcModuleTerms :: InterfaceTcModule -> [(Text, TypeScheme)]
+interfaceTcModuleTerms :: InterfaceTcModule -> [(TcBindingId, TypeScheme)]
 interfaceTcModuleTerms modu =
-  [ (normalizeImportedBindingName name, tcTypeScheme ty)
-  | InterfaceTcBinding name (Just ty) <- interfaceTcModuleBindings modu
+  [ (TcBindingId packageId moduleName (normalizeImportedBindingName name), tcTypeScheme ty)
+  | InterfaceTcBinding name packageId moduleName (Just ty) <- interfaceTcModuleBindings modu
   ]
 
 interfaceTcModuleBindingTypes :: InterfaceTcModule -> Map.Map Text TcType
 interfaceTcModuleBindingTypes modu =
   Map.fromList
     [ (normalizeImportedBindingName name, ty)
-    | InterfaceTcBinding name (Just ty) <- interfaceTcModuleBindings modu
+    | InterfaceTcBinding name _ _ (Just ty) <- interfaceTcModuleBindings modu
     ]
 
-interfaceModuleScope :: InterfaceModule -> Scope
-interfaceModuleScope modu =
+interfaceModuleScope :: Package -> InterfaceModule -> Scope
+interfaceModuleScope interfacePackage modu =
   Scope
     { scopeTerms =
         Map.fromList
-          [ (name, resolvedTopLevel (interfaceModuleName modu) name)
+          [ (name, resolvedTopLevel interfacePackage (interfaceModuleName modu) name)
           | name <- interfaceModuleTerms modu
           ],
       scopeTypes =
         Map.fromList
-          [ (name, resolvedTopLevel (interfaceModuleName modu) name)
+          [ (name, resolvedTopLevel interfacePackage (interfaceModuleName modu) name)
           | name <- interfaceModuleTypes modu
           ],
       scopeConstructors = interfaceModuleConstructors modu,
@@ -765,9 +786,9 @@ interfaceModuleScope modu =
       scopeQualifiedModules = Map.empty
     }
 
-resolvedTopLevel :: Text -> Text -> ResolvedName
-resolvedTopLevel moduleName name =
-  ResolvedTopLevel (packageId unnamedPackage) (qualifyName (Just moduleName) (unqualifiedNameFromText name))
+resolvedTopLevel :: Package -> Text -> Text -> ResolvedName
+resolvedTopLevel originPackage moduleName name =
+  ResolvedTopLevel (packageId originPackage) (qualifyName (Just moduleName) (unqualifiedNameFromText name))
 
 findInstalledBaseInterface :: FilePath -> IO FilePath
 findInstalledBaseInterface storeRoot = do
@@ -815,28 +836,32 @@ isBaseManifest candidate =
 
 ensurePreludeMvpScope :: ModuleExports -> ModuleExports
 ensurePreludeMvpScope exports =
-  Map.insert preludeKey preludeScope exports
+  if any ((== "Prelude") . moduleKeyName) (Map.keys exports)
+    then Map.mapWithKey addPreludeNames exports
+    else Map.insert unnamedPreludeKey (addNames unnamedPackage emptyScope) exports
   where
-    preludeKey = ModuleKey unnamedPackage "Prelude"
-    existing = Map.findWithDefault emptyScope preludeKey exports
-    preludeScope =
+    unnamedPreludeKey = ModuleKey unnamedPackage "Prelude"
+    addPreludeNames moduleKey scope
+      | moduleKeyName moduleKey == "Prelude" = addNames (moduleKeyPackage moduleKey) scope
+      | otherwise = scope
+    addNames originPackage existing =
       existing
         { scopeTerms =
             Map.fromList
-              [ ("++", resolvedTopLevel "Prelude" "++")
+              [ ("++", resolvedTopLevel originPackage "Prelude" "++")
               ]
               <> scopeTerms existing,
           scopeTypes =
             Map.fromList
-              [ ("Char", resolvedTopLevel "Prelude" "Char"),
-                ("String", resolvedTopLevel "Prelude" "String")
+              [ ("Char", resolvedTopLevel originPackage "Prelude" "Char"),
+                ("String", resolvedTopLevel originPackage "Prelude" "String")
               ]
               <> scopeTypes existing
         }
 
-ensurePreludeMvpTerms :: [(Text, TypeScheme)] -> [(Text, TypeScheme)]
+ensurePreludeMvpTerms :: [(TcBindingId, TypeScheme)] -> [(TcBindingId, TypeScheme)]
 ensurePreludeMvpTerms terms =
-  Map.toList (Map.fromList [("++", appendScheme)] <> Map.fromList terms)
+  Map.toList (Map.fromList [(TcBindingId "" "Prelude" "++", appendScheme)] <> Map.fromList terms)
 
 ensurePreludeMvpBindingTypes :: Map.Map Text (Map.Map Text TcType) -> Map.Map Text (Map.Map Text TcType)
 ensurePreludeMvpBindingTypes =

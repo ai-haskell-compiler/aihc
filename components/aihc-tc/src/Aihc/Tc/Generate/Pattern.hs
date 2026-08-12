@@ -28,7 +28,7 @@ import Aihc.Parser.Syntax
     peelPatternAnn,
   )
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
-import Aihc.Tc.Annotations (PendingTcAnnotation, pendingAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation, TcIntegerLiteralAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -174,6 +174,7 @@ isOverloadedIntegerLiteral lit =
 
 checkOverloadedIntegerPattern :: SourceSpan -> Pattern -> Bool -> TcType -> TcM PatternCheck
 checkOverloadedIntegerPattern sp pat isNegative scrutTy = do
+  integerConstructor <- uniqueGlobalTermId "IS"
   (fromIntegerPending, fromIntegerCts) <- checkPatternMethod sp pat "fromInteger" scrutTy (TcFunTy integerTy scrutTy)
   negateCheck <-
     if isNegative
@@ -185,7 +186,7 @@ checkOverloadedIntegerPattern sp pat isNegative scrutTy = do
         [("fromInteger", fromIntegerPending)]
           <> maybe [] (\(pending, _) -> [("negate", pending)]) negateCheck
           <> [("==", eqPending)]
-      pat' = foldr (uncurry attachPendingPatternAnnotation) pat methodAnnotations
+      pat' = PAnn (mkAnnotation (TcIntegerLiteralAnnotation integerConstructor)) (foldr (uncurry attachPendingPatternAnnotation) pat methodAnnotations)
       negateCts = maybe [] snd negateCheck
   pure
     PatternCheck

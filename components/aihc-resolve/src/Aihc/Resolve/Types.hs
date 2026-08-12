@@ -12,6 +12,7 @@ module Aihc.Resolve.Types
     ResolutionForm (..),
     PackageId (..),
     Package (..),
+    ModuleOrigin (..),
     unnamedPackage,
     modulesInPackage,
     ResolvedName (..),
@@ -45,6 +46,13 @@ newtype PackageId = PackageId {packageIdText :: Text}
 data Package = Package
   { packageName :: !Text,
     packageId :: !PackageId
+  }
+  deriving (Eq, Ord, Show)
+
+-- | The complete source identity of one resolved module.
+data ModuleOrigin = ModuleOrigin
+  { moduleOriginPackageId :: !PackageId,
+    moduleOriginName :: !Text
   }
   deriving (Eq, Ord, Show)
 

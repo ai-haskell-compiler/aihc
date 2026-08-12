@@ -306,7 +306,37 @@ lambdaTests =
 variableTests :: [TestTree]
 variableTests =
   [ testCase "unbound variable is rejected by resolver before TC" $ do
-      assertBool "resolver should reject unbound variable" (hasResolveErrors "module Test where\nx = undefined_var\n")
+      assertBool "resolver should reject unbound variable" (hasResolveErrors "module Test where\nx = undefined_var\n"),
+    testCase "global bindings keep package and module identities" $ do
+      let leftSource = parseOnly "module Left where\ndata LeftType = LeftValue\nvalue :: LeftType\nvalue = LeftValue\nuse = value\n"
+          rightSource = parseOnly "module Right where\ndata RightType = RightValue\nvalue :: RightType\nvalue = RightValue\nuse = value\n"
+          resolved =
+            Resolve.resolveWithDeps
+              mempty
+              [ (Resolve.Package "left" (Resolve.PackageId "left-id"), leftSource),
+                (Resolve.Package "right" (Resolve.PackageId "right-id"), rightSource)
+              ]
+      case resolved of
+        ResolveResult {resolvedModules = modules, resolveErrors = []} -> do
+          let (checkedModules, _) = typecheckModuleSccWithInterface mempty (map snd modules)
+              identities = concatMap (map tbIdentity . tcModuleBindings) checkedModules
+          assertBool ("modules should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedModules)) (all tcModuleSuccess checkedModules)
+          assertBool "left value identity" (TcBindingId "left-id" "Left" "value" `elem` identities)
+          assertBool "right value identity" (TcBindingId "right-id" "Right" "value" `elem` identities)
+        ResolveResult {resolveErrors} -> assertFailure ("modules should resolve, got: " <> show resolveErrors),
+    testCase "foreign-only modules keep package and module identities" $ do
+      let source =
+            parseOnlyWithExtensions
+              [ForeignFunctionInterface, MagicHash]
+              "{-# LANGUAGE ForeignFunctionInterface, MagicHash #-}\nmodule GHC.Prim.PtrEq where\nforeign import prim eqStableName# :: Int# -> Int#\n"
+          resolved = Resolve.resolveWithDeps mempty [(Resolve.Package "aihc-prim" (Resolve.PackageId "aihc-prim-id"), source)]
+      case resolved of
+        ResolveResult {resolvedModules = modules, resolveErrors = []} -> do
+          let (checkedModules, _) = typecheckModuleSccWithInterface mempty (map snd modules)
+              identities = concatMap (map tbIdentity . tcModuleBindings) checkedModules
+          assertBool ("module should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedModules)) (all tcModuleSuccess checkedModules)
+          assertBool "foreign binding identity" (TcBindingId "aihc-prim-id" "GHC.Prim.PtrEq" "eqStableName#" `elem` identities)
+        ResolveResult {resolveErrors} -> assertFailure ("module should resolve, got: " <> show resolveErrors)
   ]
 
 kindTests :: [TestTree]
@@ -492,8 +522,8 @@ kindTests =
         ResolveResult {resolvedModules = baseModules, resolveErrors = []} -> do
           let (checkedBase, interface) = typecheckModuleSccWithInterface mempty (map snd baseModules)
           assertBool "dependency should typecheck" (all tcModuleSuccess checkedBase)
-          assertBool "constructor term exported" ("Unit" `elem` map fst (tcInterfaceTerms interface))
-          assertBool "method term exported" ("identity" `elem` map fst (tcInterfaceTerms interface))
+          assertBool "constructor term exported" ("Unit" `elem` map (tcBindingName . fst) (tcInterfaceTerms interface))
+          assertBool "method term exported" ("identity" `elem` map (tcBindingName . fst) (tcInterfaceTerms interface))
           assertBool "type constructor exported" ("Unit" `elem` map tciName (tcInterfaceTyCons interface))
           assertBool "class exported" ("Identity" `elem` map ciName (tcInterfaceClasses interface))
           assertBool "instance exported" ("$fIdentityUnit" `elem` map iiDictName (tcInterfaceInstances interface))
@@ -677,7 +707,7 @@ annotationTests =
           let (checkedBase, interface) = typecheckModuleSccWithInterface mempty (map snd baseModules)
           assertBool ("provider should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedBase)) (all tcModuleSuccess checkedBase)
           assertBool "record selectors are emitted as term bindings" (all (`elem` concatMap (map tbName . tcModuleBindings) checkedBase) ["left", "right"])
-          assertBool "record selectors are exported through T(..)" (all (`elem` map fst (tcInterfaceTerms interface)) ["left", "right"])
+          assertBool "record selectors are exported through T(..)" (all (`elem` map (tcBindingName . fst) (tcInterfaceTerms interface)) ["left", "right"])
           assertEqual
             "interface serialization round-trip"
             (show interface)

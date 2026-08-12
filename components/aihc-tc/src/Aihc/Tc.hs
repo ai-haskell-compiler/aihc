@@ -31,6 +31,7 @@ module Aihc.Tc
     -- * Result types
     TcResult (..),
     TcBindingResult (..),
+    tbName,
     TcInterface (..),
     emptyTcInterface,
 
@@ -43,6 +44,8 @@ module Aihc.Tc
 
     -- * Re-exports for convenience
     TcType (..),
+    TcBindingId (..),
+    builtinBindingId,
     Kind (..),
     RuntimeRep (..),
     Levity (..),
@@ -118,7 +121,7 @@ import Aihc.Parser.Syntax
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType)
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
-import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
+import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tbName, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
@@ -130,7 +133,6 @@ import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.Data (Data, gmapM, gmapQ)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, maybeToList)
-import Data.Text (Text)
 import Data.Typeable (cast)
 
 -- | Result of type checking.
@@ -148,7 +150,7 @@ data TcResult = TcResult
 -- module groups. Implementations never cross this boundary: only the facts
 -- needed to type-check downstream source are retained.
 data TcInterface = TcInterface
-  { tcInterfaceTerms :: ![(Text, TypeScheme)],
+  { tcInterfaceTerms :: ![(TcBindingId, TypeScheme)],
     tcInterfaceTyCons :: ![TyConInfo],
     tcInterfaceDataTypes :: ![DataTypeInfo],
     tcInterfaceClasses :: ![ClassInfo],
@@ -252,12 +254,12 @@ typecheckModule =
   typecheckModuleWithEnv []
 
 -- | Type-check a single module with preloaded top-level term bindings.
-typecheckModuleWithEnv :: [(Text, TypeScheme)] -> Module -> Module
+typecheckModuleWithEnv :: [(TcBindingId, TypeScheme)] -> Module -> Module
 typecheckModuleWithEnv importedTerms =
   typecheckModuleWithEnvAndInstances importedTerms []
 
 -- | Type-check a single module with preloaded terms and class instances.
-typecheckModuleWithEnvAndInstances :: [(Text, TypeScheme)] -> [InstanceInfo] -> Module -> Module
+typecheckModuleWithEnvAndInstances :: [(TcBindingId, TypeScheme)] -> [InstanceInfo] -> Module -> Module
 typecheckModuleWithEnvAndInstances importedTerms importedInstances m =
   case typecheckModulesWithEnvAndInstances importedTerms importedInstances [m] of
     [result] -> result
@@ -268,12 +270,12 @@ typecheckModuleWithEnvAndInstances importedTerms importedInstances m =
 -- environment. This is intentionally pragmatic: callers that have already
 -- resolved a dependency-ordered module list can feed it here so later modules
 -- see earlier data constructors and value bindings.
-typecheckModulesWithEnv :: [(Text, TypeScheme)] -> [Module] -> [Module]
+typecheckModulesWithEnv :: [(TcBindingId, TypeScheme)] -> [Module] -> [Module]
 typecheckModulesWithEnv importedTerms =
   typecheckModulesWithEnvAndInstances importedTerms []
 
 -- | Type-check modules in order with preloaded terms and class instances.
-typecheckModulesWithEnvAndInstances :: [(Text, TypeScheme)] -> [InstanceInfo] -> [Module] -> [Module]
+typecheckModulesWithEnvAndInstances :: [(TcBindingId, TypeScheme)] -> [InstanceInfo] -> [Module] -> [Module]
 typecheckModulesWithEnvAndInstances importedTerms importedInstances =
   fst
     . typecheckModulesWithInterface
@@ -285,7 +287,7 @@ typecheckModulesWithEnvAndInstances importedTerms importedInstances =
 -- | Type-check modules with a complete imported type-checker interface and
 -- return the accumulated term schemes and type constructors for downstream
 -- modules.
-typecheckModulesWithFullEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo])
+typecheckModulesWithFullEnv :: [(TcBindingId, TypeScheme)] -> [TyConInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(TcBindingId, TypeScheme)], [TyConInfo])
 typecheckModulesWithFullEnv importedTerms importedTyCons importedInstances modules =
   let (checkedModules, interface) =
         typecheckModulesWithInterface
@@ -297,7 +299,7 @@ typecheckModulesWithFullEnv importedTerms importedTyCons importedInstances modul
           modules
    in (checkedModules, tcInterfaceTerms interface, tcInterfaceTyCons interface)
 
-typecheckModulesWithClassEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo], [ClassInfo])
+typecheckModulesWithClassEnv :: [(TcBindingId, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(TcBindingId, TypeScheme)], [TyConInfo], [ClassInfo])
 typecheckModulesWithClassEnv importedTerms importedTyCons importedClasses importedInstances modules =
   let (checkedModules, interface) =
         typecheckModulesWithInterface
@@ -328,7 +330,7 @@ typecheckModulesWithInterface imported modules =
 -- | Type-check the modules in one strongly connected import component as a
 -- single incremental unit. Only the supplied imported interface is visible;
 -- implementations from predecessor components are never consumed.
-typecheckModuleSccWithFullEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo])
+typecheckModuleSccWithFullEnv :: [(TcBindingId, TypeScheme)] -> [TyConInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(TcBindingId, TypeScheme)], [TyConInfo])
 typecheckModuleSccWithFullEnv importedTerms importedTyCons importedInstances modules =
   let (checkedModules, interface) =
         typecheckModuleSccWithInterface
@@ -340,7 +342,7 @@ typecheckModuleSccWithFullEnv importedTerms importedTyCons importedInstances mod
           modules
    in (checkedModules, tcInterfaceTerms interface, tcInterfaceTyCons interface)
 
-typecheckModuleSccWithClassEnv :: [(Text, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(Text, TypeScheme)], [TyConInfo], [ClassInfo])
+typecheckModuleSccWithClassEnv :: [(TcBindingId, TypeScheme)] -> [TyConInfo] -> [ClassInfo] -> [InstanceInfo] -> [Module] -> ([Module], [(TcBindingId, TypeScheme)], [TyConInfo], [ClassInfo])
 typecheckModuleSccWithClassEnv importedTerms importedTyCons importedClasses importedInstances modules =
   let (checkedModules, interface) =
         typecheckModuleSccWithInterface

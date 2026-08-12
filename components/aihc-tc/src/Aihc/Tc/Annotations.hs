@@ -10,6 +10,7 @@ module Aihc.Tc.Annotations
   ( -- * Annotation type
     TcAnnotation (..),
     TcForeignImportAnnotation (..),
+    TcIntegerLiteralAnnotation (..),
     TcForeignEffect (..),
     TcForeignMarshal (..),
     TcForeignAbiType (..),
@@ -55,7 +56,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Env (DataTypeInfo)
 import Aihc.Tc.Evidence (EvTerm, EvVar)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, isUnboxedTupleType)
+import Aihc.Tc.Types (Pred (..), TcBindingId, TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, isUnboxedTupleType)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -83,7 +84,13 @@ data TcAnnotation = TcAnnotation
 data TcForeignImportAnnotation = TcForeignImportAnnotation
   { tcForeignArguments :: ![TcForeignMarshal],
     tcForeignResult :: !TcForeignMarshal,
-    tcForeignEffect :: !TcForeignEffect
+    tcForeignEffect :: !TcForeignEffect,
+    tcForeignIoConstructor :: !(Maybe TcBindingId)
+  }
+  deriving (Eq, Show)
+
+newtype TcIntegerLiteralAnnotation = TcIntegerLiteralAnnotation
+  { tcIntegerConstructor :: TcBindingId
   }
   deriving (Eq, Show)
 
@@ -100,7 +107,7 @@ data TcForeignEffect
 data TcForeignMarshal = TcForeignMarshal
   { tcForeignSourceType :: !TcType,
     tcForeignPrimitiveType :: !TcType,
-    tcForeignConstructors :: ![Text],
+    tcForeignConstructors :: ![TcBindingId],
     tcForeignAbiType :: !TcForeignAbiType
   }
   deriving (Eq, Show)
