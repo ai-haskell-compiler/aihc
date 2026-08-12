@@ -10,7 +10,7 @@ category: Development
 synopsis: OutsideIn(X) type checker for parsed Haskell modules
 
 flag fuzz
-  description: Build the developer-only QuickCheck property registry
+  description: Build the developer-only Hedgehog property registry
   default: False
   manual: True
 
@@ -73,11 +73,11 @@ library fuzz
     Test.Tc.Properties
 
   build-depends:
-    QuickCheck,
     aihc-tc,
     base >=4.16 && <5,
+    hedgehog,
     tasty,
-    tasty-quickcheck,
+    tasty-hedgehog,
 
   ghc-options: -Wall
   default-language: GHC2021
@@ -106,10 +106,11 @@ test-suite spec
     containers,
     directory,
     filepath,
+    hedgehog,
     prettyprinter,
     tasty,
+    tasty-hedgehog,
     tasty-hunit,
-    tasty-quickcheck,
     text,
     yaml,
 

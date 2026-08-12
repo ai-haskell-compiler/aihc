@@ -6,7 +6,7 @@ Use `aihc-tc` tests for type inference, type-checker diagnostics, AST annotation
 
 - Use annotated golden fixtures when the user-visible contract is the type-checker overlay for one or more modules: inferred binding types, expression annotations, kind annotations, evidence annotations, or rendered type diagnostics.
 - Use unit tests when the behavior is an internal operation or precise API invariant such as unification, constraint solving, environment handling, diagnostic construction, annotation structure, or a focused expression/module result.
-- Use QuickCheck properties for algebraic type-checker invariants. Existing examples live in `components/aihc-tc/test/Test/Tc/Properties.hs`.
+- Use Hedgehog properties for algebraic type-checker invariants. Existing examples live in `components/aihc-tc/test/Test/Tc/Properties.hs`.
 
 Prefer annotated golden fixtures for source-level behavior because they exercise parse, resolve, type-check, and rendering in the same path used by downstream FC tests. Prefer unit tests for assertions that need direct access to `TcType`, `TcDiagnostic`, evidence terms, or helper APIs.
 

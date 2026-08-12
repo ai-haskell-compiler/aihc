@@ -1,11 +1,11 @@
 ---
 name: aihc-parser-debugging
-description: Debug `aihc-parser` parse, pretty-printer, paren-insertion, and QuickCheck round-trip failures using `aihc-dev snippet` to distinguish invalid generated code from parser regressions.
+description: Debug `aihc-parser` parse, pretty-printer, paren-insertion, and Hedgehog round-trip failures using `aihc-dev snippet` to distinguish invalid generated code from parser regressions.
 ---
 
 # AIHC Parser Debugging
 
-Use this when investigating `aihc-parser` failures from QuickCheck, oracle cases,
+Use this when you examine `aihc-parser` failures from Hedgehog, oracle cases,
 golden fixtures, hackage-tester, or hand-written snippets.
 
 ## First Principle
@@ -29,14 +29,14 @@ Use its classification to decide where the bug probably lives.
 
 ## Possible Bug Sources
 
-### QuickCheck Generator
+### Hedgehog Generator
 
 The generator builds ASTs; it is not proof that the pretty-printed source is
 valid Haskell. Some generated ASTs represent combinations GHC rejects.
 
 Example workflow:
 
-1. Copy the `Original source:` from the failing QuickCheck output.
+1. Copy the `Original source:` from the failing Hedgehog output.
 2. Run it through `aihc-dev snippet` with the same extensions as the property.
 3. If GHC rejects it and `aihc-parser` also rejects it, the generator may have
    produced an invalid case. Fix the generator or shrinker unless the property
@@ -128,7 +128,7 @@ Put oracle fixtures under
 
 ## Debugging Checklist
 
-1. Reproduce the failure exactly, including `--quickcheck-replay` when present.
+1. Reproduce the failure exactly, including `--hedgehog-replay` when present.
 2. Copy the smallest source into `aihc-dev snippet` with required `-X` flags.
 3. Classify the result:
    - GHC rejects, AIHC rejects: generator or invalid test input.
@@ -140,7 +140,6 @@ Put oracle fixtures under
 5. Add the narrowest regression:
    - Oracle fixture for GHC validity or parser compliance.
    - Golden fixture for AST-shape expectations only.
-   - QuickCheck generator/shrinker change when the property produces invalid
+   - Hedgehog generator or shrinker change when the property produces invalid
      ASTs.
 6. Rerun the targeted test, then `just fmt` and `just check` before committing.
-

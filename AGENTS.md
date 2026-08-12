@@ -93,9 +93,9 @@ Use these commands:
 
 - `just fmt` formats all Haskell files with Ormolu.
 - `just test` runs all tests and hides successful results.
-- `just replay "<seed>"` runs one QuickCheck case again.
-  Example: `just replay "(SMGen 6995563131902519991 12189532712049121349,3)"`.
-- `just qc` runs 10,000 QuickCheck tests in a continuous cycle until a test fails.
+- `just replay "<seed>"` runs one Hedgehog case again.
+  Example: `just replay "3:b2 Seed 10332913068362713902 1302058653756691475"`.
+- `just hedgehog` runs 10,000 Hedgehog tests in a continuous cycle until a test fails.
 - `just check` runs the Ormolu format check, HLint, and the full test suite.
 
 ## Branch Policy

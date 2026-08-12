@@ -10,7 +10,7 @@ category: Development
 synopsis: Strict graph-reduction intermediate language for AIHC
 
 flag fuzz
-  description: Build the developer-only QuickCheck property registry
+  description: Build the developer-only Hedgehog property registry
   default: False
   manual: True
 
@@ -62,12 +62,12 @@ library fuzz
     Test.Grin.Arbitrary
 
   build-depends:
-    QuickCheck,
     aihc-grin,
     aihc-tc,
     base >=4.16 && <5,
     bytestring,
-    tasty-quickcheck,
+    hedgehog,
+    tasty-hedgehog,
     text,
 
   ghc-options: -Wall
@@ -98,10 +98,11 @@ test-suite spec
     containers,
     directory,
     filepath,
+    hedgehog,
     libffi >=0.2 && <0.3,
     tasty,
+    tasty-hedgehog,
     tasty-hunit,
-    tasty-quickcheck,
     text,
     unix,
     yaml,

@@ -7,11 +7,12 @@ import Aihc.Parser.Syntax (Extension (..), ExtensionSetting (..))
 import Aihc.Parser.Token (LexToken (..), TokenOrigin, lexModuleTokensWithExtensions)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Hedgehog (Property, property, success)
 import Test.Fmt.CLI (cliTests)
 import Test.Fmt.Golden (goldenTests)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
-import Test.Tasty.QuickCheck qualified as QC
+import Test.Tasty.Hedgehog (testProperty)
 
 main :: IO ()
 main = do
@@ -25,11 +26,11 @@ main = do
         testCase "preserves unicode syntax tokens" test_preservesUnicodeSyntax,
         testCase "preserves explicit layout tokens" test_preservesExplicitLayout,
         testCase "fails closed on unalignable pretty tokens" test_failsClosedOnUnalignablePrettyTokens,
-        QC.testProperty "accepts shared QuickCheck options" prop_acceptsQuickCheckOptions
+        testProperty "accepts shared Hedgehog options" prop_acceptsHedgehogOptions
       ]
 
-prop_acceptsQuickCheckOptions :: () -> Bool
-prop_acceptsQuickCheckOptions () = True
+prop_acceptsHedgehogOptions :: Property
+prop_acceptsHedgehogOptions = property success
 
 test_preservesTokenStream :: IO ()
 test_preservesTokenStream = do

@@ -59,6 +59,7 @@ import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort, tails)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
+import Hedgehog (Property, property, success)
 import System.Console.Haskeline qualified as Haskeline
 import System.Directory
   ( Permissions (executable),
@@ -79,7 +80,7 @@ import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openTempFile)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import Test.Tasty.QuickCheck qualified as QC
+import Test.Tasty.Hedgehog (testProperty)
 
 main :: IO ()
 main =
@@ -360,11 +361,11 @@ main =
           testCase "dry run writes no scaffold artifacts" test_dryRunWritesNoScaffoldArtifacts,
           testCase "dry run planner does not generate source files" test_dryRunPlannerDoesNotGenerateSourceFiles
         ],
-      QC.testProperty "dummy quickcheck property" prop_dummy
+      testProperty "Hedgehog options" prop_dummy
     ]
 
-prop_dummy :: Bool
-prop_dummy = True
+prop_dummy :: Property
+prop_dummy = property success
 
 assertHelp :: ReplStep -> Assertion
 assertHelp (ReplContinue (Just output)) =

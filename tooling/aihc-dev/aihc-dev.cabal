@@ -47,12 +47,12 @@ library fuzz
     Aihc.Dev.Fuzz.TUI
 
   build-depends:
-    QuickCheck >=2.14 && <2.19,
     aihc-grin:fuzz,
     aihc-tc:fuzz,
     async >=2.2 && <2.3,
     base >=4.16 && <5,
     containers >=0.5 && <0.8,
+    hedgehog >=1.4 && <1.6,
     optparse-applicative >=0.16 && <0.19,
     stm >=2.5 && <2.6,
     terminal-size >=0.3.2 && <0.4,
@@ -149,12 +149,13 @@ test-suite spec
     deepseq,
     directory,
     filepath,
+    hedgehog,
     optparse-applicative >=0.16 && <0.19,
     prettyprinter,
     process >=1.6 && <1.8,
     tasty,
+    tasty-hedgehog,
     tasty-hunit,
-    tasty-quickcheck,
     text >=1.2.3 && <2.2,
     time,
     yaml >=0.11 && <0.12,

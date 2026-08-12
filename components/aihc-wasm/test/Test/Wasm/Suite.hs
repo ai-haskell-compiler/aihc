@@ -9,9 +9,11 @@ import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Aihc.Wasm (WasmError (..), compileModule, compileProgram, compileProgramWithDependencies, validatePrimitiveNames, validateProgramPrimitives)
 import Control.Monad (forM_)
 import Data.Text qualified as T
+import Hedgehog (forAll, property, (===))
+import Hedgehog.Gen qualified as Gen
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
-import Test.Tasty.QuickCheck (elements, forAll, testProperty)
+import Test.Tasty.Hedgehog (testProperty)
 
 tests :: TestTree
 tests =
@@ -34,9 +36,9 @@ tests =
       testCase "lowers MVar primitives through scheduler transfers" testMVarPrimitives,
       testCase "lowers native-width Int foreign calls" testForeignInt,
       testCase "lowers the Prelude Int primitive API" testIntPrimitives,
-      testProperty "accepts supported primitives" $
-        forAll (elements supportedPrimitives) $ \name ->
-          validatePrimitiveNames [name] == Right ()
+      testProperty "accepts supported primitives" . property $ do
+        name <- forAll (Gen.element supportedPrimitives)
+        validatePrimitiveNames [name] === Right ()
     ]
 
 testDirectModule :: IO ()

@@ -20,10 +20,11 @@ import Aihc.Testing.AnnotatedModule (renderAnnotatedModule)
 import Aihc.Testing.AnnotatedModule qualified as AnnotatedModule
 import Control.Exception (SomeException, evaluate, try)
 import Data.Text qualified as Text
+import Hedgehog (property, success)
 import Prettyprinter (Doc, hardline, pretty)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
-import Test.Tasty.QuickCheck (testProperty)
+import Test.Tasty.Hedgehog (testProperty)
 
 newtype TestAnnotation = TestAnnotation String
   deriving (Eq, Show)
@@ -44,7 +45,7 @@ main =
         testCase "throws on renderable annotation without span" testMissingSpan,
         testCase "renders source text without pretty-printing" testSourceTextRendering,
         testCase "throws on source/module count mismatch" testSourceModuleCountMismatch,
-        testProperty "accepts repository QuickCheck options" True
+        testProperty "accepts repository Hedgehog options" (property success)
       ]
 
 testGeneratedModuleSpans :: IO ()

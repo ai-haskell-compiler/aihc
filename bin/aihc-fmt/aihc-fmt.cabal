@@ -56,10 +56,11 @@ test-suite spec
     containers,
     directory,
     filepath,
+    hedgehog,
     process,
     tasty,
+    tasty-hedgehog,
     tasty-hunit,
-    tasty-quickcheck,
     text,
     yaml,
 

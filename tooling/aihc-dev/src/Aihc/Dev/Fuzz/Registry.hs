@@ -1,4 +1,4 @@
--- | Workspace-wide QuickCheck property registry.
+-- | Workspace-wide Hedgehog property registry.
 module Aihc.Dev.Fuzz.Registry
   ( FuzzProperty (..),
     fuzzProperties,
@@ -8,7 +8,7 @@ where
 
 import Aihc.Grin.Fuzz (grinFuzzProperties)
 import Aihc.Tc.Fuzz (tcFuzzProperties)
-import Test.QuickCheck (Property)
+import Hedgehog (Property)
 
 data FuzzProperty = FuzzProperty
   { fuzzPropertyComponent :: String,

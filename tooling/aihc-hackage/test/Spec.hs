@@ -15,12 +15,13 @@ import Data.List (isInfixOf, isSuffixOf, sort)
 import Data.Text qualified as T
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
+import Hedgehog (Property, property, success)
 import System.Directory (createDirectory, createDirectoryIfMissing, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath ((</>))
 import System.IO (hClose, openTempFile)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import Test.Tasty.QuickCheck qualified as QC
+import Test.Tasty.Hedgehog (testProperty)
 
 main :: IO ()
 main =
@@ -56,13 +57,12 @@ main =
       testCase "detects packages that default to Haskell98" test_detectsHaskell98DefaultLanguage,
       testCase "ignores inactive Haskell98 default-language branches" test_ignoresInactiveHaskell98DefaultLanguage,
       testCase "detects active custom preprocessor options" test_detectsCustomPreprocessorOptions,
-      QC.testProperty "dummy quickcheck property" prop_dummy
+      testProperty "Hedgehog options" prop_dummy
     ]
 
--- | Dummy QuickCheck property that always passes.
--- Added so that --quickcheck-tests flag is accepted by the test suite.
-prop_dummy :: Bool
-prop_dummy = True
+-- | Keep the repository Hedgehog options accepted by this test suite.
+prop_dummy :: Property
+prop_dummy = property success
 
 (@?=) :: (Eq a, Show a) => Either String a -> Either String a -> Assertion
 actual @?= expected =

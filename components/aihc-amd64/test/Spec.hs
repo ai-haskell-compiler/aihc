@@ -1,8 +1,9 @@
 module Main (main) where
 
+import Hedgehog (Property, property, success)
 import Test.Amd64.Suite (tests)
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.QuickCheck qualified as QC
+import Test.Tasty.Hedgehog (testProperty)
 
 main :: IO ()
 main =
@@ -10,10 +11,10 @@ main =
     ( testGroup
         "aihc-amd64"
         [ tests,
-          QC.testProperty "dummy quickcheck property" prop_dummy
+          testProperty "Hedgehog options" prop_dummy
         ]
     )
 
--- | Keep the workspace-wide QuickCheck controls accepted by this suite.
-prop_dummy :: Bool -> Bool
-prop_dummy _ = True
+-- | Keep the workspace-wide Hedgehog controls accepted by this suite.
+prop_dummy :: Property
+prop_dummy = property success
