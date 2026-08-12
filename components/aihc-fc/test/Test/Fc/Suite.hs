@@ -14,15 +14,18 @@ module Test.Fc.Suite
 where
 
 import Aihc.Fc
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsState (..), dsEvidence, withDicts)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax qualified as Surface
-import Aihc.Tc (Kind (KType), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
-import Aihc.Tc.Evidence (Coercion (..))
+import Aihc.Tc (Kind (KType), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc.Evidence (Coercion (..), EvTerm (..))
 import Aihc.Testing.EvalFixture qualified as EvalGolden
+import Control.Monad.Trans.State.Strict (runStateT)
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import FcGolden
@@ -69,7 +72,19 @@ fcDesugarTests =
             result = desugarModule parsedModule
         assertEqual "source parses" [] parseErrors
         assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
-        assertEqual "Core lint" [] (lintProgram emptyLintEnv (dsProgram result))
+        assertEqual "Core lint" [] (lintProgram emptyLintEnv (dsProgram result)),
+      testCase "keeps structurally different dictionary predicates separate" $ do
+        let firstType = TcTyCon (TyCon "A_B" 0) []
+            secondType = TcTyCon (TyCon "A" 1) [TcTyCon (TyCon "B" 0) []]
+            firstVar = Var "$first" (Unique 1) firstType
+            secondVar = Var "$second" (Unique 2) secondType
+            firstDict = ClassDict "C" [firstType] firstVar
+            secondDict = ClassDict "C" [secondType] secondVar
+            state = DsState 1000 "test" (Just "Test") Map.empty Map.empty Map.empty Map.empty Nothing
+            action = withDicts [firstDict, secondDict] (dsEvidence (EvGiven (ClassPred "C" [secondType])))
+        case runStateT action state of
+          Left err -> assertFailure err
+          Right (expression, _) -> assertEqual "selected dictionary" (FcVar secondVar) expression
     ]
   where
     declarationConstructors declaration =

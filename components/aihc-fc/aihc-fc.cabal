@@ -83,6 +83,7 @@ test-suite spec
     tasty-hedgehog,
     tasty-hunit,
     text,
+    transformers,
     unix,
     yaml,
 

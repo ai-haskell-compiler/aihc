@@ -79,6 +79,24 @@ import Data.Text qualified as T
 -- | Desugaring monad.
 type DsM = StateT DsState (Either String)
 
+type LocalBindingId = (Int, Text)
+
+data DictKey
+  = ExactDictKey !Text ![DictTypeKey]
+  | AlphaDictKey !Text ![DictTypeKey]
+  deriving (Eq, Ord, Show)
+
+data DictTypeKey
+  = DictTyVar !Text
+  | DictExactTyVar !Text !Int
+  | DictMetaVar !Int
+  | DictTyCon !Text ![DictTypeKey]
+  | DictFun !DictTypeKey !DictTypeKey
+  | DictApp !DictTypeKey !DictTypeKey
+  | DictForAll !DictTypeKey
+  | DictQualified !DictTypeKey
+  deriving (Eq, Ord, Show)
+
 -- | Desugaring state.
 data DsState = DsState
   { dsNextUnique :: !Int,
@@ -86,10 +104,10 @@ data DsState = DsState
     dsModuleName :: !(Maybe Text),
     -- | Map from surface name to its inferred type (from TC).
     dsTypeEnv :: !(Map TcBindingId TcType),
-    -- | Local variable bindings (pattern-bound, lambda-bound).
-    dsLocalVars :: !(Map Text Var),
-    -- | Local dictionaries, keyed by class predicate.
-    dsLocalDicts :: !(Map Text Var),
+    -- | Local variables, keyed by resolver identity.
+    dsLocalVars :: !(Map LocalBindingId Var),
+    -- | Local dictionaries, keyed by a structural class predicate.
+    dsLocalDicts :: !(Map DictKey Var),
     -- | Checked constructor fields, including source strictness.
     dsConstructorFields :: !(Map Text [DataConFieldInfo]),
     dsTupleConstructorOrigin :: !(Maybe FcSymbolOrigin)
@@ -139,12 +157,12 @@ bindingIdForOrigin maybeOrigin name =
       pure (TcBindingId (dsModulePackage st) (fromMaybe "Main" (dsModuleName st)) name)
 
 -- | Look up a local variable binding.
-lookupLocal :: Text -> DsM (Maybe Var)
-lookupLocal name =
-  Map.lookup name . dsLocalVars <$> get
+lookupLocal :: LocalBindingId -> DsM (Maybe Var)
+lookupLocal identity =
+  Map.lookup identity . dsLocalVars <$> get
 
 -- | Run an action with additional local variable bindings.
-withLocals :: [(Text, Var)] -> DsM a -> DsM a
+withLocals :: [(LocalBindingId, Var)] -> DsM a -> DsM a
 withLocals bindings action = do
   st <- get
   let oldLocals = dsLocalVars st
@@ -153,6 +171,26 @@ withLocals bindings action = do
   result <- action
   modify' (\s -> s {dsLocalVars = oldLocals})
   pure result
+
+withLocal :: UnqualifiedName -> Var -> DsM a -> DsM a
+withLocal name variable action = do
+  identity <- localBinderIdentity name
+  withLocals [(identity, variable)] action
+
+localBinderIdentity :: UnqualifiedName -> DsM LocalBindingId
+localBinderIdentity name =
+  case resolvedLocalIdentity name of
+    Just identity -> pure identity
+    Nothing -> desugarBug ("missing resolver identity for local binder: " <> T.unpack (unqualifiedNameText name))
+
+resolvedLocalIdentity :: UnqualifiedName -> Maybe LocalBindingId
+resolvedLocalIdentity name =
+  listToMaybe
+    [ (identity, unqualifiedNameText target)
+    | resolution <- mapMaybe fromAnnotation (unqualifiedNameAnns name),
+      resolutionNamespace resolution == ResolutionNamespaceTerm,
+      ResolvedLocal identity target <- [resolutionTarget resolution]
+    ]
 
 withDicts :: [ClassDict] -> DsM a -> DsM a
 withDicts dicts action = do
@@ -168,8 +206,8 @@ withDicts dicts action = do
       let className = classDictName dictionary
           arguments = classDictArgs dictionary
           variable = classDictVar dictionary
-          withFallback = Map.insertWith (\_ existing -> existing) (dictKey className arguments) variable environment
-       in Map.insert (exactDictKey className arguments) variable withFallback
+          withAlpha = Map.insertWith (\_ existing -> existing) (alphaDictionaryKey className arguments) variable environment
+       in Map.insert (exactDictionaryKey className arguments) variable withAlpha
 
 -- | Desugar a list of match equations into a Core expression.
 --
@@ -287,8 +325,8 @@ buildCaseChain scrutVars@(scrutVar : restVars) resTy matches
   | allVarPatterns matches = do
       -- Variable patterns: bind each pattern variable name to the
       -- scrutinee Var, then recurse.
-      let bindings = extractVarBindings scrutVar matches
-          innerMatches = map dropFirstPat matches
+      bindings <- extractVarBindings scrutVar matches
+      let innerMatches = map dropFirstPat matches
       withLocals bindings (buildCaseChain restVars resTy innerMatches)
   | otherwise = do
       -- Build one case alternative per first-pattern constructor. Equations
@@ -348,14 +386,14 @@ dsMatchPattern :: Var -> Pattern -> DsM FcExpr -> FcExpr -> DsM FcExpr
 dsMatchPattern scrutVar pat success failure =
   case peelPatternAnn pat of
     PVar name ->
-      withLocals [(unqualifiedNameText name, scrutVar)] success
+      withLocal name scrutVar success
     PWildcard -> success
     PParen inner -> dsMatchPattern scrutVar inner success failure
     PAs name inner ->
-      withLocals [(unqualifiedNameText name, scrutVar)] (dsMatchPattern scrutVar inner success failure)
+      withLocal name scrutVar (dsMatchPattern scrutVar inner success failure)
     PStrict inner -> dsMatchPattern scrutVar inner success failure
     PIrrefutable inner ->
-      withLocals (irrefutablePatternBindings scrutVar inner) success
+      irrefutablePatternBindings scrutVar inner >>= (`withLocals` success)
     PTypeSig inner _ -> dsMatchPattern scrutVar inner success failure
     _
       | isOverloadedIntegerPattern pat ->
@@ -414,16 +452,18 @@ dsBoxedCharPatternMatch scrutVar char success failure = do
         ]
     )
 
-irrefutablePatternBindings :: Var -> Pattern -> [(Text, Var)]
+irrefutablePatternBindings :: Var -> Pattern -> DsM [(LocalBindingId, Var)]
 irrefutablePatternBindings scrutVar pat =
   case peelPatternAnn pat of
-    PVar name -> [(unqualifiedNameText name, scrutVar)]
+    PVar name -> (: []) . (,scrutVar) <$> localBinderIdentity name
     PParen inner -> irrefutablePatternBindings scrutVar inner
-    PAs name inner -> (unqualifiedNameText name, scrutVar) : irrefutablePatternBindings scrutVar inner
+    PAs name inner -> do
+      identity <- localBinderIdentity name
+      ((identity, scrutVar) :) <$> irrefutablePatternBindings scrutVar inner
     PStrict inner -> irrefutablePatternBindings scrutVar inner
     PIrrefutable inner -> irrefutablePatternBindings scrutVar inner
     PTypeSig inner _ -> irrefutablePatternBindings scrutVar inner
-    _ -> []
+    _ -> pure []
 
 dsOrdinaryPatternMatch :: Var -> Pattern -> DsM FcExpr -> FcExpr -> DsM FcExpr
 dsOrdinaryPatternMatch scrutVar pat success failure = do
@@ -464,16 +504,16 @@ noPatternMatch [] =
 
 -- | Extract variable bindings from the first pattern of each match,
 -- mapping the pattern variable name to the scrutinee Var.
-extractVarBindings :: Var -> [Match] -> [(Text, Var)]
-extractVarBindings scrutVar = concatMap go
+extractVarBindings :: Var -> [Match] -> DsM [(LocalBindingId, Var)]
+extractVarBindings scrutVar matches = concat <$> mapM go matches
   where
     go m = case matchPats m of
       (p : _) -> extractName p
-      _ -> []
-    extractName (PVar uname) = [(unqualifiedNameText uname, scrutVar)]
+      _ -> pure []
+    extractName (PVar uname) = (: []) . (,scrutVar) <$> localBinderIdentity uname
     extractName (PAnn _ inner) = extractName inner
     extractName (PParen inner) = extractName inner
-    extractName _ = []
+    extractName _ = pure []
 
 -- | Check if all first patterns in the matches are variables or wildcards.
 allVarPatterns :: [Match] -> Bool
@@ -567,7 +607,7 @@ dsExpr (EVar name) = do
       resolvedName = resolvedOccurrenceName name
       resolvedOrigin = resolvedOccurrenceOrigin name
   -- Check local bindings first (pattern/lambda variables).
-  mLocal <- lookupLocalName resolvedName
+  mLocal <- lookupLocalName name
   case mLocal of
     Just v -> pure (FcVar v)
     Nothing -> do
@@ -614,7 +654,7 @@ dsAnnotatedVar tcAnn name _expr = do
   let n = nameText name
       resolvedName = resolvedOccurrenceName name
       resolvedOrigin = resolvedOccurrenceOrigin name
-  mLocal <- lookupLocalName resolvedName
+  mLocal <- lookupLocalName name
   variable <-
     case mLocal of
       Just local -> pure local
@@ -767,8 +807,9 @@ dsDoPatternContinuation :: Pattern -> [DoStmt Expr] -> DsM FcExpr
 dsDoPatternContinuation pat rest = do
   argTy <- lambdaPatternTypeRequired pat
   arg <- freshInternalVar "_do" argTy
+  directBindings <- directPatternBindings pat arg
   body <-
-    case directPatternBindings pat arg of
+    case directBindings of
       Just bindings -> withLocals bindings (dsDo rest)
       Nothing -> do
         failure <- noPatternMatch [arg]
@@ -1019,32 +1060,32 @@ dsPatternMatchResult :: Var -> Pattern -> DsM FcExpr -> CaseMatchResult
 dsPatternMatchResult scrutVar pattern' success =
   case peelPatternAnn pattern' of
     PVar name ->
-      CaseMatchInfallible (withLocals [(unqualifiedNameText name, scrutVar)] success)
+      CaseMatchInfallible (withLocal name scrutVar success)
     PWildcard -> CaseMatchInfallible success
     PParen inner -> dsPatternMatchResult scrutVar inner success
     PAs name inner ->
-      withCaseMatchLocals [(unqualifiedNameText name, scrutVar)] (dsPatternMatchResult scrutVar inner success)
+      withCaseMatchLocal name scrutVar (dsPatternMatchResult scrutVar inner success)
     PStrict inner ->
       adjustCaseMatchResult (forceCaseScrutinee scrutVar) (dsPatternMatchResult scrutVar inner success)
     PIrrefutable inner ->
-      CaseMatchInfallible (withLocals (irrefutablePatternBindings scrutVar inner) success)
+      CaseMatchInfallible $ do
+        bindings <- irrefutablePatternBindings scrutVar inner
+        withLocals bindings success
     PTypeSig inner _ -> dsPatternMatchResult scrutVar inner success
     _ ->
       CaseMatchFallible $ \failureAction -> do
         failure <- failureAction
         dsMatchPattern scrutVar pattern' success failure
 
-withCaseMatchLocals :: [(Text, Var)] -> CaseMatchResult -> CaseMatchResult
-withCaseMatchLocals bindings matchResult =
+withCaseMatchLocal :: UnqualifiedName -> Var -> CaseMatchResult -> CaseMatchResult
+withCaseMatchLocal name variable matchResult =
   case matchResult of
-    CaseMatchInfallible body -> CaseMatchInfallible (withLocals bindings body)
+    CaseMatchInfallible body -> CaseMatchInfallible (withLocal name variable body)
     CaseMatchFallible build ->
       CaseMatchFallible $ \failureAction -> do
-        -- Pattern binders scope over this alternative only. Build the next
-        -- alternative before extending the desugaring environment so a failed
-        -- as-pattern cannot capture names in its fall-through path.
+        -- Build the next alternative before this binder enters the scope.
         failure <- failureAction
-        withLocals bindings (build (pure failure))
+        withLocal name variable (build (pure failure))
 
 adjustCaseMatchResult :: (FcExpr -> DsM FcExpr) -> CaseMatchResult -> CaseMatchResult
 adjustCaseMatchResult adjust matchResult =
@@ -1172,9 +1213,9 @@ patternOccurrence target =
 dsLetDecls :: [Decl] -> DsM FcExpr -> DsM FcExpr
 dsLetDecls decls bodyAction = do
   groups <- groupLocalDecls decls
-  let names = map localGroupName groups
+  let identities = map localGroupIdentity groups
       vars = map localGroupBinder groups
-  let localBindings = zip names vars
+  let localBindings = zip identities vars
   withLocals localBindings $ do
     rhsBindings <- zipWithM dsLocalGroup vars groups
     body <- bodyAction
@@ -1184,48 +1225,49 @@ dsLetDecls decls bodyAction = do
         else FcLet (FcRec rhsBindings) body
 
 data LocalDeclGroup
-  = LocalFunction !Text !Var ![Match]
-  | LocalPattern !Text !Var !(Rhs Expr)
+  = LocalFunction !LocalBindingId !Text !Var ![Match]
+  | LocalPattern !LocalBindingId !Text !Var !(Rhs Expr)
 
-localGroupName :: LocalDeclGroup -> Text
-localGroupName group =
+localGroupIdentity :: LocalDeclGroup -> LocalBindingId
+localGroupIdentity group =
   case group of
-    LocalFunction name _ _ -> name
-    LocalPattern name _ _ -> name
+    LocalFunction identity _ _ _ -> identity
+    LocalPattern identity _ _ _ -> identity
 
 localGroupBinder :: LocalDeclGroup -> Var
 localGroupBinder group =
   case group of
-    LocalFunction _ var _ -> var
-    LocalPattern _ var _ -> var
+    LocalFunction _ _ var _ -> var
+    LocalPattern _ _ var _ -> var
 
 groupLocalDecls :: [Decl] -> DsM [LocalDeclGroup]
 groupLocalDecls [] = pure []
 groupLocalDecls (decl : rest) = do
   maybeFun <- extractLocalFunction decl
   case maybeFun of
-    Just (name, var, matches) -> do
+    Just (identity, name, var, matches) -> do
       let (sameNameDecls, rest') = span (hasSameLocalFunctionName name) rest
       sameGroups <- mapM extractLocalFunctionRequired sameNameDecls
-      let allMatches = matches ++ concatMap (\(_, _, ms) -> ms) sameGroups
+      let allMatches = matches ++ concatMap (\(_, _, _, ms) -> ms) sameGroups
       restGroups <- groupLocalDecls rest'
-      pure (LocalFunction name var allMatches : restGroups)
+      pure (LocalFunction identity name var allMatches : restGroups)
     Nothing -> do
       maybePattern <- extractLocalPattern decl
       restGroups <- groupLocalDecls rest
       pure (maybe restGroups (: restGroups) maybePattern)
 
-extractLocalFunction :: Decl -> DsM (Maybe (Text, Var, [Match]))
+extractLocalFunction :: Decl -> DsM (Maybe (LocalBindingId, Text, Var, [Match]))
 extractLocalFunction decl =
   case peelDeclAnn decl of
     DeclValue (FunctionBind name matches) -> do
       let localName = unqualifiedNameText name
+      identity <- localBinderIdentity name
       ty <- localDeclTypeRequired localName decl
       var <- freshVar localName ty
-      pure (Just (localName, var, matches))
+      pure (Just (identity, localName, var, matches))
     _ -> pure Nothing
 
-extractLocalFunctionRequired :: Decl -> DsM (Text, Var, [Match])
+extractLocalFunctionRequired :: Decl -> DsM (LocalBindingId, Text, Var, [Match])
 extractLocalFunctionRequired decl = do
   maybeFun <- extractLocalFunction decl
   case maybeFun of
@@ -1244,9 +1286,10 @@ extractLocalPattern decl =
     DeclValue (PatternBind _ pat rhs) ->
       case barePatternName pat of
         Just name -> do
+          identity <- localPatternBinderIdentity pat
           ty <- localDeclTypeRequired name decl
           var <- freshVar name ty
-          pure (Just (LocalPattern name var rhs))
+          pure (Just (LocalPattern identity name var rhs))
         Nothing -> pure Nothing
     _ -> pure Nothing
 
@@ -1257,6 +1300,14 @@ barePatternName pat =
     PAnn _ inner -> barePatternName inner
     PParen inner -> barePatternName inner
     _ -> Nothing
+
+localPatternBinderIdentity :: Pattern -> DsM LocalBindingId
+localPatternBinderIdentity pattern' =
+  case pattern' of
+    PVar name -> localBinderIdentity name
+    PAnn _ inner -> localPatternBinderIdentity inner
+    PParen inner -> localPatternBinderIdentity inner
+    _ -> desugarBug "local pattern binding has no resolver identity"
 
 localDeclTypeRequired :: Text -> Decl -> DsM TcType
 localDeclTypeRequired name decl =
@@ -1276,10 +1327,10 @@ localDeclType decl =
 dsLocalGroup :: Var -> LocalDeclGroup -> DsM (Var, FcExpr)
 dsLocalGroup var group =
   case group of
-    LocalFunction _ _ matches -> do
+    LocalFunction _ _ _ matches -> do
       rhs <- dsMatches (varType var) matches
       pure (var, rhs)
-    LocalPattern _ _ rhs -> do
+    LocalPattern _ _ _ rhs -> do
       rhs' <- dsRhs rhs
       pure (var, rhs')
 
@@ -1376,8 +1427,9 @@ dsCompGen elemTy body pat src rest tailExpr = do
   pure (FcLet (FcRec [(worker, workerBody)]) (FcApp (FcVar worker) src'))
 
 dsCompGenMatch :: TcType -> Expr -> Pattern -> [CompStmt] -> Var -> FcExpr -> DsM FcExpr
-dsCompGenMatch elemTy body pat rest headVar skipExpr =
-  case directPatternBindings pat headVar of
+dsCompGenMatch elemTy body pat rest headVar skipExpr = do
+  directBindings <- directPatternBindings pat headVar
+  case directBindings of
     Just bindings ->
       withLocals bindings (dsCompQuals elemTy body rest skipExpr)
     Nothing -> do
@@ -1388,8 +1440,9 @@ dsCompGenMatch elemTy body pat rest headVar skipExpr =
         _ -> do
           binderTys <- patternBinderTypesM pat (varType headVar)
           binders <- zipWithM freshVar binderNames binderTys
+          localBindings <- immediatePatternBindings (constructorSubpatterns pat) binders
           (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
-          matched <- withDicts dictionaries (withLocals (zip binderNames binders) (dsCompQuals elemTy body rest skipExpr))
+          matched <- withDicts dictionaries (withLocals localBindings (dsCompQuals elemTy body rest skipExpr))
           caseBinder <- freshInternalVar "_lc_match" (varType headVar)
           pure
             ( FcCase
@@ -1400,23 +1453,30 @@ dsCompGenMatch elemTy body pat rest headVar skipExpr =
                 ]
             )
 
-directPatternBindings :: Pattern -> Var -> Maybe [(Text, Var)]
+directPatternBindings :: Pattern -> Var -> DsM (Maybe [(LocalBindingId, Var)])
 directPatternBindings pat var =
   case pat of
-    PVar name -> Just [(unqualifiedNameText name, var)]
-    PWildcard -> Just []
+    PVar name -> Just . (: []) . (,var) <$> localBinderIdentity name
+    PWildcard -> pure (Just [])
     PAnn _ inner -> directPatternBindings inner var
     PParen inner -> directPatternBindings inner var
-    PAs name inner -> ((unqualifiedNameText name, var) :) <$> directPatternBindings inner var
+    PAs name inner -> do
+      identity <- localBinderIdentity name
+      fmap ((identity, var) :) <$> directPatternBindings inner var
     PStrict inner -> directPatternBindings inner var
-    _ -> Nothing
+    _ -> pure Nothing
+
+immediatePatternBindings :: [Pattern] -> [Var] -> DsM [(LocalBindingId, Var)]
+immediatePatternBindings patterns variables =
+  concatMap (fromMaybe []) <$> zipWithM directPatternBindings patterns variables
 
 dsLambda :: [Pattern] -> Expr -> DsM FcExpr
 dsLambda pats body = do
   argTys <- mapM lambdaPatternTypeRequired pats
   vars <- zipWithM freshInternalVar (map lambdaArgName pats) argTys
+  directBindings <- zipWithM directPatternBindings pats vars
   body' <-
-    case traverse (uncurry directPatternBindings) (zip pats vars) of
+    case sequence directBindings of
       Nothing -> do
         failure <- noPatternMatch vars
         dsMatchPatterns vars pats (dsExpr body) failure
@@ -1588,10 +1648,10 @@ dsEvidence evidence =
   case evidence of
     EvGiven (ClassPred className args) -> do
       st <- get
-      case Map.lookup (exactDictKey className args) (dsLocalDicts st) <|> Map.lookup (dictKey className args) (dsLocalDicts st) of
+      case Map.lookup (exactDictionaryKey className args) (dsLocalDicts st) <|> Map.lookup (alphaDictionaryKey className args) (dsLocalDicts st) of
         Just var -> pure (FcVar var)
         Nothing ->
-          desugarBug ("missing local dictionary for " <> T.unpack (dictKey className args))
+          desugarBug ("missing local dictionary for " <> show (ClassPred className args))
     EvGiven EqPred {} ->
       unitConstructor
     EvDict dictOrigin dictName typeArgs contextEvidence -> do
@@ -1887,40 +1947,38 @@ fcExprTypeM expr =
     FcCallForeign foreignCall _arguments ->
       pure (fcForeignCallResultType (fcForeignCallSignature foreignCall))
 
-dictKey :: Text -> [TcType] -> Text
-dictKey className args = className <> ":" <> T.intercalate "," (map typeKey args)
+exactDictionaryKey :: Text -> [TcType] -> DictKey
+exactDictionaryKey className arguments =
+  ExactDictKey className (map exactDictionaryTypeKey arguments)
 
-exactDictKey :: Text -> [TcType] -> Text
-exactDictKey className args = className <> ":exact:" <> T.intercalate "," (map exactTypeKey args)
+alphaDictionaryKey :: Text -> [TcType] -> DictKey
+alphaDictionaryKey className arguments =
+  AlphaDictKey className (map alphaDictionaryTypeKey arguments)
 
-exactTypeKey :: TcType -> Text
-exactTypeKey ty =
+exactDictionaryTypeKey :: TcType -> DictTypeKey
+exactDictionaryTypeKey ty =
   case ty of
-    TcTyVar tv -> tvName tv <> "#" <> T.pack (show (uniqueInt (tvUnique tv)))
-    TcMetaTv (Unique unique) -> "?" <> T.pack (show unique)
-    TcTyCon tc [] -> tyConName tc
-    TcTyCon (TyCon "[]" _) [elementType] -> "[" <> exactTypeKey elementType <> "]"
-    TcTyCon tc arguments -> tyConName tc <> T.concat (map (("_" <>) . exactTypeKey) arguments)
-    TcAppTy function argument -> exactTypeKey function <> "_" <> exactTypeKey argument
-    TcFunTy argument result -> exactTypeKey argument <> "->" <> exactTypeKey result
-    TcForAllTy _ body -> exactTypeKey body
-    TcQualTy _ body -> exactTypeKey body
+    TcTyVar typeVariable -> DictExactTyVar (tvName typeVariable) (uniqueValue (tvUnique typeVariable))
+    TcMetaTv (Unique unique) -> DictMetaVar unique
+    TcTyCon typeConstructor arguments -> DictTyCon (tyConName typeConstructor) (map exactDictionaryTypeKey arguments)
+    TcFunTy argument result -> DictFun (exactDictionaryTypeKey argument) (exactDictionaryTypeKey result)
+    TcAppTy function argument -> DictApp (exactDictionaryTypeKey function) (exactDictionaryTypeKey argument)
+    TcForAllTy _ body -> DictForAll (exactDictionaryTypeKey body)
+    TcQualTy _ body -> DictQualified (exactDictionaryTypeKey body)
 
-uniqueInt :: Unique -> Int
-uniqueInt (Unique unique) = unique
-
-typeKey :: TcType -> Text
-typeKey ty =
+alphaDictionaryTypeKey :: TcType -> DictTypeKey
+alphaDictionaryTypeKey ty =
   case ty of
-    TcTyVar tv -> tvName tv
-    TcMetaTv (Unique u) -> "?" <> T.pack (show u)
-    TcTyCon tc [] -> tyConName tc
-    TcTyCon (TyCon "[]" _) [elemTy] -> "[" <> typeKey elemTy <> "]"
-    TcTyCon tc args -> tyConName tc <> T.concat (map (("_" <>) . typeKey) args)
-    TcAppTy f a -> typeKey f <> "_" <> typeKey a
-    TcFunTy a b -> typeKey a <> "->" <> typeKey b
-    TcForAllTy _ body -> typeKey body
-    TcQualTy _ body -> typeKey body
+    TcTyVar typeVariable -> DictTyVar (tvName typeVariable)
+    TcMetaTv (Unique unique) -> DictMetaVar unique
+    TcTyCon typeConstructor arguments -> DictTyCon (tyConName typeConstructor) (map alphaDictionaryTypeKey arguments)
+    TcFunTy argument result -> DictFun (alphaDictionaryTypeKey argument) (alphaDictionaryTypeKey result)
+    TcAppTy function argument -> DictApp (alphaDictionaryTypeKey function) (alphaDictionaryTypeKey argument)
+    TcForAllTy _ body -> DictForAll (alphaDictionaryTypeKey body)
+    TcQualTy _ body -> DictQualified (alphaDictionaryTypeKey body)
+
+uniqueValue :: Unique -> Int
+uniqueValue (Unique value) = value
 
 boolTy :: TcType
 boolTy = TcTyCon (TyCon "Bool" 0) []
@@ -1938,13 +1996,10 @@ nameToText n = case nameQualifier n of
   Just q -> q <> "." <> nameText n
 
 lookupLocalName :: Name -> DsM (Maybe Var)
-lookupLocalName name = do
-  currentModule <- gets dsModuleName
-  case nameQualifier name of
-    Nothing -> lookupLocal (nameText name)
-    Just qualifier
-      | Just qualifier == currentModule -> lookupLocal (nameText name)
-      | otherwise -> lookupLocal (nameToText name)
+lookupLocalName name =
+  case listToMaybe [(identity, unqualifiedNameText target) | resolution <- mapMaybe fromAnnotation (nameAnns name), resolutionNamespace resolution == ResolutionNamespaceTerm, ResolvedLocal identity target <- [resolutionTarget resolution]] of
+    Just identity -> lookupLocal identity
+    Nothing -> pure Nothing
 
 lookupTypeName :: Name -> DsM TcType
 lookupTypeName name = do
