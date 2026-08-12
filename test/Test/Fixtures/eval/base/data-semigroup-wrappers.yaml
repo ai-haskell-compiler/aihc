@@ -1,0 +1,39 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Semigroup
+
+    combinedMin :: Min Int
+    combinedMin = Min 7 <> Min 3
+
+    combinedMax :: Max Int
+    combinedMax = Max 7 <> Max 3
+
+    combinedArg :: Min (Arg Int Bool)
+    combinedArg = Min (Arg 1 False) <> Min (Arg 1 True)
+
+    combinedFirst :: First Bool
+    combinedFirst = First False <> First True
+
+    combinedLast :: Last Bool
+    combinedLast = Last False <> Last True
+
+    wrappersWork :: Bool
+    wrappersWork =
+      getMin combinedMin == 3
+        && getMax combinedMax == 7
+        && getFirst combinedFirst == False
+        && getLast combinedLast == True
+        && unwrapMonoid (WrapMonoid [True] <> WrapMonoid [False]) == [True, False]
+        && argValue (getMin combinedArg) == False
+
+    argValue :: Arg a b -> b
+    argValue (Arg _ value) = value
+output: "True"
+expression: wrappersWork
+status: pass
+reason: Data.Semigroup provides the deepseq wrapper types and their semigroup behavior
