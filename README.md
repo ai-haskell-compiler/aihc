@@ -32,14 +32,14 @@ Find more information here:
 |--------------|--------|---------|---------|
 | aihc-amd64   |   2171 |     833 |    3004 |
 | aihc-arm64   |   2062 |     920 |    2982 |
-| aihc-fc      |   7648 |    2425 |   10073 |
-| aihc-grin    |   5857 |    2788 |    8645 |
+| aihc-fc      |   7863 |    2426 |   10289 |
+| aihc-grin    |   5896 |    2808 |    8704 |
 | aihc-llvm    |   1900 |     505 |    2405 |
 | aihc-native  |   3404 |     471 |    3875 |
-| aihc-resolve |   2504 |    1763 |    4267 |
-| aihc-tc      |   8946 |    3442 |   12388 |
+| aihc-resolve |   2546 |    1766 |    4312 |
+| aihc-tc      |   9067 |    3442 |   12509 |
 | aihc-wasm    |   2160 |     720 |    2880 |
-| **Total**    |  36652 |   13867 |   50519 |
+| **Total**    |  37069 |   13891 |   50960 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
