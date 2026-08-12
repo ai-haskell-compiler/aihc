@@ -34,12 +34,15 @@ module Aihc.Tc.Monad
     lookupEvidence,
 
     -- * Environment
+    TcConfig,
+    tcConfig,
     TcEnv (..),
     TcBinder (..),
     TcTermKey (..),
     unqualifiedTermKey,
     Closedness (..),
     emptyTcEnv,
+    mkKnownTyCon,
     lookupTerm,
     lookupResolvedTerm,
     resolvedTermKey,
@@ -130,7 +133,8 @@ tcAbortMessage (TcAbort msg) = msg
 
 -- | The local typing environment (read-only within a scope).
 data TcEnv = TcEnv
-  { -- | Local term bindings in scope.
+  { tcEnvConfig :: !TcConfig,
+    -- | Local term bindings in scope.
     --
     -- The keys come from @aihc-resolve@'s 'ResolvedLocal' identifiers, not
     -- from source text. This lets TC preserve lexical identity without doing
@@ -144,6 +148,17 @@ data TcEnv = TcEnv
     tcEnvTcLevel :: !TcLevel
   }
   deriving (Show)
+
+newtype TcConfig = TcConfig PackageId
+  deriving (Show)
+
+tcConfig :: PackageId -> TcConfig
+tcConfig = TcConfig
+
+mkKnownTyCon :: Text -> Text -> Int -> Kind -> TcM TyCon
+mkKnownTyCon moduleName name arity kind = do
+  TcConfig packageIdentity <- asks tcEnvConfig
+  pure (mkTyConWithOrigin packageIdentity moduleName name arity kind)
 
 -- | Whether a polymorphic binding is known to have no free type variables.
 data Closedness
@@ -171,7 +186,8 @@ unqualifiedTermKey = TcTermGlobal (PackageId "") ""
 emptyTcEnv :: TcEnv
 emptyTcEnv =
   TcEnv
-    { tcEnvTerms = Map.empty,
+    { tcEnvConfig = tcConfig (PackageId "aihc-prim"),
+      tcEnvTerms = Map.empty,
       tcEnvMonoLocalBinds = True,
       tcEnvMonomorphismRestriction = True,
       tcEnvTcLevel = topTcLevel
@@ -438,13 +454,15 @@ termResolution =
 
 lookupTyCon :: Text -> TcM (Maybe TyConInfo)
 lookupTyCon name =
-  lift $ gets $ find ((== name) . tciName) . Map.elems . tcsGlobalTyCons
+  lift $ gets $ find matches . Map.elems . tcsGlobalTyCons
+  where
+    matches info = tciName info == name || tyConName (tciTyCon info) == name
 
 lookupResolvedTyCon :: Name -> TcM (Maybe TyConInfo)
 lookupResolvedTyCon name =
   case typeResolution (nameAnns name) of
     Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
-      exact <- lookupTyConOrigin (packageIdText packageId) (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+      exact <- lookupTyConOrigin packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
       maybe (lookupTyCon (nameText name)) (pure . Just) exact
     _ -> lookupTyCon (nameText name)
 
@@ -452,14 +470,14 @@ lookupDeclaredTyCon :: UnqualifiedName -> TcM (Maybe TyConInfo)
 lookupDeclaredTyCon name =
   case typeResolution (unqualifiedNameAnns name) of
     Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
-      exact <- lookupTyConOrigin (packageIdText packageId) (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+      exact <- lookupTyConOrigin packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
       maybe (lookupTyCon (unqualifiedNameText name)) (pure . Just) exact
     _ -> lookupTyCon (unqualifiedNameText name)
 
 lookupTyConByIdentity :: TyCon -> TcM (Maybe TyConInfo)
 lookupTyConByIdentity tyCon = lift $ gets $ Map.lookup tyCon . tcsGlobalTyCons
 
-lookupTyConOrigin :: Text -> Text -> Text -> TcM (Maybe TyConInfo)
+lookupTyConOrigin :: PackageId -> Text -> Text -> TcM (Maybe TyConInfo)
 lookupTyConOrigin packageId moduleName name =
   lift $ gets $ find matches . Map.elems . tcsGlobalTyCons
   where

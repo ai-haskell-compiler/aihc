@@ -23,9 +23,10 @@ import Aihc.Parser
   )
 import Aihc.Parser.Syntax
   ( Extension,
+    moduleName,
     parseExtensionName,
   )
-import Aihc.Resolve (ResolveResult (..), modulesInPackage, resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (typecheck)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
@@ -135,7 +136,7 @@ evaluateTcAnnotatedCase tc =
    in case sequence parsedModules of
         Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps mempty (modulesInPackage unnamedPackage modules) of
+          case resolveWithDeps mempty (map modulePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               let results = typecheck (map snd resolvedModules)
                   actual = renderAnnotatedTcResults (caseModules tc) results
@@ -143,6 +144,10 @@ evaluateTcAnnotatedCase tc =
             ResolveResult {resolveErrors} ->
               classifyFailure tc ("resolve error: " <> show resolveErrors)
   where
+    modulePackage modu
+      | moduleName modu `elem` [Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
+          (Package "aihc-prim" (PackageId "aihc-prim"), modu)
+      | otherwise = (unnamedPackage, modu)
     parseOne input =
       let config =
             defaultConfig

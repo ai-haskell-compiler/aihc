@@ -1,13 +1,17 @@
 annotated:
 - |-
-  {-# LANGUAGE KindSignatures, RebindableSyntax #-}
-  module Test where
-
-  data Type
-       └─ type: *
+  module GHC.Types where
   data Bool = False | True
        │      │       └─ type: Bool
        │      └─ type: Bool
+       └─ type: *
+- |-
+  {-# LANGUAGE KindSignatures, RebindableSyntax #-}
+  module Test where
+
+  import GHC.Types (Bool)
+
+  data Type
        └─ type: *
 
   class Applicative (m :: Type -> Type) where
@@ -40,11 +44,15 @@ extensions:
 - RebindableSyntax
 modules:
 - |
+  module GHC.Types where
+  data Bool = False | True
+- |
   {-# LANGUAGE KindSignatures, RebindableSyntax #-}
   module Test where
 
+  import GHC.Types (Bool)
+
   data Type
-  data Bool = False | True
 
   class Applicative (m :: Type -> Type) where
     pure :: a -> m a

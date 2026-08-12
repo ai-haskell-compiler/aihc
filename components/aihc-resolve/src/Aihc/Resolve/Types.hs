@@ -49,7 +49,7 @@ data Package = Package
   deriving (Eq, Ord, Show)
 
 unnamedPackage :: Package
-unnamedPackage = Package "" (PackageId "")
+unnamedPackage = Package "" (PackageId "main")
 
 modulesInPackage :: Package -> [Module] -> [(Package, Module)]
 modulesInPackage package = map pairWithPackage

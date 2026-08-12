@@ -66,13 +66,13 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), ResolveResult (..), Scope (..), resolveWithDeps, unnamedPackage)
-import Aihc.Tc (tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Tc (tcConfig, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterfaceConfig)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
 import Control.Monad (forM_, when)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -237,13 +237,21 @@ compileSourceToArtifactsWithDependencies target wholeProgram environment sourceN
         compileWithDependencies target wholeProgram artifact parsed
 
 compileWithDependencies :: NativeTarget -> Bool -> DependencyArtifact -> Module -> Either CompileError CompileArtifacts
-compileWithDependencies target wholeProgram dependencies parsed =
+compileWithDependencies target wholeProgram dependencies parsed = do
+  let primPackageId =
+        fromMaybe (PackageId "aihc-prim") $
+          listToMaybe
+            [ packageId package
+            | ModuleKey package _ <- Map.keys (dependencyExports dependencies),
+              packageName package == "aihc-prim"
+            ]
   case resolveWithDeps (dependencyExports dependencies) [(unnamedPackage, parsed)] of
     ResolveResult {resolveErrors = errors@(_ : _)} -> Left (CompileFrontendError ["resolve error: " <> show errors])
     ResolveResult {resolvedModules} ->
       let moduleAsts = map snd resolvedModules
           (checkedModules, _) =
-            typecheckModulesWithInterface
+            typecheckModulesWithInterfaceConfig
+              (tcConfig primPackageId)
               (dependencyTcInterface dependencies)
               moduleAsts
        in if not (all tcModuleSuccess checkedModules)

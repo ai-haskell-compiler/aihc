@@ -28,7 +28,6 @@ module Aihc.Tc.Types
     tyConKind,
     mkTyCon,
     mkTyConWithOrigin,
-    isWiredInTyConName,
     setTyConKind,
     Kind (KTYPE, KConstraint, KRuntimeRep, KLevity, KVecCount, KVecElem, KFun, KMeta, KType),
     RuntimeRep (..),
@@ -56,7 +55,8 @@ module Aihc.Tc.Types
   )
 where
 
-import Data.Maybe (fromMaybe, isJust)
+import Aihc.Resolve (PackageId (..))
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -104,7 +104,7 @@ instance Ord TyVarId where
 -- | Type constructor. Every constructor carries its fully applied kind so
 -- downstream phases can recover the kind of any 'TcType' without consulting
 -- the type-checker environment.
-data TyCon = TyConInternal !Text !Text !Text !Int !Kind
+data TyCon = TyConInternal !PackageId !Text !Text !Int !Kind
   deriving (Show, Read)
 
 instance Eq TyCon where
@@ -121,24 +121,24 @@ instance Ord TyCon where
 pattern TyCon :: Text -> Int -> TyCon
 pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ tyConName tyConArity _
   where
-    TyCon name arity = TyConInternal "" "" name arity (wiredInTyConKind name arity)
+    TyCon name arity = TyConInternal (PackageId "aihc-internal") "Aihc.Internal" name arity (wiredInTyConKind name arity)
 
 {-# COMPLETE TyCon #-}
 
 tyConKind :: TyCon -> Kind
 tyConKind (TyConInternal _ _ _ _ kind) = kind
 
-tyConPackageId :: TyCon -> Text
+tyConPackageId :: TyCon -> PackageId
 tyConPackageId (TyConInternal packageId _ _ _ _) = packageId
 
 tyConModuleName :: TyCon -> Text
 tyConModuleName (TyConInternal _ moduleName _ _ _) = moduleName
 
 mkTyCon :: Text -> Int -> Kind -> TyCon
-mkTyCon = mkTyConWithOrigin "" ""
+mkTyCon = mkTyConWithOrigin (PackageId "aihc-internal") "Aihc.Internal"
 
 -- | Make a type constructor with its installed package and module identity.
-mkTyConWithOrigin :: Text -> Text -> Text -> Int -> Kind -> TyCon
+mkTyConWithOrigin :: PackageId -> Text -> Text -> Int -> Kind -> TyCon
 mkTyConWithOrigin packageId moduleName name arity inferredKind =
   TyConInternal packageId moduleName name arity (fromMaybe inferredKind (fixedTyConKind name))
 
@@ -334,19 +334,6 @@ fixedTyConKind name =
               ("[]", KFun liftedTypeKind liftedTypeKind),
               (":", KFun liftedTypeKind (KFun (KFun liftedTypeKind liftedTypeKind) (KFun liftedTypeKind liftedTypeKind)))
             ]
-
-isWiredInTyConName :: Text -> Bool
-isWiredInTyConName name =
-  name `elem` ["Int", "Integer", "Double", "Float", "Char", "Bool", "Unit", "Solo"]
-    || isJust (fixedTyConKind name)
-    || isTupleTyConName name
-  where
-    isTupleTyConName candidate =
-      case T.stripPrefix "Tuple" candidate of
-        Just suffix ->
-          let digits = T.dropWhileEnd (== '#') suffix
-           in not (T.null digits) && T.all (`elem` ['0' .. '9']) digits
-        Nothing -> False
 
 defaultTyConKind :: Text -> Int -> Kind
 defaultTyConKind _ arity = foldr KFun liftedTypeKind (replicate arity liftedTypeKind)

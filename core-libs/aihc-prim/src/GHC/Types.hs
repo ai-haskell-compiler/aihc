@@ -6,7 +6,8 @@
 {-# HLINT ignore "Unused LANGUAGE pragma" #-}
 
 module GHC.Types
-  ( Bool (..),
+  ( Int (..),
+    Bool (..),
     Ordering (..),
     TYPE,
     Levity (..),
@@ -79,6 +80,8 @@ module GHC.Types
     Tuple64# (..),
   )
 where
+
+data Int = I# Int#
 
 data Bool = False | True
 

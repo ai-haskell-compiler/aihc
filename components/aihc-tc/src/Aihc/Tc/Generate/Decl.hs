@@ -1886,12 +1886,13 @@ registerClassDecl origin classDecl = do
       classPred = ClassPred className (map TcTyVar paramTyVars)
   superClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty KConstraint) (fromMaybe [] (classDeclContext classDecl))
   classKind <- defaultKindMetas (foldr KFun KConstraint paramKinds)
+  classTyCon <- mkDeclaredTyCon classBinder className (length params) classKind
   extendTyConEnvPermanent
     className
     TyConInfo
       { tciName = className,
         tciArity = length params,
-        tciTyCon = mkDeclaredTyCon classBinder className (length params) classKind,
+        tciTyCon = classTyCon,
         tciKind = classKind,
         tciFlavor = ClassTyCon,
         tciTypeSynonym = Nothing
@@ -2027,7 +2028,7 @@ registerDataFamilyDeclHeader familyDecl = do
       arity = length params
   paramInfos <- makeParamEnv params
   declaredKind <- tyConKindFromParams paramInfos (dataFamilyDeclKind familyDecl)
-  let familyTyCon = mkDeclaredTyCon familyBinder familyName arity declaredKind
+  familyTyCon <- mkDeclaredTyCon familyBinder familyName arity declaredKind
   extendTyConEnvPermanent
     familyName
     TyConInfo
@@ -2181,7 +2182,7 @@ registerDataDeclHeader dd = do
       Just tupleArity
         | tupleArity == arity -> pure (unboxedTupleDeclarationKind paramInfos)
       _ -> tyConKindFromParamsWith kindEnv paramInfos (dataDeclKind dd)
-  let tc = dataDeclTyCon tyBinder tyName arity declaredKind
+  tc <- dataDeclTyCon tyBinder tyName arity declaredKind
   extendTyConEnvPermanent
     tyName
     TyConInfo
@@ -2209,10 +2210,7 @@ registerDataConstructors :: DataDecl -> TcM [TcBindingResult]
 registerDataConstructors dataDecl = do
   let tyBinder = binderHeadName (dataDeclHead dataDecl)
       tyName = unqualifiedNameText tyBinder
-  maybeInfo <-
-    if tyName == "List"
-      then lookupTyConByIdentity (TyCon "[]" 1)
-      else lookupDeclaredTyCon tyBinder
+  maybeInfo <- lookupDeclaredTyCon tyBinder
   case maybeInfo of
     Nothing -> missingTypeInfo ("data type " <> T.unpack tyName)
     Just info -> do
@@ -2241,7 +2239,7 @@ registerNewtypeDeclHeader nd = do
       arity = length params
   paramInfos <- makeParamEnv params
   declaredKind <- tyConKindFromParams paramInfos (newtypeDeclKind nd)
-  let tc = mkDeclaredTyCon tyBinder tyName arity declaredKind
+  tc <- mkDeclaredTyCon tyBinder tyName arity declaredKind
   extendTyConEnvPermanent
     tyName
     TyConInfo
@@ -2310,8 +2308,8 @@ registerTypeSynonymHeader typeSynDecl = do
       arity = length params
   paramInfos <- makeParamEnv params
   let declaredKind = foldr (KFun . paramKind) KType paramInfos
-      tyCon = mkDeclaredTyCon tyBinder tyName arity declaredKind
-      synonym = TypeSynonymInfo (map paramTyVar paramInfos) Nothing
+  tyCon <- mkDeclaredTyCon tyBinder tyName arity declaredKind
+  let synonym = TypeSynonymInfo (map paramTyVar paramInfos) Nothing
   extendTyConEnvPermanent
     tyName
     TyConInfo
@@ -2340,23 +2338,17 @@ registerTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
     _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
 registerTypeSynonymBody _ = pure ()
 
-dataDeclTyCon :: UnqualifiedName -> Text -> Int -> Kind -> TyCon
-dataDeclTyCon _ "List" 1 kind = mkTyCon "[]" 1 kind
+dataDeclTyCon :: UnqualifiedName -> Text -> Int -> Kind -> TcM TyCon
+dataDeclTyCon binder "List" 1 kind = mkDeclaredTyCon binder "[]" 1 kind
 dataDeclTyCon binder name arity kind = mkDeclaredTyCon binder name arity kind
 
-mkDeclaredTyCon :: UnqualifiedName -> Text -> Int -> Kind -> TyCon
+mkDeclaredTyCon :: UnqualifiedName -> Text -> Int -> Kind -> TcM TyCon
 mkDeclaredTyCon binder name arity kind =
-  if isWiredInTyConName name
-    then mkTyCon name arity kind
-    else case nameResolution binder of
-      Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} ->
-        mkTyConWithOrigin
-          (packageIdText packageId)
-          (fromMaybe "" (nameQualifier resolvedName))
-          name
-          arity
-          kind
-      _ -> mkTyCon name arity kind
+  case nameResolution binder of
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName}
+      | Just definingModuleName <- nameQualifier resolvedName ->
+          pure (mkTyConWithOrigin packageId definingModuleName name arity kind)
+    _ -> abortTc ("type declaration has no package or module identity: " <> T.unpack name)
 
 -- | Register a single data constructor as a polymorphic binding.
 -- Returns the binding result for the constructor.

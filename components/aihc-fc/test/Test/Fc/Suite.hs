@@ -371,8 +371,15 @@ fcOptimizationTests =
           (FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec mainVar (FcLam local (FcVar local)))])
           (eliminateDeadCode "main" program),
       testCase "retains ordinary dictionary constructor declarations" $ do
-        let dictionaryTy = ty "Test"
-            dictionaryData = fcData "Test" [] [("$Dict$Test", [stringTy])]
+        let dictionaryDeclaration =
+              FcDataDecl
+                (FcTopLevelOrigin "test" "Test" "Test")
+                "Test"
+                []
+                KType
+                [FcDataConDecl (FcTopLevelOrigin "test" "Test" "$Dict$Test") "$Dict$Test" [stringTy]]
+            dictionaryTy = fcDataResultType dictionaryDeclaration
+            dictionaryData = FcData dictionaryDeclaration
             dictionaryConstructor = Var "$Dict$Test" (Unique 14) (TcFunTy stringTy dictionaryTy)
             dictionaryBinder = Var "$dictionary" (Unique 15) dictionaryTy
             methodBinder = Var "$method" (Unique 16) stringTy

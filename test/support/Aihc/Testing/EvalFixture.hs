@@ -38,7 +38,8 @@ import Aihc.Parser.Syntax
     mkUnqualifiedName,
     parseExtensionName,
   )
-import Aihc.Resolve (ResolveResult (..), modulesInPackage, resolveWithDeps, unnamedPackage)
+import Aihc.Parser.Syntax qualified as Surface
+import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (bracket, mask, onException)
@@ -251,7 +252,7 @@ compileEvalCase tc =
       case dependencyModules of
         Left errMsg -> pure (Left errMsg)
         Right deps ->
-          let resolved = resolveWithDeps mempty (modulesInPackage unnamedPackage (deps <> evalModules))
+          let resolved = resolveWithDeps mempty (map modulePackage (deps <> evalModules))
            in case resolved of
                 ResolveResult {resolvedModules, resolveErrors = []} ->
                   let moduleAsts = map snd resolvedModules
@@ -266,6 +267,11 @@ compileEvalCase tc =
                         else pure (Left ("typecheck error: " <> renderTcErrors tcResults))
                 ResolveResult {resolveErrors} ->
                   pure (Left ("resolve error: " <> show resolveErrors))
+  where
+    modulePackage modu
+      | Surface.moduleName modu `elem` [Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
+          (Package "aihc-prim" (PackageId "aihc-prim"), modu)
+      | otherwise = (unnamedPackage, modu)
 
 parseInputs :: EvalCase -> Either String ([Module], Expr)
 parseInputs tc = do

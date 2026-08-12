@@ -33,6 +33,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameText,
   )
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations
   ( TcClassMethodAnnotation (..),
     TcDerivingAnnotation (..),
@@ -248,7 +249,7 @@ derivingClassMethods classInfo =
   where
     method index (methodName, scheme) = do
       let methodType = schemeToType scheme
-      dictType <- selectorDictTypeTc methodName methodType
+          dictType = classDictionaryType classInfo
       pure
         TcClassMethodAnnotation
           { tcClassMethodName = methodName,
@@ -258,11 +259,24 @@ derivingClassMethods classInfo =
             tcClassMethodIndex = index
           }
 
-selectorDictTypeTc :: Text -> TcType -> TcM TcType
-selectorDictTypeTc methodName methodType =
-  case snd (peelForAlls methodType) of
-    TcQualTy (predicate : _) _ -> pure (predType predicate)
-    _ -> missingTypeInfo ("class dictionary type for method selector " <> T.unpack methodName)
+classDictionaryType :: ClassInfo -> TcType
+classDictionaryType classInfo =
+  TcTyCon classTyCon (map TcTyVar (ciTyVars classInfo))
+  where
+    classTyCon =
+      case ciOrigin classInfo of
+        Just (packageId, moduleName) ->
+          mkTyConWithOrigin
+            (PackageId packageId)
+            moduleName
+            (ciName classInfo)
+            (length (ciTyVars classInfo))
+            (foldr (KFun . tvKind) KType (ciTyVars classInfo))
+        Nothing ->
+          mkTyCon
+            (ciName classInfo)
+            (length (ciTyVars classInfo))
+            (foldr (KFun . tvKind) KType (ciTyVars classInfo))
 
 derivingStrategyTypes :: Maybe DerivingStrategy -> [Type]
 derivingStrategyTypes (Just (DerivingVia viaType)) = [viaType]
@@ -317,10 +331,6 @@ collectTypeApplications ty =
       let (headType, arguments) = collectTypeApplications function
        in (headType, arguments <> [argument])
     _ -> (ty, [])
-
-predType :: Pred -> TcType
-predType (ClassPred className arguments) = TcTyCon (TyCon className (length arguments)) arguments
-predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
 
 instanceDictName :: Text -> [TcType] -> Text
 instanceDictName className types = "$f" <> className <> T.concat (map typeSuffix types)

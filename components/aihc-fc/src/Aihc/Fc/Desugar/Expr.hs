@@ -920,6 +920,7 @@ dsIf cond thenE elseE = do
   cond' <- dsExpr cond
   then' <- dsExpr thenE
   else' <- dsExpr elseE
+  boolTy <- lookupType "True"
   binder <- freshVar "_if" boolTy
   pure
     ( FcCase
@@ -1063,6 +1064,7 @@ dsOverloadedIntegerPatternMatch :: Var -> Pattern -> DsM FcExpr -> FcExpr -> DsM
 dsOverloadedIntegerPatternMatch scrutVar pat success failure = do
   test <- dsOverloadedIntegerPatternTest (FcVar scrutVar) pat
   trueBranch <- success
+  boolTy <- lookupType "True"
   binder <- freshVar "_case_guard" boolTy
   pure
     ( FcCase
@@ -1319,6 +1321,7 @@ dsCompGuard :: TcType -> Expr -> Expr -> [CompStmt] -> FcExpr -> DsM FcExpr
 dsCompGuard elemTy body guard rest tailExpr = do
   guard' <- dsExpr guard
   trueBranch <- dsCompQuals elemTy body rest tailExpr
+  boolTy <- lookupType "True"
   binder <- freshInternalVar "_lc_guard" boolTy
   pure
     ( FcCase
@@ -1889,9 +1892,6 @@ typeKey ty =
     TcFunTy a b -> typeKey a <> "->" <> typeKey b
     TcForAllTy _ body -> typeKey body
     TcQualTy _ body -> typeKey body
-
-boolTy :: TcType
-boolTy = TcTyCon (TyCon "Bool" 0) []
 
 charTy :: TcType
 charTy = TcTyCon (TyCon "Char" 0) []

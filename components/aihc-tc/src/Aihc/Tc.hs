@@ -16,6 +16,7 @@ module Aihc.Tc
   ( -- * Entry point
     typecheck,
     typecheckExpr,
+    typecheckExprWithConfig,
     typecheckModule,
     typecheckModuleWithEnv,
     typecheckModuleWithEnvAndInstances,
@@ -26,10 +27,14 @@ module Aihc.Tc
     typecheckModulesWithClassEnv,
     typecheckModuleSccWithClassEnv,
     typecheckModulesWithInterface,
+    typecheckModulesWithInterfaceConfig,
     typecheckModuleSccWithInterface,
+    typecheckModuleSccWithInterfaceConfig,
 
     -- * Result types
     TcResult (..),
+    TcConfig,
+    tcConfig,
     TcBindingResult (..),
     TcTermKey (..),
     tcTermKeyIdentifier,
@@ -118,6 +123,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
@@ -135,6 +141,7 @@ import Data.Data (Data, gmapM, gmapQ)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, maybeToList)
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Typeable (cast)
 
 -- | Result of type checking.
@@ -212,8 +219,11 @@ exportedTermEntries interface =
 -- This is the primary entry point for testing. For full module
 -- type-checking, use 'typecheck'.
 typecheckExpr :: Expr -> TcResult
-typecheckExpr expr =
-  case runTcM emptyTcEnv initTcState (typecheckExprM expr) of
+typecheckExpr = typecheckExprWithConfig defaultTcConfig
+
+typecheckExprWithConfig :: TcConfig -> Expr -> TcResult
+typecheckExprWithConfig config expr =
+  case runTcM emptyTcEnv {tcEnvConfig = config} initTcState (typecheckExprM expr) of
     Left _abort ->
       TcResult
         { tcResultType = TcMetaTv (Unique (-1)),
@@ -270,13 +280,11 @@ tcModuleSuccess =
 -- | Type-check a single module, processing data declarations and
 -- value bindings.
 typecheckModule :: Module -> Module
-typecheckModule =
-  typecheckModuleWithEnv []
+typecheckModule = typecheckModuleWithEnv []
 
 -- | Type-check a single module with preloaded top-level term bindings.
 typecheckModuleWithEnv :: [(Text, TypeScheme)] -> Module -> Module
-typecheckModuleWithEnv importedTerms =
-  typecheckModuleWithEnvAndInstances importedTerms []
+typecheckModuleWithEnv importedTerms = typecheckModuleWithEnvAndInstances importedTerms []
 
 -- | Type-check a single module with preloaded terms and class instances.
 typecheckModuleWithEnvAndInstances :: [(Text, TypeScheme)] -> [InstanceInfo] -> Module -> Module
@@ -291,8 +299,7 @@ typecheckModuleWithEnvAndInstances importedTerms importedInstances m =
 -- resolved a dependency-ordered module list can feed it here so later modules
 -- see earlier data constructors and value bindings.
 typecheckModulesWithEnv :: [(Text, TypeScheme)] -> [Module] -> [Module]
-typecheckModulesWithEnv importedTerms =
-  typecheckModulesWithEnvAndInstances importedTerms []
+typecheckModulesWithEnv importedTerms = typecheckModulesWithEnvAndInstances importedTerms []
 
 -- | Type-check modules in order with preloaded terms and class instances.
 typecheckModulesWithEnvAndInstances :: [(Text, TypeScheme)] -> [InstanceInfo] -> [Module] -> [Module]
@@ -337,13 +344,16 @@ typecheckModulesWithClassEnv importedTerms importedTyCons importedClasses import
 -- | Type-check dependency-ordered modules with a complete imported semantic
 -- interface and return the accumulated interface for downstream modules.
 typecheckModulesWithInterface :: TcInterface -> [Module] -> ([Module], TcInterface)
-typecheckModulesWithInterface imported modules =
+typecheckModulesWithInterface = typecheckModulesWithInterfaceConfig defaultTcConfig
+
+typecheckModulesWithInterfaceConfig :: TcConfig -> TcInterface -> [Module] -> ([Module], TcInterface)
+typecheckModulesWithInterfaceConfig config imported modules =
   let (checkedModules, finalState) = go (initialTcState imported) modules
    in (checkedModules, tcInterfaceFromState finalState)
   where
     go st [] = ([], st)
     go st (m : ms) =
-      let (result, st') = typecheckModuleWithState st m
+      let (result, st') = typecheckModuleWithState config st m
           (results, finalState) = go st' ms
        in (result : results, finalState)
 
@@ -380,8 +390,11 @@ typecheckModuleSccWithClassEnv importedTerms importedTyCons importedClasses impo
 -- | Type-check one strongly connected module component using only the
 -- supplied imported interface.
 typecheckModuleSccWithInterface :: TcInterface -> [Module] -> ([Module], TcInterface)
-typecheckModuleSccWithInterface imported modules =
-  let (checkedModules, finalState) = typecheckModuleSccWithState (initialTcState imported) modules
+typecheckModuleSccWithInterface = typecheckModuleSccWithInterfaceConfig defaultTcConfig
+
+typecheckModuleSccWithInterfaceConfig :: TcConfig -> TcInterface -> [Module] -> ([Module], TcInterface)
+typecheckModuleSccWithInterfaceConfig config imported modules =
+  let (checkedModules, finalState) = typecheckModuleSccWithState config (initialTcState imported) modules
    in (checkedModules, tcInterfaceFromState finalState)
 
 initialTcState :: TcInterface -> TcState
@@ -419,8 +432,8 @@ tcInterfaceFromState state =
       tcInterfaceDataFamilyInstances = mergeInterfaceEntries dfiiAxiomName (tcsDataFamilyInstances state)
     }
 
-typecheckModuleSccWithState :: TcState -> [Module] -> ([Module], TcState)
-typecheckModuleSccWithState st modules =
+typecheckModuleSccWithState :: TcConfig -> TcState -> [Module] -> ([Module], TcState)
+typecheckModuleSccWithState config st modules =
   case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModuleScc modules) of
     Left abort ->
       ( case modules of
@@ -442,7 +455,8 @@ typecheckModuleSccWithState st modules =
   where
     tcEnv =
       emptyTcEnv
-        { tcEnvMonoLocalBinds = any (elem MonoLocalBinds . moduleExtensions) modules,
+        { tcEnvConfig = config,
+          tcEnvMonoLocalBinds = any (elem MonoLocalBinds . moduleExtensions) modules,
           tcEnvMonomorphismRestriction = any (elem MonomorphismRestriction . moduleExtensions) modules
         }
     moduleExtensions m =
@@ -469,8 +483,8 @@ moduleSourceNames modu =
     SourceSpan {sourceSpanSourceName = sourceName} -> [sourceName]
     NoSourceSpan -> []
 
-typecheckModuleWithState :: TcState -> Module -> (Module, TcState)
-typecheckModuleWithState st m =
+typecheckModuleWithState :: TcConfig -> TcState -> Module -> (Module, TcState)
+typecheckModuleWithState config st m =
   case runTcM tcEnv (st {tcsDiagnostics = []}) (tcModule m) of
     Left abort ->
       ( annotateModuleDiagnostics [internalAbortDiagnostic (tcAbortMessage abort)] m,
@@ -490,7 +504,8 @@ typecheckModuleWithState st m =
   where
     tcEnv =
       emptyTcEnv
-        { tcEnvMonoLocalBinds = MonoLocalBinds `elem` enabledExtensions,
+        { tcEnvConfig = config,
+          tcEnvMonoLocalBinds = MonoLocalBinds `elem` enabledExtensions,
           tcEnvMonomorphismRestriction = MonomorphismRestriction `elem` enabledExtensions
         }
     enabledExtensions =
@@ -500,6 +515,9 @@ typecheckModuleWithState st m =
 -- | Type-check a list of modules.
 typecheck :: [Module] -> [Module]
 typecheck = typecheckModulesWithEnv []
+
+defaultTcConfig :: TcConfig
+defaultTcConfig = tcConfig (PackageId (T.pack "aihc-prim"))
 
 annotateModuleDiagnostics :: [TcDiagnostic] -> Module -> Module
 annotateModuleDiagnostics diagnostics m =

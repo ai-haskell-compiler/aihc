@@ -335,7 +335,7 @@ renderTcTypeInModule currentModule = go 0
       arity /= 1 && name == boxedTupleTyConName arity
 
     renderTyConName tyCon
-      | T.null definingModule = tyConName tyCon
+      | definingModule `elem` map T.pack ["Aihc.Internal", "GHC.Prim", "GHC.Tuple", "GHC.Types"] = tyConName tyCon
       | Nothing <- currentModule = tyConName tyCon
       | Just definingModule == currentModule = tyConName tyCon
       | otherwise = definingModule <> T.pack "." <> tyConName tyCon

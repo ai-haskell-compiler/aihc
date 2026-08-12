@@ -136,7 +136,7 @@ renderSymbols moduleId topBinds =
 
 renderModuleOrigin :: T.Text -> T.Text -> String
 renderModuleOrigin packageName moduleName =
-  (if packageName == "" then "" else show (T.unpack packageName) <> " ") <> T.unpack moduleName
+  (if packageName `elem` ["", "main"] then "" else show (T.unpack packageName) <> " ") <> T.unpack moduleName
 
 canonicalProgramBinds :: FcProgram -> [FcTopBind]
 canonicalProgramBinds (FcProgram moduleId topBinds) =
@@ -433,7 +433,7 @@ renderOrigin :: FcSymbolOrigin -> String
 renderOrigin origin =
   case origin of
     FcTopLevelOrigin packageName moduleName symbolName ->
-      (if packageName == "" then "" else show (T.unpack packageName) <> " ")
+      (if packageName `elem` ["", "main"] then "" else show (T.unpack packageName) <> " ")
         <> T.unpack moduleName
         <> "."
         <> T.unpack symbolName

@@ -10,8 +10,7 @@ module GHC.Int
 where
 
 import GHC.Prim ((*#), (+#), (-#))
-
-data Int = I# Int#
+import GHC.Types (Int (..))
 
 data Int8 = I8# Int8#
 

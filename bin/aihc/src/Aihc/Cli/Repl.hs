@@ -35,7 +35,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameFromText,
   )
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, modulesInPackage, resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), PackageId (..), ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps, unnamedPackage)
 import Aihc.Tc
   ( InstanceInfo,
     Pred (..),
@@ -47,15 +47,17 @@ import Aihc.Tc
     TyVarId (..),
     TypeScheme (..),
     Unique (..),
+    emptyTcInterface,
     renderPred,
     renderTcSignature,
     renderTcType,
+    tcConfig,
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleInstances,
     tcModuleSuccess,
     typecheckModuleWithEnvAndInstances,
-    typecheckModulesWithEnv,
+    typecheckModulesWithInterfaceConfig,
   )
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -491,10 +493,14 @@ loadAihcBaseContext = do
 
 buildBaseContext :: [Module] -> IO ReplBaseContext
 buildBaseContext modules =
-  case resolveWithDeps Map.empty (modulesInPackage unnamedPackage modules) of
+  case resolveWithDeps Map.empty (map modulePackage modules) of
     resolved@ResolveResult {resolveErrors = [], resolvedModules} -> do
       let moduleAsts = map snd resolvedModules
-          tcResults = typecheckModulesWithEnv [] moduleAsts
+          (tcResults, _) =
+            typecheckModulesWithInterfaceConfig
+              (tcConfig (PackageId "aihc-prim"))
+              emptyTcInterface
+              moduleAsts
       if all tcModuleSuccess tcResults
         then do
           let allBindings = concatMap tcModuleBindings tcResults
@@ -514,6 +520,11 @@ buildBaseContext modules =
         else ioError (userError ("repl error: could not type-check bundled aihc-base Prelude: " <> unwords (concatMap (map show . tcModuleDiagnostics) tcResults)))
     ResolveResult {resolveErrors} ->
       ioError (userError ("repl error: could not resolve bundled aihc-base Prelude: " <> show resolveErrors))
+  where
+    modulePackage modu
+      | Syntax.moduleName modu `elem` [Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
+          (Package "aihc-prim" (PackageId "aihc-prim"), modu)
+      | otherwise = (unnamedPackage, modu)
 
 bindingImportedTerm :: TcBindingResult -> (Text, TypeScheme)
 bindingImportedTerm binding =

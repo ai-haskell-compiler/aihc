@@ -21,15 +21,17 @@ import Aihc.Parser.Syntax
     Match (..),
     Module (..),
     Name (..),
+    NumericType (..),
     Pattern (..),
     Rhs (..),
     SourceSpan,
     ValueDecl (..),
     fromAnnotation,
     mkAnnotation,
+    moduleName,
     stripAnnotations,
   )
-import Aihc.Resolve (PackageId (..), ResolveResult (..), extractInterface, modulesInPackage, unnamedPackage)
+import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), extractInterface, unnamedPackage)
 import Aihc.Resolve qualified as Resolve
 import Aihc.Tc
 import Aihc.Tc.Annotations (PendingTcAnnotation, TcClassAnnotation (..), TcClassMethodAnnotation (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..), pendingAnnotation)
@@ -40,7 +42,7 @@ import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (freeTypeVars)
 import Aihc.Tc.Monad (emptyTcEnv, initTcState, runTcM)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme)
-import Aihc.Tc.Types (mkTyCon)
+import Aihc.Tc.Types (mkTyCon, tyConModuleName, tyConPackageId)
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkType)
 import Data.Data (Data, gmapQ)
@@ -105,8 +107,9 @@ tcWithDecls :: Text -> Text -> TcResult
 tcWithDecls decls expr =
   let modu =
         typecheckModule $
-          parseM
-            ( "module Test where\n\
+          parseMInPackage
+            (Package "aihc-prim" (PackageId "aihc-prim"))
+            ( "module GHC.Types where\n\
               \data Bool = False | True\n"
                 <> decls
                 <> "\n__result = "
@@ -311,7 +314,28 @@ variableTests =
 
 kindTests :: [TestTree]
 kindTests =
-  [ testCase "explicit forall removes every occurrence of its bound variables" $ do
+  [ testCase "an Int declaration keeps its resolver identity" $ do
+      let package = Package "test-package" (PackageId "test-package-id")
+          result = Resolve.resolveWithDeps mempty [(package, parseOnly "module Custom.Int where\ndata Int = MkInt\n")]
+      case result of
+        ResolveResult {resolvedModules = [(_, resolved)], resolveErrors = []} -> do
+          let (_, interface) = typecheckModulesWithInterface mempty [resolved]
+              intTyCons = [tciTyCon info | info <- tcInterfaceTyCons interface, tciName info == "Int"]
+          case intTyCons of
+            [intTyCon] -> do
+              assertEqual "package identity" (PackageId "test-package-id") (tyConPackageId intTyCon)
+              assertEqual "module identity" "Custom.Int" (tyConModuleName intTyCon)
+            other -> assertFailure ("expected one Int type constructor, got: " <> show other)
+        ResolveResult {resolveErrors} -> assertFailure ("module should resolve, got: " <> show resolveErrors),
+    testCase "an Int literal uses the caller package identity" $ do
+      let primId = PackageId "aihc-prim-test-id"
+          result = typecheckExprWithConfig (tcConfig primId) (EInt 1 TInteger "1")
+      case tcResultType result of
+        TcTyCon intTyCon [] -> do
+          assertEqual "package identity" primId (tyConPackageId intTyCon)
+          assertEqual "module identity" "GHC.Types" (tyConModuleName intTyCon)
+        other -> assertFailure ("expected an Int type, got: " <> show other),
+    testCase "explicit forall removes every occurrence of its bound variables" $ do
       case parseSignatureType defaultConfig {parserExtensions = [ExplicitForAll]} "forall a. a -> a" of
         ParseOk signature -> assertEqual "free type variables" [] (freeTypeVars signature)
         ParseErr errors -> assertFailure ("signature should parse: " <> show errors),
@@ -497,7 +521,7 @@ kindTests =
           assertBool "method term exported" ("identity" `elem` interfaceTermNames)
           assertBool
             "constructor term keeps its resolved identity"
-            (TcTermGlobal (PackageId "") "Base" "Unit" `elem` map fst (tcInterfaceTerms interface))
+            (TcTermGlobal (PackageId "main") "Base" "Unit" `elem` map fst (tcInterfaceTerms interface))
           assertBool "type constructor exported" ("Unit" `elem` map tciName (tcInterfaceTyCons interface))
           assertBool "class exported" ("Identity" `elem` map ciName (tcInterfaceClasses interface))
           assertBool "instance exported" ("$fIdentityUnit" `elem` map iiDictName (tcInterfaceInstances interface))
@@ -889,6 +913,12 @@ annotationModule =
 parseM :: Text -> Module
 parseM = parseMWithExtensions []
 
+parseMInPackage :: Package -> Text -> Module
+parseMInPackage package input =
+  case Resolve.resolveWithDeps mempty [(package, parseOnly input)] of
+    ResolveResult {resolvedModules = [(_, resolved)], resolveErrors = []} -> resolved
+    ResolveResult {resolveErrors} -> error ("Resolve error in test: " ++ show resolveErrors)
+
 parseMWithExtensions :: [Extension] -> Text -> Module
 parseMWithExtensions extensions input =
   case resolveModules [parseOnlyWithExtensions extensions input] of
@@ -902,7 +932,12 @@ resolveModules :: [Module] -> ResolveResult
 resolveModules = resolveModulesWithDeps mempty
 
 resolveModulesWithDeps :: Resolve.ModuleExports -> [Module] -> ResolveResult
-resolveModulesWithDeps depExports = Resolve.resolveWithDeps depExports . modulesInPackage unnamedPackage
+resolveModulesWithDeps depExports = Resolve.resolveWithDeps depExports . map modulePackage
+  where
+    modulePackage modu
+      | moduleName modu `elem` [Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
+          (Package "aihc-prim" (PackageId "aihc-prim"), modu)
+      | otherwise = (unnamedPackage, modu)
 
 parseOnlyWithExtensions :: [Extension] -> Text -> Module
 parseOnlyWithExtensions extensions input =
