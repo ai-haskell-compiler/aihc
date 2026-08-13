@@ -91,8 +91,10 @@ data DsState = DsState
     dsLocalVars :: !(Map Text Var),
     -- | Local dictionaries, keyed by class predicate.
     dsLocalDicts :: !(Map Text Var),
-    -- | Checked constructor fields, including source strictness.
-    dsConstructorFields :: !(Map Text [DataConFieldInfo]),
+    -- | Checked constructor types, keyed by global source identity.
+    dsConstructorTypes :: !(Map FcSymbolOrigin TcType),
+    -- | Checked constructor fields, keyed by global source identity.
+    dsConstructorFields :: !(Map FcSymbolOrigin [DataConFieldInfo]),
     dsTupleConstructorOrigin :: !(Maybe FcSymbolOrigin)
   }
 
@@ -130,9 +132,16 @@ lookupType name = do
   st <- get
   case Map.lookup name (dsLocalVars st) of
     Just v -> pure (varType v)
-    Nothing -> case Map.lookup name (dsTypeEnv st) of
+    Nothing -> case lookupCurrentConstructorType name st <|> Map.lookup name (dsTypeEnv st) of
       Just ty -> pure ty
       Nothing -> desugarBug ("missing type information for name: " <> T.unpack name)
+
+lookupCurrentConstructorType :: Text -> DsState -> Maybe TcType
+lookupCurrentConstructorType name st = do
+  moduleName <- dsModuleName st
+  Map.lookup
+    (FcTopLevelOrigin (dsModulePackage st) moduleName name)
+    (dsConstructorTypes st)
 
 primBoolType :: DsM TcType
 primBoolType = do
@@ -700,7 +709,7 @@ constructorApplicationFields expression =
   case peelApplicationHead expression of
     EVar name -> do
       fields <- dsConstructorFields <$> get
-      pure (Map.lookup (nameText name) fields)
+      pure (resolvedOccurrenceOrigin name >>= (`Map.lookup` fields))
     _ -> pure Nothing
 
 peelApplicationHead :: Expr -> Expr
@@ -909,7 +918,9 @@ dsInfix lhs op rhs = do
   operator <- dsInfixOperator op
   left <- dsExpr lhs
   right <- dsExpr rhs
-  fields <- Map.lookup (nameText op) . dsConstructorFields <$> get
+  fields <- do
+    constructorFields <- dsConstructorFields <$> get
+    pure (resolvedOccurrenceOrigin op >>= (`Map.lookup` constructorFields))
   case fields of
     Just constructorFields
       | length constructorFields == 2 ->
@@ -1931,4 +1942,5 @@ lookupTypeName name = do
 lookupTypeMaybeName :: Name -> DsM (Maybe TcType)
 lookupTypeMaybeName name = do
   st <- get
-  pure (Map.lookup (nameToText name) (dsTypeEnv st) <|> Map.lookup (nameText name) (dsTypeEnv st))
+  let constructorType = resolvedOccurrenceOrigin name >>= (`Map.lookup` dsConstructorTypes st)
+  pure (constructorType <|> Map.lookup (nameToText name) (dsTypeEnv st) <|> Map.lookup (nameText name) (dsTypeEnv st))

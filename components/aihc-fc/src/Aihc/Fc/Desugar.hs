@@ -53,7 +53,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..))
-import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TyConFlavor (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
+import Aihc.Tc (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TyConFlavor (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
@@ -71,6 +71,8 @@ import Aihc.Tc.Types
     runtimeRepOfType,
     tvKind,
     tyConKind,
+    tyConModuleName,
+    tyConPackageId,
     typeKind,
     unboxedTupleTyConName,
   )
@@ -119,14 +121,33 @@ desugarModuleWithDataTypes config bindings dataTypes tcResult =
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
           (packageId, currentModuleName) = resolvedModuleOrigin tcResult
+          constructorTypes =
+            Map.fromList
+              [ (checkedConstructorOrigin dataType constructor, checkedConstructorType constructor)
+              | dataType <- dataTypes,
+                constructor <- dtiConstructors dataType
+              ]
           constructorFields =
             Map.fromList
-              [ (dciName constructor, dciFields constructor)
+              [ (checkedConstructorOrigin dataType constructor, dciFields constructor)
               | dataType <- dataTypes,
                 dtiFlavor dataType == DataTyCon,
                 constructor <- dtiConstructors dataType
               ]
-       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) (packageIdText packageId) (Just currentModuleName) typeEnv Map.empty Map.empty constructorFields Nothing) of
+       in case runStateT
+            (dsModule tcResult)
+            DsState
+              { dsNextUnique = 1000,
+                dsPrimPackageId = primPackageId config,
+                dsModulePackage = packageIdText packageId,
+                dsModuleName = Just currentModuleName,
+                dsTypeEnv = typeEnv,
+                dsLocalVars = Map.empty,
+                dsLocalDicts = Map.empty,
+                dsConstructorTypes = constructorTypes,
+                dsConstructorFields = constructorFields,
+                dsTupleConstructorOrigin = Nothing
+              } of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram (sourceModuleId tcResult) [],
@@ -140,6 +161,24 @@ desugarModuleWithDataTypes config bindings dataTypes tcResult =
                       dsSuccess = True,
                       dsErrors = []
                     }
+
+checkedConstructorOrigin :: DataTypeInfo -> DataConInfo -> FcSymbolOrigin
+checkedConstructorOrigin dataType constructor =
+  FcTopLevelOrigin
+    { fcOriginPackage = packageIdText (tyConPackageId (dtiTyCon dataType)),
+      fcOriginModule = tyConModuleName (dtiTyCon dataType),
+      fcOriginName = dciName constructor
+    }
+
+checkedConstructorType :: DataConInfo -> TcType
+checkedConstructorType constructor =
+  foldr TcForAllTy qualifiedType (dciUnivTyVars constructor <> dciExTyVars constructor)
+  where
+    functionType = foldr (TcFunTy . dcfiType) (dciResTy constructor) (dciFields constructor)
+    qualifiedType =
+      case dciTheta constructor of
+        [] -> functionType
+        predicates -> TcQualTy predicates functionType
 
 resolvedModuleOrigin :: Module -> (PackageId, Text)
 resolvedModuleOrigin resolvedModule =

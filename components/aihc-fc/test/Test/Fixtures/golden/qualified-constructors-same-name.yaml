@@ -1,0 +1,59 @@
+extensions: []
+modules:
+  - |
+    module First where
+
+    data FirstField = FirstField
+    data First = Shared !FirstField
+  - |
+    module Second where
+
+    data SecondField = SecondField
+    data Second = Shared !SecondField
+  - |
+    module Test where
+
+    import qualified First
+    import qualified Second
+
+    makeFirst :: First.FirstField -> First.First
+    makeFirst field = First.Shared field
+
+    makeSecond :: Second.SecondField -> Second.Second
+    makeSecond field = Second.Shared field
+expected: |-
+  module First where
+
+  data FirstField
+   = FirstField
+
+  data First
+   = Shared (FirstField)
+  module Second where
+
+  data SecondField
+   = SecondField
+
+  data Second
+   = Shared (SecondField)
+  module Test where
+
+  external First.Shared : FirstField → First
+
+  external Second.Shared : SecondField → Second
+
+  makeFirst : FirstField → First =
+    λ(x1001 : FirstField).
+      case x1001 as (_strict_field1003 : FirstField) of {
+        _ →
+          First.Shared _strict_field1003
+      }
+
+  makeSecond : SecondField → Second =
+    λ(x1005 : SecondField).
+      case x1005 as (_strict_field1007 : SecondField) of {
+        _ →
+          Second.Shared _strict_field1007
+      }
+status: pass
+reason: qualified constructors with the same local name use their own checked field types
