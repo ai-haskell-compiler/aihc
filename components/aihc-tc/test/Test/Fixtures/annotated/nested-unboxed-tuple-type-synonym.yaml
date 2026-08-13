@@ -1,0 +1,16 @@
+extensions:
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    data Void
+    type X = (# (# #), Void #)
+annotated:
+  - |-
+    module Test where
+    data Void
+         └─ type: *
+    type X = (# (# #), Void #)
+         └─ type: TYPE ('TupleRep ('[] ('TupleRep '[]) 'LiftedRep))
+status: pass
+reason: preserves nested tuple and lifted field runtime representations in an inferred synonym kind

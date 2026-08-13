@@ -8,12 +8,13 @@ module Aihc.Tc.Zonk
     zonkPred,
     defaultTypeKinds,
     defaultTypeSchemeKinds,
+    defaultTyConKindScheme,
     defaultPredKinds,
     defaultTyVarKinds,
   )
 where
 
-import Aihc.Tc.Kind (defaultKindMetas, runtimeRepToTcType, zonkKind)
+import Aihc.Tc.Kind (defaultKindMetas, kindToTcType, runtimeRepToTcType, zonkKind)
 import Aihc.Tc.Monad (TcM, readMetaTv, readRuntimeRepDependency, writeMetaTv)
 import Aihc.Tc.Types
 
@@ -28,12 +29,20 @@ zonkType ty = case ty of
     resolveRuntimeRepDependency u resolved
   TcTyVar tv -> TcTyVar <$> zonkTyVar tv
   TcTyCon tc args -> do
-    kind <- zonkKind (tyConKind tc)
-    TcTyCon (finalizeTyConKind kind tc) <$> mapM zonkType args
+    kindScheme <- zonkTyConKindScheme (tyConKindScheme tc)
+    TcTyCon (setTyConKindScheme kindScheme tc) <$> mapM zonkType args
   TcFunTy a b -> TcFunTy <$> zonkType a <*> zonkType b
   TcForAllTy tv body -> TcForAllTy <$> zonkTyVar tv <*> zonkType body
   TcQualTy preds body -> TcQualTy <$> mapM zonkPred preds <*> zonkType body
   TcAppTy f a -> TcAppTy <$> zonkType f <*> zonkType a
+  TcBuiltinTyCon name arity arguments -> TcBuiltinTyCon name arity <$> mapM zonkType arguments
+
+zonkTyConKindScheme :: TypeScheme -> TcM TypeScheme
+zonkTyConKindScheme scheme@(ForAll tyVars predicates _) = do
+  tyVars' <- mapM zonkTyVar tyVars
+  predicates' <- mapM zonkPred predicates
+  kind <- zonkKind (kindFromTypeScheme scheme)
+  pure (ForAll tyVars' predicates' (kindToTcType kind))
 
 resolveRuntimeRepDependency :: Unique -> TcType -> TcM TcType
 resolveRuntimeRepDependency unique unresolved@(TcMetaTv unresolvedUnique)
@@ -63,6 +72,7 @@ containsMetaVariable ty =
     TcForAllTy _ body -> containsMetaVariable body
     TcQualTy predicates body -> any containsMetaPred predicates || containsMetaVariable body
     TcAppTy function argument -> containsMetaVariable function || containsMetaVariable argument
+    TcBuiltinTyCon _ _ arguments -> any containsMetaVariable arguments
   where
     containsMetaPred predicate =
       case predicate of
@@ -88,22 +98,14 @@ defaultTypeKinds ty =
     TcMetaTv {} -> pure ty
     TcTyVar tv -> TcTyVar <$> defaultTyVarKinds tv
     TcTyCon tyCon args -> do
-      kind <- defaultKindMetas (tyConKind tyCon)
-      let tyCon' = finalizeTyConKind kind tyCon
+      kindScheme <- defaultTyConKindScheme (tyConKindScheme tyCon)
+      let tyCon' = setTyConKindScheme kindScheme tyCon
       TcTyCon tyCon' <$> mapM defaultTypeKinds args
     TcFunTy argument result -> TcFunTy <$> defaultTypeKinds argument <*> defaultTypeKinds result
     TcForAllTy tv body -> TcForAllTy <$> defaultTyVarKinds tv <*> defaultTypeKinds body
     TcQualTy predicates body -> TcQualTy <$> mapM defaultPredKinds predicates <*> defaultTypeKinds body
     TcAppTy function argument -> TcAppTy <$> defaultTypeKinds function <*> defaultTypeKinds argument
-
-finalizeTyConKind :: Kind -> TyCon -> TyCon
-finalizeTyConKind kind tyCon =
-  mkTyConWithOrigin
-    (tyConPackageId tyCon)
-    (tyConModuleName tyCon)
-    (tyConName tyCon)
-    (tyConArity tyCon)
-    kind
+    TcBuiltinTyCon name arity arguments -> TcBuiltinTyCon name arity <$> mapM defaultTypeKinds arguments
 
 defaultTypeSchemeKinds :: TypeScheme -> TcM TypeScheme
 defaultTypeSchemeKinds (ForAll tyVars predicates body) =
@@ -111,6 +113,13 @@ defaultTypeSchemeKinds (ForAll tyVars predicates body) =
     <$> mapM defaultTyVarKinds tyVars
     <*> mapM defaultPredKinds predicates
     <*> defaultTypeKinds body
+
+defaultTyConKindScheme :: TypeScheme -> TcM TypeScheme
+defaultTyConKindScheme scheme@(ForAll tyVars predicates _) = do
+  tyVars' <- mapM defaultTyVarKinds tyVars
+  predicates' <- mapM defaultPredKinds predicates
+  kind <- defaultKindMetas (kindFromTypeScheme scheme)
+  pure (ForAll tyVars' predicates' (kindToTcType kind))
 
 defaultPredKinds :: Pred -> TcM Pred
 defaultPredKinds predicate =

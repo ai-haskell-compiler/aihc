@@ -250,6 +250,7 @@ lowerConstraintType ty =
     TcQualTy predicates body ->
       foldr (TcFunTy . lowerConstraintType . predType) (lowerConstraintType body) predicates
     TcAppTy function argument -> TcAppTy (lowerConstraintType function) (lowerConstraintType argument)
+    TcBuiltinTyCon name arity arguments -> TcBuiltinTyCon name arity (map lowerConstraintType arguments)
 
 lowerCoercion :: Coercion -> Coercion
 lowerCoercion coercion =
@@ -673,6 +674,17 @@ matchConstructorResult quantified patternType actualType substitution =
         _ -> Nothing
     TcForAllTy {} -> Nothing
     TcQualTy {} -> Nothing
+    TcBuiltinTyCon name arity arguments ->
+      case actualType of
+        TcBuiltinTyCon actualName actualArity actualArguments
+          | name == actualName,
+            arity == actualArity,
+            length arguments == length actualArguments ->
+              foldM
+                (\current (expectedArgument, actualArgument) -> matchConstructorResult quantified expectedArgument actualArgument current)
+                substitution
+                (zip arguments actualArguments)
+        _ -> Nothing
 
 makeForeignIoWrapper :: FcForeignCall -> TcForeignMarshal -> [FcExpr] -> DsM FcExpr
 makeForeignIoWrapper foreignCall resultMarshal arguments = do
@@ -903,6 +915,7 @@ typeRuntimeRepVariables ty =
     TcForAllTy _ body -> typeRuntimeRepVariables body
     TcQualTy _ body -> typeRuntimeRepVariables body
     TcAppTy function argument -> typeRuntimeRepVariables function <> typeRuntimeRepVariables argument
+    TcBuiltinTyCon _ _ arguments -> concatMap typeRuntimeRepVariables arguments
 
 kindRuntimeRepVariables :: Kind -> [Unique]
 kindRuntimeRepVariables kind =

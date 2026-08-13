@@ -19,7 +19,7 @@ import Aihc.Tc.Types
     VecCount (..),
     VecElem (..),
     liftedRuntimeRep,
-    setTyConKind,
+    mkTyCon,
     setTyVarKind,
   )
 import Control.Monad (when)
@@ -311,7 +311,7 @@ genTyVar = do
   pure (setTyVarKind kind (TyVarId (generatedName "a" identifier) identifier))
 
 genTyCon :: Gen TyCon
-genTyCon = setTyConKind <$> genKind <*> (TyCon <$> genTypeName <*> Gen.int (Range.linear 0 4))
+genTyCon = mkTyCon <$> genTypeName <*> Gen.int (Range.linear 0 4) <*> genKind
 
 genKind :: Gen Kind
 genKind =

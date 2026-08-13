@@ -16,7 +16,7 @@ module Aihc.Fc.Subst
 where
 
 import Aihc.Fc.Syntax
-import Aihc.Tc.Types (Kind (..), Levity (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (tyConName), TyVarId (..), Unique (..), setTyConKind, setTyVarKind, tvKind, tyConKind)
+import Aihc.Tc.Types (Kind (..), Levity (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (tyConName), TyVarId (..), Unique (..), setTyVarKind, tvKind)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -94,6 +94,7 @@ freeRigidTyVarsOf = uniqueTyVars . concatMap go
         TcForAllTy tyVar body -> filter (/= tyVar) (go body)
         TcQualTy predicates body -> concatMap goPredicate predicates <> go body
         TcAppTy function argument -> go function <> go argument
+        TcBuiltinTyCon _ _ arguments -> concatMap go arguments
 
     goPredicate predicate =
       case predicate of
@@ -115,7 +116,7 @@ substType subst ty
       Just t -> t
       Nothing -> TcTyVar (setTyVarKind (goKind s (tvKind tv)) tv)
     go _ t@(TcMetaTv _) = t
-    go s (TcTyCon tc args) = TcTyCon (setTyConKind (goKind s (tyConKind tc)) tc) (map (go s) args)
+    go s (TcTyCon tc args) = TcTyCon tc (map (go s) args)
     go s (TcFunTy a b) = TcFunTy (go s a) (go s b)
     go s (TcForAllTy tv body) =
       -- Remove the bound variable from substitution to avoid capture.
@@ -123,6 +124,7 @@ substType subst ty
        in TcForAllTy (setTyVarKind (goKind s (tvKind tv)) tv) (go s' body)
     go s (TcQualTy preds body) = TcQualTy (map (goPred s) preds) (go s body)
     go s (TcAppTy f a) = TcAppTy (go s f) (go s a)
+    go s (TcBuiltinTyCon name arity arguments) = TcBuiltinTyCon name arity (map (go s) arguments)
 
     goPred s (ClassPred cls args) = ClassPred cls (map (go s) args)
     goPred s (EqPred t1 t2) = EqPred (go s t1) (go s t2)

@@ -366,7 +366,12 @@ loadDependencyModules tc evalModules = do
   let dependencies = evalCaseDependencies tc
       transitiveDependencies = nub (dependencies <> ["aihc-prim"])
       initialModules
-        | null dependencies = ["GHC.Tuple"]
+        | null dependencies =
+            "GHC.Tuple"
+              : [ "GHC.Types"
+                | Just unboxedTuples <- [parseExtensionName "UnboxedTuples"],
+                  unboxedTuples `elem` evalCaseExtensions tc
+                ]
         | otherwise = initialDependencyModules evalModules
   roots <- traverse resolveDependencyRoot transitiveDependencies
   case sequence roots of
