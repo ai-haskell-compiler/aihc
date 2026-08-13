@@ -72,7 +72,6 @@ data TyConInfo = TyConInfo
   { tciName :: !Text,
     tciArity :: !Int,
     tciTyCon :: !TyCon,
-    tciKind :: !Kind,
     tciFlavor :: !TyConFlavor,
     tciTypeSynonym :: !(Maybe TypeSynonymInfo)
   }

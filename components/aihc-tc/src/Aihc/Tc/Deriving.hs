@@ -164,7 +164,7 @@ attachedTargetType sourceSpan targetInfo params expectedKind = do
   case find ((== expectedKind) . typeKind) candidates of
     Just target -> pure target
     Nothing -> do
-      emitError sourceSpan (KindMismatch expectedKind (tciKind targetInfo))
+      emitError sourceSpan (KindMismatch expectedKind (tyConKind (tciTyCon targetInfo)))
       pure (TcTyCon tyCon arguments)
 
 annotateStandaloneDerivingTc :: [Extension] -> StandaloneDerivingDecl -> TcM Decl
@@ -366,6 +366,7 @@ typeMentionsTyVar target ty =
     TcForAllTy tyVar body -> tyVar /= target && typeMentionsTyVar target body
     TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
     TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
+    TcBuiltinTyCon _ _ arguments -> any (typeMentionsTyVar target) arguments
 
 predicateMentionsTyVar :: TyVarId -> Pred -> Bool
 predicateMentionsTyVar target predicate =

@@ -263,6 +263,7 @@ referencesType ty =
     TcForAllTy _ body -> referencesType body
     TcQualTy predicates body -> foldMap referencesPred predicates <> referencesType body
     TcAppTy function argument -> referencesType function <> referencesType argument
+    TcBuiltinTyCon _ _ arguments -> foldMap referencesType arguments
 
 referencesPred :: Pred -> References
 referencesPred predicate =

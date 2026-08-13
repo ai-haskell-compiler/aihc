@@ -29,8 +29,8 @@ module Aihc.Tc.Types
     tyConKindScheme,
     mkTyCon,
     mkTyConWithOrigin,
-    mkTyConWithOriginAndKindScheme,
-    setTyConKind,
+    mkTyConWithOriginScheme,
+    setTyConKindScheme,
     Kind (KTYPE, KConstraint, KRuntimeRep, KLevity, KVecCount, KVecElem, KFun, KMeta, KType),
     RuntimeRep (..),
     Levity (..),
@@ -107,10 +107,8 @@ instance Eq TyVarId where
 instance Ord TyVarId where
   compare a b = compare (tvUnique a) (tvUnique b)
 
--- | Type constructor. Every constructor carries its fully applied kind so
--- downstream phases can recover the kind of any 'TcType' without consulting
--- the type-checker environment.
-data TyCon = TyConInternal !PackageId !Text !Text !Int !Kind !(Maybe TypeScheme)
+-- | Type constructor. The kind scheme is the only stored kind representation.
+data TyCon = TyConInternal !PackageId !Text !Text !Int !TypeScheme
   deriving (Show, Read)
 
 instance Eq TyCon where
@@ -125,23 +123,29 @@ instance Ord TyCon where
       (tyConPackageId right, tyConModuleName right, tyConName right, tyConArity right)
 
 pattern TyCon :: Text -> Int -> TyCon
-pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ tyConName tyConArity _ _
+pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ tyConName tyConArity _
   where
-    TyCon name arity = TyConInternal (PackageId "aihc-internal") "Aihc.Internal" name arity (wiredInTyConKind name arity) Nothing
+    TyCon name arity =
+      TyConInternal
+        (PackageId "aihc-internal")
+        "Aihc.Internal"
+        name
+        arity
+        (kindSchemeFromKind (wiredInTyConKind name arity))
 
 {-# COMPLETE TyCon #-}
 
 tyConKind :: TyCon -> Kind
-tyConKind (TyConInternal _ _ _ _ kind _) = kind
+tyConKind = kindFromTypeScheme . tyConKindScheme
 
-tyConKindScheme :: TyCon -> Maybe TypeScheme
-tyConKindScheme (TyConInternal _ _ _ _ _ scheme) = scheme
+tyConKindScheme :: TyCon -> TypeScheme
+tyConKindScheme (TyConInternal _ _ _ _ scheme) = scheme
 
 tyConPackageId :: TyCon -> PackageId
-tyConPackageId (TyConInternal packageId _ _ _ _ _) = packageId
+tyConPackageId (TyConInternal packageId _ _ _ _) = packageId
 
 tyConModuleName :: TyCon -> Text
-tyConModuleName (TyConInternal _ moduleName _ _ _ _) = moduleName
+tyConModuleName (TyConInternal _ moduleName _ _ _) = moduleName
 
 mkTyCon :: Text -> Int -> Kind -> TyCon
 mkTyCon = mkTyConWithOrigin (PackageId "aihc-internal") "Aihc.Internal"
@@ -149,19 +153,16 @@ mkTyCon = mkTyConWithOrigin (PackageId "aihc-internal") "Aihc.Internal"
 -- | Make a type constructor with its installed package and module identity.
 mkTyConWithOrigin :: PackageId -> Text -> Text -> Int -> Kind -> TyCon
 mkTyConWithOrigin packageId moduleName name arity inferredKind =
-  TyConInternal packageId moduleName name arity (fromMaybe inferredKind (fixedTyConKind name)) Nothing
+  TyConInternal packageId moduleName name arity (kindSchemeFromKind (fromMaybe inferredKind (fixedTyConKind name)))
 
--- | Make a type constructor whose standalone source signature is authoritative.
-mkTyConWithOriginAndKindScheme :: PackageId -> Text -> Text -> Int -> TypeScheme -> TyCon
-mkTyConWithOriginAndKindScheme packageId moduleName name arity scheme =
-  TyConInternal packageId moduleName name arity (kindFromTypeScheme scheme) (Just scheme)
+-- | Make a type constructor from its authoritative kind scheme.
+mkTyConWithOriginScheme :: PackageId -> Text -> Text -> Int -> TypeScheme -> TyCon
+mkTyConWithOriginScheme = TyConInternal
 
--- | Replace a type constructor's kind without applying wired-in defaults.
--- This is used when reconstructing canonical System FC syntax, where the
--- serialized kind is authoritative.
-setTyConKind :: Kind -> TyCon -> TyCon
-setTyConKind kind (TyConInternal packageId moduleName name arity _ scheme) =
-  TyConInternal packageId moduleName name arity kind scheme
+-- | Replace a type constructor's authoritative kind scheme.
+setTyConKindScheme :: TypeScheme -> TyCon -> TyCon
+setTyConKindScheme scheme (TyConInternal packageId moduleName name arity _) =
+  TyConInternal packageId moduleName name arity scheme
 
 -- | Kinds for the type language checked by @aihc-tc@.
 data Kind
@@ -247,6 +248,8 @@ data TcType
     TcQualTy ![Pred] !TcType
   | -- | Unsaturated type application @f a@.
     TcAppTy !TcType !TcType
+  | -- | A primitive type constructor used to define kind schemes without a recursive 'TyCon'.
+    TcBuiltinTyCon !Text !Int ![TcType]
   deriving (Eq, Show, Read)
 
 -- | Whether a type has an unlifted runtime representation in the subset of
@@ -283,6 +286,8 @@ typeKind ty =
     TcForAllTy _ body -> typeKind body
     TcQualTy _ body -> typeKind body
     TcAppTy function _ -> applyKindArgumentCount (typeKind function) 1
+    TcBuiltinTyCon name arity arguments ->
+      applyKindArgumentCount (wiredInTyConKind name arity) (length arguments)
   where
     runtimeRepOrLifted argument =
       case runtimeRepOfType argument of
@@ -298,13 +303,11 @@ applyKindArgumentCount kind _ = kind
 applyTyConKind :: TyCon -> [TcType] -> Kind
 applyTyConKind tyCon = go Map.empty authoritativeKind
   where
-    authoritativeKind = maybe (tyConKind tyCon) kindFromTypeScheme (tyConKindScheme tyCon)
+    scheme@(ForAll kindTyVars _ _) = tyConKindScheme tyCon
+    authoritativeKind = kindFromTypeScheme scheme
     quantified =
       kindParameterRuntimeRepVariables authoritativeKind
-        <> maybe
-          Set.empty
-          (\(ForAll tyVars _ _) -> Set.fromList (map tvUnique tyVars))
-          (tyConKindScheme tyCon)
+        <> Set.fromList (map tvUnique kindTyVars)
 
     go substitution kind [] = substituteKindRuntimeReps substitution kind
     go substitution (KFun formal result) (argument : arguments) =
@@ -471,6 +474,60 @@ primitiveRuntimeRep name =
 data TypeScheme = ForAll ![TyVarId] ![Pred] !TcType
   deriving (Eq, Show, Read)
 
+kindSchemeFromKind :: Kind -> TypeScheme
+kindSchemeFromKind = ForAll [] [] . kindAsType
+
+kindAsType :: Kind -> TcType
+kindAsType kind =
+  case kind of
+    KTYPE runtimeRep
+      | runtimeRep == liftedRuntimeRep -> builtin "Type" 0 []
+      | otherwise -> builtin "TYPE" 1 [runtimeRepAsType runtimeRep]
+    KConstraint -> builtin "Constraint" 0 []
+    KRuntimeRep -> builtin "RuntimeRep" 0 []
+    KLevity -> builtin "Levity" 0 []
+    KVecCount -> builtin "VecCount" 0 []
+    KVecElem -> builtin "VecElem" 0 []
+    KMeta unique -> TcMetaTv unique
+    KFun argument result -> TcFunTy (kindAsType argument) (kindAsType result)
+  where
+    builtin = TcBuiltinTyCon
+
+runtimeRepAsType :: RuntimeRep -> TcType
+runtimeRepAsType runtimeRep =
+  case runtimeRep of
+    BoxedRep Lifted -> promoted "LiftedRep" 0 []
+    BoxedRep Unlifted -> promoted "UnliftedRep" 0 []
+    IntRep -> nullary "IntRep"
+    Int8Rep -> nullary "Int8Rep"
+    Int16Rep -> nullary "Int16Rep"
+    Int32Rep -> nullary "Int32Rep"
+    Int64Rep -> nullary "Int64Rep"
+    WordRep -> nullary "WordRep"
+    Word8Rep -> nullary "Word8Rep"
+    Word16Rep -> nullary "Word16Rep"
+    Word32Rep -> nullary "Word32Rep"
+    Word64Rep -> nullary "Word64Rep"
+    AddrRep -> nullary "AddrRep"
+    FloatRep -> nullary "FloatRep"
+    DoubleRep -> nullary "DoubleRep"
+    RuntimeRepVar unique ->
+      TcTyVar (setTyVarKind KRuntimeRep (TyVarId ("rep" <> T.pack (showUnique unique)) unique))
+    RuntimeRepMeta unique -> TcMetaTv unique
+    TupleRep fields -> promotedList "TupleRep" fields
+    SumRep fields -> promotedList "SumRep" fields
+    VecRep count element ->
+      promoted
+        "VecRep"
+        2
+        [nullary (T.pack (show count)), nullary (T.pack (show element))]
+  where
+    nullary name = promoted name 0 []
+    promoted name = TcBuiltinTyCon ("'" <> name)
+    promotedList name fields =
+      promoted name 1 [promoted "[]" (length fields) (map runtimeRepAsType fields)]
+    showUnique (Unique value) = show value
+
 kindFromTypeScheme :: TypeScheme -> Kind
 kindFromTypeScheme (ForAll _ _ body) = typeAsKind body
 
@@ -490,6 +547,20 @@ typeAsKind ty =
     TcForAllTy _ body -> typeAsKind body
     TcMetaTv unique -> KMeta unique
     TcTyVar tyVar -> tvKind tyVar
+    TcBuiltinTyCon name _ arguments -> typeAsBuiltinKind name arguments
+    _ -> KType
+
+typeAsBuiltinKind :: Text -> [TcType] -> Kind
+typeAsBuiltinKind name arguments =
+  case (bareName name, arguments) of
+    ("*", []) -> KType
+    ("Type", []) -> KType
+    ("Constraint", []) -> KConstraint
+    ("RuntimeRep", []) -> KRuntimeRep
+    ("Levity", []) -> KLevity
+    ("VecCount", []) -> KVecCount
+    ("VecElem", []) -> KVecElem
+    ("TYPE", [runtimeRep]) -> KTYPE (runtimeRepFromType runtimeRep)
     _ -> KType
 
 runtimeRepFromType :: TcType -> RuntimeRep
@@ -506,11 +577,24 @@ runtimeRepFromType ty =
       | bareName (tyConName tyCon) == "SumRep" -> SumRep (map runtimeRepFromType (promotedListItems fields))
     TcTyCon tyCon [count, element]
       | bareName (tyConName tyCon) == "VecRep" -> VecRep (typeAsVecCount count) (typeAsVecElem element)
+    TcBuiltinTyCon name _ arguments -> runtimeRepFromBuiltin name arguments
+    _ -> liftedRuntimeRep
+
+runtimeRepFromBuiltin :: Text -> [TcType] -> RuntimeRep
+runtimeRepFromBuiltin name arguments =
+  case (bareName name, arguments) of
+    ("BoxedRep", [levity]) -> BoxedRep (typeAsLevity levity)
+    ("TupleRep", [fields]) -> TupleRep (map runtimeRepFromType (promotedListItems fields))
+    ("SumRep", [fields]) -> SumRep (map runtimeRepFromType (promotedListItems fields))
+    ("VecRep", [count, element]) -> VecRep (typeAsVecCount count) (typeAsVecElem element)
+    (constructor, []) -> fromMaybe liftedRuntimeRep (runtimeRepConstructorByName constructor)
     _ -> liftedRuntimeRep
 
 typeAsLevity :: TcType -> Levity
 typeAsLevity (TcTyCon tyCon [])
   | bareName (tyConName tyCon) == "Unlifted" = Unlifted
+typeAsLevity (TcBuiltinTyCon name _ [])
+  | bareName name == "Unlifted" = Unlifted
 typeAsLevity _ = Lifted
 
 typeAsVecCount :: TcType -> VecCount
@@ -523,11 +607,25 @@ typeAsVecCount (TcTyCon tyCon []) =
     "Vec32" -> Vec32
     "Vec64" -> Vec64
     _ -> Vec2
+typeAsVecCount (TcBuiltinTyCon name _ []) = typeAsVecCountName (bareName name)
 typeAsVecCount _ = Vec2
+
+typeAsVecCountName :: Text -> VecCount
+typeAsVecCountName name =
+  case name of
+    "Vec2" -> Vec2
+    "Vec4" -> Vec4
+    "Vec8" -> Vec8
+    "Vec16" -> Vec16
+    "Vec32" -> Vec32
+    "Vec64" -> Vec64
+    _ -> Vec2
 
 typeAsVecElem :: TcType -> VecElem
 typeAsVecElem (TcTyCon tyCon []) =
   fromMaybe Int8ElemRep (lookup (bareName (tyConName tyCon)) vecElemNames)
+typeAsVecElem (TcBuiltinTyCon name _ []) =
+  fromMaybe Int8ElemRep (lookup (bareName name) vecElemNames)
 typeAsVecElem _ = Int8ElemRep
 
 vecElemNames :: [(Text, VecElem)]
@@ -547,6 +645,8 @@ vecElemNames =
 promotedListItems :: TcType -> [TcType]
 promotedListItems (TcTyCon tyCon items)
   | bareName (tyConName tyCon) == "[]" = items
+promotedListItems (TcBuiltinTyCon name _ items)
+  | bareName name == "[]" = items
 promotedListItems _ = []
 
 runtimeRepConstructorByName :: Text -> Maybe RuntimeRep

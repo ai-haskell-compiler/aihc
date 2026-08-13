@@ -108,6 +108,7 @@ occursIn u = go
     go (TcForAllTy _ body) = go body
     go (TcQualTy preds body) = any goPred preds || go body
     go (TcAppTy f a) = go f || go a
+    go (TcBuiltinTyCon _ _ arguments) = any go arguments
 
     goPred (ClassPred _ args) = any go args
     goPred (EqPred a b) = go a || go b

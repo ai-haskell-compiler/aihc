@@ -335,6 +335,8 @@ expandTcTypeSynonyms expanding ty =
     TcForAllTy tyVar body -> TcForAllTy tyVar <$> expandTcTypeSynonyms expanding body
     TcQualTy predicates body -> TcQualTy <$> mapM expandPredicate predicates <*> expandTcTypeSynonyms expanding body
     TcAppTy function argument -> applyType <$> expandTcTypeSynonyms expanding function <*> expandTcTypeSynonyms expanding argument
+    TcBuiltinTyCon name arity arguments ->
+      TcBuiltinTyCon name arity <$> mapM (expandTcTypeSynonyms expanding) arguments
   where
     expandPredicate predicate =
       case predicate of
@@ -365,12 +367,9 @@ inferTypeConstructor promoted name =
             Nothing -> inferBuiltinOrOpenTypeConstructor raw
 
 instantiateTyConKind :: TyConInfo -> TcM Kind
-instantiateTyConKind info =
-  case tyConKindScheme (tciTyCon info) of
-    Nothing -> pure (tciKind info)
-    Just scheme -> do
-      (kindType, _) <- instantiate scheme
-      pure (kindFromTypeScheme (ForAll [] [] kindType))
+instantiateTyConKind info = do
+  (kindType, _) <- instantiate (tyConKindScheme (tciTyCon info))
+  pure (kindFromTypeScheme (ForAll [] [] kindType))
 
 inferBuiltinTypeConstructor :: TypeBuiltinCon -> TcM (TcType, Kind)
 inferBuiltinTypeConstructor builtin =
@@ -797,7 +796,7 @@ classPredicateArgKinds :: Text -> Int -> TcM [Kind]
 classPredicateArgKinds className argCount = do
   mInfo <- lookupTyCon className
   case mInfo of
-    Just info -> takeClassArgKinds argCount <$> defaultKindMetas (tciKind info)
+    Just info -> takeClassArgKinds argCount <$> defaultKindMetas (tyConKind (tciTyCon info))
     Nothing -> mapM (const freshKindMeta) [1 .. argCount]
 
 takeClassArgKinds :: Int -> Kind -> [Kind]

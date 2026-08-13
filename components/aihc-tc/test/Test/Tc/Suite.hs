@@ -42,7 +42,7 @@ import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (freeTypeVars)
 import Aihc.Tc.Monad (emptyTcEnv, initTcState, runTcM)
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme)
-import Aihc.Tc.Types (mkTyCon, tyConModuleName, tyConPackageId)
+import Aihc.Tc.Types (kindFromTypeScheme, mkTyCon, tyConModuleName, tyConPackageId)
 import Aihc.Tc.Unify (unifyTypes)
 import Aihc.Tc.Zonk (zonkType)
 import Data.Data (Data, gmapQ)
@@ -457,7 +457,7 @@ kindTests =
           case identityTyCons of
             [identityTyCon] -> do
               assertEqual "kind" (KFun KType KType) (tyConKind identityTyCon)
-              assertBool "kind scheme should be stored" (isJust (tyConKindScheme identityTyCon))
+              assertEqual "stored kind scheme" (KFun KType KType) (kindFromTypeScheme (tyConKindScheme identityTyCon))
             other -> assertFailure ("expected one Identity type constructor, got: " <> show other)
         ResolveResult {resolveErrors} -> assertFailure ("module should resolve, got: " <> show resolveErrors),
     testCase "uses the standalone kind signature representation" $ do
@@ -603,6 +603,7 @@ kindTests =
         TcForAllTy tv body -> kindHasMeta (tvKind tv) || hasKindMeta body
         TcQualTy predicates body -> any predHasKindMeta predicates || hasKindMeta body
         TcAppTy function argument -> hasKindMeta function || hasKindMeta argument
+        TcBuiltinTyCon _ _ arguments -> any hasKindMeta arguments
     predHasKindMeta predicate =
       case predicate of
         ClassPred _ args -> any hasKindMeta args
@@ -1028,6 +1029,7 @@ hasMetaTcType ty =
     TcQualTy preds body -> any hasMetaPred preds || hasMetaTcType body
     TcAppTy fun arg -> hasMetaTcType fun || hasMetaTcType arg
     TcTyVar {} -> False
+    TcBuiltinTyCon _ _ arguments -> any hasMetaTcType arguments
   where
     hasMetaPred (ClassPred _ args) = any hasMetaTcType args
     hasMetaPred (EqPred left right) = hasMetaTcType left || hasMetaTcType right

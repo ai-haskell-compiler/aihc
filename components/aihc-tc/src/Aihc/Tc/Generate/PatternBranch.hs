@@ -60,6 +60,7 @@ typeMentionsTyVar target ty =
     TcForAllTy tyVar body -> tyVar /= target && typeMentionsTyVar target body
     TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
     TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
+    TcBuiltinTyCon _ _ arguments -> any (typeMentionsTyVar target) arguments
 
 predicateMentionsTyVar :: TyVarId -> Pred -> Bool
 predicateMentionsTyVar target predicate =
