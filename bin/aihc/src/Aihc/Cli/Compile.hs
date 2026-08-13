@@ -36,7 +36,8 @@ import Aihc.Cli.Options (CompileOptions (..), GarbageCollector (..))
 import Aihc.Cli.Runtime (readWasmClangProcessWithExitCode, runtimeGarbageCollector, wasmClangCommand, wasmOptArguments)
 import Aihc.Cli.Store (defaultStoreRoot, installedRuntimeArchivePath)
 import Aihc.Fc
-  ( DesugarResult (..),
+  ( DesugarConfig (..),
+    DesugarResult (..),
     FcProgram (..),
     desugarModule,
     desugarModuleWithBindings,
@@ -258,7 +259,7 @@ compileWithDependencies target wholeProgram dependencies parsed = do
             then Left (CompileFrontendError ["typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules)])
             else
               let bindings = dependencyBindings dependencies <> concatMap tcModuleBindings checkedModules
-                  desugared = zipWith (desugarModuleWithBindings primPackageId bindings) checkedModules moduleAsts
+                  desugared = map (desugarModuleWithBindings (DesugarConfig {primPackageId = primPackageId}) bindings) checkedModules
                in if not (all dsSuccess desugared)
                     then Left (CompileFrontendError (concatMap dsErrors desugared))
                     else do

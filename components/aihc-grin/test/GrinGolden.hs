@@ -10,7 +10,7 @@ module GrinGolden
   )
 where
 
-import Aihc.Fc (DesugarResult (..), desugarModuleWithBindings)
+import Aihc.Fc (DesugarConfig (..), DesugarResult (..), desugarModuleWithBindings)
 import Aihc.Grin (lintProgram, lowerProgram, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
@@ -117,7 +117,7 @@ evaluateGrinCase fixture =
            in if all tcModuleSuccess tcResults
                 then
                   let allBindings = moduleGroupBindings tcResults
-                      desugared = zipWith (desugarModuleWithBindings (PackageId "aihc-prim") allBindings) tcResults moduleAsts
+                      desugared = map (desugarModuleWithBindings (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings) tcResults
                    in if all dsSuccess desugared
                         then
                           let programs = map (lowerProgram . dsProgram) desugared

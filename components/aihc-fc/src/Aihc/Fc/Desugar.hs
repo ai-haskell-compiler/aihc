@@ -10,6 +10,7 @@ module Aihc.Fc.Desugar
     desugarModuleWithBindings,
     desugarModuleWithDataTypes,
     desugarModuleWithTcResult,
+    DesugarConfig (..),
     DesugarResult (..),
   )
 where
@@ -94,6 +95,12 @@ data DesugarResult = DesugarResult
   }
   deriving (Show)
 
+-- | Configuration for desugaring.
+newtype DesugarConfig = DesugarConfig
+  { primPackageId :: PackageId
+  }
+  deriving (Eq, Show)
+
 -- | Desugar a module: parse, typecheck, then translate to compulsorily lowered
 -- but deliberately unoptimized Core.
 desugarModule :: Module -> DesugarResult
@@ -102,7 +109,11 @@ desugarModule m =
     ResolveResult {resolvedModules = [(_, resolved)], resolveErrors = []} ->
       case typecheckModulesWithInterface emptyTcInterface [resolved] of
         ([tcResult], tcInterface) ->
-          desugarModuleWithDataTypes (PackageId "aihc-prim") (tcModuleBindings tcResult) (tcInterfaceDataTypes tcInterface) tcResult resolved
+          desugarModuleWithDataTypes
+            (DesugarConfig {primPackageId = PackageId "aihc-prim"})
+            (tcModuleBindings tcResult)
+            (tcInterfaceDataTypes tcInterface)
+            tcResult
         _ ->
           DesugarResult
             { dsProgram = FcProgram (sourceModuleId m) [],
@@ -119,25 +130,25 @@ desugarModule m =
 -- | Desugar a module using a type-checking result already computed by
 -- the caller. This is useful for clients such as the REPL that preload
 -- imported bindings into the type-checker environment.
-desugarModuleWithTcResult :: PackageId -> Module -> Module -> DesugarResult
-desugarModuleWithTcResult primPackageId tcResult =
-  desugarModuleWithBindings primPackageId (tcModuleBindings tcResult) tcResult
+desugarModuleWithTcResult :: DesugarConfig -> Module -> DesugarResult
+desugarModuleWithTcResult config tcResult =
+  desugarModuleWithBindings config (tcModuleBindings tcResult) tcResult
 
-desugarModuleWithBindings :: PackageId -> [TcBindingResult] -> Module -> Module -> DesugarResult
-desugarModuleWithBindings primPackageId bindings = desugarModuleWithDataTypes primPackageId bindings []
+desugarModuleWithBindings :: DesugarConfig -> [TcBindingResult] -> Module -> DesugarResult
+desugarModuleWithBindings config bindings = desugarModuleWithDataTypes config bindings []
 
-desugarModuleWithDataTypes :: PackageId -> [TcBindingResult] -> [DataTypeInfo] -> Module -> Module -> DesugarResult
-desugarModuleWithDataTypes primPackageId bindings dataTypes tcResult resolvedModule =
+desugarModuleWithDataTypes :: DesugarConfig -> [TcBindingResult] -> [DataTypeInfo] -> Module -> DesugarResult
+desugarModuleWithDataTypes config bindings dataTypes tcResult =
   if not (tcModuleSuccess tcResult)
     then
       DesugarResult
-        { dsProgram = FcProgram (sourceModuleId resolvedModule) [],
+        { dsProgram = FcProgram (sourceModuleId tcResult) [],
           dsSuccess = False,
           dsErrors = showTcFailure tcResult
         }
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
-          (packageId, currentModuleName) = resolvedModuleOrigin resolvedModule
+          (packageId, currentModuleName) = resolvedModuleOrigin tcResult
           constructorFields =
             Map.fromList
               [ (dciName constructor, dciFields constructor)
@@ -145,10 +156,10 @@ desugarModuleWithDataTypes primPackageId bindings dataTypes tcResult resolvedMod
                 dtiFlavor dataType == DataTyCon,
                 constructor <- dtiConstructors dataType
               ]
-       in case runStateT (dsModule tcResult) (DsState 1000 primPackageId (packageIdText packageId) (Just currentModuleName) typeEnv Map.empty Map.empty constructorFields Nothing) of
+       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) (packageIdText packageId) (Just currentModuleName) typeEnv Map.empty Map.empty constructorFields Nothing) of
             Left err ->
               DesugarResult
-                { dsProgram = FcProgram (sourceModuleId resolvedModule) [],
+                { dsProgram = FcProgram (sourceModuleId tcResult) [],
                   dsSuccess = False,
                   dsErrors = [err]
                 }
