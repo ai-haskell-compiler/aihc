@@ -86,7 +86,7 @@ qualifyTopLevelBinders program =
     globalOrigin var =
       fromMaybe
         ( FcTopLevelOrigin
-            { fcOriginPackage = fcModulePackage moduleId,
+            { fcOriginPackage = fcModulePackageText moduleId,
               fcOriginModule = fcModuleName moduleId,
               fcOriginName = varName var
             }

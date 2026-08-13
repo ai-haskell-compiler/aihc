@@ -32,7 +32,7 @@ renderProgram program =
 
 renderModuleDeclaration :: FcModuleId -> String
 renderModuleDeclaration moduleId =
-  "module " <> renderModuleOrigin (fcModulePackage moduleId) (fcModuleName moduleId) <> " where"
+  "module " <> renderModuleOrigin (fcModulePackageText moduleId) (fcModuleName moduleId) <> " where"
 
 -- | Materialize the one-per-origin external signature table represented by
 -- the canonical syntax. Desugaring calls this as well as rendering so the
@@ -130,7 +130,7 @@ renderSymbols :: FcModuleId -> [FcTopBind] -> RenderSymbols
 renderSymbols moduleId topBinds =
   RenderSymbols
     { renderExternalOrigins = Set.fromList [origin | FcExternal origin _ <- topBinds],
-      renderLocalOrigin = Just (fcModulePackage moduleId, fcModuleName moduleId),
+      renderLocalOrigin = Just (fcModulePackageText moduleId, fcModuleName moduleId),
       renderLocalNames = Set.fromList (concatMap topBindDefinedNames topBinds)
     }
 
@@ -144,7 +144,7 @@ canonicalProgramBinds (FcProgram moduleId topBinds) =
     <> definitions
   where
     definitions = [topBind | topBind <- topBinds, not (isHeader topBind)]
-    moduleOrigin = Just (fcModulePackage moduleId, fcModuleName moduleId)
+    moduleOrigin = Just (fcModulePackageText moduleId, fcModuleName moduleId)
     declaredTypes = Map.fromList [(origin, ty) | FcExternal origin ty <- topBinds]
     referencedTypes = Map.fromList [(origin, varType var) | var <- concatMap topBindOccurrences definitions, Just origin <- [varResolvedName var]]
     externalTypes = Map.union declaredTypes referencedTypes

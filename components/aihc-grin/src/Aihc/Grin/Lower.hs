@@ -171,7 +171,7 @@ linkNamesForProgram libraryId moduleNameComponents program =
     packageIdentity =
       fromMaybe
         ""
-        (Just (fcModulePackage (fcProgramModule program)))
+        (Just (fcModulePackageText (fcProgramModule program)))
     topBindVars bind =
       case bind of
         FcNonRec var _ -> [var]

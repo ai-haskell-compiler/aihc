@@ -14,6 +14,7 @@ where
 
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Fc.Syntax
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Evidence (Coercion (..), EvVar (..))
 import Aihc.Tc.Types
 import Control.Applicative ((<|>))
@@ -55,7 +56,7 @@ parseProgram input = do
   let definitionBlocks = [block | (block, Nothing) <- zip blocks moduleHeaders]
   headers <- traverse parseExternalHeader definitionBlocks
   validateExternalDeclarations input headers
-  let moduleOrigin = Just (fcModulePackage moduleId, fcModuleName moduleId)
+  let moduleOrigin = Just (fcModulePackageText moduleId, fcModuleName moduleId)
   signatures <- traverse (parseSignatures moduleOrigin) definitionBlocks
   let globals = Map.unions (catMaybes signatures) <> externalEnv headers
   FcProgram moduleId <$> traverse (parseBlock moduleOrigin globals) definitionBlocks
@@ -120,7 +121,7 @@ moduleDeclaration = do
   packageName <- MP.optional (MP.try text)
   moduleName <- qualifiedName
   _ <- keyword "where"
-  pure (FcModuleId (fromMaybe "" packageName) moduleName)
+  pure (FcModuleId (PackageId (fromMaybe "" packageName)) moduleName)
 
 externalDeclaration :: Parser FcTopBind
 externalDeclaration = do
