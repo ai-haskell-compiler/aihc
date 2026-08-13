@@ -137,7 +137,9 @@ data TcBindingResult = TcBindingResult
     tbName :: !Text,
     -- | Human-facing rendering for diagnostics and golden output.
     tbDisplayName :: !Text,
-    tbType :: !TcType
+    tbType :: !TcType,
+    -- | Resolver-selected identity for a finalized top-level binding.
+    tbKey :: !(Maybe TcTermKey)
   }
   deriving (Show, Read)
 
@@ -157,7 +159,15 @@ data CheckedSig = CheckedSig
 
 moduleBindings :: Module -> [TcBindingResult]
 moduleBindings modu =
-  concatMap declBindings (moduleDecls modu)
+  map addBindingKey (concatMap declBindings (moduleDecls modu))
+  where
+    (packageName, moduleName') = resolvedModuleOrigin modu
+    addBindingKey binding =
+      binding
+        { tbKey =
+            Just
+              (TcTermGlobal (PackageId packageName) moduleName' (tbName binding))
+        }
 
 -- | Recover instance-environment entries from finalized module annotations.
 moduleInstances :: Module -> [InstanceInfo]
@@ -306,32 +316,32 @@ tcAnnotationBindings ann decl =
     Just tcAnn ->
       case decl of
         DeclValue valueDecl ->
-          [ TcBindingResult name displayName (tcAnnType tcAnn)
+          [ TcBindingResult name displayName (tcAnnType tcAnn) Nothing
           | (name, displayName) <- valueDeclBindingNames valueDecl
           ]
         DeclData dataDecl ->
           let name = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
-           in [TcBindingResult name name (tcAnnType tcAnn)]
+           in [TcBindingResult name name (tcAnnType tcAnn) Nothing]
         DeclNewtype newtypeDecl ->
           let name = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
-           in [TcBindingResult name name (tcAnnType tcAnn)]
+           in [TcBindingResult name name (tcAnnType tcAnn) Nothing]
         DeclDataFamilyDecl familyDecl ->
           let name = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
-           in [TcBindingResult name name (tcAnnType tcAnn)]
+           in [TcBindingResult name name (tcAnnType tcAnn) Nothing]
         DeclForeign foreignDecl ->
           let name = unqualifiedNameText (foreignName foreignDecl)
               displayName = renderBinderName (foreignName foreignDecl)
-           in [TcBindingResult name displayName (tcAnnType tcAnn)]
+           in [TcBindingResult name displayName (tcAnnType tcAnn) Nothing]
         _ -> []
 
 classAnnotationBindings :: Annotation -> Decl -> [TcBindingResult]
 classAnnotationBindings ann decl =
   case (fromAnnotation ann, decl) of
     (Just classAnn, DeclClass {}) ->
-      [ TcBindingResult (tcClassMethodName method) (tcClassMethodName method) (tcClassMethodType method)
+      [ TcBindingResult (tcClassMethodName method) (tcClassMethodName method) (tcClassMethodType method) Nothing
       | method <- tcClassMethods classAnn
       ]
-        <> [ TcBindingResult (defaultMethodName (tcClassMethodName method)) (defaultMethodName (tcClassMethodName method)) (classDefaultWorkerType classAnn method)
+        <> [ TcBindingResult (defaultMethodName (tcClassMethodName method)) (defaultMethodName (tcClassMethodName method)) (classDefaultWorkerType classAnn method) Nothing
            | method <- tcClassMethods classAnn,
              tcClassMethodName method `elem` tcClassDefaultMethods classAnn
            ]
@@ -354,14 +364,14 @@ instanceAnnotationBindings :: Annotation -> [TcBindingResult]
 instanceAnnotationBindings ann =
   case fromAnnotation ann of
     Just instAnn ->
-      [TcBindingResult (tcInstanceDictName instAnn) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)]
+      [TcBindingResult (tcInstanceDictName instAnn) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn) Nothing]
     Nothing -> []
 
 derivingAnnotationBindings :: Annotation -> [TcBindingResult]
 derivingAnnotationBindings ann =
   case fromAnnotation ann of
     Just derivingAnnotation ->
-      [ TcBindingResult (iiDictName instanceInfo) (iiDictName instanceInfo) (iiDictType instanceInfo)
+      [ TcBindingResult (iiDictName instanceInfo) (iiDictName instanceInfo) (iiDictType instanceInfo) Nothing
       | plan <- tcDerivingPlans derivingAnnotation,
         Just instanceInfo <- [derivingPlanInstanceInfo plan]
       ]
@@ -373,7 +383,7 @@ dataConBindings dataConDecl =
     DataConAnn ann inner ->
       case fromAnnotation ann of
         Just tcAnn ->
-          [ TcBindingResult name displayName (tcAnnType tcAnn)
+          [ TcBindingResult name displayName (tcAnnType tcAnn) Nothing
           | (name, displayName) <- dataConBindingNames inner
           ]
         Nothing -> dataConBindings inner
@@ -396,7 +406,7 @@ recordSelectorBindings declaration =
               result -> ([], result)
           (fieldTypes, resultType) = splitFunctionType body
           (_, sourceFields, _) = dataConSourceLayout inner
-       in [ TcBindingResult label label (foldr TcForAllTy (qualify predicates (TcFunTy resultType fieldType)) typeVariables)
+       in [ TcBindingResult label label (foldr TcForAllTy (qualify predicates (TcFunTy resultType fieldType)) typeVariables) Nothing
           | ((maybeLabel, _), fieldType) <- zip sourceFields fieldTypes,
             Just label <- [maybeLabel]
           ]
@@ -1687,7 +1697,7 @@ tcSingleDeclGroup sigs groupId d =
             else do
               zonkedTy <- zonkType ty
               let decl' = replacePatternBindRhs rhs' d
-              pure (TcDeclGroupResult groupId [TcBindingResult "<pattern>" "<pattern>" zonkedTy] (Just [decl']))
+              pure (TcDeclGroupResult groupId [TcBindingResult "<pattern>" "<pattern>" zonkedTy Nothing] (Just [decl']))
     _ -> do
       bindings <- tcDecl d
       pure (TcDeclGroupResult groupId bindings Nothing)
@@ -1737,7 +1747,7 @@ tcFunctionWithSig displayName name sig matches = do
       -- Report the declared scheme as the binding's type.
       let declaredTy = schemeToType scheme
       zonkedTy <- zonkType declaredTy
-      pure (Just matches', [TcBindingResult name displayName zonkedTy])
+      pure (Just matches', [TcBindingResult name displayName zonkedTy Nothing])
 
 -- | Type-check a function without a type signature (infer).
 tcFunctionInfer :: Text -> Text -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
@@ -1758,7 +1768,7 @@ tcFunctionInfer displayName name matches = do
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
       extendTermEnvPermanent name (TcIdBinder scheme Closed)
-      pure (Just matches', [TcBindingResult name displayName zonkedTy])
+      pure (Just matches', [TcBindingResult name displayName zonkedTy Nothing])
 
 generalizableResidualPreds :: SolveResult -> TcM [Pred]
 generalizableResidualPreds solveResult = do
@@ -1872,7 +1882,7 @@ registerForeignImport foreignDecl = do
       declaredTy = schemeToType scheme
   extendTermEnvPermanent name (TcIdBinder scheme Closed)
   zonkedTy <- zonkType declaredTy
-  pure [TcBindingResult name displayName zonkedTy]
+  pure [TcBindingResult name displayName zonkedTy Nothing]
 
 registerClassDecl :: (Text, Text) -> ClassDecl -> TcM [TcBindingResult]
 registerClassDecl origin classDecl = do
@@ -1926,7 +1936,7 @@ registerClassDecl origin classDecl = do
               workerScheme = maybe scheme (defaultWorkerScheme scheme) (lookup methodName defaultSignatures)
               workerType = schemeToType workerScheme
           extendTermEnvPermanent workerName (TcIdBinder workerScheme Closed)
-          pure (Just (TcBindingResult workerName workerName workerType))
+          pure (Just (TcBindingResult workerName workerName workerType Nothing))
       | otherwise = pure Nothing
 
     defaultWorkerScheme ordinaryScheme (ForAll tyVars predicates body) =
@@ -1955,7 +1965,7 @@ registerClassItem classPred classTvEnv classTyVars item =
                 displayName = renderBinderName methodName
             extendTermEnvPermanent name (TcIdBinder scheme Closed)
             zonkedTy <- zonkType declaredTy
-            pure (TcBindingResult name displayName zonkedTy)
+            pure (TcBindingResult name displayName zonkedTy Nothing)
         )
         names
     _ -> pure []
@@ -2002,7 +2012,7 @@ registerInstanceDecl origin instanceDecl =
             iiContext = context,
             iiHead = headTys
           }
-      pure [TcBindingResult dictName dictName dictTy]
+      pure [TcBindingResult dictName dictName dictTy Nothing]
 
 predType :: Pred -> TcType
 predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
@@ -2040,7 +2050,7 @@ registerDataFamilyDeclHeader familyDecl = do
         tciTypeSynonym = Nothing
       }
   zonkedKind <- defaultKindMetas declaredKind
-  pure [TcBindingResult familyName familyName (kindToTcType zonkedKind)]
+  pure [TcBindingResult familyName familyName (kindToTcType zonkedKind) Nothing]
 
 registerDataFamilyInstance :: DataFamilyInst -> TcM [TcBindingResult]
 registerDataFamilyInstance familyInst = do
@@ -2194,7 +2204,7 @@ registerDataDeclHeader dd = do
         tciTypeSynonym = Nothing
       }
   zonkedKind <- defaultKindMetas declaredKind
-  let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind)
+  let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind) Nothing
   pure [tyConResult]
 
 unboxedTupleDeclarationKind :: [ParamInfo] -> Kind
@@ -2251,7 +2261,7 @@ registerNewtypeDeclHeader nd = do
         tciTypeSynonym = Nothing
       }
   zonkedKind <- defaultKindMetas declaredKind
-  let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind)
+  let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind) Nothing
   pure [tyConResult]
 
 registerNewtypeConstructor :: NewtypeDecl -> TcM [TcBindingResult]
@@ -2296,7 +2306,7 @@ registerRecordSelectors constructors =
               (TcFunTy (dciResTy constructor) (dcfiType field))
       extendTermEnvPermanent label (TcIdBinder scheme Closed)
       zonkedType <- zonkType (schemeToType scheme)
-      pure (TcBindingResult label label zonkedType)
+      pure (TcBindingResult label label zonkedType Nothing)
     registerSelector (label, []) =
       abortTc ("record selector has no fields: " <> T.unpack label)
 
@@ -2320,7 +2330,7 @@ registerTypeSynonymHeader typeSynDecl = do
         tciFlavor = SynonymTyCon,
         tciTypeSynonym = Just synonym
       }
-  pure [TcBindingResult tyName tyName (kindToTcType declaredKind)]
+  pure [TcBindingResult tyName tyName (kindToTcType declaredKind) Nothing]
 
 registerTypeSynonymBody :: Decl -> TcM ()
 registerTypeSynonymBody (DeclAnn _ inner) = registerTypeSynonymBody inner
@@ -2400,8 +2410,8 @@ registerDataConWithResult paramInfos resTy con = case con of
       (n : _) -> do
         zonkedTy <- zonkType conTy
         let name = unqualifiedNameText n
-         in pure (TcBindingResult name name zonkedTy)
-      [] -> pure (TcBindingResult "<gadt>" "<gadt>" gadtResTy)
+         in pure (TcBindingResult name name zonkedTy Nothing)
+      [] -> pure (TcBindingResult "<gadt>" "<gadt>" gadtResTy Nothing)
   where
     paramEnv =
       Map.fromList
@@ -2426,7 +2436,7 @@ registerDataConWithResult paramInfos resTy con = case con of
         Just sourceName -> extendResolvedTermEnvPermanent sourceName (TcIdBinder scheme Closed)
         Nothing -> extendTermEnvPermanent name (TcIdBinder scheme Closed)
       zonkedTy <- zonkType (schemeToType scheme)
-      pure (TcBindingResult name name zonkedTy)
+      pure (TcBindingResult name name zonkedTy Nothing)
 
 tupleConText :: TupleFlavor -> Int -> Text
 tupleConText flavor arity =
@@ -2550,7 +2560,7 @@ tcValueDecl (PatternBind _ pat rhs) = case patternBinderName pat of
   Nothing -> do
     (_rhs', ty) <- tcRhs rhs
     zonkedTy <- zonkType ty
-    pure [TcBindingResult "<pattern>" "<pattern>" zonkedTy]
+    pure [TcBindingResult "<pattern>" "<pattern>" zonkedTy Nothing]
 
 -- | Extract the binder name from a pattern binding's LHS, if it is a bare
 -- variable pattern.  Returns @(displayName, envName)@ for simple variable

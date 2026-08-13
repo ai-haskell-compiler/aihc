@@ -48,6 +48,7 @@ import Aihc.Tc
     TcBindingResult (..),
     TcDiagnostic (..),
     TcErrorKind (..),
+    TcTermKey (..),
     TcType (..),
     TyCon (..),
     TyVarId (..),
@@ -572,7 +573,8 @@ importedTermBindings terms =
   [ TcBindingResult
       { tbName = name,
         tbDisplayName = name,
-        tbType = instantiateSchemeBody scheme
+        tbType = instantiateSchemeBody scheme,
+        tbKey = Just (TcTermGlobal "" "$repl-import" name)
       }
   | (name, scheme) <- terms
   ]

@@ -15,17 +15,21 @@ where
 
 import Aihc.Fc
 import Aihc.Fc qualified as Fc
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsLocalKey (..), DsState (..), withDicts, withLocals)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
-import Aihc.Tc (Kind (KType), RuntimeRep (..), TcInterface (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Tc (Kind (KType), RuntimeRep (..), TcBindingResult (..), TcInterface (..), TcTermKey (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.Types (tyConModuleName, tyConPackageId)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
-import Data.List (find)
+import Control.Exception (ErrorCall, displayException, evaluate, tryJust)
+import Control.Monad.Trans.State.Strict (runStateT)
+import Data.List (find, isInfixOf)
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 import FcGolden
@@ -102,7 +106,24 @@ fcDesugarTests =
           [TcTyCon tyCon []] -> do
             assertEqual "package ID" (PackageId "aihc-prim") (tyConPackageId tyCon)
             assertEqual "module name" "GHC.Types" (tyConModuleName tyCon)
-          other -> assertFailure ("expected one Bool case binder, got: " <> show other)
+          other -> assertFailure ("expected one Bool case binder, got: " <> show other),
+      testCase "rejects duplicate type environment keys" $ do
+        let (_, parsedModule) = parseModule defaultConfig "module Test where\n"
+        (tcModule, _) <- resolveAndTypecheck parsedModule
+        let key = TcTermGlobal "test" "Test" "duplicate"
+            duplicateBinding = TcBindingResult "duplicate" "duplicate" testType (Just key)
+            conflictingBinding = TcBindingResult "duplicate" "duplicate" (TcFunTy testType testType) (Just key)
+        assertErrorCallContains
+          "dsTypeEnv has conflicting key: TcTermGlobal (PackageId {packageIdText = \"test\"}) \"Test\" \"duplicate\""
+          (desugarModuleWithBindings (DesugarConfig {primPackageId = PackageId "aihc-prim"}) [duplicateBinding, conflictingBinding] tcModule),
+      testCase "rejects duplicate local variable keys" $
+        assertErrorCallContains
+          "dsLocalVars has duplicate key: DsLocalKey 1 \"value\""
+          (runStateT (withLocals [(DsLocalKey 1 "value", testVar)] (withLocals [(DsLocalKey 1 "value", testVar)] (pure ()))) emptyDsState),
+      testCase "rejects duplicate local dictionary keys" $
+        assertErrorCallContains
+          "dsLocalDicts has duplicate key: Unique 1"
+          (runStateT (withDicts [testDictionary] (withDicts [testDictionary] (pure ()))) emptyDsState)
     ]
   where
     declarationConstructors declaration =
@@ -110,6 +131,41 @@ fcDesugarTests =
         Surface.DeclAnn _ inner -> declarationConstructors inner
         Surface.DeclData dataDeclaration -> Surface.dataDeclConstructors dataDeclaration
         _ -> []
+
+testType :: TcType
+testType = TcTyCon (TyCon "TestType" 0) []
+
+testVar :: Var
+testVar = Var "value" (Unique 1) testType
+
+testDictionary :: ClassDict
+testDictionary = ClassDict "TestClass" [] testVar
+
+emptyDsState :: DsState
+emptyDsState =
+  DsState
+    { dsNextUnique = 2,
+      dsPrimPackageId = PackageId "aihc-prim",
+      dsModulePackage = "main",
+      dsModuleName = Just "Test",
+      dsTypeEnv = Map.empty,
+      dsLocalVars = Map.empty,
+      dsLocalDicts = Map.empty,
+      dsLocalDictOrder = [],
+      dsConstructorTypes = Map.empty,
+      dsConstructorFields = Map.empty,
+      dsTupleConstructorOrigin = Nothing
+    }
+
+assertErrorCallContains :: String -> a -> IO ()
+assertErrorCallContains expected value = do
+  result <- tryJust errorCallText (evaluate value)
+  case result of
+    Left actual -> assertBool ("expected error text: " <> expected <> "\nactual error text: " <> actual) (expected `isInfixOf` actual)
+    Right _ -> assertFailure ("expected an unrecoverable error that contains: " <> expected)
+  where
+    errorCallText :: ErrorCall -> Maybe String
+    errorCallText = Just . displayException
 
 resolveAndTypecheck :: Surface.Module -> IO (Surface.Module, TcInterface)
 resolveAndTypecheck parsedModule =

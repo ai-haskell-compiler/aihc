@@ -53,7 +53,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..))
-import Aihc.Tc (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TyConFlavor (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
+import Aihc.Tc (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcTermKey (..), TyConFlavor (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
@@ -80,6 +80,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
 import Control.Monad.Trans.State.Strict (gets, runStateT)
 import Data.Either (fromRight)
+import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
@@ -119,7 +120,7 @@ desugarModuleWithDataTypes config bindings dataTypes tcResult =
           dsErrors = showTcFailure tcResult
         }
     else
-      let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
+      let typeEnv = typeEnvironmentFromList (builtinTypeEntries <> map bindingTypeEntry bindings)
           (packageId, currentModuleName) = resolvedModuleOrigin tcResult
           constructorTypes =
             Map.fromList
@@ -134,7 +135,7 @@ desugarModuleWithDataTypes config bindings dataTypes tcResult =
                 dtiFlavor dataType == DataTyCon,
                 constructor <- dtiConstructors dataType
               ]
-       in case runStateT
+       in typeEnv `seq` case runStateT
             (dsModule tcResult)
             DsState
               { dsNextUnique = 1000,
@@ -144,6 +145,7 @@ desugarModuleWithDataTypes config bindings dataTypes tcResult =
                 dsTypeEnv = typeEnv,
                 dsLocalVars = Map.empty,
                 dsLocalDicts = Map.empty,
+                dsLocalDictOrder = [],
                 dsConstructorTypes = constructorTypes,
                 dsConstructorFields = constructorFields,
                 dsTupleConstructorOrigin = Nothing
@@ -161,6 +163,16 @@ desugarModuleWithDataTypes config bindings dataTypes tcResult =
                       dsSuccess = True,
                       dsErrors = []
                     }
+
+typeEnvironmentFromList :: [(TcTermKey, TcType)] -> Map.Map TcTermKey TcType
+typeEnvironmentFromList = List.foldl' insertType Map.empty
+  where
+    insertType environment (key, ty) =
+      case Map.lookup key environment of
+        Nothing -> Map.insert key ty environment
+        Just oldType
+          | oldType == ty -> environment
+          | otherwise -> error ("dsTypeEnv has conflicting key: " <> show key)
 
 checkedConstructorOrigin :: DataTypeInfo -> DataConInfo -> FcSymbolOrigin
 checkedConstructorOrigin dataType constructor =
@@ -310,14 +322,16 @@ showTcFailure tcResult =
     [] -> map showBinding (tcModuleBindings tcResult)
     diagnostics -> diagnostics
 
-bindingTypeEntries :: TcBindingResult -> [(Text, TcType)]
-bindingTypeEntries b =
-  [(tbName b, tbType b)]
+bindingTypeEntry :: TcBindingResult -> (TcTermKey, TcType)
+bindingTypeEntry binding =
+  case tbKey binding of
+    Just key -> (key, tbType binding)
+    Nothing -> error ("type binding has no global key: " <> T.unpack (tbName binding))
 
-builtinTypeEntries :: [(Text, TcType)]
+builtinTypeEntries :: [(TcTermKey, TcType)]
 builtinTypeEntries =
-  [ (":", TcForAllTy aVar (TcFunTy aTy (TcFunTy listA listA))),
-    ("[]", TcForAllTy aVar listA)
+  [ (TcTermGlobal "" "" ":", TcForAllTy aVar (TcFunTy aTy (TcFunTy listA listA))),
+    (TcTermGlobal "" "" "[]", TcForAllTy aVar listA)
   ]
   where
     aVar = TyVarId "a" (Unique (-1000))
