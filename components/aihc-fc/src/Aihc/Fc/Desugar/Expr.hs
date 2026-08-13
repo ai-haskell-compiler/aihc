@@ -83,7 +83,7 @@ type DsM = StateT DsState (Either String)
 data DsState = DsState
   { dsNextUnique :: !Int,
     dsPrimPackageId :: !PackageId,
-    dsModulePackage :: !Text,
+    dsModulePackage :: !PackageId,
     dsModuleName :: !(Maybe Text),
     -- | Map from surface name to its inferred type (from TC).
     dsTypeEnv :: !(Map Text TcType),
