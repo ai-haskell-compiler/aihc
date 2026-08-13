@@ -167,12 +167,18 @@ parseAnnotatedList = withArray "annotated" $ \arr -> do
 
 evaluateResolverCase :: ResolverCase -> (Outcome, String)
 evaluateResolverCase meta =
-  let parsedModules = map (traverse parseOne) (caseModules meta)
+  let supportModules =
+        [ (Package "aihc-prim" (PackageId "aihc-prim"), listSupportModule)
+        | not (any (T.isPrefixOf "module GHC.Types" . T.stripStart . snd) (caseModules meta))
+        ]
+      supportModuleCount = length supportModules
+      parsedModules = map (traverse parseOne) (supportModules <> caseModules meta)
    in case sequence parsedModules of
         Left errMsg -> (OutcomeFail, "parse error: " <> errMsg)
         Right modules ->
           let result = resolveWithDeps mempty modules
-              actualAnnotated = showAnnotated result
+              fixtureResult = result {resolvedModules = drop supportModuleCount (resolvedModules result)}
+              actualAnnotated = showAnnotated fixtureResult
               outputMatches = actualAnnotated == caseAnnotated meta
            in case caseStatus meta of
                 StatusPass
@@ -199,6 +205,14 @@ evaluateResolverCase meta =
             then Right ast
             else Left (formatParseErrors (T.unpack (T.takeWhile (/= '\n') input)) (Just input) errs)
     showAnnotated = renderAnnotatedResolveResult (map snd (caseModules meta))
+
+listSupportModule :: Text
+listSupportModule =
+  T.unlines
+    [ "module GHC.Types (List(..)) where",
+      "data List a = [] | a : [a]",
+      "infixr 5 :"
+    ]
 
 progressSummary :: [(ResolverCase, Outcome, String)] -> (Int, Int, Int, Int)
 progressSummary outcomes =

@@ -92,6 +92,7 @@ baseExports =
     Map.fromList
       [ ("GHC.Classes", mkScope "GHC.Classes" ["=="] []),
         ("GHC.Num", mkScope "GHC.Num" ["fromInteger"] []),
+        ("GHC.Types", mkScope "GHC.Types" [":", "[]"] ["[]"]),
         ("Prelude", mkScope "Prelude" ["return", "++", "==", "otherwise", "fromInteger"] ["IO", "FilePath", "String", "Char", "Bool"]),
         ("Control.Exception", mkScope "Control.Exception" ["catch"] ["IOException"]),
         ("Data.List", mkScope "Data.List" ["last"] []),

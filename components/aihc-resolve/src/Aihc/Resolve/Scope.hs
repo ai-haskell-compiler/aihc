@@ -371,12 +371,18 @@ bars n
 
 moduleScope :: Package -> ModuleExports -> Module -> Scope
 moduleScope packageId exports modu =
-  ownScope `unionScope` importedScope packageId exports modu `unionScope` implicitPrelude `unionScope` builtinScope
+  ownScope
+    `unionScope` importedScope packageId exports modu
+    `unionScope` implicitPrelude
+    `unionScope` listConstructorScope
+    `unionScope` builtinScope
   where
     ownScope = topLevelScope packageId modu
     preludeScope = lookupImportedModule packageId Nothing "Prelude" exports
     -- Implicit Prelude: names available unqualified AND as Prelude.xxx
     implicitPrelude = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
+    ghcTypesScope = lookupImportedModule packageId Nothing "GHC.Types" exports
+    listConstructorScope = selectTerm ":" ghcTypesScope `unionScope` selectTerm "[]" ghcTypesScope
 
 importedScope :: Package -> ModuleExports -> Module -> Scope
 importedScope packageId exports modu =
@@ -499,8 +505,6 @@ emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty M
 
 -- | Scope containing fixed Haskell names that are always available.
 --
--- The list cons name has the fixed @aihc-prim:GHC.Types.:@ source identity.
---
 -- Type namespace: primitive and special types that are not defined in any
 -- parsed source module and cannot be imported from @base@ in the ordinary
 -- way (unboxed primitive types, @TYPE@, @RuntimeRep@, the function arrow,
@@ -511,7 +515,7 @@ emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty M
 builtinScope :: Scope
 builtinScope =
   Scope
-    { scopeTerms = Map.singleton ":" listConsResolvedName,
+    { scopeTerms = Map.empty,
       scopeTypes = Map.fromList (map mkBuiltinType builtinTypeNames),
       scopeConstructors = Map.empty,
       scopeRecordFields = Map.empty,
@@ -521,12 +525,6 @@ builtinScope =
     }
   where
     mkBuiltinType n = (n, ResolvedBuiltin n)
-
-listConsResolvedName :: ResolvedName
-listConsResolvedName =
-  ResolvedTopLevel
-    (PackageId "aihc-prim")
-    (qualifyName (Just "GHC.Types") (mkUnqualifiedName NameConSym ":"))
 
 -- | Wired-in type-namespace names: primitive types that are not defined in
 -- any parsed source module.  Prelude types like @Int@, @Bool@, @Maybe@, etc.

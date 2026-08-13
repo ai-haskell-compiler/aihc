@@ -242,7 +242,11 @@ extractPreparedGrinInterface linkNames program =
                    sourceName <- [varName var, qualifiedName]
                  ]
           ),
-      grinInterfaceConstructorArities = Map.fromList (programConstructors program <> [(sourceName, arity) | (sourceName, (_, arity)) <- constructorNames]),
+      grinInterfaceConstructorArities =
+        Map.fromList
+          ( programConstructors program
+              <> [(sourceName, arity) | (sourceName, (_, arity)) <- constructorNames]
+          ),
       grinInterfacePrimitiveArities =
         Map.fromList
           [ (varName var, arity)
