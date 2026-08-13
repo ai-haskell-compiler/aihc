@@ -83,8 +83,8 @@ type DsM = StateT DsState (Either String)
 data DsState = DsState
   { dsNextUnique :: !Int,
     dsPrimPackageId :: !PackageId,
-    dsModulePackage :: !Text,
-    dsModuleName :: !(Maybe Text),
+    dsModulePackage :: !PackageId,
+    dsModuleName :: !Text,
     -- | Map from surface name to its inferred type (from TC).
     dsTypeEnv :: !(Map Text TcType),
     -- | Local variable bindings (pattern-bound, lambda-bound).
@@ -1920,7 +1920,7 @@ lookupLocalName name = do
   case nameQualifier name of
     Nothing -> lookupLocal (nameText name)
     Just qualifier
-      | Just qualifier == currentModule -> lookupLocal (nameText name)
+      | qualifier == currentModule -> lookupLocal (nameText name)
       | otherwise -> lookupLocal (nameToText name)
 
 lookupTypeName :: Name -> DsM TcType
