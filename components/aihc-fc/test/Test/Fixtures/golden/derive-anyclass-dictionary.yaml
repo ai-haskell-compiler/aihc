@@ -34,7 +34,7 @@ expected: |-
       λ($d0 : Any a).
         λ($d1 : Required a).
           λ(x1011 : a).
-            ((required @a) $d1) x1011
+            ((required @(a : TYPE BoxedRep Lifted)) $d1) x1011
 
   data Wrapped (a : TYPE BoxedRep Lifted)
    = Wrapped (Box a)

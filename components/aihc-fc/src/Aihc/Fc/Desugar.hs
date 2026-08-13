@@ -13,7 +13,7 @@ where
 
 import Aihc.Fc.Desugar.Deriving (dsDerivingPlans, moduleDerivingPlans)
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, peelForAlls, peelQuals, predType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupType, withDicts)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatchesWithEnclosingDicts, dsMatchesWithEvidence, freshUnique, freshVar, lookupType, withDicts)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
@@ -54,7 +54,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..))
 import Aihc.Tc (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcTermKey (..), TyConFlavor (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
-import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
+import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcEvidenceBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
 import Aihc.Tc.Types
@@ -77,7 +77,7 @@ import Aihc.Tc.Types
     unboxedTupleTyConName,
   )
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, zipWithM)
+import Control.Monad (foldM, when, zipWithM)
 import Control.Monad.Trans.State.Strict (gets, runStateT)
 import Data.Either (fromRight)
 import Data.List qualified as List
@@ -145,7 +145,6 @@ desugarModuleWithDataTypes config bindings dataTypes tcResult =
                 dsTypeEnv = typeEnv,
                 dsLocalVars = Map.empty,
                 dsLocalDicts = Map.empty,
-                dsLocalDictOrder = [],
                 dsConstructorTypes = constructorTypes,
                 dsConstructorFields = constructorFields,
                 dsTupleConstructorOrigin = Nothing
@@ -1047,7 +1046,7 @@ dsClassDefault (methodAnn, matches) = do
       methodType = tcInstanceMethodType methodAnn
       workerName = defaultMethodName methodName
   worker <- freshVar workerName methodType
-  body <- dsMatches methodType matches
+  body <- dsMatchesWithEvidence (tcInstanceMethodEvidence methodAnn) methodType matches
   pure (FcTopBind (FcNonRec worker body))
 
 classDefaultGroups :: ClassDecl -> [(TcInstanceMethodAnnotation, [Match])]
@@ -1090,7 +1089,10 @@ dsInstanceDecl decl =
 dsInstanceDict :: TcInstanceAnnotation -> InstanceDecl -> DsM FcTopBind
 dsInstanceDict instAnn instanceDecl = do
   let methods = Map.fromListWith combineMethods (instanceMethodGroups instanceDecl)
-  contextDicts <- zipWithM mkContextDict [0 :: Int ..] (tcInstanceContextDicts instAnn)
+  when
+    (length (tcInstanceContextDicts instAnn) /= length (tcInstanceContextEvidence instAnn))
+    (desugarBug ("instance context evidence count does not match the context for " <> T.unpack (tcInstanceDictName instAnn)))
+  contextDicts <- zipWithM mkContextDict [0 :: Int ..] (tcInstanceContextEvidence instAnn)
   className <-
     case dictionaryClassName (tcInstanceDictType instAnn) of
       Just name -> pure name
@@ -1143,7 +1145,7 @@ dsInstanceDict instAnn instanceDecl = do
       dictVar <- freshVar (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)
       buildDictionary False dictVar fields
   where
-    combineMethods (newTy, newMatches) (_oldTy, oldMatches) = (newTy, oldMatches <> newMatches)
+    combineMethods (newAnnotation, newMatches) (_oldAnnotation, oldMatches) = (newAnnotation, oldMatches <> newMatches)
 
 dictionaryClassName :: TcType -> Maybe Text
 dictionaryClassName ty =
@@ -1176,16 +1178,21 @@ classTypeVariables className methodType =
     asTyVar (TcTyVar tyVar) = Just tyVar
     asTyVar _ = Nothing
 
-mkContextDict :: Int -> TcDictBinderAnnotation -> DsM ClassDict
-mkContextDict ix dictAnn = do
-  dictVar <- freshVar ("$d" <> T.pack (show ix)) (tcDictBinderType dictAnn)
-  pure (ClassDict (tcDictBinderClassName dictAnn) (tcDictBinderArgs dictAnn) dictVar)
+mkContextDict :: Int -> TcEvidenceBinderAnnotation -> DsM ClassDict
+mkContextDict ix evidenceBinder = do
+  let predicate = tcEvidenceBinderPred evidenceBinder
+  dictVar <- freshVar ("$d" <> T.pack (show ix)) (tcEvidenceBinderType evidenceBinder)
+  case predicate of
+    ClassPred className arguments ->
+      pure (ClassDict (tcEvidenceBinderVar evidenceBinder) className arguments dictVar)
+    EqPred {} ->
+      pure (ClassDict (tcEvidenceBinderVar evidenceBinder) "<constraint>" [] dictVar)
 
-dsInstanceMethod :: [ClassDict] -> Map.Map Text (TcType, [Match]) -> Maybe FcExpr -> [TcType] -> Maybe (Text, Text) -> [Text] -> Text -> DsM FcExpr
+dsInstanceMethod :: [ClassDict] -> Map.Map Text (TcInstanceMethodAnnotation, [Match]) -> Maybe FcExpr -> [TcType] -> Maybe (Text, Text) -> [Text] -> Text -> DsM FcExpr
 dsInstanceMethod contextDicts methods maybeSelfDictionary headTypes classOrigin defaults methodName =
   case Map.lookup methodName methods of
-    Just (expected, matches) ->
-      dsMatchesWithEnclosingDicts contextDicts expected matches
+    Just (methodAnnotation, matches) ->
+      dsMatchesWithEnclosingDicts contextDicts (tcInstanceMethodEvidence methodAnnotation) (tcInstanceMethodType methodAnnotation) matches
     Nothing
       | methodName `elem` defaults -> do
           selfDictionary <-
@@ -1208,11 +1215,11 @@ moduleInstances = filter isInstance
         DeclInstance {} -> True
         _ -> False
 
-instanceMethodGroups :: InstanceDecl -> [(Text, (TcType, [Match]))]
+instanceMethodGroups :: InstanceDecl -> [(Text, (TcInstanceMethodAnnotation, [Match]))]
 instanceMethodGroups instanceDecl =
   concatMap itemMethods (instanceDeclItems instanceDecl)
 
-itemMethods :: InstanceDeclItem -> [(Text, (TcType, [Match]))]
+itemMethods :: InstanceDeclItem -> [(Text, (TcInstanceMethodAnnotation, [Match]))]
 itemMethods item =
   case item of
     InstanceItemAnn ann inner
@@ -1220,15 +1227,15 @@ itemMethods item =
       | otherwise -> itemMethods inner
     _ -> []
 
-itemMethodWithAnnotation :: TcInstanceMethodAnnotation -> InstanceDeclItem -> [(Text, (TcType, [Match]))]
+itemMethodWithAnnotation :: TcInstanceMethodAnnotation -> InstanceDeclItem -> [(Text, (TcInstanceMethodAnnotation, [Match]))]
 itemMethodWithAnnotation methodAnn item =
   case item of
     InstanceItemAnn _ inner -> itemMethodWithAnnotation methodAnn inner
     InstanceItemBind (FunctionBind _ matches) ->
-      [(tcInstanceMethodName methodAnn, (tcInstanceMethodType methodAnn, matches))]
+      [(tcInstanceMethodName methodAnn, (methodAnn, matches))]
     InstanceItemBind (PatternBind _ _ rhs) ->
       [ ( tcInstanceMethodName methodAnn,
-          ( tcInstanceMethodType methodAnn,
+          ( methodAnn,
             [ Match
                 { matchAnns = [],
                   matchHeadForm = MatchHeadPrefix,
@@ -1247,47 +1254,48 @@ dropForAlls ty = ty
 
 -- | A group of top-level value declarations.
 data DeclGroup
-  = DeclFunction !Text ![Match]
-  | DeclPattern !Text !(Rhs Expr)
+  = DeclFunction !Text ![TcEvidenceBinderAnnotation] ![Match]
+  | DeclPattern !Text ![TcEvidenceBinderAnnotation] !(Rhs Expr)
 
 dgName :: DeclGroup -> Text
 dgName group =
   case group of
-    DeclFunction name _ -> name
-    DeclPattern name _ -> name
+    DeclFunction name _ _ -> name
+    DeclPattern name _ _ -> name
 
 -- | Group consecutive FunctionBind declarations with the same name and keep
 -- simple top-level pattern binds.
 groupFunctionBinds :: [Decl] -> [DeclGroup]
 groupFunctionBinds [] = []
 groupFunctionBinds (d : ds) = case extractFunBind d of
-  Just (name, matches) ->
+  Just (name, evidenceBinders, matches) ->
     let (sameNameDecls, rest) = span (hasSameName name) ds
-        allMatches = matches ++ concatMap (maybe [] snd . extractFunBind) sameNameDecls
-     in DeclFunction name allMatches : groupFunctionBinds rest
+        allMatches = matches ++ concatMap (maybe [] (\(_, _, groupMatches) -> groupMatches) . extractFunBind) sameNameDecls
+     in DeclFunction name evidenceBinders allMatches : groupFunctionBinds rest
   Nothing ->
     case extractPatternBind d of
       Just group -> group : groupFunctionBinds ds
       Nothing -> groupFunctionBinds ds
 
 -- | Extract function bind info from a declaration.
-extractFunBind :: Decl -> Maybe (Text, [Match])
-extractFunBind decl = case peelDeclAnn decl of
-  DeclValue (FunctionBind name matches) ->
-    Just (unqualifiedNameText name, matches)
-  _ -> Nothing
+extractFunBind :: Decl -> Maybe (Text, [TcEvidenceBinderAnnotation], [Match])
+extractFunBind decl =
+  case peelDeclAnn decl of
+    DeclValue (FunctionBind name matches) ->
+      Just (unqualifiedNameText name, maybe [] tcAnnEvidenceBinders (declTcAnnotation decl), matches)
+    _ -> Nothing
 
 -- | Check if a declaration is a FunctionBind with the given name.
 hasSameName :: Text -> Decl -> Bool
 hasSameName name d = case extractFunBind d of
-  Just (n, _) -> n == name
+  Just (n, _, _) -> n == name
   Nothing -> False
 
 extractPatternBind :: Decl -> Maybe DeclGroup
 extractPatternBind decl =
   case peelDeclAnn decl of
     DeclValue (PatternBind _ pat rhs) ->
-      DeclPattern <$> barePatternName pat <*> pure rhs
+      DeclPattern <$> barePatternName pat <*> pure (maybe [] tcAnnEvidenceBinders (declTcAnnotation decl)) <*> pure rhs
     _ -> Nothing
 
 barePatternName :: Pattern -> Maybe Text
@@ -1298,6 +1306,15 @@ barePatternName pat =
     PParen inner -> barePatternName inner
     _ -> Nothing
 
+declTcAnnotation :: Decl -> Maybe TcAnnotation
+declTcAnnotation decl =
+  case decl of
+    DeclAnn annotation inner ->
+      case fromAnnotation annotation of
+        Just tcAnnotation -> Just tcAnnotation
+        Nothing -> declTcAnnotation inner
+    _ -> Nothing
+
 -- | Desugar a function binding group.
 dsGroup :: DeclGroup -> DsM FcTopBind
 dsGroup grp = do
@@ -1306,8 +1323,8 @@ dsGroup grp = do
   let var = Var (dgName grp) u ty
   body <-
     case grp of
-      DeclFunction _ matches -> dsMatches ty matches
-      DeclPattern _ rhs -> dsMatches ty [rhsAsMatch rhs]
+      DeclFunction _ evidenceBinders matches -> dsMatchesWithEvidence evidenceBinders ty matches
+      DeclPattern _ evidenceBinders rhs -> dsMatchesWithEvidence evidenceBinders ty [rhsAsMatch rhs]
   pure (FcTopBind (FcNonRec var body))
 
 rhsAsMatch :: Rhs Expr -> Match

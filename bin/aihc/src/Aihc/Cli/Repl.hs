@@ -574,7 +574,8 @@ importedTermBindings terms =
       { tbName = name,
         tbDisplayName = name,
         tbType = instantiateSchemeBody scheme,
-        tbKey = Just (TcTermGlobal "" "$repl-import" name)
+        tbKey = Just (TcTermGlobal "" "$repl-import" name),
+        tbEvidenceBinders = []
       }
   | (name, scheme) <- terms
   ]

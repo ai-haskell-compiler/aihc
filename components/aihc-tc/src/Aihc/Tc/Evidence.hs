@@ -32,7 +32,7 @@ data EvTerm
   = -- | Reference to an evidence variable (given or previously solved).
     EvVarTerm !EvVar
   | -- | Given dictionary from a qualified type.
-    EvGiven !Pred
+    EvGiven !EvVar !Pred
   | -- | Dictionary construction: origin, dictionary name, type args, sub-evidence.
     EvDict !(Maybe (Text, Text)) !Text ![TcType] ![EvTerm]
   | -- | Coercion evidence (for equality constraints).

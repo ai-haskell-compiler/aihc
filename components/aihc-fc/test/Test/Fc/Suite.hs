@@ -15,15 +15,15 @@ where
 
 import Aihc.Fc
 import Aihc.Fc qualified as Fc
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsLocalKey (..), DsState (..), withDicts, withLocals)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsLocalKey (..), DsState (..), dsEvidence, withDicts, withLocals)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (Kind (KType), RuntimeRep (..), TcBindingResult (..), TcInterface (..), TcTermKey (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
-import Aihc.Tc.Evidence (Coercion (..))
-import Aihc.Tc.Types (tyConModuleName, tyConPackageId)
+import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
+import Aihc.Tc.Types (Pred (..), tyConModuleName, tyConPackageId)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Control.Exception (ErrorCall, displayException, evaluate, tryJust)
 import Control.Monad.Trans.State.Strict (runStateT)
@@ -111,8 +111,8 @@ fcDesugarTests =
         let (_, parsedModule) = parseModule defaultConfig "module Test where\n"
         (tcModule, _) <- resolveAndTypecheck parsedModule
         let key = TcTermGlobal "test" "Test" "duplicate"
-            duplicateBinding = TcBindingResult "duplicate" "duplicate" testType (Just key)
-            conflictingBinding = TcBindingResult "duplicate" "duplicate" (TcFunTy testType testType) (Just key)
+            duplicateBinding = TcBindingResult "duplicate" "duplicate" testType (Just key) []
+            conflictingBinding = TcBindingResult "duplicate" "duplicate" (TcFunTy testType testType) (Just key) []
         assertErrorCallContains
           "dsTypeEnv has conflicting key: TcTermGlobal (PackageId {packageIdText = \"test\"}) \"Test\" \"duplicate\""
           (desugarModuleWithBindings (DesugarConfig {primPackageId = PackageId "aihc-prim"}) [duplicateBinding, conflictingBinding] tcModule),
@@ -122,8 +122,17 @@ fcDesugarTests =
           (runStateT (withLocals [(DsLocalKey 1 "value", testVar)] (withLocals [(DsLocalKey 1 "value", testVar)] (pure ()))) emptyDsState),
       testCase "rejects duplicate local dictionary keys" $
         assertErrorCallContains
-          "dsLocalDicts has duplicate key: Unique 1"
-          (runStateT (withDicts [testDictionary] (withDicts [testDictionary] (pure ()))) emptyDsState)
+          "dsLocalDicts has duplicate key: EvVar {evVarUnique = Unique 1}"
+          (runStateT (withDicts [testDictionary] (withDicts [testDictionary] (pure ()))) emptyDsState),
+      testCase "selects a local dictionary by evidence identity" $ do
+        let secondEvidence = EvVar (Unique 2)
+            secondVar = Var "second" (Unique 2) testType
+            secondDictionary = ClassDict secondEvidence "TestClass" [] secondVar
+            action = withDicts [testDictionary, secondDictionary] (dsEvidence (EvGiven secondEvidence (ClassPred "TestClass" [])))
+        case runStateT action emptyDsState of
+          Right (FcVar selected, _) -> assertEqual "selected dictionary" secondVar selected
+          Right (other, _) -> assertFailure ("expected the second dictionary variable, got: " <> show other)
+          Left message -> assertFailure ("dictionary selection failed: " <> message)
     ]
   where
     declarationConstructors declaration =
@@ -139,7 +148,7 @@ testVar :: Var
 testVar = Var "value" (Unique 1) testType
 
 testDictionary :: ClassDict
-testDictionary = ClassDict "TestClass" [] testVar
+testDictionary = ClassDict (EvVar (Unique 1)) "TestClass" [] testVar
 
 emptyDsState :: DsState
 emptyDsState =
@@ -151,7 +160,6 @@ emptyDsState =
       dsTypeEnv = Map.empty,
       dsLocalVars = Map.empty,
       dsLocalDicts = Map.empty,
-      dsLocalDictOrder = [],
       dsConstructorTypes = Map.empty,
       dsConstructorFields = Map.empty,
       dsTupleConstructorOrigin = Nothing

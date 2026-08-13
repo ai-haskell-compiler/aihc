@@ -961,7 +961,7 @@ hasGivenClass :: Text -> Module -> Bool
 hasGivenClass className =
   any (any isGiven . tcAnnEvidenceTerms) . exprAnnotations
   where
-    isGiven (EvGiven (ClassPred cls _)) = cls == className
+    isGiven (EvGiven _ (ClassPred cls _)) = cls == className
     isGiven (EvDict _ _ _ evidence) = any isGiven evidence
     isGiven (EvSuperClass ev _ _ _) = isGiven ev
     isGiven (EvCast ev _) = isGiven ev

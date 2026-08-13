@@ -372,7 +372,7 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
 constructorGiven :: SourceSpan -> Text -> Pred -> TcM Ct
 constructorGiven sp constructorName predicate = do
   evidence <- freshEvVar
-  bindEvidence evidence (EvGiven predicate)
+  bindEvidence evidence (EvGiven evidence predicate)
   let origin = OccurrenceOf constructorName
   pure
     Ct

@@ -6,15 +6,15 @@ module Aihc.Fc.Desugar.Deriving.StockEq
   )
 where
 
-import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, predType)
+import Aihc.Fc.Desugar.Dictionary (classMethodFieldType)
 import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshVar, lookupType, primBoolType, withDicts)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
-import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcStockDerivingPlan (..))
+import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcEvidenceBinderAnnotation (..), TcStockDerivingPlan (..))
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..))
-import Aihc.Tc.Evidence (EvTerm (..))
+import Aihc.Tc.Evidence (EvTerm (..), EvVar)
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..))
-import Control.Monad (zipWithM)
+import Control.Monad (when, zipWithM)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -34,7 +34,11 @@ dsStockEqDictionaryPlan plan =
 dsStockEqDictionary :: TcDerivingPlan -> [Pred] -> DataTypeInfo -> [[EvTerm]] -> DsM (Var, FcExpr)
 dsStockEqDictionary plan context dataType fieldEvidence = do
   eqTyCon <- stockEqTyCon plan
-  contextDicts <- zipWithM mkPredicateDict [0 :: Int ..] context
+  let contextEvidence = tcDerivingContextEvidence plan
+  when
+    (length context /= length contextEvidence)
+    (desugarBug ("deriving context evidence count does not match the context for " <> T.unpack (tcDerivingDictName plan)))
+  contextDicts <- zipWithM mkPredicateDict [0 :: Int ..] contextEvidence
   genericMethodTypes <-
     mapM
       (classMethodFieldType "Eq" (tcDerivingClassTyVars plan) . tcClassMethodType)
@@ -43,11 +47,15 @@ dsStockEqDictionary plan context dataType fieldEvidence = do
     case reverse (tcDerivingHeadTypes plan) of
       target : _ -> pure target
       [] -> desugarBug "stock Eq deriving plan has an empty instance head"
+  selfEvidence <-
+    case tcDerivingSelfEvidence plan of
+      Just evidence -> pure evidence
+      Nothing -> desugarBug ("stock Eq plan has no self evidence for " <> T.unpack (tcDerivingDictName plan))
   constructors <-
     zipExact
       "constructor evidence"
       (dtiConstructors dataType)
-      (map (map (rewriteSelfEvidence plan targetType)) fieldEvidence)
+      (map (map (rewriteSelfEvidence plan selfEvidence targetType)) fieldEvidence)
   let dictionaryType =
         foldr
           TcForAllTy
@@ -61,7 +69,7 @@ dsStockEqDictionary plan context dataType fieldEvidence = do
           (foldl FcTyApp (FcVar dictVar) (map TcTyVar (tcDerivingTyVars plan)))
           (map (FcVar . classDictVar) contextDicts)
   selfDictionaryVar <- freshVar "$stock_eq_self" selfDictionaryType
-  let selfDictionary = ClassDict "Eq" [targetType] selfDictionaryVar
+  let selfDictionary = ClassDict selfEvidence "Eq" [targetType] selfDictionaryVar
   methodFields <-
     withDicts (selfDictionary : contextDicts) $
       mapM
@@ -221,24 +229,26 @@ stockEqTyCon plan =
         ty -> desugarBug ("invalid stock Eq dictionary type: " <> show ty)
     [] -> desugarBug "stock Eq has no class methods"
 
-mkPredicateDict :: Int -> Pred -> DsM ClassDict
-mkPredicateDict index predicate = do
-  dictVar <- freshVar ("$d" <> T.pack (show index)) (predType predicate)
+mkPredicateDict :: Int -> TcEvidenceBinderAnnotation -> DsM ClassDict
+mkPredicateDict index binder = do
+  let predicate = tcEvidenceBinderPred binder
+      evidence = tcEvidenceBinderVar binder
+  dictVar <- freshVar ("$d" <> T.pack (show index)) (tcEvidenceBinderType binder)
   pure $
     case predicate of
-      ClassPred className arguments -> ClassDict className arguments dictVar
-      EqPred {} -> ClassDict "<equality>" [] dictVar
+      ClassPred className arguments -> ClassDict evidence className arguments dictVar
+      EqPred {} -> ClassDict evidence "<equality>" [] dictVar
 
 qualifyType :: [Pred] -> TcType -> TcType
 qualifyType [] body = body
 qualifyType predicates body = TcQualTy predicates body
 
-rewriteSelfEvidence :: TcDerivingPlan -> TcType -> EvTerm -> EvTerm
-rewriteSelfEvidence plan targetType evidence =
+rewriteSelfEvidence :: TcDerivingPlan -> EvVar -> TcType -> EvTerm -> EvTerm
+rewriteSelfEvidence plan selfEvidence targetType evidence =
   case evidence of
     EvDict _ dictionaryName _ _
       | dictionaryName == tcDerivingDictName plan ->
-          EvGiven (ClassPred "Eq" [targetType])
+          EvGiven selfEvidence (ClassPred "Eq" [targetType])
     EvDict origin dictionaryName typeArguments contextEvidence ->
       EvDict origin dictionaryName typeArguments (map recurse contextEvidence)
     EvSuperClass source sourcePredicate fieldTypes fieldIndex ->
@@ -247,7 +257,7 @@ rewriteSelfEvidence plan targetType evidence =
     EvTypeable ty arguments -> EvTypeable ty (map recurse arguments)
     _ -> evidence
   where
-    recurse = rewriteSelfEvidence plan targetType
+    recurse = rewriteSelfEvidence plan selfEvidence targetType
 
 zipExact :: String -> [left] -> [right] -> DsM [(left, right)]
 zipExact context left right

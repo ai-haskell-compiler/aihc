@@ -17,7 +17,7 @@ where
 
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..))
-import Aihc.Tc.Evidence (EvTerm (..))
+import Aihc.Tc.Evidence (EvTerm (..), EvVar)
 import Aihc.Tc.Instantiate (applySubst)
 import Aihc.Tc.Monad (TcM, bindEvidence, freshEvVar, getInstances, lookupClass, lookupEvidence)
 import Aihc.Tc.Types
@@ -44,7 +44,7 @@ data DictResult
 solveDict :: Ct -> TcM DictResult
 solveDict = solveDictWithGivens []
 
-solveDictWithGivens :: [Pred] -> Ct -> TcM DictResult
+solveDictWithGivens :: [(EvVar, Pred)] -> Ct -> TcM DictResult
 solveDictWithGivens givens ct =
   case ctPred ct of
     ClassPred className args -> do
@@ -67,10 +67,10 @@ solveDictWithGivens givens ct =
       firstGivenOrSuperclass (ClassPred className args) givens
 
     firstGivenOrSuperclass _ [] = pure Nothing
-    firstGivenOrSuperclass target (given : rest)
-      | target == given = pure (Just (EvGiven given))
+    firstGivenOrSuperclass target ((givenEvidence, given) : rest)
+      | target == given = pure (Just (EvGiven givenEvidence given))
       | otherwise = do
-          projected <- superclassEvidence [] target (EvGiven given) given
+          projected <- superclassEvidence [] target (EvGiven givenEvidence given) given
           case projected of
             Just evidence -> pure (Just evidence)
             Nothing -> firstGivenOrSuperclass target rest

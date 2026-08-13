@@ -74,11 +74,13 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..))
 import Aihc.Tc.Annotations
-  ( TcAnnotation (..),
+  ( PendingTcEvidenceBinders (..),
+    TcAnnotation (..),
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDerivingAnnotation (..),
     TcDictBinderAnnotation (..),
+    TcEvidenceBinderAnnotation (..),
     TcForeignAbiType (..),
     TcForeignEffect (..),
     TcForeignImportAnnotation (..),
@@ -92,7 +94,7 @@ import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingT
 import Aihc.Tc.Deriving.Context (derivingPlanInstanceInfo, finalizeDerivingModulesTc)
 import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..), dataFamilyAxiomName, dataFamilyRepresentationName)
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Evidence (EvTerm (..))
+import Aihc.Tc.Evidence (EvTerm (..), EvVar)
 import Aihc.Tc.Finalize (finalizeModuleTc)
 import Aihc.Tc.Generalize (generalizeAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
@@ -139,7 +141,9 @@ data TcBindingResult = TcBindingResult
     tbDisplayName :: !Text,
     tbType :: !TcType,
     -- | Resolver-selected identity for a finalized top-level binding.
-    tbKey :: !(Maybe TcTermKey)
+    tbKey :: !(Maybe TcTermKey),
+    -- | Evidence variables abstracted at this binding.
+    tbEvidenceBinders :: ![TcEvidenceBinderAnnotation]
   }
   deriving (Show, Read)
 
@@ -316,32 +320,32 @@ tcAnnotationBindings ann decl =
     Just tcAnn ->
       case decl of
         DeclValue valueDecl ->
-          [ TcBindingResult name displayName (tcAnnType tcAnn) Nothing
+          [ TcBindingResult name displayName (tcAnnType tcAnn) Nothing []
           | (name, displayName) <- valueDeclBindingNames valueDecl
           ]
         DeclData dataDecl ->
           let name = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
-           in [TcBindingResult name name (tcAnnType tcAnn) Nothing]
+           in [TcBindingResult name name (tcAnnType tcAnn) Nothing []]
         DeclNewtype newtypeDecl ->
           let name = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
-           in [TcBindingResult name name (tcAnnType tcAnn) Nothing]
+           in [TcBindingResult name name (tcAnnType tcAnn) Nothing []]
         DeclDataFamilyDecl familyDecl ->
           let name = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
-           in [TcBindingResult name name (tcAnnType tcAnn) Nothing]
+           in [TcBindingResult name name (tcAnnType tcAnn) Nothing []]
         DeclForeign foreignDecl ->
           let name = unqualifiedNameText (foreignName foreignDecl)
               displayName = renderBinderName (foreignName foreignDecl)
-           in [TcBindingResult name displayName (tcAnnType tcAnn) Nothing]
+           in [TcBindingResult name displayName (tcAnnType tcAnn) Nothing []]
         _ -> []
 
 classAnnotationBindings :: Annotation -> Decl -> [TcBindingResult]
 classAnnotationBindings ann decl =
   case (fromAnnotation ann, decl) of
     (Just classAnn, DeclClass {}) ->
-      [ TcBindingResult (tcClassMethodName method) (tcClassMethodName method) (tcClassMethodType method) Nothing
+      [ TcBindingResult (tcClassMethodName method) (tcClassMethodName method) (tcClassMethodType method) Nothing []
       | method <- tcClassMethods classAnn
       ]
-        <> [ TcBindingResult (defaultMethodName (tcClassMethodName method)) (defaultMethodName (tcClassMethodName method)) (classDefaultWorkerType classAnn method) Nothing
+        <> [ TcBindingResult (defaultMethodName (tcClassMethodName method)) (defaultMethodName (tcClassMethodName method)) (classDefaultWorkerType classAnn method) Nothing []
            | method <- tcClassMethods classAnn,
              tcClassMethodName method `elem` tcClassDefaultMethods classAnn
            ]
@@ -364,14 +368,14 @@ instanceAnnotationBindings :: Annotation -> [TcBindingResult]
 instanceAnnotationBindings ann =
   case fromAnnotation ann of
     Just instAnn ->
-      [TcBindingResult (tcInstanceDictName instAnn) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn) Nothing]
+      [TcBindingResult (tcInstanceDictName instAnn) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn) Nothing []]
     Nothing -> []
 
 derivingAnnotationBindings :: Annotation -> [TcBindingResult]
 derivingAnnotationBindings ann =
   case fromAnnotation ann of
     Just derivingAnnotation ->
-      [ TcBindingResult (iiDictName instanceInfo) (iiDictName instanceInfo) (iiDictType instanceInfo) Nothing
+      [ TcBindingResult (iiDictName instanceInfo) (iiDictName instanceInfo) (iiDictType instanceInfo) Nothing []
       | plan <- tcDerivingPlans derivingAnnotation,
         Just instanceInfo <- [derivingPlanInstanceInfo plan]
       ]
@@ -383,7 +387,7 @@ dataConBindings dataConDecl =
     DataConAnn ann inner ->
       case fromAnnotation ann of
         Just tcAnn ->
-          [ TcBindingResult name displayName (tcAnnType tcAnn) Nothing
+          [ TcBindingResult name displayName (tcAnnType tcAnn) Nothing []
           | (name, displayName) <- dataConBindingNames inner
           ]
         Nothing -> dataConBindings inner
@@ -406,7 +410,7 @@ recordSelectorBindings declaration =
               result -> ([], result)
           (fieldTypes, resultType) = splitFunctionType body
           (_, sourceFields, _) = dataConSourceLayout inner
-       in [ TcBindingResult label label (foldr TcForAllTy (qualify predicates (TcFunTy resultType fieldType)) typeVariables) Nothing
+       in [ TcBindingResult label label (foldr TcForAllTy (qualify predicates (TcFunTy resultType fieldType)) typeVariables) Nothing []
           | ((maybeLabel, _), fieldType) <- zip sourceFields fieldTypes,
             Just label <- [maybeLabel]
           ]
@@ -539,7 +543,9 @@ annotatePendingModule pending = do
   -- Only bindings that checked without errors are eligible for value
   -- annotations. Failed bindings remain in the recovery environment, but
   -- they must not be rendered as successful inferred types.
-  annotateModuleTc (Set.fromList (map tbName (pendingValueResults pending))) (pendingSyntax pending)
+  let results = pendingValueResults pending
+      evidenceBinders = Map.fromList [(tbName result, tbEvidenceBinders result) | result <- results]
+  annotateModuleTc (Set.fromList (map tbName results)) evidenceBinders (pendingSyntax pending)
 
 defaultGlobalKindMetas :: TcM ()
 defaultGlobalKindMetas = do
@@ -673,10 +679,10 @@ renderCheckedGroup :: Map Int [Decl] -> (Int, DeclGroup) -> [Decl]
 renderCheckedGroup checkedGroups (groupId, group) =
   fromMaybe (renderDeclGroup group) (Map.lookup groupId checkedGroups)
 
-annotateModuleTc :: Set.Set Text -> Module -> TcM Module
-annotateModuleTc checkedValueNames m = do
+annotateModuleTc :: Set.Set Text -> Map Text [TcEvidenceBinderAnnotation] -> Module -> TcM Module
+annotateModuleTc checkedValueNames evidenceBinders m = do
   let classMethods = collectClassMethodNames (moduleDecls m)
-  decls <- mapM (annotateDeclTc classMethods checkedValueNames) (moduleDecls m)
+  decls <- mapM (annotateDeclTc classMethods checkedValueNames evidenceBinders) (moduleDecls m)
   pure (m {moduleDecls = decls})
 
 annotateModuleDerivingTc :: Module -> TcM Module
@@ -702,25 +708,31 @@ moduleEnabledExtensions modu =
   applyImpliedExtensions $
     foldr applyExtensionSetting [] (moduleLanguagePragmas modu)
 
-annotateDeclTc :: Map Text [Text] -> Set.Set Text -> Decl -> TcM Decl
-annotateDeclTc classMethods checkedValueNames decl =
-  case decl of
-    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc classMethods checkedValueNames inner
-    DeclValue valueDecl
-      | valueDeclWasChecked checkedValueNames valueDecl -> do
-          (ty, valueDecl') <- annotateValueDeclTc valueDecl
-          pure (annotateDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] [] []) (DeclValue valueDecl'))
-      | otherwise -> pure decl
-    DeclData dataDecl -> annotateDataDeclTc dataDecl
-    DeclNewtype newtypeDecl -> annotateNewtypeDeclTc newtypeDecl
-    DeclDataFamilyDecl familyDecl -> annotateDataFamilyDeclTc familyDecl
-    DeclDataFamilyInst familyInst -> annotateDataFamilyInstTc familyInst
-    DeclForeign foreignDecl
-      | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
-    DeclClass classDecl -> annotateClassDeclTc classDecl
-    DeclInstance instanceDecl -> annotateInstanceDeclTc classMethods instanceDecl
-    DeclStandaloneDeriving {} -> pure decl
-    _ -> pure decl
+annotateDeclTc :: Map Text [Text] -> Set.Set Text -> Map Text [TcEvidenceBinderAnnotation] -> Decl -> TcM Decl
+annotateDeclTc classMethods checkedValueNames evidenceBinders = go []
+  where
+    go scopedEvidence decl =
+      case decl of
+        DeclAnn ann inner
+          | Just pending <- fromAnnotation @PendingTcEvidenceBinders ann ->
+              go (pendingTcEvidenceBinders pending) inner
+          | otherwise -> DeclAnn ann <$> go scopedEvidence inner
+        DeclValue valueDecl
+          | valueDeclWasChecked checkedValueNames valueDecl -> do
+              (ty, valueDecl') <- annotateValueDeclTc valueDecl
+              let binders = concatMap (\name -> Map.findWithDefault [] name evidenceBinders) (valueDeclBinderNames valueDecl)
+              pure (annotateDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] [] binders []) (DeclValue valueDecl'))
+          | otherwise -> pure decl
+        DeclData dataDecl -> annotateDataDeclTc dataDecl
+        DeclNewtype newtypeDecl -> annotateNewtypeDeclTc newtypeDecl
+        DeclDataFamilyDecl familyDecl -> annotateDataFamilyDeclTc familyDecl
+        DeclDataFamilyInst familyInst -> annotateDataFamilyInstTc familyInst
+        DeclForeign foreignDecl
+          | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
+        DeclClass classDecl -> annotateClassDeclTc classDecl
+        DeclInstance instanceDecl -> annotateInstanceDeclTc classMethods scopedEvidence instanceDecl
+        DeclStandaloneDeriving {} -> pure decl
+        _ -> pure decl
 
 valueDeclWasChecked :: Set.Set Text -> ValueDecl -> Bool
 valueDeclWasChecked checkedValueNames valueDecl =
@@ -757,16 +769,22 @@ annotateClassDeclTc classDecl = do
         )
 
 annotateClassDefaultItem :: ClassDeclItem -> TcM ClassDeclItem
-annotateClassDefaultItem item =
-  case item of
-    ClassItemAnn ann inner -> ClassItemAnn ann <$> annotateClassDefaultItem inner
-    ClassItemDefault valueDecl ->
-      case valueDeclBinderName valueDecl of
-        Just (_, methodName) -> do
-          methodTy <- bindingType (defaultMethodName methodName)
-          pure (ClassItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) item)
-        Nothing -> pure item
-    _ -> pure item
+annotateClassDefaultItem = go []
+  where
+    go scopedEvidence item =
+      case item of
+        ClassItemAnn ann inner
+          | Just pending <- fromAnnotation @PendingTcEvidenceBinders ann ->
+              go (pendingTcEvidenceBinders pending) inner
+          | otherwise -> ClassItemAnn ann <$> go scopedEvidence inner
+        ClassItemDefault valueDecl ->
+          case valueDeclEnvironmentName valueDecl of
+            Just methodName -> do
+              methodTy <- bindingType (defaultMethodName methodName)
+              finalizedEvidence <- finalizeMethodEvidenceBinders methodName methodTy scopedEvidence
+              pure (ClassItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy finalizedEvidence)) item)
+            Nothing -> pure item
+        _ -> pure item
 
 annotateClassMethod :: Int -> Text -> TcM TcClassMethodAnnotation
 annotateClassMethod index methodName = do
@@ -787,7 +805,7 @@ annotateDataDeclTc dataDecl = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))
   ty <- tyConBindingType tyName
   constructors <- mapM annotateDataConDeclTc (dataDeclConstructors dataDecl)
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] []) (dataDeclHead dataDecl)
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (dataDeclHead dataDecl)
   pure (DeclData (dataDecl {dataDeclHead = annotatedHead, dataDeclConstructors = constructors}))
 
 annotateNewtypeDeclTc :: NewtypeDecl -> TcM Decl
@@ -795,14 +813,14 @@ annotateNewtypeDeclTc newtypeDecl = do
   let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead newtypeDecl))
   ty <- tyConBindingType tyName
   constructor <- mapM annotateDataConDeclTc (newtypeDeclConstructor newtypeDecl)
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] []) (newtypeDeclHead newtypeDecl)
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (newtypeDeclHead newtypeDecl)
   pure (DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor}))
 
 annotateDataFamilyDeclTc :: DataFamilyDecl -> TcM Decl
 annotateDataFamilyDeclTc familyDecl = do
   let familyName = unqualifiedNameText (binderHeadName (dataFamilyDeclHead familyDecl))
   ty <- tyConBindingType familyName
-  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] []) (dataFamilyDeclHead familyDecl)
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] [] []) (dataFamilyDeclHead familyDecl)
   pure (DeclDataFamilyDecl (familyDecl {dataFamilyDeclHead = annotatedHead}))
 
 annotateDataFamilyInstTc :: DataFamilyInst -> TcM Decl
@@ -831,7 +849,7 @@ annotateRegisteredDataConDeclTc dataConDecl =
   where
     annotateWithType ty = do
       zonkedTy <- zonkType ty
-      pure (DataConAnn (mkAnnotation (TcAnnotation zonkedTy [] [] [] [])) dataConDecl)
+      pure (DataConAnn (mkAnnotation (TcAnnotation zonkedTy [] [] [] [] [])) dataConDecl)
 
 annotateBinderHeadName :: TcAnnotation -> BinderHead UnqualifiedName -> BinderHead UnqualifiedName
 annotateBinderHeadName tcAnn head' =
@@ -852,7 +870,7 @@ annotateDataConDeclTc dataConDecl = do
     (name, _) : _ -> do
       ty <- dataConBindingType name
       selectors <- annotateRecordSelectorNames dataConDecl
-      pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [] [])) selectors)
+      pure (DataConAnn (mkAnnotation (TcAnnotation ty [] [] [] [] [])) selectors)
 
 annotateRecordSelectorNames :: DataConDecl -> TcM DataConDecl
 annotateRecordSelectorNames declaration =
@@ -868,7 +886,7 @@ annotateRecordSelectorNames declaration =
       pure field {fieldNames = names}
     annotateSelectorName name = do
       ty <- bindingType (unqualifiedNameText name)
-      pure (annotateUnqualifiedName (TcAnnotation ty [] [] [] []) name)
+      pure (annotateUnqualifiedName (TcAnnotation ty [] [] [] [] []) name)
 
 dataConBindingType :: Text -> TcM TcType
 dataConBindingType name = do
@@ -882,7 +900,7 @@ annotateForeignDeclTc :: ForeignDecl -> TcM Decl
 annotateForeignDeclTc foreignDecl = do
   ty <- bindingType (unqualifiedNameText (foreignName foreignDecl))
   let sourceSpan = unqualifiedNameSpan (foreignName foreignDecl)
-      annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] []) (DeclForeign foreignDecl)
+      annotated = annotateDeclAt sourceSpan (TcAnnotation ty [] [] [] [] []) (DeclForeign foreignDecl)
   case foreignCallConv foreignDecl of
     CCall -> do
       plan <- checkForeignImportType sourceSpan ty
@@ -996,8 +1014,8 @@ annotateValueDeclTc valueDecl =
           ty <- missingTypeInfo ("top-level pattern binding " <> show pat)
           pure (ty, valueDecl)
 
-annotateInstanceDeclTc :: Map Text [Text] -> InstanceDecl -> TcM Decl
-annotateInstanceDeclTc classMethods instanceDecl =
+annotateInstanceDeclTc :: Map Text [Text] -> [TcEvidenceBinderAnnotation] -> InstanceDecl -> TcM Decl
+annotateInstanceDeclTc classMethods contextEvidenceBinders instanceDecl =
   case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
     (_, []) -> pure (DeclInstance instanceDecl)
     (Nothing, _) -> pure (DeclInstance instanceDecl)
@@ -1018,7 +1036,11 @@ annotateInstanceDeclTc classMethods instanceDecl =
           superClassTypes = maybe [] (map (substType classSubstitution) . ciSuperClassTypes) classInfo
           defaults = maybe [] ciDefaultMethods classInfo
       superClasses <- mapM constraintTypePred superClassTypes
-      superClassEvidence <- mapM (solveInstanceSuperClass classNameText context) superClasses
+      when (length contextEvidenceBinders /= length context) $
+        abortTc "internal type annotation error: instance context evidence count does not match the checked context"
+      let finalizedContextEvidence = zipWith setEvidenceBinderPredicate contextEvidenceBinders context
+          contextEvidence = map evidenceBinderPair finalizedContextEvidence
+      superClassEvidence <- mapM (solveInstanceSuperClass classNameText contextEvidence) superClasses
       let contextDicts = map predDictBinder context
           dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred classNameText headTys))) tvIds
           methodOrder = maybe (fromMaybe [] (Map.lookup classNameText classMethods)) (map fst . ciMethods) classInfo
@@ -1032,6 +1054,7 @@ annotateInstanceDeclTc classMethods instanceDecl =
                 tcInstanceClassOrigin = classInfo >>= ciOrigin,
                 tcInstanceClassSuperClasses = maybe [] (map constraintTypeDictBinder . ciSuperClassTypes) classInfo,
                 tcInstanceContextDicts = contextDicts,
+                tcInstanceContextEvidence = finalizedContextEvidence,
                 tcInstanceSuperClasses = zip (map predDictBinder superClasses) superClassEvidence,
                 tcInstanceMethodOrder = methodOrder,
                 tcInstanceDefaultMethods = defaults
@@ -1039,7 +1062,7 @@ annotateInstanceDeclTc classMethods instanceDecl =
       items <- mapM (annotateInstanceItemTc headTys) (instanceDeclItems instanceDecl)
       pure (DeclAnn (mkAnnotation instAnn) (DeclInstance (instanceDecl {instanceDeclItems = items})))
 
-solveInstanceSuperClass :: Text -> [Pred] -> Pred -> TcM EvTerm
+solveInstanceSuperClass :: Text -> [(EvVar, Pred)] -> Pred -> TcM EvTerm
 solveInstanceSuperClass className givens predicate = do
   evidenceVariable <- freshEvVar
   let constraint = mkWantedCt predicate evidenceVariable (InstOrigin className) NoSourceSpan
@@ -1055,59 +1078,93 @@ solveInstanceSuperClass className givens predicate = do
       pure (EvVarTerm evidenceVariable)
 
 annotateInstanceItemTc :: [TcType] -> InstanceDeclItem -> TcM InstanceDeclItem
-annotateInstanceItemTc headTys item =
-  case item of
-    InstanceItemAnn ann inner -> InstanceItemAnn ann <$> annotateInstanceItemTc headTys inner
-    InstanceItemBind (FunctionBind name matches) -> do
-      let methodName = unqualifiedNameText name
-      methodTy <- methodExpectedType headTys (unqualifiedNameText name)
-      pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (FunctionBind name matches)))
-    InstanceItemBind (PatternBind anns pat rhs) ->
-      case patternBinderName pat of
-        Just (_, methodName) -> do
+annotateInstanceItemTc headTys = go []
+  where
+    go scopedEvidence item =
+      case item of
+        InstanceItemAnn ann inner
+          | Just pending <- fromAnnotation @PendingTcEvidenceBinders ann ->
+              go (pendingTcEvidenceBinders pending) inner
+          | otherwise -> InstanceItemAnn ann <$> go scopedEvidence inner
+        InstanceItemBind (FunctionBind name matches) -> do
+          let methodName = unqualifiedNameText name
           methodTy <- methodExpectedType headTys methodName
-          pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (PatternBind anns pat rhs)))
-        Nothing -> pure item
-    _ -> pure item
+          finalizedEvidence <- finalizeMethodEvidenceBinders methodName methodTy scopedEvidence
+          pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy finalizedEvidence)) (InstanceItemBind (FunctionBind name matches)))
+        InstanceItemBind (PatternBind anns pat rhs) ->
+          case patternBinderName pat of
+            Just (_, methodName) -> do
+              methodTy <- methodExpectedType headTys methodName
+              finalizedEvidence <- finalizeMethodEvidenceBinders methodName methodTy scopedEvidence
+              pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy finalizedEvidence)) (InstanceItemBind (PatternBind anns pat rhs)))
+            Nothing -> pure item
+        _ -> pure item
 
 tcClassDeclBodies :: Decl -> TcM Decl
 tcClassDeclBodies (DeclAnn ann inner) =
   DeclAnn ann <$> tcClassDeclBodies inner
 tcClassDeclBodies (DeclClass classDecl) = do
-  items <- mapM tcClassDefaultBody (classDeclItems classDecl)
+  scopes <- classDefaultEvidenceScopes (classDeclItems classDecl)
+  items <- mapM (tcClassDefaultBody scopes) (classDeclItems classDecl)
   pure (DeclClass (classDecl {classDeclItems = items}))
 tcClassDeclBodies decl = pure decl
 
-tcClassDefaultBody :: ClassDeclItem -> TcM ClassDeclItem
-tcClassDefaultBody item =
-  case item of
-    ClassItemAnn ann inner -> ClassItemAnn ann <$> tcClassDefaultBody inner
-    ClassItemDefault valueDecl -> do
-      checked <- tcClassDefaultValue valueDecl
-      pure (ClassItemDefault checked)
-    _ -> pure item
+type MethodEvidenceScope = ([(EvVar, Pred)], TcType)
 
-tcClassDefaultValue :: ValueDecl -> TcM ValueDecl
-tcClassDefaultValue valueDecl =
-  case valueDeclBinderName valueDecl of
-    Nothing -> pure valueDecl
-    Just (_, methodName) -> do
+classDefaultEvidenceScopes :: [ClassDeclItem] -> TcM (Map Text MethodEvidenceScope)
+classDefaultEvidenceScopes items =
+  Map.fromList <$> mapM makeScope (nub (mapMaybe classDefaultItemName items))
+  where
+    makeScope methodName = do
       binder <- lookupTerm (defaultMethodName methodName)
       case binder of
-        Just (TcIdBinder (ForAll _ givens methodTy) _) ->
-          case valueDecl of
+        Just (TcIdBinder scheme _) -> do
+          (predicates, methodType) <- skolemizeQualified scheme
+          evidence <- freshGivenEvidence predicates
+          pure (methodName, (evidence, methodType))
+        _ -> missingTypeInfo ("class default method " <> T.unpack methodName)
+
+classDefaultItemName :: ClassDeclItem -> Maybe Text
+classDefaultItemName item =
+  case item of
+    ClassItemAnn _ inner -> classDefaultItemName inner
+    ClassItemDefault valueDecl -> valueDeclEnvironmentName valueDecl
+    _ -> Nothing
+
+tcClassDefaultBody :: Map Text MethodEvidenceScope -> ClassDeclItem -> TcM ClassDeclItem
+tcClassDefaultBody scopes item =
+  case item of
+    ClassItemAnn ann inner -> ClassItemAnn ann <$> tcClassDefaultBody scopes inner
+    ClassItemDefault valueDecl -> do
+      (checked, evidenceBinders) <- tcClassDefaultValue scopes valueDecl
+      pure
+        ( ClassItemAnn
+            (mkAnnotation (PendingTcEvidenceBinders evidenceBinders))
+            (ClassItemDefault checked)
+        )
+    _ -> pure item
+
+tcClassDefaultValue :: Map Text MethodEvidenceScope -> ValueDecl -> TcM (ValueDecl, [TcEvidenceBinderAnnotation])
+tcClassDefaultValue scopes valueDecl =
+  case valueDeclEnvironmentName valueDecl of
+    Nothing -> pure (valueDecl, [])
+    Just methodName -> do
+      case Map.lookup methodName scopes of
+        Just (givenEvidence, methodTy) -> do
+          checked <- case valueDecl of
             FunctionBind name matches -> do
               let (argumentTypes, resultType) = splitFunTy methodTy (matchArity matches)
               results <- mapM (tcMatchEquation Nothing argumentTypes resultType) matches
-              solveInstanceBodyConstraints givens [(constraints, implications) | (_, constraints, implications) <- results]
+              solveInstanceBodyConstraints givenEvidence [(constraints, implications) | (_, constraints, implications) <- results]
               pure (FunctionBind name [match | (match, _, _) <- results])
             PatternBind annotations pattern' rhs -> do
               results <- mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pattern') rhs]
-              solveInstanceBodyConstraints givens [(constraints, implications) | (_, constraints, implications) <- results]
+              solveInstanceBodyConstraints givenEvidence [(constraints, implications) | (_, constraints, implications) <- results]
               case results of
                 [(match, _, _)] -> pure (PatternBind annotations pattern' (matchRhs match))
                 _ -> pure valueDecl
-        _ -> missingTypeInfo ("class default method " <> T.unpack methodName)
+          pure (checked, map evidenceBinderAnnotation givenEvidence)
+        Nothing -> missingTypeInfo ("class default method " <> T.unpack methodName)
 
 tcInstanceDeclBodies :: Decl -> TcM Decl
 tcInstanceDeclBodies (DeclAnn ann inner) =
@@ -1122,49 +1179,98 @@ tcInstanceDeclBodies (DeclInstance instanceDecl) =
       rawGivens <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
       headTys <- mapM defaultTypeKinds rawHeadTys
       givens <- mapM defaultPredKinds rawGivens
-      items <- mapM (tcInstanceItemBody givens headTys) (instanceDeclItems instanceDecl)
-      pure (DeclInstance (instanceDecl {instanceDeclItems = items}))
+      givenEvidence <- freshGivenEvidence givens
+      methodScopes <- instanceMethodEvidenceScopes headTys (instanceDeclItems instanceDecl)
+      items <- mapM (tcInstanceItemBody givenEvidence methodScopes) (instanceDeclItems instanceDecl)
+      pure
+        ( DeclAnn
+            (mkAnnotation (PendingTcEvidenceBinders (map evidenceBinderAnnotation givenEvidence)))
+            (DeclInstance (instanceDecl {instanceDeclItems = items}))
+        )
 tcInstanceDeclBodies decl =
   pure decl
 
-tcInstanceItemBody :: [Pred] -> [TcType] -> InstanceDeclItem -> TcM InstanceDeclItem
-tcInstanceItemBody givens headTys item =
+instanceMethodEvidenceScopes :: [TcType] -> [InstanceDeclItem] -> TcM (Map Text MethodEvidenceScope)
+instanceMethodEvidenceScopes headTypes items =
+  Map.fromList <$> mapM makeScope (nub (mapMaybe instanceItemMethodName items))
+  where
+    makeScope methodName = do
+      methodScheme <- methodExpectedScheme headTypes methodName
+      (predicates, methodType) <- skolemizeQualified methodScheme
+      evidence <- freshGivenEvidence predicates
+      pure (methodName, (evidence, methodType))
+
+instanceItemMethodName :: InstanceDeclItem -> Maybe Text
+instanceItemMethodName item =
+  case item of
+    InstanceItemAnn _ inner -> instanceItemMethodName inner
+    InstanceItemBind valueDecl -> valueDeclEnvironmentName valueDecl
+    _ -> Nothing
+
+tcInstanceItemBody :: [(EvVar, Pred)] -> Map Text MethodEvidenceScope -> InstanceDeclItem -> TcM InstanceDeclItem
+tcInstanceItemBody givens methodScopes item =
   case item of
     InstanceItemAnn ann inner ->
-      InstanceItemAnn ann <$> tcInstanceItemBody givens headTys inner
+      InstanceItemAnn ann <$> tcInstanceItemBody givens methodScopes inner
     InstanceItemBind (FunctionBind name matches) -> do
-      methodScheme <- methodExpectedScheme headTys (unqualifiedNameText name)
-      (methodGivens, methodTy) <- skolemizeQualified methodScheme
+      let methodName = unqualifiedNameText name
+      (methodEvidence, methodTy) <- methodEvidenceScope methodName methodScopes
       let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
       results <- mapM (tcMatchEquation Nothing argTys resTy) matches
-      solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
-      pure (InstanceItemBind (FunctionBind name [match | (match, _cts, _impls) <- results]))
+      solveInstanceBodyConstraints (givens <> methodEvidence) [(cts, impls) | (_match, cts, impls) <- results]
+      pure
+        ( InstanceItemAnn
+            (mkAnnotation (PendingTcEvidenceBinders (map evidenceBinderAnnotation methodEvidence)))
+            (InstanceItemBind (FunctionBind name [match | (match, _cts, _impls) <- results]))
+        )
     InstanceItemBind (PatternBind _ pat rhs) ->
       case patternBinderName pat of
         Just (_, methodName) -> do
-          methodScheme <- methodExpectedScheme headTys methodName
-          (methodGivens, methodTy) <- skolemizeQualified methodScheme
+          (methodEvidence, methodTy) <- methodEvidenceScope methodName methodScopes
           results <- mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pat) rhs]
-          solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
+          solveInstanceBodyConstraints (givens <> methodEvidence) [(cts, impls) | (_match, cts, impls) <- results]
           case results of
             [(match, _cts, _impls)] ->
-              pure (replaceInstancePatternBindRhs (matchRhs match) item)
+              pure
+                ( InstanceItemAnn
+                    (mkAnnotation (PendingTcEvidenceBinders (map evidenceBinderAnnotation methodEvidence)))
+                    (replaceInstancePatternBindRhs (matchRhs match) item)
+                )
             _ -> pure item
         Nothing -> pure item
     _ -> pure item
+
+methodEvidenceScope :: Text -> Map Text MethodEvidenceScope -> TcM MethodEvidenceScope
+methodEvidenceScope methodName scopes =
+  case Map.lookup methodName scopes of
+    Just scope -> pure scope
+    Nothing -> missingTypeInfo ("instance method evidence for " <> T.unpack methodName)
+
+finalizeMethodEvidenceBinders :: Text -> TcType -> [TcEvidenceBinderAnnotation] -> TcM [TcEvidenceBinderAnnotation]
+finalizeMethodEvidenceBinders methodName methodType binders = do
+  let predicates = qualifiedTypePredicates methodType
+  when (length binders /= length predicates) $
+    abortTc ("internal type annotation error: method evidence count does not match the type for " <> T.unpack methodName)
+  pure (zipWith setEvidenceBinderPredicate binders predicates)
+
+qualifiedTypePredicates :: TcType -> [Pred]
+qualifiedTypePredicates ty =
+  case snd (peelForAlls ty) of
+    TcQualTy predicates _ -> predicates
+    _ -> []
 
 matchArity :: [Match] -> Int
 matchArity (match : _) = length (matchPats match)
 matchArity [] = 0
 
-solveInstanceBodyConstraints :: [Pred] -> [([Ct], [Implication])] -> TcM ()
+solveInstanceBodyConstraints :: [(EvVar, Pred)] -> [([Ct], [Implication])] -> TcM ()
 solveInstanceBodyConstraints givens results = do
   let (ctsList, implsList) = unzip results
       cts = concat ctsList
       impls = concat implsList
   solveBodyConstraintsWithGivens givens cts impls
 
-solveBodyConstraintsWithGivens :: [Pred] -> [Ct] -> [Implication] -> TcM ()
+solveBodyConstraintsWithGivens :: [(EvVar, Pred)] -> [Ct] -> [Implication] -> TcM ()
 solveBodyConstraintsWithGivens givens cts impls = do
   implications <- mapM addOuterGivens impls
   _ <- solveWithImpls cts implications
@@ -1173,8 +1279,7 @@ solveBodyConstraintsWithGivens givens cts impls = do
     addOuterGivens implication = do
       outerGivens <- mapM givenConstraint givens
       pure (implication {implGivenCts = outerGivens <> implGivenCts implication})
-    givenConstraint predicate = do
-      evidence <- freshEvVar
+    givenConstraint (evidence, predicate) = do
       let origin = InstOrigin "class body"
       pure ((mkWantedCt predicate evidence origin NoSourceSpan) {ctFlavor = Given})
     solveClassCt ct@Ct {ctPred = ClassPred {}} = do
@@ -1298,14 +1403,14 @@ classDeclDefaultMethodNames classDecl = mapMaybe classItemDefaultMethodName (cla
 classItemDefaultMethodName :: ClassDeclItem -> Maybe Text
 classItemDefaultMethodName item =
   case peelClassDeclItemAnn item of
-    ClassItemDefault valueDecl -> snd <$> valueDeclBinderName valueDecl
+    ClassItemDefault valueDecl -> valueDeclEnvironmentName valueDecl
     _ -> Nothing
 
-valueDeclBinderName :: ValueDecl -> Maybe (Text, Text)
-valueDeclBinderName valueDecl =
+valueDeclEnvironmentName :: ValueDecl -> Maybe Text
+valueDeclEnvironmentName valueDecl =
   case valueDecl of
-    FunctionBind name _ -> Just (binderBindingName name)
-    PatternBind _ pat _ -> patternBinderName pat
+    FunctionBind name _ -> Just (unqualifiedNameText name)
+    PatternBind _ pat _ -> snd <$> patternBinderName pat
 
 defaultMethodName :: Text -> Text
 defaultMethodName methodName = "$dm" <> methodName
@@ -1697,7 +1802,7 @@ tcSingleDeclGroup sigs groupId d =
             else do
               zonkedTy <- zonkType ty
               let decl' = replacePatternBindRhs rhs' d
-              pure (TcDeclGroupResult groupId [TcBindingResult "<pattern>" "<pattern>" zonkedTy Nothing] (Just [decl']))
+              pure (TcDeclGroupResult groupId [TcBindingResult "<pattern>" "<pattern>" zonkedTy Nothing []] (Just [decl']))
     _ -> do
       bindings <- tcDecl d
       pure (TcDeclGroupResult groupId bindings Nothing)
@@ -1724,11 +1829,11 @@ tcMergedFunctionGroup sigs groupId binder decls matches = do
 tcFunctionWithSig :: Text -> Text -> CheckedSig -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
 tcFunctionWithSig displayName name sig matches = do
   let scheme = checkedSigScheme sig
+  (sigPreds, sigTy) <- skolemizeQualified scheme
+  givenEvidence <- freshGivenEvidence sigPreds
   (matches', failed) <-
     withErrorTracking $ do
       extendTermEnvPermanent name (TcIdBinder scheme Closed)
-      -- Open the scheme with skolems (not metas) for checking.
-      (sigPreds, sigTy) <- skolemizeQualified scheme
       let nArgs = case matches of
             (m : _) -> length (matchPats m)
             [] -> 0
@@ -1738,7 +1843,7 @@ tcFunctionWithSig displayName name sig matches = do
       let (_matches', ctsList, implsList) = unzip3 results
           allCts = concat ctsList
           allImpls = concat implsList
-      solveBodyConstraintsWithGivens sigPreds allCts allImpls
+      solveBodyConstraintsWithGivens givenEvidence allCts allImpls
       rejectEscapingExistentials sigTy allImpls
       pure _matches'
   if failed
@@ -1747,30 +1852,35 @@ tcFunctionWithSig displayName name sig matches = do
       -- Report the declared scheme as the binding's type.
       let declaredTy = schemeToType scheme
       zonkedTy <- zonkType declaredTy
-      pure (Just matches', [TcBindingResult name displayName zonkedTy Nothing])
+      declaredPredicates <- mapM zonkPred (typeSchemePredicates scheme)
+      when (length givenEvidence /= length declaredPredicates) $
+        abortTc "internal type annotation error: signature evidence count does not match the declared context"
+      let evidenceBinders = zipWith setEvidenceBinderPredicate (map evidenceBinderAnnotation givenEvidence) declaredPredicates
+      pure (Just matches', [TcBindingResult name displayName zonkedTy Nothing evidenceBinders])
 
 -- | Type-check a function without a type signature (infer).
 tcFunctionInfer :: Text -> Text -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
 tcFunctionInfer displayName name matches = do
   placeholderTy <- freshMetaTv
-  ((matches', ty, residualPreds), failed) <-
+  ((matches', ty, residualPreds, evidenceBinders), failed) <-
     withErrorTracking $ do
       extendTermEnvPermanent name (TcMonoIdBinder placeholderTy)
       (matches', ty, cts', impls') <- tcMatches matches
       solveResult <- solveWithImpls cts' impls'
       rejectEscapingExistentials ty impls'
-      residualPreds <- generalizableResidualPreds solveResult
-      pure (matches', ty, residualPreds)
+      (residualPreds, evidenceBinders) <- generalizableResidualPreds solveResult
+      pure (matches', ty, residualPreds, evidenceBinders)
   if failed
     then pure (Nothing, [])
     else do
       scheme <- generalizeAndCommitIgnoring (Set.singleton (unqualifiedTermKey name)) ty residualPreds
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
+      zonkedEvidenceBinders <- mapM zonkEvidenceBinder evidenceBinders
       extendTermEnvPermanent name (TcIdBinder scheme Closed)
-      pure (Just matches', [TcBindingResult name displayName zonkedTy Nothing])
+      pure (Just matches', [TcBindingResult name displayName zonkedTy Nothing zonkedEvidenceBinders])
 
-generalizableResidualPreds :: SolveResult -> TcM [Pred]
+generalizableResidualPreds :: SolveResult -> TcM ([Pred], [TcEvidenceBinderAnnotation])
 generalizableResidualPreds solveResult = do
   residualCts <- mapM zonkCtPred (srResidual solveResult <> inertDicts (srInerts solveResult))
   let uniqueResidualCts = nubBy sameCtPred residualCts
@@ -1778,19 +1888,48 @@ generalizableResidualPreds solveResult = do
   -- Every occurrence still needs evidence, even when equal predicates share
   -- one constraint in the generalized type.
   forM_ residualCts $ \ct ->
-    when (predicateCanGeneralize (ctPred ct)) $
-      bindEvidence (ctEvVar ct) (EvGiven (ctPred ct))
+    case find (sameCtPred ct) polymorphicCts of
+      Just binder -> bindEvidence (ctEvVar ct) (EvGiven (ctEvVar binder) (ctPred binder))
+      Nothing -> pure ()
   -- A fully concrete residual cannot be discharged by a caller-supplied
   -- dictionary, so reject it at the originating expression.
   forM_ concreteCts $ \ct ->
     emitError (ctLoc ct) (UnsolvedWanted (ctPred ct) (ctOrigin ct))
-  pure (map ctPred polymorphicCts)
+  pure
+    ( map ctPred polymorphicCts,
+      map (evidenceBinderAnnotation . (\ct -> (ctEvVar ct, ctPred ct))) polymorphicCts
+    )
   where
     zonkCtPred ct = do
       pred' <- zonkPred (ctPred ct)
       pure (ct {ctPred = pred'})
-
     sameCtPred left right = ctPred left == ctPred right
+
+freshGivenEvidence :: [Pred] -> TcM [(EvVar, Pred)]
+freshGivenEvidence = mapM (\predicate -> (,predicate) <$> freshEvVar)
+
+evidenceBinderAnnotation :: (EvVar, Pred) -> TcEvidenceBinderAnnotation
+evidenceBinderAnnotation (evidence, predicate) =
+  TcEvidenceBinderAnnotation evidence predicate (predType predicate)
+
+evidenceBinderPair :: TcEvidenceBinderAnnotation -> (EvVar, Pred)
+evidenceBinderPair binder =
+  (tcEvidenceBinderVar binder, tcEvidenceBinderPred binder)
+
+setEvidenceBinderPredicate :: TcEvidenceBinderAnnotation -> Pred -> TcEvidenceBinderAnnotation
+setEvidenceBinderPredicate binder predicate =
+  binder
+    { tcEvidenceBinderPred = predicate,
+      tcEvidenceBinderType = predType predicate
+    }
+
+zonkEvidenceBinder :: TcEvidenceBinderAnnotation -> TcM TcEvidenceBinderAnnotation
+zonkEvidenceBinder binder = do
+  predicate <- zonkPred (tcEvidenceBinderPred binder)
+  pure (setEvidenceBinderPredicate binder predicate)
+
+typeSchemePredicates :: TypeScheme -> [Pred]
+typeSchemePredicates (ForAll _ predicates _) = predicates
 
 predicateCanGeneralize :: Pred -> Bool
 predicateCanGeneralize =
@@ -1882,7 +2021,7 @@ registerForeignImport foreignDecl = do
       declaredTy = schemeToType scheme
   extendTermEnvPermanent name (TcIdBinder scheme Closed)
   zonkedTy <- zonkType declaredTy
-  pure [TcBindingResult name displayName zonkedTy Nothing]
+  pure [TcBindingResult name displayName zonkedTy Nothing []]
 
 registerClassDecl :: (Text, Text) -> ClassDecl -> TcM [TcBindingResult]
 registerClassDecl origin classDecl = do
@@ -1936,7 +2075,7 @@ registerClassDecl origin classDecl = do
               workerScheme = maybe scheme (defaultWorkerScheme scheme) (lookup methodName defaultSignatures)
               workerType = schemeToType workerScheme
           extendTermEnvPermanent workerName (TcIdBinder workerScheme Closed)
-          pure (Just (TcBindingResult workerName workerName workerType Nothing))
+          pure (Just (TcBindingResult workerName workerName workerType Nothing []))
       | otherwise = pure Nothing
 
     defaultWorkerScheme ordinaryScheme (ForAll tyVars predicates body) =
@@ -1965,7 +2104,7 @@ registerClassItem classPred classTvEnv classTyVars item =
                 displayName = renderBinderName methodName
             extendTermEnvPermanent name (TcIdBinder scheme Closed)
             zonkedTy <- zonkType declaredTy
-            pure (TcBindingResult name displayName zonkedTy Nothing)
+            pure (TcBindingResult name displayName zonkedTy Nothing [])
         )
         names
     _ -> pure []
@@ -2012,7 +2151,7 @@ registerInstanceDecl origin instanceDecl =
             iiContext = context,
             iiHead = headTys
           }
-      pure [TcBindingResult dictName dictName dictTy Nothing]
+      pure [TcBindingResult dictName dictName dictTy Nothing []]
 
 predType :: Pred -> TcType
 predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
@@ -2050,7 +2189,7 @@ registerDataFamilyDeclHeader familyDecl = do
         tciTypeSynonym = Nothing
       }
   zonkedKind <- defaultKindMetas declaredKind
-  pure [TcBindingResult familyName familyName (kindToTcType zonkedKind) Nothing]
+  pure [TcBindingResult familyName familyName (kindToTcType zonkedKind) Nothing []]
 
 registerDataFamilyInstance :: DataFamilyInst -> TcM [TcBindingResult]
 registerDataFamilyInstance familyInst = do
@@ -2204,7 +2343,7 @@ registerDataDeclHeader dd = do
         tciTypeSynonym = Nothing
       }
   zonkedKind <- defaultKindMetas declaredKind
-  let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind) Nothing
+  let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind) Nothing []
   pure [tyConResult]
 
 unboxedTupleDeclarationKind :: [ParamInfo] -> Kind
@@ -2261,7 +2400,7 @@ registerNewtypeDeclHeader nd = do
         tciTypeSynonym = Nothing
       }
   zonkedKind <- defaultKindMetas declaredKind
-  let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind) Nothing
+  let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind) Nothing []
   pure [tyConResult]
 
 registerNewtypeConstructor :: NewtypeDecl -> TcM [TcBindingResult]
@@ -2306,7 +2445,7 @@ registerRecordSelectors constructors =
               (TcFunTy (dciResTy constructor) (dcfiType field))
       extendTermEnvPermanent label (TcIdBinder scheme Closed)
       zonkedType <- zonkType (schemeToType scheme)
-      pure (TcBindingResult label label zonkedType Nothing)
+      pure (TcBindingResult label label zonkedType Nothing [])
     registerSelector (label, []) =
       abortTc ("record selector has no fields: " <> T.unpack label)
 
@@ -2330,7 +2469,7 @@ registerTypeSynonymHeader typeSynDecl = do
         tciFlavor = SynonymTyCon,
         tciTypeSynonym = Just synonym
       }
-  pure [TcBindingResult tyName tyName (kindToTcType declaredKind) Nothing]
+  pure [TcBindingResult tyName tyName (kindToTcType declaredKind) Nothing []]
 
 registerTypeSynonymBody :: Decl -> TcM ()
 registerTypeSynonymBody (DeclAnn _ inner) = registerTypeSynonymBody inner
@@ -2410,8 +2549,8 @@ registerDataConWithResult paramInfos resTy con = case con of
       (n : _) -> do
         zonkedTy <- zonkType conTy
         let name = unqualifiedNameText n
-         in pure (TcBindingResult name name zonkedTy Nothing)
-      [] -> pure (TcBindingResult "<gadt>" "<gadt>" gadtResTy Nothing)
+         in pure (TcBindingResult name name zonkedTy Nothing [])
+      [] -> pure (TcBindingResult "<gadt>" "<gadt>" gadtResTy Nothing [])
   where
     paramEnv =
       Map.fromList
@@ -2436,7 +2575,7 @@ registerDataConWithResult paramInfos resTy con = case con of
         Just sourceName -> extendResolvedTermEnvPermanent sourceName (TcIdBinder scheme Closed)
         Nothing -> extendTermEnvPermanent name (TcIdBinder scheme Closed)
       zonkedTy <- zonkType (schemeToType scheme)
-      pure (TcBindingResult name name zonkedTy Nothing)
+      pure (TcBindingResult name name zonkedTy Nothing [])
 
 tupleConText :: TupleFlavor -> Int -> Text
 tupleConText flavor arity =
@@ -2560,7 +2699,7 @@ tcValueDecl (PatternBind _ pat rhs) = case patternBinderName pat of
   Nothing -> do
     (_rhs', ty) <- tcRhs rhs
     zonkedTy <- zonkType ty
-    pure [TcBindingResult "<pattern>" "<pattern>" zonkedTy Nothing]
+    pure [TcBindingResult "<pattern>" "<pattern>" zonkedTy Nothing []]
 
 -- | Extract the binder name from a pattern binding's LHS, if it is a bare
 -- variable pattern.  Returns @(displayName, envName)@ for simple variable

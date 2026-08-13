@@ -8,6 +8,7 @@
 -- where the type checker inferred polymorphism.
 module Aihc.Fc.Desugar.Expr
   ( dsMatches,
+    dsMatchesWithEvidence,
     dsMatchesWithDicts,
     dsMatchesWithEnclosingDicts,
     dsMatchesWithGivenDicts,
@@ -59,9 +60,9 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionForm (..), ResolutionNamespace (..), ResolvedName (..))
-import Aihc.Tc.Annotations (TcAnnotation (..))
+import Aihc.Tc.Annotations (TcAnnotation (..), TcEvidenceBinderAnnotation (..))
 import Aihc.Tc.Env (DataConFieldInfo (..))
-import Aihc.Tc.Evidence (EvTerm (..))
+import Aihc.Tc.Evidence (EvTerm (..), EvVar)
 import Aihc.Tc.Kind (runtimeRepToTcType)
 import Aihc.Tc.Monad (TcTermKey (..))
 import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType, liftedRuntimeRep, mkTyCon, mkTyConWithOrigin, runtimeRepOfType, setTyVarKind, tvKind, unboxedTupleTyConName)
@@ -93,9 +94,7 @@ data DsState = DsState
     -- | Local variables, keyed by resolver identity.
     dsLocalVars :: !(Map DsLocalKey Var),
     -- | Local dictionaries, keyed by variable identity.
-    dsLocalDicts :: !(Map Unique ClassDict),
-    -- | Dictionary keys in lexical lookup order.
-    dsLocalDictOrder :: ![Unique],
+    dsLocalDicts :: !(Map EvVar ClassDict),
     -- | Checked constructor types, keyed by global source identity.
     dsConstructorTypes :: !(Map FcSymbolOrigin TcType),
     -- | Checked constructor fields, keyed by global source identity.
@@ -104,7 +103,8 @@ data DsState = DsState
   }
 
 data ClassDict = ClassDict
-  { classDictName :: !Text,
+  { classDictEvidence :: !EvVar,
+    classDictName :: !Text,
     classDictArgs :: ![TcType],
     classDictVar :: !Var
   }
@@ -200,16 +200,14 @@ withDicts :: [ClassDict] -> DsM a -> DsM a
 withDicts dicts action = do
   st <- get
   let oldDicts = dsLocalDicts st
-      oldOrder = dsLocalDictOrder st
       newDicts = foldr insertDictionary oldDicts dicts
-      newOrder = map (varUnique . classDictVar) dicts <> oldOrder
-  modify' (\s -> s {dsLocalDicts = newDicts, dsLocalDictOrder = newOrder})
+  modify' (\s -> s {dsLocalDicts = newDicts})
   result <- action
-  modify' (\s -> s {dsLocalDicts = oldDicts, dsLocalDictOrder = oldOrder})
+  modify' (\s -> s {dsLocalDicts = oldDicts})
   pure result
   where
     insertDictionary dictionary =
-      insertUnique "dsLocalDicts" (varUnique (classDictVar dictionary)) dictionary
+      insertUnique "dsLocalDicts" (classDictEvidence dictionary) dictionary
 
 -- | Desugar a list of match equations into a Core expression.
 --
@@ -219,24 +217,27 @@ withDicts dicts action = do
 -- For a polymorphic function like @id x = x@, this wraps with
 -- type lambdas and lambdas referencing the same variable.
 dsMatches :: TcType -> [Match] -> DsM FcExpr
-dsMatches = dsMatchesWithDicts True
+dsMatches = dsMatchesWithEvidence []
 
-dsMatchesWithDicts :: Bool -> TcType -> [Match] -> DsM FcExpr
+dsMatchesWithEvidence :: [TcEvidenceBinderAnnotation] -> TcType -> [Match] -> DsM FcExpr
+dsMatchesWithEvidence = dsMatchesWithDicts True
+
+dsMatchesWithDicts :: Bool -> [TcEvidenceBinderAnnotation] -> TcType -> [Match] -> DsM FcExpr
 dsMatchesWithDicts = dsMatchesWithDictSource [] Nothing
 
 -- | Desugar matches that close over dictionaries supplied by an enclosing
 -- instance while still abstracting over the method's own constraints.
-dsMatchesWithEnclosingDicts :: [ClassDict] -> TcType -> [Match] -> DsM FcExpr
+dsMatchesWithEnclosingDicts :: [ClassDict] -> [TcEvidenceBinderAnnotation] -> TcType -> [Match] -> DsM FcExpr
 dsMatchesWithEnclosingDicts enclosingDicts = dsMatchesWithDictSource enclosingDicts Nothing True
 
 -- | Desugar matches using dictionary binders supplied by an enclosing scope.
 -- The resulting expression refers to those exact variables and does not
 -- abstract over a second set of dictionaries.
-dsMatchesWithGivenDicts :: [ClassDict] -> TcType -> [Match] -> DsM FcExpr
+dsMatchesWithGivenDicts :: [ClassDict] -> [TcEvidenceBinderAnnotation] -> TcType -> [Match] -> DsM FcExpr
 dsMatchesWithGivenDicts dicts = dsMatchesWithDictSource [] (Just dicts) False
 
-dsMatchesWithDictSource :: [ClassDict] -> Maybe [ClassDict] -> Bool -> TcType -> [Match] -> DsM FcExpr
-dsMatchesWithDictSource enclosingDicts givenDicts abstractDicts ty matches = case matches of
+dsMatchesWithDictSource :: [ClassDict] -> Maybe [ClassDict] -> Bool -> [TcEvidenceBinderAnnotation] -> TcType -> [Match] -> DsM FcExpr
+dsMatchesWithDictSource enclosingDicts givenDicts abstractDicts evidenceBinders ty matches = case matches of
   [] -> do
     v <- freshVar "_void" ty
     pure (FcVar v)
@@ -268,17 +269,22 @@ dsMatchesWithDictSource enclosingDicts givenDicts abstractDicts ty matches = cas
     dictionariesFor predicates =
       case givenDicts of
         Just dicts -> pure dicts
-        Nothing -> mapM mkClassDict (zip [0 :: Int ..] predicates)
+        Nothing ->
+          if map tcEvidenceBinderPred evidenceBinders == predicates
+            then zipWithM mkClassDict [0 :: Int ..] evidenceBinders
+            else desugarBug "dictionary evidence binders do not match the qualified type"
 
-mkClassDict :: (Int, Pred) -> DsM ClassDict
-mkClassDict (i, pred') =
-  case pred' of
-    ClassPred className args -> do
-      var <- freshVar ("$d" <> T.pack (show i)) (predType pred')
-      pure (ClassDict className args var)
-    _ -> do
-      var <- freshVar ("$d" <> T.pack (show i)) (predType pred')
-      pure (ClassDict "<constraint>" [] var)
+mkClassDict :: Int -> TcEvidenceBinderAnnotation -> DsM ClassDict
+mkClassDict i binder =
+  let pred' = tcEvidenceBinderPred binder
+      evidence = tcEvidenceBinderVar binder
+   in case pred' of
+        ClassPred className args -> do
+          var <- freshVar ("$d" <> T.pack (show i)) (predType pred')
+          pure (ClassDict evidence className args var)
+        _ -> do
+          var <- freshVar ("$d" <> T.pack (show i)) (predType pred')
+          pure (ClassDict evidence "<constraint>" [] var)
 
 -- | Generate argument names: x, y, z, x1, y1, ...
 argName :: Int -> Text
@@ -1210,48 +1216,49 @@ dsLetDecls decls bodyAction = do
         else FcLet (FcRec rhsBindings) body
 
 data LocalDeclGroup
-  = LocalFunction !DsLocalKey !Text !Var ![Match]
-  | LocalPattern !DsLocalKey !Text !Var !(Rhs Expr)
+  = LocalFunction !DsLocalKey !Text !Var ![TcEvidenceBinderAnnotation] ![Match]
+  | LocalPattern !DsLocalKey !Text !Var ![TcEvidenceBinderAnnotation] !(Rhs Expr)
 
 localGroupKey :: LocalDeclGroup -> DsLocalKey
 localGroupKey group =
   case group of
-    LocalFunction key _ _ _ -> key
-    LocalPattern key _ _ _ -> key
+    LocalFunction key _ _ _ _ -> key
+    LocalPattern key _ _ _ _ -> key
 
 localGroupBinder :: LocalDeclGroup -> Var
 localGroupBinder group =
   case group of
-    LocalFunction _ _ var _ -> var
-    LocalPattern _ _ var _ -> var
+    LocalFunction _ _ var _ _ -> var
+    LocalPattern _ _ var _ _ -> var
 
 groupLocalDecls :: [Decl] -> DsM [LocalDeclGroup]
 groupLocalDecls [] = pure []
 groupLocalDecls (decl : rest) = do
   maybeFun <- extractLocalFunction decl
   case maybeFun of
-    Just (key, name, var, matches) -> do
+    Just (key, name, var, evidenceBinders, matches) -> do
       let (sameNameDecls, rest') = span (hasSameLocalFunctionKey key) rest
       sameGroups <- mapM extractLocalFunctionRequired sameNameDecls
-      let allMatches = matches ++ concatMap (\(_, _, _, ms) -> ms) sameGroups
+      let allMatches = matches ++ concatMap (\(_, _, _, _, ms) -> ms) sameGroups
       restGroups <- groupLocalDecls rest'
-      pure (LocalFunction key name var allMatches : restGroups)
+      pure (LocalFunction key name var evidenceBinders allMatches : restGroups)
     Nothing -> do
       maybePattern <- extractLocalPattern decl
       restGroups <- groupLocalDecls rest
       pure (maybe restGroups (: restGroups) maybePattern)
 
-extractLocalFunction :: Decl -> DsM (Maybe (DsLocalKey, Text, Var, [Match]))
+extractLocalFunction :: Decl -> DsM (Maybe (DsLocalKey, Text, Var, [TcEvidenceBinderAnnotation], [Match]))
 extractLocalFunction decl =
   case peelDeclAnn decl of
     DeclValue (FunctionBind name matches) -> do
       let localName = unqualifiedNameText name
-      ty <- localDeclTypeRequired localName decl
+      tcAnnotation <- localDeclAnnotationRequired localName decl
+      let ty = tcAnnType tcAnnotation
       var <- freshVar localName ty
-      pure (Just (binderTermKey name, localName, var, matches))
+      pure (Just (binderTermKey name, localName, var, tcAnnEvidenceBinders tcAnnotation, matches))
     _ -> pure Nothing
 
-extractLocalFunctionRequired :: Decl -> DsM (DsLocalKey, Text, Var, [Match])
+extractLocalFunctionRequired :: Decl -> DsM (DsLocalKey, Text, Var, [TcEvidenceBinderAnnotation], [Match])
 extractLocalFunctionRequired decl = do
   maybeFun <- extractLocalFunction decl
   case maybeFun of
@@ -1271,8 +1278,9 @@ extractLocalPattern decl =
       case barePatternName pat of
         Just (key, name) -> do
           ty <- localDeclTypeRequired name decl
+          let evidenceBinders = maybe [] tcAnnEvidenceBinders (localDeclAnnotation decl)
           var <- freshVar name ty
-          pure (Just (LocalPattern key name var rhs))
+          pure (Just (LocalPattern key name var evidenceBinders rhs))
         Nothing -> pure Nothing
     _ -> pure Nothing
 
@@ -1291,23 +1299,41 @@ localDeclTypeRequired name decl =
     Nothing -> desugarBug ("missing type-checker annotation for local declaration " <> T.unpack name)
 
 localDeclType :: Decl -> Maybe TcType
-localDeclType decl =
+localDeclType = fmap tcAnnType . localDeclAnnotation
+
+localDeclAnnotationRequired :: Text -> Decl -> DsM TcAnnotation
+localDeclAnnotationRequired name decl =
+  case localDeclAnnotation decl of
+    Just annotation -> pure annotation
+    Nothing -> desugarBug ("missing type-checker annotation for local declaration " <> T.unpack name)
+
+localDeclAnnotation :: Decl -> Maybe TcAnnotation
+localDeclAnnotation decl =
   case decl of
     DeclAnn ann inner ->
       case fromAnnotation ann of
-        Just tcAnn -> Just (tcAnnType tcAnn)
-        Nothing -> localDeclType inner
+        Just tcAnn -> Just tcAnn
+        Nothing -> localDeclAnnotation inner
     _ -> Nothing
 
 dsLocalGroup :: Var -> LocalDeclGroup -> DsM (Var, FcExpr)
 dsLocalGroup var group =
   case group of
-    LocalFunction _ _ _ matches -> do
-      rhs <- dsMatches (varType var) matches
+    LocalFunction _ _ _ evidenceBinders matches -> do
+      rhs <- dsMatchesWithEvidence evidenceBinders (varType var) matches
       pure (var, rhs)
-    LocalPattern _ _ _ rhs -> do
-      rhs' <- dsRhs rhs
+    LocalPattern _ _ _ evidenceBinders rhs -> do
+      rhs' <- dsMatchesWithEvidence evidenceBinders (varType var) [zeroArgumentMatch rhs]
       pure (var, rhs')
+
+zeroArgumentMatch :: Rhs Expr -> Match
+zeroArgumentMatch rhs =
+  Match
+    { matchAnns = [],
+      matchHeadForm = Surface.MatchHeadPrefix,
+      matchPats = [],
+      matchRhs = rhs
+    }
 
 dsStringLiteral :: Text -> DsM FcExpr
 dsStringLiteral text =
@@ -1612,15 +1638,22 @@ listType ty =
   TcTyCon (TyCon "[]" 1) [ty]
 
 dsEvidence :: EvTerm -> DsM FcExpr
-dsEvidence evidence =
-  case evidence of
-    EvGiven (ClassPred className args) -> do
+dsEvidence evidenceTerm =
+  case evidenceTerm of
+    EvGiven evidence (ClassPred className args) -> do
       st <- get
-      case lookupLocalDictionary className args (dsLocalDictOrder st) (dsLocalDicts st) of
+      case Map.lookup evidence (dsLocalDicts st) of
         Just dictionary -> pure (FcVar (classDictVar dictionary))
         Nothing ->
-          desugarBug ("missing local dictionary for " <> T.unpack (dictKey className args))
-    EvGiven EqPred {} ->
+          desugarBug
+            ( "missing local dictionary for "
+                <> show evidence
+                <> " ("
+                <> T.unpack (dictKey className args)
+                <> "); available evidence: "
+                <> show (Map.keys (dsLocalDicts st))
+            )
+    EvGiven _ EqPred {} ->
       unitConstructor
     EvDict dictOrigin dictName typeArgs contextEvidence -> do
       dictTy <- lookupType dictName
@@ -1763,15 +1796,15 @@ patternEvidenceBinders :: Pattern -> DsM ([Var], [ClassDict])
 patternEvidenceBinders pattern' = do
   let predicates =
         case patternTcAnnotation pattern' of
-          Just annotation -> [predicate | EvGiven predicate <- tcAnnEvidenceTerms annotation]
+          Just annotation -> [(evidence, predicate) | EvGiven evidence predicate <- tcAnnEvidenceTerms annotation]
           Nothing -> []
-  binders <- mapM (freshVar "$dpattern" . predType) predicates
+  binders <- mapM (freshVar "$dpattern" . predType . snd) predicates
   pure (binders, zipWith patternDictionary predicates binders)
   where
-    patternDictionary predicate binder =
+    patternDictionary (evidence, predicate) binder =
       case predicate of
-        ClassPred className arguments -> ClassDict className arguments binder
-        EqPred {} -> ClassDict "<constraint>" [] binder
+        ClassPred className arguments -> ClassDict evidence className arguments binder
+        EqPred {} -> ClassDict evidence "<constraint>" [] binder
 
 patternTcAnnotation :: Pattern -> Maybe TcAnnotation
 patternTcAnnotation pattern' =
@@ -1917,22 +1950,6 @@ fcExprTypeM expr =
 dictKey :: Text -> [TcType] -> Text
 dictKey className args = className <> ":" <> T.intercalate "," (map typeKey args)
 
-exactTypeKey :: TcType -> Text
-exactTypeKey ty =
-  case ty of
-    TcTyVar tv -> tvName tv <> "#" <> T.pack (show (uniqueInt (tvUnique tv)))
-    TcMetaTv (Unique unique) -> "?" <> T.pack (show unique)
-    TcTyCon tc [] -> tyConName tc
-    TcTyCon (TyCon "[]" _) [elementType] -> "[" <> exactTypeKey elementType <> "]"
-    TcTyCon tc arguments -> tyConName tc <> T.concat (map (("_" <>) . exactTypeKey) arguments)
-    TcAppTy function argument -> exactTypeKey function <> "_" <> exactTypeKey argument
-    TcFunTy argument result -> exactTypeKey argument <> "->" <> exactTypeKey result
-    TcForAllTy _ body -> exactTypeKey body
-    TcQualTy _ body -> exactTypeKey body
-
-uniqueInt :: Unique -> Int
-uniqueInt (Unique unique) = unique
-
 typeKey :: TcType -> Text
 typeKey ty =
   case ty of
@@ -2019,18 +2036,3 @@ resolvedTermKey displayName resolved =
     ResolvedBuiltin name -> TcTermGlobal "" "" name
     ResolvedError message ->
       error ("resolver error for term " <> T.unpack displayName <> ": " <> message)
-
-lookupLocalDictionary :: Text -> [TcType] -> [Unique] -> Map Unique ClassDict -> Maybe ClassDict
-lookupLocalDictionary className arguments order dictionaries =
-  findDictionary exactTypeKeys <|> findDictionary typeKeys
-  where
-    findDictionary makeKeys =
-      listToMaybe
-        [ dictionary
-        | key <- order,
-          Just dictionary <- [Map.lookup key dictionaries],
-          classDictName dictionary == className,
-          makeKeys (classDictArgs dictionary) == makeKeys arguments
-        ]
-    exactTypeKeys = map exactTypeKey
-    typeKeys = map typeKey

@@ -231,6 +231,8 @@ mkDerivingPlan sourceSpan strategy classInfo tyVars headTypes dataType context m
       tcDerivingHeadTypes = headTypes,
       tcDerivingDataType = dataType,
       tcDerivingContext = context,
+      tcDerivingContextEvidence = [],
+      tcDerivingSelfEvidence = Nothing,
       tcDerivingStockPlan = Nothing,
       tcDerivingClassTyVars = ciTyVars classInfo,
       tcDerivingClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes classInfo),

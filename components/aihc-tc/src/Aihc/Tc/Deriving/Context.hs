@@ -26,6 +26,7 @@ import Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
     TcDictBinderAnnotation (..),
+    TcEvidenceBinderAnnotation (..),
     TcStockDerivingPlan (..),
   )
 import Aihc.Tc.Constraint (Ct (..), CtOrigin (..), mkWantedCt)
@@ -183,21 +184,30 @@ attachDerivingEvidence :: TcDerivingPlan -> TcM TcDerivingPlan
 attachDerivingEvidence plan =
   case (tcDerivingStrategy plan, tcDerivingContext plan) of
     (TcDerivingAnyclass, TcDerivingExplicitContext context) -> do
-      superClassEvidence <- mapM (solveObligation context) superClasses
+      givenEvidence <- mapM freshGiven context
+      superClassEvidence <- mapM (solveObligation givenEvidence) superClasses
       defaultMethodEvidence <-
         mapM
-          (traverse (mapM (solveObligation context)))
+          (traverse (mapM (solveObligation givenEvidence)))
           (instantiatedDefaultSignaturePredicates plan)
       pure
         plan
-          { tcDerivingSuperClasses = zip (map predDictBinder superClasses) superClassEvidence,
+          { tcDerivingContextEvidence = map evidenceBinder givenEvidence,
+            tcDerivingSuperClasses = zip (map predDictBinder superClasses) superClassEvidence,
             tcDerivingDefaultMethodEvidence = defaultMethodEvidence
           }
     (TcDerivingStock, TcDerivingExplicitContext context)
       | tcDerivingClassName plan == "Eq",
         Right obligations <- stockEqObligations plan -> do
-          fieldEvidence <- mapM (mapM (solveObligation context)) obligations
-          pure plan {tcDerivingStockPlan = Just (TcStockEqPlan fieldEvidence)}
+          givenEvidence <- mapM freshGiven context
+          selfEvidence <- freshEvVar
+          fieldEvidence <- mapM (mapM (solveObligation givenEvidence)) obligations
+          pure
+            plan
+              { tcDerivingContextEvidence = map evidenceBinder givenEvidence,
+                tcDerivingSelfEvidence = Just selfEvidence,
+                tcDerivingStockPlan = Just (TcStockEqPlan fieldEvidence)
+              }
     _ -> pure plan
   where
     superClasses =
@@ -222,6 +232,9 @@ attachDerivingEvidence plan =
         DictStuck stuck -> do
           emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
           pure (EvVarTerm evidenceVariable)
+    freshGiven predicate = (,predicate) <$> freshEvVar
+    evidenceBinder (evidence, predicate) =
+      TcEvidenceBinderAnnotation evidence predicate (predType predicate)
 
 instantiatedDefaultSignaturePredicates :: TcDerivingPlan -> [(Text, [Pred])]
 instantiatedDefaultSignaturePredicates plan =

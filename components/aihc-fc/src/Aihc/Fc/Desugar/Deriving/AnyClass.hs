@@ -6,10 +6,10 @@ module Aihc.Fc.Desugar.Deriving.AnyClass
   )
 where
 
-import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, predType)
+import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName)
 import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshUnique, freshVar, lookupType, withDicts)
 import Aihc.Fc.Syntax
-import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDictBinderAnnotation (..))
+import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDictBinderAnnotation (..), TcEvidenceBinderAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..))
 import Control.Monad (when, zipWithM)
 import Data.Text qualified as T
@@ -26,7 +26,11 @@ dsAnyClassDictionary plan context = do
   when
     (length (tcDerivingSuperClasses plan) /= length (tcDerivingClassSuperClasses plan))
     (desugarBug ("incomplete superclass evidence for " <> T.unpack (tcDerivingDictName plan)))
-  contextDicts <- zipWithM mkPredicateDict [0 :: Int ..] context
+  let contextEvidence = tcDerivingContextEvidence plan
+  when
+    (length context /= length contextEvidence)
+    (desugarBug ("deriving context evidence count does not match the context for " <> T.unpack (tcDerivingDictName plan)))
+  contextDicts <- zipWithM mkPredicateDict [0 :: Int ..] contextEvidence
   methodFieldTypes <-
     mapM
       (classMethodFieldType (tcDerivingClassName plan) (tcDerivingClassTyVars plan) . tcClassMethodType)
@@ -106,13 +110,15 @@ dsAnyClassMethod plan maybeSelfDictionary fieldType method =
   where
     methodName = tcClassMethodName method
 
-mkPredicateDict :: Int -> Pred -> DsM ClassDict
-mkPredicateDict index predicate = do
-  dictVar <- freshVar ("$d" <> T.pack (show index)) (predType predicate)
+mkPredicateDict :: Int -> TcEvidenceBinderAnnotation -> DsM ClassDict
+mkPredicateDict index binder = do
+  let predicate = tcEvidenceBinderPred binder
+      evidence = tcEvidenceBinderVar binder
+  dictVar <- freshVar ("$d" <> T.pack (show index)) (tcEvidenceBinderType binder)
   pure $
     case predicate of
-      ClassPred className arguments -> ClassDict className arguments dictVar
-      EqPred {} -> ClassDict "<equality>" [] dictVar
+      ClassPred className arguments -> ClassDict evidence className arguments dictVar
+      EqPred {} -> ClassDict evidence "<equality>" [] dictVar
 
 qualifyType :: [Pred] -> TcType -> TcType
 qualifyType [] body = body

@@ -241,7 +241,7 @@ renderEvTerm :: EvTerm -> String
 renderEvTerm ev =
   case ev of
     EvVarTerm evVar -> renderEvVar evVar
-    EvGiven pred' -> "given " <> renderPred pred'
+    EvGiven _ pred' -> "given " <> renderPred pred'
     EvDict _ name typeArgs evidence ->
       T.unpack name
         <> renderTypeArgs typeArgs

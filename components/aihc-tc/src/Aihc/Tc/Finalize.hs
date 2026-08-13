@@ -19,6 +19,7 @@ import Aihc.Tc.Annotations
     TcDerivingPlan (..),
     TcDerivingStrategy (..),
     TcDictBinderAnnotation (..),
+    TcEvidenceBinderAnnotation (..),
     TcInstanceAnnotation (..),
     TcInstanceMethodAnnotation (..),
     TcStockDerivingPlan (..),
@@ -71,7 +72,7 @@ annotationForPendingTc pending = do
   typeArgs <- mapM zonkType (pendingTcAnnTypeArgs pending)
   evidenceTerms <- mapM (evidenceForEvVar ty >=> zonkEvTerm) (pendingTcAnnEvidenceVars pending)
   termArgTypes <- mapM zonkType (pendingTcAnnTermArgTypes pending)
-  let ann = TcAnnotation ty typeBinders typeArgs evidenceTerms termArgTypes
+  let ann = TcAnnotation ty typeBinders typeArgs evidenceTerms [] termArgTypes
   rejectMetaTcAnnotation ann
   pure ann
 
@@ -95,8 +96,8 @@ zonkEvTerm evTerm =
   case evTerm of
     EvVarTerm ev ->
       pure (EvVarTerm ev)
-    EvGiven pred' ->
-      EvGiven <$> zonkPred pred'
+    EvGiven evidence pred' ->
+      EvGiven evidence <$> zonkPred pred'
     EvDict origin name typeArgs evidence ->
       EvDict origin name <$> mapM zonkType typeArgs <*> mapM zonkEvTerm evidence
     EvCoercion coercion ->
@@ -162,6 +163,7 @@ firstMetaTcAnnotation ann =
     ( firstMetaType (tcAnnType ann)
         : map firstMetaType (tcAnnTypeArgs ann)
         ++ map firstMetaEvTerm (tcAnnEvidenceTerms ann)
+        ++ map firstMetaEvidenceBinderAnnotation (tcAnnEvidenceBinders ann)
         ++ map firstMetaType (tcAnnTermArgTypes ann)
     )
 
@@ -186,6 +188,7 @@ firstMetaDerivingPlan plan =
         ++ maybe [] (map firstMetaDataConInfo . dtiConstructors) (tcDerivingDataType plan)
         ++ map firstMetaClassMethodAnnotation (tcDerivingClassMethods plan)
         ++ map firstMetaDictBinderAnnotation (tcDerivingClassSuperClasses plan)
+        ++ map firstMetaEvidenceBinderAnnotation (tcDerivingContextEvidence plan)
         ++ concatMap (map firstMetaPred . snd) (tcDerivingDefaultSignatures plan)
         ++ [ firstMetaDictBinderAnnotation superClass <|> firstMetaEvTerm evidence
            | (superClass, evidence) <- tcDerivingSuperClasses plan
@@ -214,6 +217,7 @@ firstMetaInstanceAnnotation ann =
         : map firstMetaType (tcInstanceHeadTypes ann)
         ++ map firstMetaDictBinderAnnotation (tcInstanceClassSuperClasses ann)
         ++ map firstMetaDictBinderAnnotation (tcInstanceContextDicts ann)
+        ++ map firstMetaEvidenceBinderAnnotation (tcInstanceContextEvidence ann)
         ++ [ firstMetaDictBinderAnnotation superClass <|> firstMetaEvTerm evidence
            | (superClass, evidence) <- tcInstanceSuperClasses ann
            ]
@@ -223,9 +227,14 @@ firstMetaDictBinderAnnotation :: TcDictBinderAnnotation -> Maybe Unique
 firstMetaDictBinderAnnotation ann =
   firstJusts (map firstMetaType (tcDictBinderArgs ann)) <|> firstMetaType (tcDictBinderType ann)
 
+firstMetaEvidenceBinderAnnotation :: TcEvidenceBinderAnnotation -> Maybe Unique
+firstMetaEvidenceBinderAnnotation ann =
+  firstMetaPred (tcEvidenceBinderPred ann) <|> firstMetaType (tcEvidenceBinderType ann)
+
 firstMetaInstanceMethodAnnotation :: TcInstanceMethodAnnotation -> Maybe Unique
 firstMetaInstanceMethodAnnotation ann =
   firstMetaType (tcInstanceMethodType ann)
+    <|> firstJusts (map firstMetaEvidenceBinderAnnotation (tcInstanceMethodEvidence ann))
 
 firstMetaDataFamilyInstance :: DataFamilyInstanceInfo -> Maybe Unique
 firstMetaDataFamilyInstance info =
@@ -244,7 +253,7 @@ firstMetaEvTerm evTerm =
   case evTerm of
     EvVarTerm {} ->
       Nothing
-    EvGiven pred' ->
+    EvGiven _ pred' ->
       firstMetaPred pred'
     EvDict _ _ typeArgs evidence ->
       firstJusts (map firstMetaType typeArgs ++ map firstMetaEvTerm evidence)

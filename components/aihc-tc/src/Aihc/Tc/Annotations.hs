@@ -17,6 +17,8 @@ module Aihc.Tc.Annotations
     TcClassAnnotation (..),
     TcClassMethodAnnotation (..),
     TcDictBinderAnnotation (..),
+    TcEvidenceBinderAnnotation (..),
+    PendingTcEvidenceBinders (..),
     TcDerivingAnnotation (..),
     TcDerivingContext (..),
     TcDerivingPlan (..),
@@ -73,6 +75,8 @@ data TcAnnotation = TcAnnotation
     tcAnnTypeArgs :: ![TcType],
     -- | Evidence terms whose dictionaries must be passed at this occurrence.
     tcAnnEvidenceTerms :: ![EvTerm],
+    -- | Evidence variables abstracted at this binding.
+    tcAnnEvidenceBinders :: ![TcEvidenceBinderAnnotation],
     -- | Term argument types made explicit for lambda-like binders.
     tcAnnTermArgTypes :: ![TcType]
   }
@@ -136,6 +140,19 @@ data TcDictBinderAnnotation = TcDictBinderAnnotation
   }
   deriving (Eq, Show)
 
+data TcEvidenceBinderAnnotation = TcEvidenceBinderAnnotation
+  { tcEvidenceBinderVar :: !EvVar,
+    tcEvidenceBinderPred :: !Pred,
+    tcEvidenceBinderType :: !TcType
+  }
+  deriving (Eq, Show, Read)
+
+-- | Evidence binders made before declaration annotations are complete.
+newtype PendingTcEvidenceBinders = PendingTcEvidenceBinders
+  { pendingTcEvidenceBinders :: [TcEvidenceBinderAnnotation]
+  }
+  deriving (Eq, Show)
+
 data TcClassMethodAnnotation = TcClassMethodAnnotation
   { tcClassMethodName :: !Text,
     tcClassMethodType :: !TcType,
@@ -195,6 +212,8 @@ data TcDerivingPlan = TcDerivingPlan
     -- target is a data or newtype constructor known to this compilation.
     tcDerivingDataType :: !(Maybe DataTypeInfo),
     tcDerivingContext :: !TcDerivingContext,
+    tcDerivingContextEvidence :: ![TcEvidenceBinderAnnotation],
+    tcDerivingSelfEvidence :: !(Maybe EvVar),
     tcDerivingStockPlan :: !(Maybe TcStockDerivingPlan),
     tcDerivingClassTyVars :: ![TyVarId],
     tcDerivingClassSuperClasses :: ![TcDictBinderAnnotation],
@@ -224,6 +243,7 @@ data TcInstanceAnnotation = TcInstanceAnnotation
     tcInstanceClassOrigin :: !(Maybe (Text, Text)),
     tcInstanceClassSuperClasses :: ![TcDictBinderAnnotation],
     tcInstanceContextDicts :: ![TcDictBinderAnnotation],
+    tcInstanceContextEvidence :: ![TcEvidenceBinderAnnotation],
     tcInstanceSuperClasses :: ![(TcDictBinderAnnotation, EvTerm)],
     tcInstanceMethodOrder :: ![Text],
     tcInstanceDefaultMethods :: ![Text]
@@ -232,7 +252,8 @@ data TcInstanceAnnotation = TcInstanceAnnotation
 
 data TcInstanceMethodAnnotation = TcInstanceMethodAnnotation
   { tcInstanceMethodName :: !Text,
-    tcInstanceMethodType :: !TcType
+    tcInstanceMethodType :: !TcType,
+    tcInstanceMethodEvidence :: ![TcEvidenceBinderAnnotation]
   }
   deriving (Eq, Show)
 

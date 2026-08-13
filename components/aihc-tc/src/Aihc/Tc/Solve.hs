@@ -21,6 +21,7 @@ where
 
 import Aihc.Tc.Constraint
 import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Evidence (EvVar)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve.Canonicalize
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDict, solveDictWithGivens)
@@ -116,14 +117,14 @@ solveImplication :: Implication -> TcM ()
 solveImplication impl = withTcLevel $ do
   let rawGivens = implGivenCts impl
       wanteds = implWantedCts impl
-      givenPredicates = map ctPred rawGivens
+      givenEvidence = map (\given -> (ctEvVar given, ctPred given)) rawGivens
   -- Canonicalize the given equalities by structural decomposition.
   givenEqs <- concat <$> mapM canonicalizeGiven rawGivens
   -- Equalities refine the types mentioned by dictionary wanteds, so preserve
   -- the main worklist's equality-before-dictionary ordering inside branches.
   let (equalityWanteds, dictionaryWanteds) = partitionWanteds wanteds
-  mapM_ (solveWantedWithGivens givenPredicates givenEqs) equalityWanteds
-  mapM_ (solveWantedWithGivens givenPredicates givenEqs) dictionaryWanteds
+  mapM_ (solveWantedWithGivens givenEvidence givenEqs) equalityWanteds
+  mapM_ (solveWantedWithGivens givenEvidence givenEqs) dictionaryWanteds
 
 partitionWanteds :: [Ct] -> ([Ct], [Ct])
 partitionWanteds = foldr partitionOne ([], [])
@@ -171,8 +172,8 @@ applyGivenSubst givens ty = foldr applyOne ty givens
 -- | Attempt to solve a wanted constraint using given equalities.
 -- Rewrites both sides of the wanted using the given substitution and
 -- then tries to solve the resulting equality.
-solveWantedWithGivens :: [Pred] -> [(TcType, TcType)] -> Ct -> TcM ()
-solveWantedWithGivens givenPredicates givenEqualities ct = case ctPred ct of
+solveWantedWithGivens :: [(EvVar, Pred)] -> [(TcType, TcType)] -> Ct -> TcM ()
+solveWantedWithGivens givenEvidence givenEqualities ct = case ctPred ct of
   EqPred t1 t2 -> do
     t1' <- zonkType t1
     t2' <- zonkType t2
@@ -191,7 +192,7 @@ solveWantedWithGivens givenPredicates givenEqualities ct = case ctPred ct of
   ClassPred className arguments -> do
     arguments' <- mapM zonkType arguments
     let rewritten = ClassPred className (map (applyGivenSubst givenEqualities) arguments')
-        rewrittenGivens = map (rewritePred givenEqualities) givenPredicates
+        rewrittenGivens = map (fmap (rewritePred givenEqualities)) givenEvidence
     result <- solveDictWithGivens rewrittenGivens (ct {ctPred = rewritten})
     case result of
       DictSolved -> pure ()
