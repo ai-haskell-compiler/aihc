@@ -209,7 +209,11 @@ fcMergeTests =
         assertBool "missing module declaration" (isLeft (parseProgram "value : Int =\n  1"))
         assertBool
           "multiple module declarations"
-          (isLeft (parseProgram "module \"one\" One where\n\nmodule \"two\" Two where"))
+          (isLeft (parseProgram "module \"one\" One where\n\nmodule \"two\" Two where")),
+      testCase "parses the module package as a package ID" $
+        case parseProgram "module \"example\" Example where" of
+          Left err -> assertFailure (renderParseError err)
+          Right program -> assertEqual "package ID" (PackageId "example") (fcModulePackage (fcProgramModule program))
     ]
   where
     binders bind =

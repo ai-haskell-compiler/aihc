@@ -137,7 +137,7 @@ desugarModuleWithDataTypes primPackageId bindings dataTypes tcResult resolvedMod
         }
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
-          (packageName, currentModuleName) = resolvedModuleOrigin resolvedModule
+          (packageId, currentModuleName) = resolvedModuleOrigin resolvedModule
           constructorFields =
             Map.fromList
               [ (dciName constructor, dciFields constructor)
@@ -145,7 +145,7 @@ desugarModuleWithDataTypes primPackageId bindings dataTypes tcResult resolvedMod
                 dtiFlavor dataType == DataTyCon,
                 constructor <- dtiConstructors dataType
               ]
-       in case runStateT (dsModule tcResult) (DsState 1000 primPackageId packageName (Just currentModuleName) typeEnv Map.empty Map.empty constructorFields Nothing) of
+       in case runStateT (dsModule tcResult) (DsState 1000 primPackageId (packageIdText packageId) (Just currentModuleName) typeEnv Map.empty Map.empty constructorFields Nothing) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram (sourceModuleId resolvedModule) [],
@@ -153,20 +153,20 @@ desugarModuleWithDataTypes primPackageId bindings dataTypes tcResult resolvedMod
                   dsErrors = [err]
                 }
             Right (binds, _) ->
-              let program = FcProgram (FcModuleId packageName currentModuleName) binds
+              let program = FcProgram (FcModuleId packageId currentModuleName) binds
                in DesugarResult
                     { dsProgram = declareExternalSymbols (lowerPseudoOps (lowerConstraintProgram (lowerNewtypes program))),
                       dsSuccess = True,
                       dsErrors = []
                     }
 
-resolvedModuleOrigin :: Module -> (Text, Text)
+resolvedModuleOrigin :: Module -> (PackageId, Text)
 resolvedModuleOrigin resolvedModule =
   fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $ do
     resolved <- listToMaybe (mapMaybe definitionResolution (moduleDecls resolvedModule))
     case resolutionTarget resolved of
       ResolvedTopLevel packageId name ->
-        pure (packageIdText packageId, fromMaybe (fromMaybe "Main" (moduleName resolvedModule)) (nameQualifier name))
+        pure (packageId, fromMaybe (fromMaybe "Main" (moduleName resolvedModule)) (nameQualifier name))
       _ -> Nothing
 
 sourceModuleId :: Module -> FcModuleId

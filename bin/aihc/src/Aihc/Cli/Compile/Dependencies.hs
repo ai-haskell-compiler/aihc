@@ -420,7 +420,7 @@ compileLoadedModules loaded = do
                           let mergedModuleId =
                                 case NonEmpty.toList programs of
                                   [program] -> fcProgramModule program
-                                  _ -> FcModuleId (T.intercalate "+" (concat libraryIds)) (T.intercalate "+" modules)
+                                  _ -> FcModuleId (PackageId (T.intercalate "+" (concat libraryIds))) (T.intercalate "+" modules)
                           sourceCore <-
                             either
                               (Left . ("System FC merge error: " <>) . show)

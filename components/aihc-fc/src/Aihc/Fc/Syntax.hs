@@ -35,6 +35,7 @@ module Aihc.Fc.Syntax
     FcAxiomRole (..),
     FcNewtypeDecl (..),
     FcModuleId (..),
+    fcModulePackageText,
     FcProgram (..),
     FcForeignCall (..),
     FcForeignSignature (..),
@@ -83,10 +84,13 @@ import Data.Text qualified as T
 
 -- | The required identity of one System FC module container.
 data FcModuleId = FcModuleId
-  { fcModulePackage :: !Text,
+  { fcModulePackage :: !PackageId,
     fcModuleName :: !Text
   }
   deriving (Eq, Ord, Show, Read)
+
+fcModulePackageText :: FcModuleId -> Text
+fcModulePackageText = packageIdText . fcModulePackage
 
 -- | A System FC program with one module identity.
 data FcProgram = FcProgram

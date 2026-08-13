@@ -14,6 +14,13 @@ module Aihc.Cli.Repl
   )
 where
 
+import Aihc.Cli.PackageInterface
+  ( PackageInterface (..),
+    PackageInterfaceBinding (..),
+    PackageInterfaceTcModule (..),
+    packageInterfaceExports,
+    readPackageInterface,
+  )
 import Aihc.Fc (DesugarResult (..), FcModuleId (..), FcProgram (..), desugarModuleWithBindings, evalProgramBinding, mergePrograms, renderProgram, renderValue)
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr, parseModule)
 import Aihc.Parser.Shorthand (Shorthand (..))
@@ -35,10 +42,9 @@ import Aihc.Parser.Syntax
     unqualifiedNameFromText,
   )
 import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), PackageId (..), ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), PackageId (..), ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
 import Aihc.Tc
   ( InstanceInfo,
-    Pred (..),
     TcBindingResult (..),
     TcDiagnostic (..),
     TcErrorKind (..),
@@ -60,9 +66,8 @@ import Aihc.Tc
     typecheckModulesWithInterfaceConfig,
   )
 import Control.Monad.IO.Class (liftIO)
-import Data.Aeson ((.!=), (.:), (.:?))
+import Data.Aeson ((.:))
 import Data.Aeson qualified as Aeson
-import Data.Aeson.Types qualified as AesonTypes
 import Data.ByteString.Lazy qualified as BL
 import Data.Char (isAlpha, isSpace)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
@@ -155,7 +160,7 @@ loadReplSession maybeStoreRoot = do
   baseContext <- loadAihcBaseContext
   installedInterface <- loadExplicitStoreInterface maybeStoreRoot
   settingsRef <- newIORef defaultReplSettings
-  let installedExports = maybe Map.empty interfaceExports installedInterface
+  let installedExports = maybe Map.empty packageInterfaceExports installedInterface
       installedTerms = maybe [] interfaceImportedTerms installedInterface
       installedBindingTypes = maybe Map.empty interfaceBindingTypes installedInterface
   pure
@@ -220,7 +225,7 @@ typecheckExpression session input = do
       ParseOk parsed -> Right parsed
       ParseErr _ -> Left ReplParseError
   let parsedModule = replModule expr
-      resolved = resolveWithDeps (replModuleExports session) [(unnamedPackage, parsedModule)]
+      resolved = resolveWithDeps (replModuleExports session) [(replPackage, parsedModule)]
   case resolveErrors resolved of
     [] -> pure ()
     errors -> Left (ReplResolveError errors)
@@ -429,6 +434,15 @@ replModule expr =
 replBindingName :: Text
 replBindingName = "__aihc_repl_it"
 
+replPackage :: Package
+replPackage = Package "repl" (PackageId "repl")
+
+aihcBasePackage :: Package
+aihcBasePackage = Package "aihc-base" (PackageId "aihc-base")
+
+aihcPrimPackage :: Package
+aihcPrimPackage = Package "aihc-prim" (PackageId "aihc-prim")
+
 renderReplError :: ReplError -> String
 renderReplError err =
   case err of
@@ -470,12 +484,6 @@ trim = dropWhileEnd isSpace . dropWhile isSpace
 dropWhileEnd :: (a -> Bool) -> [a] -> [a]
 dropWhileEnd predicate = reverse . dropWhile predicate . reverse
 
-data Interface = Interface
-  { interfaceExports :: ModuleExports,
-    interfaceImportedTerms :: [(Text, TypeScheme)],
-    interfaceBindingTypes :: Map.Map Text (Map.Map Text TcType)
-  }
-
 data ReplBaseContext = ReplBaseContext
   { replBaseExports :: !ModuleExports,
     replBaseImportedTerms :: ![(Text, TypeScheme)],
@@ -490,8 +498,8 @@ loadAihcBaseContext = do
   primRoot <- defaultAihcPrimRoot
   modulesResult <-
     loadTransitiveModules
-      [ (Package "aihc-base" (PackageId "aihc-base"), baseRoot),
-        (Package "aihc-prim" (PackageId "aihc-prim"), primRoot)
+      [ (aihcBasePackage, baseRoot),
+        (aihcPrimPackage, primRoot)
       ]
       (Set.singleton "Prelude")
   case modulesResult of
@@ -587,11 +595,37 @@ concatPrograms programs =
         id
         (mergePrograms (FcModuleId "repl" "Interactive") nonEmptyPrograms)
 
-loadExplicitStoreInterface :: Maybe FilePath -> IO (Maybe Interface)
+loadExplicitStoreInterface :: Maybe FilePath -> IO (Maybe PackageInterface)
 loadExplicitStoreInterface Nothing = pure Nothing
 loadExplicitStoreInterface (Just storeRoot) = do
   interfacePath <- findInstalledBaseInterface storeRoot
   Just <$> loadInterface interfacePath
+
+loadInterface :: FilePath -> IO PackageInterface
+loadInterface path = do
+  result <- readPackageInterface path
+  case result of
+    Left err -> ioError (userError (renderReplError (ReplInvalidInterface path err)))
+    Right interface -> pure interface
+
+interfaceImportedTerms :: PackageInterface -> [(Text, TypeScheme)]
+interfaceImportedTerms interface =
+  [ (normalizeImportedBindingName (packageInterfaceBindingName binding), tcTypeScheme (packageInterfaceBindingType binding))
+  | modu <- packageInterfaceTypecheck interface,
+    binding <- packageInterfaceTcModuleBindings modu
+  ]
+
+interfaceBindingTypes :: PackageInterface -> Map.Map Text (Map.Map Text TcType)
+interfaceBindingTypes interface =
+  Map.fromList
+    [ ( packageInterfaceTcModuleName modu,
+        Map.fromList
+          [ (normalizeImportedBindingName (packageInterfaceBindingName binding), packageInterfaceBindingType binding)
+          | binding <- packageInterfaceTcModuleBindings modu
+          ]
+      )
+    | modu <- packageInterfaceTypecheck interface
+    ]
 
 defaultAihcBaseRoot :: IO FilePath
 defaultAihcBaseRoot = defaultCoreLibraryRoot "AIHC_BASE_SRC" "aihc-base"
@@ -679,116 +713,6 @@ importedModuleNames :: [Module] -> Set.Set Text
 importedModuleNames modules =
   Set.fromList [importDeclModule importDecl | modu <- modules, importDecl <- moduleImports modu]
 
-data InterfaceModule = InterfaceModule
-  { interfaceModuleName :: !Text,
-    interfaceModuleTerms :: ![Text],
-    interfaceModuleTypes :: ![Text],
-    interfaceModuleConstructors :: !(Map.Map Text [Text]),
-    interfaceModuleRecordFields :: !(Map.Map Text [Text]),
-    interfaceModuleMethods :: !(Map.Map Text [Text])
-  }
-  deriving (Show)
-
-instance Aeson.FromJSON InterfaceModule where
-  parseJSON =
-    Aeson.withObject "interface module" $ \obj ->
-      InterfaceModule
-        <$> obj .: "module"
-        <*> obj .: "terms"
-        <*> obj .: "types"
-        <*> obj .: "constructors"
-        <*> obj .: "recordFields"
-        <*> obj .: "methods"
-
-loadInterface :: FilePath -> IO Interface
-loadInterface path = do
-  bytes <- BL.readFile path
-  case Aeson.eitherDecode bytes of
-    Left err -> ioError (userError (renderReplError (ReplInvalidInterface path err)))
-    Right value ->
-      case AesonTypes.parseEither parseInterface value of
-        Left err -> ioError (userError (renderReplError (ReplInvalidInterface path err)))
-        Right interface -> pure interface
-
-parseInterface :: Aeson.Value -> AesonTypes.Parser Interface
-parseInterface =
-  Aeson.withObject "package interface" $ \obj -> do
-    modules <- obj .: "modules"
-    tcModules <- obj .:? "typecheck" .!= []
-    pure
-      Interface
-        { interfaceExports = Map.fromList [(ModuleKey unnamedPackage (interfaceModuleName modu), interfaceModuleScope modu) | modu <- modules],
-          interfaceImportedTerms = concatMap interfaceTcModuleTerms tcModules,
-          interfaceBindingTypes =
-            Map.fromList
-              [ (interfaceTcModuleName modu, interfaceTcModuleBindingTypes modu)
-              | modu <- tcModules
-              ]
-        }
-
-data InterfaceTcModule = InterfaceTcModule
-  { interfaceTcModuleName :: !Text,
-    interfaceTcModuleBindings :: [InterfaceTcBinding]
-  }
-  deriving (Show)
-
-data InterfaceTcBinding = InterfaceTcBinding
-  { interfaceTcBindingName :: !Text,
-    interfaceTcBindingType :: !(Maybe TcType)
-  }
-  deriving (Show)
-
-instance Aeson.FromJSON InterfaceTcModule where
-  parseJSON =
-    Aeson.withObject "typecheck module" $ \obj ->
-      InterfaceTcModule
-        <$> obj .: "module"
-        <*> obj .: "bindings"
-
-instance Aeson.FromJSON InterfaceTcBinding where
-  parseJSON =
-    Aeson.withObject "typecheck binding" $ \obj ->
-      InterfaceTcBinding
-        <$> obj .: "name"
-        <*> (obj .:? "typeJson" >>= traverse parseTcTypeJson)
-
-interfaceTcModuleTerms :: InterfaceTcModule -> [(Text, TypeScheme)]
-interfaceTcModuleTerms modu =
-  [ (normalizeImportedBindingName name, tcTypeScheme ty)
-  | InterfaceTcBinding name (Just ty) <- interfaceTcModuleBindings modu
-  ]
-
-interfaceTcModuleBindingTypes :: InterfaceTcModule -> Map.Map Text TcType
-interfaceTcModuleBindingTypes modu =
-  Map.fromList
-    [ (normalizeImportedBindingName name, ty)
-    | InterfaceTcBinding name (Just ty) <- interfaceTcModuleBindings modu
-    ]
-
-interfaceModuleScope :: InterfaceModule -> Scope
-interfaceModuleScope modu =
-  Scope
-    { scopeTerms =
-        Map.fromList
-          [ (name, resolvedTopLevel (interfaceModuleName modu) name)
-          | name <- interfaceModuleTerms modu
-          ],
-      scopeTypes =
-        Map.fromList
-          [ (name, resolvedTopLevel (interfaceModuleName modu) name)
-          | name <- interfaceModuleTypes modu
-          ],
-      scopeConstructors = interfaceModuleConstructors modu,
-      scopeRecordFields = interfaceModuleRecordFields modu,
-      scopeMethods = interfaceModuleMethods modu,
-      scopeFixities = Map.empty,
-      scopeQualifiedModules = Map.empty
-    }
-
-resolvedTopLevel :: Text -> Text -> ResolvedName
-resolvedTopLevel moduleName name =
-  ResolvedTopLevel (packageId unnamedPackage) (qualifyName (Just moduleName) (unqualifiedNameFromText name))
-
 findInstalledBaseInterface :: FilePath -> IO FilePath
 findInstalledBaseInterface storeRoot = do
   storeExists <- doesDirectoryExist storeRoot
@@ -839,7 +763,7 @@ ensurePreludeMvpScope exports =
   where
     preludeKey =
       fromMaybe
-        (ModuleKey unnamedPackage "Prelude")
+        (ModuleKey aihcBasePackage "Prelude")
         (find ((== "Prelude") . moduleKeyName) (Map.keys exports))
     existing = Map.findWithDefault emptyScope preludeKey exports
     resolvePreludeName =
@@ -897,58 +821,6 @@ collectForAlls (TcForAllTy tv body) =
   let (tvs, inner) = collectForAlls body
    in (tv : tvs, inner)
 collectForAlls ty = ([], ty)
-
-parseTcTypeJson :: Aeson.Value -> AesonTypes.Parser TcType
-parseTcTypeJson =
-  Aeson.withObject "type" $ \obj -> do
-    tag <- obj .: "tag" :: AesonTypes.Parser Text
-    case tag of
-      "var" -> TcTyVar <$> parseTyVarObject obj
-      "meta" -> TcMetaTv . Unique <$> obj .: "unique"
-      "con" ->
-        TcTyCon
-          <$> (TyCon <$> obj .: "name" <*> obj .: "arity")
-          <*> (obj .: "args" >>= traverse parseTcTypeJson)
-      "fun" ->
-        TcFunTy
-          <$> (obj .: "arg" >>= parseTcTypeJson)
-          <*> (obj .: "result" >>= parseTcTypeJson)
-      "forall" ->
-        TcForAllTy
-          <$> (obj .: "binder" >>= parseTyVarValue)
-          <*> (obj .: "body" >>= parseTcTypeJson)
-      "qual" ->
-        TcQualTy
-          <$> (obj .: "predicates" >>= traverse parsePredJson)
-          <*> (obj .: "body" >>= parseTcTypeJson)
-      "app" ->
-        TcAppTy
-          <$> (obj .: "fun" >>= parseTcTypeJson)
-          <*> (obj .: "arg" >>= parseTcTypeJson)
-      other -> fail ("unknown type tag: " <> T.unpack other)
-
-parseTyVarObject :: AesonTypes.Object -> AesonTypes.Parser TyVarId
-parseTyVarObject obj =
-  TyVarId <$> obj .: "name" <*> (Unique <$> obj .: "unique")
-
-parseTyVarValue :: Aeson.Value -> AesonTypes.Parser TyVarId
-parseTyVarValue =
-  Aeson.withObject "type variable" parseTyVarObject
-
-parsePredJson :: Aeson.Value -> AesonTypes.Parser Pred
-parsePredJson =
-  Aeson.withObject "predicate" $ \obj -> do
-    tag <- obj .: "tag" :: AesonTypes.Parser Text
-    case tag of
-      "class" ->
-        ClassPred
-          <$> obj .: "class"
-          <*> (obj .: "args" >>= traverse parseTcTypeJson)
-      "eq" ->
-        EqPred
-          <$> (obj .: "left" >>= parseTcTypeJson)
-          <*> (obj .: "right" >>= parseTcTypeJson)
-      other -> fail ("unknown predicate tag: " <> T.unpack other)
 
 emptyScope :: Scope
 emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty

@@ -35,11 +35,16 @@ import Aihc.Parser.Syntax
     fromAnnotation,
   )
 import Data.Maybe (listToMaybe, mapMaybe)
+import Data.String (IsString (..))
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | An opaque identity for one installed package instance.
 newtype PackageId = PackageId {packageIdText :: Text}
   deriving (Eq, Ord, Show, Read)
+
+instance IsString PackageId where
+  fromString = PackageId . T.pack
 
 -- | The user-visible package name used in imports and its opaque identity.
 data Package = Package
