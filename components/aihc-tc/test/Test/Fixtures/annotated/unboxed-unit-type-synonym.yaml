@@ -1,0 +1,12 @@
+extensions:
+  - UnboxedTuples
+modules:
+  - |
+    module Test where
+    type Nil = (# #)
+annotated:
+  - |-
+    module Test where
+    type Nil = (# #)
+status: pass
+reason: infers TYPE (TupleRep []) for an unboxed unit type synonym
