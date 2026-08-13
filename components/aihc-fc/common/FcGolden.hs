@@ -17,7 +17,7 @@ module FcGolden
 where
 
 import Aihc.Fc.Axiom (extractAxiomInterface)
-import Aihc.Fc.Desugar (DesugarResult (..), desugarModuleWithInterface)
+import Aihc.Fc.Desugar (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface)
 import Aihc.Fc.Lint (emptyLintEnv, lintProgramWithAxiomInterface)
 import Aihc.Fc.Parser (parseProgram, renderParseError)
 import Aihc.Fc.Pretty (renderProgram)
@@ -165,7 +165,7 @@ renderFcCase tc =
                in if all tcModuleSuccess tcResults
                     then
                       let allBindings = moduleGroupBindings tcResults
-                          results = zipWith (desugarModuleWithInterface (PackageId "aihc-prim") allBindings tcInterface) tcResults moduleAsts
+                          results = map (desugarModuleWithInterface (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings tcInterface) tcResults
                           fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
                             then

@@ -16,7 +16,7 @@ module Aihc.Testing.EvalFixture
   )
 where
 
-import Aihc.Fc (DesugarResult (..), FcBind (..), FcModuleId (..), FcProgram (..), FcSymbolOrigin (..), FcTopBind (..), Var (..), desugarModuleWithInterface, emptyLintEnv, extractAxiomInterface, lintProgramWithAxiomInterface, mergePrograms)
+import Aihc.Fc (DesugarConfig (..), DesugarResult (..), FcBind (..), FcModuleId (..), FcProgram (..), FcSymbolOrigin (..), FcTopBind (..), Var (..), desugarModuleWithInterface, emptyLintEnv, extractAxiomInterface, lintProgramWithAxiomInterface, mergePrograms)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -260,7 +260,7 @@ compileEvalCase tc =
                    in if all tcModuleSuccess tcResults
                         then do
                           let allBindings = moduleGroupBindings tcResults
-                              results = zipWith (desugarModuleWithInterface (PackageId "aihc-prim") allBindings tcInterface) tcResults moduleAsts
+                              results = map (desugarModuleWithInterface (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings tcInterface) tcResults
                           if all dsSuccess results
                             then
                               let programs = map dsProgram results

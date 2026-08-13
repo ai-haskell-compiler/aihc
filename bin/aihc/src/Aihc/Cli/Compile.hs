@@ -10,8 +10,6 @@ module Aihc.Cli.Compile
     compileSourceToCpsGrinWithDependencies,
     compileSourceToGrinWithDependencies,
     compileSourceToWholeCoreWithDependencies,
-    compileSourceToAssembly,
-    compileSourceToAssemblyFor,
     compileSourceToAssemblyWithDependencies,
     compileSourceToAssemblyWithDependenciesFor,
     defaultCompileEnvironment,
@@ -36,9 +34,9 @@ import Aihc.Cli.Options (CompileOptions (..), GarbageCollector (..))
 import Aihc.Cli.Runtime (readWasmClangProcessWithExitCode, runtimeGarbageCollector, wasmClangCommand, wasmOptArguments)
 import Aihc.Cli.Store (defaultStoreRoot, installedRuntimeArchivePath)
 import Aihc.Fc
-  ( DesugarResult (..),
+  ( DesugarConfig (..),
+    DesugarResult (..),
     FcProgram (..),
-    desugarModule,
     desugarModuleWithInterface,
     eliminateDeadCode,
     extractReachabilityInterface,
@@ -182,17 +180,6 @@ compileOutputPath options =
       | withoutExtension == source = source <> ".out"
       | otherwise = withoutExtension
 
-compileSourceToAssembly :: FilePath -> Text -> Either CompileError Text
-compileSourceToAssembly = compileSourceToAssemblyFor defaultCompileTarget
-
-compileSourceToAssemblyFor :: NativeTarget -> FilePath -> Text -> Either CompileError Text
-compileSourceToAssemblyFor target sourceName source = do
-  parsed <- parseCompileModule sourceName source
-  let desugared = desugarModule parsed
-  if dsSuccess desugared
-    then compiledAssembly <$> compileProgramArtifacts target (dsProgram desugared)
-    else Left (CompileFrontendError (dsErrors desugared))
-
 compileSourceToAssemblyWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
 compileSourceToAssemblyWithDependencies = compileSourceToAssemblyWithDependenciesFor defaultCompileTarget
 
@@ -258,7 +245,7 @@ compileWithDependencies target wholeProgram dependencies parsed = do
             then Left (CompileFrontendError ["typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules)])
             else
               let bindings = dependencyBindings dependencies <> concatMap tcModuleBindings checkedModules
-                  desugared = zipWith (desugarModuleWithInterface primPackageId bindings tcInterface) checkedModules moduleAsts
+                  desugared = map (desugarModuleWithInterface (DesugarConfig {primPackageId = primPackageId}) bindings tcInterface) checkedModules
                in if not (all dsSuccess desugared)
                     then Left (CompileFrontendError (concatMap dsErrors desugared))
                     else do
@@ -389,9 +376,6 @@ reachableRuntimePrimitiveNames entry reachability programs =
           (primitive, _) <- Grin.grinPrimitives program
         ]
     )
-
-compileProgramArtifacts :: NativeTarget -> FcProgram -> Either CompileError CompileArtifacts
-compileProgramArtifacts target = compileProgramArtifactsWithEntry target "main"
 
 compileProgramArtifactsWithEntry :: NativeTarget -> Text -> FcProgram -> Either CompileError CompileArtifacts
 compileProgramArtifactsWithEntry target entryName sourceCore = do

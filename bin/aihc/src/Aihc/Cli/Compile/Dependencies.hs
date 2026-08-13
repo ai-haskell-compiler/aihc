@@ -19,7 +19,7 @@ import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
 import Aihc.Cli.Runtime (readWasmClangProcessWithExitCode, wasmClangCommand)
 import Aihc.Cli.Store (installedLibrariesActivePath, installedLibrariesRoot)
-import Aihc.Fc (AxiomInterface, DesugarResult (..), FcModuleId (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithInterface, extractAxiomInterface, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, lowerPseudoOps, mergePrograms, optimizeProgram, renderProgram)
+import Aihc.Fc (AxiomInterface, DesugarConfig (..), DesugarResult (..), FcModuleId (..), FcProgram (..), NewtypeInterface, ReachabilityInterface, desugarModuleWithInterface, extractAxiomInterface, extractNewtypeInterface, extractReachabilityInterface, lowerNewtypesWithInterface, lowerPseudoOps, mergePrograms, optimizeProgram, renderProgram)
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
 import Aihc.Native
@@ -408,7 +408,7 @@ compileLoadedModules loaded = do
                 else
                   let localBindings = concatMap tcModuleBindings checkedModules
                       bindings = compileStateBindings state <> localBindings
-                      desugared = zipWith (desugarModuleWithInterface primPackageId bindings tcInterface) checkedModules moduleAsts
+                      desugared = map (desugarModuleWithInterface (DesugarConfig {primPackageId = primPackageId}) bindings tcInterface) checkedModules
                    in if not (all dsSuccess desugared)
                         then Left ("library desugar error: " <> unlines (concatMap dsErrors desugared))
                         else do
