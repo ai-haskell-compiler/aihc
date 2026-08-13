@@ -16,7 +16,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc.Desugar (DesugarResult (..), desugarModuleWithDataTypes)
+import Aihc.Fc.Desugar (DesugarConfig (..), DesugarResult (..), desugarModuleWithDataTypes)
 import Aihc.Fc.Parser (parseProgram, renderParseError)
 import Aihc.Fc.Pretty (renderProgram)
 import Aihc.Parser
@@ -163,7 +163,10 @@ renderFcCase tc =
                in if all tcModuleSuccess tcResults
                     then
                       let allBindings = moduleGroupBindings tcResults
-                          results = zipWith (desugarModuleWithDataTypes (PackageId "aihc-prim") allBindings (tcInterfaceDataTypes tcInterface)) tcResults moduleAsts
+                          results =
+                            map
+                              (desugarModuleWithDataTypes (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings (tcInterfaceDataTypes tcInterface))
+                              tcResults
                           fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
                             then renderResults fixtureResults

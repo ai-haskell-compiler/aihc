@@ -19,8 +19,8 @@ import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax qualified as Surface
-import Aihc.Resolve (PackageId (..))
-import Aihc.Tc (Kind (KType), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Resolve (PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
+import Aihc.Tc (Kind (KType), RuntimeRep (..), TcInterface (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.Types (tyConModuleName, tyConPackageId)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
@@ -69,8 +69,14 @@ fcDesugarTests =
               \data Tree a = Leaf a | Branch (Tree a) (Tree a) deriving stock Eq\n"
             config = defaultConfig {parserExtensions = [Surface.DerivingStrategies]}
             (parseErrors, parsedModule) = parseModule config source
-            result = desugarModule parsedModule
         assertEqual "source parses" [] parseErrors
+        (tcModule, tcInterface) <- resolveAndTypecheck parsedModule
+        let result =
+              desugarModuleWithDataTypes
+                (DesugarConfig {primPackageId = PackageId "aihc-prim"})
+                (tcModuleBindings tcModule)
+                (tcInterfaceDataTypes tcInterface)
+                tcModule
         assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
         assertEqual "Core lint" [] (lintProgram emptyLintEnv (dsProgram result)),
       testCase "uses the aihc-prim Bool type for if binders" $ do
@@ -79,12 +85,18 @@ fcDesugarTests =
               \data Bool = False | True\n\
               \value = if True then True else False\n"
             (parseErrors, parsedModule) = parseModule defaultConfig source
-            result = desugarModule parsedModule
+        assertEqual "source parses" [] parseErrors
+        (tcModule, tcInterface) <- resolveAndTypecheck parsedModule
+        let result =
+              desugarModuleWithDataTypes
+                (DesugarConfig {primPackageId = PackageId "aihc-prim"})
+                (tcModuleBindings tcModule)
+                (tcInterfaceDataTypes tcInterface)
+                tcModule
             ifBinderTypes =
               [ varType binder
               | FcTopBind (FcNonRec _ (Fc.FcCase _ binder _)) <- fcTopBinds (dsProgram result)
               ]
-        assertEqual "source parses" [] parseErrors
         assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
         case ifBinderTypes of
           [TcTyCon tyCon []] -> do
@@ -98,6 +110,17 @@ fcDesugarTests =
         Surface.DeclAnn _ inner -> declarationConstructors inner
         Surface.DeclData dataDeclaration -> Surface.dataDeclConstructors dataDeclaration
         _ -> []
+
+resolveAndTypecheck :: Surface.Module -> IO (Surface.Module, TcInterface)
+resolveAndTypecheck parsedModule =
+  case resolveWithDeps mempty [(unnamedPackage, parsedModule)] of
+    ResolveResult {resolvedModules = [(_, resolvedModule)], resolveErrors = []} ->
+      case typecheckModulesWithInterface emptyTcInterface [resolvedModule] of
+        ([tcModule], tcInterface)
+          | tcModuleSuccess tcModule -> pure (tcModule, tcInterface)
+          | otherwise -> assertFailure ("type-check errors: " <> show (tcModuleDiagnostics tcModule))
+        (tcModules, _) -> assertFailure ("unexpected type-check module count: " <> show (length tcModules))
+    ResolveResult {resolveErrors} -> assertFailure ("resolve errors: " <> show resolveErrors)
 
 fcEvalTests :: TestTree
 fcEvalTests =

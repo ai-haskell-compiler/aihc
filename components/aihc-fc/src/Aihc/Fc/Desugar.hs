@@ -1,15 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Desugaring from type-checked surface AST to System FC Core.
---
--- The entry point 'desugarModule' takes a parsed module, runs the type
--- checker, and produces an 'FcProgram'.
 module Aihc.Fc.Desugar
   ( -- * Entry point
-    desugarModule,
     desugarModuleWithBindings,
     desugarModuleWithDataTypes,
     desugarModuleWithTcResult,
+    DesugarConfig (..),
     DesugarResult (..),
   )
 where
@@ -55,8 +52,8 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolveResult (..), ResolvedName (..), resolveWithDeps, unnamedPackage)
-import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TyConFlavor (..), emptyTcInterface, renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..))
+import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TyConFlavor (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
@@ -94,50 +91,34 @@ data DesugarResult = DesugarResult
   }
   deriving (Show)
 
--- | Desugar a module: parse, typecheck, then translate to compulsorily lowered
--- but deliberately unoptimized Core.
-desugarModule :: Module -> DesugarResult
-desugarModule m =
-  case resolveWithDeps mempty [(unnamedPackage, m)] of
-    ResolveResult {resolvedModules = [(_, resolved)], resolveErrors = []} ->
-      case typecheckModulesWithInterface emptyTcInterface [resolved] of
-        ([tcResult], tcInterface) ->
-          desugarModuleWithDataTypes (PackageId "aihc-prim") (tcModuleBindings tcResult) (tcInterfaceDataTypes tcInterface) tcResult resolved
-        _ ->
-          DesugarResult
-            { dsProgram = FcProgram (sourceModuleId m) [],
-              dsSuccess = False,
-              dsErrors = ["type checker did not return the requested module"]
-            }
-    ResolveResult {resolveErrors} ->
-      DesugarResult
-        { dsProgram = FcProgram (sourceModuleId m) [],
-          dsSuccess = False,
-          dsErrors = ["resolve error: " <> show resolveErrors]
-        }
+-- | Configuration for desugaring.
+newtype DesugarConfig = DesugarConfig
+  { primPackageId :: PackageId
+  }
+  deriving (Eq, Show)
 
 -- | Desugar a module using a type-checking result already computed by
 -- the caller. This is useful for clients such as the REPL that preload
 -- imported bindings into the type-checker environment.
-desugarModuleWithTcResult :: PackageId -> Module -> Module -> DesugarResult
-desugarModuleWithTcResult primPackageId tcResult =
-  desugarModuleWithBindings primPackageId (tcModuleBindings tcResult) tcResult
+desugarModuleWithTcResult :: DesugarConfig -> Module -> DesugarResult
+desugarModuleWithTcResult config tcResult =
+  desugarModuleWithBindings config (tcModuleBindings tcResult) tcResult
 
-desugarModuleWithBindings :: PackageId -> [TcBindingResult] -> Module -> Module -> DesugarResult
-desugarModuleWithBindings primPackageId bindings = desugarModuleWithDataTypes primPackageId bindings []
+desugarModuleWithBindings :: DesugarConfig -> [TcBindingResult] -> Module -> DesugarResult
+desugarModuleWithBindings config bindings = desugarModuleWithDataTypes config bindings []
 
-desugarModuleWithDataTypes :: PackageId -> [TcBindingResult] -> [DataTypeInfo] -> Module -> Module -> DesugarResult
-desugarModuleWithDataTypes primPackageId bindings dataTypes tcResult resolvedModule =
+desugarModuleWithDataTypes :: DesugarConfig -> [TcBindingResult] -> [DataTypeInfo] -> Module -> DesugarResult
+desugarModuleWithDataTypes config bindings dataTypes tcResult =
   if not (tcModuleSuccess tcResult)
     then
       DesugarResult
-        { dsProgram = FcProgram (sourceModuleId resolvedModule) [],
+        { dsProgram = FcProgram (sourceModuleId tcResult) [],
           dsSuccess = False,
           dsErrors = showTcFailure tcResult
         }
     else
       let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
-          (packageId, currentModuleName) = resolvedModuleOrigin resolvedModule
+          (packageId, currentModuleName) = resolvedModuleOrigin tcResult
           constructorFields =
             Map.fromList
               [ (dciName constructor, dciFields constructor)
@@ -145,10 +126,10 @@ desugarModuleWithDataTypes primPackageId bindings dataTypes tcResult resolvedMod
                 dtiFlavor dataType == DataTyCon,
                 constructor <- dtiConstructors dataType
               ]
-       in case runStateT (dsModule tcResult) (DsState 1000 primPackageId (packageIdText packageId) (Just currentModuleName) typeEnv Map.empty Map.empty constructorFields Nothing) of
+       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) (packageIdText packageId) (Just currentModuleName) typeEnv Map.empty Map.empty constructorFields Nothing) of
             Left err ->
               DesugarResult
-                { dsProgram = FcProgram (sourceModuleId resolvedModule) [],
+                { dsProgram = FcProgram (sourceModuleId tcResult) [],
                   dsSuccess = False,
                   dsErrors = [err]
                 }

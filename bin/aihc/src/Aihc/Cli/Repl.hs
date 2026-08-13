@@ -21,7 +21,7 @@ import Aihc.Cli.PackageInterface
     packageInterfaceExports,
     readPackageInterface,
   )
-import Aihc.Fc (DesugarResult (..), FcModuleId (..), FcProgram (..), desugarModuleWithBindings, evalProgramBinding, mergePrograms, renderProgram, renderValue)
+import Aihc.Fc (DesugarConfig (..), DesugarResult (..), FcModuleId (..), FcProgram (..), desugarModuleWithBindings, evalProgramBinding, mergePrograms, renderProgram, renderValue)
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr, parseModule)
 import Aihc.Parser.Shorthand (Shorthand (..))
 import Aihc.Parser.Syntax
@@ -201,11 +201,10 @@ evaluateExpression session input = do
     Left err -> pure (Left err)
     Right checked -> do
       let expr = checkedExpr checked
-          resolvedModule = checkedResolvedModule checked
           tcResult = checkedTcModule checked
           inferredType = checkedType checked
           allBindings = importedTermBindings (replImportedTerms session) <> tcModuleBindings tcResult
-          dsResult = desugarModuleWithBindings (PackageId "aihc-prim") allBindings tcResult resolvedModule
+          dsResult = desugarModuleWithBindings (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings tcResult
       if not (dsSuccess dsResult)
         then pure (Left (ReplDesugarError (dsErrors dsResult)))
         else do
@@ -519,7 +518,7 @@ buildBaseContext modules =
       if all tcModuleSuccess tcResults
         then do
           let allBindings = concatMap tcModuleBindings tcResults
-              dsResults = zipWith (desugarModuleWithBindings (PackageId "aihc-prim") allBindings) tcResults moduleAsts
+              dsResults = map (desugarModuleWithBindings (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings) tcResults
               bindingTypes = moduleBindingTypes moduleAsts tcResults
           if all dsSuccess dsResults
             then
