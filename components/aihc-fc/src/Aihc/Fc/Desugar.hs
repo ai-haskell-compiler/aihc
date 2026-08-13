@@ -126,7 +126,7 @@ desugarModuleWithDataTypes config bindings dataTypes tcResult =
                 dtiFlavor dataType == DataTyCon,
                 constructor <- dtiConstructors dataType
               ]
-       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) (packageIdText packageId) (Just currentModuleName) typeEnv Map.empty Map.empty constructorFields Nothing) of
+       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) (packageIdText packageId) currentModuleName typeEnv Map.empty Map.empty constructorFields Nothing) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram (sourceModuleId tcResult) [],
@@ -955,7 +955,7 @@ localDeclarationOrigin :: Text -> DsM FcSymbolOrigin
 localDeclarationOrigin declarationName = do
   packageName <- gets dsModulePackage
   moduleName' <- gets dsModuleName
-  pure (FcTopLevelOrigin packageName (fromMaybe "Main" moduleName') declarationName)
+  pure (FcTopLevelOrigin packageName moduleName' declarationName)
 
 dsClassSelector :: Text -> Int -> [TyVarId] -> [TcType] -> TcClassMethodAnnotation -> DsM FcTopBind
 dsClassSelector dictionaryConstructor superClassCount classTyVars fieldTypes methodAnn = do

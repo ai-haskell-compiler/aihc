@@ -15,6 +15,7 @@ where
 
 import Aihc.Fc
 import Aihc.Fc qualified as Fc
+import Aihc.Fc.Desugar.Expr (DsState (dsModuleName))
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
@@ -52,7 +53,11 @@ fcDesugarTests :: TestTree
 fcDesugarTests =
   testGroup
     "FC desugaring"
-    [ testCase "counts every label in a grouped record field" $ do
+    [ testCase "requires a module name in the desugar state" $ do
+        let requireModuleName :: DsState -> Text
+            requireModuleName = dsModuleName
+        requireModuleName `seq` pure (),
+      testCase "counts every label in a grouped record field" $ do
         let (_, parsedModule) = parseModule defaultConfig "module Test where\ndata Pair a = Pair { left, right :: a }\n"
             constructors = concatMap declarationConstructors (Surface.moduleDecls parsedModule)
         case constructors of
