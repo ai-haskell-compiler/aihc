@@ -2,10 +2,14 @@ extensions:
   - DerivingStrategies
 modules:
   - |
+    module GHC.Types where
+
+    data Bool = False | True
+  - |
     {-# LANGUAGE DerivingStrategies #-}
     module Test where
 
-    data Bool = False | True
+    import GHC.Types
 
     class Eq a where
       (==) :: a -> a -> Bool
@@ -17,11 +21,16 @@ modules:
     sameTree :: Eq a => Tree a -> Tree a -> Bool
     sameTree = (==)
 expected: |-
-  module Test where
+  module "aihc-prim" GHC.Types where
 
   data Bool
    = False
    | True
+  module Test where
+
+  external "aihc-prim" GHC.Types.False : Bool
+
+  external "aihc-prim" GHC.Types.True : Bool
 
   data Eq (a : TYPE BoxedRep Lifted)
    = $Dict$Eq (a → a → Bool) (a → a → Bool)
@@ -66,12 +75,12 @@ expected: |-
                             ($stock_eq_method $stock_eq_left_field0) $stock_eq_right_field0
                         } as ($stock_eq_bool : Bool) of {
                           False →
-                            False;
+                            "aihc-prim" GHC.Types.False;
                           True →
-                            True
+                            "aihc-prim" GHC.Types.True
                         };
                       _ →
-                        False
+                        "aihc-prim" GHC.Types.False
                     };
                   Branch ($stock_eq_left_field0 : Tree a) ($stock_eq_left_field1 : Tree a) →
                     case $stock_eq_right as ($stock_eq_inner : Tree a) of {
@@ -81,20 +90,20 @@ expected: |-
                             ($stock_eq_method $stock_eq_left_field0) $stock_eq_right_field0
                         } as ($stock_eq_bool : Bool) of {
                           False →
-                            False;
+                            "aihc-prim" GHC.Types.False;
                           True →
                             case case $stock_eq_self as ($stock_eq_dictionary : Eq (Tree a)) of {
                               $Dict$Eq ($stock_eq_method : (Tree a) → (Tree a) → Bool) ($stock_neq_method : (Tree a) → (Tree a) → Bool) →
                                 ($stock_eq_method $stock_eq_left_field1) $stock_eq_right_field1
                             } as ($stock_eq_bool : Bool) of {
                               False →
-                                False;
+                                "aihc-prim" GHC.Types.False;
                               True →
-                                True
+                                "aihc-prim" GHC.Types.True
                             }
                         };
                       _ →
-                        False
+                        "aihc-prim" GHC.Types.False
                     }
                 })) (λ($stock_eq_left : Tree a).
               λ($stock_eq_right : Tree a).
@@ -107,12 +116,12 @@ expected: |-
                             ($stock_eq_method $stock_eq_left_field0) $stock_eq_right_field0
                         } as ($stock_eq_bool : Bool) of {
                           False →
-                            False;
+                            "aihc-prim" GHC.Types.False;
                           True →
-                            True
+                            "aihc-prim" GHC.Types.True
                         };
                       _ →
-                        False
+                        "aihc-prim" GHC.Types.False
                     };
                   Branch ($stock_eq_left_field0 : Tree a) ($stock_eq_left_field1 : Tree a) →
                     case $stock_eq_right as ($stock_eq_inner : Tree a) of {
@@ -122,26 +131,26 @@ expected: |-
                             ($stock_eq_method $stock_eq_left_field0) $stock_eq_right_field0
                         } as ($stock_eq_bool : Bool) of {
                           False →
-                            False;
+                            "aihc-prim" GHC.Types.False;
                           True →
                             case case $stock_eq_self as ($stock_eq_dictionary : Eq (Tree a)) of {
                               $Dict$Eq ($stock_eq_method : (Tree a) → (Tree a) → Bool) ($stock_neq_method : (Tree a) → (Tree a) → Bool) →
                                 ($stock_eq_method $stock_eq_left_field1) $stock_eq_right_field1
                             } as ($stock_eq_bool : Bool) of {
                               False →
-                                False;
+                                "aihc-prim" GHC.Types.False;
                               True →
-                                True
+                                "aihc-prim" GHC.Types.True
                             }
                         };
                       _ →
-                        False
+                        "aihc-prim" GHC.Types.False
                     }
                 } as ($stock_eq_not : Bool) of {
                   False →
-                    True;
+                    "aihc-prim" GHC.Types.True;
                   True →
-                    False
+                    "aihc-prim" GHC.Types.False
                 })
   }
 

@@ -4,10 +4,15 @@ extensions:
 dependencies: []
 modules:
   - |
+    module GHC.Types where
+
+    data Bool = False | True
+  - |
     {-# LANGUAGE DerivingStrategies, StandaloneDeriving #-}
     module Test where
 
-    data Bool = False | True
+    import GHC.Types
+
     data Results = Results Bool Bool Bool Bool Bool
 
     class Eq a where

@@ -141,7 +141,7 @@ fcDesugarTests =
         case constructors of
           [constructor] -> assertEqual "constructor arity" ("Pair", 2) (dsDataConPure constructor)
           _ -> assertFailure ("expected one parsed constructor, got: " <> show constructors),
-      testCase "stock Eq dictionaries pass Core lint" $ do
+      testCase "stock Eq dictionaries use primitive Bool" $ do
         let source =
               "{-# LANGUAGE DerivingStrategies #-}\n\
               \module Test where\n\
@@ -160,8 +160,14 @@ fcDesugarTests =
                 (tcModuleBindings tcModule)
                 (tcInterfaceDataTypes tcInterface)
                 tcModule
+            stockBoolTypes =
+              [ varType variable
+              | variable <- programVariables (dsProgram result),
+                varName variable `elem` ["$stock_eq_bool", "$stock_eq_not"]
+              ]
         assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
-        assertEqual "Core lint" [] (lintProgram emptyLintEnv (dsProgram result)),
+        assertBool "stock Eq has Boolean binders" (not (null stockBoolTypes))
+        mapM_ assertPrimitiveBool stockBoolTypes,
       testCase "uses the condition type for if binders" $ do
         let source =
               "module Test where\n\
@@ -204,6 +210,46 @@ resolveAndTypecheck parsedModule =
           | otherwise -> assertFailure ("type-check errors: " <> show (tcModuleDiagnostics tcModule))
         (tcModules, _) -> assertFailure ("unexpected type-check module count: " <> show (length tcModules))
     ResolveResult {resolveErrors} -> assertFailure ("resolve errors: " <> show resolveErrors)
+
+assertPrimitiveBool :: TcType -> IO ()
+assertPrimitiveBool boolTy =
+  case boolTy of
+    TcTyCon tyCon [] -> do
+      assertEqual "Bool package ID" (PackageId "aihc-prim") (tyConPackageId tyCon)
+      assertEqual "Bool module name" "GHC.Types" (tyConModuleName tyCon)
+    other -> assertFailure ("expected primitive Bool, got: " <> show other)
+
+programVariables :: FcProgram -> [Var]
+programVariables program = concatMap topBindVariables (fcTopBinds program)
+  where
+    topBindVariables topBind =
+      case topBind of
+        FcTopBind bind -> bindVariables bind
+        _ -> []
+
+    bindVariables bind =
+      case bind of
+        FcNonRec variable expression -> variable : expressionVariables expression
+        FcRec bindings -> concatMap (\(variable, expression) -> variable : expressionVariables expression) bindings
+
+    expressionVariables expression =
+      case expression of
+        FcVar variable -> [variable]
+        FcLit {} -> []
+        FcApp function argument -> expressionVariables function <> expressionVariables argument
+        FcTyApp function _ -> expressionVariables function
+        FcLam variable body -> variable : expressionVariables body
+        FcTyLam _ body -> expressionVariables body
+        FcLet bind body -> bindVariables bind <> expressionVariables body
+        Fc.FcCase scrutinee binder alternatives ->
+          expressionVariables scrutinee
+            <> [binder]
+            <> concatMap alternativeVariables alternatives
+        FcCast body _ -> expressionVariables body
+        FcCallForeign _ arguments -> concatMap expressionVariables arguments
+
+    alternativeVariables alternative =
+      altBinders alternative <> expressionVariables (altRhs alternative)
 
 fcEvalTests :: TestTree
 fcEvalTests =

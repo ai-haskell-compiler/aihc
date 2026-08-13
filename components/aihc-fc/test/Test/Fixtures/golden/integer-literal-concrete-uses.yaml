@@ -1,5 +1,5 @@
 expected: |-
-  module GHC.Types where
+  module "aihc-prim" GHC.Types where
 
   data Bool
    = False
@@ -12,7 +12,7 @@ expected: |-
    = IS (Int#)
   module GHC.Classes where
 
-  external GHC.Types.True : Bool
+  external "aihc-prim" GHC.Types.True : Bool
 
   data Eq (a : TYPE BoxedRep Lifted)
    = $Dict$Eq (a → a → Bool)
@@ -32,12 +32,12 @@ expected: |-
           I (x : Int#) →
             case y1005 as (_scrut : Int) of {
               I (y : Int#) →
-                GHC.Types.True
+                "aihc-prim" GHC.Types.True
             }
         })
   module GHC.Num where
 
-  external GHC.Types.I : Int# → Int
+  external "aihc-prim" GHC.Types.I : Int# → Int
 
   data Num (a : TYPE BoxedRep Lifted)
    = $Dict$Num (Integer → a)
@@ -54,7 +54,7 @@ expected: |-
     ($Dict$Num @Int) (λ(x1004 : Integer).
       case x1004 as (_scrut : Integer) of {
         IS (x : Int#) →
-          GHC.Types.I x
+          "aihc-prim" GHC.Types.I x
       })
 
   $fNumInteger : Num Integer =

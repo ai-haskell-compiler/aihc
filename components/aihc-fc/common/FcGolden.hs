@@ -26,8 +26,8 @@ import Aihc.Parser
     defaultConfig,
     parseModule,
   )
-import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
-import Aihc.Resolve (PackageId (..), ResolveResult (..), modulesInPackage, resolveWithDeps, unnamedPackage)
+import Aihc.Parser.Syntax (Extension, Module, moduleName, parseExtensionName)
+import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (TcBindingResult, emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
@@ -158,7 +158,7 @@ renderFcCase tc =
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps mempty (modulesInPackage unnamedPackage modules) of
+          case resolveWithDeps mempty (map modulePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               let moduleAsts = map snd resolvedModules
                   (tcResults, tcInterface) = typecheckModulesWithInterface emptyTcInterface moduleAsts
@@ -202,6 +202,11 @@ renderFcCase tc =
                     else Left ("System FC round trip changed canonical syntax:\n" <> canonical <> "\noriginal:\n" <> rendered)
     renderErrors results =
       unlines [err | r <- results, err <- dsErrors r]
+
+    modulePackage modu
+      | moduleName modu == Just "GHC.Types" =
+          (Package "aihc-prim" (PackageId "aihc-prim"), modu)
+      | otherwise = (unnamedPackage, modu)
 
 -- | Refresh passing FC fixtures with the current canonical rendering while
 -- preserving their source and metadata layout.

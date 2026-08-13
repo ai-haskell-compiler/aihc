@@ -7,14 +7,15 @@ module Aihc.Fc.Desugar.Deriving.StockEq
 where
 
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshConstructorVar, freshVar, lookupType, predTypeM, withDicts, withTypeVariables)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, freshConstructorVar, freshVar, lookupType, predTypeM, withDicts, withTypeVariables)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcStockDerivingPlan (..))
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..))
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), liftedTypeKind, mkTyConWithOrigin)
 import Control.Monad (zipWithM)
+import Control.Monad.Trans.State.Strict (gets)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -213,14 +214,8 @@ boolConstructor name = do
 
 boolType :: DsM TcType
 boolType = do
-  trueType <- lookupType "True"
-  pure (resultType trueType)
-  where
-    resultType ty =
-      case ty of
-        TcForAllTy _ body -> resultType body
-        TcFunTy _ body -> resultType body
-        _ -> ty
+  primPackageId <- gets dsPrimPackageId
+  pure (TcTyCon (mkTyConWithOrigin primPackageId "GHC.Types" "Bool" 0 liftedTypeKind) [])
 
 stockEqTyCon :: TcDerivingPlan -> DsM TyCon
 stockEqTyCon plan =
