@@ -1269,8 +1269,10 @@ dsLocalGroup var group =
       pure (var, rhs')
 
 dsStringLiteral :: Text -> DsM FcExpr
-dsStringLiteral text =
-  pure (T.foldr consChar (nilList charTy) text)
+dsStringLiteral text = do
+  nil <- nilList charTy
+  cons <- consExpr charTy
+  pure (T.foldr (applyConsChar cons) nil text)
 
 primitiveStringBytes :: Text -> DsM BS.ByteString
 primitiveStringBytes text =
@@ -1286,14 +1288,18 @@ dsList :: TcAnnotation -> [Expr] -> DsM FcExpr
 dsList tcAnn elems =
   case tcAnnTypeArgs tcAnn of
     [elemTy] ->
-      foldr (consList elemTy) (nilList elemTy) <$> mapM dsExpr elems
+      do
+        nil <- nilList elemTy
+        cons <- consExpr elemTy
+        foldr (applyCons cons) nil <$> mapM dsExpr elems
     elemTys ->
       desugarBug ("list annotation arity mismatch: expected 1 type argument, got " <> show (length elemTys))
 
 dsListComp :: TcAnnotation -> Expr -> [CompStmt] -> DsM FcExpr
 dsListComp tcAnn body quals = do
   elemTy <- listCompElemTy tcAnn
-  dsCompQuals elemTy body quals (nilList elemTy)
+  nil <- nilList elemTy
+  dsCompQuals elemTy body quals nil
 
 listCompElemTy :: TcAnnotation -> DsM TcType
 listCompElemTy tcAnn =
@@ -1308,7 +1314,8 @@ dsCompQuals elemTy body quals tailExpr =
   case quals of
     [] -> do
       body' <- dsExpr body
-      pure (consList elemTy body' tailExpr)
+      cons <- consExpr elemTy
+      pure (applyCons cons body' tailExpr)
     qual : rest ->
       case peelCompStmtAnn qual of
         CompGen pat src -> dsCompGen elemTy body pat src rest tailExpr
@@ -1519,9 +1526,9 @@ tupleConName flavor arity =
     Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
     Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
 
-consChar :: Char -> FcExpr -> FcExpr
-consChar char =
-  consList charTy (boxCharLiteral char)
+applyConsChar :: FcExpr -> Char -> FcExpr -> FcExpr
+applyConsChar cons char =
+  applyCons cons (boxCharLiteral char)
 
 boxCharLiteral :: Char -> FcExpr
 boxCharLiteral char =
@@ -1529,30 +1536,28 @@ boxCharLiteral char =
     (FcVar (builtinVar "C#" (Unique (-12)) (TcFunTy charHashTy charTy)))
     (FcLit (LitChar WordRep char))
 
-consList :: TcType -> FcExpr -> FcExpr -> FcExpr
-consList elemTy headExpr =
-  FcApp (FcApp (consExpr elemTy) headExpr)
+applyCons :: FcExpr -> FcExpr -> FcExpr -> FcExpr
+applyCons cons headExpr =
+  FcApp (FcApp cons headExpr)
 
-nilList :: TcType -> FcExpr
-nilList =
-  FcTyApp (FcVar (builtinVar "[]" (Unique (-10)) nilListType))
+nilList :: TcType -> DsM FcExpr
+nilList elemTy = do
+  constructor <- listConstructorVar "[]" (Unique (-10))
+  pure (FcTyApp (FcVar constructor) elemTy)
 
-consExpr :: TcType -> FcExpr
-consExpr =
-  FcTyApp (FcVar (builtinVar ":" (Unique (-11)) consListType))
+consExpr :: TcType -> DsM FcExpr
+consExpr elemTy = do
+  constructor <- listConstructorVar ":" (Unique (-11))
+  pure (FcTyApp (FcVar constructor) elemTy)
 
-nilListType :: TcType
-nilListType =
-  TcForAllTy listElemVar (listType (TcTyVar listElemVar))
-
-consListType :: TcType
-consListType =
-  TcForAllTy listElemVar (TcFunTy elemTy (TcFunTy (listType elemTy) (listType elemTy)))
-  where
-    elemTy = TcTyVar listElemVar
-
-listElemVar :: TyVarId
-listElemVar = TyVarId "a" (Unique (-2000))
+listConstructorVar :: Text -> Unique -> DsM Var
+listConstructorVar name unique = do
+  constructorType <- lookupType name
+  packageId <- gets dsPrimPackageId
+  pure
+    (Var name unique constructorType)
+      { varResolvedName = Just (FcTopLevelOrigin (packageIdText packageId) "GHC.Types" name)
+      }
 
 builtinVar :: Text -> Unique -> TcType -> Var
 builtinVar name unique ty =
@@ -1660,6 +1665,10 @@ dsTypeRepresentation ty arguments =
   case typeableTypeView ty of
     Nothing -> desugarBug ("cannot construct TypeRep for " <> show ty)
     Just (name, _) -> do
+      charNil <- nilList charTy
+      charCons <- consExpr charTy
+      argumentNil <- nilList typeRepTy
+      argumentCons <- consExpr typeRepTy
       let tyConConstructor =
             Var "TyCon" (Unique (-2102)) (TcFunTy stringTy tyConTy)
           typeRepConstructor =
@@ -1667,8 +1676,8 @@ dsTypeRepresentation ty arguments =
               "TypeRep"
               (Unique (-2103))
               (TcFunTy tyConTy (TcFunTy (listType typeRepTy) typeRepTy))
-          tyCon = FcApp (FcVar tyConConstructor) (T.foldr consChar (nilList charTy) name)
-          argumentList = foldr (consList typeRepTy) (nilList typeRepTy) arguments
+          tyCon = FcApp (FcVar tyConConstructor) (T.foldr (applyConsChar charCons) charNil name)
+          argumentList = foldr (applyCons argumentCons) argumentNil arguments
       pure (FcApp (FcApp (FcVar typeRepConstructor) tyCon) argumentList)
 
 typeableTypeView :: TcType -> Maybe (Text, [TcType])

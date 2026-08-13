@@ -608,28 +608,40 @@ tupleTyConModule flavor =
 
 inferList :: SourceSpan -> [Expr] -> TcM (Expr, TcType, [Ct])
 inferList sp elems = do
-  listTyCon' <- resolvedListTyCon
+  nilInstantiation <- instantiateListConstructor sp "[]"
+  nilCts <- mapM (predToCt sp "[]") (instPreds nilInstantiation)
   case elems of
     [] -> do
-      elemTy <- freshMetaTv
-      let listTy = TcTyCon listTyCon' [elemTy]
-          pending = pendingAnnotation listTy [elemTy] [] []
-      pure (annotatePendingExprAt sp pending (EList []), listTy, [])
-    (e : es) -> do
-      let headSp = exprSpan e `orSourceSpan` sp
-      (headExpr, headTy, headCts) <- inferExpr e
-      results <- mapM inferElem es
-      let elems' = headExpr : map (\(expr, _, _, _) -> expr) results
-          tailCts = concatMap (\(_, _, elemCts, _) -> elemCts) results
-      eqCts <- mapM (mkElemEq headSp headTy) results
-      let listTy = TcTyCon listTyCon' [headTy]
-          pending = pendingAnnotation listTy [headTy] [] []
-      pure (annotatePendingExprAt sp pending (EList elems'), listTy, headCts ++ tailCts ++ eqCts)
+      let listTy = instType nilInstantiation
+          pending = pendingAnnotation listTy (instTypeArgs nilInstantiation) (map ctEvVar nilCts) []
+      pure (annotatePendingExprAt sp pending (EList []), listTy, nilCts)
+    _ -> do
+      results <- mapM inferElem elems
+      consInstantiation <- instantiateListConstructor sp ":"
+      consPredicateCts <- mapM (predToCt sp ":") (instPreds consInstantiation)
+      case instType consInstantiation of
+        TcFunTy sourceElemTy (TcFunTy sourceTailTy sourceResultTy) -> do
+          let elems' = map (\(element, _, _, _) -> element) results
+              elemCts = concatMap (\(_, _, cts, _) -> cts) results
+              (firstElemTy, firstElemSp) = case results of
+                (_, ty, _, elemSp) : _ -> (ty, elemSp)
+                [] -> (sourceElemTy, sp)
+              pending = pendingAnnotation sourceResultTy [sourceElemTy] [] []
+          firstConstructorCt <- constructorEqualityCt firstElemSp firstElemTy sourceElemTy
+          nilConstructorCt <- constructorEqualityCt sp (instType nilInstantiation) sourceTailTy
+          resultConstructorCt <- constructorEqualityCt sp sourceResultTy sourceTailTy
+          elementEqualityCts <- mapM (elementEqualityCt firstElemSp firstElemTy) (drop 1 results)
+          let constructorCts = nilCts <> consPredicateCts <> [firstConstructorCt, nilConstructorCt, resultConstructorCt]
+          pure (annotatePendingExprAt sp pending (EList elems'), sourceResultTy, elemCts <> elementEqualityCts <> constructorCts)
+        _ -> abortTc "GHC.Types list cons constructor has an invalid type"
   where
     inferElem elemExpr = do
       (elemExpr', elemTy, elemCts) <- inferExpr elemExpr
       pure (elemExpr', elemTy, elemCts, exprSpan elemExpr `orSourceSpan` sp)
-    mkElemEq headSp headTy (_, elemTy, _, elemSp) = do
+    constructorEqualityCt loc left right = do
+      ev <- freshEvVar
+      pure (mkWantedCt (EqPred left right) ev (AppOrigin loc) loc)
+    elementEqualityCt firstElemSp firstElemTy (_, elemTy, _, elemSp) = do
       ev <- freshEvVar
       pure $
         mkWantedEqCt
@@ -639,13 +651,24 @@ inferList sp elems = do
               typeTraceOrigin = ExpressionTypeOrigin elemSp
             }
           TypeTrace
-            { typeTraceType = headTy,
+            { typeTraceType = firstElemTy,
               typeTraceRole = ExpectedType,
-              typeTraceOrigin = ListElementTypeOrigin headSp
+              typeTraceOrigin = ListElementTypeOrigin firstElemSp
             }
           ev
           (AppOrigin elemSp)
           elemSp
+
+instantiateListConstructor :: SourceSpan -> Text -> TcM Instantiation
+instantiateListConstructor sp name = do
+  sourceBinder <- lookupTerm name
+  maybeBinder <- maybe (lookupKnownTerm "GHC.Types" name) (pure . Just) sourceBinder
+  case maybeBinder of
+    Just (TcIdBinder scheme _) -> instantiateWithArgs scheme
+    Just TcMonoIdBinder {} ->
+      abortTc ("GHC.Types list constructor is monomorphic at " <> show sp <> ": " <> show name)
+    Nothing ->
+      abortTc ("GHC.Types list constructor is missing at " <> show sp <> ": " <> show name)
 
 inferListComp :: SourceSpan -> Expr -> [CompStmt] -> TcM (Expr, TcType, [Ct])
 inferListComp sp body quals = do

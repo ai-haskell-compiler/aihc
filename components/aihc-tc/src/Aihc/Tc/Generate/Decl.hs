@@ -2443,7 +2443,10 @@ registerDataConWithResult paramInfos resTy con = case con of
           scheme = ForAll (paramVarIds <> constructorTyVars) predicates conTy
       case maybeName of
         Just sourceName -> extendResolvedTermEnvPermanent sourceName (TcIdBinder scheme Closed)
-        Nothing -> extendTermEnvPermanent name (TcIdBinder scheme Closed)
+        Nothing ->
+          case resTy of
+            TcTyCon resultTyCon _ -> extendTyConTermEnvPermanent resultTyCon name (TcIdBinder scheme Closed)
+            _ -> extendTermEnvPermanent name (TcIdBinder scheme Closed)
       zonkedTy <- zonkType (schemeToType scheme)
       pure (TcBindingResult name name zonkedTy)
 

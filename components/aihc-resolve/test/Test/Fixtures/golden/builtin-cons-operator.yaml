@@ -6,12 +6,12 @@ annotated:
   cons x xs = (:) x xs
   │    │ └─ v 1│  │ └─ v 1
   │    └─ v 0  │  └─ v 0
-  └─ v Main    └─ v Builtin :
+  └─ v Main    └─ v aihc-prim:GHC.Types
 extensions: []
 modules:
 - |
   module Main where
   cons :: a -> [a] -> [a]
   cons x xs = (:) x xs
-reason: ''
+reason: resolves list cons directly to aihc-prim GHC.Types
 status: pass

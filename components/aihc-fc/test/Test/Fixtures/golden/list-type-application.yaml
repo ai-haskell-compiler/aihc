@@ -9,15 +9,15 @@ modules:
 expected: |-
   module Test where
 
-  external builtin.: : ∀ (a : TYPE BoxedRep Lifted). a → [a] → [a]
+  external "aihc-prim" GHC.Types.: : ∀ (a : TYPE BoxedRep Lifted). a → [a] → [a]
 
-  external builtin.[] : ∀ (a : TYPE BoxedRep Lifted). [a]
+  external "aihc-prim" GHC.Types.[] : ∀ (a : TYPE BoxedRep Lifted). [a]
 
   data Bool
    = True
    | False
 
   xs : [Bool] =
-    ((builtin.: @Bool) True) (builtin.[] @Bool)
+    (("aihc-prim" GHC.Types.: @Bool) True) ("aihc-prim" GHC.Types.[] @Bool)
 status: pass
 reason: reifies list constructor type arguments from type-checker annotations

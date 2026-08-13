@@ -932,6 +932,7 @@ annotationModule :: Module
 annotationModule =
   parseM
     "module Test where\n\
+    \data List a = [] | a : [a]\n\
     \data Bool = False | True\n\
     \class Eq a where\n\
     \  (==) :: a -> a -> Bool\n\

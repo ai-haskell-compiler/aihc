@@ -122,12 +122,7 @@ checkPatternCore gadtHandling sp pat scrutTy =
       checkConPattern gadtHandling sp pat name subPats scrutTy
     PInfix lhs op rhs ->
       checkConPattern gadtHandling sp pat op [lhs, rhs] scrutTy
-    PList items -> do
-      elemTy <- freshMetaTv
-      listTy <- listType elemTy
-      eqCt <- wantedEq sp scrutTy listTy
-      itemChecks <- checkPatternsWith gadtHandling sp [(item, elemTy) | item <- items]
-      pure itemChecks {pcWantedCts = eqCt : pcWantedCts itemChecks, pcPatterns = [PList (pcPatterns itemChecks)]}
+    PList items -> checkListPattern gadtHandling sp items scrutTy
     PTuple flavor items -> do
       elemTys <- mapM (const freshMetaTv) items
       let arity = length items
@@ -149,6 +144,55 @@ checkPatternCore gadtHandling sp pat scrutTy =
 
 checkedOnly :: Pattern -> PatternCheck
 checkedOnly pat = mempty {pcPatterns = [pat]}
+
+checkListPattern :: GadtHandling -> SourceSpan -> [Pattern] -> TcType -> TcM PatternCheck
+checkListPattern gadtHandling sp items scrutTy =
+  case items of
+    [] -> do
+      scheme <- listConstructorScheme "[]"
+      (nilTy, _typeArgs, predicates, skolems) <- instantiateConstructorPattern scheme
+      scrutCts <- constructorScrutineeCt gadtHandling sp "[]" scrutTy nilTy
+      predicateGivens <- mapM (constructorGiven sp "[]") predicates
+      pure
+        mempty
+          { pcWantedCts = fst scrutCts,
+            pcGivenCts = predicateGivens <> snd scrutCts,
+            pcSkolems = skolems,
+            pcPatterns = [PList []]
+          }
+    item : rest -> do
+      scheme <- listConstructorScheme ":"
+      (consTy, _typeArgs, predicates, skolems) <- instantiateConstructorPattern scheme
+      (argumentTypes, resultTy) <- splitConTy 2 consTy
+      case argumentTypes of
+        [itemTy, tailTy] -> do
+          scrutCts <- constructorScrutineeCt gadtHandling sp ":" scrutTy resultTy
+          itemCheck <- checkPatternWith gadtHandling sp item itemTy
+          tailCheck <- checkListPattern gadtHandling sp rest tailTy
+          predicateGivens <- mapM (constructorGiven sp ":") predicates
+          let nestedCheck = itemCheck <> tailCheck
+              checkedTailItems = case checkedPattern tailCheck of
+                PAnn _ (PList patterns) -> patterns
+                PList patterns -> patterns
+                _ -> rest
+              checkedItems = checkedPattern itemCheck : checkedTailItems
+          pure
+            nestedCheck
+              { pcWantedCts = fst scrutCts <> pcWantedCts nestedCheck,
+                pcGivenCts = predicateGivens <> snd scrutCts <> pcGivenCts nestedCheck,
+                pcSkolems = skolems <> pcSkolems nestedCheck,
+                pcPatterns = [PList checkedItems]
+              }
+        _ -> abortTc "GHC.Types list cons constructor has an invalid arity"
+
+listConstructorScheme :: Text -> TcM TypeScheme
+listConstructorScheme name = do
+  sourceBinder <- lookupTerm name
+  maybeBinder <- maybe (lookupKnownTerm "GHC.Types" name) (pure . Just) sourceBinder
+  case maybeBinder of
+    Just (TcIdBinder scheme _) -> pure scheme
+    Just TcMonoIdBinder {} -> abortTc ("GHC.Types list constructor is monomorphic: " <> T.unpack name)
+    Nothing -> abortTc ("GHC.Types list constructor is missing: " <> T.unpack name)
 
 checkedPattern :: PatternCheck -> Pattern
 checkedPattern check =
@@ -488,11 +532,6 @@ withPatternBindings :: [(UnqualifiedName, TcType)] -> TcM a -> TcM a
 withPatternBindings [] action = action
 withPatternBindings ((name, ty) : rest) action =
   extendResolvedTermEnv name (TcMonoIdBinder ty) (withPatternBindings rest action)
-
-listType :: TcType -> TcM TcType
-listType elemTy = do
-  maybeInfo <- lookupTyCon "[]"
-  pure (TcTyCon (maybe (mkTyCon "[]" 1 (KFun KType KType)) tciTyCon maybeInfo) [elemTy])
 
 tupleTyConText :: TupleFlavor -> Int -> Text
 tupleTyConText flavor arity =

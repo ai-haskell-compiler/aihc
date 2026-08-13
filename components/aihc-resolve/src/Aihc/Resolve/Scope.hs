@@ -371,12 +371,18 @@ bars n
 
 moduleScope :: Package -> ModuleExports -> Module -> Scope
 moduleScope packageId exports modu =
-  ownScope `unionScope` importedScope packageId exports modu `unionScope` implicitPrelude `unionScope` builtinScope
+  ownScope
+    `unionScope` importedScope packageId exports modu
+    `unionScope` implicitPrelude
+    `unionScope` listConstructorScope
+    `unionScope` builtinScope
   where
     ownScope = topLevelScope packageId modu
     preludeScope = lookupImportedModule packageId Nothing "Prelude" exports
     -- Implicit Prelude: names available unqualified AND as Prelude.xxx
     implicitPrelude = preludeScope {scopeQualifiedModules = Map.singleton "Prelude" preludeScope}
+    ghcTypesScope = lookupImportedModule packageId Nothing "GHC.Types" exports
+    listConstructorScope = selectTerm ":" ghcTypesScope `unionScope` selectTerm "[]" ghcTypesScope
 
 importedScope :: Package -> ModuleExports -> Module -> Scope
 importedScope packageId exports modu =
@@ -497,15 +503,7 @@ moduleKey modu = fromMaybe (T.pack "Main") (moduleName modu)
 emptyScope :: Scope
 emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
--- | Scope containing all wired-in Haskell built-ins that have no defining
--- source module but act like regular names during name resolution.
---
--- Term namespace: constructors for special syntax that cannot be expressed
--- as ordinary Haskell declarations (list cons @(:)@, the empty list @[]@,
--- tuple constructors, unboxed-tuple/sum constructors).  Normal Prelude
--- constructors like @True@, @False@, @Just@, @Nothing@, @Left@, @Right@ are
--- /not/ included here — they are defined in @base@ and reach a module via the
--- implicit Prelude import.
+-- | Scope containing fixed Haskell names that are always available.
 --
 -- Type namespace: primitive and special types that are not defined in any
 -- parsed source module and cannot be imported from @base@ in the ordinary
@@ -517,7 +515,7 @@ emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty M
 builtinScope :: Scope
 builtinScope =
   Scope
-    { scopeTerms = Map.fromList (map mkBuiltinTerm builtinTermNames),
+    { scopeTerms = Map.empty,
       scopeTypes = Map.fromList (map mkBuiltinType builtinTypeNames),
       scopeConstructors = Map.empty,
       scopeRecordFields = Map.empty,
@@ -526,22 +524,7 @@ builtinScope =
       scopeQualifiedModules = Map.empty
     }
   where
-    mkBuiltinTerm n = (n, ResolvedBuiltin n)
     mkBuiltinType n = (n, ResolvedBuiltin n)
-
--- | Wired-in term-namespace names: special syntax constructors that have no
--- defining source declaration.  Normal Prelude constructors (@True@, @False@,
--- @Just@, etc.) are intentionally excluded — they live in @base@ and arrive
--- via the implicit Prelude import.
---
--- Note: names here must match exactly what the parser emits as the 'Name'
--- text inside 'EVar'.  For example, the cons operator appears as @":"@ (not
--- @"(:)"@), because the surrounding parens are stripped by the parser.
-builtinTermNames :: [T.Text]
-builtinTermNames =
-  [ -- Cons operator — the only list constructor that surfaces as EVar
-    ":"
-  ]
 
 -- | Wired-in type-namespace names: primitive types that are not defined in
 -- any parsed source module.  Prelude types like @Int@, @Bool@, @Maybe@, etc.
