@@ -85,6 +85,7 @@ collectMetaVars (TcFunTy a b) = collectMetaVars a ++ collectMetaVars b
 collectMetaVars (TcForAllTy _ body) = collectMetaVars body
 collectMetaVars (TcQualTy ps body) = concatMap predMetaVars ps ++ collectMetaVars body
 collectMetaVars (TcAppTy f a) = collectMetaVars f ++ collectMetaVars a
+collectMetaVars (TcBuiltinTyCon _ _ arguments) = concatMap collectMetaVars arguments
 
 -- | Collect free meta-variable uniques from a predicate.
 predMetaVars :: Pred -> [Unique]
@@ -175,6 +176,7 @@ substMetas subst = go
     go (TcForAllTy tv body) = TcForAllTy tv (go body)
     go (TcQualTy ps body) = TcQualTy (map (substMetasPred subst) ps) (go body)
     go (TcAppTy f a) = TcAppTy (go f) (go a)
+    go (TcBuiltinTyCon name arity arguments) = TcBuiltinTyCon name arity (map go arguments)
 
 -- | Substitute meta-variables in a predicate.
 substMetasPred :: [(Unique, TcType)] -> Pred -> Pred

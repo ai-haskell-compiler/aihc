@@ -97,6 +97,7 @@ applySubst subst = go
     go (TcQualTy preds body) =
       TcQualTy (map (substPred subst) preds) (go body)
     go (TcAppTy f a) = applyType (go f) (go a)
+    go (TcBuiltinTyCon name arity arguments) = TcBuiltinTyCon name arity (map go arguments)
 
     applyType (TcTyCon tc args) arg = TcTyCon tc (args <> [arg])
     applyType f arg = TcAppTy f arg

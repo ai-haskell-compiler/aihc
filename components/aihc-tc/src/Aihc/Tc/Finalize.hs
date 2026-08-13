@@ -298,6 +298,8 @@ firstMetaType ty =
       firstJusts (map firstMetaPred preds) <|> firstMetaType body
     TcAppTy fun arg ->
       firstMetaType fun <|> firstMetaType arg
+    TcBuiltinTyCon _ _ arguments ->
+      firstJusts (map firstMetaType arguments)
 
 firstJusts :: [Maybe a] -> Maybe a
 firstJusts [] = Nothing

@@ -562,6 +562,7 @@ builtinTypeNames =
     "State#",
     "ThreadId#",
     "TYPE",
+    "Type",
     "RuntimeRep",
     "TupleRep",
     "[]",

@@ -1892,6 +1892,7 @@ exactTypeKey ty =
     TcFunTy argument result -> exactTypeKey argument <> "->" <> exactTypeKey result
     TcForAllTy _ body -> exactTypeKey body
     TcQualTy _ body -> exactTypeKey body
+    TcBuiltinTyCon name _ arguments -> name <> T.concat (map (("_" <>) . exactTypeKey) arguments)
 
 uniqueInt :: Unique -> Int
 uniqueInt (Unique unique) = unique
@@ -1908,6 +1909,7 @@ typeKey ty =
     TcFunTy a b -> typeKey a <> "->" <> typeKey b
     TcForAllTy _ body -> typeKey body
     TcQualTy _ body -> typeKey body
+    TcBuiltinTyCon name _ arguments -> name <> T.concat (map (("_" <>) . typeKey) arguments)
 
 charTy :: TcType
 charTy = TcTyCon (TyCon "Char" 0) []

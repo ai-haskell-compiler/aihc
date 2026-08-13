@@ -466,6 +466,7 @@ typeMetaVariables ty =
     TcForAllTy _ body -> typeMetaVariables body
     TcQualTy predicates body -> concatMap predicateMetaVariables predicates <> typeMetaVariables body
     TcAppTy function argument -> typeMetaVariables function <> typeMetaVariables argument
+    TcBuiltinTyCon _ _ arguments -> concatMap typeMetaVariables arguments
 
 predicateMetaVariables :: Pred -> [Unique]
 predicateMetaVariables predicate =
@@ -483,6 +484,7 @@ typeMentionsTyVar target ty =
     TcForAllTy binder body -> binder /= target && typeMentionsTyVar target body
     TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
     TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
+    TcBuiltinTyCon _ _ arguments -> any (typeMentionsTyVar target) arguments
 
 predicateMentionsTyVar :: TyVarId -> Pred -> Bool
 predicateMentionsTyVar target predicate =

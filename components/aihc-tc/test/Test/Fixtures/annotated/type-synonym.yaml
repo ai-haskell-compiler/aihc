@@ -10,6 +10,7 @@ annotated:
   - |-
     module Test where
     type MyBool = Bool
+         └─ type: *
     data Bool = True | False
          │      │      └─ type: Bool
          │      └─ type: Bool

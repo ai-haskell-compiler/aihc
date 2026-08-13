@@ -2,7 +2,8 @@ annotated:
 - |-
   module Main where
   type Identity :: Type -> Type
-  └─ v Error unhandled syntax
+       └─ t Main   │       └─ t Builtin Type
+                   └─ t Builtin Type
   type Identity a = a
        └─ t Main
   x :: Identity Int

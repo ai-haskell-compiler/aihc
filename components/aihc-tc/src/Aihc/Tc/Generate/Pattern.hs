@@ -468,6 +468,7 @@ typeTyVars ty =
     TcForAllTy tyVar body -> Set.delete (tvUnique tyVar) (typeTyVars body)
     TcQualTy predicates body -> Set.unions (typeTyVars body : map predTyVars predicates)
     TcAppTy function argument -> typeTyVars function <> typeTyVars argument
+    TcBuiltinTyCon _ _ arguments -> Set.unions (map typeTyVars arguments)
 
 predTyVars :: Pred -> Set.Set Unique
 predTyVars predicate =
