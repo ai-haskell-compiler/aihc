@@ -2299,7 +2299,8 @@ registerTypeSynonymHeader maybeKindScheme typeSynDecl = do
       params = binderHeadParams (typeSynHead typeSynDecl)
       arity = length params
   (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
-  let inferredKind = foldr (KFun . paramKind) KType paramInfos
+  inferredResultKind <- freshKindMeta
+  let inferredKind = foldr (KFun . paramKind) inferredResultKind paramInfos
   tyCon <-
     case maybeKindScheme of
       Just kindScheme -> declaredTyConWithKindScheme tyBinder tyName arity kindScheme
@@ -2328,10 +2329,17 @@ registerTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
       | Just synonym <- tciTypeSynonym info -> do
           let params = tsiParams synonym
               tvEnv = Map.fromList [(tvName param, (param, tvKind param)) | param <- params]
-          body <- checkSurfaceType tvEnv (typeSynBody typeSynDecl) KType
+              resultKind = typeResultKind (length params) (tyConKind (tciTyCon info))
+          body <- checkSurfaceType tvEnv (typeSynBody typeSynDecl) resultKind
           extendTyConEnvPermanent tyName (info {tciTypeSynonym = Just (synonym {tsiBody = Just body})})
     _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
 registerTypeSynonymBody _ = pure ()
+
+typeResultKind :: Int -> Kind -> Kind
+typeResultKind remaining kind
+  | remaining <= 0 = kind
+typeResultKind remaining (KFun _ result) = typeResultKind (remaining - 1) result
+typeResultKind _ kind = kind
 
 dataDeclTyCon :: UnqualifiedName -> Text -> Int -> Kind -> TcM TyCon
 dataDeclTyCon binder "List" 1 kind = mkDeclaredTyCon binder "[]" 1 kind

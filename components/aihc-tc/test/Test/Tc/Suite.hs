@@ -488,6 +488,26 @@ kindTests =
                 (typeKind (TcTyCon tupleTyCon [intHash, wordHash]))
             other -> assertFailure ("expected one Tuple2# type constructor, got: " <> show other)
         ResolveResult {resolveErrors} -> assertFailure ("module should resolve, got: " <> show resolveErrors),
+    testCase "infers the unboxed unit type synonym kind" $ do
+      let source =
+            "{-# LANGUAGE UnboxedTuples #-}\n\
+            \module Test where\n\
+            \type Nil = (# #)\n"
+      case resolveModules [parseOnly source] of
+        ResolveResult {resolvedModules = modules, resolveErrors = []} -> do
+          let (checkedModules, interface) = typecheckModuleSccWithInterface mempty (map snd modules)
+              nilTyCons = [tciTyCon info | info <- tcInterfaceTyCons interface, tciName info == "Nil"]
+          assertBool
+            ("module should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedModules))
+            (all tcModuleSuccess checkedModules)
+          case nilTyCons of
+            [nilTyCon] ->
+              assertEqual
+                "inferred kind"
+                (KTYPE (TupleRep []))
+                (tyConKind nilTyCon)
+            other -> assertFailure ("expected one Nil type constructor, got: " <> show other)
+        ResolveResult {resolveErrors} -> assertFailure ("module should resolve, got: " <> show resolveErrors),
     testCase "accepts GHC's levity-polymorphic casMutVar# type" $ do
       let result =
             typecheckModule $
