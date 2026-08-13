@@ -8,5 +8,6 @@ annotated:
   - |-
     module Test where
     type Nil = (# #)
+         └─ type: TYPE ('TupleRep '[])
 status: pass
 reason: infers TYPE (TupleRep []) for an unboxed unit type synonym

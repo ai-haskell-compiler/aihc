@@ -696,6 +696,7 @@ annotateDeclTc classMethods checkedValueNames decl =
       | otherwise -> pure decl
     DeclData dataDecl -> annotateDataDeclTc dataDecl
     DeclNewtype newtypeDecl -> annotateNewtypeDeclTc newtypeDecl
+    DeclTypeSyn typeSynDecl -> annotateTypeSynDeclTc typeSynDecl
     DeclDataFamilyDecl familyDecl -> annotateDataFamilyDeclTc familyDecl
     DeclDataFamilyInst familyInst -> annotateDataFamilyInstTc familyInst
     DeclForeign foreignDecl
@@ -780,6 +781,13 @@ annotateNewtypeDeclTc newtypeDecl = do
   constructor <- mapM annotateDataConDeclTc (newtypeDeclConstructor newtypeDecl)
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] []) (newtypeDeclHead newtypeDecl)
   pure (DeclNewtype (newtypeDecl {newtypeDeclHead = annotatedHead, newtypeDeclConstructor = constructor}))
+
+annotateTypeSynDeclTc :: TypeSynDecl -> TcM Decl
+annotateTypeSynDeclTc typeSynDecl = do
+  let tyName = unqualifiedNameText (binderHeadName (typeSynHead typeSynDecl))
+  ty <- tyConBindingType tyName
+  let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] []) (typeSynHead typeSynDecl)
+  pure (DeclTypeSyn (typeSynDecl {typeSynHead = annotatedHead}))
 
 annotateDataFamilyDeclTc :: DataFamilyDecl -> TcM Decl
 annotateDataFamilyDeclTc familyDecl = do
