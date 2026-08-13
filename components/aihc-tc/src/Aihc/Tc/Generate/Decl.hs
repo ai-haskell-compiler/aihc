@@ -51,7 +51,7 @@ import Aihc.Parser.Syntax
     Rhs (..),
     SourceSpan (..),
     TupleFlavor (..),
-    TyVarBinder (..),
+    TyVarBinder,
     Type (..),
     TypeSynDecl (..),
     UnqualifiedName (..),
@@ -99,14 +99,14 @@ import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, sigToScheme, surfacePredToPred, tyConKindFromParams, tyConKindFromParamsWith)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, makeParamEnvWith, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
 import Aihc.Tc.Solve.InertSet (InertSet (..))
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds, defaultTypeSchemeKinds, zonkType)
-import Control.Monad (foldM, forM_, unless, when, zipWithM, (>=>))
+import Control.Monad (foldM, forM_, unless, when, zipWithM, zipWithM_, (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify')
 import Data.Graph (SCC (..), stronglyConnComp)
@@ -468,7 +468,9 @@ tcModuleScc modules = do
   -- types. This permits forward references from synonyms to data types while
   -- making aliases available in constructor fields and class methods.
   let declarations = concatMap moduleDecls modules
-  mapM_ registerTypeDeclHeader declarations
+      standaloneKindSignatures = collectStandaloneKindSignatures declarations
+  standaloneKindSchemes <- traverse (standaloneKindSigToScheme >=> defaultTypeSchemeKinds) standaloneKindSignatures
+  mapM_ (registerTypeDeclHeader standaloneKindSchemes) declarations
   mapM_ registerTypeSynonymBody declarations
   mapM_ (\modu -> mapM_ (registerValueLevelDecl (resolvedModuleOrigin modu)) (moduleDecls modu)) modules
   -- Deriving strategy and context inference depends only on registered type,
@@ -594,12 +596,15 @@ defaultGlobalKindMetas = do
             dciResTy = resultType
           }
     finalizeTyConKind kind tyCon =
-      mkTyConWithOrigin
-        (tyConPackageId tyCon)
-        (tyConModuleName tyCon)
-        (tyConName tyCon)
-        (tyConArity tyCon)
-        kind
+      case tyConKindScheme tyCon of
+        Just _ -> setTyConKind kind tyCon
+        Nothing ->
+          mkTyConWithOrigin
+            (tyConPackageId tyCon)
+            (tyConModuleName tyCon)
+            (tyConName tyCon)
+            (tyConArity tyCon)
+            kind
     defaultDataConFieldKinds field = do
       fieldType' <- defaultTypeKinds (dcfiType field)
       pure field {dcfiType = fieldType'}
@@ -1840,13 +1845,34 @@ zonkPred pred' =
     ClassPred className args -> ClassPred className <$> mapM zonkType args
     EqPred left right -> EqPred <$> zonkType left <*> zonkType right
 
-registerTypeDeclHeader :: Decl -> TcM [TcBindingResult]
-registerTypeDeclHeader (DeclData dataDecl) = registerDataDeclHeader dataDecl
-registerTypeDeclHeader (DeclNewtype newtypeDecl) = registerNewtypeDeclHeader newtypeDecl
-registerTypeDeclHeader (DeclDataFamilyDecl familyDecl) = registerDataFamilyDeclHeader familyDecl
-registerTypeDeclHeader (DeclTypeSyn typeSynDecl) = registerTypeSynonymHeader typeSynDecl
-registerTypeDeclHeader (DeclAnn _ inner) = registerTypeDeclHeader inner
-registerTypeDeclHeader _ = pure []
+type TcTypeKey = (PackageId, Text, Text)
+
+collectStandaloneKindSignatures :: [Decl] -> Map TcTypeKey Type
+collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
+  where
+    collect declaration =
+      case declaration of
+        DeclAnn _ inner -> collect inner
+        DeclStandaloneKindSig name kind -> (,kind) <$> resolvedTypeKey name
+        _ -> Nothing
+
+resolvedTypeKey :: UnqualifiedName -> Maybe TcTypeKey
+resolvedTypeKey name = do
+  ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} <- nameResolution name
+  moduleName' <- nameQualifier resolvedName
+  pure (packageId, moduleName', nameText resolvedName)
+
+registerTypeDeclHeader :: Map TcTypeKey TypeScheme -> Decl -> TcM [TcBindingResult]
+registerTypeDeclHeader kindSchemes (DeclData dataDecl) =
+  registerDataDeclHeader (resolvedTypeKey (binderHeadName (dataDeclHead dataDecl)) >>= (`Map.lookup` kindSchemes)) dataDecl
+registerTypeDeclHeader kindSchemes (DeclNewtype newtypeDecl) =
+  registerNewtypeDeclHeader (resolvedTypeKey (binderHeadName (newtypeDeclHead newtypeDecl)) >>= (`Map.lookup` kindSchemes)) newtypeDecl
+registerTypeDeclHeader kindSchemes (DeclDataFamilyDecl familyDecl) =
+  registerDataFamilyDeclHeader (resolvedTypeKey (binderHeadName (dataFamilyDeclHead familyDecl)) >>= (`Map.lookup` kindSchemes)) familyDecl
+registerTypeDeclHeader kindSchemes (DeclTypeSyn typeSynDecl) =
+  registerTypeSynonymHeader (resolvedTypeKey (binderHeadName (typeSynHead typeSynDecl)) >>= (`Map.lookup` kindSchemes)) typeSynDecl
+registerTypeDeclHeader kindSchemes (DeclAnn _ inner) = registerTypeDeclHeader kindSchemes inner
+registerTypeDeclHeader _ _ = pure []
 
 registerValueLevelDecl :: (Text, Text) -> Decl -> TcM [TcBindingResult]
 registerValueLevelDecl _ (DeclData dataDecl) = registerDataConstructors dataDecl
@@ -2020,15 +2046,19 @@ typeSuffix ty =
     TcTyCon tc args -> tyConName tc <> T.concat (map typeSuffix args)
     _ -> "T"
 
-registerDataFamilyDeclHeader :: DataFamilyDecl -> TcM [TcBindingResult]
-registerDataFamilyDeclHeader familyDecl = do
+registerDataFamilyDeclHeader :: Maybe TypeScheme -> DataFamilyDecl -> TcM [TcBindingResult]
+registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
   let familyBinder = binderHeadName (dataFamilyDeclHead familyDecl)
       familyName = unqualifiedNameText familyBinder
       params = binderHeadParams (dataFamilyDeclHead familyDecl)
       arity = length params
-  paramInfos <- makeParamEnv params
-  declaredKind <- tyConKindFromParams paramInfos (dataFamilyDeclKind familyDecl)
-  familyTyCon <- mkDeclaredTyCon familyBinder familyName arity declaredKind
+  (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+  inferredKind <- tyConKindFromParams paramInfos (dataFamilyDeclKind familyDecl)
+  familyTyCon <-
+    case maybeKindScheme of
+      Just kindScheme -> declaredTyConWithKindScheme familyBinder familyName arity kindScheme
+      Nothing -> mkDeclaredTyCon familyBinder familyName arity inferredKind
+  let declaredKind = maybe inferredKind (const (tyConKind familyTyCon)) maybeKindScheme
   extendTyConEnvPermanent
     familyName
     TyConInfo
@@ -2109,80 +2139,56 @@ dataFamilyInstanceParams familyInst = do
 --   - @Bool :: *@
 --   - @True :: Bool@
 --   - @False :: Bool@
-dataDeclParamInfos :: DataDecl -> TcM ([ParamInfo], [ParamInfo])
-dataDeclParamInfos declaration =
-  case unboxedTupleDataDeclArity declaration of
-    Just arity
-      | arity == length params -> pure (unboxedTupleParamInfos arity params)
-    _ -> ([],) <$> makeParamEnv params
+typeDeclParamInfos :: Maybe TypeScheme -> [TyVarBinder] -> TcM ([ParamInfo], [ParamInfo])
+typeDeclParamInfos maybeKindScheme params =
+  case maybeKindScheme of
+    Nothing -> ([],) <$> makeParamEnv params
+    Just scheme@(ForAll kindTyVars _ _) -> do
+      let kindParams = map kindParam kindTyVars
+          kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
+          expectedKinds = takeVisibleArgumentKinds (length params) (kindFromTypeScheme scheme)
+      paramInfos <- makeParamEnvWith kindEnv params
+      if length expectedKinds == length params
+        then do
+          zipWithM_ (unifyKinds . paramKind) paramInfos expectedKinds
+          let checkedParams = zipWith setParamKind expectedKinds paramInfos
+          pure (kindParams, checkedParams)
+        else do
+          emitError NoSourceSpan (OtherError "standalone kind signature arity does not match its type declaration")
+          pure (kindParams, paramInfos)
   where
-    params = binderHeadParams (dataDeclHead declaration)
+    kindParam tyVar = ParamInfo (tvName tyVar) tyVar (tvKind tyVar)
+    setParamKind kind param =
+      param
+        { paramTyVar = setTyVarKind kind (paramTyVar param),
+          paramKind = kind
+        }
 
-unboxedTupleDataDeclArity :: DataDecl -> Maybe Int
-unboxedTupleDataDeclArity declaration =
-  case dataDeclConstructors declaration of
-    [constructor] -> tupleConstructorArity constructor
-    _ -> Nothing
+dataDeclParamInfos :: Maybe TypeScheme -> DataDecl -> TcM ([ParamInfo], [ParamInfo])
+dataDeclParamInfos maybeKindScheme declaration =
+  typeDeclParamInfos maybeKindScheme (binderHeadParams (dataDeclHead declaration))
+
+takeVisibleArgumentKinds :: Int -> Kind -> [Kind]
+takeVisibleArgumentKinds = go
   where
-    tupleConstructorArity dataConstructor =
-      case dataConstructor of
-        DataConAnn _ inner -> tupleConstructorArity inner
-        TupleCon _ _ Unboxed fields -> Just (length fields)
-        _ -> Nothing
+    go remaining (KFun argument result)
+      | remaining > 0 = argument : go (remaining - 1) result
+    go _ _ = []
 
-unboxedTupleParamInfos :: Int -> [TyVarBinder] -> ([ParamInfo], [ParamInfo])
-unboxedTupleParamInfos arity params = (kindParams, valueParams)
-  where
-    kindParams =
-      [ ParamInfo name (setTyVarKind KRuntimeRep (TyVarId name (tupleKindUnique index))) KRuntimeRep
-      | (index, name) <- zip [1 ..] (tupleRuntimeRepNames params)
-      ]
-    valueParams =
-      [ ParamInfo name (setTyVarKind kind (TyVarId name (tupleValueUnique index))) kind
-      | (index, binder, kindParam) <- zip3 [1 ..] params kindParams,
-        let name = tyVarBinderName binder
-            kind = KTYPE (RuntimeRepVar (tvUnique (paramTyVar kindParam)))
-      ]
-    tupleKindUnique index = Unique (-1000000 - arity * 200 - index)
-    tupleValueUnique index = Unique (-1000000 - arity * 200 - 100 - index)
-
-tupleRuntimeRepNames :: [TyVarBinder] -> [Text]
-tupleRuntimeRepNames = mapMaybe (tyVarBinderKind >=> runtimeRepVariableName)
-  where
-    runtimeRepVariableName ty =
-      case ty of
-        TAnn _ inner -> runtimeRepVariableName inner
-        TParen inner -> runtimeRepVariableName inner
-        TApp function representation
-          | surfaceTypeConstructorName function == Just "TYPE" -> surfaceTypeVariableName representation
-        _ -> Nothing
-    surfaceTypeConstructorName ty =
-      case ty of
-        TAnn _ inner -> surfaceTypeConstructorName inner
-        TParen inner -> surfaceTypeConstructorName inner
-        TCon name _ -> Just (nameText name)
-        _ -> Nothing
-    surfaceTypeVariableName ty =
-      case ty of
-        TAnn _ inner -> surfaceTypeVariableName inner
-        TParen inner -> surfaceTypeVariableName inner
-        TVar name -> Just (unqualifiedNameText name)
-        _ -> Nothing
-
-registerDataDeclHeader :: DataDecl -> TcM [TcBindingResult]
-registerDataDeclHeader dd = do
+registerDataDeclHeader :: Maybe TypeScheme -> DataDecl -> TcM [TcBindingResult]
+registerDataDeclHeader maybeKindScheme dd = do
   let tyBinder = binderHeadName (dataDeclHead dd)
       tyName = unqualifiedNameText tyBinder
       params = binderHeadParams (dataDeclHead dd)
       arity = length params
-  (kindParams, paramInfos) <- dataDeclParamInfos dd
+  (kindParams, paramInfos) <- dataDeclParamInfos maybeKindScheme dd
   let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
-  declaredKind <-
-    case unboxedTupleDataDeclArity dd of
-      Just tupleArity
-        | tupleArity == arity -> pure (unboxedTupleDeclarationKind paramInfos)
-      _ -> tyConKindFromParamsWith kindEnv paramInfos (dataDeclKind dd)
-  tc <- dataDeclTyCon tyBinder tyName arity declaredKind
+  inferredKind <- tyConKindFromParamsWith kindEnv paramInfos (dataDeclKind dd)
+  tc <-
+    case maybeKindScheme of
+      Just kindScheme -> declaredTyConWithKindScheme tyBinder tyName arity kindScheme
+      Nothing -> dataDeclTyCon tyBinder tyName arity inferredKind
+  let declaredKind = maybe inferredKind (const (tyConKind tc)) maybeKindScheme
   extendTyConEnvPermanent
     tyName
     TyConInfo
@@ -2197,15 +2203,6 @@ registerDataDeclHeader dd = do
   let tyConResult = TcBindingResult tyName tyName (kindToTcType zonkedKind)
   pure [tyConResult]
 
-unboxedTupleDeclarationKind :: [ParamInfo] -> Kind
-unboxedTupleDeclarationKind params =
-  foldr (KFun . paramKind) (KTYPE (TupleRep (map paramRuntimeRep params))) params
-  where
-    paramRuntimeRep param =
-      case paramKind param of
-        KTYPE runtimeRep -> runtimeRep
-        _ -> liftedRuntimeRep
-
 registerDataConstructors :: DataDecl -> TcM [TcBindingResult]
 registerDataConstructors dataDecl = do
   let tyBinder = binderHeadName (dataDeclHead dataDecl)
@@ -2214,7 +2211,7 @@ registerDataConstructors dataDecl = do
   case maybeInfo of
     Nothing -> missingTypeInfo ("data type " <> T.unpack tyName)
     Just info -> do
-      (kindParams, paramInfos) <- dataDeclParamInfos dataDecl
+      (kindParams, paramInfos) <- dataDeclParamInfos (tyConKindScheme (tciTyCon info)) dataDecl
       bindings <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (dataDeclConstructors dataDecl)
       constructors <- concat <$> mapM checkedDataConInfos (dataDeclConstructors dataDecl)
       selectorBindings <- registerRecordSelectors constructors
@@ -2231,15 +2228,19 @@ registerDataConstructors dataDecl = do
 -- | Register a newtype declaration's type constructor and representation
 -- constructor.  Newtype erasure/coercion semantics are handled elsewhere; at
 -- this stage the type checker only needs the source-level names and types.
-registerNewtypeDeclHeader :: NewtypeDecl -> TcM [TcBindingResult]
-registerNewtypeDeclHeader nd = do
+registerNewtypeDeclHeader :: Maybe TypeScheme -> NewtypeDecl -> TcM [TcBindingResult]
+registerNewtypeDeclHeader maybeKindScheme nd = do
   let tyBinder = binderHeadName (newtypeDeclHead nd)
       tyName = unqualifiedNameText tyBinder
       params = binderHeadParams (newtypeDeclHead nd)
       arity = length params
-  paramInfos <- makeParamEnv params
-  declaredKind <- tyConKindFromParams paramInfos (newtypeDeclKind nd)
-  tc <- mkDeclaredTyCon tyBinder tyName arity declaredKind
+  (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+  inferredKind <- tyConKindFromParams paramInfos (newtypeDeclKind nd)
+  tc <-
+    case maybeKindScheme of
+      Just kindScheme -> declaredTyConWithKindScheme tyBinder tyName arity kindScheme
+      Nothing -> mkDeclaredTyCon tyBinder tyName arity inferredKind
+  let declaredKind = maybe inferredKind (const (tyConKind tc)) maybeKindScheme
   extendTyConEnvPermanent
     tyName
     TyConInfo
@@ -2262,8 +2263,8 @@ registerNewtypeConstructor newtypeDecl = do
   case maybeInfo of
     Nothing -> missingTypeInfo ("newtype " <> T.unpack tyName)
     Just info -> do
-      paramInfos <- makeParamEnv (binderHeadParams (newtypeDeclHead newtypeDecl))
-      constructor <- mapM (registerDataCon (tciTyCon info) [] paramInfos) (newtypeDeclConstructor newtypeDecl)
+      (kindParams, paramInfos) <- typeDeclParamInfos (tyConKindScheme (tciTyCon info)) (binderHeadParams (newtypeDeclHead newtypeDecl))
+      constructor <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (newtypeDeclConstructor newtypeDecl)
       constructors <- maybe (pure []) checkedDataConInfos (newtypeDeclConstructor newtypeDecl)
       selectorBindings <- registerRecordSelectors constructors
       addDataType
@@ -2300,15 +2301,19 @@ registerRecordSelectors constructors =
     registerSelector (label, []) =
       abortTc ("record selector has no fields: " <> T.unpack label)
 
-registerTypeSynonymHeader :: TypeSynDecl -> TcM [TcBindingResult]
-registerTypeSynonymHeader typeSynDecl = do
+registerTypeSynonymHeader :: Maybe TypeScheme -> TypeSynDecl -> TcM [TcBindingResult]
+registerTypeSynonymHeader maybeKindScheme typeSynDecl = do
   let tyBinder = binderHeadName (typeSynHead typeSynDecl)
       tyName = unqualifiedNameText tyBinder
       params = binderHeadParams (typeSynHead typeSynDecl)
       arity = length params
-  paramInfos <- makeParamEnv params
-  let declaredKind = foldr (KFun . paramKind) KType paramInfos
-  tyCon <- mkDeclaredTyCon tyBinder tyName arity declaredKind
+  (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+  let inferredKind = foldr (KFun . paramKind) KType paramInfos
+  tyCon <-
+    case maybeKindScheme of
+      Just kindScheme -> declaredTyConWithKindScheme tyBinder tyName arity kindScheme
+      Nothing -> mkDeclaredTyCon tyBinder tyName arity inferredKind
+  let declaredKind = maybe inferredKind (const (tyConKind tyCon)) maybeKindScheme
   let synonym = TypeSynonymInfo (map paramTyVar paramInfos) Nothing
   extendTyConEnvPermanent
     tyName
@@ -2348,6 +2353,14 @@ mkDeclaredTyCon binder name arity kind =
     Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName}
       | Just definingModuleName <- nameQualifier resolvedName ->
           pure (mkTyConWithOrigin packageId definingModuleName name arity kind)
+    _ -> abortTc ("type declaration has no package or module identity: " <> T.unpack name)
+
+declaredTyConWithKindScheme :: UnqualifiedName -> Text -> Int -> TypeScheme -> TcM TyCon
+declaredTyConWithKindScheme binder name arity kindScheme =
+  case nameResolution binder of
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName}
+      | Just definingModuleName <- nameQualifier resolvedName ->
+          pure (mkTyConWithOriginAndKindScheme packageId definingModuleName name arity kindScheme)
     _ -> abortTc ("type declaration has no package or module identity: " <> T.unpack name)
 
 -- | Register a single data constructor as a polymorphic binding.

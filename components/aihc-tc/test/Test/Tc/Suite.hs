@@ -437,6 +437,57 @@ kindTests =
           assertEqual "result representation argument" repVar resultRepVar
           assertEqual "result value argument" valueVar resultValueVar
         other -> assertFailure ("unexpected R constructor types: " <> show other),
+    testCase "stores an ordinary standalone kind signature" $ do
+      let source =
+            "{-# LANGUAGE StandaloneKindSignatures #-}\n\
+            \module Test where\n\
+            \type Identity :: Type -> Type\n\
+            \type Identity a = a\n"
+      case resolveModules [parseOnly source] of
+        ResolveResult {resolvedModules = modules, resolveErrors = []} -> do
+          let (checkedModules, interface) = typecheckModuleSccWithInterface mempty (map snd modules)
+              identityTyCons = [tciTyCon info | info <- tcInterfaceTyCons interface, tciName info == "Identity"]
+          assertBool
+            ("module should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedModules))
+            (all tcModuleSuccess checkedModules)
+          assertEqual
+            "interface serialization round-trip"
+            (show interface)
+            (show (read (show interface) :: TcInterface))
+          case identityTyCons of
+            [identityTyCon] -> do
+              assertEqual "kind" (KFun KType KType) (tyConKind identityTyCon)
+              assertBool "kind scheme should be stored" (isJust (tyConKindScheme identityTyCon))
+            other -> assertFailure ("expected one Identity type constructor, got: " <> show other)
+        ResolveResult {resolveErrors} -> assertFailure ("module should resolve, got: " <> show resolveErrors),
+    testCase "uses the standalone kind signature representation" $ do
+      let source =
+            "{-# LANGUAGE DataKinds #-}\n\
+            \{-# LANGUAGE KindSignatures #-}\n\
+            \{-# LANGUAGE MagicHash #-}\n\
+            \{-# LANGUAGE StandaloneKindSignatures #-}\n\
+            \{-# LANGUAGE UnboxedTuples #-}\n\
+            \module Test where\n\
+            \type Tuple2# :: TYPE r1 -> TYPE r2 -> TYPE ('TupleRep '[r2, r1])\n\
+            \data Tuple2# (a1 :: TYPE r1) (a2 :: TYPE r2) = (# a1, a2 #)\n\
+            \data Holder = Holder (Tuple2# Int# Word#)\n"
+      case resolveModules [parseOnly source] of
+        ResolveResult {resolvedModules = modules, resolveErrors = []} -> do
+          let (checkedModules, interface) = typecheckModuleSccWithInterface mempty (map snd modules)
+              tupleTyCons = [tciTyCon info | info <- tcInterfaceTyCons interface, tciName info == "Tuple2#"]
+              intHash = TcTyCon (TyCon "Int#" 0) []
+              wordHash = TcTyCon (TyCon "Word#" 0) []
+          assertBool
+            ("module should typecheck, got: " <> show (concatMap tcModuleDiagnostics checkedModules))
+            (all tcModuleSuccess checkedModules)
+          case tupleTyCons of
+            [tupleTyCon] ->
+              assertEqual
+                "source representation"
+                (KTYPE (TupleRep [WordRep, IntRep]))
+                (typeKind (TcTyCon tupleTyCon [intHash, wordHash]))
+            other -> assertFailure ("expected one Tuple2# type constructor, got: " <> show other)
+        ResolveResult {resolveErrors} -> assertFailure ("module should resolve, got: " <> show resolveErrors),
     testCase "accepts GHC's levity-polymorphic casMutVar# type" $ do
       let result =
             typecheckModule $

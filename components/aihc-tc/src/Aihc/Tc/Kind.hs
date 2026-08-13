@@ -16,9 +16,11 @@ module Aihc.Tc.Kind
     makeParamEnvWith,
     runtimeRepToTcType,
     sigToScheme,
+    standaloneKindSigToScheme,
     surfacePredToPred,
     tyConKindFromParams,
     tyConKindFromParamsWith,
+    unifyKinds,
     zonkKind,
   )
 where
@@ -43,10 +45,10 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Env (TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Instantiate (applySubst)
+import Aihc.Tc.Instantiate (applySubst, instantiate)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
-import Control.Monad (zipWithM)
+import Control.Monad (unless, zipWithM)
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -84,6 +86,50 @@ sigToScheme ty = do
   tcTy <- checkRuntimeType tvEnv body
   preds <- mapM (surfacePredToPred tvEnv) context
   pure (ForAll (implicitTvs <> explicitTvs) preds tcTy)
+
+standaloneKindSigToScheme :: Type -> TcM TypeScheme
+standaloneKindSigToScheme ty = do
+  let (explicitBinders, bodyType) = splitForalls ty
+      freeVars = freeTypeVars ty
+      representationVars = Set.fromList (runtimeRepVariables ty)
+      variableKind name
+        | name `Set.member` representationVars = KRuntimeRep
+        | otherwise = KType
+  rawTyVars <- mapM freshSkolemTv freeVars
+  let implicitTyVars = zipWith (setTyVarKind . variableKind) freeVars rawTyVars
+      implicitEnv = Map.fromList [(tvName tyVar, (tyVar, tvKind tyVar)) | tyVar <- implicitTyVars]
+  explicitParams <- makeParamEnvWith implicitEnv explicitBinders
+  let explicitTyVars = map paramTyVar explicitParams
+      tyVarEnv =
+        implicitEnv
+          <> Map.fromList
+            [ (paramName param, (paramTyVar param, paramKind param))
+            | param <- explicitParams
+            ]
+  body <- checkSurfaceType tyVarEnv bodyType KType
+  pure (ForAll (implicitTyVars <> explicitTyVars) [] body)
+
+runtimeRepVariables :: Type -> [Text]
+runtimeRepVariables = nub . go
+  where
+    go surfaceType =
+      case peelTypeHead surfaceType of
+        TApp function runtimeRep
+          | TCon name Unpromoted <- peelTypeHead function,
+            nameText name == "TYPE" ->
+              freeTypeVars runtimeRep
+        TApp function argument -> go function <> go argument
+        TTypeApp function argument -> go function <> go argument
+        TInfix left _ _ right -> go left <> go right
+        TFun _ argument result -> go argument <> go result
+        TTuple _ _ arguments -> concatMap go arguments
+        TUnboxedSum arguments -> concatMap go arguments
+        TList _ arguments -> concatMap go arguments
+        TKindSig inner kind -> go inner <> go kind
+        TContext predicates body -> concatMap go predicates <> go body
+        TForall telescope body -> concatMap binderKindVariables (forallTelescopeBinders telescope) <> go body
+        _ -> []
+    binderKindVariables binder = maybe [] go (tyVarBinderKind binder)
 
 convertSurfaceType :: Map Text TyVarId -> Type -> TcM TcType
 convertSurfaceType tvMap ty = do
@@ -313,8 +359,18 @@ inferTypeConstructor promoted name =
         raw -> do
           mInfo <- lookupResolvedTyCon name
           case mInfo of
-            Just info -> pure (TcTyCon (tciTyCon info) [], tciKind info)
+            Just info -> do
+              kind <- instantiateTyConKind info
+              pure (TcTyCon (tciTyCon info) [], kind)
             Nothing -> inferBuiltinOrOpenTypeConstructor raw
+
+instantiateTyConKind :: TyConInfo -> TcM Kind
+instantiateTyConKind info =
+  case tyConKindScheme (tciTyCon info) of
+    Nothing -> pure (tciKind info)
+    Just scheme -> do
+      (kindType, _) <- instantiate scheme
+      pure (kindFromTypeScheme (ForAll [] [] kindType))
 
 inferBuiltinTypeConstructor :: TypeBuiltinCon -> TcM (TcType, Kind)
 inferBuiltinTypeConstructor builtin =
@@ -421,8 +477,9 @@ unifyKinds expected actual = do
   case (expected', actual') of
     (KMeta u, kind) -> bindKindMeta u kind
     (kind, KMeta u) -> bindKindMeta u kind
-    (KTYPE expectedRep, KTYPE actualRep)
-      | expectedRep == actualRep -> pure ()
+    (KTYPE expectedRep, KTYPE actualRep) -> do
+      unified <- unifyRuntimeReps expectedRep actualRep
+      unless unified (emitError NoSourceSpan (KindMismatch expected' actual'))
     (KConstraint, KConstraint) -> pure ()
     (KRuntimeRep, KRuntimeRep) -> pure ()
     (KLevity, KLevity) -> pure ()
@@ -430,6 +487,21 @@ unifyKinds expected actual = do
     (KVecElem, KVecElem) -> pure ()
     (KFun a1 b1, KFun a2 b2) -> unifyKinds a1 a2 >> unifyKinds b1 b2
     _ -> emitError NoSourceSpan (KindMismatch expected' actual')
+
+unifyRuntimeReps :: RuntimeRep -> RuntimeRep -> TcM Bool
+unifyRuntimeReps expected actual =
+  case (expected, actual) of
+    (RuntimeRepMeta left, RuntimeRepMeta right)
+      | left == right -> pure True
+    (RuntimeRepMeta unique, runtimeRep) ->
+      writeMetaTv unique (runtimeRepToTcType runtimeRep) >> pure True
+    (runtimeRep, RuntimeRepMeta unique) ->
+      writeMetaTv unique (runtimeRepToTcType runtimeRep) >> pure True
+    (TupleRep expectedFields, TupleRep actualFields)
+      | length expectedFields == length actualFields -> and <$> zipWithM unifyRuntimeReps expectedFields actualFields
+    (SumRep expectedFields, SumRep actualFields)
+      | length expectedFields == length actualFields -> and <$> zipWithM unifyRuntimeReps expectedFields actualFields
+    _ -> pure (expected == actual)
 
 bindKindMeta :: Unique -> Kind -> TcM ()
 bindKindMeta u kind
@@ -446,12 +518,22 @@ zonkKind kind =
         Nothing -> pure kind
         Just solved -> zonkKind solved
     KFun a b -> KFun <$> zonkKind a <*> zonkKind b
-    KTYPE runtimeRep -> pure (KTYPE runtimeRep)
+    KTYPE runtimeRep -> KTYPE <$> zonkRuntimeRep runtimeRep
     KConstraint -> pure KConstraint
     KRuntimeRep -> pure KRuntimeRep
     KLevity -> pure KLevity
     KVecCount -> pure KVecCount
     KVecElem -> pure KVecElem
+
+zonkRuntimeRep :: RuntimeRep -> TcM RuntimeRep
+zonkRuntimeRep runtimeRep =
+  case runtimeRep of
+    RuntimeRepMeta unique -> do
+      solution <- readMetaTv unique
+      pure (maybe runtimeRep runtimeRepFromType solution)
+    TupleRep fields -> TupleRep <$> mapM zonkRuntimeRep fields
+    SumRep fields -> SumRep <$> mapM zonkRuntimeRep fields
+    _ -> pure runtimeRep
 
 defaultKindMetas :: Kind -> TcM Kind
 defaultKindMetas kind =
@@ -644,11 +726,18 @@ runtimeRepToTcType runtimeRep =
             (TyVarId ("rep" <> T.pack (showUnique unique)) unique)
         )
     RuntimeRepMeta unique -> TcMetaTv unique
-    TupleRep _ -> promoted "TupleRep"
-    SumRep _ -> promoted "SumRep"
-    VecRep {} -> promoted "VecRep"
+    TupleRep fields -> promotedListRep "TupleRep" fields
+    SumRep fields -> promotedListRep "SumRep" fields
+    VecRep count element ->
+      TcTyCon
+        (TyCon "'VecRep" 2)
+        [promoted (T.pack (show count)), promoted (T.pack (show element))]
   where
     promoted name = TcTyCon (TyCon ("'" <> name) 0) []
+    promotedListRep name fields =
+      TcTyCon
+        (TyCon ("'" <> name) 1)
+        [TcTyCon (TyCon "'[]" (length fields)) (map runtimeRepToTcType fields)]
     showUnique (Unique value) = show value
 
 freeTypeVars :: Type -> [Text]

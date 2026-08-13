@@ -98,12 +98,15 @@ defaultTypeKinds ty =
 
 finalizeTyConKind :: Kind -> TyCon -> TyCon
 finalizeTyConKind kind tyCon =
-  mkTyConWithOrigin
-    (tyConPackageId tyCon)
-    (tyConModuleName tyCon)
-    (tyConName tyCon)
-    (tyConArity tyCon)
-    kind
+  case tyConKindScheme tyCon of
+    Just _ -> setTyConKind kind tyCon
+    Nothing ->
+      mkTyConWithOrigin
+        (tyConPackageId tyCon)
+        (tyConModuleName tyCon)
+        (tyConName tyCon)
+        (tyConArity tyCon)
+        kind
 
 defaultTypeSchemeKinds :: TypeScheme -> TcM TypeScheme
 defaultTypeSchemeKinds (ForAll tyVars predicates body) =
