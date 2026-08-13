@@ -1,12 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Desugaring from type-checked surface AST to System FC Core.
---
--- The entry point 'desugarModule' takes a parsed module, runs the type
--- checker, and produces an 'FcProgram'.
 module Aihc.Fc.Desugar
   ( -- * Entry point
-    desugarModule,
     desugarModuleWithBindings,
     desugarModuleWithDataTypes,
     desugarModuleWithTcResult,
@@ -56,8 +52,8 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolveResult (..), ResolvedName (..), resolveWithDeps, unnamedPackage)
-import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TyConFlavor (..), emptyTcInterface, renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..))
+import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TyConFlavor (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
@@ -100,32 +96,6 @@ newtype DesugarConfig = DesugarConfig
   { primPackageId :: PackageId
   }
   deriving (Eq, Show)
-
--- | Desugar a module: parse, typecheck, then translate to compulsorily lowered
--- but deliberately unoptimized Core.
-desugarModule :: Module -> DesugarResult
-desugarModule m =
-  case resolveWithDeps mempty [(unnamedPackage, m)] of
-    ResolveResult {resolvedModules = [(_, resolved)], resolveErrors = []} ->
-      case typecheckModulesWithInterface emptyTcInterface [resolved] of
-        ([tcResult], tcInterface) ->
-          desugarModuleWithDataTypes
-            (DesugarConfig {primPackageId = PackageId "aihc-prim"})
-            (tcModuleBindings tcResult)
-            (tcInterfaceDataTypes tcInterface)
-            tcResult
-        _ ->
-          DesugarResult
-            { dsProgram = FcProgram (sourceModuleId m) [],
-              dsSuccess = False,
-              dsErrors = ["type checker did not return the requested module"]
-            }
-    ResolveResult {resolveErrors} ->
-      DesugarResult
-        { dsProgram = FcProgram (sourceModuleId m) [],
-          dsSuccess = False,
-          dsErrors = ["resolve error: " <> show resolveErrors]
-        }
 
 -- | Desugar a module using a type-checking result already computed by
 -- the caller. This is useful for clients such as the REPL that preload

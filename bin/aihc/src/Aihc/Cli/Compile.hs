@@ -10,8 +10,6 @@ module Aihc.Cli.Compile
     compileSourceToCpsGrinWithDependencies,
     compileSourceToGrinWithDependencies,
     compileSourceToWholeCoreWithDependencies,
-    compileSourceToAssembly,
-    compileSourceToAssemblyFor,
     compileSourceToAssemblyWithDependencies,
     compileSourceToAssemblyWithDependenciesFor,
     defaultCompileEnvironment,
@@ -39,7 +37,6 @@ import Aihc.Fc
   ( DesugarConfig (..),
     DesugarResult (..),
     FcProgram (..),
-    desugarModule,
     desugarModuleWithBindings,
     eliminateDeadCode,
     extractReachabilityInterface,
@@ -182,17 +179,6 @@ compileOutputPath options =
     defaultOutput
       | withoutExtension == source = source <> ".out"
       | otherwise = withoutExtension
-
-compileSourceToAssembly :: FilePath -> Text -> Either CompileError Text
-compileSourceToAssembly = compileSourceToAssemblyFor defaultCompileTarget
-
-compileSourceToAssemblyFor :: NativeTarget -> FilePath -> Text -> Either CompileError Text
-compileSourceToAssemblyFor target sourceName source = do
-  parsed <- parseCompileModule sourceName source
-  let desugared = desugarModule parsed
-  if dsSuccess desugared
-    then compiledAssembly <$> compileProgramArtifacts target (dsProgram desugared)
-    else Left (CompileFrontendError (dsErrors desugared))
 
 compileSourceToAssemblyWithDependencies :: CompileEnvironment -> FilePath -> Text -> IO (Either CompileError Text)
 compileSourceToAssemblyWithDependencies = compileSourceToAssemblyWithDependenciesFor defaultCompileTarget
@@ -390,9 +376,6 @@ reachableRuntimePrimitiveNames entry reachability programs =
           (primitive, _) <- Grin.grinPrimitives program
         ]
     )
-
-compileProgramArtifacts :: NativeTarget -> FcProgram -> Either CompileError CompileArtifacts
-compileProgramArtifacts target = compileProgramArtifactsWithEntry target "main"
 
 compileProgramArtifactsWithEntry :: NativeTarget -> Text -> FcProgram -> Either CompileError CompileArtifacts
 compileProgramArtifactsWithEntry target entryName sourceCore = do
