@@ -19,10 +19,7 @@ import Data.Kind (Type)
 import GHC.IO (IO (..))
 import GHC.Internal.Char (Char)
 import GHC.Prim (RealWorld, State#)
-
-data List a = [] | a : [a]
-
-infixr 5 :
+import GHC.Types (List (..))
 
 type String = [Char]
 

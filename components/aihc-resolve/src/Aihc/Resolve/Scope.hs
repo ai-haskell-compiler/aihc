@@ -497,15 +497,9 @@ moduleKey modu = fromMaybe (T.pack "Main") (moduleName modu)
 emptyScope :: Scope
 emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty
 
--- | Scope containing all wired-in Haskell built-ins that have no defining
--- source module but act like regular names during name resolution.
+-- | Scope containing fixed Haskell names that are always available.
 --
--- Term namespace: constructors for special syntax that cannot be expressed
--- as ordinary Haskell declarations (list cons @(:)@, the empty list @[]@,
--- tuple constructors, unboxed-tuple/sum constructors).  Normal Prelude
--- constructors like @True@, @False@, @Just@, @Nothing@, @Left@, @Right@ are
--- /not/ included here — they are defined in @base@ and reach a module via the
--- implicit Prelude import.
+-- The list cons name has the fixed @aihc-prim:GHC.Types.:@ source identity.
 --
 -- Type namespace: primitive and special types that are not defined in any
 -- parsed source module and cannot be imported from @base@ in the ordinary
@@ -517,7 +511,7 @@ emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty M
 builtinScope :: Scope
 builtinScope =
   Scope
-    { scopeTerms = Map.fromList (map mkBuiltinTerm builtinTermNames),
+    { scopeTerms = Map.singleton ":" listConsResolvedName,
       scopeTypes = Map.fromList (map mkBuiltinType builtinTypeNames),
       scopeConstructors = Map.empty,
       scopeRecordFields = Map.empty,
@@ -526,22 +520,13 @@ builtinScope =
       scopeQualifiedModules = Map.empty
     }
   where
-    mkBuiltinTerm n = (n, ResolvedBuiltin n)
     mkBuiltinType n = (n, ResolvedBuiltin n)
 
--- | Wired-in term-namespace names: special syntax constructors that have no
--- defining source declaration.  Normal Prelude constructors (@True@, @False@,
--- @Just@, etc.) are intentionally excluded — they live in @base@ and arrive
--- via the implicit Prelude import.
---
--- Note: names here must match exactly what the parser emits as the 'Name'
--- text inside 'EVar'.  For example, the cons operator appears as @":"@ (not
--- @"(:)"@), because the surrounding parens are stripped by the parser.
-builtinTermNames :: [T.Text]
-builtinTermNames =
-  [ -- Cons operator — the only list constructor that surfaces as EVar
-    ":"
-  ]
+listConsResolvedName :: ResolvedName
+listConsResolvedName =
+  ResolvedTopLevel
+    (PackageId "aihc-prim")
+    (qualifyName (Just "GHC.Types") (mkUnqualifiedName NameConSym ":"))
 
 -- | Wired-in type-namespace names: primitive types that are not defined in
 -- any parsed source module.  Prelude types like @Int@, @Bool@, @Maybe@, etc.

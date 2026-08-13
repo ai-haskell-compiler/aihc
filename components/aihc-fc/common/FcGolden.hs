@@ -25,7 +25,7 @@ import Aihc.Parser
     parseModule,
   )
 import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
-import Aihc.Resolve (PackageId (..), ResolveResult (..), modulesInPackage, resolveWithDeps, unnamedPackage)
+import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
@@ -74,7 +74,7 @@ loadFcCases = do
     then pure []
     else do
       paths <- listFixtureFiles fixtureRoot
-      mapM (loadFcCase [tupleSupportModule]) paths
+      mapM (loadFcCase [listSupportModule, tupleSupportModule]) paths
 
 -- Golden modules deliberately omit core-library dependencies. Keep their
 -- primitive tuple support source-defined while limiting the fixture to the
@@ -85,6 +85,14 @@ tupleSupportModule =
     [ "module GHC.Tuple where",
       "data Unit = ()",
       "data Tuple2 a b = (a, b)"
+    ]
+
+listSupportModule :: Text
+listSupportModule =
+  T.unlines
+    [ "module GHC.Types (List(..)) where",
+      "data List a = [] | a : [a]",
+      "infixr 5 :"
     ]
 
 loadFcCase :: [Text] -> FilePath -> IO FcCase
@@ -151,12 +159,12 @@ evaluateFcCase tc =
 
 renderFcCase :: FcCase -> Either String String
 renderFcCase tc =
-  let supportModuleCount = length (caseSupportModules tc)
-      parsedModules = map parseOne (caseSupportModules tc <> caseModules tc)
+  let supportModuleCount = length supportModules
+      parsedModules = map parseOne (supportModules <> caseModules tc)
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps mempty (modulesInPackage unnamedPackage modules) of
+          case resolveWithDeps mempty (zipWith modulePackage [0 :: Int ..] modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               let moduleAsts = map snd resolvedModules
                   (tcResults, tcInterface) = typecheckModulesWithInterface emptyTcInterface moduleAsts
@@ -175,6 +183,13 @@ renderFcCase tc =
             ResolveResult {resolveErrors} ->
               Left ("resolve error: " <> show resolveErrors)
   where
+    hasFixtureGhcTypes = any (T.isPrefixOf "module GHC.Types" . T.stripStart) (caseModules tc)
+    hasListSupport = not hasFixtureGhcTypes
+    supportModules = if hasFixtureGhcTypes then drop 1 (caseSupportModules tc) else caseSupportModules tc
+    modulePackage index modu
+      | hasListSupport && index == 0 =
+          (Package "aihc-prim" (PackageId "aihc-prim"), modu)
+      | otherwise = (unnamedPackage, modu)
     parseOne input =
       let config =
             defaultConfig

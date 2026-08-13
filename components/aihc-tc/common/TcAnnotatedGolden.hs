@@ -26,8 +26,8 @@ import Aihc.Parser.Syntax
     moduleName,
     parseExtensionName,
   )
-import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
-import Aihc.Tc (typecheck)
+import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), extractInterface, resolveWithDeps, unnamedPackage)
+import Aihc.Tc (emptyTcInterface, typecheckModulesWithInterface)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -136,14 +136,24 @@ evaluateTcAnnotatedCase tc =
    in case sequence parsedModules of
         Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps mempty (map modulePackage modules) of
+          case resolveWithDeps coreExports (map modulePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
-              let results = typecheck (map snd resolvedModules)
+              let (results, _) = typecheckModulesWithInterface coreInterface (map snd resolvedModules)
                   actual = renderAnnotatedTcResults (caseModules tc) results
                in classifySuccess tc actual
             ResolveResult {resolveErrors} ->
               classifyFailure tc ("resolve error: " <> show resolveErrors)
   where
+    corePackage = Package "aihc-prim" (PackageId "aihc-prim")
+    coreSource = "module GHC.Types (List(..)) where\ndata List a = [] | a : [a]\ninfixr 5 :\n"
+    coreModule = parseCoreModule coreSource
+    coreResolved = resolveWithDeps mempty [(corePackage, coreModule)]
+    coreExports = extractInterface coreResolved
+    coreInterface =
+      case coreResolved of
+        ResolveResult {resolvedModules = [(_, resolvedCore)], resolveErrors = []} ->
+          snd (typecheckModulesWithInterface emptyTcInterface [resolvedCore])
+        _ -> emptyTcInterface
     modulePackage modu
       | moduleName modu `elem` [Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
           (Package "aihc-prim" (PackageId "aihc-prim"), modu)
@@ -158,6 +168,10 @@ evaluateTcAnnotatedCase tc =
        in if null errs
             then Right ast
             else Left (show errs)
+    parseCoreModule input =
+      let config = defaultConfig {parserSourceName = "GHC.Types"}
+          (errs, ast) = parseModule config input
+       in if null errs then ast else error (show errs)
 
 classifySuccess :: TcAnnotatedCase -> [String] -> (Outcome, String)
 classifySuccess tc actual =

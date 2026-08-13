@@ -1,9 +1,9 @@
 expected: |-
   module Test where
 
-  external builtin.: : ∀ (a : TYPE BoxedRep Lifted). a → [a] → [a]
+  external "aihc-prim" GHC.Types.: : ∀ (a : TYPE BoxedRep Lifted). a → [a] → [a]
 
-  external builtin.[] : ∀ (a : TYPE BoxedRep Lifted). [a]
+  external "aihc-prim" GHC.Types.[] : ∀ (a : TYPE BoxedRep Lifted). [a]
 
   data Bool
    = False
@@ -20,11 +20,11 @@ expected: |-
                 λ(_lc_list1004 : [a]).
                   case _lc_list1004 as (_lc_scrut1007 : [a]) of {
                     [] →
-                      builtin.[] @a;
+                      "aihc-prim" GHC.Types.[] @a;
                     : (_lc_head1005 : a) (_lc_tail1006 : [a]) →
                       case x1001 _lc_head1005 as (_lc_guard1008 : Bool) of {
                         True →
-                          ((builtin.: @a) _lc_head1005) ($lc1003 _lc_tail1006);
+                          (("aihc-prim" GHC.Types.: @a) _lc_head1005) ($lc1003 _lc_tail1006);
                         False →
                           $lc1003 _lc_tail1006
                       }

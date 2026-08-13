@@ -252,7 +252,8 @@ compileEvalCase tc =
       case dependencyModules of
         Left errMsg -> pure (Left errMsg)
         Right deps ->
-          let resolved = resolveWithDeps mempty (map modulePackage (deps <> evalModules))
+          let allModules = addListSupport (deps <> evalModules)
+              resolved = resolveWithDeps mempty (map modulePackage allModules)
            in case resolved of
                 ResolveResult {resolvedModules, resolveErrors = []} ->
                   let moduleAsts = map snd resolvedModules
@@ -271,6 +272,13 @@ compileEvalCase tc =
                 ResolveResult {resolveErrors} ->
                   pure (Left ("resolve error: " <> show resolveErrors))
   where
+    addListSupport modules
+      | any ((== Just "GHC.Types") . Surface.moduleName) modules = modules
+      | otherwise = listSupportModule : modules
+    listSupportModule =
+      case parseOneModule "GHC.Types" [] "module GHC.Types (List(..)) where\ndata List a = [] | a : [a]\ninfixr 5 :\n" of
+        Right modu -> modu
+        Left err -> error err
     modulePackage modu
       | Surface.moduleName modu `elem` [Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
           (Package "aihc-prim" (PackageId "aihc-prim"), modu)

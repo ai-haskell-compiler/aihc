@@ -117,7 +117,7 @@ desugarModuleWithDataTypes config bindings dataTypes tcResult =
           dsErrors = showTcFailure tcResult
         }
     else
-      let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
+      let typeEnv = Map.fromList (concatMap bindingTypeEntries bindings)
           (packageId, currentModuleName) = resolvedModuleOrigin tcResult
           constructorFields =
             Map.fromList
@@ -274,16 +274,6 @@ showTcFailure tcResult =
 bindingTypeEntries :: TcBindingResult -> [(Text, TcType)]
 bindingTypeEntries b =
   [(tbName b, tbType b)]
-
-builtinTypeEntries :: [(Text, TcType)]
-builtinTypeEntries =
-  [ (":", TcForAllTy aVar (TcFunTy aTy (TcFunTy listA listA))),
-    ("[]", TcForAllTy aVar listA)
-  ]
-  where
-    aVar = TyVarId "a" (Unique (-1000))
-    aTy = TcTyVar aVar
-    listA = TcTyCon (TyCon "[]" 1) [aTy]
 
 -- | Desugar a module's declarations.
 dsModule :: Module -> DsM [FcTopBind]

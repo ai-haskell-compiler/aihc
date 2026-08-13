@@ -6,7 +6,8 @@
 {-# HLINT ignore "Unused LANGUAGE pragma" #-}
 
 module GHC.Types
-  ( Int (..),
+  ( List (..),
+    Int (..),
     Bool (..),
     Ordering (..),
     TYPE,
@@ -80,6 +81,10 @@ module GHC.Types
     Tuple64# (..),
   )
 where
+
+data List a = [] | a : [a]
+
+infixr 5 :
 
 data Int = I# Int#
 
