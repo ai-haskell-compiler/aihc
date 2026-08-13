@@ -19,7 +19,7 @@ expected: |-
     Λ(a : TYPE BoxedRep Lifted).
       λ(x1001 : Pair a).
         case x1001 as (_scrut : Pair a) of {
-          :*: (value : (a : TYPE BoxedRep Lifted)) (_ : (a : TYPE BoxedRep Lifted)) →
+          :*: (value : a) (_ : a) →
             value
         }
 status: pass

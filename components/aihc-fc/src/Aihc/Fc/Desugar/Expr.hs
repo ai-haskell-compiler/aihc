@@ -16,18 +16,21 @@ module Aihc.Fc.Desugar.Expr
     DsM,
     DsState (..),
     ClassDict (..),
+    canonicalType,
     desugarBug,
+    freshConstructorVar,
     freshUnique,
     freshVar,
     lookupType,
-    primBoolType,
+    predTypeM,
     withDicts,
+    withTypeVariables,
   )
 where
 
 import Aihc.Fc.Desugar.Match (dsPatternPure, numericRuntimeRep)
 import Aihc.Fc.Lower (seqPseudoOpName)
-import Aihc.Fc.Subst (OccurrenceCount (..), countExprVar, substExpr, substExprVar, substType)
+import Aihc.Fc.Subst (OccurrenceCount (..), countExprVar, freeRigidTyVars, freeRigidTyVarsOf, substExpr, substExprVar, substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
   ( CaseAlt (..),
@@ -61,9 +64,9 @@ import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Env (DataConFieldInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Kind (runtimeRepToTcType)
-import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType, liftedRuntimeRep, mkTyCon, mkTyConWithOrigin, runtimeRepOfType, setTyVarKind, tvKind, unboxedTupleTyConName)
+import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType, liftedRuntimeRep, mkTyCon, runtimeRepOfType, setTyVarKind, tvKind, tvName, tyConModuleName, tyConPackageId, unboxedTupleTyConName)
 import Control.Applicative ((<|>))
-import Control.Monad (zipWithM)
+import Control.Monad (zipWithM, (>=>))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify')
 import Data.ByteString qualified as BS
@@ -87,6 +90,10 @@ data DsState = DsState
     dsModuleName :: !(Maybe Text),
     -- | Map from surface name to its inferred type (from TC).
     dsTypeEnv :: !(Map Text TcType),
+    -- | Class type constructors from the type-checker interface.
+    dsClassTyCons :: !(Map Text TyCon),
+    -- | Type variables in the current binding scope, keyed by source name.
+    dsTypeVars :: !(Map Text [TyVarId]),
     -- | Local variable bindings (pattern-bound, lambda-bound).
     dsLocalVars :: !(Map Text Var),
     -- | Local dictionaries, keyed by class predicate.
@@ -116,6 +123,28 @@ freshVar name ty = do
   u <- freshUnique
   pure (Var name u ty)
 
+freshConstructorVar :: Text -> TcType -> DsM Var
+freshConstructorVar name ty = do
+  var <- freshVar name ty
+  pure var {varResolvedName = resolvedConstructorOrigin name ty}
+
+resolvedConstructorOrigin :: Text -> TcType -> Maybe FcSymbolOrigin
+resolvedConstructorOrigin name ty = do
+  tyCon <- resultTyCon ty
+  let PackageId packageName = tyConPackageId tyCon
+  if packageName == "aihc-internal"
+    then Nothing
+    else Just (FcTopLevelOrigin packageName (tyConModuleName tyCon) name)
+  where
+    resultTyCon currentType =
+      case currentType of
+        TcTyCon tyCon _ -> Just tyCon
+        TcFunTy _ result -> resultTyCon result
+        TcForAllTy _ body -> resultTyCon body
+        TcQualTy _ body -> resultTyCon body
+        TcAppTy function _ -> resultTyCon function
+        _ -> Nothing
+
 freshInternalVar :: Text -> TcType -> DsM Var
 freshInternalVar prefix ty = do
   u@(Unique unique) <- freshUnique
@@ -133,11 +162,6 @@ lookupType name = do
     Nothing -> case Map.lookup name (dsTypeEnv st) of
       Just ty -> pure ty
       Nothing -> desugarBug ("missing type information for name: " <> T.unpack name)
-
-primBoolType :: DsM TcType
-primBoolType = do
-  primPackageId <- gets dsPrimPackageId
-  pure (TcTyCon (mkTyConWithOrigin primPackageId "GHC.Types" "Bool" 0 KType) [])
 
 -- | Look up a local variable binding.
 lookupLocal :: Text -> DsM (Maybe Var)
@@ -171,6 +195,41 @@ withDicts dicts action = do
           variable = classDictVar dictionary
           withFallback = Map.insertWith (\_ existing -> existing) (dictKey className arguments) variable environment
        in Map.insert (exactDictKey className arguments) variable withFallback
+
+withTypeVariables :: [TyVarId] -> DsM a -> DsM a
+withTypeVariables variables action = do
+  previous <- gets dsTypeVars
+  let extended = List.foldl' (\scope variable -> Map.insertWith (<>) (tvName variable) [variable] scope) previous variables
+  modify' (\state -> state {dsTypeVars = extended})
+  result <- action
+  modify' (\state -> state {dsTypeVars = previous})
+  pure result
+
+canonicalType :: TcType -> DsM TcType
+canonicalType ty = do
+  variables <- gets dsTypeVars
+  let substitution =
+        Map.fromList
+          [ (variable, TcTyVar replacement)
+          | variable <- freeRigidTyVars ty,
+            Just replacements <- [Map.lookup (tvName variable) variables],
+            variable `notElem` replacements,
+            replacement : _ <- [replacements]
+          ]
+  pure (substType substitution ty)
+
+scopedTypeArguments :: TcType -> DsM [TcType]
+scopedTypeArguments ty = do
+  variables <- gets dsTypeVars
+  let (quantified, _) = peelForAlls ty
+      select variable = do
+        candidates <- Map.lookup (tvName variable) variables
+        replacement <-
+          if variable `elem` candidates
+            then Just variable
+            else listToMaybe candidates
+        pure (TcTyVar replacement)
+  pure (fromMaybe [] (traverse select quantified))
 
 -- | Desugar a list of match equations into a Core expression.
 --
@@ -207,8 +266,10 @@ dsMatchesWithDictSource enclosingDicts givenDicts abstractDicts ty matches = cas
           then do
             let (tyLams, afterForAlls) = peelForAlls ty
                 dictPreds = fst (peelQuals afterForAlls)
-            dicts <- dictionariesFor dictPreds
-            body <- withDicts (enclosingDicts <> dicts) (dsRhs (matchRhs m0))
+            (dicts, body) <- withTypeVariables tyLams $ do
+              dicts <- dictionariesFor dictPreds
+              body <- withDicts (enclosingDicts <> dicts) (dsRhs (matchRhs m0))
+              pure (dicts, body)
             let dictLamExpr
                   | abstractDicts = foldr (FcLam . classDictVar) body dicts
                   | otherwise = body
@@ -217,9 +278,11 @@ dsMatchesWithDictSource enclosingDicts givenDicts abstractDicts ty matches = cas
             let (tyLams, afterForAlls) = peelForAlls ty
                 (dictPreds, innerTy) = peelQuals afterForAlls
                 (argTys, resTy) = peelFunTys nArgs innerTy
-            dicts <- dictionariesFor dictPreds
-            argVars <- mapM (\(i, argTy) -> freshInternalVar (argName i) argTy) (zip [0 :: Int ..] argTys)
-            body <- withDicts (enclosingDicts <> dicts) (buildCaseChain argVars resTy matches)
+            (dicts, argVars, body) <- withTypeVariables tyLams $ do
+              dicts <- dictionariesFor dictPreds
+              argVars <- mapM (\(i, argTy) -> freshInternalVar (argName i) argTy) (zip [0 :: Int ..] argTys)
+              body <- withDicts (enclosingDicts <> dicts) (buildCaseChain argVars resTy matches)
+              pure (dicts, argVars, body)
             let lamExpr = foldr FcLam body argVars
                 dictLamExpr
                   | abstractDicts = foldr (FcLam . classDictVar) lamExpr dicts
@@ -235,10 +298,12 @@ mkClassDict :: (Int, Pred) -> DsM ClassDict
 mkClassDict (i, pred') =
   case pred' of
     ClassPred className args -> do
-      var <- freshVar ("$d" <> T.pack (show i)) (predType pred')
+      predicateTy <- predTypeM pred'
+      var <- freshVar ("$d" <> T.pack (show i)) predicateTy
       pure (ClassDict className args var)
     _ -> do
-      var <- freshVar ("$d" <> T.pack (show i)) (predType pred')
+      predicateTy <- predTypeM pred'
+      var <- freshVar ("$d" <> T.pack (show i)) predicateTy
       pure (ClassDict "<constraint>" [] var)
 
 -- | Generate argument names: x, y, z, x1, y1, ...
@@ -258,9 +323,14 @@ peelQuals :: TcType -> ([Pred], TcType)
 peelQuals (TcQualTy preds body) = (preds, body)
 peelQuals ty = ([], ty)
 
-predType :: Pred -> TcType
-predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
-predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
+predTypeM :: Pred -> DsM TcType
+predTypeM (ClassPred className arguments) = do
+  classTyCons <- gets dsClassTyCons
+  canonicalArguments <- mapM canonicalType arguments
+  case Map.lookup className classTyCons of
+    Just classTyCon -> pure (TcTyCon classTyCon canonicalArguments)
+    Nothing -> desugarBug ("missing class type information for " <> T.unpack className)
+predTypeM (EqPred left right) = pure (TcTyCon (TyCon "~" 2) [left, right])
 
 -- | Peel a fixed number of function argument types.
 peelFunTys :: Int -> TcType -> ([TcType], TcType)
@@ -434,8 +504,10 @@ dsOrdinaryPatternMatch scrutVar pat success failure = do
     _ -> do
       binderTys <- patternBinderTypesM pat (varType scrutVar)
       binders <- zipWithM freshVar binderNames binderTys
-      (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
-      matched <- withDicts dictionaries (dsMatchPatterns binders (constructorSubpatterns pat) success failure)
+      (evidenceBinders, matched) <- withTypeVariables (freeRigidTyVarsOf binderTys) $ do
+        (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
+        matched <- withDicts dictionaries (dsMatchPatterns binders (constructorSubpatterns pat) success failure)
+        pure (evidenceBinders, matched)
       caseBinder <- freshInternalVar "_match" (varType scrutVar)
       pure
         ( FcCase
@@ -537,8 +609,10 @@ buildAltGroup scrutVar restVars resTy (FirstPatternGroup pat matches) =
           let innerMatches = map expandFirstConstructorPattern matches
           binderTys <- patternBinderTypesM pat (varType scrutVar)
           binders <- zipWithM freshVar binderNames binderTys
-          (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
-          body <- withDicts dictionaries (buildCaseChain (binders <> restVars) resTy innerMatches)
+          (evidenceBinders, body) <- withTypeVariables (freeRigidTyVarsOf binderTys) $ do
+            (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
+            body <- withDicts dictionaries (buildCaseChain (binders <> restVars) resTy innerMatches)
+            pure (evidenceBinders, body)
           pure (FcAlt con (evidenceBinders <> binders) body)
 
 expandFirstConstructorPattern :: Match -> Match
@@ -574,7 +648,8 @@ dsExpr (EVar name) = do
     Nothing -> do
       ty <- lookupTypeName resolvedName
       v <- freshVar n ty
-      pure (FcVar v {varResolvedName = resolvedOrigin})
+      typeArguments <- scopedTypeArguments ty
+      pure (List.foldl' FcTyApp (FcVar v {varResolvedName = resolvedOrigin}) typeArguments)
 dsExpr (EInt i numericType _) = pure (FcLit (LitInt (numericRuntimeRep numericType) i))
 dsExpr (EChar c _) = pure (boxCharLiteral c)
 dsExpr (ECharHash c _) = pure (FcLit (LitChar WordRep c))
@@ -623,10 +698,11 @@ dsAnnotatedVar tcAnn name _expr = do
         ty <- lookupTypeName resolvedName
         imported <- freshVar n ty
         pure imported {varResolvedName = resolvedOrigin}
+  typeArguments <- mapM canonicalType (tcAnnTypeArgs tcAnn)
   let occurrenceVar
         | isGhcPrimSeq name = variable {varName = seqPseudoOpName}
         | otherwise = variable
-      typedExpr = List.foldl' FcTyApp (FcVar occurrenceVar) (tcAnnTypeArgs tcAnn)
+      typedExpr = List.foldl' FcTyApp (FcVar occurrenceVar) typeArguments
   dicts <- mapM dsEvidence (tcAnnEvidenceTerms tcAnn)
   pure (List.foldl' FcApp typedExpr dicts)
 
@@ -725,14 +801,12 @@ dsStrictConstructorApplication headCore argumentExpressions argumentCores fields
         ]
   pure (foldr forceStrictArgument application strictArguments)
   where
-    strictFieldBinder (argumentExpression, _, field) =
+    strictFieldBinder (_, argumentCore, field) =
       case dcfiStrict field of
         False -> pure Nothing
-        True ->
-          Just
-            <$> freshInternalVar
-              "_strict_field"
-              (fromMaybe (dcfiType field) (exprAnnotationType argumentExpression))
+        True -> do
+          argumentType <- fcExprTypeM argumentCore
+          Just <$> freshInternalVar "_strict_field" argumentType
 
     replaceStrictArgument maybeBinder argumentCore =
       maybe argumentCore FcVar maybeBinder
@@ -927,8 +1001,8 @@ dsIf cond thenE elseE = do
   cond' <- dsExpr cond
   then' <- dsExpr thenE
   else' <- dsExpr elseE
-  boolTy <- primBoolType
-  binder <- freshVar "_if" boolTy
+  conditionType <- fcExprTypeM cond'
+  binder <- freshVar "_if" conditionType
   pure
     ( FcCase
         cond'
@@ -1071,8 +1145,8 @@ dsOverloadedIntegerPatternMatch :: Var -> Pattern -> DsM FcExpr -> FcExpr -> DsM
 dsOverloadedIntegerPatternMatch scrutVar pat success failure = do
   test <- dsOverloadedIntegerPatternTest (FcVar scrutVar) pat
   trueBranch <- success
-  boolTy <- primBoolType
-  binder <- freshVar "_case_guard" boolTy
+  testType <- fcExprTypeM test
+  binder <- freshVar "_case_guard" testType
   pure
     ( FcCase
         test
@@ -1328,8 +1402,8 @@ dsCompGuard :: TcType -> Expr -> Expr -> [CompStmt] -> FcExpr -> DsM FcExpr
 dsCompGuard elemTy body guard rest tailExpr = do
   guard' <- dsExpr guard
   trueBranch <- dsCompQuals elemTy body rest tailExpr
-  boolTy <- primBoolType
-  binder <- freshInternalVar "_lc_guard" boolTy
+  guardType <- fcExprTypeM guard'
+  binder <- freshInternalVar "_lc_guard" guardType
   pure
     ( FcCase
         guard'
@@ -1374,8 +1448,10 @@ dsCompGenMatch elemTy body pat rest headVar skipExpr =
         _ -> do
           binderTys <- patternBinderTypesM pat (varType headVar)
           binders <- zipWithM freshVar binderNames binderTys
-          (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
-          matched <- withDicts dictionaries (withLocals (zip binderNames binders) (dsCompQuals elemTy body rest skipExpr))
+          (evidenceBinders, matched) <- withTypeVariables (freeRigidTyVarsOf binderTys) $ do
+            (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
+            matched <- withDicts dictionaries (withLocals (zip binderNames binders) (dsCompQuals elemTy body rest skipExpr))
+            pure (evidenceBinders, matched)
           caseBinder <- freshInternalVar "_lc_match" (varType headVar)
           pure
             ( FcCase
@@ -1575,15 +1651,17 @@ dsEvidence evidence =
       unitConstructor
     EvDict dictOrigin dictName typeArgs contextEvidence -> do
       dictTy <- lookupType dictName
+      canonicalTypeArgs <- mapM canonicalType typeArgs
       contextDicts <- mapM dsEvidence contextEvidence
       let origin = fmap (\(packageName, moduleName) -> FcTopLevelOrigin packageName moduleName dictName) dictOrigin
-          dictExpr = List.foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy) {varResolvedName = origin}) typeArgs
+          dictExpr = List.foldl' FcTyApp (FcVar (Var dictName (Unique (-199)) dictTy) {varResolvedName = origin}) canonicalTypeArgs
       pure (List.foldl' FcApp dictExpr contextDicts)
     EvCoercion {} ->
       unitConstructor
     EvSuperClass source sourcePredicate fieldTypes fieldIndex -> do
       sourceExpression <- dsEvidence source
-      sourceBinder <- freshVar "$super_source" (predType sourcePredicate)
+      sourceType <- predTypeM sourcePredicate
+      sourceBinder <- freshVar "$super_source" sourceType
       fieldBinders <- zipWithM (\index fieldType -> freshVar ("$super_field" <> T.pack (show index)) fieldType) [0 :: Int ..] fieldTypes
       selected <-
         case drop fieldIndex fieldBinders of
@@ -1612,38 +1690,53 @@ dsTypeableEvidence ty argumentEvidence = do
     else do
       argumentRepresentations <- zipWithM dsTypeableArgument argumentTypes argumentEvidence
       representation <- dsTypeRepresentation ty argumentRepresentations
-      proxy <- freshVar "$typeable_proxy" (TcTyCon (TyCon "Proxy" 1) [ty])
+      proxyConstructorType <- lookupType "Proxy"
+      proxyType <- instantiatedConstructorResult proxyConstructorType [ty]
+      typeRepConstructorType <- lookupType "TypeRep"
+      typeRepType <- instantiatedConstructorResult typeRepConstructorType []
+      proxy <- freshVar "$typeable_proxy" proxyType
       value <- freshVar "$typeable_value" ty
+      typeableTyCon <-
+        gets (Map.lookup "Typeable" . dsClassTyCons)
+          >>= maybe (desugarBug "missing Typeable class information") pure
       let proxyMethod = FcLam proxy representation
           valueMethod = FcLam value representation
+          dictionaryConstructorName = fcDictionaryConstructorName "Typeable"
+          dictionaryConstructorOrigin =
+            let PackageId packageName = tyConPackageId typeableTyCon
+             in Just (FcTopLevelOrigin packageName (tyConModuleName typeableTyCon) dictionaryConstructorName)
           dictionaryConstructor =
-            Var
-              (fcDictionaryConstructorName "Typeable")
-              (Unique (-2100))
-              ( TcForAllTy
-                  typeableTyVar
-                  ( TcFunTy
-                      (TcFunTy (TcTyCon (TyCon "Proxy" 1) [TcTyVar typeableTyVar]) typeRepTy)
-                      ( TcFunTy
-                          (TcFunTy (TcTyVar typeableTyVar) typeRepTy)
-                          (TcTyCon (TyCon "Typeable" 1) [TcTyVar typeableTyVar])
-                      )
-                  )
-              )
+            ( Var
+                dictionaryConstructorName
+                (Unique (-2100))
+                ( TcForAllTy
+                    typeableTyVar
+                    ( TcFunTy
+                        (TcFunTy (replaceTypeArgument ty (TcTyVar typeableTyVar) proxyType) typeRepType)
+                        ( TcFunTy
+                            (TcFunTy (TcTyVar typeableTyVar) typeRepType)
+                            (TcTyCon typeableTyCon [TcTyVar typeableTyVar])
+                        )
+                    )
+                )
+            )
+              { varResolvedName = dictionaryConstructorOrigin
+              }
       pure (FcApp (FcApp (FcTyApp (FcVar dictionaryConstructor) ty) proxyMethod) valueMethod)
 
 dsTypeableArgument :: TcType -> EvTerm -> DsM FcExpr
 dsTypeableArgument ty evidence = do
   dictionary <- dsEvidence evidence
-  dictionaryBinder <- freshVar "$typeable_dictionary" (TcTyCon (TyCon "Typeable" 1) [ty])
-  proxyMethod <- freshVar "$typeable_proxy_method" (TcFunTy (TcTyCon (TyCon "Proxy" 1) [ty]) typeRepTy)
-  valueMethod <- freshVar "$typeable_value_method" (TcFunTy ty typeRepTy)
-  let proxyConstructor =
-        Var
-          "Proxy"
-          (Unique (-2101))
-          (TcForAllTy typeableTyVar (TcTyCon (TyCon "Proxy" 1) [TcTyVar typeableTyVar]))
-      proxy = FcTyApp (FcVar proxyConstructor) ty
+  dictionaryType <- predTypeM (ClassPred "Typeable" [ty])
+  proxyConstructorType <- lookupType "Proxy"
+  proxyType <- instantiatedConstructorResult proxyConstructorType [ty]
+  typeRepConstructorType <- lookupType "TypeRep"
+  typeRepType <- instantiatedConstructorResult typeRepConstructorType []
+  dictionaryBinder <- freshVar "$typeable_dictionary" dictionaryType
+  proxyMethod <- freshVar "$typeable_proxy_method" (TcFunTy proxyType typeRepType)
+  valueMethod <- freshVar "$typeable_value_method" (TcFunTy ty typeRepType)
+  proxyConstructor <- freshConstructorVar "Proxy" proxyConstructorType
+  let proxy = FcTyApp (FcVar proxyConstructor) ty
   pure
     ( FcCase
         dictionary
@@ -1660,16 +1753,30 @@ dsTypeRepresentation ty arguments =
   case typeableTypeView ty of
     Nothing -> desugarBug ("cannot construct TypeRep for " <> show ty)
     Just (name, _) -> do
-      let tyConConstructor =
-            Var "TyCon" (Unique (-2102)) (TcFunTy stringTy tyConTy)
-          typeRepConstructor =
-            Var
-              "TypeRep"
-              (Unique (-2103))
-              (TcFunTy tyConTy (TcFunTy (listType typeRepTy) typeRepTy))
-          tyCon = FcApp (FcVar tyConConstructor) (T.foldr consChar (nilList charTy) name)
-          argumentList = foldr (consList typeRepTy) (nilList typeRepTy) arguments
+      tyConConstructorType <- lookupType "TyCon"
+      tyConConstructor <- freshConstructorVar "TyCon" tyConConstructorType
+      typeRepConstructorType <- lookupType "TypeRep"
+      typeRepConstructor <- freshConstructorVar "TypeRep" typeRepConstructorType
+      typeRepType <- instantiatedConstructorResult typeRepConstructorType []
+      let tyCon = FcApp (FcVar tyConConstructor) (T.foldr consChar (nilList charTy) name)
+          argumentList = foldr (consList typeRepType) (nilList typeRepType) arguments
       pure (FcApp (FcApp (FcVar typeRepConstructor) tyCon) argumentList)
+
+instantiatedConstructorResult :: TcType -> [TcType] -> DsM TcType
+instantiatedConstructorResult constructorType arguments =
+  pure (constructorResult (foldl instantiate constructorType arguments))
+  where
+    instantiate (TcForAllTy variable body) argument = substType (Map.singleton variable argument) body
+    instantiate ty _ = ty
+    constructorResult (TcFunTy _ result) = constructorResult result
+    constructorResult ty = ty
+
+replaceTypeArgument :: TcType -> TcType -> TcType -> TcType
+replaceTypeArgument original replacement ty =
+  case ty of
+    TcTyCon tyCon [argument]
+      | argument == original -> TcTyCon tyCon [replacement]
+    _ -> ty
 
 typeableTypeView :: TcType -> Maybe (Text, [TcType])
 typeableTypeView ty =
@@ -1680,15 +1787,6 @@ typeableTypeView ty =
 
 typeableTyVar :: TyVarId
 typeableTyVar = TyVarId "a" (Unique (-2104))
-
-typeRepTy :: TcType
-typeRepTy = TcTyCon (TyCon "TypeRep" 0) []
-
-tyConTy :: TcType
-tyConTy = TcTyCon (TyCon "TyCon" 0) []
-
-stringTy :: TcType
-stringTy = listType charTy
 
 unitConstructor :: DsM FcExpr
 unitConstructor = do
@@ -1716,7 +1814,7 @@ patternEvidenceBinders pattern' = do
         case patternTcAnnotation pattern' of
           Just annotation -> [predicate | EvGiven predicate <- tcAnnEvidenceTerms annotation]
           Nothing -> []
-  binders <- mapM (freshVar "$dpattern" . predType) predicates
+  binders <- mapM (predTypeM >=> freshVar "$dpattern") predicates
   pure (binders, zipWith patternDictionary predicates binders)
   where
     patternDictionary predicate binder =
@@ -1744,12 +1842,12 @@ patternBinderTypesM pat scrutTy =
     PInfix _lhs op _rhs
       | nameText op == ":" ->
           (\elemTy -> [elemTy, scrutTy]) <$> listElemTyM scrutTy
-      | otherwise -> constructorFieldTypesM op 2
+      | otherwise -> constructorFieldTypesM op 2 scrutTy
     PList (_ : _) ->
       (\elemTy -> [elemTy, scrutTy]) <$> listElemTyM scrutTy
     PCon _ _ [] -> pure []
     PCon name _ subPats -> do
-      fallbackTys <- constructorFieldTypesM name (length subPats)
+      fallbackTys <- constructorFieldTypesM name (length subPats) scrutTy
       zipWithM patternFieldTypeM subPats fallbackTys
     PTuple _ [] -> pure []
     PTuple _ subPats -> tupleFieldTypesM (length subPats) scrutTy
@@ -1763,24 +1861,36 @@ patternBinderTypesM pat scrutTy =
     missingPatternTypes =
       desugarBug ("missing pattern binder type information while desugaring: " <> take 80 (show pat))
 
-    patternFieldTypeM subPat fallbackTy =
-      pure (fromMaybe fallbackTy (patternBinderAnnotationType subPat <|> patternAnnotationType subPat))
+    patternFieldTypeM _ = pure
 
-constructorFieldTypesM :: Name -> Int -> DsM [TcType]
-constructorFieldTypesM name arity = do
+constructorFieldTypesM :: Name -> Int -> TcType -> DsM [TcType]
+constructorFieldTypesM name arity scrutineeType = do
   ty <- lookupTypeName name
-  takeConstructorFields (nameToText name) arity (dropConstructorContext (dropForAlls ty))
+  let (typeVariables, body) = peelForAlls ty
+      constructorType = dropConstructorContext body
+  (fields, resultType) <- takeConstructorType (nameToText name) arity constructorType
+  let substitution = constructorResultSubstitution typeVariables resultType scrutineeType
+  pure (map (substType substitution) fields)
 
-takeConstructorFields :: Text -> Int -> TcType -> DsM [TcType]
-takeConstructorFields _ 0 _ = pure []
-takeConstructorFields name arity (TcFunTy arg rest) =
-  (arg :) <$> takeConstructorFields name (arity - 1) rest
-takeConstructorFields name arity ty =
+takeConstructorType :: Text -> Int -> TcType -> DsM ([TcType], TcType)
+takeConstructorType _ 0 resultType = pure ([], resultType)
+takeConstructorType name arity (TcFunTy argument rest) = do
+  (arguments, resultType) <- takeConstructorType name (arity - 1) rest
+  pure (argument : arguments, resultType)
+takeConstructorType name arity ty =
   desugarBug ("missing field type information for constructor pattern " <> T.unpack name <> ": expected " <> show arity <> " more field(s) in " <> show ty)
 
-dropForAlls :: TcType -> TcType
-dropForAlls (TcForAllTy _ body) = dropForAlls body
-dropForAlls ty = ty
+constructorResultSubstitution :: [TyVarId] -> TcType -> TcType -> Map TyVarId TcType
+constructorResultSubstitution typeVariables resultType scrutineeType =
+  case (resultType, scrutineeType) of
+    (TcTyCon resultTyCon resultArguments, TcTyCon scrutineeTyCon scrutineeArguments)
+      | resultTyCon == scrutineeTyCon ->
+          Map.fromList
+            [ (typeVariable, argument)
+            | (TcTyVar typeVariable, argument) <- zip resultArguments scrutineeArguments,
+              typeVariable `elem` typeVariables
+            ]
+    _ -> Map.empty
 
 dropConstructorContext :: TcType -> TcType
 dropConstructorContext (TcQualTy _ body) = body

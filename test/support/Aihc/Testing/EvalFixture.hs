@@ -16,7 +16,7 @@ module Aihc.Testing.EvalFixture
   )
 where
 
-import Aihc.Fc (DesugarResult (..), FcBind (..), FcModuleId (..), FcProgram (..), FcSymbolOrigin (..), FcTopBind (..), Var (..), desugarModuleWithDataTypes, mergePrograms)
+import Aihc.Fc (DesugarResult (..), FcBind (..), FcModuleId (..), FcProgram (..), FcSymbolOrigin (..), FcTopBind (..), Var (..), desugarModuleWithInterface, emptyLintEnv, extractAxiomInterface, lintProgramWithAxiomInterface, mergePrograms)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -40,7 +40,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
-import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Tc (TcBindingResult, emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (bracket, mask, onException)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -260,9 +260,20 @@ compileEvalCase tc =
                    in if all tcModuleSuccess tcResults
                         then do
                           let allBindings = moduleGroupBindings tcResults
-                              results = zipWith (desugarModuleWithDataTypes (PackageId "aihc-prim") allBindings (tcInterfaceDataTypes tcInterface)) tcResults moduleAsts
+                              results = zipWith (desugarModuleWithInterface (PackageId "aihc-prim") allBindings tcInterface) tcResults moduleAsts
                           if all dsSuccess results
-                            then pure (Right (concatPrograms (map dsProgram results)))
+                            then
+                              let programs = map dsProgram results
+                                  axiomInterface = foldMap extractAxiomInterface programs
+                                  lintFailures =
+                                    [ (fcProgramModule program, errors)
+                                    | program <- programs,
+                                      let errors = lintProgramWithAxiomInterface axiomInterface emptyLintEnv program,
+                                      not (null errors)
+                                    ]
+                               in if null lintFailures
+                                    then pure (Right (concatPrograms programs))
+                                    else pure (Left ("System FC lint error: " <> show lintFailures))
                             else pure (Left ("desugar error: " <> unlines (concatMap dsErrors results)))
                         else pure (Left ("typecheck error: " <> renderTcErrors tcResults))
                 ResolveResult {resolveErrors} ->

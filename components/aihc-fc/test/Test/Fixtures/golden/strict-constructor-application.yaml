@@ -17,11 +17,11 @@ expected: |-
     Λ(a : TYPE BoxedRep Lifted).
       λ(x1001 : a).
         λ(y1002 : a).
-          case x1001 as (_strict_field1004 : (a : TYPE BoxedRep Lifted)) of {
+          case x1001 as (_strict_field1004 : a) of {
             _ →
-              case y1002 as (_strict_field1005 : (a : TYPE BoxedRep Lifted)) of {
+              case y1002 as (_strict_field1005 : a) of {
                 _ →
-                  ((StrictPair @(a : TYPE BoxedRep Lifted)) _strict_field1004) _strict_field1005
+                  ((StrictPair @a) _strict_field1004) _strict_field1005
               }
           }
 status: pass

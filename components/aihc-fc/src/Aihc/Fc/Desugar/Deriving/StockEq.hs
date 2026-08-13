@@ -6,8 +6,8 @@ module Aihc.Fc.Desugar.Deriving.StockEq
   )
 where
 
-import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, predType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshVar, lookupType, primBoolType, withDicts)
+import Aihc.Fc.Desugar.Dictionary (classMethodFieldType)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshConstructorVar, freshVar, lookupType, predTypeM, withDicts, withTypeVariables)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcStockDerivingPlan (..))
@@ -32,7 +32,7 @@ dsStockEqDictionaryPlan plan =
       desugarBug ("missing checked field evidence for stock Eq deriving " <> T.unpack (tcDerivingDictName plan))
 
 dsStockEqDictionary :: TcDerivingPlan -> [Pred] -> DataTypeInfo -> [[EvTerm]] -> DsM (Var, FcExpr)
-dsStockEqDictionary plan context dataType fieldEvidence = do
+dsStockEqDictionary plan context dataType fieldEvidence = withTypeVariables (tcDerivingTyVars plan) $ do
   eqTyCon <- stockEqTyCon plan
   contextDicts <- zipWithM mkPredicateDict [0 :: Int ..] context
   genericMethodTypes <-
@@ -72,7 +72,9 @@ dsStockEqDictionary plan context dataType fieldEvidence = do
       genericDictionaryType = TcTyCon eqTyCon (map TcTyVar classTyVars)
       constructorType = foldr TcForAllTy (foldr TcFunTy genericDictionaryType genericMethodTypes) classTyVars
   constructorVar <- freshVar dictionaryConstructor constructorType
-  let constructor = foldl FcTyApp (FcVar constructorVar) (tcDerivingHeadTypes plan)
+  let constructorOrigin = fmap (\(packageName, moduleName) -> FcTopLevelOrigin packageName moduleName dictionaryConstructor) (tcDerivingClassOrigin plan)
+      resolvedConstructorVar = constructorVar {varResolvedName = constructorOrigin}
+      constructor = foldl FcTyApp (FcVar resolvedConstructorVar) (tcDerivingHeadTypes plan)
       dictionary =
         FcLet
           (FcNonRec selfDictionaryVar selfDictionaryExpression)
@@ -206,11 +208,19 @@ negateBoolean expression = do
 boolConstructor :: Text -> DsM FcExpr
 boolConstructor name = do
   constructorType <- lookupType name
-  constructor <- freshVar name constructorType
+  constructor <- freshConstructorVar name constructorType
   pure (FcVar constructor)
 
 boolType :: DsM TcType
-boolType = primBoolType
+boolType = do
+  trueType <- lookupType "True"
+  pure (resultType trueType)
+  where
+    resultType ty =
+      case ty of
+        TcForAllTy _ body -> resultType body
+        TcFunTy _ body -> resultType body
+        _ -> ty
 
 stockEqTyCon :: TcDerivingPlan -> DsM TyCon
 stockEqTyCon plan =
@@ -223,7 +233,8 @@ stockEqTyCon plan =
 
 mkPredicateDict :: Int -> Pred -> DsM ClassDict
 mkPredicateDict index predicate = do
-  dictVar <- freshVar ("$d" <> T.pack (show index)) (predType predicate)
+  predicateType <- predTypeM predicate
+  dictVar <- freshVar ("$d" <> T.pack (show index)) predicateType
   pure $
     case predicate of
       ClassPred className arguments -> ClassDict className arguments dictVar

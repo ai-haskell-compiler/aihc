@@ -10,7 +10,7 @@ module GrinGolden
   )
 where
 
-import Aihc.Fc (DesugarResult (..), desugarModuleWithBindings)
+import Aihc.Fc (DesugarResult (..), desugarModuleWithBindings, emptyLintEnv, extractAxiomInterface, lintProgramWithAxiomInterface)
 import Aihc.Grin (lintProgram, lowerProgram, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
@@ -120,11 +120,16 @@ evaluateGrinCase fixture =
                       desugared = zipWith (desugarModuleWithBindings (PackageId "aihc-prim") allBindings) tcResults moduleAsts
                    in if all dsSuccess desugared
                         then
-                          let programs = map (lowerProgram . dsProgram) desugared
-                              lintErrors = concatMap lintProgram programs
-                           in if null lintErrors
-                                then classifySuccess fixture (unlines (map renderProgram programs))
-                                else classifyFailure fixture ("GRIN lint error: " <> show lintErrors)
+                          let axiomInterface = foldMap (extractAxiomInterface . dsProgram) desugared
+                              fcLintErrors = concatMap (lintProgramWithAxiomInterface axiomInterface emptyLintEnv . dsProgram) desugared
+                           in if null fcLintErrors
+                                then
+                                  let programs = map (lowerProgram . dsProgram) desugared
+                                      grinLintErrors = concatMap lintProgram programs
+                                   in if null grinLintErrors
+                                        then classifySuccess fixture (unlines (map renderProgram programs))
+                                        else classifyFailure fixture ("GRIN lint error: " <> show grinLintErrors)
+                                else classifyFailure fixture ("System FC lint error: " <> show fcLintErrors)
                         else classifyFailure fixture ("desugar error: " <> unlines (concatMap dsErrors desugared))
                 else classifyFailure fixture ("typecheck error: " <> renderTcErrors tcResults)
         ResolveResult {resolveErrors} -> classifyFailure fixture ("resolve error: " <> show resolveErrors)

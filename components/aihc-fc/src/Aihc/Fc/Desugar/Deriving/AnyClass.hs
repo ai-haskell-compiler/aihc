@@ -6,8 +6,8 @@ module Aihc.Fc.Desugar.Deriving.AnyClass
   )
 where
 
-import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, predType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshUnique, freshVar, lookupType, withDicts)
+import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshUnique, freshVar, lookupType, predTypeM, withDicts, withTypeVariables)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDictBinderAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..))
@@ -22,7 +22,7 @@ dsAnyClassDictionaryPlan plan =
       desugarBug ("unfinalized AnyClass deriving context for " <> T.unpack (tcDerivingDictName plan))
 
 dsAnyClassDictionary :: TcDerivingPlan -> [Pred] -> DsM (Var, FcExpr)
-dsAnyClassDictionary plan context = do
+dsAnyClassDictionary plan context = withTypeVariables (tcDerivingTyVars plan) $ do
   when
     (length (tcDerivingSuperClasses plan) /= length (tcDerivingClassSuperClasses plan))
     (desugarBug ("incomplete superclass evidence for " <> T.unpack (tcDerivingDictName plan)))
@@ -65,7 +65,8 @@ dsAnyClassDictionary plan context = do
       dictionaryConstructor = fcDictionaryConstructorName (tcDerivingClassName plan)
       genericDictionaryType = TcTyCon (TyCon (tcDerivingClassName plan) (length classTyVars)) (map TcTyVar classTyVars)
       constructorType = foldr TcForAllTy (foldr TcFunTy genericDictionaryType fieldTypes) classTyVars
-      constructorVar = Var dictionaryConstructor constructorUnique constructorType
+      constructorOrigin = fmap (\(packageName, moduleName) -> FcTopLevelOrigin packageName moduleName dictionaryConstructor) (tcDerivingClassOrigin plan)
+      constructorVar = (Var dictionaryConstructor constructorUnique constructorType) {varResolvedName = constructorOrigin}
       constructor = foldl FcTyApp (FcVar constructorVar) (tcDerivingHeadTypes plan)
       dictionary = foldl FcApp constructor fields
       body = foldr FcTyLam (foldr (FcLam . classDictVar) dictionary contextDicts) (tcDerivingTyVars plan)
@@ -108,7 +109,8 @@ dsAnyClassMethod plan maybeSelfDictionary fieldType method =
 
 mkPredicateDict :: Int -> Pred -> DsM ClassDict
 mkPredicateDict index predicate = do
-  dictVar <- freshVar ("$d" <> T.pack (show index)) (predType predicate)
+  predicateType <- predTypeM predicate
+  dictVar <- freshVar ("$d" <> T.pack (show index)) predicateType
   pure $
     case predicate of
       ClassPred className arguments -> ClassDict className arguments dictVar

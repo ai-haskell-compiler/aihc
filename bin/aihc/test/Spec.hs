@@ -61,7 +61,7 @@ import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..))
 import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), Scope (..), unnamedPackage)
-import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), emptyTcInterface)
 import Control.Exception (bracket)
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
@@ -425,6 +425,7 @@ testReplSession = do
         replImportedTerms = [],
         replBindingTypes = Map.empty,
         replImportedInstances = [],
+        replTcInterface = emptyTcInterface,
         replDependencyProgram = FcProgram (FcModuleId "test" "Test") [],
         replSettings = settingsRef
       }

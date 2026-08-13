@@ -30,18 +30,23 @@ where
 import Aihc.Fc.Axiom (AxiomInterface, extractAxiomInterface, lookupAxiomDecl)
 import Aihc.Fc.Subst (freeRigidTyVarsOf, substType)
 import Aihc.Fc.Syntax
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Evidence (Coercion (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId (..), Unique (..))
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon, TyVarId (..), Unique (..), tvName, tyConArity, tyConName, tyConPackageId)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | A lint error.
 data LintError
   = -- | Variable not in scope.
     UnboundVar !Text !Unique
+  | -- | Error in a term binding.
+    InBinding !Text !LintError
   | -- | Type mismatch.
     TypeMismatch !String !TcType !TcType
   | -- | Meta-variable found in Core (should have been zonked).
@@ -58,6 +63,8 @@ data LintError
 data LintEnv = LintEnv
   { -- | Term variables in scope, mapped to their types.
     leTerms :: !(Map Unique TcType),
+    -- | Top-level symbols in scope, mapped to their installed origins.
+    leSymbols :: !(Map FcSymbolOrigin TcType),
     -- | Type variables in scope.
     leTyVars :: !(Set TyVarId),
     -- | Known data constructors: name -> (type var params, field types, result type).
@@ -73,6 +80,7 @@ emptyLintEnv :: LintEnv
 emptyLintEnv =
   LintEnv
     { leTerms = Map.empty,
+      leSymbols = Map.empty,
       leTyVars = Set.empty,
       leDataCons = Map.empty,
       leAxioms = mempty,
@@ -113,7 +121,27 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
         resultType = fcDataResultType declaration
     registerDeclaration (FcForeignImport foreignCall) env =
       env {leForeignCalls = Map.insert (fcForeignCallName foreignCall) foreignCall (leForeignCalls env)}
+    registerDeclaration (FcExternal origin ty) env =
+      extendTopLevelTerm origin (fcExternalVar origin ty) env
+    registerDeclaration (FcPrimitive var _) env =
+      extendProgramTerm var env
+    registerDeclaration (FcTopBind bind) env =
+      foldr extendProgramTerm env (binders bind)
     registerDeclaration _ env = env
+
+    binders bind =
+      case bind of
+        FcNonRec var _ -> [var]
+        FcRec bindings -> map fst bindings
+
+    extendProgramTerm var =
+      extendTopLevelTerm (fromMaybe (programOrigin var) (varResolvedName var)) var
+
+    programOrigin var =
+      FcTopLevelOrigin
+        (fcModulePackageText (fcProgramModule prog))
+        (fcModuleName (fcProgramModule prog))
+        (varName var)
 
     go _ [] = []
     go env (FcExternal origin ty : rest) =
@@ -138,10 +166,10 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
 -- | Lint a binding, returning errors and the extended environment.
 lintBind :: LintEnv -> FcBind -> ([LintError], LintEnv)
 lintBind env (FcNonRec v e) =
-  let errs = case lintExpr env e of
-        Left err -> [err]
+  let errs = case lintExprAgainst env (varType v) e of
+        Left err -> [InBinding (varName v) err]
         Right inferredTy ->
-          [TypeMismatch "non-rec binding" (varType v) inferredTy | not (typesEqual (varType v) inferredTy)]
+          [InBinding (varName v) (TypeMismatch "non-rec binding" (varType v) inferredTy) | not (typesEqual (varType v) inferredTy)]
       env' = extendTermEnv v env
    in (errs, env')
 lintBind env (FcRec binds) =
@@ -150,10 +178,46 @@ lintBind env (FcRec binds) =
       errs = concatMap (lintRecBind env') binds
    in (errs, env')
   where
-    lintRecBind recEnv (v, e) = case lintExpr recEnv e of
-      Left err -> [err]
+    lintRecBind recEnv (v, e) = case lintExprAgainst recEnv (varType v) e of
+      Left err -> [InBinding (varName v) err]
       Right inferredTy ->
-        [TypeMismatch "rec binding" (varType v) inferredTy | not (typesEqual (varType v) inferredTy)]
+        [InBinding (varName v) (TypeMismatch "rec binding" (varType v) inferredTy) | not (typesEqual (varType v) inferredTy)]
+
+lintExprAgainst :: LintEnv -> TcType -> FcExpr -> Either LintError TcType
+lintExprAgainst env expected expression =
+  case (expected, expression) of
+    (TcForAllTy expectedVariable expectedBody, FcTyLam actualVariable body) -> do
+      let bodyType = substType (Map.singleton expectedVariable (TcTyVar actualVariable)) expectedBody
+      _ <- lintExprAgainst (env {leTyVars = Set.insert actualVariable (leTyVars env)}) bodyType body
+      pure expected
+    (TcFunTy expectedArgument expectedResult, FcLam binder body)
+      | typesEqual expectedArgument (varType binder) -> do
+          _ <- lintExprAgainst (extendTermEnv binder env) expectedResult body
+          pure expected
+      | otherwise -> Left (TypeMismatch "lambda binder" expectedArgument (varType binder))
+    (_, FcLet bind body) -> do
+      let (errors, bodyEnv) = lintBind env bind
+      case errors of
+        [] -> lintExprAgainst bodyEnv expected body
+        err : _ -> Left err
+    (_, FcCase scrutinee binder alternatives) -> do
+      scrutineeType <- lintExpr env scrutinee
+      if typesEqual scrutineeType (varType binder)
+        then Right ()
+        else Left (TypeMismatch "case binder" scrutineeType (varType binder))
+      let alternativeEnv = extendTermEnv binder env
+      mapM_ (lintAlternativeAgainst alternativeEnv expected) alternatives
+      pure expected
+    _ -> do
+      actual <- lintExpr env expression
+      if typesEqual expected actual
+        then pure expected
+        else Left (TypeMismatch "expression" expected actual)
+
+lintAlternativeAgainst :: LintEnv -> TcType -> FcAlt -> Either LintError ()
+lintAlternativeAgainst env expected (FcAlt _ binders rhs) = do
+  _ <- lintExprAgainst (foldr extendTermEnv env binders) expected rhs
+  pure ()
 
 -- | Lint an expression, returning its type or an error.
 lintExpr :: LintEnv -> FcExpr -> Either LintError TcType
@@ -161,22 +225,28 @@ lintExpr env (FcVar v) =
   case Map.lookup (varUnique v) (leTerms env) of
     Just ty -> Right ty
     Nothing ->
-      case Map.lookup (varName v) (leDataCons env) of
-        Just (tyVars, fields, resultType)
-          | typesEqual (varType v) (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) -> Right (varType v)
-          | otherwise -> Left (TypeMismatch "constructor occurrence" (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) (varType v))
-        Nothing -> Left (UnboundVar (varName v) (varUnique v))
+      case varResolvedName v >>= (`Map.lookup` leSymbols env) of
+        Just ty
+          | typesEqual ty (varType v) -> Right ty
+          | otherwise -> Left (TypeMismatch "top-level occurrence" ty (varType v))
+        Nothing ->
+          case Map.lookup (varName v) (leDataCons env) of
+            Just (tyVars, fields, resultType)
+              | typesEqual (varType v) (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) -> Right (varType v)
+              | otherwise -> Left (TypeMismatch "constructor occurrence" (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) (varType v))
+            Nothing
+              | isBuiltinTupleConstructor (varName v) -> Right (varType v)
+              | otherwise -> Left (UnboundVar (varName v) (varUnique v))
 lintExpr _ (FcLit lit) =
   case literalType lit of
     Just ty -> Right ty
     Nothing -> Left (LintFailure ("literal has invalid runtime representation: " ++ show lit))
 lintExpr env (FcApp f a) = do
   fTy <- lintExpr env f
-  aTy <- lintExpr env a
   case fTy of
-    TcFunTy argTy resTy
-      | typesEqual argTy aTy -> Right resTy
-      | otherwise -> Left (TypeMismatch "application argument" argTy aTy)
+    TcFunTy argTy resTy -> do
+      _ <- lintExprAgainst env argTy a
+      Right resTy
     _ -> Left (LintFailure ("application to non-function type: " ++ show fTy))
 lintExpr env (FcTyApp e ty) = do
   eTy <- lintExpr env e
@@ -197,13 +267,17 @@ lintExpr env (FcLet bind body) = do
   case errs of
     [] -> lintExpr env' body
     (e : _) -> Left e
-lintExpr env (FcCase scrut _binder alts) = do
-  _scrutTy <- lintExpr env scrut
+lintExpr env (FcCase scrut binder alts) = do
+  scrutTy <- lintExpr env scrut
+  if typesEqual (varType binder) scrutTy
+    then Right ()
+    else Left (TypeMismatch "case binder" scrutTy (varType binder))
+  let altEnv = extendTermEnv binder env
   case alts of
     [] -> Left (LintFailure "case expression has no alternatives")
-    alt : rest -> do
-      resTy <- lintAlt env alt
-      mapM_ (lintAltWithExpected env resTy) rest
+    _ -> do
+      resTy <- inferAlternativeType altEnv alts
+      mapM_ (lintAltWithExpected altEnv resTy) alts
       Right resTy
 lintExpr env (FcCast e co) = do
   eTy <- lintExpr env e
@@ -236,11 +310,14 @@ lintAlt env (FcAlt _con binders rhs) = do
   lintExpr env' rhs
 
 lintAltWithExpected :: LintEnv -> TcType -> FcAlt -> Either LintError ()
-lintAltWithExpected env resTy alt = do
-  rhsTy <- lintAlt env alt
-  if typesEqual resTy rhsTy
-    then Right ()
-    else Left (InconsistentAlts resTy rhsTy)
+lintAltWithExpected = lintAlternativeAgainst
+
+inferAlternativeType :: LintEnv -> [FcAlt] -> Either LintError TcType
+inferAlternativeType _ [] = Left (LintFailure "case alternatives do not give a result type")
+inferAlternativeType env (alternative : rest) =
+  case lintAlt env alternative of
+    Left (LintFailure "case expression has no alternatives") -> inferAlternativeType env rest
+    result -> result
 
 -- | Extract the endpoints of a coercion.
 --
@@ -280,22 +357,78 @@ extendTermEnv :: Var -> LintEnv -> LintEnv
 extendTermEnv v env =
   env {leTerms = Map.insert (varUnique v) (varType v) (leTerms env)}
 
+extendTopLevelTerm :: FcSymbolOrigin -> Var -> LintEnv -> LintEnv
+extendTopLevelTerm origin var env =
+  (extendTermEnv var env)
+    { leSymbols = Map.insert origin (varType var) (leSymbols env)
+    }
+
 -- | Structural type equality (no unification).
 typesEqual :: TcType -> TcType -> Bool
-typesEqual (TcTyVar a) (TcTyVar b) = a == b
-typesEqual (TcMetaTv a) (TcMetaTv b) = a == b
-typesEqual (TcTyCon tc1 args1) (TcTyCon tc2 args2) =
-  tc1 == tc2 && length args1 == length args2 && all (uncurry typesEqual) (zip args1 args2)
-typesEqual (TcFunTy a1 b1) (TcFunTy a2 b2) =
-  typesEqual a1 a2 && typesEqual b1 b2
-typesEqual (TcForAllTy tv1 body1) (TcForAllTy tv2 body2) =
-  -- Alpha-equivalence: rename tv2 to tv1 in body2.
-  typesEqual body1 (substType (Map.singleton tv2 (TcTyVar tv1)) body2)
-typesEqual (TcQualTy p1 b1) (TcQualTy p2 b2) =
-  length p1 == length p2 && all (uncurry predsEqual) (zip p1 p2) && typesEqual b1 b2
-typesEqual (TcAppTy f1 a1) (TcAppTy f2 a2) =
-  typesEqual f1 f2 && typesEqual a1 a2
-typesEqual _ _ = False
+typesEqual left right =
+  case (tyConApplication left, tyConApplication right) of
+    (Just (leftTyCon, leftArguments), Just (rightTyCon, rightArguments)) ->
+      tyConsEqual leftTyCon rightTyCon
+        && length leftArguments == length rightArguments
+        && all (uncurry typesEqual) (zip leftArguments rightArguments)
+    _ -> compareOtherTypes left right
+
+compareOtherTypes :: TcType -> TcType -> Bool
+compareOtherTypes (TcTyVar left) (TcTyVar right) =
+  left == right || tvName left == tvName right
+compareOtherTypes (TcMetaTv left) (TcMetaTv right) = left == right
+compareOtherTypes (TcFunTy leftArgument leftResult) (TcFunTy rightArgument rightResult) =
+  typesEqual leftArgument rightArgument && typesEqual leftResult rightResult
+compareOtherTypes (TcForAllTy leftVariable leftBody) (TcForAllTy rightVariable rightBody) =
+  typesEqual leftBody (substType (Map.singleton rightVariable (TcTyVar leftVariable)) rightBody)
+compareOtherTypes (TcQualTy leftPredicates leftBody) (TcQualTy rightPredicates rightBody) =
+  length leftPredicates == length rightPredicates
+    && all (uncurry predsEqual) (zip leftPredicates rightPredicates)
+    && typesEqual leftBody rightBody
+compareOtherTypes (TcAppTy leftFunction leftArgument) (TcAppTy rightFunction rightArgument) =
+  typesEqual leftFunction rightFunction && typesEqual leftArgument rightArgument
+compareOtherTypes _ _ = False
+
+tyConApplication :: TcType -> Maybe (TyCon, [TcType])
+tyConApplication (TcTyCon tyCon arguments) = Just (tyCon, arguments)
+tyConApplication (TcAppTy function argument) = do
+  (tyCon, arguments) <- tyConApplication function
+  pure (tyCon, arguments <> [argument])
+tyConApplication _ = Nothing
+
+tyConsEqual :: TyCon -> TyCon -> Bool
+tyConsEqual left right =
+  left == right
+    || ( tyConName left == tyConName right
+           && tyConArity left == tyConArity right
+           && primitivePlaceholder left right
+       )
+  where
+    primitivePlaceholder first second =
+      (isInternal first || isInternal second)
+        && ( tyConName first
+               `elem` [ "Addr#",
+                        "Char#",
+                        "Int#",
+                        "Int8#",
+                        "Int16#",
+                        "Int32#",
+                        "Int64#",
+                        "RealWorld",
+                        "State#",
+                        "Word#",
+                        "Word8#",
+                        "Word16#",
+                        "Word32#",
+                        "Word64#"
+                      ]
+               || ("Tuple" `T.isPrefixOf` tyConName first && "#" `T.isSuffixOf` tyConName first)
+           )
+    isInternal tyCon = tyConPackageId tyCon == PackageId "aihc-internal"
+
+isBuiltinTupleConstructor :: Text -> Bool
+isBuiltinTupleConstructor name =
+  "(#" `T.isPrefixOf` name && "#)" `T.isSuffixOf` name
 
 -- | Predicate equality.
 predsEqual :: Pred -> Pred -> Bool

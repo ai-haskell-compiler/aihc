@@ -16,7 +16,9 @@ module FcGolden
   )
 where
 
-import Aihc.Fc.Desugar (DesugarResult (..), desugarModuleWithDataTypes)
+import Aihc.Fc.Axiom (extractAxiomInterface)
+import Aihc.Fc.Desugar (DesugarResult (..), desugarModuleWithInterface)
+import Aihc.Fc.Lint (emptyLintEnv, lintProgramWithAxiomInterface)
 import Aihc.Fc.Parser (parseProgram, renderParseError)
 import Aihc.Fc.Pretty (renderProgram)
 import Aihc.Parser
@@ -26,7 +28,7 @@ import Aihc.Parser
   )
 import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
 import Aihc.Resolve (PackageId (..), ResolveResult (..), modulesInPackage, resolveWithDeps, unnamedPackage)
-import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Tc (TcBindingResult, emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -163,10 +165,15 @@ renderFcCase tc =
                in if all tcModuleSuccess tcResults
                     then
                       let allBindings = moduleGroupBindings tcResults
-                          results = zipWith (desugarModuleWithDataTypes (PackageId "aihc-prim") allBindings (tcInterfaceDataTypes tcInterface)) tcResults moduleAsts
+                          results = zipWith (desugarModuleWithInterface (PackageId "aihc-prim") allBindings tcInterface) tcResults moduleAsts
                           fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
-                            then renderResults fixtureResults
+                            then
+                              let axiomInterface = foldMap (extractAxiomInterface . dsProgram) results
+                                  lintErrors = concatMap (lintProgramWithAxiomInterface axiomInterface emptyLintEnv . dsProgram) results
+                               in if null lintErrors
+                                    then renderResults fixtureResults
+                                    else Left ("System FC lint error: " <> show lintErrors)
                             else Left (renderErrors results)
                     else Left ("typecheck error: " <> renderTcErrors tcResults)
             ResolveResult {resolveErrors} ->

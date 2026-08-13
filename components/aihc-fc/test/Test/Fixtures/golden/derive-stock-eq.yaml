@@ -148,6 +148,6 @@ expected: |-
   sameTree : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → (Tree a) → (Tree a) → Bool =
     Λ(a : TYPE BoxedRep Lifted).
       λ($d0 : Eq a).
-        (== @(Tree (a : TYPE BoxedRep Lifted))) (($fEqTreea @(a : TYPE BoxedRep Lifted)) $d0)
+        (== @(Tree a)) (($fEqTreea @a) $d0)
 status: pass
 reason: stock Eq lowering consumes checked constructor layouts and field evidence

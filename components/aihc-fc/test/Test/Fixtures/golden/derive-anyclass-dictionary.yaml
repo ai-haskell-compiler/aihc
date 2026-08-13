@@ -77,7 +77,7 @@ expected: |-
   useAny : ∀ (a : TYPE BoxedRep Lifted). (Required a) → (Wrapped a) → Wrapped a =
     Λ(a : TYPE BoxedRep Lifted).
       λ($d0 : Required a).
-        (anyValue @(Wrapped (a : TYPE BoxedRep Lifted))) (($fAnyWrappeda @(a : TYPE BoxedRep Lifted)) $d0)
+        (anyValue @(Wrapped a)) (($fAnyWrappeda @a) $d0)
 extensions:
 - DefaultSignatures
 - DeriveAnyClass

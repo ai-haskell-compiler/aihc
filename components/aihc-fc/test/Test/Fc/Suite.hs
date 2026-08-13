@@ -52,7 +52,90 @@ fcDesugarTests :: TestTree
 fcDesugarTests =
   testGroup
     "FC desugaring"
-    [ testCase "counts every label in a grouped record field" $ do
+    [ testCase "lints references to later top-level bindings" $ do
+        let valueType = ty "Value"
+            first = Var "first" (Unique 1) valueType
+            second = Var "second" (Unique 2) valueType
+            program =
+              FcProgram
+                (FcModuleId "test" "Test")
+                [ FcTopBind (FcNonRec first (FcVar second)),
+                  FcTopBind (FcNonRec second (FcVar first))
+                ]
+        assertEqual "Core lint" [] (lintProgram emptyLintEnv program),
+      testCase "lints a case binder in an alternative" $ do
+        let valueType = ty "Value"
+            result = Var "result" (Unique 3) valueType
+            caseBinder = Var "caseBinder" (Unique 4) valueType
+            program =
+              FcProgram
+                (FcModuleId "test" "Test")
+                [ FcTopBind
+                    ( FcNonRec
+                        result
+                        (Aihc.Fc.FcCase (FcVar result) caseBinder [FcAlt DefaultAlt [] (FcVar caseBinder)])
+                    )
+                ]
+        assertEqual "Core lint" [] (lintProgram emptyLintEnv program),
+      testCase "accepts equivalent type application forms" $ do
+        let valueType = ty "Value"
+            boxTyCon = TyCon "Box" 1
+            appliedType = TcAppTy (TcTyCon boxTyCon []) valueType
+            saturatedType = TcTyCon boxTyCon [valueType]
+            input = Var "input" (Unique 5) saturatedType
+            formal = Var "formal" (Unique 6) appliedType
+            consume = Var "consume" (Unique 7) (TcFunTy appliedType appliedType)
+            result = Var "result" (Unique 8) appliedType
+            program =
+              FcProgram
+                (FcModuleId "test" "Test")
+                [ FcTopBind (FcNonRec input (FcVar input)),
+                  FcTopBind (FcNonRec consume (FcLam formal (FcVar formal))),
+                  FcTopBind (FcNonRec result (FcApp (FcVar consume) (FcVar input)))
+                ]
+        assertEqual "Core lint" [] (lintProgram emptyLintEnv program),
+      testCase "accepts an empty case as an application argument" $ do
+        let voidType = ty "Void"
+            valueType = ty "Value"
+            scrutinee = Var "scrutinee" (Unique 9) voidType
+            caseBinder = Var "caseBinder" (Unique 10) voidType
+            formal = Var "formal" (Unique 11) valueType
+            consume = Var "consume" (Unique 12) (TcFunTy valueType valueType)
+            result = Var "result" (Unique 13) valueType
+            program =
+              FcProgram
+                (FcModuleId "test" "Test")
+                [ FcTopBind (FcNonRec scrutinee (FcVar scrutinee)),
+                  FcTopBind (FcNonRec consume (FcLam formal (FcVar formal))),
+                  FcTopBind (FcNonRec result (FcApp (FcVar consume) (Aihc.Fc.FcCase (FcVar scrutinee) caseBinder [])))
+                ]
+        assertEqual "Core lint" [] (lintProgram emptyLintEnv program),
+      testCase "infers a case type after an empty alternative" $ do
+        let valueType = ty "Value"
+            choiceType = ty "Choice"
+            impossibleType = ty "Impossible"
+            choice = Var "choice" (Unique 14) choiceType
+            impossible = Var "impossible" (Unique 15) impossibleType
+            impossibleBinder = Var "impossibleBinder" (Unique 16) impossibleType
+            innerBinder = Var "innerBinder" (Unique 17) choiceType
+            outerBinder = Var "outerBinder" (Unique 18) valueType
+            result = Var "result" (Unique 19) valueType
+            innerCase =
+              Aihc.Fc.FcCase
+                (FcVar choice)
+                innerBinder
+                [ FcAlt (DataAlt "First") [] (Aihc.Fc.FcCase (FcVar impossible) impossibleBinder []),
+                  FcAlt (DataAlt "Second") [] (FcVar result)
+                ]
+            program =
+              FcProgram
+                (FcModuleId "test" "Test")
+                [ FcTopBind (FcNonRec choice (FcVar choice)),
+                  FcTopBind (FcNonRec impossible (FcVar impossible)),
+                  FcTopBind (FcNonRec result (Aihc.Fc.FcCase innerCase outerBinder [FcAlt DefaultAlt [] (FcVar outerBinder)]))
+                ]
+        assertEqual "Core lint" [] (lintProgram emptyLintEnv program),
+      testCase "counts every label in a grouped record field" $ do
         let (_, parsedModule) = parseModule defaultConfig "module Test where\ndata Pair a = Pair { left, right :: a }\n"
             constructors = concatMap declarationConstructors (Surface.moduleDecls parsedModule)
         case constructors of
@@ -73,7 +156,7 @@ fcDesugarTests =
         assertEqual "source parses" [] parseErrors
         assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
         assertEqual "Core lint" [] (lintProgram emptyLintEnv (dsProgram result)),
-      testCase "uses the aihc-prim Bool type for if binders" $ do
+      testCase "uses the condition type for if binders" $ do
         let source =
               "module Test where\n\
               \data Bool = False | True\n\
@@ -88,8 +171,8 @@ fcDesugarTests =
         assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
         case ifBinderTypes of
           [TcTyCon tyCon []] -> do
-            assertEqual "package ID" (PackageId "aihc-prim") (tyConPackageId tyCon)
-            assertEqual "module name" "GHC.Types" (tyConModuleName tyCon)
+            assertEqual "package ID" (PackageId "main") (tyConPackageId tyCon)
+            assertEqual "module name" "Test" (tyConModuleName tyCon)
           other -> assertFailure ("expected one Bool case binder, got: " <> show other)
     ]
   where
