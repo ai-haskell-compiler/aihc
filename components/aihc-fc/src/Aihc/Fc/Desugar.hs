@@ -5,6 +5,7 @@ module Aihc.Fc.Desugar
   ( -- * Entry point
     desugarModuleWithBindings,
     desugarModuleWithDataTypes,
+    desugarModuleWithInterface,
     desugarModuleWithTcResult,
     DesugarConfig (..),
     DesugarResult (..),
@@ -52,11 +53,11 @@ import Aihc.Parser.Syntax
     peelDeclAnn,
     unqualifiedNameText,
   )
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..))
-import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TyConFlavor (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..), packageIdText)
+import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TcTermKey (..), TyConFlavor (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
-import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
+import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType, typeSchemeToType)
 import Aihc.Tc.Types
   ( Kind (KFun, KTYPE, KType),
     Pred (..),
@@ -107,10 +108,18 @@ desugarModuleWithTcResult config tcResult =
   desugarModuleWithBindings config (tcModuleBindings tcResult) tcResult
 
 desugarModuleWithBindings :: DesugarConfig -> [TcBindingResult] -> Module -> DesugarResult
-desugarModuleWithBindings config bindings = desugarModuleWithDataTypes config bindings []
+desugarModuleWithBindings config bindings = desugarModule config bindings [] Nothing
 
 desugarModuleWithDataTypes :: DesugarConfig -> [TcBindingResult] -> [DataTypeInfo] -> Module -> DesugarResult
-desugarModuleWithDataTypes config bindings dataTypes tcResult =
+desugarModuleWithDataTypes config bindings dataTypes = desugarModule config bindings dataTypes Nothing
+
+-- | Desugar with the complete type-checker interface.
+desugarModuleWithInterface :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> DesugarResult
+desugarModuleWithInterface config bindings interface =
+  desugarModule config bindings (tcInterfaceDataTypes interface) (Just (interfaceTypeEnv interface))
+
+desugarModule :: DesugarConfig -> [TcBindingResult] -> [DataTypeInfo] -> Maybe (Map.Map FcSymbolOrigin TcType) -> Module -> DesugarResult
+desugarModule config bindings dataTypes globalTypeEnv tcResult =
   if not (tcModuleSuccess tcResult)
     then
       DesugarResult
@@ -128,7 +137,7 @@ desugarModuleWithDataTypes config bindings dataTypes tcResult =
                 dtiFlavor dataType == DataTyCon,
                 constructor <- dtiConstructors dataType
               ]
-       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) packageId currentModuleName typeEnv Map.empty Map.empty constructorFields Nothing) of
+       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) packageId currentModuleName typeEnv globalTypeEnv Map.empty Map.empty constructorFields Nothing) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram (sourceModuleId tcResult) [],
@@ -142,6 +151,13 @@ desugarModuleWithDataTypes config bindings dataTypes tcResult =
                       dsSuccess = True,
                       dsErrors = []
                     }
+
+interfaceTypeEnv :: TcInterface -> Map.Map FcSymbolOrigin TcType
+interfaceTypeEnv interface =
+  Map.fromList
+    [ (FcTopLevelOrigin (packageIdText packageId) definingModule name, typeSchemeToType scheme)
+    | (TcTermGlobal packageId definingModule name, scheme) <- tcInterfaceTerms interface
+    ]
 
 resolvedModuleOrigin :: Module -> (PackageId, Text)
 resolvedModuleOrigin resolvedModule =

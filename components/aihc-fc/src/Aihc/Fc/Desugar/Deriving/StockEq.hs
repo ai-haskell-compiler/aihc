@@ -7,7 +7,7 @@ module Aihc.Fc.Desugar.Deriving.StockEq
 where
 
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, predType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshVar, lookupType, withDicts)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshVar, withDicts)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Resolve (packageIdText)
@@ -83,42 +83,43 @@ dsStockEqDictionary plan context dataType fieldEvidence = do
 
 dsStockEqMethod :: TyCon -> DataTypeInfo -> [(DataConInfo, [EvTerm])] -> TcType -> TcClassMethodAnnotation -> DsM FcExpr
 dsStockEqMethod eqTyCon dataType constructors targetType method =
-  case tcClassMethodName method of
-    "==" -> dsEqualityMethod eqTyCon dataType constructors targetType
-    "/=" -> do
-      left <- freshVar "$stock_eq_left" targetType
-      right <- freshVar "$stock_eq_right" targetType
-      equality <- equalityBody eqTyCon dataType constructors targetType left right
-      negated <- negateBoolean equality
-      pure (FcLam left (FcLam right negated))
-    name -> desugarBug ("unsupported method in stock Eq dictionary: " <> T.unpack name)
+  let boolTy = resultType (tcClassMethodType method)
+   in case tcClassMethodName method of
+        "==" -> dsEqualityMethod eqTyCon dataType constructors targetType boolTy
+        "/=" -> do
+          left <- freshVar "$stock_eq_left" targetType
+          right <- freshVar "$stock_eq_right" targetType
+          equality <- equalityBody eqTyCon dataType constructors targetType boolTy left right
+          negated <- negateBoolean boolTy equality
+          pure (FcLam left (FcLam right negated))
+        name -> desugarBug ("unsupported method in stock Eq dictionary: " <> T.unpack name)
 
-dsEqualityMethod :: TyCon -> DataTypeInfo -> [(DataConInfo, [EvTerm])] -> TcType -> DsM FcExpr
-dsEqualityMethod eqTyCon dataType constructors targetType = do
+dsEqualityMethod :: TyCon -> DataTypeInfo -> [(DataConInfo, [EvTerm])] -> TcType -> TcType -> DsM FcExpr
+dsEqualityMethod eqTyCon dataType constructors targetType boolTy = do
   left <- freshVar "$stock_eq_left" targetType
   right <- freshVar "$stock_eq_right" targetType
-  body <- equalityBody eqTyCon dataType constructors targetType left right
+  body <- equalityBody eqTyCon dataType constructors targetType boolTy left right
   pure (FcLam left (FcLam right body))
 
-equalityBody :: TyCon -> DataTypeInfo -> [(DataConInfo, [EvTerm])] -> TcType -> Var -> Var -> DsM FcExpr
-equalityBody eqTyCon dataType constructors targetType left right = do
+equalityBody :: TyCon -> DataTypeInfo -> [(DataConInfo, [EvTerm])] -> TcType -> TcType -> Var -> Var -> DsM FcExpr
+equalityBody eqTyCon dataType constructors targetType boolTy left right = do
   outerBinder <- freshVar "$stock_eq_outer" targetType
-  alternatives <- mapM (constructorEqualityAlternative eqTyCon dataType right targetType) constructors
+  alternatives <- mapM (constructorEqualityAlternative eqTyCon dataType right targetType boolTy) constructors
   pure (FcCase (FcVar left) outerBinder alternatives)
 
-constructorEqualityAlternative :: TyCon -> DataTypeInfo -> Var -> TcType -> (DataConInfo, [EvTerm]) -> DsM FcAlt
-constructorEqualityAlternative eqTyCon dataType right targetType (constructor, evidence) = do
+constructorEqualityAlternative :: TyCon -> DataTypeInfo -> Var -> TcType -> TcType -> (DataConInfo, [EvTerm]) -> DsM FcAlt
+constructorEqualityAlternative eqTyCon dataType right targetType boolTy (constructor, evidence) = do
   fields <- instantiatedFields dataType targetType constructor
   fieldEvidence <- zipExact ("field evidence for " <> T.unpack (dciName constructor)) fields evidence
   leftFields <- zipWithM (fieldVar "$stock_eq_left_field") [0 :: Int ..] fields
   rightFields <- zipWithM (fieldVar "$stock_eq_right_field") [0 :: Int ..] fields
   comparisons <-
     zipWithM
-      (fieldEquality eqTyCon leftFields rightFields)
+      (fieldEquality eqTyCon boolTy leftFields rightFields)
       [0 :: Int ..]
       fieldEvidence
-  equalFields <- andComparisons comparisons
-  mismatch <- boolConstructor "False"
+  equalFields <- andComparisons boolTy comparisons
+  mismatch <- boolConstructor boolTy "False"
   innerBinder <- freshVar "$stock_eq_inner" targetType
   let constructorIdentity = dataConIdentity constructor
       matching = FcAlt (DataAlt constructorIdentity) rightFields equalFields
@@ -143,12 +144,11 @@ instantiatedFields dataType targetType constructor =
 fieldVar :: Text -> Int -> DataConFieldInfo -> DsM Var
 fieldVar prefix index field = freshVar (prefix <> T.pack (show index)) (dcfiType field)
 
-fieldEquality :: TyCon -> [Var] -> [Var] -> Int -> (DataConFieldInfo, EvTerm) -> DsM FcExpr
-fieldEquality eqTyCon leftFields rightFields index (field, evidence) = do
+fieldEquality :: TyCon -> TcType -> [Var] -> [Var] -> Int -> (DataConFieldInfo, EvTerm) -> DsM FcExpr
+fieldEquality eqTyCon boolTy leftFields rightFields index (field, evidence) = do
   left <- indexVar "left" index leftFields
   right <- indexVar "right" index rightFields
   dictionary <- dsEvidence evidence
-  boolTy <- boolType
   let fieldType = dcfiType field
       methodType = TcFunTy fieldType (TcFunTy fieldType boolTy)
       dictionaryType = TcTyCon eqTyCon [fieldType]
@@ -172,15 +172,14 @@ indexVar side index variables =
     variable : _ -> pure variable
     [] -> desugarBug ("missing " <> side <> " stock Eq field binder")
 
-andComparisons :: [FcExpr] -> DsM FcExpr
-andComparisons comparisons =
+andComparisons :: TcType -> [FcExpr] -> DsM FcExpr
+andComparisons boolTy comparisons =
   case comparisons of
-    [] -> boolConstructor "True"
+    [] -> boolConstructor boolTy "True"
     comparison : rest -> do
-      boolTy <- boolType
       binder <- freshVar "$stock_eq_bool" boolTy
-      false <- boolConstructor "False"
-      trueBranch <- andComparisons rest
+      false <- boolConstructor boolTy "False"
+      trueBranch <- andComparisons boolTy rest
       let falseConstructor = typeConstructorIdentity boolTy "False"
           trueConstructor = typeConstructorIdentity boolTy "True"
       pure
@@ -192,12 +191,11 @@ andComparisons comparisons =
             ]
         )
 
-negateBoolean :: FcExpr -> DsM FcExpr
-negateBoolean expression = do
-  boolTy <- boolType
+negateBoolean :: TcType -> FcExpr -> DsM FcExpr
+negateBoolean boolTy expression = do
   binder <- freshVar "$stock_eq_not" boolTy
-  true <- boolConstructor "True"
-  false <- boolConstructor "False"
+  true <- boolConstructor boolTy "True"
+  false <- boolConstructor boolTy "False"
   let falseConstructor = typeConstructorIdentity boolTy "False"
       trueConstructor = typeConstructorIdentity boolTy "True"
   pure
@@ -209,15 +207,11 @@ negateBoolean expression = do
         ]
     )
 
-boolConstructor :: Text -> DsM FcExpr
-boolConstructor name = do
-  constructorType <- lookupType name
-  constructor <- freshVar name constructorType
-  let origin = typeConstructorIdentity constructorType name
+boolConstructor :: TcType -> Text -> DsM FcExpr
+boolConstructor boolTy name = do
+  constructor <- freshVar name boolTy
+  let origin = typeConstructorIdentity boolTy name
   pure (FcVar constructor {varResolvedName = Just origin})
-
-boolType :: DsM TcType
-boolType = constructorResultType <$> lookupType "True"
 
 dataConIdentity :: DataConInfo -> FcSymbolOrigin
 dataConIdentity constructor =
@@ -233,16 +227,16 @@ tyConConstructorIdentity tyCon =
 
 typeConstructorIdentity :: TcType -> Text -> FcSymbolOrigin
 typeConstructorIdentity ty constructorName =
-  case constructorResultType ty of
+  case resultType ty of
     TcTyCon tyCon _ -> tyConConstructorIdentity tyCon constructorName
     _ -> FcBuiltinOrigin constructorName
 
-constructorResultType :: TcType -> TcType
-constructorResultType ty =
+resultType :: TcType -> TcType
+resultType ty =
   case ty of
-    TcForAllTy _ body -> constructorResultType body
-    TcQualTy _ body -> constructorResultType body
-    TcFunTy _ result -> constructorResultType result
+    TcForAllTy _ body -> resultType body
+    TcQualTy _ body -> resultType body
+    TcFunTy _ result -> resultType result
     result -> result
 
 stockEqTyCon :: TcDerivingPlan -> DsM TyCon

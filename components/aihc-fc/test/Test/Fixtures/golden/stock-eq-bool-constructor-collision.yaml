@@ -1,0 +1,94 @@
+extensions:
+  - DerivingStrategies
+modules:
+  - |
+    module PrimTypes where
+
+    data Bool = False | True
+  - |
+    module Shadow where
+
+    data Marker = True
+  - |
+    {-# LANGUAGE DerivingStrategies #-}
+    module Test where
+
+    import qualified PrimTypes
+
+    class Eq a where
+      (==) :: a -> a -> PrimTypes.Bool
+      (/=) :: a -> a -> PrimTypes.Bool
+
+    data Flag = Flag
+      deriving stock Eq
+expected: |-
+  module PrimTypes where
+
+  data Bool
+   = False
+   | True
+  module Shadow where
+
+  data Marker
+   = True
+  module Test where
+
+  external PrimTypes.False : Bool
+
+  external PrimTypes.True : Bool
+
+  data Eq (a : TYPE BoxedRep Lifted)
+   = $Dict$Eq (a → a → Bool) (a → a → Bool)
+
+  == : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ($d0 : Eq a).
+        case $d0 as ($dict : Eq a) of {
+          $Dict$Eq ($method0 : a → a → Bool) ($method1 : a → a → Bool) →
+            $method0
+        }
+
+  /= : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool =
+    Λ(a : TYPE BoxedRep Lifted).
+      λ($d0 : Eq a).
+        case $d0 as ($dict : Eq a) of {
+          $Dict$Eq ($method0 : a → a → Bool) ($method1 : a → a → Bool) →
+            $method1
+        }
+
+  data Flag
+   = Flag
+
+  $fEqFlag : Eq Flag =
+    let {
+      $stock_eq_self : Eq Flag =
+        $fEqFlag
+    } in
+      (($Dict$Eq @Flag) (λ($stock_eq_left : Flag).
+        λ($stock_eq_right : Flag).
+          case $stock_eq_left as ($stock_eq_outer : Flag) of {
+            Flag →
+              case $stock_eq_right as ($stock_eq_inner : Flag) of {
+                Flag →
+                  PrimTypes.True;
+                _ →
+                  PrimTypes.False
+              }
+          })) (λ($stock_eq_left : Flag).
+        λ($stock_eq_right : Flag).
+          case case $stock_eq_left as ($stock_eq_outer : Flag) of {
+            Flag →
+              case $stock_eq_right as ($stock_eq_inner : Flag) of {
+                Flag →
+                  PrimTypes.True;
+                _ →
+                  PrimTypes.False
+              }
+          } as ($stock_eq_not : Bool) of {
+            PrimTypes.False →
+              PrimTypes.True;
+            PrimTypes.True →
+              PrimTypes.False
+          })
+status: pass
+reason: stock Eq uses the finalized method result type when constructor names collide
