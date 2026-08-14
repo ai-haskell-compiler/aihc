@@ -8,7 +8,7 @@ import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
 import Control.Exception (bracket)
 import Data.ByteString qualified as BS
-import Data.List (sort)
+import Data.List (isPrefixOf, sort)
 import Data.Maybe (mapMaybe)
 import Hedgehog (Property, property, success)
 import System.Directory
@@ -16,6 +16,7 @@ import System.Directory
     createDirectoryIfMissing,
     doesFileExist,
     getTemporaryDirectory,
+    listDirectory,
     removeDirectoryRecursive,
     removeFile,
   )
@@ -329,6 +330,7 @@ main =
           testCase "rebuilds a module when a predecessor resolve artifact changes" test_installV2ResolveDependencies,
           testCase "rebuilds a module when a predecessor type interface changes" test_installV2TypeDependencies,
           testCase "duplicates re-exported term signatures in type interfaces" test_installV2TypeReexports,
+          testCase "installs direct local dependencies" test_installV2LocalDependencies,
           testCase "stops invalidation when a rebuilt scope stays equal" test_installV2StopsAtEqualScope
         ],
       testProperty "Hedgehog options" prop_dummy
@@ -434,6 +436,51 @@ test_installV2TypeReexports =
     artifact <- either assertFailure pure (decodeTypeArtifact bytes)
     let termNames = mapMaybe (tcTermKeyIdentifier . fst) (tcInterfaceTerms (typeArtifactInterface artifact))
     assertBool "re-exported signature" ("fn" `elem` termNames)
+
+test_installV2LocalDependencies :: Assertion
+test_installV2LocalDependencies =
+  withTempDir "aihc-install-v2-local-dependencies" $ \root -> do
+    let sourceRoot = root </> "demo"
+        dependencyRoot = root </> "dep"
+        storeRoot = root </> "store"
+        options = InstallV2Options sourceRoot (Just storeRoot) False
+    createDirectoryIfMissing True (sourceRoot </> "src")
+    createDirectoryIfMissing True (dependencyRoot </> "src")
+    writeFile
+      (dependencyRoot </> "dep.cabal")
+      ( unlines
+          [ "cabal-version: 3.0",
+            "name: dep",
+            "version: 1.0.0",
+            "library",
+            "  exposed-modules: Dep",
+            "  hs-source-dirs: src",
+            "  default-language: Haskell2010"
+          ]
+      )
+    writeFile (dependencyRoot </> "src" </> "Dep.hs") "module Dep where\nidentity x = x\n"
+    writeFile
+      (sourceRoot </> "demo.cabal")
+      ( unlines
+          [ "cabal-version: 3.0",
+            "name: demo",
+            "version: 0.1.0.0",
+            "library",
+            "  exposed-modules: Demo",
+            "  hs-source-dirs: src",
+            "  build-depends: dep",
+            "  default-language: Haskell2010"
+          ]
+      )
+    writeFile (sourceRoot </> "src" </> "Demo.hs") "module Demo where\nimport Dep\nresult = identity\n"
+    _ <- installV2 options
+    storeEntries <- listDirectory storeRoot
+    let dependencyStores = filter ("dep-1.0.0-" `isPrefixOf`) storeEntries
+    case dependencyStores of
+      [dependencyStore] -> do
+        assertFileExists (storeRoot </> dependencyStore </> "Dep" </> "resolve.cbor")
+        assertFileExists (storeRoot </> dependencyStore </> "Dep" </> "type.cbor")
+      _ -> assertFailure ("expected one installed dependency, got " <> show dependencyStores)
 
 test_installV2ResolveDependencies :: Assertion
 test_installV2ResolveDependencies =

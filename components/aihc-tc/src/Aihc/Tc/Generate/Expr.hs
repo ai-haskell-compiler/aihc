@@ -911,7 +911,7 @@ nameToText n = case nameQualifier n of
   Just q -> q <> "." <> nameText n
 
 intTyCon :: TcM TcType
-intTyCon = TcTyCon <$> mkKnownTyCon "GHC.Types" "Int" 0 liftedTypeKind <*> pure []
+intTyCon = knownTyConType "GHC.Types" "Int"
 
 numericLiteralType :: NumericType -> TcM TcType
 numericLiteralType numericType =
@@ -929,7 +929,13 @@ numericLiteralType numericType =
     TWord64Hash -> primType "Word64#"
 
 primType :: Text -> TcM TcType
-primType name = TcTyCon <$> mkKnownTyCon "GHC.Prim" name 0 liftedTypeKind <*> pure []
+primType = knownTyConType "GHC.Prim"
+
+knownTyConType :: Text -> Text -> TcM TcType
+knownTyConType moduleName name = do
+  maybeInfo <- lookupTyCon name
+  tyCon <- maybe (mkKnownTyCon moduleName name 0 liftedTypeKind) (pure . tciTyCon) maybeInfo
+  pure (TcTyCon tyCon [])
 
 doubleTyCon :: TcM TcType
 doubleTyCon = do

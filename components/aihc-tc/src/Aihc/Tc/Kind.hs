@@ -398,7 +398,8 @@ knownType moduleName name = knownTypeWithArity moduleName name 0
 
 knownTypeWithArity :: Text -> Text -> Int -> Kind -> TcM (TcType, Kind)
 knownTypeWithArity moduleName name arity kind = do
-  tyCon <- mkKnownTyCon moduleName name arity kind
+  maybeInfo <- lookupTyCon name
+  tyCon <- maybe (mkKnownTyCon moduleName name arity kind) (pure . tciTyCon) maybeInfo
   pure (TcTyCon tyCon [], kind)
 
 knownTypeModule :: Text -> Text
