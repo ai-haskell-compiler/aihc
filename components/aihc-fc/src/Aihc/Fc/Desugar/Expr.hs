@@ -171,6 +171,13 @@ primitiveDataConOrigin moduleName constructorName = do
   PackageId packageName <- gets dsPrimPackageId
   pure (FcTopLevelOrigin packageName moduleName constructorName)
 
+dataConOriginForType :: TcType -> Text -> DsM FcSymbolOrigin
+dataConOriginForType ty constructorName =
+  case ty of
+    TcTyCon tyCon _ ->
+      pure (FcTopLevelOrigin (packageIdText (tyConPackageId tyCon)) (tyConModuleName tyCon) constructorName)
+    _ -> desugarBug ("data constructor match has no type constructor: " <> show ty)
+
 lookupDataConOrigin :: Text -> DsM FcSymbolOrigin
 lookupDataConOrigin constructorName = do
   constructorType <- Map.lookup constructorName . dsTypeEnv <$> get
@@ -1120,10 +1127,10 @@ dsOverloadedIntegerPatternMatch :: Var -> Pattern -> DsM FcExpr -> FcExpr -> DsM
 dsOverloadedIntegerPatternMatch scrutVar pat success failure = do
   test <- dsOverloadedIntegerPatternTest (FcVar scrutVar) pat
   trueBranch <- success
-  boolTy <- primBoolType
-  binder <- freshVar "_case_guard" boolTy
-  trueConstructor <- primitiveDataConOrigin "GHC.Types" "True"
-  falseConstructor <- primitiveDataConOrigin "GHC.Types" "False"
+  testTy <- fcExprTypeM test
+  binder <- freshVar "_case_guard" testTy
+  trueConstructor <- dataConOriginForType testTy "True"
+  falseConstructor <- dataConOriginForType testTy "False"
   pure
     ( FcCase
         test

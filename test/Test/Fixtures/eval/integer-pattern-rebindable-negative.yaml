@@ -7,8 +7,7 @@ modules:
     {-# LANGUAGE MagicHash, RebindableSyntax #-}
     module Test where
 
-    import GHC.Types (Bool(..))
-
+    data Bool = False | True
     data Tag = Positive | Negative
     data Integer = IS Int#
 
