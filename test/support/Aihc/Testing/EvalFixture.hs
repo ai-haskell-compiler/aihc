@@ -46,7 +46,7 @@ import Control.Exception (bracket, mask, onException)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, sort)
+import Data.List (dropWhileEnd, nub, sort)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing, listToMaybe)
@@ -210,7 +210,7 @@ parseEvalFixture root path value = do
             evalCaseCategory = category,
             evalCasePath = relPath,
             evalCaseExtensions = exts,
-            evalCaseDependencies = dependencies,
+            evalCaseDependencies = nub (dependencies <> ["aihc-prim", "aihc-base"]),
             evalCaseModules = modules,
             evalCaseExpression = expression,
             evalCaseOutput = trim (T.unpack output),
@@ -259,36 +259,13 @@ compileEvalCase tc =
         Left errMsg -> pure (Left errMsg)
         Right dependencies -> do
           extended <- extendDependenciesForCase tc evalModules dependencies
-          pure (extended >>= \compiled -> compileModulesWithDependencies compiled (addListSupport evalModules))
-  where
-    addListSupport modules
-      | not (null (evalCaseDependencies tc)) = modules
-      | hasUnboxedTuples = modules
-      | any ((== Just "GHC.Types") . Surface.moduleName) modules = modules
-      | otherwise = listSupportModule : modules
-      where
-        hasUnboxedTuples =
-          case parseExtensionName "UnboxedTuples" of
-            Just extension -> extension `elem` evalCaseExtensions tc
-            Nothing -> False
-    listSupportModule =
-      case parseOneModule "GHC.Types" [] "module GHC.Types (List(..)) where\ndata List a = [] | a : [a]\ninfixr 5 :\n" of
-        Right modu -> modu
-        Left err -> error err
+          pure (extended >>= \compiled -> compileModulesWithDependencies compiled evalModules)
 
 dependenciesForCase :: EvalCase -> Either String CompiledDependencies
 dependenciesForCase tc =
   case filter (`notElem` ["aihc-base", "aihc-prim"]) (evalCaseDependencies tc) of
     dependency : _ -> Left ("unknown eval fixture dependency: " <> T.unpack dependency)
-    []
-      | "aihc-base" `elem` evalCaseDependencies tc -> aihcBaseArtifact
-      | hasUnboxedTuples -> aihcPrimTypesArtifact
-      | otherwise -> aihcPrimArtifact
-  where
-    hasUnboxedTuples =
-      case parseExtensionName "UnboxedTuples" of
-        Just extension -> extension `elem` evalCaseExtensions tc
-        Nothing -> False
+    [] -> aihcBaseArtifact
 
 extendDependenciesForCase :: EvalCase -> [Module] -> CompiledDependencies -> IO (Either String CompiledDependencies)
 extendDependenciesForCase tc evalModules dependencies
@@ -446,24 +423,6 @@ renderTcErrors results =
    in if null (trim rendered)
         then "type checker failed without diagnostics"
         else rendered
-
-aihcPrimArtifact :: Either String CompiledDependencies
-aihcPrimArtifact = unsafePerformIO $ do
-  envRoot <- lookupEnv "AIHC_PRIM_SRC"
-  root <- maybe defaultAihcPrimRoot pure envRoot
-  allModuleNames <- sourceModuleNames root
-  modules <- loadTransitiveModules [] [("aihc-prim", root)] ["GHC.Tuple"]
-  pure (modules >>= compileDependencyModules emptyDependencies (Set.fromList allModuleNames))
-{-# NOINLINE aihcPrimArtifact #-}
-
-aihcPrimTypesArtifact :: Either String CompiledDependencies
-aihcPrimTypesArtifact = unsafePerformIO $ do
-  envRoot <- lookupEnv "AIHC_PRIM_SRC"
-  root <- maybe defaultAihcPrimRoot pure envRoot
-  allModuleNames <- sourceModuleNames root
-  modules <- loadTransitiveModules [] [("aihc-prim", root)] ["GHC.Tuple", "GHC.Types"]
-  pure (modules >>= compileDependencyModules emptyDependencies (Set.fromList allModuleNames))
-{-# NOINLINE aihcPrimTypesArtifact #-}
 
 aihcBaseArtifact :: Either String CompiledDependencies
 aihcBaseArtifact = unsafePerformIO $ do

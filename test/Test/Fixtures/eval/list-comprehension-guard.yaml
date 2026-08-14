@@ -9,5 +9,5 @@ modules:
 
   xs = [False, True, False, True]
 output: ': True (: True [])'
-reason: evaluates a list comprehension boolean guard as element filtering
-status: pass
+reason: list comprehension guards select GHC.Types.Bool instead of the local Bool type
+status: xfail
