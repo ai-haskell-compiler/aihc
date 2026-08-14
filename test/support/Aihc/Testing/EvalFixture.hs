@@ -280,7 +280,7 @@ compileEvalCase tc =
         Right modu -> modu
         Left err -> error err
     modulePackage modu
-      | Surface.moduleName modu `elem` [Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
+      | Surface.moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
           (Package "aihc-prim" (PackageId "aihc-prim"), modu)
       | otherwise = (unnamedPackage, modu)
 

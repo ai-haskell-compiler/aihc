@@ -10,7 +10,7 @@ expected: |-
 
   data Integer
    = IS (Int#)
-  module GHC.Classes where
+  module "aihc-prim" GHC.Classes where
 
   external "aihc-prim" GHC.Types.True : Bool
 
@@ -63,10 +63,6 @@ expected: |-
   module Prelude where
   module Main where
 
-  external GHC.Classes.$fEqInt : Eq Int
-
-  external GHC.Classes.== : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool
-
   external GHC.Num.$fNumInt : Num Int
 
   external GHC.Num.$fNumInteger : Num Integer
@@ -74,6 +70,10 @@ expected: |-
   external GHC.Num.fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a
 
   external GHC.Tuple.() : Unit
+
+  external "aihc-prim" GHC.Classes.$fEqInt : Eq Int
+
+  external "aihc-prim" GHC.Classes.== : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool
 
   external "aihc-prim" GHC.Types.IS : Int# → Integer
 
@@ -88,7 +88,7 @@ expected: |-
       _case_value : Int =
         ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) ("aihc-prim" GHC.Types.IS 1#IntRep)
     } in
-      case (((GHC.Classes.== @Int) GHC.Classes.$fEqInt) _case_value) (((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) ("aihc-prim" GHC.Types.IS 1#IntRep)) as (_case_guard : Bool) of {
+      case ((("aihc-prim" GHC.Classes.== @Int) "aihc-prim" GHC.Classes.$fEqInt) _case_value) (((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) ("aihc-prim" GHC.Types.IS 1#IntRep)) as (_case_guard : Bool) of {
         "aihc-prim" GHC.Types.True →
           GHC.Tuple.();
         "aihc-prim" GHC.Types.False →

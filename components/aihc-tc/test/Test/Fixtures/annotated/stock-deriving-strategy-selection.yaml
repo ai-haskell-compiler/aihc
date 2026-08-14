@@ -17,12 +17,12 @@ annotated:
   data E = E
   │    │   └─ type: E
   │    └─ type: *
-  └─ deriving plans: stock Eq E [context: ()] [methods: ==, /=]
+  └─ deriving plans: anyclass Eq E [context: ()] [methods: ==, /=]
     deriving Eq
   data F a = F a
   │    │     └─ type: ∀ a. a → F a
   │    └─ type: * → *
-  └─ deriving plans: stock Functor F [context: infer]
+  └─ deriving plans: anyclass Functor F [context: ()]
     deriving Functor
 extensions:
 - DeriveAnyClass
@@ -42,5 +42,5 @@ modules:
     deriving Eq
   data F a = F a
     deriving Functor
-reason: stock mechanisms take precedence over DeriveAnyClass when their enabling extensions are active
+reason: local classes do not select stock mechanisms from their names
 status: pass

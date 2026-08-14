@@ -187,7 +187,7 @@ renderFcCase tc =
     hasFixtureGhcTypes = any (T.isPrefixOf "module GHC.Types" . T.stripStart) (caseModules tc)
     supportModules = if hasFixtureGhcTypes then drop 1 (caseSupportModules tc) else caseSupportModules tc
     modulePackage _ modu
-      | moduleName modu == Just "GHC.Types" =
+      | moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Types"] =
           (Package "aihc-prim" (PackageId "aihc-prim"), modu)
       | otherwise = (Package "" (PackageId ""), modu)
     parseOne input =
