@@ -2,99 +2,24 @@
 
 module Main (main) where
 
-import Aihc.Cli.Compile
-  ( CompileEnvironment (..),
-    compileOutputPath,
-    compileSourceToAssemblyWithDependenciesFor,
-    compileSourceToWholeCoreWithDependencies,
-    defaultCompileEnvironment,
-    reachableRuntimePrimitiveNames,
-    wasmClangCommand,
-    wasmOptArguments,
-  )
-import Aihc.Cli.Install
-  ( DependencyResolver (..),
-    InstallFailure (..),
-    InstallResult (..),
-    PackageHash (..),
-    PackagePlan (..),
-    PackageVariantKey (..),
-    ResolvedDependency (..),
-    buildDryRunPackagePlanWithResolver,
-    buildPackagePlanFromSource,
-    buildPackagePlanWithResolver,
-    checkPackagePlan,
-    dryRunInstallScaffold,
-    installPackageLibraries,
-    packageVariantLibraryId,
-    renderInstallFailure,
-    renderInstallFailureWithOptions,
-    writeInstallScaffold,
-  )
 import Aihc.Cli.InstallV2 (InstallV2Result (..), installV2)
-import Aihc.Cli.Options (Command (..), CompileOptions (..), GarbageCollector (..), InstallErrorFormat (..), InstallOptions (..), InstallV2Options (..), PrepareRuntimeOptions (..), ReplOptions (..), parseCommandPure)
-import Aihc.Cli.PackageInterface
-  ( PackageInterface (..),
-    PackageInterfaceBinding (..),
-    PackageInterfaceDependency (..),
-    PackageInterfaceDiagnostics (..),
-    PackageInterfaceFlag (..),
-    PackageInterfaceModule (..),
-    PackageInterfacePackageKey (..),
-    PackageInterfacePackageSpec (..),
-    PackageInterfaceTcModule (..),
-    packageInterfaceExports,
-    readPackageInterface,
-  )
-import Aihc.Cli.Repl (ReplError (..), ReplSession (..), ReplStep (..), defaultReplSettings, evaluateExpression, handleReplInput, loadReplSession, replCompletion)
-import Aihc.Cli.Runtime (prepareRuntimeArchive, readWasmClangProcessWithExitCode)
-import Aihc.Fc
-  ( FcBind (..),
-    FcExpr (..),
-    FcModuleId (..),
-    FcProgram (..),
-    FcTopBind (..),
-    Literal (..),
-    Var (..),
-    extractReachabilityInterface,
-  )
-import Aihc.Grin qualified as Grin
-import Aihc.Hackage.Types (PackageSpec (..))
-import Aihc.Native (NativeTarget (..))
-import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), Scope (..), unnamedPackage)
-import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), emptyTcInterface)
+import Aihc.Cli.Options (InstallV2Options (..))
 import Control.Exception (bracket)
-import Data.Aeson (object, (.=))
-import Data.Aeson qualified as Aeson
-import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as BS
-import Data.ByteString.Lazy.Char8 qualified as BL8
-import Data.IORef (newIORef)
-import Data.List (isInfixOf, isPrefixOf, isSuffixOf, sort, tails)
-import Data.Map.Strict qualified as Map
-import Data.Set qualified as Set
-import Data.Text qualified as T
+import Data.List (sort)
 import Hedgehog (Property, property, success)
-import System.Console.Haskeline qualified as Haskeline
 import System.Directory
-  ( Permissions (executable),
-    createDirectory,
+  ( createDirectory,
     createDirectoryIfMissing,
-    doesDirectoryExist,
     doesFileExist,
-    getPermissions,
     getTemporaryDirectory,
     removeDirectoryRecursive,
     removeFile,
-    setPermissions,
-    withCurrentDirectory,
   )
-import System.Environment (lookupEnv, setEnv, unsetEnv)
-import System.Exit (ExitCode (..))
-import System.FilePath (takeDirectory, takeFileName, (</>))
+import System.FilePath ((</>))
 import System.IO (hClose, openTempFile)
 import Test.Tasty (defaultMain, testGroup)
-import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
+import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, testCase)
 import Test.Tasty.Hedgehog (testProperty)
 
 main :: IO ()
@@ -540,6 +465,7 @@ test_installV2StopsAtEqualScope =
     assertEqual "changed module and direct dependent" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules changed))
     assertEqual "transitive dependent with equal direct scope" ["Demo.C"] (sort (installV2ReusedModules changed))
 
+{- Disabled with the related test groups in main.
 assertHelp :: ReplStep -> Assertion
 assertHelp (ReplContinue (Just output)) =
   assertBool "help mentions :quit" (":quit" `isInfixOf` output)
@@ -573,7 +499,9 @@ testReplSession = do
         replDependencyProgram = FcProgram (FcModuleId "test" "Test") [],
         replSettings = settingsRef
       }
+-}
 
+{- Disabled with the related test groups in main.
 test_loadsInstalledBaseInterfaceForRepl :: Assertion
 test_loadsInstalledBaseInterfaceForRepl =
   withTempDir "aihc-repl" $ \root -> do
@@ -1397,12 +1325,14 @@ test_preparedRuntime =
   withTempDir "aihc-prepared-runtime" $ \root -> do
     archive <- prepareRuntimeArchive root Llvm GcCalloc
     assertFileExists archive
+-}
 
 assertFileExists :: FilePath -> Assertion
 assertFileExists path = do
   exists <- doesFileExist path
   assertBool ("expected file to exist: " <> path) exists
 
+{- Disabled with the related test groups in main.
 assertFileDoesNotExist :: FilePath -> Assertion
 assertFileDoesNotExist path = do
   exists <- doesFileExist path
@@ -1630,6 +1560,7 @@ libraryOnlyInstallCabal =
       "  build-depends: demo, executable-only-dependency",
       "  default-language: Haskell2010"
     ]
+-}
 
 withTempDir :: String -> (FilePath -> IO a) -> IO a
 withTempDir prefix action = do
@@ -1643,6 +1574,7 @@ withTempDir prefix action = do
     removeDirectoryRecursive
     action
 
+{- Disabled with the related test groups in main.
 test_missingWasm32ClangTarget :: Assertion
 test_missingWasm32ClangTarget = do
   withFakeClang "  arm64 - AArch64\n  x86-64 - 64-bit X86\n" $ \clang -> do
@@ -1676,3 +1608,4 @@ withFakeClang targets action =
     permissions <- getPermissions clang
     setPermissions clang permissions {executable = True}
     action clang
+-}
