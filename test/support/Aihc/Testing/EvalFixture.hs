@@ -46,7 +46,7 @@ import Control.Exception (bracket, mask, onException)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, nub, sort)
+import Data.List (dropWhileEnd, sort)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing, listToMaybe)
@@ -84,7 +84,6 @@ data EvalCase = EvalCase
     evalCaseCategory :: !String,
     evalCasePath :: !FilePath,
     evalCaseExtensions :: ![Extension],
-    evalCaseDependencies :: ![Text],
     evalCaseModules :: ![Text],
     evalCaseExpression :: !Text,
     evalCaseOutput :: !String,
@@ -173,11 +172,10 @@ loadEvalCase root path = do
 
 parseEvalFixture :: FilePath -> FilePath -> Y.Value -> Either String EvalCase
 parseEvalFixture root path value = do
-  (extNames, dependencies, modules, expression, output, expectedException, expectedStdout, evaluators, statusText, reasonText) <-
+  (extNames, modules, expression, output, expectedException, expectedStdout, evaluators, statusText, reasonText) <-
     parseEither
       ( withObject "eval fixture" $ \obj -> do
           exts <- obj .: "extensions"
-          deps <- obj .:? "dependencies" .!= []
           mods <- obj .: "modules" >>= parseModules
           expr <- obj .: "expression"
           expected <- obj .: "output"
@@ -186,7 +184,7 @@ parseEvalFixture root path value = do
           fixtureEvaluators <- obj .:? "evaluators" .!= ["fc", "grin"]
           status <- obj .: "status"
           reason <- obj .:? "reason" .!= ""
-          pure (exts, deps, mods, expr, expected, exception, stdoutOutput, fixtureEvaluators, status, reason)
+          pure (exts, mods, expr, expected, exception, stdoutOutput, fixtureEvaluators, status, reason)
       )
       value
   if null modules
@@ -210,7 +208,6 @@ parseEvalFixture root path value = do
             evalCaseCategory = category,
             evalCasePath = relPath,
             evalCaseExtensions = exts,
-            evalCaseDependencies = nub (dependencies <> ["aihc-prim", "aihc-base"]),
             evalCaseModules = modules,
             evalCaseExpression = expression,
             evalCaseOutput = trim (T.unpack output),
@@ -255,35 +252,27 @@ compileEvalCase tc =
     Left errMsg -> pure (Left errMsg)
     Right (modules, expr) -> do
       let evalModules = combineModules modules expr
-      case dependenciesForCase tc of
+      case aihcBaseArtifact of
         Left errMsg -> pure (Left errMsg)
         Right dependencies -> do
-          extended <- extendDependenciesForCase tc evalModules dependencies
+          extended <- extendDependencies evalModules dependencies
           pure (extended >>= \compiled -> compileModulesWithDependencies compiled evalModules)
 
-dependenciesForCase :: EvalCase -> Either String CompiledDependencies
-dependenciesForCase tc =
-  case filter (`notElem` ["aihc-base", "aihc-prim"]) (evalCaseDependencies tc) of
-    dependency : _ -> Left ("unknown eval fixture dependency: " <> T.unpack dependency)
-    [] -> aihcBaseArtifact
-
-extendDependenciesForCase :: EvalCase -> [Module] -> CompiledDependencies -> IO (Either String CompiledDependencies)
-extendDependenciesForCase tc evalModules dependencies
-  | "aihc-base" `notElem` evalCaseDependencies tc = pure (Right dependencies)
-  | otherwise = do
-      baseRootEnv <- lookupEnv "AIHC_BASE_SRC"
-      baseRoot <- maybe defaultAihcBaseRoot pure baseRootEnv
-      primRootEnv <- lookupEnv "AIHC_PRIM_SRC"
-      primRoot <- maybe defaultAihcPrimRoot pure primRootEnv
-      primModuleNames <- sourceModuleNames primRoot
-      let providedModules = map moduleKeyName (Map.keys (dependencyExports dependencies))
-          initialModules = importedModuleNameList evalModules
-      modules <-
-        loadTransitiveModules
-          providedModules
-          [("aihc-base", baseRoot), ("aihc-prim", primRoot)]
-          initialModules
-      pure (modules >>= compileDependencyModules dependencies (Set.fromList primModuleNames))
+extendDependencies :: [Module] -> CompiledDependencies -> IO (Either String CompiledDependencies)
+extendDependencies evalModules dependencies = do
+  baseRootEnv <- lookupEnv "AIHC_BASE_SRC"
+  baseRoot <- maybe defaultAihcBaseRoot pure baseRootEnv
+  primRootEnv <- lookupEnv "AIHC_PRIM_SRC"
+  primRoot <- maybe defaultAihcPrimRoot pure primRootEnv
+  primModuleNames <- sourceModuleNames primRoot
+  let providedModules = map moduleKeyName (Map.keys (dependencyExports dependencies))
+      initialModules = importedModuleNameList evalModules
+  modules <-
+    loadTransitiveModules
+      providedModules
+      [("aihc-base", baseRoot), ("aihc-prim", primRoot)]
+      initialModules
+  pure (modules >>= compileDependencyModules dependencies (Set.fromList primModuleNames))
 
 compileModulesWithDependencies :: CompiledDependencies -> [Module] -> Either String FcProgram
 compileModulesWithDependencies dependencies modules =
