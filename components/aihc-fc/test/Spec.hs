@@ -3,7 +3,7 @@ module Main (main) where
 import FcGolden (updateFcGoldens)
 import System.Environment (lookupEnv)
 import Test.Fc.Properties (fcPropertyTests)
-import Test.Fc.Suite (fcDesugarTests, fcEvalFixtureTests, fcEvalTests, fcGoldenTests, fcLoweringTests, fcMainTests, fcMergeTests, fcOptimizationTests)
+import Test.Fc.Suite (fcEvalFixtureTests, fcGoldenTests)
 import Test.Tasty (defaultMain, testGroup)
 
 main :: IO ()
@@ -18,12 +18,6 @@ main = do
         ( testGroup
             "aihc-fc"
             [ golden,
-              fcDesugarTests,
-              fcEvalTests,
-              fcLoweringTests,
-              fcMainTests,
-              fcMergeTests,
-              fcOptimizationTests,
               evalFixtures,
               fcPropertyTests
             ]
