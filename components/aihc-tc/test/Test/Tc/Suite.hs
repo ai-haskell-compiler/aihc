@@ -1006,7 +1006,7 @@ evidenceDictNames =
 
 evDictNames :: EvTerm -> [Text]
 evDictNames (EvDict _ name _ evidence) = name : concatMap evDictNames evidence
-evDictNames (EvSuperClass ev _ _ _) = evDictNames ev
+evDictNames (EvSuperClass ev _ _ _ _) = evDictNames ev
 evDictNames (EvCast ev _) = evDictNames ev
 evDictNames _ = []
 
@@ -1016,7 +1016,7 @@ hasGivenClass className =
   where
     isGiven (EvGiven (ClassPred cls _)) = cls == className
     isGiven (EvDict _ _ _ evidence) = any isGiven evidence
-    isGiven (EvSuperClass ev _ _ _) = isGiven ev
+    isGiven (EvSuperClass ev _ _ _ _) = isGiven ev
     isGiven (EvCast ev _) = isGiven ev
     isGiven _ = False
 

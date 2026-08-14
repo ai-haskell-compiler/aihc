@@ -17,13 +17,14 @@ import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.Types (TcType (..), TyCon (..), Unique (..))
+import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (State, evalState, state)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 
 newtype NewtypeInterface = NewtypeInterface
-  { newtypesByConstructor :: Map Text FcNewtypeDecl
+  { newtypesByConstructor :: Map FcSymbolOrigin FcNewtypeDecl
   }
   deriving (Eq, Show, Read)
 
@@ -50,7 +51,7 @@ extractNewtypeInterface :: FcProgram -> NewtypeInterface
 extractNewtypeInterface (FcProgram _ topBinds) =
   NewtypeInterface
     ( Map.fromList
-        [ (fcNewtypeConstructor declaration, declaration)
+        [ (fcNewtypeConstructorOrigin declaration, declaration)
         | FcNewtype declaration <- topBinds
         ]
     )
@@ -79,7 +80,7 @@ lowerExpr :: NewtypeEnv -> FcExpr -> LowerM FcExpr
 lowerExpr env expr =
   case expr of
     FcVar var ->
-      case Map.lookup (varName var) (newtypesByConstructor env) of
+      case lookupNewtypeVar env var of
         Just declaration -> lowerConstructorValue declaration []
         Nothing -> pure expr
     FcLit {} -> pure expr
@@ -139,7 +140,7 @@ firstNewtypeAlternative env alternatives =
   case [ (declaration, fieldBinder, altRhs alternative)
        | alternative <- alternatives,
          DataAlt constructor <- [altCon alternative],
-         Just declaration <- [Map.lookup constructor (newtypesByConstructor env)],
+         Just declaration <- [lookupNewtypeOrigin env constructor],
          [fieldBinder] <- [altBinders alternative]
        ] of
     match : _ -> Just match
@@ -151,7 +152,7 @@ newtypeConstructorSpine env = go []
     go typeArgs expression =
       case expression of
         FcTyApp inner ty -> go (ty : typeArgs) inner
-        FcVar var -> (,typeArgs) <$> Map.lookup (varName var) (newtypesByConstructor env)
+        FcVar var -> (,typeArgs) <$> lookupNewtypeVar env var
         _ -> Nothing
 
 wrapNewtype :: FcNewtypeDecl -> [TcType] -> FcExpr -> FcExpr
@@ -161,6 +162,22 @@ wrapNewtype declaration typeArgs expression =
 unwrapNewtype :: FcNewtypeDecl -> [TcType] -> FcExpr -> FcExpr
 unwrapNewtype declaration typeArgs expression =
   FcCast expression (newtypeAxiom declaration typeArgs)
+
+lookupNewtypeVar :: NewtypeEnv -> Var -> Maybe FcNewtypeDecl
+lookupNewtypeVar env var =
+  (varResolvedName var >>= lookupNewtypeOrigin env)
+    <|> uniqueSourceConstructor env (varName var)
+
+lookupNewtypeOrigin :: NewtypeEnv -> FcSymbolOrigin -> Maybe FcNewtypeDecl
+lookupNewtypeOrigin env origin =
+  Map.lookup origin (newtypesByConstructor env)
+    <|> uniqueSourceConstructor env (fcOriginName origin)
+
+uniqueSourceConstructor :: NewtypeEnv -> Text -> Maybe FcNewtypeDecl
+uniqueSourceConstructor env name =
+  case filter ((== name) . fcNewtypeConstructor) (Map.elems (newtypesByConstructor env)) of
+    [declaration] -> Just declaration
+    _ -> Nothing
 
 newtypeAxiom :: FcNewtypeDecl -> [TcType] -> Coercion
 newtypeAxiom declaration typeArgs =

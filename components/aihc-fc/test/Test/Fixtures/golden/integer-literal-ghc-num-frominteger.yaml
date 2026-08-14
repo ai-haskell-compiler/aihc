@@ -16,14 +16,14 @@ expected: |-
         }
   module Main where
 
-  external GHC.Internal.Integer.IS : Int# → Integer
+  external GHC.Num.IS : Int# → Integer
 
   external GHC.Num.fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a
 
   one : ∀ (a : TYPE BoxedRep Lifted). (Num a) → a =
     Λ(a : TYPE BoxedRep Lifted).
       λ($d0 : Num a).
-        ((GHC.Num.fromInteger @a) $d0) (GHC.Internal.Integer.IS 1#IntRep)
+        ((GHC.Num.fromInteger @a) $d0) (GHC.Num.IS 1#IntRep)
 extensions:
 - MagicHash
 modules:

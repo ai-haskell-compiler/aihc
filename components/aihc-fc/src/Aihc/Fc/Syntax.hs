@@ -393,8 +393,8 @@ data FcAlt = FcAlt
 
 -- | Case alternative constructor.
 data FcAltCon
-  = -- | Data constructor with type variable binders.
-    DataAlt !Text
+  = -- | Data constructor with its full identity.
+    DataAlt !FcSymbolOrigin
   | -- | Literal match.
     LitAlt !Literal
   | -- | Default/wildcard.

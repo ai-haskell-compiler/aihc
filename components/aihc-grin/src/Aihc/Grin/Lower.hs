@@ -132,7 +132,7 @@ linkNamesForProgram libraryId moduleNameComponents program =
           ],
       grinConstructorNames =
         Map.fromList
-          [ (fcSymbolOriginText (fcDataConOrigin constructor), (fcDataConName constructor, length (fcDataConFields constructor)))
+          [ (runtimeConstructorName (fcDataConOrigin constructor), (runtimeConstructorName (fcDataConOrigin constructor), length (fcDataConFields constructor)))
           | FcData declaration <- fcTopBinds program,
             not (isUnboxedTupleData declaration),
             constructor <- fcDataConstructors declaration
@@ -255,7 +255,7 @@ extractPreparedGrinInterface linkNames program =
           ],
       grinInterfaceUnboxedTupleConstructors =
         Set.fromList
-          [ fcSymbolOriginText (fcDataConOrigin constructor)
+          [ runtimeConstructorName (fcDataConOrigin constructor)
           | FcData declaration <- fcTopBinds program,
             isUnboxedTupleData declaration,
             constructor <- fcDataConstructors declaration
@@ -370,7 +370,7 @@ lowerTopBind topBind =
     FcData declaration ->
       if isUnboxedTupleData declaration
         then pure mempty
-        else pure mempty {loweredConstructors = [(fcDataConName constructor, map (runtimeRepComponents . typeRuntimeRep) (fcDataConFields constructor)) | constructor <- fcDataConstructors declaration]}
+        else pure mempty {loweredConstructors = [(runtimeConstructorName (fcDataConOrigin constructor), map (runtimeRepComponents . typeRuntimeRep) (fcDataConFields constructor)) | constructor <- fcDataConstructors declaration]}
     FcAxiom {} ->
       pure mempty
     FcNewtype {} ->
@@ -745,7 +745,7 @@ lowerCase scrutinee binder alternatives =
       pure (bindExpr [] scrutineeExpr rhs)
     (_, TupleRep _, alternative : _)
       | DataAlt constructor <- altCon alternative,
-        unboxedTuplePunctuation constructor ->
+        unboxedTuplePunctuation (fcOriginName constructor) ->
           -- An unboxed tuple has exactly one constructor. The source match
           -- compiler may retain a syntactic fall-through alternative while
           -- compiling nested refutable fields, but that alternative is
@@ -918,9 +918,10 @@ lowerAlt caseBinding alt = do
   (binders, rhs) <- withBindings [caseBinding] $ withFreshLocalVars (altBinders alt) $ \groups -> do
     rhs' <- lowerExpr (altRhs alt)
     pure (concat groups, rhs')
+  alternativeConstructor <- lowerAltCon (altCon alt)
   pure
     GrinAlt
-      { grinAltCon = lowerAltCon (altCon alt),
+      { grinAltCon = alternativeConstructor,
         grinAltBinders = binders,
         grinAltRhs = rhs
       }
@@ -1257,10 +1258,11 @@ constructorApplication constructorArities localVars expr =
   case collectApplications expr of
     (FcVar var, arguments)
       | varKey var `Set.notMember` localVars,
-        Just arity <- Map.lookup (varName var) constructorArities,
+        Just constructorName <- resolveConstructorName constructorArities var,
+        Just arity <- Map.lookup constructorName constructorArities,
         arity > 0,
         length arguments <= arity ->
-          Just (varName var, arguments)
+          Just (constructorName, arguments)
     _ -> Nothing
 
 collectApplications :: FcExpr -> (FcExpr, [FcExpr])
@@ -1308,8 +1310,10 @@ lowerGlobalVar :: Var -> LowerM GrinVar
 lowerGlobalVar var = do
   globalNames <- gets lowerGlobalNames
   incremental <- gets lowerUseIncrementalCodeLookup
+  constructorName <- lookupConstructorName var
   let sourceName = sourceLookupName incremental var
-      linkedName = Map.findWithDefault (varName var) sourceName globalNames
+      lookupName = fromMaybe sourceName constructorName
+      linkedName = Map.findWithDefault (varName var) lookupName globalNames
   pure (GrinVar linkedName (sourceUnique var) liftedRuntimeRep)
 
 capturesFor :: FcExpr -> LowerM [GrinVar]
@@ -1335,9 +1339,10 @@ isGlobalVar var = do
   tupleConstructors <- gets lowerUnboxedTupleConstructors
   incremental <- gets lowerUseIncrementalCodeLookup
   let sourceName = sourceLookupName incremental var
+      constructorName = resolveConstructorName globalNames var
   pure
     ( varKey var `Map.notMember` localVars
-        && (sourceName `Map.member` globalNames || isKnownUnboxedTupleConstructor tupleConstructors var)
+        && (sourceName `Map.member` globalNames || maybe False (`Map.member` globalNames) constructorName || isKnownUnboxedTupleConstructor tupleConstructors var)
     )
 
 -- | Values that can be embedded directly in a non-allocating GRIN operation.
@@ -1471,12 +1476,18 @@ lookupCodeInfo var = do
 
 lookupConstructorArity :: Var -> LowerM (Maybe Int)
 lookupConstructorArity var = do
+  constructorName <- lookupConstructorName var
+  constructorArities <- gets lowerConstructorArities
+  pure (constructorName >>= (`Map.lookup` constructorArities))
+
+lookupConstructorName :: Var -> LowerM (Maybe Text)
+lookupConstructorName var = do
   locals <- gets lowerLocalVars
   constructorArities <- gets lowerConstructorArities
   pure
     ( if varKey var `Map.member` locals
         then Nothing
-        else Map.lookup (varName var) constructorArities
+        else resolveConstructorName constructorArities var
     )
 
 lookupPrimitiveArity :: Var -> LowerM (Maybe Int)
@@ -1543,7 +1554,8 @@ isWhnfGlobalVar var = do
   whnfGlobalNames <- gets lowerWhnfGlobalNames
   incremental <- gets lowerUseIncrementalCodeLookup
   let sourceName = sourceLookupName incremental var
-  pure (varKey var `Map.notMember` localVars && sourceName `Map.member` whnfGlobalNames)
+      constructorName = resolveConstructorName whnfGlobalNames var
+  pure (varKey var `Map.notMember` localVars && (sourceName `Map.member` whnfGlobalNames || maybe False (`Map.member` whnfGlobalNames) constructorName))
 
 -- Builtin origins are syntax-level provenance, not linker namespaces. Their
 -- runtime definitions keep the established constructor and primitive names,
@@ -1555,6 +1567,32 @@ sourceLookupName incremental var =
     Just FcBuiltinOrigin {} -> varName var
     Just origin | incremental -> fcSymbolOriginText origin
     _ -> varName var
+
+constructorLookupName :: Var -> Text
+constructorLookupName var =
+  case varResolvedName var of
+    Just FcBuiltinOrigin {} -> varName var
+    Just origin -> fcSymbolOriginText origin
+    Nothing -> varName var
+
+runtimeConstructorName :: FcSymbolOrigin -> Text
+runtimeConstructorName origin =
+  case origin of
+    FcBuiltinOrigin name -> name
+    FcTopLevelOrigin {} -> fcSymbolOriginText origin
+
+resolveConstructorName :: Map Text value -> Var -> Maybe Text
+resolveConstructorName constructors var =
+  case varResolvedName var of
+    Just FcTopLevelOrigin {} ->
+      let name = constructorLookupName var
+       in if name `Map.member` constructors then Just name else Nothing
+    _ ->
+      if varName var `Map.member` constructors
+        then Just (varName var)
+        else case [name | name <- Map.keys constructors, ("." <> varName var) `T.isSuffixOf` name] of
+          [name] -> Just name
+          _ -> Nothing
 
 withFreshLocalVars :: [Var] -> ([[GrinVar]] -> LowerM a) -> LowerM a
 withFreshLocalVars vars action = do
@@ -1612,12 +1650,16 @@ lowerLiteral literal =
     LitString value -> GrinLitString value
     LitAddr value -> GrinLitAddr value
 
-lowerAltCon :: FcAltCon -> GrinAltCon
+lowerAltCon :: FcAltCon -> LowerM GrinAltCon
 lowerAltCon altCon =
   case altCon of
-    DataAlt name -> GrinDataAlt name
-    LitAlt literal -> GrinLitAlt (lowerLiteral literal)
-    DefaultAlt -> GrinDefaultAlt
+    DataAlt origin -> do
+      constructorArities <- gets lowerConstructorArities
+      let occurrence = (Var (fcOriginName origin) (Unique (-1)) (TcBuiltinTyCon "Type" 0 [])) {varResolvedName = Just origin}
+          constructorName = fromMaybe (runtimeConstructorName origin) (resolveConstructorName constructorArities occurrence)
+      pure (GrinDataAlt constructorName)
+    LitAlt literal -> pure (GrinLitAlt (lowerLiteral literal))
+    DefaultAlt -> pure GrinDefaultAlt
 
 lowerForeignCall :: FcForeignCall -> GrinForeignCall
 lowerForeignCall foreignCall =
@@ -1724,7 +1766,7 @@ programVars program = concatMap topVars (fcTopBinds program)
 
 programConstructors :: FcProgram -> [(Text, Int)]
 programConstructors program =
-  [ (fcDataConName constructor, length (fcDataConFields constructor))
+  [ (runtimeConstructorName (fcDataConOrigin constructor), length (fcDataConFields constructor))
   | FcData declaration <- fcTopBinds program,
     not (isUnboxedTupleData declaration),
     constructor <- fcDataConstructors declaration
@@ -1733,7 +1775,7 @@ programConstructors program =
 isUnboxedTupleData :: FcDataDecl -> Bool
 isUnboxedTupleData declaration =
   case fcDataResultKind declaration of
-    KTYPE TupleRep {} -> True
+    KTYPE TupleRep {} -> any (unboxedTuplePunctuation . fcDataConName) (fcDataConstructors declaration)
     _ -> False
 
 programGlobalInfos :: GrinLinkNames -> FcProgram -> [(Var, Text, Text, Bool)]

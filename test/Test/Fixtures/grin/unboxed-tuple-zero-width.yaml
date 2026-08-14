@@ -1,14 +1,14 @@
 expected: |-
-  constructor Box [IntRep]
+  constructor main:Test.Box [IntRep]
 
   primitive realWorld#%1000 :: BoxedRep Lifted/0
 
-  caf value%1009 :: BoxedRep Lifted = (Fvalue_thunk)
+  caf value%1010 :: BoxedRep Lifted = (Fvalue_thunk)
 
   value_thunk -> BoxedRep Lifted =
-    $grin_argument_1010%1010 :: IntRep <-
+    $grin_argument_1011%1011 :: IntRep <-
       constant (42 :: IntRep)
-    store (CBox ($grin_argument_1010%1010 :: IntRep))
+    store (Cmain:Test.Box ($grin_argument_1011%1011 :: IntRep))
 extensions:
 - EmptyDataDecls
 - MagicHash

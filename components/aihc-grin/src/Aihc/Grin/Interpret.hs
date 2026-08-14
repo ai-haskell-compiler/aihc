@@ -1499,15 +1499,16 @@ renderRawValueM value = do
     RuntimeIOError {} -> pure "<io-error>"
     RuntimeIORequest {} -> pure "<io-request>"
     RuntimeMVar {} -> pure "<mvar>"
-    RuntimeNode (GrinConstructor "C#" 0) [char] -> renderBoxedChar char
-    RuntimeNode (GrinConstructor name 0) [] -> pure name
+    RuntimeNode (GrinConstructor name 0) [char]
+      | constructorDisplayName name == "C#" -> renderBoxedChar char
+    RuntimeNode (GrinConstructor name 0) [] -> pure (constructorDisplayName name)
     RuntimeNode (GrinConstructor name 0) arguments
-      | isTupleConstructor name (length arguments) -> do
+      | isTupleConstructor (constructorDisplayName name) (length arguments) -> do
           renderedArguments <- mapM renderRawArgument arguments
           pure ("(" <> T.intercalate "," renderedArguments <> ")")
     RuntimeNode (GrinConstructor name 0) arguments -> do
       renderedArguments <- mapM renderRawArgument arguments
-      pure (T.unwords (name : renderedArguments))
+      pure (T.unwords (constructorDisplayName name : renderedArguments))
     RuntimeNode GrinConstructor {} _ -> pure "<function>"
     RuntimeNode GrinClosure {} _ -> pure "<function>"
     RuntimeNode GrinThunk {} _ -> pure "<thunk>"
@@ -1523,8 +1524,9 @@ renderRawArgument value = do
   pure $
     case exposed of
       RuntimeNode (GrinConstructor name 0) arguments
-        | isTupleConstructor name (length arguments) -> rendered
-      RuntimeNode (GrinConstructor "C#" 0) [_] -> rendered
+        | isTupleConstructor (constructorDisplayName name) (length arguments) -> rendered
+      RuntimeNode (GrinConstructor name 0) [_]
+        | constructorDisplayName name == "C#" -> rendered
       RuntimeNode (GrinConstructor _ 0) (_ : _) -> "(" <> rendered <> ")"
       _ -> rendered
 
@@ -1556,6 +1558,12 @@ isTupleConstructor name arity =
     && ( name == "(" <> T.replicate (arity - 1) "," <> ")"
            || name == "(#" <> T.replicate (arity - 1) "," <> "#)"
        )
+
+constructorDisplayName :: Text -> Text
+constructorDisplayName name =
+  case reverse (T.splitOn "." name) of
+    displayName : _ -> displayName
+    [] -> name
 
 throwInterpret :: InterpretError -> EvalM value
 throwInterpret = throwE . EvalInterpret

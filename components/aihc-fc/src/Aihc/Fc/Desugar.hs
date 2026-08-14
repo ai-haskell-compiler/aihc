@@ -71,6 +71,8 @@ import Aihc.Tc.Types
     runtimeRepOfType,
     tvKind,
     tyConKind,
+    tyConModuleName,
+    tyConPackageId,
     typeKind,
     unboxedTupleTyConName,
   )
@@ -462,8 +464,9 @@ dsRecordSelectors constructorInfos declarations =
               (\index fieldType -> freshVar ("$field" <> T.pack (show index)) fieldType)
               [0 :: Int ..]
               fieldTypes
+          constructorOrigin <- localDeclarationOrigin constructorName
           case drop selectedIndex fieldBinders of
-            selected : _ -> pure (Just (FcAlt (DataAlt constructorName) fieldBinders (FcVar selected)))
+            selected : _ -> pure (Just (FcAlt (DataAlt constructorOrigin) fieldBinders (FcVar selected)))
             [] -> desugarBug ("record selector field index is out of range: " <> T.unpack constructorName)
     allConstructorFields = concatMap recordConstructorLayouts declarations
 
@@ -585,11 +588,12 @@ unboxForeignValue binderName marshal expression continuation =
       caseBinder <- freshVar (binderName <> "_case") valueType
       fieldBinder <- freshVar (binderName <> "_field") fieldType
       rhs <- go fieldType constructors (FcVar fieldBinder)
+      constructorOrigin <- typeDataConOrigin valueType constructor
       pure
         ( FcCase
             value
             caseBinder
-            [FcAlt (DataAlt constructor) [fieldBinder] rhs]
+            [FcAlt (DataAlt constructorOrigin) [fieldBinder] rhs]
         )
 
 boxForeignValue :: TcForeignMarshal -> FcExpr -> DsM FcExpr
@@ -602,7 +606,8 @@ boxForeignValue marshal =
       constructorVar <- freshVar constructor constructorType
       (typeArguments, fieldType) <- instantiateUnaryConstructor constructor resultType constructorType
       fieldValue <- applyConstructors fieldType constructors value
-      pure (FcApp (foldl FcTyApp (FcVar constructorVar) typeArguments) fieldValue)
+      constructorOrigin <- typeDataConOrigin resultType constructor
+      pure (FcApp (foldl FcTyApp (FcVar constructorVar {varResolvedName = Just constructorOrigin}) typeArguments) fieldValue)
 
 instantiateUnaryConstructor :: Text -> TcType -> TcType -> DsM ([TcType], TcType)
 instantiateUnaryConstructor constructor expectedResult constructorType = do
@@ -683,10 +688,12 @@ makeForeignIoWrapper foreignCall resultMarshal arguments = do
   nextStateVar <- freshVar "$ffi_next_state" statePrimRealWorldTy
   rawResultVar <- freshVar "$ffi_raw_result" (tcForeignPrimitiveType resultMarshal)
   boxedResult <- boxForeignValue resultMarshal (FcVar rawResultVar)
-  tupleConstructor <-
+  tupleOrigin <- primitiveConstructorOrigin "(#,#)"
+  tupleConstructorVar <-
     freshVar
       "(#,#)"
       (TcFunTy statePrimRealWorldTy (TcFunTy (tcForeignSourceType resultMarshal) (unboxedTupleTy [statePrimRealWorldTy, tcForeignSourceType resultMarshal])))
+  let tupleConstructor = tupleConstructorVar
   ioConstructorType <- lookupType "IO"
   ioConstructor <- freshVar "IO" ioConstructorType
   let resultTuple = FcApp (FcApp (FcVar tupleConstructor) (FcVar nextStateVar)) boxedResult
@@ -697,7 +704,7 @@ makeForeignIoWrapper foreignCall resultMarshal arguments = do
           ( FcCase
               call
               tupleBinder
-              [FcAlt (DataAlt "(#,#)") [nextStateVar, rawResultVar] resultTuple]
+              [FcAlt (DataAlt tupleOrigin) [nextStateVar, rawResultVar] resultTuple]
           )
   pure (FcApp (FcTyApp (FcVar ioConstructor) (tcForeignSourceType resultMarshal)) stateAction)
 
@@ -960,6 +967,23 @@ localDeclarationOrigin declarationName = do
   moduleName' <- gets dsModuleName
   pure (FcTopLevelOrigin (packageIdText packageId) moduleName' declarationName)
 
+primitiveConstructorOrigin :: Text -> DsM FcSymbolOrigin
+primitiveConstructorOrigin declarationName = do
+  packageId <- gets dsPrimPackageId
+  pure (FcTopLevelOrigin (packageIdText packageId) "GHC.Types" declarationName)
+
+typeDataConOrigin :: TcType -> Text -> DsM FcSymbolOrigin
+typeDataConOrigin ty constructorName =
+  case ty of
+    TcTyCon tyCon _ ->
+      pure
+        ( FcTopLevelOrigin
+            (packageIdText (tyConPackageId tyCon))
+            (tyConModuleName tyCon)
+            constructorName
+        )
+    _ -> primitiveConstructorOrigin constructorName
+
 dsClassSelector :: Text -> Int -> [TyVarId] -> [TcType] -> TcClassMethodAnnotation -> DsM FcTopBind
 dsClassSelector dictionaryConstructor superClassCount classTyVars fieldTypes methodAnn = do
   methodUnique <- freshUnique
@@ -974,6 +998,7 @@ dsClassSelector dictionaryConstructor superClassCount classTyVars fieldTypes met
     case drop (superClassCount + tcClassMethodIndex methodAnn) fieldBinders of
       selected : _ -> pure selected
       [] -> desugarBug ("invalid class method index for " <> T.unpack (tcClassMethodName methodAnn))
+  constructorOrigin <- localDeclarationOrigin dictionaryConstructor
   let extraTyVars = filter (`notElem` classTyVars) (tcClassMethodTyVars methodAnn)
       extraDictVars = drop 1 dictVars
       selected =
@@ -981,7 +1006,7 @@ dsClassSelector dictionaryConstructor superClassCount classTyVars fieldTypes met
           FcApp
           (foldl FcTyApp (FcVar selectedField) (map TcTyVar extraTyVars))
           (map FcVar extraDictVars)
-      selection = FcCase (FcVar classDictionaryVar) caseBinder [FcAlt (DataAlt dictionaryConstructor) fieldBinders selected]
+      selection = FcCase (FcVar classDictionaryVar) caseBinder [FcAlt (DataAlt constructorOrigin) fieldBinders selected]
       methodVar = Var (tcClassMethodName methodAnn) methodUnique (tcClassMethodType methodAnn)
       body = foldr FcTyLam (foldr FcLam selection dictVars) (tcClassMethodTyVars methodAnn)
   pure (FcTopBind (FcNonRec methodVar body))

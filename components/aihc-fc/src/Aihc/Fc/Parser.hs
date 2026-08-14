@@ -416,17 +416,24 @@ caseExpression termEnv tyEnv = do
 
 alternative :: TermEnv -> TyEnv -> Parser FcAlt
 alternative termEnv tyEnv = do
-  alternativeConstructor <- altConstructor
+  alternativeConstructor <- altConstructor termEnv
   binders <- MP.many (between "(" ")" (typedVar tyEnv))
   _ <- symbol "→"
   let altEnv = Map.union (Map.fromList [(varName var, var) | var <- binders]) termEnv
   FcAlt alternativeConstructor binders <$> expression altEnv tyEnv
 
-altConstructor :: Parser FcAltCon
-altConstructor =
+altConstructor :: TermEnv -> Parser FcAltCon
+altConstructor termEnv =
   DefaultAlt <$ symbol "_"
+    <|> MP.try resolvedDataAlternative
     <|> MP.try (LitAlt <$> literal)
-    <|> DataAlt <$> name
+    <|> localDataAlternative
+  where
+    resolvedDataAlternative = DataAlt . snd <$> resolvedOriginName
+    localDataAlternative = do
+      displayName <- name
+      let localOrigin = varResolvedName =<< Map.lookup displayName termEnv
+      pure (DataAlt (fromMaybe (FcBuiltinOrigin displayName) localOrigin))
 
 typedVar :: TyEnv -> Parser Var
 typedVar tyEnv = mkVar <$> name <* symbol ":" <*> tcType tyEnv

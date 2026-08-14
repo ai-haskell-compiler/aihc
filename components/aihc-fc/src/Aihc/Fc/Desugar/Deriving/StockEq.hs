@@ -7,13 +7,14 @@ module Aihc.Fc.Desugar.Deriving.StockEq
 where
 
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, predType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshVar, lookupType, primBoolType, withDicts)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshVar, lookupType, withDicts)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
+import Aihc.Resolve (packageIdText)
 import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcStockDerivingPlan (..))
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..))
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), tyConModuleName, tyConPackageId)
 import Control.Monad (zipWithM)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -119,10 +120,11 @@ constructorEqualityAlternative eqTyCon dataType right targetType (constructor, e
   equalFields <- andComparisons comparisons
   mismatch <- boolConstructor "False"
   innerBinder <- freshVar "$stock_eq_inner" targetType
-  let matching = FcAlt (DataAlt (dciName constructor)) rightFields equalFields
+  let constructorIdentity = dataConIdentity constructor
+      matching = FcAlt (DataAlt constructorIdentity) rightFields equalFields
       different = FcAlt DefaultAlt [] mismatch
       compareRight = FcCase (FcVar right) innerBinder [matching, different]
-  pure (FcAlt (DataAlt (dciName constructor)) leftFields compareRight)
+  pure (FcAlt (DataAlt constructorIdentity) leftFields compareRight)
 
 instantiatedFields :: DataTypeInfo -> TcType -> DataConInfo -> DsM [DataConFieldInfo]
 instantiatedFields dataType targetType constructor =
@@ -158,7 +160,7 @@ fieldEquality eqTyCon leftFields rightFields index (field, evidence) = do
         dictionary
         dictionaryBinder
         [ FcAlt
-            (DataAlt (fcDictionaryConstructorName "Eq"))
+            (DataAlt (tyConConstructorIdentity eqTyCon (fcDictionaryConstructorName "Eq")))
             [equalityMethod, inequalityMethod]
             (FcApp (FcApp (FcVar equalityMethod) (FcVar left)) (FcVar right))
         ]
@@ -179,12 +181,14 @@ andComparisons comparisons =
       binder <- freshVar "$stock_eq_bool" boolTy
       false <- boolConstructor "False"
       trueBranch <- andComparisons rest
+      let falseConstructor = typeConstructorIdentity boolTy "False"
+          trueConstructor = typeConstructorIdentity boolTy "True"
       pure
         ( FcCase
             comparison
             binder
-            [ FcAlt (DataAlt "False") [] false,
-              FcAlt (DataAlt "True") [] trueBranch
+            [ FcAlt (DataAlt falseConstructor) [] false,
+              FcAlt (DataAlt trueConstructor) [] trueBranch
             ]
         )
 
@@ -194,12 +198,14 @@ negateBoolean expression = do
   binder <- freshVar "$stock_eq_not" boolTy
   true <- boolConstructor "True"
   false <- boolConstructor "False"
+  let falseConstructor = typeConstructorIdentity boolTy "False"
+      trueConstructor = typeConstructorIdentity boolTy "True"
   pure
     ( FcCase
         expression
         binder
-        [ FcAlt (DataAlt "False") [] true,
-          FcAlt (DataAlt "True") [] false
+        [ FcAlt (DataAlt falseConstructor) [] true,
+          FcAlt (DataAlt trueConstructor) [] false
         ]
     )
 
@@ -207,10 +213,37 @@ boolConstructor :: Text -> DsM FcExpr
 boolConstructor name = do
   constructorType <- lookupType name
   constructor <- freshVar name constructorType
-  pure (FcVar constructor)
+  let origin = typeConstructorIdentity constructorType name
+  pure (FcVar constructor {varResolvedName = Just origin})
 
 boolType :: DsM TcType
-boolType = primBoolType
+boolType = constructorResultType <$> lookupType "True"
+
+dataConIdentity :: DataConInfo -> FcSymbolOrigin
+dataConIdentity constructor =
+  case dciOrigin constructor of
+    Just (packageId, moduleName) -> FcTopLevelOrigin (packageIdText packageId) moduleName (dciName constructor)
+    Nothing -> FcBuiltinOrigin (dciName constructor)
+
+tyConConstructorIdentity :: TyCon -> Text -> FcSymbolOrigin
+tyConConstructorIdentity tyCon =
+  FcTopLevelOrigin
+    (packageIdText (tyConPackageId tyCon))
+    (tyConModuleName tyCon)
+
+typeConstructorIdentity :: TcType -> Text -> FcSymbolOrigin
+typeConstructorIdentity ty constructorName =
+  case constructorResultType ty of
+    TcTyCon tyCon _ -> tyConConstructorIdentity tyCon constructorName
+    _ -> FcBuiltinOrigin constructorName
+
+constructorResultType :: TcType -> TcType
+constructorResultType ty =
+  case ty of
+    TcForAllTy _ body -> constructorResultType body
+    TcQualTy _ body -> constructorResultType body
+    TcFunTy _ result -> constructorResultType result
+    result -> result
 
 stockEqTyCon :: TcDerivingPlan -> DsM TyCon
 stockEqTyCon plan =
@@ -241,10 +274,10 @@ rewriteSelfEvidence plan targetType evidence =
           EvGiven (ClassPred "Eq" [targetType])
     EvDict origin dictionaryName typeArguments contextEvidence ->
       EvDict origin dictionaryName typeArguments (map recurse contextEvidence)
-    EvSuperClass source sourcePredicate fieldTypes fieldIndex ->
-      EvSuperClass (recurse source) sourcePredicate fieldTypes fieldIndex
+    EvSuperClass source sourceOrigin sourcePredicate fieldTypes fieldIndex ->
+      EvSuperClass (recurse source) sourceOrigin sourcePredicate fieldTypes fieldIndex
     EvCast source coercion -> EvCast (recurse source) coercion
-    EvTypeable ty arguments -> EvTypeable ty (map recurse arguments)
+    EvTypeable origin ty arguments -> EvTypeable origin ty (map recurse arguments)
     _ -> evidence
   where
     recurse = rewriteSelfEvidence plan targetType

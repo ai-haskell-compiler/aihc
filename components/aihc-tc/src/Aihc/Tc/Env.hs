@@ -35,6 +35,7 @@ module Aihc.Tc.Env
   )
 where
 
+import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -128,6 +129,8 @@ data DataConFieldInfo = DataConFieldInfo
 -- during case analysis.
 data DataConInfo = DataConInfo
   { dciName :: !Text,
+    -- | Package and module that define the constructor.
+    dciOrigin :: !(Maybe (PackageId, Text)),
     -- | Universally quantified type variables.
     dciUnivTyVars :: ![TyVarId],
     -- | Existentially quantified type variables (GADTs).

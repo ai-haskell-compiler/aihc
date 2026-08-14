@@ -1,7 +1,7 @@
 expected: |-
-  constructor Narrow [Int8Rep, Word16Rep]
+  constructor main:Test.Narrow [Int8Rep, Word16Rep]
 
-  global value%1002 :: BoxedRep Lifted = (CNarrow (123 :: Int8Rep) (456 :: Word16Rep))
+  global value%1002 :: BoxedRep Lifted = (Cmain:Test.Narrow (123 :: Int8Rep) (456 :: Word16Rep))
 extensions:
 - MagicHash
 - ExtendedLiterals

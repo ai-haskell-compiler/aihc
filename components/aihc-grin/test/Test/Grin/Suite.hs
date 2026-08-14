@@ -435,12 +435,12 @@ grinUnitTests =
       testCase "FC lowering counts zero-width constructor fields" $ do
         let program = lowerProgram zeroWidthConstructorProgram
         assertEqual "lint" [] (lintProgram program)
-        assertEqual "field layouts" [("StateBox", [[], [BoxedRep Lifted]])] (grinConstructors program)
+        assertEqual "field layouts" [("test:Test.StateBox", [[], [BoxedRep Lifted]])] (grinConstructors program)
         case grinFunctions program of
           [function] ->
             assertEqual
               "one logical field remains"
-              (GrinStore (GrinNode (GrinConstructor "StateBox" 1) []))
+              (GrinStore (GrinNode (GrinConstructor "test:Test.StateBox" 1) []))
               (grinFunctionBody function)
           functions -> assertFailure ("expected one function, got " <> show (length functions)),
       testCase "lint rejects saturated closure nodes" $ do
@@ -474,7 +474,7 @@ grinUnitTests =
           [function] ->
             assertEqual
               "constructor body"
-              (GrinStore (GrinNode (GrinConstructor "I32#" 0) [GrinVarValue (GrinVar "value" 62 Int32Rep)]))
+              (GrinStore (GrinNode (GrinConstructor "test:Test.I32#" 0) [GrinVarValue (GrinVar "value" 62 Int32Rep)]))
               (grinFunctionBody function)
           functions -> assertFailure ("expected one constructor function, got " <> show (length functions)),
       testCase "FC lowering returns a tail constructor store directly" $ do
@@ -484,7 +484,7 @@ grinUnitTests =
           [function] ->
             assertEqual
               "function body"
-              (GrinStore (GrinNode (GrinConstructor "Box" 0) [GrinVarValue (GrinVar "value" 81 IntRep)]))
+              (GrinStore (GrinNode (GrinConstructor "test:Test.Box" 0) [GrinVarValue (GrinVar "value" 81 IntRep)]))
               (grinFunctionBody function)
           functions -> assertFailure ("expected one constructor function, got " <> show (length functions)),
       testCase "FC lowering emits saturated strict foreign calls" $ do
@@ -611,9 +611,9 @@ grinUnitTests =
         assertEqual "lint" [] (lintProgram program)
         assertEqual
           "dictionary constructor has an ordinary declared layout"
-          [("Box", [[IntRep]]), ("$Dict$Test", [[BoxedRep Lifted], [BoxedRep Lifted]])]
+          [("test:Test.Box", [[IntRep]]), ("test:Test.$Dict$Test", [[BoxedRep Lifted], [BoxedRep Lifted]])]
           (grinConstructors program)
-        assertBool ("explicit dictionary constructor store:\n" <> rendered) ("store (C$Dict$Test" `isInfixOf` rendered)
+        assertBool ("explicit dictionary constructor store:\n" <> rendered) ("store (Ctest:Test.$Dict$Test" `isInfixOf` rendered)
         assertBool "ordinary dictionary case" ("$Dict$Test" `isInfixOf` rendered && "case " `isInfixOf` rendered)
         assertBool "no tuple encoding" (not ("C(,)" `isInfixOf` rendered || "C()" `isInfixOf` rendered))
         assertBool "no projection operation" (not ("project " `isInfixOf` rendered))
@@ -717,7 +717,7 @@ grinUnitTests =
               [function] ->
                 assertEqual
                   "constructor body"
-                  (GrinStore (GrinNode (GrinConstructor "I32#" 0) [GrinVarValue (GrinVar "value" 72 Int32Rep)]))
+                  (GrinStore (GrinNode (GrinConstructor "test:Test.I32#" 0) [GrinVarValue (GrinVar "value" 72 Int32Rep)]))
                   (grinFunctionBody function)
               functions -> assertFailure ("expected one constructor function, got " <> show (length functions))
           programs -> assertFailure ("expected two FC programs, got " <> show (length programs)),
@@ -1481,7 +1481,7 @@ dictionaryProgram =
             ( FcCase
                 dictionary
                 dictionaryBinder
-                [FcAlt (DataAlt "$Dict$Test") [firstMethod, secondMethod] (FcVar secondMethod)]
+                [FcAlt (DataAlt (FcBuiltinOrigin "$Dict$Test")) [firstMethod, secondMethod] (FcVar secondMethod)]
             )
         )
     ]
@@ -1556,7 +1556,7 @@ exitPrimitiveProgram =
                 ( FcCase
                     exitCall
                     tupleBinder
-                    [FcAlt (DataAlt "(#,#)") [nextStateVar, resultVar] (FcVar resultVar)]
+                    [FcAlt (DataAlt (FcBuiltinOrigin "(#,#)")) [nextStateVar, resultVar] (FcVar resultVar)]
                 )
             )
         )

@@ -2495,6 +2495,7 @@ checkedDataConInfo sourceForm sourceFields constructorName = do
           pure
             DataConInfo
               { dciName = constructorName,
+                dciOrigin = constructorResultOrigin resultType,
                 dciUnivTyVars = universalTyVars,
                 dciExTyVars = existentialTyVars,
                 dciTheta = predicates,
@@ -2506,6 +2507,15 @@ checkedDataConInfo sourceForm sourceFields constructorName = do
       abortTc ("data constructor has a monomorphic binder: " <> T.unpack constructorName)
     Nothing ->
       missingTypeInfo ("data constructor " <> T.unpack constructorName)
+
+constructorResultOrigin :: TcType -> Maybe (PackageId, Text)
+constructorResultOrigin ty =
+  case constructorResultType ty of
+    TcTyCon tyCon _ -> Just (tyConPackageId tyCon, tyConModuleName tyCon)
+    _ -> Nothing
+  where
+    constructorResultType (TcFunTy _ result) = constructorResultType result
+    constructorResultType result = result
 
 checkedFieldInfo :: (Maybe Text, BangType) -> TcType -> DataConFieldInfo
 checkedFieldInfo (label, bang) fieldType' =

@@ -18,7 +18,7 @@ expected: |-
         I# ($ffi_arg_0_field : Int#) →
           (λ($ffi_state : State# RealWorld).
             case foreign-call "identity_int" $ffi$identityInt [Int → Int; real-world] $ffi_arg_0_field $ffi_state as ($ffi_result : (#,#) (State# RealWorld) Int#) of {
-              (#,#) ($ffi_next_state : State# RealWorld) ($ffi_raw_result : Int#) →
+              "aihc-prim" GHC.Types.(#,#) ($ffi_next_state : State# RealWorld) ($ffi_raw_result : Int#) →
                 (((#,#) : (State# RealWorld) → Int → (#,#) (State# RealWorld) Int) $ffi_next_state) (I# $ffi_raw_result)
             }) ▷ sym (axiom-co IO @Int)
       }

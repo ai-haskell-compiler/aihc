@@ -29,9 +29,9 @@ expected: |-
     ($Dict$Eq @Int) (λ(x1004 : Int).
       λ(y1005 : Int).
         case x1004 as (_scrut : Int) of {
-          I (x : Int#) →
+          GHC.Types.I (x : Int#) →
             case y1005 as (_scrut : Int) of {
-              I (y : Int#) →
+              GHC.Types.I (y : Int#) →
                 GHC.Types.True
             }
         })
@@ -53,7 +53,7 @@ expected: |-
   $fNumInt : Num Int =
     ($Dict$Num @Int) (λ(x1004 : Integer).
       case x1004 as (_scrut : Integer) of {
-        IS (x : Int#) →
+        GHC.Types.IS (x : Int#) →
           GHC.Types.I x
       })
 
@@ -67,8 +67,6 @@ expected: |-
 
   external GHC.Classes.== : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool
 
-  external GHC.Internal.Integer.IS : Int# → Integer
-
   external GHC.Num.$fNumInt : Num Int
 
   external GHC.Num.$fNumInteger : Num Integer
@@ -77,21 +75,23 @@ expected: |-
 
   external GHC.Tuple.() : Unit
 
+  external GHC.Types.IS : Int# → Integer
+
   asInt : Int =
-    ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Internal.Integer.IS 1#IntRep)
+    ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Types.IS 1#IntRep)
 
   asInteger : Integer =
-    ((GHC.Num.fromInteger @Integer) GHC.Num.$fNumInteger) (GHC.Internal.Integer.IS 1#IntRep)
+    ((GHC.Num.fromInteger @Integer) GHC.Num.$fNumInteger) (GHC.Types.IS 1#IntRep)
 
   caseInt : Unit =
     let {
       _case_value : Int =
-        ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Internal.Integer.IS 1#IntRep)
+        ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Types.IS 1#IntRep)
     } in
-      case (((GHC.Classes.== @Int) GHC.Classes.$fEqInt) _case_value) (((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Internal.Integer.IS 1#IntRep)) as (_case_guard : Bool) of {
-        True →
+      case (((GHC.Classes.== @Int) GHC.Classes.$fEqInt) _case_value) (((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Types.IS 1#IntRep)) as (_case_guard : Bool) of {
+        GHC.Types.True →
           GHC.Tuple.();
-        False →
+        GHC.Types.False →
           case _case_value as (_case_nomatch : Int) of {}
       }
 extensions:

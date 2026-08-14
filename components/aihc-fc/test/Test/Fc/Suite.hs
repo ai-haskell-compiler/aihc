@@ -177,7 +177,7 @@ fcEvalTests =
       testCase "renders raw constructor values" $ do
         result <-
           renderRawValue
-            (VConstructor ":" [VConstructor "C#" [VLit (LitChar WordRep 'x')], VConstructor "[]" []])
+            (VConstructor (FcBuiltinOrigin ":") [VConstructor (FcBuiltinOrigin "C#") [VLit (LitChar WordRep 'x')], VConstructor (FcBuiltinOrigin "[]") []])
         assertEqual
           "raw result"
           (Right ": 'x' []")
@@ -438,7 +438,7 @@ fcOptimizationTests =
                     ( Aihc.Fc.FcCase
                         (FcApp (FcVar dictionaryConstructor) (FcLit (LitString "method")))
                         dictionaryBinder
-                        [FcAlt (DataAlt "$Dict$Test") [methodBinder] (FcVar methodBinder)]
+                        [FcAlt (DataAlt (FcBuiltinOrigin "$Dict$Test")) [methodBinder] (FcVar methodBinder)]
                     )
                 )
             program = FcProgram (FcModuleId "test" "Test") [dictionaryData, mainBinding]

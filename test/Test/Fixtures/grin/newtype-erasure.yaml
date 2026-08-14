@@ -1,10 +1,10 @@
 expected: |-
-  constructor IS [IntRep]
+  constructor main:Test.IS [IntRep]
 
   caf value%1003 :: BoxedRep Lifted = (Fvalue_thunk)
 
   value_thunk -> BoxedRep Lifted =
-    store (CIS (42 :: IntRep))
+    store (Cmain:Test.IS (42 :: IntRep))
 extensions:
 - MagicHash
 reason: erases newtype constructors and casts before producing runtime GRIN
