@@ -21,6 +21,7 @@ library
     Aihc.Cli.ResolveArtifact
     Aihc.Cli.Runtime
     Aihc.Cli.Store
+    Aihc.Cli.TypeArtifact
 
   other-modules:
     Aihc.Cli.Compile.Dependencies

@@ -263,7 +263,7 @@ The resolver must then write one interface for each module. Each file contains o
 
 The type interface contains the semantic facts needed to type-check dependent modules.
 
-The interface must contain declarations that this module defines and exports. It must not copy declarations that this module only re-exports.
+The interface must contain type/kind signatures for every exported symbol, even re-exports.
 
 The interface must contain every class and family instance that this module exports. This set includes locally defined and imported instances.
 
@@ -299,9 +299,9 @@ TermInterface
   typeScheme
 ```
 
-Store one term entry for each locally defined and exported value. The type scheme includes quantified variables, kinds, and constraints.
+Store one term entry for each exported value. This set includes locally defined and re-exported values.
 
-Do not store a term entry for a re-exported value. Its defining module already stores its type scheme.
+The type scheme includes quantified variables, kinds, and constraints. Keep the original definition identity for a re-exported value.
 
 Constructor and method types can occur in their declaration records. Do not duplicate them in `terms`.
 
@@ -472,13 +472,19 @@ The type checker must process all modules in one SCC together. It must use prede
 
 Load the type interface for each directly imported module.
 
-Inspect each imported name-resolution interface for definition identities from other modules. Load the type interface for each provider module.
+The imported interface contains the type signatures for its re-exported names. Do not load provider interfaces for those signatures.
 
-Inspect definition identities in each loaded type interface. Continue to load provider type interfaces until the provider set does not change.
+Thus, the incremental input relation is:
 
-For example, module `C` can import module `B`, which re-exports a definition from module `A`. In this case, load both type interfaces.
+```text
+Haskell module + scopes of direct module dependencies + type interfaces of direct module dependencies -> type.cbor
+```
 
-An artifact store locates a provider package directory from the `PackageIdentity` in its definition identity.
+Regenerate `type.cbor` if its Haskell module changes. Also regenerate it if a direct dependency scope or type interface changes.
+
+Hash only the semantic type interface for dependent checks. Do not include the source hash or dependency hashes in this hash.
+
+If a regenerated semantic interface has the same hash, do not regenerate its dependents for this change.
 
 The type checker must produce one type interface for each module. A file must not contain the combined interface for the complete SCC.
 
