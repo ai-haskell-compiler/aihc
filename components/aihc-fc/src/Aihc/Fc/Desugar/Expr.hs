@@ -20,7 +20,6 @@ module Aihc.Fc.Desugar.Expr
     freshUnique,
     freshVar,
     lookupType,
-    lookupPrimitiveType,
     primBoolType,
     withDicts,
   )
@@ -88,8 +87,8 @@ data DsState = DsState
     dsModuleName :: !Text,
     -- | Map from surface name to its inferred type (from TC).
     dsTypeEnv :: !(Map Text TcType),
-    -- | Map from a complete global identity to its type (from the TC interface).
-    dsGlobalTypeEnv :: !(Maybe (Map FcSymbolOrigin TcType)),
+    -- | Map from a complete global identity to its type constructor.
+    dsGlobalTyConEnv :: !(Maybe (Map (PackageId, Text, Text) TyCon)),
     -- | Local variable bindings (pattern-bound, lambda-bound).
     dsLocalVars :: !(Map Text Var),
     -- | Local dictionaries, keyed by class predicate.
@@ -138,40 +137,34 @@ lookupType name = do
       Nothing -> desugarBug ("missing type information for name: " <> T.unpack name)
 
 primBoolType :: DsM TcType
-primBoolType = do
-  constructorType <- lookupPrimitiveType "GHC.Types" "True"
-  case resultTyCon constructorType of
-    Just tyCon -> pure (TcTyCon tyCon [])
-    Nothing -> desugarBug "aihc-prim GHC.Types.True has no data result type"
+primBoolType = (`TcTyCon` []) <$> lookupPrimitiveTyCon "GHC.Types" "Bool"
 
--- | Look up an aihc-prim term by its complete identity.
-lookupPrimitiveType :: Text -> Text -> DsM TcType
-lookupPrimitiveType moduleName name = do
-  PackageId packageName <- gets dsPrimPackageId
-  maybeGlobalTypes <- gets dsGlobalTypeEnv
-  case maybeGlobalTypes of
-    Just globalTypes ->
-      case Map.lookup (FcTopLevelOrigin packageName moduleName name) globalTypes of
-        Just ty -> pure ty
-        Nothing -> missingPrimitiveType moduleName name
-    Nothing -> do
-      primPackageId <- gets dsPrimPackageId
-      legacyPrimitiveType primPackageId moduleName name
+-- | Look up an aihc-prim type constructor by its complete identity.
+lookupPrimitiveTyCon :: Text -> Text -> DsM TyCon
+lookupPrimitiveTyCon moduleName name = do
+  primPackageId <- gets dsPrimPackageId
+  maybeGlobalTyCons <- gets dsGlobalTyConEnv
+  case maybeGlobalTyCons of
+    Just globalTyCons ->
+      case Map.lookup (primPackageId, moduleName, name) globalTyCons of
+        Just tyCon -> pure tyCon
+        Nothing -> missingPrimitiveTyCon moduleName name
+    Nothing -> legacyPrimitiveTyCon primPackageId moduleName name
 
-missingPrimitiveType :: Text -> Text -> DsM a
-missingPrimitiveType moduleName name =
+missingPrimitiveTyCon :: Text -> Text -> DsM a
+missingPrimitiveTyCon moduleName name =
   desugarBug
-    ( "missing aihc-prim type information for: "
+    ( "missing aihc-prim type constructor information for: "
         <> T.unpack moduleName
         <> "."
         <> T.unpack name
     )
 
-legacyPrimitiveType :: PackageId -> Text -> Text -> DsM TcType
-legacyPrimitiveType primPackageId moduleName name
-  | moduleName == "GHC.Types" && name == "True" =
-      pure (TcTyCon (mkTyConWithOrigin primPackageId moduleName "Bool" 0 KType) [])
-  | otherwise = missingPrimitiveType moduleName name
+legacyPrimitiveTyCon :: PackageId -> Text -> Text -> DsM TyCon
+legacyPrimitiveTyCon primPackageId moduleName name
+  | moduleName == "GHC.Types" && name == "Bool" =
+      pure (mkTyConWithOrigin primPackageId moduleName name 0 KType)
+  | otherwise = missingPrimitiveTyCon moduleName name
 
 resultTyCon :: TcType -> Maybe TyCon
 resultTyCon ty =
@@ -189,11 +182,9 @@ primitiveDataConOrigin moduleName constructorName = do
 
 lookupPrimitiveDataConOrigin :: Text -> Text -> DsM FcSymbolOrigin
 lookupPrimitiveDataConOrigin moduleName constructorName = do
-  maybeGlobalTypes <- gets dsGlobalTypeEnv
-  case maybeGlobalTypes of
-    Just _ -> do
-      _ <- lookupPrimitiveType moduleName constructorName
-      primitiveDataConOrigin moduleName constructorName
+  maybeGlobalTyCons <- gets dsGlobalTyConEnv
+  case maybeGlobalTyCons of
+    Just _ -> primitiveDataConOrigin moduleName constructorName
     Nothing -> lookupDataConOrigin constructorName
 
 lookupDataConOrigin :: Text -> DsM FcSymbolOrigin

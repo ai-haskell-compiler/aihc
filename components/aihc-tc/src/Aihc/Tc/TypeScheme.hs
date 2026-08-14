@@ -6,7 +6,6 @@
 module Aihc.Tc.TypeScheme
   ( parseTypeScheme,
     typeSchemeFromType,
-    typeSchemeToType,
     equivalentTypeSchemes,
     typeSchemeArity,
   )
@@ -51,16 +50,6 @@ typeSchemeFromType = go [] []
         TcForAllTy tyVar body -> go (tyVars <> [tyVar]) predicates body
         TcQualTy morePredicates body -> go tyVars (predicates <> morePredicates) body
         _ -> ForAll tyVars predicates ty
-
--- | Restore the explicit forall and context nodes of a type scheme.
-typeSchemeToType :: TypeScheme -> TcType
-typeSchemeToType (ForAll tyVars predicates body) =
-  foldr TcForAllTy qualifiedBody tyVars
-  where
-    qualifiedBody =
-      case predicates of
-        [] -> body
-        _ -> TcQualTy predicates body
 
 -- | Compare two schemes by rigid unification: quantified variables may be
 -- alpha-renamed, but their order, dependency, kinds, predicates, and body must

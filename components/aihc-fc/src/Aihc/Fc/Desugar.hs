@@ -54,10 +54,10 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..), packageIdText)
-import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TcTermKey (..), TyConFlavor (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
+import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TyConFlavor (..), TyConInfo (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
-import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType, typeSchemeToType)
+import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
 import Aihc.Tc.Types
   ( Kind (KFun, KTYPE, KType),
     Pred (..),
@@ -116,10 +116,14 @@ desugarModuleWithDataTypes config bindings dataTypes = desugarModule config bind
 -- | Desugar with the complete type-checker interface.
 desugarModuleWithInterface :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> DesugarResult
 desugarModuleWithInterface config bindings interface =
-  desugarModule config bindings (tcInterfaceDataTypes interface) (Just (interfaceTypeEnv interface))
+  desugarModule
+    config
+    bindings
+    (tcInterfaceDataTypes interface)
+    (Just (interfaceTyConEnv interface))
 
-desugarModule :: DesugarConfig -> [TcBindingResult] -> [DataTypeInfo] -> Maybe (Map.Map FcSymbolOrigin TcType) -> Module -> DesugarResult
-desugarModule config bindings dataTypes globalTypeEnv tcResult =
+desugarModule :: DesugarConfig -> [TcBindingResult] -> [DataTypeInfo] -> Maybe (Map.Map (PackageId, Text, Text) TyCon) -> Module -> DesugarResult
+desugarModule config bindings dataTypes globalTyConEnv tcResult =
   if not (tcModuleSuccess tcResult)
     then
       DesugarResult
@@ -137,7 +141,7 @@ desugarModule config bindings dataTypes globalTypeEnv tcResult =
                 dtiFlavor dataType == DataTyCon,
                 constructor <- dtiConstructors dataType
               ]
-       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) packageId currentModuleName typeEnv globalTypeEnv Map.empty Map.empty constructorFields Nothing) of
+       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) packageId currentModuleName typeEnv globalTyConEnv Map.empty Map.empty constructorFields Nothing) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram (sourceModuleId tcResult) [],
@@ -152,11 +156,14 @@ desugarModule config bindings dataTypes globalTypeEnv tcResult =
                       dsErrors = []
                     }
 
-interfaceTypeEnv :: TcInterface -> Map.Map FcSymbolOrigin TcType
-interfaceTypeEnv interface =
+interfaceTyConEnv :: TcInterface -> Map.Map (PackageId, Text, Text) TyCon
+interfaceTyConEnv interface =
   Map.fromList
-    [ (FcTopLevelOrigin (packageIdText packageId) definingModule name, typeSchemeToType scheme)
-    | (TcTermGlobal packageId definingModule name, scheme) <- tcInterfaceTerms interface
+    [ ( (tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon),
+        tyCon
+      )
+    | tyConInfo <- tcInterfaceTyCons interface,
+      let tyCon = tciTyCon tyConInfo
     ]
 
 resolvedModuleOrigin :: Module -> (PackageId, Text)
