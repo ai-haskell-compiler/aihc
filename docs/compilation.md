@@ -179,8 +179,15 @@ Use this logical structure:
 ResolveInterface
   schemaVersion
   moduleIdentity
+  sourceHash
+  dependencyScopes
+  scopeHash
   exports
   fixities
+
+ResolveDependencyScope
+  moduleIdentity
+  scopeHash
 
 ResolveExport
   visibleName
@@ -219,6 +226,30 @@ Fixity data uses the original definition identity. A re-exported operator theref
 An exported module item expands to its exported entities before storage. The stored interface does not need a recursive qualified-module scope.
 
 Store entries in stable order by namespace, visible name, entity kind, and definition identity.
+
+`sourceHash` is the hash of the Haskell module that produced the file.
+
+`dependencyScopes` records the module identity and scope hash for each direct module dependency.
+
+`scopeHash` covers only the exported scope in `exports` and `fixities`. It must not cover `sourceHash` or `dependencyScopes`.
+
+Thus, the incremental input relation is:
+
+```text
+Haskell module + scopes of direct module dependencies -> resolve.cbor
+```
+
+Before reuse, read `resolve.cbor` from storage. Check its `sourceHash` against the current Haskell module.
+
+Also check each recorded dependency scope hash against the current `scopeHash` in that dependency's `resolve.cbor` file.
+
+Regenerate `resolve.cbor` if its Haskell module changed. Also regenerate it if a direct dependency scope changed.
+
+A regenerated file can have a new `scopeHash`. If it does, check and possibly regenerate each direct dependent file.
+
+A regenerated file can also keep the same `scopeHash`. In this case, do not regenerate its dependents for this change.
+
+Treat a missing, corrupt, or unsupported cached file as a cache miss. Regenerate the file and do not fail the compilation.
 
 ### Production and use
 
