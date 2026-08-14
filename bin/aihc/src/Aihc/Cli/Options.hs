@@ -73,8 +73,7 @@ data InstallOptions = InstallOptions
 data InstallV2Options = InstallV2Options
   { installV2PackageDirectory :: !FilePath,
     installV2StoreRoot :: !(Maybe FilePath),
-    installV2Verbose :: !Bool,
-    installV2Dependencies :: ![String]
+    installV2Verbose :: !Bool
   }
   deriving (Eq, Show)
 
@@ -308,13 +307,6 @@ installV2OptionsParser =
       ( OA.long "verbose"
           <> OA.short 'v'
           <> OA.help "Print each installation step"
-      )
-    <*> many
-      ( OA.strOption
-          ( OA.long "dependency"
-              <> OA.metavar "NAME=FULL_ID"
-              <> OA.help "Select one direct library dependency artifact"
-          )
       )
 
 errorFormatParser :: OA.Parser InstallErrorFormat
