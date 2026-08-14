@@ -87,20 +87,20 @@ solveDictWithGivens givens ct =
                   let substitution = Map.fromList [(tvUnique tyVar, argument) | (tyVar, argument) <- zip (ciTyVars info) sourceArgs]
                       fieldTypes = classFieldTypes info substitution
                   case traverse (constraintTypeToPred . applySubst substitution) (ciSuperClassTypes info) of
-                    Just superClasses -> searchSuperClasses (sourceClass : visited) sourceEvidence sourcePredicate fieldTypes target 0 superClasses
+                    Just superClasses -> searchSuperClasses (sourceClass : visited) sourceEvidence (ciOrigin info) sourcePredicate fieldTypes target 0 superClasses
                     Nothing -> pure Nothing
         _ -> pure Nothing
 
-    searchSuperClasses _ _ _ _ _ _ [] = pure Nothing
-    searchSuperClasses visited sourceEvidence sourcePredicate fieldTypes target index (superClass : rest)
+    searchSuperClasses _ _ _ _ _ _ _ [] = pure Nothing
+    searchSuperClasses visited sourceEvidence sourceOrigin sourcePredicate fieldTypes target index (superClass : rest)
       | superClass == target =
-          pure (Just (EvSuperClass sourceEvidence sourcePredicate fieldTypes index))
+          pure (Just (EvSuperClass sourceEvidence sourceOrigin sourcePredicate fieldTypes index))
       | otherwise = do
-          let projection = EvSuperClass sourceEvidence sourcePredicate fieldTypes index
+          let projection = EvSuperClass sourceEvidence sourceOrigin sourcePredicate fieldTypes index
           nested <- superclassEvidence visited target projection superClass
           case nested of
             Just evidence -> pure (Just evidence)
-            Nothing -> searchSuperClasses visited sourceEvidence sourcePredicate fieldTypes target (index + 1) rest
+            Nothing -> searchSuperClasses visited sourceEvidence sourceOrigin sourcePredicate fieldTypes target (index + 1) rest
 
     tryInstances _ _ [] = pure (DictStuck ct)
     tryInstances className args (instanceInfo : rest)
@@ -130,10 +130,11 @@ solveDictWithGivens givens ct =
       case typeableArguments ty of
         Nothing -> pure (DictStuck ct)
         Just arguments -> do
+          classOrigin <- maybe Nothing ciOrigin <$> lookupClass "Typeable"
           argumentEvidence <- mapM (solveSubPred . ClassPred "Typeable" . (: [])) arguments
           case sequence argumentEvidence of
             Just evidence -> do
-              bindEvidence (ctEvVar ct) (EvTypeable ty evidence)
+              bindEvidence (ctEvVar ct) (EvTypeable classOrigin ty evidence)
               pure DictSolved
             Nothing -> pure (DictStuck ct)
 

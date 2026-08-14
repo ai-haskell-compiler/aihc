@@ -23,9 +23,12 @@ import Aihc.Parser.Syntax
     Pattern (..),
     TupleFlavor (..),
     UnqualifiedName (..),
+    fromAnnotation,
   )
 import Aihc.Parser.Syntax qualified as Surface
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Types (RuntimeRep (..))
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -33,28 +36,54 @@ import Data.Text qualified as T
 --
 -- Returns the constructor and the names of sub-pattern binders.
 -- The caller is responsible for creating proper 'Var' values.
-dsPatternPure :: Pattern -> (FcAltCon, [Text])
-dsPatternPure (PCon name _typeArgs subPats) =
-  let conName = nameToText name
-      binderNames = map subPatName subPats
-   in (DataAlt conName, binderNames)
-dsPatternPure (PList []) =
-  (DataAlt "[]", [])
-dsPatternPure (PList (_ : _)) =
-  (DataAlt ":", ["_head", "_tail"])
-dsPatternPure (PInfix lhs op rhs) =
-  (DataAlt (nameToText op), [subPatName lhs, subPatName rhs])
-dsPatternPure (PTuple flavor subPats) =
-  (DataAlt (tupleConText flavor (length subPats)), map subPatName subPats)
-dsPatternPure (PVar uname) =
+dsPatternPure :: PackageId -> Pattern -> (FcAltCon, [Text])
+dsPatternPure _ (PCon name _typeArgs subPats) =
+  (DataAlt (constructorOrigin name), map subPatName subPats)
+dsPatternPure packageId (PList []) =
+  (DataAlt (primitiveOrigin packageId "GHC.Types" "[]"), [])
+dsPatternPure packageId (PList (_ : _)) =
+  (DataAlt (primitiveOrigin packageId "GHC.Types" ":"), ["_head", "_tail"])
+dsPatternPure _ (PInfix lhs op rhs) =
+  (DataAlt (constructorOrigin op), [subPatName lhs, subPatName rhs])
+dsPatternPure packageId (PTuple flavor subPats) =
+  (DataAlt (primitiveOrigin packageId tupleModule (tupleConText flavor (length subPats))), map subPatName subPats)
+  where
+    tupleModule = case flavor of
+      Boxed -> "GHC.Tuple"
+      Unboxed -> "GHC.Types"
+dsPatternPure _ (PVar uname) =
   (DefaultAlt, [unqualifiedNameText uname])
-dsPatternPure PWildcard =
+dsPatternPure _ PWildcard =
   (DefaultAlt, [])
-dsPatternPure (PAnn _ann inner) = dsPatternPure inner
-dsPatternPure (PParen inner) = dsPatternPure inner
-dsPatternPure (PLit lit) =
+dsPatternPure packageId (PAnn _ann inner) = dsPatternPure packageId inner
+dsPatternPure packageId (PParen inner) = dsPatternPure packageId inner
+dsPatternPure _ (PLit lit) =
   (dsLiteralAlt lit, [])
-dsPatternPure _ = (DefaultAlt, [])
+dsPatternPure _ _ = (DefaultAlt, [])
+
+primitiveOrigin :: PackageId -> Text -> Text -> FcSymbolOrigin
+primitiveOrigin (PackageId packageName) = FcTopLevelOrigin packageName
+
+constructorOrigin :: Name -> FcSymbolOrigin
+constructorOrigin name =
+  fromMaybe (FcBuiltinOrigin (nameToText name)) $ do
+    resolution <-
+      listToMaybe
+        [ annotation
+        | annotation <- mapMaybe fromAnnotation (nameAnns name),
+          resolutionNamespace annotation == ResolutionNamespaceTerm
+        ]
+    case resolutionTarget resolution of
+      ResolvedTopLevel (PackageId packageName) resolved ->
+        Just
+          ( FcTopLevelOrigin
+              packageName
+              (fromMaybe "" (nameQualifier resolved))
+              (nameText resolved)
+          )
+      ResolvedBuiltin constructorName -> Just (FcBuiltinOrigin constructorName)
+      ResolvedLocal {} -> Nothing
+      ResolvedError {} -> Nothing
 
 dsLiteralAlt :: Surface.Literal -> FcAltCon
 dsLiteralAlt lit =

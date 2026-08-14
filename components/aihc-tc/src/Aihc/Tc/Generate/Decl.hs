@@ -2213,7 +2213,7 @@ registerDataConstructors dataDecl = do
     Just info -> do
       (kindParams, paramInfos) <- dataDeclParamInfos (quantifiedKindScheme (tciTyCon info)) dataDecl
       bindings <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (dataDeclConstructors dataDecl)
-      constructors <- concat <$> mapM checkedDataConInfos (dataDeclConstructors dataDecl)
+      constructors <- concat <$> mapM (checkedDataConInfos (tciTyCon info)) (dataDeclConstructors dataDecl)
       selectorBindings <- registerRecordSelectors constructors
       addDataType
         DataTypeInfo
@@ -2264,7 +2264,7 @@ registerNewtypeConstructor newtypeDecl = do
     Just info -> do
       (kindParams, paramInfos) <- typeDeclParamInfos (quantifiedKindScheme (tciTyCon info)) (binderHeadParams (newtypeDeclHead newtypeDecl))
       constructor <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (newtypeDeclConstructor newtypeDecl)
-      constructors <- maybe (pure []) checkedDataConInfos (newtypeDeclConstructor newtypeDecl)
+      constructors <- maybe (pure []) (checkedDataConInfos (tciTyCon info)) (newtypeDeclConstructor newtypeDecl)
       selectorBindings <- registerRecordSelectors constructors
       addDataType
         DataTypeInfo
@@ -2477,13 +2477,14 @@ gadtBodyArgTypes (GadtRecordBody fields _) = map bangType (recordBangFields fiel
 recordBangFields :: [FieldDecl] -> [BangType]
 recordBangFields = concatMap $ \field -> replicate (length (fieldNames field)) (fieldType field)
 
-checkedDataConInfos :: DataConDecl -> TcM [DataConInfo]
-checkedDataConInfos declaration = do
+checkedDataConInfos :: TyCon -> DataConDecl -> TcM [DataConInfo]
+checkedDataConInfos tyCon declaration = do
   let (sourceForm, sourceFields, constructorNames) = dataConSourceLayout declaration
-  mapM (checkedDataConInfo sourceForm sourceFields) constructorNames
+      origin = (tyConPackageId tyCon, tyConModuleName tyCon)
+  mapM (checkedDataConInfo origin sourceForm sourceFields) constructorNames
 
-checkedDataConInfo :: DataConSourceForm -> [(Maybe Text, BangType)] -> Text -> TcM DataConInfo
-checkedDataConInfo sourceForm sourceFields constructorName = do
+checkedDataConInfo :: (PackageId, Text) -> DataConSourceForm -> [(Maybe Text, BangType)] -> Text -> TcM DataConInfo
+checkedDataConInfo origin sourceForm sourceFields constructorName = do
   maybeBinder <- lookupTerm constructorName
   case maybeBinder of
     Just (TcIdBinder (ForAll tyVars predicates constructorType) _) -> do
@@ -2495,6 +2496,7 @@ checkedDataConInfo sourceForm sourceFields constructorName = do
           pure
             DataConInfo
               { dciName = constructorName,
+                dciOrigin = origin,
                 dciUnivTyVars = universalTyVars,
                 dciExTyVars = existentialTyVars,
                 dciTheta = predicates,

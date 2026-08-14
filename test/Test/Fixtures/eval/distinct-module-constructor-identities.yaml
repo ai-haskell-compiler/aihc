@@ -1,0 +1,42 @@
+extensions: []
+dependencies: []
+modules:
+  - |
+    module First where
+
+    data Item = FirstItem
+    data Value = Shared Item
+
+    firstValue :: Value
+    firstValue = Shared FirstItem
+  - |
+    module Second where
+
+    data Flag = Off | On
+    data Value = Shared Flag Flag
+
+    secondValue :: Value
+    secondValue = Shared On Off
+  - |
+    module Test where
+
+    import qualified First
+    import qualified Second
+
+    data Result = Result First.Item Second.Flag
+
+    select :: First.Value -> Second.Value -> Result
+    select first second =
+      case first of
+        First.Shared number ->
+          case second of
+            Second.Shared flag _ -> Result number flag
+
+    result :: Result
+    result = select First.firstValue Second.secondValue
+output: |
+  Result FirstItem On
+expression: |
+  result
+status: pass
+reason: keeps equal constructor names from different modules distinct

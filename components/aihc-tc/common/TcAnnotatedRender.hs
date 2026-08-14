@@ -247,9 +247,9 @@ renderEvTerm ev =
         <> renderTypeArgs typeArgs
         <> renderEvidenceArgs evidence
     EvCoercion coercion -> renderCoercion coercion
-    EvSuperClass evidence _ _ index -> "super[" <> show index <> "](" <> renderEvTerm evidence <> ")"
+    EvSuperClass evidence _ _ _ index -> "super[" <> show index <> "](" <> renderEvTerm evidence <> ")"
     EvCast evidence coercion -> "cast(" <> renderEvTerm evidence <> ", " <> renderCoercion coercion <> ")"
-    EvTypeable ty arguments ->
+    EvTypeable _ ty arguments ->
       "typeable @" <> renderTcType ty <> renderEvidenceArgs arguments
 
 renderTypeArgs :: [TcType] -> String

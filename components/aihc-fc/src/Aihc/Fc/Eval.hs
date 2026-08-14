@@ -64,7 +64,7 @@ data Value
   = VLit Literal
   | VAddress !(Ptr ())
   | VClosure Env Var FcExpr
-  | VConstructor Text [Value]
+  | VConstructor FcSymbolOrigin [Value]
   | VPrim Text Int [Value]
   | VArray EvalArray
   | VByteArray EvalByteArray
@@ -191,6 +191,7 @@ unionEnv left right =
 lookupEnvVar :: Var -> Env -> Maybe Value
 lookupEnvVar var env =
   Map.lookup (varUnique var) (envLocals env)
+    <|> (varResolvedName var >>= (`Map.lookup` envGlobals env) . fcSymbolOriginText)
     <|> Map.lookup (varName var) (envGlobals env)
 
 insertLocal :: Var -> Value -> Env -> Env
@@ -248,7 +249,10 @@ buildProgramEnv program = do
     topValueBindings _ = []
 
     directTopBindings (FcPrimitive var arity) = [(varName var, VPrim (varName var) arity [])]
-    directTopBindings (FcData declaration) = [(fcDataConName constructor, VConstructor (fcDataConName constructor) []) | constructor <- fcDataConstructors declaration]
+    directTopBindings (FcData declaration) =
+      [ (fcSymbolOriginText (fcDataConOrigin constructor), VConstructor (fcDataConOrigin constructor) [])
+      | constructor <- fcDataConstructors declaration
+      ]
     directTopBindings _ = []
 
 evalExpr :: FcExpr -> IO (Either EvalError Value)
@@ -257,11 +261,17 @@ evalExpr = runExceptT . evalWithEnv builtinConstructorEnv
 builtinConstructorEnv :: Env
 builtinConstructorEnv =
   globalEnv
-    [ ("C#", VConstructor "C#" []),
-      ("[]", VConstructor "[]" []),
-      (":", VConstructor ":" []),
-      ("(#,#)", VConstructor "(#,#)" [])
+    [ ("C#", VConstructor (FcBuiltinOrigin "C#") []),
+      ("[]", VConstructor (FcBuiltinOrigin "[]") []),
+      (":", VConstructor (FcBuiltinOrigin ":") []),
+      ("(#,#)", VConstructor unboxedTupleOrigin [])
     ]
+
+unboxedTupleOrigin :: FcSymbolOrigin
+unboxedTupleOrigin = FcTopLevelOrigin "aihc-prim" "GHC.Types" "(#,#)"
+
+unboxedTuple3Origin :: FcSymbolOrigin
+unboxedTuple3Origin = FcTopLevelOrigin "aihc-prim" "GHC.Types" "(#,,#)"
 
 evalWithEnv :: Env -> FcExpr -> EvalM Value
 evalWithEnv env expr =
@@ -329,7 +339,8 @@ runIOValue :: Value -> EvalM Value
 runIOValue action = do
   result <- applyValue action VStateToken >>= forceValue
   case result of
-    VConstructor "(#,#)" [_state, ioResult] -> forceValue ioResult
+    VConstructor origin [_state, ioResult]
+      | origin == unboxedTupleOrigin -> forceValue ioResult
     other -> throwE (EvalInvalidIOResult other)
 
 applyValue :: Value -> Value -> EvalM Value
@@ -429,7 +440,7 @@ evalPrimitive "noDuplicate#" [state] =
   pure state
 evalPrimitive "makeStableName#" [value, state] = do
   name <- lift (Host.makeStableName value)
-  pure (VConstructor "(#,#)" [state, VStableName (EvalStableName name)])
+  pure (VConstructor unboxedTupleOrigin [state, VStableName (EvalStableName name)])
 evalPrimitive "stableNameToInt#" [name] = do
   EvalStableName stableName <- forceStableNamePrimitiveArg "stableNameToInt#" name
   pure (intPrimitiveValue (toInteger (Host.hashStableName stableName)))
@@ -446,12 +457,12 @@ evalPrimitive "catch#" [action, handler, state] =
     handleRaised err = throwE err
 evalPrimitive "newMVar#" [state] = do
   mvar <- lift (newIORef Nothing)
-  pure (VConstructor "(#,#)" [state, VMVar (EvalMVar mvar)])
+  pure (VConstructor unboxedTupleOrigin [state, VMVar (EvalMVar mvar)])
 evalPrimitive "readMVar#" [mvar, state] = do
   EvalMVar ref <- forceMVarPrimitiveArg "readMVar#" mvar
   value <- lift (readIORef ref)
   case value of
-    Just contents -> pure (VConstructor "(#,#)" [state, contents])
+    Just contents -> pure (VConstructor unboxedTupleOrigin [state, contents])
     Nothing -> throwE (EvalBlockedOnMVar "readMVar#")
 evalPrimitive "takeMVar#" [mvar, state] = do
   EvalMVar ref <- forceMVarPrimitiveArg "takeMVar#" mvar
@@ -459,7 +470,7 @@ evalPrimitive "takeMVar#" [mvar, state] = do
   case value of
     Just contents -> do
       lift (writeIORef ref Nothing)
-      pure (VConstructor "(#,#)" [state, contents])
+      pure (VConstructor unboxedTupleOrigin [state, contents])
     Nothing -> throwE (EvalBlockedOnMVar "takeMVar#")
 evalPrimitive "putMVar#" [mvar, value, state] = do
   EvalMVar ref <- forceMVarPrimitiveArg "putMVar#" mvar
@@ -469,11 +480,11 @@ evalPrimitive "putMVar#" [mvar, value, state] = do
     Just _ -> throwE (EvalBlockedOnMVar "putMVar#")
 evalPrimitive "newMutVar#" [initialValue, state] = do
   mutVar <- lift (newIORef initialValue)
-  pure (VConstructor "(#,#)" [state, VMutVar (EvalMutVar mutVar)])
+  pure (VConstructor unboxedTupleOrigin [state, VMutVar (EvalMutVar mutVar)])
 evalPrimitive "readMutVar#" [mutVar, state] = do
   EvalMutVar ref <- forceMutVarPrimitiveArg "readMutVar#" mutVar
   value <- lift (readIORef ref)
-  pure (VConstructor "(#,#)" [state, value])
+  pure (VConstructor unboxedTupleOrigin [state, value])
 evalPrimitive "writeMutVar#" [mutVar, value, state] = do
   EvalMutVar ref <- forceMutVarPrimitiveArg "writeMutVar#" mutVar
   lift (writeIORef ref value)
@@ -485,7 +496,7 @@ evalPrimitive "casMutVar#" [mutVar, expected, replacement, state] = do
   when succeeded (lift (writeIORef ref replacement))
   pure
     ( VConstructor
-        "(#,,#)"
+        unboxedTuple3Origin
         [ state,
           intPrimitiveValue (if succeeded then 0 else 1),
           if succeeded then replacement else current
@@ -498,7 +509,7 @@ evalPrimitive "sameMutVar#" [left, right] = do
 evalPrimitive "newArray#" [size, initialValue, state] = do
   count <- checkedArraySize "newArray#" =<< forceIntPrimitiveArg "newArray#" size
   array <- EvalArray <$> lift (newIORef (replicate count initialValue))
-  pure (VConstructor "(#,#)" [state, VArray array])
+  pure (VConstructor unboxedTupleOrigin [state, VArray array])
 evalPrimitive "indexArray#" [arrayValue, indexValue] = do
   array <- forceArrayPrimitiveArg "indexArray#" arrayValue
   index <- forceIntPrimitiveArg "indexArray#" indexValue
@@ -507,7 +518,7 @@ evalPrimitive "readArray#" [arrayValue, indexValue, state] = do
   array <- forceArrayPrimitiveArg "readArray#" arrayValue
   index <- forceIntPrimitiveArg "readArray#" indexValue
   value <- readArrayElement "readArray#" array index
-  pure (VConstructor "(#,#)" [state, value])
+  pure (VConstructor unboxedTupleOrigin [state, value])
 evalPrimitive "writeArray#" [arrayValue, indexValue, value, state] = do
   array <- forceArrayPrimitiveArg "writeArray#" arrayValue
   index <- forceIntPrimitiveArg "writeArray#" indexValue
@@ -515,26 +526,26 @@ evalPrimitive "writeArray#" [arrayValue, indexValue, value, state] = do
   pure state
 evalPrimitive "unsafeFreezeArray#" [arrayValue, state] = do
   array <- forceArrayPrimitiveArg "unsafeFreezeArray#" arrayValue
-  pure (VConstructor "(#,#)" [state, VArray array])
+  pure (VConstructor unboxedTupleOrigin [state, VArray array])
 evalPrimitive "unsafeThawArray#" [arrayValue, state] = do
   array <- forceArrayPrimitiveArg "unsafeThawArray#" arrayValue
-  pure (VConstructor "(#,#)" [state, VArray array])
+  pure (VConstructor unboxedTupleOrigin [state, VArray array])
 evalPrimitive "sameMutableArray#" [left, right] = do
   leftArray <- forceArrayPrimitiveArg "sameMutableArray#" left
   rightArray <- forceArrayPrimitiveArg "sameMutableArray#" right
   pure (intPrimitiveValue (if leftArray == rightArray then 1 else 0))
 evalPrimitive "newByteArray#" [size, state] = do
   byteArray <- allocateByteArray "newByteArray#" False 8 =<< forceIntPrimitiveArg "newByteArray#" size
-  pure (VConstructor "(#,#)" [state, VByteArray byteArray])
+  pure (VConstructor unboxedTupleOrigin [state, VByteArray byteArray])
 evalPrimitive "newPinnedByteArray#" [size, state] = do
   byteArray <- allocateByteArray "newPinnedByteArray#" True 8 =<< forceIntPrimitiveArg "newPinnedByteArray#" size
-  pure (VConstructor "(#,#)" [state, VByteArray byteArray])
+  pure (VConstructor unboxedTupleOrigin [state, VByteArray byteArray])
 evalPrimitive "newAlignedPinnedByteArray#" [size, alignment, state] = do
   byteCount <- forceIntPrimitiveArg "newAlignedPinnedByteArray#" size
   byteAlignment <- forceIntPrimitiveArg "newAlignedPinnedByteArray#" alignment
   checkedAlignment <- checkedByteArrayAlignment "newAlignedPinnedByteArray#" byteAlignment
   byteArray <- allocateByteArray "newAlignedPinnedByteArray#" True checkedAlignment byteCount
-  pure (VConstructor "(#,#)" [state, VByteArray byteArray])
+  pure (VConstructor unboxedTupleOrigin [state, VByteArray byteArray])
 evalPrimitive "isMutableByteArrayPinned#" [value] = do
   byteArray <- forceByteArrayPrimitiveArg "isMutableByteArrayPinned#" value
   pure (VLit (LitInt IntRep (if evalByteArrayPinned byteArray then 1 else 0)))
@@ -559,20 +570,20 @@ evalPrimitive "resizeMutableByteArray#" [value, newSize, state] = do
   byteArray <- forceByteArrayPrimitiveArg "resizeMutableByteArray#" value
   byteCount <- forceIntPrimitiveArg "resizeMutableByteArray#" newSize
   resized <- resizeByteArray "resizeMutableByteArray#" byteArray byteCount
-  pure (VConstructor "(#,#)" [state, VByteArray resized])
+  pure (VConstructor unboxedTupleOrigin [state, VByteArray resized])
 evalPrimitive "unsafeFreezeByteArray#" [value, state] = do
   byteArray <- forceByteArrayPrimitiveArg "unsafeFreezeByteArray#" value
-  pure (VConstructor "(#,#)" [state, VByteArray byteArray])
+  pure (VConstructor unboxedTupleOrigin [state, VByteArray byteArray])
 evalPrimitive "unsafeThawByteArray#" [value, state] = do
   byteArray <- forceByteArrayPrimitiveArg "unsafeThawByteArray#" value
-  pure (VConstructor "(#,#)" [state, VByteArray byteArray])
+  pure (VConstructor unboxedTupleOrigin [state, VByteArray byteArray])
 evalPrimitive "sizeofByteArray#" [value] = do
   byteArray <- forceByteArrayPrimitiveArg "sizeofByteArray#" value
   VLit . LitInt IntRep . toInteger <$> lift (readIORef (evalByteArraySize byteArray))
 evalPrimitive "getSizeofMutableByteArray#" [value, state] = do
   byteArray <- forceByteArrayPrimitiveArg "getSizeofMutableByteArray#" value
   size <- lift (readIORef (evalByteArraySize byteArray))
-  pure (VConstructor "(#,#)" [state, VLit (LitInt IntRep (toInteger size))])
+  pure (VConstructor unboxedTupleOrigin [state, VLit (LitInt IntRep (toInteger size))])
 evalPrimitive "copyAddrToByteArray#" [source, value, offset, byteCount, state] = do
   byteArray <- forceByteArrayPrimitiveArg "copyAddrToByteArray#" value
   checkedOffset <- forceIntPrimitiveArg "copyAddrToByteArray#" offset
@@ -596,7 +607,7 @@ evalPrimitive "readWordArray#" [value, index, state] = do
   byteArray <- forceByteArrayPrimitiveArg "readWordArray#" value
   checkedIndex <- checkedWordArrayIndex "readWordArray#" byteArray =<< forceIntPrimitiveArg "readWordArray#" index
   word <- lift (peekElemOff (castPtr (evalByteArrayContents byteArray) :: Ptr Word64) checkedIndex)
-  pure (VConstructor "(#,#)" [state, wordValue (toInteger word)])
+  pure (VConstructor unboxedTupleOrigin [state, wordValue (toInteger word)])
 evalPrimitive "writeWordArray#" [value, index, word, state] = do
   byteArray <- forceByteArrayPrimitiveArg "writeWordArray#" value
   checkedIndex <- checkedWordArrayIndex "writeWordArray#" byteArray =<< forceIntPrimitiveArg "writeWordArray#" index
@@ -648,7 +659,7 @@ intPrimitiveValue :: Integer -> Value
 intPrimitiveValue = VLit . LitInt IntRep . normalizeInt
 
 wordPairValue :: Integer -> Integer -> Value
-wordPairValue high low = VConstructor "(#,#)" [wordValue high, wordValue low]
+wordPairValue high low = VConstructor unboxedTupleOrigin [wordValue high, wordValue low]
 
 evalIntCarryPrimitive :: Text -> (Integer -> Integer -> Integer) -> Value -> Value -> EvalM Value
 evalIntCarryPrimitive name operation left right = do
@@ -656,7 +667,7 @@ evalIntCarryPrimitive name operation left right = do
   rightInt <- forceIntPrimitiveArg name right
   let result = operation leftInt rightInt
       overflow = if result < intMinimum || result > intMaximum then 1 else 0
-  pure (VConstructor "(#,#)" [intPrimitiveValue result, intPrimitiveValue overflow])
+  pure (VConstructor unboxedTupleOrigin [intPrimitiveValue result, intPrimitiveValue overflow])
 
 evalWordPrimitive :: Text -> (Integer -> Integer -> Integer) -> Value -> Value -> EvalM Value
 evalWordPrimitive name operation left right = do
@@ -669,13 +680,13 @@ evalWordCarryPrimitive name operation left right = do
   leftWord <- forceWordPrimitiveArg name left
   rightWord <- forceWordPrimitiveArg name right
   let result = operation leftWord rightWord
-  pure (VConstructor "(#,#)" [wordValue result, intPrimitiveValue (if result >= wordModulus then 1 else 0)])
+  pure (VConstructor unboxedTupleOrigin [wordValue result, intPrimitiveValue (if result >= wordModulus then 1 else 0)])
 
 evalWordBorrowPrimitive :: Value -> Value -> EvalM Value
 evalWordBorrowPrimitive left right = do
   leftWord <- forceWordPrimitiveArg "subWordC#" left
   rightWord <- forceWordPrimitiveArg "subWordC#" right
-  pure (VConstructor "(#,#)" [wordValue (leftWord - rightWord), intPrimitiveValue (if leftWord < rightWord then 1 else 0)])
+  pure (VConstructor unboxedTupleOrigin [wordValue (leftWord - rightWord), intPrimitiveValue (if leftWord < rightWord then 1 else 0)])
 
 evalWordComparison :: Text -> (Integer -> Integer -> Bool) -> Value -> Value -> EvalM Value
 evalWordComparison name predicate left right = do
@@ -896,7 +907,7 @@ executeForeignCall foreignCall arguments
           case reverse arguments of
             state : reversedAbiArguments -> do
               result <- callForeign foreignCall (reverse reversedAbiArguments)
-              pure (VConstructor "(#,#)" [state, result])
+              pure (VConstructor unboxedTupleOrigin [state, result])
             [] -> throwE (EvalForeignArity name expectedArity actualArity)
   where
     name = fcForeignCallName foreignCall
@@ -1229,18 +1240,20 @@ renderForcedValue value =
   case value of
     VLit lit -> pure (renderLiteral lit)
     VAddress address -> pure (T.pack (show address))
-    VConstructor "C#" [char] -> renderBoxedChar char
-    VConstructor name [] -> pure name
-    VConstructor ":" _ -> do
-      listValue <- collectList value
-      case listValue of
-        Just elems -> do
-          renderedElems <- mapM (renderValueM <=< forceValue) elems
-          pure ("[" <> T.intercalate ", " renderedElems <> "]")
-        Nothing -> renderConstructor value
-    VConstructor name args -> do
+    VConstructor origin [char]
+      | fcOriginName origin == "C#" -> renderBoxedChar char
+    VConstructor origin [] -> pure (fcOriginName origin)
+    VConstructor origin _
+      | fcOriginName origin == ":" -> do
+          listValue <- collectList value
+          case listValue of
+            Just elems -> do
+              renderedElems <- mapM (renderValueM <=< forceValue) elems
+              pure ("[" <> T.intercalate ", " renderedElems <> "]")
+            Nothing -> renderConstructor value
+    VConstructor origin args -> do
       renderedArgs <- mapM (renderValueM <=< forceValue) args
-      pure (T.unwords (name : renderedArgs))
+      pure (T.unwords (fcOriginName origin : renderedArgs))
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VArray {} -> pure "<array>"
@@ -1254,9 +1267,9 @@ renderForcedValue value =
     VStateToken -> pure "<state>"
     VThunk {} -> renderValueM value
   where
-    renderConstructor (VConstructor name args) = do
+    renderConstructor (VConstructor origin args) = do
       renderedArgs <- mapM (renderValueM <=< forceValue) args
-      pure (T.unwords (name : renderedArgs))
+      pure (T.unwords (fcOriginName origin : renderedArgs))
     renderConstructor other = renderForcedValue other
 
 collectString :: Value -> EvalM (Maybe Text)
@@ -1271,22 +1284,25 @@ collectString value = do
     charValue item = do
       forced <- forceValue item
       case forced of
-        VConstructor "C#" [char] -> do
-          forcedChar <- forceValue char
-          pure $
-            case forcedChar of
-              VLit (LitChar _ c) -> Just c
-              _ -> Nothing
+        VConstructor origin [char]
+          | fcOriginName origin == "C#" -> do
+              forcedChar <- forceValue char
+              pure $
+                case forcedChar of
+                  VLit (LitChar _ c) -> Just c
+                  _ -> Nothing
         _ -> pure Nothing
 
 collectList :: Value -> EvalM (Maybe [Value])
 collectList value = do
   forced <- forceValue value
   case forced of
-    VConstructor "[]" [] -> pure (Just [])
-    VConstructor ":" [headValue, tailValue] -> do
-      tailValues <- collectList tailValue
-      pure ((headValue :) <$> tailValues)
+    VConstructor origin []
+      | fcOriginName origin == "[]" -> pure (Just [])
+    VConstructor origin [headValue, tailValue]
+      | fcOriginName origin == ":" -> do
+          tailValues <- collectList tailValue
+          pure ((headValue :) <$> tailValues)
     _ -> pure Nothing
 
 renderLiteral :: Literal -> Text
@@ -1313,14 +1329,15 @@ renderRawValueM value = do
   case forced of
     VLit lit -> pure (renderLiteral lit)
     VAddress address -> pure (T.pack (show address))
-    VConstructor "C#" [char] -> renderBoxedChar char
-    VConstructor name [] -> pure name
-    VConstructor name args | isTupleConstructor name (length args) -> do
+    VConstructor origin [char]
+      | fcOriginName origin == "C#" -> renderBoxedChar char
+    VConstructor origin [] -> pure (fcOriginName origin)
+    VConstructor origin args | isTupleConstructor (fcOriginName origin) (length args) -> do
       renderedArgs <- mapM renderRawArg args
       pure ("(" <> T.intercalate "," renderedArgs <> ")")
-    VConstructor name args -> do
+    VConstructor origin args -> do
       renderedArgs <- mapM renderRawArg args
-      pure (T.unwords (name : renderedArgs))
+      pure (T.unwords (fcOriginName origin : renderedArgs))
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VArray {} -> pure "<array>"
@@ -1340,8 +1357,8 @@ renderRawArg value = do
   rendered <- renderRawValueM forced
   pure $
     case forced of
-      VConstructor name args | isTupleConstructor name (length args) -> rendered
-      VConstructor "C#" [_] -> rendered
+      VConstructor origin args | isTupleConstructor (fcOriginName origin) (length args) -> rendered
+      VConstructor origin [_] | fcOriginName origin == "C#" -> rendered
       VConstructor _ (_ : _) -> "(" <> rendered <> ")"
       _ -> rendered
 

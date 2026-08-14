@@ -155,7 +155,7 @@ evaluateTcAnnotatedCase tc =
           snd (typecheckModulesWithInterface emptyTcInterface [resolvedCore])
         _ -> emptyTcInterface
     modulePackage modu
-      | moduleName modu `elem` [Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
+      | moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
           (Package "aihc-prim" (PackageId "aihc-prim"), modu)
       | otherwise = (unnamedPackage, modu)
     parseOne input =

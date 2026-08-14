@@ -21,7 +21,7 @@ import Aihc.Cli.PackageInterface
     packageInterfaceExports,
     readPackageInterface,
   )
-import Aihc.Fc (DesugarConfig (..), DesugarResult (..), FcModuleId (..), FcProgram (..), desugarModuleWithBindings, evalProgramBinding, mergePrograms, renderProgram, renderValue)
+import Aihc.Fc (DesugarConfig (..), DesugarResult (..), FcModuleId (..), FcProgram (..), desugarModuleWithInterface, evalProgramBinding, mergePrograms, renderProgram, renderValue)
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExpr, parseModule)
 import Aihc.Parser.Shorthand (Shorthand (..))
 import Aihc.Parser.Syntax
@@ -48,6 +48,7 @@ import Aihc.Tc
     TcBindingResult (..),
     TcDiagnostic (..),
     TcErrorKind (..),
+    TcInterface,
     TcType (..),
     TyCon (..),
     TyVarId (..),
@@ -92,6 +93,7 @@ data ReplSession = ReplSession
     replImportedTerms :: ![(Text, TypeScheme)],
     replBindingTypes :: !(Map.Map Text (Map.Map Text TcType)),
     replImportedInstances :: ![InstanceInfo],
+    replTcInterface :: !TcInterface,
     replDependencyProgram :: !FcProgram,
     replSettings :: !(IORef ReplSettings)
   }
@@ -171,6 +173,7 @@ loadReplSession maybeStoreRoot = do
           ensurePreludeMvpBindingTypes
             (unionBindingTypes (replBaseBindingTypes baseContext) installedBindingTypes),
         replImportedInstances = replBaseImportedInstances baseContext,
+        replTcInterface = replBaseTcInterface baseContext,
         replDependencyProgram = replBaseProgram baseContext,
         replSettings = settingsRef
       }
@@ -204,7 +207,7 @@ evaluateExpression session input = do
           tcResult = checkedTcModule checked
           inferredType = checkedType checked
           allBindings = importedTermBindings (replImportedTerms session) <> tcModuleBindings tcResult
-          dsResult = desugarModuleWithBindings (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings tcResult
+          dsResult = desugarModuleWithInterface (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings (replTcInterface session) tcResult
       if not (dsSuccess dsResult)
         then pure (Left (ReplDesugarError (dsErrors dsResult)))
         else do
@@ -488,6 +491,7 @@ data ReplBaseContext = ReplBaseContext
     replBaseImportedTerms :: ![(Text, TypeScheme)],
     replBaseBindingTypes :: !(Map.Map Text (Map.Map Text TcType)),
     replBaseImportedInstances :: ![InstanceInfo],
+    replBaseTcInterface :: !TcInterface,
     replBaseProgram :: !FcProgram
   }
 
@@ -510,7 +514,7 @@ buildBaseContext modules =
   case resolveWithDeps Map.empty modules of
     resolved@ResolveResult {resolveErrors = [], resolvedModules} -> do
       let moduleAsts = map snd resolvedModules
-          (tcResults, _) =
+          (tcResults, tcInterface) =
             typecheckModulesWithInterfaceConfig
               (tcConfig (PackageId "aihc-prim"))
               emptyTcInterface
@@ -518,7 +522,7 @@ buildBaseContext modules =
       if all tcModuleSuccess tcResults
         then do
           let allBindings = concatMap tcModuleBindings tcResults
-              dsResults = map (desugarModuleWithBindings (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings) tcResults
+              dsResults = map (desugarModuleWithInterface (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings tcInterface) tcResults
               bindingTypes = moduleBindingTypes moduleAsts tcResults
           if all dsSuccess dsResults
             then
@@ -528,6 +532,7 @@ buildBaseContext modules =
                     replBaseImportedTerms = map bindingImportedTerm allBindings,
                     replBaseBindingTypes = bindingTypes,
                     replBaseImportedInstances = concatMap tcModuleInstances tcResults,
+                    replBaseTcInterface = tcInterface,
                     replBaseProgram = concatPrograms (map dsProgram dsResults)
                   }
             else ioError (userError ("repl error: could not desugar bundled aihc-base Prelude: " <> unwords (concatMap dsErrors dsResults)))

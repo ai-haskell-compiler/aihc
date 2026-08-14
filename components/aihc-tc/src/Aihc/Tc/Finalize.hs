@@ -101,12 +101,12 @@ zonkEvTerm evTerm =
       EvDict origin name <$> mapM zonkType typeArgs <*> mapM zonkEvTerm evidence
     EvCoercion coercion ->
       EvCoercion <$> zonkCoercion coercion
-    EvSuperClass evidence sourcePredicate fieldTypes index ->
-      EvSuperClass <$> zonkEvTerm evidence <*> zonkPred sourcePredicate <*> mapM zonkType fieldTypes <*> pure index
+    EvSuperClass evidence sourceOrigin sourcePredicate fieldTypes index ->
+      EvSuperClass <$> zonkEvTerm evidence <*> pure sourceOrigin <*> zonkPred sourcePredicate <*> mapM zonkType fieldTypes <*> pure index
     EvCast evidence coercion ->
       EvCast <$> zonkEvTerm evidence <*> zonkCoercion coercion
-    EvTypeable ty arguments ->
-      EvTypeable <$> zonkType ty <*> mapM zonkEvTerm arguments
+    EvTypeable origin ty arguments ->
+      EvTypeable origin <$> zonkType ty <*> mapM zonkEvTerm arguments
 
 zonkCoercion :: Coercion -> TcM Coercion
 zonkCoercion coercion =
@@ -250,11 +250,11 @@ firstMetaEvTerm evTerm =
       firstJusts (map firstMetaType typeArgs ++ map firstMetaEvTerm evidence)
     EvCoercion coercion ->
       firstMetaCoercion coercion
-    EvSuperClass evidence sourcePredicate fieldTypes _ ->
+    EvSuperClass evidence _ sourcePredicate fieldTypes _ ->
       firstMetaEvTerm evidence <|> firstMetaPred sourcePredicate <|> firstJusts (map firstMetaType fieldTypes)
     EvCast evidence coercion ->
       firstMetaEvTerm evidence <|> firstMetaCoercion coercion
-    EvTypeable ty arguments ->
+    EvTypeable _ ty arguments ->
       firstMetaType ty <|> firstJusts (map firstMetaEvTerm arguments)
 
 firstMetaCoercion :: Coercion -> Maybe Unique

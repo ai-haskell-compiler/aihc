@@ -16,7 +16,7 @@ module FcGolden
   )
 where
 
-import Aihc.Fc.Desugar (DesugarConfig (..), DesugarResult (..), desugarModuleWithDataTypes)
+import Aihc.Fc.Desugar (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface)
 import Aihc.Fc.Parser (parseProgram, renderParseError)
 import Aihc.Fc.Pretty (renderProgram)
 import Aihc.Parser
@@ -24,9 +24,9 @@ import Aihc.Parser
     defaultConfig,
     parseModule,
   )
-import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
-import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
-import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Parser.Syntax (Extension, Module, moduleName, parseExtensionName)
+import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps)
+import Aihc.Tc (TcBindingResult, emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -90,7 +90,8 @@ tupleSupportModule =
 listSupportModule :: Text
 listSupportModule =
   T.unlines
-    [ "module GHC.Types (List(..)) where",
+    [ "module GHC.Types (Bool(..), List(..)) where",
+      "data Bool = False | True",
       "data List a = [] | a : [a]",
       "infixr 5 :"
     ]
@@ -173,7 +174,7 @@ renderFcCase tc =
                       let allBindings = moduleGroupBindings tcResults
                           results =
                             map
-                              (desugarModuleWithDataTypes (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings (tcInterfaceDataTypes tcInterface))
+                              (desugarModuleWithInterface (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings tcInterface)
                               tcResults
                           fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
@@ -184,12 +185,11 @@ renderFcCase tc =
               Left ("resolve error: " <> show resolveErrors)
   where
     hasFixtureGhcTypes = any (T.isPrefixOf "module GHC.Types" . T.stripStart) (caseModules tc)
-    hasListSupport = not hasFixtureGhcTypes
     supportModules = if hasFixtureGhcTypes then drop 1 (caseSupportModules tc) else caseSupportModules tc
-    modulePackage index modu
-      | hasListSupport && index == 0 =
+    modulePackage _ modu
+      | moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Types"] =
           (Package "aihc-prim" (PackageId "aihc-prim"), modu)
-      | otherwise = (unnamedPackage, modu)
+      | otherwise = (Package "" (PackageId ""), modu)
     parseOne input =
       let config =
             defaultConfig

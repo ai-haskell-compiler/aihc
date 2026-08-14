@@ -37,7 +37,7 @@ expected: |-
   single : [Bool] → Bool =
     λ(x1004 : [Bool]).
       case x1004 as (_match1010 : [Bool]) of {
-        [] →
+        "aihc-prim" GHC.Types.[] →
           True;
         _ →
           False

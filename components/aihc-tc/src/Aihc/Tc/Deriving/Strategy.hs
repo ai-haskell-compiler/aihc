@@ -24,12 +24,12 @@ import Control.Monad (unless, when)
 import Data.Text (Text)
 import Data.Text qualified as T
 
-checkDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> TvKindEnv -> Kind -> SourceSpan -> Maybe DerivingStrategy -> TcM TcDerivingStrategy
-checkDerivingStrategy extensions targetFlavor className tvEnv targetKind sourceSpan strategy =
+checkDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Maybe (Text, Text) -> TvKindEnv -> Kind -> SourceSpan -> Maybe DerivingStrategy -> TcM TcDerivingStrategy
+checkDerivingStrategy extensions targetFlavor className classOrigin tvEnv targetKind sourceSpan strategy =
   case strategy of
-    Nothing -> selectDefaultDerivingStrategy extensions targetFlavor className sourceSpan
+    Nothing -> selectDefaultDerivingStrategy extensions targetFlavor className classOrigin sourceSpan
     Just DerivingStock -> do
-      checkStockDeriving extensions className sourceSpan
+      checkStockDeriving extensions className classOrigin sourceSpan
       pure TcDerivingStock
     Just DerivingAnyclass -> do
       requireDerivingExtension extensions DeriveAnyClass "anyclass deriving" sourceSpan
@@ -43,10 +43,10 @@ checkDerivingStrategy extensions targetFlavor className tvEnv targetKind sourceS
       requireDerivingExtension extensions DerivingViaExtension "via deriving" sourceSpan
       TcDerivingVia <$> checkSurfaceType tvEnv viaType targetKind
 
-selectDefaultDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> SourceSpan -> TcM TcDerivingStrategy
-selectDefaultDerivingStrategy extensions targetFlavor className sourceSpan =
-  case stockDerivingRequirement className of
-    Just requiredExtension
+selectDefaultDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Maybe (Text, Text) -> SourceSpan -> TcM TcDerivingStrategy
+selectDefaultDerivingStrategy extensions targetFlavor className classOrigin sourceSpan =
+  case (isAihcPrimClass classOrigin, stockDerivingRequirement className) of
+    (True, Just requiredExtension)
       | maybe True (`elem` extensions) requiredExtension -> pure TcDerivingStock
     _
       | DeriveAnyClass `elem` extensions -> do
@@ -60,14 +60,21 @@ selectDefaultDerivingStrategy extensions targetFlavor className sourceSpan =
           emitError sourceSpan (OtherError (defaultStrategyError targetFlavor className))
           pure TcDerivingStock
 
-checkStockDeriving :: [Extension] -> Text -> SourceSpan -> TcM ()
-checkStockDeriving extensions className sourceSpan =
-  case stockDerivingRequirement className of
-    Nothing ->
-      emitError sourceSpan (OtherError ("stock deriving is not available for class " <> T.unpack className))
-    Just Nothing -> pure ()
-    Just (Just extension) ->
-      requireDerivingExtension extensions extension ("stock deriving for " <> T.unpack className) sourceSpan
+checkStockDeriving :: [Extension] -> Text -> Maybe (Text, Text) -> SourceSpan -> TcM ()
+checkStockDeriving extensions className classOrigin sourceSpan
+  | not (isAihcPrimClass classOrigin) =
+      emitError sourceSpan (OtherError "stock deriving requires a class from aihc-prim")
+  | otherwise =
+      case stockDerivingRequirement className of
+        Nothing ->
+          emitError sourceSpan (OtherError ("stock deriving is not available for class " <> T.unpack className))
+        Just Nothing -> pure ()
+        Just (Just extension) ->
+          requireDerivingExtension extensions extension ("stock deriving for " <> T.unpack className) sourceSpan
+
+isAihcPrimClass :: Maybe (Text, Text) -> Bool
+isAihcPrimClass (Just ("aihc-prim", _)) = True
+isAihcPrimClass _ = False
 
 -- | Extensions required by GHC's stock deriving mechanisms. A @Nothing@
 -- requirement denotes the six classes available for ordinary Haskell data

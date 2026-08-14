@@ -73,9 +73,9 @@ evidenceDependencies evidence =
     EvGiven {} -> []
     EvDict _ dictName _ contextEvidence -> dictName : concatMap evidenceDependencies contextEvidence
     EvCoercion {} -> []
-    EvSuperClass source _ _ _ -> evidenceDependencies source
+    EvSuperClass source _ _ _ _ -> evidenceDependencies source
     EvCast source _ -> evidenceDependencies source
-    EvTypeable _ arguments -> concatMap evidenceDependencies arguments
+    EvTypeable _ _ arguments -> concatMap evidenceDependencies arguments
     EvVarTerm {} -> []
 
 moduleDerivingPlans :: [Decl] -> [TcDerivingPlan]

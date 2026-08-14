@@ -1,16 +1,16 @@
 expected: |-
-  constructor Box [IntRep]
+  constructor main:Test.Box [IntRep]
 
-  caf value%1007 :: BoxedRep Lifted = (Fvalue_thunk)
+  caf value%1008 :: BoxedRep Lifted = (Fvalue_thunk)
 
   value_thunk -> BoxedRep Lifted =
-    $grin__case_value_0_1009%1009 :: IntRep, $grin__case_value_1_1010%1010 :: WordRep <-
+    $grin__case_value_0_1010%1010 :: IntRep, $grin__case_value_1_1011%1011 :: WordRep <-
       constant (1 :: IntRep) (2 :: WordRep)
-    $grin_tuple_1011%1011 :: IntRep, $grin_tuple_1012%1012 :: WordRep <-
-      constant ($grin__case_value_0_1009%1009 :: IntRep) ($grin__case_value_1_1010%1010 :: WordRep)
-    $grin_argument_1008%1008 :: IntRep <-
-      constant ($grin_tuple_1011%1011 :: IntRep)
-    store (CBox ($grin_argument_1008%1008 :: IntRep))
+    $grin_tuple_1012%1012 :: IntRep, $grin_tuple_1013%1013 :: WordRep <-
+      constant ($grin__case_value_0_1010%1010 :: IntRep) ($grin__case_value_1_1011%1011 :: WordRep)
+    $grin_argument_1009%1009 :: IntRep <-
+      constant ($grin_tuple_1012%1012 :: IntRep)
+    store (Cmain:Test.Box ($grin_argument_1009%1009 :: IntRep))
 extensions:
 - MagicHash
 - UnboxedTuples

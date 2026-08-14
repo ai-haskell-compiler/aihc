@@ -1,7 +1,7 @@
 expected: |-
-  constructor Box [IntRep]
+  constructor main:Test.Box [IntRep]
 
-  global value%1002 :: BoxedRep Lifted = (CBox (42 :: IntRep))
+  global value%1002 :: BoxedRep Lifted = (Cmain:Test.Box (42 :: IntRep))
 extensions:
 - MagicHash
 reason: initializes a static lifted constructor directly and preserves its IntRep

@@ -260,7 +260,7 @@ genAltWith :: Gen FcExpr -> Gen FcAlt
 genAltWith child = FcAlt <$> genAltCon <*> smallList genVar <*> child
 
 genAltCon :: Gen FcAltCon
-genAltCon = Gen.choice [DataAlt <$> genTypeName, LitAlt <$> genLiteral, pure DefaultAlt]
+genAltCon = Gen.choice [DataAlt . FcBuiltinOrigin <$> genTypeName, LitAlt <$> genLiteral, pure DefaultAlt]
 
 genVar :: Gen Var
 genVar = do

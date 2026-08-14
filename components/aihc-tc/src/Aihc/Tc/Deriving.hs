@@ -146,7 +146,7 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvE
               checkedArguments <- zipWithM (checkSurfaceType tvEnv) suppliedArguments (map tvKind prefixClassVars)
               targetKind <- defaultKindMetas (tvKind targetClassVar)
               targetType <- attachedTargetType classSpan targetInfo params targetKind
-              checkedStrategy <- checkDerivingStrategy extensions targetFlavor className tvEnv targetKind classSpan strategy
+              checkedStrategy <- checkDerivingStrategy extensions targetFlavor className (ciOrigin classInfo) tvEnv targetKind classSpan strategy
               methods <- derivingClassMethods classInfo
               let headTypes = checkedArguments <> [targetType]
                   strategyTypes = case checkedStrategy of TcDerivingVia viaType -> [viaType]; _ -> []
@@ -204,7 +204,7 @@ checkStandaloneDerivingPlan extensions derivingDecl =
               checkedContext <- mapM (surfacePredToPred tvEnv) (standaloneDerivingContext derivingDecl)
               let targetKind = maybe KType (tvKind . snd) (unsnoc (ciTyVars classInfo))
               targetFlavor <- standaloneTargetFlavor checkedHead
-              checkedStrategy <- checkDerivingStrategy extensions targetFlavor className tvEnv targetKind classSpan (standaloneDerivingStrategy derivingDecl)
+              checkedStrategy <- checkDerivingStrategy extensions targetFlavor className (ciOrigin classInfo) tvEnv targetKind classSpan (standaloneDerivingStrategy derivingDecl)
               tyVars <- mapM (defaultTyVarKinds . paramTyVar) params
               headTypes <- mapM defaultTypeKinds checkedHead
               context <- mapM defaultPredKinds checkedContext

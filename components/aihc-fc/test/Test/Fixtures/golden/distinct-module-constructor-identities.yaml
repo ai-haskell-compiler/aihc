@@ -1,0 +1,55 @@
+extensions: []
+modules:
+  - |
+    module First where
+
+    data Item = FirstItem
+    data Value = Shared Item
+  - |
+    module Second where
+
+    data Item = SecondItem
+    data Value = Shared Item
+  - |
+    module Test where
+
+    import qualified First
+    import qualified Second
+
+    first :: First.Value -> First.Item
+    first (First.Shared value) = value
+
+    second :: Second.Value -> Second.Item
+    second (Second.Shared value) = value
+expected: |-
+  module First where
+
+  data Item
+   = FirstItem
+
+  data Value
+   = Shared (Item)
+  module Second where
+
+  data Item
+   = SecondItem
+
+  data Value
+   = Shared (Item)
+  module Test where
+
+  first : Value → Item =
+    λ(x1001 : Value).
+      case x1001 as (_scrut : Value) of {
+        First.Shared (value : Item) →
+          value
+      }
+
+  second : Value → Item =
+    λ(x1005 : Value).
+      case x1005 as (_scrut : Value) of {
+        Second.Shared (value : Item) →
+          value
+      }
+status: pass
+reason: retains the full identity of each constructor pattern

@@ -303,7 +303,11 @@ isPointerRuntimeRep runtimeRep =
 -- interpretation, linting, and native code generation agree on which global
 -- constructor values exist before the program starts.
 builtinConstructors :: [(Text, [[RuntimeRep]])]
-builtinConstructors = [("C#", [[WordRep]])]
+builtinConstructors =
+  [ ("C#", [[WordRep]]),
+    ("aihc-prim:GHC.Types.C#", [[WordRep]]),
+    ("aihc-prim:GHC.Tuple.()", [])
+  ]
 
 -- | Flattened storage layouts for runtime-supplied constructors. Source-level
 -- argument boundaries matter for arity, while heap snapshots describe the

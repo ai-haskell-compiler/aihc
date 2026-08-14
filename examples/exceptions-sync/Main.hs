@@ -7,10 +7,14 @@ import GHC.Ptr (Ptr (..))
 import System.IO (hPutBuf, stdout)
 
 data InnerException = InnerException
-  deriving (Show)
 
 data OuterException = OuterException
-  deriving (Show)
+
+instance Show InnerException where
+  show InnerException = "InnerException"
+
+instance Show OuterException where
+  show OuterException = "OuterException"
 
 instance Exception InnerException
 

@@ -401,17 +401,18 @@ bindScope bind =
 renderAlt :: RenderSymbols -> Int -> TermScope -> [TyVarId] -> FcAlt -> String
 renderAlt symbols indentation scope tyScope alternative =
   indent indentation
-    <> renderAltCon (altCon alternative)
+    <> renderAltCon symbols (altCon alternative)
     <> concatMap (\binder -> " (" <> renderBinder binder <> " : " <> renderTypeWith tyScope (varType binder) <> ")") binders
     <> " →\n"
     <> renderExprIndented symbols (indentation + 2) (map scopeEntry binders <> scope) tyScope (altRhs alternative)
   where
     binders = altBinders alternative
 
-renderAltCon :: FcAltCon -> String
-renderAltCon alternative =
+renderAltCon :: RenderSymbols -> FcAltCon -> String
+renderAltCon symbols alternative =
   case alternative of
-    DataAlt name -> T.unpack name
+    DataAlt (FcBuiltinOrigin name) -> T.unpack name
+    DataAlt origin -> renderDeclarationName symbols origin (fcOriginName origin)
     LitAlt literal -> renderLiteral literal
     DefaultAlt -> "_"
 

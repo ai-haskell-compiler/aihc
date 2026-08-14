@@ -37,7 +37,7 @@ import Aihc.Fc
   ( DesugarConfig (..),
     DesugarResult (..),
     FcProgram (..),
-    desugarModuleWithBindings,
+    desugarModuleWithInterface,
     eliminateDeadCode,
     extractReachabilityInterface,
     reachablePrimitiveNames,
@@ -236,7 +236,7 @@ compileWithDependencies target wholeProgram dependencies parsed = do
     ResolveResult {resolveErrors = errors@(_ : _)} -> Left (CompileFrontendError ["resolve error: " <> show errors])
     ResolveResult {resolvedModules} ->
       let moduleAsts = map snd resolvedModules
-          (checkedModules, _) =
+          (checkedModules, tcInterface) =
             typecheckModulesWithInterfaceConfig
               (tcConfig primPackageId)
               (dependencyTcInterface dependencies)
@@ -245,7 +245,7 @@ compileWithDependencies target wholeProgram dependencies parsed = do
             then Left (CompileFrontendError ["typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules)])
             else
               let bindings = dependencyBindings dependencies <> concatMap tcModuleBindings checkedModules
-                  desugared = map (desugarModuleWithBindings (DesugarConfig {primPackageId = primPackageId}) bindings) checkedModules
+                  desugared = map (desugarModuleWithInterface (DesugarConfig {primPackageId = primPackageId}) bindings tcInterface) checkedModules
                in if not (all dsSuccess desugared)
                     then Left (CompileFrontendError (concatMap dsErrors desugared))
                     else do

@@ -60,8 +60,8 @@ data LintEnv = LintEnv
     leTerms :: !(Map Unique TcType),
     -- | Type variables in scope.
     leTyVars :: !(Set TyVarId),
-    -- | Known data constructors: name -> (type var params, field types, result type).
-    leDataCons :: !(Map Text ([TyVarId], [TcType], TcType)),
+    -- | Known data constructors by full origin.
+    leDataCons :: !(Map FcSymbolOrigin ([TyVarId], [TcType], TcType)),
     -- | Type equality axioms visible to coercion linting.
     leAxioms :: !AxiomInterface,
     leForeignCalls :: !(Map Text FcForeignCall)
@@ -101,7 +101,7 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
               ( \constructor ->
                   let fields = fcDataConFields constructor
                       existentialVariables = filter (`notElem` tyVars) (freeRigidTyVarsOf fields)
-                   in Map.insert (fcDataConName constructor) (kindTyVars <> tyVars <> existentialVariables, fields, resultType)
+                   in Map.insert (fcDataConOrigin constructor) (kindTyVars <> tyVars <> existentialVariables, fields, resultType)
               )
               (leDataCons env)
               constructors
@@ -161,7 +161,7 @@ lintExpr env (FcVar v) =
   case Map.lookup (varUnique v) (leTerms env) of
     Just ty -> Right ty
     Nothing ->
-      case Map.lookup (varName v) (leDataCons env) of
+      case lookupDataConstructor v (leDataCons env) of
         Just (tyVars, fields, resultType)
           | typesEqual (varType v) (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) -> Right (varType v)
           | otherwise -> Left (TypeMismatch "constructor occurrence" (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) (varType v))
@@ -228,6 +228,15 @@ lintExpr env (FcCallForeign foreignCall arguments) = do
     checkArgument (expected, actual)
       | typesEqual expected actual = Right ()
       | otherwise = Left (TypeMismatch "foreign call argument" expected actual)
+
+lookupDataConstructor :: Var -> Map FcSymbolOrigin value -> Maybe value
+lookupDataConstructor var constructors =
+  case varResolvedName var >>= (`Map.lookup` constructors) of
+    Just value -> Just value
+    Nothing ->
+      case [value | (origin, value) <- Map.toList constructors, fcOriginName origin == varName var] of
+        [value] -> Just value
+        _ -> Nothing
 
 -- | Lint a case alternative.
 lintAlt :: LintEnv -> FcAlt -> Either LintError TcType

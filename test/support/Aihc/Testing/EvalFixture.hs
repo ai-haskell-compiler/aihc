@@ -16,7 +16,7 @@ module Aihc.Testing.EvalFixture
   )
 where
 
-import Aihc.Fc (DesugarConfig (..), DesugarResult (..), FcBind (..), FcModuleId (..), FcProgram (..), FcSymbolOrigin (..), FcTopBind (..), Var (..), desugarModuleWithDataTypes, mergePrograms)
+import Aihc.Fc (DesugarConfig (..), DesugarResult (..), FcBind (..), FcModuleId (..), FcProgram (..), FcSymbolOrigin (..), FcTopBind (..), Var (..), desugarModuleWithInterface, mergePrograms)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -40,7 +40,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
-import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Tc (TcBindingResult, emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (bracket, mask, onException)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -263,7 +263,7 @@ compileEvalCase tc =
                           let allBindings = moduleGroupBindings tcResults
                               results =
                                 map
-                                  (desugarModuleWithDataTypes (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings (tcInterfaceDataTypes tcInterface))
+                                  (desugarModuleWithInterface (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings tcInterface)
                                   tcResults
                           if all dsSuccess results
                             then pure (Right (concatPrograms (map dsProgram results)))
@@ -276,11 +276,11 @@ compileEvalCase tc =
       | any ((== Just "GHC.Types") . Surface.moduleName) modules = modules
       | otherwise = listSupportModule : modules
     listSupportModule =
-      case parseOneModule "GHC.Types" [] "module GHC.Types (List(..)) where\ndata List a = [] | a : [a]\ninfixr 5 :\n" of
+      case parseOneModule "GHC.Types" [] "module GHC.Types (Bool(..), List(..)) where\ndata Bool = False | True\ndata List a = [] | a : [a]\ninfixr 5 :\n" of
         Right modu -> modu
         Left err -> error err
     modulePackage modu
-      | Surface.moduleName modu `elem` [Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
+      | Surface.moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
           (Package "aihc-prim" (PackageId "aihc-prim"), modu)
       | otherwise = (unnamedPackage, modu)
 

@@ -18,15 +18,19 @@ import Data.Text (Text)
 
 data References = References
   { referencedValues :: !(Set Text),
-    referencedTypes :: !(Set Text)
+    referencedTypes :: !(Set Text),
+    referencedConstructors :: !(Set FcSymbolOrigin)
   }
 
 instance Semigroup References where
-  References leftValues leftTypes <> References rightValues rightTypes =
-    References (leftValues <> rightValues) (leftTypes <> rightTypes)
+  References leftValues leftTypes leftConstructors <> References rightValues rightTypes rightConstructors =
+    References
+      (leftValues <> rightValues)
+      (leftTypes <> rightTypes)
+      (leftConstructors <> rightConstructors)
 
 instance Monoid References where
-  mempty = References Set.empty Set.empty
+  mempty = References Set.empty Set.empty Set.empty
 
 -- | Per-definition call edges and primitive declarations exported by one
 -- incremental unit. This is sufficient to validate the reachable primitive
@@ -114,7 +118,7 @@ eliminateDeadCode entry (FcProgram moduleId topBinds) =
 
     sourceName var = maybe (varName var) fcOriginName (varResolvedName var)
 
-closeReachable :: Map Text (Int, References) -> Map Text (Int, References) -> Map Text Text -> Set Text -> Set Text -> (Set Text, Set Text)
+closeReachable :: Map Text (Int, References) -> Map Text (Int, References) -> Map FcSymbolOrigin Text -> Set Text -> Set Text -> (Set Text, Set Text)
 closeReachable valueDefinitions typeDefinitions constructorOwners values types =
   let references =
         foldMap (definitionReferences valueDefinitions) values
@@ -123,7 +127,7 @@ closeReachable valueDefinitions typeDefinitions constructorOwners values types =
       types' =
         types
           <> referencedTypes references
-          <> Set.fromList [owner | value <- Set.toList values', Just owner <- [Map.lookup value constructorOwners]]
+          <> Set.fromList [owner | constructor <- Set.toList (referencedConstructors references), Just owner <- [Map.lookup constructor constructorOwners]]
    in if values' == values && types' == types
         then (values, types)
         else closeReachable valueDefinitions typeDefinitions constructorOwners values' types'
@@ -172,12 +176,12 @@ typeDefinitionsOf topBind =
       ]
     _ -> []
 
-typeConstructorsOf :: FcTopBind -> [(Text, [Text])]
+typeConstructorsOf :: FcTopBind -> [(Text, [FcSymbolOrigin])]
 typeConstructorsOf topBind =
   case topBind of
-    FcData declaration -> [(fcDataName declaration, map fcDataConName (fcDataConstructors declaration))]
+    FcData declaration -> [(fcDataName declaration, map fcDataConOrigin (fcDataConstructors declaration))]
     FcAxiom {} -> []
-    FcNewtype declaration -> [(fcNewtypeName declaration, [fcNewtypeConstructor declaration])]
+    FcNewtype declaration -> [(fcNewtypeName declaration, [fcNewtypeConstructorOrigin declaration])]
     _ -> []
 
 bindersOf :: FcBind -> [Var]
@@ -244,7 +248,7 @@ referencesAlt bound alternative =
 referencesAltCon :: FcAltCon -> References
 referencesAltCon altCon =
   case altCon of
-    DataAlt constructor -> mempty {referencedValues = Set.singleton constructor}
+    DataAlt constructor -> mempty {referencedConstructors = Set.singleton constructor}
     LitAlt literal -> foldMap referencesType (literalType literal)
     DefaultAlt -> mempty
 
