@@ -61,7 +61,7 @@ import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Env (DataConFieldInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Kind (runtimeRepToTcType)
-import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType, liftedRuntimeRep, mkTyCon, mkTyConWithOrigin, runtimeRepOfType, setTyVarKind, tvKind, tyConModuleName, tyConPackageId, unboxedTupleTyConName)
+import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType, liftedRuntimeRep, mkTyCon, runtimeRepOfType, setTyVarKind, tvKind, tyConModuleName, tyConPackageId, unboxedTupleTyConName)
 import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -88,7 +88,7 @@ data DsState = DsState
     -- | Map from surface name to its inferred type (from TC).
     dsTypeEnv :: !(Map Text TcType),
     -- | Map from a complete global identity to its type constructor.
-    dsGlobalTyConEnv :: !(Maybe (Map (PackageId, Text, Text) TyCon)),
+    dsGlobalTyConEnv :: !(Map (PackageId, Text, Text) TyCon),
     -- | Local variable bindings (pattern-bound, lambda-bound).
     dsLocalVars :: !(Map Text Var),
     -- | Local dictionaries, keyed by class predicate.
@@ -143,13 +143,10 @@ primBoolType = (`TcTyCon` []) <$> lookupPrimitiveTyCon "GHC.Types" "Bool"
 lookupPrimitiveTyCon :: Text -> Text -> DsM TyCon
 lookupPrimitiveTyCon moduleName name = do
   primPackageId <- gets dsPrimPackageId
-  maybeGlobalTyCons <- gets dsGlobalTyConEnv
-  case maybeGlobalTyCons of
-    Just globalTyCons ->
-      case Map.lookup (primPackageId, moduleName, name) globalTyCons of
-        Just tyCon -> pure tyCon
-        Nothing -> missingPrimitiveTyCon moduleName name
-    Nothing -> legacyPrimitiveTyCon primPackageId moduleName name
+  globalTyCons <- gets dsGlobalTyConEnv
+  case Map.lookup (primPackageId, moduleName, name) globalTyCons of
+    Just tyCon -> pure tyCon
+    Nothing -> missingPrimitiveTyCon moduleName name
 
 missingPrimitiveTyCon :: Text -> Text -> DsM a
 missingPrimitiveTyCon moduleName name =
@@ -159,12 +156,6 @@ missingPrimitiveTyCon moduleName name =
         <> "."
         <> T.unpack name
     )
-
-legacyPrimitiveTyCon :: PackageId -> Text -> Text -> DsM TyCon
-legacyPrimitiveTyCon primPackageId moduleName name
-  | moduleName == "GHC.Types" && name == "Bool" =
-      pure (mkTyConWithOrigin primPackageId moduleName name 0 KType)
-  | otherwise = missingPrimitiveTyCon moduleName name
 
 resultTyCon :: TcType -> Maybe TyCon
 resultTyCon ty =
@@ -179,13 +170,6 @@ primitiveDataConOrigin :: Text -> Text -> DsM FcSymbolOrigin
 primitiveDataConOrigin moduleName constructorName = do
   PackageId packageName <- gets dsPrimPackageId
   pure (FcTopLevelOrigin packageName moduleName constructorName)
-
-lookupPrimitiveDataConOrigin :: Text -> Text -> DsM FcSymbolOrigin
-lookupPrimitiveDataConOrigin moduleName constructorName = do
-  maybeGlobalTyCons <- gets dsGlobalTyConEnv
-  case maybeGlobalTyCons of
-    Just _ -> primitiveDataConOrigin moduleName constructorName
-    Nothing -> lookupDataConOrigin constructorName
 
 lookupDataConOrigin :: Text -> DsM FcSymbolOrigin
 lookupDataConOrigin constructorName = do
@@ -992,8 +976,8 @@ dsIf cond thenE elseE = do
   else' <- dsExpr elseE
   boolTy <- primBoolType
   binder <- freshVar "_if" boolTy
-  trueConstructor <- lookupPrimitiveDataConOrigin "GHC.Types" "True"
-  falseConstructor <- lookupPrimitiveDataConOrigin "GHC.Types" "False"
+  trueConstructor <- primitiveDataConOrigin "GHC.Types" "True"
+  falseConstructor <- primitiveDataConOrigin "GHC.Types" "False"
   pure
     ( FcCase
         cond'
@@ -1138,8 +1122,8 @@ dsOverloadedIntegerPatternMatch scrutVar pat success failure = do
   trueBranch <- success
   boolTy <- primBoolType
   binder <- freshVar "_case_guard" boolTy
-  trueConstructor <- lookupPrimitiveDataConOrigin "GHC.Types" "True"
-  falseConstructor <- lookupPrimitiveDataConOrigin "GHC.Types" "False"
+  trueConstructor <- primitiveDataConOrigin "GHC.Types" "True"
+  falseConstructor <- primitiveDataConOrigin "GHC.Types" "False"
   pure
     ( FcCase
         test
@@ -1405,8 +1389,8 @@ dsCompGuard elemTy body guard rest tailExpr = do
   trueBranch <- dsCompQuals elemTy body rest tailExpr
   boolTy <- primBoolType
   binder <- freshInternalVar "_lc_guard" boolTy
-  trueConstructor <- lookupPrimitiveDataConOrigin "GHC.Types" "True"
-  falseConstructor <- lookupPrimitiveDataConOrigin "GHC.Types" "False"
+  trueConstructor <- primitiveDataConOrigin "GHC.Types" "True"
+  falseConstructor <- primitiveDataConOrigin "GHC.Types" "False"
   pure
     ( FcCase
         guard'

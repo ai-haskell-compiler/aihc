@@ -3,10 +3,7 @@
 -- | Desugaring from type-checked surface AST to System FC Core.
 module Aihc.Fc.Desugar
   ( -- * Entry point
-    desugarModuleWithBindings,
-    desugarModuleWithDataTypes,
     desugarModuleWithInterface,
-    desugarModuleWithTcResult,
     DesugarConfig (..),
     DesugarResult (..),
   )
@@ -100,19 +97,6 @@ newtype DesugarConfig = DesugarConfig
   }
   deriving (Eq, Show)
 
--- | Desugar a module using a type-checking result already computed by
--- the caller. This is useful for clients such as the REPL that preload
--- imported bindings into the type-checker environment.
-desugarModuleWithTcResult :: DesugarConfig -> Module -> DesugarResult
-desugarModuleWithTcResult config tcResult =
-  desugarModuleWithBindings config (tcModuleBindings tcResult) tcResult
-
-desugarModuleWithBindings :: DesugarConfig -> [TcBindingResult] -> Module -> DesugarResult
-desugarModuleWithBindings config bindings = desugarModule config bindings [] Nothing
-
-desugarModuleWithDataTypes :: DesugarConfig -> [TcBindingResult] -> [DataTypeInfo] -> Module -> DesugarResult
-desugarModuleWithDataTypes config bindings dataTypes = desugarModule config bindings dataTypes Nothing
-
 -- | Desugar with the complete type-checker interface.
 desugarModuleWithInterface :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> DesugarResult
 desugarModuleWithInterface config bindings interface =
@@ -120,9 +104,9 @@ desugarModuleWithInterface config bindings interface =
     config
     bindings
     (tcInterfaceDataTypes interface)
-    (Just (interfaceTyConEnv interface))
+    (interfaceTyConEnv interface)
 
-desugarModule :: DesugarConfig -> [TcBindingResult] -> [DataTypeInfo] -> Maybe (Map.Map (PackageId, Text, Text) TyCon) -> Module -> DesugarResult
+desugarModule :: DesugarConfig -> [TcBindingResult] -> [DataTypeInfo] -> Map.Map (PackageId, Text, Text) TyCon -> Module -> DesugarResult
 desugarModule config bindings dataTypes globalTyConEnv tcResult =
   if not (tcModuleSuccess tcResult)
     then

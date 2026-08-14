@@ -68,10 +68,7 @@ module Aihc.Fc
     emptyLintEnv,
 
     -- * Desugaring
-    desugarModuleWithBindings,
-    desugarModuleWithDataTypes,
     desugarModuleWithInterface,
-    desugarModuleWithTcResult,
     DesugarConfig (..),
     DesugarResult (..),
   )
@@ -79,7 +76,7 @@ where
 
 import Aihc.Fc.Axiom (AxiomInterface, extractAxiomInterface, lookupAxiomDecl)
 import Aihc.Fc.DeadCode (ReachabilityInterface, eliminateDeadCode, extractReachabilityInterface, reachablePrimitiveNames)
-import Aihc.Fc.Desugar (DesugarConfig (..), DesugarResult (..), desugarModuleWithBindings, desugarModuleWithDataTypes, desugarModuleWithInterface, desugarModuleWithTcResult)
+import Aihc.Fc.Desugar (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface)
 import Aihc.Fc.Eval (EvalError (..), Value (..), evalExpr, evalProgramBinding, renderRawValue, renderValue)
 import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram, lintProgramWithAxiomInterface)
 import Aihc.Fc.Lower (lowerPseudoOps)

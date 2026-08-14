@@ -10,12 +10,12 @@ module GrinGolden
   )
 where
 
-import Aihc.Fc (DesugarConfig (..), DesugarResult (..), desugarModuleWithBindings)
+import Aihc.Fc (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface)
 import Aihc.Grin (lintProgram, lowerProgram, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
 import Aihc.Resolve (PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
-import Aihc.Tc (TcBindingResult, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheck)
+import Aihc.Tc (TcBindingResult, emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
@@ -113,11 +113,11 @@ evaluateGrinCase fixture =
       case resolveWithDeps mempty [(unnamedPackage, parsed)] of
         ResolveResult {resolvedModules, resolveErrors = []} ->
           let moduleAsts = map snd resolvedModules
-              tcResults = typecheck moduleAsts
+              (tcResults, tcInterface) = typecheckModulesWithInterface emptyTcInterface moduleAsts
            in if all tcModuleSuccess tcResults
                 then
                   let allBindings = moduleGroupBindings tcResults
-                      desugared = map (desugarModuleWithBindings (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings) tcResults
+                      desugared = map (desugarModuleWithInterface (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings tcInterface) tcResults
                    in if all dsSuccess desugared
                         then
                           let programs = map (lowerProgram . dsProgram) desugared

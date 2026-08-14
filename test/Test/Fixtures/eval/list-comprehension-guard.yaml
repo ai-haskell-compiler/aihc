@@ -5,7 +5,7 @@ extensions: []
 modules:
 - |
   module Test where
-  data Bool = False | True
+  import GHC.Types (Bool(..))
 
   xs = [False, True, False, True]
 output: ': True (: True [])'

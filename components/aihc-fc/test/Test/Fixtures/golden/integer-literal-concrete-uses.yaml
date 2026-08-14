@@ -1,5 +1,5 @@
 expected: |-
-  module GHC.Types where
+  module "aihc-prim" GHC.Types where
 
   data Bool
    = False
@@ -12,7 +12,7 @@ expected: |-
    = IS (Int#)
   module GHC.Classes where
 
-  external GHC.Types.True : Bool
+  external "aihc-prim" GHC.Types.True : Bool
 
   data Eq (a : TYPE BoxedRep Lifted)
    = $Dict$Eq (a → a → Bool)
@@ -29,15 +29,15 @@ expected: |-
     ($Dict$Eq @Int) (λ(x1004 : Int).
       λ(y1005 : Int).
         case x1004 as (_scrut : Int) of {
-          GHC.Types.I (x : Int#) →
+          "aihc-prim" GHC.Types.I (x : Int#) →
             case y1005 as (_scrut : Int) of {
-              GHC.Types.I (y : Int#) →
-                GHC.Types.True
+              "aihc-prim" GHC.Types.I (y : Int#) →
+                "aihc-prim" GHC.Types.True
             }
         })
   module GHC.Num where
 
-  external GHC.Types.I : Int# → Int
+  external "aihc-prim" GHC.Types.I : Int# → Int
 
   data Num (a : TYPE BoxedRep Lifted)
    = $Dict$Num (Integer → a)
@@ -53,8 +53,8 @@ expected: |-
   $fNumInt : Num Int =
     ($Dict$Num @Int) (λ(x1004 : Integer).
       case x1004 as (_scrut : Integer) of {
-        GHC.Types.IS (x : Int#) →
-          GHC.Types.I x
+        "aihc-prim" GHC.Types.IS (x : Int#) →
+          "aihc-prim" GHC.Types.I x
       })
 
   $fNumInteger : Num Integer =
@@ -75,23 +75,23 @@ expected: |-
 
   external GHC.Tuple.() : Unit
 
-  external GHC.Types.IS : Int# → Integer
+  external "aihc-prim" GHC.Types.IS : Int# → Integer
 
   asInt : Int =
-    ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Types.IS 1#IntRep)
+    ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) ("aihc-prim" GHC.Types.IS 1#IntRep)
 
   asInteger : Integer =
-    ((GHC.Num.fromInteger @Integer) GHC.Num.$fNumInteger) (GHC.Types.IS 1#IntRep)
+    ((GHC.Num.fromInteger @Integer) GHC.Num.$fNumInteger) ("aihc-prim" GHC.Types.IS 1#IntRep)
 
   caseInt : Unit =
     let {
       _case_value : Int =
-        ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Types.IS 1#IntRep)
+        ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) ("aihc-prim" GHC.Types.IS 1#IntRep)
     } in
-      case (((GHC.Classes.== @Int) GHC.Classes.$fEqInt) _case_value) (((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) (GHC.Types.IS 1#IntRep)) as (_case_guard : Bool) of {
-        GHC.Types.True →
+      case (((GHC.Classes.== @Int) GHC.Classes.$fEqInt) _case_value) (((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) ("aihc-prim" GHC.Types.IS 1#IntRep)) as (_case_guard : Bool) of {
+        "aihc-prim" GHC.Types.True →
           GHC.Tuple.();
-        GHC.Types.False →
+        "aihc-prim" GHC.Types.False →
           case _case_value as (_case_nomatch : Int) of {}
       }
 extensions:
