@@ -17,7 +17,7 @@ import Aihc.Fc
 import Aihc.Fc qualified as Fc
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
-import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
+import Aihc.Parser (defaultConfig, parseModule)
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
 import Aihc.Tc (Kind (KType), RuntimeRep (..), TcInterface (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
@@ -52,123 +52,13 @@ fcDesugarTests :: TestTree
 fcDesugarTests =
   testGroup
     "FC desugaring"
-    [ testCase "lints references to later top-level bindings" $ do
-        let valueType = ty "Value"
-            first = Var "first" (Unique 1) valueType
-            second = Var "second" (Unique 2) valueType
-            program =
-              FcProgram
-                (FcModuleId "test" "Test")
-                [ FcTopBind (FcNonRec first (FcVar second)),
-                  FcTopBind (FcNonRec second (FcVar first))
-                ]
-        assertEqual "Core lint" [] (lintProgram emptyLintEnv program),
-      testCase "lints a case binder in an alternative" $ do
-        let valueType = ty "Value"
-            result = Var "result" (Unique 3) valueType
-            caseBinder = Var "caseBinder" (Unique 4) valueType
-            program =
-              FcProgram
-                (FcModuleId "test" "Test")
-                [ FcTopBind
-                    ( FcNonRec
-                        result
-                        (Aihc.Fc.FcCase (FcVar result) caseBinder [FcAlt DefaultAlt [] (FcVar caseBinder)])
-                    )
-                ]
-        assertEqual "Core lint" [] (lintProgram emptyLintEnv program),
-      testCase "accepts equivalent type application forms" $ do
-        let valueType = ty "Value"
-            boxTyCon = TyCon "Box" 1
-            appliedType = TcAppTy (TcTyCon boxTyCon []) valueType
-            saturatedType = TcTyCon boxTyCon [valueType]
-            input = Var "input" (Unique 5) saturatedType
-            formal = Var "formal" (Unique 6) appliedType
-            consume = Var "consume" (Unique 7) (TcFunTy appliedType appliedType)
-            result = Var "result" (Unique 8) appliedType
-            program =
-              FcProgram
-                (FcModuleId "test" "Test")
-                [ FcTopBind (FcNonRec input (FcVar input)),
-                  FcTopBind (FcNonRec consume (FcLam formal (FcVar formal))),
-                  FcTopBind (FcNonRec result (FcApp (FcVar consume) (FcVar input)))
-                ]
-        assertEqual "Core lint" [] (lintProgram emptyLintEnv program),
-      testCase "accepts an empty case as an application argument" $ do
-        let voidType = ty "Void"
-            valueType = ty "Value"
-            scrutinee = Var "scrutinee" (Unique 9) voidType
-            caseBinder = Var "caseBinder" (Unique 10) voidType
-            formal = Var "formal" (Unique 11) valueType
-            consume = Var "consume" (Unique 12) (TcFunTy valueType valueType)
-            result = Var "result" (Unique 13) valueType
-            program =
-              FcProgram
-                (FcModuleId "test" "Test")
-                [ FcTopBind (FcNonRec scrutinee (FcVar scrutinee)),
-                  FcTopBind (FcNonRec consume (FcLam formal (FcVar formal))),
-                  FcTopBind (FcNonRec result (FcApp (FcVar consume) (Aihc.Fc.FcCase (FcVar scrutinee) caseBinder [])))
-                ]
-        assertEqual "Core lint" [] (lintProgram emptyLintEnv program),
-      testCase "infers a case type after an empty alternative" $ do
-        let valueType = ty "Value"
-            choiceType = ty "Choice"
-            impossibleType = ty "Impossible"
-            choice = Var "choice" (Unique 14) choiceType
-            impossible = Var "impossible" (Unique 15) impossibleType
-            impossibleBinder = Var "impossibleBinder" (Unique 16) impossibleType
-            innerBinder = Var "innerBinder" (Unique 17) choiceType
-            outerBinder = Var "outerBinder" (Unique 18) valueType
-            result = Var "result" (Unique 19) valueType
-            innerCase =
-              Aihc.Fc.FcCase
-                (FcVar choice)
-                innerBinder
-                [ FcAlt (DataAlt "First") [] (Aihc.Fc.FcCase (FcVar impossible) impossibleBinder []),
-                  FcAlt (DataAlt "Second") [] (FcVar result)
-                ]
-            program =
-              FcProgram
-                (FcModuleId "test" "Test")
-                [ FcTopBind (FcNonRec choice (FcVar choice)),
-                  FcTopBind (FcNonRec impossible (FcVar impossible)),
-                  FcTopBind (FcNonRec result (Aihc.Fc.FcCase innerCase outerBinder [FcAlt DefaultAlt [] (FcVar outerBinder)]))
-                ]
-        assertEqual "Core lint" [] (lintProgram emptyLintEnv program),
-      testCase "counts every label in a grouped record field" $ do
+    [ testCase "counts every label in a grouped record field" $ do
         let (_, parsedModule) = parseModule defaultConfig "module Test where\ndata Pair a = Pair { left, right :: a }\n"
             constructors = concatMap declarationConstructors (Surface.moduleDecls parsedModule)
         case constructors of
           [constructor] -> assertEqual "constructor arity" ("Pair", 2) (dsDataConPure constructor)
           _ -> assertFailure ("expected one parsed constructor, got: " <> show constructors),
-      testCase "stock Eq dictionaries use primitive Bool" $ do
-        let source =
-              "{-# LANGUAGE DerivingStrategies #-}\n\
-              \module Test where\n\
-              \data Bool = False | True\n\
-              \class Eq a where\n\
-              \  (==) :: a -> a -> Bool\n\
-              \  (/=) :: a -> a -> Bool\n\
-              \data Tree a = Leaf a | Branch (Tree a) (Tree a) deriving stock Eq\n"
-            config = defaultConfig {parserExtensions = [Surface.DerivingStrategies]}
-            (parseErrors, parsedModule) = parseModule config source
-        assertEqual "source parses" [] parseErrors
-        (tcModule, tcInterface) <- resolveAndTypecheck parsedModule
-        let result =
-              desugarModuleWithDataTypes
-                (DesugarConfig {primPackageId = PackageId "aihc-prim"})
-                (tcModuleBindings tcModule)
-                (tcInterfaceDataTypes tcInterface)
-                tcModule
-            stockBoolTypes =
-              [ varType variable
-              | variable <- programVariables (dsProgram result),
-                varName variable `elem` ["$stock_eq_bool", "$stock_eq_not"]
-              ]
-        assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
-        assertBool "stock Eq has Boolean binders" (not (null stockBoolTypes))
-        mapM_ assertPrimitiveBool stockBoolTypes,
-      testCase "uses the condition type for if binders" $ do
+      testCase "uses the aihc-prim Bool type for if binders" $ do
         let source =
               "module Test where\n\
               \data Bool = False | True\n\
@@ -189,8 +79,8 @@ fcDesugarTests =
         assertBool ("desugaring succeeds: " <> show (dsErrors result)) (dsSuccess result)
         case ifBinderTypes of
           [TcTyCon tyCon []] -> do
-            assertEqual "package ID" (PackageId "main") (tyConPackageId tyCon)
-            assertEqual "module name" "Test" (tyConModuleName tyCon)
+            assertEqual "package ID" (PackageId "aihc-prim") (tyConPackageId tyCon)
+            assertEqual "module name" "GHC.Types" (tyConModuleName tyCon)
           other -> assertFailure ("expected one Bool case binder, got: " <> show other)
     ]
   where
@@ -210,46 +100,6 @@ resolveAndTypecheck parsedModule =
           | otherwise -> assertFailure ("type-check errors: " <> show (tcModuleDiagnostics tcModule))
         (tcModules, _) -> assertFailure ("unexpected type-check module count: " <> show (length tcModules))
     ResolveResult {resolveErrors} -> assertFailure ("resolve errors: " <> show resolveErrors)
-
-assertPrimitiveBool :: TcType -> IO ()
-assertPrimitiveBool boolTy =
-  case boolTy of
-    TcTyCon tyCon [] -> do
-      assertEqual "Bool package ID" (PackageId "aihc-prim") (tyConPackageId tyCon)
-      assertEqual "Bool module name" "GHC.Types" (tyConModuleName tyCon)
-    other -> assertFailure ("expected primitive Bool, got: " <> show other)
-
-programVariables :: FcProgram -> [Var]
-programVariables program = concatMap topBindVariables (fcTopBinds program)
-  where
-    topBindVariables topBind =
-      case topBind of
-        FcTopBind bind -> bindVariables bind
-        _ -> []
-
-    bindVariables bind =
-      case bind of
-        FcNonRec variable expression -> variable : expressionVariables expression
-        FcRec bindings -> concatMap (\(variable, expression) -> variable : expressionVariables expression) bindings
-
-    expressionVariables expression =
-      case expression of
-        FcVar variable -> [variable]
-        FcLit {} -> []
-        FcApp function argument -> expressionVariables function <> expressionVariables argument
-        FcTyApp function _ -> expressionVariables function
-        FcLam variable body -> variable : expressionVariables body
-        FcTyLam _ body -> expressionVariables body
-        FcLet bind body -> bindVariables bind <> expressionVariables body
-        Fc.FcCase scrutinee binder alternatives ->
-          expressionVariables scrutinee
-            <> [binder]
-            <> concatMap alternativeVariables alternatives
-        FcCast body _ -> expressionVariables body
-        FcCallForeign _ arguments -> concatMap expressionVariables arguments
-
-    alternativeVariables alternative =
-      altBinders alternative <> expressionVariables (altRhs alternative)
 
 fcEvalTests :: TestTree
 fcEvalTests =

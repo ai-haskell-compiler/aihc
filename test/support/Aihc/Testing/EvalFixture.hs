@@ -16,7 +16,7 @@ module Aihc.Testing.EvalFixture
   )
 where
 
-import Aihc.Fc (DesugarConfig (..), DesugarResult (..), FcBind (..), FcModuleId (..), FcProgram (..), FcSymbolOrigin (..), FcTopBind (..), Var (..), desugarModuleWithInterface, emptyLintEnv, extractAxiomInterface, lintProgramWithAxiomInterface, mergePrograms)
+import Aihc.Fc (DesugarConfig (..), DesugarResult (..), FcBind (..), FcModuleId (..), FcProgram (..), FcSymbolOrigin (..), FcTopBind (..), Var (..), desugarModuleWithDataTypes, extractAxiomInterface, lintProgramsWithAxiomInterface, mergePrograms)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -40,7 +40,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
-import Aihc.Tc (TcBindingResult, emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (bracket, mask, onException)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -252,7 +252,8 @@ compileEvalCase tc =
       case dependencyModules of
         Left errMsg -> pure (Left errMsg)
         Right deps ->
-          let resolved = resolveWithDeps mempty (map modulePackage (deps <> evalModules))
+          let allModules = addListSupport (deps <> evalModules)
+              resolved = resolveWithDeps mempty (map modulePackage allModules)
            in case resolved of
                 ResolveResult {resolvedModules, resolveErrors = []} ->
                   let moduleAsts = map snd resolvedModules
@@ -260,25 +261,31 @@ compileEvalCase tc =
                    in if all tcModuleSuccess tcResults
                         then do
                           let allBindings = moduleGroupBindings tcResults
-                              results = map (desugarModuleWithInterface (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings tcInterface) tcResults
+                              results =
+                                map
+                                  (desugarModuleWithDataTypes (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings (tcInterfaceDataTypes tcInterface))
+                                  tcResults
                           if all dsSuccess results
                             then
                               let programs = map dsProgram results
+                                  program = concatPrograms programs
                                   axiomInterface = foldMap extractAxiomInterface programs
-                                  lintFailures =
-                                    [ (fcProgramModule program, errors)
-                                    | program <- programs,
-                                      let errors = lintProgramWithAxiomInterface axiomInterface emptyLintEnv program,
-                                      not (null errors)
-                                    ]
-                               in if null lintFailures
-                                    then pure (Right (concatPrograms programs))
-                                    else pure (Left ("System FC lint error: " <> show lintFailures))
+                                  lintErrors = lintProgramsWithAxiomInterface axiomInterface programs
+                               in if null lintErrors
+                                    then pure (Right program)
+                                    else pure (Left ("System FC lint error: " <> show lintErrors))
                             else pure (Left ("desugar error: " <> unlines (concatMap dsErrors results)))
                         else pure (Left ("typecheck error: " <> renderTcErrors tcResults))
                 ResolveResult {resolveErrors} ->
                   pure (Left ("resolve error: " <> show resolveErrors))
   where
+    addListSupport modules
+      | any ((== Just "GHC.Types") . Surface.moduleName) modules = modules
+      | otherwise = listSupportModule : modules
+    listSupportModule =
+      case parseOneModule "GHC.Types" [] "module GHC.Types (List(..)) where\ndata List a = [] | a : [a]\ninfixr 5 :\n" of
+        Right modu -> modu
+        Left err -> error err
     modulePackage modu
       | Surface.moduleName modu `elem` [Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
           (Package "aihc-prim" (PackageId "aihc-prim"), modu)
@@ -374,7 +381,12 @@ loadDependencyModules tc evalModules = do
   let dependencies = evalCaseDependencies tc
       transitiveDependencies = nub (dependencies <> ["aihc-prim"])
       initialModules
-        | null dependencies = ["GHC.Tuple"]
+        | null dependencies =
+            "GHC.Tuple"
+              : [ "GHC.Types"
+                | Just unboxedTuples <- [parseExtensionName "UnboxedTuples"],
+                  unboxedTuples `elem` evalCaseExtensions tc
+                ]
         | otherwise = initialDependencyModules evalModules
   roots <- traverse resolveDependencyRoot transitiveDependencies
   case sequence roots of

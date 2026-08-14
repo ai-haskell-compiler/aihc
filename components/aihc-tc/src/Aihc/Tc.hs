@@ -57,6 +57,7 @@ module Aihc.Tc
     VecElem (..),
     TyCon (..),
     tyConKind,
+    tyConKindScheme,
     TyVarId (..),
     tvKind,
     TypeScheme (..),

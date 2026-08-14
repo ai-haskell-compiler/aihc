@@ -16,6 +16,7 @@ module Aihc.Fc.Lint
   ( -- * Lint
     lintProgram,
     lintProgramWithAxiomInterface,
+    lintProgramsWithAxiomInterface,
     lintExpr,
 
     -- * Errors
@@ -32,7 +33,7 @@ import Aihc.Fc.Subst (freeRigidTyVarsOf, substType)
 import Aihc.Fc.Syntax
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Evidence (Coercion (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon, TyVarId (..), Unique (..), tvName, tyConArity, tyConName, tyConPackageId)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon, TyVarId (..), Unique (..), tvName, tyConArity, tyConModuleName, tyConName, tyConPackageId)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -97,51 +98,9 @@ lintProgramWithAxiomInterface :: AxiomInterface -> LintEnv -> FcProgram -> [Lint
 lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTopBinds prog)
   where
     envWithDeclarations =
-      foldr
-        registerDeclaration
+      registerProgramDeclarations
         env0 {leAxioms = leAxioms env0 <> imported <> extractAxiomInterface prog}
-        (fcTopBinds prog)
-
-    registerDeclaration (FcData declaration) env =
-      env
-        { leDataCons =
-            foldr
-              ( \constructor ->
-                  let fields = fcDataConFields constructor
-                      existentialVariables = filter (`notElem` tyVars) (freeRigidTyVarsOf fields)
-                   in Map.insert (fcDataConName constructor) (kindTyVars <> tyVars <> existentialVariables, fields, resultType)
-              )
-              (leDataCons env)
-              constructors
-        }
-      where
-        tyVars = fcDataTyVars declaration
-        kindTyVars = fcDataKindTyVars declaration
-        constructors = fcDataConstructors declaration
-        resultType = fcDataResultType declaration
-    registerDeclaration (FcForeignImport foreignCall) env =
-      env {leForeignCalls = Map.insert (fcForeignCallName foreignCall) foreignCall (leForeignCalls env)}
-    registerDeclaration (FcExternal origin ty) env =
-      extendTopLevelTerm origin (fcExternalVar origin ty) env
-    registerDeclaration (FcPrimitive var _) env =
-      extendProgramTerm var env
-    registerDeclaration (FcTopBind bind) env =
-      foldr extendProgramTerm env (binders bind)
-    registerDeclaration _ env = env
-
-    binders bind =
-      case bind of
-        FcNonRec var _ -> [var]
-        FcRec bindings -> map fst bindings
-
-    extendProgramTerm var =
-      extendTopLevelTerm (fromMaybe (programOrigin var) (varResolvedName var)) var
-
-    programOrigin var =
-      FcTopLevelOrigin
-        (fcModulePackageText (fcProgramModule prog))
-        (fcModuleName (fcProgramModule prog))
-        (varName var)
+        prog
 
     go _ [] = []
     go env (FcExternal origin ty : rest) =
@@ -162,6 +121,82 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
     go env (FcTopBind bind : rest) =
       let (errs, env') = lintBind env bind
        in errs ++ go env' rest
+
+-- | Lint programs with declarations from all programs in scope.
+lintProgramsWithAxiomInterface :: AxiomInterface -> [FcProgram] -> [LintError]
+lintProgramsWithAxiomInterface imported programs =
+  concatMap (lintProgramWithAxiomInterface imported sharedEnvironment) programs
+  where
+    sharedEnvironment = foldl registerInterface emptyLintEnv programs
+    registerInterface env program =
+      let registered = registerProgramDeclarations env program
+       in registered {leTerms = leTerms env}
+
+registerProgramDeclarations :: LintEnv -> FcProgram -> LintEnv
+registerProgramDeclarations env program =
+  foldr (registerDeclaration program) env (fcTopBinds program)
+
+registerDeclaration :: FcProgram -> FcTopBind -> LintEnv -> LintEnv
+registerDeclaration _ (FcData declaration) env =
+  env
+    { leDataCons =
+        foldr
+          ( \constructor ->
+              let fields = fcDataConFields constructor
+                  existentialVariables = filter (`notElem` tyVars) (freeRigidTyVarsOf fields)
+               in Map.insert (fcDataConName constructor) (kindTyVars <> tyVars <> existentialVariables, fields, resultType)
+          )
+          (leDataCons env)
+          constructors
+    }
+  where
+    tyVars = fcDataTyVars declaration
+    kindTyVars = fcDataKindTyVars declaration
+    constructors = fcDataConstructors declaration
+    resultType = fcDataResultType declaration
+registerDeclaration _ (FcForeignImport foreignCall) env =
+  env {leForeignCalls = Map.insert (fcForeignCallName foreignCall) foreignCall (leForeignCalls env)}
+registerDeclaration _ (FcNewtype declaration) env =
+  let constructorType =
+        foldr
+          TcForAllTy
+          (TcFunTy (fcNewtypeRepresentation declaration) (fcNewtypeResult declaration))
+          (fcNewtypeTyVars declaration)
+      withConstructor =
+        extendTopLevelTerm
+          (fcNewtypeConstructorOrigin declaration)
+          (fcExternalVar (fcNewtypeConstructorOrigin declaration) constructorType)
+          env
+   in withConstructor
+        { leDataCons =
+            Map.insert
+              (fcNewtypeConstructor declaration)
+              (fcNewtypeTyVars declaration, [fcNewtypeRepresentation declaration], fcNewtypeResult declaration)
+              (leDataCons withConstructor)
+        }
+registerDeclaration _ (FcExternal origin ty) env =
+  extendTopLevelTerm origin (fcExternalVar origin ty) env
+registerDeclaration program (FcPrimitive var _) env =
+  extendProgramTerm program var env
+registerDeclaration program (FcTopBind bind) env =
+  foldr (extendProgramTerm program) env (bindVars bind)
+registerDeclaration _ _ env = env
+
+extendProgramTerm :: FcProgram -> Var -> LintEnv -> LintEnv
+extendProgramTerm program var =
+  extendTopLevelTerm (fromMaybe (programOrigin var) (varResolvedName var)) var
+  where
+    programOrigin variable =
+      FcTopLevelOrigin
+        (fcModulePackageText (fcProgramModule program))
+        (fcModuleName (fcProgramModule program))
+        (varName variable)
+
+bindVars :: FcBind -> [Var]
+bindVars bind =
+  case bind of
+    FcNonRec var _ -> [var]
+    FcRec bindings -> map fst bindings
 
 -- | Lint a binding, returning errors and the extended environment.
 lintBind :: LintEnv -> FcBind -> ([LintError], LintEnv)
@@ -229,14 +264,14 @@ lintExpr env (FcVar v) =
         Just ty
           | typesEqual ty (varType v) -> Right ty
           | otherwise -> Left (TypeMismatch "top-level occurrence" ty (varType v))
-        Nothing ->
-          case Map.lookup (varName v) (leDataCons env) of
-            Just (tyVars, fields, resultType)
-              | typesEqual (varType v) (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) -> Right (varType v)
-              | otherwise -> Left (TypeMismatch "constructor occurrence" (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) (varType v))
-            Nothing
-              | isBuiltinTupleConstructor (varName v) -> Right (varType v)
-              | otherwise -> Left (UnboundVar (varName v) (varUnique v))
+        Nothing
+          | isBuiltinTupleConstructor (varName v) -> Right (varType v)
+          | otherwise ->
+              case Map.lookup (varName v) (leDataCons env) of
+                Just (tyVars, fields, resultType)
+                  | typesEqual (varType v) (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) -> Right (varType v)
+                  | otherwise -> Left (TypeMismatch "constructor occurrence" (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) (varType v))
+                Nothing -> Left (UnboundVar (varName v) (varUnique v))
 lintExpr _ (FcLit lit) =
   case literalType lit of
     Just ty -> Right ty
@@ -387,6 +422,11 @@ compareOtherTypes (TcQualTy leftPredicates leftBody) (TcQualTy rightPredicates r
     && typesEqual leftBody rightBody
 compareOtherTypes (TcAppTy leftFunction leftArgument) (TcAppTy rightFunction rightArgument) =
   typesEqual leftFunction rightFunction && typesEqual leftArgument rightArgument
+compareOtherTypes (TcBuiltinTyCon leftName leftArity leftArguments) (TcBuiltinTyCon rightName rightArity rightArguments) =
+  leftName == rightName
+    && leftArity == rightArity
+    && length leftArguments == length rightArguments
+    && all (uncurry typesEqual) (zip leftArguments rightArguments)
 compareOtherTypes _ _ = False
 
 tyConApplication :: TcType -> Maybe (TyCon, [TcType])
@@ -399,32 +439,20 @@ tyConApplication _ = Nothing
 tyConsEqual :: TyCon -> TyCon -> Bool
 tyConsEqual left right =
   left == right
-    || ( tyConName left == tyConName right
+    || ( tyConNamesEqual left right
            && tyConArity left == tyConArity right
-           && primitivePlaceholder left right
+           && (isInternal left || isInternal right || isListAlias left right)
        )
   where
-    primitivePlaceholder first second =
-      (isInternal first || isInternal second)
-        && ( tyConName first
-               `elem` [ "Addr#",
-                        "Char#",
-                        "Int#",
-                        "Int8#",
-                        "Int16#",
-                        "Int32#",
-                        "Int64#",
-                        "RealWorld",
-                        "State#",
-                        "Word#",
-                        "Word8#",
-                        "Word16#",
-                        "Word32#",
-                        "Word64#"
-                      ]
-               || ("Tuple" `T.isPrefixOf` tyConName first && "#" `T.isSuffixOf` tyConName first)
-           )
     isInternal tyCon = tyConPackageId tyCon == PackageId "aihc-internal"
+    tyConNamesEqual first second =
+      tyConName first == tyConName second || isListNamePair first second
+    isListAlias first second =
+      isListNamePair first second
+        && tyConPackageId first == tyConPackageId second
+        && tyConModuleName first == tyConModuleName second
+    isListNamePair first second =
+      (tyConName first, tyConName second) `elem` [("List", "[]"), ("[]", "List")]
 
 isBuiltinTupleConstructor :: Text -> Bool
 isBuiltinTupleConstructor name =

@@ -10,7 +10,7 @@ module GrinGolden
   )
 where
 
-import Aihc.Fc (DesugarConfig (..), DesugarResult (..), desugarModuleWithBindings, emptyLintEnv, extractAxiomInterface, lintProgramWithAxiomInterface)
+import Aihc.Fc (DesugarConfig (..), DesugarResult (..), desugarModuleWithBindings, extractAxiomInterface, lintProgramsWithAxiomInterface)
 import Aihc.Grin (lintProgram, lowerProgram, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension, Module, parseExtensionName)
@@ -121,7 +121,7 @@ evaluateGrinCase fixture =
                    in if all dsSuccess desugared
                         then
                           let axiomInterface = foldMap (extractAxiomInterface . dsProgram) desugared
-                              fcLintErrors = concatMap (lintProgramWithAxiomInterface axiomInterface emptyLintEnv . dsProgram) desugared
+                              fcLintErrors = lintProgramsWithAxiomInterface axiomInterface (map dsProgram desugared)
                            in if null fcLintErrors
                                 then
                                   let programs = map (lowerProgram . dsProgram) desugared

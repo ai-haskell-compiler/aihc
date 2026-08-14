@@ -44,6 +44,7 @@ module Aihc.Tc.Monad
     emptyTcEnv,
     mkKnownTyCon,
     lookupTerm,
+    lookupKnownTerm,
     lookupResolvedTerm,
     resolvedTermKey,
     resolvedTermTarget,
@@ -52,6 +53,7 @@ module Aihc.Tc.Monad
     extendTermEnv,
     extendResolvedTermEnv,
     extendTermEnvPermanent,
+    extendTyConTermEnvPermanent,
     extendResolvedTermEnvPermanent,
     getTermEnv,
     lookupTyCon,
@@ -242,7 +244,7 @@ initTcState =
       tcsRuntimeRepDependencies = Map.empty,
       tcsEvBinds = Map.empty,
       tcsDiagnostics = [],
-      tcsGlobalTerms = builtinTerms,
+      tcsGlobalTerms = Map.empty,
       tcsGlobalTyCons = Map.empty,
       tcsDataTypes = Map.empty,
       tcsClasses = Map.empty,
@@ -250,19 +252,6 @@ initTcState =
       tcsDataFamilyInstances = [],
       tcsGadtCons = Set.empty
     }
-
-builtinTerms :: Map TcTermKey TcBinder
-builtinTerms =
-  Map.fromList
-    [ (unqualifiedTermKey ":", TcIdBinder consScheme Closed),
-      (unqualifiedTermKey "[]", TcIdBinder nilScheme Closed)
-    ]
-  where
-    aVar = TyVarId "a" (Unique (-1000))
-    aTy = TcTyVar aVar
-    listA = TcTyCon (TyCon "[]" 1) [aTy]
-    consScheme = ForAll [aVar] [] (TcFunTy aTy (TcFunTy listA listA))
-    nilScheme = ForAll [aVar] [] listA
 
 -- | Allocate a fresh 'Unique'.
 freshUnique :: TcM Unique
@@ -349,6 +338,11 @@ lookupTerm :: Text -> TcM (Maybe TcBinder)
 lookupTerm name =
   lift $ gets $ \s -> Map.lookup (unqualifiedTermKey name) (tcsGlobalTerms s)
 
+lookupKnownTerm :: Text -> Text -> TcM (Maybe TcBinder)
+lookupKnownTerm moduleName name = do
+  TcConfig packageId <- asks tcEnvConfig
+  lookupTermKey (TcTermGlobal packageId moduleName name)
+
 lookupResolvedTerm :: Text -> ResolvedName -> TcM (Maybe TcBinder)
 lookupResolvedTerm displayName resolved = do
   exact <- resolvedNameTermKey displayName resolved >>= lookupTermKey
@@ -412,6 +406,18 @@ extendResolvedTermEnv name binder action = do
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
 extendTermEnvPermanent name binder = lift $ modify' $ \s ->
   s {tcsGlobalTerms = Map.insert (unqualifiedTermKey name) binder (tcsGlobalTerms s)}
+
+extendTyConTermEnvPermanent :: TyCon -> Text -> TcBinder -> TcM ()
+extendTyConTermEnvPermanent tyCon name binder = do
+  extendTermEnvPermanent name binder
+  lift $ modify' $ \state ->
+    state
+      { tcsGlobalTerms =
+          Map.insert
+            (TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) name)
+            binder
+            (tcsGlobalTerms state)
+      }
 
 -- | Add a source binder under its resolver identity and its source name.
 extendResolvedTermEnvPermanent :: UnqualifiedName -> TcBinder -> TcM ()

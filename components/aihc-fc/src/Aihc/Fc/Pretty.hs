@@ -495,6 +495,8 @@ renderTypeWith scope ty =
       "(" <> intercalate ", " (map (renderPred scope) predicates) <> ") ⇒ " <> renderTypeWith scope body
     TcAppTy function argument ->
       renderTypeAtomWith scope function <> " · " <> renderTypeAtomWith scope argument
+    TcBuiltinTyCon name _ arguments ->
+      unwords (T.unpack name : map (renderTypeAtomWith scope) arguments)
 
 unboxedTupleConstructorName :: Int -> String
 unboxedTupleConstructorName arity =
@@ -507,6 +509,7 @@ renderTypeAtomWith scope ty =
     TcMetaTv {} -> renderTypeWith scope ty
     TcTyCon _ [] -> renderTypeWith scope ty
     TcTyCon (TyCon "[]" _) [_] -> renderTypeWith scope ty
+    TcBuiltinTyCon _ _ [] -> renderTypeWith scope ty
     _ -> "(" <> renderTypeWith scope ty <> ")"
 
 renderTyVarBinders :: [TyVarId] -> [TyVarId] -> [String]

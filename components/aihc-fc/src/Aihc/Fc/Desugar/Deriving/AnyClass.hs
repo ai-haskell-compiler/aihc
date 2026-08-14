@@ -6,8 +6,8 @@ module Aihc.Fc.Desugar.Deriving.AnyClass
   )
 where
 
-import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshUnique, freshVar, lookupType, predTypeM, withDicts, withTypeVariables)
+import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, predType)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshUnique, freshVar, lookupType, withDicts, withTypeVariables)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDictBinderAnnotation (..))
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..))
@@ -109,8 +109,7 @@ dsAnyClassMethod plan maybeSelfDictionary fieldType method =
 
 mkPredicateDict :: Int -> Pred -> DsM ClassDict
 mkPredicateDict index predicate = do
-  predicateType <- predTypeM predicate
-  dictVar <- freshVar ("$d" <> T.pack (show index)) predicateType
+  dictVar <- freshVar ("$d" <> T.pack (show index)) (predType predicate)
   pure $
     case predicate of
       ClassPred className arguments -> ClassDict className arguments dictVar

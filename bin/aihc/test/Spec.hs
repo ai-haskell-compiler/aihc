@@ -61,7 +61,7 @@ import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Types (PackageSpec (..))
 import Aihc.Native (NativeTarget (..))
 import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), Scope (..), unnamedPackage)
-import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), emptyTcInterface)
+import Aihc.Tc (RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Control.Exception (bracket)
 import Data.Aeson (object, (.=))
 import Data.Aeson qualified as Aeson
@@ -289,15 +289,15 @@ main =
             boolStep <- handleReplInput session ":t (+) (1::Bool)"
             assertEqual "missing concrete instance" (ReplContinue (Just "type error: no instance for Num Bool")) boolStep,
           testCase "evaluates string expressions through the pipeline" $ do
-            session <- testReplSession
+            session <- loadReplSession Nothing
             step <- handleReplInput session "\"hello world\""
             assertEqual "step" (ReplContinue (Just "\"hello world\"")) step,
           testCase "evaluates let-bound strings through the pipeline" $ do
-            session <- testReplSession
+            session <- loadReplSession Nothing
             step <- handleReplInput session "let a = \"hello world\" in a"
             assertEqual "step" (ReplContinue (Just "\"hello world\"")) step,
           testCase "evaluateExpression returns string values" $ do
-            session <- testReplSession
+            session <- loadReplSession Nothing
             result <- evaluateExpression session "\"hello world\""
             assertEqual "result" (Right "\"hello world\"") result,
           testCase "evaluateExpression reports parse errors" $ do
@@ -305,7 +305,7 @@ main =
             result <- evaluateExpression session "1 +"
             assertEqual "result" (Left ReplParseError) result,
           testCase "sets evaluation detail output from the repl" $ do
-            session <- testReplSession
+            session <- loadReplSession Nothing
             setStep <- handleReplInput session ":set +pretty"
             assertEqual "set step" (ReplContinue (Just "settings: +parsed-pretty -parsed-shorthand -type -system-fc")) setStep
             setStep2 <- handleReplInput session ":set +shorthand"
@@ -318,7 +318,7 @@ main =
                 assertBool "expected final value" ("\"hello\"" `isSuffixOf` output)
               other -> assertFailure ("expected output, got " <> show other),
           testCase "sets type and system-fc output from the repl" $ do
-            session <- testReplSession
+            session <- loadReplSession Nothing
             _ <- handleReplInput session ":set +type"
             _ <- handleReplInput session ":set +fc"
             result <- evaluateExpression session "\"hello\""
@@ -425,7 +425,6 @@ testReplSession = do
         replImportedTerms = [],
         replBindingTypes = Map.empty,
         replImportedInstances = [],
-        replTcInterface = emptyTcInterface,
         replDependencyProgram = FcProgram (FcModuleId "test" "Test") [],
         replSettings = settingsRef
       }
@@ -735,7 +734,7 @@ test_reportsTypeCheckErrorsAndWritesNoArtifacts =
   withTempDir "aihc-cli" $ \root -> do
     let sourceRoot = root </> "source"
         storeRoot = root </> "store"
-    createFixturePackageWithSource sourceRoot "demo" "0.1.0.0" "Demo" [] "module Demo where\nx = [(), 'a']\n"
+    createFixturePackageWithSource sourceRoot "demo" "0.1.0.0" "Demo" [] "module Demo where\ndata List a = [] | a : [a]\nx = [(), 'a']\n"
     createDirectoryIfMissing True storeRoot
     plan <- buildPackagePlanFromSource storeRoot (PackageSpec "demo" "0.1.0.0") sourceRoot
 

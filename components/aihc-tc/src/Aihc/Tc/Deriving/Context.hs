@@ -410,6 +410,7 @@ typeableArguments predicate =
         TcForAllTy {} -> Nothing
         TcQualTy {} -> Nothing
         TcAppTy {} -> Nothing
+        TcBuiltinTyCon _ _ arguments -> Just arguments
     _ -> Nothing
 
 isBareVariablePredicate :: [TyVarId] -> Pred -> Bool
@@ -442,6 +443,7 @@ typeHeadTyCon ty =
   case ty of
     TcTyCon tyCon _ -> Just (tyConName tyCon)
     TcAppTy function _ -> typeHeadTyCon function
+    TcBuiltinTyCon name _ _ -> Just name
     _ -> Nothing
 
 predicateMentionsTyCon :: Pred -> Text -> Bool
@@ -458,6 +460,7 @@ typeMentionsTyCon name ty =
     TcForAllTy _ body -> typeMentionsTyCon name body
     TcQualTy predicates body -> any (`predicateMentionsTyCon` name) predicates || typeMentionsTyCon name body
     TcAppTy function argument -> typeMentionsTyCon name function || typeMentionsTyCon name argument
+    TcBuiltinTyCon builtinName _ arguments -> builtinName == name || any (typeMentionsTyCon name) arguments
 
 predTyVars :: Pred -> [TyVarId]
 predTyVars predicate = nub (concatMap typeTyVars (predArguments predicate))
@@ -472,6 +475,7 @@ typeTyVars ty =
     TcForAllTy tyVar body -> filter (/= tyVar) (typeTyVars body)
     TcQualTy predicates body -> concatMap predTyVars predicates <> typeTyVars body
     TcAppTy function argument -> typeTyVars function <> typeTyVars argument
+    TcBuiltinTyCon _ _ arguments -> concatMap typeTyVars arguments
 
 predDictBinder :: Pred -> TcDictBinderAnnotation
 predDictBinder predicate =

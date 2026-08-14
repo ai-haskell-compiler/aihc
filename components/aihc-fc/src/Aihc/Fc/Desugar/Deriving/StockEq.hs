@@ -6,14 +6,15 @@ module Aihc.Fc.Desugar.Deriving.StockEq
   )
 where
 
-import Aihc.Fc.Desugar.Dictionary (classMethodFieldType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, freshConstructorVar, freshVar, lookupType, predTypeM, withDicts, withTypeVariables)
+import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, predType)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, freshVar, lookupType, primBoolType, withDicts, withTypeVariables)
 import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcStockDerivingPlan (..))
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), liftedTypeKind, mkTyConWithOrigin)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.State.Strict (gets)
 import Data.Map.Strict qualified as Map
@@ -209,13 +210,18 @@ negateBoolean expression = do
 boolConstructor :: Text -> DsM FcExpr
 boolConstructor name = do
   constructorType <- lookupType name
-  constructor <- freshConstructorVar name constructorType
-  pure (FcVar constructor)
+  constructor <- freshVar name constructorType
+  PackageId packageName <- gets dsPrimPackageId
+  pure
+    ( FcVar
+        constructor
+          { varResolvedName =
+              Just (FcTopLevelOrigin packageName "GHC.Types" name)
+          }
+    )
 
 boolType :: DsM TcType
-boolType = do
-  primPackageId <- gets dsPrimPackageId
-  pure (TcTyCon (mkTyConWithOrigin primPackageId "GHC.Types" "Bool" 0 liftedTypeKind) [])
+boolType = primBoolType
 
 stockEqTyCon :: TcDerivingPlan -> DsM TyCon
 stockEqTyCon plan =
@@ -228,8 +234,7 @@ stockEqTyCon plan =
 
 mkPredicateDict :: Int -> Pred -> DsM ClassDict
 mkPredicateDict index predicate = do
-  predicateType <- predTypeM predicate
-  dictVar <- freshVar ("$d" <> T.pack (show index)) predicateType
+  dictVar <- freshVar ("$d" <> T.pack (show index)) (predType predicate)
   pure $
     case predicate of
       ClassPred className arguments -> ClassDict className arguments dictVar

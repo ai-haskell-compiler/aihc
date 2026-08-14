@@ -17,7 +17,9 @@ annotated:
          │      └─ type: Bool
          └─ type: *
     type Pair a b = (a, b)
+         └─ type: * → * → *
     type Wrapped a = Box a
+         └─ type: * → *
     data Box a = Box a
          │       └─ type: ∀ a. a → Box a
          └─ type: * → *

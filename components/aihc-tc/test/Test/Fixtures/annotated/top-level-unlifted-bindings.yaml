@@ -21,7 +21,7 @@ annotated:
   - |-
     module Test where
     data State# s
-         └─ type: * → *
+         └─ type: * → TYPE ('TupleRep '[])
     data RealWorld
          └─ type: *
     data Box# = MkBox#

@@ -5,7 +5,6 @@ module Aihc.Fc.Desugar
   ( -- * Entry point
     desugarModuleWithBindings,
     desugarModuleWithDataTypes,
-    desugarModuleWithInterface,
     desugarModuleWithTcResult,
     DesugarConfig (..),
     DesugarResult (..),
@@ -13,8 +12,8 @@ module Aihc.Fc.Desugar
 where
 
 import Aihc.Fc.Desugar.Deriving (dsDerivingPlans, moduleDerivingPlans)
-import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, peelForAlls, peelQuals)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), canonicalType, desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshConstructorVar, freshUnique, freshVar, lookupType, predTypeM, withDicts, withTypeVariables)
+import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, peelForAlls, peelQuals, predType)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), canonicalType, desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupType, withDicts, withTypeVariables)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
@@ -54,7 +53,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..))
-import Aihc.Tc (ClassInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TyConFlavor (..), renderTcSignature, tcModuleBindings, tcModuleClasses, tcModuleDiagnostics, tcModuleSuccess)
+import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TyConFlavor (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
@@ -69,13 +68,10 @@ import Aihc.Tc.Types
     Unique (..),
     liftedRuntimeRep,
     mkTyCon,
-    mkTyConWithOrigin,
     runtimeRepOfType,
     tvKind,
     tvName,
     tyConKind,
-    tyConName,
-    tyConPackageId,
     typeKind,
     unboxedTupleTyConName,
   )
@@ -83,7 +79,6 @@ import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
 import Control.Monad.Trans.State.Strict (gets, runStateT)
 import Data.Either (fromRight)
-import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
@@ -111,19 +106,10 @@ desugarModuleWithTcResult config tcResult =
   desugarModuleWithBindings config (tcModuleBindings tcResult) tcResult
 
 desugarModuleWithBindings :: DesugarConfig -> [TcBindingResult] -> Module -> DesugarResult
-desugarModuleWithBindings config bindings tcResult =
-  desugarModuleWithTypeInfo config bindings [] (tcModuleClasses tcResult) tcResult
+desugarModuleWithBindings config bindings = desugarModuleWithDataTypes config bindings []
 
 desugarModuleWithDataTypes :: DesugarConfig -> [TcBindingResult] -> [DataTypeInfo] -> Module -> DesugarResult
 desugarModuleWithDataTypes config bindings dataTypes tcResult =
-  desugarModuleWithTypeInfo config bindings dataTypes (tcModuleClasses tcResult) tcResult
-
-desugarModuleWithInterface :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> DesugarResult
-desugarModuleWithInterface config bindings interface =
-  desugarModuleWithTypeInfo config bindings (tcInterfaceDataTypes interface) (tcInterfaceClasses interface)
-
-desugarModuleWithTypeInfo :: DesugarConfig -> [TcBindingResult] -> [DataTypeInfo] -> [ClassInfo] -> Module -> DesugarResult
-desugarModuleWithTypeInfo config bindings dataTypes classes tcResult =
   if not (tcModuleSuccess tcResult)
     then
       DesugarResult
@@ -132,9 +118,8 @@ desugarModuleWithTypeInfo config bindings dataTypes classes tcResult =
           dsErrors = showTcFailure tcResult
         }
     else
-      let typeEnv = Map.fromList (builtinTypeEntries <> concatMap bindingTypeEntries bindings)
+      let typeEnv = Map.fromList (concatMap bindingTypeEntries bindings)
           (packageId, currentModuleName) = resolvedModuleOrigin tcResult
-          packageName = packageIdText packageId
           constructorFields =
             Map.fromList
               [ (dciName constructor, dciFields constructor)
@@ -142,8 +127,7 @@ desugarModuleWithTypeInfo config bindings dataTypes classes tcResult =
                 dtiFlavor dataType == DataTyCon,
                 constructor <- dtiConstructors dataType
               ]
-          classTyCons = Map.fromList [(ciName classInfo, classInfoTyCon packageName currentModuleName classInfo) | classInfo <- classes]
-       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) packageName (Just currentModuleName) typeEnv classTyCons Map.empty Map.empty Map.empty constructorFields Nothing) of
+       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) packageId currentModuleName typeEnv Map.empty Map.empty Map.empty constructorFields Nothing) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram (sourceModuleId tcResult) [],
@@ -157,212 +141,6 @@ desugarModuleWithTypeInfo config bindings dataTypes classes tcResult =
                       dsSuccess = True,
                       dsErrors = []
                     }
-
-classInfoTyCon :: Text -> Text -> ClassInfo -> TyCon
-classInfoTyCon currentPackage currentModule classInfo =
-  mkTyConWithOrigin
-    (PackageId packageName)
-    definingModule
-    (ciName classInfo)
-    (length (ciTyVars classInfo))
-    (foldr (KFun . tvKind) KType (ciTyVars classInfo))
-  where
-    (packageName, definingModule) = fromMaybe (currentPackage, currentModule) (ciOrigin classInfo)
-
-resolvedModuleOrigin :: Module -> (PackageId, Text)
-resolvedModuleOrigin resolvedModule =
-  fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $ do
-    resolved <- listToMaybe (mapMaybe definitionResolution (moduleDecls resolvedModule))
-    case resolutionTarget resolved of
-      ResolvedTopLevel packageId name ->
-        pure (packageId, fromMaybe (fromMaybe "Main" (moduleName resolvedModule)) (nameQualifier name))
-      _ -> Nothing
-
-sourceModuleId :: Module -> FcModuleId
-sourceModuleId modu = FcModuleId "" (fromMaybe "Main" (moduleName modu))
-
-definitionResolution :: Decl -> Maybe ResolutionAnnotation
-definitionResolution declaration =
-  case peelDeclAnn declaration of
-    DeclValue (FunctionBind name _) -> nameResolution name
-    DeclValue (PatternBind _ pattern' _) -> patternResolution pattern'
-    DeclData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
-    DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (newtypeDeclHead newtypeDeclaration))
-    DeclClass classDeclaration -> nameResolution (binderHeadName (classDeclHead classDeclaration))
-    _ -> Nothing
-
-patternResolution :: Pattern -> Maybe ResolutionAnnotation
-patternResolution pattern' =
-  case pattern' of
-    PVar name -> nameResolution name
-    PAnn _ inner -> patternResolution inner
-    PParen inner -> patternResolution inner
-    PStrict inner -> patternResolution inner
-    PIrrefutable inner -> patternResolution inner
-    PAs name _ -> nameResolution name
-    PTypeSig inner _ -> patternResolution inner
-    _ -> Nothing
-
-nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
-nameResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
-
--- | Type-class evidence is ordinary term-level data in FC. Replace qualified
--- source types with explicit dictionary arrows after desugaring has consumed
--- their predicate structure.
-lowerConstraintProgram :: FcProgram -> FcProgram
-lowerConstraintProgram program@(FcProgram moduleId topBinds) =
-  FcProgram moduleId (map lowerTopBind topBinds)
-  where
-    typeConstructors = collectProgramTypeConstructors program
-
-    lowerTopBind topBind =
-      case topBind of
-        FcExternal origin ty -> FcExternal origin (lowerConstraintType typeConstructors ty)
-        FcData declaration ->
-          FcData
-            declaration
-              { fcDataConstructors =
-                  [ constructor {fcDataConFields = map (lowerConstraintType typeConstructors) (fcDataConFields constructor)}
-                  | constructor <- fcDataConstructors declaration
-                  ]
-              }
-        FcAxiom declaration ->
-          FcAxiom
-            declaration
-              { fcAxiomLeft = lowerConstraintType typeConstructors (fcAxiomLeft declaration),
-                fcAxiomRight = lowerConstraintType typeConstructors (fcAxiomRight declaration)
-              }
-        FcNewtype declaration ->
-          FcNewtype
-            declaration
-              { fcNewtypeRepresentation = lowerConstraintType typeConstructors (fcNewtypeRepresentation declaration),
-                fcNewtypeResult = lowerConstraintType typeConstructors (fcNewtypeResult declaration)
-              }
-        FcPrimitive var arity -> FcPrimitive (lowerVar var) arity
-        FcForeignImport foreignCall -> FcForeignImport foreignCall
-        FcTopBind bind -> FcTopBind (lowerBind bind)
-
-    lowerBind bind =
-      case bind of
-        FcNonRec var expression -> FcNonRec (lowerVar var) (lowerExpr expression)
-        FcRec bindings -> FcRec [(lowerVar var, lowerExpr expression) | (var, expression) <- bindings]
-
-    lowerExpr expression =
-      case expression of
-        FcVar var -> FcVar (lowerVar var)
-        FcLit {} -> expression
-        FcApp function argument -> FcApp (lowerExpr function) (lowerExpr argument)
-        FcTyApp function ty -> FcTyApp (lowerExpr function) (lowerConstraintType typeConstructors ty)
-        FcLam var body -> FcLam (lowerVar var) (lowerExpr body)
-        FcTyLam tyVar body -> FcTyLam tyVar (lowerExpr body)
-        FcLet bind body -> FcLet (lowerBind bind) (lowerExpr body)
-        FcCase scrutinee binder alternatives ->
-          FcCase (lowerExpr scrutinee) (lowerVar binder) (map lowerAlt alternatives)
-        FcCast inner coercion -> FcCast (lowerExpr inner) (lowerCoercion typeConstructors coercion)
-        FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map lowerExpr arguments)
-
-    lowerAlt alternative =
-      alternative
-        { altBinders = map lowerVar (altBinders alternative),
-          altRhs = lowerExpr (altRhs alternative)
-        }
-
-    lowerVar var = var {varType = lowerConstraintType typeConstructors (varType var)}
-
-lowerConstraintType :: Map Text TyCon -> TcType -> TcType
-lowerConstraintType typeConstructors ty =
-  case ty of
-    TcTyVar {} -> ty
-    TcMetaTv {} -> ty
-    TcTyCon tyCon arguments ->
-      TcTyCon (resolveTypeConstructor tyCon) (map recur arguments)
-    TcFunTy argument result -> TcFunTy (recur argument) (recur result)
-    TcForAllTy tyVar body -> TcForAllTy tyVar (recur body)
-    TcQualTy predicates body ->
-      foldr (TcFunTy . recur . predicateType) (recur body) predicates
-    TcAppTy function argument -> TcAppTy (recur function) (recur argument)
-  where
-    recur = lowerConstraintType typeConstructors
-    resolveTypeConstructor tyCon
-      | tyConPackageId tyCon == PackageId "aihc-internal" =
-          Map.findWithDefault tyCon (tyConName tyCon) typeConstructors
-      | otherwise = tyCon
-    predicateType predicate =
-      case predicate of
-        ClassPred className arguments ->
-          TcTyCon (Map.findWithDefault (TyCon className (length arguments)) className typeConstructors) arguments
-        EqPred left right -> TcTyCon (TyCon "~" 2) [left, right]
-
-lowerCoercion :: Map Text TyCon -> Coercion -> Coercion
-lowerCoercion typeConstructors coercion =
-  case coercion of
-    CoVar {} -> coercion
-    Refl ty -> Refl (lowerConstraintType typeConstructors ty)
-    Sym inner -> Sym (lowerCoercion typeConstructors inner)
-    Trans left right -> Trans (lowerCoercion typeConstructors left) (lowerCoercion typeConstructors right)
-    TyConAppCo tyCon coercions -> TyConAppCo tyCon (map (lowerCoercion typeConstructors) coercions)
-    AxiomInstCo name types -> AxiomInstCo name (map (lowerConstraintType typeConstructors) types)
-
-collectProgramTypeConstructors :: FcProgram -> Map Text TyCon
-collectProgramTypeConstructors (FcProgram _ topBinds) =
-  Map.fromList
-    [ (tyConName tyCon, tyCon)
-    | ty <- concatMap topBindTypes topBinds,
-      tyCon <- typeConstructorsIn ty,
-      tyConPackageId tyCon /= PackageId "aihc-internal"
-    ]
-
-topBindTypes :: FcTopBind -> [TcType]
-topBindTypes topBind =
-  case topBind of
-    FcExternal _ ty -> [ty]
-    FcData declaration -> fcDataResultType declaration : concatMap fcDataConFields (fcDataConstructors declaration)
-    FcAxiom declaration -> [fcAxiomLeft declaration, fcAxiomRight declaration]
-    FcNewtype declaration -> [fcNewtypeRepresentation declaration, fcNewtypeResult declaration]
-    FcPrimitive var _ -> [varType var]
-    FcForeignImport {} -> []
-    FcTopBind bind -> bindTypes bind
-
-bindTypes :: FcBind -> [TcType]
-bindTypes bind =
-  case bind of
-    FcNonRec var expression -> varType var : expressionTypes expression
-    FcRec bindings -> concatMap (\(var, expression) -> varType var : expressionTypes expression) bindings
-
-expressionTypes :: FcExpr -> [TcType]
-expressionTypes expression =
-  case expression of
-    FcVar var -> [varType var]
-    FcLit {} -> []
-    FcApp function argument -> expressionTypes function <> expressionTypes argument
-    FcTyApp function ty -> ty : expressionTypes function
-    FcLam var body -> varType var : expressionTypes body
-    FcTyLam _ body -> expressionTypes body
-    FcLet bind body -> bindTypes bind <> expressionTypes body
-    FcCase scrutinee binder alternatives ->
-      varType binder : expressionTypes scrutinee <> concatMap alternativeTypes alternatives
-    FcCast inner _ -> expressionTypes inner
-    FcCallForeign _ arguments -> concatMap expressionTypes arguments
-
-alternativeTypes :: FcAlt -> [TcType]
-alternativeTypes alternative =
-  map varType (altBinders alternative) <> expressionTypes (altRhs alternative)
-
-typeConstructorsIn :: TcType -> [TyCon]
-typeConstructorsIn ty =
-  case ty of
-    TcTyVar {} -> []
-    TcMetaTv {} -> []
-    TcTyCon tyCon arguments -> tyCon : concatMap typeConstructorsIn arguments
-    TcFunTy argument result -> typeConstructorsIn argument <> typeConstructorsIn result
-    TcForAllTy _ body -> typeConstructorsIn body
-    TcQualTy predicates body -> concatMap predicateTypeConstructors predicates <> typeConstructorsIn body
-    TcAppTy function argument -> typeConstructorsIn function <> typeConstructorsIn argument
-  where
-    predicateTypeConstructors predicate =
-      case predicate of
-        ClassPred _ arguments -> concatMap typeConstructorsIn arguments
-        EqPred left right -> typeConstructorsIn left <> typeConstructorsIn right
 
 normalizeProgramTypeVariables :: FcProgram -> FcProgram
 normalizeProgramTypeVariables (FcProgram moduleId topBinds) =
@@ -412,7 +190,7 @@ alignTypeLambdas expected expression =
        in FcTyLam expectedVariable (alignTypeLambdas expectedBody (substituteExprTypes substitution body))
     _ -> expression
 
-substituteExprTypes :: Map TyVarId TcType -> FcExpr -> FcExpr
+substituteExprTypes :: Map.Map TyVarId TcType -> FcExpr -> FcExpr
 substituteExprTypes substitution expression =
   case expression of
     FcVar var -> FcVar (substituteVarType substitution var)
@@ -437,16 +215,16 @@ substituteExprTypes substitution expression =
           altRhs = recur (altRhs alternative)
         }
 
-substituteBindTypes :: Map TyVarId TcType -> FcBind -> FcBind
+substituteBindTypes :: Map.Map TyVarId TcType -> FcBind -> FcBind
 substituteBindTypes substitution bind =
   case bind of
     FcNonRec var expression -> FcNonRec (substituteVarType substitution var) (substituteExprTypes substitution expression)
     FcRec bindings -> FcRec [(substituteVarType substitution var, substituteExprTypes substitution expression) | (var, expression) <- bindings]
 
-substituteVarType :: Map TyVarId TcType -> Var -> Var
+substituteVarType :: Map.Map TyVarId TcType -> Var -> Var
 substituteVarType substitution var = var {varType = substType substitution (varType var)}
 
-substituteCoercionTypes :: Map TyVarId TcType -> Coercion -> Coercion
+substituteCoercionTypes :: Map.Map TyVarId TcType -> Coercion -> Coercion
 substituteCoercionTypes substitution coercion =
   case coercion of
     CoVar {} -> coercion
@@ -456,7 +234,7 @@ substituteCoercionTypes substitution coercion =
     TyConAppCo tyCon coercions -> TyConAppCo tyCon (map (substituteCoercionTypes substitution) coercions)
     AxiomInstCo name types -> AxiomInstCo name (map (substType substitution) types)
 
-normalizeType :: Map Text [TyVarId] -> TcType -> TcType
+normalizeType :: Map.Map Text [TyVarId] -> TcType -> TcType
 normalizeType scope ty =
   substType
     ( Map.fromList
@@ -469,7 +247,7 @@ normalizeType scope ty =
     )
     ty
 
-normalizeTypeVariablesInCoercion :: Map Text [TyVarId] -> Coercion -> Coercion
+normalizeTypeVariablesInCoercion :: Map.Map Text [TyVarId] -> Coercion -> Coercion
 normalizeTypeVariablesInCoercion scope coercion =
   case coercion of
     CoVar {} -> coercion
@@ -478,6 +256,127 @@ normalizeTypeVariablesInCoercion scope coercion =
     Trans left right -> Trans (normalizeTypeVariablesInCoercion scope left) (normalizeTypeVariablesInCoercion scope right)
     TyConAppCo tyCon coercions -> TyConAppCo tyCon (map (normalizeTypeVariablesInCoercion scope) coercions)
     AxiomInstCo name types -> AxiomInstCo name (map (normalizeType scope) types)
+
+resolvedModuleOrigin :: Module -> (PackageId, Text)
+resolvedModuleOrigin resolvedModule =
+  fromMaybe ("", fromMaybe "Main" (moduleName resolvedModule)) $ do
+    resolved <- listToMaybe (mapMaybe definitionResolution (moduleDecls resolvedModule))
+    case resolutionTarget resolved of
+      ResolvedTopLevel packageId name ->
+        pure (packageId, fromMaybe (fromMaybe "Main" (moduleName resolvedModule)) (nameQualifier name))
+      _ -> Nothing
+
+sourceModuleId :: Module -> FcModuleId
+sourceModuleId modu = FcModuleId "" (fromMaybe "Main" (moduleName modu))
+
+definitionResolution :: Decl -> Maybe ResolutionAnnotation
+definitionResolution declaration =
+  case peelDeclAnn declaration of
+    DeclValue (FunctionBind name _) -> nameResolution name
+    DeclValue (PatternBind _ pattern' _) -> patternResolution pattern'
+    DeclData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
+    DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (newtypeDeclHead newtypeDeclaration))
+    DeclClass classDeclaration -> nameResolution (binderHeadName (classDeclHead classDeclaration))
+    _ -> Nothing
+
+patternResolution :: Pattern -> Maybe ResolutionAnnotation
+patternResolution pattern' =
+  case pattern' of
+    PVar name -> nameResolution name
+    PAnn _ inner -> patternResolution inner
+    PParen inner -> patternResolution inner
+    PStrict inner -> patternResolution inner
+    PIrrefutable inner -> patternResolution inner
+    PAs name _ -> nameResolution name
+    PTypeSig inner _ -> patternResolution inner
+    _ -> Nothing
+
+nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
+nameResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
+
+-- | Type-class evidence is ordinary term-level data in FC. Replace qualified
+-- source types with explicit dictionary arrows after desugaring has consumed
+-- their predicate structure.
+lowerConstraintProgram :: FcProgram -> FcProgram
+lowerConstraintProgram (FcProgram moduleId topBinds) =
+  FcProgram moduleId (map lowerTopBind topBinds)
+  where
+    lowerTopBind topBind =
+      case topBind of
+        FcExternal origin ty -> FcExternal origin (lowerConstraintType ty)
+        FcData declaration ->
+          FcData
+            declaration
+              { fcDataConstructors =
+                  [ constructor {fcDataConFields = map lowerConstraintType (fcDataConFields constructor)}
+                  | constructor <- fcDataConstructors declaration
+                  ]
+              }
+        FcAxiom declaration ->
+          FcAxiom
+            declaration
+              { fcAxiomLeft = lowerConstraintType (fcAxiomLeft declaration),
+                fcAxiomRight = lowerConstraintType (fcAxiomRight declaration)
+              }
+        FcNewtype declaration ->
+          FcNewtype
+            declaration
+              { fcNewtypeRepresentation = lowerConstraintType (fcNewtypeRepresentation declaration),
+                fcNewtypeResult = lowerConstraintType (fcNewtypeResult declaration)
+              }
+        FcPrimitive var arity -> FcPrimitive (lowerVar var) arity
+        FcForeignImport foreignCall -> FcForeignImport foreignCall
+        FcTopBind bind -> FcTopBind (lowerBind bind)
+
+    lowerBind bind =
+      case bind of
+        FcNonRec var expression -> FcNonRec (lowerVar var) (lowerExpr expression)
+        FcRec bindings -> FcRec [(lowerVar var, lowerExpr expression) | (var, expression) <- bindings]
+
+    lowerExpr expression =
+      case expression of
+        FcVar var -> FcVar (lowerVar var)
+        FcLit {} -> expression
+        FcApp function argument -> FcApp (lowerExpr function) (lowerExpr argument)
+        FcTyApp function ty -> FcTyApp (lowerExpr function) (lowerConstraintType ty)
+        FcLam var body -> FcLam (lowerVar var) (lowerExpr body)
+        FcTyLam tyVar body -> FcTyLam tyVar (lowerExpr body)
+        FcLet bind body -> FcLet (lowerBind bind) (lowerExpr body)
+        FcCase scrutinee binder alternatives ->
+          FcCase (lowerExpr scrutinee) (lowerVar binder) (map lowerAlt alternatives)
+        FcCast inner coercion -> FcCast (lowerExpr inner) (lowerCoercion coercion)
+        FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map lowerExpr arguments)
+
+    lowerAlt alternative =
+      alternative
+        { altBinders = map lowerVar (altBinders alternative),
+          altRhs = lowerExpr (altRhs alternative)
+        }
+
+    lowerVar var = var {varType = lowerConstraintType (varType var)}
+
+lowerConstraintType :: TcType -> TcType
+lowerConstraintType ty =
+  case ty of
+    TcTyVar {} -> ty
+    TcMetaTv {} -> ty
+    TcTyCon tyCon arguments -> TcTyCon tyCon (map lowerConstraintType arguments)
+    TcFunTy argument result -> TcFunTy (lowerConstraintType argument) (lowerConstraintType result)
+    TcForAllTy tyVar body -> TcForAllTy tyVar (lowerConstraintType body)
+    TcQualTy predicates body ->
+      foldr (TcFunTy . lowerConstraintType . predType) (lowerConstraintType body) predicates
+    TcAppTy function argument -> TcAppTy (lowerConstraintType function) (lowerConstraintType argument)
+    TcBuiltinTyCon name arity arguments -> TcBuiltinTyCon name arity (map lowerConstraintType arguments)
+
+lowerCoercion :: Coercion -> Coercion
+lowerCoercion coercion =
+  case coercion of
+    CoVar {} -> coercion
+    Refl ty -> Refl (lowerConstraintType ty)
+    Sym inner -> Sym (lowerCoercion inner)
+    Trans left right -> Trans (lowerCoercion left) (lowerCoercion right)
+    TyConAppCo tyCon coercions -> TyConAppCo tyCon (map lowerCoercion coercions)
+    AxiomInstCo name types -> AxiomInstCo name (map lowerConstraintType types)
 
 -- | Format a binding result for error messages.
 showBinding :: TcBindingResult -> String
@@ -492,16 +391,6 @@ showTcFailure tcResult =
 bindingTypeEntries :: TcBindingResult -> [(Text, TcType)]
 bindingTypeEntries b =
   [(tbName b, tbType b)]
-
-builtinTypeEntries :: [(Text, TcType)]
-builtinTypeEntries =
-  [ (":", TcForAllTy aVar (TcFunTy aTy (TcFunTy listA listA))),
-    ("[]", TcForAllTy aVar listA)
-  ]
-  where
-    aVar = TyVarId "a" (Unique (-1000))
-    aTy = TcTyVar aVar
-    listA = TcTyCon (TyCon "[]" 1) [aTy]
 
 -- | Desugar a module's declarations.
 dsModule :: Module -> DsM [FcTopBind]
@@ -661,7 +550,7 @@ dsRecordSelectors constructorInfos declarations =
       selectorVar <- freshVar selectorName selectorType
       dictionaryVars <-
         zipWithM
-          (\index predicate -> predTypeM predicate >>= freshVar ("$d" <> T.pack (show index)))
+          (\index predicate -> freshVar ("$d" <> T.pack (show index)) (predType predicate))
           [0 :: Int ..]
           predicates
       recordVar <- freshVar "$record" recordType
@@ -826,7 +715,7 @@ boxForeignValue marshal =
     applyConstructors _ [] value = pure value
     applyConstructors resultType (constructor : constructors) value = do
       constructorType <- lookupType constructor
-      constructorVar <- freshConstructorVar constructor constructorType
+      constructorVar <- freshVar constructor constructorType
       (typeArguments, fieldType) <- instantiateUnaryConstructor constructor resultType constructorType
       fieldValue <- applyConstructors fieldType constructors value
       pure (FcApp (foldl FcTyApp (FcVar constructorVar) typeArguments) fieldValue)
@@ -891,6 +780,17 @@ matchConstructorResult quantified patternType actualType substitution =
         _ -> Nothing
     TcForAllTy {} -> Nothing
     TcQualTy {} -> Nothing
+    TcBuiltinTyCon name arity arguments ->
+      case actualType of
+        TcBuiltinTyCon actualName actualArity actualArguments
+          | name == actualName,
+            arity == actualArity,
+            length arguments == length actualArguments ->
+              foldM
+                (\current (expectedArgument, actualArgument) -> matchConstructorResult quantified expectedArgument actualArgument current)
+                substitution
+                (zip arguments actualArguments)
+        _ -> Nothing
 
 makeForeignIoWrapper :: FcForeignCall -> TcForeignMarshal -> [FcExpr] -> DsM FcExpr
 makeForeignIoWrapper foreignCall resultMarshal arguments = do
@@ -904,7 +804,7 @@ makeForeignIoWrapper foreignCall resultMarshal arguments = do
       "(#,#)"
       (TcFunTy statePrimRealWorldTy (TcFunTy (tcForeignSourceType resultMarshal) (unboxedTupleTy [statePrimRealWorldTy, tcForeignSourceType resultMarshal])))
   ioConstructorType <- lookupType "IO"
-  ioConstructor <- freshConstructorVar "IO" ioConstructorType
+  ioConstructor <- freshVar "IO" ioConstructorType
   let resultTuple = FcApp (FcApp (FcVar tupleConstructor) (FcVar nextStateVar)) boxedResult
       call = FcCallForeign foreignCall (arguments <> [FcVar stateVar])
       stateAction =
@@ -1101,9 +1001,8 @@ dsDataConM con = do
       resultVariables = freeRigidTyVars resultType
       resultRepUniques = typeRuntimeRepVariables resultType
       universalVariables = filter (\variable -> variable `elem` resultVariables || tvUnique variable `elem` resultRepUniques) quantifiedVariables
-  predicateFields <- mapM predTypeM predicates
   fields <- dataConFieldTypes name arity constructorTy
-  pure (name, universalVariables, predicateFields <> fields, resultType)
+  pure (name, universalVariables, map predType predicates <> fields, resultType)
 
 dataResultVariables :: TcType -> [TyVarId]
 dataResultVariables (TcTyCon _ arguments) = mapMaybe typeVariable arguments
@@ -1122,6 +1021,7 @@ typeRuntimeRepVariables ty =
     TcForAllTy _ body -> typeRuntimeRepVariables body
     TcQualTy _ body -> typeRuntimeRepVariables body
     TcAppTy function argument -> typeRuntimeRepVariables function <> typeRuntimeRepVariables argument
+    TcBuiltinTyCon _ _ arguments -> concatMap typeRuntimeRepVariables arguments
 
 kindRuntimeRepVariables :: Kind -> [Unique]
 kindRuntimeRepVariables kind =
@@ -1172,9 +1072,9 @@ dsClassDeclM classDecl classAnn = do
 
 localDeclarationOrigin :: Text -> DsM FcSymbolOrigin
 localDeclarationOrigin declarationName = do
-  packageName <- gets dsModulePackage
+  packageId <- gets dsModulePackage
   moduleName' <- gets dsModuleName
-  pure (FcTopLevelOrigin packageName (fromMaybe "Main" moduleName') declarationName)
+  pure (FcTopLevelOrigin (packageIdText packageId) moduleName' declarationName)
 
 dsClassSelector :: Text -> Int -> [TyVarId] -> [TcType] -> TcClassMethodAnnotation -> DsM FcTopBind
 dsClassSelector dictionaryConstructor superClassCount classTyVars fieldTypes methodAnn = do
@@ -1205,7 +1105,7 @@ dsClassSelector dictionaryConstructor superClassCount classTyVars fieldTypes met
     (_tyVars, afterForAlls) = peelForAlls (tcClassMethodType methodAnn)
     (dictPreds, _bodyTy) = peelQuals afterForAlls
     mkSelectorDict ix pred' =
-      predTypeM pred' >>= freshVar ("$d" <> T.pack (show ix))
+      freshVar ("$d" <> T.pack (show ix)) (predType pred')
 
 dsClassDefault :: (TcInstanceMethodAnnotation, [Match]) -> DsM FcTopBind
 dsClassDefault (methodAnn, matches) = do
@@ -1285,16 +1185,18 @@ dsInstanceDictWithVariables instAnn instanceDecl = do
         pure (superClassFields <> methodFields)
       buildDictionary recursive dictVar fields = do
         methodTypes <- mapM lookupType methodOrder
-        let classTyVars = tcInstanceClassTyVars instAnn
-            superClassFieldTypes = map tcDictBinderType (tcInstanceClassSuperClasses instAnn)
-        methodFieldTypes <- mapM (classMethodFieldType className classTyVars) methodTypes
-        let fieldTypes = superClassFieldTypes <> methodFieldTypes
+        let superClassFieldTypes = map tcDictBinderType (tcInstanceClassSuperClasses instAnn)
+        (classTyVars, fieldTypes) <-
+          case methodTypes of
+            [] -> pure (tcInstanceClassTyVars instAnn, superClassFieldTypes)
+            _ -> do
+              (tyVars, methodFieldTypes) <- classDictionaryLayout className methodTypes
+              pure (tyVars, superClassFieldTypes <> methodFieldTypes)
         constructorUnique <- freshUnique
         let dictionaryConstructor = fcDictionaryConstructorName className
             dictionaryType = TcTyCon (TyCon className (length classTyVars)) (map TcTyVar classTyVars)
             constructorType = foldr TcForAllTy (foldr TcFunTy dictionaryType fieldTypes) classTyVars
-            constructorOrigin = fmap (\(packageName, definingModule) -> FcTopLevelOrigin packageName definingModule dictionaryConstructor) (tcInstanceClassOrigin instAnn)
-            constructorVar = (Var dictionaryConstructor constructorUnique constructorType) {varResolvedName = constructorOrigin}
+            constructorVar = Var dictionaryConstructor constructorUnique constructorType
             constructor = foldl FcTyApp (FcVar constructorVar) headTypes
             dictionary = foldl FcApp constructor fields
             dictBody = foldr FcTyLam (foldr (FcLam . classDictVar) dictionary contextDicts) (tcInstanceTyVars instAnn)
@@ -1321,6 +1223,29 @@ dictionaryClassName ty =
     TcQualTy _ body -> dictionaryClassName body
     TcTyCon (TyCon className _) _ -> Just className
     _ -> Nothing
+
+classDictionaryLayout :: Text -> [TcType] -> DsM ([TyVarId], [TcType])
+classDictionaryLayout className methodTypes = do
+  classTyVars <-
+    case methodTypes of
+      firstMethod : _ -> classTypeVariables className firstMethod
+      [] -> pure []
+  fieldTypes <- mapM (classMethodFieldType className classTyVars) methodTypes
+  pure (classTyVars, fieldTypes)
+
+classTypeVariables :: Text -> TcType -> DsM [TyVarId]
+classTypeVariables className methodType =
+  case [args | ClassPred predicateClass args <- predicates, predicateClass == className] of
+    args : _ ->
+      case traverse asTyVar args of
+        Just tyVars -> pure tyVars
+        Nothing -> desugarBug ("class predicate has non-variable parameters for " <> T.unpack className)
+    [] -> desugarBug ("class method lacks its class predicate for " <> T.unpack className)
+  where
+    (_, afterForAlls) = peelForAlls methodType
+    (predicates, _) = peelQuals afterForAlls
+    asTyVar (TcTyVar tyVar) = Just tyVar
+    asTyVar _ = Nothing
 
 mkContextDict :: Int -> TcDictBinderAnnotation -> DsM ClassDict
 mkContextDict ix dictAnn = do

@@ -103,14 +103,12 @@ import Aihc.Resolve.Span
 import Aihc.Resolve.Types
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, mapAndUnzipM)
-import Data.Char (isDigit)
 import Data.Data (Data, cast, gmapQ)
 import Data.List (find, mapAccumL)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
-import Data.Text qualified as T
 
 collectResolveErrors :: (Data a) => a -> [ResolveError]
 collectResolveErrors node =
@@ -387,12 +385,6 @@ resolveDecl termDefinition (DeclAnn ann inner) =
 resolveDecl termDefinition decl =
   resolveDeclCore termDefinition decl
 
-isUnboxedTupleTypeName :: UnqualifiedName -> Bool
-isUnboxedTupleTypeName name =
-  case T.stripPrefix "Tuple" (renderUnqualifiedName name) >>= T.stripSuffix "#" of
-    Just arity -> not (T.null arity) && T.all isDigit arity
-    Nothing -> False
-
 resolveDeclCore :: TermDefinition -> Decl -> ResolveM Decl
 resolveDeclCore termDefinition decl =
   case decl of
@@ -403,9 +395,12 @@ resolveDeclCore termDefinition decl =
     DeclTypeSig names ty -> do
       ty' <- resolveType ty
       pure (DeclTypeSig names ty')
-    DeclStandaloneKindSig name _
-      | isUnboxedTupleTypeName name -> pure decl
-      | otherwise -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclStandaloneKindSig name kind -> do
+      scope <- currentScope
+      sp <- currentSpan
+      let rendered = renderUnqualifiedName name
+          name' = resolveUnqualifiedNameTo sp ResolutionNamespaceType (lookupType rendered scope) name
+      DeclStandaloneKindSig name' <$> resolveType kind
     DeclTypeData dataDecl ->
       DeclTypeData <$> resolveDataDecl "type data " dataDecl
     DeclData dataDecl ->

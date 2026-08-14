@@ -320,6 +320,10 @@ renderTcTypeInModule currentModule = go 0
     go p (TcAppTy f a) =
       parenIf (p >= 2) $
         go 1 f ++ " " ++ go 2 a
+    go _ (TcBuiltinTyCon name _ []) = T.unpack name
+    go p (TcBuiltinTyCon name _ arguments) =
+      parenIf (p >= 2) $
+        unwords (T.unpack name : map (go 2) arguments)
 
     showPred (ClassPred cls args) =
       T.unpack cls ++ " " ++ unwords (map (go 2) args)
