@@ -641,7 +641,4 @@ in {
   c-lint = cLint;
   c-format = cFormat;
   cabal-format = cabalFormat;
-  ghc-example-test = ghcExampleTest;
-  examples-tests = examplesTests;
-  wasip3-example-test = wasip3ExampleTest;
 }

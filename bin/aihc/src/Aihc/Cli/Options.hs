@@ -4,6 +4,7 @@ module Aihc.Cli.Options
     GarbageCollector (..),
     InstallErrorFormat (..),
     InstallOptions (..),
+    InstallV2Options (..),
     PrepareRuntimeOptions (..),
     ReplOptions (..),
     parseCommandIO,
@@ -19,6 +20,7 @@ import Options.Applicative qualified as OA
 data Command
   = CmdCompile !CompileOptions
   | CmdInstall !InstallOptions
+  | CmdInstallV2 !InstallV2Options
   | CmdPrepareRuntime !PrepareRuntimeOptions
   | CmdRepl !ReplOptions
   deriving (Eq, Show)
@@ -68,6 +70,14 @@ data InstallOptions = InstallOptions
   }
   deriving (Eq, Show)
 
+data InstallV2Options = InstallV2Options
+  { installV2PackageDirectory :: !FilePath,
+    installV2StoreRoot :: !(Maybe FilePath),
+    installV2Verbose :: !Bool,
+    installV2Dependencies :: ![String]
+  }
+  deriving (Eq, Show)
+
 data InstallErrorFormat
   = InstallErrorsJson
   | InstallErrorsHuman
@@ -107,6 +117,12 @@ commandParser =
           ( OA.info
               (CmdInstall <$> installOptionsParser OA.<**> OA.helper)
               (OA.progDesc "Compile and install a library package and its dependencies")
+          )
+        <> OA.command
+          "install-v2"
+          ( OA.info
+              (CmdInstallV2 <$> installV2OptionsParser OA.<**> OA.helper)
+              (OA.progDesc "Build and install one local Cabal library")
           )
         <> OA.command
           "prepare-runtime"
@@ -279,6 +295,27 @@ installOptionsParser =
           <> OA.help "Only print diagnostics from the module or file that produced the first install error"
       )
     <*> errorFormatParser
+
+installV2OptionsParser :: OA.Parser InstallV2Options
+installV2OptionsParser =
+  InstallV2Options
+    <$> OA.strArgument
+      ( OA.metavar "DIRECTORY"
+          <> OA.help "Local Cabal package directory"
+      )
+    <*> storeRootOption "Override the aihc store root"
+    <*> OA.switch
+      ( OA.long "verbose"
+          <> OA.short 'v'
+          <> OA.help "Print each installation step"
+      )
+    <*> many
+      ( OA.strOption
+          ( OA.long "dependency"
+              <> OA.metavar "NAME=FULL_ID"
+              <> OA.help "Select one direct library dependency artifact"
+          )
+      )
 
 errorFormatParser :: OA.Parser InstallErrorFormat
 errorFormatParser =

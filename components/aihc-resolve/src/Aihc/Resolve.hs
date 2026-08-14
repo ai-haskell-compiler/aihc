@@ -20,6 +20,7 @@ module Aihc.Resolve
     unnamedPackage,
     modulesInPackage,
     collectModuleExports,
+    collectModuleExportsWithDeps,
     ResolveError (..),
     ResolveResult (..),
     resolvedModuleAsts,

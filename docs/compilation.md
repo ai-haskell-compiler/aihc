@@ -13,7 +13,7 @@
 | Object artifact | The target-specific native object file for one module. |
 | Archive artifact | A native archive that contains the object artifacts for one library. |
 | Compilation unit | One strongly connected component, or SCC, of the module dependency graph. |
-| Dependency hash | The digest in a package artifact directory name. It identifies all inputs that can change stored artifacts. |
+| Dependency hash | The digest in a package artifact directory name. It identifies all direct library dependency artifact directories. |
 | Incremental compilation | Compilation that lowers each module separately from System FC to an object artifact. |
 | Whole-program compilation | Compilation that merges stored System FC artifacts before the GRIN pipeline. |
 | Artifact store | An immutable collection of package artifact directories. |
@@ -52,17 +52,11 @@ Store each built package in this directory form:
 
 Use a safe file-name encoding for the package name and version. Use a fixed lowercase hexadecimal encoding for `dephash`.
 
-`dephash` must cover these inputs:
+`dephash` must cover the full identities of all direct library dependency artifact directories.
 
-- The content of every package source file.
-- The package description, selected Cabal component, and enabled language extensions.
-- All compiler options that can change an artifact.
-- The identities of all direct dependency artifact directories.
-- The AIHC compiler identity and artifact schema versions.
-- The target triple, runtime ABI, and native code options.
-- The native toolchain identity when it can change object code.
+`dephash` must not cover package source files.
 
-The target is part of `dephash` because object artifacts are target-specific. A build must not reuse stored artifacts from another target.
+Sort the dependency identities before hash calculation.
 
 One Cabal library or executable component supplies one package build. The package plan controls its modules, dependencies, and exposed interfaces.
 
@@ -185,8 +179,15 @@ Use this logical structure:
 ResolveInterface
   schemaVersion
   moduleIdentity
+  sourceHash
+  dependencyScopes
+  scopeHash
   exports
   fixities
+
+ResolveDependencyScope
+  moduleIdentity
+  scopeHash
 
 ResolveExport
   visibleName
@@ -225,6 +226,30 @@ Fixity data uses the original definition identity. A re-exported operator theref
 An exported module item expands to its exported entities before storage. The stored interface does not need a recursive qualified-module scope.
 
 Store entries in stable order by namespace, visible name, entity kind, and definition identity.
+
+`sourceHash` is the hash of the Haskell module that produced the file.
+
+`dependencyScopes` records the module identity and scope hash for each direct module dependency.
+
+`scopeHash` covers only the exported scope in `exports` and `fixities`. It must not cover `sourceHash` or `dependencyScopes`.
+
+Thus, the incremental input relation is:
+
+```text
+Haskell module + scopes of direct module dependencies -> resolve.cbor
+```
+
+Before reuse, read `resolve.cbor` from storage. Check its `sourceHash` against the current Haskell module.
+
+Also check each recorded dependency scope hash against the current `scopeHash` in that dependency's `resolve.cbor` file.
+
+Regenerate `resolve.cbor` if its Haskell module changed. Also regenerate it if a direct dependency scope changed.
+
+A regenerated file can have a new `scopeHash`. If it does, check and possibly regenerate each direct dependent file.
+
+A regenerated file can also keep the same `scopeHash`. In this case, do not regenerate its dependents for this change.
+
+Treat a missing, corrupt, or unsupported cached file as a cache miss. Regenerate the file and do not fail the compilation.
 
 ### Production and use
 
