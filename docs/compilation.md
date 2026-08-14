@@ -6,14 +6,13 @@
 | --- | --- |
 | Package | A named and versioned collection of modules. |
 | Module | One Haskell source module with one stable package and module identity. |
-| Definition identity | The stable identity of a top-level language entity or generated instance dictionary. |
+| Definition identity | The identity of a top-level language entity or generated instance dictionary. |
 | Name-resolution interface | The exported scope of one module. It maps each visible name to its original definition identity. |
 | Type interface | The type facts that another compilation unit needs to check source code. |
 | System FC artifact | The checked and desugared System FC program for one module. This document also calls it the Core artifact. |
 | Object artifact | The target-specific native object file for one module. |
 | Archive artifact | A native archive that contains the object artifacts for one library. |
 | Compilation unit | One strongly connected component, or SCC, of the module dependency graph. |
-| SCC digest | A digest of all source, interface, and configuration inputs for one compilation unit. |
 | Dependency hash | The digest in a package artifact directory name. It identifies all inputs that can change stored artifacts. |
 | Incremental compilation | Compilation that lowers each module separately from System FC to an object artifact. |
 | Whole-program compilation | Compilation that merges stored System FC artifacts before the GRIN pipeline. |
@@ -21,11 +20,9 @@
 | Static object | A native runtime object that the compiler puts directly in an object-file data section. |
 | CAF | A top-level updateable thunk stored as a writable static object. |
 
-Name resolution and type checking process all modules in one compilation unit together.
+Name resolution and type checking process all modules in one compilation unit together. All later phases process each module separately.
 
-A definition identity contains a module identity, namespace, source name, and deterministic disambiguator.
-
-A change to one SCC member changes the SCC digest for all members.
+A definition identity contains a module identity, namespace, and source name.
 
 ## Design rules
 
@@ -38,8 +35,6 @@ The compiler must encode the first three artifacts with CBOR. The native toolcha
 The compiler must generate name-resolution and type interfaces while it processes a compilation unit.
 
 After type checking, the compiler must process each module separately. Each module must have a separate System FC artifact and object artifact.
-
-All module artifacts must record the SCC digest. A changed SCC member invalidates every artifact for that SCC.
 
 The compiler must not store GRIN. It must generate GRIN from System FC and release it after native code generation.
 
@@ -60,14 +55,18 @@ Use a safe file-name encoding for the package name and version. Use a fixed lowe
 `dephash` must cover these inputs:
 
 - The content of every package source file.
-- The package description and enabled language extensions.
+- The package description, selected Cabal component, and enabled language extensions.
 - All compiler options that can change an artifact.
 - The identities of all direct dependency artifact directories.
 - The AIHC compiler identity and artifact schema versions.
 - The target triple, runtime ABI, and native code options.
 - The native toolchain identity when it can change object code.
 
-The target is part of `dephash` because object artifacts are target-specific. Two targets can share content through filesystem deduplication.
+The target is part of `dephash` because object artifacts are target-specific. A build must not reuse stored artifacts from another target.
+
+One Cabal library or executable component supplies one package build. The package plan controls its modules, dependencies, and exposed interfaces.
+
+Each selected component identity contributes to `dephash`. Thus, one Cabal source package can produce multiple package artifact directories.
 
 Do not change a published package directory. Build into a temporary directory, validate it, and publish it with one atomic rename.
 
@@ -108,39 +107,27 @@ The package index must contain:
 PackageIndex
   schemaVersion
   packageIdentity
-  dependencyStorePaths
   compilerIdentity
   targetTriple
   runtimeAbi
   nativeLinkInputs
-  modules
-  compilationUnits
+  exposedModules
   archivePath
 
-ModuleIndex
-  moduleIdentity
-  sourceDigest
-  sccDigest
-  resolveDigest
-  typeDigest
-  coreDigest
-  objectDigest
-  resolvePath
-  typePath
-  corePath
-  objectPath
-
-CompilationUnitIndex
-  sccDigest
-  members
-  predecessorUnits
+ExposedModule
+  visibleModuleName
+  providerModuleIdentity
 ```
 
 Paths in the index must be relative to the package directory. The index must not contain temporary build paths.
 
-`predecessorUnits` lists direct SCC dependencies inside the package. Package dependencies come from `dependencyStorePaths`.
-
 `nativeLinkInputs` lists required system libraries, frameworks, and package-level linker options. It does not describe Haskell object symbols.
+
+`exposedModules` maps each importable module name to its provider module identity. It includes Cabal module re-exports and module renames.
+
+An executable component has an empty `exposedModules` list. A dependent component must not import a module that is absent from this list.
+
+The package plan selects dependency libraries. Their exposed-module maps resolve source imports to package and module identities.
 
 `archivePath` is absent when the package directory does not contain a library.
 
@@ -166,7 +153,7 @@ Use these common logical identity records:
 PackageIdentity
   packageName
   packageVersion
-  unitHash
+  dephash
 
 ModuleIdentity
   packageIdentity
@@ -176,12 +163,9 @@ DefinitionIdentity
   moduleIdentity
   namespace
   sourceName
-  disambiguator
 ```
 
-`unitHash` equals the directory `dephash`. `disambiguator` distinguishes equal source names in one namespace.
-
-Assign disambiguators deterministically from the checked declaration order. Use zero when the source name is unique in its namespace.
+`dephash` equals the dependency hash in the package directory name.
 
 ## Name-resolution interface
 
@@ -201,7 +185,6 @@ Use this logical structure:
 ResolveInterface
   schemaVersion
   moduleIdentity
-  sccDigest
   exports
   fixities
 
@@ -257,7 +240,7 @@ The type interface contains the semantic facts needed to type-check dependent mo
 
 The interface must contain declarations that this module defines and exports. It must not copy declarations that this module only re-exports.
 
-The interface must contain every class instance that this module defines. Haskell does not require an explicit import or export for an instance.
+The interface must contain every class and family instance that this module exports. This set includes locally defined and imported instances.
 
 The interface must also contain required support declarations. These are private local declarations referenced by an exported type or local instance.
 
@@ -271,7 +254,6 @@ Use this logical structure:
 TypeInterface
   schemaVersion
   moduleIdentity
-  sccDigest
   terms
   typeConstructors
   dataTypes
@@ -347,9 +329,9 @@ ConstructorFieldInterface
 
 `flavor` distinguishes data types and newtypes. `sourceForm` distinguishes prefix, infix, and record constructors.
 
-`constructorIndex` gives a stable constructor order within the data type. The backend can derive the constructor identity and runtime layout from this record.
+`constructorIndex` gives a stable constructor order within the data type. System FC generation must preserve the constructor identity and runtime layout.
 
-The field record contains checked types and runtime representations. The backend must not reconstruct these facts from source syntax.
+The field record contains checked types and runtime representations. The Core artifact carries these facts to the backend.
 
 Store a constructor record when the module exports that constructor. Also store it when another stored declaration needs its semantic layout.
 
@@ -410,7 +392,9 @@ InstanceInterface
   associatedEquations
 ```
 
-Store all locally defined instances. This rule includes orphan instances and instances for non-exported local bindings.
+Store all exported instances. This rule includes locally defined instances, imported instances, and orphan instances.
+
+Use the dictionary identity to remove duplicate entries for the same class instance.
 
 The dictionary identity names the System FC dictionary binding. It also gives later modules a stable reference to selected evidence.
 
@@ -428,7 +412,7 @@ TypeFamilyInstanceInterface
   role
 ```
 
-Store every local open type-family equation. These equations are globally available without an explicit import.
+Store every exported open type-family equation. This set includes locally defined and imported equations.
 
 Data-family instances use this record:
 
@@ -443,11 +427,33 @@ DataFamilyInstanceInterface
   isNewtype
 ```
 
-Store each local data-family instance because dependent type checking needs its representation type and equality axiom.
+Store each exported data-family instance because dependent type checking needs its representation type and equality axiom.
+
+Use the axiom identity to remove duplicate entries for the same family instance.
+
+### Known incomplete items
+
+TODO: Define functional dependencies in class interfaces.
+
+TODO: Define stable identities for default workers and dictionary support symbols.
+
+TODO: Define the ownership of open-family equations.
+
+TODO: Define the transitive selection rule for support declarations.
 
 ### Production and use
 
 The type checker must process all modules in one SCC together. It must use predecessor type interfaces for declarations outside the SCC.
+
+Load the type interface for each directly imported module.
+
+Inspect each imported name-resolution interface for definition identities from other modules. Load the type interface for each provider module.
+
+Inspect definition identities in each loaded type interface. Continue to load provider type interfaces until the provider set does not change.
+
+For example, module `C` can import module `B`, which re-exports a definition from module `A`. In this case, load both type interfaces.
+
+An artifact store locates a provider package directory from the `PackageIdentity` in its definition identity.
 
 The type checker must produce one type interface for each module. A file must not contain the combined interface for the complete SCC.
 
@@ -463,7 +469,6 @@ Use this logical top-level structure:
 CoreArtifact
   schemaVersion
   moduleIdentity
-  sccDigest
   coreSchemaVersion
   topLevelDeclarations
 ```
@@ -484,19 +489,23 @@ Top-level references must use stable definition identities. Local binders can us
 
 Local unique numbers must be deterministic for equal inputs. They only need uniqueness inside one Core artifact.
 
-The artifact must contain enough external declarations to check and merge the module without loading another module first.
+The artifact must contain all external declarations needed to check, lower, and merge the module.
 
-### SCC rule
+These declarations include external types, constructor layouts, newtype facts, and equality axioms.
+
+After System FC generation, later phases must not load name-resolution or type interfaces.
+
+### Compilation-unit boundary
 
 One Core artifact contains one module, including a module from a cyclic SCC. System FC supports external references between these module artifacts.
 
-The SCC affects validation and invalidation. It does not require one combined Core file.
+An SCC controls only name resolution and type checking. After type checking, each module has an independent Core and backend pipeline.
 
 ### Incremental use
 
 For incremental compilation, load one module's Core artifact. Generate GRIN, run the GRIN pipeline, and emit that module's object artifact.
 
-Use dependency type interfaces for referenced constructor layouts, newtype facts, and equality axioms. Do not reconstruct these facts in GRIN.
+Use only the semantic facts in the Core artifact. Do not reconstruct Haskell type facts in GRIN.
 
 Release the GRIN program after object generation. Do not store a GRIN interface or GRIN cache.
 
@@ -506,9 +515,15 @@ For whole-program compilation, load the Core artifacts for all required modules.
 
 Start with the executable Core artifacts. Follow each external definition identity to its provider module until no new provider remains.
 
-The package indexes map provider module identities to Core paths. This process does not require a reachability manifest.
+A module identity gives its package directory and module name. Derive its Core path from the specified directory layout.
+
+This process does not require a reachability manifest.
 
 The merge must resolve external declarations by definition identity. It must also verify that external and defining types agree.
+
+The merge must combine equal external semantic declarations. It must reject declarations that disagree.
+
+The merge must assign unique merged identities to all module-local term, type, and coercion binders.
 
 Run whole-program System FC passes after the merge. Then generate one GRIN program and one whole-program object file.
 
@@ -533,6 +548,12 @@ Each module object must contain:
 
 The object must use one uniform value ABI. References to external Haskell values are object addresses used through `eval` and `apply`.
 
+Each backend defines its native symbol encoding, static-root sections, and other target-specific object conventions.
+
+The backend must derive each external value symbol from its definition identity. Defined and undefined symbols must use the same encoding.
+
+Cross-module Haskell values use `eval` and `apply`. Constructor tests inspect constructor identities in the current info tables.
+
 The object does not need constructor, primitive, reachability, defined-symbol, or required-symbol metadata in a separate file.
 
 ### Static CAFs
@@ -545,7 +566,9 @@ Reserve at least one payload word for an updateable zero-field thunk. Evaluation
 
 Put one pointer to each applicable static object in the target's AIHC static-root section.
 
-The moving collector must scan these static objects during each collection. It must update each pointer field from the current info-table map.
+The moving collector must scan these static objects during each collection. It must use the current info table and its pointer bitmap.
+
+The collector must not move a static object. It must update each heap pointer in the static object's fields.
 
 This design does not require a CAF initializer. It also does not require a per-module initializer function.
 
@@ -604,11 +627,13 @@ Do not build or load a whole-program cache. The per-module Core artifacts are th
 
 ## Rebuild and reuse rules
 
-If one source file changes, recompute its complete SCC. Write new per-module artifacts for every member of that SCC.
+If one source file changes, resolve and type-check its complete SCC again.
 
-Recompute a dependent SCC only when an interface digest that it uses changes. An implementation can avoid work when new interfaces equal old interfaces.
+After type checking, generate Core and object artifacts separately for each module.
 
-A changed target invalidates object and archive artifacts. It does not change the logical name-resolution, type, or System FC data.
+Recompute a dependent SCC only when an interface digest that it uses changes.
+
+A changed target changes `dephash` and invalidates all stored artifacts. The compiler must build a separate package directory for that target.
 
 The package directory remains target-specific because it is immutable and contains target-specific files.
 
@@ -627,4 +652,4 @@ The design does not store these items:
 - Duplicate types for re-exported declarations.
 - Combined SCC Core files.
 
-The package index records storage and dependency facts only. Compiler interfaces contain language facts, and native objects contain linker facts.
+The package index records package storage and native link facts only. Compiler interfaces contain language facts, and native objects contain linker facts.
