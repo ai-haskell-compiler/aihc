@@ -10,6 +10,12 @@ data InnerException = InnerException
 
 data OuterException = OuterException
 
+instance Show InnerException where
+  show InnerException = "InnerException"
+
+instance Show OuterException where
+  show OuterException = "OuterException"
+
 instance Exception InnerException
 
 instance Exception OuterException
