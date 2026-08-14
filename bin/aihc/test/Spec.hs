@@ -331,6 +331,7 @@ main =
           testCase "rebuilds a module when a predecessor type interface changes" test_installV2TypeDependencies,
           testCase "duplicates re-exported term signatures in type interfaces" test_installV2TypeReexports,
           testCase "installs direct local dependencies" test_installV2LocalDependencies,
+          testCase "rebuilds stale type artifact schemas" test_installV2StaleTypeArtifact,
           testCase "stops invalidation when a rebuilt scope stays equal" test_installV2StopsAtEqualScope
         ],
       testProperty "Hedgehog options" prop_dummy
@@ -481,6 +482,33 @@ test_installV2LocalDependencies =
         assertFileExists (storeRoot </> dependencyStore </> "Dep" </> "resolve.cbor")
         assertFileExists (storeRoot </> dependencyStore </> "Dep" </> "type.cbor")
       _ -> assertFailure ("expected one installed dependency, got " <> show dependencyStores)
+
+test_installV2StaleTypeArtifact :: Assertion
+test_installV2StaleTypeArtifact =
+  withTempDir "aihc-install-v2-stale-type" $ \root -> do
+    let sourceRoot = root </> "source"
+        sourceDir = sourceRoot </> "src"
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False
+    createDirectoryIfMissing True sourceDir
+    writeFile
+      (sourceRoot </> "demo.cabal")
+      ( unlines
+          [ "cabal-version: 3.0",
+            "name: demo",
+            "version: 0.1.0.0",
+            "library",
+            "  exposed-modules: Demo",
+            "  hs-source-dirs: src",
+            "  default-language: Haskell2010"
+          ]
+      )
+    writeFile (sourceDir </> "Demo.hs") "module Demo where\nvalue = value\n"
+    first <- installV2 options
+    let artifactPath = installV2StorePath first </> "Demo" </> "type.cbor"
+    artifact <- BS.readFile artifactPath
+    BS.writeFile artifactPath (BS.take 11 artifact <> BS.singleton 1 <> BS.drop 12 artifact)
+    rebuilt <- installV2 options
+    assertEqual "rebuilt module" ["Demo"] (installV2WrittenModules rebuilt)
 
 test_installV2ResolveDependencies :: Assertion
 test_installV2ResolveDependencies =
