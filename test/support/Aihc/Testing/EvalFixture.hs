@@ -39,15 +39,16 @@ import Aihc.Parser.Syntax
     parseExtensionName,
   )
 import Aihc.Parser.Syntax qualified as Surface
-import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
-import Aihc.Tc (TcBindingResult, TcInterface (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), PackageId (..), ResolveResult (..), extractInterfaceWithDeps, resolveWithDeps, unnamedPackage)
+import Aihc.Tc (InstanceInfo (..), TcBindingResult (..), TcInterface (..), TcTermKey (..), TcType (..), TypeScheme (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (bracket, mask, onException)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, nub, sort)
+import Data.List (dropWhileEnd, sort)
 import Data.List.NonEmpty qualified as NonEmpty
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isNothing, listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -58,7 +59,7 @@ import Foreign.LibFFI (argPtr, callFFI, retCInt)
 import Foreign.Ptr (nullPtr)
 import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, getTemporaryDirectory, listDirectory, removeFile)
 import System.Environment (lookupEnv)
-import System.FilePath (joinPath, makeRelative, takeDirectory, takeExtension, (</>))
+import System.FilePath (dropExtension, joinPath, makeRelative, splitDirectories, takeDirectory, takeExtension, (</>))
 import System.IO (hClose, hFlush, openTempFile, stdout)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Posix.DynamicLinker (DL (Default), dlsym)
@@ -99,6 +100,12 @@ data EvaluationFailure
   = EvaluationError !String
   | EvaluationRaised !Text
   deriving (Eq, Show)
+
+data CompiledDependencies = CompiledDependencies
+  { dependencyExports :: !ModuleExports,
+    dependencyTcInterface :: !TcInterface,
+    dependencyProgram :: !FcProgram
+  }
 
 -- | A phase evaluator receives the synthetic binding name and the fully
 -- desugared FC program, then renders the resulting value.
@@ -248,41 +255,126 @@ compileEvalCase tc =
     Left errMsg -> pure (Left errMsg)
     Right (modules, expr) -> do
       let evalModules = combineModules modules expr
-      dependencyModules <- loadDependencyModules tc evalModules
-      case dependencyModules of
+      case dependenciesForCase tc of
         Left errMsg -> pure (Left errMsg)
-        Right deps ->
-          let allModules = addListSupport (deps <> evalModules)
-              resolved = resolveWithDeps mempty (map modulePackage allModules)
-           in case resolved of
-                ResolveResult {resolvedModules, resolveErrors = []} ->
-                  let moduleAsts = map snd resolvedModules
-                      (tcResults, tcInterface) = typecheckModulesWithInterface emptyTcInterface moduleAsts
-                   in if all tcModuleSuccess tcResults
-                        then do
-                          let allBindings = moduleGroupBindings tcResults
-                              results =
-                                map
-                                  (desugarModuleWithDataTypes (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings (tcInterfaceDataTypes tcInterface))
-                                  tcResults
-                          if all dsSuccess results
-                            then pure (Right (concatPrograms (map dsProgram results)))
-                            else pure (Left ("desugar error: " <> unlines (concatMap dsErrors results)))
-                        else pure (Left ("typecheck error: " <> renderTcErrors tcResults))
-                ResolveResult {resolveErrors} ->
-                  pure (Left ("resolve error: " <> show resolveErrors))
+        Right dependencies -> do
+          extended <- extendDependenciesForCase tc evalModules dependencies
+          pure (extended >>= \compiled -> compileModulesWithDependencies compiled (addListSupport evalModules))
   where
     addListSupport modules
+      | not (null (evalCaseDependencies tc)) = modules
+      | hasUnboxedTuples = modules
       | any ((== Just "GHC.Types") . Surface.moduleName) modules = modules
       | otherwise = listSupportModule : modules
+      where
+        hasUnboxedTuples =
+          case parseExtensionName "UnboxedTuples" of
+            Just extension -> extension `elem` evalCaseExtensions tc
+            Nothing -> False
     listSupportModule =
       case parseOneModule "GHC.Types" [] "module GHC.Types (List(..)) where\ndata List a = [] | a : [a]\ninfixr 5 :\n" of
         Right modu -> modu
         Left err -> error err
-    modulePackage modu
-      | Surface.moduleName modu `elem` [Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
-          (Package "aihc-prim" (PackageId "aihc-prim"), modu)
-      | otherwise = (unnamedPackage, modu)
+
+dependenciesForCase :: EvalCase -> Either String CompiledDependencies
+dependenciesForCase tc =
+  case filter (`notElem` ["aihc-base", "aihc-prim"]) (evalCaseDependencies tc) of
+    dependency : _ -> Left ("unknown eval fixture dependency: " <> T.unpack dependency)
+    []
+      | "aihc-base" `elem` evalCaseDependencies tc -> aihcBaseArtifact
+      | hasUnboxedTuples -> aihcPrimTypesArtifact
+      | otherwise -> aihcPrimArtifact
+  where
+    hasUnboxedTuples =
+      case parseExtensionName "UnboxedTuples" of
+        Just extension -> extension `elem` evalCaseExtensions tc
+        Nothing -> False
+
+extendDependenciesForCase :: EvalCase -> [Module] -> CompiledDependencies -> IO (Either String CompiledDependencies)
+extendDependenciesForCase tc evalModules dependencies
+  | "aihc-base" `notElem` evalCaseDependencies tc = pure (Right dependencies)
+  | otherwise = do
+      baseRootEnv <- lookupEnv "AIHC_BASE_SRC"
+      baseRoot <- maybe defaultAihcBaseRoot pure baseRootEnv
+      primRootEnv <- lookupEnv "AIHC_PRIM_SRC"
+      primRoot <- maybe defaultAihcPrimRoot pure primRootEnv
+      primModuleNames <- sourceModuleNames primRoot
+      let providedModules = map moduleKeyName (Map.keys (dependencyExports dependencies))
+          initialModules = importedModuleNameList evalModules
+      modules <-
+        loadTransitiveModules
+          providedModules
+          [("aihc-base", baseRoot), ("aihc-prim", primRoot)]
+          initialModules
+      pure (modules >>= compileDependencyModules dependencies (Set.fromList primModuleNames))
+
+compileModulesWithDependencies :: CompiledDependencies -> [Module] -> Either String FcProgram
+compileModulesWithDependencies dependencies modules =
+  case resolveWithDeps (dependencyExports dependencies) (map evalModulePackage modules) of
+    ResolveResult {resolvedModules, resolveErrors = []} ->
+      let moduleAsts = map snd resolvedModules
+          (tcResults, tcInterface) = typecheckModulesWithInterface (dependencyTcInterface dependencies) moduleAsts
+       in if all tcModuleSuccess tcResults
+            then
+              let results = map (desugarCheckedModule tcInterface) tcResults
+               in if all dsSuccess results
+                    then mergeDependencyProgram dependencies (map dsProgram results)
+                    else Left ("desugar error: " <> unlines (concatMap dsErrors results))
+            else Left ("typecheck error: " <> renderTcErrors tcResults)
+    ResolveResult {resolveErrors} ->
+      Left ("resolve error: " <> show resolveErrors)
+
+evalModulePackage :: Module -> (Package, Module)
+evalModulePackage modu
+  | Surface.moduleName modu `elem` [Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
+      (Package "aihc-prim" (PackageId "aihc-prim"), modu)
+  | otherwise = (unnamedPackage, modu)
+
+mergeDependencyProgram :: CompiledDependencies -> [FcProgram] -> Either String FcProgram
+mergeDependencyProgram dependencies programs =
+  case NonEmpty.nonEmpty (dependencyProgram dependencies : programs) of
+    Nothing -> Right (dependencyProgram dependencies)
+    Just nonEmptyPrograms ->
+      either
+        (Left . ("System FC merge error: " <>) . show)
+        Right
+        (mergePrograms (FcModuleId "test" "Merged") nonEmptyPrograms)
+
+desugarConfig :: DesugarConfig
+desugarConfig = DesugarConfig {primPackageId = PackageId "aihc-prim"}
+
+interfaceBindings :: TcInterface -> [TcBindingResult]
+interfaceBindings interface =
+  concat
+    [ TcBindingResult name name ty
+        : [TcBindingResult (moduleName <> "." <> name) name ty | not (T.null moduleName)]
+    | (TcTermGlobal _ moduleName name, scheme) <- tcInterfaceTerms interface,
+      let ty = schemeType scheme
+    ]
+    <> concatMap instanceBindings (tcInterfaceInstances interface)
+  where
+    instanceBindings instanceInfo =
+      TcBindingResult name name (iiDictType instanceInfo)
+        : [ TcBindingResult (moduleName <> "." <> name) name (iiDictType instanceInfo)
+          | Just (_, moduleName) <- [iiDictOrigin instanceInfo]
+          ]
+      where
+        name = iiDictName instanceInfo
+
+desugarCheckedModule :: TcInterface -> Module -> DesugarResult
+desugarCheckedModule interface modu =
+  desugarModuleWithDataTypes
+    desugarConfig
+    (interfaceBindings interface <> tcModuleBindings modu)
+    (tcInterfaceDataTypes interface)
+    modu
+
+schemeType :: TypeScheme -> TcType
+schemeType (ForAll variables predicates body) =
+  foldr TcForAllTy (qualify predicates body) variables
+  where
+    qualify [] ty = ty
+    qualify constraints ty = TcQualTy constraints ty
 
 parseInputs :: EvalCase -> Either String ([Module], Expr)
 parseInputs tc = do
@@ -355,51 +447,104 @@ renderTcErrors results =
         then "type checker failed without diagnostics"
         else rendered
 
-moduleGroupBindings :: [Module] -> [TcBindingResult]
-moduleGroupBindings =
-  concatMap tcModuleBindings
+aihcPrimArtifact :: Either String CompiledDependencies
+aihcPrimArtifact = unsafePerformIO $ do
+  envRoot <- lookupEnv "AIHC_PRIM_SRC"
+  root <- maybe defaultAihcPrimRoot pure envRoot
+  allModuleNames <- sourceModuleNames root
+  modules <- loadTransitiveModules [] [("aihc-prim", root)] ["GHC.Tuple"]
+  pure (modules >>= compileDependencyModules emptyDependencies (Set.fromList allModuleNames))
+{-# NOINLINE aihcPrimArtifact #-}
 
-concatPrograms :: [FcProgram] -> FcProgram
-concatPrograms programs =
-  case NonEmpty.nonEmpty programs of
-    Nothing -> FcProgram (FcModuleId "test" "Merged") []
-    Just nonEmptyPrograms ->
-      either
-        (error . ("System FC merge error: " <>) . show)
-        id
-        (mergePrograms (FcModuleId "test" "Merged") nonEmptyPrograms)
+aihcPrimTypesArtifact :: Either String CompiledDependencies
+aihcPrimTypesArtifact = unsafePerformIO $ do
+  envRoot <- lookupEnv "AIHC_PRIM_SRC"
+  root <- maybe defaultAihcPrimRoot pure envRoot
+  allModuleNames <- sourceModuleNames root
+  modules <- loadTransitiveModules [] [("aihc-prim", root)] ["GHC.Tuple", "GHC.Types"]
+  pure (modules >>= compileDependencyModules emptyDependencies (Set.fromList allModuleNames))
+{-# NOINLINE aihcPrimTypesArtifact #-}
 
-loadDependencyModules :: EvalCase -> [Module] -> IO (Either String [Module])
-loadDependencyModules tc evalModules = do
-  let dependencies = evalCaseDependencies tc
-      transitiveDependencies = nub (dependencies <> ["aihc-prim"])
-      initialModules
-        | null dependencies =
-            "GHC.Tuple"
-              : [ "GHC.Types"
-                | Just unboxedTuples <- [parseExtensionName "UnboxedTuples"],
-                  unboxedTuples `elem` evalCaseExtensions tc
-                ]
-        | otherwise = initialDependencyModules evalModules
-  roots <- traverse resolveDependencyRoot transitiveDependencies
-  case sequence roots of
-    Left errMsg -> pure (Left errMsg)
-    Right packageRoots ->
-      loadTransitiveModules packageRoots initialModules
+aihcBaseArtifact :: Either String CompiledDependencies
+aihcBaseArtifact = unsafePerformIO $ do
+  baseRootEnv <- lookupEnv "AIHC_BASE_SRC"
+  baseRoot <- maybe defaultAihcBaseRoot pure baseRootEnv
+  primRootEnv <- lookupEnv "AIHC_PRIM_SRC"
+  primRoot <- maybe defaultAihcPrimRoot pure primRootEnv
+  primModuleNames <- sourceModuleNames primRoot
+  modules <-
+    loadTransitiveModules
+      []
+      [("aihc-base", baseRoot), ("aihc-prim", primRoot)]
+      ["Prelude"]
+  pure (modules >>= compileDependencyModules emptyDependencies (Set.fromList primModuleNames))
+{-# NOINLINE aihcBaseArtifact #-}
 
-resolveDependencyRoot :: Text -> IO (Either String (Text, FilePath))
-resolveDependencyRoot dependency =
-  case dependency of
-    "aihc-base" -> do
-      envRoot <- lookupEnv "AIHC_BASE_SRC"
-      root <- maybe defaultAihcBaseRoot pure envRoot
-      pure (Right (dependency, root))
-    "aihc-prim" -> do
-      envRoot <- lookupEnv "AIHC_PRIM_SRC"
-      root <- maybe defaultAihcPrimRoot pure envRoot
-      pure (Right (dependency, root))
-    _ ->
-      pure (Left ("unknown eval fixture dependency: " <> T.unpack dependency))
+emptyDependencies :: CompiledDependencies
+emptyDependencies =
+  CompiledDependencies
+    { dependencyExports = mempty,
+      dependencyTcInterface = emptyTcInterface,
+      dependencyProgram = FcProgram (FcModuleId "dependencies" "Empty") []
+    }
+
+compileDependencyModules :: CompiledDependencies -> Set.Set Text -> [Module] -> Either String CompiledDependencies
+compileDependencyModules imported primModuleNames modules =
+  case resolveWithDeps (dependencyExports imported) (map dependencyModulePackage modules) of
+    resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
+      let moduleAsts = map snd resolvedModules
+          (tcResults, tcInterface) = typecheckModulesWithInterface (dependencyTcInterface imported) moduleAsts
+       in if all tcModuleSuccess tcResults
+            then
+              let results = map (desugarCheckedModule tcInterface) tcResults
+               in if all dsSuccess results
+                    then do
+                      program <- mergeDependencyProgram imported (map dsProgram results)
+                      pure
+                        CompiledDependencies
+                          { dependencyExports = extractInterfaceWithDeps (dependencyExports imported) resolved `Map.union` dependencyExports imported,
+                            dependencyTcInterface = tcInterface,
+                            dependencyProgram = program
+                          }
+                    else
+                      Left
+                        ( "dependency desugar error: "
+                            <> unlines
+                              [ T.unpack (fromMaybe "Main" (Surface.moduleName modu)) <> ": " <> err
+                              | (modu, result) <- zip tcResults results,
+                                err <- dsErrors result
+                              ]
+                        )
+            else Left ("dependency typecheck error: " <> renderTcErrors tcResults)
+    ResolveResult {resolveErrors} ->
+      Left ("dependency resolve error: " <> show resolveErrors)
+  where
+    dependencyModulePackage modu
+      | Surface.moduleName modu `Set.member` Set.map Just primModuleNames =
+          (Package "aihc-prim" (PackageId "aihc-prim"), modu)
+      | otherwise = (unnamedPackage, modu)
+
+sourceModuleNames :: FilePath -> IO [Text]
+sourceModuleNames root = do
+  paths <- listSourceFiles (root </> "src")
+  pure
+    [ T.intercalate "." (map T.pack (splitDirectories (dropExtension (makeRelative (root </> "src") path))))
+    | path <- paths
+    ]
+
+listSourceFiles :: FilePath -> IO [FilePath]
+listSourceFiles dir = do
+  entries <- sort <$> listDirectory dir
+  concat
+    <$> mapM
+      ( \entry -> do
+          let path = dir </> entry
+          isDir <- doesDirectoryExist path
+          if isDir
+            then listSourceFiles path
+            else pure [path | takeExtension path == ".hs"]
+      )
+      entries
 
 defaultAihcBaseRoot :: IO FilePath
 defaultAihcBaseRoot = do
@@ -433,10 +578,6 @@ defaultAihcPrimRoot = do
             then pure candidate
             else findUp parent
 
-initialDependencyModules :: [Module] -> [Text]
-initialDependencyModules modules =
-  nub ("Prelude" : importedModuleNameList modules)
-
 importedModuleNames :: [Module] -> Set.Set Text
 importedModuleNames modules =
   Set.fromList (importedModuleNameList modules)
@@ -445,9 +586,9 @@ importedModuleNameList :: [Module] -> [Text]
 importedModuleNameList modules =
   [importDeclModule importDecl | modu <- modules, importDecl <- moduleImports modu]
 
-loadTransitiveModules :: [(Text, FilePath)] -> [Text] -> IO (Either String [Module])
-loadTransitiveModules packageRoots initialModules =
-  fmap snd <$> go Set.empty [] initialModules
+loadTransitiveModules :: [Text] -> [(Text, FilePath)] -> [Text] -> IO (Either String [Module])
+loadTransitiveModules providedModules packageRoots initialModules =
+  fmap snd <$> go (Set.fromList providedModules) [] initialModules
   where
     go seen loaded [] =
       pure (Right (seen, loaded))
