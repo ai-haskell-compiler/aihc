@@ -130,7 +130,7 @@ data DataConFieldInfo = DataConFieldInfo
 data DataConInfo = DataConInfo
   { dciName :: !Text,
     -- | Package and module that define the constructor.
-    dciOrigin :: !(Maybe (PackageId, Text)),
+    dciOrigin :: !(PackageId, Text),
     -- | Universally quantified type variables.
     dciUnivTyVars :: ![TyVarId],
     -- | Existentially quantified type variables (GADTs).

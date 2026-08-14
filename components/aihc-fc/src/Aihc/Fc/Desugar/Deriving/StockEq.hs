@@ -215,9 +215,8 @@ boolConstructor boolTy name = do
 
 dataConIdentity :: DataConInfo -> FcSymbolOrigin
 dataConIdentity constructor =
-  case dciOrigin constructor of
-    Just (packageId, moduleName) -> FcTopLevelOrigin (packageIdText packageId) moduleName (dciName constructor)
-    Nothing -> FcBuiltinOrigin (dciName constructor)
+  let (packageId, moduleName) = dciOrigin constructor
+   in FcTopLevelOrigin (packageIdText packageId) moduleName (dciName constructor)
 
 tyConConstructorIdentity :: TyCon -> Text -> FcSymbolOrigin
 tyConConstructorIdentity tyCon =
