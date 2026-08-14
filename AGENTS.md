@@ -117,11 +117,14 @@ Then, open a PR to merge the branch into `main`.
 ## Test-First Development
 
 Use test-first development for `aihc`.
-Run the full suite with `just check`.
-
 For a new feature, first add tests for its expected use and some limit conditions.
 For a defect correction, first add a regression test.
 
+Use the existing test fixture framework for all tests.
+Use a hand-written unit test only when this framework cannot test an essential property.
+In that test, explain fully why the property is essential and why the framework cannot test it.
+
+Run the full suite with `just check`.
 The common test results are `PASS`, `XFAIL`, `FAIL`, and `XPASS`.
 Do not merge a change that has a `FAIL` result or an unexpected `XPASS` result.
 

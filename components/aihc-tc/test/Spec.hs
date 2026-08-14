@@ -4,7 +4,7 @@ module Main (main) where
 
 import Test.Tasty
 import Test.Tc.Properties (tcProperties)
-import Test.Tc.Suite (tcAnnotatedGoldenTests, tcTests)
+import Test.Tc.Suite (tcAnnotatedGoldenTests)
 
 main :: IO ()
 main = do
@@ -12,8 +12,7 @@ main = do
   defaultMain
     ( testGroup
         "aihc-tc"
-        [ tcTests,
-          annotatedGolden,
+        [ annotatedGolden,
           tcProperties
         ]
     )
