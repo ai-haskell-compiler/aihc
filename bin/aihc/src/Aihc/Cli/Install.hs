@@ -22,6 +22,8 @@ module Aihc.Cli.Install
     dryRunInstallScaffold,
     installFailureIsForPackage,
     installPackageLibraries,
+    ParsedInterfaceFile (..),
+    parseInterfaceFile,
     lookupPackagePlanSourceLineCount,
     newPackageCheckCache,
     newPackagePlanCache,

@@ -13,7 +13,7 @@
 | Object artifact | The target-specific native object file for one module. |
 | Archive artifact | A native archive that contains the object artifacts for one library. |
 | Compilation unit | One strongly connected component, or SCC, of the module dependency graph. |
-| Dependency hash | The digest in a package artifact directory name. It identifies all inputs that can change stored artifacts. |
+| Dependency hash | The digest in a package artifact directory name. It identifies all direct library dependency artifact directories. |
 | Incremental compilation | Compilation that lowers each module separately from System FC to an object artifact. |
 | Whole-program compilation | Compilation that merges stored System FC artifacts before the GRIN pipeline. |
 | Artifact store | An immutable collection of package artifact directories. |
@@ -52,17 +52,11 @@ Store each built package in this directory form:
 
 Use a safe file-name encoding for the package name and version. Use a fixed lowercase hexadecimal encoding for `dephash`.
 
-`dephash` must cover these inputs:
+`dephash` must cover the full identities of all direct library dependency artifact directories.
 
-- The content of every package source file.
-- The package description, selected Cabal component, and enabled language extensions.
-- All compiler options that can change an artifact.
-- The identities of all direct dependency artifact directories.
-- The AIHC compiler identity and artifact schema versions.
-- The target triple, runtime ABI, and native code options.
-- The native toolchain identity when it can change object code.
+`dephash` must not cover package source files.
 
-The target is part of `dephash` because object artifacts are target-specific. A build must not reuse stored artifacts from another target.
+Sort the dependency identities before hash calculation.
 
 One Cabal library or executable component supplies one package build. The package plan controls its modules, dependencies, and exposed interfaces.
 
