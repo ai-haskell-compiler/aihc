@@ -40,6 +40,7 @@ module Aihc.Tc
     tcTermKeyIdentifier,
     TcInterface (..),
     emptyTcInterface,
+    tcInterfaceBindings,
 
     -- * Module result projections
     tcModuleBindings,
@@ -140,7 +141,7 @@ import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.Bifunctor qualified as Bifunctor
 import Data.Data (Data, gmapM, gmapQ)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, maybeToList)
+import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Typeable (cast)
@@ -211,6 +212,34 @@ tcTermKeyIdentifier key =
   case key of
     TcTermLocal {} -> Nothing
     TcTermGlobal _ _ identifier -> Just identifier
+
+-- | Convert stored type facts to the binding view required by System FC.
+tcInterfaceBindings :: TcInterface -> [TcBindingResult]
+tcInterfaceBindings interface =
+  mapMaybe termBinding (tcInterfaceTerms interface)
+    <> map instanceBinding (tcInterfaceInstances interface)
+    <> concatMap classBindings (tcInterfaceClasses interface)
+  where
+    termBinding (TcTermGlobal _ _ identifier, scheme) = Just (TcBindingResult identifier identifier (interfaceSchemeType scheme))
+    termBinding (TcTermLocal {}, _) = Nothing
+    instanceBinding info = TcBindingResult (iiDictName info) (iiDictName info) (iiDictType info)
+    classBindings info =
+      [ TcBindingResult workerName workerName (interfaceSchemeType workerScheme)
+      | methodName <- ciDefaultMethods info,
+        Just methodScheme <- [lookup methodName (ciMethods info)],
+        let workerName = T.pack "$dm" <> methodName
+            workerScheme = maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info))
+      ]
+    defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =
+      case ordinaryScheme of
+        ForAll _ (classPredicate : _) _ -> ForAll variables (classPredicate : predicates) body
+        _ -> ForAll variables predicates body
+
+interfaceSchemeType :: TypeScheme -> TcType
+interfaceSchemeType (ForAll [] [] ty) = ty
+interfaceSchemeType (ForAll variables [] ty) = foldr TcForAllTy ty variables
+interfaceSchemeType (ForAll [] predicates ty) = TcQualTy predicates ty
+interfaceSchemeType (ForAll variables predicates ty) = foldr TcForAllTy (TcQualTy predicates ty) variables
 
 importedTermEntries :: [(Text, TypeScheme)] -> [(TcTermKey, TypeScheme)]
 importedTermEntries = map (Bifunctor.first unqualifiedTermKey)
