@@ -292,7 +292,7 @@ genExpr =
   Gen.recursive
     Gen.choice
     [ FcVar <$> genVar,
-      FcLit <$> genLiteral
+      FcLit <$> genLiteral <*> genLiteralType
     ]
     [ FcApp <$> genExpr <*> genExpr,
       FcTyApp <$> genExpr <*> genType,
@@ -317,7 +317,7 @@ genAltWith :: Gen FcExpr -> Gen FcAlt
 genAltWith child = FcAlt <$> genAltCon <*> smallList genBinder <*> child
 
 genAltCon :: Gen FcAltCon
-genAltCon = Gen.choice [DataAlt . testConstructor <$> genTypeName, LitAlt <$> genLiteral, pure DefaultAlt]
+genAltCon = Gen.choice [DataAlt . testConstructor <$> genTypeName, LitAlt <$> genLiteral <*> genLiteralType, pure DefaultAlt]
 
 genVar :: Gen Var
 genVar = do
@@ -347,6 +347,9 @@ genLiteral =
       LitString <$> genLiteralText,
       LitAddr . BS.pack <$> smallList (Gen.word8 Range.constantBounded)
     ]
+
+genLiteralType :: Gen TcType
+genLiteralType = TcTyCon <$> genTyCon <*> pure []
 
 genType :: Gen TcType
 genType =

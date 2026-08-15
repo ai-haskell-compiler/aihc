@@ -1,0 +1,17 @@
+extensions:
+  - DataKinds
+  - KindSignatures
+  - MagicHash
+  - StandaloneKindSignatures
+modules:
+  - |
+    module GHC.Prim where
+
+    type MutVar# :: Type -> Type -> TYPE ('BoxedRep 'Unlifted)
+    data MutVar# d a
+expected: |-
+  module "aihc-prim" GHC.Prim where
+
+  data "aihc-prim" GHC.Prim.MutVar# (d{unique 24} : Type) (a{unique 26} : Type) : TYPE UnliftedRep
+status: pass
+reason: keeps checked parameters and the checked result kind for data declarations without constructors

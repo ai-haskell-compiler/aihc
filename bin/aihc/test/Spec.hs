@@ -1332,7 +1332,7 @@ test_runtimePrimitiveValidation = do
           (FcModuleId "test" "Test")
           [ FcPrimitive kept 1,
             FcPrimitive unsafeCoerce 1,
-            FcTopBind (FcNonRec mainVar (FcApp (FcVar unsafeCoerce) (FcApp (FcVar kept) (FcLit (LitInt IntRep 1)))))
+            FcTopBind (FcNonRec mainVar (FcApp (FcVar unsafeCoerce) (FcApp (FcVar kept) (FcLit (LitInt IntRep 1) intTy))))
           ]
       grin = Grin.lowerProgram core
       reachable = reachableRuntimePrimitiveNames "main" (extractReachabilityInterface core) [grin]

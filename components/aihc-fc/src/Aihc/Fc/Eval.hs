@@ -280,7 +280,7 @@ evalWithEnv env expr =
       case lookupEnvVar var env of
         Just value -> forceValue value
         Nothing -> throwE (EvalUnboundVariable (varName var))
-    FcLit lit ->
+    FcLit lit _ ->
       pure (VLit lit)
     FcApp fun arg -> do
       funValue <- evalWithEnv env fun
@@ -1214,7 +1214,7 @@ matchAlt value alt =
   case (altCon alt, value) of
     (DefaultAlt, _) ->
       Just (localEnv [(var, value) | var <- altBinders alt])
-    (LitAlt expected, VLit actual)
+    (LitAlt expected _, VLit actual)
       | expected == actual ->
           Just emptyEnv
     (DataAlt expected, VConstructor actual args)

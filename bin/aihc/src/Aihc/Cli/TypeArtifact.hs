@@ -60,7 +60,7 @@ encodeTypeArtifact artifact =
   Builder.toLazyByteString $
     cborArray 5
       <> cborText "aihc-type"
-      <> cborWord 2
+      <> cborWord 3
       <> cborText (typeArtifactModuleName artifact)
       <> encodeList encodeHash (typeArtifactInputHashes artifact)
       <> putInterface (typeArtifactInterface artifact)
@@ -82,7 +82,7 @@ getArtifact :: Get.Get TypeArtifact
 getArtifact = do
   expectArray 5
   expectText "aihc-type"
-  expectWord 2
+  expectWord 3
   typeArtifactModuleName <- getText
   typeArtifactInputHashes <- getList getHash
   typeArtifactInterface <- getInterface
@@ -308,17 +308,18 @@ getTypeSynonymInfo :: Get.Get TypeSynonymInfo
 getTypeSynonymInfo = expectArray 2 >> (TypeSynonymInfo <$> getList getTyVar <*> getMaybe getType)
 
 putDataTypeInfo :: DataTypeInfo -> Builder.Builder
-putDataTypeInfo info = cborArray 5 <> cborText (dtiName info) <> putTyCon (dtiTyCon info) <> encodeList putTyVar (dtiTyVars info) <> putTyConFlavor (dtiFlavor info) <> encodeList putDataConInfo (dtiConstructors info)
+putDataTypeInfo info = cborArray 6 <> cborText (dtiName info) <> putTyCon (dtiTyCon info) <> encodeList putTyVar (dtiTyVars info) <> putKind (dtiResultKind info) <> putTyConFlavor (dtiFlavor info) <> encodeList putDataConInfo (dtiConstructors info)
 
 getDataTypeInfo :: Get.Get DataTypeInfo
 getDataTypeInfo = do
-  expectArray 5
+  expectArray 6
   dtiName <- getText
   dtiTyCon <- getTyCon
   dtiTyVars <- getList getTyVar
+  dtiResultKind <- getKind
   dtiFlavor <- getTyConFlavor
   dtiConstructors <- getList getDataConInfo
-  pure DataTypeInfo {dtiName, dtiTyCon, dtiTyVars, dtiFlavor, dtiConstructors}
+  pure DataTypeInfo {dtiName, dtiTyCon, dtiTyVars, dtiResultKind, dtiFlavor, dtiConstructors}
 
 putDataConInfo :: DataConInfo -> Builder.Builder
 putDataConInfo info =

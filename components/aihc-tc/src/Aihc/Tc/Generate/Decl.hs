@@ -574,12 +574,14 @@ defaultGlobalKindMetas = do
         <*> traverse defaultTypeKinds (tsiBody synonym)
     defaultDataTypeKinds info = do
       tyVars <- mapM defaultTyVarKinds (dtiTyVars info)
+      resultKind <- defaultKindMetas (dtiResultKind info)
       constructors <- mapM defaultDataConKinds (dtiConstructors info)
       kindScheme <- defaultTyConKindScheme (tyConKindScheme (dtiTyCon info))
       pure
         info
           { dtiTyCon = setTyConKindScheme kindScheme (dtiTyCon info),
             dtiTyVars = tyVars,
+            dtiResultKind = resultKind,
             dtiConstructors = constructors
           }
     defaultDataConKinds info = do
@@ -2221,11 +2223,14 @@ registerDataConstructors dataDecl = do
       bindings <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (dataDeclConstructors dataDecl)
       constructors <- concat <$> mapM (checkedDataConInfos (tciTyCon info)) (dataDeclConstructors dataDecl)
       selectorBindings <- registerRecordSelectors constructors
+      let tyVars = map paramTyVar paramInfos
+          resultKind = typeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
       addDataType
         DataTypeInfo
           { dtiName = tyName,
             dtiTyCon = tciTyCon info,
-            dtiTyVars = map paramTyVar paramInfos,
+            dtiTyVars = tyVars,
+            dtiResultKind = resultKind,
             dtiFlavor = DataTyCon,
             dtiConstructors = constructors
           }
@@ -2272,11 +2277,14 @@ registerNewtypeConstructor newtypeDecl = do
       constructor <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (newtypeDeclConstructor newtypeDecl)
       constructors <- maybe (pure []) (checkedDataConInfos (tciTyCon info)) (newtypeDeclConstructor newtypeDecl)
       selectorBindings <- registerRecordSelectors constructors
+      let tyVars = map paramTyVar paramInfos
+          resultKind = typeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
       addDataType
         DataTypeInfo
           { dtiName = tyName,
             dtiTyCon = tciTyCon info,
-            dtiTyVars = map paramTyVar paramInfos,
+            dtiTyVars = tyVars,
+            dtiResultKind = resultKind,
             dtiFlavor = NewtypeTyCon,
             dtiConstructors = constructors
           }

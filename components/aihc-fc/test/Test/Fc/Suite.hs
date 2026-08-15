@@ -8,6 +8,8 @@ module Test.Fc.Suite
   ( fcGoldenTests,
     fcEvalFixtureTests,
     fcLintTests,
+    fcEmptyDataKindTest,
+    fcPrimitiveLiteralOriginTest,
     fcTopLevelIdentityTest,
   )
 where
@@ -15,7 +17,7 @@ where
 import Aihc.Fc
 import Aihc.Parser (defaultConfig, parseModule)
 import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (emptyTcInterface, tcModuleBindings, typecheckModulesWithInterface)
+import Aihc.Tc (DataTypeInfo (..), TcInterface (..), emptyTcInterface, tcModuleBindings, typecheckModulesWithInterface)
 import Aihc.Tc.Types (Kind (..), Pred (..), TcType (..), TyCon (..), TyVarId (..), TypeScheme (..), Unique (..), mkTyCon, mkTyConWithOriginScheme, setTyVarKind)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Control.Exception (SomeException, evaluate, try)
@@ -43,6 +45,9 @@ fcLintTests =
         assertBool "expected a kind error" (any isKindError (lintProgram emptyLintEnv program)),
       rejectsPredicatesInKindSchemes,
       missingGlobalEnvironmentTest,
+      missingDataTypeInformationTest,
+      corruptDataTypeInformationTest,
+      missingLiteralTypeTest,
       testProperty "Hedgehog options" (property success)
     ]
 
@@ -80,12 +85,78 @@ missingGlobalEnvironmentTest = testCase "desugaring rejects a missing global var
         [] -> assertFailure "type checking did not return the test module"
     ResolveResult {resolveErrors} -> assertFailure ("resolve errors: " <> show resolveErrors)
 
+-- The golden runner always supplies a complete interface.
+-- This unit test is necessary to verify the failure for missing data type information.
+missingDataTypeInformationTest :: TestTree
+missingDataTypeInformationTest = testCase "desugaring rejects missing data type information" $ do
+  let parsed = snd (parseModule defaultConfig "module Test where\ndata Missing a\n")
+      resolved = resolveWithDeps mempty [(Package "" (PackageId ""), parsed)]
+  case resolved of
+    ResolveResult {resolvedModules = [(_, resolvedModule)], resolveErrors = []} -> do
+      let checkedModules = fst (typecheckModulesWithInterface emptyTcInterface [resolvedModule])
+      case checkedModules of
+        [checked] -> do
+          let result = desugarModuleWithInterface (DesugarConfig (PackageId "aihc-prim")) (tcModuleBindings checked) emptyTcInterface checked
+          assertEqual
+            "desugar errors"
+            ["missing checked data type information for Test.Missing"]
+            (dsErrors result)
+        _ -> assertFailure "type checking did not return the test module"
+    ResolveResult {resolveErrors} -> assertFailure ("resolve errors: " <> show resolveErrors)
+
+-- A source fixture cannot construct corrupt type-checker information.
+-- This unit test verifies that desugaring rejects a non-final checked result kind.
+corruptDataTypeInformationTest :: TestTree
+corruptDataTypeInformationTest = testCase "desugaring rejects corrupt data type information" $ do
+  let parsed = snd (parseModule defaultConfig "module Test where\ndata Corrupt a\n")
+      resolved = resolveWithDeps mempty [(Package "" (PackageId ""), parsed)]
+  case resolved of
+    ResolveResult {resolvedModules = [(_, resolvedModule)], resolveErrors = []} -> do
+      let (checkedModules, interface) = typecheckModulesWithInterface emptyTcInterface [resolvedModule]
+          corrupt info
+            | dtiName info == "Corrupt" = info {dtiResultKind = KMeta (Unique 999)}
+            | otherwise = info
+          corruptInterface = interface {tcInterfaceDataTypes = map corrupt (tcInterfaceDataTypes interface)}
+      case checkedModules of
+        [checked] -> do
+          let result = desugarModuleWithInterface (DesugarConfig (PackageId "aihc-prim")) (tcModuleBindings checked) corruptInterface checked
+          assertEqual
+            "desugar errors"
+            ["invalid checked result kind for Test.Corrupt"]
+            (dsErrors result)
+        _ -> assertFailure "type checking did not return the test module"
+    ResolveResult {resolveErrors} -> assertFailure ("resolve errors: " <> show resolveErrors)
+
+-- A checked source fixture always contains literal type information.
+-- This unit test verifies that the Core parser rejects a literal without that information.
+missingLiteralTypeTest :: TestTree
+missingLiteralTypeTest = testCase "Core parsing rejects a literal without a checked type" $
+  case parseExpr "1#IntRep" of
+    Left _ -> pure ()
+    Right expression -> assertFailure ("expected a Core parse error, but got: " <> show expression)
+
 fcTopLevelIdentityTest :: IO TestTree
 fcTopLevelIdentityTest = do
   cases <- loadFcCases
   pure $
     case find ((== "top-level-shared-identity.yaml") . caseId) cases of
       Nothing -> testCase "top-level identity fixture exists" (assertFailure "top-level identity fixture is missing")
+      Just testFixture -> mkTest testFixture
+
+fcEmptyDataKindTest :: IO TestTree
+fcEmptyDataKindTest = do
+  cases <- loadFcCases
+  pure $
+    case find ((== "empty-data-keeps-checked-kind.yaml") . caseId) cases of
+      Nothing -> testCase "empty data kind fixture exists" (assertFailure "empty data kind fixture is missing")
+      Just testFixture -> mkTest testFixture
+
+fcPrimitiveLiteralOriginTest :: IO TestTree
+fcPrimitiveLiteralOriginTest = do
+  cases <- loadFcCases
+  pure $
+    case find ((== "primitive-literals-keep-checked-origin.yaml") . caseId) cases of
+      Nothing -> testCase "primitive literal origin fixture exists" (assertFailure "primitive literal origin fixture is missing")
       Just testFixture -> mkTest testFixture
 
 isKindError :: LintError -> Bool

@@ -175,7 +175,7 @@ renderExprWith :: Int -> Bool -> FcExpr -> String
 renderExprWith indentation parenthesize expression =
   case expression of
     FcVar var -> renderOccurrence var
-    FcLit literal -> renderLiteral literal
+    FcLit literal ty -> "(" <> renderLiteral literal <> " : " <> renderType ty <> ")"
     FcApp function argument ->
       paren parenthesize (renderExprWith indentation True function <> " " <> renderExprWith indentation True argument)
     FcTyApp function argument ->
@@ -242,7 +242,7 @@ renderAltCon :: FcAltCon -> String
 renderAltCon alternative =
   case alternative of
     DataAlt constructor -> renderConstructorId constructor
-    LitAlt literal -> renderLiteral literal
+    LitAlt literal ty -> "(" <> renderLiteral literal <> " : " <> renderType ty <> ")"
     DefaultAlt -> "_"
 
 renderConstructorId :: FcConstructorId -> String

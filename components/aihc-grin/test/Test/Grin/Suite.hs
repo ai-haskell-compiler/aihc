@@ -1026,7 +1026,7 @@ applicationProgram =
             answerVar
             ( FcApp
                 (FcLam argumentVar (FcVar argumentVar))
-                (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 42)))
+                (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 42) intTy))
             )
         )
     ]
@@ -1166,7 +1166,7 @@ unboxedApplicationProgram =
             answerVar
             ( FcApp
                 (FcVar boxConstructorVar)
-                (FcApp (FcLam argumentVar (FcVar argumentVar)) (FcLit (LitInt IntRep 42)))
+                (FcApp (FcLam argumentVar (FcVar argumentVar)) (FcLit (LitInt IntRep 42) intTy))
             )
         )
     ]
@@ -1185,7 +1185,7 @@ shadowingProgram =
             answerVar
             ( FcApp
                 (FcVar boxConstructorVar)
-                (FcApp (FcLam localAnswerVar (FcVar localAnswerVar)) (FcLit (LitInt IntRep 42)))
+                (FcApp (FcLam localAnswerVar (FcVar localAnswerVar)) (FcLit (LitInt IntRep 42) intTy))
             )
         )
     ]
@@ -1204,7 +1204,7 @@ cafReferenceProgram =
             sourceVar
             ( FcApp
                 (FcLam computedVar (FcVar computedVar))
-                (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 1)))
+                (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 1) intTy))
             )
         ),
       FcTopBind (FcNonRec answerVar (FcVar sourceVar))
@@ -1223,7 +1223,7 @@ staticConstructorProgram =
       FcTopBind
         ( FcNonRec
             sourceVar
-            (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 1)))
+            (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 1) intTy))
         )
     ]
   where
@@ -1257,7 +1257,7 @@ primitiveCallProgram =
       FcTopBind
         ( FcNonRec
             addOneVar
-            (FcLam argumentVar (FcApp (FcApp (FcVar addVar) (FcVar argumentVar)) (FcLit (LitInt IntRep 1))))
+            (FcLam argumentVar (FcApp (FcApp (FcVar addVar) (FcVar argumentVar)) (FcLit (LitInt IntRep 1) intTy)))
         )
     ]
   where
@@ -1414,7 +1414,7 @@ functionClassificationProgram =
         ( FcNonRec
             computedVar
             ( FcLet
-                (FcNonRec expensiveVar (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 42))))
+                (FcNonRec expensiveVar (FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep 42) intTy)))
                 (FcLam computedArgumentVar (FcVar expensiveVar))
             )
         )
@@ -1467,7 +1467,7 @@ knownFunctionWrapperProgram isEtaExpansion =
     valueVar = Var "value" (Unique 145) boxedIntTy
     argument
       | isEtaExpansion = FcVar valueVar
-      | otherwise = FcLit (LitString "changed")
+      | otherwise = FcLit (LitString "changed") boxedIntTy
 
 dictionaryProgram :: FcProgram
 dictionaryProgram =
@@ -1494,7 +1494,7 @@ dictionaryProgram =
     firstMethod = Var "$method0" (Unique 44) boxedIntTy
     secondMethod = Var "$method1" (Unique 45) boxedIntTy
     dictionary = FcApp (FcApp (FcVar dictionaryConstructorVar) (boxed 1)) (boxed 2)
-    boxed value = FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep value))
+    boxed value = FcApp (FcVar boxConstructorVar) (FcLit (LitInt IntRep value) intTy)
 
 exceptionProgram :: FcProgram
 exceptionProgram =
@@ -1514,13 +1514,13 @@ exceptionProgram =
     handlerState = Var "handlerState" (Unique 6) intTy
     actionTy = TcFunTy intTy intTy
     handlerTy = TcFunTy intTy (TcFunTy intTy intTy)
-    action = FcLam actionState (FcApp (FcVar raiseVar) (FcLit (LitInt IntRep 10)))
+    action = FcLam actionState (FcApp (FcVar raiseVar) (FcLit (LitInt IntRep 10) intTy))
     handler = FcLam exception (FcLam handlerState (FcVar exception))
     boxConstructorVar = Var "BoxedInt" (Unique 7) (TcFunTy intTy boxedIntTy)
     caughtExpression =
       FcApp
         (FcApp (FcApp (FcVar catchVar) action) handler)
-        (FcLit (LitInt IntRep 0))
+        (FcLit (LitInt IntRep 0) intTy)
 
 partialCatchProgram :: FcProgram
 partialCatchProgram =
@@ -1547,7 +1547,7 @@ exitPrimitiveProgram =
   FcProgram
     (FcModuleId "test" "Test")
     [ FcPrimitive exitVar 2,
-      FcTopBind (FcNonRec exitActionVar (FcApp (FcVar exitVar) (FcLit (LitInt IntRep 7)))),
+      FcTopBind (FcNonRec exitActionVar (FcApp (FcVar exitVar) (FcLit (LitInt IntRep 7) intTy))),
       FcTopBind
         ( FcNonRec
             processExitVar
@@ -1571,7 +1571,7 @@ exitPrimitiveProgram =
     nextStateVar = Var "nextState" (Unique 15) stateTy
     resultVar = Var "result" (Unique 16) intTy
     exitActionVar = Var "exitAction" (Unique 17) (TcFunTy stateTy resultTy)
-    exitCall = FcApp (FcApp (FcVar exitVar) (FcLit (LitInt IntRep 7))) (FcVar stateVar)
+    exitCall = FcApp (FcApp (FcVar exitVar) (FcLit (LitInt IntRep 7) intTy)) (FcVar stateVar)
 
 multiValueContinuationProgram :: GrinProgram
 multiValueContinuationProgram =
@@ -2321,7 +2321,7 @@ foreignProgram =
       FcTopBind
         ( FcNonRec
             foreignAnswerVar
-            (FcApp (FcVar foreignBoxConstructorVar) (FcCallForeign foreignCall [FcLit (LitInt Int32Rep 42)]))
+            (FcApp (FcVar foreignBoxConstructorVar) (FcCallForeign foreignCall [FcLit (LitInt Int32Rep 42) int32Ty]))
         )
     ]
 
@@ -2443,7 +2443,7 @@ separateConstructorPrograms =
 
 separatePrograms :: [FcProgram]
 separatePrograms =
-  [ FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec sourceVar (FcLit (LitString "provider")))],
+  [ FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec sourceVar (FcLit (LitString "provider") boxedIntTy))],
     FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec answerVar (FcLam argumentVar (FcVar sourceVar)))]
   ]
   where
@@ -2455,7 +2455,7 @@ separateFunctionPrograms :: [FcProgram]
 separateFunctionPrograms =
   [ FcProgram
       (FcModuleId "test" "Test")
-      [ FcTopBind (FcNonRec sourceVar (FcLit (LitString "provider"))),
+      [ FcTopBind (FcNonRec sourceVar (FcLit (LitString "provider") boxedIntTy)),
         FcTopBind (FcNonRec identityVar (FcLam argumentVar (FcVar argumentVar)))
       ],
     FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec answerVar (FcApp (FcVar identityVar) (FcVar sourceVar)))]
@@ -2469,7 +2469,7 @@ separateFunctionPrograms =
 separateLinkableFunctionPrograms :: Text -> Int -> [FcProgram]
 separateLinkableFunctionPrograms qualifier uniqueBase =
   [ FcProgram (FcModuleId "" qualifier) [FcTopBind (FcNonRec identityVar (FcLam argumentVar (FcVar argumentVar)))],
-    FcProgram (FcModuleId "exe" "Main") [FcTopBind (FcNonRec answerVar (FcApp (FcVar importedIdentityVar) (FcLit (LitString "argument"))))]
+    FcProgram (FcModuleId "exe" "Main") [FcTopBind (FcNonRec answerVar (FcApp (FcVar importedIdentityVar) (FcLit (LitString "argument") boxedIntTy)))]
   ]
   where
     identityType = TcFunTy boxedIntTy boxedIntTy
@@ -2483,7 +2483,7 @@ separateLinkableFunctionPrograms qualifier uniqueBase =
 
 separateLinkableGlobalPrograms :: Text -> Int -> [FcProgram]
 separateLinkableGlobalPrograms qualifier uniqueBase =
-  [ FcProgram (FcModuleId "" qualifier) [FcTopBind (FcNonRec valueVar (FcLit (LitString "provider")))],
+  [ FcProgram (FcModuleId "" qualifier) [FcTopBind (FcNonRec valueVar (FcLit (LitString "provider") boxedIntTy))],
     FcProgram (FcModuleId "exe" "Main") [FcTopBind (FcNonRec answerVar (FcVar importedValueVar))]
   ]
   where
@@ -2516,7 +2516,7 @@ separateBuiltinUnitPrograms =
 separateNewtypePrograms :: [FcProgram]
 separateNewtypePrograms =
   [ FcProgram (FcModuleId "test" "Test") [FcNewtype declaration],
-    FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec answerVar (FcLam argumentVar (FcApp (FcVar constructorVar) (FcLit (LitInt IntRep 42)))))]
+    FcProgram (FcModuleId "test" "Test") [FcTopBind (FcNonRec answerVar (FcLam argumentVar (FcApp (FcVar constructorVar) (FcLit (LitInt IntRep 42) intTy))))]
   ]
   where
     declaration =

@@ -91,6 +91,7 @@ data DataTypeInfo = DataTypeInfo
   { dtiName :: !Text,
     dtiTyCon :: !TyCon,
     dtiTyVars :: ![TyVarId],
+    dtiResultKind :: !Kind,
     dtiFlavor :: !TyConFlavor,
     dtiConstructors :: ![DataConInfo]
   }

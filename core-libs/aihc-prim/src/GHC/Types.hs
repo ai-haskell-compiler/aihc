@@ -12,6 +12,8 @@ module GHC.Types
     Ordering (..),
     TYPE,
     Type,
+    LiftedType,
+    UnliftedType,
     LiftedRep,
     UnliftedRep,
     Levity (..),
@@ -99,6 +101,10 @@ data TYPE (rep :: RuntimeRep)
 
 type Type :: Type
 type Type = TYPE LiftedRep
+
+type LiftedType = TYPE LiftedRep
+
+type UnliftedType = TYPE UnliftedRep
 
 type LiftedRep :: RuntimeRep
 type LiftedRep = 'BoxedRep 'Lifted

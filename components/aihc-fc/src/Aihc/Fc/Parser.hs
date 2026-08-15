@@ -411,17 +411,17 @@ caseExpression termEnv tyEnv = do
 
 alternative :: TermEnv -> TyEnv -> Parser FcAlt
 alternative termEnv tyEnv = do
-  alternativeConstructor <- altConstructor termEnv
+  alternativeConstructor <- altConstructor tyEnv
   binders <- MP.many (between "(" ")" (typedVar tyEnv))
   _ <- symbol "→"
   let altEnv = Map.union (Map.fromList [(varName var, var) | var <- binders]) termEnv
   FcAlt alternativeConstructor binders <$> expression altEnv tyEnv
 
-altConstructor :: TermEnv -> Parser FcAltCon
-altConstructor _termEnv =
+altConstructor :: TyEnv -> Parser FcAltCon
+altConstructor tyEnv =
   DefaultAlt <$ symbol "_"
     <|> MP.try (DataAlt . snd <$> constructorIdentity)
-    <|> MP.try (LitAlt <$> literal)
+    <|> MP.try (uncurry LitAlt <$> typedLiteral tyEnv)
 
 typedVar :: TyEnv -> Parser Var
 typedVar tyEnv = do
@@ -447,13 +447,20 @@ application termEnv tyEnv = do
 atom :: TermEnv -> TyEnv -> Parser FcExpr
 atom termEnv tyEnv =
   MP.choice
-    [ MP.try (declaredOccurrence termEnv),
+    [ MP.try (uncurry FcLit <$> typedLiteral tyEnv),
+      MP.try (declaredOccurrence termEnv),
       MP.try (freeOccurrence tyEnv),
       between "(" ")" (expression termEnv tyEnv),
-      MP.try (FcLit <$> literal),
       MP.try (foreignCallExpression termEnv tyEnv),
       localOccurrence termEnv
     ]
+
+typedLiteral :: TyEnv -> Parser (Literal, TcType)
+typedLiteral tyEnv = between "(" ")" $ do
+  value <- literal
+  _ <- symbol ":"
+  ty <- tcType tyEnv
+  pure (value, ty)
 
 declaredOccurrence :: TermEnv -> Parser FcExpr
 declaredOccurrence termEnv = do

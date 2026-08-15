@@ -118,7 +118,7 @@ expressionType :: FcExpr -> Maybe TcType
 expressionType expression =
   case expression of
     FcVar var -> Just (varType var)
-    FcLit literal -> literalType literal
+    FcLit _ ty -> Just ty
     FcApp function _ -> expressionType function >>= functionResultType
     FcTyApp function ty -> do
       functionType <- expressionType function

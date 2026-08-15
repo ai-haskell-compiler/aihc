@@ -58,7 +58,7 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionForm (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations (TcAnnotation (..))
-import Aihc.Tc.Env (DataConFieldInfo (..))
+import Aihc.Tc.Env (DataConFieldInfo (..), DataTypeInfo)
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Kind (runtimeRepToTcType)
 import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType, liftedRuntimeRep, mkTyCon, runtimeRepOfType, setTyVarKind, tvKind, tyConModuleName, tyConPackageId, unboxedTupleTyConName)
@@ -89,6 +89,8 @@ data DsState = DsState
     dsTypeEnv :: !(Map Text TcType),
     -- | Map from a complete global identity to its type constructor.
     dsGlobalTyConEnv :: !(Map (PackageId, Text, Text) TyCon),
+    -- | Checked data type declarations from the type checker.
+    dsDataTypes :: ![DataTypeInfo],
     -- | Top-level variables, keyed by their complete resolved identity.
     dsGlobalVars :: !(Map FcSymbolOrigin Var),
     -- | Local variable bindings (pattern-bound, lambda-bound).
@@ -445,16 +447,18 @@ boxedCharPatternValue pat =
 
 dsBoxedCharPatternMatch :: Var -> Char -> DsM FcExpr -> FcExpr -> DsM FcExpr
 dsBoxedCharPatternMatch scrutVar char success failure = do
-  charVar <- freshInternalVar "_char#" charHashTy
-  outerBinder <- freshInternalVar "_boxed_char" charTy
-  innerBinder <- freshInternalVar "_unboxed_char" charHashTy
+  checkedCharTy <- (`TcTyCon` []) <$> lookupPrimitiveTyCon "GHC.Types" "Char"
+  checkedCharHashTy <- (`TcTyCon` []) <$> lookupPrimitiveTyCon "GHC.Prim" "Char#"
+  charVar <- freshInternalVar "_char#" checkedCharHashTy
+  outerBinder <- freshInternalVar "_boxed_char" checkedCharTy
+  innerBinder <- freshInternalVar "_unboxed_char" checkedCharHashTy
   matched <- success
   charConstructor <- lookupDataConOrigin "C#"
   let innerCase =
         FcCase
           (FcVar charVar)
           innerBinder
-          [ FcAlt (LitAlt (LitChar WordRep char)) [] matched,
+          [ FcAlt (LitAlt (LitChar WordRep char) checkedCharHashTy) [] matched,
             FcAlt DefaultAlt [] failure
           ]
   pure
@@ -623,13 +627,11 @@ dsExpr (EVar name) = do
   case mLocal of
     Just v -> pure (FcVar v)
     Nothing -> FcVar <$> lookupGlobalOccurrence name
-dsExpr (EInt i numericType _) = pure (FcLit (LitInt (numericRuntimeRep numericType) i))
-dsExpr (EChar c _) = do
-  constructorOrigin <- lookupDataConOrigin "C#"
-  pure (boxCharLiteral constructorOrigin c)
-dsExpr (ECharHash c _) = pure (FcLit (LitChar WordRep c))
-dsExpr (EString s _) = dsStringLiteral s
-dsExpr (EStringHash s _) = FcLit . LitAddr <$> primitiveStringBytes s
+dsExpr EInt {} = desugarBug "integer literal does not have a checked type"
+dsExpr EChar {} = desugarBug "character literal does not have a checked type"
+dsExpr ECharHash {} = desugarBug "primitive character literal does not have a checked type"
+dsExpr EString {} = desugarBug "string literal does not have a checked type"
+dsExpr EStringHash {} = desugarBug "primitive string literal does not have a checked type"
 dsExpr application@EApp {} = dsApplication application
 dsExpr (EInfix lhs op rhs) =
   dsInfix lhs op rhs
@@ -695,6 +697,15 @@ dsAnnotatedExpr tcAnn inner = do
         isFromIntegerResolution resolution ->
           dsOverloadedIntegerLiteral tcAnn resolution value
     EAnn _ nested -> dsExpr nested
+    EInt value numericType _
+      | numericType /= TInteger -> pure (FcLit (LitInt (numericRuntimeRep numericType) value) (tcAnnType tcAnn))
+      | otherwise -> desugarBug "integer literal does not have checked overloaded-literal information"
+    EChar char _ -> boxCharLiteralM char
+    ECharHash char _ -> pure (FcLit (LitChar WordRep char) (tcAnnType tcAnn))
+    EString text _ -> dsStringLiteral text
+    EStringHash text _ -> do
+      bytes <- primitiveStringBytes text
+      pure (FcLit (LitAddr bytes) (tcAnnType tcAnn))
     EVar name -> dsAnnotatedVar tcAnn name inner
     application@EApp {} -> dsApplication application
     ELetDecls decls body -> dsLetDecls decls (dsExpr body)
@@ -859,10 +870,11 @@ dsOverloadedIntegerLiteral tcAnn resolution value = do
 dsIntegerLiteral :: ResolutionAnnotation -> Integer -> DsM FcExpr
 dsIntegerLiteral resolution value = do
   conTy <- lookupType "IS"
+  intHashTy <- (`TcTyCon` []) <$> lookupPrimitiveTyCon "GHC.Prim" "Int#"
   con <- freshVar "IS" conTy
   constructorOrigin <- lookupDataConOrigin "IS"
   let resolved name var = var {varResolvedName = integerHelperOrigin resolution name}
-      small integer = FcApp (FcVar con {varResolvedName = Just constructorOrigin}) (FcLit (LitInt IntRep integer))
+      small integer = FcApp (FcVar con {varResolvedName = Just constructorOrigin}) (FcLit (LitInt IntRep integer) intHashTy)
   if value >= minIntLiteral && value <= maxIntLiteral
     then pure (small value)
     else do
@@ -1330,10 +1342,13 @@ dsLocalGroup var group =
 
 dsStringLiteral :: Text -> DsM FcExpr
 dsStringLiteral text = do
-  nil <- nilList charTy
-  cons <- consExpr charTy
+  checkedCharTy <- (`TcTyCon` []) <$> lookupPrimitiveTyCon "GHC.Types" "Char"
+  checkedCharHashTy <- (`TcTyCon` []) <$> lookupPrimitiveTyCon "GHC.Prim" "Char#"
+  nil <- nilList checkedCharTy
+  cons <- consExpr checkedCharTy
   constructorOrigin <- lookupDataConOrigin "C#"
-  pure (T.foldr (applyConsChar constructorOrigin cons) nil text)
+  constructorType <- lookupType "C#"
+  pure (T.foldr (applyConsChar constructorOrigin constructorType checkedCharHashTy cons) nil text)
 
 primitiveStringBytes :: Text -> DsM BS.ByteString
 primitiveStringBytes text =
@@ -1597,20 +1612,27 @@ tupleConName flavor arity =
     Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
     Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
 
-applyConsChar :: FcSymbolOrigin -> FcExpr -> Char -> FcExpr -> FcExpr
-applyConsChar constructorOrigin cons char =
-  applyCons cons (boxCharLiteral constructorOrigin char)
+applyConsChar :: FcSymbolOrigin -> TcType -> TcType -> FcExpr -> Char -> FcExpr -> FcExpr
+applyConsChar constructorOrigin constructorType checkedCharHashTy cons char =
+  applyCons cons (boxCharLiteral constructorOrigin constructorType checkedCharHashTy char)
 
-boxCharLiteral :: FcSymbolOrigin -> Char -> FcExpr
-boxCharLiteral constructorOrigin char =
+boxCharLiteral :: FcSymbolOrigin -> TcType -> TcType -> Char -> FcExpr
+boxCharLiteral constructorOrigin constructorType checkedCharHashTy char =
   FcApp
     ( FcVar
-        ( (Var "C#" (Unique (-12)) (TcFunTy charHashTy charTy))
+        ( (Var "C#" (Unique (-12)) constructorType)
             { varResolvedName = Just constructorOrigin
             }
         )
     )
-    (FcLit (LitChar WordRep char))
+    (FcLit (LitChar WordRep char) checkedCharHashTy)
+
+boxCharLiteralM :: Char -> DsM FcExpr
+boxCharLiteralM char = do
+  constructorOrigin <- lookupDataConOrigin "C#"
+  constructorType <- lookupType "C#"
+  checkedCharHashTy <- (`TcTyCon` []) <$> lookupPrimitiveTyCon "GHC.Prim" "Char#"
+  pure (boxCharLiteral constructorOrigin constructorType checkedCharHashTy char)
 
 applyCons :: FcExpr -> FcExpr -> FcExpr -> FcExpr
 applyCons cons headExpr =
@@ -1750,9 +1772,12 @@ dsTypeRepresentation typeableOrigin ty arguments =
   case typeableTypeView ty of
     Nothing -> desugarBug ("cannot construct TypeRep for " <> show ty)
     Just (name, _) -> do
-      charNil <- nilList charTy
-      charCons <- consExpr charTy
+      checkedCharTy <- (`TcTyCon` []) <$> lookupPrimitiveTyCon "GHC.Types" "Char"
+      checkedCharHashTy <- (`TcTyCon` []) <$> lookupPrimitiveTyCon "GHC.Prim" "Char#"
+      charNil <- nilList checkedCharTy
+      charCons <- consExpr checkedCharTy
       charConstructorOrigin <- lookupDataConOrigin "C#"
+      charConstructorType <- lookupType "C#"
       argumentNil <- nilList typeRepTy
       argumentCons <- consExpr typeRepTy
       tyConOrigin <- typeableConstructorOrigin typeableOrigin "TyCon"
@@ -1769,7 +1794,7 @@ dsTypeRepresentation typeableOrigin ty arguments =
             )
               { varResolvedName = Just typeRepOrigin
               }
-          tyCon = FcApp (FcVar tyConConstructor) (T.foldr (applyConsChar charConstructorOrigin charCons) charNil name)
+          tyCon = FcApp (FcVar tyConConstructor) (T.foldr (applyConsChar charConstructorOrigin charConstructorType checkedCharHashTy charCons) charNil name)
           argumentList = foldr (applyCons argumentCons) argumentNil arguments
       pure (FcApp (FcApp (FcVar typeRepConstructor) tyCon) argumentList)
 
@@ -1948,10 +1973,7 @@ fcExprTypeM :: FcExpr -> DsM TcType
 fcExprTypeM expr =
   case expr of
     FcVar var -> pure (varType var)
-    FcLit lit ->
-      case literalType lit of
-        Just ty -> pure ty
-        Nothing -> desugarBug ("literal has invalid runtime representation: " <> show lit)
+    FcLit _ ty -> pure ty
     FcApp fun _arg -> do
       funTy <- fcExprTypeM fun
       case funTy of
@@ -2013,9 +2035,6 @@ typeKey ty =
 
 charTy :: TcType
 charTy = TcTyCon (TyCon "Char" 0) []
-
-charHashTy :: TcType
-charHashTy = TcTyCon (TyCon "Char#" 0) []
 
 -- | Convert a Name to Text.
 nameToText :: Name -> Text

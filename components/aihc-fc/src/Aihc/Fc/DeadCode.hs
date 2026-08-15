@@ -211,7 +211,7 @@ referencesExpr bound expression =
     FcVar var
       | var `Set.member` bound -> referencesVarType var
       | otherwise -> mempty {referencedValues = Set.singleton (varName var)} <> referencesVarType var
-    FcLit literal -> foldMap referencesType (literalType literal)
+    FcLit _ ty -> referencesType ty
     FcApp function argument -> referencesExpr bound function <> referencesExpr bound argument
     FcTyApp inner ty -> referencesExpr bound inner <> referencesType ty
     FcLam var body -> referencesVarType var <> referencesExpr (Set.insert var bound) body
@@ -249,7 +249,7 @@ referencesAltCon :: FcAltCon -> References
 referencesAltCon altCon =
   case altCon of
     DataAlt constructor -> mempty {referencedConstructors = Set.singleton (fcConstructorSymbolOrigin constructor)}
-    LitAlt literal -> foldMap referencesType (literalType literal)
+    LitAlt _ ty -> referencesType ty
     DefaultAlt -> mempty
 
 referencesVarType :: Var -> References

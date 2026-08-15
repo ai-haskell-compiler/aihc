@@ -51,12 +51,12 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..), packageIdText)
-import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TcTermKey (..), TyConFlavor (..), TyConInfo (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
+import Aihc.Tc (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TcTermKey (..), TyConFlavor (..), TyConInfo (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
 import Aihc.Tc.Types
-  ( Kind (KFun, KTYPE, KType),
+  ( Kind (KFun, KMeta, KTYPE, KType),
     Pred (..),
     RuntimeRep (..),
     TcType (..),
@@ -75,7 +75,7 @@ import Aihc.Tc.Types
     unboxedTupleTyConName,
   )
 import Control.Applicative ((<|>))
-import Control.Monad (foldM, zipWithM)
+import Control.Monad (foldM, unless, zipWithM)
 import Control.Monad.Trans.State.Strict (gets, modify', runStateT)
 import Data.Either (fromRight)
 import Data.Map.Strict qualified as Map
@@ -126,7 +126,22 @@ desugarModule config bindings dataTypes globalTyConEnv globalVars tcResult =
                 dtiFlavor dataType == DataTyCon,
                 constructor <- dtiConstructors dataType
               ]
-       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) packageId currentModuleName typeEnv globalTyConEnv globalVars Map.empty Map.empty constructorFields Nothing) of
+          initialState =
+            DsState
+              { dsNextUnique = 1000,
+                dsPrimPackageId = primPackageId config,
+                dsModulePackage = packageId,
+                dsModuleName = currentModuleName,
+                dsTypeEnv = typeEnv,
+                dsGlobalTyConEnv = globalTyConEnv,
+                dsDataTypes = dataTypes,
+                dsGlobalVars = globalVars,
+                dsLocalVars = Map.empty,
+                dsLocalDicts = Map.empty,
+                dsConstructorFields = constructorFields,
+                dsTupleConstructorOrigin = Nothing
+              }
+       in case runStateT (dsModule tcResult) initialState of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram (sourceModuleId tcResult) [],
@@ -356,15 +371,86 @@ dsDecl _ = pure []
 dsDataDeclM :: DataDecl -> DsM [FcTopBind]
 dsDataDeclM dd = do
   let tyName = unqualifiedNameText (binderHeadName (dataDeclHead dd))
-  tyOrigin <- localDeclarationOrigin tyName
-  constructorInfos <- mapM dsDataConM (dataDeclConstructors dd)
-  let (typeVariables, resultKind) =
-        case constructorInfos of
-          (_, _, _, resultType) : _ -> (dataResultVariables resultType, typeKind resultType)
-          [] -> ([], KType)
-  constructors <- mapM (\(name, _, fields, _) -> (FcDataConDecl . fcConstructorIdFromSymbol <$> localDeclarationOrigin name) <*> pure name <*> pure fields) constructorInfos
+  dataType <- lookupCheckedDataType DataTyCon tyName
+  let tyOrigin = checkedDataTypeOrigin dataType
+      typeVariables = dtiTyVars dataType
+      resultKind = dtiResultKind dataType
+      constructorInfos = map checkedConstructorInfo (dtiConstructors dataType)
+      constructors = map checkedFcDataCon (dtiConstructors dataType)
   selectors <- dsRecordSelectors [(name, variables, fields) | (name, variables, fields, _) <- constructorInfos] (dataDeclConstructors dd)
   pure (FcData (FcDataDecl tyOrigin tyName typeVariables resultKind constructors) : selectors)
+
+lookupCheckedDataType :: TyConFlavor -> Text -> DsM DataTypeInfo
+lookupCheckedDataType expectedFlavor expectedName = do
+  packageId <- gets dsModulePackage
+  moduleName' <- gets dsModuleName
+  dataTypes <- gets dsDataTypes
+  let matches =
+        [ info
+        | info <- dataTypes,
+          dtiName info == expectedName,
+          tyConPackageId (dtiTyCon info) == packageId,
+          tyConModuleName (dtiTyCon info) == moduleName'
+        ]
+      qualifiedName = T.unpack moduleName' <> "." <> T.unpack expectedName
+  case matches of
+    [] -> desugarBug ("missing checked data type information for " <> qualifiedName)
+    [info] -> do
+      validateCheckedDataType expectedFlavor qualifiedName info
+      pure info
+    _ -> desugarBug ("duplicate checked data type information for " <> qualifiedName)
+
+validateCheckedDataType :: TyConFlavor -> String -> DataTypeInfo -> DsM ()
+validateCheckedDataType expectedFlavor qualifiedName info = do
+  unless (dtiFlavor info == expectedFlavor) $
+    desugarBug ("invalid checked data type flavor for " <> qualifiedName)
+  unless (length (dtiTyVars info) == tyConArity (dtiTyCon info)) $
+    desugarBug ("invalid checked data type arity for " <> qualifiedName)
+  unless (all (isFinalKind . tvKind) (dtiTyVars info)) $
+    desugarBug ("non-final checked parameter kind for " <> qualifiedName)
+  unless (isFinalValueKind (dtiResultKind info)) $
+    desugarBug ("invalid checked result kind for " <> qualifiedName)
+
+isFinalValueKind :: Kind -> Bool
+isFinalValueKind kind =
+  case kind of
+    KTYPE runtimeRep -> isFinalRuntimeRep runtimeRep
+    _ -> False
+
+isFinalKind :: Kind -> Bool
+isFinalKind kind =
+  case kind of
+    KTYPE runtimeRep -> isFinalRuntimeRep runtimeRep
+    KFun argument result -> isFinalKind argument && isFinalKind result
+    KMeta {} -> False
+    _ -> True
+
+isFinalRuntimeRep :: RuntimeRep -> Bool
+isFinalRuntimeRep runtimeRep =
+  case runtimeRep of
+    RuntimeRepMeta {} -> False
+    TupleRep fields -> all isFinalRuntimeRep fields
+    SumRep fields -> all isFinalRuntimeRep fields
+    _ -> True
+
+checkedDataTypeOrigin :: DataTypeInfo -> FcSymbolOrigin
+checkedDataTypeOrigin info =
+  let tyCon = dtiTyCon info
+   in FcTopLevelOrigin (packageIdText (tyConPackageId tyCon)) (tyConModuleName tyCon) (dtiName info)
+
+checkedConstructorInfo :: DataConInfo -> (Text, [TyVarId], [TcType], TcType)
+checkedConstructorInfo info =
+  ( dciName info,
+    dciUnivTyVars info,
+    map predType (dciTheta info) <> map dcfiType (dciFields info),
+    dciResTy info
+  )
+
+checkedFcDataCon :: DataConInfo -> FcDataConDecl
+checkedFcDataCon info =
+  let (packageId, moduleName') = dciOrigin info
+      origin = FcTopLevelOrigin (packageIdText packageId) moduleName' (dciName info)
+   in FcDataConDecl (fcConstructorIdFromSymbol origin) (dciName info) (map predType (dciTheta info) <> map dcfiType (dciFields info))
 
 -- | Retain a data-family instance as a fresh representation type and a
 -- nominal axiom connecting that representation to the family application.
@@ -424,35 +510,34 @@ dataFamilyRepresentation familyInst representationName representationTyVars repr
 dsNewtypeDeclM :: NewtypeDecl -> DsM [FcTopBind]
 dsNewtypeDeclM nd = do
   let tyName = unqualifiedNameText (binderHeadName (newtypeDeclHead nd))
-  case newtypeDeclConstructor nd of
-    Nothing -> desugarBug ("newtype " <> T.unpack tyName <> " has no constructor")
-    Just con -> do
-      let (conName, arity) = dsDataConPure con
-      conTy <- lookupType conName
-      case (arity, dropForAlls conTy) of
-        (1, TcFunTy fieldTy resultTy@(TcTyCon resultTyCon resultArgs))
-          | tyConName resultTyCon == tyName,
-            Just tyVars <- traverse asTyVar resultArgs -> do
-              newtypeOrigin <- localDeclarationOrigin tyName
-              constructorOrigin <- localDeclarationOrigin conName
-              selectors <- dsRecordSelectors [(conName, tyVars, [fieldTy])] [con]
-              pure
-                ( FcNewtype
-                    FcNewtypeDecl
-                      { fcNewtypeOrigin = newtypeOrigin,
-                        fcNewtypeName = tyName,
-                        fcNewtypeTyVars = tyVars,
-                        fcNewtypeConstructorOrigin = fcConstructorIdFromSymbol constructorOrigin,
-                        fcNewtypeConstructor = conName,
-                        fcNewtypeRepresentation = fieldTy,
-                        fcNewtypeResult = resultTy
-                      }
-                    : selectors
-                )
-        _ -> desugarBug ("newtype constructor " <> T.unpack conName <> " does not have exactly one field")
-  where
-    asTyVar (TcTyVar tyVar) = Just tyVar
-    asTyVar _ = Nothing
+  dataType <- lookupCheckedDataType NewtypeTyCon tyName
+  case (newtypeDeclConstructor nd, dtiConstructors dataType) of
+    (Nothing, _) -> desugarBug ("newtype " <> T.unpack tyName <> " has no constructor")
+    (Just con, [constructorInfo]) ->
+      case (dciTheta constructorInfo, dciFields constructorInfo) of
+        ([], [field]) -> do
+          let conName = dciName constructorInfo
+              tyVars = dtiTyVars dataType
+              fieldTy = dcfiType field
+              resultTy = dciResTy constructorInfo
+              constructorOrigin = fcDataConOrigin (checkedFcDataCon constructorInfo)
+              constructorFields = [checkedConstructorInfo constructorInfo]
+          selectors <- dsRecordSelectors [(name, variables, fields) | (name, variables, fields, _) <- constructorFields] [con]
+          pure
+            ( FcNewtype
+                FcNewtypeDecl
+                  { fcNewtypeOrigin = checkedDataTypeOrigin dataType,
+                    fcNewtypeName = tyName,
+                    fcNewtypeTyVars = tyVars,
+                    fcNewtypeConstructorOrigin = constructorOrigin,
+                    fcNewtypeConstructor = conName,
+                    fcNewtypeRepresentation = fieldTy,
+                    fcNewtypeResult = resultTy
+                  }
+                : selectors
+            )
+        _ -> desugarBug ("newtype constructor " <> T.unpack (dciName constructorInfo) <> " does not have exactly one checked field")
+    (Just _, _) -> desugarBug ("newtype " <> T.unpack tyName <> " does not have exactly one checked constructor")
 
 dsRecordSelectors :: [(Text, [TyVarId], [TcType])] -> [DataConDecl] -> DsM [FcTopBind]
 dsRecordSelectors constructorInfos declarations =
@@ -837,16 +922,16 @@ primitiveImportSpecs =
       primitive "putMVar#" "MVar# d a -> a -> State# d -> State# d",
       primitive
         "newMutVar#"
-        "forall (r :: RuntimeRep) (a :: TYPE r) d. a -> State# d -> (# State# d, MutVar# d a #)",
+        "a -> State# d -> (# State# d, MutVar# d a #)",
       primitive
         "readMutVar#"
-        "forall (r :: RuntimeRep) d (a :: TYPE r). MutVar# d a -> State# d -> (# State# d, a #)",
+        "MutVar# d a -> State# d -> (# State# d, a #)",
       primitive
         "writeMutVar#"
-        "forall (r :: RuntimeRep) d (a :: TYPE r). MutVar# d a -> a -> State# d -> State# d",
+        "MutVar# d a -> a -> State# d -> State# d",
       primitive
         "casMutVar#"
-        "forall (r :: RuntimeRep) d (a :: TYPE r). MutVar# d a -> a -> a -> State# d -> (# State# d, Int#, a #)",
+        "MutVar# d a -> a -> a -> State# d -> (# State# d, Int#, a #)",
       primitive "sameMutVar#" "MutVar# d a -> MutVar# d a -> Int#",
       primitive "newArray#" "Int# -> a -> State# d -> (# State# d, MutableArray# d a #)",
       primitive "indexArray#" "Array# a -> Int# -> a",
@@ -935,13 +1020,6 @@ dsDataConM con = do
       universalVariables = filter (\variable -> variable `elem` resultVariables || tvUnique variable `elem` resultRepUniques) quantifiedVariables
   fields <- dataConFieldTypes name arity constructorTy
   pure (name, universalVariables, map predType predicates <> fields, resultType)
-
-dataResultVariables :: TcType -> [TyVarId]
-dataResultVariables (TcTyCon _ arguments) = mapMaybe typeVariable arguments
-  where
-    typeVariable (TcTyVar variable) = Just variable
-    typeVariable _ = Nothing
-dataResultVariables _ = []
 
 typeRuntimeRepVariables :: TcType -> [Unique]
 typeRuntimeRepVariables ty =

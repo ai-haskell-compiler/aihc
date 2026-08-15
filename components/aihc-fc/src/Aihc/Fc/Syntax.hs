@@ -56,7 +56,6 @@ module Aihc.Fc.Syntax
     -- * Literals
     Literal (..),
     literalRuntimeRep,
-    literalType,
   )
 where
 
@@ -369,7 +368,7 @@ data FcExpr
   = -- | Term variable reference.
     FcVar !Var
   | -- | Literal value.
-    FcLit !Literal
+    FcLit !Literal !TcType
   | -- | Term application.
     FcApp !FcExpr !FcExpr
   | -- | Type application (@e \@\tau@).
@@ -413,7 +412,7 @@ data FcAltCon
   = -- | Data constructor with its full identity.
     DataAlt !FcConstructorId
   | -- | Literal match.
-    LitAlt !Literal
+    LitAlt !Literal !TcType
   | -- | Default/wildcard.
     DefaultAlt
   deriving (Eq, Show, Read)
@@ -438,31 +437,3 @@ literalRuntimeRep literal =
     LitChar runtimeRep _ -> runtimeRep
     LitString {} -> liftedRuntimeRep
     LitAddr {} -> AddrRep
-
--- | The primitive type denoted by a literal. Unsupported combinations are
--- deliberately absent so Core Lint can reject them.
-literalType :: Literal -> Maybe TcType
-literalType literal =
-  case literal of
-    LitInt runtimeRep _ -> scalarType runtimeRep
-    LitChar WordRep _ -> Just (primitiveType "Char#")
-    LitChar _ _ -> Nothing
-    LitString {} -> Just (TcTyCon (TyCon "[]" 1) [TcTyCon (TyCon "Char" 0) []])
-    LitAddr {} -> Just (primitiveType "Addr#")
-  where
-    scalarType runtimeRep =
-      primitiveType
-        <$> lookup
-          runtimeRep
-          [ (IntRep, "Int#"),
-            (Int8Rep, "Int8#"),
-            (Int16Rep, "Int16#"),
-            (Int32Rep, "Int32#"),
-            (Int64Rep, "Int64#"),
-            (WordRep, "Word#"),
-            (Word8Rep, "Word8#"),
-            (Word16Rep, "Word16#"),
-            (Word32Rep, "Word32#"),
-            (Word64Rep, "Word64#")
-          ]
-    primitiveType name = TcTyCon (TyCon name 0) []

@@ -43,6 +43,7 @@ import Aihc.Tc.Types
     Unique (..),
     kindFromTypeScheme,
     liftedTypeKind,
+    runtimeRepOfType,
     tvKind,
     tyConKindScheme,
     tyConName,
@@ -194,10 +195,13 @@ lintExpr env (FcVar v) = do
           | typesEqual (varType v) (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) -> Right (varType v)
           | otherwise -> Left (TypeMismatch "constructor occurrence" (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) (varType v))
         Nothing -> Left (UnboundVar (varName v) (varUnique v))
-lintExpr env (FcLit lit) =
-  case literalType lit of
-    Just ty -> lintValueType "literal" env ty >> Right ty
-    Nothing -> Left (LintFailure ("literal has invalid runtime representation: " ++ show lit))
+lintExpr env (FcLit lit ty) = do
+  _ <- lintValueType "literal" env ty
+  case runtimeRepOfType ty of
+    Right runtimeRep
+      | runtimeRep == literalRuntimeRep lit -> Right ty
+      | otherwise -> Left (LintFailure ("literal runtime representation does not match its checked type: " ++ show lit ++ " :: " ++ show ty))
+    Left kind -> Left (LintFailure ("literal checked type does not have a runtime representation: " ++ show lit ++ " :: " ++ show kind))
 lintExpr env (FcApp f a) = do
   fTy <- lintExpr env f
   aTy <- lintExpr env a
