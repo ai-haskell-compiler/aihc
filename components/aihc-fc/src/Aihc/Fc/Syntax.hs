@@ -87,7 +87,7 @@ data FcModuleId = FcModuleId
   { fcModulePackage :: !PackageId,
     fcModuleName :: !Text
   }
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Show, Read)
 
 fcModulePackageText :: FcModuleId -> Text
 fcModulePackageText = packageIdText . fcModulePackage
@@ -288,7 +288,7 @@ data Var = ResolvedVar
     -- display name so whole-program FC evaluation remains source-readable.
     varResolvedName :: !(Maybe FcSymbolOrigin)
   }
-  deriving (Show, Read)
+  deriving (Eq, Ord, Show, Read)
 
 -- | Stable source identity for a non-local symbol. Unlike the display name,
 -- this includes the package selected by name resolution.
@@ -335,15 +335,6 @@ pattern Var name unique ty <- ResolvedVar name unique ty _
     Var name unique ty = ResolvedVar name unique ty Nothing
 
 {-# COMPLETE Var #-}
-
--- Eq/Ord on Unique only, mirroring TyVarId. Exact syntax-tree comparisons
--- must inspect every field because imported occurrences can carry additional
--- source identity in 'varResolvedName'.
-instance Eq Var where
-  a == b = varUnique a == varUnique b
-
-instance Ord Var where
-  compare a b = compare (varUnique a) (varUnique b)
 
 -- | System FC core expression.
 --

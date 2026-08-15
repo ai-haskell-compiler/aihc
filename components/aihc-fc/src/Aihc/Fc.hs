@@ -63,6 +63,7 @@ module Aihc.Fc
     lintProgram,
     lintProgramWithAxiomInterface,
     lintExpr,
+    lintType,
     LintError (..),
     LintEnv (..),
     emptyLintEnv,
@@ -78,7 +79,7 @@ import Aihc.Fc.Axiom (AxiomInterface, extractAxiomInterface, lookupAxiomDecl)
 import Aihc.Fc.DeadCode (ReachabilityInterface, eliminateDeadCode, extractReachabilityInterface, reachablePrimitiveNames)
 import Aihc.Fc.Desugar (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface)
 import Aihc.Fc.Eval (EvalError (..), Value (..), evalExpr, evalProgramBinding, renderRawValue, renderValue)
-import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram, lintProgramWithAxiomInterface)
+import Aihc.Fc.Lint (LintEnv (..), LintError (..), emptyLintEnv, lintExpr, lintProgram, lintProgramWithAxiomInterface, lintType)
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Main (MainEntrypointError (..), addMainEntrypoint, mainEntryBindingName)
 import Aihc.Fc.Merge (FcMergeError (..), mergePrograms)

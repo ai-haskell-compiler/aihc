@@ -250,7 +250,7 @@ data TcType
     TcAppTy !TcType !TcType
   | -- | A primitive type constructor used to define kind schemes without a recursive 'TyCon'.
     TcBuiltinTyCon !Text !Int ![TcType]
-  deriving (Eq, Show, Read)
+  deriving (Eq, Ord, Show, Read)
 
 -- | Whether a type has an unlifted runtime representation in the subset of
 -- primitive types and runtime representations currently modeled by AIHC.
@@ -683,7 +683,7 @@ data Pred
     ClassPred !Text ![TcType]
   | -- | Type equality predicate, e.g. @a ~ Int@.
     EqPred !TcType !TcType
-  deriving (Eq, Show, Read)
+  deriving (Eq, Ord, Show, Read)
 
 -- | The nesting level of implication constraints.
 --

@@ -10,13 +10,15 @@
 --
 -- 1. No meta-variables in types.
 -- 2. Every variable reference is in scope.
--- 3. Every sub-expression's type is consistent with how it's used.
--- 4. Every cast has a valid coercion proof.
+-- 3. Every type is well-kinded.
+-- 4. Every sub-expression's type is consistent with how it is used.
+-- 5. Every cast has a valid coercion proof.
 module Aihc.Fc.Lint
   ( -- * Lint
     lintProgram,
     lintProgramWithAxiomInterface,
     lintExpr,
+    lintType,
 
     -- * Errors
     LintError (..),
@@ -31,7 +33,22 @@ import Aihc.Fc.Axiom (AxiomInterface, extractAxiomInterface, lookupAxiomDecl)
 import Aihc.Fc.Subst (freeRigidTyVarsOf, substType)
 import Aihc.Fc.Syntax
 import Aihc.Tc.Evidence (Coercion (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId (..), Unique (..))
+import Aihc.Tc.Types
+  ( Kind (..),
+    Pred (..),
+    RuntimeRep (..),
+    TcType (..),
+    TyVarId (..),
+    TypeScheme (..),
+    Unique (..),
+    kindFromTypeScheme,
+    liftedTypeKind,
+    tvKind,
+    tyConKindScheme,
+    tyConName,
+    typeKind,
+  )
+import Control.Monad (foldM)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -46,6 +63,14 @@ data LintError
     TypeMismatch !String !TcType !TcType
   | -- | Meta-variable found in Core (should have been zonked).
     MetaVarInCore !Unique
+  | -- | Type variable not in scope.
+    UnboundTyVar !Text !Unique
+  | -- | Kind mismatch.
+    KindMismatch !String !Kind !Kind
+  | -- | A type application has a non-function kind.
+    InvalidKindApplication !String !Kind
+  | -- | A term type does not have a runtime representation.
+    NonValueKind !String !Kind
   | -- | Case alternatives have inconsistent types.
     InconsistentAlts !TcType !TcType
   | -- | General lint failure.
@@ -117,20 +142,20 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
 
     go _ [] = []
     go env (FcExternal origin ty : rest) =
-      go (extendTermEnv (fcExternalVar origin ty) env) rest
-    go env (FcData {} : rest) =
-      -- Data declarations don't need expression-level linting.
-      go env rest
-    go env (FcAxiom {} : rest) =
-      -- Axiom declarations don't need expression-level linting.
-      go env rest
-    go env (FcNewtype {} : rest) =
-      -- Newtype declarations don't need expression-level linting.
-      go env rest
+      lintValueTypeErrors "external declaration" env ty
+        <> go (extendTermEnv (fcExternalVar origin ty) env) rest
+    go env (FcData declaration : rest) =
+      lintDataDecl env declaration <> go env rest
+    go env (FcAxiom declaration : rest) =
+      lintAxiomDecl env declaration <> go env rest
+    go env (FcNewtype declaration : rest) =
+      lintNewtypeDecl env declaration <> go env rest
     go env (FcPrimitive var _arity : rest) =
-      go (extendTermEnv var env) rest
-    go env (FcForeignImport _ : rest) =
-      go env rest
+      lintValueTypeErrors "primitive declaration" env (varType var)
+        <> go (extendTermEnv var env) rest
+    go env (FcForeignImport foreignCall : rest) =
+      lintValueTypeErrors "foreign declaration" env (fcForeignCallType (fcForeignCallSignature foreignCall))
+        <> go env rest
     go env (FcTopBind bind : rest) =
       let (errs, env') = lintBind env bind
        in errs ++ go env' rest
@@ -138,16 +163,18 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
 -- | Lint a binding, returning errors and the extended environment.
 lintBind :: LintEnv -> FcBind -> ([LintError], LintEnv)
 lintBind env (FcNonRec v e) =
-  let errs = case lintExpr env e of
-        Left err -> [err]
-        Right inferredTy ->
-          [TypeMismatch "non-rec binding" (varType v) inferredTy | not (typesEqual (varType v) inferredTy)]
+  let errs =
+        lintValueTypeErrors "non-rec binder" env (varType v)
+          <> case lintExpr env e of
+            Left err -> [err]
+            Right inferredTy ->
+              [TypeMismatch "non-rec binding" (varType v) inferredTy | not (typesEqual (varType v) inferredTy)]
       env' = extendTermEnv v env
    in (errs, env')
 lintBind env (FcRec binds) =
   let -- All binders are in scope for all RHSs.
       env' = foldr (extendTermEnv . fst) env binds
-      errs = concatMap (lintRecBind env') binds
+      errs = concatMap (lintValueTypeErrors "rec binder" env . varType . fst) binds <> concatMap (lintRecBind env') binds
    in (errs, env')
   where
     lintRecBind recEnv (v, e) = case lintExpr recEnv e of
@@ -157,7 +184,8 @@ lintBind env (FcRec binds) =
 
 -- | Lint an expression, returning its type or an error.
 lintExpr :: LintEnv -> FcExpr -> Either LintError TcType
-lintExpr env (FcVar v) =
+lintExpr env (FcVar v) = do
+  _ <- lintValueType "variable occurrence" env (varType v)
   case Map.lookup (varUnique v) (leTerms env) of
     Just ty -> Right ty
     Nothing ->
@@ -166,9 +194,9 @@ lintExpr env (FcVar v) =
           | typesEqual (varType v) (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) -> Right (varType v)
           | otherwise -> Left (TypeMismatch "constructor occurrence" (foldr TcForAllTy (foldr TcFunTy resultType fields) tyVars) (varType v))
         Nothing -> Left (UnboundVar (varName v) (varUnique v))
-lintExpr _ (FcLit lit) =
+lintExpr env (FcLit lit) =
   case literalType lit of
-    Just ty -> Right ty
+    Just ty -> lintValueType "literal" env ty >> Right ty
     Nothing -> Left (LintFailure ("literal has invalid runtime representation: " ++ show lit))
 lintExpr env (FcApp f a) = do
   fTy <- lintExpr env f
@@ -180,16 +208,21 @@ lintExpr env (FcApp f a) = do
     _ -> Left (LintFailure ("application to non-function type: " ++ show fTy))
 lintExpr env (FcTyApp e ty) = do
   eTy <- lintExpr env e
+  argumentKind <- lintType env ty
   case eTy of
-    TcForAllTy tv body ->
-      Right (substType (Map.singleton tv ty) body)
+    TcForAllTy tv body
+      | tvKind tv == argumentKind ->
+          Right (substType (Map.singleton tv ty) body)
+      | otherwise -> Left (KindMismatch "type application argument" (tvKind tv) argumentKind)
     _ -> Left (LintFailure ("type application to non-forall type: " ++ show eTy))
 lintExpr env (FcLam v body) = do
+  _ <- lintValueType "lambda binder" env (varType v)
   let env' = extendTermEnv v env
   bodyTy <- lintExpr env' body
   Right (TcFunTy (varType v) bodyTy)
 lintExpr env (FcTyLam tv body) = do
-  let env' = env {leTyVars = Set.insert tv (leTyVars env)}
+  _ <- lintKind env (tvKind tv)
+  let env' = extendTyVarEnv tv env
   bodyTy <- lintExpr env' body
   Right (TcForAllTy tv bodyTy)
 lintExpr env (FcLet bind body) = do
@@ -197,8 +230,9 @@ lintExpr env (FcLet bind body) = do
   case errs of
     [] -> lintExpr env' body
     (e : _) -> Left e
-lintExpr env (FcCase scrut _binder alts) = do
+lintExpr env (FcCase scrut binder alts) = do
   _scrutTy <- lintExpr env scrut
+  _ <- lintValueType "case binder" env (varType binder)
   case alts of
     [] -> Left (LintFailure "case expression has no alternatives")
     alt : rest -> do
@@ -223,7 +257,9 @@ lintExpr env (FcCallForeign foreignCall arguments) = do
     then Left (LintFailure ("foreign call arity mismatch for " ++ show (fcForeignCallName foreignCall)))
     else do
       mapM_ checkArgument (zip expectedTypes argumentTypes)
-      pure (fcForeignCallResultType (fcForeignCallSignature foreignCall))
+      let resultType = fcForeignCallResultType (fcForeignCallSignature foreignCall)
+      _ <- lintValueType "foreign call result" env resultType
+      pure resultType
   where
     checkArgument (expected, actual)
       | typesEqual expected actual = Right ()
@@ -241,6 +277,7 @@ lookupDataConstructor var constructors =
 -- | Lint a case alternative.
 lintAlt :: LintEnv -> FcAlt -> Either LintError TcType
 lintAlt env (FcAlt _con binders rhs) = do
+  mapM_ (lintValueType "case alternative binder" env . varType) binders
   let env' = foldr extendTermEnv env binders
   lintExpr env' rhs
 
@@ -256,7 +293,9 @@ lintAltWithExpected env resTy alt = do
 -- For the MVP, this is minimal. A full implementation would recursively
 -- compute the proved equality.
 coercionEndpoints :: LintEnv -> Coercion -> Either LintError (TcType, TcType)
-coercionEndpoints _ (Refl ty) = Right (ty, ty)
+coercionEndpoints env (Refl ty) = do
+  _ <- lintType env ty
+  Right (ty, ty)
 coercionEndpoints env (Sym co) = do
   (from, to) <- coercionEndpoints env co
   Right (to, from)
@@ -270,19 +309,255 @@ coercionEndpoints _ (CoVar _) =
   Right (TcMetaTv (Unique (-1)), TcMetaTv (Unique (-1)))
 coercionEndpoints env (TyConAppCo tc coercions) = do
   pairs <- mapM (coercionEndpoints env) coercions
-  Right (TcTyCon tc (map fst pairs), TcTyCon tc (map snd pairs))
+  let left = TcTyCon tc (map fst pairs)
+      right = TcTyCon tc (map snd pairs)
+  _ <- lintType env left
+  _ <- lintType env right
+  Right (left, right)
 coercionEndpoints env (AxiomInstCo name typeArgs) =
   case lookupAxiomDecl name (leAxioms env) of
     Nothing -> Left (LintFailure ("unknown coercion axiom: " ++ show name))
     Just declaration
       | length typeArgs /= length (fcAxiomTyVars declaration) ->
           Left (LintFailure ("coercion axiom arity mismatch: " ++ show name))
-      | otherwise ->
+      | otherwise -> do
+          lintBinderArguments env (fcAxiomTyVars declaration) typeArgs
           let substitution = Map.fromList (zip (fcAxiomTyVars declaration) typeArgs)
-           in Right
-                ( substType substitution (fcAxiomLeft declaration),
-                  substType substitution (fcAxiomRight declaration)
-                )
+          Right
+            ( substType substitution (fcAxiomLeft declaration),
+              substType substitution (fcAxiomRight declaration)
+            )
+
+-- | Infer and check a Core type's kind.
+lintType :: LintEnv -> TcType -> Either LintError Kind
+lintType env ty =
+  case ty of
+    TcTyVar tyVar
+      | tyVar `Set.member` leTyVars env -> lintKind env (tvKind tyVar) >> pure (tvKind tyVar)
+      | otherwise -> Left (UnboundTyVar (tvName tyVar) (tvUnique tyVar))
+    TcMetaTv unique -> Left (MetaVarInCore unique)
+    TcTyCon tyCon arguments ->
+      let scheme@(ForAll kindTyVars _ _) = tyConKindScheme tyCon
+          initialKind = kindFromTypeScheme scheme
+          quantified = Set.fromList (map tvUnique kindTyVars) <> kindParameterRuntimeRepVariables initialKind
+       in lintTypeArguments env ("type constructor " <> show (tyConName tyCon)) quantified initialKind arguments
+    TcFunTy argument result -> do
+      _ <- lintValueType "function argument" env argument
+      _ <- lintValueType "function result" env result
+      pure liftedTypeKind
+    TcForAllTy tyVar body -> do
+      _ <- lintKind env (tvKind tyVar)
+      bodyKind <- lintType (extendTyVarEnv tyVar env) body
+      requireValueKind "forall body" bodyKind
+    TcQualTy predicates body -> do
+      mapM_ (lintPred env) predicates
+      bodyKind <- lintType env body
+      requireValueKind "qualified type body" bodyKind
+    TcAppTy function argument -> do
+      functionKind <- lintType env function
+      lintTypeArguments env "type application" Set.empty functionKind [argument]
+    TcBuiltinTyCon name arity arguments ->
+      lintTypeArguments env ("built-in type constructor " <> show name) Set.empty (typeKind (TcBuiltinTyCon name arity [])) arguments
+
+lintPred :: LintEnv -> Pred -> Either LintError ()
+lintPred env predicate =
+  case predicate of
+    ClassPred _ arguments -> mapM_ (lintType env) arguments
+    EqPred left right -> do
+      leftKind <- lintType env left
+      rightKind <- lintType env right
+      if leftKind == rightKind
+        then pure ()
+        else Left (KindMismatch "equality predicate" leftKind rightKind)
+
+lintKind :: LintEnv -> Kind -> Either LintError ()
+lintKind env kind =
+  case kind of
+    KTYPE runtimeRep -> lintRuntimeRep env runtimeRep
+    KFun argument result -> lintKind env argument >> lintKind env result
+    KMeta unique -> Left (MetaVarInCore unique)
+    _ -> pure ()
+
+lintRuntimeRep :: LintEnv -> RuntimeRep -> Either LintError ()
+lintRuntimeRep env runtimeRep =
+  case runtimeRep of
+    RuntimeRepVar unique
+      | any (\tyVar -> tvUnique tyVar == unique && tvKind tyVar == KRuntimeRep) (Set.toList (leTyVars env)) -> pure ()
+      | otherwise -> Left (UnboundTyVar "runtime representation" unique)
+    RuntimeRepMeta unique -> Left (MetaVarInCore unique)
+    TupleRep fields -> mapM_ (lintRuntimeRep env) fields
+    SumRep fields -> mapM_ (lintRuntimeRep env) fields
+    _ -> pure ()
+
+lintTypeArguments :: LintEnv -> String -> Set Unique -> Kind -> [TcType] -> Either LintError Kind
+lintTypeArguments env context quantified = go Map.empty
+  where
+    go substitution kind [] = do
+      let result = substituteKindRuntimeReps substitution kind
+      lintKindMetas result
+      pure result
+    go substitution kind (argument : arguments) = do
+      actual <- lintType env argument
+      case substituteKindRuntimeReps substitution kind of
+        KFun expected result -> do
+          substitution' <- matchKinds context quantified substitution expected actual
+          go substitution' result arguments
+        actualKind -> Left (InvalidKindApplication context actualKind)
+
+lintKindMetas :: Kind -> Either LintError ()
+lintKindMetas kind =
+  case kind of
+    KTYPE runtimeRep -> lintRuntimeRepMetas runtimeRep
+    KFun argument result -> lintKindMetas argument >> lintKindMetas result
+    KMeta unique -> Left (MetaVarInCore unique)
+    _ -> pure ()
+
+lintRuntimeRepMetas :: RuntimeRep -> Either LintError ()
+lintRuntimeRepMetas runtimeRep =
+  case runtimeRep of
+    RuntimeRepMeta unique -> Left (MetaVarInCore unique)
+    TupleRep fields -> mapM_ lintRuntimeRepMetas fields
+    SumRep fields -> mapM_ lintRuntimeRepMetas fields
+    _ -> pure ()
+
+matchKinds :: String -> Set Unique -> Map Unique RuntimeRep -> Kind -> Kind -> Either LintError (Map Unique RuntimeRep)
+matchKinds context quantified substitution expected actual =
+  case (expected, actual) of
+    (KTYPE expectedRep, KTYPE actualRep) -> matchRuntimeReps expectedRep actualRep
+    (KFun expectedArgument expectedResult, KFun actualArgument actualResult) -> do
+      substitution' <- matchKinds context quantified substitution expectedArgument actualArgument
+      matchKinds context quantified substitution' expectedResult actualResult
+    _
+      | expected == actual -> pure substitution
+      | otherwise -> Left (KindMismatch context expected actual)
+  where
+    matchRuntimeReps expectedRep actualRep =
+      case expectedRep of
+        RuntimeRepVar unique
+          | unique `Set.member` quantified ->
+              case Map.lookup unique substitution of
+                Nothing -> pure (Map.insert unique actualRep substitution)
+                Just stored
+                  | stored == actualRep -> pure substitution
+                  | otherwise -> Left (KindMismatch context (KTYPE stored) actual)
+        TupleRep expectedFields
+          | TupleRep actualFields <- actualRep,
+            length expectedFields == length actualFields ->
+              foldM (\current (left, right) -> matchRuntimeRepsWith current left right) substitution (zip expectedFields actualFields)
+        SumRep expectedFields
+          | SumRep actualFields <- actualRep,
+            length expectedFields == length actualFields ->
+              foldM (\current (left, right) -> matchRuntimeRepsWith current left right) substitution (zip expectedFields actualFields)
+        _
+          | expectedRep == actualRep -> pure substitution
+          | otherwise -> Left (KindMismatch context expected actual)
+
+    matchRuntimeRepsWith current left right = matchKinds context quantified current (KTYPE left) (KTYPE right)
+
+substituteKindRuntimeReps :: Map Unique RuntimeRep -> Kind -> Kind
+substituteKindRuntimeReps substitution kind =
+  case kind of
+    KTYPE runtimeRep -> KTYPE (substituteRuntimeRep runtimeRep)
+    KFun argument result -> KFun (substituteKindRuntimeReps substitution argument) (substituteKindRuntimeReps substitution result)
+    _ -> kind
+  where
+    substituteRuntimeRep runtimeRep =
+      case runtimeRep of
+        RuntimeRepVar unique -> Map.findWithDefault runtimeRep unique substitution
+        TupleRep fields -> TupleRep (map substituteRuntimeRep fields)
+        SumRep fields -> SumRep (map substituteRuntimeRep fields)
+        _ -> runtimeRep
+
+kindParameterRuntimeRepVariables :: Kind -> Set Unique
+kindParameterRuntimeRepVariables kind =
+  case kind of
+    KFun parameter result -> runtimeRepVariables parameter <> kindParameterRuntimeRepVariables result
+    _ -> Set.empty
+  where
+    runtimeRepVariables currentKind =
+      case currentKind of
+        KTYPE runtimeRep -> go runtimeRep
+        KFun argument result -> runtimeRepVariables argument <> runtimeRepVariables result
+        _ -> Set.empty
+    go runtimeRep =
+      case runtimeRep of
+        RuntimeRepVar unique -> Set.singleton unique
+        TupleRep fields -> Set.unions (map go fields)
+        SumRep fields -> Set.unions (map go fields)
+        _ -> Set.empty
+
+requireValueKind :: String -> Kind -> Either LintError Kind
+requireValueKind _ kind@KTYPE {} = Right kind
+requireValueKind context kind = Left (NonValueKind context kind)
+
+lintValueType :: String -> LintEnv -> TcType -> Either LintError Kind
+lintValueType context env ty = lintType env ty >>= requireValueKind context
+
+lintValueTypeErrors :: String -> LintEnv -> TcType -> [LintError]
+lintValueTypeErrors context env ty = either pure (const []) (lintValueType context env ty)
+
+lintDataDecl :: LintEnv -> FcDataDecl -> [LintError]
+lintDataDecl env declaration =
+  case extendTyVarEnvs env (fcDataKindTyVars declaration <> fcDataTyVars declaration) of
+    Left err -> [err]
+    Right declarationEnv ->
+      either pure (const []) (lintKind declarationEnv (fcDataResultKind declaration) >> requireValueKind "data result" (fcDataResultKind declaration))
+        <> concatMap (lintConstructor declarationEnv) (fcDataConstructors declaration)
+  where
+    lintConstructor declarationEnv constructor =
+      let fields = fcDataConFields constructor
+          existentialVariables = filter (`Set.notMember` leTyVars declarationEnv) (freeRigidTyVarsOf fields)
+       in case extendTyVarEnvs declarationEnv existentialVariables of
+            Left err -> [err]
+            Right constructorEnv -> concatMap (lintValueTypeErrors "data constructor field" constructorEnv) fields
+
+lintAxiomDecl :: LintEnv -> FcAxiomDecl -> [LintError]
+lintAxiomDecl env declaration =
+  case extendTyVarEnvs env (fcAxiomTyVars declaration) of
+    Left err -> [err]
+    Right axiomEnv ->
+      case (lintType axiomEnv (fcAxiomLeft declaration), lintType axiomEnv (fcAxiomRight declaration)) of
+        (Left err, _) -> [err]
+        (_, Left err) -> [err]
+        (Right leftKind, Right rightKind)
+          | leftKind == rightKind -> []
+          | otherwise -> [KindMismatch "axiom sides" leftKind rightKind]
+
+lintNewtypeDecl :: LintEnv -> FcNewtypeDecl -> [LintError]
+lintNewtypeDecl env declaration =
+  case extendTyVarEnvs env (fcNewtypeTyVars declaration) of
+    Left err -> [err]
+    Right newtypeEnv ->
+      case (lintValueType "newtype representation" newtypeEnv (fcNewtypeRepresentation declaration), lintValueType "newtype result" newtypeEnv (fcNewtypeResult declaration)) of
+        (Left err, _) -> [err]
+        (_, Left err) -> [err]
+        (Right representationKind, Right resultKind)
+          | representationKind == resultKind -> []
+          | otherwise -> [KindMismatch "newtype sides" representationKind resultKind]
+
+lintBinderArguments :: LintEnv -> [TyVarId] -> [TcType] -> Either LintError ()
+lintBinderArguments env = go Map.empty
+  where
+    go _ [] [] = pure ()
+    go substitution (binder : restBinders) (argument : restArguments) = do
+      actual <- lintType env argument
+      let substitutedBinder =
+            case substType substitution (TcTyVar binder) of
+              TcTyVar tyVar -> tyVar
+              _ -> binder
+          expected = tvKind substitutedBinder
+      if expected == actual
+        then go (Map.insert binder argument substitution) restBinders restArguments
+        else Left (KindMismatch "coercion axiom argument" expected actual)
+    go _ _ _ = Left (LintFailure "coercion axiom argument count changed during lint")
+
+extendTyVarEnvs :: LintEnv -> [TyVarId] -> Either LintError LintEnv
+extendTyVarEnvs = foldM extend
+  where
+    extend env tyVar = lintKind env (tvKind tyVar) >> pure (extendTyVarEnv tyVar env)
+
+extendTyVarEnv :: TyVarId -> LintEnv -> LintEnv
+extendTyVarEnv tyVar env = env {leTyVars = Set.insert tyVar (leTyVars env)}
 
 -- | Extend the term environment with a variable.
 extendTermEnv :: Var -> LintEnv -> LintEnv

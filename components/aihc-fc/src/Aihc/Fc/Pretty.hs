@@ -12,6 +12,7 @@ where
 
 import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Fc.Syntax
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Evidence (Coercion (..), EvVar (..))
 import Aihc.Tc.Types
 import Data.ByteString qualified as BS
@@ -25,10 +26,10 @@ import Data.Text qualified as T
 
 renderProgram :: FcProgram -> String
 renderProgram program =
-  intercalate "\n\n" (renderModuleDeclaration (fcProgramModule program) : map (renderTopBindWith symbols) canonicalBinds)
+  intercalate "\n\n" (renderModuleDeclaration (fcProgramModule program) : map (renderTopBindWith symbols) topBinds)
   where
-    canonicalBinds = fcTopBinds (declareExternalSymbols program)
-    symbols = renderSymbols (fcProgramModule program) canonicalBinds
+    topBinds = fcTopBinds program
+    symbols = renderSymbols (fcProgramModule program) topBinds
 
 renderModuleDeclaration :: FcModuleId -> String
 renderModuleDeclaration moduleId =
@@ -293,7 +294,7 @@ renderForeignEffect effect =
     FcForeignPure -> "pure"
     FcForeignRealWorld -> "real-world"
 
-type TermScope = [(Unique, T.Text)]
+type TermScope = [Var]
 
 renderBind :: RenderSymbols -> Int -> TermScope -> [TyVarId] -> FcBind -> String
 renderBind symbols indentation scope tyScope bind =
@@ -417,21 +418,29 @@ renderAltCon symbols alternative =
     DefaultAlt -> "_"
 
 renderBinder :: Var -> String
-renderBinder = T.unpack . varName
+renderBinder = renderVarReference
+
+renderVarReference :: Var -> String
+renderVarReference var =
+  T.unpack (varName var)
+    <> "{unique "
+    <> renderUnique (varUnique var)
+    <> "}"
 
 renderOccurrence :: RenderSymbols -> TermScope -> [TyVarId] -> Var -> String
 renderOccurrence symbols scope tyScope var
-  | scopeEntry var `elem` scope = renderBinder var
+  | scopeEntry var `elem` scope = renderVarReference var
   | Just origin <- varResolvedName var,
-    origin `Set.member` renderExternalOrigins symbols =
-      renderOrigin origin
+    origin `Set.member` renderExternalOrigins symbols,
+    varName var == fcOriginName origin =
+      renderOrigin origin <> renderUniqueAnnotation (varUnique var)
   | Just origin <- varResolvedName var,
     isLocalOrigin symbols origin =
-      renderBinder var
-  | varName var `Set.member` renderLocalNames symbols = renderBinder var
+      renderVarReference var
+  | varName var `Set.member` renderLocalNames symbols = renderVarReference var
   | otherwise =
       "("
-        <> maybe (renderBinder var) renderOrigin (varResolvedName var)
+        <> maybe (renderVarReference var) (\origin -> renderOrigin origin <> renderUniqueAnnotation (varUnique var)) (varResolvedName var)
         <> " : "
         <> renderTypeWith tyScope (varType var)
         <> ")"
@@ -446,8 +455,8 @@ renderOrigin origin =
         <> T.unpack symbolName
     FcBuiltinOrigin symbolName -> "builtin." <> T.unpack symbolName
 
-scopeEntry :: Var -> (Unique, T.Text)
-scopeEntry var = (varUnique var, varName var)
+scopeEntry :: Var -> Var
+scopeEntry = id
 
 renderForeignCallHeader :: FcForeignCall -> String
 renderForeignCallHeader foreignCall =
@@ -483,10 +492,11 @@ renderTypeWith scope ty =
     tupleType@(TcTyCon _ arguments)
       | isUnboxedTupleType tupleType ->
           unwords (unboxedTupleConstructorName (length arguments) : map (renderTypeAtomWith scope) arguments)
-    TcTyCon tyCon [] -> T.unpack (tyConName tyCon)
-    TcTyCon (TyCon "[]" _) [argument] -> "[" <> renderTypeWith scope argument <> "]"
+    TcTyCon tyCon [] -> renderTyConHead tyCon
+    TcTyCon tyCon [argument]
+      | tyCon == TyCon "[]" 1 -> "[" <> renderTypeWith scope argument <> "]"
     TcTyCon tyCon arguments ->
-      unwords (T.unpack (tyConName tyCon) : map (renderTypeAtomWith scope) arguments)
+      renderTyConHead tyCon <> "[" <> intercalate ", " (map (renderTypeWith scope) arguments) <> "]"
     TcFunTy argument result -> renderTypeAtomWith scope argument <> " → " <> renderTypeWith scope result
     TcForAllTy tyVar body ->
       let (tyVars, inner) = collectForAlls body
@@ -496,8 +506,24 @@ renderTypeWith scope ty =
       "(" <> intercalate ", " (map (renderPred scope) predicates) <> ") ⇒ " <> renderTypeWith scope body
     TcAppTy function argument ->
       renderTypeAtomWith scope function <> " · " <> renderTypeAtomWith scope argument
-    TcBuiltinTyCon name _ arguments ->
-      unwords (T.unpack name : map (renderTypeAtomWith scope) arguments)
+    TcBuiltinTyCon name arity arguments ->
+      "builtin " <> T.unpack name <> "/" <> show arity <> "[" <> intercalate ", " (map (renderTypeWith scope) arguments) <> "]"
+
+renderTyConHead :: TyCon -> String
+renderTyConHead tyCon =
+  origin
+    <> T.unpack (tyConName tyCon)
+    <> "/"
+    <> show (tyConArity tyCon)
+  where
+    origin
+      | tyConPackageId tyCon == PackageId "aihc-internal" && tyConModuleName tyCon == "Aihc.Internal" = ""
+      | otherwise =
+          "tycon "
+            <> show (T.unpack (packageIdText (tyConPackageId tyCon)))
+            <> " "
+            <> show (T.unpack (tyConModuleName tyCon))
+            <> " "
 
 unboxedTupleConstructorName :: Int -> String
 unboxedTupleConstructorName arity =
@@ -508,9 +534,8 @@ renderTypeAtomWith scope ty =
   case ty of
     TcTyVar {} -> renderTypeWith scope ty
     TcMetaTv {} -> renderTypeWith scope ty
-    TcTyCon _ [] -> renderTypeWith scope ty
-    TcTyCon (TyCon "[]" _) [_] -> renderTypeWith scope ty
-    TcBuiltinTyCon _ _ [] -> renderTypeWith scope ty
+    TcTyCon {} -> renderTypeWith scope ty
+    TcBuiltinTyCon {} -> renderTypeWith scope ty
     _ -> "(" <> renderTypeWith scope ty <> ")"
 
 renderTyVarBinders :: [TyVarId] -> [TyVarId] -> [String]
@@ -520,7 +545,13 @@ renderTyVarBinders scope (tyVar : tyVars) =
 
 renderTyVarBinderWith :: [TyVarId] -> TyVarId -> String
 renderTyVarBinderWith scope tyVar =
-  "(" <> T.unpack (tvName tyVar) <> " : " <> renderKindWith scope (tvKind tyVar) <> ")"
+  "("
+    <> T.unpack (tvName tyVar)
+    <> "{unique "
+    <> renderUnique (tvUnique tyVar)
+    <> "} : "
+    <> renderKindWith scope (tvKind tyVar)
+    <> ")"
 
 renderTyVarOccurrence :: [TyVarId] -> TyVarId -> String
 renderTyVarOccurrence scope tyVar
@@ -597,7 +628,7 @@ renderCoercionWith tyScope coercion =
     Sym inner -> "sym (" <> renderCoercionWith tyScope inner <> ")"
     Trans left right -> "trans (" <> renderCoercionWith tyScope left <> ") (" <> renderCoercionWith tyScope right <> ")"
     TyConAppCo tyCon arguments ->
-      "tycon-co " <> T.unpack (tyConName tyCon) <> concatMap (\argument -> " (" <> renderCoercionWith tyScope argument <> ")") arguments
+      "tycon-co " <> renderTyConHead tyCon <> concatMap (\argument -> " (" <> renderCoercionWith tyScope argument <> ")") arguments
     AxiomInstCo name arguments ->
       "axiom-co " <> T.unpack name <> concatMap (\argument -> " @" <> renderTypeAtomWith tyScope argument) arguments
 
@@ -607,3 +638,9 @@ paren True value = "(" <> value <> ")"
 
 indent :: Int -> String
 indent count = replicate count ' '
+
+renderUnique :: Unique -> String
+renderUnique (Unique unique) = show unique
+
+renderUniqueAnnotation :: Unique -> String
+renderUniqueAnnotation unique = "{unique " <> renderUnique unique <> "}"

@@ -6,6 +6,7 @@ module Test.Fc.Properties
 where
 
 import Aihc.Fc
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Evidence (Coercion (..), EvVar (..))
 import Aihc.Tc.Types
   ( Kind (..),
@@ -20,6 +21,7 @@ import Aihc.Tc.Types
     VecElem (..),
     liftedRuntimeRep,
     mkTyCon,
+    mkTyConWithOrigin,
     setTyVarKind,
   )
 import Control.Monad (when)
@@ -71,7 +73,7 @@ prop_dependentRuntimeRep = property $ do
       ty = TcForAllTy rep (TcForAllTy value (TcTyVar value))
       rendered = T.pack (renderType ty)
   annotate (T.unpack rendered)
-  rendered === "∀ (rep : RuntimeRep) (value : TYPE rep). value"
+  rendered === "∀ (rep{unique 1} : RuntimeRep) (value{unique 2} : TYPE rep). value"
   roundTrip renderType parseType ty
 
 prop_packageOrigins :: Property
@@ -115,12 +117,12 @@ prop_nonPrimitiveBuiltinOrigin :: Property
 prop_nonPrimitiveBuiltinOrigin = property $ do
   let ty = TcTyCon (TyCon "Int" 0) []
       origin = FcBuiltinOrigin "value"
-      binder = (Var "local" (Unique 1) ty) {varResolvedName = Just origin}
-      occurrence = (Var "external" (Unique 2) ty) {varResolvedName = Just origin}
+      binder = Var "local" (Unique 1) ty
+      occurrence = (Var "value" (Unique 2) ty) {varResolvedName = Just origin}
       program = FcProgram (FcModuleId "test" "Test") [FcTopBind (FcRec [(binder, FcVar occurrence)])]
       rendered = T.pack (renderProgram program)
   annotate (T.unpack rendered)
-  T.count "external builtin.value" rendered === 1
+  T.count "external builtin.value" rendered === 0
   roundTrip renderProgram parseProgram program
 
 prop_undeclaredExternal :: Property
@@ -133,20 +135,20 @@ prop_undeclaredExternal = property $ do
 
 prop_localSignatures :: Property
 prop_localSignatures = property $ do
-  let boolType = TcTyCon (TyCon "Bool" 0) []
-      origin = FcTopLevelOrigin "pkg" "Module" "True"
-      constructor = (Var "True" (Unique 1) boolType) {varResolvedName = Just origin}
-      result = Var "result" (Unique 2) boolType
+  let origin = FcTopLevelOrigin "pkg" "Module" "True"
+      declaration = FcDataDecl (FcTopLevelOrigin "pkg" "Module" "Bool") "Bool" [] KType [FcDataConDecl origin "True" []]
+      constructor = (Var "True" (Unique 1) (fcDataResultType declaration)) {varResolvedName = Just origin}
+      result = Var "result" (Unique 2) (TcTyCon (TyCon "Bool" 0) [])
       program =
         FcProgram
           (FcModuleId "pkg" "Module")
-          [ FcData (FcDataDecl (FcTopLevelOrigin "pkg" "Module" "Bool") "Bool" [] KType [FcDataConDecl origin "True" []]),
+          [ FcData declaration,
             FcTopBind (FcNonRec result (FcVar constructor))
           ]
       rendered = T.pack (renderProgram program)
   annotate (T.unpack rendered)
   T.count "external" rendered === 0
-  T.count "True" rendered === 2
+  T.count "True{unique 1}" rendered === 1
   roundTrip renderProgram parseProgram program
 
 prop_duplicateExternal :: Property
@@ -163,9 +165,7 @@ roundTrip pretty parse value = do
   annotate (T.unpack rendered)
   case parse rendered of
     Left parseError -> annotate (show parseError) >> failure
-    -- Compiler uniques are regenerated from lexical scope. The canonical
-    -- semantic syntax itself must be a fixed point.
-    Right actual -> pretty actual === pretty value
+    Right actual -> actual === value
 
 genProgram :: Gen FcProgram
 genProgram = FcProgram (FcModuleId "test" "Test") <$> smallList genTopBind
@@ -176,7 +176,7 @@ genTopBind =
     [ FcData <$> genDataDecl,
       FcAxiom <$> genAxiomDecl,
       FcNewtype <$> genNewtypeDecl,
-      FcPrimitive <$> genVar <*> genInt,
+      FcPrimitive <$> genBinder <*> genInt,
       FcForeignImport <$> genForeignCall,
       FcTopBind <$> genBindWith genExpr
     ]
@@ -239,10 +239,10 @@ genExpr =
     ]
     [ FcApp <$> genExpr <*> genExpr,
       FcTyApp <$> genExpr <*> genType,
-      FcLam <$> genVar <*> genExpr,
+      FcLam <$> genBinder <*> genExpr,
       FcTyLam <$> genTyVar <*> genExpr,
       FcLet <$> genBindWith genExpr <*> genExpr,
-      FcCase <$> genExpr <*> genVar <*> smallList (genAltWith genExpr),
+      FcCase <$> genExpr <*> genBinder <*> smallList (genAltWith genExpr),
       FcCast <$> genExpr <*> genCoercion,
       FcCallForeign <$> genForeignCall <*> smallList genExpr
     ]
@@ -250,14 +250,14 @@ genExpr =
 genBindWith :: Gen FcExpr -> Gen FcBind
 genBindWith child =
   Gen.choice
-    [ FcNonRec <$> genVar <*> child,
-      FcRec . nubBy sameBinder <$> smallList ((,) <$> genVar <*> child)
+    [ FcNonRec <$> genBinder <*> child,
+      FcRec . nubBy sameBinder <$> smallList ((,) <$> genBinder <*> child)
     ]
   where
     sameBinder (left, _) (right, _) = varUnique left == varUnique right
 
 genAltWith :: Gen FcExpr -> Gen FcAlt
-genAltWith child = FcAlt <$> genAltCon <*> smallList genVar <*> child
+genAltWith child = FcAlt <$> genAltCon <*> smallList genBinder <*> child
 
 genAltCon :: Gen FcAltCon
 genAltCon = Gen.choice [DataAlt . FcBuiltinOrigin <$> genTypeName, LitAlt <$> genLiteral, pure DefaultAlt]
@@ -265,10 +265,15 @@ genAltCon = Gen.choice [DataAlt . FcBuiltinOrigin <$> genTypeName, LitAlt <$> ge
 genVar :: Gen Var
 genVar = do
   identifier <- genUnique
-  let name = generatedName "v" identifier
   ty <- genType
   resolvedName <- Gen.maybe genSymbolOrigin
+  let name = maybe (generatedName "v" identifier) fcOriginName resolvedName
   pure ((Var name identifier ty) {varResolvedName = resolvedName})
+
+genBinder :: Gen Var
+genBinder = do
+  identifier <- genUnique
+  Var (generatedName "v" identifier) identifier <$> genType
 
 genSymbolOrigin :: Gen FcSymbolOrigin
 genSymbolOrigin =
@@ -292,9 +297,11 @@ genType =
     Gen.choice
     [ TcTyVar <$> genTyVar,
       TcMetaTv <$> genUnique,
-      TcTyCon <$> genTyCon <*> pure []
+      TcTyCon <$> genTyCon <*> pure [],
+      TcBuiltinTyCon <$> genTypeName <*> Gen.int (Range.linear 0 4) <*> pure []
     ]
     [ TcTyCon <$> genTyCon <*> smallList genType,
+      TcBuiltinTyCon <$> genTypeName <*> Gen.int (Range.linear 0 4) <*> smallList genType,
       TcFunTy <$> genType <*> genType,
       TcForAllTy <$> genTyVar <*> genType,
       TcQualTy <$> smallList genPred <*> genType,
@@ -311,7 +318,14 @@ genTyVar = do
   pure (setTyVarKind kind (TyVarId (generatedName "a" identifier) identifier))
 
 genTyCon :: Gen TyCon
-genTyCon = mkTyCon <$> genTypeName <*> Gen.int (Range.linear 0 4) <*> genKind
+genTyCon = do
+  typeName <- genTypeName
+  arity <- Gen.int (Range.linear 0 4)
+  kind <- genKind
+  Gen.choice
+    [ pure (mkTyCon typeName arity kind),
+      (mkTyConWithOrigin . PackageId <$> genText) <*> genTypeName <*> pure typeName <*> pure arity <*> pure kind
+    ]
 
 genKind :: Gen Kind
 genKind =

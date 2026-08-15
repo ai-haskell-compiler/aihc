@@ -7,16 +7,70 @@
 module Test.Fc.Suite
   ( fcGoldenTests,
     fcEvalFixtureTests,
+    fcLintTests,
   )
 where
 
 import Aihc.Fc
+import Aihc.Tc.Types (Kind (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), mkTyCon, setTyVarKind)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Data.List (find)
 import Data.Text (Text)
 import FcGolden
+import Hedgehog (property, success)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
+import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
+import Test.Tasty.Hedgehog (testProperty)
+
+fcLintTests :: TestTree
+fcLintTests =
+  testGroup
+    "Core lint"
+    [ testCase "rejects a wrong type application kind" $ do
+        let errors = lintProgram emptyLintEnv (typeApplicationProgram liftedType)
+        assertBool "expected a kind error" (any isKindError errors),
+      testCase "accepts a correct type application kind" $
+        assertEqual "lint errors" [] (lintProgram emptyLintEnv (typeApplicationProgram runtimeRepType)),
+      testCase "rejects a wrong type constructor argument kind" $ do
+        let proxyTyCon = mkTyCon "RuntimeRepProxy" 1 (KFun KRuntimeRep KType)
+            badType = TcTyCon proxyTyCon [liftedType]
+            program = FcProgram testModule [FcExternal (FcTopLevelOrigin "test" "Test" "value") badType]
+        assertBool "expected a kind error" (any isKindError (lintProgram emptyLintEnv program)),
+      testProperty "Hedgehog options" (property success)
+    ]
+
+isKindError :: LintError -> Bool
+isKindError KindMismatch {} = True
+isKindError InvalidKindApplication {} = True
+isKindError NonValueKind {} = True
+isKindError _ = False
+
+typeApplicationProgram :: TcType -> FcProgram
+typeApplicationProgram argumentType =
+  FcProgram
+    testModule
+    [ FcExternal origin polymorphicType,
+      FcTopBind (FcNonRec result (FcTyApp (FcVar imported) argumentType))
+    ]
+  where
+    origin = FcTopLevelOrigin "test" "Test" "value"
+    imported = fcExternalVar origin polymorphicType
+    result = Var "result" (Unique 2) liftedType
+
+testModule :: FcModuleId
+testModule = FcModuleId "test" "Test"
+
+polymorphicType :: TcType
+polymorphicType = TcForAllTy runtimeRepVariable liftedType
+
+runtimeRepVariable :: TyVarId
+runtimeRepVariable = setTyVarKind KRuntimeRep (TyVarId "rep" (Unique 1))
+
+liftedType :: TcType
+liftedType = TcTyCon (TyCon "Int" 0) []
+
+runtimeRepType :: TcType
+runtimeRepType = TcTyCon (TyCon "'IntRep" 0) []
 
 -- | Build the golden test tree from fixtures.
 fcGoldenTests :: IO TestTree
