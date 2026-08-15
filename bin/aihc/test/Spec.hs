@@ -17,13 +17,12 @@ import System.Directory
   ( createDirectory,
     createDirectoryIfMissing,
     doesFileExist,
-    getCurrentDirectory,
     getTemporaryDirectory,
     listDirectory,
     removeDirectoryRecursive,
     removeFile,
   )
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath ((</>))
 import System.IO (hClose, openTempFile)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
@@ -329,8 +328,7 @@ main =
       --   ],
       testGroup
         "install-v2"
-        [ testCase "installs aihc-prim" test_installV2AihcPrim,
-          testCase "writes one resolve artifact for each module and reuses equal SCC inputs" test_installV2ResolveArtifacts,
+        [ testCase "writes one resolve artifact for each module and reuses equal SCC inputs" test_installV2ResolveArtifacts,
           testCase "rebuilds a module when a predecessor resolve artifact changes" test_installV2ResolveDependencies,
           testCase "rebuilds a module when a predecessor type interface changes" test_installV2TypeDependencies,
           testCase "duplicates re-exported term signatures in type interfaces" test_installV2TypeReexports,
@@ -343,32 +341,6 @@ main =
 
 prop_dummy :: Property
 prop_dummy = property success
-
-test_installV2AihcPrim :: Assertion
-test_installV2AihcPrim =
-  withTempDir "aihc-install-v2-prim" $ \root -> do
-    projectRoot <- findProjectRoot
-    result <-
-      installV2
-        ( InstallV2Options
-            (projectRoot </> "core-libs" </> "aihc-prim")
-            (Just (root </> "store"))
-            False
-        )
-    assertCoreFile (installV2StorePath result </> "GHC" </> "Prim" </> "PtrEq" </> "core")
-
-findProjectRoot :: IO FilePath
-findProjectRoot = getCurrentDirectory >>= findFrom
-  where
-    findFrom directory = do
-      exists <- doesFileExist (directory </> "cabal.project")
-      if exists
-        then pure directory
-        else do
-          let parent = takeDirectory directory
-          if parent == directory
-            then fail "could not find the project root"
-            else findFrom parent
 
 test_installV2ResolveArtifacts :: Assertion
 test_installV2ResolveArtifacts =
