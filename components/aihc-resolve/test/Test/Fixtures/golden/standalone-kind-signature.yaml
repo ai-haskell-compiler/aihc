@@ -1,9 +1,14 @@
 annotated:
 - |-
+  module GHC.Types where
+  data Type
+       └─ t GHC.Types
+- |-
   module Main where
+  import GHC.Types (Type)
   type Identity :: Type -> Type
-       └─ t Main   │       └─ t Builtin Type
-                   └─ t Builtin Type
+       └─ t Main   │       └─ t GHC.Types
+                   └─ t GHC.Types
   type Identity a = a
        └─ t Main
   x :: Identity Int
@@ -17,7 +22,11 @@ extensions:
 - StandaloneKindSignatures
 modules:
 - |
+  module GHC.Types where
+  data Type
+- |
   module Main where
+  import GHC.Types (Type)
   type Identity :: Type -> Type
   type Identity a = a
   x :: Identity Int

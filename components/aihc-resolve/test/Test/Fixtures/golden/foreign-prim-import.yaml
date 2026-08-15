@@ -1,10 +1,15 @@
 annotated:
 - |-
+  module GHC.Prim where
+  data Int#
+       └─ t GHC.Prim
+- |-
   module Main where
+  import GHC.Prim (Int#)
   foreign import prim (+#) :: Int# -> Int# -> Int#
-                       │      │       │       └─ t Builtin Int#
-                       │      │       └─ t Builtin Int#
-                       │      └─ t Builtin Int#
+                       │      │       │       └─ t GHC.Prim
+                       │      │       └─ t GHC.Prim
+                       │      └─ t GHC.Prim
                        └─ v Main
   x# = (+#) 10# 32#
   │     └─ v Main
@@ -13,7 +18,11 @@ extensions:
 - MagicHash
 modules:
 - |
+  module GHC.Prim where
+  data Int#
+- |
   module Main where
+  import GHC.Prim (Int#)
   foreign import prim (+#) :: Int# -> Int# -> Int#
   x# = (+#) 10# 32#
 reason: foreign import prim introduces a resolvable top-level primitive binding

@@ -12,14 +12,19 @@ annotated:
    └─ v GHC.Classes
 - |-
   module GHC.Num where
+  import GHC.Prim (Int#)
   data Integer = IS Int#
-       │         │  └─ t Builtin Int#
+       │         │  └─ t GHC.Prim
        │         └─ v GHC.Num
        └─ t GHC.Num
   class Num a where
         └─ t GHC.Num
     fromInteger :: Integer -> a
                    └─ t GHC.Num
+- |-
+  module GHC.Prim where
+  data Int#
+       └─ t GHC.Prim
 - |-
   module Main where
   match = \case
@@ -33,11 +38,15 @@ extensions:
 - MagicHash
 modules:
 - |
+  module GHC.Prim where
+  data Int#
+- |
   module GHC.Classes where
   data Bool = False | True
   (==) x y = True
 - |
   module GHC.Num where
+  import GHC.Prim (Int#)
   data Integer = IS Int#
   class Num a where
     fromInteger :: Integer -> a

@@ -87,6 +87,8 @@ module GHC.Types
   )
 where
 
+import GHC.Prim (Int#)
+
 data List a = [] | a : [a]
 
 infixr 5 :

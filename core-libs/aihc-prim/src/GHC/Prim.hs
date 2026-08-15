@@ -20,9 +20,12 @@ module GHC.Prim
     byteArrayContents#,
     catch#,
     casMutVar#,
+    Char#,
     compareInt#,
     copyByteArray#,
     copyAddrToByteArray#,
+    Double#,
+    Float#,
     fork#,
     getSizeofMutableByteArray#,
     indexArray#,
@@ -31,6 +34,11 @@ module GHC.Prim
     indexWord64OffAddr#,
     indexWordArray#,
     int2Word#,
+    Int#,
+    Int8#,
+    Int16#,
+    Int32#,
+    Int64#,
     chr#,
     isByteArrayPinned#,
     isMutableByteArrayPinned#,
@@ -91,6 +99,11 @@ module GHC.Prim
     writeWordArray#,
     writeArray#,
     writeMutVar#,
+    Word#,
+    Word8#,
+    Word16#,
+    Word32#,
+    Word64#,
     xor#,
     clz#,
     ctz#,
@@ -108,7 +121,33 @@ module GHC.Prim
   )
 where
 
-import GHC.Types (Levity (..), RuntimeRep (..), TYPE, UnliftedType)
+import GHC.Types (Levity (..), RuntimeRep (..), TYPE, Type, UnliftedType)
+
+data Int#
+
+data Int8#
+
+data Int16#
+
+data Int32#
+
+data Int64#
+
+data Word#
+
+data Word8#
+
+data Word16#
+
+data Word32#
+
+data Word64#
+
+data Char#
+
+data Float#
+
+data Double#
 
 data State# s
 
