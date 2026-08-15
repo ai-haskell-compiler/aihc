@@ -505,10 +505,8 @@ emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty M
 
 -- | Scope containing fixed Haskell names that are always available.
 --
--- Type namespace: primitive and special types that are not defined in any
--- parsed source module and cannot be imported from @base@ in the ordinary
--- way (unboxed primitive types, @TYPE@, @RuntimeRep@, the function arrow,
--- @Constraint@, and the list type constructor @[]@).
+-- The type namespace contains only the function arrow and @Constraint@.
+-- Types from @aihc-prim@ use ordinary name resolution.
 --
 -- This scope is merged into every module's scope unconditionally (lowest
 -- priority — user-defined and imported names shadow it).
@@ -566,48 +564,15 @@ builtinPromotedConstructorNames =
     "Word8ElemRep"
   ]
 
--- | Wired-in type-namespace names: primitive types that are not defined in
--- any parsed source module.  Prelude types like @Int@, @Bool@, @Maybe@, etc.
--- are defined in @base@ and are intentionally excluded.
+-- | Wired-in type-namespace names.
 --
 -- Note: names here must match exactly what the parser emits as the 'Name'
 -- text inside 'TCon'.  For example, the function arrow appears as @"->"@
 -- (not @"(->)"@).
 builtinTypeNames :: [T.Text]
 builtinTypeNames =
-  [ -- Function arrow (appears as TCon when used in kind signatures)
-    "->",
-    -- Constraint kind
-    "Constraint",
-    -- Unboxed primitive types (GHC.Prim / GHC.Types)
-    "Int#",
-    "Int8#",
-    "Int16#",
-    "Int32#",
-    "Int64#",
-    "Word#",
-    "Word8#",
-    "Word16#",
-    "Word32#",
-    "Word64#",
-    "Char#",
-    "Float#",
-    "Double#",
-    "Addr#",
-    "Array#",
-    "ByteArray#",
-    "MutableArray#",
-    "MutableByteArray#",
-    "RealWorld",
-    "State#",
-    "ThreadId#",
-    "TYPE",
-    "Type",
-    "RuntimeRep",
-    "TupleRep",
-    "[]",
-    "LiftedRep",
-    "UnliftedRep"
+  [ "->",
+    "Constraint"
   ]
 
 unionScope :: Scope -> Scope -> Scope

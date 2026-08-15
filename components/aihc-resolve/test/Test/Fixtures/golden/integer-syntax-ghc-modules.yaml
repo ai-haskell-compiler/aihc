@@ -3,6 +3,10 @@ extensions:
   - MagicHash
 modules:
   - |
+    module GHC.Prim where
+
+    data Int#
+  - |
     module GHC.Classes where
 
     data Bool = False | True
@@ -11,6 +15,8 @@ modules:
       (==) :: a -> a -> Bool
   - |
     module GHC.Num where
+
+    import GHC.Prim (Int#)
 
     data Integer = IS Int#
 
@@ -44,8 +50,10 @@ annotated:
 - |-
   module GHC.Num where
 
+  import GHC.Prim (Int#)
+
   data Integer = IS Int#
-       │         │  └─ t Builtin Int#
+       │         │  └─ t GHC.Prim
        │         └─ v GHC.Num
        └─ t GHC.Num
 
@@ -54,6 +62,11 @@ annotated:
     fromInteger :: Integer -> a
                    └─ t GHC.Num
     negate :: a -> a
+- |-
+  module GHC.Prim where
+
+  data Int#
+       └─ t GHC.Prim
 - |-
   module Main where
 

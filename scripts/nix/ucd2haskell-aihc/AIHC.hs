@@ -191,7 +191,7 @@ renderHeader version =
       "  )",
       "where",
       "",
-      "import GHC.Prim (Addr#, and#, chr#, indexWord8OffAddr#, int2Word#, ord#, uncheckedShiftRL#, word2Int#, word8ToWord#, (+#), (-#), (*#), (<#))",
+      "import GHC.Prim (Addr#, Char#, Int#, and#, chr#, indexWord8OffAddr#, int2Word#, ord#, uncheckedShiftRL#, word2Int#, word8ToWord#, (+#), (-#), (*#), (<#))",
       "",
       "generalCategory# :: Char# -> Int#",
       "generalCategory# value = andInt# (classificationCode# (ord# value)) 31#",

@@ -1,0 +1,20 @@
+annotated:
+- |-
+  module Main where
+  f :: Int# -> Int#
+  │    │       └─ t Error unbound
+  │    └─ t Error unbound
+  └─ v Main
+  f x# = x#
+  │ │    └─ v 0
+  │ └─ v 0
+  └─ v Main
+extensions:
+- MagicHash
+modules:
+- |
+  module Main where
+  f :: Int# -> Int#
+  f x# = x#
+reason: aihc-prim types require an ordinary import
+status: pass

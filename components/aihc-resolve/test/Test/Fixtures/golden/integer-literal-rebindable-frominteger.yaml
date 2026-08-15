@@ -1,9 +1,14 @@
 annotated:
 - |-
+  module GHC.Prim where
+  data Int#
+       └─ t GHC.Prim
+- |-
   {-# LANGUAGE RebindableSyntax #-}
   module Main where
+  import GHC.Prim (Int#)
   data Integer = IS Int#
-       └─ t Main │  └─ t Builtin Int#
+       └─ t Main │  └─ t GHC.Prim
                  └─ v Main
   class Num a where
         └─ t Main
@@ -16,8 +21,12 @@ extensions:
 - MagicHash
 modules:
 - |
+  module GHC.Prim where
+  data Int#
+- |
   {-# LANGUAGE RebindableSyntax #-}
   module Main where
+  import GHC.Prim (Int#)
   data Integer = IS Int#
   class Num a where
     fromInteger :: Integer -> a

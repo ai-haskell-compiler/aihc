@@ -1,0 +1,36 @@
+annotated:
+- |-
+  module GHC.Prim where
+  data Int#
+       └─ t GHC.Prim
+  addInt# x# y# = x#
+  │       │  │    └─ v 0
+  │       │  └─ v 1
+  │       └─ v 0
+  └─ v GHC.Prim
+- |-
+  module Main where
+  import GHC.Prim (Int#, addInt#)
+  f :: Int# -> Int#
+  │    │       └─ t GHC.Prim
+  │    └─ t GHC.Prim
+  └─ v Main
+  f x# = addInt# x# 1#
+  │ │    │       └─ v 2
+  │ │    └─ v GHC.Prim
+  │ └─ v 2
+  └─ v Main
+extensions:
+- MagicHash
+modules:
+- |
+  module GHC.Prim where
+  data Int#
+  addInt# x# y# = x#
+- |
+  module Main where
+  import GHC.Prim (Int#, addInt#)
+  f :: Int# -> Int#
+  f x# = addInt# x# 1#
+reason: GHC.Prim types use ordinary imports
+status: pass
