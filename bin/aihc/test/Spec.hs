@@ -5,11 +5,13 @@ module Main (main) where
 import Aihc.Cli.InstallV2 (InstallV2Result (..), installV2)
 import Aihc.Cli.Options (InstallV2Options (..))
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
+import Aihc.Fc qualified as Fc
 import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
 import Control.Exception (bracket)
 import Data.ByteString qualified as BS
 import Data.List (isPrefixOf, sort)
 import Data.Maybe (mapMaybe)
+import Data.Text.IO qualified as TIO
 import Hedgehog (Property, property, success)
 import System.Directory
   ( createDirectory,
@@ -368,9 +370,14 @@ test_installV2ResolveArtifacts =
     assertFileExists (installV2StorePath first </> "Demo" </> "B" </> "resolve.cbor")
     assertFileExists (installV2StorePath first </> "Demo" </> "A" </> "type.cbor")
     assertFileExists (installV2StorePath first </> "Demo" </> "B" </> "type.cbor")
+    assertCoreFile (installV2StorePath first </> "Demo" </> "A" </> "core")
+    assertCoreFile (installV2StorePath first </> "Demo" </> "B" </> "core")
     second <- installV2 options
     assertEqual "reused modules" ["Demo.A", "Demo.B"] (sort (installV2ReusedModules second))
     assertEqual "stable package directory" (installV2StorePath first) (installV2StorePath second)
+    removeFile (installV2StorePath first </> "Demo" </> "A" </> "core")
+    coreRepaired <- installV2 options
+    assertEqual "repairs the complete SCC with cached types" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules coreRepaired))
     writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb = (b)\n"
     changed <- installV2 options
     assertEqual "source changes keep the package directory" (installV2StorePath first) (installV2StorePath changed)
@@ -381,6 +388,14 @@ test_installV2ResolveArtifacts =
     repaired <- installV2 options
     assertEqual "repairs the complete corrupt SCC" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules repaired))
     assertEqual "does not reuse a corrupt SCC" [] (installV2ReusedModules repaired)
+
+assertCoreFile :: FilePath -> Assertion
+assertCoreFile path = do
+  assertFileExists path
+  core <- TIO.readFile path
+  case Fc.parseProgram core of
+    Left parseError -> assertFailure ("invalid Core file " <> path <> ": " <> Fc.renderParseError parseError)
+    Right _ -> pure ()
 
 test_installV2TypeDependencies :: Assertion
 test_installV2TypeDependencies =

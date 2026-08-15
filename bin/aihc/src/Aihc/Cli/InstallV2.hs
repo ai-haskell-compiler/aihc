@@ -18,6 +18,7 @@ import Aihc.Cli.Options (InstallV2Options (..))
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeInterface)
+import Aihc.Fc (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface, renderProgram)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Util qualified as HackageUtil
@@ -48,6 +49,8 @@ import Aihc.Tc
     TyConInfo (..),
     TypeScheme (..),
     tcConfig,
+    tcInterfaceBindings,
+    tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
     tyConArity,
@@ -61,9 +64,9 @@ import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.List (nub, sortOn)
+import Data.List (isSuffixOf, nub, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -74,7 +77,7 @@ import Distribution.PackageDescription (package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
 import Numeric (showHex)
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, doesFileExist)
 import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
 
 data InstallV2Result = InstallV2Result
@@ -157,10 +160,21 @@ installPackageV2 verbose storeRoot dependencies root = do
       dependencyTypes = mconcat (map installedV2Types dependencies)
       dependencyScopeHashes = Map.unions (map installedV2ScopeHashes dependencies)
       dependencyTypeHashes = Map.unions (map installedV2TypeHashes dependencies)
+      primIdentity =
+        fromMaybe (PackageId "aihc-prim") $
+          if packageName resolvePackage == "aihc-prim"
+            then Just resolvePackageIdentity
+            else
+              listToMaybe
+                [ dependencyIdentity
+                | ModuleKey (Package dependencyName dependencyIdentity) _ <- Map.keys dependencyExports,
+                  dependencyName == "aihc-prim"
+                ]
+      resolvePackageIdentity = case resolvePackage of Package _ identity -> identity
   verbose ("Compute " <> show (length units) <> " SCC units")
   (allExports, allScopeHashes, _, allTypeHashes, written, reused) <-
     foldM
-      (installUnit verbose storePath resolvePackage root)
+      (installUnit verbose storePath resolvePackage primIdentity root)
       (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty)
       units
   let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
@@ -205,8 +219,8 @@ sourceModuleSccs = map flatten . stronglyConnComp . map node
     flatten (AcyclicSCC value) = [value]
     flatten (CyclicSCC values) = values
 
-installUnit :: (String -> IO ()) -> FilePath -> Package -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
-installUnit verbose storePath resolvePackage root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
+installUnit :: (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
+installUnit verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
   let packageModules = modulesInPackage resolvePackage (map sourceModuleAst unit)
       unitNames = map sourceName unit
       importedNames = nub (concatMap (map importDeclModule . Syntax.moduleImports . sourceModuleAst) unit)
@@ -215,6 +229,7 @@ installUnit verbose storePath resolvePackage root (dependencyExports, scopeHashe
       hashes = sortOn fst (sourceHashes <> Map.toList dependencyHashes)
       resolvePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "resolve.cbor"
       typePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "type.cbor"
+      corePath modu = storePath </> moduleDirectory modu </> "core"
   cachedExports <- tryReadUnitArtifacts hashes resolvePackage resolvePath unit
   (diskExports, resolveResult, resolveChanged) <- case cachedExports of
     Just exports -> do
@@ -233,30 +248,43 @@ installUnit verbose storePath resolvePackage root (dependencyExports, scopeHashe
           sourceHashes
             <> Map.toList dependencyHashes
             <> [("type:" <> name, digest) | name <- importedNames, name `notElem` unitNames, Just digest <- [Map.lookup name typeHashes]]
+      checkUnit = do
+        resolved <- case resolveResult of
+          Just result -> pure result
+          Nothing -> do
+            let result = resolveWithDeps dependencyExports packageModules
+            unless (null (resolveErrors result)) (ioError (userError ("Name resolution failed: " <> show (resolveErrors result))))
+            pure result
+        let checked@(checkedModules, _) =
+              typecheckModuleSccWithInterfaceConfig
+                (tcConfig (packageId resolvePackage))
+                dependencyTypes
+                (map snd (resolvedModules resolved))
+        unless (all tcModuleSuccess checkedModules) (ioError (userError ("Type check failed: " <> show (concatMap tcModuleDiagnostics checkedModules))))
+        pure checked
   cachedTypes <- tryReadTypeArtifacts typeInputs typePath unit
-  (unitTypes, typeChanged) <- case cachedTypes of
+  (unitTypes, typeChanged, checkedResult) <- case cachedTypes of
     Just interfaces -> do
       mapM_ (verbose . ("Reuse type interface: " <>) . T.unpack) unitNames
-      pure (interfaces, False)
+      pure (interfaces, False, Nothing)
     Nothing -> do
-      resolved <- case resolveResult of
-        Just result -> pure result
-        Nothing -> do
-          let result = resolveWithDeps dependencyExports packageModules
-          unless (null (resolveErrors result)) (ioError (userError ("Name resolution failed: " <> show (resolveErrors result))))
-          pure result
-      let (checkedModules, completeInterface) =
-            typecheckModuleSccWithInterfaceConfig
-              (tcConfig (packageId resolvePackage))
-              dependencyTypes
-              (map snd (resolvedModules resolved))
-      unless (all tcModuleSuccess checkedModules) (ioError (userError ("Type check failed: " <> show (concatMap tcModuleDiagnostics checkedModules))))
+      checked@(_, completeInterface) <- checkUnit
       let interfaces = map (moduleTypeInterface diskExports resolvePackage completeInterface) unit
       mapM_ (uncurry (writeTypeArtifact verbose typeInputs typePath)) (zip unit interfaces)
       storedInterfaces <- readTypeArtifacts typeInputs typePath unit
-      pure (storedInterfaces, True)
+      pure (storedInterfaces, True, Just checked)
   updatedTypeHashes <- updateTypeHashes typePath typeHashes unit
-  let changed = resolveChanged || typeChanged
+  coreExists <- and <$> mapM (doesFileExist . corePath . sourceModuleAst) unit
+  coreChanged <-
+    if typeChanged || not coreExists
+      then do
+        (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
+        writeCoreFiles verbose primIdentity completeInterface corePath checkedModules
+        pure True
+      else do
+        mapM_ (verbose . ("Reuse Core: " <>) . T.unpack) unitNames
+        pure False
+  let changed = resolveChanged || typeChanged || coreChanged
       unitSet = Set.fromList unitNames
       written' = if changed then written <> unitSet else written
       reused' = if changed then reused else reused <> unitSet
@@ -270,6 +298,22 @@ installUnit verbose storePath resolvePackage root (dependencyExports, scopeHashe
     )
   where
     sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
+
+writeCoreFiles :: (String -> IO ()) -> PackageId -> TcInterface -> (Module -> FilePath) -> [Module] -> IO ()
+writeCoreFiles verbose primIdentity interface corePath checkedModules = do
+  let bindings = tcInterfaceBindings interface <> concatMap tcModuleBindings checkedModules
+      results = map (desugarModuleWithInterface (DesugarConfig primIdentity) bindings interface) checkedModules
+  unless (all dsSuccess results) (ioError (userError ("Core generation failed: " <> unlines (concatMap dsErrors results))))
+  mapM_ writeCore (zip checkedModules results)
+  where
+    writeCore (modu, result) = do
+      let path = corePath modu
+          rendered = renderProgram (dsProgram result)
+          output = if "\n" `isSuffixOf` rendered then rendered else rendered <> "\n"
+          name = fromMaybe "Main" (moduleName modu)
+      createDirectoryIfMissing True (takeDirectory path)
+      writeFile path output
+      verbose ("Write Core: " <> T.unpack name)
 
 moduleTypeInterface :: ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
 moduleTypeInterface exports package interface source =
