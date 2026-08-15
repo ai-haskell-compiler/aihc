@@ -369,7 +369,7 @@ genType =
     ]
 
 genPred :: Gen Pred
-genPred = Gen.choice [ClassPred <$> genTypeName <*> smallList genType, EqPred <$> genType <*> genType]
+genPred = Gen.choice [ClassPred <$> (TyCon <$> genTypeName <*> Gen.int (Range.linear 0 3)) <*> smallList genType, EqPred <$> genType <*> genType]
 
 genTyVar :: Gen TyVarId
 genTyVar = do

@@ -733,12 +733,18 @@ surfacePredToPred tvEnv ty =
     Just className -> do
       let classNameText = nameText className
           headArgs = instanceHeadTypes ty
-      argKinds <- classPredicateArgKinds classNameText (length headArgs)
-      args <- zipWithM (checkSurfaceType tvEnv) headArgs argKinds
-      pure (ClassPred (nameText className) args)
+      maybeClassInfo <- lookupTyCon classNameText
+      case maybeClassInfo of
+        Just classInfo -> do
+          argKinds <- takeClassArgKinds (length headArgs) <$> defaultKindMetas (tyConKind (tciTyCon classInfo))
+          args <- zipWithM (checkSurfaceType tvEnv) headArgs argKinds
+          pure (ClassPred (tciTyCon classInfo) args)
+        Nothing -> do
+          emitError NoSourceSpan (OtherError ("unknown class predicate: " <> T.unpack classNameText))
+          abortTc ("missing checked type constructor for class predicate " <> T.unpack classNameText)
     Nothing -> do
       emitError NoSourceSpan (OtherError ("invalid class predicate: " <> show ty))
-      pure (ClassPred "<invalid-predicate>" [])
+      abortTc "invalid checked class predicate"
 
 classPredicateArgKinds :: Text -> Int -> TcM [Kind]
 classPredicateArgKinds className argCount = do

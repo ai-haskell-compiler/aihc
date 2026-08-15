@@ -401,7 +401,7 @@ typeSchemeTyCons (ForAll _ predicates body) = concatMap predTyCons predicates <>
 
 predTyCons :: Pred -> [TyCon]
 predTyCons predicate = case predicate of
-  ClassPred _ arguments -> concatMap typeTyCons arguments
+  ClassPred tyCon arguments -> tyCon : concatMap typeTyCons arguments
   EqPred left right -> typeTyCons left <> typeTyCons right
 
 typeTyCons :: TcType -> [TyCon]

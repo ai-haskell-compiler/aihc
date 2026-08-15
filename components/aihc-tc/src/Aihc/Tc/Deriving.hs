@@ -225,6 +225,7 @@ mkDerivingPlan sourceSpan strategy classInfo tyVars headTypes dataType context m
     { tcDerivingSourceSpan = sourceSpan,
       tcDerivingStrategy = strategy,
       tcDerivingClassName = className,
+      tcDerivingClassTyCon = ciTyCon classInfo,
       tcDerivingClassOrigin = ciOrigin classInfo,
       tcDerivingDictName = instanceDictName className headTypes,
       tcDerivingTyVars = tyVars,
@@ -313,7 +314,7 @@ defaultDerivingStrategyKinds strategy =
 constraintTypeDictBinder :: TcType -> TcDictBinderAnnotation
 constraintTypeDictBinder ty =
   case constraintTypeToPred ty of
-    Just (ClassPred className arguments) -> TcDictBinderAnnotation className arguments ty
+    Just (ClassPred classTyCon arguments) -> TcDictBinderAnnotation (tyConName classTyCon) arguments ty
     _ -> TcDictBinderAnnotation "<constraint>" [] ty
 
 constraintTypeToPred :: TcType -> Maybe Pred
@@ -321,7 +322,7 @@ constraintTypeToPred ty =
   case collectTypeApplications ty of
     (TcTyCon (TyCon "~" 2) [], [left, right]) -> Just (EqPred left right)
     (TcTyCon tyCon headArguments, arguments) ->
-      Just (ClassPred (tyConName tyCon) (headArguments <> arguments))
+      Just (ClassPred tyCon (headArguments <> arguments))
     _ -> Nothing
 
 collectTypeApplications :: TcType -> (TcType, [TcType])

@@ -55,11 +55,11 @@ solveDictWithGivens givens ct =
           bindEvidence (ctEvVar ct) evidence
           pure DictSolved
         Nothing ->
-          case (className, args') of
-            ("Typeable", [ty]) -> tryTypeable ty
+          case (tyConName className, args') of
+            ("Typeable", [ty]) -> tryTypeable className ty
             _ -> do
               instances <- getInstances
-              tryInstances className args' instances
+              tryInstances (tyConName className) args' instances
     _ ->
       pure (DictStuck ct)
   where
@@ -80,7 +80,7 @@ solveDictWithGivens givens ct =
         ClassPred sourceClass sourceArgs
           | sourceClass `elem` visited -> pure Nothing
           | otherwise -> do
-              classInfo <- lookupClass sourceClass
+              classInfo <- lookupClass (tyConName sourceClass)
               case classInfo of
                 Nothing -> pure Nothing
                 Just info -> do
@@ -126,12 +126,12 @@ solveDictWithGivens givens ct =
         DictSolved -> lookupEvidence ev
         DictStuck _ -> pure Nothing
 
-    tryTypeable ty =
+    tryTypeable typeableTyCon ty =
       case typeableArguments ty of
         Nothing -> pure (DictStuck ct)
         Just arguments -> do
           classOrigin <- maybe Nothing ciOrigin <$> lookupClass "Typeable"
-          argumentEvidence <- mapM (solveSubPred . ClassPred "Typeable" . (: [])) arguments
+          argumentEvidence <- mapM (solveSubPred . ClassPred typeableTyCon . (: [])) arguments
           case sequence argumentEvidence of
             Just evidence -> do
               bindEvidence (ctEvVar ct) (EvTypeable classOrigin ty evidence)
@@ -168,7 +168,7 @@ methodFieldType classInfo substitution (ForAll typeVariables predicates body) =
       | otherwise = TcQualTy remainingPredicates body
     isClassPredicate predicate =
       case predicate of
-        ClassPred className _ -> className == ciName classInfo
+        ClassPred className _ -> tyConName className == ciName classInfo
         EqPred {} -> False
 
 constraintTypeToPred :: TcType -> Maybe Pred
@@ -176,7 +176,7 @@ constraintTypeToPred ty =
   case collectTypeApplications ty of
     (TcTyCon (TyCon "~" 2) [], [left, right]) -> Just (EqPred left right)
     (TcTyCon tyCon headArgs, arguments) ->
-      Just (ClassPred (tyConName tyCon) (headArgs <> arguments))
+      Just (ClassPred tyCon (headArgs <> arguments))
     _ -> Nothing
 
 collectTypeApplications :: TcType -> (TcType, [TcType])

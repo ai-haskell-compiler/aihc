@@ -10,7 +10,7 @@ module Aihc.Fc.Desugar
 where
 
 import Aihc.Fc.Desugar.Deriving (dsDerivingPlans, moduleDerivingPlans)
-import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, peelForAlls, peelQuals, predType)
+import Aihc.Fc.Desugar.Dictionary (checkedConstraintType, classMethodFieldType, defaultMethodName, peelForAlls, peelQuals, predType)
 import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupType, withDicts)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.External (declareExternalSymbols)
@@ -56,7 +56,7 @@ import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMe
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
 import Aihc.Tc.Types
-  ( Kind (KFun, KMeta, KTYPE, KType),
+  ( Kind (KConstraint, KFun, KMeta, KTYPE, KType),
     Pred (..),
     RuntimeRep (..),
     TcType (..),
@@ -67,8 +67,10 @@ import Aihc.Tc.Types
     liftedRuntimeRep,
     mkTyCon,
     runtimeRepOfType,
+    setTyConKindScheme,
     tvKind,
     tyConKind,
+    tyConKindScheme,
     tyConModuleName,
     tyConPackageId,
     typeKind,
@@ -150,11 +152,19 @@ desugarModule config bindings dataTypes globalTyConEnv globalVars tcResult =
                 }
             Right (binds, _) ->
               let program = FcProgram (FcModuleId packageId currentModuleName) binds
-               in DesugarResult
-                    { dsProgram = declareExternalSymbols (lowerPseudoOps (lowerConstraintProgram (lowerNewtypes program))),
-                      dsSuccess = True,
-                      dsErrors = []
-                    }
+               in case lowerConstraintProgram (lowerNewtypes program) of
+                    Left err ->
+                      DesugarResult
+                        { dsProgram = FcProgram (FcModuleId packageId currentModuleName) [],
+                          dsSuccess = False,
+                          dsErrors = [err]
+                        }
+                    Right loweredProgram ->
+                      DesugarResult
+                        { dsProgram = declareExternalSymbols (lowerPseudoOps loweredProgram),
+                          dsSuccess = True,
+                          dsErrors = []
+                        }
 
 interfaceTyConEnv :: TcInterface -> Map.Map (PackageId, Text, Text) TyCon
 interfaceTyConEnv interface =
@@ -224,86 +234,124 @@ nameResolution = listToMaybe . mapMaybe fromAnnotation . unqualifiedNameAnns
 -- | Type-class evidence is ordinary term-level data in FC. Replace qualified
 -- source types with explicit dictionary arrows after desugaring has consumed
 -- their predicate structure.
-lowerConstraintProgram :: FcProgram -> FcProgram
+lowerConstraintProgram :: FcProgram -> Either String FcProgram
 lowerConstraintProgram (FcProgram moduleId topBinds) =
-  FcProgram moduleId (map lowerTopBind topBinds)
+  FcProgram moduleId <$> mapM lowerTopBind topBinds
   where
     lowerTopBind topBind =
       case topBind of
-        FcExternal origin ty -> FcExternal origin (lowerConstraintType ty)
+        FcExternal origin ty -> FcExternal origin <$> lowerConstraintType ty
         FcData declaration ->
-          FcData
-            declaration
-              { fcDataConstructors =
-                  [ constructor {fcDataConFields = map lowerConstraintType (fcDataConFields constructor)}
-                  | constructor <- fcDataConstructors declaration
-                  ]
-              }
+          FcData . (\constructors -> declaration {fcDataConstructors = constructors})
+            <$> mapM lowerDataConstructor (fcDataConstructors declaration)
         FcAxiom declaration ->
-          FcAxiom
-            declaration
-              { fcAxiomLeft = lowerConstraintType (fcAxiomLeft declaration),
-                fcAxiomRight = lowerConstraintType (fcAxiomRight declaration)
-              }
+          do
+            left <- lowerConstraintType (fcAxiomLeft declaration)
+            right <- lowerConstraintType (fcAxiomRight declaration)
+            pure (FcAxiom declaration {fcAxiomLeft = left, fcAxiomRight = right})
         FcNewtype declaration ->
-          FcNewtype
-            declaration
-              { fcNewtypeRepresentation = lowerConstraintType (fcNewtypeRepresentation declaration),
-                fcNewtypeResult = lowerConstraintType (fcNewtypeResult declaration)
-              }
-        FcPrimitive var arity -> FcPrimitive (lowerVar var) arity
-        FcForeignImport foreignCall -> FcForeignImport foreignCall
-        FcTopBind bind -> FcTopBind (lowerBind bind)
+          do
+            representation <- lowerConstraintType (fcNewtypeRepresentation declaration)
+            result <- lowerConstraintType (fcNewtypeResult declaration)
+            pure (FcNewtype declaration {fcNewtypeRepresentation = representation, fcNewtypeResult = result})
+        FcPrimitive var arity -> (`FcPrimitive` arity) <$> lowerVar var
+        FcForeignImport foreignCall -> pure (FcForeignImport foreignCall)
+        FcTopBind bind -> FcTopBind <$> lowerBind bind
+
+    lowerDataConstructor constructor = do
+      fields <- mapM lowerConstraintType (fcDataConFields constructor)
+      pure constructor {fcDataConFields = fields}
 
     lowerBind bind =
       case bind of
-        FcNonRec var expression -> FcNonRec (lowerVar var) (lowerExpr expression)
-        FcRec bindings -> FcRec [(lowerVar var, lowerExpr expression) | (var, expression) <- bindings]
+        FcNonRec var expression -> FcNonRec <$> lowerVar var <*> lowerExpr expression
+        FcRec bindings -> FcRec <$> mapM (\(var, expression) -> (,) <$> lowerVar var <*> lowerExpr expression) bindings
 
     lowerExpr expression =
       case expression of
-        FcVar var -> FcVar (lowerVar var)
-        FcLit {} -> expression
-        FcApp function argument -> FcApp (lowerExpr function) (lowerExpr argument)
-        FcTyApp function ty -> FcTyApp (lowerExpr function) (lowerConstraintType ty)
-        FcLam var body -> FcLam (lowerVar var) (lowerExpr body)
-        FcTyLam tyVar body -> FcTyLam tyVar (lowerExpr body)
-        FcLet bind body -> FcLet (lowerBind bind) (lowerExpr body)
+        FcVar var -> FcVar <$> lowerVar var
+        FcLit {} -> pure expression
+        FcApp function argument -> FcApp <$> lowerExpr function <*> lowerExpr argument
+        FcTyApp function ty -> FcTyApp <$> lowerExpr function <*> lowerConstraintType ty
+        FcLam var body -> FcLam <$> lowerVar var <*> lowerExpr body
+        FcTyLam tyVar body -> FcTyLam tyVar <$> lowerExpr body
+        FcLet bind body -> FcLet <$> lowerBind bind <*> lowerExpr body
         FcCase scrutinee binder alternatives ->
-          FcCase (lowerExpr scrutinee) (lowerVar binder) (map lowerAlt alternatives)
-        FcCast inner coercion -> FcCast (lowerExpr inner) (lowerCoercion coercion)
-        FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map lowerExpr arguments)
+          FcCase <$> lowerExpr scrutinee <*> lowerVar binder <*> mapM lowerAlt alternatives
+        FcCast inner coercion -> FcCast <$> lowerExpr inner <*> lowerCoercion coercion
+        FcCallForeign foreignCall arguments -> FcCallForeign foreignCall <$> mapM lowerExpr arguments
 
-    lowerAlt alternative =
-      alternative
-        { altBinders = map lowerVar (altBinders alternative),
-          altRhs = lowerExpr (altRhs alternative)
-        }
+    lowerAlt alternative = do
+      binders <- mapM lowerVar (altBinders alternative)
+      rhs <- lowerExpr (altRhs alternative)
+      pure alternative {altBinders = binders, altRhs = rhs}
 
-    lowerVar var = var {varType = lowerConstraintType (varType var)}
+    lowerVar var = (\ty -> var {varType = ty}) <$> lowerConstraintType (varType var)
 
-lowerConstraintType :: TcType -> TcType
+lowerConstraintType :: TcType -> Either String TcType
 lowerConstraintType ty =
   case ty of
-    TcTyVar {} -> ty
-    TcMetaTv {} -> ty
-    TcTyCon tyCon arguments -> TcTyCon tyCon (map lowerConstraintType arguments)
-    TcFunTy argument result -> TcFunTy (lowerConstraintType argument) (lowerConstraintType result)
-    TcForAllTy tyVar body -> TcForAllTy tyVar (lowerConstraintType body)
-    TcQualTy predicates body ->
-      foldr (TcFunTy . lowerConstraintType . predType) (lowerConstraintType body) predicates
-    TcAppTy function argument -> TcAppTy (lowerConstraintType function) (lowerConstraintType argument)
-    TcBuiltinTyCon name arity arguments -> TcBuiltinTyCon name arity (map lowerConstraintType arguments)
+    TcTyVar {} -> pure ty
+    TcMetaTv {} -> Left ("non-final checked type reached constraint lowering: " <> show ty)
+    TcTyCon tyCon arguments -> do
+      arguments' <- mapM lowerConstraintType arguments
+      tyCon' <- lowerConstraintTyCon tyCon
+      pure (TcTyCon tyCon' arguments')
+    TcFunTy argument result -> TcFunTy <$> lowerConstraintType argument <*> lowerConstraintType result
+    TcForAllTy tyVar body -> TcForAllTy tyVar <$> lowerConstraintType body
+    TcQualTy predicates body -> do
+      body' <- lowerConstraintType body
+      predicateTypes <- mapM lowerPredicateType predicates
+      pure (foldr TcFunTy body' predicateTypes)
+    TcAppTy function argument -> TcAppTy <$> lowerConstraintType function <*> lowerConstraintType argument
+    TcBuiltinTyCon name arity arguments -> TcBuiltinTyCon name arity <$> mapM lowerConstraintType arguments
 
-lowerCoercion :: Coercion -> Coercion
+lowerPredicateType :: Pred -> Either String TcType
+lowerPredicateType predicate =
+  case predicate of
+    ClassPred classTyCon arguments -> do
+      classTyCon' <- lowerClassTyCon classTyCon
+      TcTyCon classTyCon' <$> mapM lowerConstraintType arguments
+    EqPred {} -> Left "equality constraint lowering requires explicit coercion evidence"
+
+lowerConstraintTyCon :: TyCon -> Either String TyCon
+lowerConstraintTyCon tyCon =
+  case terminalKind (tyConKind tyCon) of
+    KConstraint -> lowerClassTyCon tyCon
+    KMeta {} -> Left ("non-final checked kind for type constructor " <> T.unpack (tyConName tyCon))
+    _ -> pure tyCon
+
+lowerClassTyCon :: TyCon -> Either String TyCon
+lowerClassTyCon tyCon = do
+  scheme <- lowerClassKindScheme (tyConKindScheme tyCon)
+  pure (setTyConKindScheme scheme tyCon)
+
+lowerClassKindScheme :: TypeScheme -> Either String TypeScheme
+lowerClassKindScheme (ForAll tyVars [] body) = ForAll tyVars [] <$> lowerResult body
+  where
+    lowerResult kindType =
+      case kindType of
+        TcFunTy argument result -> TcFunTy argument <$> lowerResult result
+        TcBuiltinTyCon "Constraint" 0 [] -> pure (TcBuiltinTyCon "Type" 0 [])
+        TcMetaTv {} -> Left "class type constructor has a non-final checked result kind"
+        _ -> Left ("class type constructor does not have an authoritative Constraint result kind: " <> show kindType)
+lowerClassKindScheme ForAll {} = Left "class type constructor kind scheme contains predicates"
+
+terminalKind :: Kind -> Kind
+terminalKind kind =
+  case kind of
+    KFun _ result -> terminalKind result
+    _ -> kind
+
+lowerCoercion :: Coercion -> Either String Coercion
 lowerCoercion coercion =
   case coercion of
-    CoVar {} -> coercion
-    Refl ty -> Refl (lowerConstraintType ty)
-    Sym inner -> Sym (lowerCoercion inner)
-    Trans left right -> Trans (lowerCoercion left) (lowerCoercion right)
-    TyConAppCo tyCon coercions -> TyConAppCo tyCon (map lowerCoercion coercions)
-    AxiomInstCo name types -> AxiomInstCo name (map lowerConstraintType types)
+    CoVar {} -> pure coercion
+    Refl ty -> Refl <$> lowerConstraintType ty
+    Sym inner -> Sym <$> lowerCoercion inner
+    Trans left right -> Trans <$> lowerCoercion left <*> lowerCoercion right
+    TyConAppCo tyCon coercions -> TyConAppCo tyCon <$> mapM lowerCoercion coercions
+    AxiomInstCo name types -> AxiomInstCo name <$> mapM lowerConstraintType types
 
 -- | Format a binding result for error messages.
 showBinding :: TcBindingResult -> String
@@ -1066,7 +1114,7 @@ dataConFieldTypes name arity ty =
 dsClassDeclM :: ClassDecl -> TcClassAnnotation -> DsM [FcTopBind]
 dsClassDeclM classDecl classAnn = do
   let classTyVars = tcClassTyVars classAnn
-      superClassFieldTypes = map tcDictBinderType (tcClassSuperClasses classAnn)
+  superClassFieldTypes <- mapM (checkedConstraintType "class superclass" . tcDictBinderType) (tcClassSuperClasses classAnn)
   methodFieldTypes <- mapM (classMethodFieldType className classTyVars . tcClassMethodType) methods
   let fieldTypes = superClassFieldTypes <> methodFieldTypes
   selectors <- mapM (dsClassSelector dictionaryConstructor (length superClassFieldTypes) classTyVars fieldTypes) methods
@@ -1208,7 +1256,7 @@ dsInstanceDict instAnn instanceDecl = do
         pure (superClassFields <> methodFields)
       buildDictionary recursive dictVar fields = do
         methodTypes <- mapM lookupType methodOrder
-        let superClassFieldTypes = map tcDictBinderType (tcInstanceClassSuperClasses instAnn)
+        superClassFieldTypes <- mapM (checkedConstraintType "instance superclass" . tcDictBinderType) (tcInstanceClassSuperClasses instAnn)
         (classTyVars, fieldTypes) <-
           case methodTypes of
             [] -> pure (tcInstanceClassTyVars instAnn, superClassFieldTypes)
@@ -1217,9 +1265,18 @@ dsInstanceDict instAnn instanceDecl = do
               pure (tyVars, superClassFieldTypes <> methodFieldTypes)
         constructorUnique <- freshUnique
         let dictionaryConstructor = fcDictionaryConstructorName className
-            dictionaryType = TcTyCon (TyCon className (length classTyVars)) (map TcTyVar classTyVars)
+            dictionaryType = TcTyCon (tcInstanceClassTyCon instAnn) (map TcTyVar classTyVars)
             constructorType = foldr TcForAllTy (foldr TcFunTy dictionaryType fieldTypes) classTyVars
-            constructorVar = Var dictionaryConstructor constructorUnique constructorType
+            constructorVar =
+              (Var dictionaryConstructor constructorUnique constructorType)
+                { varResolvedName =
+                    Just
+                      ( FcTopLevelOrigin
+                          (packageIdText (tyConPackageId (tcInstanceClassTyCon instAnn)))
+                          (tyConModuleName (tcInstanceClassTyCon instAnn))
+                          dictionaryConstructor
+                      )
+                }
             constructor = foldl FcTyApp (FcVar constructorVar) (tcInstanceHeadTypes instAnn)
             dictionary = foldl FcApp constructor fields
             dictBody = foldr FcTyLam (foldr (FcLam . classDictVar) dictionary contextDicts) (tcInstanceTyVars instAnn)
@@ -1258,7 +1315,7 @@ classDictionaryLayout className methodTypes = do
 
 classTypeVariables :: Text -> TcType -> DsM [TyVarId]
 classTypeVariables className methodType =
-  case [args | ClassPred predicateClass args <- predicates, predicateClass == className] of
+  case [args | ClassPred predicateClass args <- predicates, tyConName predicateClass == className] of
     args : _ ->
       case traverse asTyVar args of
         Just tyVars -> pure tyVars
@@ -1272,8 +1329,11 @@ classTypeVariables className methodType =
 
 mkContextDict :: Int -> TcDictBinderAnnotation -> DsM ClassDict
 mkContextDict ix dictAnn = do
-  dictVar <- freshVar ("$d" <> T.pack (show ix)) (tcDictBinderType dictAnn)
-  pure (ClassDict (tcDictBinderClassName dictAnn) (tcDictBinderArgs dictAnn) dictVar)
+  dictionaryType <- checkedConstraintType "instance context" (tcDictBinderType dictAnn)
+  dictVar <- freshVar ("$d" <> T.pack (show ix)) dictionaryType
+  case dictionaryType of
+    TcTyCon classTyCon _ -> pure (ClassDict classTyCon (tcDictBinderArgs dictAnn) dictVar)
+    other -> desugarBug ("invalid checked class dictionary type: " <> show other)
 
 dsInstanceMethod :: [ClassDict] -> Map.Map Text (TcType, [Match]) -> Maybe FcExpr -> [TcType] -> Maybe (Text, Text) -> [Text] -> Text -> DsM FcExpr
 dsInstanceMethod contextDicts methods maybeSelfDictionary headTypes classOrigin defaults methodName =

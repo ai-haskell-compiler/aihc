@@ -6,11 +6,12 @@ module Aihc.Fc.Desugar.Deriving.AnyClass
   )
 where
 
-import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, predType)
+import Aihc.Fc.Desugar.Dictionary (checkedConstraintType, classMethodFieldType, defaultMethodName, predType)
 import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshUnique, freshVar, lookupType, withDicts)
 import Aihc.Fc.Syntax
+import Aihc.Resolve (packageIdText)
 import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDictBinderAnnotation (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..))
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), tyConModuleName, tyConPackageId)
 import Control.Monad (when, zipWithM)
 import Data.Text qualified as T
 
@@ -31,12 +32,12 @@ dsAnyClassDictionary plan context = do
     mapM
       (classMethodFieldType (tcDerivingClassName plan) (tcDerivingClassTyVars plan) . tcClassMethodType)
       (tcDerivingClassMethods plan)
-  let superClassFieldTypes = map tcDictBinderType (tcDerivingClassSuperClasses plan)
-      fieldTypes = superClassFieldTypes <> methodFieldTypes
+  superClassFieldTypes <- mapM (checkedConstraintType "derived class superclass" . tcDictBinderType) (tcDerivingClassSuperClasses plan)
+  let fieldTypes = superClassFieldTypes <> methodFieldTypes
       dictionaryType =
         foldr
           TcForAllTy
-          (qualifyType context (TcTyCon (TyCon (tcDerivingClassName plan) (length (tcDerivingClassTyVars plan))) (tcDerivingHeadTypes plan)))
+          (qualifyType context (TcTyCon (tcDerivingClassTyCon plan) (tcDerivingHeadTypes plan)))
           (tcDerivingTyVars plan)
       selfDictionary dictVar =
         foldl
@@ -63,9 +64,18 @@ dsAnyClassDictionary plan context = do
   constructorUnique <- freshUnique
   let classTyVars = tcDerivingClassTyVars plan
       dictionaryConstructor = fcDictionaryConstructorName (tcDerivingClassName plan)
-      genericDictionaryType = TcTyCon (TyCon (tcDerivingClassName plan) (length classTyVars)) (map TcTyVar classTyVars)
+      genericDictionaryType = TcTyCon (tcDerivingClassTyCon plan) (map TcTyVar classTyVars)
       constructorType = foldr TcForAllTy (foldr TcFunTy genericDictionaryType fieldTypes) classTyVars
-      constructorVar = Var dictionaryConstructor constructorUnique constructorType
+      constructorVar =
+        (Var dictionaryConstructor constructorUnique constructorType)
+          { varResolvedName =
+              Just
+                ( FcTopLevelOrigin
+                    (packageIdText (tyConPackageId (tcDerivingClassTyCon plan)))
+                    (tyConModuleName (tcDerivingClassTyCon plan))
+                    dictionaryConstructor
+                )
+          }
       constructor = foldl FcTyApp (FcVar constructorVar) (tcDerivingHeadTypes plan)
       dictionary = foldl FcApp constructor fields
       body = foldr FcTyLam (foldr (FcLam . classDictVar) dictionary contextDicts) (tcDerivingTyVars plan)
@@ -112,7 +122,7 @@ mkPredicateDict index predicate = do
   pure $
     case predicate of
       ClassPred className arguments -> ClassDict className arguments dictVar
-      EqPred {} -> ClassDict "<equality>" [] dictVar
+      EqPred {} -> ClassDict (TyCon "<equality>" 0) [] dictVar
 
 qualifyType :: [Pred] -> TcType -> TcType
 qualifyType [] body = body

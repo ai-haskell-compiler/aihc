@@ -675,7 +675,7 @@ bareName = T.dropWhile (== '\'')
 -- equality predicates.
 data Pred
   = -- | Class predicate, e.g. @Eq a@.
-    ClassPred !Text ![TcType]
+    ClassPred !TyCon ![TcType]
   | -- | Type equality predicate, e.g. @a ~ Int@.
     EqPred !TcType !TcType
   deriving (Eq, Ord, Show, Read)

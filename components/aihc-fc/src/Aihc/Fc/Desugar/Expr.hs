@@ -103,7 +103,7 @@ data DsState = DsState
   }
 
 data ClassDict = ClassDict
-  { classDictName :: !Text,
+  { classDictTyCon :: !TyCon,
     classDictArgs :: ![TcType],
     classDictVar :: !Var
   }
@@ -217,11 +217,10 @@ withDicts dicts action = do
   pure result
   where
     insertDictionary dictionary environment =
-      let className = classDictName dictionary
+      let classTyCon = classDictTyCon dictionary
           arguments = classDictArgs dictionary
           variable = classDictVar dictionary
-          withFallback = Map.insertWith (\_ existing -> existing) (dictKey className arguments) variable environment
-       in Map.insert (exactDictKey className arguments) variable withFallback
+       in Map.insert (exactDictKey classTyCon arguments) variable environment
 
 -- | Desugar a list of match equations into a Core expression.
 --
@@ -290,7 +289,7 @@ mkClassDict (i, pred') =
       pure (ClassDict className args var)
     _ -> do
       var <- freshVar ("$d" <> T.pack (show i)) (predType pred')
-      pure (ClassDict "<constraint>" [] var)
+      pure (ClassDict (TyCon "<constraint>" 0) [] var)
 
 -- | Generate argument names: x, y, z, x1, y1, ...
 argName :: Int -> Text
@@ -310,7 +309,7 @@ peelQuals (TcQualTy preds body) = (preds, body)
 peelQuals ty = ([], ty)
 
 predType :: Pred -> TcType
-predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
+predType (ClassPred classTyCon args) = TcTyCon classTyCon args
 predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
 
 -- | Peel a fixed number of function argument types.
@@ -1668,12 +1667,12 @@ listType ty =
 dsEvidence :: EvTerm -> DsM FcExpr
 dsEvidence evidence =
   case evidence of
-    EvGiven (ClassPred className args) -> do
+    EvGiven (ClassPred classTyCon args) -> do
       st <- get
-      case Map.lookup (exactDictKey className args) (dsLocalDicts st) <|> Map.lookup (dictKey className args) (dsLocalDicts st) of
+      case Map.lookup (exactDictKey classTyCon args) (dsLocalDicts st) of
         Just var -> pure (FcVar var)
         Nothing ->
-          desugarBug ("missing local dictionary for " <> T.unpack (dictKey className args))
+          desugarBug ("missing local dictionary for " <> T.unpack (exactDictKey classTyCon args))
     EvGiven EqPred {} ->
       unitConstructor
     EvDict dictOrigin dictName typeArgs contextEvidence -> do
@@ -1694,7 +1693,7 @@ dsEvidence evidence =
           [] -> desugarBug "superclass field index is outside the dictionary layout"
       constructor <-
         case sourcePredicate of
-          ClassPred className _ -> pure (fcDictionaryConstructorName className)
+          ClassPred classTyCon _ -> pure (fcDictionaryConstructorName (tyConName classTyCon))
           EqPred {} -> desugarBug "cannot select a superclass from equality evidence"
       let constructorOrigin =
             case sourceOrigin of
@@ -1855,8 +1854,8 @@ patternEvidenceBinders pattern' = do
   where
     patternDictionary predicate binder =
       case predicate of
-        ClassPred className arguments -> ClassDict className arguments binder
-        EqPred {} -> ClassDict "<constraint>" [] binder
+        ClassPred classTyCon arguments -> ClassDict classTyCon arguments binder
+        EqPred {} -> ClassDict (TyCon "<constraint>" 0) [] binder
 
 patternTcAnnotation :: Pattern -> Maybe TcAnnotation
 patternTcAnnotation pattern' =
@@ -1996,20 +1995,20 @@ fcExprTypeM expr =
     FcCallForeign foreignCall _arguments ->
       pure (fcForeignCallResultType (fcForeignCallSignature foreignCall))
 
-dictKey :: Text -> [TcType] -> Text
-dictKey className args = className <> ":" <> T.intercalate "," (map typeKey args)
+exactDictKey :: TyCon -> [TcType] -> Text
+exactDictKey classTyCon args = tyConIdentityKey classTyCon <> ":" <> T.intercalate "," (map exactTypeKey args)
 
-exactDictKey :: Text -> [TcType] -> Text
-exactDictKey className args = className <> ":exact:" <> T.intercalate "," (map exactTypeKey args)
+tyConIdentityKey :: TyCon -> Text
+tyConIdentityKey tyCon = packageIdText (tyConPackageId tyCon) <> ":" <> tyConModuleName tyCon <> ":" <> tyConName tyCon
 
 exactTypeKey :: TcType -> Text
 exactTypeKey ty =
   case ty of
     TcTyVar tv -> tvName tv <> "#" <> T.pack (show (uniqueInt (tvUnique tv)))
     TcMetaTv (Unique unique) -> "?" <> T.pack (show unique)
-    TcTyCon tc [] -> tyConName tc
+    TcTyCon tc [] -> tyConIdentityKey tc
     TcTyCon (TyCon "[]" _) [elementType] -> "[" <> exactTypeKey elementType <> "]"
-    TcTyCon tc arguments -> tyConName tc <> T.concat (map (("_" <>) . exactTypeKey) arguments)
+    TcTyCon tc arguments -> tyConIdentityKey tc <> T.concat (map (("_" <>) . exactTypeKey) arguments)
     TcAppTy function argument -> exactTypeKey function <> "_" <> exactTypeKey argument
     TcFunTy argument result -> exactTypeKey argument <> "->" <> exactTypeKey result
     TcForAllTy _ body -> exactTypeKey body
@@ -2018,20 +2017,6 @@ exactTypeKey ty =
 
 uniqueInt :: Unique -> Int
 uniqueInt (Unique unique) = unique
-
-typeKey :: TcType -> Text
-typeKey ty =
-  case ty of
-    TcTyVar tv -> tvName tv
-    TcMetaTv (Unique u) -> "?" <> T.pack (show u)
-    TcTyCon tc [] -> tyConName tc
-    TcTyCon (TyCon "[]" _) [elemTy] -> "[" <> typeKey elemTy <> "]"
-    TcTyCon tc args -> tyConName tc <> T.concat (map (("_" <>) . typeKey) args)
-    TcAppTy f a -> typeKey f <> "_" <> typeKey a
-    TcFunTy a b -> typeKey a <> "->" <> typeKey b
-    TcForAllTy _ body -> typeKey body
-    TcQualTy _ body -> typeKey body
-    TcBuiltinTyCon name _ arguments -> name <> T.concat (map (("_" <>) . typeKey) arguments)
 
 charTy :: TcType
 charTy = TcTyCon (TyCon "Char" 0) []

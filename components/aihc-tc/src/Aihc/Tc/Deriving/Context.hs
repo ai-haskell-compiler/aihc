@@ -112,10 +112,11 @@ simplifyPredicate existingInstances plans stack owner predicate
   | Just key <- predicatePlanKey predicate,
     key `elem` stack =
       Right []
-  | Just arguments <- typeableArguments predicate =
+  | ClassPred typeableTyCon _ <- predicate,
+    Just arguments <- typeableArguments predicate =
       concat
         <$> mapM
-          (simplifyPredicate existingInstances plans stack owner . ClassPred "Typeable" . (: []))
+          (simplifyPredicate existingInstances plans stack owner . ClassPred typeableTyCon . (: []))
           arguments
   | otherwise =
       case firstSuccessful (map simplifyExisting matchingExisting <> map simplifyDerived matchingDerived) of
@@ -281,7 +282,7 @@ stockEqObligations plan = do
           | (tyVar, argument) <- zip (dtiTyVars dataType) targetArguments
           ]
   pure
-    [ [ClassPred "Eq" [applySubst substitution (dcfiType field)] | field <- dciFields constructor]
+    [ [ClassPred (tcDerivingClassTyCon plan) [applySubst substitution (dcfiType field)] | field <- dciFields constructor]
     | constructor <- dtiConstructors dataType
     ]
 
@@ -307,10 +308,11 @@ validateStockEqClass plan
       tcClassMethodName method `elem` ["==", "/="]
         && case methodTypeParts (tcClassMethodType method) of
           ( [classVar],
-            [ClassPred "Eq" [TcTyVar predicateVar]],
+            [ClassPred eqTyCon [TcTyVar predicateVar]],
             TcFunTy (TcTyVar left) (TcFunTy (TcTyVar right) (TcTyCon boolTyCon []))
             ) ->
-              [classVar] == tcDerivingClassTyVars plan
+              tyConName eqTyCon == "Eq"
+                && [classVar] == tcDerivingClassTyVars plan
                 && predicateVar == classVar
                 && left == classVar
                 && right == classVar
@@ -380,16 +382,16 @@ planKey plan = (tcDerivingClassName plan, tcDerivingHeadTypes plan)
 predicatePlanKey :: Pred -> Maybe PlanKey
 predicatePlanKey predicate =
   case predicate of
-    ClassPred className arguments -> Just (className, arguments)
+    ClassPred className arguments -> Just (tyConName className, arguments)
     EqPred {} -> Nothing
 
 planPredicate :: TcDerivingPlan -> Pred
-planPredicate plan = ClassPred (tcDerivingClassName plan) (tcDerivingHeadTypes plan)
+planPredicate plan = ClassPred (tcDerivingClassTyCon plan) (tcDerivingHeadTypes plan)
 
 predClassName :: Pred -> Text
 predClassName predicate =
   case predicate of
-    ClassPred className _ -> className
+    ClassPred className _ -> tyConName className
     EqPred {} -> "~"
 
 predArguments :: Pred -> [TcType]
@@ -401,16 +403,17 @@ predArguments predicate =
 typeableArguments :: Pred -> Maybe [TcType]
 typeableArguments predicate =
   case predicate of
-    ClassPred "Typeable" [ty] ->
-      case ty of
-        TcTyCon _ arguments -> Just arguments
-        TcFunTy argument result -> Just [argument, result]
-        TcTyVar {} -> Nothing
-        TcMetaTv {} -> Nothing
-        TcForAllTy {} -> Nothing
-        TcQualTy {} -> Nothing
-        TcAppTy {} -> Nothing
-        TcBuiltinTyCon _ _ arguments -> Just arguments
+    ClassPred classTyCon [ty]
+      | tyConName classTyCon == "Typeable" ->
+          case ty of
+            TcTyCon _ arguments -> Just arguments
+            TcFunTy argument result -> Just [argument, result]
+            TcTyVar {} -> Nothing
+            TcMetaTv {} -> Nothing
+            TcForAllTy {} -> Nothing
+            TcQualTy {} -> Nothing
+            TcAppTy {} -> Nothing
+            TcBuiltinTyCon _ _ arguments -> Just arguments
     _ -> Nothing
 
 isBareVariablePredicate :: [TyVarId] -> Pred -> Bool
@@ -480,12 +483,12 @@ typeTyVars ty =
 predDictBinder :: Pred -> TcDictBinderAnnotation
 predDictBinder predicate =
   case predicate of
-    ClassPred className arguments ->
-      TcDictBinderAnnotation className arguments (predType predicate)
+    ClassPred classTyCon arguments ->
+      TcDictBinderAnnotation (tyConName classTyCon) arguments (predType predicate)
     EqPred {} -> TcDictBinderAnnotation "<constraint>" [] (predType predicate)
 
 predType :: Pred -> TcType
 predType predicate =
   case predicate of
-    ClassPred className arguments -> TcTyCon (TyCon className (length arguments)) arguments
+    ClassPred classTyCon arguments -> TcTyCon classTyCon arguments
     EqPred left right -> TcTyCon (TyCon "~" 2) [left, right]

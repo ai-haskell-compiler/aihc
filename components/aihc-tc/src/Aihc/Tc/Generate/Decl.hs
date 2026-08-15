@@ -220,6 +220,7 @@ annotationClasses ann decl =
     (Just classAnn, DeclClass classDecl) ->
       [ ClassInfo
           { ciName = unqualifiedNameText (binderHeadName (classDeclHead classDecl)),
+            ciTyCon = tcClassTyCon classAnn,
             ciOrigin = Nothing,
             ciTyVars = tcClassTyVars classAnn,
             ciSuperClassTypes = map tcDictBinderType (tcClassSuperClasses classAnn),
@@ -276,7 +277,9 @@ annotationInstances ann decl =
 
 dictBinderPred :: TcDictBinderAnnotation -> Pred
 dictBinderPred dictBinder =
-  ClassPred (tcDictBinderClassName dictBinder) (tcDictBinderArgs dictBinder)
+  case constraintTypeToPred (tcDictBinderType dictBinder) of
+    Just predicate -> predicate
+    Nothing -> error "invalid checked dictionary binder type"
 
 declBindings :: Decl -> [TcBindingResult]
 declBindings decl =
@@ -601,15 +604,20 @@ defaultGlobalKindMetas = do
     defaultDataConFieldKinds field = do
       fieldType' <- defaultTypeKinds (dcfiType field)
       pure field {dcfiType = fieldType'}
-    defaultClassKinds info =
-      ClassInfo
-        (ciName info)
-        (ciOrigin info)
-        <$> mapM defaultTyVarKinds (ciTyVars info)
-        <*> mapM defaultTypeKinds (ciSuperClassTypes info)
-        <*> mapM (traverse defaultTypeSchemeKinds) (ciMethods info)
-        <*> pure (ciDefaultMethods info)
-        <*> mapM (traverse defaultTypeSchemeKinds) (ciDefaultSignatures info)
+    defaultClassKinds info = do
+      classKindScheme <- defaultTyConKindScheme (tyConKindScheme (ciTyCon info))
+      tyVars <- mapM defaultTyVarKinds (ciTyVars info)
+      superClassTypes <- mapM defaultTypeKinds (ciSuperClassTypes info)
+      methods <- mapM (traverse defaultTypeSchemeKinds) (ciMethods info)
+      defaultSignatures <- mapM (traverse defaultTypeSchemeKinds) (ciDefaultSignatures info)
+      pure
+        info
+          { ciTyCon = setTyConKindScheme classKindScheme (ciTyCon info),
+            ciTyVars = tyVars,
+            ciSuperClassTypes = superClassTypes,
+            ciMethods = methods,
+            ciDefaultSignatures = defaultSignatures
+          }
     defaultInstanceKinds info =
       InstanceInfo
         (iiClassName info)
@@ -707,7 +715,7 @@ annotateDeclTc classMethods checkedValueNames decl =
     DeclForeign foreignDecl
       | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
-    DeclInstance instanceDecl -> annotateInstanceDeclTc classMethods instanceDecl
+    DeclInstance instanceDecl -> annotateInstanceDeclTc instanceDecl
     DeclStandaloneDeriving {} -> pure decl
     _ -> pure decl
 
@@ -723,18 +731,19 @@ valueDeclBinderNames valueDecl =
 
 annotateClassDeclTc :: ClassDecl -> TcM Decl
 annotateClassDeclTc classDecl = do
-  methods <- zipWithM annotateClassMethod [0 :: Int ..] (classDeclMethodNames classDecl)
-  items <- mapM annotateClassDefaultItem (classDeclItems classDecl)
   let className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))
   classInfo <- lookupClass className
   case classInfo of
     Nothing -> missingTypeInfo ("class " <> T.unpack className)
-    Just info ->
+    Just info -> do
+      methods <- zipWithM annotateClassMethod [0 :: Int ..] (classDeclMethodNames classDecl)
+      items <- mapM annotateClassDefaultItem (classDeclItems classDecl)
       pure
         ( DeclAnn
             ( mkAnnotation
                 TcClassAnnotation
-                  { tcClassTyVars = ciTyVars info,
+                  { tcClassTyCon = ciTyCon info,
+                    tcClassTyVars = ciTyVars info,
                     tcClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes info),
                     tcClassMethods = methods,
                     tcClassDefaultMethods = ciDefaultMethods info,
@@ -992,8 +1001,8 @@ annotateValueDeclTc valueDecl =
           ty <- missingTypeInfo ("top-level pattern binding " <> show pat)
           pure (ty, valueDecl)
 
-annotateInstanceDeclTc :: Map Text [Text] -> InstanceDecl -> TcM Decl
-annotateInstanceDeclTc classMethods instanceDecl =
+annotateInstanceDeclTc :: InstanceDecl -> TcM Decl
+annotateInstanceDeclTc instanceDecl =
   case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
     (_, []) -> pure (DeclInstance instanceDecl)
     (Nothing, _) -> pure (DeclInstance instanceDecl)
@@ -1007,26 +1016,26 @@ annotateInstanceDeclTc classMethods instanceDecl =
       context <- mapM defaultPredKinds rawContext
       let dictName = instanceDictName classNameText headTys
       classInfo <- lookupClass classNameText
+      info <- maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure classInfo
       let classSubstitution =
-            case classInfo of
-              Just info -> Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip (ciTyVars info) headTys]
-              Nothing -> Map.empty
-          superClassTypes = maybe [] (map (substType classSubstitution) . ciSuperClassTypes) classInfo
-          defaults = maybe [] ciDefaultMethods classInfo
+            Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip (ciTyVars info) headTys]
+          superClassTypes = map (substType classSubstitution) (ciSuperClassTypes info)
+          defaults = ciDefaultMethods info
       superClasses <- mapM constraintTypePred superClassTypes
       superClassEvidence <- mapM (solveInstanceSuperClass classNameText context) superClasses
       let contextDicts = map predDictBinder context
-          dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred classNameText headTys))) tvIds
-          methodOrder = maybe (fromMaybe [] (Map.lookup classNameText classMethods)) (map fst . ciMethods) classInfo
+          dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred (ciTyCon info) headTys))) tvIds
+          methodOrder = map fst (ciMethods info)
           instAnn =
             TcInstanceAnnotation
               { tcInstanceDictName = dictName,
                 tcInstanceDictType = dictTy,
+                tcInstanceClassTyCon = ciTyCon info,
                 tcInstanceTyVars = tvIds,
                 tcInstanceHeadTypes = headTys,
-                tcInstanceClassTyVars = maybe [] ciTyVars classInfo,
-                tcInstanceClassOrigin = classInfo >>= ciOrigin,
-                tcInstanceClassSuperClasses = maybe [] (map constraintTypeDictBinder . ciSuperClassTypes) classInfo,
+                tcInstanceClassTyVars = ciTyVars info,
+                tcInstanceClassOrigin = ciOrigin info,
+                tcInstanceClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes info),
                 tcInstanceContextDicts = contextDicts,
                 tcInstanceSuperClasses = zip (map predDictBinder superClasses) superClassEvidence,
                 tcInstanceMethodOrder = methodOrder,
@@ -1237,15 +1246,15 @@ peelForAlls ty = ([], ty)
 predDictBinder :: Pred -> TcDictBinderAnnotation
 predDictBinder pred' =
   case pred' of
-    ClassPred className args ->
-      TcDictBinderAnnotation className args (predType pred')
+    ClassPred classTyCon args ->
+      TcDictBinderAnnotation (tyConName classTyCon) args (predType pred')
     EqPred {} ->
       TcDictBinderAnnotation "<constraint>" [] (predType pred')
 
 constraintTypeDictBinder :: TcType -> TcDictBinderAnnotation
 constraintTypeDictBinder ty =
   case constraintTypeToPred ty of
-    Just (ClassPred className args) -> TcDictBinderAnnotation className args ty
+    Just (ClassPred classTyCon args) -> TcDictBinderAnnotation (tyConName classTyCon) args ty
     _ -> TcDictBinderAnnotation "<constraint>" [] ty
 
 constraintTypePred :: TcType -> TcM Pred
@@ -1259,7 +1268,7 @@ constraintTypeToPred ty =
   case collectTypeApplications ty of
     (TcTyCon (TyCon "~" 2) [], [left, right]) -> Just (EqPred left right)
     (TcTyCon tyCon headArgs, arguments) ->
-      Just (ClassPred (tyConName tyCon) (headArgs <> arguments))
+      Just (ClassPred tyCon (headArgs <> arguments))
     _ -> Nothing
 
 collectTypeApplications :: TcType -> (TcType, [TcType])
@@ -1914,10 +1923,10 @@ registerClassDecl origin classDecl = do
   let paramTyVars = map paramTyVar paramInfos
       paramKinds = map paramKind paramInfos
       paramTvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
-      classPred = ClassPred className (map TcTyVar paramTyVars)
   superClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty KConstraint) (fromMaybe [] (classDeclContext classDecl))
   classKind <- defaultKindMetas (foldr KFun KConstraint paramKinds)
   classTyCon <- mkDeclaredTyCon classBinder className (length params) classKind
+  let classPred = ClassPred classTyCon (map TcTyVar paramTyVars)
   extendTyConEnvPermanent
     className
     TyConInfo
@@ -1935,6 +1944,7 @@ registerClassDecl origin classDecl = do
   addClass
     ClassInfo
       { ciName = className,
+        ciTyCon = classTyCon,
         ciOrigin = Just origin,
         ciTyVars = paramTyVars,
         ciSuperClassTypes = superClassTypes,
@@ -2021,7 +2031,8 @@ registerInstanceDecl origin instanceDecl =
       headTys <- checkInstanceHeadTypes classNameText tvEnv headArgs
       let dictName = instanceDictName classNameText headTys
       context <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
-      let dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred classNameText headTys))) tvIds
+      classInfo <- lookupClass classNameText >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
+      let dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred (ciTyCon classInfo) headTys))) tvIds
       addInstance
         InstanceInfo
           { iiClassName = classNameText,
@@ -2035,7 +2046,7 @@ registerInstanceDecl origin instanceDecl =
       pure [TcBindingResult dictName dictName dictTy]
 
 predType :: Pred -> TcType
-predType (ClassPred className args) = TcTyCon (TyCon className (length args)) args
+predType (ClassPred classTyCon args) = TcTyCon classTyCon args
 predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
 
 instanceDictName :: Text -> [TcType] -> Text

@@ -235,13 +235,17 @@ lintExpr env (FcLet bind body) = do
     [] -> lintExpr env' body
     (e : _) -> Left e
 lintExpr env (FcCase scrut binder alts) = do
-  _scrutTy <- lintExpr env scrut
+  scrutTy <- lintExpr env scrut
   _ <- lintValueType "case binder" env (varType binder)
+  if typesEqual scrutTy (varType binder)
+    then pure ()
+    else Left (TypeMismatch "case binder" scrutTy (varType binder))
+  let caseEnv = extendTermEnv binder env
   case alts of
     [] -> Left (LintFailure "case expression has no alternatives")
     alt : rest -> do
-      resTy <- lintAlt env alt
-      mapM_ (lintAltWithExpected env resTy) rest
+      resTy <- lintAlt caseEnv scrutTy alt
+      mapM_ (lintAltWithExpected caseEnv scrutTy resTy) rest
       Right resTy
 lintExpr env (FcCast e co) = do
   eTy <- lintExpr env e
@@ -279,18 +283,74 @@ lookupDataConstructor var constructors =
         _ -> Nothing
 
 -- | Lint a case alternative.
-lintAlt :: LintEnv -> FcAlt -> Either LintError TcType
-lintAlt env (FcAlt _con binders rhs) = do
+lintAlt :: LintEnv -> TcType -> FcAlt -> Either LintError TcType
+lintAlt env scrutineeType (FcAlt con binders rhs) = do
+  checkAlternative con binders
   mapM_ (lintValueType "case alternative binder" env . varType) binders
   let env' = foldr extendTermEnv env binders
   lintExpr env' rhs
+  where
+    checkAlternative alternativeConstructor alternativeBinders =
+      case alternativeConstructor of
+        DefaultAlt -> requireNoBinders "default alternative" alternativeBinders
+        LitAlt _ literalType -> do
+          requireNoBinders "literal alternative" alternativeBinders
+          if typesEqual scrutineeType literalType
+            then pure ()
+            else Left (TypeMismatch "literal alternative" scrutineeType literalType)
+        DataAlt constructor ->
+          case Map.lookup (fcConstructorSymbolOrigin constructor) (leDataCons env) of
+            Nothing -> Left (LintFailure ("unknown case alternative constructor: " ++ show constructor))
+            Just (_, fields, resultType) -> do
+              substitution <- matchConstructorResult resultType scrutineeType
+              let expectedFields = map (substType substitution) fields
+              if length expectedFields /= length alternativeBinders
+                then Left (LintFailure ("case alternative binder count does not match constructor: " ++ show constructor))
+                else mapM_ checkField (zip expectedFields alternativeBinders)
 
-lintAltWithExpected :: LintEnv -> TcType -> FcAlt -> Either LintError ()
-lintAltWithExpected env resTy alt = do
-  rhsTy <- lintAlt env alt
+    checkField (expected, binder)
+      | typesEqual expected (varType binder) = pure ()
+      | otherwise = Left (TypeMismatch "case alternative binder" expected (varType binder))
+
+    requireNoBinders _ [] = pure ()
+    requireNoBinders context _ = Left (LintFailure (context ++ " has field binders"))
+
+lintAltWithExpected :: LintEnv -> TcType -> TcType -> FcAlt -> Either LintError ()
+lintAltWithExpected env scrutineeType resTy alt = do
+  rhsTy <- lintAlt env scrutineeType alt
   if typesEqual resTy rhsTy
     then Right ()
     else Left (InconsistentAlts resTy rhsTy)
+
+matchConstructorResult :: TcType -> TcType -> Either LintError (Map TyVarId TcType)
+matchConstructorResult = go Map.empty
+  where
+    go substitution expected actual =
+      case expected of
+        TcTyVar tyVar ->
+          case Map.lookup tyVar substitution of
+            Nothing -> pure (Map.insert tyVar actual substitution)
+            Just stored
+              | typesEqual stored actual -> pure substitution
+              | otherwise -> mismatch expected actual
+        TcTyCon expectedTyCon expectedArguments ->
+          case actual of
+            TcTyCon actualTyCon actualArguments
+              | expectedTyCon == actualTyCon,
+                length expectedArguments == length actualArguments ->
+                  foldM (\current (left, right) -> go current left right) substitution (zip expectedArguments actualArguments)
+            _ -> mismatch expected actual
+        TcAppTy expectedFunction expectedArgument ->
+          case actual of
+            TcAppTy actualFunction actualArgument -> do
+              substitution' <- go substitution expectedFunction actualFunction
+              go substitution' expectedArgument actualArgument
+            _ -> mismatch expected actual
+        _
+          | typesEqual expected actual -> pure substitution
+          | otherwise -> mismatch expected actual
+
+    mismatch expected actual = Left (TypeMismatch "case alternative constructor result" expected actual)
 
 -- | Extract the endpoints of a coercion.
 --

@@ -359,7 +359,7 @@ renderTyVarBinder tyVar =
 renderPred :: Pred -> String
 renderPred predicate =
   case predicate of
-    ClassPred name arguments -> unwords (T.unpack name : map renderTypeAtom arguments)
+    ClassPred classTyCon arguments -> renderTypeAtom (TcTyCon classTyCon arguments)
     EqPred left right -> renderTypeAtom left <> " ~ " <> renderTypeAtom right
 
 renderKind :: Kind -> String

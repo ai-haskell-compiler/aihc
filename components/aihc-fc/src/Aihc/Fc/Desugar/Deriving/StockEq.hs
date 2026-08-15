@@ -62,7 +62,7 @@ dsStockEqDictionary plan context dataType fieldEvidence = do
           (foldl FcTyApp (FcVar dictVar) (map TcTyVar (tcDerivingTyVars plan)))
           (map (FcVar . classDictVar) contextDicts)
   selfDictionaryVar <- freshVar "$stock_eq_self" selfDictionaryType
-  let selfDictionary = ClassDict "Eq" [targetType] selfDictionaryVar
+  let selfDictionary = ClassDict (tcDerivingClassTyCon plan) [targetType] selfDictionaryVar
   methodFields <-
     withDicts (selfDictionary : contextDicts) $
       mapM
@@ -243,7 +243,8 @@ stockEqTyCon plan =
   case tcDerivingClassMethods plan of
     method : _ ->
       case tcClassMethodDictType method of
-        TcTyCon tyCon [_] -> pure tyCon
+        TcTyCon tyCon [_]
+          | tyCon == tcDerivingClassTyCon plan -> pure tyCon
         ty -> desugarBug ("invalid stock Eq dictionary type: " <> show ty)
     [] -> desugarBug "stock Eq has no class methods"
 
@@ -253,7 +254,7 @@ mkPredicateDict index predicate = do
   pure $
     case predicate of
       ClassPred className arguments -> ClassDict className arguments dictVar
-      EqPred {} -> ClassDict "<equality>" [] dictVar
+      EqPred {} -> ClassDict (TyCon "<equality>" 0) [] dictVar
 
 qualifyType :: [Pred] -> TcType -> TcType
 qualifyType [] body = body
@@ -264,7 +265,7 @@ rewriteSelfEvidence plan targetType evidence =
   case evidence of
     EvDict _ dictionaryName _ _
       | dictionaryName == tcDerivingDictName plan ->
-          EvGiven (ClassPred "Eq" [targetType])
+          EvGiven (ClassPred (tcDerivingClassTyCon plan) [targetType])
     EvDict origin dictionaryName typeArguments contextEvidence ->
       EvDict origin dictionaryName typeArguments (map recurse contextEvidence)
     EvSuperClass source sourceOrigin sourcePredicate fieldTypes fieldIndex ->

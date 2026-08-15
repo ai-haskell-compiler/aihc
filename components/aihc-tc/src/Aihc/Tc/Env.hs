@@ -152,6 +152,8 @@ dataConArgTypes = map dcfiType . dciFields
 -- | Information about a type class.
 data ClassInfo = ClassInfo
   { ciName :: !Text,
+    -- | Exact checked type constructor for the class constraint.
+    ciTyCon :: !TyCon,
     -- | Package and module that define the class.
     ciOrigin :: !(Maybe (Text, Text)),
     -- | Type parameters of the class.

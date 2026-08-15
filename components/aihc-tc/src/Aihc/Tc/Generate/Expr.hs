@@ -873,7 +873,10 @@ wantedDoEq sp actual expected = do
 wantedMonad :: SourceSpan -> TcType -> TcM Ct
 wantedMonad sp monadTy = do
   ev <- freshEvVar
-  pure (mkWantedCt (ClassPred "Monad" [monadTy]) ev (AppOrigin sp) sp)
+  maybeMonad <- lookupTyCon "Monad"
+  case maybeMonad of
+    Just monadInfo -> pure (mkWantedCt (ClassPred (tciTyCon monadInfo) [monadTy]) ev (AppOrigin sp) sp)
+    Nothing -> abortTc "missing checked type constructor for Monad"
 
 orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
 orSourceSpan NoSourceSpan fallback = fallback

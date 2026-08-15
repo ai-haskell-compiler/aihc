@@ -612,7 +612,11 @@ predicate :: TyEnv -> Parser Pred
 predicate tyEnv = MP.try equalityPredicate <|> classPredicate
   where
     equalityPredicate = EqPred <$> typeAtom tyEnv <* symbol "~" <*> typeAtom tyEnv
-    classPredicate = ClassPred <$> name <*> MP.many (typeAtom tyEnv)
+    classPredicate = do
+      classType <- typeApplication tyEnv
+      case classType of
+        TcTyCon classTyCon arguments -> pure (ClassPred classTyCon arguments)
+        _ -> fail "class predicate requires an exact type constructor"
 
 functionType :: TyEnv -> Parser TcType
 functionType tyEnv = do

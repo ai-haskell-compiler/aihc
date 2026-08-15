@@ -272,8 +272,8 @@ referencesType ty =
 referencesPred :: Pred -> References
 referencesPred predicate =
   case predicate of
-    ClassPred name arguments ->
-      mempty {referencedTypes = Set.singleton name}
+    ClassPred classTyCon arguments ->
+      mempty {referencedTypes = Set.singleton (tyConName classTyCon)}
         <> foldMap referencesType arguments
     EqPred left right -> referencesType left <> referencesType right
 

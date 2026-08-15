@@ -3,7 +3,7 @@ module Main (main) where
 import FcGolden (updateFcGoldens)
 import System.Environment (lookupEnv)
 import Test.Fc.Properties (fcPropertyTests)
-import Test.Fc.Suite (fcEmptyDataKindTest, fcLintTests, fcPrimitiveLiteralOriginTest)
+import Test.Fc.Suite (fcClassConstraintLoweringTest, fcEmptyDataKindTest, fcLintTests, fcPrimitiveLiteralOriginTest)
 import Test.Tasty (defaultMain, testGroup)
 
 -- import Test.Fc.Suite (fcEvalFixtureTests, fcGoldenTests)
@@ -16,7 +16,8 @@ main = do
     _ -> do
       emptyDataKind <- fcEmptyDataKindTest
       primitiveLiteralOrigin <- fcPrimitiveLiteralOriginTest
-      defaultMain (testGroup "aihc-fc" [fcLintTests, emptyDataKind, primitiveLiteralOrigin, fcPropertyTests])
+      classConstraintLowering <- fcClassConstraintLoweringTest
+      defaultMain (testGroup "aihc-fc" [fcLintTests, emptyDataKind, primitiveLiteralOrigin, classConstraintLowering, fcPropertyTests])
 
 -- _ -> do
 --   golden <- fcGoldenTests
