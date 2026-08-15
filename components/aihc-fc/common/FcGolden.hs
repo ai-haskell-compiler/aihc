@@ -90,9 +90,11 @@ tupleSupportModule =
 listSupportModule :: Text
 listSupportModule =
   T.unlines
-    [ "module GHC.Types (Bool(..), List(..), Type, TYPE) where",
+    [ "module GHC.Types (Bool(..), Levity(..), List(..), RuntimeRep(..), Type, TYPE) where",
       "data Bool = False | True",
+      "data Levity = Lifted | Unlifted",
       "data List a = [] | a : [a]",
+      "data RuntimeRep = BoxedRep Levity",
       "data Type",
       "data TYPE rep",
       "infixr 5 :"

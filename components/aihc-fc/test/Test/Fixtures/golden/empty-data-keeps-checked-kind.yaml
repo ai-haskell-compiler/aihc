@@ -7,7 +7,7 @@ modules:
   - |
     module GHC.Prim where
 
-    import GHC.Types (Type, TYPE)
+    import GHC.Types (Levity (Unlifted), RuntimeRep (BoxedRep), Type, TYPE)
 
     type MutVar# :: Type -> Type -> TYPE ('BoxedRep 'Unlifted)
     data MutVar# d a

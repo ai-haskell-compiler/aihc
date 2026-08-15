@@ -1,0 +1,14 @@
+extensions:
+- DataKinds
+modules:
+- |
+  module Main where
+  type Rep = 'IntRep
+annotated:
+- |-
+  module Main where
+  type Rep = 'IntRep
+       │      └─ t Error unbound
+       └─ t Main
+status: pass
+reason: aihc-prim promoted constructors require ordinary name resolution
