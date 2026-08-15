@@ -505,6 +505,8 @@ emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty M
 
 -- | Scope containing fixed Haskell names that are always available.
 --
+-- The term namespace is empty.
+-- Promoted constructors from @aihc-prim@ use ordinary name resolution.
 -- The type namespace contains only the function arrow and @Constraint@.
 -- Types from @aihc-prim@ use ordinary name resolution.
 --
@@ -526,43 +528,7 @@ builtinScope =
     mkBuiltinType n = (n, ResolvedBuiltin n)
 
 builtinPromotedConstructorNames :: [T.Text]
-builtinPromotedConstructorNames =
-  [ "AddrRep",
-    "BoxedRep",
-    "DoubleRep",
-    "FloatRep",
-    "Int16Rep",
-    "Int32Rep",
-    "Int64Rep",
-    "Int8Rep",
-    "IntRep",
-    "SumRep",
-    "TupleRep",
-    "VecRep",
-    "Word16Rep",
-    "Word32Rep",
-    "Word64Rep",
-    "Word8Rep",
-    "WordRep",
-    "Lifted",
-    "Unlifted",
-    "Vec16",
-    "Vec2",
-    "Vec32",
-    "Vec4",
-    "Vec64",
-    "Vec8",
-    "DoubleElemRep",
-    "FloatElemRep",
-    "Int16ElemRep",
-    "Int32ElemRep",
-    "Int64ElemRep",
-    "Int8ElemRep",
-    "Word16ElemRep",
-    "Word32ElemRep",
-    "Word64ElemRep",
-    "Word8ElemRep"
-  ]
+builtinPromotedConstructorNames = []
 
 -- | Wired-in type-namespace names.
 --
