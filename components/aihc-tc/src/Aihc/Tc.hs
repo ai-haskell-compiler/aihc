@@ -184,7 +184,7 @@ instance Semigroup TcInterface where
   left <> right =
     TcInterface
       { tcInterfaceTerms = mergeInterfaceEntries fst (tcInterfaceTerms left <> tcInterfaceTerms right),
-        tcInterfaceTyCons = mergeInterfaceEntries tciTyCon (tcInterfaceTyCons left <> tcInterfaceTyCons right),
+        tcInterfaceTyCons = mergeTyConInfos (tcInterfaceTyCons left <> tcInterfaceTyCons right),
         tcInterfaceDataTypes = mergeInterfaceEntries dtiName (tcInterfaceDataTypes left <> tcInterfaceDataTypes right),
         tcInterfaceClasses = mergeInterfaceEntries ciName (tcInterfaceClasses left <> tcInterfaceClasses right),
         tcInterfaceInstances = mergeInterfaceEntries iiDictName (tcInterfaceInstances left <> tcInterfaceInstances right),
@@ -196,6 +196,15 @@ instance Monoid TcInterface where
 
 mergeInterfaceEntries :: (Ord key) => (value -> key) -> [value] -> [value]
 mergeInterfaceEntries key = Map.elems . Map.fromList . map (\value -> (key value, value))
+
+mergeTyConInfos :: [TyConInfo] -> [TyConInfo]
+mergeTyConInfos = Map.elems . foldr insertInfo Map.empty
+  where
+    insertInfo info = Map.insertWith preferSourceName (tciTyCon info) info
+    preferSourceName new old
+      | isSupportName new && not (isSupportName old) = old
+      | otherwise = new
+    isSupportName info = tciName info == tyConName (tciTyCon info)
 
 tcTermKeyIdentifier :: TcTermKey -> Maybe Text
 tcTermKeyIdentifier key =

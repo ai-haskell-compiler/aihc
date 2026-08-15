@@ -25,8 +25,10 @@ module Aihc.Cli.Install
     ParsedInterfaceFile (..),
     parseInterfaceFile,
     lookupPackagePlanSourceLineCount,
+    localDependencyResolverWithFallback,
     newPackageCheckCache,
     newPackagePlanCache,
+    packageSpecFromSource,
     packagePlanFailureShouldBeReportedForPackage,
     packageVariantLibraryId,
     renderInstallFailure,
@@ -375,7 +377,11 @@ installRequest opts = do
       pure (PackageSpec packageArgument version, hackageDependencyResolver opts)
 
 localDependencyResolver :: InstallOptions -> FilePath -> DependencyResolver
-localDependencyResolver opts rootSource =
+localDependencyResolver opts =
+  localDependencyResolverWithFallback (hackageDependencyResolver opts)
+
+localDependencyResolverWithFallback :: DependencyResolver -> FilePath -> DependencyResolver
+localDependencyResolverWithFallback fallback rootSource =
   DependencyResolver
     { resolverResolveVersion = \name -> do
         local <- localPackage name
@@ -388,16 +394,19 @@ localDependencyResolver opts rootSource =
           _ -> resolverSourcePath fallback spec
     }
   where
-    fallback = hackageDependencyResolver opts
     workspace = takeDirectory (normalise rootSource)
     localPackage name = do
-      let candidate = workspace </> name
-      exists <- doesDirectoryExist candidate
-      if exists
-        then do
-          spec <- packageSpecFromSource candidate
-          pure (Just (spec, candidate))
-        else pure Nothing
+      rootSpec <- packageSpecFromSource rootSource
+      if pkgName rootSpec == name
+        then pure (Just (rootSpec, rootSource))
+        else do
+          let candidate = workspace </> name
+          exists <- doesDirectoryExist candidate
+          if exists
+            then do
+              spec <- packageSpecFromSource candidate
+              pure (Just (spec, candidate))
+            else pure Nothing
 
 packageSpecFromSource :: FilePath -> IO PackageSpec
 packageSpecFromSource sourcePath = do

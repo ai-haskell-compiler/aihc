@@ -5,13 +5,23 @@ module Aihc.Cli.InstallV2
   )
 where
 
-import Aihc.Cli.Install (ParsedInterfaceFile (..), parseInterfaceFile)
+import Aihc.Cli.Install
+  ( DependencyResolver (..),
+    PackagePlan (..),
+    ParsedInterfaceFile (..),
+    buildPackagePlanWithResolver,
+    localDependencyResolverWithFallback,
+    packageSpecFromSource,
+    parseInterfaceFile,
+  )
 import Aihc.Cli.Options (InstallV2Options (..))
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeInterface)
 import Aihc.Hackage.Cabal qualified as HackageCabal
+import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Util qualified as HackageUtil
+import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Parser.Syntax (ImportDecl (..), Module, Name (..), moduleName)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve
@@ -29,12 +39,19 @@ import Aihc.Resolve
 import Aihc.Tc
   ( ClassInfo (..),
     DataTypeInfo (..),
+    Pred (..),
     TcInterface (..),
     TcTermKey (..),
+    TcType (..),
+    TyCon,
+    TyConFlavor (..),
     TyConInfo (..),
+    TypeScheme (..),
     tcConfig,
     tcModuleDiagnostics,
     tcModuleSuccess,
+    tyConArity,
+    tyConName,
     typecheckModuleSccWithInterfaceConfig,
   )
 import Aihc.Tc.Types (tyConModuleName, tyConPackageId)
@@ -50,6 +67,7 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import Data.Word (Word64)
 import Distribution.Package qualified as CabalPackage
 import Distribution.PackageDescription (package, packageDescription)
@@ -57,7 +75,7 @@ import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, r
 import Distribution.Pretty (prettyShow)
 import Numeric (showHex)
 import System.Directory (createDirectoryIfMissing)
-import System.FilePath (makeRelative, takeDirectory, (</>))
+import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
 
 data InstallV2Result = InstallV2Result
   { installV2StorePath :: !FilePath,
@@ -72,6 +90,14 @@ data SourceModule = SourceModule
     sourceModuleAst :: !Module
   }
 
+data InstalledV2Package = InstalledV2Package
+  { installedV2Result :: !InstallV2Result,
+    installedV2Exports :: !ModuleExports,
+    installedV2Types :: !TcInterface,
+    installedV2ScopeHashes :: !(Map.Map Text Text),
+    installedV2TypeHashes :: !(Map.Map Text Text)
+  }
+
 runInstallV2 :: InstallV2Options -> IO ()
 runInstallV2 options = do
   result <- installV2 options
@@ -82,6 +108,30 @@ installV2 options = do
   storeRoot <- maybe defaultStoreRoot pure (installV2StoreRoot options)
   let root = installV2PackageDirectory options
       verbose message = when (installV2Verbose options) (putStrLn message)
+      fallbackResolver = networkDependencyResolver
+      resolver = localDependencyResolverWithFallback fallbackResolver root
+  spec <- packageSpecFromSource root
+  plan <- buildPackagePlanWithResolver resolver storeRoot spec
+  installedV2Result <$> installPackagePlanV2 verbose storeRoot plan
+
+networkDependencyResolver :: DependencyResolver
+networkDependencyResolver =
+  DependencyResolver
+    { resolverResolveVersion = resolveVersion,
+      resolverSourcePath = HackageDownload.downloadPackageWithOptions HackageDownload.defaultDownloadOptions
+    }
+  where
+    resolveVersion name = do
+      result <- getLatestVersion Nothing name
+      either (ioError . userError) pure result
+
+installPackagePlanV2 :: (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
+installPackagePlanV2 verbose storeRoot plan = do
+  dependencies <- mapM (installPackagePlanV2 verbose storeRoot) (planDependencyPlans plan)
+  installPackageV2 verbose storeRoot dependencies (planSourcePath plan)
+
+installPackageV2 :: (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
+installPackageV2 verbose storeRoot dependencies root = do
   verbose ("Read Cabal package: " <> root)
   cabalFiles <- HackageUtil.findCabalFiles root
   cabalFile <- case cabalFiles of
@@ -97,14 +147,46 @@ installV2 options = do
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
   verbose ("Parse " <> show (length files) <> " library modules")
   parsed <- mapM (parseSource root) files
-  let packageHash = stableHash ["aihc-dependencies-v1"]
+  let dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
+      packageHash = stableHash (TE.encodeUtf8 "aihc-dependencies-v1" : map TE.encodeUtf8 dependencyIdentities)
       packageDirectory = T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash
       storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId (T.pack packageDirectory))
       units = sourceModuleSccs parsed
+      dependencyExports = Map.unions (map installedV2Exports dependencies)
+      dependencyTypes = mconcat (map installedV2Types dependencies)
+      dependencyScopeHashes = Map.unions (map installedV2ScopeHashes dependencies)
+      dependencyTypeHashes = Map.unions (map installedV2TypeHashes dependencies)
   verbose ("Compute " <> show (length units) <> " SCC units")
-  (_, _, _, _, written, reused) <- foldM (installUnit verbose storePath resolvePackage root) (Map.empty, Map.empty, mempty, Map.empty, Set.empty, Set.empty) units
-  pure (InstallV2Result storePath (Set.toAscList written) (Set.toAscList reused))
+  (allExports, allScopeHashes, _, allTypeHashes, written, reused) <-
+    foldM
+      (installUnit verbose storePath resolvePackage root)
+      (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty)
+      units
+  let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
+      ownExports =
+        Map.filterWithKey
+          (\moduleKey _ -> moduleKeyPackage moduleKey == resolvePackage && moduleKeyName moduleKey `Set.member` exposedNames)
+          allExports
+      exposedSources = filter ((`Set.member` exposedNames) . sourceName) parsed
+      typePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "type.cbor"
+  exposedTypes <- mapM (readStoredTypeInterface . typePath) exposedSources
+  pure
+    InstalledV2Package
+      { installedV2Result = InstallV2Result storePath (Set.toAscList written) (Set.toAscList reused),
+        installedV2Exports = ownExports,
+        installedV2Types = mconcat exposedTypes,
+        installedV2ScopeHashes = Map.restrictKeys allScopeHashes exposedNames,
+        installedV2TypeHashes = Map.restrictKeys allTypeHashes exposedNames
+      }
+  where
+    sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
+
+readStoredTypeInterface :: FilePath -> IO TcInterface
+readStoredTypeInterface path = do
+  bytes <- BS.readFile path
+  artifact <- either (\message -> ioError (userError ("Invalid type artifact " <> path <> ": " <> message))) pure (decodeTypeArtifact bytes)
+  pure (typeArtifactInterface artifact)
 
 parseSource :: FilePath -> HackageCabal.FileInfo -> IO SourceModule
 parseSource root fileInfo = do
@@ -191,12 +273,13 @@ installUnit verbose storePath resolvePackage root (dependencyExports, scopeHashe
 
 moduleTypeInterface :: ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
 moduleTypeInterface exports package interface source =
-  interface
-    { tcInterfaceTerms = filter visibleTerm (tcInterfaceTerms interface),
-      tcInterfaceTyCons = filter visibleTyCon (tcInterfaceTyCons interface),
-      tcInterfaceDataTypes = filter (visibleTypeIdentity . dtiNameAndOrigin) (tcInterfaceDataTypes interface),
-      tcInterfaceClasses = filter visibleClass (tcInterfaceClasses interface)
-    }
+  addTermSupportTyCons
+    interface
+      { tcInterfaceTerms = filter visibleTerm (tcInterfaceTerms interface),
+        tcInterfaceTyCons = filter visibleTyCon (tcInterfaceTyCons interface),
+        tcInterfaceDataTypes = filter (visibleTypeIdentity . dtiNameAndOrigin) (tcInterfaceDataTypes interface),
+        tcInterfaceClasses = filter visibleClass (tcInterfaceClasses interface)
+      }
   where
     name = fromMaybe "Main" (moduleName (sourceModuleAst source))
     scope = Map.findWithDefault (error "missing resolve scope") (ModuleKey package name) exports
@@ -225,6 +308,38 @@ moduleTypeInterface exports package interface source =
     resolvedIdentity resolved = case resolved of
       ResolvedTopLevel packageId' resolvedName -> Just (packageId', fromMaybe name (nameQualifier resolvedName), nameText resolvedName)
       _ -> Nothing
+
+addTermSupportTyCons :: TcInterface -> TcInterface
+addTermSupportTyCons interface =
+  interface {tcInterfaceTyCons = Map.elems (existing <> support)}
+  where
+    existing = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons interface]
+    referenced = concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface)
+    support =
+      Map.fromList
+        [ (tyCon, TyConInfo (tyConName tyCon) (tyConArity tyCon) tyCon DataTyCon Nothing)
+        | tyCon <- referenced,
+          tyCon `Map.notMember` existing
+        ]
+
+typeSchemeTyCons :: TypeScheme -> [TyCon]
+typeSchemeTyCons (ForAll _ predicates body) = concatMap predTyCons predicates <> typeTyCons body
+
+predTyCons :: Pred -> [TyCon]
+predTyCons predicate = case predicate of
+  ClassPred _ arguments -> concatMap typeTyCons arguments
+  EqPred left right -> typeTyCons left <> typeTyCons right
+
+typeTyCons :: TcType -> [TyCon]
+typeTyCons ty = case ty of
+  TcTyVar {} -> []
+  TcMetaTv {} -> []
+  TcTyCon tyCon arguments -> tyCon : concatMap typeTyCons arguments
+  TcFunTy argument result -> typeTyCons argument <> typeTyCons result
+  TcForAllTy _ body -> typeTyCons body
+  TcQualTy predicates body -> concatMap predTyCons predicates <> typeTyCons body
+  TcAppTy function argument -> typeTyCons function <> typeTyCons argument
+  TcBuiltinTyCon _ _ arguments -> concatMap typeTyCons arguments
 
 writeTypeArtifact :: (String -> IO ()) -> [(Text, Text)] -> (SourceModule -> FilePath) -> SourceModule -> TcInterface -> IO ()
 writeTypeArtifact verbose hashes artifactPath source interface = do
