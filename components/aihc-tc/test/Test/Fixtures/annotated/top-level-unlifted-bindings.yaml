@@ -21,12 +21,12 @@ annotated:
   - |-
     module Test where
     data State# s
-         └─ type: * → TYPE ('TupleRep '[])
+         └─ type: Type → TYPE ('TupleRep '[])
     data RealWorld
-         └─ type: *
+         └─ type: Type
     data Box# = MkBox#
          │      └─ type: Box#
-         └─ type: *
+         └─ type: Type
 
     intValue = 10#
     └─ error: top-level binding intValue has unlifted type Int#

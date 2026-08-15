@@ -4,7 +4,7 @@ annotated:
   data List a = [] | a : [a]
        │        │    └─ type: ∀ a. a → [a] → [a]
        │        └─ type: ∀ a. [a]
-       └─ type: * → *
+       └─ type: Type → Type
   infixr 5 :
   (++) :: [a] -> [a] -> [a]
   (++) [] ys = ys

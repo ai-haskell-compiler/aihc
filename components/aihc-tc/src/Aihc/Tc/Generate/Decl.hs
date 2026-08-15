@@ -99,7 +99,7 @@ import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Instantiate qualified
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, defaultKindMetas, freeTypeVars, freshKindMeta, kindToTcType, makeParamEnv, makeParamEnvWith, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
 import Aihc.Tc.Solve.Dict (DictResult (..), solveDictWithGivens)
@@ -483,16 +483,19 @@ tcModuleScc modules = do
   -- Phase 2: collect type signatures and convert them to schemes.
   rawSigs <- mapM (collectUserSigs . moduleDecls) derivingFinalized
   schemes <- mapM (traverse checkUserSig) rawSigs
-  mapM_ registerCheckedSig (concatMap Map.elems schemes)
+  mapM_ (uncurry registerCheckedSig) (concatMap Map.toList schemes)
   pending <- zipWithM tcModuleBody schemes derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
   defaultGlobalKindMetas
   annotated <- mapM annotatePendingModule pending
   mapM finalizeModuleTc annotated
 
-registerCheckedSig :: CheckedSig -> TcM ()
-registerCheckedSig sig =
-  extendTermEnvPermanent (checkedSigName sig) (TcIdBinder (checkedSigScheme sig) Closed)
+registerCheckedSig :: TcTermKey -> CheckedSig -> TcM ()
+registerCheckedSig key sig = do
+  extendTermEnvPermanent (checkedSigName sig) binder
+  extendTermKeyEnvPermanent key binder
+  where
+    binder = TcIdBinder (checkedSigScheme sig) Closed
 
 data PendingModule = PendingModule
   { pendingSyntax :: !Module,
@@ -1676,9 +1679,9 @@ tcSingleDeclGroup sigs groupId d =
           (maybeMatches, bindings) <-
             case Map.lookup key sigs of
               Just sig ->
-                tcFunctionWithSig displayName name sig [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
+                tcFunctionWithSig key displayName name sig [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
               Nothing ->
-                tcFunctionInfer displayName name [zeroArgMatch (patternSpan pat) rhs]
+                tcFunctionInfer key displayName name [zeroArgMatch (patternSpan pat) rhs]
           let annotatedDecls = fmap (\case [match] -> [replacePatternBindRhs (matchRhs match) d]; _ -> [d]) maybeMatches
           pure (TcDeclGroupResult groupId bindings annotatedDecls)
         Nothing -> do
@@ -1701,10 +1704,10 @@ tcMergedFunctionGroup sigs groupId binder decls matches = do
   (maybeMatches, bindings) <- case Map.lookup key sigs of
     Just sig -> do
       -- Use the declared type signature for checking.
-      tcFunctionWithSig displayName name sig matches
+      tcFunctionWithSig key displayName name sig matches
     Nothing -> do
       -- No signature: infer the type.
-      tcFunctionInfer displayName name matches
+      tcFunctionInfer key displayName name matches
   let annotatedDecls = fmap (`replaceFunctionDeclMatches` decls) maybeMatches
   pure (TcDeclGroupResult groupId bindings annotatedDecls)
 
@@ -1712,12 +1715,13 @@ tcMergedFunctionGroup sigs groupId binder decls matches = do
 -- The signature's type variables are opened as rigid skolems so that
 -- the body is checked against them. GADT patterns generate implication
 -- constraints using the signature's skolems as given equalities.
-tcFunctionWithSig :: Text -> Text -> CheckedSig -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
-tcFunctionWithSig displayName name sig matches = do
+tcFunctionWithSig :: TcTermKey -> Text -> Text -> CheckedSig -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
+tcFunctionWithSig key displayName name sig matches = do
   let scheme = checkedSigScheme sig
   (matches', failed) <-
     withErrorTracking $ do
       extendTermEnvPermanent name (TcIdBinder scheme Closed)
+      extendTermKeyEnvPermanent key (TcIdBinder scheme Closed)
       -- Open the scheme with skolems (not metas) for checking.
       (sigPreds, sigTy) <- skolemizeQualified scheme
       let nArgs = case matches of
@@ -1741,12 +1745,13 @@ tcFunctionWithSig displayName name sig matches = do
       pure (Just matches', [TcBindingResult name displayName zonkedTy])
 
 -- | Type-check a function without a type signature (infer).
-tcFunctionInfer :: Text -> Text -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
-tcFunctionInfer displayName name matches = do
+tcFunctionInfer :: TcTermKey -> Text -> Text -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
+tcFunctionInfer key displayName name matches = do
   placeholderTy <- freshMetaTv
   ((matches', ty, residualPreds), failed) <-
     withErrorTracking $ do
       extendTermEnvPermanent name (TcMonoIdBinder placeholderTy)
+      extendTermKeyEnvPermanent key (TcMonoIdBinder placeholderTy)
       (matches', ty, cts', impls') <- tcMatches matches
       solveResult <- solveWithImpls cts' impls'
       rejectEscapingExistentials ty impls'
@@ -1755,10 +1760,11 @@ tcFunctionInfer displayName name matches = do
   if failed
     then pure (Nothing, [])
     else do
-      scheme <- generalizeAndCommitIgnoring (Set.singleton (unqualifiedTermKey name)) ty residualPreds
+      scheme <- generalizeAndCommitIgnoring (Set.fromList [unqualifiedTermKey name, key]) ty residualPreds
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
       extendTermEnvPermanent name (TcIdBinder scheme Closed)
+      extendTermKeyEnvPermanent key (TcIdBinder scheme Closed)
       pure (Just matches', [TcBindingResult name displayName zonkedTy])
 
 generalizableResidualPreds :: SolveResult -> TcM [Pred]
@@ -1893,7 +1899,7 @@ registerForeignImport foreignDecl = do
   let name = unqualifiedNameText (foreignName foreignDecl)
       displayName = renderBinderName (foreignName foreignDecl)
       declaredTy = schemeToType scheme
-  extendTermEnvPermanent name (TcIdBinder scheme Closed)
+  extendResolvedTermEnvPermanent (foreignName foreignDecl) (TcIdBinder scheme Closed)
   zonkedTy <- zonkType declaredTy
   pure [TcBindingResult name displayName zonkedTy]
 
@@ -1975,7 +1981,7 @@ registerClassItem classPred classTvEnv classTyVars item =
         ( \methodName -> do
             let name = unqualifiedNameText methodName
                 displayName = renderBinderName methodName
-            extendTermEnvPermanent name (TcIdBinder scheme Closed)
+            extendResolvedTermEnvPermanent methodName (TcIdBinder scheme Closed)
             zonkedTy <- zonkType declaredTy
             pure (TcBindingResult name displayName zonkedTy)
         )
@@ -2563,13 +2569,18 @@ tcValueDecl :: ValueDecl -> TcM [TcBindingResult]
 tcValueDecl (FunctionBind binder matches) = do
   let name = unqualifiedNameText binder
       displayName = renderBinderName binder
-  snd <$> tcFunctionInfer displayName name matches
+  key <- resolvedUnqualifiedTermKey binder
+  snd <$> tcFunctionInfer key displayName name matches
 tcValueDecl (PatternBind _ pat rhs) = case patternBinderName pat of
   -- Bare variable pattern (e.g. @x = 5@, @(.>.) = (++)@): type-check as a
   -- zero-argument function so that the binding gets generalized and registered
   -- in the environment.
   Just (displayName, name) -> do
-    snd <$> tcFunctionInfer displayName name [zeroArgMatch (patternSpan pat) rhs]
+    case patternBinderSyntaxName pat of
+      Just binder -> do
+        key <- resolvedUnqualifiedTermKey binder
+        snd <$> tcFunctionInfer key displayName name [zeroArgMatch (patternSpan pat) rhs]
+      Nothing -> abortTc "a named pattern binding does not have binder syntax"
   -- Non-trivial pattern binding: infer the RHS type without generalization.
   Nothing -> do
     (_rhs', ty) <- tcRhs rhs

@@ -37,7 +37,10 @@ module Aihc.Tc.Types
     VecCount (..),
     VecElem (..),
     TypeScheme (..),
+    kindSchemeFromKind,
+    kindToTcType,
     kindFromTypeScheme,
+    runtimeRepToTcType,
     boxedTupleTyConName,
     unboxedTupleTyConName,
     isUnboxedTupleType,
@@ -86,7 +89,7 @@ newtype Unique = Unique Int
 -- | A type variable identifier, carrying both a human-readable name and
 -- a unique tag for alpha-equivalence.
 data TyVarId = TyVarIdInternal !Text !Unique !Kind
-  deriving (Show, Read)
+  deriving (Eq, Ord, Show, Read)
 
 pattern TyVarId :: Text -> Unique -> TyVarId
 pattern TyVarId {tvName, tvUnique} <- TyVarIdInternal tvName tvUnique _
@@ -101,26 +104,9 @@ tvKind (TyVarIdInternal _ _ kind) = kind
 setTyVarKind :: Kind -> TyVarId -> TyVarId
 setTyVarKind kind (TyVarIdInternal name unique _) = TyVarIdInternal name unique kind
 
-instance Eq TyVarId where
-  a == b = tvUnique a == tvUnique b
-
-instance Ord TyVarId where
-  compare a b = compare (tvUnique a) (tvUnique b)
-
 -- | Type constructor. The kind scheme is the only stored kind representation.
 data TyCon = TyConInternal !PackageId !Text !Text !Int !TypeScheme
-  deriving (Show, Read)
-
-instance Eq TyCon where
-  left == right =
-    (tyConPackageId left, tyConModuleName left, tyConName left, tyConArity left)
-      == (tyConPackageId right, tyConModuleName right, tyConName right, tyConArity right)
-
-instance Ord TyCon where
-  compare left right =
-    compare
-      (tyConPackageId left, tyConModuleName left, tyConName left, tyConArity left)
-      (tyConPackageId right, tyConModuleName right, tyConName right, tyConArity right)
+  deriving (Eq, Ord, Show, Read)
 
 pattern TyCon :: Text -> Int -> TyCon
 pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ tyConName tyConArity _
@@ -157,12 +143,15 @@ mkTyConWithOrigin packageId moduleName name arity inferredKind =
 
 -- | Make a type constructor from its authoritative kind scheme.
 mkTyConWithOriginScheme :: PackageId -> Text -> Text -> Int -> TypeScheme -> TyCon
-mkTyConWithOriginScheme = TyConInternal
+mkTyConWithOriginScheme packageId moduleName name arity scheme =
+  requirePredicateFreeKindScheme scheme `seq`
+    TyConInternal packageId moduleName name arity scheme
 
 -- | Replace a type constructor's authoritative kind scheme.
 setTyConKindScheme :: TypeScheme -> TyCon -> TyCon
 setTyConKindScheme scheme (TyConInternal packageId moduleName name arity _) =
-  TyConInternal packageId moduleName name arity scheme
+  requirePredicateFreeKindScheme scheme `seq`
+    TyConInternal packageId moduleName name arity scheme
 
 -- | Kinds for the type language checked by @aihc-tc@.
 data Kind
@@ -472,29 +461,29 @@ primitiveRuntimeRep name =
 -- @ForAll [a, b] [Eq a] (a -> b -> Bool)@
 -- represents @forall a b. Eq a => a -> b -> Bool@.
 data TypeScheme = ForAll ![TyVarId] ![Pred] !TcType
-  deriving (Eq, Show, Read)
+  deriving (Eq, Ord, Show, Read)
 
 kindSchemeFromKind :: Kind -> TypeScheme
-kindSchemeFromKind = ForAll [] [] . kindAsType
+kindSchemeFromKind = ForAll [] [] . kindToTcType
 
-kindAsType :: Kind -> TcType
-kindAsType kind =
+kindToTcType :: Kind -> TcType
+kindToTcType kind =
   case kind of
     KTYPE runtimeRep
       | runtimeRep == liftedRuntimeRep -> builtin "Type" 0 []
-      | otherwise -> builtin "TYPE" 1 [runtimeRepAsType runtimeRep]
+      | otherwise -> builtin "TYPE" 1 [runtimeRepToTcType runtimeRep]
     KConstraint -> builtin "Constraint" 0 []
     KRuntimeRep -> builtin "RuntimeRep" 0 []
     KLevity -> builtin "Levity" 0 []
     KVecCount -> builtin "VecCount" 0 []
     KVecElem -> builtin "VecElem" 0 []
     KMeta unique -> TcMetaTv unique
-    KFun argument result -> TcFunTy (kindAsType argument) (kindAsType result)
+    KFun argument result -> TcFunTy (kindToTcType argument) (kindToTcType result)
   where
     builtin = TcBuiltinTyCon
 
-runtimeRepAsType :: RuntimeRep -> TcType
-runtimeRepAsType runtimeRep =
+runtimeRepToTcType :: RuntimeRep -> TcType
+runtimeRepToTcType runtimeRep =
   case runtimeRep of
     BoxedRep Lifted -> promoted "LiftedRep" 0 []
     BoxedRep Unlifted -> promoted "UnliftedRep" 0 []
@@ -525,11 +514,17 @@ runtimeRepAsType runtimeRep =
     nullary name = promoted name 0 []
     promoted name = TcBuiltinTyCon ("'" <> name)
     promotedList name fields =
-      promoted name 1 [promoted "[]" (length fields) (map runtimeRepAsType fields)]
+      promoted name 1 [promoted "[]" (length fields) (map runtimeRepToTcType fields)]
     showUnique (Unique value) = show value
 
 kindFromTypeScheme :: TypeScheme -> Kind
-kindFromTypeScheme (ForAll _ _ body) = typeAsKind body
+kindFromTypeScheme scheme@(ForAll _ _ body) =
+  requirePredicateFreeKindScheme scheme `seq` typeAsKind body
+
+requirePredicateFreeKindScheme :: TypeScheme -> ()
+requirePredicateFreeKindScheme (ForAll _ [] _) = ()
+requirePredicateFreeKindScheme ForAll {} =
+  error "type constructor kind scheme contains predicates"
 
 typeAsKind :: TcType -> Kind
 typeAsKind ty =

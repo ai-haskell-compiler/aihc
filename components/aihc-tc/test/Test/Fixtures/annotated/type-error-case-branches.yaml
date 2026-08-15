@@ -12,7 +12,7 @@ annotated:
     data Bool = True | False
          │      │      └─ type: Bool
          │      └─ type: Bool
-         └─ type: *
+         └─ type: Type
     val = case () of
       () -> True
       () -> ()

@@ -89,6 +89,8 @@ data DsState = DsState
     dsTypeEnv :: !(Map Text TcType),
     -- | Map from a complete global identity to its type constructor.
     dsGlobalTyConEnv :: !(Map (PackageId, Text, Text) TyCon),
+    -- | Top-level variables, keyed by their complete resolved identity.
+    dsGlobalVars :: !(Map FcSymbolOrigin Var),
     -- | Local variable bindings (pattern-bound, lambda-bound).
     dsLocalVars :: !(Map Text Var),
     -- | Local dictionaries, keyed by class predicate.
@@ -459,7 +461,7 @@ dsBoxedCharPatternMatch scrutVar char success failure = do
     ( FcCase
         (FcVar scrutVar)
         outerBinder
-        [ FcAlt (DataAlt charConstructor) [charVar] innerCase,
+        [ FcAlt (DataAlt (fcConstructorIdFromSymbol charConstructor)) [charVar] innerCase,
           FcAlt DefaultAlt [] failure
         ]
     )
@@ -615,17 +617,12 @@ dsExpr (EAnn ann inner)
   | Just tcAnn <- fromAnnotation ann =
       dsAnnotatedExpr tcAnn inner
 dsExpr (EVar name) = do
-  let n = nameText name
-      resolvedName = resolvedOccurrenceName name
-      resolvedOrigin = resolvedOccurrenceOrigin name
+  let resolvedName = resolvedOccurrenceName name
   -- Check local bindings first (pattern/lambda variables).
   mLocal <- lookupLocalName resolvedName
   case mLocal of
     Just v -> pure (FcVar v)
-    Nothing -> do
-      ty <- lookupTypeName resolvedName
-      v <- freshVar n ty
-      pure (FcVar v {varResolvedName = resolvedOrigin})
+    Nothing -> FcVar <$> lookupGlobalOccurrence name
 dsExpr (EInt i numericType _) = pure (FcLit (LitInt (numericRuntimeRep numericType) i))
 dsExpr (EChar c _) = do
   constructorOrigin <- lookupDataConOrigin "C#"
@@ -665,17 +662,12 @@ dsExpr expr =
 
 dsAnnotatedVar :: TcAnnotation -> Name -> Expr -> DsM FcExpr
 dsAnnotatedVar tcAnn name _expr = do
-  let n = nameText name
-      resolvedName = resolvedOccurrenceName name
-      resolvedOrigin = resolvedOccurrenceOrigin name
+  let resolvedName = resolvedOccurrenceName name
   mLocal <- lookupLocalName resolvedName
   variable <-
     case mLocal of
       Just local -> pure local
-      Nothing -> do
-        ty <- lookupTypeName resolvedName
-        imported <- freshVar n ty
-        pure imported {varResolvedName = resolvedOrigin}
+      Nothing -> lookupGlobalOccurrence name
   let occurrenceVar
         | isGhcPrimSeq name = variable {varName = seqPseudoOpName}
         | otherwise = variable
@@ -939,6 +931,16 @@ resolvedOccurrenceOrigin name =
         resolutionNamespace resolution == ResolutionNamespaceTerm
       ]
 
+lookupGlobalOccurrence :: Name -> DsM Var
+lookupGlobalOccurrence name =
+  case resolvedOccurrenceOrigin name of
+    Nothing -> desugarBug ("missing resolved global identity for variable use: " <> T.unpack (nameToText name))
+    Just origin -> do
+      globalVariables <- gets dsGlobalVars
+      case Map.lookup origin globalVariables of
+        Just variable -> pure variable
+        Nothing -> desugarBug ("variable use is not in the desugarer environment: " <> T.unpack (fcSymbolOriginText origin))
+
 resolvedNameOrigin :: ResolvedName -> Maybe FcSymbolOrigin
 resolvedNameOrigin resolved =
   case resolved of
@@ -989,8 +991,8 @@ dsIf cond thenE elseE = do
     ( FcCase
         cond'
         binder
-        [ FcAlt (DataAlt trueConstructor) [] then',
-          FcAlt (DataAlt falseConstructor) [] else'
+        [ FcAlt (DataAlt (fcConstructorIdFromSymbol trueConstructor)) [] then',
+          FcAlt (DataAlt (fcConstructorIdFromSymbol falseConstructor)) [] else'
         ]
     )
 
@@ -1135,8 +1137,8 @@ dsOverloadedIntegerPatternMatch scrutVar pat success failure = do
     ( FcCase
         test
         binder
-        [ FcAlt (DataAlt trueConstructor) [] trueBranch,
-          FcAlt (DataAlt falseConstructor) [] failure
+        [ FcAlt (DataAlt (fcConstructorIdFromSymbol trueConstructor)) [] trueBranch,
+          FcAlt (DataAlt (fcConstructorIdFromSymbol falseConstructor)) [] failure
         ]
     )
 
@@ -1402,8 +1404,8 @@ dsCompGuard elemTy body guard rest tailExpr = do
     ( FcCase
         guard'
         binder
-        [ FcAlt (DataAlt trueConstructor) [] trueBranch,
-          FcAlt (DataAlt falseConstructor) [] tailExpr
+        [ FcAlt (DataAlt (fcConstructorIdFromSymbol trueConstructor)) [] trueBranch,
+          FcAlt (DataAlt (fcConstructorIdFromSymbol falseConstructor)) [] tailExpr
         ]
     )
 
@@ -1426,8 +1428,8 @@ dsCompGen elemTy body pat src rest tailExpr = do
           FcCase
             (FcVar listVar)
             caseBinder
-            [ FcAlt (DataAlt nilConstructor) [] tailExpr,
-              FcAlt (DataAlt consConstructor) [headVar, restVar] consRhs
+            [ FcAlt (DataAlt (fcConstructorIdFromSymbol nilConstructor)) [] tailExpr,
+              FcAlt (DataAlt (fcConstructorIdFromSymbol consConstructor)) [headVar, restVar] consRhs
             ]
   pure (FcLet (FcRec [(worker, workerBody)]) (FcApp (FcVar worker) src'))
 
@@ -1676,7 +1678,7 @@ dsEvidence evidence =
             case sourceOrigin of
               Just (packageName, moduleName) -> FcTopLevelOrigin packageName moduleName constructor
               Nothing -> FcBuiltinOrigin constructor
-      pure (FcCase sourceExpression sourceBinder [FcAlt (DataAlt constructorOrigin) fieldBinders (FcVar selected)])
+      pure (FcCase sourceExpression sourceBinder [FcAlt (DataAlt (fcConstructorIdFromSymbol constructorOrigin)) fieldBinders (FcVar selected)])
     EvCast dict _co ->
       dsEvidence dict
     EvTypeable origin ty arguments ->
@@ -1737,7 +1739,7 @@ dsTypeableArgument typeableOrigin ty evidence = do
         dictionary
         dictionaryBinder
         [ FcAlt
-            (DataAlt dictionaryOrigin)
+            (DataAlt (fcConstructorIdFromSymbol dictionaryOrigin))
             [proxyMethod, valueMethod]
             (FcApp (FcVar proxyMethod) proxy)
         ]

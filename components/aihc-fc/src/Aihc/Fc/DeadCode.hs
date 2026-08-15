@@ -179,9 +179,9 @@ typeDefinitionsOf topBind =
 typeConstructorsOf :: FcTopBind -> [(Text, [FcSymbolOrigin])]
 typeConstructorsOf topBind =
   case topBind of
-    FcData declaration -> [(fcDataName declaration, map fcDataConOrigin (fcDataConstructors declaration))]
+    FcData declaration -> [(fcDataName declaration, map (fcConstructorSymbolOrigin . fcDataConOrigin) (fcDataConstructors declaration))]
     FcAxiom {} -> []
-    FcNewtype declaration -> [(fcNewtypeName declaration, [fcNewtypeConstructorOrigin declaration])]
+    FcNewtype declaration -> [(fcNewtypeName declaration, [fcConstructorSymbolOrigin (fcNewtypeConstructorOrigin declaration)])]
     _ -> []
 
 bindersOf :: FcBind -> [Var]
@@ -248,7 +248,7 @@ referencesAlt bound alternative =
 referencesAltCon :: FcAltCon -> References
 referencesAltCon altCon =
   case altCon of
-    DataAlt constructor -> mempty {referencedConstructors = Set.singleton constructor}
+    DataAlt constructor -> mempty {referencedConstructors = Set.singleton (fcConstructorSymbolOrigin constructor)}
     LitAlt literal -> foldMap referencesType (literalType literal)
     DefaultAlt -> mempty
 

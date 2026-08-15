@@ -31,6 +31,9 @@ module Aihc.Fc.Syntax
     fcDataResultType,
     fcDataTyCon,
     FcDataConDecl (..),
+    FcConstructorId (..),
+    fcConstructorIdFromSymbol,
+    fcConstructorSymbolOrigin,
     FcAxiomDecl (..),
     FcAxiomRole (..),
     FcNewtypeDecl (..),
@@ -179,7 +182,7 @@ fcDataResultType declaration =
 
 -- | A data constructor with its stable source identity.
 data FcDataConDecl = FcDataConDecl
-  { fcDataConOrigin :: !FcSymbolOrigin,
+  { fcDataConOrigin :: !FcConstructorId,
     fcDataConName :: !Text,
     fcDataConFields :: ![TcType]
   }
@@ -203,7 +206,7 @@ data FcNewtypeDecl = FcNewtypeDecl
   { fcNewtypeOrigin :: !FcSymbolOrigin,
     fcNewtypeName :: !Text,
     fcNewtypeTyVars :: ![TyVarId],
-    fcNewtypeConstructorOrigin :: !FcSymbolOrigin,
+    fcNewtypeConstructorOrigin :: !FcConstructorId,
     fcNewtypeConstructor :: !Text,
     fcNewtypeRepresentation :: !TcType,
     fcNewtypeResult :: !TcType
@@ -303,6 +306,29 @@ data FcSymbolOrigin
       }
   deriving (Eq, Ord, Show, Read)
 
+-- | The complete identity of a data constructor.
+data FcConstructorId = FcConstructorId
+  { fcConstructorPackage :: !PackageId,
+    fcConstructorModule :: !Text,
+    fcConstructorName :: !Text
+  }
+  deriving (Eq, Ord, Show, Read)
+
+fcConstructorSymbolOrigin :: FcConstructorId -> FcSymbolOrigin
+fcConstructorSymbolOrigin constructor =
+  FcTopLevelOrigin
+    (packageIdText (fcConstructorPackage constructor))
+    (fcConstructorModule constructor)
+    (fcConstructorName constructor)
+
+fcConstructorIdFromSymbol :: FcSymbolOrigin -> FcConstructorId
+fcConstructorIdFromSymbol origin =
+  case origin of
+    FcTopLevelOrigin packageName moduleName constructorName ->
+      FcConstructorId (PackageId packageName) moduleName constructorName
+    FcBuiltinOrigin constructorName ->
+      error ("constructor does not have a complete identity: " <> T.unpack constructorName)
+
 fcSymbolOriginText :: FcSymbolOrigin -> Text
 fcSymbolOriginText origin =
   case origin of
@@ -385,7 +411,7 @@ data FcAlt = FcAlt
 -- | Case alternative constructor.
 data FcAltCon
   = -- | Data constructor with its full identity.
-    DataAlt !FcSymbolOrigin
+    DataAlt !FcConstructorId
   | -- | Literal match.
     LitAlt !Literal
   | -- | Default/wildcard.

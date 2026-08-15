@@ -8,12 +8,17 @@ module Test.Fc.Suite
   ( fcGoldenTests,
     fcEvalFixtureTests,
     fcLintTests,
+    fcTopLevelIdentityTest,
   )
 where
 
 import Aihc.Fc
-import Aihc.Tc.Types (Kind (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), mkTyCon, setTyVarKind)
+import Aihc.Parser (defaultConfig, parseModule)
+import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps)
+import Aihc.Tc (emptyTcInterface, tcModuleBindings, typecheckModulesWithInterface)
+import Aihc.Tc.Types (Kind (..), Pred (..), TcType (..), TyCon (..), TyVarId (..), TypeScheme (..), Unique (..), mkTyCon, mkTyConWithOriginScheme, setTyVarKind)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
+import Control.Exception (SomeException, evaluate, try)
 import Data.List (find)
 import Data.Text (Text)
 import FcGolden
@@ -36,8 +41,52 @@ fcLintTests =
             badType = TcTyCon proxyTyCon [liftedType]
             program = FcProgram testModule [FcExternal (FcTopLevelOrigin "test" "Test" "value") badType]
         assertBool "expected a kind error" (any isKindError (lintProgram emptyLintEnv program)),
+      rejectsPredicatesInKindSchemes,
+      missingGlobalEnvironmentTest,
       testProperty "Hedgehog options" (property success)
     ]
+
+-- A source fixture cannot construct a type constructor kind scheme directly.
+-- This unit test verifies the required construction exception.
+rejectsPredicatesInKindSchemes :: TestTree
+rejectsPredicatesInKindSchemes = testCase "type constructor kind schemes reject predicates" $ do
+  let scheme = ForAll [] [ClassPred "C" []] (TcBuiltinTyCon "Type" 0 [])
+  result <- try (evaluate (mkTyConWithOriginScheme "pkg" "GHC.Prim" "T" 0 scheme)) :: IO (Either SomeException TyCon)
+  case result of
+    Left _ -> pure ()
+    Right _ -> assertFailure "expected a type constructor kind scheme exception"
+
+-- The golden runner always supplies a complete interface.
+-- This unit test is necessary to verify the failure for an incomplete variable environment.
+missingGlobalEnvironmentTest :: TestTree
+missingGlobalEnvironmentTest = testCase "desugaring rejects a missing global variable" $ do
+  let sources =
+        [ "module Dependency where\nshared x = x\n",
+          "module Test where\nimport Dependency\nuse x = shared x\n"
+        ]
+      parsed = map (snd . parseModule defaultConfig) sources
+      resolved = resolveWithDeps mempty [(Package "" (PackageId ""), modu) | modu <- parsed]
+  case resolved of
+    ResolveResult {resolvedModules, resolveErrors = []} -> do
+      let checkedModules = fst (typecheckModulesWithInterface emptyTcInterface (map snd resolvedModules))
+          bindings = concatMap tcModuleBindings checkedModules
+      case reverse checkedModules of
+        checked : _ -> do
+          let result = desugarModuleWithInterface (DesugarConfig (PackageId "aihc-prim")) bindings emptyTcInterface checked
+          assertEqual
+            "desugar errors"
+            ["variable use is not in the desugarer environment: Dependency.shared"]
+            (dsErrors result)
+        [] -> assertFailure "type checking did not return the test module"
+    ResolveResult {resolveErrors} -> assertFailure ("resolve errors: " <> show resolveErrors)
+
+fcTopLevelIdentityTest :: IO TestTree
+fcTopLevelIdentityTest = do
+  cases <- loadFcCases
+  pure $
+    case find ((== "top-level-shared-identity.yaml") . caseId) cases of
+      Nothing -> testCase "top-level identity fixture exists" (assertFailure "top-level identity fixture is missing")
+      Just testFixture -> mkTest testFixture
 
 isKindError :: LintError -> Bool
 isKindError KindMismatch {} = True

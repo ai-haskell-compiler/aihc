@@ -7,7 +7,7 @@ module Aihc.Fc.Merge
   )
 where
 
-import Aihc.Fc.Pretty (declareExternalSymbols)
+import Aihc.Fc.External (declareExternalSymbols)
 import Aihc.Fc.Subst (freeRigidTyVarsOf, maximumProgramUnique, programVars)
 import Aihc.Fc.Syntax
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, typeSchemeFromType)
@@ -167,12 +167,12 @@ declarationConstructorVars importedTypes topBind =
     FcData declaration ->
       [ fcExternalVar origin (Map.findWithDefault (dataConstructorType declaration constructor) origin importedTypes)
       | constructor <- fcDataConstructors declaration,
-        let origin = fcDataConOrigin constructor
+        let origin = fcConstructorSymbolOrigin (fcDataConOrigin constructor)
       ]
     FcNewtype declaration ->
       [fcExternalVar origin (Map.findWithDefault (newtypeConstructorType declaration) origin importedTypes)]
       where
-        origin = fcNewtypeConstructorOrigin declaration
+        origin = fcConstructorSymbolOrigin (fcNewtypeConstructorOrigin declaration)
     _ -> []
 
 dataConstructorType :: FcDataDecl -> FcDataConDecl -> TcType

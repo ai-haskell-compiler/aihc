@@ -13,9 +13,9 @@ import Aihc.Fc.Desugar.Deriving (dsDerivingPlans, moduleDerivingPlans)
 import Aihc.Fc.Desugar.Dictionary (classMethodFieldType, defaultMethodName, peelForAlls, peelQuals, predType)
 import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupType, withDicts)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
+import Aihc.Fc.External (declareExternalSymbols)
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
-import Aihc.Fc.Pretty (declareExternalSymbols)
 import Aihc.Fc.Subst (freeRigidTyVars, substType)
 import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax
@@ -51,7 +51,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..), packageIdText)
-import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TyConFlavor (..), TyConInfo (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
+import Aihc.Tc (DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TcTermKey (..), TyConFlavor (..), TyConInfo (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
@@ -62,7 +62,7 @@ import Aihc.Tc.Types
     TcType (..),
     TyCon (..),
     TyVarId (..),
-    TypeScheme,
+    TypeScheme (..),
     Unique (..),
     liftedRuntimeRep,
     mkTyCon,
@@ -76,7 +76,7 @@ import Aihc.Tc.Types
   )
 import Control.Applicative ((<|>))
 import Control.Monad (foldM, zipWithM)
-import Control.Monad.Trans.State.Strict (gets, runStateT)
+import Control.Monad.Trans.State.Strict (gets, modify', runStateT)
 import Data.Either (fromRight)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
@@ -105,9 +105,10 @@ desugarModuleWithInterface config bindings interface =
     bindings
     (tcInterfaceDataTypes interface)
     (interfaceTyConEnv interface)
+    (interfaceGlobalVars interface)
 
-desugarModule :: DesugarConfig -> [TcBindingResult] -> [DataTypeInfo] -> Map.Map (PackageId, Text, Text) TyCon -> Module -> DesugarResult
-desugarModule config bindings dataTypes globalTyConEnv tcResult =
+desugarModule :: DesugarConfig -> [TcBindingResult] -> [DataTypeInfo] -> Map.Map (PackageId, Text, Text) TyCon -> Map.Map FcSymbolOrigin Var -> Module -> DesugarResult
+desugarModule config bindings dataTypes globalTyConEnv globalVars tcResult =
   if not (tcModuleSuccess tcResult)
     then
       DesugarResult
@@ -125,7 +126,7 @@ desugarModule config bindings dataTypes globalTyConEnv tcResult =
                 dtiFlavor dataType == DataTyCon,
                 constructor <- dtiConstructors dataType
               ]
-       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) packageId currentModuleName typeEnv globalTyConEnv Map.empty Map.empty constructorFields Nothing) of
+       in case runStateT (dsModule tcResult) (DsState 1000 (primPackageId config) packageId currentModuleName typeEnv globalTyConEnv globalVars Map.empty Map.empty constructorFields Nothing) of
             Left err ->
               DesugarResult
                 { dsProgram = FcProgram (sourceModuleId tcResult) [],
@@ -149,6 +150,24 @@ interfaceTyConEnv interface =
     | tyConInfo <- tcInterfaceTyCons interface,
       let tyCon = tciTyCon tyConInfo
     ]
+
+interfaceGlobalVars :: TcInterface -> Map.Map FcSymbolOrigin Var
+interfaceGlobalVars interface =
+  Map.fromList
+    [ (origin, fcExternalVar origin (typeSchemeType scheme))
+    | (key, scheme) <- tcInterfaceTerms interface,
+      Just origin <- [termOrigin key]
+    ]
+  where
+    termOrigin key =
+      case key of
+        TcTermLocal {} -> Nothing
+        TcTermGlobal packageId moduleName' identifier
+          | packageId == PackageId "" && moduleName' == "" -> Just (FcBuiltinOrigin identifier)
+          | otherwise -> Just (FcTopLevelOrigin (packageIdText packageId) moduleName' identifier)
+
+    typeSchemeType (ForAll variables predicates body) =
+      foldr TcForAllTy (if null predicates then body else TcQualTy predicates body) variables
 
 resolvedModuleOrigin :: Module -> (PackageId, Text)
 resolvedModuleOrigin resolvedModule =
@@ -296,8 +315,23 @@ dsModule m = do
   derivingTops <- dsDerivingPlans (moduleDerivingPlans decls)
   -- Phase 3: group and desugar value bindings.
   let grouped = groupFunctionBinds decls
-  valueTops <- mapM dsGroup grouped
+  groupedVars <- mapM allocateGroupVar grouped
+  let globalEntries = [(localValueOrigin m name, var) | (group, var) <- groupedVars, let name = dgName group]
+  modify' (\state -> state {dsGlobalVars = foldr (uncurry Map.insert) (dsGlobalVars state) globalEntries})
+  valueBindings <- mapM dsGroup groupedVars
+  let valueTops = [FcTopBind (FcRec valueBindings) | not (null valueBindings)]
   pure (dataTops ++ instanceTops ++ derivingTops ++ valueTops)
+
+allocateGroupVar :: DeclGroup -> DsM (DeclGroup, Var)
+allocateGroupVar group = do
+  ty <- lookupType (dgName group)
+  var <- freshVar (dgName group) ty
+  pure (group, var)
+
+localValueOrigin :: Module -> Text -> FcSymbolOrigin
+localValueOrigin modu name =
+  let (packageId, moduleName') = resolvedModuleOrigin modu
+   in FcTopLevelOrigin (packageIdText packageId) moduleName' name
 
 -- | Desugar a single declaration (data types only; values handled by groups).
 dsDecl :: Decl -> DsM [FcTopBind]
@@ -328,7 +362,7 @@ dsDataDeclM dd = do
         case constructorInfos of
           (_, _, _, resultType) : _ -> (dataResultVariables resultType, typeKind resultType)
           [] -> ([], KType)
-  constructors <- mapM (\(name, _, fields, _) -> FcDataConDecl <$> localDeclarationOrigin name <*> pure name <*> pure fields) constructorInfos
+  constructors <- mapM (\(name, _, fields, _) -> (FcDataConDecl . fcConstructorIdFromSymbol <$> localDeclarationOrigin name) <*> pure name <*> pure fields) constructorInfos
   selectors <- dsRecordSelectors [(name, variables, fields) | (name, variables, fields, _) <- constructorInfos] (dataDeclConstructors dd)
   pure (FcData (FcDataDecl tyOrigin tyName typeVariables resultKind constructors) : selectors)
 
@@ -369,7 +403,7 @@ dataFamilyRepresentation familyInst representationName representationTyVars repr
                   { fcNewtypeOrigin = newtypeOrigin,
                     fcNewtypeName = representationName,
                     fcNewtypeTyVars = representationTyVars,
-                    fcNewtypeConstructorOrigin = constructorOrigin,
+                    fcNewtypeConstructorOrigin = fcConstructorIdFromSymbol constructorOrigin,
                     fcNewtypeConstructor = constructorName,
                     fcNewtypeRepresentation = fieldType,
                     fcNewtypeResult = representationType
@@ -379,7 +413,7 @@ dataFamilyRepresentation familyInst representationName representationTyVars repr
   | otherwise =
       do
         dataOrigin <- localDeclarationOrigin representationName
-        constructors <- mapM (\(name, _, fields, _) -> FcDataConDecl <$> localDeclarationOrigin name <*> pure name <*> pure fields) constructorInfos
+        constructors <- mapM (\(name, _, fields, _) -> (FcDataConDecl . fcConstructorIdFromSymbol <$> localDeclarationOrigin name) <*> pure name <*> pure fields) constructorInfos
         pure
           ( FcData
               (FcDataDecl dataOrigin representationName representationTyVars (typeKind representationType) constructors)
@@ -408,7 +442,7 @@ dsNewtypeDeclM nd = do
                       { fcNewtypeOrigin = newtypeOrigin,
                         fcNewtypeName = tyName,
                         fcNewtypeTyVars = tyVars,
-                        fcNewtypeConstructorOrigin = constructorOrigin,
+                        fcNewtypeConstructorOrigin = fcConstructorIdFromSymbol constructorOrigin,
                         fcNewtypeConstructor = conName,
                         fcNewtypeRepresentation = fieldTy,
                         fcNewtypeResult = resultTy
@@ -473,7 +507,7 @@ dsRecordSelectors constructorInfos declarations =
               fieldTypes
           constructorOrigin <- localDeclarationOrigin constructorName
           case drop selectedIndex fieldBinders of
-            selected : _ -> pure (Just (FcAlt (DataAlt constructorOrigin) fieldBinders (FcVar selected)))
+            selected : _ -> pure (Just (FcAlt (DataAlt (fcConstructorIdFromSymbol constructorOrigin)) fieldBinders (FcVar selected)))
             [] -> desugarBug ("record selector field index is out of range: " <> T.unpack constructorName)
     allConstructorFields = concatMap recordConstructorLayouts declarations
 
@@ -600,7 +634,7 @@ unboxForeignValue binderName marshal expression continuation =
         ( FcCase
             value
             caseBinder
-            [FcAlt (DataAlt constructorOrigin) [fieldBinder] rhs]
+            [FcAlt (DataAlt (fcConstructorIdFromSymbol constructorOrigin)) [fieldBinder] rhs]
         )
 
 boxForeignValue :: TcForeignMarshal -> FcExpr -> DsM FcExpr
@@ -711,7 +745,7 @@ makeForeignIoWrapper foreignCall resultMarshal arguments = do
           ( FcCase
               call
               tupleBinder
-              [FcAlt (DataAlt tupleOrigin) [nextStateVar, rawResultVar] resultTuple]
+              [FcAlt (DataAlt (fcConstructorIdFromSymbol tupleOrigin)) [nextStateVar, rawResultVar] resultTuple]
           )
   pure (FcApp (FcTyApp (FcVar ioConstructor) (tcForeignSourceType resultMarshal)) stateAction)
 
@@ -961,7 +995,7 @@ dsClassDeclM classDecl classAnn = do
   defaults <- mapM dsClassDefault (classDefaultGroups classDecl)
   classOrigin <- localDeclarationOrigin className
   constructorOrigin <- localDeclarationOrigin dictionaryConstructor
-  let dictionaryDeclaration = FcData (FcDataDecl classOrigin className classTyVars KType [FcDataConDecl constructorOrigin dictionaryConstructor fieldTypes])
+  let dictionaryDeclaration = FcData (FcDataDecl classOrigin className classTyVars KType [FcDataConDecl (fcConstructorIdFromSymbol constructorOrigin) dictionaryConstructor fieldTypes])
   pure (dictionaryDeclaration : selectors <> defaults)
   where
     className = unqualifiedNameText (binderHeadName (classDeclHead classDecl))
@@ -1013,7 +1047,7 @@ dsClassSelector dictionaryConstructor superClassCount classTyVars fieldTypes met
           FcApp
           (foldl FcTyApp (FcVar selectedField) (map TcTyVar extraTyVars))
           (map FcVar extraDictVars)
-      selection = FcCase (FcVar classDictionaryVar) caseBinder [FcAlt (DataAlt constructorOrigin) fieldBinders selected]
+      selection = FcCase (FcVar classDictionaryVar) caseBinder [FcAlt (DataAlt (fcConstructorIdFromSymbol constructorOrigin)) fieldBinders selected]
       methodVar = Var (tcClassMethodName methodAnn) methodUnique (tcClassMethodType methodAnn)
       body = foldr FcTyLam (foldr FcLam selection dictVars) (tcClassMethodTyVars methodAnn)
   pure (FcTopBind (FcNonRec methodVar body))
@@ -1281,16 +1315,13 @@ barePatternName pat =
     _ -> Nothing
 
 -- | Desugar a function binding group.
-dsGroup :: DeclGroup -> DsM FcTopBind
-dsGroup grp = do
-  ty <- lookupType (dgName grp)
-  u <- freshUnique
-  let var = Var (dgName grp) u ty
+dsGroup :: (DeclGroup, Var) -> DsM (Var, FcExpr)
+dsGroup (grp, var) = do
   body <-
     case grp of
-      DeclFunction _ matches -> dsMatches ty matches
-      DeclPattern _ rhs -> dsMatches ty [rhsAsMatch rhs]
-  pure (FcTopBind (FcNonRec var body))
+      DeclFunction _ matches -> dsMatches (varType var) matches
+      DeclPattern _ rhs -> dsMatches (varType var) [rhsAsMatch rhs]
+  pure (var, body)
 
 rhsAsMatch :: Rhs Expr -> Match
 rhsAsMatch rhs =

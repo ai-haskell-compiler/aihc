@@ -34,6 +34,7 @@ library
     Aihc.Fc.Desugar.Deriving.AnyClass
     Aihc.Fc.Desugar.Deriving.StockEq
     Aihc.Fc.Desugar.Dictionary
+    Aihc.Fc.External
 
   hs-source-dirs: src
   build-depends:

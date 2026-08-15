@@ -699,7 +699,7 @@ grinUnitTests =
             assertEqual "provider external global" [T.intercalate "\0" (libraryId <> ["Data", "Provider", "value"])] (grinExternalGlobals consumer)
             assertEqual "other external global" [T.intercalate "\0" (libraryId <> ["Data", "Other", "value"])] (grinExternalGlobals otherConsumer)
           programs -> assertFailure ("expected two global pairs, got " <> show programs),
-      testCase "incremental lowering resolves builtin-origin constructors by runtime name" $ do
+      testCase "incremental lowering resolves qualified constructor identities" $ do
         case separateBuiltinUnitPrograms of
           [providerCore, consumerCore] -> do
             let providerNames = linkNamesForProgram ["aihc-prim"] ["GHC", "Tuple"] providerCore
@@ -707,7 +707,7 @@ grinUnitTests =
                 providerInterface = extractGrinInterfaceWithLinkNames providerNames providerCore
                 consumer = lowerProgramWithInterfaceAndLinkNames consumerNames providerInterface consumerCore
             assertEqual "lint" [] (lintProgram consumer)
-            assertEqual "builtin unit runtime global" ["()"] (grinExternalGlobals consumer)
+            assertEqual "unit runtime global" ["aihc-prim:GHC.Tuple.()"] (grinExternalGlobals consumer)
           programs -> assertFailure ("expected two FC programs, got " <> show programs),
       testCase "separate FC units store saturated dependency constructors directly" $ do
         case separateConstructorPrograms of
@@ -1481,7 +1481,7 @@ dictionaryProgram =
             ( FcCase
                 dictionary
                 dictionaryBinder
-                [FcAlt (DataAlt (FcBuiltinOrigin "$Dict$Test")) [firstMethod, secondMethod] (FcVar secondMethod)]
+                [FcAlt (DataAlt (FcConstructorId "test" "Test" "$Dict$Test")) [firstMethod, secondMethod] (FcVar secondMethod)]
             )
         )
     ]
@@ -1556,7 +1556,7 @@ exitPrimitiveProgram =
                 ( FcCase
                     exitCall
                     tupleBinder
-                    [FcAlt (DataAlt (FcBuiltinOrigin "(#,#)")) [nextStateVar, resultVar] (FcVar resultVar)]
+                    [FcAlt (DataAlt (FcConstructorId "aihc-prim" "GHC.Types" "(#,#)")) [nextStateVar, resultVar] (FcVar resultVar)]
                 )
             )
         )
@@ -2498,7 +2498,7 @@ separateBuiltinUnitPrograms :: [FcProgram]
 separateBuiltinUnitPrograms =
   [ FcProgram
       (FcModuleId "aihc-prim" "GHC.Tuple")
-      [ FcData (FcDataDecl (FcBuiltinOrigin "Unit") "Unit" [] KType [FcDataConDecl (FcBuiltinOrigin "()") "()" []])
+      [ FcData (FcDataDecl (FcBuiltinOrigin "Unit") "Unit" [] KType [FcDataConDecl unitConstructor "()" []])
       ],
     FcProgram
       (FcModuleId "" "Main")
@@ -2507,7 +2507,8 @@ separateBuiltinUnitPrograms =
       ]
   ]
   where
-    unitOrigin = FcBuiltinOrigin "()"
+    unitConstructor = FcConstructorId "aihc-prim" "GHC.Tuple" "()"
+    unitOrigin = fcConstructorSymbolOrigin unitConstructor
     unitTy = TcTyCon (TyCon "Unit" 0) []
     importedUnitVar = (Var "()" (Unique 130) unitTy) {varResolvedName = Just unitOrigin}
     answerVar = Var "answer" (Unique 131) unitTy
@@ -2523,7 +2524,7 @@ separateNewtypePrograms =
         { fcNewtypeOrigin = FcTopLevelOrigin "test" "Test" "Wrapper",
           fcNewtypeName = "Wrapper",
           fcNewtypeTyVars = [],
-          fcNewtypeConstructorOrigin = FcTopLevelOrigin "test" "Test" "Wrap",
+          fcNewtypeConstructorOrigin = FcConstructorId "test" "Test" "Wrap",
           fcNewtypeConstructor = "Wrap",
           fcNewtypeRepresentation = intTy,
           fcNewtypeResult = wrapperTy
@@ -2562,7 +2563,7 @@ fcData dataName tyVars constructors =
         dataName
         tyVars
         KType
-        [FcDataConDecl (testOrigin constructorName) constructorName fields | (constructorName, fields) <- constructors]
+        [FcDataConDecl (FcConstructorId "test" "Test" constructorName) constructorName fields | (constructorName, fields) <- constructors]
     )
   where
     testOrigin = FcTopLevelOrigin "test" "Test"

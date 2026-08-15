@@ -3,7 +3,7 @@ annotated:
   module Test where
   data Truth = True
        │       └─ type: Truth
-       └─ type: *
+       └─ type: Type
   id x = x
   │  └─ type: a
   └─ type: ∀ a. a → a

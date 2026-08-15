@@ -108,7 +108,7 @@ module GHC.Prim
   )
 where
 
-import GHC.Types (RuntimeRep, TYPE)
+import GHC.Types (Levity (..), RuntimeRep (..), TYPE)
 
 data State# s
 
@@ -124,6 +124,7 @@ data MutableByteArray# d
 
 data MVar# d a
 
+-- type MutVar# :: Type -> Type -> TYPE (BoxedRep Unlifted)
 data MutVar# d a
 
 data ThreadId#

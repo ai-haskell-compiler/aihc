@@ -3,13 +3,13 @@ annotated:
   module Test where
   data Int = I
        │     └─ type: Int
-       └─ type: *
+       └─ type: Type
   data Foo a = Foo
        │       └─ type: ∀ a. Foo a
-       └─ type: * → *
+       └─ type: Type → Type
   data Chan a = Chan (Foo Int)
        │        └─ type: ∀ a. Foo Int → Chan a
-       └─ type: * → *
+       └─ type: Type → Type
 extensions: []
 modules:
 - |

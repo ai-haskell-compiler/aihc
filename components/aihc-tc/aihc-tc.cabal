@@ -73,8 +73,11 @@ library fuzz
     Test.Tc.Properties
 
   build-depends:
+    aihc-parser,
+    aihc-resolve,
     aihc-tc,
     base >=4.16 && <5,
+    containers,
     hedgehog,
     tasty,
     tasty-hedgehog,

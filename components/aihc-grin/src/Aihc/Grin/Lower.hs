@@ -132,7 +132,7 @@ linkNamesForProgram libraryId moduleNameComponents program =
           ],
       grinConstructorNames =
         Map.fromList
-          [ (runtimeConstructorName (fcDataConOrigin constructor), (runtimeConstructorName (fcDataConOrigin constructor), length (fcDataConFields constructor)))
+          [ (runtimeConstructorName (fcConstructorSymbolOrigin (fcDataConOrigin constructor)), (runtimeConstructorName (fcConstructorSymbolOrigin (fcDataConOrigin constructor)), length (fcDataConFields constructor)))
           | FcData declaration <- fcTopBinds program,
             not (isUnboxedTupleData declaration),
             constructor <- fcDataConstructors declaration
@@ -255,7 +255,7 @@ extractPreparedGrinInterface linkNames program =
           ],
       grinInterfaceUnboxedTupleConstructors =
         Set.fromList
-          [ runtimeConstructorName (fcDataConOrigin constructor)
+          [ runtimeConstructorName (fcConstructorSymbolOrigin (fcDataConOrigin constructor))
           | FcData declaration <- fcTopBinds program,
             isUnboxedTupleData declaration,
             constructor <- fcDataConstructors declaration
@@ -370,7 +370,7 @@ lowerTopBind topBind =
     FcData declaration ->
       if isUnboxedTupleData declaration
         then pure mempty
-        else pure mempty {loweredConstructors = [(runtimeConstructorName (fcDataConOrigin constructor), map (runtimeRepComponents . typeRuntimeRep) (fcDataConFields constructor)) | constructor <- fcDataConstructors declaration]}
+        else pure mempty {loweredConstructors = [(runtimeConstructorName (fcConstructorSymbolOrigin (fcDataConOrigin constructor)), map (runtimeRepComponents . typeRuntimeRep) (fcDataConFields constructor)) | constructor <- fcDataConstructors declaration]}
     FcAxiom {} ->
       pure mempty
     FcNewtype {} ->
@@ -745,7 +745,7 @@ lowerCase scrutinee binder alternatives =
       pure (bindExpr [] scrutineeExpr rhs)
     (_, TupleRep _, alternative : _)
       | DataAlt constructor <- altCon alternative,
-        unboxedTuplePunctuation (fcOriginName constructor) ->
+        unboxedTuplePunctuation (fcConstructorName constructor) ->
           -- An unboxed tuple has exactly one constructor. The source match
           -- compiler may retain a syntactic fall-through alternative while
           -- compiling nested refutable fields, but that alternative is
@@ -1655,8 +1655,9 @@ lowerAltCon altCon =
   case altCon of
     DataAlt origin -> do
       constructorArities <- gets lowerConstructorArities
-      let occurrence = (Var (fcOriginName origin) (Unique (-1)) (TcBuiltinTyCon "Type" 0 [])) {varResolvedName = Just origin}
-          constructorName = fromMaybe (runtimeConstructorName origin) (resolveConstructorName constructorArities occurrence)
+      let symbolOrigin = fcConstructorSymbolOrigin origin
+          occurrence = (Var (fcConstructorName origin) (Unique (-1)) (TcBuiltinTyCon "Type" 0 [])) {varResolvedName = Just symbolOrigin}
+          constructorName = fromMaybe (runtimeConstructorName symbolOrigin) (resolveConstructorName constructorArities occurrence)
       pure (GrinDataAlt constructorName)
     LitAlt literal -> pure (GrinLitAlt (lowerLiteral literal))
     DefaultAlt -> pure GrinDefaultAlt
@@ -1766,7 +1767,7 @@ programVars program = concatMap topVars (fcTopBinds program)
 
 programConstructors :: FcProgram -> [(Text, Int)]
 programConstructors program =
-  [ (runtimeConstructorName (fcDataConOrigin constructor), length (fcDataConFields constructor))
+  [ (runtimeConstructorName (fcConstructorSymbolOrigin (fcDataConOrigin constructor)), length (fcDataConFields constructor))
   | FcData declaration <- fcTopBinds program,
     not (isUnboxedTupleData declaration),
     constructor <- fcDataConstructors declaration

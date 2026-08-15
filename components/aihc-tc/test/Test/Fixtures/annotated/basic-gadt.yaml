@@ -4,9 +4,9 @@ annotated:
   data Bool = True | False
        │      │      └─ type: Bool
        │      └─ type: Bool
-       └─ type: *
+       └─ type: Type
   data GADT a where
-       └─ type: * → *
+       └─ type: Type → Type
     IsBool :: GADT Bool
     └─ type: GADT Bool
   not True = False

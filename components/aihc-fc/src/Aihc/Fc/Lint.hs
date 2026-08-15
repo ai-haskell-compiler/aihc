@@ -126,7 +126,7 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
               ( \constructor ->
                   let fields = fcDataConFields constructor
                       existentialVariables = filter (`notElem` tyVars) (freeRigidTyVarsOf fields)
-                   in Map.insert (fcDataConOrigin constructor) (kindTyVars <> tyVars <> existentialVariables, fields, resultType)
+                   in Map.insert (fcConstructorSymbolOrigin (fcDataConOrigin constructor)) (kindTyVars <> tyVars <> existentialVariables, fields, resultType)
               )
               (leDataCons env)
               constructors

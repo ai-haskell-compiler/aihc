@@ -4,7 +4,7 @@ annotated:
   data Bool = True | False
        │      │      └─ type: Bool
        │      └─ type: Bool
-       └─ type: *
+       └─ type: Type
   id x = x
   │  └─ type: a
   └─ type: ∀ a. a → a

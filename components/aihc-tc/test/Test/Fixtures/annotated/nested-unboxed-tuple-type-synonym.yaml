@@ -9,7 +9,7 @@ annotated:
   - |-
     module Test where
     data Void
-         └─ type: *
+         └─ type: Type
     type X = (# (# #), Void #)
          └─ type: TYPE ('TupleRep ('[] ('TupleRep '[]) 'LiftedRep))
 status: pass

@@ -61,12 +61,12 @@ dsPatternPure _ (PLit lit) =
   (dsLiteralAlt lit, [])
 dsPatternPure _ _ = (DefaultAlt, [])
 
-primitiveOrigin :: PackageId -> Text -> Text -> FcSymbolOrigin
-primitiveOrigin (PackageId packageName) = FcTopLevelOrigin packageName
+primitiveOrigin :: PackageId -> Text -> Text -> FcConstructorId
+primitiveOrigin = FcConstructorId
 
-constructorOrigin :: Name -> FcSymbolOrigin
+constructorOrigin :: Name -> FcConstructorId
 constructorOrigin name =
-  fromMaybe (FcBuiltinOrigin (nameToText name)) $ do
+  fromMaybe (missingConstructorIdentity name) $ do
     resolution <-
       listToMaybe
         [ annotation
@@ -74,16 +74,20 @@ constructorOrigin name =
           resolutionNamespace annotation == ResolutionNamespaceTerm
         ]
     case resolutionTarget resolution of
-      ResolvedTopLevel (PackageId packageName) resolved ->
+      ResolvedTopLevel packageId resolved ->
         Just
-          ( FcTopLevelOrigin
-              packageName
+          ( FcConstructorId
+              packageId
               (fromMaybe "" (nameQualifier resolved))
               (nameText resolved)
           )
-      ResolvedBuiltin constructorName -> Just (FcBuiltinOrigin constructorName)
+      ResolvedBuiltin {} -> Nothing
       ResolvedLocal {} -> Nothing
       ResolvedError {} -> Nothing
+
+missingConstructorIdentity :: Name -> FcConstructorId
+missingConstructorIdentity name =
+  error ("constructor does not have a complete identity: " <> T.unpack (nameToText name))
 
 dsLiteralAlt :: Surface.Literal -> FcAltCon
 dsLiteralAlt lit =

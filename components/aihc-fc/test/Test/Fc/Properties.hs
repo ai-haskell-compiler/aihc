@@ -42,6 +42,11 @@ fcPropertyTests =
     [ testProperty "parseProgram . renderProgram = id" prop_programRoundTrip,
       testProperty "parseExpr . renderExpr = id" prop_exprRoundTrip,
       testProperty "parseType . renderType = id" prop_typeRoundTrip,
+      testProperty "type variable equality includes all fields" prop_tyVarEquality,
+      testProperty "type constructor equality includes all fields" prop_tyConEquality,
+      testProperty "programs print type constructor kind signatures" prop_tyConKindSignature,
+      testProperty "roundtrips repeated type constructor identities" prop_repeatedTyConIdentity,
+      testProperty "constructors always print full identities" prop_constructorIdentity,
       testProperty "dependent runtime representations use their binder" prop_dependentRuntimeRep,
       testProperty "package origins distinguish equal symbol names" prop_packageOrigins,
       testProperty "external signatures occur once" prop_externalSignatures,
@@ -66,6 +71,54 @@ prop_typeRoundTrip = property $ do
   value <- forAll genType
   roundTrip renderType parseType value
 
+prop_tyVarEquality :: Property
+prop_tyVarEquality = property $ do
+  let unique = Unique 1
+      left = setTyVarKind KType (TyVarId "a" unique)
+      right = setTyVarKind KRuntimeRep (TyVarId "b" unique)
+  (left == right) === False
+
+prop_tyConEquality :: Property
+prop_tyConEquality = property $ do
+  let left = mkTyCon "T" 0 KType
+      right = mkTyCon "T" 0 KRuntimeRep
+  (left == right) === False
+
+prop_tyConKindSignature :: Property
+prop_tyConKindSignature = property $ do
+  let kind = KFun KType (KFun KType (KTYPE (BoxedRep Unlifted)))
+      tyCon = mkTyConWithOrigin (PackageId "pkg") "GHC.Prim" "MutVar#" 2 kind
+      ty = TcTyCon tyCon []
+      program = FcProgram (FcModuleId "test" "Test") [FcExternal (FcBuiltinOrigin "value") ty]
+      rendered = T.pack (renderProgram program)
+  annotate (T.unpack rendered)
+  T.isInfixOf "external builtin.value : tycon \"pkg\" \"GHC.Prim\" MutVar#/2 { :: Type → Type → TYPE UnliftedRep }" rendered === True
+  T.count "\n\ntycon " rendered === 0
+  roundTrip renderProgram parseProgram program
+
+prop_repeatedTyConIdentity :: Property
+prop_repeatedTyConIdentity = property $ do
+  let leftTyCon = mkTyConWithOrigin (PackageId "pkg") "Module" "T" 0 KType
+      rightTyCon = mkTyConWithOrigin (PackageId "pkg") "Module" "T" 0 KRuntimeRep
+      left = FcVar (Var "left" (Unique 1) (TcTyCon leftTyCon []))
+      right = FcVar (Var "right" (Unique 2) (TcTyCon rightTyCon []))
+      expression = FcApp left right
+      rendered = T.pack (renderExpr expression)
+  annotate (T.unpack rendered)
+  T.isPrefixOf "(left{unique 1} :" rendered === True
+  T.count "tycon \"pkg\" \"Module\" T/0" rendered === 2
+  roundTrip renderExpr parseExpr expression
+
+prop_constructorIdentity :: Property
+prop_constructorIdentity = property $ do
+  let constructorOrigin = FcConstructorId "test" "Test" "J"
+      declaration = FcDataDecl (FcTopLevelOrigin "test" "Test" "A") "A" [] KType [FcDataConDecl constructorOrigin "J" []]
+      program = FcProgram (FcModuleId "test" "Test") [FcData declaration]
+      rendered = T.pack (renderProgram program)
+  annotate (T.unpack rendered)
+  T.isInfixOf "= \"test\" Test.J" rendered === True
+  roundTrip renderProgram parseProgram program
+
 prop_dependentRuntimeRep :: Property
 prop_dependentRuntimeRep = property $ do
   let rep = setTyVarKind KRuntimeRep (TyVarId "rep" (Unique 1))
@@ -73,7 +126,8 @@ prop_dependentRuntimeRep = property $ do
       ty = TcForAllTy rep (TcForAllTy value (TcTyVar value))
       rendered = T.pack (renderType ty)
   annotate (T.unpack rendered)
-  rendered === "∀ (rep{unique 1} : RuntimeRep) (value{unique 2} : TYPE rep). value"
+  rendered
+    === "∀ (rep{unique 1} : RuntimeRep). ∀ (value{unique 2} : TYPE RuntimeRepVar 1). (value{unique 2} : TYPE RuntimeRepVar 1)"
   roundTrip renderType parseType ty
 
 prop_packageOrigins :: Property
@@ -135,9 +189,9 @@ prop_undeclaredExternal = property $ do
 
 prop_localSignatures :: Property
 prop_localSignatures = property $ do
-  let origin = FcTopLevelOrigin "pkg" "Module" "True"
+  let origin = FcConstructorId "pkg" "Module" "True"
       declaration = FcDataDecl (FcTopLevelOrigin "pkg" "Module" "Bool") "Bool" [] KType [FcDataConDecl origin "True" []]
-      constructor = (Var "True" (Unique 1) (fcDataResultType declaration)) {varResolvedName = Just origin}
+      constructor = (Var "True" (Unique 1) (fcDataResultType declaration)) {varResolvedName = Just (fcConstructorSymbolOrigin origin)}
       result = Var "result" (Unique 2) (TcTyCon (TyCon "Bool" 0) [])
       program =
         FcProgram
@@ -189,7 +243,7 @@ genDataDecl = do
 genDataConstructor :: Gen FcDataConDecl
 genDataConstructor = do
   constructorName <- genTypeName
-  FcDataConDecl (testOrigin constructorName) constructorName <$> smallList genType
+  FcDataConDecl (testConstructor constructorName) constructorName <$> smallList genType
 
 genAxiomDecl :: Gen FcAxiomDecl
 genAxiomDecl =
@@ -209,13 +263,16 @@ genNewtypeDecl =
       (testOrigin newtypeName)
       newtypeName
       <$> smallList genTyVar
-      <*> pure (testOrigin constructorName)
+      <*> pure (testConstructor constructorName)
       <*> pure constructorName
       <*> genType
       <*> genType
 
 testOrigin :: Text -> FcSymbolOrigin
 testOrigin = FcTopLevelOrigin "test" "Test"
+
+testConstructor :: Text -> FcConstructorId
+testConstructor = FcConstructorId "test" "Test"
 
 genForeignCall :: Gen FcForeignCall
 genForeignCall = FcForeignCall <$> genVarName <*> genLiteralText <*> genForeignSignature
@@ -260,7 +317,7 @@ genAltWith :: Gen FcExpr -> Gen FcAlt
 genAltWith child = FcAlt <$> genAltCon <*> smallList genBinder <*> child
 
 genAltCon :: Gen FcAltCon
-genAltCon = Gen.choice [DataAlt . FcBuiltinOrigin <$> genTypeName, LitAlt <$> genLiteral, pure DefaultAlt]
+genAltCon = Gen.choice [DataAlt . testConstructor <$> genTypeName, LitAlt <$> genLiteral, pure DefaultAlt]
 
 genVar :: Gen Var
 genVar = do

@@ -4,7 +4,7 @@ annotated:
   data Bool = False | True
        │      │       └─ type: Bool
        │      └─ type: Bool
-       └─ type: *
+       └─ type: Type
 - |-
   {-# LANGUAGE KindSignatures, RebindableSyntax #-}
   module Test where
@@ -12,7 +12,7 @@ annotated:
   import GHC.Types (Bool)
 
   data Type
-       └─ type: *
+       └─ type: Type
 
   class Applicative (m :: Type -> Type) where
   └─ class methods: pure ∷ ∀ m a. (Applicative m) ⇒ a → m a

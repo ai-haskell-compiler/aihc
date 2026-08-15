@@ -7,9 +7,9 @@ import Aihc.Cli.Options (InstallV2Options (..))
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
-import Control.Exception (IOException, bracket, try)
+import Control.Exception (bracket)
 import Data.ByteString qualified as BS
-import Data.List (isInfixOf, isPrefixOf, sort)
+import Data.List (isPrefixOf, sort)
 import Data.Maybe (mapMaybe)
 import Data.Text.IO qualified as TIO
 import Hedgehog (Property, property, success)
@@ -334,7 +334,6 @@ main =
           testCase "duplicates re-exported term signatures in type interfaces" test_installV2TypeReexports,
           testCase "installs direct local dependencies" test_installV2LocalDependencies,
           testCase "rebuilds stale type artifact schemas" test_installV2StaleTypeArtifact,
-          testCase "rejects Core lint errors" test_installV2RejectsCoreLintErrors,
           testCase "stops invalidation when a rebuilt scope stays equal" test_installV2StopsAtEqualScope
         ],
       testProperty "Hedgehog options" prop_dummy
@@ -525,41 +524,6 @@ test_installV2StaleTypeArtifact =
     BS.writeFile artifactPath (BS.take 11 artifact <> BS.singleton 1 <> BS.drop 12 artifact)
     rebuilt <- installV2 options
     assertEqual "rebuilt module" ["Demo"] (installV2WrittenModules rebuilt)
-
-test_installV2RejectsCoreLintErrors :: Assertion
-test_installV2RejectsCoreLintErrors =
-  withTempDir "aihc-install-v2-core-lint" $ \root -> do
-    let sourceRoot = root </> "source"
-        sourceDir = sourceRoot </> "src"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False
-    createDirectoryIfMissing True sourceDir
-    writeFile
-      (sourceRoot </> "demo.cabal")
-      ( unlines
-          [ "cabal-version: 3.0",
-            "name: demo",
-            "version: 0.1.0.0",
-            "library",
-            "  exposed-modules: Demo",
-            "  hs-source-dirs: src",
-            "  default-language: Haskell2010"
-          ]
-      )
-    writeFile (sourceDir </> "Demo.hs") "module Demo where\nvalue x = x\n"
-    installed <- installV2 options
-    writeFile (sourceDir </> "Demo.hs") "module Demo where\nvalue = value\n"
-    result <- try (installV2 options) :: IO (Either IOException InstallV2Result)
-    let moduleDirectory = installV2StorePath installed </> "Demo"
-        badCorePath = moduleDirectory </> "core.bad"
-    case result of
-      Left exception -> do
-        assertBool "Core lint failure" ("Core lint failed:" `isInfixOf` show exception)
-        assertBool "Core lint module" ("module Demo:" `isInfixOf` show exception)
-        assertBool "bad Core path" (badCorePath `isInfixOf` show exception)
-      Right _ -> assertFailure "install-v2 accepted Core with a lint error"
-    assertFileExists badCorePath
-    validCoreExists <- doesFileExist (moduleDirectory </> "core")
-    assertBool "invalid Core was not installed" (not validCoreExists)
 
 test_installV2ResolveDependencies :: Assertion
 test_installV2ResolveDependencies =

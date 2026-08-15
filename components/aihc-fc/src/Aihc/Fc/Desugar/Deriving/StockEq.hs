@@ -160,7 +160,7 @@ fieldEquality eqTyCon boolTy leftFields rightFields index (field, evidence) = do
         dictionary
         dictionaryBinder
         [ FcAlt
-            (DataAlt (tyConConstructorIdentity eqTyCon (fcDictionaryConstructorName "Eq")))
+            (DataAlt (fcConstructorIdFromSymbol (tyConConstructorIdentity eqTyCon (fcDictionaryConstructorName "Eq"))))
             [equalityMethod, inequalityMethod]
             (FcApp (FcApp (FcVar equalityMethod) (FcVar left)) (FcVar right))
         ]
@@ -186,8 +186,8 @@ andComparisons boolTy comparisons =
         ( FcCase
             comparison
             binder
-            [ FcAlt (DataAlt falseConstructor) [] false,
-              FcAlt (DataAlt trueConstructor) [] trueBranch
+            [ FcAlt (DataAlt (fcConstructorIdFromSymbol falseConstructor)) [] false,
+              FcAlt (DataAlt (fcConstructorIdFromSymbol trueConstructor)) [] trueBranch
             ]
         )
 
@@ -202,8 +202,8 @@ negateBoolean boolTy expression = do
     ( FcCase
         expression
         binder
-        [ FcAlt (DataAlt falseConstructor) [] true,
-          FcAlt (DataAlt trueConstructor) [] false
+        [ FcAlt (DataAlt (fcConstructorIdFromSymbol falseConstructor)) [] true,
+          FcAlt (DataAlt (fcConstructorIdFromSymbol trueConstructor)) [] false
         ]
     )
 
@@ -213,10 +213,10 @@ boolConstructor boolTy name = do
   let origin = typeConstructorIdentity boolTy name
   pure (FcVar constructor {varResolvedName = Just origin})
 
-dataConIdentity :: DataConInfo -> FcSymbolOrigin
+dataConIdentity :: DataConInfo -> FcConstructorId
 dataConIdentity constructor =
   let (packageId, moduleName) = dciOrigin constructor
-   in FcTopLevelOrigin (packageIdText packageId) moduleName (dciName constructor)
+   in FcConstructorId packageId moduleName (dciName constructor)
 
 tyConConstructorIdentity :: TyCon -> Text -> FcSymbolOrigin
 tyConConstructorIdentity tyCon =

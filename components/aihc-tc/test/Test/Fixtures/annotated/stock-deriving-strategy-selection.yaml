@@ -3,11 +3,11 @@ annotated:
   {-# LANGUAGE DeriveAnyClass, DeriveFunctor, KindSignatures #-}
   module Main where
   data Type
-       └─ type: *
+       └─ type: Type
   data Bool = False | True
        │      │       └─ type: Bool
        │      └─ type: Bool
-       └─ type: *
+       └─ type: Type
   class Eq a where
   └─ class methods: == ∷ ∀ a. (Eq a) ⇒ a → a → Bool, /= ∷ ∀ a. (Eq a) ⇒ a → a → Bool
     (==) :: a -> a -> Bool
@@ -16,12 +16,12 @@ annotated:
   └─ class methods:
   data E = E
   │    │   └─ type: E
-  │    └─ type: *
+  │    └─ type: Type
   └─ deriving plans: anyclass Eq E [context: ()] [methods: ==, /=]
     deriving Eq
   data F a = F a
   │    │     └─ type: ∀ a. a → F a
-  │    └─ type: * → *
+  │    └─ type: Type → Type
   └─ deriving plans: anyclass Functor F [context: ()]
     deriving Functor
 extensions:
