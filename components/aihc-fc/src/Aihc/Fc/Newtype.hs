@@ -51,7 +51,7 @@ extractNewtypeInterface :: FcProgram -> NewtypeInterface
 extractNewtypeInterface (FcProgram _ topBinds) =
   NewtypeInterface
     ( Map.fromList
-        [ (fcNewtypeConstructorOrigin declaration, declaration)
+        [ (fcConstructorSymbolOrigin (fcNewtypeConstructorOrigin declaration), declaration)
         | FcNewtype declaration <- topBinds
         ]
     )
@@ -140,7 +140,7 @@ firstNewtypeAlternative env alternatives =
   case [ (declaration, fieldBinder, altRhs alternative)
        | alternative <- alternatives,
          DataAlt constructor <- [altCon alternative],
-         Just declaration <- [lookupNewtypeOrigin env constructor],
+         Just declaration <- [lookupNewtypeOrigin env (fcConstructorSymbolOrigin constructor)],
          [fieldBinder] <- [altBinders alternative]
        ] of
     match : _ -> Just match

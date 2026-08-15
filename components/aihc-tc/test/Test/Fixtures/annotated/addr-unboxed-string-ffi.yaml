@@ -3,9 +3,9 @@ annotated:
   module Test where
 
   data CInt
-       └─ type: *
+       └─ type: Type
   data IO a
-       └─ type: * → *
+       └─ type: Type → Type
 
   foreign import ccall unsafe puts :: Addr# -> IO CInt
   └─ type: Addr# → IO CInt

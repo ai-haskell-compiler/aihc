@@ -28,7 +28,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint (CtOrigin (..), EqProvenance (..), TypeOrigin (..), TypeRole (..), TypeTrace (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
-import Aihc.Tc.Types (Kind (..), Levity (..), Pred (..), RuntimeRep (..), TyCon (..), Unique (..))
+import Aihc.Tc.Types (Kind (..), Levity (..), Pred (..), RuntimeRep (..), TyCon (..), Unique (..), tyConName)
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
 import Control.Applicative ((<|>))
 import Data.List (intercalate, sortOn)
@@ -85,7 +85,7 @@ renderDerivingPlan :: TcDerivingPlan -> String
 renderDerivingPlan plan =
   renderDerivingStrategy (tcDerivingStrategy plan)
     <> " "
-    <> renderTcType (TcTyCon (TyCon (tcDerivingClassName plan) (length (tcDerivingHeadTypes plan))) (tcDerivingHeadTypes plan))
+    <> renderTcType (TcTyCon (tcDerivingClassTyCon plan) (tcDerivingHeadTypes plan))
     <> renderDerivingContext (tcDerivingContext plan)
     <> renderDerivingMethods (tcDerivingClassMethods plan)
 
@@ -276,5 +276,5 @@ renderEvVar (EvVar (Unique unique)) = "ev" <> show unique
 renderPred :: Pred -> String
 renderPred pred' =
   case pred' of
-    ClassPred cls args -> T.unpack cls <> concatMap ((" " <>) . renderTcType) args
+    ClassPred cls args -> T.unpack (tyConName cls) <> concatMap ((" " <>) . renderTcType) args
     EqPred left right -> renderTcType left <> " ~ " <> renderTcType right

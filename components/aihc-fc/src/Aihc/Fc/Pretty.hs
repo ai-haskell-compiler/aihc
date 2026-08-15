@@ -6,255 +6,95 @@ module Aihc.Fc.Pretty
     renderExpr,
     renderType,
     renderTopBind,
-    declareExternalSymbols,
   )
 where
 
-import Aihc.Fc.Subst (freeRigidTyVarsOf)
 import Aihc.Fc.Syntax
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Evidence (Coercion (..), EvVar (..))
 import Aihc.Tc.Types
 import Data.ByteString qualified as BS
 import Data.Char (chr)
-import Data.List (find, intercalate)
-import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
-import Data.Set (Set)
-import Data.Set qualified as Set
+import Data.List (intercalate)
 import Data.Text qualified as T
 
 renderProgram :: FcProgram -> String
 renderProgram program =
-  intercalate "\n\n" (renderModuleDeclaration (fcProgramModule program) : map (renderTopBindWith symbols) canonicalBinds)
+  intercalate
+    "\n\n"
+    (renderModuleDeclaration (fcProgramModule program) : map renderTopBind topBinds)
   where
-    canonicalBinds = fcTopBinds (declareExternalSymbols program)
-    symbols = renderSymbols (fcProgramModule program) canonicalBinds
+    topBinds = fcTopBinds program
 
 renderModuleDeclaration :: FcModuleId -> String
 renderModuleDeclaration moduleId =
   "module " <> renderModuleOrigin (fcModulePackageText moduleId) (fcModuleName moduleId) <> " where"
 
--- | Materialize the one-per-origin external signature table represented by
--- the canonical syntax. Desugaring calls this as well as rendering so the
--- declarations are part of the System FC tree, not merely presentation.
-declareExternalSymbols :: FcProgram -> FcProgram
-declareExternalSymbols program =
-  FcProgram (fcProgramModule program) (map (normalizeExternalTopBind externalVars) canonicalBinds)
+renderKindScheme :: TypeScheme -> String
+renderKindScheme scheme@(ForAll tyVars _ _) =
+  prefix <> renderKind (kindFromTypeScheme scheme)
   where
-    canonicalBinds = canonicalProgramBinds program
-    externalVars = Map.fromList [(origin, fcExternalVar origin ty) | FcExternal origin ty <- canonicalBinds]
-
-normalizeExternalTopBind :: Map.Map FcSymbolOrigin Var -> FcTopBind -> FcTopBind
-normalizeExternalTopBind externalVars topBind =
-  case topBind of
-    FcTopBind bind -> FcTopBind (normalizeExternalBind externalVars bind)
-    _ -> topBind
-
-normalizeExternalBind :: Map.Map FcSymbolOrigin Var -> FcBind -> FcBind
-normalizeExternalBind externalVars bind =
-  case bind of
-    FcNonRec var rhs -> FcNonRec var (normalizeExternalExpr externalVars rhs)
-    FcRec bindings -> FcRec [(var, normalizeExternalExpr externalVars rhs) | (var, rhs) <- bindings]
-
-normalizeExternalExpr :: Map.Map FcSymbolOrigin Var -> FcExpr -> FcExpr
-normalizeExternalExpr externalVars expression =
-  case expression of
-    FcVar var ->
-      FcVar (fromMaybe var (varResolvedName var >>= (`Map.lookup` externalVars)))
-    FcLit {} -> expression
-    FcApp function argument -> FcApp (recur function) (recur argument)
-    FcTyApp function ty -> FcTyApp (recur function) ty
-    FcLam var body -> FcLam var (recur body)
-    FcTyLam tyVar body -> FcTyLam tyVar (recur body)
-    FcLet bind body -> FcLet (normalizeExternalBind externalVars bind) (recur body)
-    FcCase scrutinee binder alternatives -> FcCase (recur scrutinee) binder (map normalizeAlternative alternatives)
-    FcCast body coercion -> FcCast (recur body) coercion
-    FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map recur arguments)
-  where
-    recur = normalizeExternalExpr externalVars
-    normalizeAlternative alternative = alternative {altRhs = recur (altRhs alternative)}
+    prefix =
+      case tyVars of
+        [] -> ""
+        _ -> "∀ " <> unwords (map renderTyVarBinder tyVars) <> ". "
 
 renderTopBind :: FcTopBind -> String
-renderTopBind = renderTopBindWith emptyRenderSymbols
-
-renderTopBindWith :: RenderSymbols -> FcTopBind -> String
-renderTopBindWith symbols topBind =
+renderTopBind topBind =
   case topBind of
     FcExternal origin ty ->
       "external " <> renderOrigin origin <> " : " <> renderType ty
     FcData declaration ->
       "data "
-        <> renderDeclarationName symbols (fcDataOrigin declaration) (fcDataName declaration)
-        <> concatMap (" " <>) (renderTyVarBinders [] (fcDataTyVars declaration))
+        <> renderDeclarationName (fcDataOrigin declaration)
+        <> concatMap ((" " <>) . renderTyVarBinder) (fcDataTyVars declaration)
         <> renderDataResultKind declaration
-        <> renderConstructors symbols (fcDataTyVars declaration) (fcDataConstructors declaration)
+        <> renderConstructors (fcDataTyVars declaration) (fcDataConstructors declaration)
     FcAxiom declaration ->
       "axiom "
         <> T.unpack (fcAxiomName declaration)
-        <> concatMap (" " <>) (renderTyVarBinders [] (fcAxiomTyVars declaration))
+        <> concatMap ((" " <>) . renderTyVarBinder) (fcAxiomTyVars declaration)
         <> " : "
-        <> renderTypeWith (fcAxiomTyVars declaration) (fcAxiomLeft declaration)
+        <> renderType (fcAxiomLeft declaration)
         <> renderAxiomRole (fcAxiomRole declaration)
-        <> renderTypeWith (fcAxiomTyVars declaration) (fcAxiomRight declaration)
+        <> renderType (fcAxiomRight declaration)
     FcNewtype declaration ->
       "newtype "
-        <> renderDeclarationName symbols (fcNewtypeOrigin declaration) (fcNewtypeName declaration)
-        <> concatMap (" " <>) (renderTyVarBinders [] (fcNewtypeTyVars declaration))
+        <> renderDeclarationName (fcNewtypeOrigin declaration)
+        <> concatMap ((" " <>) . renderTyVarBinder) (fcNewtypeTyVars declaration)
         <> " : "
-        <> renderTypeWith (fcNewtypeTyVars declaration) (fcNewtypeResult declaration)
+        <> renderType (fcNewtypeResult declaration)
         <> " = "
-        <> renderDeclarationName symbols (fcNewtypeConstructorOrigin declaration) (fcNewtypeConstructor declaration)
+        <> renderConstructorId (fcNewtypeConstructorOrigin declaration)
         <> " "
-        <> renderTypeAtomWith (fcNewtypeTyVars declaration) (fcNewtypeRepresentation declaration)
+        <> renderTypeAtom (fcNewtypeRepresentation declaration)
     FcPrimitive var arity ->
       "foreign prim " <> renderBinder var <> "/" <> show arity <> " : " <> renderType (varType var)
     FcForeignImport foreignCall -> renderForeignImport foreignCall
-    FcTopBind bind -> renderBind symbols 0 [] [] bind
+    FcTopBind bind -> renderBind 0 bind
 
 renderDataResultKind :: FcDataDecl -> String
 renderDataResultKind declaration =
-  case fcDataResultKind declaration of
-    KType -> ""
-    resultKind -> " : " <> renderKindWith (fcDataTyVars declaration) resultKind
-
-data RenderSymbols = RenderSymbols
-  { renderExternalOrigins :: !(Set FcSymbolOrigin),
-    renderLocalOrigin :: !(Maybe (T.Text, T.Text)),
-    renderLocalNames :: !(Set T.Text)
-  }
-
-emptyRenderSymbols :: RenderSymbols
-emptyRenderSymbols = RenderSymbols Set.empty Nothing Set.empty
-
-renderSymbols :: FcModuleId -> [FcTopBind] -> RenderSymbols
-renderSymbols moduleId topBinds =
-  RenderSymbols
-    { renderExternalOrigins = Set.fromList [origin | FcExternal origin _ <- topBinds],
-      renderLocalOrigin = Just (fcModulePackageText moduleId, fcModuleName moduleId),
-      renderLocalNames = Set.fromList (concatMap topBindDefinedNames topBinds)
-    }
+  " : " <> renderKind (fcDataResultKind declaration)
 
 renderModuleOrigin :: T.Text -> T.Text -> String
 renderModuleOrigin packageName moduleName =
-  (if packageName `elem` ["", "main"] then "" else show (T.unpack packageName) <> " ") <> T.unpack moduleName
+  show (T.unpack packageName) <> " " <> T.unpack moduleName
 
-canonicalProgramBinds :: FcProgram -> [FcTopBind]
-canonicalProgramBinds (FcProgram moduleId topBinds) =
-  [FcExternal origin ty | (origin, ty) <- Map.toAscList externalTypes, not (originIsLocal origin)]
-    <> definitions
-  where
-    definitions = [topBind | topBind <- topBinds, not (isHeader topBind)]
-    moduleOrigin = Just (fcModulePackageText moduleId, fcModuleName moduleId)
-    declaredTypes = Map.fromList [(origin, ty) | FcExternal origin ty <- topBinds]
-    referencedTypes = Map.fromList [(origin, varType var) | var <- concatMap topBindOccurrences definitions, Just origin <- [varResolvedName var]]
-    externalTypes = Map.union declaredTypes referencedTypes
-    definedNames = Set.fromList (concatMap topBindDefinedNames definitions)
-    localOrigins =
-      Set.fromList [origin | topBind <- definitions, var <- topBindDefinedVars topBind, Just origin <- [varResolvedName var]]
-        <> Set.fromList (concatMap topBindDefinedOrigins definitions)
-        <> Set.fromList
-          [ origin
-          | topBind <- definitions,
-            var <- topBindOccurrences topBind,
-            varName var `Set.member` definedNames,
-            Just origin <- [varResolvedName var]
-          ]
-    localBuiltinOrigins =
-      Set.fromList
-        [ origin
-        | FcPrimitive var _ <- definitions,
-          Just origin@FcBuiltinOrigin {} <- [varResolvedName var]
-        ]
-    originIsLocal origin@(FcTopLevelOrigin packageName moduleName _) = origin `Set.member` localOrigins || Just (packageName, moduleName) == moduleOrigin
-    originIsLocal origin@FcBuiltinOrigin {} = origin `Set.member` localBuiltinOrigins
-    isHeader FcExternal {} = True
-    isHeader _ = False
-
-topBindDefinedNames :: FcTopBind -> [T.Text]
-topBindDefinedNames topBind =
-  case topBind of
-    FcExternal {} -> []
-    FcData declaration -> map fcDataConName (fcDataConstructors declaration)
-    FcAxiom {} -> []
-    FcNewtype declaration -> [fcNewtypeConstructor declaration]
-    FcPrimitive var _ -> [varName var]
-    FcForeignImport {} -> []
-    FcTopBind bind -> map varName (bindersOf bind)
-
-topBindDefinedOrigins :: FcTopBind -> [FcSymbolOrigin]
-topBindDefinedOrigins topBind =
-  case topBind of
-    FcData declaration -> fcDataOrigin declaration : map fcDataConOrigin (fcDataConstructors declaration)
-    FcNewtype declaration -> [fcNewtypeOrigin declaration, fcNewtypeConstructorOrigin declaration]
-    _ -> []
-
-topBindDefinedVars :: FcTopBind -> [Var]
-topBindDefinedVars topBind =
-  case topBind of
-    FcPrimitive var _ -> [var]
-    FcTopBind bind -> bindersOf bind
-    _ -> []
-
-topBindOccurrences :: FcTopBind -> [Var]
-topBindOccurrences topBind =
-  case topBind of
-    FcTopBind bind -> bindOccurrences bind
-    _ -> []
-
-bindOccurrences :: FcBind -> [Var]
-bindOccurrences bind =
-  case bind of
-    FcNonRec _ rhs -> expressionOccurrences rhs
-    FcRec bindings -> concatMap (expressionOccurrences . snd) bindings
-
-bindersOf :: FcBind -> [Var]
-bindersOf bind =
-  case bind of
-    FcNonRec var _ -> [var]
-    FcRec bindings -> map fst bindings
-
-expressionOccurrences :: FcExpr -> [Var]
-expressionOccurrences expression =
-  case expression of
-    FcVar var -> [var]
-    FcLit {} -> []
-    FcApp function argument -> expressionOccurrences function <> expressionOccurrences argument
-    FcTyApp function _ -> expressionOccurrences function
-    FcLam _ body -> expressionOccurrences body
-    FcTyLam _ body -> expressionOccurrences body
-    FcLet bind body -> bindOccurrences bind <> expressionOccurrences body
-    FcCase scrutinee _ alternatives -> expressionOccurrences scrutinee <> concatMap (expressionOccurrences . altRhs) alternatives
-    FcCast body _ -> expressionOccurrences body
-    FcCallForeign _ arguments -> concatMap expressionOccurrences arguments
-
-isLocalOrigin :: RenderSymbols -> FcSymbolOrigin -> Bool
-isLocalOrigin symbols origin =
-  case (renderLocalOrigin symbols, origin) of
-    (Just (localPackage, localModule), FcTopLevelOrigin packageName moduleName _) ->
-      localPackage == packageName && localModule == moduleName
-    _ -> False
-
-renderConstructors :: RenderSymbols -> [TyVarId] -> [FcDataConDecl] -> String
-renderConstructors _ _ [] = ""
-renderConstructors symbols tyVars constructors =
+renderConstructors :: [TyVarId] -> [FcDataConDecl] -> String
+renderConstructors _ [] = ""
+renderConstructors _ constructors =
   "\n" <> intercalate "\n" (zipWith renderConstructor (" = " : repeat " | ") constructors)
   where
     renderConstructor prefix declaration =
       prefix
-        <> renderExistentials fields
-        <> renderDeclarationName symbols (fcDataConOrigin declaration) (fcDataConName declaration)
-        <> concatMap (\field -> " (" <> renderTypeWith (tyVars <> freeRigidTyVarsOf fields) field <> ")") fields
+        <> renderConstructorId (fcDataConOrigin declaration)
+        <> concatMap (\field -> " (" <> renderType field <> ")") fields
       where
         fields = fcDataConFields declaration
-    renderExistentials fields =
-      case filter (`notElem` tyVars) (freeRigidTyVarsOf fields) of
-        [] -> ""
-        existentialTyVars -> "∀ " <> unwords (renderTyVarBinders tyVars existentialTyVars) <> ". "
 
-renderDeclarationName :: RenderSymbols -> FcSymbolOrigin -> T.Text -> String
-renderDeclarationName symbols origin declarationName
-  | isLocalOrigin symbols origin = T.unpack declarationName
-  | otherwise = renderOrigin origin
+renderDeclarationName :: FcSymbolOrigin -> String
+renderDeclarationName = renderOrigin
 
 renderAxiomRole :: FcAxiomRole -> String
 renderAxiomRole role =
@@ -293,161 +133,154 @@ renderForeignEffect effect =
     FcForeignPure -> "pure"
     FcForeignRealWorld -> "real-world"
 
-type TermScope = [(Unique, T.Text)]
-
-renderBind :: RenderSymbols -> Int -> TermScope -> [TyVarId] -> FcBind -> String
-renderBind symbols indentation scope tyScope bind =
+renderBind :: Int -> FcBind -> String
+renderBind indentation bind =
   case bind of
-    FcNonRec var rhs -> renderOne symbols indentation scope tyScope var rhs
+    FcNonRec var rhs -> renderOne indentation var rhs
     FcRec [] -> indent indentation <> "rec {}"
     FcRec bindings ->
       indent indentation
         <> "rec {\n"
-        <> intercalate ";\n" [indent (indentation + 2) <> renderBinder var <> " : " <> renderTypeWith tyScope (varType var) | (var, _) <- bindings]
+        <> intercalate ";\n" [indent (indentation + 2) <> renderBinder var <> " : " <> renderType (varType var) | (var, _) <- bindings]
         <> ";\n"
         <> intercalate
           ";\n"
           [ indent (indentation + 2)
               <> renderBinder var
               <> " =\n"
-              <> renderExprIndented symbols (indentation + 4) recursiveScope tyScope rhs
+              <> renderExprIndented (indentation + 4) rhs
           | (var, rhs) <- bindings
           ]
         <> "\n"
         <> indent indentation
         <> "}"
-      where
-        recursiveScope = map (scopeEntry . fst) bindings <> scope
 
-renderOne :: RenderSymbols -> Int -> TermScope -> [TyVarId] -> Var -> FcExpr -> String
-renderOne symbols indentation scope tyScope var rhs =
+renderOne :: Int -> Var -> FcExpr -> String
+renderOne indentation var rhs =
   indent indentation
     <> renderBinder var
     <> " : "
-    <> renderTypeWith tyScope (varType var)
+    <> renderType (varType var)
     <> " =\n"
-    <> renderExprIndented symbols (indentation + 2) (scopeEntry var : scope) tyScope rhs
+    <> renderExprIndented (indentation + 2) rhs
 
 renderExpr :: FcExpr -> String
-renderExpr = renderExprWith emptyRenderSymbols [] [] 0 False
+renderExpr = renderExprWith 0 False
 
-renderExprIndented :: RenderSymbols -> Int -> TermScope -> [TyVarId] -> FcExpr -> String
-renderExprIndented symbols indentation scope tyScope expression =
-  indent indentation <> renderExprWith symbols scope tyScope indentation False expression
+renderExprIndented :: Int -> FcExpr -> String
+renderExprIndented indentation expression =
+  indent indentation <> renderExprWith indentation False expression
 
-renderExprWith :: RenderSymbols -> TermScope -> [TyVarId] -> Int -> Bool -> FcExpr -> String
-renderExprWith symbols scope tyScope indentation parenthesize expression =
+renderExprWith :: Int -> Bool -> FcExpr -> String
+renderExprWith indentation parenthesize expression =
   case expression of
-    FcVar var -> renderOccurrence symbols scope tyScope var
-    FcLit literal -> renderLiteral literal
+    FcVar var -> renderOccurrence var
+    FcLit literal ty -> "(" <> renderLiteral literal <> " : " <> renderType ty <> ")"
     FcApp function argument ->
-      paren parenthesize (renderExprWith symbols scope tyScope indentation True function <> " " <> renderExprWith symbols scope tyScope indentation True argument)
+      paren parenthesize (renderExprWith indentation True function <> " " <> renderExprWith indentation True argument)
     FcTyApp function argument ->
-      paren parenthesize (renderExprWith symbols scope tyScope indentation True function <> " @" <> renderTypeAtomWith tyScope argument)
+      paren parenthesize (renderExprWith indentation True function <> " @" <> renderTypeAtom argument)
     FcLam var body ->
       paren parenthesize $
         "λ("
           <> renderBinder var
           <> " : "
-          <> renderTypeWith tyScope (varType var)
+          <> renderType (varType var)
           <> ").\n"
-          <> renderExprIndented symbols (indentation + 2) (scopeEntry var : scope) tyScope body
+          <> renderExprIndented (indentation + 2) body
     FcTyLam tyVar body ->
       paren parenthesize $
         "Λ"
-          <> renderTyVarBinderWith tyScope tyVar
+          <> renderTyVarBinder tyVar
           <> ".\n"
-          <> renderExprIndented symbols (indentation + 2) scope (tyVar : tyScope) body
+          <> renderExprIndented (indentation + 2) body
     FcLet bind body ->
       paren parenthesize $
         "let {\n"
-          <> renderBind symbols (indentation + 2) scope tyScope bind
+          <> renderBind (indentation + 2) bind
           <> "\n"
           <> indent indentation
           <> "} in\n"
-          <> renderExprIndented symbols (indentation + 2) (bindScope bind <> scope) tyScope body
+          <> renderExprIndented (indentation + 2) body
     FcCase scrutinee binder alternatives ->
       paren parenthesize $
         "case "
-          <> renderExprWith symbols scope tyScope indentation False scrutinee
+          <> renderExprWith indentation False scrutinee
           <> " as ("
           <> renderBinder binder
           <> " : "
-          <> renderTypeWith tyScope (varType binder)
+          <> renderType (varType binder)
           <> ") of "
           <> renderAlternatives binder alternatives
     FcCast body coercion ->
-      paren parenthesize (renderExprWith symbols scope tyScope indentation True body <> " ▷ " <> renderCoercionWith tyScope coercion)
+      paren parenthesize (renderExprWith indentation True body <> " ▷ " <> renderCoercion coercion)
     FcCallForeign foreignCall arguments ->
       paren parenthesize $
         "foreign-call "
           <> renderForeignCallHeader foreignCall
-          <> concatMap ((" " <>) . renderExprWith symbols scope tyScope indentation True) arguments
+          <> concatMap ((" " <>) . renderExprWith indentation True) arguments
   where
     renderAlternatives _ [] = "{}"
-    renderAlternatives binder' alternatives' =
+    renderAlternatives _ alternatives' =
       "{\n"
-        <> intercalate ";\n" (map (renderAlt symbols (indentation + 2) (scopeEntry binder' : scope) tyScope) alternatives')
+        <> intercalate ";\n" (map (renderAlt (indentation + 2)) alternatives')
         <> "\n"
         <> indent indentation
         <> "}"
 
-bindScope :: FcBind -> TermScope
-bindScope bind =
-  case bind of
-    FcNonRec var _ -> [scopeEntry var]
-    FcRec bindings -> map (scopeEntry . fst) bindings
-
-renderAlt :: RenderSymbols -> Int -> TermScope -> [TyVarId] -> FcAlt -> String
-renderAlt symbols indentation scope tyScope alternative =
+renderAlt :: Int -> FcAlt -> String
+renderAlt indentation alternative =
   indent indentation
-    <> renderAltCon symbols (altCon alternative)
-    <> concatMap (\binder -> " (" <> renderBinder binder <> " : " <> renderTypeWith tyScope (varType binder) <> ")") binders
+    <> renderAltCon (altCon alternative)
+    <> concatMap (\binder -> " (" <> renderBinder binder <> " : " <> renderType (varType binder) <> ")") binders
     <> " →\n"
-    <> renderExprIndented symbols (indentation + 2) (map scopeEntry binders <> scope) tyScope (altRhs alternative)
+    <> renderExprIndented (indentation + 2) (altRhs alternative)
   where
     binders = altBinders alternative
 
-renderAltCon :: RenderSymbols -> FcAltCon -> String
-renderAltCon symbols alternative =
+renderAltCon :: FcAltCon -> String
+renderAltCon alternative =
   case alternative of
-    DataAlt (FcBuiltinOrigin name) -> T.unpack name
-    DataAlt origin -> renderDeclarationName symbols origin (fcOriginName origin)
-    LitAlt literal -> renderLiteral literal
+    DataAlt constructor -> renderConstructorId constructor
+    LitAlt literal ty -> "(" <> renderLiteral literal <> " : " <> renderType ty <> ")"
     DefaultAlt -> "_"
 
-renderBinder :: Var -> String
-renderBinder = T.unpack . varName
+renderConstructorId :: FcConstructorId -> String
+renderConstructorId constructor =
+  show (T.unpack (packageIdText (fcConstructorPackage constructor)))
+    <> " "
+    <> T.unpack (fcConstructorModule constructor)
+    <> "."
+    <> T.unpack (fcConstructorName constructor)
 
-renderOccurrence :: RenderSymbols -> TermScope -> [TyVarId] -> Var -> String
-renderOccurrence symbols scope tyScope var
-  | scopeEntry var `elem` scope = renderBinder var
-  | Just origin <- varResolvedName var,
-    origin `Set.member` renderExternalOrigins symbols =
-      renderOrigin origin
-  | Just origin <- varResolvedName var,
-    isLocalOrigin symbols origin =
-      renderBinder var
-  | varName var `Set.member` renderLocalNames symbols = renderBinder var
-  | otherwise =
-      "("
-        <> maybe (renderBinder var) renderOrigin (varResolvedName var)
-        <> " : "
-        <> renderTypeWith tyScope (varType var)
-        <> ")"
+renderBinder :: Var -> String
+renderBinder = renderVarReference
+
+renderVarReference :: Var -> String
+renderVarReference var =
+  T.unpack (varName var)
+    <> "{unique "
+    <> renderUnique (varUnique var)
+    <> "}"
+    <> maybe "" renderVarOrigin (varResolvedName var)
+
+renderOccurrence :: Var -> String
+renderOccurrence var =
+  "(" <> renderVarReference var <> " : " <> renderType (varType var) <> ")"
+
+renderVarOrigin :: FcSymbolOrigin -> String
+renderVarOrigin origin = "{origin " <> renderOrigin origin <> "}"
 
 renderOrigin :: FcSymbolOrigin -> String
 renderOrigin origin =
   case origin of
     FcTopLevelOrigin packageName moduleName symbolName ->
-      (if packageName `elem` ["", "main"] then "" else show (T.unpack packageName) <> " ")
+      show (T.unpack packageName)
+        <> " "
         <> T.unpack moduleName
         <> "."
         <> T.unpack symbolName
     FcBuiltinOrigin symbolName -> "builtin." <> T.unpack symbolName
-
-scopeEntry :: Var -> (Unique, T.Text)
-scopeEntry var = (varUnique var, varName var)
 
 renderForeignCallHeader :: FcForeignCall -> String
 renderForeignCallHeader foreignCall =
@@ -473,99 +306,88 @@ renderLiteral literal =
     LitAddr value -> show (map (chr . fromIntegral) (BS.unpack value)) <> "#AddrRep"
 
 renderType :: TcType -> String
-renderType = renderTypeWith []
-
-renderTypeWith :: [TyVarId] -> TcType -> String
-renderTypeWith scope ty =
+renderType ty =
   case ty of
-    TcTyVar tyVar -> renderTyVarOccurrence scope tyVar
+    TcTyVar tyVar -> renderTyVarBinder tyVar
     TcMetaTv (Unique unique) -> "?" <> show unique
-    tupleType@(TcTyCon _ arguments)
-      | isUnboxedTupleType tupleType ->
-          unwords (unboxedTupleConstructorName (length arguments) : map (renderTypeAtomWith scope) arguments)
-    TcTyCon tyCon [] -> T.unpack (tyConName tyCon)
-    TcTyCon (TyCon "[]" _) [argument] -> "[" <> renderTypeWith scope argument <> "]"
+    TcTyCon tyCon [] -> renderTyConHead tyCon
     TcTyCon tyCon arguments ->
-      unwords (T.unpack (tyConName tyCon) : map (renderTypeAtomWith scope) arguments)
-    TcFunTy argument result -> renderTypeAtomWith scope argument <> " → " <> renderTypeWith scope result
+      renderTyConHead tyCon <> "[" <> intercalate ", " (map renderType arguments) <> "]"
+    TcFunTy argument result -> renderTypeAtom argument <> " → " <> renderType result
     TcForAllTy tyVar body ->
-      let (tyVars, inner) = collectForAlls body
-          allTyVars = tyVar : tyVars
-       in "∀ " <> unwords (renderTyVarBinders scope allTyVars) <> ". " <> renderTypeWith (allTyVars <> scope) inner
+      "∀ " <> renderTyVarBinder tyVar <> ". " <> renderType body
     TcQualTy predicates body ->
-      "(" <> intercalate ", " (map (renderPred scope) predicates) <> ") ⇒ " <> renderTypeWith scope body
+      "(" <> intercalate ", " (map renderPred predicates) <> ") ⇒ " <> renderType body
     TcAppTy function argument ->
-      renderTypeAtomWith scope function <> " · " <> renderTypeAtomWith scope argument
-    TcBuiltinTyCon name _ arguments ->
-      unwords (T.unpack name : map (renderTypeAtomWith scope) arguments)
+      renderTypeAtom function <> " · " <> renderTypeAtom argument
+    TcBuiltinTyCon name arity arguments ->
+      "builtin " <> T.unpack name <> "/" <> show arity <> "[" <> intercalate ", " (map renderType arguments) <> "]"
 
-unboxedTupleConstructorName :: Int -> String
-unboxedTupleConstructorName arity =
-  "(#" <> replicate (max 0 (arity - 1)) ',' <> "#)"
+renderTyConHead :: TyCon -> String
+renderTyConHead tyCon =
+  "tycon "
+    <> show (T.unpack (packageIdText (tyConPackageId tyCon)))
+    <> " "
+    <> show (T.unpack (tyConModuleName tyCon))
+    <> " "
+    <> T.unpack (tyConName tyCon)
+    <> "/"
+    <> show (tyConArity tyCon)
+    <> " { :: "
+    <> renderKindScheme (tyConKindScheme tyCon)
+    <> " }"
 
-renderTypeAtomWith :: [TyVarId] -> TcType -> String
-renderTypeAtomWith scope ty =
+renderTypeAtom :: TcType -> String
+renderTypeAtom ty =
   case ty of
-    TcTyVar {} -> renderTypeWith scope ty
-    TcMetaTv {} -> renderTypeWith scope ty
-    TcTyCon _ [] -> renderTypeWith scope ty
-    TcTyCon (TyCon "[]" _) [_] -> renderTypeWith scope ty
-    TcBuiltinTyCon _ _ [] -> renderTypeWith scope ty
-    _ -> "(" <> renderTypeWith scope ty <> ")"
+    TcTyVar {} -> renderType ty
+    TcMetaTv {} -> renderType ty
+    TcTyCon {} -> renderType ty
+    TcBuiltinTyCon {} -> renderType ty
+    _ -> "(" <> renderType ty <> ")"
 
-renderTyVarBinders :: [TyVarId] -> [TyVarId] -> [String]
-renderTyVarBinders _ [] = []
-renderTyVarBinders scope (tyVar : tyVars) =
-  renderTyVarBinderWith scope tyVar : renderTyVarBinders (tyVar : scope) tyVars
+renderTyVarBinder :: TyVarId -> String
+renderTyVarBinder tyVar =
+  "("
+    <> T.unpack (tvName tyVar)
+    <> "{unique "
+    <> renderUnique (tvUnique tyVar)
+    <> "} : "
+    <> renderKind (tvKind tyVar)
+    <> ")"
 
-renderTyVarBinderWith :: [TyVarId] -> TyVarId -> String
-renderTyVarBinderWith scope tyVar =
-  "(" <> T.unpack (tvName tyVar) <> " : " <> renderKindWith scope (tvKind tyVar) <> ")"
-
-renderTyVarOccurrence :: [TyVarId] -> TyVarId -> String
-renderTyVarOccurrence scope tyVar
-  | tyVar `elem` scope = T.unpack (tvName tyVar)
-  | otherwise = renderTyVarBinderWith scope tyVar
-
-renderPred :: [TyVarId] -> Pred -> String
-renderPred scope predicate =
+renderPred :: Pred -> String
+renderPred predicate =
   case predicate of
-    ClassPred name arguments -> unwords (T.unpack name : map (renderTypeAtomWith scope) arguments)
-    EqPred left right -> renderTypeAtomWith scope left <> " ~ " <> renderTypeAtomWith scope right
+    ClassPred classTyCon arguments -> renderTypeAtom (TcTyCon classTyCon arguments)
+    EqPred left right -> renderTypeAtom left <> " ~ " <> renderTypeAtom right
 
-collectForAlls :: TcType -> ([TyVarId], TcType)
-collectForAlls (TcForAllTy tyVar body) =
-  let (tyVars, inner) = collectForAlls body
-   in (tyVar : tyVars, inner)
-collectForAlls ty = ([], ty)
-
-renderKindWith :: [TyVarId] -> Kind -> String
-renderKindWith scope kind =
+renderKind :: Kind -> String
+renderKind kind =
   case kind of
-    KTYPE runtimeRep -> "TYPE " <> renderRuntimeRepWith scope runtimeRep
+    KTYPE (BoxedRep Lifted) -> "Type"
+    KTYPE (BoxedRep Unlifted) -> "TYPE UnliftedRep"
+    KTYPE runtimeRep -> "TYPE " <> renderRuntimeRep runtimeRep
     KConstraint -> "Constraint"
     KRuntimeRep -> "RuntimeRep"
     KLevity -> "Levity"
     KVecCount -> "VecCount"
     KVecElem -> "VecElem"
-    KFun argument result -> renderKindAtomWith scope argument <> " → " <> renderKindWith scope result
+    KFun argument result -> renderKindAtom argument <> " → " <> renderKind result
     KMeta (Unique unique) -> "?k" <> show unique
 
-renderKindAtomWith :: [TyVarId] -> Kind -> String
-renderKindAtomWith scope kind =
+renderKindAtom :: Kind -> String
+renderKindAtom kind =
   case kind of
-    KFun {} -> "(" <> renderKindWith scope kind <> ")"
-    _ -> renderKindWith scope kind
+    KFun {} -> "(" <> renderKind kind <> ")"
+    _ -> renderKind kind
 
 renderRuntimeRep :: RuntimeRep -> String
-renderRuntimeRep = renderRuntimeRepWith []
-
-renderRuntimeRepWith :: [TyVarId] -> RuntimeRep -> String
-renderRuntimeRepWith scope runtimeRep =
+renderRuntimeRep runtimeRep =
   case runtimeRep of
     VecRep count element -> "VecRep " <> show count <> " " <> show element
-    TupleRep fields -> "TupleRep [" <> intercalate ", " (map (renderRuntimeRepWith scope) fields) <> "]"
-    SumRep fields -> "SumRep [" <> intercalate ", " (map (renderRuntimeRepWith scope) fields) <> "]"
+    TupleRep fields -> "TupleRep [" <> intercalate ", " (map renderRuntimeRep fields) <> "]"
+    SumRep fields -> "SumRep [" <> intercalate ", " (map renderRuntimeRep fields) <> "]"
     BoxedRep levity -> "BoxedRep " <> show levity
     IntRep -> "IntRep"
     Int8Rep -> "Int8Rep"
@@ -580,26 +402,22 @@ renderRuntimeRepWith scope runtimeRep =
     AddrRep -> "AddrRep"
     FloatRep -> "FloatRep"
     DoubleRep -> "DoubleRep"
-    RuntimeRepVar unique ->
-      maybe
-        ("RuntimeRepVar " <> showUnique unique)
-        (T.unpack . tvName)
-        (find (\tyVar -> tvUnique tyVar == unique && tvKind tyVar == KRuntimeRep) scope)
+    RuntimeRepVar unique -> "RuntimeRepVar " <> showUnique unique
     RuntimeRepMeta (Unique unique) -> "RuntimeRepMeta " <> show unique
   where
     showUnique (Unique unique) = show unique
 
-renderCoercionWith :: [TyVarId] -> Coercion -> String
-renderCoercionWith tyScope coercion =
+renderCoercion :: Coercion -> String
+renderCoercion coercion =
   case coercion of
     CoVar (EvVar (Unique unique)) -> "co#" <> show unique
-    Refl ty -> "refl (" <> renderTypeWith tyScope ty <> ")"
-    Sym inner -> "sym (" <> renderCoercionWith tyScope inner <> ")"
-    Trans left right -> "trans (" <> renderCoercionWith tyScope left <> ") (" <> renderCoercionWith tyScope right <> ")"
+    Refl ty -> "refl (" <> renderType ty <> ")"
+    Sym inner -> "sym (" <> renderCoercion inner <> ")"
+    Trans left right -> "trans (" <> renderCoercion left <> ") (" <> renderCoercion right <> ")"
     TyConAppCo tyCon arguments ->
-      "tycon-co " <> T.unpack (tyConName tyCon) <> concatMap (\argument -> " (" <> renderCoercionWith tyScope argument <> ")") arguments
+      "tycon-co " <> renderTyConHead tyCon <> concatMap (\argument -> " (" <> renderCoercion argument <> ")") arguments
     AxiomInstCo name arguments ->
-      "axiom-co " <> T.unpack name <> concatMap (\argument -> " @" <> renderTypeAtomWith tyScope argument) arguments
+      "axiom-co " <> T.unpack name <> concatMap (\argument -> " @" <> renderTypeAtom argument) arguments
 
 paren :: Bool -> String -> String
 paren False value = value
@@ -607,3 +425,6 @@ paren True value = "(" <> value <> ")"
 
 indent :: Int -> String
 indent count = replicate count ' '
+
+renderUnique :: Unique -> String
+renderUnique (Unique unique) = show unique

@@ -1,8 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Parser for the human-readable System FC syntax emitted by
--- "Aihc.Fc.Pretty". Compiler uniques are regenerated from lexical names;
--- package/module symbol origins remain explicit syntax.
+-- | Parse the human-readable System FC syntax from "Aihc.Fc.Pretty".
 module Aihc.Fc.Parser
   ( FcParseError,
     parseProgram,
@@ -53,7 +51,10 @@ parseProgram :: Text -> Either FcParseError FcProgram
 parseProgram input = do
   moduleHeaders <- traverse parseModuleHeader blocks
   moduleId <- validateModuleDeclaration input (catMaybes moduleHeaders)
-  let definitionBlocks = [block | (block, Nothing) <- zip blocks moduleHeaders]
+  let definitionBlocks =
+        [ block
+        | (block, Nothing) <- zip blocks moduleHeaders
+        ]
   headers <- traverse parseExternalHeader definitionBlocks
   validateExternalDeclarations input headers
   let moduleOrigin = Just (fcModulePackageText moduleId, fcModuleName moduleId)
@@ -161,12 +162,12 @@ signaturesOf top =
       Map.fromList
         [ entry
         | constructorDeclaration <- fcDataConstructors declaration,
-          entry <- originSignatureEntries (fcDataConOrigin constructorDeclaration) (constructorType declaration constructorDeclaration)
+          entry <- originSignatureEntries (fcConstructorSymbolOrigin (fcDataConOrigin constructorDeclaration)) (constructorType declaration constructorDeclaration)
         ]
     FcNewtype declaration ->
       Map.fromList
         ( originSignatureEntries
-            (fcNewtypeConstructorOrigin declaration)
+            (fcConstructorSymbolOrigin (fcNewtypeConstructorOrigin declaration))
             (newtypeConstructorType declaration)
         )
     FcPrimitive var _ -> Map.singleton (varName var) var
@@ -189,36 +190,26 @@ newtypeConstructorType declaration =
     body = TcFunTy (fcNewtypeRepresentation declaration) (fcNewtypeResult declaration)
 
 nonRecSignature :: Maybe (Text, Text) -> Parser TermEnv
-nonRecSignature moduleOrigin = do
-  binderName <- name
-  _ <- symbol ":"
-  ty <- tcType mempty
-  pure (Map.fromList (localSignatureEntries moduleOrigin binderName ty))
+nonRecSignature _ = do
+  var <- typedVar mempty
+  pure (Map.fromList (localSignatureEntries var))
 
 recSignatures :: Maybe (Text, Text) -> Parser TermEnv
-recSignatures moduleOrigin = do
+recSignatures _ = do
   _ <- keyword "rec"
   _ <- symbol "{"
   declarations <- MP.some (MP.try (recDeclaration mempty <* symbol ";"))
-  pure (Map.fromList (concatMap (uncurry (localSignatureEntries moduleOrigin) . fmap varType) declarations))
+  pure (Map.fromList (concatMap (localSignatureEntries . snd) declarations))
 
-localSignatureEntries :: Maybe (Text, Text) -> Text -> TcType -> [(Text, Var)]
-localSignatureEntries moduleOrigin binderName ty =
-  (binderName, var) : [(originKey origin, var) | Just origin <- [varResolvedName var]]
-  where
-    var = localVar moduleOrigin binderName ty
+localSignatureEntries :: Var -> [(Text, Var)]
+localSignatureEntries var =
+  (varName var, var) : [(originKey origin, var) | Just origin <- [varResolvedName var]]
 
 originSignatureEntries :: FcSymbolOrigin -> TcType -> [(Text, Var)]
 originSignatureEntries origin ty =
   [(fcOriginName origin, var), (originKey origin, var)]
   where
     var = fcExternalVar origin ty
-
-localVar :: Maybe (Text, Text) -> Text -> TcType -> Var
-localVar moduleOrigin binderName ty =
-  (mkVar binderName ty)
-    { varResolvedName = fmap (\(packageName, moduleName) -> FcTopLevelOrigin packageName moduleName binderName) moduleOrigin
-    }
 
 originKey :: FcSymbolOrigin -> Text
 originKey = fcSymbolOriginText
@@ -234,9 +225,9 @@ dataDeclaration moduleOrigin = do
   pure (FcData (FcDataDecl dataOrigin dataName tyVars resultKind constructors))
 
 constructor :: Maybe (Text, Text) -> TyEnv -> Parser FcDataConDecl
-constructor moduleOrigin tyEnv = do
+constructor _moduleOrigin tyEnv = do
   existentialTyVars <- MP.option [] (symbol "∀" *> someTyVarBinders tyEnv <* symbol ".")
-  (constructorName, constructorOrigin) <- declarationName moduleOrigin
+  (constructorName, constructorOrigin) <- constructorIdentity
   let fieldEnv = Map.union (tyVarEnv existentialTyVars) tyEnv
   fields <- MP.many (between "(" ")" (tcType fieldEnv))
   pure (FcDataConDecl constructorOrigin constructorName fields)
@@ -262,7 +253,7 @@ newtypeDeclaration moduleOrigin = do
   _ <- symbol ":"
   result <- tcType tyEnv
   _ <- symbol "="
-  (constructorName, constructorOrigin) <- declarationName moduleOrigin
+  (constructorName, constructorOrigin) <- constructorIdentity
   representation <- tcType tyEnv
   pure (FcNewtype (FcNewtypeDecl newtypeOrigin newtypeName tyVars constructorOrigin constructorName representation result))
 
@@ -273,16 +264,27 @@ declarationName moduleOrigin = do
     Just origin -> pure (declarationName', origin)
     Nothing -> fail "declaration has no System FC module origin"
 
+constructorIdentity :: Parser (Text, FcConstructorId)
+constructorIdentity = do
+  packageName <- text
+  qualified <- qualifiedName
+  let (moduleName, constructorName) = splitQualified qualified
+  guard (moduleName /= "")
+  pure
+    ( constructorName,
+      FcConstructorId (PackageId packageName) moduleName constructorName
+    )
+
 primitiveDeclaration :: Parser FcTopBind
 primitiveDeclaration = do
   _ <- keyword "foreign"
   _ <- keyword "prim"
-  binderName <- name
+  (binderName, binderUnique, binderOrigin) <- varIdentity
   _ <- symbol "/"
   arity <- int
   _ <- symbol ":"
   ty <- tcType mempty
-  pure (FcPrimitive (mkVar binderName ty) arity)
+  pure (FcPrimitive ((Var binderName binderUnique ty) {varResolvedName = binderOrigin}) arity)
 
 foreignImportDeclaration :: Parser FcTopBind
 foreignImportDeclaration = do
@@ -323,11 +325,8 @@ bind termEnv tyEnv = MP.try (recBind termEnv tyEnv) <|> nonRecBind termEnv tyEnv
 
 nonRecBind :: TermEnv -> TyEnv -> Parser FcBind
 nonRecBind termEnv tyEnv = do
-  binderName <- name
-  _ <- symbol ":"
-  ty <- tcType tyEnv
-  let var = mkVar binderName ty
-      scoped = Map.insert binderName var termEnv
+  var <- typedVar tyEnv
+  let scoped = Map.insert (varName var) var termEnv
   _ <- symbol "="
   FcNonRec var <$> expression scoped tyEnv
 
@@ -352,14 +351,12 @@ recBind termEnv tyEnv = do
 
 recDeclaration :: TyEnv -> Parser (Text, Var)
 recDeclaration tyEnv = do
-  binderName <- name
-  _ <- symbol ":"
-  ty <- tcType tyEnv
-  pure (binderName, mkVar binderName ty)
+  var <- typedVar tyEnv
+  pure (varName var, var)
 
 recEquation :: TermEnv -> TyEnv -> Parser (Text, FcExpr)
 recEquation termEnv tyEnv = do
-  binderName <- name
+  (binderName, _, _) <- varIdentity
   _ <- symbol "="
   (binderName,) <$> expression termEnv tyEnv
 
@@ -376,10 +373,9 @@ expression termEnv tyEnv =
 lambda :: TermEnv -> TyEnv -> Parser FcExpr
 lambda termEnv tyEnv = do
   _ <- symbol "λ"
-  (binderName, ty) <- between "(" ")" ((,) <$> name <* symbol ":" <*> tcType tyEnv)
+  var <- between "(" ")" (typedVar tyEnv)
   _ <- symbol "."
-  let var = mkVar binderName ty
-  FcLam var <$> expression (Map.insert binderName var termEnv) tyEnv
+  FcLam var <$> expression (Map.insert (varName var) var termEnv) tyEnv
 
 typeLambda :: TermEnv -> TyEnv -> Parser FcExpr
 typeLambda termEnv tyEnv = do
@@ -407,36 +403,32 @@ caseExpression termEnv tyEnv = do
   _ <- keyword "case"
   scrutinee <- expression termEnv tyEnv
   _ <- keyword "as"
-  (binderName, binderType) <- between "(" ")" ((,) <$> name <* symbol ":" <*> tcType tyEnv)
+  binder <- between "(" ")" (typedVar tyEnv)
   _ <- keyword "of"
-  let binder = mkVar binderName binderType
-      caseEnv = Map.insert binderName binder termEnv
+  let caseEnv = Map.insert (varName binder) binder termEnv
   alternatives <- between "{" "}" (alternative caseEnv tyEnv `MP.sepBy` symbol ";")
   pure (FcCase scrutinee binder alternatives)
 
 alternative :: TermEnv -> TyEnv -> Parser FcAlt
 alternative termEnv tyEnv = do
-  alternativeConstructor <- altConstructor termEnv
+  alternativeConstructor <- altConstructor tyEnv
   binders <- MP.many (between "(" ")" (typedVar tyEnv))
   _ <- symbol "→"
   let altEnv = Map.union (Map.fromList [(varName var, var) | var <- binders]) termEnv
   FcAlt alternativeConstructor binders <$> expression altEnv tyEnv
 
-altConstructor :: TermEnv -> Parser FcAltCon
-altConstructor termEnv =
+altConstructor :: TyEnv -> Parser FcAltCon
+altConstructor tyEnv =
   DefaultAlt <$ symbol "_"
-    <|> MP.try resolvedDataAlternative
-    <|> MP.try (LitAlt <$> literal)
-    <|> localDataAlternative
-  where
-    resolvedDataAlternative = DataAlt . snd <$> resolvedOriginName
-    localDataAlternative = do
-      displayName <- name
-      let localOrigin = varResolvedName =<< Map.lookup displayName termEnv
-      pure (DataAlt (fromMaybe (FcBuiltinOrigin displayName) localOrigin))
+    <|> MP.try (DataAlt . snd <$> constructorIdentity)
+    <|> MP.try (uncurry LitAlt <$> typedLiteral tyEnv)
 
 typedVar :: TyEnv -> Parser Var
-typedVar tyEnv = mkVar <$> name <* symbol ":" <*> tcType tyEnv
+typedVar tyEnv = do
+  (variableName, unique, origin) <- varIdentity
+  _ <- symbol ":"
+  ty <- tcType tyEnv
+  pure ((Var variableName unique ty) {varResolvedName = origin})
 
 castExpression :: TermEnv -> TyEnv -> Parser FcExpr
 castExpression termEnv tyEnv = do
@@ -455,33 +447,59 @@ application termEnv tyEnv = do
 atom :: TermEnv -> TyEnv -> Parser FcExpr
 atom termEnv tyEnv =
   MP.choice
-    [ MP.try (declaredOccurrence termEnv),
+    [ MP.try (uncurry FcLit <$> typedLiteral tyEnv),
+      MP.try (declaredOccurrence termEnv),
       MP.try (freeOccurrence tyEnv),
       between "(" ")" (expression termEnv tyEnv),
-      MP.try (FcLit <$> literal),
       MP.try (foreignCallExpression termEnv tyEnv),
       localOccurrence termEnv
     ]
 
+typedLiteral :: TyEnv -> Parser (Literal, TcType)
+typedLiteral tyEnv = between "(" ")" $ do
+  value <- literal
+  _ <- symbol ":"
+  ty <- tcType tyEnv
+  pure (value, ty)
+
 declaredOccurrence :: TermEnv -> Parser FcExpr
 declaredOccurrence termEnv = do
   (_, origin) <- resolvedOriginName
+  maybeUnique <- MP.optional uniqueAnnotation
   case Map.lookup (originKey origin) termEnv of
-    Just var -> pure (FcVar var)
+    Just var -> pure (FcVar (maybe var (\unique -> var {varUnique = unique}) maybeUnique))
     Nothing -> fail ("undeclared external System FC symbol " <> T.unpack (fcSymbolOriginText origin))
 
 freeOccurrence :: TyEnv -> Parser FcExpr
-freeOccurrence tyEnv = between "(" ")" $ do
-  (displayName, origin) <- originName
-  _ <- symbol ":"
-  ty <- tcType tyEnv
-  pure
-    ( FcVar
-        ( case origin of
-            Just resolvedOrigin -> fcExternalVar resolvedOrigin ty
-            Nothing -> mkVar displayName ty
-        )
-    )
+freeOccurrence tyEnv = between "(" ")" (MP.try resolvedFreeOccurrence <|> localFreeOccurrence)
+  where
+    resolvedFreeOccurrence = do
+      (displayName, origin) <- resolvedOriginName
+      maybeUnique <- MP.optional uniqueAnnotation
+      _ <- symbol ":"
+      ty <- tcType tyEnv
+      let unique = fromMaybe (varUnique (fcExternalVar origin ty)) maybeUnique
+      pure (FcVar ((Var displayName unique ty) {varResolvedName = Just origin}))
+    localFreeOccurrence = do
+      (displayName, unique, origin) <- varIdentity
+      _ <- symbol ":"
+      ty <- tcType tyEnv
+      pure (FcVar ((Var displayName unique ty) {varResolvedName = origin}))
+
+varIdentity :: Parser (Text, Unique, Maybe FcSymbolOrigin)
+varIdentity = do
+  variableName <- name
+  unique <- MP.option (uniqueFor variableName) uniqueAnnotation
+  origin <- MP.optional originAnnotation
+  pure (variableName, unique, origin)
+
+originAnnotation :: Parser FcSymbolOrigin
+originAnnotation = between "{" "}" $ do
+  _ <- keyword "origin"
+  (_, maybeOrigin) <- MP.try builtinOrigin <|> topLevelOrigin
+  case maybeOrigin of
+    Just origin -> pure origin
+    Nothing -> fail "expected a System FC symbol origin"
 
 originName :: Parser (Text, Maybe FcSymbolOrigin)
 originName = MP.try builtinOrigin <|> MP.try topLevelOrigin <|> ((,Nothing) <$> name)
@@ -526,9 +544,9 @@ splitQualified value =
 
 localOccurrence :: TermEnv -> Parser FcExpr
 localOccurrence termEnv = do
-  occurrenceName <- name
+  (occurrenceName, unique, origin) <- varIdentity
   case Map.lookup occurrenceName termEnv of
-    Just var -> pure (FcVar var)
+    Just var -> pure (FcVar (var {varUnique = unique, varResolvedName = origin <|> varResolvedName var}))
     Nothing -> fail ("unbound System FC variable " <> T.unpack occurrenceName)
 
 foreignCallExpression :: TermEnv -> TyEnv -> Parser FcExpr
@@ -594,7 +612,11 @@ predicate :: TyEnv -> Parser Pred
 predicate tyEnv = MP.try equalityPredicate <|> classPredicate
   where
     equalityPredicate = EqPred <$> typeAtom tyEnv <* symbol "~" <*> typeAtom tyEnv
-    classPredicate = ClassPred <$> name <*> MP.many (typeAtom tyEnv)
+    classPredicate = do
+      classType <- typeApplication tyEnv
+      case classType of
+        TcTyCon classTyCon arguments -> pure (ClassPred classTyCon arguments)
+        _ -> fail "class predicate requires an exact type constructor"
 
 functionType :: TyEnv -> Parser TcType
 functionType tyEnv = do
@@ -615,6 +637,7 @@ ordinaryTypeApplication tyEnv = do
     else pure (List.foldl' TcAppTy function explicit)
 
 applyTyCon :: TcType -> [TcType] -> TcType
+applyTyCon function [] = function
 applyTyCon (TcTyCon tyCon existing) arguments =
   let allArguments = existing <> arguments
       arity = length allArguments
@@ -645,15 +668,40 @@ typeAtom tyEnv =
       MP.try (freeTyVar tyEnv),
       metaType,
       unboxedTupleTypeApplication tyEnv,
+      MP.try (externalTyConType tyEnv),
+      MP.try (builtinType tyEnv),
+      MP.try (exactTyConType tyEnv),
       MP.try (namedType tyEnv),
       between "(" ")" (tcType tyEnv)
     ]
 
+externalTyConType :: TyEnv -> Parser TcType
+externalTyConType tyEnv = do
+  tyCon <- externalTyConHead
+  arguments <- MP.option [] (list (tcType tyEnv))
+  pure (TcTyCon tyCon arguments)
+
+builtinType :: TyEnv -> Parser TcType
+builtinType tyEnv = do
+  _ <- keyword "builtin"
+  typeName <- name
+  _ <- symbol "/"
+  arity <- int
+  arguments <- list (tcType tyEnv)
+  pure (TcBuiltinTyCon typeName arity arguments)
+
+exactTyConType :: TyEnv -> Parser TcType
+exactTyConType tyEnv = do
+  typeName <- name
+  _ <- symbol "/"
+  arity <- int
+  arguments <- MP.option [] (list (tcType tyEnv))
+  pure (TcTyCon (TyCon typeName arity) arguments)
+
 freeTyVar :: TyEnv -> Parser TcType
 freeTyVar tyEnv = do
   tyVar <- tyVarBinder tyEnv
-  let freeUnique = uniqueFor ("free:" <> tvName tyVar <> T.pack (show (tvKind tyVar)))
-  pure (TcTyVar (setTyVarKind (tvKind tyVar) (TyVarId (tvName tyVar) freeUnique)))
+  pure (TcTyVar tyVar)
 
 metaType :: Parser TcType
 metaType = TcMetaTv . Unique <$> (symbol "?" *> int)
@@ -666,9 +714,10 @@ namedType tyEnv = do
 tyVarBinder :: TyEnv -> Parser TyVarId
 tyVarBinder tyEnv = between "(" ")" $ do
   typeName <- name
+  unique <- MP.option (uniqueFor typeName) uniqueAnnotation
   _ <- symbol ":"
   kind <- kindType tyEnv
-  pure (setTyVarKind kind (TyVarId typeName (uniqueFor typeName)))
+  pure (setTyVarKind kind (TyVarId typeName unique))
 
 tyVarBinders :: TyEnv -> Parser [TyVarId]
 tyVarBinders tyEnv =
@@ -694,7 +743,8 @@ kindType tyEnv = do
 kindAtom :: TyEnv -> Parser Kind
 kindAtom tyEnv =
   MP.choice
-    [ KTYPE <$> (keyword "TYPE" *> runtimeRep tyEnv),
+    [ KType <$ keyword "Type",
+      KTYPE <$> (keyword "TYPE" *> runtimeRep tyEnv),
       KConstraint <$ keyword "Constraint",
       KRuntimeRep <$ keyword "RuntimeRep",
       KLevity <$ keyword "Levity",
@@ -707,7 +757,9 @@ kindAtom tyEnv =
 runtimeRep :: TyEnv -> Parser RuntimeRep
 runtimeRep tyEnv =
   MP.choice
-    [ VecRep <$> (keyword "VecRep" *> readValue) <*> readValue,
+    [ BoxedRep Lifted <$ keyword "LiftedRep",
+      BoxedRep Unlifted <$ keyword "UnliftedRep",
+      VecRep <$> (keyword "VecRep" *> readValue) <*> readValue,
       TupleRep <$> (keyword "TupleRep" *> list (runtimeRep tyEnv)),
       SumRep <$> (keyword "SumRep" *> list (runtimeRep tyEnv)),
       BoxedRep <$> (keyword "BoxedRep" *> readValue),
@@ -743,12 +795,40 @@ coercion tyEnv =
       Refl <$> (keyword "refl" *> between "(" ")" (tcType tyEnv)),
       Sym <$> (keyword "sym" *> between "(" ")" (coercion tyEnv)),
       Trans <$> (keyword "trans" *> between "(" ")" (coercion tyEnv)) <*> between "(" ")" (coercion tyEnv),
-      TyConAppCo <$> (keyword "tycon-co" *> (TyCon <$> name <*> pure 0)) <*> MP.many (between "(" ")" (coercion tyEnv)),
+      TyConAppCo <$> (keyword "tycon-co" *> exactTyConHead) <*> MP.many (between "(" ")" (coercion tyEnv)),
       AxiomInstCo <$> (keyword "axiom-co" *> name) <*> MP.many (symbol "@" *> typeAtom tyEnv)
     ]
 
-mkVar :: Text -> TcType -> Var
-mkVar varName' varType' = Var varName' (uniqueFor (varName' <> T.pack (show varType'))) varType'
+uniqueAnnotation :: Parser Unique
+uniqueAnnotation = between "{" "}" (keyword "unique" *> (Unique <$> int))
+
+exactTyConHead :: Parser TyCon
+exactTyConHead = MP.try externalTyConHead <|> localTyConHead
+
+localTyConHead :: Parser TyCon
+localTyConHead = do
+  typeName <- name
+  _ <- symbol "/"
+  TyCon typeName <$> int
+
+externalTyConHead :: Parser TyCon
+externalTyConHead = do
+  _ <- keyword "tycon"
+  packageName <- text
+  moduleName <- text
+  typeName <- name
+  _ <- symbol "/"
+  arity <- int
+  scheme <- between "{" "}" tyConKindSchemeSyntax
+  pure (mkTyConWithOriginScheme (PackageId packageName) moduleName typeName arity scheme)
+
+tyConKindSchemeSyntax :: Parser TypeScheme
+tyConKindSchemeSyntax = do
+  _ <- symbol "::"
+  tyVars <- MP.option [] (symbol "∀" *> someTyVarBinders mempty <* symbol ".")
+  kind <- kindType (tyVarEnv tyVars)
+  let ForAll _ _ body = kindSchemeFromKind kind
+  pure (ForAll tyVars [] body)
 
 uniqueFor :: Text -> Unique
 uniqueFor = Unique . T.foldl' (\hash character -> hash * 33 + ord character) 5381

@@ -2,15 +2,21 @@
 
 -- | Hedgehog property tests for the type checker.
 module Test.Tc.Properties
-  ( prop_reflexiveEq,
+  ( prop_kindEncodingUsesType,
+    prop_reflexiveEq,
+    prop_starUsesType,
     prop_zonkIdempotent,
     tcProperties,
   )
 where
 
+import Aihc.Parser.Syntax (Type (TStar))
+import Aihc.Resolve (PackageId (PackageId))
+import Aihc.Tc.Kind (convertSurfaceTypeWithKinds)
 import Aihc.Tc.Monad (emptyTcEnv, freshMetaTv, initTcState, runTcM, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Data.Map.Strict qualified as Map
 import Hedgehog (Gen, Property, forAll, property, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
@@ -21,9 +27,28 @@ tcProperties :: TestTree
 tcProperties =
   testGroup
     "properties"
-    [ testProperty "zonking idempotent" prop_zonkIdempotent,
+    [ testProperty "lifted kind encoding uses GHC.Types.Type" prop_kindEncodingUsesType,
+      testProperty "star uses GHC.Types.Type" prop_starUsesType,
+      testProperty "zonking idempotent" prop_zonkIdempotent,
       testProperty "reflexive equality solved" prop_reflexiveEq
     ]
+
+-- | All lifted kind encoders use the canonical Type constructor.
+prop_kindEncodingUsesType :: Property
+prop_kindEncodingUsesType = property $ do
+  let expected = TcBuiltinTyCon "Type" 0 []
+  kindToTcType KType === expected
+  kindSchemeFromKind KType === ForAll [] [] expected
+
+-- | A source star becomes the canonical GHC.Types.Type constructor.
+prop_starUsesType :: Property
+prop_starUsesType = property $
+  case runTcM emptyTcEnv initTcState (convertSurfaceTypeWithKinds Map.empty (TStar "*")) of
+    Right ((actual, kind), _) -> do
+      let expected = TcTyCon (mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types" "Type" 0 KType) []
+      actual === expected
+      kind === KType
+    Left err -> fail (show err)
 
 -- | Zonking a fully-zonked type is a no-op.
 prop_zonkIdempotent :: Property

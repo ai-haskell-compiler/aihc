@@ -5,11 +5,12 @@ annotated:
   class C a where
   └─ class methods:
   data ExplicitStock = ExplicitStock
-       └─ type: *      └─ type: ExplicitStock
+       └─ type: Type   └─ type: ExplicitStock
     deriving stock C
                    └─ error: stock deriving requires a class from aihc-prim
   data NoDefault = NoDefault
-       └─ type: *  └─ type: NoDefault
+       │           └─ type: NoDefault
+       └─ type: Type
     deriving C
              └─ error: cannot select a deriving strategy for C; enable DeriveAnyClass, or use an explicit strategy
 extensions:

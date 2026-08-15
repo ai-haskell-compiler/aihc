@@ -52,6 +52,7 @@ module Aihc.Tc.Monad
     resolvedLocalTermKey,
     extendTermEnv,
     extendResolvedTermEnv,
+    extendTermKeyEnvPermanent,
     extendTermEnvPermanent,
     extendTyConTermEnvPermanent,
     extendResolvedTermEnvPermanent,
@@ -403,9 +404,12 @@ extendResolvedTermEnv name binder action = do
 
 -- | Permanently extend the global term environment (for top-level
 -- declarations like data constructors and top-level bindings).
+extendTermKeyEnvPermanent :: TcTermKey -> TcBinder -> TcM ()
+extendTermKeyEnvPermanent key binder = lift $ modify' $ \state ->
+  state {tcsGlobalTerms = Map.insert key binder (tcsGlobalTerms state)}
+
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
-extendTermEnvPermanent name binder = lift $ modify' $ \s ->
-  s {tcsGlobalTerms = Map.insert (unqualifiedTermKey name) binder (tcsGlobalTerms s)}
+extendTermEnvPermanent name = extendTermKeyEnvPermanent (unqualifiedTermKey name)
 
 extendTyConTermEnvPermanent :: TyCon -> Text -> TcBinder -> TcM ()
 extendTyConTermEnvPermanent tyCon name binder = do
@@ -425,14 +429,9 @@ extendResolvedTermEnvPermanent name binder = do
   extendTermEnvPermanent (unqualifiedNameText name) binder
   case termResolution (unqualifiedNameAnns name) of
     Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} ->
-      lift $ modify' $ \state ->
-        state
-          { tcsGlobalTerms =
-              Map.insert
-                (TcTermGlobal packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName))
-                binder
-                (tcsGlobalTerms state)
-          }
+      extendTermKeyEnvPermanent
+        (TcTermGlobal packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName))
+        binder
     _ -> pure ()
 
 resolvedTermTarget :: Name -> TcM ResolvedName

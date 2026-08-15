@@ -60,7 +60,7 @@ encodeTypeArtifact artifact =
   Builder.toLazyByteString $
     cborArray 5
       <> cborText "aihc-type"
-      <> cborWord 2
+      <> cborWord 4
       <> cborText (typeArtifactModuleName artifact)
       <> encodeList encodeHash (typeArtifactInputHashes artifact)
       <> putInterface (typeArtifactInterface artifact)
@@ -82,7 +82,7 @@ getArtifact :: Get.Get TypeArtifact
 getArtifact = do
   expectArray 5
   expectText "aihc-type"
-  expectWord 2
+  expectWord 4
   typeArtifactModuleName <- getText
   typeArtifactInputHashes <- getList getHash
   typeArtifactInterface <- getInterface
@@ -276,7 +276,7 @@ getType = do
 
 putPred :: Pred -> Builder.Builder
 putPred predicate = case predicate of
-  ClassPred name arguments -> sum2 0 (cborText name) (encodeList putType arguments)
+  ClassPred tyCon arguments -> sum2 0 (putTyCon tyCon) (encodeList putType arguments)
   EqPred left right -> sum2 1 (putType left) (putType right)
 
 getPred :: Get.Get Pred
@@ -284,7 +284,7 @@ getPred = do
   expectArray 3
   tag <- getWord
   case tag of
-    0 -> ClassPred <$> getText <*> getList getType
+    0 -> ClassPred <$> getTyCon <*> getList getType
     1 -> EqPred <$> getType <*> getType
     _ -> fail "unsupported predicate"
 
@@ -308,17 +308,18 @@ getTypeSynonymInfo :: Get.Get TypeSynonymInfo
 getTypeSynonymInfo = expectArray 2 >> (TypeSynonymInfo <$> getList getTyVar <*> getMaybe getType)
 
 putDataTypeInfo :: DataTypeInfo -> Builder.Builder
-putDataTypeInfo info = cborArray 5 <> cborText (dtiName info) <> putTyCon (dtiTyCon info) <> encodeList putTyVar (dtiTyVars info) <> putTyConFlavor (dtiFlavor info) <> encodeList putDataConInfo (dtiConstructors info)
+putDataTypeInfo info = cborArray 6 <> cborText (dtiName info) <> putTyCon (dtiTyCon info) <> encodeList putTyVar (dtiTyVars info) <> putKind (dtiResultKind info) <> putTyConFlavor (dtiFlavor info) <> encodeList putDataConInfo (dtiConstructors info)
 
 getDataTypeInfo :: Get.Get DataTypeInfo
 getDataTypeInfo = do
-  expectArray 5
+  expectArray 6
   dtiName <- getText
   dtiTyCon <- getTyCon
   dtiTyVars <- getList getTyVar
+  dtiResultKind <- getKind
   dtiFlavor <- getTyConFlavor
   dtiConstructors <- getList getDataConInfo
-  pure DataTypeInfo {dtiName, dtiTyCon, dtiTyVars, dtiFlavor, dtiConstructors}
+  pure DataTypeInfo {dtiName, dtiTyCon, dtiTyVars, dtiResultKind, dtiFlavor, dtiConstructors}
 
 putDataConInfo :: DataConInfo -> Builder.Builder
 putDataConInfo info =
@@ -360,8 +361,9 @@ getDataConFieldInfo = do
 
 putClassInfo :: ClassInfo -> Builder.Builder
 putClassInfo info =
-  cborArray 7
+  cborArray 8
     <> cborText (ciName info)
+    <> putTyCon (ciTyCon info)
     <> putMaybe putTextOrigin (ciOrigin info)
     <> encodeList putTyVar (ciTyVars info)
     <> encodeList putType (ciSuperClassTypes info)
@@ -371,15 +373,16 @@ putClassInfo info =
 
 getClassInfo :: Get.Get ClassInfo
 getClassInfo = do
-  expectArray 7
+  expectArray 8
   ciName <- getText
+  ciTyCon <- getTyCon
   ciOrigin <- getMaybe getTextOrigin
   ciTyVars <- getList getTyVar
   ciSuperClassTypes <- getList getType
   ciMethods <- getList getNamedScheme
   ciDefaultMethods <- getList getText
   ciDefaultSignatures <- getList getNamedScheme
-  pure ClassInfo {ciName, ciOrigin, ciTyVars, ciSuperClassTypes, ciMethods, ciDefaultMethods, ciDefaultSignatures}
+  pure ClassInfo {ciName, ciTyCon, ciOrigin, ciTyVars, ciSuperClassTypes, ciMethods, ciDefaultMethods, ciDefaultSignatures}
 
 putInstanceInfo :: InstanceInfo -> Builder.Builder
 putInstanceInfo info =

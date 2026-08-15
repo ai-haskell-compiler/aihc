@@ -3,12 +3,12 @@ annotated:
   module A where
   data Ty = Con
        │    └─ type: Ty
-       └─ type: *
+       └─ type: Type
 - |-
   module B where
   data Ty = Con
        │    └─ type: Ty
-       └─ type: *
+       └─ type: Type
 - |-
   module C where
   import qualified A

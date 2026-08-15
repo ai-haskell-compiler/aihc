@@ -16,10 +16,10 @@ annotated:
   data Bool = False | True
        │      │       └─ type: Bool
        │      └─ type: Bool
-       └─ type: *
+       └─ type: Type
   data Integer = IS Int#
        │         └─ type: Int# → Integer
-       └─ type: *
+       └─ type: Type
 - |-
   module Main where
   match = \case

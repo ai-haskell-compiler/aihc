@@ -7,17 +7,18 @@ annotated:
   class Pair a b where
   └─ class methods:
   data NotClass
-       └─ type: *
+       └─ type: Type
   data WrongRepresentation = WrongRepresentation
-       └─ type: *            └─ type: WrongRepresentation
+       └─ type: Type         └─ type: WrongRepresentation
     deriving newtype C
                      └─ error: newtype deriving requires a newtype instance target
   data MissingArgument = MissingArgument
-       └─ type: *        └─ type: MissingArgument
+       └─ type: Type     └─ type: MissingArgument
     deriving anyclass Pair
                       └─ error: deriving class Pair expects 1 argument(s) before the instance target, but got 0
   data WrongClass = WrongClass
-       └─ type: *   └─ type: WrongClass
+       │            └─ type: WrongClass
+       └─ type: Type
     deriving anyclass NotClass
                       └─ error: deriving target NotClass is not a type class
 extensions:

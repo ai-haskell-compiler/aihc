@@ -4,7 +4,7 @@ annotated:
   data Bool = False | True
        │      │       └─ type: Bool
        │      └─ type: Bool
-       └─ type: *
+       └─ type: Type
 
   same :: Bool -> Bool -> Bool
   same x _ = x

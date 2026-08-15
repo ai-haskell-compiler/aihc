@@ -14,7 +14,7 @@ module Aihc.Tc.Zonk
   )
 where
 
-import Aihc.Tc.Kind (defaultKindMetas, kindToTcType, runtimeRepToTcType, zonkKind)
+import Aihc.Tc.Kind (defaultKindMetas, zonkKind)
 import Aihc.Tc.Monad (TcM, readMetaTv, readRuntimeRepDependency, writeMetaTv)
 import Aihc.Tc.Types
 

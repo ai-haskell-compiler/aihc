@@ -10,11 +10,11 @@ annotated:
   - |-
     module Test where
     type MyBool = Bool
-         └─ type: *
+         └─ type: Type
     data Bool = True | False
          │      │      └─ type: Bool
          │      └─ type: Bool
-         └─ type: *
+         └─ type: Type
     x :: MyBool
     x = True
     └─ type: Bool

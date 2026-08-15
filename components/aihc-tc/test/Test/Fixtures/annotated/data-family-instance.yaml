@@ -13,9 +13,9 @@ annotated:
     module Test where
     data Unit = Unit
          │      └─ type: ()
-         └─ type: *
+         └─ type: Type
     data family Payload a
-                └─ type: * → *
+                └─ type: Type → Type
     data instance Payload Unit = PayloadUnit Unit
                                  └─ type: () → Payload ()
     unwrap :: Payload Unit -> Unit

@@ -67,9 +67,8 @@ inferExprAt ambient expr = case expr of
         inferOverloadedIntegerLiteral ambient ann resolution inner
   EVar name ->
     inferVar (exprSpan expr `orSourceSpan` ambient) name
-  EInt _ numericType _ -> do
-    literalTy <- numericLiteralType numericType
-    pure (expr, literalTy, [])
+  EInt _ numericType _ ->
+    literalResult expr (numericLiteralType numericType)
   EFloat {} ->
     literalResult expr doubleTyCon
   EChar _ _ ->
@@ -126,7 +125,7 @@ inferExprAt ambient expr = case expr of
 literalResult :: Expr -> TcM TcType -> TcM (Expr, TcType, [Ct])
 literalResult expr typeAction = do
   ty <- typeAction
-  pure (expr, ty, [])
+  pure (annotatePendingExpr (pendingAnnotation ty [] [] []) expr, ty, [])
 
 -- | Infer the type of a variable reference.
 inferVar :: SourceSpan -> Name -> TcM (Expr, TcType, [Ct])
@@ -874,7 +873,10 @@ wantedDoEq sp actual expected = do
 wantedMonad :: SourceSpan -> TcType -> TcM Ct
 wantedMonad sp monadTy = do
   ev <- freshEvVar
-  pure (mkWantedCt (ClassPred "Monad" [monadTy]) ev (AppOrigin sp) sp)
+  maybeMonad <- lookupTyCon "Monad"
+  case maybeMonad of
+    Just monadInfo -> pure (mkWantedCt (ClassPred (tciTyCon monadInfo) [monadTy]) ev (AppOrigin sp) sp)
+    Nothing -> abortTc "missing checked type constructor for Monad"
 
 orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
 orSourceSpan NoSourceSpan fallback = fallback

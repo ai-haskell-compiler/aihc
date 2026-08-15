@@ -179,9 +179,9 @@ typeDefinitionsOf topBind =
 typeConstructorsOf :: FcTopBind -> [(Text, [FcSymbolOrigin])]
 typeConstructorsOf topBind =
   case topBind of
-    FcData declaration -> [(fcDataName declaration, map fcDataConOrigin (fcDataConstructors declaration))]
+    FcData declaration -> [(fcDataName declaration, map (fcConstructorSymbolOrigin . fcDataConOrigin) (fcDataConstructors declaration))]
     FcAxiom {} -> []
-    FcNewtype declaration -> [(fcNewtypeName declaration, [fcNewtypeConstructorOrigin declaration])]
+    FcNewtype declaration -> [(fcNewtypeName declaration, [fcConstructorSymbolOrigin (fcNewtypeConstructorOrigin declaration)])]
     _ -> []
 
 bindersOf :: FcBind -> [Var]
@@ -211,7 +211,7 @@ referencesExpr bound expression =
     FcVar var
       | var `Set.member` bound -> referencesVarType var
       | otherwise -> mempty {referencedValues = Set.singleton (varName var)} <> referencesVarType var
-    FcLit literal -> foldMap referencesType (literalType literal)
+    FcLit _ ty -> referencesType ty
     FcApp function argument -> referencesExpr bound function <> referencesExpr bound argument
     FcTyApp inner ty -> referencesExpr bound inner <> referencesType ty
     FcLam var body -> referencesVarType var <> referencesExpr (Set.insert var bound) body
@@ -248,8 +248,8 @@ referencesAlt bound alternative =
 referencesAltCon :: FcAltCon -> References
 referencesAltCon altCon =
   case altCon of
-    DataAlt constructor -> mempty {referencedConstructors = Set.singleton constructor}
-    LitAlt literal -> foldMap referencesType (literalType literal)
+    DataAlt constructor -> mempty {referencedConstructors = Set.singleton (fcConstructorSymbolOrigin constructor)}
+    LitAlt _ ty -> referencesType ty
     DefaultAlt -> mempty
 
 referencesVarType :: Var -> References
@@ -272,8 +272,8 @@ referencesType ty =
 referencesPred :: Pred -> References
 referencesPred predicate =
   case predicate of
-    ClassPred name arguments ->
-      mempty {referencedTypes = Set.singleton name}
+    ClassPred classTyCon arguments ->
+      mempty {referencedTypes = Set.singleton (tyConName classTyCon)}
         <> foldMap referencesType arguments
     EqPred left right -> referencesType left <> referencesType right
 

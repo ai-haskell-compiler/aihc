@@ -19,10 +19,10 @@ annotated:
   module GHC.Types where
   data Int = I Int#
        │     └─ type: Int# → Int
-       └─ type: *
+       └─ type: Type
   data Integer = IS Int#
        │         └─ type: Int# → Integer
-       └─ type: *
+       └─ type: Type
 - |-
   module Main where
   import GHC.Types (Int, Integer)

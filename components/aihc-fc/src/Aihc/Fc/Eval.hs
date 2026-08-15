@@ -64,7 +64,7 @@ data Value
   = VLit Literal
   | VAddress !(Ptr ())
   | VClosure Env Var FcExpr
-  | VConstructor FcSymbolOrigin [Value]
+  | VConstructor FcConstructorId [Value]
   | VPrim Text Int [Value]
   | VArray EvalArray
   | VByteArray EvalByteArray
@@ -250,7 +250,7 @@ buildProgramEnv program = do
 
     directTopBindings (FcPrimitive var arity) = [(varName var, VPrim (varName var) arity [])]
     directTopBindings (FcData declaration) =
-      [ (fcSymbolOriginText (fcDataConOrigin constructor), VConstructor (fcDataConOrigin constructor) [])
+      [ (fcSymbolOriginText (fcConstructorSymbolOrigin (fcDataConOrigin constructor)), VConstructor (fcDataConOrigin constructor) [])
       | constructor <- fcDataConstructors declaration
       ]
     directTopBindings _ = []
@@ -261,17 +261,17 @@ evalExpr = runExceptT . evalWithEnv builtinConstructorEnv
 builtinConstructorEnv :: Env
 builtinConstructorEnv =
   globalEnv
-    [ ("C#", VConstructor (FcBuiltinOrigin "C#") []),
-      ("[]", VConstructor (FcBuiltinOrigin "[]") []),
-      (":", VConstructor (FcBuiltinOrigin ":") []),
+    [ ("C#", VConstructor (FcConstructorId "aihc-prim" "GHC.Types" "C#") []),
+      ("[]", VConstructor (FcConstructorId "aihc-prim" "GHC.Types" "[]") []),
+      (":", VConstructor (FcConstructorId "aihc-prim" "GHC.Types" ":") []),
       ("(#,#)", VConstructor unboxedTupleOrigin [])
     ]
 
-unboxedTupleOrigin :: FcSymbolOrigin
-unboxedTupleOrigin = FcTopLevelOrigin "aihc-prim" "GHC.Types" "(#,#)"
+unboxedTupleOrigin :: FcConstructorId
+unboxedTupleOrigin = FcConstructorId "aihc-prim" "GHC.Types" "(#,#)"
 
-unboxedTuple3Origin :: FcSymbolOrigin
-unboxedTuple3Origin = FcTopLevelOrigin "aihc-prim" "GHC.Types" "(#,,#)"
+unboxedTuple3Origin :: FcConstructorId
+unboxedTuple3Origin = FcConstructorId "aihc-prim" "GHC.Types" "(#,,#)"
 
 evalWithEnv :: Env -> FcExpr -> EvalM Value
 evalWithEnv env expr =
@@ -280,7 +280,7 @@ evalWithEnv env expr =
       case lookupEnvVar var env of
         Just value -> forceValue value
         Nothing -> throwE (EvalUnboundVariable (varName var))
-    FcLit lit ->
+    FcLit lit _ ->
       pure (VLit lit)
     FcApp fun arg -> do
       funValue <- evalWithEnv env fun
@@ -1214,7 +1214,7 @@ matchAlt value alt =
   case (altCon alt, value) of
     (DefaultAlt, _) ->
       Just (localEnv [(var, value) | var <- altBinders alt])
-    (LitAlt expected, VLit actual)
+    (LitAlt expected _, VLit actual)
       | expected == actual ->
           Just emptyEnv
     (DataAlt expected, VConstructor actual args)
@@ -1241,10 +1241,10 @@ renderForcedValue value =
     VLit lit -> pure (renderLiteral lit)
     VAddress address -> pure (T.pack (show address))
     VConstructor origin [char]
-      | fcOriginName origin == "C#" -> renderBoxedChar char
-    VConstructor origin [] -> pure (fcOriginName origin)
+      | fcConstructorName origin == "C#" -> renderBoxedChar char
+    VConstructor origin [] -> pure (fcConstructorName origin)
     VConstructor origin _
-      | fcOriginName origin == ":" -> do
+      | fcConstructorName origin == ":" -> do
           listValue <- collectList value
           case listValue of
             Just elems -> do
@@ -1253,7 +1253,7 @@ renderForcedValue value =
             Nothing -> renderConstructor value
     VConstructor origin args -> do
       renderedArgs <- mapM (renderValueM <=< forceValue) args
-      pure (T.unwords (fcOriginName origin : renderedArgs))
+      pure (T.unwords (fcConstructorName origin : renderedArgs))
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VArray {} -> pure "<array>"
@@ -1269,7 +1269,7 @@ renderForcedValue value =
   where
     renderConstructor (VConstructor origin args) = do
       renderedArgs <- mapM (renderValueM <=< forceValue) args
-      pure (T.unwords (fcOriginName origin : renderedArgs))
+      pure (T.unwords (fcConstructorName origin : renderedArgs))
     renderConstructor other = renderForcedValue other
 
 collectString :: Value -> EvalM (Maybe Text)
@@ -1285,7 +1285,7 @@ collectString value = do
       forced <- forceValue item
       case forced of
         VConstructor origin [char]
-          | fcOriginName origin == "C#" -> do
+          | fcConstructorName origin == "C#" -> do
               forcedChar <- forceValue char
               pure $
                 case forcedChar of
@@ -1298,9 +1298,9 @@ collectList value = do
   forced <- forceValue value
   case forced of
     VConstructor origin []
-      | fcOriginName origin == "[]" -> pure (Just [])
+      | fcConstructorName origin == "[]" -> pure (Just [])
     VConstructor origin [headValue, tailValue]
-      | fcOriginName origin == ":" -> do
+      | fcConstructorName origin == ":" -> do
           tailValues <- collectList tailValue
           pure ((headValue :) <$> tailValues)
     _ -> pure Nothing
@@ -1330,14 +1330,14 @@ renderRawValueM value = do
     VLit lit -> pure (renderLiteral lit)
     VAddress address -> pure (T.pack (show address))
     VConstructor origin [char]
-      | fcOriginName origin == "C#" -> renderBoxedChar char
-    VConstructor origin [] -> pure (fcOriginName origin)
-    VConstructor origin args | isTupleConstructor (fcOriginName origin) (length args) -> do
+      | fcConstructorName origin == "C#" -> renderBoxedChar char
+    VConstructor origin [] -> pure (fcConstructorName origin)
+    VConstructor origin args | isTupleConstructor (fcConstructorName origin) (length args) -> do
       renderedArgs <- mapM renderRawArg args
       pure ("(" <> T.intercalate "," renderedArgs <> ")")
     VConstructor origin args -> do
       renderedArgs <- mapM renderRawArg args
-      pure (T.unwords (fcOriginName origin : renderedArgs))
+      pure (T.unwords (fcConstructorName origin : renderedArgs))
     VClosure {} -> pure "<function>"
     VPrim {} -> pure "<function>"
     VArray {} -> pure "<array>"
@@ -1357,8 +1357,8 @@ renderRawArg value = do
   rendered <- renderRawValueM forced
   pure $
     case forced of
-      VConstructor origin args | isTupleConstructor (fcOriginName origin) (length args) -> rendered
-      VConstructor origin [_] | fcOriginName origin == "C#" -> rendered
+      VConstructor origin args | isTupleConstructor (fcConstructorName origin) (length args) -> rendered
+      VConstructor origin [_] | fcConstructorName origin == "C#" -> rendered
       VConstructor _ (_ : _) -> "(" <> rendered <> ")"
       _ -> rendered
 

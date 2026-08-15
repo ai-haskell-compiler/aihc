@@ -62,7 +62,7 @@ dsStockEqDictionary plan context dataType fieldEvidence = do
           (foldl FcTyApp (FcVar dictVar) (map TcTyVar (tcDerivingTyVars plan)))
           (map (FcVar . classDictVar) contextDicts)
   selfDictionaryVar <- freshVar "$stock_eq_self" selfDictionaryType
-  let selfDictionary = ClassDict "Eq" [targetType] selfDictionaryVar
+  let selfDictionary = ClassDict (tcDerivingClassTyCon plan) [targetType] selfDictionaryVar
   methodFields <-
     withDicts (selfDictionary : contextDicts) $
       mapM
@@ -160,7 +160,7 @@ fieldEquality eqTyCon boolTy leftFields rightFields index (field, evidence) = do
         dictionary
         dictionaryBinder
         [ FcAlt
-            (DataAlt (tyConConstructorIdentity eqTyCon (fcDictionaryConstructorName "Eq")))
+            (DataAlt (fcConstructorIdFromSymbol (tyConConstructorIdentity eqTyCon (fcDictionaryConstructorName "Eq"))))
             [equalityMethod, inequalityMethod]
             (FcApp (FcApp (FcVar equalityMethod) (FcVar left)) (FcVar right))
         ]
@@ -186,8 +186,8 @@ andComparisons boolTy comparisons =
         ( FcCase
             comparison
             binder
-            [ FcAlt (DataAlt falseConstructor) [] false,
-              FcAlt (DataAlt trueConstructor) [] trueBranch
+            [ FcAlt (DataAlt (fcConstructorIdFromSymbol falseConstructor)) [] false,
+              FcAlt (DataAlt (fcConstructorIdFromSymbol trueConstructor)) [] trueBranch
             ]
         )
 
@@ -202,8 +202,8 @@ negateBoolean boolTy expression = do
     ( FcCase
         expression
         binder
-        [ FcAlt (DataAlt falseConstructor) [] true,
-          FcAlt (DataAlt trueConstructor) [] false
+        [ FcAlt (DataAlt (fcConstructorIdFromSymbol falseConstructor)) [] true,
+          FcAlt (DataAlt (fcConstructorIdFromSymbol trueConstructor)) [] false
         ]
     )
 
@@ -213,10 +213,10 @@ boolConstructor boolTy name = do
   let origin = typeConstructorIdentity boolTy name
   pure (FcVar constructor {varResolvedName = Just origin})
 
-dataConIdentity :: DataConInfo -> FcSymbolOrigin
+dataConIdentity :: DataConInfo -> FcConstructorId
 dataConIdentity constructor =
   let (packageId, moduleName) = dciOrigin constructor
-   in FcTopLevelOrigin (packageIdText packageId) moduleName (dciName constructor)
+   in FcConstructorId packageId moduleName (dciName constructor)
 
 tyConConstructorIdentity :: TyCon -> Text -> FcSymbolOrigin
 tyConConstructorIdentity tyCon =
@@ -243,7 +243,8 @@ stockEqTyCon plan =
   case tcDerivingClassMethods plan of
     method : _ ->
       case tcClassMethodDictType method of
-        TcTyCon tyCon [_] -> pure tyCon
+        TcTyCon tyCon [_]
+          | tyCon == tcDerivingClassTyCon plan -> pure tyCon
         ty -> desugarBug ("invalid stock Eq dictionary type: " <> show ty)
     [] -> desugarBug "stock Eq has no class methods"
 
@@ -253,7 +254,7 @@ mkPredicateDict index predicate = do
   pure $
     case predicate of
       ClassPred className arguments -> ClassDict className arguments dictVar
-      EqPred {} -> ClassDict "<equality>" [] dictVar
+      EqPred {} -> ClassDict (TyCon "<equality>" 0) [] dictVar
 
 qualifyType :: [Pred] -> TcType -> TcType
 qualifyType [] body = body
@@ -264,7 +265,7 @@ rewriteSelfEvidence plan targetType evidence =
   case evidence of
     EvDict _ dictionaryName _ _
       | dictionaryName == tcDerivingDictName plan ->
-          EvGiven (ClassPred "Eq" [targetType])
+          EvGiven (ClassPred (tcDerivingClassTyCon plan) [targetType])
     EvDict origin dictionaryName typeArguments contextEvidence ->
       EvDict origin dictionaryName typeArguments (map recurse contextEvidence)
     EvSuperClass source sourceOrigin sourcePredicate fieldTypes fieldIndex ->

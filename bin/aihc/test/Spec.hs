@@ -362,8 +362,8 @@ test_installV2ResolveArtifacts =
             "  default-language: Haskell2010"
           ]
       )
-    writeFile (sourceDir </> "A.hs") "module Demo.A where\nimport Demo.B\na = a\n"
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb = b\n"
+    writeFile (sourceDir </> "A.hs") "module Demo.A where\nimport Demo.B\na x = x\n"
+    writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb x = x\n"
     first <- installV2 options
     assertEqual "written modules" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules first))
     assertFileExists (installV2StorePath first </> "Demo" </> "A" </> "resolve.cbor")
@@ -378,7 +378,7 @@ test_installV2ResolveArtifacts =
     removeFile (installV2StorePath first </> "Demo" </> "A" </> "core")
     coreRepaired <- installV2 options
     assertEqual "repairs the complete SCC with cached types" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules coreRepaired))
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb = (b)\n"
+    writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb x = (x)\n"
     changed <- installV2 options
     assertEqual "source changes keep the package directory" (installV2StorePath first) (installV2StorePath changed)
     assertEqual "source changes rebuild the complete SCC" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules changed))
@@ -395,7 +395,7 @@ assertCoreFile path = do
   core <- TIO.readFile path
   case Fc.parseProgram core of
     Left parseError -> assertFailure ("invalid Core file " <> path <> ": " <> Fc.renderParseError parseError)
-    Right _ -> pure ()
+    Right program -> assertEqual ("Core lint errors in " <> path) [] (Fc.lintProgram Fc.emptyLintEnv program)
 
 test_installV2TypeDependencies :: Assertion
 test_installV2TypeDependencies =
@@ -517,7 +517,7 @@ test_installV2StaleTypeArtifact =
             "  default-language: Haskell2010"
           ]
       )
-    writeFile (sourceDir </> "Demo.hs") "module Demo where\nvalue = value\n"
+    writeFile (sourceDir </> "Demo.hs") "module Demo where\nvalue x = x\n"
     first <- installV2 options
     let artifactPath = installV2StorePath first </> "Demo" </> "type.cbor"
     artifact <- BS.readFile artifactPath
@@ -545,13 +545,13 @@ test_installV2ResolveDependencies =
           ]
       )
     writeFile (sourceDir </> "A.hs") "module Demo.A where\nimport Demo.B\na = b\n"
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nb = b\n"
+    writeFile (sourceDir </> "B.hs") "module Demo.B where\nb x = x\n"
     _ <- installV2 options
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nb = (b)\n"
+    writeFile (sourceDir </> "B.hs") "module Demo.B where\nb x = (x)\n"
     sourceChanged <- installV2 options
     assertEqual "source-only change" ["Demo.B"] (sort (installV2WrittenModules sourceChanged))
     assertEqual "dependent with equal scope" ["Demo.A"] (sort (installV2ReusedModules sourceChanged))
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nb = b\nc = c\n"
+    writeFile (sourceDir </> "B.hs") "module Demo.B where\nb x = x\nc x = x\n"
     scopeChanged <- installV2 options
     assertEqual "changed scope and dependent modules" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules scopeChanged))
     assertEqual "no reused dependent after scope change" [] (installV2ReusedModules scopeChanged)
@@ -575,11 +575,11 @@ test_installV2StopsAtEqualScope =
             "  default-language: Haskell2010"
           ]
       )
-    writeFile (sourceDir </> "A.hs") "module Demo.A where\na = a\n"
-    writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb = b\n"
-    writeFile (sourceDir </> "C.hs") "module Demo.C where\nimport Demo.B\nc = c\n"
+    writeFile (sourceDir </> "A.hs") "module Demo.A where\na x = x\n"
+    writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb x = x\n"
+    writeFile (sourceDir </> "C.hs") "module Demo.C where\nimport Demo.B\nc x = x\n"
     _ <- installV2 options
-    writeFile (sourceDir </> "A.hs") "module Demo.A where\na = a\na2 = a2\n"
+    writeFile (sourceDir </> "A.hs") "module Demo.A where\na x = x\na2 x = x\n"
     changed <- installV2 options
     assertEqual "changed module and direct dependent" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules changed))
     assertEqual "transitive dependent with equal direct scope" ["Demo.C"] (sort (installV2ReusedModules changed))
@@ -1332,7 +1332,7 @@ test_runtimePrimitiveValidation = do
           (FcModuleId "test" "Test")
           [ FcPrimitive kept 1,
             FcPrimitive unsafeCoerce 1,
-            FcTopBind (FcNonRec mainVar (FcApp (FcVar unsafeCoerce) (FcApp (FcVar kept) (FcLit (LitInt IntRep 1)))))
+            FcTopBind (FcNonRec mainVar (FcApp (FcVar unsafeCoerce) (FcApp (FcVar kept) (FcLit (LitInt IntRep 1) intTy))))
           ]
       grin = Grin.lowerProgram core
       reachable = reachableRuntimePrimitiveNames "main" (extractReachabilityInterface core) [grin]

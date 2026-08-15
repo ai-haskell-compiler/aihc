@@ -9,13 +9,13 @@ annotated:
     derived :: a -> a
   data Wrapper a = Wrapper a
        │           └─ type: ∀ a. a → Wrapper a
-       └─ type: * → *
+       └─ type: Type → Type
   data T a = T a
        │     └─ type: ∀ a. a → T a
-       └─ type: * → *
+       └─ type: Type → Type
   newtype N a = N a
           │     └─ type: ∀ a. a → N a
-          └─ type: * → *
+          └─ type: Type → Type
   deriving via Wrapper a instance forall a. Context a => Derived (T a)
   └─ deriving plans: via Wrapper a Derived (T a) [context: Context a] [methods: derived]
   deriving newtype instance Derived (N a)

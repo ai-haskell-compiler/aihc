@@ -146,7 +146,8 @@ data TcClassMethodAnnotation = TcClassMethodAnnotation
   deriving (Eq, Show)
 
 data TcClassAnnotation = TcClassAnnotation
-  { tcClassTyVars :: ![TyVarId],
+  { tcClassTyCon :: !TyCon,
+    tcClassTyVars :: ![TyVarId],
     tcClassSuperClasses :: ![TcDictBinderAnnotation],
     tcClassMethods :: ![TcClassMethodAnnotation],
     tcClassDefaultMethods :: ![Text],
@@ -187,6 +188,7 @@ data TcDerivingPlan = TcDerivingPlan
   { tcDerivingSourceSpan :: !SourceSpan,
     tcDerivingStrategy :: !TcDerivingStrategy,
     tcDerivingClassName :: !Text,
+    tcDerivingClassTyCon :: !TyCon,
     tcDerivingClassOrigin :: !(Maybe (Text, Text)),
     tcDerivingDictName :: !Text,
     tcDerivingTyVars :: ![TyVarId],
@@ -218,6 +220,7 @@ newtype TcDerivingAnnotation = TcDerivingAnnotation
 data TcInstanceAnnotation = TcInstanceAnnotation
   { tcInstanceDictName :: !Text,
     tcInstanceDictType :: !TcType,
+    tcInstanceClassTyCon :: !TyCon,
     tcInstanceTyVars :: ![TyVarId],
     tcInstanceHeadTypes :: ![TcType],
     tcInstanceClassTyVars :: ![TyVarId],
@@ -274,8 +277,8 @@ renderTcSignature name ty = T.unpack name ++ " ∷ " ++ renderTcType ty
 renderPred :: Pred -> String
 renderPred pred' =
   case pred' of
-    ClassPred className args ->
-      renderTcType (TcTyCon (TyCon className (length args)) args)
+    ClassPred classTyCon args ->
+      renderTcType (TcTyCon classTyCon args)
     EqPred left right ->
       renderTcType left ++ " ~ " ++ renderTcType right
 
@@ -326,7 +329,7 @@ renderTcTypeInModule currentModule = go 0
         unwords (T.unpack name : map (go 2) arguments)
 
     showPred (ClassPred cls args) =
-      T.unpack cls ++ " " ++ unwords (map (go 2) args)
+      T.unpack (renderTyConName cls) ++ " " ++ unwords (map (go 2) args)
     showPred (EqPred t1 t2) =
       go 2 t1 ++ " ~ " ++ go 2 t2
 

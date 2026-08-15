@@ -7,7 +7,7 @@ annotated:
     c :: a -> a
   newtype N a = N a
   │       │     └─ type: ∀ a. a → N a
-  │       └─ type: * → *
+  │       └─ type: Type → Type
   └─ deriving plans: newtype C (N a) [context: infer] [methods: c]
     deriving C
 extensions:

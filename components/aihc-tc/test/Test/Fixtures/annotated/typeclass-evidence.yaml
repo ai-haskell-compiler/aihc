@@ -4,7 +4,7 @@ annotated:
   data Bool = False | True
        │      │       └─ type: Bool
        │      └─ type: Bool
-       └─ type: *
+       └─ type: Type
   class Eq a where
   └─ class methods: == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
     (==) :: a -> a -> Bool

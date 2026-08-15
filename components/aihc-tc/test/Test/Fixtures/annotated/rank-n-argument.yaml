@@ -22,13 +22,13 @@ annotated:
 
     data State s a = State a
          │           └─ type: ∀ s a. a → State s a
-         └─ type: * → * → *
+         └─ type: Type → Type → Type
     data World = World
          │       └─ type: World
-         └─ type: *
+         └─ type: Type
     data Result = Result
          │        └─ type: Result
-         └─ type: *
+         └─ type: Type
 
     runState :: (forall s. State s a) -> a
     runState action = runWorld action

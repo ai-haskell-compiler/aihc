@@ -106,8 +106,8 @@ checkPatternCore gadtHandling sp pat scrutTy =
       case maybeLiteralTy of
         Just literalTy -> do
           eqCt <- wantedEq sp scrutTy literalTy
-          pure (checkedOnly pat) {pcWantedCts = [eqCt]}
-        Nothing -> pure (checkedOnly pat)
+          pure (checkedOnly (PLit (checkedLiteral scrutTy lit))) {pcWantedCts = [eqCt]}
+        Nothing -> pure (checkedOnly (PLit (checkedLiteral scrutTy lit)))
     PNegLit {} -> pure (checkedOnly pat)
     PAs name inner -> do
       innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
@@ -144,6 +144,9 @@ checkPatternCore gadtHandling sp pat scrutTy =
 
 checkedOnly :: Pattern -> PatternCheck
 checkedOnly pat = mempty {pcPatterns = [pat]}
+
+checkedLiteral :: TcType -> Literal -> Literal
+checkedLiteral ty = LitAnn (mkAnnotation (pendingAnnotation ty [] [] []))
 
 checkListPattern :: GadtHandling -> SourceSpan -> [Pattern] -> TcType -> TcM PatternCheck
 checkListPattern gadtHandling sp items scrutTy =

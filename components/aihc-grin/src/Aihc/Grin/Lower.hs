@@ -132,7 +132,7 @@ linkNamesForProgram libraryId moduleNameComponents program =
           ],
       grinConstructorNames =
         Map.fromList
-          [ (runtimeConstructorName (fcDataConOrigin constructor), (runtimeConstructorName (fcDataConOrigin constructor), length (fcDataConFields constructor)))
+          [ (runtimeConstructorName (fcConstructorSymbolOrigin (fcDataConOrigin constructor)), (runtimeConstructorName (fcConstructorSymbolOrigin (fcDataConOrigin constructor)), length (fcDataConFields constructor)))
           | FcData declaration <- fcTopBinds program,
             not (isUnboxedTupleData declaration),
             constructor <- fcDataConstructors declaration
@@ -255,7 +255,7 @@ extractPreparedGrinInterface linkNames program =
           ],
       grinInterfaceUnboxedTupleConstructors =
         Set.fromList
-          [ runtimeConstructorName (fcDataConOrigin constructor)
+          [ runtimeConstructorName (fcConstructorSymbolOrigin (fcDataConOrigin constructor))
           | FcData declaration <- fcTopBinds program,
             isUnboxedTupleData declaration,
             constructor <- fcDataConstructors declaration
@@ -370,7 +370,7 @@ lowerTopBind topBind =
     FcData declaration ->
       if isUnboxedTupleData declaration
         then pure mempty
-        else pure mempty {loweredConstructors = [(runtimeConstructorName (fcDataConOrigin constructor), map (runtimeRepComponents . typeRuntimeRep) (fcDataConFields constructor)) | constructor <- fcDataConstructors declaration]}
+        else pure mempty {loweredConstructors = [(runtimeConstructorName (fcConstructorSymbolOrigin (fcDataConOrigin constructor)), map (runtimeRepComponents . typeRuntimeRep) (fcDataConFields constructor)) | constructor <- fcDataConstructors declaration]}
     FcAxiom {} ->
       pure mempty
     FcNewtype {} ->
@@ -500,7 +500,7 @@ lowerNonTupleExpr expr =
                 runtimeVar <- lookupRuntimeVar var
                 let resultRep = typeRuntimeRep (varType var)
                 pure (GrinEval resultRep (GrinVarValue runtimeVar))
-    FcLit literal ->
+    FcLit literal _ ->
       pure (GrinConstant [GrinLitValue (lowerLiteral literal)])
     FcApp {} ->
       lowerApplication expr
@@ -745,7 +745,7 @@ lowerCase scrutinee binder alternatives =
       pure (bindExpr [] scrutineeExpr rhs)
     (_, TupleRep _, alternative : _)
       | DataAlt constructor <- altCon alternative,
-        unboxedTuplePunctuation (fcOriginName constructor) ->
+        unboxedTuplePunctuation (fcConstructorName constructor) ->
           -- An unboxed tuple has exactly one constructor. The source match
           -- compiler may retain a syntactic fall-through alternative while
           -- compiling nested refutable fields, but that alternative is
@@ -966,7 +966,7 @@ lowerStaticNode expr = do
 lowerStaticValues :: FcExpr -> LowerM (Maybe [GrinValue])
 lowerStaticValues expr =
   case expr of
-    FcLit literal -> pure (Just [GrinLitValue (lowerLiteral literal)])
+    FcLit literal _ -> pure (Just [GrinLitValue (lowerLiteral literal)])
     FcVar var
       | null (runtimeRepComponents (typeRuntimeRep (varType var))) -> pure (Just [])
       | otherwise -> do
@@ -1278,7 +1278,7 @@ freeVars :: FcExpr -> Set Var
 freeVars expr =
   case expr of
     FcVar var -> Set.singleton var
-    FcLit _ -> Set.empty
+    FcLit {} -> Set.empty
     FcApp function argument -> freeVars function <> freeVars argument
     FcTyApp inner _ -> freeVars inner
     FcLam var body -> Set.delete var (freeVars body)
@@ -1371,7 +1371,7 @@ lowerDirectValues expr =
           | not isGlobal && runtimeRep /= liftedRuntimeRep ->
               Just . map GrinVarValue <$> lookupLocalVars var
           | otherwise -> pure Nothing
-    FcLit literal -> pure (Just [GrinLitValue (lowerLiteral literal)])
+    FcLit literal _ -> pure (Just [GrinLitValue (lowerLiteral literal)])
     FcTyApp inner _ -> lowerDirectValues inner
     FcCast inner _ -> lowerDirectValues inner
     _ -> pure Nothing
@@ -1395,7 +1395,7 @@ lowerLazyDirectValues expr =
             (_, Just arity)
               | arity > 0 -> pure Nothing
             _ -> Just . map GrinVarValue <$> lookupRuntimeVars var
-    FcLit literal -> pure (Just [GrinLitValue (lowerLiteral literal)])
+    FcLit literal _ -> pure (Just [GrinLitValue (lowerLiteral literal)])
     FcTyApp inner _ -> lowerLazyDirectValues inner
     FcCast inner _ -> lowerLazyDirectValues inner
     _ -> pure Nothing
@@ -1519,7 +1519,7 @@ isWhnfExpr expr =
     FcLam {} -> pure True
     FcTyLam _ body -> isWhnfExpr body
     FcCast inner _ -> isWhnfExpr inner
-    FcLit literal -> pure (isLiftedRuntimeRep (literalRuntimeRep literal))
+    FcLit literal _ -> pure (isLiftedRuntimeRep (literalRuntimeRep literal))
     FcVar var -> do
       codeInfo <- lookupCodeInfo var
       primitiveArity <- lookupPrimitiveArity var
@@ -1655,10 +1655,11 @@ lowerAltCon altCon =
   case altCon of
     DataAlt origin -> do
       constructorArities <- gets lowerConstructorArities
-      let occurrence = (Var (fcOriginName origin) (Unique (-1)) (TcBuiltinTyCon "Type" 0 [])) {varResolvedName = Just origin}
-          constructorName = fromMaybe (runtimeConstructorName origin) (resolveConstructorName constructorArities occurrence)
+      let symbolOrigin = fcConstructorSymbolOrigin origin
+          occurrence = (Var (fcConstructorName origin) (Unique (-1)) (TcBuiltinTyCon "Type" 0 [])) {varResolvedName = Just symbolOrigin}
+          constructorName = fromMaybe (runtimeConstructorName symbolOrigin) (resolveConstructorName constructorArities occurrence)
       pure (GrinDataAlt constructorName)
-    LitAlt literal -> pure (GrinLitAlt (lowerLiteral literal))
+    LitAlt literal _ -> pure (GrinLitAlt (lowerLiteral literal))
     DefaultAlt -> pure GrinDefaultAlt
 
 lowerForeignCall :: FcForeignCall -> GrinForeignCall
@@ -1694,7 +1695,7 @@ lowerForeignType foreignType =
 exprRuntimeRep :: FcExpr -> RuntimeRep
 exprRuntimeRep expr =
   case expr of
-    FcLit literal -> literalRuntimeRep literal
+    FcLit literal _ -> literalRuntimeRep literal
     FcLam {} -> liftedRuntimeRep
     FcTyLam {} -> liftedRuntimeRep
     _ ->
@@ -1706,7 +1707,7 @@ exprType :: FcExpr -> Maybe TcType
 exprType expr =
   case expr of
     FcVar var -> Just (varType var)
-    FcLit literal -> literalType literal
+    FcLit _ ty -> Just ty
     FcApp function _ -> functionResultType =<< exprType function
     FcTyApp function argument -> do
       functionType <- exprType function
@@ -1766,7 +1767,7 @@ programVars program = concatMap topVars (fcTopBinds program)
 
 programConstructors :: FcProgram -> [(Text, Int)]
 programConstructors program =
-  [ (runtimeConstructorName (fcDataConOrigin constructor), length (fcDataConFields constructor))
+  [ (runtimeConstructorName (fcConstructorSymbolOrigin (fcDataConOrigin constructor)), length (fcDataConFields constructor))
   | FcData declaration <- fcTopBinds program,
     not (isUnboxedTupleData declaration),
     constructor <- fcDataConstructors declaration
@@ -1917,7 +1918,7 @@ exprVars :: FcExpr -> [Var]
 exprVars expr =
   case expr of
     FcVar var -> [var]
-    FcLit _ -> []
+    FcLit {} -> []
     FcApp function argument -> exprVars function <> exprVars argument
     FcTyApp inner _ -> exprVars inner
     FcLam var body -> var : exprVars body

@@ -3,7 +3,7 @@ annotated:
   {-# LANGUAGE DeriveAnyClass, DerivingStrategies, DerivingVia, GeneralizedNewtypeDeriving, KindSignatures #-}
   module Main where
   data Type
-       └─ type: *
+       └─ type: Type
   class C a where
   └─ class methods: c ∷ ∀ a. (C a) ⇒ a → a
     c :: a -> a
@@ -13,27 +13,28 @@ annotated:
   └─ class methods:
   data Wrapper a = Wrapper a
        │           └─ type: ∀ a. a → Wrapper a
-       └─ type: * → *
+       └─ type: Type → Type
   data T a = T a
   │    │     └─ type: ∀ a. a → T a
-  │    └─ type: * → *
+  │    └─ type: Type → Type
   └─ deriving plans: anyclass C (T a) [context: ()] [methods: c], anyclass HK T [context: ()], via Wrapper a D (T a) [context: infer]
     deriving anyclass C
     deriving anyclass HK
     deriving D via Wrapper a
   newtype N a = N a
   │       │     └─ type: ∀ a. a → N a
-  │       └─ type: * → *
+  │       └─ type: Type → Type
   └─ deriving plans: newtype C (N a) [context: infer] [methods: c]
     deriving newtype C
   newtype PreferAnyclass a = PreferAnyclass a
-  │       └─ type: * → *     └─ type: ∀ a. a → PreferAnyclass a
+  │       │                  └─ type: ∀ a. a → PreferAnyclass a
+  │       └─ type: Type → Type
   └─ deriving plans: anyclass C (PreferAnyclass a) [context: ()] [methods: c]
     deriving C
              └─ warning: both DeriveAnyClass and GeneralizedNewtypeDeriving are enabled; defaulting to anyclass for C
   data Default a = Default a
   │    │           └─ type: ∀ a. a → Default a
-  │    └─ type: * → *
+  │    └─ type: Type → Type
   └─ deriving plans: anyclass C (Default a) [context: ()] [methods: c]
     deriving C
 extensions:

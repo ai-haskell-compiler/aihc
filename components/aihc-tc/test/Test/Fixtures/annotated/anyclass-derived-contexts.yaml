@@ -13,7 +13,7 @@ annotated:
     └─ c ∷ ∀ a. (C a, Show a) ⇒ a → a
   data T a = T a
   │    │     └─ type: ∀ a. a → T a
-  │    └─ type: * → *
+  │    └─ type: Type → Type
   └─ deriving plans: anyclass C (T a) [context: Show a] [methods: c]
     deriving anyclass C
   instance Show a => Show (T a)
@@ -24,12 +24,12 @@ annotated:
   └─ class methods:
   data S a = S a
   │    │     └─ type: ∀ a. a → S a
-  │    └─ type: * → *
+  │    └─ type: Type → Type
   └─ deriving plans: anyclass Child (S a) [context: ()], anyclass Parent (S a) [context: ()]
     deriving anyclass (Child, Parent)
   data Missing = Missing
   │    │         └─ type: Missing
-  │    └─ type: *
+  │    └─ type: Type
   └─ deriving plans: anyclass Child Missing [context: infer]
     deriving anyclass Child
                       └─ error: unsolved constraint Parent Missing

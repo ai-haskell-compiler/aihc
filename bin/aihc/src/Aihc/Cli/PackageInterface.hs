@@ -30,6 +30,7 @@ import Data.ByteString.Lazy qualified as BL
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
+import Text.Read (readMaybe)
 
 data PackageInterface = PackageInterface
   { packageInterfacePackageKey :: !PackageInterfacePackageKey,
@@ -102,7 +103,7 @@ data PackageInterfaceBinding = PackageInterfaceBinding
   deriving (Eq, Show)
 
 packageInterfaceSchemaVersion :: Int
-packageInterfaceSchemaVersion = 1
+packageInterfaceSchemaVersion = 2
 
 instance Aeson.ToJSON PackageInterface where
   toJSON interface =
@@ -352,8 +353,7 @@ tcTypeValue ty =
     TcTyCon tyCon args ->
       Aeson.object
         [ "tag" .= ("con" :: Text),
-          "name" .= tyConName tyCon,
-          "arity" .= tyConArity tyCon,
+          "tyCon" .= show tyCon,
           "args" .= map tcTypeValue args
         ]
     TcFunTy arg result ->
@@ -397,7 +397,7 @@ parseTcTypeJson =
       "meta" -> TcMetaTv . Unique <$> obj .: "unique"
       "con" ->
         TcTyCon
-          <$> (TyCon <$> obj .: "name" <*> obj .: "arity")
+          <$> (obj .: "tyCon" >>= parseTyConText)
           <*> (obj .: "args" >>= traverse parseTcTypeJson)
       "fun" ->
         TcFunTy
@@ -437,7 +437,7 @@ parsePredJson =
     case tag of
       "class" ->
         ClassPred
-          <$> obj .: "class"
+          <$> (obj .: "class" >>= parseTyConText)
           <*> (obj .: "args" >>= traverse parseTcTypeJson)
       "eq" ->
         EqPred
@@ -451,7 +451,7 @@ predValue pred' =
     ClassPred cls args ->
       Aeson.object
         [ "tag" .= ("class" :: Text),
-          "class" .= cls,
+          "class" .= show cls,
           "args" .= map tcTypeValue args
         ]
     EqPred left right ->
@@ -460,6 +460,12 @@ predValue pred' =
           "left" .= tcTypeValue left,
           "right" .= tcTypeValue right
         ]
+
+parseTyConText :: Text -> AesonTypes.Parser TyCon
+parseTyConText encoded =
+  case readMaybe (T.unpack encoded) of
+    Just tyCon -> pure tyCon
+    Nothing -> fail "invalid exact type constructor"
 
 tyVarValue :: TyVarId -> Aeson.Value
 tyVarValue tv =

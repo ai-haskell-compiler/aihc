@@ -4,7 +4,7 @@ annotated:
   data Bool = True | False
        │      │      └─ type: Bool
        │      └─ type: Bool
-       └─ type: *
+       └─ type: Type
   f x y = x + y
   │ │ │     └─ type: a → b → a; type-args: a, b
   │ │ └─ type: b

@@ -11,6 +11,11 @@ module GHC.Types
     Bool (..),
     Ordering (..),
     TYPE,
+    Type,
+    LiftedType,
+    UnliftedType,
+    LiftedRep,
+    UnliftedRep,
     Levity (..),
     RuntimeRep (..),
     VecCount (..),
@@ -93,6 +98,19 @@ data Bool = False | True
 data Ordering = LT | EQ | GT
 
 data TYPE (rep :: RuntimeRep)
+
+type Type :: Type
+type Type = TYPE LiftedRep
+
+type LiftedType = TYPE LiftedRep
+
+type UnliftedType = TYPE UnliftedRep
+
+type LiftedRep :: RuntimeRep
+type LiftedRep = 'BoxedRep 'Lifted
+
+type UnliftedRep :: RuntimeRep
+type UnliftedRep = 'BoxedRep 'Unlifted
 
 data RuntimeRep
   = AddrRep

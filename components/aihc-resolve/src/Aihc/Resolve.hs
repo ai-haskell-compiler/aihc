@@ -82,6 +82,7 @@ import Aihc.Parser.Syntax
     TupleFlavor (..),
     TyVarBinder (..),
     Type (..),
+    TypePromotion (..),
     TypeSynDecl (..),
     UnqualifiedName,
     ValueDecl (..),
@@ -1295,7 +1296,7 @@ resolveType ty =
     TVar name ->
       TVar <$> resolveScopedTypeVariableUse name
     TCon name promoted ->
-      TCon <$> resolveTypeUse name <*> pure promoted
+      TCon <$> resolveTypeConstructorUse promoted name <*> pure promoted
     TBuiltinCon {} -> pure ty
     TImplicitParam name inner ->
       TImplicitParam name <$> resolveType inner
@@ -1569,6 +1570,15 @@ resolveTypeUse name = do
   sp <- currentSpan
   scope <- currentScope
   pure (resolveNameTo sp ResolutionNamespaceType (resolveTypeName scope name) name)
+
+resolveTypeConstructorUse :: TypePromotion -> Name -> ResolveM Name
+resolveTypeConstructorUse promotion name =
+  case promotion of
+    Unpromoted -> resolveTypeUse name
+    Promoted -> do
+      sp <- currentSpan
+      scope <- currentScope
+      pure (resolveNameTo sp ResolutionNamespaceType (resolveTermName scope name) name)
 
 resolveTypeUseAtName :: Name -> ResolveM Name
 resolveTypeUseAtName name = do

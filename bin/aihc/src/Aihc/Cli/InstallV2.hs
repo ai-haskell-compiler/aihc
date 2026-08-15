@@ -18,7 +18,7 @@ import Aihc.Cli.Options (InstallV2Options (..))
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeInterface)
-import Aihc.Fc (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface, renderProgram)
+import Aihc.Fc (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface, emptyLintEnv, lintProgram, renderProgram)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Util qualified as HackageUtil
@@ -77,7 +77,7 @@ import Distribution.PackageDescription (package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
 import Numeric (showHex)
-import System.Directory (createDirectoryIfMissing, doesFileExist)
+import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
 import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
 
 data InstallV2Result = InstallV2Result
@@ -304,16 +304,46 @@ writeCoreFiles verbose primIdentity interface corePath checkedModules = do
   let bindings = tcInterfaceBindings interface <> concatMap tcModuleBindings checkedModules
       results = map (desugarModuleWithInterface (DesugarConfig primIdentity) bindings interface) checkedModules
   unless (all dsSuccess results) (ioError (userError ("Core generation failed: " <> unlines (concatMap dsErrors results))))
+  let lintFailures =
+        [ (modu, result, errors)
+        | (modu, result) <- zip checkedModules results,
+          let errors = lintProgram emptyLintEnv (dsProgram result),
+          not (null errors)
+        ]
+      lintReport = concatMap renderLintFailure lintFailures
+  unless (null lintFailures) $ do
+    mapM_ writeBadCore lintFailures
+    ioError (userError (unlines ("Core lint failed:" : lintReport)))
   mapM_ writeCore (zip checkedModules results)
   where
+    renderLintFailure (modu, _, errors) =
+      ("  module " <> T.unpack (fromMaybe "Main" (moduleName modu)) <> ":")
+        : ("    bad Core file: " <> corePath modu <> ".bad")
+        : map (("    " <>) . show) errors
+
+    writeBadCore (modu, result, _) = do
+      let path = corePath modu <> ".bad"
+          name = fromMaybe "Main" (moduleName modu)
+      removeFileIfExists (corePath modu)
+      writeCoreFile path result
+      verbose ("Write bad Core: " <> T.unpack name <> " -> " <> path)
+
     writeCore (modu, result) = do
       let path = corePath modu
-          rendered = renderProgram (dsProgram result)
-          output = if "\n" `isSuffixOf` rendered then rendered else rendered <> "\n"
           name = fromMaybe "Main" (moduleName modu)
+      removeFileIfExists (path <> ".bad")
+      writeCoreFile path result
+      verbose ("Write Core: " <> T.unpack name)
+
+    writeCoreFile path result = do
+      let rendered = renderProgram (dsProgram result)
+          output = if "\n" `isSuffixOf` rendered then rendered else rendered <> "\n"
       createDirectoryIfMissing True (takeDirectory path)
       writeFile path output
-      verbose ("Write Core: " <> T.unpack name)
+
+    removeFileIfExists path = do
+      exists <- doesFileExist path
+      when exists (removeFile path)
 
 moduleTypeInterface :: ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
 moduleTypeInterface exports package interface source =
@@ -371,7 +401,7 @@ typeSchemeTyCons (ForAll _ predicates body) = concatMap predTyCons predicates <>
 
 predTyCons :: Pred -> [TyCon]
 predTyCons predicate = case predicate of
-  ClassPred _ arguments -> concatMap typeTyCons arguments
+  ClassPred tyCon arguments -> tyCon : concatMap typeTyCons arguments
   EqPred left right -> typeTyCons left <> typeTyCons right
 
 typeTyCons :: TcType -> [TyCon]

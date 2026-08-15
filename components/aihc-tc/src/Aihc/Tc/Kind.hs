@@ -173,7 +173,7 @@ convertNonSynonymTypeWithKinds tvEnv ty =
     TBuiltinCon builtin ->
       inferBuiltinTypeConstructor builtin
     TStar {} ->
-      pure (TcTyCon (TyCon "*" 0) [], KType)
+      knownType "GHC.Types" "Type" KType
     -- GHC's MutVar# has an inferred RuntimeRep parameter, so its value
     -- argument may have any TYPE r kind even though r is not a visible type
     -- constructor argument.
@@ -566,20 +566,6 @@ occursInKind needle kind =
     KVecCount -> False
     KVecElem -> False
 
-kindToTcType :: Kind -> TcType
-kindToTcType kind =
-  case kind of
-    KTYPE runtimeRep
-      | runtimeRep == liftedRuntimeRep -> TcTyCon (TyCon "*" 0) []
-      | otherwise -> TcTyCon (TyCon "TYPE" 1) [runtimeRepToTcType runtimeRep]
-    KConstraint -> TcTyCon (TyCon "Constraint" 0) []
-    KRuntimeRep -> TcTyCon (TyCon "RuntimeRep" 0) []
-    KLevity -> TcTyCon (TyCon "Levity" 0) []
-    KVecCount -> TcTyCon (TyCon "VecCount" 0) []
-    KVecElem -> TcTyCon (TyCon "VecElem" 0) []
-    KMeta u -> TcMetaTv u
-    KFun a b -> TcFunTy (kindToTcType a) (kindToTcType b)
-
 applyType :: TcType -> TcType -> TcType
 applyType (TcTyCon tc args) arg = TcTyCon tc (args ++ [arg])
 applyType f arg = TcAppTy f arg
@@ -701,45 +687,6 @@ occursInRuntimeRep needle runtimeRep =
     RuntimeRepMeta unique -> unique == needle
     _ -> False
 
-runtimeRepToTcType :: RuntimeRep -> TcType
-runtimeRepToTcType runtimeRep =
-  case runtimeRep of
-    BoxedRep Lifted -> TcTyCon (TyCon "'LiftedRep" 0) []
-    BoxedRep Unlifted -> TcTyCon (TyCon "'UnliftedRep" 0) []
-    IntRep -> promoted "IntRep"
-    Int8Rep -> promoted "Int8Rep"
-    Int16Rep -> promoted "Int16Rep"
-    Int32Rep -> promoted "Int32Rep"
-    Int64Rep -> promoted "Int64Rep"
-    WordRep -> promoted "WordRep"
-    Word8Rep -> promoted "Word8Rep"
-    Word16Rep -> promoted "Word16Rep"
-    Word32Rep -> promoted "Word32Rep"
-    Word64Rep -> promoted "Word64Rep"
-    AddrRep -> promoted "AddrRep"
-    FloatRep -> promoted "FloatRep"
-    DoubleRep -> promoted "DoubleRep"
-    RuntimeRepVar unique ->
-      TcTyVar
-        ( setTyVarKind
-            KRuntimeRep
-            (TyVarId ("rep" <> T.pack (showUnique unique)) unique)
-        )
-    RuntimeRepMeta unique -> TcMetaTv unique
-    TupleRep fields -> promotedListRep "TupleRep" fields
-    SumRep fields -> promotedListRep "SumRep" fields
-    VecRep count element ->
-      TcTyCon
-        (TyCon "'VecRep" 2)
-        [promoted (T.pack (show count)), promoted (T.pack (show element))]
-  where
-    promoted name = TcTyCon (TyCon ("'" <> name) 0) []
-    promotedListRep name fields =
-      TcTyCon
-        (TyCon ("'" <> name) 1)
-        [TcTyCon (TyCon "'[]" (length fields)) (map runtimeRepToTcType fields)]
-    showUnique (Unique value) = show value
-
 freeTypeVars :: Type -> [Text]
 freeTypeVars = nub . go
   where
@@ -786,12 +733,18 @@ surfacePredToPred tvEnv ty =
     Just className -> do
       let classNameText = nameText className
           headArgs = instanceHeadTypes ty
-      argKinds <- classPredicateArgKinds classNameText (length headArgs)
-      args <- zipWithM (checkSurfaceType tvEnv) headArgs argKinds
-      pure (ClassPred (nameText className) args)
+      maybeClassInfo <- lookupTyCon classNameText
+      case maybeClassInfo of
+        Just classInfo -> do
+          argKinds <- takeClassArgKinds (length headArgs) <$> defaultKindMetas (tyConKind (tciTyCon classInfo))
+          args <- zipWithM (checkSurfaceType tvEnv) headArgs argKinds
+          pure (ClassPred (tciTyCon classInfo) args)
+        Nothing -> do
+          emitError NoSourceSpan (OtherError ("unknown class predicate: " <> T.unpack classNameText))
+          abortTc ("missing checked type constructor for class predicate " <> T.unpack classNameText)
     Nothing -> do
       emitError NoSourceSpan (OtherError ("invalid class predicate: " <> show ty))
-      pure (ClassPred "<invalid-predicate>" [])
+      abortTc "invalid checked class predicate"
 
 classPredicateArgKinds :: Text -> Int -> TcM [Kind]
 classPredicateArgKinds className argCount = do

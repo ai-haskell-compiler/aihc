@@ -16,13 +16,13 @@ annotated:
     module Test where
     data Mark = Marked
          │      └─ type: Mark
-         └─ type: *
+         └─ type: Type
     class Markable a where
     └─ class methods: mark ∷ ∀ a. (Markable a) ⇒ a → Mark
       mark :: a -> Mark
     data Box = forall a. Markable a => Box a
          │     └─ type: ∀ a. (Markable a) ⇒ a → Box
-         └─ type: *
+         └─ type: Type
     inspect :: Box -> Mark
     inspect (Box value) = mark value
     │        │   │        └─ type: a → Mark; type-args: a; evidence: given Markable a

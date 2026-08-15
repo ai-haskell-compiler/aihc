@@ -27,7 +27,9 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Types (RuntimeRep (..))
+import Control.Applicative ((<|>))
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -61,12 +63,12 @@ dsPatternPure _ (PLit lit) =
   (dsLiteralAlt lit, [])
 dsPatternPure _ _ = (DefaultAlt, [])
 
-primitiveOrigin :: PackageId -> Text -> Text -> FcSymbolOrigin
-primitiveOrigin (PackageId packageName) = FcTopLevelOrigin packageName
+primitiveOrigin :: PackageId -> Text -> Text -> FcConstructorId
+primitiveOrigin = FcConstructorId
 
-constructorOrigin :: Name -> FcSymbolOrigin
+constructorOrigin :: Name -> FcConstructorId
 constructorOrigin name =
-  fromMaybe (FcBuiltinOrigin (nameToText name)) $ do
+  fromMaybe (missingConstructorIdentity name) $ do
     resolution <-
       listToMaybe
         [ annotation
@@ -74,25 +76,35 @@ constructorOrigin name =
           resolutionNamespace annotation == ResolutionNamespaceTerm
         ]
     case resolutionTarget resolution of
-      ResolvedTopLevel (PackageId packageName) resolved ->
+      ResolvedTopLevel packageId resolved ->
         Just
-          ( FcTopLevelOrigin
-              packageName
+          ( FcConstructorId
+              packageId
               (fromMaybe "" (nameQualifier resolved))
               (nameText resolved)
           )
-      ResolvedBuiltin constructorName -> Just (FcBuiltinOrigin constructorName)
+      ResolvedBuiltin {} -> Nothing
       ResolvedLocal {} -> Nothing
       ResolvedError {} -> Nothing
 
+missingConstructorIdentity :: Name -> FcConstructorId
+missingConstructorIdentity name =
+  error ("constructor does not have a complete identity: " <> T.unpack (nameToText name))
+
 dsLiteralAlt :: Surface.Literal -> FcAltCon
-dsLiteralAlt lit =
-  case lit of
-    Surface.LitInt n numericType _ -> LitAlt (LitInt (numericRuntimeRep numericType) n)
-    Surface.LitChar c _ -> LitAlt (LitChar WordRep c)
-    Surface.LitCharHash c _ -> LitAlt (LitChar WordRep c)
-    Surface.LitAnn _ inner -> dsLiteralAlt inner
-    _ -> DefaultAlt
+dsLiteralAlt = go Nothing
+  where
+    go maybeType lit =
+      case lit of
+        Surface.LitAnn ann inner -> go (tcAnnType <$> fromAnnotation ann <|> maybeType) inner
+        Surface.LitInt n numericType _ -> typed maybeType (LitInt (numericRuntimeRep numericType) n)
+        Surface.LitChar c _ -> typed maybeType (LitChar WordRep c)
+        Surface.LitCharHash c _ -> typed maybeType (LitChar WordRep c)
+        _ -> error ("unsupported checked literal pattern: " <> show lit)
+    typed maybeType literal =
+      case maybeType of
+        Just ty -> LitAlt literal ty
+        Nothing -> error ("literal pattern does not have a checked type: " <> show literal)
 
 numericRuntimeRep :: NumericType -> RuntimeRep
 numericRuntimeRep numericType =
