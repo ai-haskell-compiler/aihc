@@ -30,7 +30,13 @@ extensions:
 - UnboxedTuples
 modules:
 - |
+  module GHC.Prim where
+  data Addr#
+  data Int32#
+- |
   module Test where
+
+  import GHC.Prim (Addr#, Int32#)
 
   data State# s
   data RealWorld
@@ -42,5 +48,5 @@ modules:
 
   main :: IO CInt
   main = puts "hello world\n"#
-reason: lowers Addr# literals and unsafe ccall arguments without boxing
+reason: System FC does not round-trip the generated unsafe ccall program
 status: xfail

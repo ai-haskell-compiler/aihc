@@ -28,7 +28,12 @@ extensions:
 - UnboxedTuples
 modules:
 - |
+  module GHC.Prim where
+  data Int#
+- |
   module Test where
+
+  import GHC.Prim (Int#)
 
   data State# s
   data RealWorld
@@ -36,5 +41,5 @@ modules:
   newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
 
   foreign import ccall unsafe "identity_int" identityInt :: Int -> IO Int
-reason: native-width Int foreign calls unbox and box through Int#
+reason: System FC does not round-trip the generated native-width Int ccall program
 status: xfail

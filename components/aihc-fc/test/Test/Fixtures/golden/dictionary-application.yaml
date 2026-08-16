@@ -1,43 +1,46 @@
 expected: |-
-  module Test where
+  module "" Test where
 
-  data Bool
-   = False
-   | True
+  data "" Test.Bool : Type
+   = "" Test.False
+   | "" Test.True
 
-  data Eq (a : TYPE BoxedRep Lifted)
-   = $Dict$Eq (a → a → Bool)
+  data "" Test.Eq (a{unique 20} : Type) : Type
+   = "" Test.$Dict$Eq ((a{unique 20} : Type) → (a{unique 20} : Type) → tycon "" "Test" Bool/0 { :: Type })
 
-  == : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool =
-    Λ(a : TYPE BoxedRep Lifted).
-      λ($d0 : Eq a).
-        case $d0 as ($dict : Eq a) of {
-          $Dict$Eq ($method0 : a → a → Bool) →
-            $method0
+  =={unique 1000} : ∀ (a{unique 20} : Type). tycon "" "Test" Eq/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → (a{unique 20} : Type) → tycon "" "Test" Bool/0 { :: Type } =
+    Λ(a{unique 20} : Type).
+      λ($d0{unique 1001} : tycon "" "Test" Eq/1 { :: Type → Type }[(a{unique 20} : Type)]).
+        case ($d0{unique 1001} : tycon "" "Test" Eq/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon "" "Test" Eq/1 { :: Type → Type }[(a{unique 20} : Type)]) of {
+          "" Test.$Dict$Eq ($method0{unique 1003} : (a{unique 20} : Type) → (a{unique 20} : Type) → tycon "" "Test" Bool/0 { :: Type }) →
+            ($method0{unique 1003} : (a{unique 20} : Type) → (a{unique 20} : Type) → tycon "" "Test" Bool/0 { :: Type })
         }
 
-  $fEqBool : Eq Bool =
-    ($Dict$Eq @Bool) (λ(x1004 : Bool).
-      λ(y1005 : Bool).
-        case x1004 as (_scrut : Bool) of {
-          False →
-            case y1005 as (_scrut : Bool) of {
-              False →
-                True;
-              True →
-                False
+  $fEqBool{unique 1009} : tycon "" "Test" Eq/1 { :: Type → Type }[tycon "" "Test" Bool/0 { :: Type }] =
+    (($Dict$Eq{unique 1010}{origin "" Test.$Dict$Eq} : ∀ (a{unique 20} : Type). ((a{unique 20} : Type) → (a{unique 20} : Type) → tycon "" "Test" Bool/0 { :: Type }) → tycon "" "Test" Eq/1 { :: Type → Type }[(a{unique 20} : Type)]) @tycon "" "Test" Bool/0 { :: Type }) (λ(x1004{unique 1004} : tycon "" "Test" Bool/0 { :: Type }).
+      λ(y1005{unique 1005} : tycon "" "Test" Bool/0 { :: Type }).
+        case (x1004{unique 1004} : tycon "" "Test" Bool/0 { :: Type }) as (_scrut{unique 1008} : tycon "" "Test" Bool/0 { :: Type }) of {
+          "" Test.False →
+            case (y1005{unique 1005} : tycon "" "Test" Bool/0 { :: Type }) as (_scrut{unique 1006} : tycon "" "Test" Bool/0 { :: Type }) of {
+              "" Test.False →
+                (True{unique -2360662326}{origin "" Test.True} : tycon "" "Test" Bool/0 { :: Type });
+              "" Test.True →
+                (False{unique -2286087477}{origin "" Test.False} : tycon "" "Test" Bool/0 { :: Type })
             };
-          True →
-            case y1005 as (_scrut : Bool) of {
-              False →
-                False;
-              True →
-                True
+          "" Test.True →
+            case (y1005{unique 1005} : tycon "" "Test" Bool/0 { :: Type }) as (_scrut{unique 1007} : tycon "" "Test" Bool/0 { :: Type }) of {
+              "" Test.False →
+                (False{unique -2286087477}{origin "" Test.False} : tycon "" "Test" Bool/0 { :: Type });
+              "" Test.True →
+                (True{unique -2360662326}{origin "" Test.True} : tycon "" "Test" Bool/0 { :: Type })
             }
         })
 
-  eqBool : Bool → Bool → Bool =
-    (== @Bool) $fEqBool
+  rec {
+    eqBool{unique 1011} : tycon "" "Test" Bool/0 { :: Type } → tycon "" "Test" Bool/0 { :: Type } → tycon "" "Test" Bool/0 { :: Type };
+    eqBool{unique 1011} =
+      ((=={unique -2749647944}{origin "" Test.==} : ∀ (a{unique 20} : Type). tycon "" "Test" Eq/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → (a{unique 20} : Type) → tycon "" "Test" Bool/0 { :: Type }) @tycon "" "Test" Bool/0 { :: Type }) ($fEqBool{unique -199}{origin "" Test.$fEqBool} : tycon "" "Test" Eq/1 { :: Type → Type }[tycon "" "Test" Bool/0 { :: Type }])
+  }
 extensions: []
 modules:
 - |
@@ -56,4 +59,4 @@ modules:
   eqBool :: Bool -> Bool -> Bool
   eqBool = (==)
 reason: reifies both type arguments and dictionaries for class method occurrences
-status: xfail
+status: pass

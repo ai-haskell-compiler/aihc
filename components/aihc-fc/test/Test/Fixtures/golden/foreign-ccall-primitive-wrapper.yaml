@@ -38,7 +38,12 @@ extensions:
 - UnboxedTuples
 modules:
 - |
+  module GHC.Prim where
+  data Int32#
+- |
   module Test where
+
+  import GHC.Prim (Int32#)
 
   data State# s
   data RealWorld
@@ -47,6 +52,5 @@ modules:
   newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
 
   foreign import ccall unsafe putchar :: CInt -> IO CInt
-reason: unoptimized ccall desugaring preserves wrapper aliases while exposing only
-  a saturated primitive operation beneath the Haskell wrapper
+reason: System FC does not round-trip the generated primitive-wrapper ccall program
 status: xfail

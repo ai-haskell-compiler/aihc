@@ -17,11 +17,13 @@ modules:
 - |
   module Test where
 
+  import GHC.Types (RuntimeRep, TYPE)
+
   data State# s
   data MutVar# d a
 
   foreign import prim newMutVar# ::
     forall (rep :: RuntimeRep) (value :: TYPE rep) domain.
     value -> State# domain -> (# State# domain, MutVar# domain value #)
-reason: primitive import types match after normalizing quantified names and levity-polymorphic kinds
+reason: primitive import type matching rejects explicit runtime representation and value variables
 status: xfail

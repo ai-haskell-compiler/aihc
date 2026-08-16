@@ -1,13 +1,16 @@
 expected: |-
-  module Test where
+  module "" Test where
 
-  data Bool
-   = True
-   | False
+  data "" Test.Bool : Type
+   = "" Test.True
+   | "" Test.False
 
-  idBool : Bool → Bool =
-    λ(x1001 : Bool).
-      x1001
+  rec {
+    idBool{unique 1000} : tycon "" "Test" Bool/0 { :: Type } → tycon "" "Test" Bool/0 { :: Type };
+    idBool{unique 1000} =
+      λ(x1001{unique 1001} : tycon "" "Test" Bool/0 { :: Type }).
+        (x1001{unique 1001} : tycon "" "Test" Bool/0 { :: Type })
+  }
 extensions: []
 modules:
 - |
@@ -17,4 +20,4 @@ modules:
   idBool :: Bool -> Bool
   idBool = \x -> x
 reason: desugars lambda binder types from type-checker annotations
-status: xfail
+status: pass

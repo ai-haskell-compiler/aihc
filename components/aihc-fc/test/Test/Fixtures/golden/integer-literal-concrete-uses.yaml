@@ -1,104 +1,114 @@
 expected: |-
+  module "aihc-prim" GHC.Prim where
+
+  data "aihc-prim" GHC.Prim.Int# : TYPE IntRep
   module "aihc-prim" GHC.Types where
 
-  data Bool
-   = False
-   | True
+  data "aihc-prim" GHC.Types.Bool : Type
+   = "aihc-prim" GHC.Types.False
+   | "aihc-prim" GHC.Types.True
 
-  data Int
-   = I (Int#)
+  data "aihc-prim" GHC.Types.Int : Type
+   = "aihc-prim" GHC.Types.I (tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep })
 
-  data Integer
-   = IS (Int#)
+  data "aihc-prim" GHC.Types.Integer : Type
+   = "aihc-prim" GHC.Types.IS (tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep })
   module "aihc-prim" GHC.Classes where
 
-  external "aihc-prim" GHC.Types.True : Bool
+  external "aihc-prim" GHC.Types.True : tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type }
 
-  data Eq (a : TYPE BoxedRep Lifted)
-   = $Dict$Eq (a → a → Bool)
+  data "aihc-prim" GHC.Classes.Eq (a{unique 10} : Type) : Type
+   = "aihc-prim" GHC.Classes.$Dict$Eq ((a{unique 10} : Type) → (a{unique 10} : Type) → tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type })
 
-  == : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool =
-    Λ(a : TYPE BoxedRep Lifted).
-      λ($d0 : Eq a).
-        case $d0 as ($dict : Eq a) of {
-          $Dict$Eq ($method0 : a → a → Bool) →
-            $method0
+  =={unique 1000} : ∀ (a{unique 10} : Type). tycon "aihc-prim" "GHC.Classes" Eq/1 { :: Type → Type }[(a{unique 10} : Type)] → (a{unique 10} : Type) → (a{unique 10} : Type) → tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type } =
+    Λ(a{unique 10} : Type).
+      λ($d0{unique 1001} : tycon "aihc-prim" "GHC.Classes" Eq/1 { :: Type → Type }[(a{unique 10} : Type)]).
+        case ($d0{unique 1001} : tycon "aihc-prim" "GHC.Classes" Eq/1 { :: Type → Type }[(a{unique 10} : Type)]) as ($dict{unique 1002} : tycon "aihc-prim" "GHC.Classes" Eq/1 { :: Type → Type }[(a{unique 10} : Type)]) of {
+          "aihc-prim" GHC.Classes.$Dict$Eq ($method0{unique 1003} : (a{unique 10} : Type) → (a{unique 10} : Type) → tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type }) →
+            ($method0{unique 1003} : (a{unique 10} : Type) → (a{unique 10} : Type) → tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type })
         }
 
-  $fEqInt : Eq Int =
-    ($Dict$Eq @Int) (λ(x1004 : Int).
-      λ(y1005 : Int).
-        case x1004 as (_scrut : Int) of {
-          "aihc-prim" GHC.Types.I (x : Int#) →
-            case y1005 as (_scrut : Int) of {
-              "aihc-prim" GHC.Types.I (y : Int#) →
-                "aihc-prim" GHC.Types.True
+  $fEqInt{unique 1010} : tycon "aihc-prim" "GHC.Classes" Eq/1 { :: Type → Type }[tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }] =
+    (($Dict$Eq{unique 1011}{origin "aihc-prim" GHC.Classes.$Dict$Eq} : ∀ (a{unique 10} : Type). ((a{unique 10} : Type) → (a{unique 10} : Type) → tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type }) → tycon "aihc-prim" "GHC.Classes" Eq/1 { :: Type → Type }[(a{unique 10} : Type)]) @tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }) (λ(x1004{unique 1004} : tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }).
+      λ(y1005{unique 1005} : tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }).
+        case (x1004{unique 1004} : tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }) as (_scrut{unique 1009} : tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }) of {
+          "aihc-prim" GHC.Types.I (x{unique 1006} : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep }) →
+            case (y1005{unique 1005} : tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }) as (_scrut{unique 1008} : tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }) of {
+              "aihc-prim" GHC.Types.I (y{unique 1007} : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep }) →
+                (True{unique -2797523774}{origin "aihc-prim" GHC.Types.True} : tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type })
             }
         })
-  module GHC.Num where
+  module "" GHC.Num where
 
-  external "aihc-prim" GHC.Types.I : Int# → Int
+  external "aihc-prim" GHC.Types.I : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep } → tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }
 
-  data Num (a : TYPE BoxedRep Lifted)
-   = $Dict$Num (Integer → a)
+  data "" GHC.Num.Num (a{unique 15} : Type) : Type
+   = "" GHC.Num.$Dict$Num (tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type } → (a{unique 15} : Type))
 
-  fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a =
-    Λ(a : TYPE BoxedRep Lifted).
-      λ($d0 : Num a).
-        case $d0 as ($dict : Num a) of {
-          $Dict$Num ($method0 : Integer → a) →
-            $method0
+  fromInteger{unique 1000} : ∀ (a{unique 15} : Type). tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 15} : Type)] → tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type } → (a{unique 15} : Type) =
+    Λ(a{unique 15} : Type).
+      λ($d0{unique 1001} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 15} : Type)]).
+        case ($d0{unique 1001} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 15} : Type)]) as ($dict{unique 1002} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 15} : Type)]) of {
+          "" GHC.Num.$Dict$Num ($method0{unique 1003} : tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type } → (a{unique 15} : Type)) →
+            ($method0{unique 1003} : tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type } → (a{unique 15} : Type))
         }
 
-  $fNumInt : Num Int =
-    ($Dict$Num @Int) (λ(x1004 : Integer).
-      case x1004 as (_scrut : Integer) of {
-        "aihc-prim" GHC.Types.IS (x : Int#) →
-          "aihc-prim" GHC.Types.I x
+  $fNumInt{unique 1007} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }] =
+    (($Dict$Num{unique 1008}{origin "" GHC.Num.$Dict$Num} : ∀ (a{unique 15} : Type). (tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type } → (a{unique 15} : Type)) → tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 15} : Type)]) @tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }) (λ(x1004{unique 1004} : tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }).
+      case (x1004{unique 1004} : tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }) as (_scrut{unique 1006} : tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }) of {
+        "aihc-prim" GHC.Types.IS (x{unique 1005} : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep }) →
+          (I{unique -2096803717}{origin "aihc-prim" GHC.Types.I} : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep } → tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }) (x{unique 1005} : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep })
       })
 
-  $fNumInteger : Num Integer =
-    ($Dict$Num @Integer) (λ(x1010 : Integer).
-      x1010)
-  module Prelude where
-  module Main where
+  $fNumInteger{unique 1010} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }] =
+    (($Dict$Num{unique 1011}{origin "" GHC.Num.$Dict$Num} : ∀ (a{unique 15} : Type). (tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type } → (a{unique 15} : Type)) → tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 15} : Type)]) @tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }) (λ(x1009{unique 1009} : tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }).
+      (x1009{unique 1009} : tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }))
+  module "" Prelude where
+  module "" Main where
 
-  external GHC.Num.$fNumInt : Num Int
+  external "" GHC.Num.$fNumInt : tycon "" "GHC.Num" Num/1 { :: Type → Type }[tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }]
 
-  external GHC.Num.$fNumInteger : Num Integer
+  external "" GHC.Num.$fNumInteger : tycon "" "GHC.Num" Num/1 { :: Type → Type }[tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }]
 
-  external GHC.Num.fromInteger : ∀ (a : TYPE BoxedRep Lifted). (Num a) → Integer → a
+  external "" GHC.Num.fromInteger : ∀ (a{unique 15} : Type). tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 15} : Type)] → tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type } → (a{unique 15} : Type)
 
-  external GHC.Tuple.() : Unit
+  external "" GHC.Tuple.() : tycon "" "GHC.Tuple" Unit/0 { :: Type }
 
-  external "aihc-prim" GHC.Classes.$fEqInt : Eq Int
+  external "aihc-prim" GHC.Classes.$fEqInt : tycon "aihc-prim" "GHC.Classes" Eq/1 { :: Type → Type }[tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }]
 
-  external "aihc-prim" GHC.Classes.== : ∀ (a : TYPE BoxedRep Lifted). (Eq a) → a → a → Bool
+  external "aihc-prim" GHC.Classes.== : ∀ (a{unique 10} : Type). tycon "aihc-prim" "GHC.Classes" Eq/1 { :: Type → Type }[(a{unique 10} : Type)] → (a{unique 10} : Type) → (a{unique 10} : Type) → tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type }
 
-  external "aihc-prim" GHC.Types.IS : Int# → Integer
+  external "aihc-prim" GHC.Types.IS : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep } → tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }
 
-  asInt : Int =
-    ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) ("aihc-prim" GHC.Types.IS 1#IntRep)
-
-  asInteger : Integer =
-    ((GHC.Num.fromInteger @Integer) GHC.Num.$fNumInteger) ("aihc-prim" GHC.Types.IS 1#IntRep)
-
-  caseInt : Unit =
-    let {
-      _case_value : Int =
-        ((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) ("aihc-prim" GHC.Types.IS 1#IntRep)
-    } in
-      case ((("aihc-prim" GHC.Classes.== @Int) "aihc-prim" GHC.Classes.$fEqInt) _case_value) (((GHC.Num.fromInteger @Int) GHC.Num.$fNumInt) ("aihc-prim" GHC.Types.IS 1#IntRep)) as (_case_guard : Bool) of {
-        "aihc-prim" GHC.Types.True →
-          GHC.Tuple.();
-        "aihc-prim" GHC.Types.False →
-          case _case_value as (_case_nomatch : Int) of {}
-      }
+  rec {
+    asInt{unique 1000} : tycon "aihc-prim" "GHC.Types" Int/0 { :: Type };
+    asInteger{unique 1001} : tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type };
+    caseInt{unique 1002} : tycon "" "GHC.Tuple" Unit/0 { :: Type };
+    asInt{unique 1000} =
+      (((fromInteger{unique -2792313526}{origin "" GHC.Num.fromInteger} : ∀ (a{unique 15} : Type). tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 15} : Type)] → tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type } → (a{unique 15} : Type)) @tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }) ($fNumInt{unique -2251735023}{origin "" GHC.Num.$fNumInt} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }])) ((IS{unique -2356702437}{origin "aihc-prim" GHC.Types.IS} : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep } → tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }) (1#IntRep : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep }));
+    asInteger{unique 1001} =
+      (((fromInteger{unique -2792313526}{origin "" GHC.Num.fromInteger} : ∀ (a{unique 15} : Type). tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 15} : Type)] → tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type } → (a{unique 15} : Type)) @tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }) ($fNumInteger{unique -2675808087}{origin "" GHC.Num.$fNumInteger} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }])) ((IS{unique -2356702437}{origin "aihc-prim" GHC.Types.IS} : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep } → tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }) (1#IntRep : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep }));
+    caseInt{unique 1002} =
+      let {
+        _case_value{unique 1006} : tycon "aihc-prim" "GHC.Types" Int/0 { :: Type } =
+          (((fromInteger{unique -2792313526}{origin "" GHC.Num.fromInteger} : ∀ (a{unique 15} : Type). tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 15} : Type)] → tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type } → (a{unique 15} : Type)) @tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }) ($fNumInt{unique -2251735023}{origin "" GHC.Num.$fNumInt} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }])) ((IS{unique -2356702437}{origin "aihc-prim" GHC.Types.IS} : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep } → tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }) (1#IntRep : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep }))
+      } in
+        case ((((=={unique -2020821764}{origin "aihc-prim" GHC.Classes.==} : ∀ (a{unique 10} : Type). tycon "aihc-prim" "GHC.Classes" Eq/1 { :: Type → Type }[(a{unique 10} : Type)] → (a{unique 10} : Type) → (a{unique 10} : Type) → tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type }) @tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }) ($fEqInt{unique -2162061031}{origin "aihc-prim" GHC.Classes.$fEqInt} : tycon "aihc-prim" "GHC.Classes" Eq/1 { :: Type → Type }[tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }])) (_case_value{unique 1006} : tycon "aihc-prim" "GHC.Types" Int/0 { :: Type })) ((((fromInteger{unique -2792313526}{origin "" GHC.Num.fromInteger} : ∀ (a{unique 15} : Type). tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 15} : Type)] → tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type } → (a{unique 15} : Type)) @tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }) ($fNumInt{unique -2251735023}{origin "" GHC.Num.$fNumInt} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }])) ((IS{unique -2356702437}{origin "aihc-prim" GHC.Types.IS} : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep } → tycon "aihc-prim" "GHC.Types" Integer/0 { :: Type }) (1#IntRep : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep }))) as (_case_guard{unique 1010} : tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type }) of {
+          "aihc-prim" GHC.Types.True →
+            ((){unique -2533499005}{origin "" GHC.Tuple.()} : tycon "" "GHC.Tuple" Unit/0 { :: Type });
+          "aihc-prim" GHC.Types.False →
+            case (_case_value{unique 1006} : tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }) as (_case_nomatch{unique 1007} : tycon "aihc-prim" "GHC.Types" Int/0 { :: Type }) of {}
+        }
+  }
 extensions:
 - MagicHash
 modules:
 - |
+  module GHC.Prim where
+  data Int#
+- |
   module GHC.Types where
+  import GHC.Prim (Int#)
   data Bool = False | True
   data Int = I Int#
   data Integer = IS Int#
@@ -131,4 +141,4 @@ modules:
   caseInt = case (1 :: Int) of
     1 -> ()
 reason: desugars concrete integer literals and integer case scrutinees through GHC.Num.fromInteger
-status: xfail
+status: pass

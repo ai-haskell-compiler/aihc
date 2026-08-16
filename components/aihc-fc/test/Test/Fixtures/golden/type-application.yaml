@@ -1,17 +1,20 @@
 expected: |-
-  module Test where
+  module "" Test where
 
-  data Bool
-   = True
-   | False
+  data "" Test.Bool : Type
+   = "" Test.True
+   | "" Test.False
 
-  id : ∀ (a : TYPE BoxedRep Lifted). a → a =
-    Λ(a : TYPE BoxedRep Lifted).
-      λ(x1001 : a).
-        x1001
-
-  true : Bool =
-    (id @Bool) True
+  rec {
+    id{unique 1000} : ∀ (a{unique 24} : Type). (a{unique 24} : Type) → (a{unique 24} : Type);
+    true{unique 1001} : tycon "" "Test" Bool/0 { :: Type };
+    id{unique 1000} =
+      Λ(a{unique 24} : Type).
+        λ(x1002{unique 1002} : (a{unique 24} : Type)).
+          (x1002{unique 1002} : (a{unique 24} : Type));
+    true{unique 1001} =
+      ((id{unique 1000} : ∀ (a{unique 24} : Type). (a{unique 24} : Type) → (a{unique 24} : Type)) @tycon "" "Test" Bool/0 { :: Type }) (True{unique -2360662326}{origin "" Test.True} : tycon "" "Test" Bool/0 { :: Type })
+  }
 extensions: []
 modules:
 - |
@@ -23,4 +26,4 @@ modules:
   true :: Bool
   true = id True
 reason: reifies type arguments when desugaring polymorphic variable occurrences
-status: xfail
+status: pass

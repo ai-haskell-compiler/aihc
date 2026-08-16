@@ -7,13 +7,13 @@ modules:
     data family Wrapped a
     newtype instance Wrapped Unit = WrappedUnit Unit
 expected: |-
-  module Test where
+  module "" Test where
 
-  data Unit
-   = Unit
+  data "" Test.Unit : Type
+   = "" Test.Unit
 
-  newtype $R$Wrapped$WrappedUnit : $R$Wrapped$WrappedUnit = WrappedUnit Unit
+  newtype "" Test.$R$Wrapped$WrappedUnit : tycon "aihc-internal" "Aihc.Internal" $R$Wrapped$WrappedUnit/0 { :: Type } = "" Test.WrappedUnit tycon "" "Test" Unit/0 { :: Type }
 
-  axiom $ax$Wrapped$WrappedUnit : Wrapped Unit ~N $R$Wrapped$WrappedUnit
-status: xfail
+  axiom $ax$Wrapped$WrappedUnit : tycon "" "Test" Wrapped/1 { :: Type → Type }[tycon "" "Test" Unit/0 { :: Type }] ~N tycon "aihc-internal" "Aihc.Internal" $R$Wrapped$WrappedUnit/0 { :: Type }
+status: pass
 reason: newtype-family instances retain a representation newtype and their nominal family equation
