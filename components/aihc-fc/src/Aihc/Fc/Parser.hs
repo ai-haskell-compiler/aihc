@@ -344,7 +344,7 @@ foreignCallHeader = do
   foreignSymbol <- text
   foreignName <- name
   signature <- between "[" "]" foreignSignature
-  pure (FcForeignCall foreignName foreignSymbol signature)
+  pure (FcForeignCall foreignName foreignSymbol (PackageId "aihc-prim") signature)
 
 foreignSignature :: Parser FcForeignSignature
 foreignSignature = do

@@ -921,47 +921,56 @@ splitFunctionType ty =
 checkForeignValueType :: SourceSpan -> TcType -> TcM TcForeignMarshal
 checkForeignValueType sourceSpan ty =
   case ty of
-    TcTyCon (TyCon "Int" 0) [] -> pure (intMarshal ty ["I#"])
-    TcTyCon (TyCon "Int#" 0) [] -> pure (intMarshal ty [])
-    TcTyCon (TyCon "CInt" 0) [] -> pure (int32Marshal ty ["CInt", "I32#"])
-    TcTyCon (TyCon "Int32" 0) [] -> pure (int32Marshal ty ["I32#"])
-    TcTyCon (TyCon "Int32#" 0) [] -> pure (int32Marshal ty [])
-    TcTyCon (TyCon "Word64" 0) [] -> pure (word64Marshal ty ["W64#"])
-    TcTyCon (TyCon "Word64#" 0) [] -> pure (word64Marshal ty [])
-    TcTyCon (TyCon "Addr#" 0) [] -> pure (addrMarshal ty [])
-    TcTyCon (TyCon "Ptr" 1) [_] -> pure (addrMarshal ty ["Ptr"])
+    TcTyCon (TyCon "Int" 0) [] -> intMarshal ty ["I#"]
+    TcTyCon (TyCon "Int#" 0) [] -> intMarshal ty []
+    TcTyCon (TyCon "CInt" 0) [] -> int32Marshal ty ["CInt", "I32#"]
+    TcTyCon (TyCon "Int32" 0) [] -> int32Marshal ty ["I32#"]
+    TcTyCon (TyCon "Int32#" 0) [] -> int32Marshal ty []
+    TcTyCon (TyCon "Word64" 0) [] -> word64Marshal ty ["W64#"]
+    TcTyCon (TyCon "Word64#" 0) [] -> word64Marshal ty []
+    TcTyCon (TyCon "Addr#" 0) [] -> addrMarshal ty []
+    TcTyCon (TyCon "Ptr" 1) [_] -> addrMarshal ty ["Ptr"]
     _ -> do
       emitError sourceSpan (OtherError ("unsupported foreign import value type: " <> show ty))
-      pure (int32Marshal ty [])
+      int32Marshal ty []
   where
-    intMarshal sourceType constructors =
-      TcForeignMarshal
-        { tcForeignSourceType = sourceType,
-          tcForeignPrimitiveType = TcTyCon (TyCon "Int#" 0) [],
-          tcForeignConstructors = constructors,
-          tcForeignAbiType = TcForeignInt
-        }
-    int32Marshal sourceType constructors =
-      TcForeignMarshal
-        { tcForeignSourceType = sourceType,
-          tcForeignPrimitiveType = TcTyCon (TyCon "Int32#" 0) [],
-          tcForeignConstructors = constructors,
-          tcForeignAbiType = TcForeignInt32
-        }
-    word64Marshal sourceType constructors =
-      TcForeignMarshal
-        { tcForeignSourceType = sourceType,
-          tcForeignPrimitiveType = TcTyCon (TyCon "Word64#" 0) [],
-          tcForeignConstructors = constructors,
-          tcForeignAbiType = TcForeignWord64
-        }
-    addrMarshal sourceType constructors =
-      TcForeignMarshal
-        { tcForeignSourceType = sourceType,
-          tcForeignPrimitiveType = TcTyCon (TyCon "Addr#" 0) [],
-          tcForeignConstructors = constructors,
-          tcForeignAbiType = TcForeignAddr
-        }
+    intMarshal sourceType constructors = do
+      primitiveTy <- primitiveType "Int#"
+      pure
+        TcForeignMarshal
+          { tcForeignSourceType = sourceType,
+            tcForeignPrimitiveType = primitiveTy,
+            tcForeignConstructors = constructors,
+            tcForeignAbiType = TcForeignInt
+          }
+    int32Marshal sourceType constructors = do
+      primitiveTy <- primitiveType "Int32#"
+      pure
+        TcForeignMarshal
+          { tcForeignSourceType = sourceType,
+            tcForeignPrimitiveType = primitiveTy,
+            tcForeignConstructors = constructors,
+            tcForeignAbiType = TcForeignInt32
+          }
+    word64Marshal sourceType constructors = do
+      primitiveTy <- primitiveType "Word64#"
+      pure
+        TcForeignMarshal
+          { tcForeignSourceType = sourceType,
+            tcForeignPrimitiveType = primitiveTy,
+            tcForeignConstructors = constructors,
+            tcForeignAbiType = TcForeignWord64
+          }
+    addrMarshal sourceType constructors = do
+      primitiveTy <- primitiveType "Addr#"
+      pure
+        TcForeignMarshal
+          { tcForeignSourceType = sourceType,
+            tcForeignPrimitiveType = primitiveTy,
+            tcForeignConstructors = constructors,
+            tcForeignAbiType = TcForeignAddr
+          }
+    primitiveType name = TcTyCon <$> mkKnownTyCon "GHC.Prim" name 0 liftedTypeKind <*> pure []
 
 annotateDeclAt :: SourceSpan -> TcAnnotation -> Decl -> Decl
 annotateDeclAt NoSourceSpan tcAnn decl =

@@ -41,6 +41,7 @@ import Aihc.Tc.Types
     TyVarId (..),
     TypeScheme (..),
     Unique (..),
+    isUnboxedTupleType,
     kindFromTypeScheme,
     liftedTypeKind,
     runtimeRepOfType,
@@ -155,7 +156,7 @@ lintProgramWithAxiomInterface imported env0 prog = go envWithDeclarations (fcTop
       lintValueTypeErrors "primitive declaration" env (varType var)
         <> go (extendTermEnv var env) rest
     go env (FcForeignImport foreignCall : rest) =
-      lintValueTypeErrors "foreign declaration" env (fcForeignCallType (fcForeignCallSignature foreignCall))
+      lintValueTypeErrors "foreign declaration" env (fcForeignCallType foreignCall)
         <> go env rest
     go env (FcTopBind bind : rest) =
       let (errs, env') = lintBind env bind
@@ -260,12 +261,12 @@ lintExpr env (FcCallForeign foreignCall arguments) = do
       | declared /= foreignCall -> Left (ForeignCallDescriptorMismatch (fcForeignCallName foreignCall))
       | otherwise -> Right ()
   argumentTypes <- mapM (lintExpr env) arguments
-  let expectedTypes = fcForeignOperandTypes (fcForeignCallSignature foreignCall)
+  let expectedTypes = fcForeignOperandTypes foreignCall
   if length argumentTypes /= length expectedTypes
     then Left (LintFailure ("foreign call arity mismatch for " ++ show (fcForeignCallName foreignCall)))
     else do
       mapM_ checkArgument (zip expectedTypes argumentTypes)
-      let resultType = fcForeignCallResultType (fcForeignCallSignature foreignCall)
+      let resultType = fcForeignCallResultType foreignCall
       _ <- lintValueType "foreign call result" env resultType
       pure resultType
   where
@@ -299,14 +300,27 @@ lintAlt env scrutineeType (FcAlt con binders rhs) = do
             then pure ()
             else Left (TypeMismatch "literal alternative" scrutineeType literalType)
         DataAlt constructor ->
-          case Map.lookup (fcConstructorSymbolOrigin constructor) (leDataCons env) of
-            Nothing -> Left (LintFailure ("unknown case alternative constructor: " ++ show constructor))
-            Just (_, fields, resultType) -> do
-              substitution <- matchConstructorResult resultType scrutineeType
-              let expectedFields = map (substType substitution) fields
-              if length expectedFields /= length alternativeBinders
-                then Left (LintFailure ("case alternative binder count does not match constructor: " ++ show constructor))
-                else mapM_ checkField (zip expectedFields alternativeBinders)
+          case unboxedTupleFields constructor scrutineeType of
+            Just fields -> checkFields constructor alternativeBinders fields
+            Nothing ->
+              case Map.lookup (fcConstructorSymbolOrigin constructor) (leDataCons env) of
+                Nothing -> Left (LintFailure ("unknown case alternative constructor: " ++ show constructor))
+                Just (_, fields, resultType) -> do
+                  substitution <- matchConstructorResult resultType scrutineeType
+                  checkFields constructor alternativeBinders (map (substType substitution) fields)
+
+    unboxedTupleFields constructor tupleType
+      | fcConstructorModule constructor == "GHC.Types",
+        fcConstructorName constructor == "(#,#)",
+        TcTyCon _ fields <- tupleType,
+        isUnboxedTupleType tupleType =
+          Just fields
+      | otherwise = Nothing
+
+    checkFields constructor fieldBinders expectedFields =
+      if length expectedFields /= length fieldBinders
+        then Left (LintFailure ("case alternative binder count does not match constructor: " ++ show constructor))
+        else mapM_ checkField (zip expectedFields fieldBinders)
 
     checkField (expected, binder)
       | typesEqual expected (varType binder) = pure ()

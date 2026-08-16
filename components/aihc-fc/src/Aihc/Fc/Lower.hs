@@ -133,7 +133,7 @@ expressionType expression =
         alternative : _ -> expressionType (altRhs alternative)
         [] -> Nothing
     FcCast inner _ -> expressionType inner
-    FcCallForeign foreignCall _ -> Just (fcForeignCallResultType (fcForeignCallSignature foreignCall))
+    FcCallForeign foreignCall _ -> Just (fcForeignCallResultType foreignCall)
   where
     functionResultType = \case
       TcFunTy _ result -> Just result

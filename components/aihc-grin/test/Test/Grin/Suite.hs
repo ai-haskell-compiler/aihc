@@ -10,6 +10,7 @@ where
 import Aihc.Fc.Newtype (extractNewtypeInterface, lowerNewtypes, lowerNewtypesWithInterface)
 import Aihc.Fc.Syntax
 import Aihc.Grin
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (Kind (..), Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), runtimeRepOfType, typeKind)
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.Types (mkTyCon)
@@ -2339,6 +2340,7 @@ foreignCall =
   FcForeignCall
     { fcForeignCallName = "$ffi$abs",
       fcForeignCallSymbol = "abs",
+      fcForeignCallPrimPackageId = PackageId "aihc-prim",
       fcForeignCallSignature =
         FcForeignSignature
           { fcForeignArgumentTypes = [FcForeignInt32],

@@ -115,7 +115,7 @@ renderForeignImport foreignCall =
     <> "; "
     <> renderForeignEffect (fcForeignEffect signature)
     <> "] : "
-    <> renderType (fcForeignCallType signature)
+    <> renderType (fcForeignCallType foreignCall)
   where
     signature = fcForeignCallSignature foreignCall
 

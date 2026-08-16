@@ -1993,7 +1993,7 @@ fcExprTypeM expr =
         FcAlt _ _ body : _ -> fcExprTypeM body
     FcCast inner _co -> fcExprTypeM inner
     FcCallForeign foreignCall _arguments ->
-      pure (fcForeignCallResultType (fcForeignCallSignature foreignCall))
+      pure (fcForeignCallResultType foreignCall)
 
 exactDictKey :: TyCon -> [TcType] -> Text
 exactDictKey classTyCon args = tyConIdentityKey classTyCon <> ":" <> T.intercalate "," (map exactTypeKey args)

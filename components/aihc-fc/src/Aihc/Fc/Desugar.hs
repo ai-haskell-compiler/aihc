@@ -66,6 +66,7 @@ import Aihc.Tc.Types
     Unique (..),
     liftedRuntimeRep,
     mkTyCon,
+    mkTyConWithOrigin,
     runtimeRepOfType,
     setTyConKindScheme,
     tvKind,
@@ -697,6 +698,7 @@ dsForeignCcall tcAnn foreignPlan foreignDecl = do
       ForeignEntityStatic (Just name) -> pure name
       ForeignEntityOmitted -> pure (unqualifiedNameText (foreignName foreignDecl))
       _ -> desugarBug "only statically named foreign imports are supported"
+  primPackageId <- gets dsPrimPackageId
   let name = unqualifiedNameText (foreignName foreignDecl)
       wrapperType = tcAnnType tcAnn
       signature =
@@ -709,9 +711,12 @@ dsForeignCcall tcAnn foreignPlan foreignDecl = do
         FcForeignCall
           { fcForeignCallName = "$ffi$" <> name,
             fcForeignCallSymbol = symbol,
+            fcForeignCallPrimPackageId = primPackageId,
             fcForeignCallSignature = signature
           }
   wrapperVar <- freshVar name wrapperType
+  wrapperOrigin <- localDeclarationOrigin name
+  modify' (\state -> state {dsGlobalVars = Map.insert wrapperOrigin wrapperVar (dsGlobalVars state)})
   argumentVars <-
     mapM
       (\(index, marshal) -> freshVar ("$ffi_arg_" <> T.pack (show index)) (tcForeignSourceType marshal))
@@ -857,17 +862,19 @@ matchConstructorResult quantified patternType actualType substitution =
 
 makeForeignIoWrapper :: FcForeignCall -> TcForeignMarshal -> [FcExpr] -> DsM FcExpr
 makeForeignIoWrapper foreignCall resultMarshal arguments = do
-  stateVar <- freshVar "$ffi_state" statePrimRealWorldTy
-  tupleBinder <- freshVar "$ffi_result" (fcForeignCallResultType (fcForeignCallSignature foreignCall))
-  nextStateVar <- freshVar "$ffi_next_state" statePrimRealWorldTy
+  stateTy <- statePrimRealWorldTy
+  resultTupleTy <- unboxedTupleTy [stateTy, tcForeignSourceType resultMarshal]
+  stateVar <- freshVar "$ffi_state" stateTy
+  tupleBinder <- freshVar "$ffi_result" (fcForeignCallResultType foreignCall)
+  nextStateVar <- freshVar "$ffi_next_state" stateTy
   rawResultVar <- freshVar "$ffi_raw_result" (tcForeignPrimitiveType resultMarshal)
   boxedResult <- boxForeignValue resultMarshal (FcVar rawResultVar)
   tupleOrigin <- primitiveConstructorOrigin "(#,#)"
   tupleConstructorVar <-
     freshVar
       "(#,#)"
-      (TcFunTy statePrimRealWorldTy (TcFunTy (tcForeignSourceType resultMarshal) (unboxedTupleTy [statePrimRealWorldTy, tcForeignSourceType resultMarshal])))
-  let tupleConstructor = tupleConstructorVar
+      (TcFunTy stateTy (TcFunTy (tcForeignSourceType resultMarshal) resultTupleTy))
+  let tupleConstructor = tupleConstructorVar {varResolvedName = Just tupleOrigin}
   ioConstructorType <- lookupType "IO"
   ioConstructor <- freshVar "IO" ioConstructorType
   let resultTuple = FcApp (FcApp (FcVar tupleConstructor) (FcVar nextStateVar)) boxedResult
@@ -1035,17 +1042,20 @@ parsePrimitiveTypeScheme source =
     invalidPrimitiveType err =
       error ("invalid primitive type specification `" <> T.unpack source <> "`: " <> err)
 
-statePrimRealWorldTy :: TcType
-statePrimRealWorldTy = TcTyCon (TyCon "State#" 1) [realWorldTy]
+statePrimRealWorldTy :: DsM TcType
+statePrimRealWorldTy = do
+  packageId <- gets dsPrimPackageId
+  let realWorldTy = TcTyCon (mkTyConWithOrigin packageId "GHC.Prim" "RealWorld" 0 KType) []
+  pure (TcTyCon (mkTyConWithOrigin packageId "GHC.Prim" "State#" 1 (KFun KType (KTYPE (TupleRep [])))) [realWorldTy])
 
-realWorldTy :: TcType
-realWorldTy = TcTyCon (TyCon "RealWorld" 0) []
-
-unboxedTupleTy :: [TcType] -> TcType
-unboxedTupleTy tys =
-  TcTyCon
-    (mkTyCon (unboxedTupleTyConName (length tys)) (length tys) tupleKind)
-    tys
+unboxedTupleTy :: [TcType] -> DsM TcType
+unboxedTupleTy tys = do
+  packageId <- gets dsPrimPackageId
+  pure
+    ( TcTyCon
+        (mkTyConWithOrigin packageId "GHC.Types" (unboxedTupleTyConName (length tys)) (length tys) tupleKind)
+        tys
+    )
   where
     tupleKind = foldr (KFun . typeKind) (KTYPE (TupleRep (map runtimeRep tys))) tys
     runtimeRep ty = fromRight liftedRuntimeRep (runtimeRepOfType ty)

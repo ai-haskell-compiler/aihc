@@ -369,7 +369,7 @@ genNewtypeDecl =
       <*> genType
 
 genForeignCall :: Gen FcForeignCall
-genForeignCall = FcForeignCall <$> genVarName <*> genLiteralText <*> genForeignSignature
+genForeignCall = FcForeignCall <$> genVarName <*> genLiteralText <*> pure (PackageId "aihc-prim") <*> genForeignSignature
 
 genForeignSignature :: Gen FcForeignSignature
 genForeignSignature =

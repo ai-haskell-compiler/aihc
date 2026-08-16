@@ -913,7 +913,7 @@ executeForeignCall foreignCall arguments
     name = fcForeignCallName foreignCall
     signature = fcForeignCallSignature foreignCall
     actualArity = length arguments
-    expectedArity = length (fcForeignOperandTypes signature)
+    expectedArity = length (fcForeignOperandTypes foreignCall)
 
 callForeign :: FcForeignCall -> [Value] -> EvalM Value
 callForeign foreignCall args

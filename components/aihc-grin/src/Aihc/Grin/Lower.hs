@@ -1723,7 +1723,7 @@ exprType expr =
         [] -> Nothing
     FcCast inner _ -> exprType inner
     FcCallForeign foreignCall _arguments ->
-      Just (fcForeignCallResultType (fcForeignCallSignature foreignCall))
+      Just (fcForeignCallResultType foreignCall)
 
 -- A default class method can be specialized to its class constructor before
 -- its method type variables, then applied to the instance dictionary. Preserve

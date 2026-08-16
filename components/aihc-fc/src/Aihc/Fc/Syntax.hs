@@ -216,6 +216,7 @@ data FcNewtypeDecl = FcNewtypeDecl
 data FcForeignCall = FcForeignCall
   { fcForeignCallName :: !Text,
     fcForeignCallSymbol :: !Text,
+    fcForeignCallPrimPackageId :: !PackageId,
     fcForeignCallSignature :: !FcForeignSignature
   }
   deriving (Eq, Show, Read)
@@ -244,39 +245,47 @@ data FcForeignType
   | FcForeignAddr
   deriving (Eq, Show, Read)
 
-fcForeignOperandTypes :: FcForeignSignature -> [TcType]
-fcForeignOperandTypes signature =
-  map foreignPrimitiveType (fcForeignArgumentTypes signature)
+fcForeignOperandTypes :: FcForeignCall -> [TcType]
+fcForeignOperandTypes foreignCall =
+  map (foreignPrimitiveType packageId) (fcForeignArgumentTypes signature)
     <> case fcForeignEffect signature of
       FcForeignPure -> []
-      FcForeignRealWorld -> [statePrimRealWorldType]
+      FcForeignRealWorld -> [statePrimRealWorldType packageId]
+  where
+    packageId = fcForeignCallPrimPackageId foreignCall
+    signature = fcForeignCallSignature foreignCall
 
-fcForeignCallResultType :: FcForeignSignature -> TcType
-fcForeignCallResultType signature =
+fcForeignCallResultType :: FcForeignCall -> TcType
+fcForeignCallResultType foreignCall =
   case fcForeignEffect signature of
-    FcForeignPure -> foreignPrimitiveType (fcForeignResultType signature)
+    FcForeignPure -> foreignPrimitiveType packageId (fcForeignResultType signature)
     FcForeignRealWorld ->
-      let fields = [statePrimRealWorldType, foreignPrimitiveType (fcForeignResultType signature)]
+      let fields = [statePrimRealWorldType packageId, foreignPrimitiveType packageId (fcForeignResultType signature)]
           fieldRep field = fromRight liftedRuntimeRep (runtimeRepOfType field)
           resultKind = KTYPE (TupleRep (map fieldRep fields))
           tupleKind = foldr (KFun . typeKind) resultKind fields
-       in TcTyCon (mkTyCon (unboxedTupleTyConName 2) 2 tupleKind) fields
+       in TcTyCon (mkTyConWithOrigin packageId "GHC.Types" (unboxedTupleTyConName 2) 2 tupleKind) fields
+  where
+    packageId = fcForeignCallPrimPackageId foreignCall
+    signature = fcForeignCallSignature foreignCall
 
-fcForeignCallType :: FcForeignSignature -> TcType
-fcForeignCallType signature =
-  foldr TcFunTy (fcForeignCallResultType signature) (fcForeignOperandTypes signature)
+fcForeignCallType :: FcForeignCall -> TcType
+fcForeignCallType foreignCall =
+  foldr TcFunTy (fcForeignCallResultType foreignCall) (fcForeignOperandTypes foreignCall)
 
-foreignPrimitiveType :: FcForeignType -> TcType
-foreignPrimitiveType foreignType =
+foreignPrimitiveType :: PackageId -> FcForeignType -> TcType
+foreignPrimitiveType packageId foreignType =
   case foreignType of
-    FcForeignInt -> TcTyCon (TyCon "Int#" 0) []
-    FcForeignInt32 -> TcTyCon (TyCon "Int32#" 0) []
-    FcForeignWord64 -> TcTyCon (TyCon "Word64#" 0) []
-    FcForeignAddr -> TcTyCon (TyCon "Addr#" 0) []
+    FcForeignInt -> primitiveType "Int#"
+    FcForeignInt32 -> primitiveType "Int32#"
+    FcForeignWord64 -> primitiveType "Word64#"
+    FcForeignAddr -> primitiveType "Addr#"
+  where
+    primitiveType name = TcTyCon (mkTyConWithOrigin packageId "GHC.Prim" name 0 (KTYPE liftedRuntimeRep)) []
 
-statePrimRealWorldType :: TcType
-statePrimRealWorldType =
-  TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
+statePrimRealWorldType :: PackageId -> TcType
+statePrimRealWorldType packageId =
+  TcTyCon (mkTyConWithOrigin packageId "GHC.Prim" "State#" 1 (KTYPE liftedRuntimeRep)) [TcTyCon (mkTyConWithOrigin packageId "GHC.Prim" "RealWorld" 0 (KTYPE liftedRuntimeRep)) []]
 
 fcDictionaryConstructorName :: Text -> Text
 fcDictionaryConstructorName className = "$Dict$" <> className
