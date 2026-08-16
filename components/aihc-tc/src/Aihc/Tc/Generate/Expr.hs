@@ -931,7 +931,9 @@ numericLiteralType numericType =
     TWord64Hash -> primType "Word64#"
 
 primType :: Text -> TcM TcType
-primType = knownTyConType "GHC.Prim"
+primType name = do
+  tyCon <- mkKnownTyCon "GHC.Prim" name 0 liftedTypeKind
+  pure (TcTyCon tyCon [])
 
 knownTyConType :: Text -> Text -> TcM TcType
 knownTyConType moduleName name = do
