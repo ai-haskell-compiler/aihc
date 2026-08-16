@@ -65,7 +65,6 @@ import Aihc.Tc.Types
     TypeScheme (..),
     Unique (..),
     liftedRuntimeRep,
-    mkTyCon,
     mkTyConWithOrigin,
     runtimeRepOfType,
     setTyConKindScheme,
