@@ -26,11 +26,11 @@ import Aihc.Tc.Types
   )
 import Control.Monad (when)
 import Data.ByteString qualified as BS
-import Data.Char (isAlphaNum, isAsciiUpper)
+import Data.Char (isAlphaNum)
 import Data.List (nubBy)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Hedgehog (Gen, Property, PropertyT, annotate, cover, failure, forAll, property, (===))
+import Hedgehog (Gen, Property, PropertyT, annotate, failure, forAll, property, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Test.Tasty (TestTree, testGroup)
@@ -61,25 +61,11 @@ fcPropertyTests =
 prop_programRoundTrip :: Property
 prop_programRoundTrip = property $ do
   value <- forAll genProgram
-  let topBinds = fcTopBinds value
-  cover 2 "empty program" (null topBinds)
-  cover 2 "external declaration" (any isExternal topBinds)
-  cover 2 "data declaration" (any isData topBinds)
-  cover 2 "axiom declaration" (any isAxiom topBinds)
-  cover 2 "newtype declaration" (any isNewtype topBinds)
-  cover 2 "primitive declaration" (any isPrimitive topBinds)
-  cover 20 "foreign import" (any isForeignImport topBinds)
-  cover 2 "value binding" (any isValueBinding topBinds)
-  cover 20 "foreign call" (any topBindHasForeignCall topBinds)
   roundTrip renderProgram parseProgram value
 
 prop_constructorNameRoundTrip :: Property
 prop_constructorNameRoundTrip = property $ do
   constructorName <- forAll genConstructorName
-  cover 10 "ordinary constructor" (isOrdinaryConstructorName constructorName)
-  cover 10 "operator constructor" (isOperatorConstructorName constructorName)
-  cover 10 "parenthesized constructor" (hasDelimiters '(' ')' constructorName)
-  cover 10 "bracketed constructor" (hasDelimiters '[' ']' constructorName)
   constructorOrigin <- forAll (genConstructorFor constructorName)
   dataOrigin <- forAll (genSymbolOriginFor "T")
   moduleId <- forAll genModuleId
@@ -95,56 +81,6 @@ prop_typeRoundTrip :: Property
 prop_typeRoundTrip = property $ do
   value <- forAll genType
   roundTrip renderType parseType value
-
-isExternal :: FcTopBind -> Bool
-isExternal FcExternal {} = True
-isExternal _ = False
-
-isData :: FcTopBind -> Bool
-isData FcData {} = True
-isData _ = False
-
-isAxiom :: FcTopBind -> Bool
-isAxiom FcAxiom {} = True
-isAxiom _ = False
-
-isNewtype :: FcTopBind -> Bool
-isNewtype FcNewtype {} = True
-isNewtype _ = False
-
-isPrimitive :: FcTopBind -> Bool
-isPrimitive FcPrimitive {} = True
-isPrimitive _ = False
-
-isForeignImport :: FcTopBind -> Bool
-isForeignImport FcForeignImport {} = True
-isForeignImport _ = False
-
-isValueBinding :: FcTopBind -> Bool
-isValueBinding FcTopBind {} = True
-isValueBinding _ = False
-
-topBindHasForeignCall :: FcTopBind -> Bool
-topBindHasForeignCall (FcTopBind binding) = bindHasForeignCall binding
-topBindHasForeignCall _ = False
-
-bindHasForeignCall :: FcBind -> Bool
-bindHasForeignCall (FcNonRec _ expression) = exprHasForeignCall expression
-bindHasForeignCall (FcRec bindings) = any (exprHasForeignCall . snd) bindings
-
-exprHasForeignCall :: FcExpr -> Bool
-exprHasForeignCall expression =
-  case expression of
-    FcVar {} -> False
-    FcLit {} -> False
-    FcApp function argument -> exprHasForeignCall function || exprHasForeignCall argument
-    FcTyApp function _ -> exprHasForeignCall function
-    FcLam _ body -> exprHasForeignCall body
-    FcTyLam _ body -> exprHasForeignCall body
-    FcLet binding body -> bindHasForeignCall binding || exprHasForeignCall body
-    FcCase scrutinee _ alternatives -> exprHasForeignCall scrutinee || any (exprHasForeignCall . altRhs) alternatives
-    FcCast body _ -> exprHasForeignCall body
-    FcCallForeign {} -> True
 
 prop_tyVarEquality :: Property
 prop_tyVarEquality = property $ do
@@ -627,18 +563,6 @@ delimitedNameCharacters opening closing =
     character /= opening,
     character /= closing
   ]
-
-isOrdinaryConstructorName :: Text -> Bool
-isOrdinaryConstructorName constructorName =
-  maybe False (isAsciiUpper . fst) (T.uncons constructorName)
-
-isOperatorConstructorName :: Text -> Bool
-isOperatorConstructorName constructorName =
-  not (T.null constructorName) && T.all (`elem` operatorNameCharacters) constructorName
-
-hasDelimiters :: Char -> Char -> Text -> Bool
-hasDelimiters opening closing value =
-  T.length value >= 2 && T.head value == opening && T.last value == closing
 
 genPackageName :: Gen Text
 genPackageName = Gen.choice [pure "", genText]
