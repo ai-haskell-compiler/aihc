@@ -54,8 +54,7 @@ module Aihc.Tc.Monad
     extendResolvedTermEnv,
     extendTermKeyEnvPermanent,
     extendTermEnvPermanent,
-    replaceTermKeyEnvPermanent,
-    replaceTermEnvPermanent,
+    finalizeInferredTermEnvPermanent,
     extendTyConTermEnvPermanent,
     extendResolvedTermEnvPermanent,
     getTermEnv,
@@ -101,7 +100,7 @@ import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (.
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
-import Control.Monad (when)
+import Control.Monad (foldM, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', runStateT)
@@ -418,14 +417,24 @@ extendTermKeyEnvPermanent key binder = do
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
 extendTermEnvPermanent name = extendTermKeyEnvPermanent (unqualifiedTermKey name)
 
-replaceTermKeyEnvPermanent :: TcTermKey -> TcBinder -> TcM ()
-replaceTermKeyEnvPermanent key binder = do
+-- | Replace the temporary monomorphic entries for one inferred top-level
+-- binding. No other permanent term entry can use this operation.
+finalizeInferredTermEnvPermanent :: Text -> TcTermKey -> TcType -> TypeScheme -> TcM ()
+finalizeInferredTermEnvPermanent name key placeholderTy scheme = do
   terms <- lift $ gets tcsGlobalTerms
-  terms' <- replaceMapEntry "global term environment" key binder terms
+  terms' <- foldM finalizePlaceholder terms [unqualifiedTermKey name, key]
   lift $ modify' $ \state -> state {tcsGlobalTerms = terms'}
-
-replaceTermEnvPermanent :: Text -> TcBinder -> TcM ()
-replaceTermEnvPermanent name = replaceTermKeyEnvPermanent (unqualifiedTermKey name)
+  where
+    finalizedBinder = TcIdBinder scheme Closed
+    finalizePlaceholder entries placeholderKey =
+      case Map.lookup placeholderKey entries of
+        Just (TcMonoIdBinder existingTy)
+          | existingTy == placeholderTy ->
+              pure (Map.insert placeholderKey finalizedBinder entries)
+        Just _ ->
+          abortTc ("global term key is not the expected inferred placeholder: " <> show placeholderKey)
+        Nothing ->
+          abortTc ("missing inferred term placeholder key: " <> show placeholderKey)
 
 extendTyConTermEnvPermanent :: TyCon -> Text -> TcBinder -> TcM ()
 extendTyConTermEnvPermanent tyCon name binder = do
