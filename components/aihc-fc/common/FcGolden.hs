@@ -130,7 +130,7 @@ parseFcFixture supportModules path value = do
   status <- parseStatus path statusText
   let relPath = dropRootPrefix path
       category = categoryFromPath relPath
-      expected = trim (T.unpack expectedText)
+      expected = canonicalExpected (T.unpack expectedText)
       reason = trim (T.unpack reasonText)
   pure
     FcCase
@@ -144,6 +144,22 @@ parseFcFixture supportModules path value = do
         caseStatus = status,
         caseReason = reason
       }
+
+canonicalExpected :: String -> String
+canonicalExpected expected
+  | "scope " `isPrefixOf` expected = trim expected
+  | otherwise =
+      case traverse (parseProgram . T.pack) (expectedPrograms expected) of
+        Right programs -> trim (unlines (map renderProgram programs))
+        Left _ -> trim expected
+
+expectedPrograms :: String -> [String]
+expectedPrograms = map unlines . reverse . filter (not . null) . foldl addLine [] . lines
+  where
+    addLine [] line = [[line]]
+    addLine (program : programs) line
+      | "module " `isPrefixOf` line = [line] : program : programs
+      | otherwise = (program <> [line]) : programs
 
 parseModules :: Y.Value -> Y.Parser [Text]
 parseModules = withArray "modules" $ \arr ->

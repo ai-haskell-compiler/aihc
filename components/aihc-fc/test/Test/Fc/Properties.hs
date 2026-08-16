@@ -167,7 +167,8 @@ prop_tyConKindSignature = property $ do
       program = FcProgram (FcModuleId "test" "Test") [FcExternal (FcBuiltinOrigin "value") ty]
       rendered = T.pack (renderProgram program)
   annotate (T.unpack rendered)
-  T.isInfixOf "external builtin.value : tycon \"pkg\" \"GHC.Prim\" MutVar#/2 { :: Type → Type → TYPE UnliftedRep }" rendered === True
+  T.isInfixOf "scope 1 = \"pkg\" GHC.Prim" rendered === True
+  T.isInfixOf "external builtin.value : tycon 1.MutVar#/2 { :: Type → Type → TYPE UnliftedRep }" rendered === True
   T.count "\n\ntycon " rendered === 0
   roundTrip renderProgram parseProgram program
 
@@ -191,7 +192,7 @@ prop_constructorIdentity = property $ do
       program = FcProgram (FcModuleId "test" "Test") [FcData declaration]
       rendered = T.pack (renderProgram program)
   annotate (T.unpack rendered)
-  T.isInfixOf "= \"test\" Test.J" rendered === True
+  T.isInfixOf "= 1.J" rendered === True
   roundTrip renderProgram parseProgram program
 
 prop_dependentRuntimeRep :: Property
@@ -236,8 +237,8 @@ prop_externalSignatures = property $ do
       program = FcProgram (FcModuleId "test" "Test") [FcExternal origin ty, FcTopBind (FcNonRec result (FcVar imported))]
       rendered = T.pack (renderProgram program)
   annotate (T.unpack rendered)
-  T.count "Module.id :" rendered === 1
-  T.count "\"pkg\" Module.id" rendered === 2
+  T.count "1.id :" rendered === 1
+  T.count "origin 1.id" rendered === 1
   roundTrip renderProgram parseProgram program
   where
     typeVariable = setTyVarKind (KTYPE liftedRuntimeRep) (TyVarId "a" (Unique 3))

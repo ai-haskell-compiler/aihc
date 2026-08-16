@@ -14,17 +14,104 @@ import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Evidence (Coercion (..), EvVar (..))
 import Aihc.Tc.Types
 import Data.ByteString qualified as BS
-import Data.Char (chr)
+import Data.Char (chr, isAlphaNum, isAsciiUpper)
 import Data.List (intercalate)
+import Data.List qualified as List
+import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
+import Text.Read (readMaybe)
 
 renderProgram :: FcProgram -> String
 renderProgram program =
+  renderScopes scopes <> "\n\n" <> replaceScopes scopes rendered
+  where
+    rendered = renderProgramWithoutScopes program
+    scopes = scopeTable rendered (fcProgramModule program)
+
+renderProgramWithoutScopes :: FcProgram -> String
+renderProgramWithoutScopes program =
   intercalate
     "\n\n"
-    (renderModuleDeclaration (fcProgramModule program) : map renderTopBind topBinds)
+    (renderModuleDeclaration (fcProgramModule program) : map renderTopBind (fcTopBinds program))
+
+type Scope = (T.Text, T.Text)
+
+scopeTable :: String -> FcModuleId -> Map.Map Scope Int
+scopeTable rendered moduleId =
+  Map.fromList (zip scopes [1 ..])
   where
-    topBinds = fcTopBinds program
+    scopes = List.sort . List.nub $ (fcModulePackageText moduleId, fcModuleName moduleId) : scopesInRenderedProgram rendered
+
+scopesInRenderedProgram :: String -> [Scope]
+scopesInRenderedProgram rendered = concatMap scopesInWords (windows 4 words') <> concatMap scopesInOrigin (windows 3 words')
+  where
+    words' = words rendered
+    scopesInWords ["tycon", packageName, moduleName, _] =
+      case (readMaybe packageName, readMaybe moduleName) of
+        (Just package, Just moduleName') -> [(T.pack package, T.pack moduleName')]
+        _ -> []
+    scopesInWords [packageName, qualified, _, _] =
+      case (readMaybe packageName, splitQualifiedName (T.pack qualified)) of
+        (Just package, Just (moduleName, _)) -> [(T.pack package, moduleName)]
+        _ -> []
+    scopesInWords _ = []
+    scopesInOrigin [previous, packageName, qualified]
+      | previous /= "module" =
+          case (readMaybe packageName, splitQualifiedName (T.pack qualified)) of
+            (Just package, Just (moduleName, _)) -> [(T.pack package, moduleName)]
+            _ -> []
+    scopesInOrigin _ = []
+
+windows :: Int -> [value] -> [[value]]
+windows size values
+  | length values < size = []
+  | otherwise = take size values : windows size (drop 1 values)
+
+splitQualifiedName :: T.Text -> Maybe (T.Text, T.Text)
+splitQualifiedName qualified =
+  case T.breakOnEnd "." qualified of
+    (moduleName, symbolName)
+      | T.null moduleName || T.null symbolName || T.isPrefixOf "\"" qualified -> Nothing
+      | not (validScopeModule (T.dropEnd 1 moduleName)) -> Nothing
+      | otherwise -> Just (T.dropEnd 1 moduleName, symbolName)
+
+validScopeModule :: T.Text -> Bool
+validScopeModule = all validScopeSegment . T.splitOn "."
+
+validScopeSegment :: T.Text -> Bool
+validScopeSegment segment =
+  case T.uncons segment of
+    Just (first, rest) -> isAsciiUpper first && T.all validScopeCharacter rest
+    Nothing -> False
+
+validScopeCharacter :: Char -> Bool
+validScopeCharacter character = isAlphaNum character || character `elem` ("_'" :: String)
+
+renderScopes :: Map.Map Scope Int -> String
+renderScopes = intercalate "\n" . map renderScope . Map.toAscList
+  where
+    renderScope ((packageName, moduleName), scopeId) =
+      "scope " <> show scopeId <> " = " <> show (T.unpack packageName) <> " " <> T.unpack moduleName
+
+replaceScopes :: Map.Map Scope Int -> String -> String
+replaceScopes scopes programText = List.foldl' replaceOne programText replacementScopes
+  where
+    replacementScopes = List.sortOn (negate . T.length . snd . fst) (Map.toAscList scopes)
+    replaceOne text ((packageName, moduleName), scopeId) =
+      replace
+        ("module " <> fullScope <> " where")
+        ("module " <> shortScope <> "." <> T.unpack moduleName <> " where")
+        ( replace
+            ("tycon " <> showPackage <> " " <> showModule <> " ")
+            ("tycon " <> shortScope <> ".")
+            (replace (fullScope <> ".") (shortScope <> ".") text)
+        )
+      where
+        fullScope = showPackage <> " " <> T.unpack moduleName
+        shortScope = show scopeId
+        showPackage = show (T.unpack packageName)
+        showModule = show (T.unpack moduleName)
+    replace old new = T.unpack . T.replace (T.pack old) (T.pack new) . T.pack
 
 renderModuleDeclaration :: FcModuleId -> String
 renderModuleDeclaration moduleId =

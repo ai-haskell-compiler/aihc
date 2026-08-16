@@ -48,23 +48,70 @@ newtype UnboxedTupleSyntax = UnboxedTupleSyntax
 
 parseProgram :: Text -> Either FcParseError FcProgram
 parseProgram input = do
+  (scopes, scopedInput) <- parseScopes input
+  let expandedInput = expandScopes scopes scopedInput
+      blocks = filter (not . T.null) (map T.strip (T.splitOn "\n\n" expandedInput))
   moduleHeaders <- traverse parseModuleHeader blocks
-  moduleId <- validateModuleDeclaration input (catMaybes moduleHeaders)
+  moduleId <- validateModuleDeclaration expandedInput (catMaybes moduleHeaders)
   let definitionBlocks =
         [ block
         | (block, Nothing) <- zip blocks moduleHeaders
         ]
   headers <- traverse parseExternalHeader definitionBlocks
-  validateExternalDeclarations input headers
+  validateExternalDeclarations expandedInput headers
   let moduleOrigin = Just (fcModulePackageText moduleId, fcModuleName moduleId)
   signatures <- traverse (parseSignatures moduleOrigin) definitionBlocks
   let globals = Map.unions (catMaybes signatures) <> externalEnv headers
   FcProgram moduleId <$> traverse (parseBlock moduleOrigin globals) definitionBlocks
   where
-    blocks = filter (not . T.null) (map T.strip (T.splitOn "\n\n" input))
     parseModuleHeader = MP.parse (space *> MP.optional (MP.try moduleDeclaration) <* MP.takeRest) "<system-fc-header>"
     parseExternalHeader = MP.parse (space *> MP.optional (MP.try externalDeclaration) <* MP.takeRest) "<system-fc-header>"
     parseBlock moduleOrigin globals = MP.parse (space *> topBind moduleOrigin globals <* MP.eof) "<system-fc>"
+
+type ScopeEnv = Map Text (Text, Text)
+
+parseScopes :: Text -> Either FcParseError (ScopeEnv, Text)
+parseScopes input = do
+  scopes <- traverse parseScope scopeLines
+  case firstDuplicate (map fst scopes) of
+    Just scopeId -> parseProgramFailure input ("duplicate System FC scope " <> T.unpack scopeId)
+    Nothing -> Right (Map.fromList scopes, T.unlines remainingLines)
+  where
+    (scopeLines, remainingLines) = span (T.isPrefixOf "scope " . T.strip) (T.lines input)
+    parseScope = MP.parse (space *> scopeDeclaration <* MP.eof) "<system-fc-scope>"
+
+scopeDeclaration :: Parser (Text, (Text, Text))
+scopeDeclaration = do
+  _ <- keyword "scope"
+  scopeId <- T.pack . show <$> int
+  _ <- symbol "="
+  packageName <- text
+  moduleName <- qualifiedName
+  pure (scopeId, (packageName, moduleName))
+
+expandScopes :: ScopeEnv -> Text -> Text
+expandScopes scopes input = Map.foldlWithKey' expandOne input scopes
+  where
+    expandOne expanded scopeId (packageName, moduleName) =
+      replaceScopeReference scopeId (quotedPackage <> " " <> moduleName <> ".") tyConsExpanded
+      where
+        modulesExpanded = T.replace ("module " <> scopeId <> ".") ("module " <> quotedPackage <> " ") expanded
+        tyConsExpanded = T.replace ("tycon " <> scopeId <> ".") ("tycon " <> quotedPackage <> " " <> quotedModule <> " ") modulesExpanded
+        quotedPackage = T.pack (show (T.unpack packageName))
+        quotedModule = T.pack (show (T.unpack moduleName))
+
+replaceScopeReference :: Text -> Text -> Text -> Text
+replaceScopeReference scopeId replacement = go True
+  where
+    reference = scopeId <> "."
+    go _ "" = ""
+    go startsToken input =
+      case T.stripPrefix reference input of
+        Just rest | startsToken -> replacement <> go False rest
+        _ ->
+          case T.uncons input of
+            Just (character, rest) -> T.singleton character <> go (not (nameCharacter character)) rest
+            Nothing -> ""
 
 validateModuleDeclaration :: Text -> [FcModuleId] -> Either FcParseError FcModuleId
 validateModuleDeclaration _ [moduleId] = Right moduleId
