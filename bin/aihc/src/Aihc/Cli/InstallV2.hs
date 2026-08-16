@@ -39,7 +39,9 @@ import Aihc.Resolve
   )
 import Aihc.Tc
   ( ClassInfo (..),
+    DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
+    InstanceInfo (..),
     Pred (..),
     TcInterface (..),
     TcTermKey (..),
@@ -189,7 +191,7 @@ installPackageV2 verbose storeRoot dependencies root = do
     InstalledV2Package
       { installedV2Result = InstallV2Result storePath (Set.toAscList written) (Set.toAscList reused),
         installedV2Exports = ownExports,
-        installedV2Types = mconcat exposedTypes,
+        installedV2Types = mconcat (zipWith (localModuleTypeInterface resolvePackage) exposedSources exposedTypes),
         installedV2ScopeHashes = Map.restrictKeys allScopeHashes exposedNames,
         installedV2TypeHashes = Map.restrictKeys allTypeHashes exposedNames
       }
@@ -286,12 +288,13 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
         pure False
   let changed = resolveChanged || typeChanged || coreChanged
       unitSet = Set.fromList unitNames
+      localUnitTypes = mconcat (zipWith (localModuleTypeInterface resolvePackage) unit unitTypes)
       written' = if changed then written <> unitSet else written
       reused' = if changed then reused else reused <> unitSet
   pure
     ( diskExports `Map.union` dependencyExports,
       updatedScopeHashes,
-      dependencyTypes <> mconcat unitTypes,
+      dependencyTypes <> localUnitTypes,
       updatedTypeHashes,
       written',
       reused'
@@ -382,6 +385,25 @@ moduleTypeInterface exports package interface source =
     resolvedIdentity resolved = case resolved of
       ResolvedTopLevel packageId' resolvedName -> Just (packageId', fromMaybe name (nameQualifier resolvedName), nameText resolvedName)
       _ -> Nothing
+
+localModuleTypeInterface :: Package -> SourceModule -> TcInterface -> TcInterface
+localModuleTypeInterface package source interface =
+  interface
+    { tcInterfaceTerms = filter localTerm (tcInterfaceTerms interface),
+      tcInterfaceTyCons = filter (localTyCon . tciTyCon) (tcInterfaceTyCons interface),
+      tcInterfaceDataTypes = filter (localTyCon . dtiTyCon) (tcInterfaceDataTypes interface),
+      tcInterfaceClasses = filter localClass (tcInterfaceClasses interface),
+      tcInterfaceInstances = filter localInstance (tcInterfaceInstances interface),
+      tcInterfaceDataFamilyInstances = filter (localTyCon . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstances interface)
+    }
+  where
+    name = fromMaybe "Main" (moduleName (sourceModuleAst source))
+    packageIdentity = packageId package
+    localTerm (TcTermGlobal packageId' moduleName' _, _) = packageId' == packageIdentity && moduleName' == name
+    localTerm (TcTermLocal {}, _) = False
+    localTyCon tyCon = tyConPackageId tyCon == packageIdentity && tyConModuleName tyCon == name
+    localClass info = ciOrigin info == Just (packageIdText packageIdentity, name)
+    localInstance info = iiDictOrigin info == Just (packageIdText packageIdentity, name)
 
 addTermSupportTyCons :: TcInterface -> TcInterface
 addTermSupportTyCons interface =

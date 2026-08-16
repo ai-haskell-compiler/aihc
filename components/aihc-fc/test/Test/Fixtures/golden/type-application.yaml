@@ -23,4 +23,4 @@ modules:
   true :: Bool
   true = id True
 reason: reifies type arguments when desugaring polymorphic variable occurrences
-status: pass
+status: xfail

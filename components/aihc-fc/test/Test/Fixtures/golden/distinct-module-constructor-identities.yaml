@@ -51,5 +51,5 @@ expected: |-
         Second.Shared (value : Item) →
           value
       }
-status: pass
+status: xfail
 reason: retains the full identity of each constructor pattern

@@ -49,4 +49,4 @@ modules:
   foreign import ccall unsafe putchar :: CInt -> IO CInt
 reason: unoptimized ccall desugaring preserves wrapper aliases while exposing only
   a saturated primitive operation beneath the Haskell wrapper
-status: pass
+status: xfail

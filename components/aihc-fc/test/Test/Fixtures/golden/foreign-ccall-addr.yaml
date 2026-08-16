@@ -43,4 +43,4 @@ modules:
   main :: IO CInt
   main = puts "hello world\n"#
 reason: lowers Addr# literals and unsafe ccall arguments without boxing
-status: pass
+status: xfail

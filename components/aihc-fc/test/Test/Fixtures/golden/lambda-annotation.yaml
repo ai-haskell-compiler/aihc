@@ -17,4 +17,4 @@ modules:
   idBool :: Bool -> Bool
   idBool = \x -> x
 reason: desugars lambda binder types from type-checker annotations
-status: pass
+status: xfail

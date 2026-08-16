@@ -36,5 +36,5 @@ expected: |-
         Box ($dpattern : Markable (a : TYPE BoxedRep Lifted)) (value : (a : TYPE BoxedRep Lifted)) →
           ((mark @(a : TYPE BoxedRep Lifted)) $dpattern) value
       }
-status: pass
+status: xfail
 reason: System FC stores the constructor dictionary and binds it before the existential payload

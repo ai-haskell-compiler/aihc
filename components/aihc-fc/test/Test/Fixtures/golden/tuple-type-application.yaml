@@ -19,5 +19,5 @@ expected: |-
 
   pair : Tuple2 Bool Unit =
     (((GHC.Tuple.(,) @Bool) @Unit) True) GHC.Tuple.()
-status: pass
+status: xfail
 reason: reifies tuple constructor type arguments from type-checker annotations

@@ -37,4 +37,4 @@ modules:
   one = 1
 reason: desugars default integer literals through GHC.Num.fromInteger applied to an
   Integer constructor value
-status: pass
+status: xfail

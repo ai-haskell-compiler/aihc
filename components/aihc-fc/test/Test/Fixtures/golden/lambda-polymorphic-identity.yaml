@@ -1,10 +1,13 @@
 expected: |-
-  module Test where
+  module "" Test where
 
-  id : ∀ (a : TYPE BoxedRep Lifted). a → a =
-    Λ(a : TYPE BoxedRep Lifted).
-      λ(x1001 : a).
-        x1001
+  rec {
+    id{unique 1000} : ∀ (a{unique 22} : Type). (a{unique 22} : Type) → (a{unique 22} : Type);
+    id{unique 1000} =
+      Λ(a{unique 22} : Type).
+        λ(x1001{unique 1001} : (a{unique 22} : Type)).
+          (x1001{unique 1001} : (a{unique 22} : Type))
+  }
 extensions: []
 modules:
 - |

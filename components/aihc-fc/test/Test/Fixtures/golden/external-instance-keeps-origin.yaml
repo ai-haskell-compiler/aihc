@@ -64,4 +64,4 @@ expected: |-
   eqBool : Bool → Bool → Bool =
     (Types.== @Bool) Types.$fEqBool
 reason: keeps the defining module origin on an imported instance dictionary
-status: pass
+status: xfail

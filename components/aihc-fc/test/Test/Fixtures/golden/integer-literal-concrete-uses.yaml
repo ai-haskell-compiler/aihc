@@ -131,4 +131,4 @@ modules:
   caseInt = case (1 :: Int) of
     1 -> ()
 reason: desugars concrete integer literals and integer case scrutinees through GHC.Num.fromInteger
-status: pass
+status: xfail

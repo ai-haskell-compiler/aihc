@@ -144,14 +144,16 @@ data TcBindingResult = TcBindingResult
 data UserSig = UserSig
   { userSigName :: !Text,
     userSigType :: !Type,
-    userSigSpan :: !SourceSpan
+    userSigSpan :: !SourceSpan,
+    userSigPreRegistered :: !Bool
   }
   deriving (Show)
 
 data CheckedSig = CheckedSig
   { checkedSigName :: !Text,
     checkedSigScheme :: !TypeScheme,
-    checkedSigSpan :: !SourceSpan
+    checkedSigSpan :: !SourceSpan,
+    checkedSigPreRegistered :: !Bool
   }
   deriving (Show)
 
@@ -494,9 +496,14 @@ tcModuleScc modules = do
   mapM finalizeModuleTc annotated
 
 registerCheckedSig :: TcTermKey -> CheckedSig -> TcM ()
-registerCheckedSig key sig = do
-  extendTermEnvPermanent (checkedSigName sig) binder
-  extendTermKeyEnvPermanent key binder
+registerCheckedSig key sig =
+  if checkedSigPreRegistered sig
+    then do
+      replaceTermEnvPermanent (checkedSigName sig) binder
+      replaceTermKeyEnvPermanent key binder
+    else do
+      extendTermEnvPermanent (checkedSigName sig) binder
+      extendTermKeyEnvPermanent key binder
   where
     binder = TcIdBinder (checkedSigScheme sig) Closed
 
@@ -1356,7 +1363,7 @@ collectUserSigs decls = Map.fromList . concat <$> mapM (extractSig NoSourceSpan)
             key <- resolvedUnqualifiedTermKey n
             let name = unqualifiedNameText n
                 sigSp = ambient `orSourceSpan` unqualifiedNameSpan n `orSourceSpan` typeSpan ty
-            pure (key, UserSig name ty sigSp)
+            pure (key, UserSig name ty sigSp False)
         )
         names
     extractSig ambient (DeclForeign foreignDecl)
@@ -1365,7 +1372,7 @@ collectUserSigs decls = Map.fromList . concat <$> mapM (extractSig NoSourceSpan)
             key <- resolvedUnqualifiedTermKey (foreignName foreignDecl)
             let name = unqualifiedNameText (foreignName foreignDecl)
                 sigSp = ambient `orSourceSpan` unqualifiedNameSpan (foreignName foreignDecl) `orSourceSpan` typeSpan (foreignType foreignDecl)
-            pure [(key, UserSig name (foreignType foreignDecl) sigSp)]
+            pure [(key, UserSig name (foreignType foreignDecl) sigSp True)]
     extractSig ambient (DeclAnn ann inner) =
       extractSig (fromMaybe ambient (fromAnnotation @SourceSpan ann)) inner
     extractSig _ _ = pure []
@@ -1377,7 +1384,8 @@ checkUserSig userSig = do
     CheckedSig
       { checkedSigName = userSigName userSig,
         checkedSigScheme = scheme,
-        checkedSigSpan = userSigSpan userSig
+        checkedSigSpan = userSigSpan userSig,
+        checkedSigPreRegistered = userSigPreRegistered userSig
       }
 
 splitContext :: Type -> ([Type], Type)
@@ -1727,12 +1735,10 @@ tcMergedFunctionGroup sigs groupId binder decls matches = do
 -- the body is checked against them. GADT patterns generate implication
 -- constraints using the signature's skolems as given equalities.
 tcFunctionWithSig :: TcTermKey -> Text -> Text -> CheckedSig -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
-tcFunctionWithSig key displayName name sig matches = do
+tcFunctionWithSig _key displayName name sig matches = do
   let scheme = checkedSigScheme sig
   (matches', failed) <-
     withErrorTracking $ do
-      extendTermEnvPermanent name (TcIdBinder scheme Closed)
-      extendTermKeyEnvPermanent key (TcIdBinder scheme Closed)
       -- Open the scheme with skolems (not metas) for checking.
       (sigPreds, sigTy) <- skolemizeQualified scheme
       let nArgs = case matches of
@@ -1774,8 +1780,8 @@ tcFunctionInfer key displayName name matches = do
       scheme <- generalizeAndCommitIgnoring (Set.fromList [unqualifiedTermKey name, key]) ty residualPreds
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
-      extendTermEnvPermanent name (TcIdBinder scheme Closed)
-      extendTermKeyEnvPermanent key (TcIdBinder scheme Closed)
+      replaceTermEnvPermanent name (TcIdBinder scheme Closed)
+      replaceTermKeyEnvPermanent key (TcIdBinder scheme Closed)
       pure (Just matches', [TcBindingResult name displayName zonkedTy])
 
 generalizableResidualPreds :: SolveResult -> TcM [Pred]
@@ -2364,7 +2370,7 @@ registerTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
               tvEnv = Map.fromList [(tvName param, (param, tvKind param)) | param <- params]
               resultKind = typeResultKind (length params) (tyConKind (tciTyCon info))
           body <- checkSurfaceType tvEnv (typeSynBody typeSynDecl) resultKind
-          extendTyConEnvPermanent tyName (info {tciTypeSynonym = Just (synonym {tsiBody = Just body})})
+          replaceTyConEnvPermanent (info {tciTypeSynonym = Just (synonym {tsiBody = Just body})})
     _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
 registerTypeSynonymBody _ = pure ()
 

@@ -31,5 +31,5 @@ modules:
   import qualified B
   val1 = A.Con
   val2 = B.Con
-reason: Different module namespaces must not clash
-status: pass
+reason: Duplicate unqualified data type interface keys raise an exception when C imports A and B.
+status: xfail

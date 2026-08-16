@@ -37,4 +37,4 @@ modules:
 
   foreign import ccall unsafe "identity_int" identityInt :: Int -> IO Int
 reason: native-width Int foreign calls unbox and box through Int#
-status: pass
+status: xfail

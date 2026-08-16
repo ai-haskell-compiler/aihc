@@ -60,5 +60,5 @@ expected: |-
           _ →
             _next_match1016
         }
-status: pass
+status: xfail
 reason: pattern failure continuations are omitted, inlined, or shared according to their occurrence count

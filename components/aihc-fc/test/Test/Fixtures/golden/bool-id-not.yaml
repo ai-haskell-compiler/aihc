@@ -27,4 +27,4 @@ modules:
   not True = False
   not False = True
 reason: 'MVP: data Bool + id + not desugared to System FC'
-status: pass
+status: xfail

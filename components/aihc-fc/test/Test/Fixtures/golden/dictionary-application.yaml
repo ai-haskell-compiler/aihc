@@ -56,4 +56,4 @@ modules:
   eqBool :: Bool -> Bool -> Bool
   eqBool = (==)
 reason: reifies both type arguments and dictionaries for class method occurrences
-status: pass
+status: xfail

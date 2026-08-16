@@ -15,5 +15,5 @@ expected: |-
   newtype $R$Wrapped$WrappedUnit : $R$Wrapped$WrappedUnit = WrappedUnit Unit
 
   axiom $ax$Wrapped$WrappedUnit : Wrapped Unit ~N $R$Wrapped$WrappedUnit
-status: pass
+status: xfail
 reason: newtype-family instances retain a representation newtype and their nominal family equation

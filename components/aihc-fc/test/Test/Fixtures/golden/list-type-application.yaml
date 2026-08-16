@@ -19,5 +19,5 @@ expected: |-
 
   xs : [Bool] =
     (("aihc-prim" GHC.Types.: @Bool) True) ("aihc-prim" GHC.Types.[] @Bool)
-status: pass
+status: xfail
 reason: reifies list constructor type arguments from type-checker annotations

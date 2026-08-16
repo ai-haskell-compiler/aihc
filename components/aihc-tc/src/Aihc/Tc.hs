@@ -184,27 +184,38 @@ emptyTcInterface =
 instance Semigroup TcInterface where
   left <> right =
     TcInterface
-      { tcInterfaceTerms = mergeInterfaceEntries fst (tcInterfaceTerms left <> tcInterfaceTerms right),
+      { tcInterfaceTerms = mergeInterfaceEntries "term interface" fst (tcInterfaceTerms left <> tcInterfaceTerms right),
         tcInterfaceTyCons = mergeTyConInfos (tcInterfaceTyCons left <> tcInterfaceTyCons right),
-        tcInterfaceDataTypes = mergeInterfaceEntries dtiName (tcInterfaceDataTypes left <> tcInterfaceDataTypes right),
-        tcInterfaceClasses = mergeInterfaceEntries ciName (tcInterfaceClasses left <> tcInterfaceClasses right),
-        tcInterfaceInstances = mergeInterfaceEntries iiDictName (tcInterfaceInstances left <> tcInterfaceInstances right),
-        tcInterfaceDataFamilyInstances = mergeInterfaceEntries dfiiAxiomName (tcInterfaceDataFamilyInstances left <> tcInterfaceDataFamilyInstances right)
+        tcInterfaceDataTypes = mergeInterfaceEntries "data type interface" dtiName (tcInterfaceDataTypes left <> tcInterfaceDataTypes right),
+        tcInterfaceClasses = mergeInterfaceEntries "class interface" ciName (tcInterfaceClasses left <> tcInterfaceClasses right),
+        tcInterfaceInstances = mergeInterfaceEntries "instance interface" iiDictName (tcInterfaceInstances left <> tcInterfaceInstances right),
+        tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance interface" dfiiAxiomName (tcInterfaceDataFamilyInstances left <> tcInterfaceDataFamilyInstances right)
       }
 
 instance Monoid TcInterface where
   mempty = emptyTcInterface
 
-mergeInterfaceEntries :: (Ord key) => (value -> key) -> [value] -> [value]
-mergeInterfaceEntries key = Map.elems . Map.fromList . map (\value -> (key value, value))
+mergeInterfaceEntries :: (Ord key, Show key) => String -> (value -> key) -> [value] -> [value]
+mergeInterfaceEntries label key = Map.elems . mapFromListNoDuplicates label . map (\value -> (key value, value))
+
+mapFromListNoDuplicates :: (Ord key, Show key) => String -> [(key, value)] -> Map.Map key value
+mapFromListNoDuplicates label = foldl' insertEntry Map.empty
+  where
+    insertEntry entries (key, value)
+      | Map.member key entries = error ("duplicate " <> label <> " key: " <> show key)
+      | otherwise = Map.insert key value entries
 
 mergeTyConInfos :: [TyConInfo] -> [TyConInfo]
-mergeTyConInfos = Map.elems . foldr insertInfo Map.empty
+mergeTyConInfos = Map.elems . foldl' insertInfo Map.empty
   where
-    insertInfo info = Map.insertWith preferSourceName (tciTyCon info) info
-    preferSourceName new old
+    insertInfo entries info =
+      case Map.lookup (tciTyCon info) entries of
+        Nothing -> Map.insert (tciTyCon info) info entries
+        Just previous -> Map.insert (tciTyCon info) (mergeSupportName info previous) entries
+    mergeSupportName new old
       | isSupportName new && not (isSupportName old) = old
-      | otherwise = new
+      | isSupportName old && not (isSupportName new) = new
+      | otherwise = error ("duplicate type constructor interface key: " <> show (tciTyCon new))
     isSupportName info = tciName info == tyConName (tciTyCon info)
 
 tcTermKeyIdentifier :: TcTermKey -> Maybe Text
@@ -247,7 +258,8 @@ importedTermEntries = map (Bifunctor.first unqualifiedTermKey)
 exportedTermEntries :: TcInterface -> [(Text, TypeScheme)]
 exportedTermEntries interface =
   Map.toList $
-    Map.fromList
+    mapFromListNoDuplicates
+      "exported term"
       [ (name, scheme)
       | (key, scheme) <- tcInterfaceTerms interface,
         Just name <- [tcTermKeyIdentifier key]
@@ -387,14 +399,32 @@ typecheckModulesWithInterface = typecheckModulesWithInterfaceConfig defaultTcCon
 
 typecheckModulesWithInterfaceConfig :: TcConfig -> TcInterface -> [Module] -> ([Module], TcInterface)
 typecheckModulesWithInterfaceConfig config imported modules =
-  let (checkedModules, finalState) = go (initialTcState imported) modules
+  let initialState = initialTcState imported
+      persistentUnqualifiedTerms = Map.keys (Map.filterWithKey (\key _ -> isUnqualifiedTermKey key) (tcsGlobalTerms initialState))
+      (checkedModules, finalState) = go persistentUnqualifiedTerms initialState modules
    in (checkedModules, tcInterfaceFromState finalState)
   where
-    go st [] = ([], st)
-    go st (m : ms) =
+    go _ st [] = ([], st)
+    go persistentUnqualifiedTerms st (m : ms) =
       let (result, st') = typecheckModuleWithState config st m
-          (results, finalState) = go st' ms
+          nextState = removeTransientUnqualifiedTerms persistentUnqualifiedTerms st'
+          (results, finalState) = go persistentUnqualifiedTerms nextState ms
        in (result : results, finalState)
+
+removeTransientUnqualifiedTerms :: [TcTermKey] -> TcState -> TcState
+removeTransientUnqualifiedTerms persistent state =
+  state
+    { tcsGlobalTerms =
+        Map.filterWithKey
+          (\key _ -> not (isUnqualifiedTermKey key) || key `elem` persistent)
+          (tcsGlobalTerms state)
+    }
+
+isUnqualifiedTermKey :: TcTermKey -> Bool
+isUnqualifiedTermKey key =
+  case key of
+    TcTermGlobal packageId moduleName _ -> T.null (packageIdText packageId) && T.null moduleName
+    TcTermLocal {} -> False
 
 -- | Type-check the modules in one strongly connected import component as a
 -- single incremental unit. Only the supplied imported interface is visible;
@@ -440,7 +470,8 @@ initialTcState :: TcInterface -> TcState
 initialTcState imported =
   initTcState
     { tcsGlobalTerms =
-        Map.fromList
+        mapFromListNoDuplicates
+          "imported term state"
           [ (key, TcIdBinder scheme Closed)
           | (key, scheme) <- tcInterfaceTerms imported
           ]
@@ -448,28 +479,44 @@ initialTcState imported =
       tcsGlobalTyCons =
         Map.fromList
           [ (tciTyCon tyCon, tyCon)
-          | tyCon <- tcInterfaceTyCons imported
+          | tyCon <- mergeTyConInfos (tcInterfaceTyCons imported)
           ]
           <> tcsGlobalTyCons initTcState,
-      tcsDataTypes = Map.fromList [(dtiName dataType, dataType) | dataType <- tcInterfaceDataTypes imported],
-      tcsClasses = Map.fromList [(ciName classInfo, classInfo) | classInfo <- tcInterfaceClasses imported],
-      tcsInstances = tcInterfaceInstances imported,
-      tcsDataFamilyInstances = tcInterfaceDataFamilyInstances imported
+      tcsDataTypes = mapFromListNoDuplicates "imported data type state" [(dtiName dataType, dataType) | dataType <- tcInterfaceDataTypes imported],
+      tcsClasses = mapFromListNoDuplicates "imported class state" [(ciName classInfo, classInfo) | classInfo <- tcInterfaceClasses imported],
+      tcsInstances = mergeInterfaceEntries "imported instance state" iiDictName (tcInterfaceInstances imported),
+      tcsDataFamilyInstances = mergeInterfaceEntries "imported data family instance state" dfiiAxiomName (tcInterfaceDataFamilyInstances imported)
     }
 
 tcInterfaceFromState :: TcState -> TcInterface
 tcInterfaceFromState state =
   TcInterface
-    { tcInterfaceTerms =
-        [ (key, scheme)
-        | (key, TcIdBinder scheme _) <- Map.toList (tcsGlobalTerms state)
-        ],
+    { tcInterfaceTerms = exportedGlobalTerms state,
       tcInterfaceTyCons = Map.elems (tcsGlobalTyCons state),
       tcInterfaceDataTypes = Map.elems (tcsDataTypes state),
       tcInterfaceClasses = Map.elems (tcsClasses state),
-      tcInterfaceInstances = mergeInterfaceEntries iiDictName (tcsInstances state),
-      tcInterfaceDataFamilyInstances = mergeInterfaceEntries dfiiAxiomName (tcsDataFamilyInstances state)
+      tcInterfaceInstances = mergeInterfaceEntries "instance state" iiDictName (tcsInstances state),
+      tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance state" dfiiAxiomName (tcsDataFamilyInstances state)
     }
+
+exportedGlobalTerms :: TcState -> [(TcTermKey, TypeScheme)]
+exportedGlobalTerms state =
+  filter (not . isRedundantUnqualifiedAlias . fst) terms
+  where
+    terms =
+      [ (key, scheme)
+      | (key, TcIdBinder scheme _) <- Map.toList (tcsGlobalTerms state)
+      ]
+    isRedundantUnqualifiedAlias key =
+      case key of
+        TcTermGlobal _ _ identifier
+          | isUnqualifiedTermKey key -> any (isQualifiedIdentity identifier . fst) terms
+        _ -> False
+    isQualifiedIdentity identifier key =
+      case key of
+        TcTermGlobal packageId moduleName name ->
+          name == identifier && (not (T.null (packageIdText packageId)) || not (T.null moduleName))
+        TcTermLocal {} -> False
 
 typecheckModuleSccWithState :: TcConfig -> TcState -> [Module] -> ([Module], TcState)
 typecheckModuleSccWithState config st modules =

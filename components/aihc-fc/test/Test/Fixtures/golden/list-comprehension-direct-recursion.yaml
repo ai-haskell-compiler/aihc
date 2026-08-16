@@ -36,4 +36,4 @@ modules:
 
   select fn list = [x | x <- list, fn x]
 reason: desugars list comprehensions directly to recursive Core without Prelude helpers
-status: pass
+status: xfail

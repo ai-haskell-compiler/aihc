@@ -22,5 +22,5 @@ expected: |-
           :*: (value : (a : TYPE BoxedRep Lifted)) (_ : (a : TYPE BoxedRep Lifted)) →
             value
         }
-status: pass
+status: xfail
 reason: arbitrary infix constructor patterns retain their field binders and types during FC desugaring

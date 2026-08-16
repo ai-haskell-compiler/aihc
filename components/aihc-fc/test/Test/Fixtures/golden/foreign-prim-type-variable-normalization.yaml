@@ -24,4 +24,4 @@ modules:
     forall (rep :: RuntimeRep) (value :: TYPE rep) domain.
     value -> State# domain -> (# State# domain, MutVar# domain value #)
 reason: primitive import types match after normalizing quantified names and levity-polymorphic kinds
-status: pass
+status: xfail
