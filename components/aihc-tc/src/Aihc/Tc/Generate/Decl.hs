@@ -1861,8 +1861,6 @@ zonkPred pred' =
     ClassPred className args -> ClassPred className <$> mapM zonkType args
     EqPred left right -> EqPred <$> zonkType left <*> zonkType right
 
-type TcTypeKey = (PackageId, Text, Text)
-
 collectStandaloneKindSignatures :: [Decl] -> Map TcTypeKey Type
 collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
   where

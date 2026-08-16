@@ -96,7 +96,7 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConInfo (..))
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConInfo (..), dataTypeKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -225,7 +225,7 @@ data TcState = TcState
     -- | Global type constructors accumulated by top-level declarations.
     tcsGlobalTyCons :: !(Map TyCon TyConInfo),
     -- | Checked constructor layouts for data and newtype declarations.
-    tcsDataTypes :: !(Map Text DataTypeInfo),
+    tcsDataTypes :: !(Map TcTypeKey DataTypeInfo),
     -- | Type classes in scope, including their superclass layouts and defaults.
     tcsClasses :: !(Map Text ClassInfo),
     -- | Class instances in scope.
@@ -535,14 +535,14 @@ replaceTyConEnvPermanent info = do
 addDataType :: DataTypeInfo -> TcM ()
 addDataType info = do
   dataTypes <- lift $ gets tcsDataTypes
-  dataTypes' <- insertNewMap "data type state" (dtiName info) info dataTypes
+  dataTypes' <- insertNewMap "data type state" (dataTypeKey info) info dataTypes
   lift $ modify' $ \state -> state {tcsDataTypes = dataTypes'}
 
 getDataTypes :: TcM [DataTypeInfo]
 getDataTypes = lift $ gets (Map.elems . tcsDataTypes)
 
-lookupDataType :: Text -> TcM (Maybe DataTypeInfo)
-lookupDataType name = lift $ gets (Map.lookup name . tcsDataTypes)
+lookupDataType :: TyCon -> TcM (Maybe DataTypeInfo)
+lookupDataType tyCon = lift $ gets (Map.lookup (tyConKey tyCon) . tcsDataTypes)
 
 addInstance :: InstanceInfo -> TcM ()
 addInstance instanceInfo = do

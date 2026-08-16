@@ -50,6 +50,7 @@ import Aihc.Tc
     TyConFlavor (..),
     TyConInfo (..),
     TypeScheme (..),
+    dataTypeKey,
     tcConfig,
     tcInterfaceBindings,
     tcModuleBindings,
@@ -354,7 +355,7 @@ moduleTypeInterface exports package interface source =
     interface
       { tcInterfaceTerms = filter visibleTerm (tcInterfaceTerms interface),
         tcInterfaceTyCons = filter visibleTyCon (tcInterfaceTyCons interface),
-        tcInterfaceDataTypes = filter (visibleTypeIdentity . dtiNameAndOrigin) (tcInterfaceDataTypes interface),
+        tcInterfaceDataTypes = filter (visibleTypeIdentity . dataTypeKey) (tcInterfaceDataTypes interface),
         tcInterfaceClasses = filter visibleClass (tcInterfaceClasses interface)
       }
   where
@@ -371,9 +372,6 @@ moduleTypeInterface exports package interface source =
       let tyCon = tciTyCon info
           identity = (tyConPackageId tyCon, tyConModuleName tyCon, tciName info)
        in Map.member (tciName info) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (tciName info)
-    dtiNameAndOrigin info =
-      let tyCon = dtiTyCon info
-       in (tyConPackageId tyCon, tyConModuleName tyCon, dtiName info)
     visibleTypeIdentity identity = Map.member (third identity) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (third identity)
     visibleClass info =
       case ciOrigin info of

@@ -1,23 +1,26 @@
 expected: |-
-  module Test where
+  module "" Test where
 
-  data Bool
-   = True
-   | False
+  data "" Test.Bool : Type
+   = "" Test.True
+   | "" Test.False
 
-  id : ∀ (a : TYPE BoxedRep Lifted). a → a =
-    Λ(a : TYPE BoxedRep Lifted).
-      λ(x1001 : a).
-        x1001
-
-  not : Bool → Bool =
-    λ(x1003 : Bool).
-      case x1003 as (_scrut : Bool) of {
-        True →
-          False;
-        False →
-          True
-      }
+  rec {
+    id{unique 1000} : ∀ (a{unique 31} : Type). (a{unique 31} : Type) → (a{unique 31} : Type);
+    not{unique 1001} : tycon "" "Test" Bool/0 { :: Type } → tycon "" "Test" Bool/0 { :: Type };
+    id{unique 1000} =
+      Λ(a{unique 31} : Type).
+        λ(x1002{unique 1002} : (a{unique 31} : Type)).
+          (x1002{unique 1002} : (a{unique 31} : Type));
+    not{unique 1001} =
+      λ(x1003{unique 1003} : tycon "" "Test" Bool/0 { :: Type }).
+        case (x1003{unique 1003} : tycon "" "Test" Bool/0 { :: Type }) as (_scrut{unique 1004} : tycon "" "Test" Bool/0 { :: Type }) of {
+          "" Test.True →
+            (False{unique -2286087477}{origin "" Test.False} : tycon "" "Test" Bool/0 { :: Type });
+          "" Test.False →
+            (True{unique -2360662326}{origin "" Test.True} : tycon "" "Test" Bool/0 { :: Type })
+        }
+  }
 extensions: []
 modules:
 - |
@@ -26,5 +29,5 @@ modules:
   id x = x
   not True = False
   not False = True
-reason: 'MVP: data Bool + id + not desugared to System FC'
-status: xfail
+reason: A local Bool type and GHC.Types.Bool keep different global identities.
+status: pass

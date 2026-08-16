@@ -33,10 +33,10 @@ import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), extractIn
 import Aihc.Tc
   ( ClassInfo (ciName),
     DataFamilyInstanceInfo (dfiiAxiomName),
-    DataTypeInfo (dtiName),
     InstanceInfo (iiDictName),
     TcInterface (..),
     TyConInfo (tciTyCon),
+    dataTypeKey,
     emptyTcInterface,
     typecheckModuleSccWithInterface,
     typecheckModulesWithInterface,
@@ -265,7 +265,7 @@ subtractInterface imported complete =
   TcInterface
     { tcInterfaceTerms = withoutImported fst (tcInterfaceTerms imported) (tcInterfaceTerms complete),
       tcInterfaceTyCons = withoutImported tciTyCon (tcInterfaceTyCons imported) (tcInterfaceTyCons complete),
-      tcInterfaceDataTypes = withoutImported dtiName (tcInterfaceDataTypes imported) (tcInterfaceDataTypes complete),
+      tcInterfaceDataTypes = withoutImported dataTypeKey (tcInterfaceDataTypes imported) (tcInterfaceDataTypes complete),
       tcInterfaceClasses = withoutImported ciName (tcInterfaceClasses imported) (tcInterfaceClasses complete),
       tcInterfaceInstances = withoutImported iiDictName (tcInterfaceInstances imported) (tcInterfaceInstances complete),
       tcInterfaceDataFamilyInstances = withoutImported dfiiAxiomName (tcInterfaceDataFamilyInstances imported) (tcInterfaceDataFamilyInstances complete)

@@ -16,6 +16,7 @@ module Aihc.Tc.Env
 
     -- * Datatype and constructor info
     DataTypeInfo (..),
+    dataTypeKey,
     DataConInfo (..),
     DataConFieldInfo (..),
     DataConFieldUnpack (..),
@@ -96,6 +97,9 @@ data DataTypeInfo = DataTypeInfo
     dtiConstructors :: ![DataConInfo]
   }
   deriving (Eq, Show, Read)
+
+dataTypeKey :: DataTypeInfo -> TcTypeKey
+dataTypeKey = tyConKey . dtiTyCon
 
 -- | The source declaration form of a constructor. Stock deriving needs this
 -- distinction for constructor rendering and record-specific operations.
