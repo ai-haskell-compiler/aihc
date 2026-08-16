@@ -77,13 +77,13 @@ data TyConInfo = TyConInfo
     tciFlavor :: !TyConFlavor,
     tciTypeSynonym :: !(Maybe TypeSynonymInfo)
   }
-  deriving (Show, Read)
+  deriving (Eq, Show, Read)
 
 data TypeSynonymInfo = TypeSynonymInfo
   { tsiParams :: ![TyVarId],
     tsiBody :: !(Maybe TcType)
   }
-  deriving (Show, Read)
+  deriving (Eq, Show, Read)
 
 -- | Checked information about a data or newtype declaration. This is the
 -- semantic constructor layout consumed by deriving and exported through
@@ -174,7 +174,7 @@ data ClassInfo = ClassInfo
     -- DeriveAnyClass selects the default implementation.
     ciDefaultSignatures :: ![(Text, TypeScheme)]
   }
-  deriving (Show, Read)
+  deriving (Eq, Show, Read)
 
 -- | Information about a class instance.
 data InstanceInfo = InstanceInfo
@@ -191,7 +191,7 @@ data InstanceInfo = InstanceInfo
     -- | Instance head types.
     iiHead :: ![TcType]
   }
-  deriving (Show, Read)
+  deriving (Eq, Show, Read)
 
 -- | A checked standalone data-family instance equation. The representation
 -- type and nominal axiom are compiler-internal names derived from the first
@@ -205,7 +205,7 @@ data DataFamilyInstanceInfo = DataFamilyInstanceInfo
     dfiiConstructorNames :: ![Text],
     dfiiIsNewtype :: !Bool
   }
-  deriving (Show, Read)
+  deriving (Eq, Show, Read)
 
 dataFamilyRepresentationName :: Text -> Text -> Text
 dataFamilyRepresentationName familyName firstConstructor =

@@ -39,9 +39,6 @@ import Aihc.Resolve
   )
 import Aihc.Tc
   ( ClassInfo (..),
-    DataFamilyInstanceInfo (..),
-    DataTypeInfo (..),
-    InstanceInfo (..),
     Pred (..),
     TcInterface (..),
     TcTermKey (..),
@@ -192,7 +189,7 @@ installPackageV2 verbose storeRoot dependencies root = do
     InstalledV2Package
       { installedV2Result = InstallV2Result storePath (Set.toAscList written) (Set.toAscList reused),
         installedV2Exports = ownExports,
-        installedV2Types = mconcat (zipWith (localModuleTypeInterface resolvePackage) exposedSources exposedTypes),
+        installedV2Types = mconcat exposedTypes,
         installedV2ScopeHashes = Map.restrictKeys allScopeHashes exposedNames,
         installedV2TypeHashes = Map.restrictKeys allTypeHashes exposedNames
       }
@@ -289,7 +286,7 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
         pure False
   let changed = resolveChanged || typeChanged || coreChanged
       unitSet = Set.fromList unitNames
-      localUnitTypes = mconcat (zipWith (localModuleTypeInterface resolvePackage) unit unitTypes)
+      localUnitTypes = mconcat unitTypes
       written' = if changed then written <> unitSet else written
       reused' = if changed then reused else reused <> unitSet
   pure
@@ -353,6 +350,7 @@ moduleTypeInterface :: ModuleExports -> Package -> TcInterface -> SourceModule -
 moduleTypeInterface exports package interface source =
   addTermSupportTyCons
     interface
+    interface
       { tcInterfaceTerms = filter visibleTerm (tcInterfaceTerms interface),
         tcInterfaceTyCons = filter visibleTyCon (tcInterfaceTyCons interface),
         tcInterfaceDataTypes = filter (visibleTypeIdentity . dataTypeKey) (tcInterfaceDataTypes interface),
@@ -384,34 +382,16 @@ moduleTypeInterface exports package interface source =
       ResolvedTopLevel packageId' resolvedName -> Just (packageId', fromMaybe name (nameQualifier resolvedName), nameText resolvedName)
       _ -> Nothing
 
-localModuleTypeInterface :: Package -> SourceModule -> TcInterface -> TcInterface
-localModuleTypeInterface package source interface =
-  interface
-    { tcInterfaceTerms = filter localTerm (tcInterfaceTerms interface),
-      tcInterfaceTyCons = filter (localTyCon . tciTyCon) (tcInterfaceTyCons interface),
-      tcInterfaceDataTypes = filter (localTyCon . dtiTyCon) (tcInterfaceDataTypes interface),
-      tcInterfaceClasses = filter localClass (tcInterfaceClasses interface),
-      tcInterfaceInstances = filter localInstance (tcInterfaceInstances interface),
-      tcInterfaceDataFamilyInstances = filter (localTyCon . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstances interface)
-    }
-  where
-    name = fromMaybe "Main" (moduleName (sourceModuleAst source))
-    packageIdentity = packageId package
-    localTerm (TcTermGlobal packageId' moduleName' _, _) = packageId' == packageIdentity && moduleName' == name
-    localTerm (TcTermLocal {}, _) = False
-    localTyCon tyCon = tyConPackageId tyCon == packageIdentity && tyConModuleName tyCon == name
-    localClass info = ciOrigin info == Just (packageIdText packageIdentity, name)
-    localInstance info = iiDictOrigin info == Just (packageIdText packageIdentity, name)
-
-addTermSupportTyCons :: TcInterface -> TcInterface
-addTermSupportTyCons interface =
+addTermSupportTyCons :: TcInterface -> TcInterface -> TcInterface
+addTermSupportTyCons complete interface =
   interface {tcInterfaceTyCons = Map.elems (existing <> support)}
   where
     existing = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons interface]
+    available = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons complete]
     referenced = concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface)
     support =
       Map.fromList
-        [ (tyCon, TyConInfo (tyConName tyCon) (tyConArity tyCon) tyCon DataTyCon Nothing)
+        [ (tyCon, Map.findWithDefault (TyConInfo (tyConName tyCon) (tyConArity tyCon) tyCon DataTyCon Nothing) tyCon available)
         | tyCon <- referenced,
           tyCon `Map.notMember` existing
         ]

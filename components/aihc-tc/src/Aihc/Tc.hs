@@ -171,7 +171,7 @@ data TcInterface = TcInterface
     tcInterfaceInstances :: ![InstanceInfo],
     tcInterfaceDataFamilyInstances :: ![DataFamilyInstanceInfo]
   }
-  deriving (Show, Read)
+  deriving (Eq, Show, Read)
 
 emptyTcInterface :: TcInterface
 emptyTcInterface =
@@ -198,8 +198,16 @@ instance Semigroup TcInterface where
 instance Monoid TcInterface where
   mempty = emptyTcInterface
 
-mergeInterfaceEntries :: (Ord key, Show key) => String -> (value -> key) -> [value] -> [value]
-mergeInterfaceEntries label key = Map.elems . mapFromListNoDuplicates label . map (\value -> (key value, value))
+mergeInterfaceEntries :: (Ord key, Show key, Eq value) => String -> (value -> key) -> [value] -> [value]
+mergeInterfaceEntries label key values = reverse ordered
+  where
+    (_, ordered) = foldl' insertEntry (Map.empty, []) values
+    insertEntry (entries, previousValues) value =
+      case Map.lookup (key value) entries of
+        Nothing -> (Map.insert (key value) value entries, value : previousValues)
+        Just previous
+          | previous == value -> (entries, previousValues)
+          | otherwise -> error ("conflicting " <> label <> " key: " <> show (key value))
 
 mapFromListNoDuplicates :: (Ord key, Show key) => String -> [(key, value)] -> Map.Map key value
 mapFromListNoDuplicates label = foldl' insertEntry Map.empty
@@ -209,17 +217,7 @@ mapFromListNoDuplicates label = foldl' insertEntry Map.empty
       | otherwise = Map.insert key value entries
 
 mergeTyConInfos :: [TyConInfo] -> [TyConInfo]
-mergeTyConInfos = Map.elems . foldl' insertInfo Map.empty
-  where
-    insertInfo entries info =
-      case Map.lookup (tciTyCon info) entries of
-        Nothing -> Map.insert (tciTyCon info) info entries
-        Just previous -> Map.insert (tciTyCon info) (mergeSupportName info previous) entries
-    mergeSupportName new old
-      | isSupportName new && not (isSupportName old) = old
-      | isSupportName old && not (isSupportName new) = new
-      | otherwise = error ("duplicate type constructor interface key: " <> show (tciTyCon new))
-    isSupportName info = tciName info == tyConName (tciTyCon info)
+mergeTyConInfos = mergeInterfaceEntries "type constructor interface" tciTyCon
 
 tcTermKeyIdentifier :: TcTermKey -> Maybe Text
 tcTermKeyIdentifier key =
