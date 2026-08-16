@@ -143,6 +143,7 @@ import Control.Monad ((<=<))
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Data.Bifunctor qualified as Bifunctor
 import Data.Data (Data, gmapM, gmapQ)
+import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe, maybeToList)
 import Data.Text (Text)
@@ -201,7 +202,7 @@ instance Monoid TcInterface where
 mergeInterfaceEntries :: (Ord key, Show key, Eq value) => String -> (value -> key) -> [value] -> [value]
 mergeInterfaceEntries label key values = reverse ordered
   where
-    (_, ordered) = foldl' insertEntry (Map.empty, []) values
+    (_, ordered) = List.foldl' insertEntry (Map.empty, []) values
     insertEntry (entries, previousValues) value =
       case Map.lookup (key value) entries of
         Nothing -> (Map.insert (key value) value entries, value : previousValues)
@@ -210,7 +211,7 @@ mergeInterfaceEntries label key values = reverse ordered
           | otherwise -> error ("conflicting " <> label <> " key: " <> show (key value))
 
 mapFromListNoDuplicates :: (Ord key, Show key) => String -> [(key, value)] -> Map.Map key value
-mapFromListNoDuplicates label = foldl' insertEntry Map.empty
+mapFromListNoDuplicates label = List.foldl' insertEntry Map.empty
   where
     insertEntry entries (key, value)
       | Map.member key entries = error ("duplicate " <> label <> " key: " <> show key)
