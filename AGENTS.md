@@ -120,9 +120,23 @@ Use test-first development for `aihc`.
 For a new feature, first add tests for its expected use and some limit conditions.
 For a defect correction, first add a regression test.
 
-Use the existing test fixture framework for all tests.
-Use a hand-written unit test only when this framework cannot test an essential property.
-In that test, explain fully why the property is essential and why the framework cannot test it.
+### Mandatory Fixture Test Gate
+
+Use a fixture when source text can trigger the tested behavior.
+An internal API or invariant does not by itself permit a hand-written unit test.
+Do not add a hand-written unit test when an existing or new fixture can trigger the same failure.
+
+Before you add a hand-written unit test, complete these steps:
+
+1. Identify the essential property that requires the unit test.
+2. Explain why no fixture can test that property.
+3. Get explicit user approval for the exception.
+4. Add this explanation as a comment next to the test.
+
+If you cannot complete all four steps, do not add the unit test.
+
+Before each commit, inspect the diff for new hand-written tests.
+Remove each test that does not have an approved exception comment.
 
 Run the full suite with `just check`.
 The common test results are `PASS`, `XFAIL`, `FAIL`, and `XPASS`.
