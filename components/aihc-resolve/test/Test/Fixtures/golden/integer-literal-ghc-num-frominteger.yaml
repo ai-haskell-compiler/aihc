@@ -9,7 +9,7 @@ annotated:
   class Num a where
         └─ t GHC.Num
     fromInteger :: Integer -> a
-                   └─ t GHC.Num
+    └─ v GHC.Num   └─ t GHC.Num
 - |-
   module GHC.Prim where
   data Int#

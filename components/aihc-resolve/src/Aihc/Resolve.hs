@@ -479,7 +479,11 @@ resolveClassDeclItem :: ClassDeclItem -> ResolveM ClassDeclItem
 resolveClassDeclItem classDeclItem =
   case classDeclItem of
     ClassItemAnn ann inner -> ClassItemAnn ann <$> withPushedSpan ann (resolveClassDeclItem inner)
-    ClassItemTypeSig names ty -> ClassItemTypeSig names <$> resolveType ty
+    ClassItemTypeSig names ty -> do
+      scope <- currentScope
+      sp <- currentSpan
+      let names' = map (resolveTermDefinitionAt sp (topLevelTermDefinition scope)) names
+      ClassItemTypeSig names' <$> resolveType ty
     ClassItemDefaultSig name ty -> ClassItemDefaultSig name <$> resolveType ty
     ClassItemDefault valueDecl -> do
       scope <- currentScope
