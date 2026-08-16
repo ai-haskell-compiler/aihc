@@ -21,7 +21,9 @@ annotated:
     class Monad m where
           └─ t GHC.Base
       (>>=) :: m a -> (a -> m b) -> m b
+       └─ v GHC.Base
       return :: a -> m a
+      └─ v GHC.Base
   - |
     module Main where
 

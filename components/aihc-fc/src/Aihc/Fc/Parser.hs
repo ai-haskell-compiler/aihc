@@ -18,7 +18,7 @@ import Aihc.Tc.Types
 import Control.Applicative ((<|>))
 import Control.Monad (guard, void)
 import Data.ByteString qualified as BS
-import Data.Char (isAlphaNum, isSpace, ord)
+import Data.Char (isAlphaNum, isAscii, isAsciiUpper, isSpace, ord)
 import Data.Either (fromRight)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -42,9 +42,8 @@ type TermEnv = Map Text Var
 
 type TyEnv = Map Text TyVarId
 
-data UnboxedTupleSyntax = UnboxedTupleSyntax
-  { unboxedTupleSyntaxText :: !Text,
-    unboxedTupleSyntaxArity :: !Int
+newtype UnboxedTupleSyntax = UnboxedTupleSyntax
+  { unboxedTupleSyntaxArity :: Int
   }
 
 parseProgram :: Text -> Either FcParseError FcProgram
@@ -267,13 +266,58 @@ declarationName moduleOrigin = do
 constructorIdentity :: Parser (Text, FcConstructorId)
 constructorIdentity = do
   packageName <- text
-  qualified <- qualifiedName
-  let (moduleName, constructorName) = splitQualified qualified
-  guard (moduleName /= "")
-  pure
-    ( constructorName,
-      FcConstructorId (PackageId packageName) moduleName constructorName
-    )
+  qualified <- lexeme (T.pack <$> MP.some (MP.satisfy (not . isSpace)))
+  case splitConstructorIdentity qualified of
+    Just (moduleName, constructorName) ->
+      pure (makeConstructorIdentity packageName moduleName constructorName)
+    Nothing -> fail "invalid qualified System FC constructor name"
+
+makeConstructorIdentity :: Text -> Text -> Text -> (Text, FcConstructorId)
+makeConstructorIdentity packageName moduleName constructorName =
+  ( constructorName,
+    FcConstructorId (PackageId packageName) moduleName constructorName
+  )
+
+splitConstructorIdentity :: Text -> Maybe (Text, Text)
+splitConstructorIdentity qualified =
+  case reverse candidates of
+    candidate : _ -> Just candidate
+    [] -> Nothing
+  where
+    candidates =
+      [ (moduleName, constructorName)
+      | offset <- [1 .. T.length qualified - 1],
+        T.index qualified offset == '.',
+        let moduleName = T.take offset qualified,
+        let constructorName = T.drop (offset + 1) qualified,
+        validModuleName moduleName,
+        validName constructorName
+      ]
+
+validModuleName :: Text -> Bool
+validModuleName = all validModuleSegment . T.splitOn "."
+
+validModuleSegment :: Text -> Bool
+validModuleSegment segment =
+  case T.uncons segment of
+    Just (first, rest) -> isAsciiUpper first && T.all nameCharacter rest
+    Nothing -> False
+
+validName :: Text -> Bool
+validName value =
+  validDelimitedName '(' ')' value
+    || validDelimitedName '[' ']' value
+    || (not (T.null value) && T.all nameCharacter value)
+    || (not (T.null value) && T.all (`elem` operatorNameCharacters) value)
+
+validDelimitedName :: Char -> Char -> Text -> Bool
+validDelimitedName opening closing value =
+  case (T.uncons value, T.unsnoc value) of
+    (Just (first, _), Just (contents, lastCharacter)) ->
+      first == opening
+        && lastCharacter == closing
+        && T.all (delimitedNameCharacter opening closing) (T.drop 1 contents)
+    _ -> False
 
 primitiveDeclaration :: Parser FcTopBind
 primitiveDeclaration = do
@@ -514,15 +558,11 @@ resolvedOriginName = do
 topLevelOrigin :: Parser (Text, Maybe FcSymbolOrigin)
 topLevelOrigin = do
   packageName <- MP.optional (MP.try text)
-  qualified <- qualifiedName
-  case T.stripSuffix "." qualified of
-    Just moduleName -> do
-      symbolName <- name
+  qualified <- lexeme (T.pack <$> MP.some (MP.satisfy qualifiedSymbolCharacter))
+  case splitConstructorIdentity qualified of
+    Just (moduleName, symbolName) ->
       pure (symbolName, Just (FcTopLevelOrigin (fromMaybe "" packageName) moduleName symbolName))
-    Nothing -> do
-      let (moduleName, symbolName) = splitQualified qualified
-      guard (moduleName /= "")
-      pure (symbolName, Just (FcTopLevelOrigin (fromMaybe "" packageName) moduleName symbolName))
+    Nothing -> fail "invalid qualified System FC symbol name"
 
 builtinOrigin :: Parser (Text, Maybe FcSymbolOrigin)
 builtinOrigin = do
@@ -531,16 +571,18 @@ builtinOrigin = do
   pure (symbolName, Just (FcBuiltinOrigin symbolName))
 
 qualifiedName :: Parser Text
-qualifiedName = lexeme (T.pack <$> MP.some (MP.satisfy qualifiedNameCharacter))
+qualifiedName = lexeme qualifiedNameRaw
+
+qualifiedNameRaw :: Parser Text
+qualifiedNameRaw = T.pack <$> MP.some (MP.satisfy qualifiedNameCharacter)
 
 qualifiedNameCharacter :: Char -> Bool
 qualifiedNameCharacter character =
   not (isSpace character) && character `notElem` (":(){}[];," :: String)
 
-splitQualified :: Text -> (Text, Text)
-splitQualified value =
-  let (prefix, suffix) = T.breakOnEnd "." value
-   in (T.dropEnd 1 prefix, suffix)
+qualifiedSymbolCharacter :: Char -> Bool
+qualifiedSymbolCharacter character =
+  not (isSpace character) && character `notElem` ("{}" :: String)
 
 localOccurrence :: TermEnv -> Parser FcExpr
 localOccurrence termEnv = do
@@ -654,12 +696,10 @@ unboxedTupleTypeApplication tyEnv = do
 
 unboxedTupleSyntax :: Parser UnboxedTupleSyntax
 unboxedTupleSyntax = do
-  (source, commaCount) <- MP.match $ do
-    _ <- MPC.string "(#"
-    count <- length <$> MP.many (MPC.char ',')
-    _ <- MPC.string "#)"
-    pure count
-  pure (UnboxedTupleSyntax source (if commaCount == 0 then 0 else commaCount + 1))
+  _ <- MPC.string "(#"
+  commaCount <- length <$> MP.many (MPC.char ',')
+  _ <- MPC.string "#)"
+  pure (UnboxedTupleSyntax (if commaCount == 0 then 0 else commaCount + 1))
 
 typeAtom :: TyEnv -> Parser TcType
 typeAtom tyEnv =
@@ -834,17 +874,31 @@ uniqueFor :: Text -> Unique
 uniqueFor = Unique . T.foldl' (\hash character -> hash * 33 + ord character) 5381
 
 name :: Parser Text
-name = lexeme (unboxedTupleName <|> specialName <|> ordinaryName <|> MP.try operatorName)
+name = lexeme (delimitedSymbolName '(' ')' <|> delimitedSymbolName '[' ']' <|> MP.try operatorName <|> ordinaryName)
   where
-    unboxedTupleName = do
-      syntax <- MP.try unboxedTupleSyntax
-      pure (unboxedTupleSyntaxText syntax)
-    specialName = MP.choice (map MPC.string ["(,)", "()", "[]"])
     operatorName = do
-      value <- T.pack <$> MP.some (MP.satisfy (`elem` ("!#$%&*+./<=>?@\\^|-~:" :: String)))
+      value <- T.pack <$> MP.some (MP.satisfy (`elem` operatorNameCharacters))
       guard (value `notElem` ["=", "|", "~", "@"])
+      following <- MP.optional (MP.lookAhead MP.anySingle)
+      guard (maybe True (not . nameCharacter) following)
       pure value
     ordinaryName = T.pack <$> MP.some (MP.satisfy nameCharacter)
+
+delimitedSymbolName :: Char -> Char -> Parser Text
+delimitedSymbolName opening closing = do
+  contents <- MPC.char opening *> MP.many (MP.satisfy (delimitedNameCharacter opening closing)) <* MPC.char closing
+  pure (T.cons opening (T.snoc (T.pack contents) closing))
+
+operatorNameCharacters :: [Char]
+operatorNameCharacters = "!#$%&*+./<=>?@\\^|-~:"
+
+delimitedNameCharacter :: Char -> Char -> Char -> Bool
+delimitedNameCharacter opening closing character =
+  isAscii character
+    && not (isAlphaNum character)
+    && not (isSpace character)
+    && character /= opening
+    && character /= closing
 
 nameCharacter :: Char -> Bool
 nameCharacter character =

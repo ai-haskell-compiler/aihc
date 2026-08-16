@@ -8,21 +8,24 @@ modules:
     makePair :: a -> a -> StrictPair a
     makePair left right = StrictPair left right
 expected: |-
-  module Test where
+  module "" Test where
 
-  data StrictPair (a : TYPE BoxedRep Lifted)
-   = StrictPair (a) (a)
+  data "" Test.StrictPair (a{unique 22} : Type) : Type
+   = "" Test.StrictPair ((a{unique 22} : Type)) ((a{unique 22} : Type))
 
-  makePair : ∀ (a : TYPE BoxedRep Lifted). a → a → StrictPair a =
-    Λ(a : TYPE BoxedRep Lifted).
-      λ(x1001 : a).
-        λ(y1002 : a).
-          case x1001 as (_strict_field1004 : (a : TYPE BoxedRep Lifted)) of {
-            _ →
-              case y1002 as (_strict_field1005 : (a : TYPE BoxedRep Lifted)) of {
-                _ →
-                  ((StrictPair @(a : TYPE BoxedRep Lifted)) _strict_field1004) _strict_field1005
-              }
-          }
-status: pass
-reason: saturated applications force source-strict constructor fields before allocating the constructor
+  rec {
+    makePair{unique 1000} : ∀ (a{unique 25} : Type). (a{unique 25} : Type) → (a{unique 25} : Type) → tycon "" "Test" StrictPair/1 { :: Type → Type }[(a{unique 25} : Type)];
+    makePair{unique 1000} =
+      Λ(a{unique 25} : Type).
+        λ(x1001{unique 1001} : (a{unique 25} : Type)).
+          λ(y1002{unique 1002} : (a{unique 25} : Type)).
+            case (x1001{unique 1001} : (a{unique 25} : Type)) as (_strict_field1003{unique 1003} : (a{unique 22} : Type)) of {
+              _ →
+                case (y1002{unique 1002} : (a{unique 25} : Type)) as (_strict_field1004{unique 1004} : (a{unique 22} : Type)) of {
+                  _ →
+                    (((StrictPair{unique -2005649123}{origin "" Test.StrictPair} : ∀ (a{unique 22} : Type). (a{unique 22} : Type) → (a{unique 22} : Type) → tycon "" "Test" StrictPair/1 { :: Type → Type }[(a{unique 22} : Type)]) @(a{unique 28} : Type)) (_strict_field1003{unique 1003} : (a{unique 22} : Type))) (_strict_field1004{unique 1004} : (a{unique 22} : Type))
+                }
+            }
+  }
+status: xfail
+reason: FC lint finds declaration type variables in strict field binders after constructor instantiation

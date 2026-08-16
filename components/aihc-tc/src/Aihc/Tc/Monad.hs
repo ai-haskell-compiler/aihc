@@ -54,6 +54,7 @@ module Aihc.Tc.Monad
     extendResolvedTermEnv,
     extendTermKeyEnvPermanent,
     extendTermEnvPermanent,
+    finalizeInferredTermEnvPermanent,
     extendTyConTermEnvPermanent,
     extendResolvedTermEnvPermanent,
     getTermEnv,
@@ -62,6 +63,7 @@ module Aihc.Tc.Monad
     lookupDeclaredTyCon,
     lookupTyConByIdentity,
     extendTyConEnvPermanent,
+    replaceTyConEnvPermanent,
     getTyConEnv,
     addDataType,
     getDataTypes,
@@ -94,10 +96,11 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo, DataTypeInfo (..), InstanceInfo, TyConInfo (..))
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConInfo (..), dataTypeKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
+import Control.Monad (foldM, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', runStateT)
@@ -222,7 +225,7 @@ data TcState = TcState
     -- | Global type constructors accumulated by top-level declarations.
     tcsGlobalTyCons :: !(Map TyCon TyConInfo),
     -- | Checked constructor layouts for data and newtype declarations.
-    tcsDataTypes :: !(Map Text DataTypeInfo),
+    tcsDataTypes :: !(Map TcTypeKey DataTypeInfo),
     -- | Type classes in scope, including their superclass layouts and defaults.
     tcsClasses :: !(Map Text ClassInfo),
     -- | Class instances in scope.
@@ -393,9 +396,10 @@ getTermEnv = do
 -- | Extend the term environment with a new binding for the duration
 -- of the given computation.
 extendTermEnv :: TcTermKey -> TcBinder -> TcM a -> TcM a
-extendTermEnv key binder =
-  local $ \env ->
-    env {tcEnvTerms = Map.insert key binder (tcEnvTerms env)}
+extendTermEnv key binder action = do
+  terms <- asks tcEnvTerms
+  terms' <- insertNewMap "local term environment" key binder terms
+  local (\env -> env {tcEnvTerms = terms'}) action
 
 extendResolvedTermEnv :: UnqualifiedName -> TcBinder -> TcM a -> TcM a
 extendResolvedTermEnv name binder action = do
@@ -405,23 +409,39 @@ extendResolvedTermEnv name binder action = do
 -- | Permanently extend the global term environment (for top-level
 -- declarations like data constructors and top-level bindings).
 extendTermKeyEnvPermanent :: TcTermKey -> TcBinder -> TcM ()
-extendTermKeyEnvPermanent key binder = lift $ modify' $ \state ->
-  state {tcsGlobalTerms = Map.insert key binder (tcsGlobalTerms state)}
+extendTermKeyEnvPermanent key binder = do
+  terms <- lift $ gets tcsGlobalTerms
+  terms' <- insertNewMap "global term environment" key binder terms
+  lift $ modify' $ \state -> state {tcsGlobalTerms = terms'}
 
 extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
 extendTermEnvPermanent name = extendTermKeyEnvPermanent (unqualifiedTermKey name)
 
+-- | Replace the temporary monomorphic entries for one inferred top-level
+-- binding. No other permanent term entry can use this operation.
+finalizeInferredTermEnvPermanent :: Text -> TcTermKey -> TcType -> TypeScheme -> TcM ()
+finalizeInferredTermEnvPermanent name key placeholderTy scheme = do
+  terms <- lift $ gets tcsGlobalTerms
+  terms' <- foldM finalizePlaceholder terms [unqualifiedTermKey name, key]
+  lift $ modify' $ \state -> state {tcsGlobalTerms = terms'}
+  where
+    finalizedBinder = TcIdBinder scheme Closed
+    finalizePlaceholder entries placeholderKey =
+      case Map.lookup placeholderKey entries of
+        Just (TcMonoIdBinder existingTy)
+          | existingTy == placeholderTy ->
+              pure (Map.insert placeholderKey finalizedBinder entries)
+        Just _ ->
+          abortTc ("global term key is not the expected inferred placeholder: " <> show placeholderKey)
+        Nothing ->
+          abortTc ("missing inferred term placeholder key: " <> show placeholderKey)
+
 extendTyConTermEnvPermanent :: TyCon -> Text -> TcBinder -> TcM ()
 extendTyConTermEnvPermanent tyCon name binder = do
   extendTermEnvPermanent name binder
-  lift $ modify' $ \state ->
-    state
-      { tcsGlobalTerms =
-          Map.insert
-            (TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) name)
-            binder
-            (tcsGlobalTerms state)
-      }
+  extendTermKeyEnvPermanent
+    (TcTermGlobal (tyConPackageId tyCon) (tyConModuleName tyCon) name)
+    binder
 
 -- | Add a source binder under its resolver identity and its source name.
 extendResolvedTermEnvPermanent :: UnqualifiedName -> TcBinder -> TcM ()
@@ -501,42 +521,70 @@ getTyConEnv :: TcM (Map TyCon TyConInfo)
 getTyConEnv = lift $ gets tcsGlobalTyCons
 
 extendTyConEnvPermanent :: Text -> TyConInfo -> TcM ()
-extendTyConEnvPermanent _ info = lift $ modify' $ \s ->
-  s {tcsGlobalTyCons = Map.insert (tciTyCon info) info (tcsGlobalTyCons s)}
+extendTyConEnvPermanent _ info = do
+  tyCons <- lift $ gets tcsGlobalTyCons
+  tyCons' <- insertNewMap "global type constructor environment" (tciTyCon info) info tyCons
+  lift $ modify' $ \state -> state {tcsGlobalTyCons = tyCons'}
+
+replaceTyConEnvPermanent :: TyConInfo -> TcM ()
+replaceTyConEnvPermanent info = do
+  tyCons <- lift $ gets tcsGlobalTyCons
+  tyCons' <- replaceMapEntry "global type constructor environment" (tciTyCon info) info tyCons
+  lift $ modify' $ \state -> state {tcsGlobalTyCons = tyCons'}
 
 addDataType :: DataTypeInfo -> TcM ()
-addDataType info = lift $ modify' $ \state ->
-  state {tcsDataTypes = Map.insert (dtiName info) info (tcsDataTypes state)}
+addDataType info = do
+  dataTypes <- lift $ gets tcsDataTypes
+  dataTypes' <- insertNewMap "data type state" (dataTypeKey info) info dataTypes
+  lift $ modify' $ \state -> state {tcsDataTypes = dataTypes'}
 
 getDataTypes :: TcM [DataTypeInfo]
 getDataTypes = lift $ gets (Map.elems . tcsDataTypes)
 
-lookupDataType :: Text -> TcM (Maybe DataTypeInfo)
-lookupDataType name = lift $ gets (Map.lookup name . tcsDataTypes)
+lookupDataType :: TyCon -> TcM (Maybe DataTypeInfo)
+lookupDataType tyCon = lift $ gets (Map.lookup (tyConKey tyCon) . tcsDataTypes)
 
 addInstance :: InstanceInfo -> TcM ()
-addInstance instanceInfo = lift $ modify' $ \s ->
-  s {tcsInstances = instanceInfo : tcsInstances s}
+addInstance instanceInfo = do
+  instances <- lift $ gets tcsInstances
+  when (any ((== iiDictName instanceInfo) . iiDictName) instances) $
+    abortTc ("duplicate instance state key: " <> show (iiDictName instanceInfo))
+  lift $ modify' $ \state -> state {tcsInstances = instanceInfo : instances}
 
 getInstances :: TcM [InstanceInfo]
 getInstances = lift $ gets tcsInstances
 
 addDataFamilyInstance :: DataFamilyInstanceInfo -> TcM ()
-addDataFamilyInstance instanceInfo = lift $ modify' $ \state ->
-  state {tcsDataFamilyInstances = instanceInfo : tcsDataFamilyInstances state}
+addDataFamilyInstance instanceInfo = do
+  instances <- lift $ gets tcsDataFamilyInstances
+  when (any ((== dfiiAxiomName instanceInfo) . dfiiAxiomName) instances) $
+    abortTc ("duplicate data family instance state key: " <> show (dfiiAxiomName instanceInfo))
+  lift $ modify' $ \state -> state {tcsDataFamilyInstances = instanceInfo : instances}
 
 getDataFamilyInstances :: TcM [DataFamilyInstanceInfo]
 getDataFamilyInstances = lift $ gets tcsDataFamilyInstances
 
 addClass :: ClassInfo -> TcM ()
-addClass classInfo = lift $ modify' $ \state ->
-  state {tcsClasses = Map.insert (ciName classInfo) classInfo (tcsClasses state)}
+addClass classInfo = do
+  classes <- lift $ gets tcsClasses
+  classes' <- insertNewMap "class state" (ciName classInfo) classInfo classes
+  lift $ modify' $ \state -> state {tcsClasses = classes'}
 
 getClasses :: TcM [ClassInfo]
 getClasses = lift $ gets (Map.elems . tcsClasses)
 
 lookupClass :: Text -> TcM (Maybe ClassInfo)
 lookupClass className = lift $ gets (Map.lookup className . tcsClasses)
+
+insertNewMap :: (Ord key, Show key) => String -> key -> value -> Map key value -> TcM (Map key value)
+insertNewMap label key value entries
+  | Map.member key entries = abortTc ("duplicate " <> label <> " key: " <> show key)
+  | otherwise = pure (Map.insert key value entries)
+
+replaceMapEntry :: (Ord key, Show key) => String -> key -> value -> Map key value -> TcM (Map key value)
+replaceMapEntry label key value entries
+  | Map.member key entries = pure (Map.insert key value entries)
+  | otherwise = abortTc ("missing " <> label <> " key for replacement: " <> show key)
 
 -- | Run a computation with adjusted local type-checker options.
 localTcOptions :: (Bool -> Bool) -> (Bool -> Bool) -> TcM a -> TcM a

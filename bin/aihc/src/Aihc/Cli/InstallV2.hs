@@ -39,7 +39,6 @@ import Aihc.Resolve
   )
 import Aihc.Tc
   ( ClassInfo (..),
-    DataTypeInfo (..),
     Pred (..),
     TcInterface (..),
     TcTermKey (..),
@@ -48,6 +47,7 @@ import Aihc.Tc
     TyConFlavor (..),
     TyConInfo (..),
     TypeScheme (..),
+    dataTypeKey,
     tcConfig,
     tcInterfaceBindings,
     tcModuleBindings,
@@ -286,12 +286,13 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
         pure False
   let changed = resolveChanged || typeChanged || coreChanged
       unitSet = Set.fromList unitNames
+      localUnitTypes = mconcat unitTypes
       written' = if changed then written <> unitSet else written
       reused' = if changed then reused else reused <> unitSet
   pure
     ( diskExports `Map.union` dependencyExports,
       updatedScopeHashes,
-      dependencyTypes <> mconcat unitTypes,
+      dependencyTypes <> localUnitTypes,
       updatedTypeHashes,
       written',
       reused'
@@ -349,9 +350,10 @@ moduleTypeInterface :: ModuleExports -> Package -> TcInterface -> SourceModule -
 moduleTypeInterface exports package interface source =
   addTermSupportTyCons
     interface
+    interface
       { tcInterfaceTerms = filter visibleTerm (tcInterfaceTerms interface),
         tcInterfaceTyCons = filter visibleTyCon (tcInterfaceTyCons interface),
-        tcInterfaceDataTypes = filter (visibleTypeIdentity . dtiNameAndOrigin) (tcInterfaceDataTypes interface),
+        tcInterfaceDataTypes = filter (visibleTypeIdentity . dataTypeKey) (tcInterfaceDataTypes interface),
         tcInterfaceClasses = filter visibleClass (tcInterfaceClasses interface)
       }
   where
@@ -368,9 +370,6 @@ moduleTypeInterface exports package interface source =
       let tyCon = tciTyCon info
           identity = (tyConPackageId tyCon, tyConModuleName tyCon, tciName info)
        in Map.member (tciName info) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (tciName info)
-    dtiNameAndOrigin info =
-      let tyCon = dtiTyCon info
-       in (tyConPackageId tyCon, tyConModuleName tyCon, dtiName info)
     visibleTypeIdentity identity = Map.member (third identity) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (third identity)
     visibleClass info =
       case ciOrigin info of
@@ -383,15 +382,16 @@ moduleTypeInterface exports package interface source =
       ResolvedTopLevel packageId' resolvedName -> Just (packageId', fromMaybe name (nameQualifier resolvedName), nameText resolvedName)
       _ -> Nothing
 
-addTermSupportTyCons :: TcInterface -> TcInterface
-addTermSupportTyCons interface =
+addTermSupportTyCons :: TcInterface -> TcInterface -> TcInterface
+addTermSupportTyCons complete interface =
   interface {tcInterfaceTyCons = Map.elems (existing <> support)}
   where
     existing = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons interface]
+    available = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons complete]
     referenced = concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface)
     support =
       Map.fromList
-        [ (tyCon, TyConInfo (tyConName tyCon) (tyConArity tyCon) tyCon DataTyCon Nothing)
+        [ (tyCon, Map.findWithDefault (TyConInfo (tyConName tyCon) (tyConArity tyCon) tyCon DataTyCon Nothing) tyCon available)
         | tyCon <- referenced,
           tyCon `Map.notMember` existing
         ]

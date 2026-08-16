@@ -6,11 +6,11 @@ modules:
     data family Payload a
     data instance Payload a = PayloadValue a
 expected: |-
-  module Test where
+  module "" Test where
 
-  data $R$Payload$PayloadValue (a : TYPE BoxedRep Lifted)
-   = PayloadValue (a)
+  data "" Test.$R$Payload$PayloadValue (a{unique 22} : Type) : Type
+   = "" Test.PayloadValue ((a{unique 22} : Type))
 
-  axiom $ax$Payload$PayloadValue (a : TYPE BoxedRep Lifted) : Payload a ~N $R$Payload$PayloadValue a
+  axiom $ax$Payload$PayloadValue (a{unique 22} : Type) : tycon "" "Test" Payload/1 { :: Type → Type }[(a{unique 22} : Type)] ~N tycon "aihc-internal" "Aihc.Internal" $R$Payload$PayloadValue/1 { :: Type → Type }[(a{unique 22} : Type)]
 status: pass
 reason: data-family instances retain an explicit representation type and nominal equality axiom in System FC

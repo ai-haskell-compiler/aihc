@@ -22,34 +22,37 @@ modules:
     second :: Second.Value -> Second.Item
     second (Second.Shared value) = value
 expected: |-
-  module First where
+  module "" First where
 
-  data Item
-   = FirstItem
+  data "" First.Item : Type
+   = "" First.FirstItem
 
-  data Value
-   = Shared (Item)
-  module Second where
+  data "" First.Value : Type
+   = "" First.Shared (tycon "" "First" Item/0 { :: Type })
+  module "" Second where
 
-  data Item
-   = SecondItem
+  data "" Second.Item : Type
+   = "" Second.SecondItem
 
-  data Value
-   = Shared (Item)
-  module Test where
+  data "" Second.Value : Type
+   = "" Second.Shared (tycon "" "Second" Item/0 { :: Type })
+  module "" Test where
 
-  first : Value → Item =
-    λ(x1001 : Value).
-      case x1001 as (_scrut : Value) of {
-        First.Shared (value : Item) →
-          value
-      }
-
-  second : Value → Item =
-    λ(x1005 : Value).
-      case x1005 as (_scrut : Value) of {
-        Second.Shared (value : Item) →
-          value
-      }
+  rec {
+    first{unique 1000} : tycon "" "First" Value/0 { :: Type } → tycon "" "First" Item/0 { :: Type };
+    second{unique 1001} : tycon "" "Second" Value/0 { :: Type } → tycon "" "Second" Item/0 { :: Type };
+    first{unique 1000} =
+      λ(x1002{unique 1002} : tycon "" "First" Value/0 { :: Type }).
+        case (x1002{unique 1002} : tycon "" "First" Value/0 { :: Type }) as (_scrut{unique 1004} : tycon "" "First" Value/0 { :: Type }) of {
+          "" First.Shared (value{unique 1003} : tycon "" "First" Item/0 { :: Type }) →
+            (value{unique 1003} : tycon "" "First" Item/0 { :: Type })
+        };
+    second{unique 1001} =
+      λ(x1005{unique 1005} : tycon "" "Second" Value/0 { :: Type }).
+        case (x1005{unique 1005} : tycon "" "Second" Value/0 { :: Type }) as (_scrut{unique 1007} : tycon "" "Second" Value/0 { :: Type }) of {
+          "" Second.Shared (value{unique 1006} : tycon "" "Second" Item/0 { :: Type }) →
+            (value{unique 1006} : tycon "" "Second" Item/0 { :: Type })
+        }
+  }
 status: pass
 reason: retains the full identity of each constructor pattern

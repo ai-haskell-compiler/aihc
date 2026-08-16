@@ -31,5 +31,5 @@ modules:
   import qualified B
   val1 = A.Con
   val2 = B.Con
-reason: Different module namespaces must not clash
+reason: Data type interface keys include the package, module, and identifier.
 status: pass

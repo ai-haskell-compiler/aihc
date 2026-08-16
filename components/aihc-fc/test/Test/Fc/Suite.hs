@@ -8,10 +8,6 @@ module Test.Fc.Suite
   ( fcGoldenTests,
     fcEvalFixtureTests,
     fcLintTests,
-    fcClassConstraintLoweringTest,
-    fcEmptyDataKindTest,
-    fcPrimitiveLiteralOriginTest,
-    fcTopLevelIdentityTest,
   )
 where
 
@@ -200,38 +196,6 @@ missingLiteralTypeTest = testCase "Core parsing rejects a literal without a chec
   case parseExpr "1#IntRep" of
     Left _ -> pure ()
     Right expression -> assertFailure ("expected a Core parse error, but got: " <> show expression)
-
-fcTopLevelIdentityTest :: IO TestTree
-fcTopLevelIdentityTest = do
-  cases <- loadFcCases
-  pure $
-    case find ((== "top-level-shared-identity.yaml") . caseId) cases of
-      Nothing -> testCase "top-level identity fixture exists" (assertFailure "top-level identity fixture is missing")
-      Just testFixture -> mkTest testFixture
-
-fcEmptyDataKindTest :: IO TestTree
-fcEmptyDataKindTest = do
-  cases <- loadFcCases
-  pure $
-    case find ((== "empty-data-keeps-checked-kind.yaml") . caseId) cases of
-      Nothing -> testCase "empty data kind fixture exists" (assertFailure "empty data kind fixture is missing")
-      Just testFixture -> mkTest testFixture
-
-fcPrimitiveLiteralOriginTest :: IO TestTree
-fcPrimitiveLiteralOriginTest = do
-  cases <- loadFcCases
-  pure $
-    case find ((== "primitive-literals-keep-checked-origin.yaml") . caseId) cases of
-      Nothing -> testCase "primitive literal origin fixture exists" (assertFailure "primitive literal origin fixture is missing")
-      Just testFixture -> mkTest testFixture
-
-fcClassConstraintLoweringTest :: IO TestTree
-fcClassConstraintLoweringTest = do
-  cases <- loadFcCases
-  pure $
-    case find ((== "class-constraints-become-value-dictionaries.yaml") . caseId) cases of
-      Nothing -> testCase "class constraint fixture exists" (assertFailure "class constraint fixture is missing")
-      Just testFixture -> mkTest testFixture
 
 isKindError :: LintError -> Bool
 isKindError KindMismatch {} = True

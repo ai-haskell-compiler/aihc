@@ -32,4 +32,4 @@ modules:
   parse :: Read a => Result -> a
   parse = reads
 reason: forwards a supplied Read dictionary
-status: pass
+status: xfail

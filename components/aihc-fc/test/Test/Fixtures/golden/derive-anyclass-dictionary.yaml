@@ -117,4 +117,4 @@ modules:
   useAny = anyValue
 reason: AnyClass lowering consumes finalized contexts, superclass evidence, and
   default-method evidence attached by the type checker
-status: pass
+status: xfail

@@ -16,9 +16,12 @@ module FcGolden
   )
 where
 
+import Aihc.Fc.Axiom (extractAxiomInterface)
 import Aihc.Fc.Desugar (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface)
+import Aihc.Fc.Lint (LintEnv (..), emptyLintEnv, lintProgramWithAxiomInterface)
 import Aihc.Fc.Parser (parseProgram, renderParseError)
 import Aihc.Fc.Pretty (renderProgram)
+import Aihc.Fc.Syntax (FcProgram (..), FcSymbolOrigin (..))
 import Aihc.Parser
   ( ParserConfig (..),
     defaultConfig,
@@ -26,11 +29,12 @@ import Aihc.Parser
   )
 import Aihc.Parser.Syntax (Extension, Module, moduleName, parseExtensionName)
 import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (TcBindingResult, emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Tc (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), Pred (..), TcBindingResult, TcInterface (..), TcType (..), TyCon (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, isPrefixOf, sort)
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Yaml qualified as Y
@@ -182,7 +186,7 @@ renderFcCase tc =
                               tcResults
                           fixtureResults = drop supportModuleCount results
                        in if all dsSuccess results
-                            then renderResults fixtureResults
+                            then lintAndRenderResults tcInterface results fixtureResults
                             else Left (renderErrors results)
                     else Left ("typecheck error: " <> renderTcErrors tcResults)
             ResolveResult {resolveErrors} ->
@@ -204,6 +208,26 @@ renderFcCase tc =
        in if null errs
             then Right ast
             else Left (show errs)
+    lintAndRenderResults tcInterface results fixtureResults =
+      case renderResults fixtureResults of
+        Left renderError -> Left renderError
+        Right rendered ->
+          let programs = map dsProgram results
+              axioms = foldMap extractAxiomInterface programs
+              lintEnvironment = interfaceLintEnvironment tcInterface
+              lintFailures =
+                [ (fcProgramModule program, lintError)
+                | program <- programs,
+                  lintError <- lintProgramWithAxiomInterface axioms lintEnvironment program
+                ]
+           in case lintFailures of
+                [] -> Right rendered
+                _ ->
+                  Left
+                    ( unlines ["System FC lint error in " <> show moduleId <> ": " <> show lintError | (moduleId, lintError) <- lintFailures]
+                        <> "\nSystem FC output:\n"
+                        <> rendered
+                    )
     renderResults results =
       unlines <$> traverse renderResult results
     renderResult result =
@@ -217,6 +241,30 @@ renderFcCase tc =
                     else Left ("System FC round trip changed canonical syntax:\n" <> canonical <> "\noriginal:\n" <> rendered)
     renderErrors results =
       unlines [err | r <- results, err <- dsErrors r]
+
+interfaceLintEnvironment :: TcInterface -> LintEnv
+interfaceLintEnvironment interface =
+  emptyLintEnv
+    { leDataCons =
+        Map.fromList
+          [ ( constructorOrigin constructor,
+              ( dciUnivTyVars constructor <> dciExTyVars constructor,
+                map predicateType (dciTheta constructor) <> map dcfiType (dciFields constructor),
+                dciResTy constructor
+              )
+            )
+          | dataType <- tcInterfaceDataTypes interface,
+            constructor <- dtiConstructors dataType
+          ]
+    }
+  where
+    constructorOrigin constructor =
+      let (packageId, moduleName') = dciOrigin constructor
+       in FcTopLevelOrigin (packageIdText packageId) moduleName' (dciName constructor)
+
+predicateType :: Pred -> TcType
+predicateType (ClassPred classTyCon arguments) = TcTyCon classTyCon arguments
+predicateType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
 
 -- | Refresh passing FC fixtures with the current canonical rendering while
 -- preserving their source and metadata layout.

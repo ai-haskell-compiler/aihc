@@ -22,7 +22,9 @@ module Aihc.Tc.Types
 
     -- * Types
     TcType (..),
+    TcTypeKey,
     TyCon (TyCon, tyConName, tyConArity),
+    tyConKey,
     tyConPackageId,
     tyConModuleName,
     tyConKind,
@@ -108,6 +110,8 @@ setTyVarKind kind (TyVarIdInternal name unique _) = TyVarIdInternal name unique 
 data TyCon = TyConInternal !PackageId !Text !Text !Int !TypeScheme
   deriving (Eq, Ord, Show, Read)
 
+type TcTypeKey = (PackageId, Text, Text)
+
 pattern TyCon :: Text -> Int -> TyCon
 pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ tyConName tyConArity _
   where
@@ -132,6 +136,9 @@ tyConPackageId (TyConInternal packageId _ _ _ _) = packageId
 
 tyConModuleName :: TyCon -> Text
 tyConModuleName (TyConInternal _ moduleName _ _ _) = moduleName
+
+tyConKey :: TyCon -> TcTypeKey
+tyConKey tyCon = (tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon)
 
 mkTyCon :: Text -> Int -> Kind -> TyCon
 mkTyCon = mkTyConWithOrigin (PackageId "aihc-internal") "Aihc.Internal"

@@ -7,17 +7,20 @@ modules:
     xs :: [Bool]
     xs = [True]
 expected: |-
-  module Test where
+  module "" Test where
 
-  external "aihc-prim" GHC.Types.: : ∀ (a : TYPE BoxedRep Lifted). a → [a] → [a]
+  external "aihc-prim" GHC.Types.: : ∀ (a{unique 4} : Type). (a{unique 4} : Type) → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)] → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)]
 
-  external "aihc-prim" GHC.Types.[] : ∀ (a : TYPE BoxedRep Lifted). [a]
+  external "aihc-prim" GHC.Types.[] : ∀ (a{unique 4} : Type). tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)]
 
-  data Bool
-   = True
-   | False
+  data "" Test.Bool : Type
+   = "" Test.True
+   | "" Test.False
 
-  xs : [Bool] =
-    (("aihc-prim" GHC.Types.: @Bool) True) ("aihc-prim" GHC.Types.[] @Bool)
+  rec {
+    xs{unique 1000} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[tycon "" "Test" Bool/0 { :: Type }];
+    xs{unique 1000} =
+      (((:{unique -2321805554}{origin "aihc-prim" GHC.Types.:} : ∀ (a{unique 4} : Type). (a{unique 4} : Type) → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)] → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)]) @tycon "" "Test" Bool/0 { :: Type }) (True{unique -2360662326}{origin "" Test.True} : tycon "" "Test" Bool/0 { :: Type })) (([]{unique -2285220283}{origin "aihc-prim" GHC.Types.[]} : ∀ (a{unique 4} : Type). tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)]) @tycon "" "Test" Bool/0 { :: Type })
+  }
 status: pass
 reason: reifies list constructor type arguments from type-checker annotations

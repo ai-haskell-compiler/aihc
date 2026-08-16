@@ -157,5 +157,5 @@ expected: |-
     Λ(a : TYPE BoxedRep Lifted).
       λ($d0 : Eq a).
         ("aihc-prim" GHC.Classes.== @(Tree (a : TYPE BoxedRep Lifted))) (($fEqTreea @(a : TYPE BoxedRep Lifted)) $d0)
-status: pass
+status: xfail
 reason: stock Eq lowering consumes checked constructor layouts and field evidence

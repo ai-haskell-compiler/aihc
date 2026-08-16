@@ -21,7 +21,7 @@ tcAnnotatedGoldenTests = do
 
 mkAnnotatedGoldenTest :: TAG.TcAnnotatedCase -> TestTree
 mkAnnotatedGoldenTest tcase = testCase (TAG.caseId tcase) $ do
-  let (outcome, details) = TAG.evaluateTcAnnotatedCase tcase
+  (outcome, details) <- TAG.evaluateTcAnnotatedCase tcase
   case outcome of
     TAG.OutcomePass -> pure ()
     TAG.OutcomeXFail -> pure ()

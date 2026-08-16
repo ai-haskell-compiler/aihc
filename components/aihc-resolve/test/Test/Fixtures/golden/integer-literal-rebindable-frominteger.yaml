@@ -13,7 +13,7 @@ annotated:
   class Num a where
         └─ t Main
     fromInteger :: Integer -> a
-                   └─ t Main
+    └─ v Main      └─ t Main
   one = 1
   │     └─ v Main
   └─ v Main

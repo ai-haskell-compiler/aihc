@@ -1,16 +1,14 @@
 expected: |-
-  module Test where
+  module "" Test where
 
-  data State#
+  data "" Test.State# (s{unique 26} : Type) : TYPE TupleRep []
 
-  data MutVar#
+  data "" Test.MutVar# (d{unique 28} : Type) (a{unique 30} : Type) : TYPE UnliftedRep
 
-  foreign prim newMutVar#/2 : ∀ (rep : RuntimeRep) (value : TYPE rep) (domain : TYPE BoxedRep Lifted). value → (State# domain) → (#,#) (State# domain) (MutVar# domain value)
+  foreign prim newMutVar#{unique 1000}/2 : ∀ (a{unique 35} : Type). ∀ (d{unique 36} : Type). (a{unique 35} : Type) → tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[(d{unique 36} : Type)] → tycon "aihc-prim" "GHC.Types" Tuple2#/2 { :: TYPE TupleRep [] → TYPE UnliftedRep → TYPE TupleRep [TupleRep [], BoxedRep Unlifted] }[tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[(d{unique 36} : Type)], tycon "" "Test" MutVar#/2 { :: Type → Type → TYPE UnliftedRep }[(d{unique 36} : Type), (a{unique 35} : Type)]]
 extensions:
-- ExplicitForAll
 - ForeignFunctionInterface
 - GHCForeignImportPrim
-- KindSignatures
 - MagicHash
 - UnboxedTuples
 modules:
@@ -20,8 +18,5 @@ modules:
   data State# s
   data MutVar# d a
 
-  foreign import prim newMutVar# ::
-    forall (rep :: RuntimeRep) (value :: TYPE rep) domain.
-    value -> State# domain -> (# State# domain, MutVar# domain value #)
-reason: primitive import types match after normalizing quantified names and levity-polymorphic kinds
+  foreign import prim newMutVar# :: a -> State# d -> (# State# d, MutVar# d a #)
 status: pass

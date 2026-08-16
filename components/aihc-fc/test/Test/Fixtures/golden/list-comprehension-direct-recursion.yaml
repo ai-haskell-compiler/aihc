@@ -1,33 +1,38 @@
 expected: |-
-  module Test where
+  module "" Test where
 
-  external "aihc-prim" GHC.Types.: : ∀ (a : TYPE BoxedRep Lifted). a → [a] → [a]
+  external "aihc-prim" GHC.Types.: : ∀ (a{unique 4} : Type). (a{unique 4} : Type) → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)] → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)]
 
-  external "aihc-prim" GHC.Types.[] : ∀ (a : TYPE BoxedRep Lifted). [a]
+  external "aihc-prim" GHC.Types.[] : ∀ (a{unique 4} : Type). tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)]
 
-  select : ∀ (a : TYPE BoxedRep Lifted). (a → Bool) → [a] → [a] =
-    Λ(a : TYPE BoxedRep Lifted).
-      λ(x1001 : a → Bool).
-        λ(y1002 : [a]).
-          let {
-            rec {
-              $lc1003 : [a] → [a];
-              $lc1003 =
-                λ(_lc_list1004 : [a]).
-                  case _lc_list1004 as (_lc_scrut1007 : [a]) of {
-                    "aihc-prim" GHC.Types.[] →
-                      "aihc-prim" GHC.Types.[] @a;
-                    "aihc-prim" GHC.Types.: (_lc_head1005 : a) (_lc_tail1006 : [a]) →
-                      case x1001 _lc_head1005 as (_lc_guard1008 : Bool) of {
-                        "aihc-prim" GHC.Types.True →
-                          (("aihc-prim" GHC.Types.: @a) _lc_head1005) ($lc1003 _lc_tail1006);
-                        "aihc-prim" GHC.Types.False →
-                          $lc1003 _lc_tail1006
-                      }
-                  }
-            }
-          } in
-            $lc1003 y1002
+  rec {
+    select{unique 1000} : ∀ (a{unique 30} : Type). ((a{unique 30} : Type) → tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type }) → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)] → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)];
+    select{unique 1000} =
+      Λ(a{unique 30} : Type).
+        λ(x1001{unique 1001} : (a{unique 30} : Type) → tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type }).
+          λ(y1002{unique 1002} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)]).
+            let {
+              rec {
+                $lc1003{unique 1003} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)] → tycon "aihc-internal" "Aihc.Internal" []/1 { :: Type → Type }[(a{unique 30} : Type)];
+                $lc1003{unique 1003} =
+                  λ(_lc_list1004{unique 1004} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)]).
+                    case (_lc_list1004{unique 1004} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)]) as (_lc_scrut1007{unique 1007} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)]) of {
+                      "aihc-prim" GHC.Types.[] →
+                        ([]{unique -2285220283}{origin "aihc-prim" GHC.Types.[]} : ∀ (a{unique 4} : Type). tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)]) @(a{unique 30} : Type);
+                      "aihc-prim" GHC.Types.: (_lc_head1005{unique 1005} : (a{unique 30} : Type)) (_lc_tail1006{unique 1006} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)]) →
+                        case (x1001{unique 1001} : (a{unique 30} : Type) → tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type }) (_lc_head1005{unique 1005} : (a{unique 30} : Type)) as (_lc_guard1008{unique 1008} : tycon "aihc-prim" "GHC.Types" Bool/0 { :: Type }) of {
+                          "aihc-prim" GHC.Types.True →
+                            (((:{unique -2321805554}{origin "aihc-prim" GHC.Types.:} : ∀ (a{unique 4} : Type). (a{unique 4} : Type) → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)] → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)]) @(a{unique 30} : Type)) (_lc_head1005{unique 1005} : (a{unique 30} : Type))) (($lc1003{unique 1003} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)] → tycon "aihc-internal" "Aihc.Internal" []/1 { :: Type → Type }[(a{unique 30} : Type)]) (_lc_tail1006{unique 1006} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)]));
+                          "aihc-prim" GHC.Types.False →
+                            ($lc1003{unique 1003} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)] → tycon "aihc-internal" "Aihc.Internal" []/1 { :: Type → Type }[(a{unique 30} : Type)]) (_lc_tail1006{unique 1006} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)])
+                        }
+                    }
+              }
+            } in
+              ($lc1003{unique 1003} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)] → tycon "aihc-internal" "Aihc.Internal" []/1 { :: Type → Type }[(a{unique 30} : Type)]) (y1002{unique 1002} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 30} : Type)])
+  }
+
+  1 out of 1 tests failed (0.01s)
 extensions: []
 modules:
 - |
@@ -36,4 +41,4 @@ modules:
 
   select fn list = [x | x <- list, fn x]
 reason: desugars list comprehensions directly to recursive Core without Prelude helpers
-status: pass
+status: xfail

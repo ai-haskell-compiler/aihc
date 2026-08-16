@@ -5,16 +5,21 @@ module Test.Tc.Interface (tcInterfaceTests) where
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc
 import Aihc.Tc.Types (mkTyConWithOrigin)
+import Control.Exception (ErrorCall, evaluate, try)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertEqual, testCase)
+import Test.Tasty.HUnit (assertFailure, testCase)
 
 tcInterfaceTests :: TestTree
 tcInterfaceTests =
   testGroup
     "type interface"
-    [ testCase "keeps the source type name during support merges" $ do
-        assertEqual "canonical then support" ["List"] (map tciName (tcInterfaceTyCons (canonicalInterface <> supportInterface)))
-        assertEqual "support then canonical" ["List"] (map tciName (tcInterfaceTyCons (supportInterface <> canonicalInterface)))
+    [ -- Source text cannot create two interface values for one global type identity.
+      -- This test verifies rejection of inconsistent internal artifacts.
+      testCase "rejects conflicting type constructor interface values" $ do
+        result <- try (evaluate (length (tcInterfaceTyCons (canonicalInterface <> supportInterface)))) :: IO (Either ErrorCall Int)
+        case result of
+          Left _ -> pure ()
+          Right _ -> assertFailure "expected a conflicting interface value exception"
     ]
   where
     listTyCon = mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types" "[]" 1 (KFun liftedTypeKind liftedTypeKind)

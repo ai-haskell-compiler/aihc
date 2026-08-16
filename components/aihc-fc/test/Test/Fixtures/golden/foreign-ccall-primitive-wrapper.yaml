@@ -1,36 +1,39 @@
 expected: |-
-  module Test where
+  module "aihc-prim" GHC.Prim where
 
-  data State#
+  data "aihc-prim" GHC.Prim.Int32# : TYPE Int32Rep
+  module "" Test where
 
-  data RealWorld
+  data "" Test.State# (s{unique 24} : Type) : TYPE TupleRep []
 
-  data Int32
-   = I32# (Int32#)
+  data "" Test.RealWorld : Type
 
-  newtype CInt : CInt = CInt Int32
+  data "" Test.Int32 : Type
+   = "" Test.I32# (tycon "aihc-prim" "GHC.Prim" Int32#/0 { :: TYPE Int32Rep })
 
-  newtype IO (a : TYPE BoxedRep Lifted) : IO a = IO ((State# RealWorld) → (#,#) (State# RealWorld) a)
+  newtype "" Test.CInt : tycon "" "Test" CInt/0 { :: Type } = "" Test.CInt tycon "" "Test" Int32/0 { :: Type }
 
-  foreign ccall "putchar" $ffi$putchar [Int32 → Int32; real-world] : Int32# → (State# RealWorld) → (#,#) (State# RealWorld) Int32#
+  newtype "" Test.IO (a{unique 26} : Type) : tycon "" "Test" IO/1 { :: Type → Type }[(a{unique 26} : Type)] = "" Test.IO (tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[tycon "" "Test" RealWorld/0 { :: Type }] → tycon "aihc-prim" "GHC.Types" Tuple2#/2 { :: TYPE TupleRep [] → Type → TYPE TupleRep [TupleRep [], BoxedRep Lifted] }[tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[tycon "" "Test" RealWorld/0 { :: Type }], (a{unique 26} : Type)])
 
-  putchar : CInt → IO CInt =
-    λ($ffi_arg_0 : CInt).
+  foreign ccall "putchar" $ffi$putchar [Int32 → Int32; real-world] : tycon "aihc-internal" "Aihc.Internal" Int32#/0 { :: TYPE Int32Rep } → tycon "aihc-internal" "Aihc.Internal" State#/1 { :: Type → TYPE TupleRep [] }[tycon "aihc-internal" "Aihc.Internal" RealWorld/0 { :: Type }] → tycon "aihc-internal" "Aihc.Internal" Tuple2#/2 { :: TYPE TupleRep [] → TYPE Int32Rep → TYPE TupleRep [TupleRep [], Int32Rep] }[tycon "aihc-internal" "Aihc.Internal" State#/1 { :: Type → TYPE TupleRep [] }[tycon "aihc-internal" "Aihc.Internal" RealWorld/0 { :: Type }], tycon "aihc-internal" "Aihc.Internal" Int32#/0 { :: TYPE Int32Rep }]
+
+  putchar{unique 1000} : tycon "" "Test" CInt/0 { :: Type } → tycon "" "Test" IO/1 { :: Type → Type }[tycon "" "Test" CInt/0 { :: Type }] =
+    λ($ffi_arg_0{unique 1001} : tycon "" "Test" CInt/0 { :: Type }).
       let {
-        $ffi_arg_0_case : CInt =
-          $ffi_arg_0
+        $ffi_arg_0_case{unique 1002} : tycon "" "Test" CInt/0 { :: Type } =
+          ($ffi_arg_0{unique 1001} : tycon "" "Test" CInt/0 { :: Type })
       } in
         let {
-          $ffi_arg_0_field : Int32 =
-            $ffi_arg_0_case ▷ axiom-co CInt
+          $ffi_arg_0_field{unique 1003} : tycon "" "Test" Int32/0 { :: Type } =
+            ($ffi_arg_0_case{unique 1002} : tycon "" "Test" CInt/0 { :: Type }) ▷ axiom-co CInt
         } in
-          case $ffi_arg_0_field as ($ffi_arg_0_case : Int32) of {
-            I32# ($ffi_arg_0_field : Int32#) →
-              (λ($ffi_state : State# RealWorld).
-                case foreign-call "putchar" $ffi$putchar [Int32 → Int32; real-world] $ffi_arg_0_field $ffi_state as ($ffi_result : (#,#) (State# RealWorld) Int32#) of {
-                  "aihc-prim" GHC.Types.(#,#) ($ffi_next_state : State# RealWorld) ($ffi_raw_result : Int32#) →
-                    (((#,#) : (State# RealWorld) → CInt → (#,#) (State# RealWorld) CInt) $ffi_next_state) ((I32# $ffi_raw_result) ▷ sym (axiom-co CInt))
-                }) ▷ sym (axiom-co IO @CInt)
+          case ($ffi_arg_0_field{unique 1003} : tycon "" "Test" Int32/0 { :: Type }) as ($ffi_arg_0_case{unique 1004} : tycon "" "Test" Int32/0 { :: Type }) of {
+            "" Test.I32# ($ffi_arg_0_field{unique 1005} : tycon "aihc-prim" "GHC.Prim" Int32#/0 { :: TYPE Int32Rep }) →
+              (λ($ffi_state{unique 1006} : tycon "aihc-internal" "Aihc.Internal" State#/1 { :: Type → TYPE TupleRep [] }[tycon "aihc-internal" "Aihc.Internal" RealWorld/0 { :: Type }]).
+                case foreign-call "putchar" $ffi$putchar [Int32 → Int32; real-world] ($ffi_arg_0_field{unique 1005} : tycon "aihc-prim" "GHC.Prim" Int32#/0 { :: TYPE Int32Rep }) ($ffi_state{unique 1006} : tycon "aihc-internal" "Aihc.Internal" State#/1 { :: Type → TYPE TupleRep [] }[tycon "aihc-internal" "Aihc.Internal" RealWorld/0 { :: Type }]) as ($ffi_result{unique 1007} : tycon "aihc-internal" "Aihc.Internal" Tuple2#/2 { :: TYPE TupleRep [] → TYPE Int32Rep → TYPE TupleRep [TupleRep [], Int32Rep] }[tycon "aihc-internal" "Aihc.Internal" State#/1 { :: Type → TYPE TupleRep [] }[tycon "aihc-internal" "Aihc.Internal" RealWorld/0 { :: Type }], tycon "aihc-internal" "Aihc.Internal" Int32#/0 { :: TYPE Int32Rep }]) of {
+                  "aihc-prim" GHC.Types.(#,#) ($ffi_next_state{unique 1008} : tycon "aihc-internal" "Aihc.Internal" State#/1 { :: Type → TYPE TupleRep [] }[tycon "aihc-internal" "Aihc.Internal" RealWorld/0 { :: Type }]) ($ffi_raw_result{unique 1009} : tycon "aihc-internal" "Aihc.Internal" Int32#/0 { :: TYPE Int32Rep }) →
+                    (((#,#){unique 1012} : tycon "aihc-internal" "Aihc.Internal" State#/1 { :: Type → TYPE TupleRep [] }[tycon "aihc-internal" "Aihc.Internal" RealWorld/0 { :: Type }] → tycon "" "Test" CInt/0 { :: Type } → tycon "aihc-internal" "Aihc.Internal" Tuple2#/2 { :: TYPE TupleRep [] → Type → TYPE TupleRep [TupleRep [], BoxedRep Lifted] }[tycon "aihc-internal" "Aihc.Internal" State#/1 { :: Type → TYPE TupleRep [] }[tycon "aihc-internal" "Aihc.Internal" RealWorld/0 { :: Type }], tycon "" "Test" CInt/0 { :: Type }]) ($ffi_next_state{unique 1008} : tycon "aihc-internal" "Aihc.Internal" State#/1 { :: Type → TYPE TupleRep [] }[tycon "aihc-internal" "Aihc.Internal" RealWorld/0 { :: Type }])) (((I32#{unique 1011}{origin "" Test.I32#} : tycon "aihc-prim" "GHC.Prim" Int32#/0 { :: TYPE Int32Rep } → tycon "" "Test" Int32/0 { :: Type }) ($ffi_raw_result{unique 1009} : tycon "aihc-internal" "Aihc.Internal" Int32#/0 { :: TYPE Int32Rep })) ▷ sym (axiom-co CInt))
+                }) ▷ sym (axiom-co IO @tycon "" "Test" CInt/0 { :: Type })
           }
 extensions:
 - ForeignFunctionInterface
@@ -38,7 +41,12 @@ extensions:
 - UnboxedTuples
 modules:
 - |
+  module GHC.Prim where
+  data Int32#
+- |
   module Test where
+
+  import GHC.Prim (Int32#)
 
   data State# s
   data RealWorld
@@ -47,6 +55,5 @@ modules:
   newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
 
   foreign import ccall unsafe putchar :: CInt -> IO CInt
-reason: unoptimized ccall desugaring preserves wrapper aliases while exposing only
-  a saturated primitive operation beneath the Haskell wrapper
-status: pass
+reason: FC lint finds internal primitive types in the foreign descriptor but aihc-prim types in the call arguments
+status: xfail

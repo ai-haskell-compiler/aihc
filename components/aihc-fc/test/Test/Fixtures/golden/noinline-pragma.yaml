@@ -5,11 +5,14 @@ modules:
     id x = x
     {-# NOINLINE id #-}
 expected: |-
-  module Test where
+  module "" Test where
 
-  id : ∀ (a : TYPE BoxedRep Lifted). a → a =
-    Λ(a : TYPE BoxedRep Lifted).
-      λ(x1001 : a).
-        x1001
+  rec {
+    id{unique 1000} : ∀ (a{unique 24} : Type). (a{unique 24} : Type) → (a{unique 24} : Type);
+    id{unique 1000} =
+      Λ(a{unique 24} : Type).
+        λ(x1001{unique 1001} : (a{unique 24} : Type)).
+          (x1001{unique 1001} : (a{unique 24} : Type))
+  }
 status: pass
 reason: NOINLINE is accepted and ignored before System FC desugaring

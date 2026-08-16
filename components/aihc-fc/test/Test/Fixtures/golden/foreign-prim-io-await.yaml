@@ -1,23 +1,34 @@
 expected: |-
-  module Test where
+  module "aihc-prim" GHC.Prim where
 
-  data State#
+  data "aihc-prim" GHC.Prim.Addr# : TYPE AddrRep
+  module "" Test where
 
-  data RealWorld
+  data "" Test.State# (s{unique 22} : Type) : TYPE TupleRep []
 
-  foreign prim awaitIO#/2 : Addr# → (State# RealWorld) → State# RealWorld
+  data "" Test.RealWorld : Type
 
-  await : Addr# → (State# RealWorld) → State# RealWorld =
-    λ(x1002 : Addr#).
-      λ(y1003 : State# RealWorld).
-        (awaitIO# x1002) y1003
+  foreign prim awaitIO#{unique 1000}/2 : tycon "aihc-prim" "GHC.Prim" Addr#/0 { :: TYPE AddrRep } → tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[tycon "" "Test" RealWorld/0 { :: Type }] → tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[tycon "" "Test" RealWorld/0 { :: Type }]
+
+  rec {
+    await{unique 1001} : tycon "aihc-prim" "GHC.Prim" Addr#/0 { :: TYPE AddrRep } → tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[tycon "" "Test" RealWorld/0 { :: Type }] → tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[tycon "" "Test" RealWorld/0 { :: Type }];
+    await{unique 1001} =
+      λ(x1002{unique 1002} : tycon "aihc-prim" "GHC.Prim" Addr#/0 { :: TYPE AddrRep }).
+        λ(y1003{unique 1003} : tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[tycon "" "Test" RealWorld/0 { :: Type }]).
+          ((awaitIO#{unique -2422917030}{origin "" Test.awaitIO#} : tycon "aihc-prim" "GHC.Prim" Addr#/0 { :: TYPE AddrRep } → tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[tycon "" "Test" RealWorld/0 { :: Type }] → tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[tycon "" "Test" RealWorld/0 { :: Type }]) (x1002{unique 1002} : tycon "aihc-prim" "GHC.Prim" Addr#/0 { :: TYPE AddrRep })) (y1003{unique 1003} : tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[tycon "" "Test" RealWorld/0 { :: Type }])
+  }
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim
 - MagicHash
 modules:
 - |
+  module GHC.Prim where
+  data Addr#
+- |
   module Test where
+
+  import GHC.Prim (Addr#)
 
   data State# s
   data RealWorld
@@ -26,6 +37,5 @@ modules:
     Addr# -> State# RealWorld -> State# RealWorld
 
   await request state = awaitIO# request state
-reason: the compiler exposes one operation-independent IO suspension primitive
-  while concrete operations remain runtime calls
-status: pass
+reason: FC lint cannot find the declared primitive identity for the awaitIO# occurrence
+status: xfail

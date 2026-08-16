@@ -4,6 +4,7 @@ annotated:
   class Box a where
         └─ t ClassMod
     pick :: a -> a
+    └─ v ClassMod
 - |-
   module Main where
   import ClassMod (Box (pick))

@@ -79,7 +79,7 @@ checkAttachedDerivingPlans extensions targetFlavor targetHead clauses = do
   case targetInfo of
     Nothing -> missingTypeInfo ("deriving target " <> T.unpack targetName)
     Just info -> do
-      dataType <- lookupDataType targetName
+      dataType <- lookupDataType (tciTyCon info)
       concat <$> mapM (checkClause info dataType params tvEnv) clauses
   where
     defaultParam param = do
@@ -295,15 +295,18 @@ standaloneTargetFlavor headTypes =
 standaloneTargetDataType :: [TcType] -> TcM (Maybe DataTypeInfo)
 standaloneTargetDataType headTypes =
   case reverse headTypes of
-    targetType : _ -> maybe (pure Nothing) lookupDataType (tcTypeConstructorName targetType)
+    targetType : _ -> maybe (pure Nothing) lookupDataType (tcTypeConstructor targetType)
     _ -> pure Nothing
 
-tcTypeConstructorName :: TcType -> Maybe Text
-tcTypeConstructorName ty =
+tcTypeConstructor :: TcType -> Maybe TyCon
+tcTypeConstructor ty =
   case ty of
-    TcTyCon tyCon _ -> Just (tyConName tyCon)
-    TcAppTy function _ -> tcTypeConstructorName function
+    TcTyCon tyCon _ -> Just tyCon
+    TcAppTy function _ -> tcTypeConstructor function
     _ -> Nothing
+
+tcTypeConstructorName :: TcType -> Maybe Text
+tcTypeConstructorName = fmap tyConName . tcTypeConstructor
 
 defaultDerivingStrategyKinds :: TcDerivingStrategy -> TcM TcDerivingStrategy
 defaultDerivingStrategyKinds strategy =

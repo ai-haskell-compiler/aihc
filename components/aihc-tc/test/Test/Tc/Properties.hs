@@ -2,7 +2,8 @@
 
 -- | Hedgehog property tests for the type checker.
 module Test.Tc.Properties
-  ( prop_kindEncodingUsesType,
+  ( prop_interfaceMergeIdempotent,
+    prop_kindEncodingUsesType,
     prop_reflexiveEq,
     prop_starUsesType,
     prop_zonkIdempotent,
@@ -12,6 +13,16 @@ where
 
 import Aihc.Parser.Syntax (Type (TStar))
 import Aihc.Resolve (PackageId (PackageId))
+import Aihc.Tc
+  ( ClassInfo (..),
+    DataFamilyInstanceInfo (..),
+    DataTypeInfo (..),
+    InstanceInfo (..),
+    TcInterface (..),
+    TcTermKey (..),
+    TyConFlavor (..),
+    TyConInfo (..),
+  )
 import Aihc.Tc.Kind (convertSurfaceTypeWithKinds)
 import Aihc.Tc.Monad (emptyTcEnv, freshMetaTv, initTcState, runTcM, writeMetaTv)
 import Aihc.Tc.Types
@@ -30,8 +41,35 @@ tcProperties =
     [ testProperty "lifted kind encoding uses GHC.Types.Type" prop_kindEncodingUsesType,
       testProperty "star uses GHC.Types.Type" prop_starUsesType,
       testProperty "zonking idempotent" prop_zonkIdempotent,
-      testProperty "reflexive equality solved" prop_reflexiveEq
+      testProperty "reflexive equality solved" prop_reflexiveEq,
+      testProperty "interface merge is idempotent" prop_interfaceMergeIdempotent
     ]
+
+-- | Repeated module views must not change a semantic interface.
+prop_interfaceMergeIdempotent :: Property
+prop_interfaceMergeIdempotent = property $ do
+  interface <- forAll genInterface
+  interface <> interface === interface
+
+genInterface :: Gen TcInterface
+genInterface = do
+  ty <- genSimpleType
+  let packageId = PackageId "pkg"
+      moduleName = "Module"
+      tyCon = mkTyConWithOrigin packageId moduleName "T" 0 KType
+      classTyCon = mkTyConWithOrigin packageId moduleName "C" 0 KConstraint
+  firstTerm <- optionalEntry (TcTermGlobal packageId moduleName "value", ForAll [] [] ty)
+  secondTerm <- optionalEntry (TcTermGlobal packageId moduleName "another", ForAll [] [] ty)
+  let tcInterfaceTerms = firstTerm <> secondTerm
+  tcInterfaceTyCons <- optionalEntry (TyConInfo "T" 0 tyCon DataTyCon Nothing)
+  tcInterfaceDataTypes <- optionalEntry (DataTypeInfo "T" tyCon [] KType DataTyCon [])
+  tcInterfaceClasses <- optionalEntry (ClassInfo "C" classTyCon (Just ("pkg", moduleName)) [] [] [] [] [])
+  tcInterfaceInstances <- optionalEntry (InstanceInfo "C" "$fC" (Just ("pkg", moduleName)) ty [] [] [])
+  tcInterfaceDataFamilyInstances <- optionalEntry (DataFamilyInstanceInfo "F" ty [] tyCon "$axF" [] False)
+  pure TcInterface {tcInterfaceTerms, tcInterfaceTyCons, tcInterfaceDataTypes, tcInterfaceClasses, tcInterfaceInstances, tcInterfaceDataFamilyInstances}
+
+optionalEntry :: value -> Gen [value]
+optionalEntry value = Gen.element [[], [value]]
 
 -- | All lifted kind encoders use the canonical Type constructor.
 prop_kindEncodingUsesType :: Property

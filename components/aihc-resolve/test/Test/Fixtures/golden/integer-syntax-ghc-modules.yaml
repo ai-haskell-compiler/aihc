@@ -46,7 +46,7 @@ annotated:
   class Eq a where
         └─ t GHC.Classes
     (==) :: a -> a -> Bool
-                      └─ t GHC.Classes
+     └─ v GHC.Classes └─ t GHC.Classes
 - |-
   module GHC.Num where
 
@@ -60,8 +60,9 @@ annotated:
   class Num a where
         └─ t GHC.Num
     fromInteger :: Integer -> a
-                   └─ t GHC.Num
+    └─ v GHC.Num   └─ t GHC.Num
     negate :: a -> a
+    └─ v GHC.Num
 - |-
   module GHC.Prim where
 

@@ -475,7 +475,7 @@ tcModuleScc modules = do
   standaloneKindSchemes <- traverse (standaloneKindSigToScheme >=> defaultTypeSchemeKinds) standaloneKindSignatures
   mapM_ (registerTypeDeclHeader standaloneKindSchemes) declarations
   mapM_ registerTypeSynonymBody declarations
-  mapM_ (\modu -> mapM_ (registerValueLevelDecl (resolvedModuleOrigin modu)) (moduleDecls modu)) modules
+  mapM_ (\modu -> mapM_ (registerStructuralDecl (resolvedModuleOrigin modu)) (moduleDecls modu)) modules
   -- Deriving strategy and context inference depends only on registered type,
   -- class, and explicit-instance information. Finalize the entire SCC as one
   -- batch before checking signatures and bodies so sibling derived instances
@@ -1348,8 +1348,13 @@ substType = Aihc.Tc.Instantiate.applySubst
 
 -- | Collect type signatures from a list of declarations.
 collectUserSigs :: [Decl] -> TcM (Map TcTermKey UserSig)
-collectUserSigs decls = Map.fromList . concat <$> mapM (extractSig NoSourceSpan) decls
+collectUserSigs decls = do
+  signatures <- concat <$> mapM (extractSig NoSourceSpan) decls
+  foldM insertSignature Map.empty signatures
   where
+    insertSignature collected (key, signature)
+      | Map.member key collected = abortTc ("duplicate source signature key: " <> show key)
+      | otherwise = pure (Map.insert key signature collected)
     extractSig ambient (DeclTypeSig names ty) =
       mapM
         ( \n -> do
@@ -1690,7 +1695,7 @@ tcSingleDeclGroup sigs groupId d =
           (maybeMatches, bindings) <-
             case Map.lookup key sigs of
               Just sig ->
-                tcFunctionWithSig key displayName name sig [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
+                tcFunctionWithSig displayName name sig [zeroArgMatch (patternSpan pat `orSourceSpan` peelDeclSpan NoSourceSpan d) rhs]
               Nothing ->
                 tcFunctionInfer key displayName name [zeroArgMatch (patternSpan pat) rhs]
           let annotatedDecls = fmap (\case [match] -> [replacePatternBindRhs (matchRhs match) d]; _ -> [d]) maybeMatches
@@ -1715,7 +1720,7 @@ tcMergedFunctionGroup sigs groupId binder decls matches = do
   (maybeMatches, bindings) <- case Map.lookup key sigs of
     Just sig -> do
       -- Use the declared type signature for checking.
-      tcFunctionWithSig key displayName name sig matches
+      tcFunctionWithSig displayName name sig matches
     Nothing -> do
       -- No signature: infer the type.
       tcFunctionInfer key displayName name matches
@@ -1726,13 +1731,11 @@ tcMergedFunctionGroup sigs groupId binder decls matches = do
 -- The signature's type variables are opened as rigid skolems so that
 -- the body is checked against them. GADT patterns generate implication
 -- constraints using the signature's skolems as given equalities.
-tcFunctionWithSig :: TcTermKey -> Text -> Text -> CheckedSig -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
-tcFunctionWithSig key displayName name sig matches = do
+tcFunctionWithSig :: Text -> Text -> CheckedSig -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
+tcFunctionWithSig displayName name sig matches = do
   let scheme = checkedSigScheme sig
   (matches', failed) <-
     withErrorTracking $ do
-      extendTermEnvPermanent name (TcIdBinder scheme Closed)
-      extendTermKeyEnvPermanent key (TcIdBinder scheme Closed)
       -- Open the scheme with skolems (not metas) for checking.
       (sigPreds, sigTy) <- skolemizeQualified scheme
       let nArgs = case matches of
@@ -1774,8 +1777,7 @@ tcFunctionInfer key displayName name matches = do
       scheme <- generalizeAndCommitIgnoring (Set.fromList [unqualifiedTermKey name, key]) ty residualPreds
       let schemeTy = schemeToType scheme
       zonkedTy <- zonkType schemeTy
-      extendTermEnvPermanent name (TcIdBinder scheme Closed)
-      extendTermKeyEnvPermanent key (TcIdBinder scheme Closed)
+      finalizeInferredTermEnvPermanent name key placeholderTy scheme
       pure (Just matches', [TcBindingResult name displayName zonkedTy])
 
 generalizableResidualPreds :: SolveResult -> TcM [Pred]
@@ -1859,8 +1861,6 @@ zonkPred pred' =
     ClassPred className args -> ClassPred className <$> mapM zonkType args
     EqPred left right -> EqPred <$> zonkType left <*> zonkType right
 
-type TcTypeKey = (PackageId, Text, Text)
-
 collectStandaloneKindSignatures :: [Decl] -> Map TcTypeKey Type
 collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
   where
@@ -1888,31 +1888,18 @@ registerTypeDeclHeader kindSchemes (DeclTypeSyn typeSynDecl) =
 registerTypeDeclHeader kindSchemes (DeclAnn _ inner) = registerTypeDeclHeader kindSchemes inner
 registerTypeDeclHeader _ _ = pure []
 
-registerValueLevelDecl :: (Text, Text) -> Decl -> TcM [TcBindingResult]
-registerValueLevelDecl _ (DeclData dataDecl) = registerDataConstructors dataDecl
-registerValueLevelDecl _ (DeclNewtype newtypeDecl) = registerNewtypeConstructor newtypeDecl
-registerValueLevelDecl _ (DeclDataFamilyInst familyInst) = registerDataFamilyInstance familyInst
-registerValueLevelDecl origin (DeclClass classDecl) = registerClassDecl origin classDecl
-registerValueLevelDecl origin (DeclInstance instanceDecl) = registerInstanceDecl origin instanceDecl
-registerValueLevelDecl _ (DeclForeign foreignDecl)
-  | isForeignImport foreignDecl =
-      registerForeignImport foreignDecl
-registerValueLevelDecl origin (DeclAnn _ inner) = registerValueLevelDecl origin inner
-registerValueLevelDecl _ _ = pure []
+registerStructuralDecl :: (Text, Text) -> Decl -> TcM [TcBindingResult]
+registerStructuralDecl _ (DeclData dataDecl) = registerDataConstructors dataDecl
+registerStructuralDecl _ (DeclNewtype newtypeDecl) = registerNewtypeConstructor newtypeDecl
+registerStructuralDecl _ (DeclDataFamilyInst familyInst) = registerDataFamilyInstance familyInst
+registerStructuralDecl origin (DeclClass classDecl) = registerClassDecl origin classDecl
+registerStructuralDecl origin (DeclInstance instanceDecl) = registerInstanceDecl origin instanceDecl
+registerStructuralDecl origin (DeclAnn _ inner) = registerStructuralDecl origin inner
+registerStructuralDecl _ _ = pure []
 
 isForeignImport :: ForeignDecl -> Bool
 isForeignImport foreignDecl =
   foreignDirection foreignDecl == ForeignImport
-
-registerForeignImport :: ForeignDecl -> TcM [TcBindingResult]
-registerForeignImport foreignDecl = do
-  scheme <- sigToScheme (foreignType foreignDecl)
-  let name = unqualifiedNameText (foreignName foreignDecl)
-      displayName = renderBinderName (foreignName foreignDecl)
-      declaredTy = schemeToType scheme
-  extendResolvedTermEnvPermanent (foreignName foreignDecl) (TcIdBinder scheme Closed)
-  zonkedTy <- zonkType declaredTy
-  pure [TcBindingResult name displayName zonkedTy]
 
 registerClassDecl :: (Text, Text) -> ClassDecl -> TcM [TcBindingResult]
 registerClassDecl origin classDecl = do
@@ -2364,7 +2351,7 @@ registerTypeSynonymBody (DeclTypeSyn typeSynDecl) = do
               tvEnv = Map.fromList [(tvName param, (param, tvKind param)) | param <- params]
               resultKind = typeResultKind (length params) (tyConKind (tciTyCon info))
           body <- checkSurfaceType tvEnv (typeSynBody typeSynDecl) resultKind
-          extendTyConEnvPermanent tyName (info {tciTypeSynonym = Just (synonym {tsiBody = Just body})})
+          replaceTyConEnvPermanent (info {tciTypeSynonym = Just (synonym {tsiBody = Just body})})
     _ -> missingTypeInfo ("type synonym " <> T.unpack tyName)
 registerTypeSynonymBody _ = pure ()
 
