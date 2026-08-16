@@ -17,14 +17,13 @@ modules:
     intValue = BoxInt 1#
     addrValue = BoxAddr "test"#
 expected: |-
-  scope 1 = "aihc-prim" GHC
-  scope 2 = "aihc-prim" GHC.Prim
+  scope 1 = "aihc-prim" GHC.Prim
 
-  module 2.GHC.Prim where
+  module 1.GHC.Prim where
 
-  data 2.Int# : TYPE IntRep
+  data 1.Int# : TYPE IntRep
 
-  data 2.Addr# : TYPE AddrRep
+  data 1.Addr# : TYPE AddrRep
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Prim
 

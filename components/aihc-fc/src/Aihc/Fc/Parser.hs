@@ -19,7 +19,7 @@ import Control.Applicative ((<|>))
 import Control.Monad (guard, void)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import Data.ByteString qualified as BS
-import Data.Char (isAlphaNum, isAscii, isAsciiUpper, isSpace, ord)
+import Data.Char (isAlphaNum, isAscii, isAsciiUpper, isDigit, isSpace, ord)
 import Data.Either (fromRight)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -318,7 +318,7 @@ constructorIdentity = MP.try scopedConstructorIdentity <|> legacyConstructorIden
 scopeReference :: Parser (Text, Text, Text)
 scopeReference = do
   requestedScope <- scopeId
-  _ <- symbol "."
+  _ <- MPC.char '.'
   symbolName <- scopeSymbolName
   (packageName, moduleName) <- scopeBinding requestedScope
   pure (packageName, moduleName, symbolName)
@@ -346,7 +346,8 @@ scopeSymbolName =
       first <- MP.satisfy (\character -> isAlphaNum character || character `elem` ("_$'" :: String))
       rest <- MP.many (MP.satisfy nameCharacter)
       following <- MP.optional (MP.lookAhead MP.anySingle)
-      guard (first /= '$' || not (null rest) || maybe True (not . (`elem` operatorNameCharacters)) following)
+      slashStartsArity <- MP.optional (MP.try (MP.lookAhead (void (MPC.char '/') *> void (MP.satisfy isDigit))))
+      guard (first /= '$' || maybe True (`notElem` operatorNameCharacters) following || slashStartsArity == Just ())
       pure (T.pack (first : rest))
 
 makeConstructorIdentity :: Text -> Text -> Text -> (Text, FcConstructorId)
