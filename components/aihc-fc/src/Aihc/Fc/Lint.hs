@@ -41,7 +41,6 @@ import Aihc.Tc.Types
     TyVarId (..),
     TypeScheme (..),
     Unique (..),
-    isUnboxedTupleType,
     kindFromTypeScheme,
     liftedTypeKind,
     runtimeRepOfType,
@@ -300,22 +299,11 @@ lintAlt env scrutineeType (FcAlt con binders rhs) = do
             then pure ()
             else Left (TypeMismatch "literal alternative" scrutineeType literalType)
         DataAlt constructor ->
-          case unboxedTupleFields constructor scrutineeType of
-            Just fields -> checkFields constructor alternativeBinders fields
-            Nothing ->
-              case Map.lookup (fcConstructorSymbolOrigin constructor) (leDataCons env) of
-                Nothing -> Left (LintFailure ("unknown case alternative constructor: " ++ show constructor))
-                Just (_, fields, resultType) -> do
-                  substitution <- matchConstructorResult resultType scrutineeType
-                  checkFields constructor alternativeBinders (map (substType substitution) fields)
-
-    unboxedTupleFields constructor tupleType
-      | fcConstructorModule constructor == "GHC.Types",
-        fcConstructorName constructor == "(#,#)",
-        TcTyCon _ fields <- tupleType,
-        isUnboxedTupleType tupleType =
-          Just fields
-      | otherwise = Nothing
+          case Map.lookup (fcConstructorSymbolOrigin constructor) (leDataCons env) of
+            Nothing -> Left (LintFailure ("unknown case alternative constructor: " ++ show constructor))
+            Just (_, fields, resultType) -> do
+              substitution <- matchConstructorResult resultType scrutineeType
+              checkFields constructor alternativeBinders (map (substType substitution) fields)
 
     checkFields constructor fieldBinders expectedFields =
       if length expectedFields /= length fieldBinders

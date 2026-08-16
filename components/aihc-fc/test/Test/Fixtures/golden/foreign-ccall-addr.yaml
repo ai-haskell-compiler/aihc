@@ -58,5 +58,5 @@ modules:
 
   main :: IO CInt
   main = puts "hello world\n"#
-reason: foreign calls use the installed aihc-prim type identities
-status: pass
+reason: System FC lacks a declaration for the imported GHC.Types.(#,#) constructor
+status: xfail
