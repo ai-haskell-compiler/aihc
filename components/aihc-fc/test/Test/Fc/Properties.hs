@@ -26,10 +26,11 @@ import Aihc.Tc.Types
   )
 import Control.Monad (when)
 import Data.ByteString qualified as BS
+import Data.Char (isAlphaNum, isAsciiUpper)
 import Data.List (nubBy)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Hedgehog (Gen, Property, PropertyT, annotate, failure, forAll, property, (===))
+import Hedgehog (Gen, Property, PropertyT, annotate, cover, failure, forAll, property, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Test.Tasty (TestTree, testGroup)
@@ -40,6 +41,7 @@ fcPropertyTests =
   testGroup
     "System FC properties"
     [ testProperty "parseProgram . renderProgram = id" prop_programRoundTrip,
+      testProperty "constructor names roundtrip" prop_constructorNameRoundTrip,
       testProperty "parseExpr . renderExpr = id" prop_exprRoundTrip,
       testProperty "parseType . renderType = id" prop_typeRoundTrip,
       testProperty "type variable equality includes all fields" prop_tyVarEquality,
@@ -59,7 +61,30 @@ fcPropertyTests =
 prop_programRoundTrip :: Property
 prop_programRoundTrip = property $ do
   value <- forAll genProgram
+  let topBinds = fcTopBinds value
+  cover 2 "empty program" (null topBinds)
+  cover 2 "external declaration" (any isExternal topBinds)
+  cover 2 "data declaration" (any isData topBinds)
+  cover 2 "axiom declaration" (any isAxiom topBinds)
+  cover 2 "newtype declaration" (any isNewtype topBinds)
+  cover 2 "primitive declaration" (any isPrimitive topBinds)
+  cover 20 "foreign import" (any isForeignImport topBinds)
+  cover 2 "value binding" (any isValueBinding topBinds)
+  cover 20 "foreign call" (any topBindHasForeignCall topBinds)
   roundTrip renderProgram parseProgram value
+
+prop_constructorNameRoundTrip :: Property
+prop_constructorNameRoundTrip = property $ do
+  constructorName <- forAll genConstructorName
+  cover 10 "ordinary constructor" (isOrdinaryConstructorName constructorName)
+  cover 10 "operator constructor" (isOperatorConstructorName constructorName)
+  cover 10 "parenthesized constructor" (hasDelimiters '(' ')' constructorName)
+  cover 10 "bracketed constructor" (hasDelimiters '[' ']' constructorName)
+  constructorOrigin <- forAll (genConstructorFor constructorName)
+  dataOrigin <- forAll (genSymbolOriginFor "T")
+  moduleId <- forAll genModuleId
+  let declaration = FcDataDecl dataOrigin "T" [] KType [FcDataConDecl constructorOrigin constructorName []]
+  roundTrip renderProgram parseProgram (FcProgram moduleId [FcData declaration])
 
 prop_exprRoundTrip :: Property
 prop_exprRoundTrip = property $ do
@@ -70,6 +95,56 @@ prop_typeRoundTrip :: Property
 prop_typeRoundTrip = property $ do
   value <- forAll genType
   roundTrip renderType parseType value
+
+isExternal :: FcTopBind -> Bool
+isExternal FcExternal {} = True
+isExternal _ = False
+
+isData :: FcTopBind -> Bool
+isData FcData {} = True
+isData _ = False
+
+isAxiom :: FcTopBind -> Bool
+isAxiom FcAxiom {} = True
+isAxiom _ = False
+
+isNewtype :: FcTopBind -> Bool
+isNewtype FcNewtype {} = True
+isNewtype _ = False
+
+isPrimitive :: FcTopBind -> Bool
+isPrimitive FcPrimitive {} = True
+isPrimitive _ = False
+
+isForeignImport :: FcTopBind -> Bool
+isForeignImport FcForeignImport {} = True
+isForeignImport _ = False
+
+isValueBinding :: FcTopBind -> Bool
+isValueBinding FcTopBind {} = True
+isValueBinding _ = False
+
+topBindHasForeignCall :: FcTopBind -> Bool
+topBindHasForeignCall (FcTopBind binding) = bindHasForeignCall binding
+topBindHasForeignCall _ = False
+
+bindHasForeignCall :: FcBind -> Bool
+bindHasForeignCall (FcNonRec _ expression) = exprHasForeignCall expression
+bindHasForeignCall (FcRec bindings) = any (exprHasForeignCall . snd) bindings
+
+exprHasForeignCall :: FcExpr -> Bool
+exprHasForeignCall expression =
+  case expression of
+    FcVar {} -> False
+    FcLit {} -> False
+    FcApp function argument -> exprHasForeignCall function || exprHasForeignCall argument
+    FcTyApp function _ -> exprHasForeignCall function
+    FcLam _ body -> exprHasForeignCall body
+    FcTyLam _ body -> exprHasForeignCall body
+    FcLet binding body -> bindHasForeignCall binding || exprHasForeignCall body
+    FcCase scrutinee _ alternatives -> exprHasForeignCall scrutinee || any (exprHasForeignCall . altRhs) alternatives
+    FcCast body _ -> exprHasForeignCall body
+    FcCallForeign {} -> True
 
 prop_tyVarEquality :: Property
 prop_tyVarEquality = property $ do
@@ -222,12 +297,33 @@ roundTrip pretty parse value = do
     Right actual -> actual === value
 
 genProgram :: Gen FcProgram
-genProgram = FcProgram (FcModuleId "test" "Test") <$> smallList genTopBind
+genProgram = Gen.choice [genGeneralProgram, genForeignProgram]
+
+genGeneralProgram :: Gen FcProgram
+genGeneralProgram = FcProgram <$> genModuleId <*> smallList genTopBind
+
+genForeignProgram :: Gen FcProgram
+genForeignProgram = do
+  moduleId <- genModuleId
+  foreignCall <- genForeignCall
+  binder <- genBinder
+  arguments <- smallList genExpr
+  pure
+    ( FcProgram
+        moduleId
+        [ FcForeignImport foreignCall,
+          FcTopBind (FcNonRec binder (FcCallForeign foreignCall arguments))
+        ]
+    )
+
+genModuleId :: Gen FcModuleId
+genModuleId = FcModuleId . PackageId <$> genPackageName <*> genModuleName
 
 genTopBind :: Gen FcTopBind
 genTopBind =
   Gen.choice
-    [ FcData <$> genDataDecl,
+    [ FcExternal <$> genSymbolOrigin <*> genType,
+      FcData <$> genDataDecl,
       FcAxiom <$> genAxiomDecl,
       FcNewtype <$> genNewtypeDecl,
       FcPrimitive <$> genBinder <*> genInt,
@@ -238,12 +334,14 @@ genTopBind =
 genDataDecl :: Gen FcDataDecl
 genDataDecl = do
   dataName <- genTypeName
-  FcDataDecl (testOrigin dataName) dataName <$> smallList genTyVar <*> pure KType <*> smallList genDataConstructor
+  dataOrigin <- genSymbolOriginFor dataName
+  FcDataDecl dataOrigin dataName <$> smallList genTyVar <*> genKind <*> smallList genDataConstructor
 
 genDataConstructor :: Gen FcDataConDecl
 genDataConstructor = do
-  constructorName <- genTypeName
-  FcDataConDecl (testConstructor constructorName) constructorName <$> smallList genType
+  constructorName <- genConstructorName
+  constructorOrigin <- genConstructorFor constructorName
+  FcDataConDecl constructorOrigin constructorName <$> smallList genType
 
 genAxiomDecl :: Gen FcAxiomDecl
 genAxiomDecl =
@@ -258,21 +356,17 @@ genNewtypeDecl :: Gen FcNewtypeDecl
 genNewtypeDecl =
   do
     newtypeName <- genTypeName
-    constructorName <- genTypeName
+    newtypeOrigin <- genSymbolOriginFor newtypeName
+    constructorName <- genConstructorName
+    constructorOrigin <- genConstructorFor constructorName
     FcNewtypeDecl
-      (testOrigin newtypeName)
+      newtypeOrigin
       newtypeName
       <$> smallList genTyVar
-      <*> pure (testConstructor constructorName)
+      <*> pure constructorOrigin
       <*> pure constructorName
       <*> genType
       <*> genType
-
-testOrigin :: Text -> FcSymbolOrigin
-testOrigin = FcTopLevelOrigin "test" "Test"
-
-testConstructor :: Text -> FcConstructorId
-testConstructor = FcConstructorId "test" "Test"
 
 genForeignCall :: Gen FcForeignCall
 genForeignCall = FcForeignCall <$> genVarName <*> genLiteralText <*> genForeignSignature
@@ -317,7 +411,14 @@ genAltWith :: Gen FcExpr -> Gen FcAlt
 genAltWith child = FcAlt <$> genAltCon <*> smallList genBinder <*> child
 
 genAltCon :: Gen FcAltCon
-genAltCon = Gen.choice [DataAlt . testConstructor <$> genTypeName, LitAlt <$> genLiteral <*> genLiteralType, pure DefaultAlt]
+genAltCon =
+  Gen.choice
+    [ do
+        constructorName <- genConstructorName
+        DataAlt <$> genConstructorFor constructorName,
+      LitAlt <$> genLiteral <*> genLiteralType,
+      pure DefaultAlt
+    ]
 
 genVar :: Gen Var
 genVar = do
@@ -333,11 +434,18 @@ genBinder = do
   Var (generatedName "v" identifier) identifier <$> genType
 
 genSymbolOrigin :: Gen FcSymbolOrigin
-genSymbolOrigin =
+genSymbolOrigin = genVarName >>= genSymbolOriginFor
+
+genSymbolOriginFor :: Text -> Gen FcSymbolOrigin
+genSymbolOriginFor symbolName =
   Gen.choice
-    [ FcTopLevelOrigin <$> genText <*> genTypeName <*> genVarName,
-      FcBuiltinOrigin <$> genVarName
+    [ FcTopLevelOrigin <$> genPackageName <*> genModuleName <*> pure symbolName,
+      pure (FcBuiltinOrigin symbolName)
     ]
+
+genConstructorFor :: Text -> Gen FcConstructorId
+genConstructorFor constructorName =
+  FcConstructorId . PackageId <$> genPackageName <*> genModuleName <*> pure constructorName
 
 genLiteral :: Gen Literal
 genLiteral =
@@ -489,6 +597,54 @@ genTypeName = do
   first <- Gen.element ['A' .. 'Z']
   rest <- Gen.list (Range.linear 0 11) (Gen.element (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_$#'"))
   pure (T.pack (first : rest))
+
+genConstructorName :: Gen Text
+genConstructorName =
+  Gen.choice
+    [ genTypeName,
+      genSymbolicConstructorName,
+      genDelimitedConstructorName '(' ')',
+      genDelimitedConstructorName '[' ']'
+    ]
+
+genSymbolicConstructorName :: Gen Text
+genSymbolicConstructorName =
+  Gen.text (Range.linear 1 12) (Gen.element operatorNameCharacters)
+
+genDelimitedConstructorName :: Char -> Char -> Gen Text
+genDelimitedConstructorName opening closing = do
+  contents <- Gen.text (Range.linear 0 12) (Gen.element (delimitedNameCharacters opening closing))
+  pure (T.cons opening (T.snoc contents closing))
+
+operatorNameCharacters :: [Char]
+operatorNameCharacters = "!#$%&*+./<=>?@\\^|-~:"
+
+delimitedNameCharacters :: Char -> Char -> [Char]
+delimitedNameCharacters opening closing =
+  [ character
+  | character <- ['!' .. '~'],
+    not (isAlphaNum character),
+    character /= opening,
+    character /= closing
+  ]
+
+isOrdinaryConstructorName :: Text -> Bool
+isOrdinaryConstructorName constructorName =
+  maybe False (isAsciiUpper . fst) (T.uncons constructorName)
+
+isOperatorConstructorName :: Text -> Bool
+isOperatorConstructorName constructorName =
+  not (T.null constructorName) && T.all (`elem` operatorNameCharacters) constructorName
+
+hasDelimiters :: Char -> Char -> Text -> Bool
+hasDelimiters opening closing value =
+  T.length value >= 2 && T.head value == opening && T.last value == closing
+
+genPackageName :: Gen Text
+genPackageName = Gen.choice [pure "", genText]
+
+genModuleName :: Gen Text
+genModuleName = T.intercalate "." <$> Gen.list (Range.linear 1 3) genTypeName
 
 genLiteralText :: Gen Text
 genLiteralText = Gen.text (Range.linear 0 12) Gen.unicode
