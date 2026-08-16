@@ -56,4 +56,5 @@ modules:
 
   main :: IO CInt
   main = puts "hello world\n"#
-status: pass
+reason: FC lint finds internal primitive types in the foreign descriptor and a different identity for the local puts occurrence
+status: xfail

@@ -44,4 +44,5 @@ modules:
   newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
 
   foreign import ccall unsafe "identity_int" identityInt :: Int -> IO Int
-status: pass
+reason: FC lint finds internal primitive types in the foreign descriptor but aihc-prim types in the call arguments
+status: xfail

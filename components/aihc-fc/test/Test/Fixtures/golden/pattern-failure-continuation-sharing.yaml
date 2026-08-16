@@ -20,45 +20,49 @@ modules:
     shared (Just True) = True
     shared _ = False
 expected: |-
-  module Test where
+  module "" Test where
 
-  data Bool
-   = False
-   | True
+  data "" Test.Bool : Type
+   = "" Test.False
+   | "" Test.True
 
-  data MaybeBool
-   = Nothing
-   | Just (Bool)
+  data "" Test.MaybeBool : Type
+   = "" Test.Nothing
+   | "" Test.Just (tycon "" "Test" Bool/0 { :: Type })
 
-  unused : Bool → Bool =
-    λ(x1001 : Bool).
-      True
-
-  single : [Bool] → Bool =
-    λ(x1004 : [Bool]).
-      case x1004 as (_match1010 : [Bool]) of {
-        "aihc-prim" GHC.Types.[] →
-          True;
-        _ →
-          False
-      }
-
-  shared : MaybeBool → Bool =
-    λ(x1012 : MaybeBool).
-      let {
-        _next_match1016 : Bool =
-          False
-      } in
-        case x1012 as (_match1020 : MaybeBool) of {
-          Just (_pat : Bool) →
-            case _pat as (_match1019 : Bool) of {
-              True →
-                True;
-              _ →
-                _next_match1016
-            };
+  rec {
+    unused{unique 1000} : tycon "" "Test" Bool/0 { :: Type } → tycon "" "Test" Bool/0 { :: Type };
+    single{unique 1001} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[tycon "" "Test" Bool/0 { :: Type }] → tycon "" "Test" Bool/0 { :: Type };
+    shared{unique 1002} : tycon "" "Test" MaybeBool/0 { :: Type } → tycon "" "Test" Bool/0 { :: Type };
+    unused{unique 1000} =
+      λ(x1003{unique 1003} : tycon "" "Test" Bool/0 { :: Type }).
+        (True{unique -2360662326}{origin "" Test.True} : tycon "" "Test" Bool/0 { :: Type });
+    single{unique 1001} =
+      λ(x1004{unique 1004} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[tycon "" "Test" Bool/0 { :: Type }]).
+        case (x1004{unique 1004} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[tycon "" "Test" Bool/0 { :: Type }]) as (_match1008{unique 1008} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[tycon "" "Test" Bool/0 { :: Type }]) of {
+          "aihc-prim" GHC.Types.[] →
+            (True{unique -2360662326}{origin "" Test.True} : tycon "" "Test" Bool/0 { :: Type });
           _ →
-            _next_match1016
-        }
-status: xfail
+            (False{unique -2286087477}{origin "" Test.False} : tycon "" "Test" Bool/0 { :: Type })
+        };
+    shared{unique 1002} =
+      λ(x1009{unique 1009} : tycon "" "Test" MaybeBool/0 { :: Type }).
+        let {
+          _next_match1012{unique 1012} : tycon "" "Test" Bool/0 { :: Type } =
+            (False{unique -2286087477}{origin "" Test.False} : tycon "" "Test" Bool/0 { :: Type })
+        } in
+          case (x1009{unique 1009} : tycon "" "Test" MaybeBool/0 { :: Type }) as (_match1015{unique 1015} : tycon "" "Test" MaybeBool/0 { :: Type }) of {
+            "" Test.Just (_pat{unique 1013} : tycon "" "Test" Bool/0 { :: Type }) →
+              case (_pat{unique 1013} : tycon "" "Test" Bool/0 { :: Type }) as (_match1014{unique 1014} : tycon "" "Test" Bool/0 { :: Type }) of {
+                "" Test.True →
+                  (True{unique -2360662326}{origin "" Test.True} : tycon "" "Test" Bool/0 { :: Type });
+                _ →
+                  (_next_match1012{unique 1012} : tycon "" "Test" Bool/0 { :: Type })
+              };
+            _ →
+              (_next_match1012{unique 1012} : tycon "" "Test" Bool/0 { :: Type })
+          }
+  }
+
+status: pass
 reason: pattern failure continuations are omitted, inlined, or shared according to their occurrence count

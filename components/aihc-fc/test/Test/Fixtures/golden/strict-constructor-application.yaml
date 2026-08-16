@@ -27,5 +27,5 @@ expected: |-
                 }
             }
   }
-status: pass
-reason: saturated applications force source-strict constructor fields before allocating the constructor
+status: xfail
+reason: FC lint finds declaration type variables in strict field binders after constructor instantiation

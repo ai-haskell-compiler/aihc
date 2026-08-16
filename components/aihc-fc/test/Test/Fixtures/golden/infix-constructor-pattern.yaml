@@ -10,17 +10,21 @@ modules:
     first :: Pair a -> a
     first (value :*: _) = value
 expected: |-
-  module Test where
+  module "" Test where
 
-  data Pair (a : TYPE BoxedRep Lifted)
-   = :*: (a) (a)
+  data "" Test.Pair (a{unique 22} : Type) : Type
+   = "" Test.:*: ((a{unique 22} : Type)) ((a{unique 22} : Type))
 
-  first : ∀ (a : TYPE BoxedRep Lifted). (Pair a) → a =
-    Λ(a : TYPE BoxedRep Lifted).
-      λ(x1001 : Pair a).
-        case x1001 as (_scrut : Pair a) of {
-          :*: (value : (a : TYPE BoxedRep Lifted)) (_ : (a : TYPE BoxedRep Lifted)) →
-            value
-        }
+  rec {
+    first{unique 1000} : ∀ (a{unique 25} : Type). tycon "" "Test" Pair/1 { :: Type → Type }[(a{unique 25} : Type)] → (a{unique 25} : Type);
+    first{unique 1000} =
+      Λ(a{unique 25} : Type).
+        λ(x1001{unique 1001} : tycon "" "Test" Pair/1 { :: Type → Type }[(a{unique 25} : Type)]).
+          case (x1001{unique 1001} : tycon "" "Test" Pair/1 { :: Type → Type }[(a{unique 25} : Type)]) as (_scrut{unique 1004} : tycon "" "Test" Pair/1 { :: Type → Type }[(a{unique 25} : Type)]) of {
+            "" Test.:*: (value{unique 1002} : (a{unique 22} : Type)) (_{unique 1003} : (a{unique 22} : Type)) →
+              (value{unique 1002} : (a{unique 22} : Type))
+          }
+  }
+
 status: xfail
 reason: arbitrary infix constructor patterns retain their field binders and types during FC desugaring

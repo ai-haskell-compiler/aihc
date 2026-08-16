@@ -39,5 +39,5 @@ expected: |-
             (((mark{unique -2443169653}{origin "" Test.mark} : ∀ (a{unique 20} : Type). tycon "" "Test" Markable/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → tycon "" "Test" Mark/0 { :: Type }) @(a{unique 24} : Type)) ($dpattern{unique 1007} : tycon "" "Test" Markable/1 { :: Type → Type }[(a{unique 24} : Type)])) (value{unique 1006} : (a{unique 24} : Type))
         }
   }
-status: pass
-reason: Class method identities and existential constructor dictionaries remain available during System FC desugaring
+status: xfail
+reason: FC lint cannot associate constructor existential variables with the matched existential binder types

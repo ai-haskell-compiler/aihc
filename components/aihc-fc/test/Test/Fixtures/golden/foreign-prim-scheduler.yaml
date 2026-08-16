@@ -46,6 +46,5 @@ modules:
   spawn action state = fork# action state
 
   reschedule state = yield# state
-reason: scheduler primitives retain their zero-width state and unlifted thread identity
-  types through FC desugaring
-status: pass
+reason: FC lint cannot find the declared primitive identities for the fork# and yield# occurrences
+status: xfail

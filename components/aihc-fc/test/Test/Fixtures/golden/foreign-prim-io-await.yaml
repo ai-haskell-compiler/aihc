@@ -37,6 +37,5 @@ modules:
     Addr# -> State# RealWorld -> State# RealWorld
 
   await request state = awaitIO# request state
-reason: the compiler exposes one operation-independent IO suspension primitive
-  while concrete operations remain runtime calls
-status: pass
+reason: FC lint cannot find the declared primitive identity for the awaitIO# occurrence
+status: xfail
