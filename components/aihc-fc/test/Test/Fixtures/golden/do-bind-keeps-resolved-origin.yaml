@@ -11,36 +11,42 @@ modules:
     value <- action
     Box value
 expected: |-
-  module "" GHC.Base where
+  scope 1 = "" GHC
+  scope 2 = "" GHC.Base
 
-  data "" GHC.Base.Box (a{unique 22} : Type) : Type
-   = "" GHC.Base.Box ((a{unique 22} : Type))
+  module 2.GHC.Base where
+
+  data 2.Box (a{unique 22} : Type) : Type
+   = 2.Box ((a{unique 22} : Type))
 
   rec {
-    >>={unique 1000} : ∀ (a{unique 34} : Type). ∀ (b{unique 35} : Type). tycon "" "GHC.Base" Box/1 { :: Type → Type }[(a{unique 34} : Type)] → ((a{unique 34} : Type) → (b{unique 35} : Type)) → (b{unique 35} : Type);
+    >>={unique 1000} : ∀ (a{unique 34} : Type). ∀ (b{unique 35} : Type). tycon 2.Box/1 { :: Type → Type }[(a{unique 34} : Type)] → ((a{unique 34} : Type) → (b{unique 35} : Type)) → (b{unique 35} : Type);
     >>={unique 1000} =
       Λ(a{unique 34} : Type).
         Λ(b{unique 35} : Type).
-          λ(x1001{unique 1001} : tycon "" "GHC.Base" Box/1 { :: Type → Type }[(a{unique 34} : Type)]).
+          λ(x1001{unique 1001} : tycon 2.Box/1 { :: Type → Type }[(a{unique 34} : Type)]).
             λ(y1002{unique 1002} : (a{unique 34} : Type) → (b{unique 35} : Type)).
-              case (x1001{unique 1001} : tycon "" "GHC.Base" Box/1 { :: Type → Type }[(a{unique 34} : Type)]) as (_scrut{unique 1004} : tycon "" "GHC.Base" Box/1 { :: Type → Type }[(a{unique 34} : Type)]) of {
-                "" GHC.Base.Box (value{unique 1003} : (a{unique 34} : Type)) →
+              case (x1001{unique 1001} : tycon 2.Box/1 { :: Type → Type }[(a{unique 34} : Type)]) as (_scrut{unique 1004} : tycon 2.Box/1 { :: Type → Type }[(a{unique 34} : Type)]) of {
+                2.Box (value{unique 1003} : (a{unique 34} : Type)) →
                   (y1002{unique 1002} : (a{unique 34} : Type) → (b{unique 35} : Type)) (value{unique 1003} : (a{unique 34} : Type))
               }
   }
-  module "" Test where
+  scope 1 = "" GHC.Base
+  scope 2 = "" Test
 
-  external "" GHC.Base.>>= : ∀ (a{unique 34} : Type). ∀ (b{unique 35} : Type). tycon "" "GHC.Base" Box/1 { :: Type → Type }[(a{unique 34} : Type)] → ((a{unique 34} : Type) → (b{unique 35} : Type)) → (b{unique 35} : Type)
+  module 2.Test where
 
-  external "" GHC.Base.Box : ∀ (a{unique 22} : Type). (a{unique 22} : Type) → tycon "" "GHC.Base" Box/1 { :: Type → Type }[(a{unique 22} : Type)]
+  external 1.>>= : ∀ (a{unique 34} : Type). ∀ (b{unique 35} : Type). tycon 1.Box/1 { :: Type → Type }[(a{unique 34} : Type)] → ((a{unique 34} : Type) → (b{unique 35} : Type)) → (b{unique 35} : Type)
+
+  external 1.Box : ∀ (a{unique 22} : Type). (a{unique 22} : Type) → tycon 1.Box/1 { :: Type → Type }[(a{unique 22} : Type)]
 
   rec {
-    run{unique 1000} : ∀ (a{unique 47} : Type). tycon "" "GHC.Base" Box/1 { :: Type → Type }[(a{unique 47} : Type)] → tycon "" "GHC.Base" Box/1 { :: Type → Type }[(a{unique 47} : Type)];
+    run{unique 1000} : ∀ (a{unique 47} : Type). tycon 1.Box/1 { :: Type → Type }[(a{unique 47} : Type)] → tycon 1.Box/1 { :: Type → Type }[(a{unique 47} : Type)];
     run{unique 1000} =
       Λ(a{unique 47} : Type).
-        λ(x1001{unique 1001} : tycon "" "GHC.Base" Box/1 { :: Type → Type }[(a{unique 47} : Type)]).
-          ((((>>={unique -2089863582}{origin "" GHC.Base.>>=} : ∀ (a{unique 34} : Type). ∀ (b{unique 35} : Type). tycon "" "GHC.Base" Box/1 { :: Type → Type }[(a{unique 34} : Type)] → ((a{unique 34} : Type) → (b{unique 35} : Type)) → (b{unique 35} : Type)) @(a{unique 47} : Type)) @tycon "" "GHC.Base" Box/1 { :: Type → Type }[(a{unique 47} : Type)]) (x1001{unique 1001} : tycon "" "GHC.Base" Box/1 { :: Type → Type }[(a{unique 47} : Type)])) (λ(_do1002{unique 1002} : (a{unique 47} : Type)).
-            ((Box{unique -2833621277}{origin "" GHC.Base.Box} : ∀ (a{unique 22} : Type). (a{unique 22} : Type) → tycon "" "GHC.Base" Box/1 { :: Type → Type }[(a{unique 22} : Type)]) @(a{unique 47} : Type)) (_do1002{unique 1002} : (a{unique 47} : Type)))
+        λ(x1001{unique 1001} : tycon 1.Box/1 { :: Type → Type }[(a{unique 47} : Type)]).
+          ((((>>={unique -2089863582}{origin 1.>>=} : ∀ (a{unique 34} : Type). ∀ (b{unique 35} : Type). tycon 1.Box/1 { :: Type → Type }[(a{unique 34} : Type)] → ((a{unique 34} : Type) → (b{unique 35} : Type)) → (b{unique 35} : Type)) @(a{unique 47} : Type)) @tycon 1.Box/1 { :: Type → Type }[(a{unique 47} : Type)]) (x1001{unique 1001} : tycon 1.Box/1 { :: Type → Type }[(a{unique 47} : Type)])) (λ(_do1002{unique 1002} : (a{unique 47} : Type)).
+            ((Box{unique -2833621277}{origin 1.Box} : ∀ (a{unique 22} : Type). (a{unique 22} : Type) → tycon 1.Box/1 { :: Type → Type }[(a{unique 22} : Type)]) @(a{unique 47} : Type)) (_do1002{unique 1002} : (a{unique 47} : Type)))
   }
 reason: keeps the resolved GHC.Base origin on the do-notation bind operation
 status: pass

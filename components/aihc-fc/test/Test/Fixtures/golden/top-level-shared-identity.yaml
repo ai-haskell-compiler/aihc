@@ -6,7 +6,9 @@ modules:
     second x = shared x
     shared x = x
 expected: |-
-  module "" Test where
+  scope 1 = "" Test
+
+  module 1.Test where
 
   rec {
     first{unique 1000} : ∀ (a{unique 40} : Type). (a{unique 40} : Type) → (a{unique 40} : Type);

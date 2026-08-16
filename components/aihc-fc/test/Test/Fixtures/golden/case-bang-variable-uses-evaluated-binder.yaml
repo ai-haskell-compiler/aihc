@@ -1,18 +1,20 @@
 extensions:
   - BangPatterns
 expected: |-
-  module "" Test where
+  scope 1 = "" Test
 
-  data "" Test.Box : Type
-   = "" Test.Box
+  module 1.Test where
+
+  data 1.Box : Type
+   = 1.Box
 
   rec {
-    forceBox{unique 1000} : tycon "" "Test" Box/0 { :: Type } → tycon "" "Test" Box/0 { :: Type };
+    forceBox{unique 1000} : tycon 1.Box/0 { :: Type } → tycon 1.Box/0 { :: Type };
     forceBox{unique 1000} =
-      λ(x1001{unique 1001} : tycon "" "Test" Box/0 { :: Type }).
-        case (x1001{unique 1001} : tycon "" "Test" Box/0 { :: Type }) as (_bang1002{unique 1002} : tycon "" "Test" Box/0 { :: Type }) of {
+      λ(x1001{unique 1001} : tycon 1.Box/0 { :: Type }).
+        case (x1001{unique 1001} : tycon 1.Box/0 { :: Type }) as (_bang1002{unique 1002} : tycon 1.Box/0 { :: Type }) of {
           _ →
-            (_bang1002{unique 1002} : tycon "" "Test" Box/0 { :: Type })
+            (_bang1002{unique 1002} : tycon 1.Box/0 { :: Type })
         }
   }
 modules:

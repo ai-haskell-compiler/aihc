@@ -1,15 +1,17 @@
 expected: |-
-  module "" Test where
+  scope 1 = "" Test
 
-  data "" Test.Bool : Type
-   = "" Test.True
-   | "" Test.False
+  module 1.Test where
+
+  data 1.Bool : Type
+   = 1.True
+   | 1.False
 
   rec {
-    idBool{unique 1000} : tycon "" "Test" Bool/0 { :: Type } → tycon "" "Test" Bool/0 { :: Type };
+    idBool{unique 1000} : tycon 1.Bool/0 { :: Type } → tycon 1.Bool/0 { :: Type };
     idBool{unique 1000} =
-      λ(x1001{unique 1001} : tycon "" "Test" Bool/0 { :: Type }).
-        (x1001{unique 1001} : tycon "" "Test" Bool/0 { :: Type })
+      λ(x1001{unique 1001} : tycon 1.Bool/0 { :: Type }).
+        (x1001{unique 1001} : tycon 1.Bool/0 { :: Type })
   }
 extensions: []
 modules:

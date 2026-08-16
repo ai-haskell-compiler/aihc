@@ -7,20 +7,23 @@ modules:
     pair :: (Bool, ())
     pair = (True, ())
 expected: |-
-  module "" Test where
+  scope 1 = "" GHC.Tuple
+  scope 2 = "" Test
 
-  external "" GHC.Tuple.() : tycon "" "GHC.Tuple" Unit/0 { :: Type }
+  module 2.Test where
 
-  external "" GHC.Tuple.(,) : ∀ (a{unique 14} : Type). ∀ (b{unique 16} : Type). (a{unique 14} : Type) → (b{unique 16} : Type) → tycon "" "GHC.Tuple" Tuple2/2 { :: Type → Type → Type }[(a{unique 14} : Type), (b{unique 16} : Type)]
+  external 1.() : tycon 1.Unit/0 { :: Type }
 
-  data "" Test.Bool : Type
-   = "" Test.True
-   | "" Test.False
+  external 1.(,) : ∀ (a{unique 14} : Type). ∀ (b{unique 16} : Type). (a{unique 14} : Type) → (b{unique 16} : Type) → tycon 1.Tuple2/2 { :: Type → Type → Type }[(a{unique 14} : Type), (b{unique 16} : Type)]
+
+  data 2.Bool : Type
+   = 2.True
+   | 2.False
 
   rec {
-    pair{unique 1000} : tycon "" "GHC.Tuple" Tuple2/2 { :: Type → Type → Type }[tycon "" "Test" Bool/0 { :: Type }, tycon "" "GHC.Tuple" Unit/0 { :: Type }];
+    pair{unique 1000} : tycon 1.Tuple2/2 { :: Type → Type → Type }[tycon 2.Bool/0 { :: Type }, tycon 1.Unit/0 { :: Type }];
     pair{unique 1000} =
-      (((((,){unique -2368007840}{origin "" GHC.Tuple.(,)} : ∀ (a{unique 14} : Type). ∀ (b{unique 16} : Type). (a{unique 14} : Type) → (b{unique 16} : Type) → tycon "" "GHC.Tuple" Tuple2/2 { :: Type → Type → Type }[(a{unique 14} : Type), (b{unique 16} : Type)]) @tycon "" "Test" Bool/0 { :: Type }) @tycon "" "GHC.Tuple" Unit/0 { :: Type }) (True{unique -2360662326}{origin "" Test.True} : tycon "" "Test" Bool/0 { :: Type })) ((){unique -2533499005}{origin "" GHC.Tuple.()} : tycon "" "GHC.Tuple" Unit/0 { :: Type })
+      (((((,){unique -2368007840}{origin 1.(,)} : ∀ (a{unique 14} : Type). ∀ (b{unique 16} : Type). (a{unique 14} : Type) → (b{unique 16} : Type) → tycon 1.Tuple2/2 { :: Type → Type → Type }[(a{unique 14} : Type), (b{unique 16} : Type)]) @tycon 2.Bool/0 { :: Type }) @tycon 1.Unit/0 { :: Type }) (True{unique -2360662326}{origin 2.True} : tycon 2.Bool/0 { :: Type })) ((){unique -2533499005}{origin 1.()} : tycon 1.Unit/0 { :: Type })
   }
 status: pass
 reason: reifies tuple constructor type arguments from type-checker annotations

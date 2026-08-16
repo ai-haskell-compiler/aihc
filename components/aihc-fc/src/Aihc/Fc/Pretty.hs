@@ -14,7 +14,7 @@ import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Evidence (Coercion (..), EvVar (..))
 import Aihc.Tc.Types
 import Data.ByteString qualified as BS
-import Data.Char (chr, isAlphaNum, isAsciiUpper)
+import Data.Char (chr, isAlphaNum, isAscii, isAsciiUpper, isSpace)
 import Data.List (intercalate)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
@@ -46,10 +46,11 @@ scopesInRenderedProgram :: String -> [Scope]
 scopesInRenderedProgram rendered = concatMap scopesInWords (windows 4 words') <> concatMap scopesInOrigin (windows 3 words')
   where
     words' = words rendered
-    scopesInWords ["tycon", packageName, moduleName, _] =
-      case (readMaybe packageName, readMaybe moduleName) of
-        (Just package, Just moduleName') -> [(T.pack package, T.pack moduleName')]
-        _ -> []
+    scopesInWords [prefix, packageName, moduleName, _]
+      | "tycon" `List.isSuffixOf` prefix =
+          case (readMaybe packageName, readMaybe moduleName) of
+            (Just package, Just moduleName') -> [(T.pack package, T.pack moduleName')]
+            _ -> []
     scopesInWords [packageName, qualified, _, _] =
       case (readMaybe packageName, splitQualifiedName (T.pack qualified)) of
         (Just package, Just (moduleName, _)) -> [(T.pack package, moduleName)]
@@ -68,12 +69,21 @@ windows size values
   | otherwise = take size values : windows size (drop 1 values)
 
 splitQualifiedName :: T.Text -> Maybe (T.Text, T.Text)
-splitQualifiedName qualified =
-  case T.breakOnEnd "." qualified of
-    (moduleName, symbolName)
-      | T.null moduleName || T.null symbolName || T.isPrefixOf "\"" qualified -> Nothing
-      | not (validScopeModule (T.dropEnd 1 moduleName)) -> Nothing
-      | otherwise -> Just (T.dropEnd 1 moduleName, symbolName)
+splitQualifiedName original =
+  case reverse candidates of
+    candidate : _ -> Just candidate
+    [] -> Nothing
+  where
+    qualified = T.dropWhileEnd (== '}') original
+    candidates =
+      [ (moduleName, symbolName)
+      | offset <- [1 .. T.length qualified - 1],
+        T.index qualified offset == '.',
+        let moduleName = T.take offset qualified,
+        let symbolName = T.drop (offset + 1) qualified,
+        validScopeModule moduleName,
+        validScopeName symbolName
+      ]
 
 validScopeModule :: T.Text -> Bool
 validScopeModule = all validScopeSegment . T.splitOn "."
@@ -85,7 +95,26 @@ validScopeSegment segment =
     Nothing -> False
 
 validScopeCharacter :: Char -> Bool
-validScopeCharacter character = isAlphaNum character || character `elem` ("_'" :: String)
+validScopeCharacter character = isAlphaNum character || character `elem` ("_'$#" :: String)
+
+validScopeName :: T.Text -> Bool
+validScopeName value =
+  (not (T.null value) && T.all validScopeCharacter value)
+    || (not (T.null value) && T.all (`elem` ("!#$%&*+./<=>?@\\^|-~:" :: String)) value)
+    || validDelimitedScopeName '(' ')' value
+    || validDelimitedScopeName '[' ']' value
+
+validDelimitedScopeName :: Char -> Char -> T.Text -> Bool
+validDelimitedScopeName opening closing value =
+  case (T.uncons value, T.unsnoc value) of
+    (Just (first, _), Just (contents, lastCharacter)) ->
+      first == opening
+        && lastCharacter == closing
+        && T.all validDelimitedScopeCharacter (T.drop 1 contents)
+    _ -> False
+
+validDelimitedScopeCharacter :: Char -> Bool
+validDelimitedScopeCharacter character = isAscii character && not (isAlphaNum character) && not (isSpace character)
 
 renderScopes :: Map.Map Scope Int -> String
 renderScopes = intercalate "\n" . map renderScope . Map.toAscList
