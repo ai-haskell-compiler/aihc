@@ -167,7 +167,7 @@ renderTypeWith env scopes seen prec ty =
     TyApp function argument ->
       paren (prec < PrecApp) (renderTypeWith env scopes seen PrecApp function <> " " <> renderTypeWith env scopes seen PrecAtom argument)
     TyFun r1 r2 argument result
-      | canHideFun env argument result r1 r2 ->
+      | isLiftedRep env r1 && isLiftedRep env r2 ->
           paren (prec < PrecFun) (renderTypeWith env scopes seen PrecApp argument <> " → " <> renderTypeWith env scopes seen PrecFun result)
       | otherwise ->
           paren
@@ -207,12 +207,6 @@ renderPiBinder env scopes seen binder =
     <> " : "
     <> renderTypeWith env scopes seen PrecForAll (binderType binder)
     <> ")"
-
-canHideFun :: TypeEnv -> Type -> Type -> Type -> Type -> Bool
-canHideFun env argument result r1 r2 =
-  case (repOf env argument, repOf env result) of
-    (Just left, Just right) -> left == r1 && right == r2
-    _ -> False
 
 extendPrettyEnv :: TypeEnv -> Binder -> TypeEnv
 extendPrettyEnv env binder =

@@ -3,6 +3,6 @@ scope 2 = "aihc-prim" GHC.Types
 
 module 1.Test where
 
-val 1.vidBool :: FUN @2.tLiftedRep @2.tLiftedRep 2.tBool 2.tBool
+val 1.vidBool :: 2.tBool → 2.tBool
  = λ(x : 2.tBool).
   x
