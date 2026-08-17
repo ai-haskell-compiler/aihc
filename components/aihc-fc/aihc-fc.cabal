@@ -28,6 +28,13 @@ library
     Aihc.Fc.Pretty
     Aihc.Fc.Subst
     Aihc.Fc.Syntax
+    Aihc.Fc2
+    Aihc.Fc2.Name
+    Aihc.Fc2.Parser
+    Aihc.Fc2.Pretty
+    Aihc.Fc2.Syntax
+    Aihc.Fc2.TypeOf
+    Aihc.Fc2.Wired
 
   other-modules:
     Aihc.Fc.Desugar.Deriving
@@ -66,6 +73,8 @@ test-suite spec
     FcGolden
     Test.Fc.Properties
     Test.Fc.Suite
+    Test.Fc2.Properties
+    Test.Fc2.Suite
 
   build-depends:
     aeson,

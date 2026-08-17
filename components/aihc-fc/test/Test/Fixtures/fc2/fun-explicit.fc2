@@ -1,0 +1,8 @@
+scope 1 = "" Test
+scope 2 = "aihc-prim" GHC.Types
+
+module 1.Test where
+
+val 1.vidBool :: FUN @2.tLiftedRep @2.tLiftedRep 2.tBool 2.tBool
+ = λ(x : 2.tBool).
+  x
