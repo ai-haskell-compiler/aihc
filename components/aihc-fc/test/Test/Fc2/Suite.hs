@@ -3,6 +3,7 @@
 -- | Fixture tests for System FC 2 text.
 module Test.Fc2.Suite
   ( fc2FixtureTests,
+    fc2GoldenTests,
   )
 where
 
@@ -12,6 +13,7 @@ import Data.List (dropWhileEnd)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
+import Fc2Golden (Fc2Case (..), Outcome (..), evaluateFc2Case, loadFc2Cases)
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeExtension, (</>))
 import Test.Tasty (TestTree, testGroup)
@@ -47,3 +49,15 @@ normalize :: Text -> Text
 normalize = T.pack . trim . T.unpack
   where
     trim = dropWhileEnd isSpace . dropWhile isSpace
+
+fc2GoldenTests :: IO TestTree
+fc2GoldenTests = testGroup "SystemFC2 goldens" . map mkGolden <$> loadFc2Cases
+
+mkGolden :: Fc2Case -> TestTree
+mkGolden tc = testCase (caseId tc) $ do
+  let (outcome, details) = evaluateFc2Case tc
+  case outcome of
+    OutcomePass -> pure ()
+    OutcomeXFail -> pure ()
+    OutcomeXPass -> assertFailure ("unexpected pass (xpass): " <> details)
+    OutcomeFail -> assertFailure details

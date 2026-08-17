@@ -1,0 +1,17 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data List a = Nil | Cons a (List a)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  module 1.Test where
+
+  pub type 1.t[] (a{12} : 2.tType) :: 2.tType {
+      pub 1.vNil :: ∀(a{12} : 2.tType). 1.t[] a{12}
+      pub 1.vCons :: ∀(a{12} : 2.tType). a{12} → 1.t[] a{12} → 1.t[] a{12}
+  }
+status: pass
+reason: A parameterized data type prints header binders and full constructor types.
