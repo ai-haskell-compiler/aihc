@@ -1,0 +1,21 @@
+scope 1 = "" Parent
+scope 2 = "aihc-prim" GHC.Types
+
+module 1.Parent where
+
+pub type 1.tFlag :: 2.tType {
+    pub 1.vOff :: 1.tFlag
+    pub 1.vOn :: 1.tFlag
+}
+
+pub type 1.t$Dict$Parent (a : 2.tType) :: 2.tType {
+    pub 1.v$Dict$Parent :: ∀(a : 2.tType). (a → 1.tFlag) → 1.t$Dict$Parent a
+}
+
+pub val 1.vparent :: ∀(a : 2.tType). 1.t$Dict$Parent a → a → 1.tFlag
+ = Λ(a : 2.tType).
+  λ($d0 : 1.t$Dict$Parent a).
+    case $d0 as ($dict : 1.t$Dict$Parent a) of {
+        1.v$Dict$Parent ($method0 : a → 1.tFlag) →
+            $method0
+    }
