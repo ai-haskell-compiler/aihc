@@ -17,8 +17,9 @@ import Aihc.Tc.Evidence (Coercion (..), EvVar (..))
 import Aihc.Tc.Types
 import Control.Applicative ((<|>))
 import Control.Monad (guard, void)
+import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import Data.ByteString qualified as BS
-import Data.Char (isAlphaNum, isAscii, isAsciiUpper, isSpace, ord)
+import Data.Char (isAlphaNum, isAscii, isAsciiUpper, isDigit, isSpace, ord)
 import Data.Either (fromRight)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
@@ -34,7 +35,7 @@ import Text.Megaparsec.Char qualified as MPC
 import Text.Megaparsec.Char.Lexer qualified as L
 import Text.Read (readMaybe)
 
-type Parser = Parsec Void Text
+type Parser = ReaderT ScopeEnv (Parsec Void Text)
 
 type FcParseError = ParseErrorBundle Text Void
 
@@ -48,23 +49,55 @@ newtype UnboxedTupleSyntax = UnboxedTupleSyntax
 
 parseProgram :: Text -> Either FcParseError FcProgram
 parseProgram input = do
-  moduleHeaders <- traverse parseModuleHeader blocks
-  moduleId <- validateModuleDeclaration input (catMaybes moduleHeaders)
+  (scopes, programInput) <- parseScopeHeader input
+  let blocks = filter (not . T.null) (map T.strip (T.splitOn "\n\n" programInput))
+  moduleHeaders <- traverse (parseModuleHeader scopes) blocks
+  moduleId <- validateModuleDeclaration programInput (catMaybes moduleHeaders)
   let definitionBlocks =
         [ block
         | (block, Nothing) <- zip blocks moduleHeaders
         ]
-  headers <- traverse parseExternalHeader definitionBlocks
-  validateExternalDeclarations input headers
+  headers <- traverse (parseExternalHeader scopes) definitionBlocks
+  validateExternalDeclarations programInput headers
   let moduleOrigin = Just (fcModulePackageText moduleId, fcModuleName moduleId)
-  signatures <- traverse (parseSignatures moduleOrigin) definitionBlocks
+  signatures <- traverse (parseSignatures scopes moduleOrigin) definitionBlocks
   let globals = Map.unions (catMaybes signatures) <> externalEnv headers
-  FcProgram moduleId <$> traverse (parseBlock moduleOrigin globals) definitionBlocks
+  FcProgram moduleId <$> traverse (parseBlock scopes moduleOrigin globals) definitionBlocks
+
+parseModuleHeader :: ScopeEnv -> Text -> Either FcParseError (Maybe FcModuleId)
+parseModuleHeader scopes = parseWith scopes (space *> MP.optional (MP.try moduleDeclaration) <* MP.takeRest) "<system-fc-header>"
+
+parseExternalHeader :: ScopeEnv -> Text -> Either FcParseError (Maybe FcTopBind)
+parseExternalHeader scopes = parseWith scopes (space *> MP.optional (MP.try externalDeclaration) <* MP.takeRest) "<system-fc-header>"
+
+parseBlock :: ScopeEnv -> Maybe (Text, Text) -> TermEnv -> Text -> Either FcParseError FcTopBind
+parseBlock scopes moduleOrigin globals = parseWith scopes (space *> topBind moduleOrigin globals <* MP.eof) "<system-fc>"
+
+parseWith :: ScopeEnv -> Parser value -> String -> Text -> Either FcParseError value
+parseWith scopes parser = MP.parse (runReaderT parser scopes)
+
+type ScopeEnv = Map Text (Text, Text)
+
+parseScopeHeader :: Text -> Either FcParseError (ScopeEnv, Text)
+parseScopeHeader input = do
+  (scopes, programInput) <- MP.parse parser "<system-fc-scope>" input
+  case firstDuplicate (map fst scopes) of
+    Just duplicateScope -> parseProgramFailure input ("duplicate System FC scope " <> T.unpack duplicateScope)
+    Nothing -> Right (Map.fromList scopes, programInput)
   where
-    blocks = filter (not . T.null) (map T.strip (T.splitOn "\n\n" input))
-    parseModuleHeader = MP.parse (space *> MP.optional (MP.try moduleDeclaration) <* MP.takeRest) "<system-fc-header>"
-    parseExternalHeader = MP.parse (space *> MP.optional (MP.try externalDeclaration) <* MP.takeRest) "<system-fc-header>"
-    parseBlock moduleOrigin globals = MP.parse (space *> topBind moduleOrigin globals <* MP.eof) "<system-fc>"
+    parser = do
+      scopes <- MP.some (runReaderT scopeDeclaration mempty)
+      programInput <- MP.takeRest
+      pure (scopes, programInput)
+
+scopeDeclaration :: Parser (Text, (Text, Text))
+scopeDeclaration = do
+  _ <- keyword "scope"
+  declaredScope <- T.pack . show <$> int
+  _ <- symbol "="
+  packageName <- text
+  moduleName <- qualifiedName
+  pure (declaredScope, (packageName, moduleName))
 
 validateModuleDeclaration :: Text -> [FcModuleId] -> Either FcParseError FcModuleId
 validateModuleDeclaration _ [moduleId] = Right moduleId
@@ -95,10 +128,19 @@ firstDuplicate = go Set.empty
       | otherwise = go (Set.insert value seen) values
 
 parseExpr :: Text -> Either FcParseError FcExpr
-parseExpr = MP.parse (space *> expression mempty mempty <* MP.eof) "<system-fc-expression>"
+parseExpr input =
+  parseStandalone input (\_ -> expression mempty mempty) "<system-fc-expression>"
 
 parseType :: Text -> Either FcParseError TcType
-parseType = MP.parse (space *> tcType mempty <* MP.eof) "<system-fc-type>"
+parseType input =
+  parseStandalone input (\_ -> tcType mempty) "<system-fc-type>"
+
+parseStandalone :: Text -> (ScopeEnv -> Parser value) -> String -> Either FcParseError value
+parseStandalone input parser sourceName
+  | "scope" `T.isPrefixOf` T.stripStart input = do
+      (scopes, body) <- parseScopeHeader input
+      parseWith scopes (space *> parser scopes <* MP.eof) sourceName body
+  | otherwise = parseWith mempty (space *> parser mempty <* MP.eof) sourceName input
 
 renderParseError :: FcParseError -> String
 renderParseError = MP.errorBundlePretty
@@ -118,10 +160,13 @@ topBind moduleOrigin termEnv =
 moduleDeclaration :: Parser FcModuleId
 moduleDeclaration = do
   _ <- keyword "module"
-  packageName <- MP.optional (MP.try text)
-  moduleName <- qualifiedName
+  requestedScope <- scopeId
+  _ <- symbol "."
+  declaredName <- qualifiedName
+  (packageName, moduleName) <- scopeBinding requestedScope
+  guard (moduleName == declaredName)
   _ <- keyword "where"
-  pure (FcModuleId (PackageId (fromMaybe "" packageName)) moduleName)
+  pure (FcModuleId (PackageId packageName) moduleName)
 
 externalDeclaration :: Parser FcTopBind
 externalDeclaration = do
@@ -138,9 +183,10 @@ externalEnv headers =
     | Just (FcExternal origin ty) <- headers
     ]
 
-parseSignatures :: Maybe (Text, Text) -> Text -> Either FcParseError (Maybe TermEnv)
-parseSignatures moduleOrigin =
-  MP.parse
+parseSignatures :: ScopeEnv -> Maybe (Text, Text) -> Text -> Either FcParseError (Maybe TermEnv)
+parseSignatures scopes moduleOrigin =
+  parseWith
+    scopes
     (space *> MP.optional (MP.try (declarationSignatures moduleOrigin)) <* MP.takeRest)
     "<system-fc-signature>"
 
@@ -264,13 +310,54 @@ declarationName moduleOrigin = do
     Nothing -> fail "declaration has no System FC module origin"
 
 constructorIdentity :: Parser (Text, FcConstructorId)
-constructorIdentity = do
-  packageName <- text
-  qualified <- lexeme (T.pack <$> MP.some (MP.satisfy (not . isSpace)))
-  case splitConstructorIdentity qualified of
-    Just (moduleName, constructorName) ->
+constructorIdentity = MP.try scopedConstructorIdentity <|> legacyConstructorIdentity
+  where
+    scopedConstructorIdentity = do
+      (packageName, moduleName, constructorName) <- scopeReference
       pure (makeConstructorIdentity packageName moduleName constructorName)
-    Nothing -> fail "invalid qualified System FC constructor name"
+    legacyConstructorIdentity = do
+      scopes <- ask
+      guard (Map.null scopes)
+      packageName <- text
+      qualified <- lexeme (T.pack <$> MP.some (MP.satisfy (not . isSpace)))
+      case splitConstructorIdentity qualified of
+        Just (moduleName, constructorName) -> pure (makeConstructorIdentity packageName moduleName constructorName)
+        Nothing -> fail "invalid qualified System FC constructor name"
+
+scopeReference :: Parser (Text, Text, Text)
+scopeReference = do
+  requestedScope <- scopeId
+  _ <- MPC.char '.'
+  symbolName <- scopeSymbolName
+  (packageName, moduleName) <- scopeBinding requestedScope
+  pure (packageName, moduleName, symbolName)
+
+scopeId :: Parser Text
+scopeId = T.pack . show <$> int
+
+scopeBinding :: Text -> Parser (Text, Text)
+scopeBinding requestedScope = do
+  scopes <- ask
+  case Map.lookup requestedScope scopes of
+    Just scope -> pure scope
+    Nothing -> fail ("unknown System FC scope " <> T.unpack requestedScope)
+
+scopeSymbolName :: Parser Text
+scopeSymbolName =
+  lexeme
+    ( delimitedSymbolName '(' ')'
+        <|> delimitedSymbolName '[' ']'
+        <|> MP.try scopeOrdinaryName
+        <|> (T.pack <$> MP.some (MP.satisfy (`elem` operatorNameCharacters)))
+    )
+  where
+    scopeOrdinaryName = do
+      first <- MP.satisfy (\character -> isAlphaNum character || character `elem` ("_$'" :: String))
+      rest <- MP.many (MP.satisfy nameCharacter)
+      following <- MP.optional (MP.lookAhead MP.anySingle)
+      slashStartsArity <- MP.optional (MP.try (MP.lookAhead (void (MPC.char '/') *> void (MP.satisfy isDigit))))
+      guard (first /= '$' || maybe True (`notElem` operatorNameCharacters) following || slashStartsArity == Just ())
+      pure (T.pack (first : rest))
 
 makeConstructorIdentity :: Text -> Text -> Text -> (Text, FcConstructorId)
 makeConstructorIdentity packageName moduleName constructorName =
@@ -556,13 +643,20 @@ resolvedOriginName = do
     Nothing -> fail "expected a resolved System FC symbol"
 
 topLevelOrigin :: Parser (Text, Maybe FcSymbolOrigin)
-topLevelOrigin = do
-  packageName <- MP.optional (MP.try text)
-  qualified <- lexeme (T.pack <$> MP.some (MP.satisfy qualifiedSymbolCharacter))
-  case splitConstructorIdentity qualified of
-    Just (moduleName, symbolName) ->
-      pure (symbolName, Just (FcTopLevelOrigin (fromMaybe "" packageName) moduleName symbolName))
-    Nothing -> fail "invalid qualified System FC symbol name"
+topLevelOrigin = MP.try scopedTopLevelOrigin <|> legacyTopLevelOrigin
+  where
+    scopedTopLevelOrigin = do
+      (packageName, moduleName, symbolName) <- scopeReference
+      pure (symbolName, Just (FcTopLevelOrigin packageName moduleName symbolName))
+    legacyTopLevelOrigin = do
+      scopes <- ask
+      guard (Map.null scopes)
+      packageName <- MP.optional (MP.try text)
+      qualified <- lexeme (T.pack <$> MP.some (MP.satisfy qualifiedSymbolCharacter))
+      case splitConstructorIdentity qualified of
+        Just (moduleName, symbolName) ->
+          pure (symbolName, Just (FcTopLevelOrigin (fromMaybe "" packageName) moduleName symbolName))
+        Nothing -> fail "invalid qualified System FC symbol name"
 
 builtinOrigin :: Parser (Text, Maybe FcSymbolOrigin)
 builtinOrigin = do
@@ -852,7 +946,21 @@ localTyConHead = do
   TyCon typeName <$> int
 
 externalTyConHead :: Parser TyCon
-externalTyConHead = do
+externalTyConHead = MP.try scopedExternalTyConHead <|> legacyExternalTyConHead
+
+scopedExternalTyConHead :: Parser TyCon
+scopedExternalTyConHead = do
+  _ <- keyword "tycon"
+  (packageName, moduleName, typeName) <- scopeReference
+  _ <- symbol "/"
+  arity <- int
+  scheme <- between "{" "}" tyConKindSchemeSyntax
+  pure (mkTyConWithOriginScheme (PackageId packageName) moduleName typeName arity scheme)
+
+legacyExternalTyConHead :: Parser TyCon
+legacyExternalTyConHead = do
+  scopes <- ask
+  guard (Map.null scopes)
   _ <- keyword "tycon"
   packageName <- text
   moduleName <- text

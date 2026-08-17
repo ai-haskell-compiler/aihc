@@ -1,11 +1,14 @@
 expected: |-
-  module "" Test where
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
 
-  data "" Test.State# (s{unique 26} : Type) : TYPE TupleRep []
+  module 1.Test where
 
-  data "" Test.MutVar# (d{unique 28} : Type) (a{unique 30} : Type) : TYPE UnliftedRep
+  data 1.State# (s{unique 26} : Type) : TYPE TupleRep []
 
-  foreign prim newMutVar#{unique 1000}/2 : ∀ (a{unique 35} : Type). ∀ (d{unique 36} : Type). (a{unique 35} : Type) → tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[(d{unique 36} : Type)] → tycon "aihc-prim" "GHC.Types" Tuple2#/2 { :: TYPE TupleRep [] → TYPE UnliftedRep → TYPE TupleRep [TupleRep [], BoxedRep Unlifted] }[tycon "" "Test" State#/1 { :: Type → TYPE TupleRep [] }[(d{unique 36} : Type)], tycon "" "Test" MutVar#/2 { :: Type → Type → TYPE UnliftedRep }[(d{unique 36} : Type), (a{unique 35} : Type)]]
+  data 1.MutVar# (d{unique 28} : Type) (a{unique 30} : Type) : TYPE UnliftedRep
+
+  foreign prim newMutVar#{unique 1000}/2 : ∀ (a{unique 35} : Type). ∀ (d{unique 36} : Type). (a{unique 35} : Type) → tycon 1.State#/1 { :: Type → TYPE TupleRep [] }[(d{unique 36} : Type)] → tycon 2.Tuple2#/2 { :: TYPE TupleRep [] → TYPE UnliftedRep → TYPE TupleRep [TupleRep [], BoxedRep Unlifted] }[tycon 1.State#/1 { :: Type → TYPE TupleRep [] }[(d{unique 36} : Type)], tycon 1.MutVar#/2 { :: Type → Type → TYPE UnliftedRep }[(d{unique 36} : Type), (a{unique 35} : Type)]]
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim

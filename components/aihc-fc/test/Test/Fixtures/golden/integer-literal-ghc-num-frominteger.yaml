@@ -1,34 +1,43 @@
 expected: |-
-  module "aihc-prim" GHC.Prim where
+  scope 1 = "aihc-prim" GHC.Prim
 
-  data "aihc-prim" GHC.Prim.Int# : TYPE IntRep
-  module "" GHC.Num where
+  module 1.GHC.Prim where
 
-  data "" GHC.Num.Integer : Type
-   = "" GHC.Num.IS (tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep })
+  data 1.Int# : TYPE IntRep
+  scope 1 = "" GHC.Num
+  scope 2 = "aihc-prim" GHC.Prim
 
-  data "" GHC.Num.Num (a{unique 20} : Type) : Type
-   = "" GHC.Num.$Dict$Num (tycon "" "GHC.Num" Integer/0 { :: Type } → (a{unique 20} : Type))
+  module 1.GHC.Num where
 
-  fromInteger{unique 1000} : ∀ (a{unique 20} : Type). tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 20} : Type)] → tycon "" "GHC.Num" Integer/0 { :: Type } → (a{unique 20} : Type) =
+  data 1.Integer : Type
+   = 1.IS (tycon 2.Int#/0 { :: TYPE IntRep })
+
+  data 1.Num (a{unique 20} : Type) : Type
+   = 1.$Dict$Num (tycon 1.Integer/0 { :: Type } → (a{unique 20} : Type))
+
+  fromInteger{unique 1000} : ∀ (a{unique 20} : Type). tycon 1.Num/1 { :: Type → Type }[(a{unique 20} : Type)] → tycon 1.Integer/0 { :: Type } → (a{unique 20} : Type) =
     Λ(a{unique 20} : Type).
-      λ($d0{unique 1001} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 20} : Type)]).
-        case ($d0{unique 1001} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 20} : Type)]) of {
-          "" GHC.Num.$Dict$Num ($method0{unique 1003} : tycon "" "GHC.Num" Integer/0 { :: Type } → (a{unique 20} : Type)) →
-            ($method0{unique 1003} : tycon "" "GHC.Num" Integer/0 { :: Type } → (a{unique 20} : Type))
+      λ($d0{unique 1001} : tycon 1.Num/1 { :: Type → Type }[(a{unique 20} : Type)]).
+        case ($d0{unique 1001} : tycon 1.Num/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon 1.Num/1 { :: Type → Type }[(a{unique 20} : Type)]) of {
+          1.$Dict$Num ($method0{unique 1003} : tycon 1.Integer/0 { :: Type } → (a{unique 20} : Type)) →
+            ($method0{unique 1003} : tycon 1.Integer/0 { :: Type } → (a{unique 20} : Type))
         }
-  module "" Main where
+  scope 1 = "" GHC.Num
+  scope 2 = "" Main
+  scope 3 = "aihc-prim" GHC.Prim
 
-  external "" GHC.Num.IS : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep } → tycon "" "GHC.Num" Integer/0 { :: Type }
+  module 2.Main where
 
-  external "" GHC.Num.fromInteger : ∀ (a{unique 20} : Type). tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 20} : Type)] → tycon "" "GHC.Num" Integer/0 { :: Type } → (a{unique 20} : Type)
+  external 1.IS : tycon 3.Int#/0 { :: TYPE IntRep } → tycon 1.Integer/0 { :: Type }
+
+  external 1.fromInteger : ∀ (a{unique 20} : Type). tycon 1.Num/1 { :: Type → Type }[(a{unique 20} : Type)] → tycon 1.Integer/0 { :: Type } → (a{unique 20} : Type)
 
   rec {
-    one{unique 1000} : ∀ (a{unique 27} : Type). tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 27} : Type)] → (a{unique 27} : Type);
+    one{unique 1000} : ∀ (a{unique 27} : Type). tycon 1.Num/1 { :: Type → Type }[(a{unique 27} : Type)] → (a{unique 27} : Type);
     one{unique 1000} =
       Λ(a{unique 27} : Type).
-        λ($d0{unique 1001} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 27} : Type)]).
-          (((fromInteger{unique -2983985473}{origin "" GHC.Num.fromInteger} : ∀ (a{unique 20} : Type). tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 20} : Type)] → tycon "" "GHC.Num" Integer/0 { :: Type } → (a{unique 20} : Type)) @(a{unique 27} : Type)) ($d0{unique 1001} : tycon "" "GHC.Num" Num/1 { :: Type → Type }[(a{unique 27} : Type)])) ((IS{unique -2633234173}{origin "" GHC.Num.IS} : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep } → tycon "" "GHC.Num" Integer/0 { :: Type }) (1#IntRep : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep }))
+        λ($d0{unique 1001} : tycon 1.Num/1 { :: Type → Type }[(a{unique 27} : Type)]).
+          (((fromInteger{unique -2983985473}{origin 1.fromInteger} : ∀ (a{unique 20} : Type). tycon 1.Num/1 { :: Type → Type }[(a{unique 20} : Type)] → tycon 1.Integer/0 { :: Type } → (a{unique 20} : Type)) @(a{unique 27} : Type)) ($d0{unique 1001} : tycon 1.Num/1 { :: Type → Type }[(a{unique 27} : Type)])) ((IS{unique -2633234173}{origin 1.IS} : tycon 3.Int#/0 { :: TYPE IntRep } → tycon 1.Integer/0 { :: Type }) (1#IntRep : tycon 3.Int#/0 { :: TYPE IntRep }))
   }
 extensions:
 - MagicHash

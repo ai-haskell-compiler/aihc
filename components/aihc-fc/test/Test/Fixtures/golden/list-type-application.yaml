@@ -7,20 +7,23 @@ modules:
     xs :: [Bool]
     xs = [True]
 expected: |-
-  module "" Test where
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
 
-  external "aihc-prim" GHC.Types.: : ∀ (a{unique 4} : Type). (a{unique 4} : Type) → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)] → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)]
+  module 1.Test where
 
-  external "aihc-prim" GHC.Types.[] : ∀ (a{unique 4} : Type). tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)]
+  external 2.: : ∀ (a{unique 4} : Type). (a{unique 4} : Type) → tycon 2.[]/1 { :: Type → Type }[(a{unique 4} : Type)] → tycon 2.[]/1 { :: Type → Type }[(a{unique 4} : Type)]
 
-  data "" Test.Bool : Type
-   = "" Test.True
-   | "" Test.False
+  external 2.[] : ∀ (a{unique 4} : Type). tycon 2.[]/1 { :: Type → Type }[(a{unique 4} : Type)]
+
+  data 1.Bool : Type
+   = 1.True
+   | 1.False
 
   rec {
-    xs{unique 1000} : tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[tycon "" "Test" Bool/0 { :: Type }];
+    xs{unique 1000} : tycon 2.[]/1 { :: Type → Type }[tycon 1.Bool/0 { :: Type }];
     xs{unique 1000} =
-      (((:{unique -2321805554}{origin "aihc-prim" GHC.Types.:} : ∀ (a{unique 4} : Type). (a{unique 4} : Type) → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)] → tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)]) @tycon "" "Test" Bool/0 { :: Type }) (True{unique -2360662326}{origin "" Test.True} : tycon "" "Test" Bool/0 { :: Type })) (([]{unique -2285220283}{origin "aihc-prim" GHC.Types.[]} : ∀ (a{unique 4} : Type). tycon "aihc-prim" "GHC.Types" []/1 { :: Type → Type }[(a{unique 4} : Type)]) @tycon "" "Test" Bool/0 { :: Type })
+      (((:{unique -2321805554}{origin 2.:} : ∀ (a{unique 4} : Type). (a{unique 4} : Type) → tycon 2.[]/1 { :: Type → Type }[(a{unique 4} : Type)] → tycon 2.[]/1 { :: Type → Type }[(a{unique 4} : Type)]) @tycon 1.Bool/0 { :: Type }) (True{unique -2360662326}{origin 1.True} : tycon 1.Bool/0 { :: Type })) (([]{unique -2285220283}{origin 2.[]} : ∀ (a{unique 4} : Type). tycon 2.[]/1 { :: Type → Type }[(a{unique 4} : Type)]) @tycon 1.Bool/0 { :: Type })
   }
 status: pass
 reason: reifies list constructor type arguments from type-checker annotations

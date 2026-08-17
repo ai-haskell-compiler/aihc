@@ -1,31 +1,33 @@
 expected: |-
-  module "" Test where
+  scope 1 = "" Test
 
-  data "" Test.Result : Type
-   = "" Test.Result
+  module 1.Test where
 
-  data "" Test.Render (a{unique 20} : Type) : Type
-   = "" Test.$Dict$Render ((a{unique 20} : Type) → tycon "" "Test" Result/0 { :: Type })
+  data 1.Result : Type
+   = 1.Result
 
-  render{unique 1000} : ∀ (a{unique 20} : Type). tycon "" "Test" Render/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → tycon "" "Test" Result/0 { :: Type } =
+  data 1.Render (a{unique 20} : Type) : Type
+   = 1.$Dict$Render ((a{unique 20} : Type) → tycon 1.Result/0 { :: Type })
+
+  render{unique 1000} : ∀ (a{unique 20} : Type). tycon 1.Render/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → tycon 1.Result/0 { :: Type } =
     Λ(a{unique 20} : Type).
-      λ($d0{unique 1001} : tycon "" "Test" Render/1 { :: Type → Type }[(a{unique 20} : Type)]).
-        case ($d0{unique 1001} : tycon "" "Test" Render/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon "" "Test" Render/1 { :: Type → Type }[(a{unique 20} : Type)]) of {
-          "" Test.$Dict$Render ($method0{unique 1003} : (a{unique 20} : Type) → tycon "" "Test" Result/0 { :: Type }) →
-            ($method0{unique 1003} : (a{unique 20} : Type) → tycon "" "Test" Result/0 { :: Type })
+      λ($d0{unique 1001} : tycon 1.Render/1 { :: Type → Type }[(a{unique 20} : Type)]).
+        case ($d0{unique 1001} : tycon 1.Render/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon 1.Render/1 { :: Type → Type }[(a{unique 20} : Type)]) of {
+          1.$Dict$Render ($method0{unique 1003} : (a{unique 20} : Type) → tycon 1.Result/0 { :: Type }) →
+            ($method0{unique 1003} : (a{unique 20} : Type) → tycon 1.Result/0 { :: Type })
         }
 
-  data "" Test.Convert (a{unique 22} : Type) : Type
-   = "" Test.$Dict$Convert (∀ (b{unique 24} : Type). tycon "" "Test" Render/1 { :: Type → Type }[(b{unique 24} : Type)] → (a{unique 22} : Type) → (b{unique 24} : Type) → tycon "" "Test" Result/0 { :: Type })
+  data 1.Convert (a{unique 22} : Type) : Type
+   = 1.$Dict$Convert (∀ (b{unique 24} : Type). tycon 1.Render/1 { :: Type → Type }[(b{unique 24} : Type)] → (a{unique 22} : Type) → (b{unique 24} : Type) → tycon 1.Result/0 { :: Type })
 
-  convert{unique 1004} : ∀ (a{unique 22} : Type). ∀ (b{unique 24} : Type). tycon "" "Test" Convert/1 { :: Type → Type }[(a{unique 22} : Type)] → tycon "" "Test" Render/1 { :: Type → Type }[(b{unique 24} : Type)] → (a{unique 22} : Type) → (b{unique 24} : Type) → tycon "" "Test" Result/0 { :: Type } =
+  convert{unique 1004} : ∀ (a{unique 22} : Type). ∀ (b{unique 24} : Type). tycon 1.Convert/1 { :: Type → Type }[(a{unique 22} : Type)] → tycon 1.Render/1 { :: Type → Type }[(b{unique 24} : Type)] → (a{unique 22} : Type) → (b{unique 24} : Type) → tycon 1.Result/0 { :: Type } =
     Λ(a{unique 22} : Type).
       Λ(b{unique 24} : Type).
-        λ($d0{unique 1005} : tycon "" "Test" Convert/1 { :: Type → Type }[(a{unique 22} : Type)]).
-          λ($d1{unique 1006} : tycon "" "Test" Render/1 { :: Type → Type }[(b{unique 24} : Type)]).
-            case ($d0{unique 1005} : tycon "" "Test" Convert/1 { :: Type → Type }[(a{unique 22} : Type)]) as ($dict{unique 1007} : tycon "" "Test" Convert/1 { :: Type → Type }[(a{unique 22} : Type)]) of {
-              "" Test.$Dict$Convert ($method0{unique 1008} : ∀ (b{unique 24} : Type). tycon "" "Test" Render/1 { :: Type → Type }[(b{unique 24} : Type)] → (a{unique 22} : Type) → (b{unique 24} : Type) → tycon "" "Test" Result/0 { :: Type }) →
-                (($method0{unique 1008} : ∀ (b{unique 24} : Type). tycon "" "Test" Render/1 { :: Type → Type }[(b{unique 24} : Type)] → (a{unique 22} : Type) → (b{unique 24} : Type) → tycon "" "Test" Result/0 { :: Type }) @(b{unique 24} : Type)) ($d1{unique 1006} : tycon "" "Test" Render/1 { :: Type → Type }[(b{unique 24} : Type)])
+        λ($d0{unique 1005} : tycon 1.Convert/1 { :: Type → Type }[(a{unique 22} : Type)]).
+          λ($d1{unique 1006} : tycon 1.Render/1 { :: Type → Type }[(b{unique 24} : Type)]).
+            case ($d0{unique 1005} : tycon 1.Convert/1 { :: Type → Type }[(a{unique 22} : Type)]) as ($dict{unique 1007} : tycon 1.Convert/1 { :: Type → Type }[(a{unique 22} : Type)]) of {
+              1.$Dict$Convert ($method0{unique 1008} : ∀ (b{unique 24} : Type). tycon 1.Render/1 { :: Type → Type }[(b{unique 24} : Type)] → (a{unique 22} : Type) → (b{unique 24} : Type) → tycon 1.Result/0 { :: Type }) →
+                (($method0{unique 1008} : ∀ (b{unique 24} : Type). tycon 1.Render/1 { :: Type → Type }[(b{unique 24} : Type)] → (a{unique 22} : Type) → (b{unique 24} : Type) → tycon 1.Result/0 { :: Type }) @(b{unique 24} : Type)) ($d1{unique 1006} : tycon 1.Render/1 { :: Type → Type }[(b{unique 24} : Type)])
             }
 extensions: []
 modules:

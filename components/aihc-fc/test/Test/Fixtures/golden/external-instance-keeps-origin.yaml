@@ -19,52 +19,57 @@ modules:
   eqBool :: Bool -> Bool -> Bool
   eqBool = (==)
 expected: |-
-  module "" Types where
+  scope 1 = "" Types
 
-  data "" Types.Bool : Type
-   = "" Types.False
-   | "" Types.True
+  module 1.Types where
 
-  data "" Types.Eq (a{unique 20} : Type) : Type
-   = "" Types.$Dict$Eq ((a{unique 20} : Type) → (a{unique 20} : Type) → tycon "" "Types" Bool/0 { :: Type })
+  data 1.Bool : Type
+   = 1.False
+   | 1.True
 
-  =={unique 1000} : ∀ (a{unique 20} : Type). tycon "" "Types" Eq/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → (a{unique 20} : Type) → tycon "" "Types" Bool/0 { :: Type } =
+  data 1.Eq (a{unique 20} : Type) : Type
+   = 1.$Dict$Eq ((a{unique 20} : Type) → (a{unique 20} : Type) → tycon 1.Bool/0 { :: Type })
+
+  =={unique 1000} : ∀ (a{unique 20} : Type). tycon 1.Eq/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → (a{unique 20} : Type) → tycon 1.Bool/0 { :: Type } =
     Λ(a{unique 20} : Type).
-      λ($d0{unique 1001} : tycon "" "Types" Eq/1 { :: Type → Type }[(a{unique 20} : Type)]).
-        case ($d0{unique 1001} : tycon "" "Types" Eq/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon "" "Types" Eq/1 { :: Type → Type }[(a{unique 20} : Type)]) of {
-          "" Types.$Dict$Eq ($method0{unique 1003} : (a{unique 20} : Type) → (a{unique 20} : Type) → tycon "" "Types" Bool/0 { :: Type }) →
-            ($method0{unique 1003} : (a{unique 20} : Type) → (a{unique 20} : Type) → tycon "" "Types" Bool/0 { :: Type })
+      λ($d0{unique 1001} : tycon 1.Eq/1 { :: Type → Type }[(a{unique 20} : Type)]).
+        case ($d0{unique 1001} : tycon 1.Eq/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon 1.Eq/1 { :: Type → Type }[(a{unique 20} : Type)]) of {
+          1.$Dict$Eq ($method0{unique 1003} : (a{unique 20} : Type) → (a{unique 20} : Type) → tycon 1.Bool/0 { :: Type }) →
+            ($method0{unique 1003} : (a{unique 20} : Type) → (a{unique 20} : Type) → tycon 1.Bool/0 { :: Type })
         }
 
-  $fEqBool{unique 1009} : tycon "" "Types" Eq/1 { :: Type → Type }[tycon "" "Types" Bool/0 { :: Type }] =
-    (($Dict$Eq{unique 1010}{origin "" Types.$Dict$Eq} : ∀ (a{unique 20} : Type). ((a{unique 20} : Type) → (a{unique 20} : Type) → tycon "" "Types" Bool/0 { :: Type }) → tycon "" "Types" Eq/1 { :: Type → Type }[(a{unique 20} : Type)]) @tycon "" "Types" Bool/0 { :: Type }) (λ(x1004{unique 1004} : tycon "" "Types" Bool/0 { :: Type }).
-      λ(y1005{unique 1005} : tycon "" "Types" Bool/0 { :: Type }).
-        case (x1004{unique 1004} : tycon "" "Types" Bool/0 { :: Type }) as (_scrut{unique 1008} : tycon "" "Types" Bool/0 { :: Type }) of {
-          "" Types.False →
-            case (y1005{unique 1005} : tycon "" "Types" Bool/0 { :: Type }) as (_scrut{unique 1006} : tycon "" "Types" Bool/0 { :: Type }) of {
-              "" Types.False →
-                (True{unique -2407171572}{origin "" Types.True} : tycon "" "Types" Bool/0 { :: Type });
-              "" Types.True →
-                (False{unique -2697294943}{origin "" Types.False} : tycon "" "Types" Bool/0 { :: Type })
+  $fEqBool{unique 1009} : tycon 1.Eq/1 { :: Type → Type }[tycon 1.Bool/0 { :: Type }] =
+    (($Dict$Eq{unique 1010}{origin 1.$Dict$Eq} : ∀ (a{unique 20} : Type). ((a{unique 20} : Type) → (a{unique 20} : Type) → tycon 1.Bool/0 { :: Type }) → tycon 1.Eq/1 { :: Type → Type }[(a{unique 20} : Type)]) @tycon 1.Bool/0 { :: Type }) (λ(x1004{unique 1004} : tycon 1.Bool/0 { :: Type }).
+      λ(y1005{unique 1005} : tycon 1.Bool/0 { :: Type }).
+        case (x1004{unique 1004} : tycon 1.Bool/0 { :: Type }) as (_scrut{unique 1008} : tycon 1.Bool/0 { :: Type }) of {
+          1.False →
+            case (y1005{unique 1005} : tycon 1.Bool/0 { :: Type }) as (_scrut{unique 1006} : tycon 1.Bool/0 { :: Type }) of {
+              1.False →
+                (True{unique -2407171572}{origin 1.True} : tycon 1.Bool/0 { :: Type });
+              1.True →
+                (False{unique -2697294943}{origin 1.False} : tycon 1.Bool/0 { :: Type })
             };
-          "" Types.True →
-            case (y1005{unique 1005} : tycon "" "Types" Bool/0 { :: Type }) as (_scrut{unique 1007} : tycon "" "Types" Bool/0 { :: Type }) of {
-              "" Types.False →
-                (False{unique -2697294943}{origin "" Types.False} : tycon "" "Types" Bool/0 { :: Type });
-              "" Types.True →
-                (True{unique -2407171572}{origin "" Types.True} : tycon "" "Types" Bool/0 { :: Type })
+          1.True →
+            case (y1005{unique 1005} : tycon 1.Bool/0 { :: Type }) as (_scrut{unique 1007} : tycon 1.Bool/0 { :: Type }) of {
+              1.False →
+                (False{unique -2697294943}{origin 1.False} : tycon 1.Bool/0 { :: Type });
+              1.True →
+                (True{unique -2407171572}{origin 1.True} : tycon 1.Bool/0 { :: Type })
             }
         })
-  module "" Test where
+  scope 1 = "" Test
+  scope 2 = "" Types
 
-  external "" Types.$fEqBool : tycon "" "Types" Eq/1 { :: Type → Type }[tycon "" "Types" Bool/0 { :: Type }]
+  module 1.Test where
 
-  external "" Types.== : ∀ (a{unique 20} : Type). tycon "" "Types" Eq/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → (a{unique 20} : Type) → tycon "" "Types" Bool/0 { :: Type }
+  external 2.$fEqBool : tycon 2.Eq/1 { :: Type → Type }[tycon 2.Bool/0 { :: Type }]
+
+  external 2.== : ∀ (a{unique 20} : Type). tycon 2.Eq/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → (a{unique 20} : Type) → tycon 2.Bool/0 { :: Type }
 
   rec {
-    eqBool{unique 1000} : tycon "" "Types" Bool/0 { :: Type } → tycon "" "Types" Bool/0 { :: Type } → tycon "" "Types" Bool/0 { :: Type };
+    eqBool{unique 1000} : tycon 2.Bool/0 { :: Type } → tycon 2.Bool/0 { :: Type } → tycon 2.Bool/0 { :: Type };
     eqBool{unique 1000} =
-      ((=={unique -2712074822}{origin "" Types.==} : ∀ (a{unique 20} : Type). tycon "" "Types" Eq/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → (a{unique 20} : Type) → tycon "" "Types" Bool/0 { :: Type }) @tycon "" "Types" Bool/0 { :: Type }) ($fEqBool{unique -2108977551}{origin "" Types.$fEqBool} : tycon "" "Types" Eq/1 { :: Type → Type }[tycon "" "Types" Bool/0 { :: Type }])
+      ((=={unique -2712074822}{origin 2.==} : ∀ (a{unique 20} : Type). tycon 2.Eq/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → (a{unique 20} : Type) → tycon 2.Bool/0 { :: Type }) @tycon 2.Bool/0 { :: Type }) ($fEqBool{unique -2108977551}{origin 2.$fEqBool} : tycon 2.Eq/1 { :: Type → Type }[tycon 2.Bool/0 { :: Type }])
   }
 reason: keeps the defining module origin on an imported instance dictionary
 status: pass

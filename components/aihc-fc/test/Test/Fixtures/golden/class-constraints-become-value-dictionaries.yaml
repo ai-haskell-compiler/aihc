@@ -17,38 +17,43 @@ modules:
 
     class Parent a => Child a where
       child :: a -> Flag
-expected: |
-  module "" Parent where
+expected: |-
+  scope 1 = "" Parent
 
-  data "" Parent.Flag : Type
-   = "" Parent.Off
-   | "" Parent.On
+  module 1.Parent where
 
-  data "" Parent.Parent (a{unique 20} : Type) : Type
-   = "" Parent.$Dict$Parent ((a{unique 20} : Type) → tycon "" "Parent" Flag/0 { :: Type })
+  data 1.Flag : Type
+   = 1.Off
+   | 1.On
 
-  parent{unique 1000} : ∀ (a{unique 20} : Type). tycon "" "Parent" Parent/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → tycon "" "Parent" Flag/0 { :: Type } =
+  data 1.Parent (a{unique 20} : Type) : Type
+   = 1.$Dict$Parent ((a{unique 20} : Type) → tycon 1.Flag/0 { :: Type })
+
+  parent{unique 1000} : ∀ (a{unique 20} : Type). tycon 1.Parent/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → tycon 1.Flag/0 { :: Type } =
     Λ(a{unique 20} : Type).
-      λ($d0{unique 1001} : tycon "" "Parent" Parent/1 { :: Type → Type }[(a{unique 20} : Type)]).
-        case ($d0{unique 1001} : tycon "" "Parent" Parent/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon "" "Parent" Parent/1 { :: Type → Type }[(a{unique 20} : Type)]) of {
-          "" Parent.$Dict$Parent ($method0{unique 1003} : (a{unique 20} : Type) → tycon "" "Parent" Flag/0 { :: Type }) →
-            ($method0{unique 1003} : (a{unique 20} : Type) → tycon "" "Parent" Flag/0 { :: Type })
+      λ($d0{unique 1001} : tycon 1.Parent/1 { :: Type → Type }[(a{unique 20} : Type)]).
+        case ($d0{unique 1001} : tycon 1.Parent/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon 1.Parent/1 { :: Type → Type }[(a{unique 20} : Type)]) of {
+          1.$Dict$Parent ($method0{unique 1003} : (a{unique 20} : Type) → tycon 1.Flag/0 { :: Type }) →
+            ($method0{unique 1003} : (a{unique 20} : Type) → tycon 1.Flag/0 { :: Type })
         }
 
-  $fParentFlag{unique 1005} : tycon "" "Parent" Parent/1 { :: Type → Type }[tycon "" "Parent" Flag/0 { :: Type }] =
-    (($Dict$Parent{unique 1006}{origin "" Parent.$Dict$Parent} : ∀ (a{unique 20} : Type). ((a{unique 20} : Type) → tycon "" "Parent" Flag/0 { :: Type }) → tycon "" "Parent" Parent/1 { :: Type → Type }[(a{unique 20} : Type)]) @tycon "" "Parent" Flag/0 { :: Type }) (λ(x1004{unique 1004} : tycon "" "Parent" Flag/0 { :: Type }).
-      (x1004{unique 1004} : tycon "" "Parent" Flag/0 { :: Type }))
-  module "" Child where
+  $fParentFlag{unique 1005} : tycon 1.Parent/1 { :: Type → Type }[tycon 1.Flag/0 { :: Type }] =
+    (($Dict$Parent{unique 1006}{origin 1.$Dict$Parent} : ∀ (a{unique 20} : Type). ((a{unique 20} : Type) → tycon 1.Flag/0 { :: Type }) → tycon 1.Parent/1 { :: Type → Type }[(a{unique 20} : Type)]) @tycon 1.Flag/0 { :: Type }) (λ(x1004{unique 1004} : tycon 1.Flag/0 { :: Type }).
+      (x1004{unique 1004} : tycon 1.Flag/0 { :: Type }))
+  scope 1 = "" Child
+  scope 2 = "" Parent
 
-  data "" Child.Child (a{unique 23} : Type) : Type
-   = "" Child.$Dict$Child (tycon "" "Parent" Parent/1 { :: Type → Type }[(a{unique 23} : Type)]) ((a{unique 23} : Type) → tycon "" "Parent" Flag/0 { :: Type })
+  module 1.Child where
 
-  child{unique 1000} : ∀ (a{unique 23} : Type). tycon "" "Child" Child/1 { :: Type → Type }[(a{unique 23} : Type)] → (a{unique 23} : Type) → tycon "" "Parent" Flag/0 { :: Type } =
+  data 1.Child (a{unique 23} : Type) : Type
+   = 1.$Dict$Child (tycon 2.Parent/1 { :: Type → Type }[(a{unique 23} : Type)]) ((a{unique 23} : Type) → tycon 2.Flag/0 { :: Type })
+
+  child{unique 1000} : ∀ (a{unique 23} : Type). tycon 1.Child/1 { :: Type → Type }[(a{unique 23} : Type)] → (a{unique 23} : Type) → tycon 2.Flag/0 { :: Type } =
     Λ(a{unique 23} : Type).
-      λ($d0{unique 1001} : tycon "" "Child" Child/1 { :: Type → Type }[(a{unique 23} : Type)]).
-        case ($d0{unique 1001} : tycon "" "Child" Child/1 { :: Type → Type }[(a{unique 23} : Type)]) as ($dict{unique 1002} : tycon "" "Child" Child/1 { :: Type → Type }[(a{unique 23} : Type)]) of {
-          "" Child.$Dict$Child ($method0{unique 1003} : tycon "" "Parent" Parent/1 { :: Type → Type }[(a{unique 23} : Type)]) ($method1{unique 1004} : (a{unique 23} : Type) → tycon "" "Parent" Flag/0 { :: Type }) →
-            ($method1{unique 1004} : (a{unique 23} : Type) → tycon "" "Parent" Flag/0 { :: Type })
+      λ($d0{unique 1001} : tycon 1.Child/1 { :: Type → Type }[(a{unique 23} : Type)]).
+        case ($d0{unique 1001} : tycon 1.Child/1 { :: Type → Type }[(a{unique 23} : Type)]) as ($dict{unique 1002} : tycon 1.Child/1 { :: Type → Type }[(a{unique 23} : Type)]) of {
+          1.$Dict$Child ($method0{unique 1003} : tycon 2.Parent/1 { :: Type → Type }[(a{unique 23} : Type)]) ($method1{unique 1004} : (a{unique 23} : Type) → tycon 2.Flag/0 { :: Type }) →
+            ($method1{unique 1004} : (a{unique 23} : Type) → tycon 2.Flag/0 { :: Type })
         }
 reason: Class constraints become value dictionary types and keep their checked source identity.
 status: pass

@@ -1,5 +1,7 @@
 expected: |-
-  module "" Test where
+  scope 1 = "" Test
+
+  module 1.Test where
 
   rec {
     id{unique 1000} : ∀ (a{unique 22} : Type). (a{unique 22} : Type) → (a{unique 22} : Type);

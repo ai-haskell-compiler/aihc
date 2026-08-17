@@ -17,26 +17,31 @@ modules:
     intValue = BoxInt 1#
     addrValue = BoxAddr "test"#
 expected: |-
-  module "aihc-prim" GHC.Prim where
+  scope 1 = "aihc-prim" GHC.Prim
 
-  data "aihc-prim" GHC.Prim.Int# : TYPE IntRep
+  module 1.GHC.Prim where
 
-  data "aihc-prim" GHC.Prim.Addr# : TYPE AddrRep
-  module "" Test where
+  data 1.Int# : TYPE IntRep
 
-  data "" Test.BoxInt : Type
-   = "" Test.BoxInt (tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep })
+  data 1.Addr# : TYPE AddrRep
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
 
-  data "" Test.BoxAddr : Type
-   = "" Test.BoxAddr (tycon "aihc-prim" "GHC.Prim" Addr#/0 { :: TYPE AddrRep })
+  module 1.Test where
+
+  data 1.BoxInt : Type
+   = 1.BoxInt (tycon 2.Int#/0 { :: TYPE IntRep })
+
+  data 1.BoxAddr : Type
+   = 1.BoxAddr (tycon 2.Addr#/0 { :: TYPE AddrRep })
 
   rec {
-    intValue{unique 1000} : tycon "" "Test" BoxInt/0 { :: Type };
-    addrValue{unique 1001} : tycon "" "Test" BoxAddr/0 { :: Type };
+    intValue{unique 1000} : tycon 1.BoxInt/0 { :: Type };
+    addrValue{unique 1001} : tycon 1.BoxAddr/0 { :: Type };
     intValue{unique 1000} =
-      (BoxInt{unique -2930103777}{origin "" Test.BoxInt} : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep } → tycon "" "Test" BoxInt/0 { :: Type }) (1#IntRep : tycon "aihc-prim" "GHC.Prim" Int#/0 { :: TYPE IntRep });
+      (BoxInt{unique -2930103777}{origin 1.BoxInt} : tycon 2.Int#/0 { :: TYPE IntRep } → tycon 1.BoxInt/0 { :: Type }) (1#IntRep : tycon 2.Int#/0 { :: TYPE IntRep });
     addrValue{unique 1001} =
-      (BoxAddr{unique -2012464927}{origin "" Test.BoxAddr} : tycon "aihc-prim" "GHC.Prim" Addr#/0 { :: TYPE AddrRep } → tycon "" "Test" BoxAddr/0 { :: Type }) ("test"#AddrRep : tycon "aihc-prim" "GHC.Prim" Addr#/0 { :: TYPE AddrRep })
+      (BoxAddr{unique -2012464927}{origin 1.BoxAddr} : tycon 2.Addr#/0 { :: TYPE AddrRep } → tycon 1.BoxAddr/0 { :: Type }) ("test"#AddrRep : tycon 2.Addr#/0 { :: TYPE AddrRep })
   }
 status: pass
 reason: keeps checked GHC.Prim identities on primitive Core literals

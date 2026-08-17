@@ -22,36 +22,44 @@ modules:
     second :: Second.Value -> Second.Item
     second (Second.Shared value) = value
 expected: |-
-  module "" First where
+  scope 1 = "" First
 
-  data "" First.Item : Type
-   = "" First.FirstItem
+  module 1.First where
 
-  data "" First.Value : Type
-   = "" First.Shared (tycon "" "First" Item/0 { :: Type })
-  module "" Second where
+  data 1.Item : Type
+   = 1.FirstItem
 
-  data "" Second.Item : Type
-   = "" Second.SecondItem
+  data 1.Value : Type
+   = 1.Shared (tycon 1.Item/0 { :: Type })
+  scope 1 = "" Second
 
-  data "" Second.Value : Type
-   = "" Second.Shared (tycon "" "Second" Item/0 { :: Type })
-  module "" Test where
+  module 1.Second where
+
+  data 1.Item : Type
+   = 1.SecondItem
+
+  data 1.Value : Type
+   = 1.Shared (tycon 1.Item/0 { :: Type })
+  scope 1 = "" First
+  scope 2 = "" Second
+  scope 3 = "" Test
+
+  module 3.Test where
 
   rec {
-    first{unique 1000} : tycon "" "First" Value/0 { :: Type } → tycon "" "First" Item/0 { :: Type };
-    second{unique 1001} : tycon "" "Second" Value/0 { :: Type } → tycon "" "Second" Item/0 { :: Type };
+    first{unique 1000} : tycon 1.Value/0 { :: Type } → tycon 1.Item/0 { :: Type };
+    second{unique 1001} : tycon 2.Value/0 { :: Type } → tycon 2.Item/0 { :: Type };
     first{unique 1000} =
-      λ(x1002{unique 1002} : tycon "" "First" Value/0 { :: Type }).
-        case (x1002{unique 1002} : tycon "" "First" Value/0 { :: Type }) as (_scrut{unique 1004} : tycon "" "First" Value/0 { :: Type }) of {
-          "" First.Shared (value{unique 1003} : tycon "" "First" Item/0 { :: Type }) →
-            (value{unique 1003} : tycon "" "First" Item/0 { :: Type })
+      λ(x1002{unique 1002} : tycon 1.Value/0 { :: Type }).
+        case (x1002{unique 1002} : tycon 1.Value/0 { :: Type }) as (_scrut{unique 1004} : tycon 1.Value/0 { :: Type }) of {
+          1.Shared (value{unique 1003} : tycon 1.Item/0 { :: Type }) →
+            (value{unique 1003} : tycon 1.Item/0 { :: Type })
         };
     second{unique 1001} =
-      λ(x1005{unique 1005} : tycon "" "Second" Value/0 { :: Type }).
-        case (x1005{unique 1005} : tycon "" "Second" Value/0 { :: Type }) as (_scrut{unique 1007} : tycon "" "Second" Value/0 { :: Type }) of {
-          "" Second.Shared (value{unique 1006} : tycon "" "Second" Item/0 { :: Type }) →
-            (value{unique 1006} : tycon "" "Second" Item/0 { :: Type })
+      λ(x1005{unique 1005} : tycon 2.Value/0 { :: Type }).
+        case (x1005{unique 1005} : tycon 2.Value/0 { :: Type }) as (_scrut{unique 1007} : tycon 2.Value/0 { :: Type }) of {
+          2.Shared (value{unique 1006} : tycon 2.Item/0 { :: Type }) →
+            (value{unique 1006} : tycon 2.Item/0 { :: Type })
         }
   }
 status: pass
