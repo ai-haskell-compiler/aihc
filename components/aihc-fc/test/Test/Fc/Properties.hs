@@ -181,8 +181,8 @@ prop_repeatedTyConIdentity = property $ do
       expression = FcApp left right
       rendered = T.pack (renderExpr expression)
   annotate (T.unpack rendered)
-  T.isPrefixOf "(left{unique 1} :" rendered === True
-  T.count "tycon \"pkg\" \"Module\" T/0" rendered === 2
+  T.isPrefixOf "scope 1 = \"pkg\" Module" rendered === True
+  T.count "tycon 1.T/0" rendered === 2
   roundTrip renderExpr parseExpr expression
 
 prop_constructorIdentity :: Property

@@ -128,10 +128,19 @@ firstDuplicate = go Set.empty
       | otherwise = go (Set.insert value seen) values
 
 parseExpr :: Text -> Either FcParseError FcExpr
-parseExpr = parseWith mempty (space *> expression mempty mempty <* MP.eof) "<system-fc-expression>"
+parseExpr input =
+  parseStandalone input (\_ -> expression mempty mempty) "<system-fc-expression>"
 
 parseType :: Text -> Either FcParseError TcType
-parseType = parseWith mempty (space *> tcType mempty <* MP.eof) "<system-fc-type>"
+parseType input =
+  parseStandalone input (\_ -> tcType mempty) "<system-fc-type>"
+
+parseStandalone :: Text -> (ScopeEnv -> Parser value) -> String -> Either FcParseError value
+parseStandalone input parser sourceName
+  | "scope" `T.isPrefixOf` T.stripStart input = do
+      (scopes, body) <- parseScopeHeader input
+      parseWith scopes (space *> parser scopes <* MP.eof) sourceName body
+  | otherwise = parseWith mempty (space *> parser mempty <* MP.eof) sourceName input
 
 renderParseError :: FcParseError -> String
 renderParseError = MP.errorBundlePretty

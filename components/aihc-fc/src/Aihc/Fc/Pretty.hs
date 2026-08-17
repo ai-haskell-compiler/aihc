@@ -24,7 +24,18 @@ renderProgram program = intercalate "\n\n" (renderScopes scopes : renderModuleDe
     scopes = scopeTable program
 
 scopeTable :: FcProgram -> ScopeTable
-scopeTable = Map.fromAscList . flip zip [1 ..] . Set.toAscList . programScopes
+scopeTable = scopeTableFrom . programScopes
+
+scopeTableFrom :: Set.Set Scope -> ScopeTable
+scopeTableFrom = Map.fromAscList . flip zip [1 ..] . Set.toAscList
+
+renderStandalone :: Set.Set Scope -> (ScopeTable -> String) -> String
+renderStandalone scopes render =
+  case Set.null scopes of
+    True -> render mempty
+    False -> renderScopes table <> "\n\n" <> render table
+  where
+    table = scopeTableFrom scopes
 
 programScopes :: FcProgram -> Set.Set Scope
 programScopes program = moduleScopes (fcProgramModule program) <> foldMap topBindScopes (fcTopBinds program)
@@ -125,10 +136,10 @@ renderModuleDeclaration scopes moduleId = "module " <> scopeReference scopes (fc
 scopeReference :: ScopeTable -> T.Text -> T.Text -> T.Text -> String
 scopeReference scopes packageName moduleName name = case Map.lookup (packageName, moduleName) scopes of
   Just scopeId -> show scopeId <> "." <> T.unpack name
-  Nothing -> show (T.unpack packageName) <> " " <> T.unpack moduleName <> "." <> T.unpack name
+  Nothing -> error ("missing System FC scope for " <> show (packageName, moduleName))
 
 renderTopBind :: FcTopBind -> String
-renderTopBind = renderTopBindWith mempty
+renderTopBind topBind = renderStandalone (topBindScopes topBind) (`renderTopBindWith` topBind)
 
 renderTopBindWith :: ScopeTable -> FcTopBind -> String
 renderTopBindWith scopes topBind = case topBind of
@@ -176,7 +187,7 @@ renderOne :: ScopeTable -> Int -> Var -> FcExpr -> String
 renderOne scopes indentation var rhs = indent indentation <> renderBinder scopes var <> " : " <> renderTypeWith scopes (varType var) <> " =\n" <> renderExprIndented scopes (indentation + 2) rhs
 
 renderExpr :: FcExpr -> String
-renderExpr = renderExprWith mempty 0 False
+renderExpr expression = renderStandalone (exprScopes expression) (\scopes -> renderExprWith scopes 0 False expression)
 
 renderExprIndented :: ScopeTable -> Int -> FcExpr -> String
 renderExprIndented scopes indentation expression = indent indentation <> renderExprWith scopes indentation False expression
@@ -236,7 +247,7 @@ renderLiteral literal = case literal of
   LitAddr value -> show (map (chr . fromIntegral) (BS.unpack value)) <> "#AddrRep"
 
 renderType :: TcType -> String
-renderType = renderTypeWith mempty
+renderType ty = renderStandalone (typeScopes ty) (`renderTypeWith` ty)
 
 renderTypeWith :: ScopeTable -> TcType -> String
 renderTypeWith scopes ty = case ty of
@@ -251,11 +262,14 @@ renderTypeWith scopes ty = case ty of
   TcBuiltinTyCon name arity arguments -> "builtin " <> T.unpack name <> "/" <> show arity <> "[" <> intercalate ", " (map (renderTypeWith scopes) arguments) <> "]"
 
 renderTyConHead :: ScopeTable -> TyCon -> String
-renderTyConHead scopes tyCon = "tycon " <> scopeName <> "/" <> show (tyConArity tyCon) <> " { :: " <> renderKindScheme scopes (tyConKindScheme tyCon) <> " }"
-  where
-    scopeName = case Map.lookup (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon) scopes of
-      Just scopeId -> show scopeId <> "." <> T.unpack (tyConName tyCon)
-      Nothing -> show (T.unpack (packageIdText (tyConPackageId tyCon))) <> " " <> show (T.unpack (tyConModuleName tyCon)) <> " " <> T.unpack (tyConName tyCon)
+renderTyConHead scopes tyCon =
+  "tycon "
+    <> scopeReference scopes (packageIdText (tyConPackageId tyCon)) (tyConModuleName tyCon) (tyConName tyCon)
+    <> "/"
+    <> show (tyConArity tyCon)
+    <> " { :: "
+    <> renderKindScheme scopes (tyConKindScheme tyCon)
+    <> " }"
 
 renderKindScheme :: ScopeTable -> TypeScheme -> String
 renderKindScheme scopes scheme@(ForAll tyVars _ _) = prefix <> renderKind scopes (kindFromTypeScheme scheme)
