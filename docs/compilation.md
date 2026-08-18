@@ -490,6 +490,8 @@ The type checker must produce one type interface for each module. A file must no
 
 ## System FC artifacts
 
+The System FC 2 plan is in `docs/system-fc2.md`.
+
 ### Per-module form
 
 After SCC type checking, desugar each checked module separately. Write one `core.cbor` file for each module.
