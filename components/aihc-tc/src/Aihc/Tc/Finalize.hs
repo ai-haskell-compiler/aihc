@@ -23,7 +23,7 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
     TcStockDerivingPlan (..),
   )
-import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..))
+import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TypeFamilyInstanceInfo (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId, Unique (..))
@@ -144,6 +144,7 @@ rejectMetaFinalAnnotation ann = do
   traverseReject "instance annotation" (firstMetaInstanceAnnotation <$> fromAnnotation @TcInstanceAnnotation ann)
   traverseReject "instance method annotation" (firstMetaInstanceMethodAnnotation <$> fromAnnotation @TcInstanceMethodAnnotation ann)
   traverseReject "data-family instance annotation" (firstMetaDataFamilyInstance <$> fromAnnotation @DataFamilyInstanceInfo ann)
+  traverseReject "type-family instance annotation" (firstMetaTypeFamilyInstance <$> fromAnnotation @TypeFamilyInstanceInfo ann)
   where
     traverseReject _ Nothing = pure ()
     traverseReject context (Just maybeMeta) = rejectMeta ("finalized " <> context) maybeMeta
@@ -230,6 +231,10 @@ firstMetaInstanceMethodAnnotation ann =
 firstMetaDataFamilyInstance :: DataFamilyInstanceInfo -> Maybe Unique
 firstMetaDataFamilyInstance info =
   firstMetaType (dfiiFamilyType info)
+
+firstMetaTypeFamilyInstance :: TypeFamilyInstanceInfo -> Maybe Unique
+firstMetaTypeFamilyInstance info =
+  firstMetaType (tfiiLeft info) <|> firstMetaType (tfiiRight info)
 
 firstMetaDataConInfo :: DataConInfo -> Maybe Unique
 firstMetaDataConInfo info =

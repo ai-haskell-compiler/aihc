@@ -1,0 +1,34 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Provider (Flag(..), F) where
+    data Flag = Off | On
+    type family F a
+    type instance F Flag = Flag
+  - |
+    module Consumer where
+    import Provider (Flag, F)
+    type Alias = F Flag
+annotated:
+  - |
+    module Consumer where
+    import Provider (Flag, F)
+    type Alias = F Flag
+         │       │ └─ t Provider
+         │       └─ t Provider
+         └─ t Consumer
+  - |
+    module Provider (Flag(..), F) where
+    data Flag = Off | On
+         │      │     └─ v Provider
+         │      └─ v Provider
+         └─ t Provider
+    type family F a
+                └─ t Provider
+    type instance F Flag = Flag
+                  │ │      └─ t Provider
+                  │ └─ t Provider
+                  └─ t Provider
+status: pass
+reason: standalone type families and their instance heads participate in ordinary type resolution

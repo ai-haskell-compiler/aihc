@@ -58,6 +58,7 @@ import Aihc.Parser.Syntax
     SourceSpan (..),
     TupleFlavor (..),
     Type (..),
+    TypeFamilyDecl (..),
     TypeSynDecl (..),
     UnqualifiedName,
     ValueDecl (..),
@@ -245,6 +246,10 @@ declExportedNames decl =
     DeclDataFamilyDecl familyDecl ->
       DeclExports [] [binderHeadName (dataFamilyDeclHead familyDecl)] Map.empty Map.empty Map.empty Map.empty
     DeclDataFamilyInst familyInst -> dataFamilyInstExports familyInst
+    DeclTypeFamilyDecl familyDecl ->
+      case typeFamilyHeadName (typeFamilyDeclHead familyDecl) of
+        Just name -> DeclExports [] [name] Map.empty Map.empty Map.empty Map.empty
+        Nothing -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty
     DeclTypeSyn typeSynDecl -> DeclExports [] [binderHeadName (typeSynHead typeSynDecl)] Map.empty Map.empty Map.empty Map.empty
     _ -> DeclExports [] [] Map.empty Map.empty Map.empty Map.empty
 
@@ -267,11 +272,15 @@ dataFamilyInstExports familyInst =
     recordFields = recordFieldMap constructors
 
 dataFamilyHeadName :: Type -> Maybe UnqualifiedName
-dataFamilyHeadName ty =
+dataFamilyHeadName = typeFamilyHeadName
+
+typeFamilyHeadName :: Type -> Maybe UnqualifiedName
+typeFamilyHeadName ty =
   case peelTypeHead ty of
     TCon name _ -> Just (mkUnqualifiedName (nameType name) (nameText name))
-    TApp function _ -> dataFamilyHeadName function
-    TTypeApp function _ -> dataFamilyHeadName function
+    TInfix _ name _ _ -> Just (mkUnqualifiedName (nameType name) (nameText name))
+    TApp function _ -> typeFamilyHeadName function
+    TTypeApp function _ -> typeFamilyHeadName function
     _ -> Nothing
 
 dataDeclExports :: BinderHead UnqualifiedName -> [DataConDecl] -> DeclExports

@@ -53,6 +53,10 @@ import Aihc.Parser.Syntax
     TupleFlavor (..),
     TyVarBinder,
     Type (..),
+    TypeFamilyDecl (..),
+    TypeFamilyEq (..),
+    TypeFamilyInst (..),
+    TypeFamilyResultSig (..),
     TypeSynDecl (..),
     UnqualifiedName (..),
     ValueDecl (..),
@@ -70,6 +74,7 @@ import Aihc.Parser.Syntax
     nameText,
     peelClassDeclItemAnn,
     peelDeclAnn,
+    peelTypeHead,
     unqualifiedNameAnns,
   )
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..))
@@ -90,7 +95,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
 import Aihc.Tc.Deriving.Context (derivingPlanInstanceInfo, finalizeDerivingModulesTc)
-import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeSynonymInfo (..), dataFamilyAxiomName, dataFamilyRepresentationName)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataFamilyAxiomName, dataFamilyRepresentationName, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -548,6 +553,7 @@ defaultGlobalKindMetas = do
   classes <- traverse defaultClassKinds (tcsClasses state)
   instances <- mapM defaultInstanceKinds (tcsInstances state)
   dataFamilyInstances <- mapM defaultDataFamilyInstanceKinds (tcsDataFamilyInstances state)
+  typeFamilyInstances <- mapM defaultTypeFamilyInstanceKinds (tcsTypeFamilyInstances state)
   lift $
     modify' $ \current ->
       current
@@ -556,7 +562,8 @@ defaultGlobalKindMetas = do
           tcsDataTypes = dataTypes,
           tcsClasses = classes,
           tcsInstances = instances,
-          tcsDataFamilyInstances = dataFamilyInstances
+          tcsDataFamilyInstances = dataFamilyInstances,
+          tcsTypeFamilyInstances = typeFamilyInstances
         }
   where
     defaultBinderKinds binder =
@@ -638,6 +645,16 @@ defaultGlobalKindMetas = do
             dfiiTyVars = tyVars,
             dfiiRepresentationTyCon = setTyConKindScheme representationKindScheme representationTyCon
           }
+    defaultTypeFamilyInstanceKinds info = do
+      tyVars <- mapM defaultTyVarKinds (tfiiTyVars info)
+      left <- defaultTypeKinds (tfiiLeft info)
+      right <- defaultTypeKinds (tfiiRight info)
+      pure
+        info
+          { tfiiTyVars = tyVars,
+            tfiiLeft = left,
+            tfiiRight = right
+          }
 
 data TcDeclGroupResult = TcDeclGroupResult
   { tcGroupId :: !Int,
@@ -712,6 +729,8 @@ annotateDeclTc classMethods checkedValueNames decl =
     DeclTypeSyn typeSynDecl -> annotateTypeSynDeclTc typeSynDecl
     DeclDataFamilyDecl familyDecl -> annotateDataFamilyDeclTc familyDecl
     DeclDataFamilyInst familyInst -> annotateDataFamilyInstTc familyInst
+    DeclTypeFamilyDecl familyDecl -> annotateTypeFamilyDeclTc familyDecl
+    DeclTypeFamilyInst familyInst -> annotateTypeFamilyInstTc familyInst
     DeclForeign foreignDecl
       | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
@@ -809,6 +828,41 @@ annotateDataFamilyDeclTc familyDecl = do
   ty <- tyConBindingType familyName
   let annotatedHead = annotateBinderHeadName (TcAnnotation ty [] [] [] []) (dataFamilyDeclHead familyDecl)
   pure (DeclDataFamilyDecl (familyDecl {dataFamilyDeclHead = annotatedHead}))
+
+annotateTypeFamilyDeclTc :: TypeFamilyDecl -> TcM Decl
+annotateTypeFamilyDeclTc familyDecl =
+  case typeFamilyHeadName (typeFamilyDeclHead familyDecl) of
+    Nothing -> pure (DeclTypeFamilyDecl familyDecl)
+    Just familyBinder -> do
+      ty <- tyConBindingType (unqualifiedNameText familyBinder)
+      let annotatedHead = annotateTypeFamilyHead (TcAnnotation ty [] [] [] []) (typeFamilyDeclHead familyDecl)
+      pure (DeclTypeFamilyDecl (familyDecl {typeFamilyDeclHead = annotatedHead}))
+
+annotateTypeFamilyHead :: TcAnnotation -> Type -> Type
+annotateTypeFamilyHead tcAnn ty =
+  case peelTypeHead ty of
+    TCon name promo -> TCon (annotateName tcAnn name) promo
+    TInfix left name promo right -> TInfix left (annotateName tcAnn name) promo right
+    TApp function argument -> TApp (annotateTypeFamilyHead tcAnn function) argument
+    TTypeApp function argument -> TTypeApp (annotateTypeFamilyHead tcAnn function) argument
+    other -> other
+
+annotateName :: TcAnnotation -> Name -> Name
+annotateName tcAnn name =
+  name {nameAnns = nameAnns name <> [mkAnnotation tcAnn]}
+
+annotateTypeFamilyInstTc :: TypeFamilyInst -> TcM Decl
+annotateTypeFamilyInstTc familyInst = do
+  familyInstances <- getTypeFamilyInstances
+  case find (sameTypeFamilyInstance familyInst) familyInstances of
+    Just familyInstance ->
+      pure (DeclAnn (mkAnnotation familyInstance) (DeclTypeFamilyInst familyInst))
+    Nothing -> pure (DeclTypeFamilyInst familyInst)
+
+sameTypeFamilyInstance :: TypeFamilyInst -> TypeFamilyInstanceInfo -> Bool
+sameTypeFamilyInstance familyInst info =
+  tfiiAxiomName info == sourceTypeFamilyAxiomName (typeFamilyInstLhs familyInst)
+    && not (tfiiClosed info)
 
 annotateDataFamilyInstTc :: DataFamilyInst -> TcM Decl
 annotateDataFamilyInstTc familyInst = do
@@ -1883,6 +1937,8 @@ registerTypeDeclHeader kindSchemes (DeclNewtype newtypeDecl) =
   registerNewtypeDeclHeader (resolvedTypeKey (binderHeadName (newtypeDeclHead newtypeDecl)) >>= (`Map.lookup` kindSchemes)) newtypeDecl
 registerTypeDeclHeader kindSchemes (DeclDataFamilyDecl familyDecl) =
   registerDataFamilyDeclHeader (resolvedTypeKey (binderHeadName (dataFamilyDeclHead familyDecl)) >>= (`Map.lookup` kindSchemes)) familyDecl
+registerTypeDeclHeader kindSchemes (DeclTypeFamilyDecl familyDecl) =
+  registerTypeFamilyDeclHeader (typeFamilyHeadName (typeFamilyDeclHead familyDecl) >>= resolvedTypeKey >>= (`Map.lookup` kindSchemes)) familyDecl
 registerTypeDeclHeader kindSchemes (DeclTypeSyn typeSynDecl) =
   registerTypeSynonymHeader (resolvedTypeKey (binderHeadName (typeSynHead typeSynDecl)) >>= (`Map.lookup` kindSchemes)) typeSynDecl
 registerTypeDeclHeader kindSchemes (DeclAnn _ inner) = registerTypeDeclHeader kindSchemes inner
@@ -1892,6 +1948,8 @@ registerStructuralDecl :: (Text, Text) -> Decl -> TcM [TcBindingResult]
 registerStructuralDecl _ (DeclData dataDecl) = registerDataConstructors dataDecl
 registerStructuralDecl _ (DeclNewtype newtypeDecl) = registerNewtypeConstructor newtypeDecl
 registerStructuralDecl _ (DeclDataFamilyInst familyInst) = registerDataFamilyInstance familyInst
+registerStructuralDecl _ (DeclTypeFamilyDecl familyDecl) = registerClosedTypeFamilyEquations familyDecl
+registerStructuralDecl _ (DeclTypeFamilyInst familyInst) = registerTypeFamilyInstance familyInst
 registerStructuralDecl origin (DeclClass classDecl) = registerClassDecl origin classDecl
 registerStructuralDecl origin (DeclInstance instanceDecl) = registerInstanceDecl origin instanceDecl
 registerStructuralDecl origin (DeclAnn _ inner) = registerStructuralDecl origin inner
@@ -2121,6 +2179,154 @@ dataFamilyInstanceParams familyInst = do
   explicitParams <- makeParamEnv (dataFamilyInstForall familyInst)
   let explicitNames = map paramName explicitParams
       implicitNames = freeTypeVars (dataFamilyInstHead familyInst) \\ explicitNames
+  implicitParams <- mapM makeImplicitParam implicitNames
+  pure (explicitParams <> implicitParams)
+  where
+    makeImplicitParam name = do
+      rawTyVar <- freshSkolemTv name
+      kind <- freshKindMeta
+      pure
+        ParamInfo
+          { paramName = name,
+            paramTyVar = setTyVarKind kind rawTyVar,
+            paramKind = kind
+          }
+
+typeFamilyHeadName :: Type -> Maybe UnqualifiedName
+typeFamilyHeadName ty =
+  case peelTypeHead ty of
+    TCon name _ -> Just (unqualifiedFromResolvedName name)
+    TInfix _ name _ _ -> Just (unqualifiedFromResolvedName name)
+    TApp function _ -> typeFamilyHeadName function
+    TTypeApp function _ -> typeFamilyHeadName function
+    _ -> Nothing
+
+unqualifiedFromResolvedName :: Name -> UnqualifiedName
+unqualifiedFromResolvedName name =
+  UnqualifiedName
+    { unqualifiedNameType = nameType name,
+      unqualifiedNameText = nameText name,
+      unqualifiedNameAnns = nameAnns name
+    }
+
+sourceTypeFamilyAxiomName :: Type -> Text
+sourceTypeFamilyAxiomName ty = "$ax$" <> sourceTypeKey ty
+
+sourceTypeKey :: Type -> Text
+sourceTypeKey ty =
+  case peelTypeHead ty of
+    TCon name _ -> nameText name
+    TVar name -> unqualifiedNameText name
+    TApp function argument -> sourceTypeKey function <> "$" <> sourceTypeKey argument
+    TTypeApp function argument -> sourceTypeKey function <> "$" <> sourceTypeKey argument
+    TInfix left name _ right -> sourceTypeKey left <> "$" <> nameText name <> "$" <> sourceTypeKey right
+    _ -> "T"
+
+registerTypeFamilyDeclHeader :: Maybe TypeScheme -> TypeFamilyDecl -> TcM [TcBindingResult]
+registerTypeFamilyDeclHeader maybeKindScheme familyDecl =
+  case typeFamilyHeadName (typeFamilyDeclHead familyDecl) of
+    Nothing -> do
+      emitError NoSourceSpan (OtherError "type family head does not name a type family")
+      pure []
+    Just familyBinder -> do
+      let familyName = unqualifiedNameText familyBinder
+          params = typeFamilyDeclParams familyDecl
+          arity = length params
+      (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
+      inferredKind <- tyConKindFromParams paramInfos (typeFamilyResultKindType familyDecl)
+      familyTyCon <-
+        case maybeKindScheme of
+          Just kindScheme -> declaredTyConWithKindScheme familyBinder familyName arity kindScheme
+          Nothing -> mkDeclaredTyCon familyBinder familyName arity inferredKind
+      let declaredKind = maybe inferredKind (const (tyConKind familyTyCon)) maybeKindScheme
+      extendTyConEnvPermanent
+        familyName
+        TyConInfo
+          { tciName = familyName,
+            tciArity = arity,
+            tciTyCon = familyTyCon,
+            tciFlavor = TypeFamilyTyCon,
+            tciTypeSynonym = Nothing
+          }
+      zonkedKind <- defaultKindMetas declaredKind
+      pure [TcBindingResult familyName familyName (kindToTcType zonkedKind)]
+
+typeFamilyResultKindType :: TypeFamilyDecl -> Maybe Type
+typeFamilyResultKindType familyDecl =
+  case typeFamilyDeclResultSig familyDecl of
+    Just (TypeFamilyKindSig ty) -> Just ty
+    _ -> Nothing
+
+registerClosedTypeFamilyEquations :: TypeFamilyDecl -> TcM [TcBindingResult]
+registerClosedTypeFamilyEquations familyDecl =
+  case typeFamilyDeclEquations familyDecl of
+    Nothing -> pure []
+    Just equations -> do
+      mapM_ (registerTypeFamilyEquation True (typeFamilyDeclParams familyDecl)) equations
+      pure []
+
+registerTypeFamilyInstance :: TypeFamilyInst -> TcM [TcBindingResult]
+registerTypeFamilyInstance familyInst = do
+  registerTypeFamilyEquation False (typeFamilyInstForall familyInst) $
+    TypeFamilyEq
+      { typeFamilyEqAnns = [],
+        typeFamilyEqForall = typeFamilyInstForall familyInst,
+        typeFamilyEqHeadForm = typeFamilyInstHeadForm familyInst,
+        typeFamilyEqLhs = typeFamilyInstLhs familyInst,
+        typeFamilyEqRhs = typeFamilyInstRhs familyInst
+      }
+  pure []
+
+registerTypeFamilyEquation :: Bool -> [TyVarBinder] -> TypeFamilyEq -> TcM ()
+registerTypeFamilyEquation isClosed extraBinders equation = do
+  paramInfos <- typeFamilyEquationParams extraBinders equation
+  let tvEnv =
+        Map.fromList
+          [ (paramName param, (paramTyVar param, paramKind param))
+          | param <- paramInfos
+          ]
+  lhs <- checkSurfaceType tvEnv (typeFamilyEqLhs equation) KType
+  rhs <- checkSurfaceType tvEnv (typeFamilyEqRhs equation) KType
+  case typeFamilyApplicationHead lhs of
+    Just familyTyCon -> do
+      maybeFamilyInfo <- lookupTyConByIdentity familyTyCon
+      case maybeFamilyInfo of
+        Just familyInfo
+          | tciFlavor familyInfo == TypeFamilyTyCon -> do
+              existing <- getTypeFamilyInstances
+              let familyName = tciName familyInfo
+                  axiomName =
+                    if isClosed
+                      then typeFamilyAxiomName familyName (length existing)
+                      else sourceTypeFamilyAxiomName (typeFamilyEqLhs equation)
+                  instanceInfo =
+                    TypeFamilyInstanceInfo
+                      { tfiiFamilyName = familyName,
+                        tfiiAxiomName = axiomName,
+                        tfiiTyVars = map paramTyVar paramInfos,
+                        tfiiLeft = lhs,
+                        tfiiRight = rhs,
+                        tfiiClosed = isClosed
+                      }
+              addTypeFamilyInstance instanceInfo
+        _ ->
+          emitError NoSourceSpan (OtherError ("type-family instance head does not name a type family: " <> T.unpack (tyConName familyTyCon)))
+    Nothing ->
+      emitError NoSourceSpan (OtherError ("invalid type-family instance head: " <> show lhs))
+
+typeFamilyApplicationHead :: TcType -> Maybe TyCon
+typeFamilyApplicationHead ty =
+  case ty of
+    TcTyCon tyCon _ -> Just tyCon
+    TcAppTy function _ -> typeFamilyApplicationHead function
+    _ -> Nothing
+
+typeFamilyEquationParams :: [TyVarBinder] -> TypeFamilyEq -> TcM [ParamInfo]
+typeFamilyEquationParams extraBinders equation = do
+  explicitParams <- makeParamEnv (extraBinders <> typeFamilyEqForall equation)
+  let explicitNames = map paramName explicitParams
+      implicitNames =
+        nub (freeTypeVars (typeFamilyEqLhs equation) <> freeTypeVars (typeFamilyEqRhs equation)) \\ explicitNames
   implicitParams <- mapM makeImplicitParam implicitNames
   pure (explicitParams <> implicitParams)
   where

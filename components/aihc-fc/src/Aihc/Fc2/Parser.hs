@@ -254,8 +254,17 @@ eqType :: Parser OpenType
 eqType = do
   left <- appType
   MP.option left $ do
-    _ <- symbol "~"
+    _ <- MP.try (symbol "~" <* MP.notFollowedBy axiomRoleLetter)
     OpenEq left <$> appType
+
+axiomRoleLetter :: Parser Char
+axiomRoleLetter = do
+  letter <- MP.satisfy (`elem` ("NRP" :: String))
+  following <- MP.optional (MP.lookAhead MP.anySingle)
+  case following of
+    Just character
+      | identContinue character -> fail "role prefix"
+    _ -> pure letter
 
 appType :: Parser OpenType
 appType = do

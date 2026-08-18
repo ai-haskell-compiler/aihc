@@ -6,12 +6,17 @@ module Aihc.Fc2.Convert
     emptyConvertEnv,
     withTyVar,
     withTyVars,
+    withClassTyCons,
+    withAxioms,
     convertKind,
     convertRep,
     convertType,
     convertPred,
     tyVarBinder,
     tyConNameFc2,
+    classDictTypeName,
+    classDictConName,
+    lookupAxiomName,
     funType,
     liftedRepType,
   )
@@ -33,26 +38,53 @@ import Aihc.Tc.Types
     liftedRuntimeRep,
     runtimeRepOfType,
     tvKind,
+    tyConKey,
     tyConModuleName,
     tyConName,
     tyConPackageId,
   )
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
 data ConvertEnv = ConvertEnv
   { cePrimPackage :: PackageId,
-    ceTyVars :: Map Unique TyVarId
+    ceTyVars :: Map Unique TyVarId,
+    ceClassTyCons :: Set (PackageId, Text, Text),
+    ceAxioms :: Map Text Name
   }
 
 emptyConvertEnv :: PackageId -> ConvertEnv
 emptyConvertEnv package =
   ConvertEnv
     { cePrimPackage = package,
-      ceTyVars = Map.empty
+      ceTyVars = Map.empty,
+      ceClassTyCons = Set.empty,
+      ceAxioms = Map.empty
     }
+
+withClassTyCons :: [(PackageId, Text, Text)] -> ConvertEnv -> ConvertEnv
+withClassTyCons keys env =
+  env {ceClassTyCons = Set.fromList keys <> ceClassTyCons env}
+
+withAxioms :: [(Text, Name)] -> ConvertEnv -> ConvertEnv
+withAxioms axioms env =
+  env {ceAxioms = Map.fromList axioms <> ceAxioms env}
+
+classDictTypeName :: TyCon -> Name
+classDictTypeName tyCon =
+  Name ("$Dict$" <> tyConName tyCon) SortTypeConstructor (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
+
+classDictConName :: TyCon -> Name
+classDictConName tyCon =
+  Name ("$Dict$" <> tyConName tyCon) SortDataConstructor (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
+
+lookupAxiomName :: ConvertEnv -> Text -> Name
+lookupAxiomName env name =
+  Map.findWithDefault (Name name SortAxiom (OriginLocal (Unique 0))) name (ceAxioms env)
 
 withTyVar :: TyVarId -> ConvertEnv -> ConvertEnv
 withTyVar tyVar env =
@@ -136,7 +168,7 @@ convertType env ty =
     TcMetaTv {} -> Left "type still has a meta variable"
     TcTyCon tyCon arguments -> do
       converted <- mapM (convertType env) arguments
-      pure (foldl TyApp (TyCon (tyConNameFc2 tyCon)) converted)
+      pure (foldl TyApp (TyCon (tyConNameFc2 env tyCon)) converted)
     TcFunTy argument result -> do
       convertedArgument <- convertType env argument
       convertedResult <- convertType env result
@@ -168,8 +200,7 @@ convertPred env predicate =
   case predicate of
     ClassPred tyCon arguments -> do
       converted <- mapM (convertType env) arguments
-      let className = Name ("$Dict$" <> tyConName tyCon) SortTypeConstructor (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
-      pure (foldl TyApp (TyCon className) converted)
+      pure (foldl TyApp (TyCon (classDictTypeName tyCon)) converted)
     EqPred left right ->
       TyEq <$> convertType env left <*> convertType env right
 
@@ -197,9 +228,11 @@ tyVarName tyVar =
 tyVarType :: TyVarId -> Type
 tyVarType tyVar = TyVar (tyVarName tyVar)
 
-tyConNameFc2 :: TyCon -> Name
-tyConNameFc2 tyCon =
-  Name (tyConName tyCon) SortTypeConstructor (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
+tyConNameFc2 :: ConvertEnv -> TyCon -> Name
+tyConNameFc2 env tyCon =
+  if Set.member (tyConKey tyCon) (ceClassTyCons env)
+    then classDictTypeName tyCon
+    else Name (tyConName tyCon) SortTypeConstructor (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
 
 builtinType :: ConvertEnv -> Text -> Either String Type
 builtinType env name =

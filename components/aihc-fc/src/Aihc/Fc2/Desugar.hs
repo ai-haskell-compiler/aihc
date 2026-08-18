@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Convert a checked module into System FC 2 data types and synonyms.
+-- | Convert a checked module into System FC 2 types, axioms, and values.
 module Aihc.Fc2.Desugar
   ( desugarModuleFc2,
     Fc2DesugarResult (..),
@@ -16,37 +16,51 @@ import Aihc.Fc2.Syntax
 import Aihc.Parser.Syntax
   ( DataDecl (..),
     Module (..),
+    TypeFamilyDecl (..),
     TypeSynDecl (..),
     UnqualifiedName,
     binderHeadName,
+    binderHeadParams,
     fromAnnotation,
     nameQualifier,
     peelDeclAnn,
+    tyVarBinderName,
     unqualifiedNameAnns,
     unqualifiedNameText,
   )
 import Aihc.Parser.Syntax qualified as Syn
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..))
 import Aihc.Tc
-  ( DataConFieldInfo (..),
+  ( ClassInfo (..),
+    DataConFieldInfo (..),
     DataConInfo (..),
+    DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
     TcBindingResult (..),
     TcInterface (..),
     TyConFlavor (..),
     TyConInfo (..),
+    TypeFamilyInstanceInfo (..),
     tcModuleDiagnostics,
     tcModuleSuccess,
   )
 import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types
   ( Kind (..),
+    Pred (..),
+    TcType (..),
     TyCon,
     TyVarId,
+    TypeScheme (..),
+    Unique (..),
+    tyConKey,
     tyConKind,
     tyConModuleName,
+    tyConName,
     tyConPackageId,
+    typeKind,
   )
+import Control.Monad (zipWithM)
 import Data.List (nub, sort)
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
@@ -86,14 +100,48 @@ desugarChecked :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module ->
 desugarChecked config bindings interface checked = do
   let (packageId, currentModule) = resolvedModuleOrigin checked
       moduleId = ModuleId packageId currentModule
-      env = emptyConvertEnv (primPackageId config)
       dataTypes = tcInterfaceDataTypes interface
       tyCons = tcInterfaceTyCons interface
-  typeDecls <- concat <$> mapM (dsDecl env packageId currentModule dataTypes tyCons) (Syn.moduleDecls checked)
+      classes = tcInterfaceClasses interface
+      dataFamilyInstances = tcInterfaceDataFamilyInstances interface
+      typeFamilyInstances = tcInterfaceTypeFamilyInstances interface
+      env =
+        withAxioms
+          (axiomEntries packageId currentModule dataTypes dataFamilyInstances typeFamilyInstances)
+          (withClassTyCons (map (tyConKey . ciTyCon) classes) (emptyConvertEnv (primPackageId config)))
+  typeDecls <-
+    concat
+      <$> mapM
+        (dsDecl env packageId currentModule dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings)
+        (Syn.moduleDecls checked)
   valueDecls <- convertFcValues config bindings interface checked env
   let decls = typeDecls <> valueDecls
       scopes = buildScopes moduleId decls
   pure (Program moduleId scopes decls)
+
+axiomEntries :: PackageId -> Text -> [DataTypeInfo] -> [DataFamilyInstanceInfo] -> [TypeFamilyInstanceInfo] -> [(Text, Name)]
+axiomEntries package moduleName' dataTypes dataFamilyInstances typeFamilyInstances =
+  concatMap newtypeAxiom dataTypes
+    <> concatMap (dataFamilyAxiom package moduleName') dataFamilyInstances
+    <> map (typeFamilyAxiom package moduleName') typeFamilyInstances
+  where
+    newtypeAxiom info
+      | dtiFlavor info == NewtypeTyCon =
+          let tyCon = dtiTyCon info
+              axiomName = Name ("$ax$" <> dtiName info) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
+           in [(dtiName info, axiomName), ("$ax$" <> dtiName info, axiomName)]
+      | otherwise = []
+    dataFamilyAxiom currentPackage currentModule info =
+      let axiomName = Name (dfiiAxiomName info) SortAxiom (OriginTop currentPackage currentModule)
+          representationName = tyConName (dfiiRepresentationTyCon info)
+          representationAxiom =
+            Name ("$ax$" <> T.drop 1 representationName) SortAxiom (OriginTop currentPackage currentModule)
+       in [ (dfiiAxiomName info, axiomName),
+            (representationName, representationAxiom),
+            ("$ax$" <> T.drop 1 representationName, representationAxiom)
+          ]
+    typeFamilyAxiom currentPackage currentModule info =
+      (tfiiAxiomName info, Name (tfiiAxiomName info) SortAxiom (OriginTop currentPackage currentModule))
 
 convertFcValues :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> ConvertEnv -> Either String [Decl]
 convertFcValues config bindings interface checked env =
@@ -105,17 +153,54 @@ convertFcValues config bindings interface checked env =
             else Left (unlines (dsErrors fcResult))
         else convertValueDecls env (fcProgramModule (dsProgram fcResult)) (fcTopBinds (dsProgram fcResult))
 
-dsDecl :: ConvertEnv -> PackageId -> Text -> [DataTypeInfo] -> [TyConInfo] -> Syn.Decl -> Either String [Decl]
-dsDecl env package moduleName' dataTypes tyCons decl =
-  case peelDeclAnn decl of
-    Syn.DeclData dataDecl -> do
-      info <- lookupDataType DataTyCon package moduleName' (unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))) dataTypes
-      (: []) <$> convertDataType env info
-    Syn.DeclTypeSyn synonymDecl -> do
-      info <- lookupSynonym package moduleName' (unqualifiedNameText (binderHeadName (typeSynHead synonymDecl))) tyCons
-      (: []) <$> convertSynonym env info
-    Syn.DeclAnn _ inner -> dsDecl env package moduleName' dataTypes tyCons inner
-    _ -> Right []
+dsDecl ::
+  ConvertEnv ->
+  PackageId ->
+  Text ->
+  [DataTypeInfo] ->
+  [TyConInfo] ->
+  [ClassInfo] ->
+  [DataFamilyInstanceInfo] ->
+  [TypeFamilyInstanceInfo] ->
+  [TcBindingResult] ->
+  Syn.Decl ->
+  Either String [Decl]
+dsDecl env package moduleName' dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings decl =
+  case decl of
+    Syn.DeclAnn ann inner
+      | Just familyInfo <- fromAnnotation ann ->
+          convertDataFamilyInst env package moduleName' bindings familyInfo
+      | Just familyEquation <- fromAnnotation ann ->
+          (: []) <$> convertTypeFamilyEquation env package moduleName' familyEquation
+      | otherwise ->
+          dsDecl env package moduleName' dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings inner
+    _ ->
+      case peelDeclAnn decl of
+        Syn.DeclData dataDecl -> do
+          info <- lookupDataType DataTyCon package moduleName' (unqualifiedNameText (binderHeadName (dataDeclHead dataDecl))) dataTypes
+          (: []) <$> convertDataType env info
+        Syn.DeclTypeSyn synonymDecl -> do
+          info <- lookupSynonym package moduleName' (unqualifiedNameText (binderHeadName (typeSynHead synonymDecl))) tyCons
+          (: []) <$> convertSynonym env info
+        Syn.DeclClass classDecl -> do
+          info <- lookupClassInfo package moduleName' (unqualifiedNameText (binderHeadName (Syn.classDeclHead classDecl))) classes
+          (: []) <$> convertClass env info
+        Syn.DeclNewtype newtypeDecl ->
+          convertNewtype env
+            =<< lookupDataType NewtypeTyCon package moduleName' (unqualifiedNameText (binderHeadName (Syn.newtypeDeclHead newtypeDecl))) dataTypes
+        Syn.DeclDataFamilyDecl familyDecl -> do
+          info <- lookupTyConFlavor DataFamilyTyCon package moduleName' (unqualifiedNameText (binderHeadName (Syn.dataFamilyDeclHead familyDecl))) tyCons
+          (: []) <$> convertEmptyFamily env (map tyVarBinderName (binderHeadParams (Syn.dataFamilyDeclHead familyDecl))) Nominal info
+        Syn.DeclTypeFamilyDecl familyDecl -> do
+          let familyName = typeFamilyDeclName familyDecl
+          info <- lookupTyConFlavor TypeFamilyTyCon package moduleName' familyName tyCons
+          typeDecl <- convertEmptyFamily env (map tyVarBinderName (typeFamilyDeclParams familyDecl)) Nominal info
+          axioms <-
+            mapM
+              (convertTypeFamilyEquation env package moduleName')
+              [equation | equation <- typeFamilyInstances, tfiiFamilyName equation == familyName, tfiiClosed equation]
+          pure (typeDecl : axioms)
+        _ -> Right []
 
 lookupDataType :: TyConFlavor -> PackageId -> Text -> Text -> [DataTypeInfo] -> Either String DataTypeInfo
 lookupDataType flavor package moduleName' name dataTypes =
@@ -132,6 +217,289 @@ lookupDataType flavor package moduleName' name dataTypes =
         tyConPackageId (dtiTyCon info) == package,
         tyConModuleName (dtiTyCon info) == moduleName'
       ]
+
+lookupClassInfo :: PackageId -> Text -> Text -> [ClassInfo] -> Either String ClassInfo
+lookupClassInfo package moduleName' name classes =
+  case matches of
+    [info] -> Right info
+    [] -> Left ("missing checked class " <> T.unpack moduleName' <> "." <> T.unpack name)
+    _ -> Left ("duplicate checked class " <> T.unpack moduleName' <> "." <> T.unpack name)
+  where
+    matches =
+      [ info
+      | info <- classes,
+        ciName info == name,
+        tyConPackageId (ciTyCon info) == package,
+        tyConModuleName (ciTyCon info) == moduleName'
+      ]
+
+lookupTyConFlavor :: TyConFlavor -> PackageId -> Text -> Text -> [TyConInfo] -> Either String TyConInfo
+lookupTyConFlavor flavor package moduleName' name tyCons =
+  case matches of
+    [info] -> Right info
+    [] -> Left ("missing checked type constructor " <> T.unpack moduleName' <> "." <> T.unpack name)
+    _ -> Left ("duplicate checked type constructor " <> T.unpack moduleName' <> "." <> T.unpack name)
+  where
+    matches =
+      [ info
+      | info <- tyCons,
+        tciName info == name,
+        tciFlavor info == flavor,
+        tyConPackageId (tciTyCon info) == package,
+        tyConModuleName (tciTyCon info) == moduleName'
+      ]
+
+typeFamilyDeclName :: TypeFamilyDecl -> Text
+typeFamilyDeclName familyDecl =
+  fromMaybe "<type-family>" (familyHeadName (typeFamilyDeclHead familyDecl))
+
+familyHeadName :: Syn.Type -> Maybe Text
+familyHeadName ty =
+  case Syn.peelTypeHead ty of
+    Syn.TCon name _ -> Just (Syn.nameText name)
+    Syn.TInfix _ name _ _ -> Just (Syn.nameText name)
+    Syn.TApp function _ -> familyHeadName function
+    Syn.TTypeApp function _ -> familyHeadName function
+    _ -> Nothing
+
+convertClass :: ConvertEnv -> ClassInfo -> Either String Decl
+convertClass env info = do
+  let tyVars = ciTyVars info
+      bindersEnv = withTyVars tyVars env
+      dictName = classDictTypeName (ciTyCon info)
+  binders <- mapM (tyVarBinder bindersEnv) tyVars
+  result <- convertKind bindersEnv KType
+  superFields <- mapM (convertType bindersEnv) (ciSuperClassTypes info)
+  methodFields <- mapM (convertMethodField bindersEnv (ciName info) tyVars) (ciMethods info)
+  let dictApp = foldl TyApp (TyCon dictName) (map (TyVar . binderName) binders)
+      body = foldr (funType bindersEnv) dictApp (superFields <> methodFields)
+      constructorType = foldr TyForAll body binders
+  pure
+    ( DeclType
+        TypeDecl
+          { typeVis = Pub,
+            typeName = dictName,
+            typeBinders = binders,
+            typeResult = result,
+            typeRoles = replicate (length binders) Representational,
+            typeCons = [ConDecl Pub (classDictConName (ciTyCon info)) constructorType]
+          }
+    )
+
+convertMethodField :: ConvertEnv -> Text -> [TyVarId] -> (Text, TypeScheme) -> Either String Type
+convertMethodField env className classTyVars (_methodName, scheme) = do
+  fieldType <- classMethodFieldType className classTyVars scheme
+  convertType env fieldType
+
+classMethodFieldType :: Text -> [TyVarId] -> TypeScheme -> Either String TcType
+classMethodFieldType className classTyVars (ForAll methodTyVars predicates body) = do
+  remaining <- removeClassPredicate className predicates
+  let extraTyVars = filter (`notElem` classTyVars) methodTyVars
+      qualifiedBody =
+        if null remaining
+          then body
+          else TcQualTy remaining body
+  Right (foldr TcForAllTy qualifiedBody extraTyVars)
+
+removeClassPredicate :: Text -> [Pred] -> Either String [Pred]
+removeClassPredicate className predicates =
+  case predicates of
+    [] -> Left ("class method lacks its class predicate for " <> T.unpack className)
+    ClassPred tyCon _ : rest
+      | tyConName tyCon == className -> Right rest
+    predicate : rest -> (predicate :) <$> removeClassPredicate className rest
+
+convertNewtype :: ConvertEnv -> DataTypeInfo -> Either String [Decl]
+convertNewtype env info = do
+  let tyCon = dtiTyCon info
+      bindersEnv = withTyVars (dtiTyVars info) env
+  binders <- mapM (tyVarBinder bindersEnv) (dtiTyVars info)
+  result <- convertKind bindersEnv (dtiResultKind info)
+  representation <-
+    case dtiConstructors info of
+      [constructor]
+        | [field] <- dciFields constructor ->
+            convertType bindersEnv (dcfiType field)
+      _ -> Left ("newtype " <> T.unpack (dtiName info) <> " does not have exactly one checked field")
+  let typeName = tyConNameFc2 env tyCon
+      lhs = foldl TyApp (TyCon typeName) (map (TyVar . binderName) binders)
+      axiomName = Name ("$ax$" <> dtiName info) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
+  pure
+    [ DeclType
+        TypeDecl
+          { typeVis = Pub,
+            typeName = typeName,
+            typeBinders = binders,
+            typeResult = result,
+            typeRoles = replicate (length binders) Representational,
+            typeCons = []
+          },
+      DeclAxiom
+        AxiomDecl
+          { axiomVis = Private,
+            axiomName = axiomName,
+            axiomBinders = binders,
+            axiomRole = Representational,
+            axiomLeft = lhs,
+            axiomRight = representation
+          }
+    ]
+
+convertEmptyFamily :: ConvertEnv -> [Text] -> Role -> TyConInfo -> Either String Decl
+convertEmptyFamily env paramNames roles info = do
+  let tyCon = tciTyCon info
+      argKinds = take (tciArity info) (visibleArgKinds (tyConKind tyCon))
+      names =
+        if length paramNames == length argKinds
+          then paramNames
+          else ["a" <> T.pack (show index) | index <- [1 .. length argKinds]]
+  binders <- zipWithM (kindBinder env) names argKinds
+  result <- convertKind env (dropKindParams (length binders) (tyConKind tyCon))
+  pure
+    ( DeclType
+        TypeDecl
+          { typeVis = Pub,
+            typeName = tyConNameFc2 env tyCon,
+            typeBinders = binders,
+            typeResult = result,
+            typeRoles = replicate (length binders) roles,
+            typeCons = []
+          }
+    )
+
+kindBinder :: ConvertEnv -> Text -> Kind -> Either String Binder
+kindBinder env name kind = do
+  converted <- convertKind env kind
+  pure (Binder (Name name SortTypeVariable (OriginLocal (Unique 0))) converted)
+
+visibleArgKinds :: Kind -> [Kind]
+visibleArgKinds kind =
+  case kind of
+    KFun argument result -> argument : visibleArgKinds result
+    _ -> []
+
+dropKindParams :: Int -> Kind -> Kind
+dropKindParams remaining kind
+  | remaining <= 0 = kind
+dropKindParams remaining (KFun _ result) = dropKindParams (remaining - 1) result
+dropKindParams _ kind = kind
+
+convertDataFamilyInst :: ConvertEnv -> PackageId -> Text -> [TcBindingResult] -> DataFamilyInstanceInfo -> Either String [Decl]
+convertDataFamilyInst env package moduleName' bindings info = do
+  let tyVars = dfiiTyVars info
+      bindersEnv = withTyVars tyVars env
+      representationTyCon = dfiiRepresentationTyCon info
+      representationName = tyConNameFc2 env representationTyCon
+  binders <- mapM (tyVarBinder bindersEnv) tyVars
+  result <- convertKind bindersEnv (typeKind (TcTyCon representationTyCon (map TcTyVar tyVars)))
+  familyType <- convertType bindersEnv (dfiiFamilyType info)
+  let representationType = foldl TyApp (TyCon representationName) (map (TyVar . binderName) binders)
+      familyAxiom =
+        DeclAxiom
+          AxiomDecl
+            { axiomVis = Private,
+              axiomName = Name (dfiiAxiomName info) SortAxiom (OriginTop package moduleName'),
+              axiomBinders = binders,
+              axiomRole = Nominal,
+              axiomLeft = familyType,
+              axiomRight = representationType
+            }
+  if dfiiIsNewtype info
+    then do
+      fieldType <-
+        case dfiiConstructorNames info of
+          constructorName : _ -> do
+            constructorType <- lookupBindingType bindings constructorName
+            converted <- convertType bindersEnv constructorType
+            constructorFieldType converted
+          [] -> Left "newtype family instance has no constructor"
+      let representationAxiomName =
+            Name ("$ax$" <> T.drop 1 (tyConName representationTyCon)) SortAxiom (OriginTop package moduleName')
+      pure
+        [ DeclType
+            TypeDecl
+              { typeVis = Private,
+                typeName = representationName,
+                typeBinders = binders,
+                typeResult = result,
+                typeRoles = replicate (length binders) Representational,
+                typeCons = []
+              },
+          DeclAxiom
+            AxiomDecl
+              { axiomVis = Private,
+                axiomName = representationAxiomName,
+                axiomBinders = binders,
+                axiomRole = Representational,
+                axiomLeft = representationType,
+                axiomRight = fieldType
+              },
+          familyAxiom
+        ]
+    else do
+      constructors <- mapM (convertFamilyConstructor bindersEnv bindings package moduleName' representationType) (dfiiConstructorNames info)
+      pure
+        [ DeclType
+            TypeDecl
+              { typeVis = Private,
+                typeName = representationName,
+                typeBinders = binders,
+                typeResult = result,
+                typeRoles = replicate (length binders) Representational,
+                typeCons = constructors
+              },
+          familyAxiom
+        ]
+
+convertFamilyConstructor :: ConvertEnv -> [TcBindingResult] -> PackageId -> Text -> Type -> Text -> Either String ConDecl
+convertFamilyConstructor bindersEnv bindings package moduleName' representationType constructorName = do
+  constructorType <- lookupBindingType bindings constructorName
+  converted <- convertType bindersEnv constructorType
+  replaced <- replaceResultType converted representationType
+  pure
+    ConDecl
+      { conVis = Private,
+        conName = Name constructorName SortDataConstructor (OriginTop package moduleName'),
+        conType = replaced
+      }
+
+lookupBindingType :: [TcBindingResult] -> Text -> Either String TcType
+lookupBindingType bindings name =
+  case [tbType binding | binding <- bindings, tbName binding == name] of
+    ty : _ -> Right ty
+    [] -> Left ("missing checked constructor type " <> T.unpack name)
+
+replaceResultType :: Type -> Type -> Either String Type
+replaceResultType ty result =
+  case ty of
+    TyForAll binder body -> TyForAll binder <$> replaceResultType body result
+    TyFun r1 r2 argument body -> TyFun r1 r2 argument <$> replaceResultType body result
+    _ -> Right result
+
+constructorFieldType :: Type -> Either String Type
+constructorFieldType ty =
+  case ty of
+    TyForAll _ body -> constructorFieldType body
+    TyFun _ _ argument _ -> Right argument
+    _ -> Left "newtype family constructor is not a function"
+
+convertTypeFamilyEquation :: ConvertEnv -> PackageId -> Text -> TypeFamilyInstanceInfo -> Either String Decl
+convertTypeFamilyEquation env package moduleName' info = do
+  let bindersEnv = withTyVars (tfiiTyVars info) env
+  binders <- mapM (tyVarBinder bindersEnv) (tfiiTyVars info)
+  left <- convertType bindersEnv (tfiiLeft info)
+  right <- convertType bindersEnv (tfiiRight info)
+  pure
+    ( DeclAxiom
+        AxiomDecl
+          { axiomVis = Private,
+            axiomName = Name (tfiiAxiomName info) SortAxiom (OriginTop package moduleName'),
+            axiomBinders = binders,
+            axiomRole = Nominal,
+            axiomLeft = left,
+            axiomRight = right
+          }
+    )
 
 lookupSynonym :: PackageId -> Text -> Text -> [TyConInfo] -> Either String TyConInfo
 lookupSynonym package moduleName' name tyCons =
@@ -160,7 +528,7 @@ convertDataType env info = do
     ( DeclType
         TypeDecl
           { typeVis = Pub,
-            typeName = tyConNameFc2 tyCon,
+            typeName = tyConNameFc2 env tyCon,
             typeBinders = binders,
             typeResult = result,
             typeRoles = replicate (length binders) Representational,
@@ -347,6 +715,9 @@ definitionResolution declaration =
   case peelDeclAnn declaration of
     Syn.DeclData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
     Syn.DeclTypeSyn synonymDeclaration -> nameResolution (binderHeadName (typeSynHead synonymDeclaration))
+    Syn.DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (Syn.newtypeDeclHead newtypeDeclaration))
+    Syn.DeclClass classDeclaration -> nameResolution (binderHeadName (Syn.classDeclHead classDeclaration))
+    Syn.DeclDataFamilyDecl familyDeclaration -> nameResolution (binderHeadName (Syn.dataFamilyDeclHead familyDeclaration))
     _ -> Nothing
 
 nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation

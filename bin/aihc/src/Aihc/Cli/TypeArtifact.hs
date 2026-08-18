@@ -27,6 +27,7 @@ import Aihc.Tc
     TyConFlavor (..),
     TyConInfo (..),
     TyVarId (..),
+    TypeFamilyInstanceInfo (..),
     TypeScheme (..),
     Unique (..),
     VecCount (..),
@@ -92,24 +93,30 @@ getArtifact = do
 
 putInterface :: TcInterface -> Builder.Builder
 putInterface interface =
-  cborArray 6
+  cborArray 7
     <> encodeList putTerm (tcInterfaceTerms interface)
     <> encodeList putTyConInfo (tcInterfaceTyCons interface)
     <> encodeList putDataTypeInfo (tcInterfaceDataTypes interface)
     <> encodeList putClassInfo (tcInterfaceClasses interface)
     <> encodeList putInstanceInfo (tcInterfaceInstances interface)
     <> encodeList putDataFamilyInstanceInfo (tcInterfaceDataFamilyInstances interface)
+    <> encodeList putTypeFamilyInstanceInfo (tcInterfaceTypeFamilyInstances interface)
 
 getInterface :: Get.Get TcInterface
 getInterface = do
-  expectArray 6
+  length' <- getArrayLength
   tcInterfaceTerms <- getList getTerm
   tcInterfaceTyCons <- getList getTyConInfo
   tcInterfaceDataTypes <- getList getDataTypeInfo
   tcInterfaceClasses <- getList getClassInfo
   tcInterfaceInstances <- getList getInstanceInfo
   tcInterfaceDataFamilyInstances <- getList getDataFamilyInstanceInfo
-  pure TcInterface {tcInterfaceTerms, tcInterfaceTyCons, tcInterfaceDataTypes, tcInterfaceClasses, tcInterfaceInstances, tcInterfaceDataFamilyInstances}
+  tcInterfaceTypeFamilyInstances <-
+    case length' of
+      6 -> pure []
+      7 -> getList getTypeFamilyInstanceInfo
+      _ -> fail ("unsupported type interface array length: " <> show length')
+  pure TcInterface {tcInterfaceTerms, tcInterfaceTyCons, tcInterfaceDataTypes, tcInterfaceClasses, tcInterfaceInstances, tcInterfaceDataFamilyInstances, tcInterfaceTypeFamilyInstances}
 
 putTerm :: (TcTermKey, TypeScheme) -> Builder.Builder
 putTerm (key, scheme) = cborArray 2 <> putTermKey key <> putTypeScheme scheme
@@ -430,6 +437,27 @@ getDataFamilyInstanceInfo = do
   dfiiIsNewtype <- getBool
   pure DataFamilyInstanceInfo {dfiiFamilyName, dfiiFamilyType, dfiiTyVars, dfiiRepresentationTyCon, dfiiAxiomName, dfiiConstructorNames, dfiiIsNewtype}
 
+putTypeFamilyInstanceInfo :: TypeFamilyInstanceInfo -> Builder.Builder
+putTypeFamilyInstanceInfo info =
+  cborArray 6
+    <> cborText (tfiiFamilyName info)
+    <> cborText (tfiiAxiomName info)
+    <> encodeList putTyVar (tfiiTyVars info)
+    <> putType (tfiiLeft info)
+    <> putType (tfiiRight info)
+    <> putBool (tfiiClosed info)
+
+getTypeFamilyInstanceInfo :: Get.Get TypeFamilyInstanceInfo
+getTypeFamilyInstanceInfo = do
+  expectArray 6
+  tfiiFamilyName <- getText
+  tfiiAxiomName <- getText
+  tfiiTyVars <- getList getTyVar
+  tfiiLeft <- getType
+  tfiiRight <- getType
+  tfiiClosed <- getBool
+  pure TypeFamilyInstanceInfo {tfiiFamilyName, tfiiAxiomName, tfiiTyVars, tfiiLeft, tfiiRight, tfiiClosed}
+
 putOrigin :: (PackageId, Text) -> Builder.Builder
 putOrigin (packageId, moduleName) = cborArray 2 <> putPackageId packageId <> cborText moduleName
 
@@ -486,9 +514,10 @@ putTyConFlavor flavor = cborWord $ case flavor of
   DataFamilyTyCon -> 2
   NewtypeTyCon -> 3
   SynonymTyCon -> 4
+  TypeFamilyTyCon -> 5
 
 getTyConFlavor :: Get.Get TyConFlavor
-getTyConFlavor = getTagged "type constructor flavor" [(0, ClassTyCon), (1, DataTyCon), (2, DataFamilyTyCon), (3, NewtypeTyCon), (4, SynonymTyCon)]
+getTyConFlavor = getTagged "type constructor flavor" [(0, ClassTyCon), (1, DataTyCon), (2, DataFamilyTyCon), (3, NewtypeTyCon), (4, SynonymTyCon), (5, TypeFamilyTyCon)]
 
 putDataConSourceForm :: DataConSourceForm -> Builder.Builder
 putDataConSourceForm sourceForm = cborWord $ case sourceForm of

@@ -1,0 +1,28 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+    data Unit = Unit
+    data family Wrapped a
+    newtype instance Wrapped Unit = WrappedUnit Unit
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-internal" Aihc.Internal
+  scope 3 = "aihc-prim" GHC.Types
+
+  module 1.Test where
+
+  pub type 1.tUnit :: 3.tType {
+      pub 1.vUnit :: 1.tUnit
+  }
+
+  pub type 1.tWrapped (a : 3.tType) :: 3.tType @N {}
+
+  type 2.t$R$Wrapped$WrappedUnit :: 3.tType {}
+
+  axiom 1.$ax$R$Wrapped$WrappedUnit : 2.t$R$Wrapped$WrappedUnit ~R 1.tUnit
+
+  axiom 1.$ax$Wrapped$WrappedUnit : 1.tWrapped 1.tUnit ~N 2.t$R$Wrapped$WrappedUnit
+status: pass
+reason: A newtype family instance is an empty representation type plus two axioms.
