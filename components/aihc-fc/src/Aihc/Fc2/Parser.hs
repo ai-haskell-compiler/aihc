@@ -889,9 +889,9 @@ closeType env open =
     OpenFun argument result -> do
       closedArgument <- closeType env argument
       closedResult <- closeType env result
-      case (repOf env closedArgument, repOf env closedResult) of
-        (Just r1, Just r2) -> Right (TyFun r1 r2 closedArgument closedResult)
-        _ -> Left "cannot rebuild RuntimeRep for implicit FUN"
+      case liftedRepType env of
+        Just lifted -> Right (TyFun lifted lifted closedArgument closedResult)
+        Nothing -> Left "implicit FUN needs a GHC.Types scope for LiftedRep"
     OpenForAll name kind body -> do
       closedKind <- closeType env kind
       let binder = Binder name closedKind

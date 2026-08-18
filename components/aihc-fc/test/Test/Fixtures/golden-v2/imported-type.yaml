@@ -1,0 +1,30 @@
+extensions: []
+modules:
+  - |
+    module Parent where
+    data Flag = Off | On
+  - |
+    module Child where
+    import Parent
+    data Box = Box Flag
+expected: |-
+  scope 1 = "" Parent
+  scope 2 = "aihc-prim" GHC.Types
+
+  module 1.Parent where
+
+  pub type 1.tFlag :: 2.tType {
+      pub 1.vOff :: 1.tFlag
+      pub 1.vOn :: 1.tFlag
+  }
+  scope 1 = "" Child
+  scope 2 = "" Parent
+  scope 3 = "aihc-prim" GHC.Types
+
+  module 1.Child where
+
+  pub type 1.tBox :: 3.tType {
+      pub 1.vBox :: 2.tFlag → 1.tBox
+  }
+status: pass
+reason: A child module keeps the parent type identity in a second scope.

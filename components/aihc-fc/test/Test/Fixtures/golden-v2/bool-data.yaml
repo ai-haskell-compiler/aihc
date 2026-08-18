@@ -1,0 +1,17 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = False | True
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  module 1.Test where
+
+  pub type 1.tBool :: 2.tType {
+      pub 1.vFalse :: 1.tBool
+      pub 1.vTrue :: 1.tBool
+  }
+status: pass
+reason: A local Bool type becomes a System FC 2 type declaration.

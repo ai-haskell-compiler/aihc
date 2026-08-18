@@ -8,6 +8,8 @@ module Aihc.Fc2.TypeOf
     typeOf,
     unfoldType,
     unfoldRep,
+    isLiftedRep,
+    liftedRepType,
     repOf,
     headerType,
     applyType,
@@ -142,6 +144,17 @@ repOf env ty = do
     TyApp (TyCon name) representation
       | isWiredName env name "TYPE" -> Just representation
     _ -> Nothing
+
+-- | True when a stored FUN representation is lifted.
+isLiftedRep :: TypeEnv -> Type -> Bool
+isLiftedRep env ty =
+  case unfoldRep env ty of
+    TyApp (TyCon boxed) (TyCon levity)
+      | isWiredName env boxed "BoxedRep",
+        isWiredName env levity "Lifted" ->
+          True
+    TyCon name -> isWiredName env name "LiftedRep"
+    _ -> False
 
 extendBinder :: TypeEnv -> Binder -> TypeEnv
 extendBinder env binder =

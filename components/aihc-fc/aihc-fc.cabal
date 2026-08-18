@@ -29,6 +29,8 @@ library
     Aihc.Fc.Subst
     Aihc.Fc.Syntax
     Aihc.Fc2
+    Aihc.Fc2.Convert
+    Aihc.Fc2.Desugar
     Aihc.Fc2.Name
     Aihc.Fc2.Parser
     Aihc.Fc2.Pretty
@@ -70,6 +72,7 @@ test-suite spec
   main-is: Spec.hs
   other-modules:
     Aihc.Testing.EvalFixture
+    Fc2Golden
     FcGolden
     Test.Fc.Properties
     Test.Fc.Suite
