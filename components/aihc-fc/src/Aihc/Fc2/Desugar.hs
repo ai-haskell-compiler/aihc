@@ -7,8 +7,10 @@ module Aihc.Fc2.Desugar
   )
 where
 
-import Aihc.Fc.Desugar (DesugarConfig (..))
+import Aihc.Fc.Desugar (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface)
+import Aihc.Fc.Syntax (fcProgramModule, fcTopBinds)
 import Aihc.Fc2.Convert
+import Aihc.Fc2.FromFc (convertValueDecls)
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Parser.Syntax
@@ -58,7 +60,7 @@ data Fc2DesugarResult = Fc2DesugarResult
   deriving (Show)
 
 desugarModuleFc2 :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> Fc2DesugarResult
-desugarModuleFc2 config _bindings interface checked =
+desugarModuleFc2 config bindings interface checked =
   if not (tcModuleSuccess checked)
     then
       Fc2DesugarResult
@@ -66,7 +68,7 @@ desugarModuleFc2 config _bindings interface checked =
           ds2Success = False,
           ds2Errors = fmap show (tcModuleDiagnostics checked)
         }
-    else case desugarChecked config interface checked of
+    else case desugarChecked config bindings interface checked of
       Left errors ->
         Fc2DesugarResult
           { ds2Program = Program (ModuleId "" (fromMaybe "Main" (Syn.moduleName checked))) emptyScopeTable [],
@@ -80,16 +82,28 @@ desugarModuleFc2 config _bindings interface checked =
             ds2Errors = []
           }
 
-desugarChecked :: DesugarConfig -> TcInterface -> Module -> Either String Program
-desugarChecked config interface checked = do
+desugarChecked :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> Either String Program
+desugarChecked config bindings interface checked = do
   let (packageId, currentModule) = resolvedModuleOrigin checked
       moduleId = ModuleId packageId currentModule
       env = emptyConvertEnv (primPackageId config)
       dataTypes = tcInterfaceDataTypes interface
       tyCons = tcInterfaceTyCons interface
-  decls <- concat <$> mapM (dsDecl env packageId currentModule dataTypes tyCons) (Syn.moduleDecls checked)
-  let scopes = buildScopes moduleId decls
+  typeDecls <- concat <$> mapM (dsDecl env packageId currentModule dataTypes tyCons) (Syn.moduleDecls checked)
+  valueDecls <- convertFcValues config bindings interface checked env
+  let decls = typeDecls <> valueDecls
+      scopes = buildScopes moduleId decls
   pure (Program moduleId scopes decls)
+
+convertFcValues :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> ConvertEnv -> Either String [Decl]
+convertFcValues config bindings interface checked env =
+  let fcResult = desugarModuleWithInterface config bindings interface checked
+   in if not (dsSuccess fcResult)
+        then
+          if null (dsErrors fcResult)
+            then Right []
+            else Left (unlines (dsErrors fcResult))
+        else convertValueDecls env (fcProgramModule (dsProgram fcResult)) (fcTopBinds (dsProgram fcResult))
 
 dsDecl :: ConvertEnv -> PackageId -> Text -> [DataTypeInfo] -> [TyConInfo] -> Syn.Decl -> Either String [Decl]
 dsDecl env package moduleName' dataTypes tyCons decl =
@@ -241,6 +255,7 @@ declOrigins decl =
     DeclVal valDecl ->
       nameOriginPair (valName valDecl)
         <> typeOrigins (valType valDecl)
+        <> exprOrigins (valBody valDecl)
     DeclPrim primDecl ->
       nameOriginPair (primName primDecl)
         <> typeOrigins (primType primDecl)
@@ -251,6 +266,55 @@ conOrigins constructor =
 
 binderOrigins :: Binder -> [(PackageId, Text)]
 binderOrigins binder = typeOrigins (binderType binder)
+
+exprOrigins :: Expr -> [(PackageId, Text)]
+exprOrigins expr =
+  case expr of
+    ExVar name -> nameOriginPair name
+    ExLit literal -> literalOrigins literal
+    ExApp function argument -> exprOrigins function <> exprOrigins argument
+    ExTyApp function ty -> exprOrigins function <> typeOrigins ty
+    ExLam binder body -> binderOrigins binder <> exprOrigins body
+    ExTyLam binder body -> binderOrigins binder <> exprOrigins body
+    ExLet bind body -> bindOrigins bind <> exprOrigins body
+    ExRec binds body -> concatMap bindOrigins binds <> exprOrigins body
+    ExCase scrutinee binder alts ->
+      exprOrigins scrutinee <> binderOrigins binder <> concatMap altOrigins alts
+    ExCast inner coercion -> exprOrigins inner <> coercionOrigins coercion
+
+bindOrigins :: Bind -> [(PackageId, Text)]
+bindOrigins bind = binderOrigins (bindBinder bind) <> exprOrigins (bindRhs bind)
+
+altOrigins :: Alt -> [(PackageId, Text)]
+altOrigins alternative =
+  altConOrigins (altCon alternative)
+    <> concatMap binderOrigins (altBinders alternative)
+    <> exprOrigins (altRhs alternative)
+
+altConOrigins :: AltCon -> [(PackageId, Text)]
+altConOrigins alternative =
+  case alternative of
+    AltData name -> nameOriginPair name
+    AltLit literal -> literalOrigins literal
+    AltDefault -> []
+
+literalOrigins :: Literal -> [(PackageId, Text)]
+literalOrigins literal =
+  case literal of
+    LitInt representation _ -> typeOrigins representation
+    LitChar representation _ -> typeOrigins representation
+    LitString {} -> []
+    LitAddr representation _ -> typeOrigins representation
+
+coercionOrigins :: Coercion -> [(PackageId, Text)]
+coercionOrigins coercion =
+  case coercion of
+    CoVar name -> nameOriginPair name
+    CoRefl ty -> typeOrigins ty
+    CoSym inner -> coercionOrigins inner
+    CoTrans left right -> coercionOrigins left <> coercionOrigins right
+    CoTyConApp name arguments -> nameOriginPair name <> concatMap coercionOrigins arguments
+    CoAxiom name arguments -> nameOriginPair name <> concatMap typeOrigins arguments
 
 typeOrigins :: Type -> [(PackageId, Text)]
 typeOrigins ty =

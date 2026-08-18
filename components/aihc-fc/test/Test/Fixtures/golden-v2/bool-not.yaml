@@ -1,0 +1,28 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    not True = False
+    not False = True
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  module 1.Test where
+
+  pub type 1.tBool :: 2.tType {
+      pub 1.vTrue :: 1.tBool
+      pub 1.vFalse :: 1.tBool
+  }
+
+  pub val 1.vnot :: 1.tBool → 1.tBool
+   = λ(x{1001} : 1.tBool).
+    case x{1001} as (_scrut{1002} : 1.tBool) of {
+        1.vTrue →
+            1.vFalse;
+        1.vFalse →
+            1.vTrue
+    }
+status: pass
+reason: Pattern matches on Bool become a Core case.
