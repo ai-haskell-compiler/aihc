@@ -82,6 +82,10 @@ import Aihc.Parser.Syntax
     TupleFlavor (..),
     TyVarBinder (..),
     Type (..),
+    TypeFamilyDecl (..),
+    TypeFamilyEq (..),
+    TypeFamilyInst (..),
+    TypeFamilyResultSig (..),
     TypePromotion (..),
     TypeSynDecl (..),
     UnqualifiedName,
@@ -430,10 +434,12 @@ resolveDeclCore termDefinition decl =
       DeclInstance <$> resolveInstanceDecl instanceDecl
     DeclStandaloneDeriving derivingDecl ->
       DeclStandaloneDeriving <$> resolveStandaloneDerivingDecl derivingDecl
-    DeclTypeFamilyDecl {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclTypeFamilyDecl familyDecl ->
+      DeclTypeFamilyDecl <$> resolveTypeFamilyDecl familyDecl
     DeclDataFamilyDecl dataFamilyDecl ->
       DeclDataFamilyDecl <$> resolveDataFamilyDecl dataFamilyDecl
-    DeclTypeFamilyInst {} -> annotateUnhandledDecl <$> currentSpan <*> pure decl
+    DeclTypeFamilyInst familyInst ->
+      DeclTypeFamilyInst <$> resolveTypeFamilyInst familyInst
     DeclDataFamilyInst dataFamilyInst ->
       DeclDataFamilyInst <$> resolveDataFamilyInst dataFamilyInst
 
@@ -1162,6 +1168,66 @@ resolveDataDecl keyword dataDecl = do
         dataDeclKind = kind',
         dataDeclConstructors = map (resolveDataConDefinitions scope) constructors',
         dataDeclDeriving = deriving'
+      }
+
+resolveTypeFamilyDecl :: TypeFamilyDecl -> ResolveM TypeFamilyDecl
+resolveTypeFamilyDecl familyDecl = do
+  (paramScope, params') <- bindTyVarBinders (typeFamilyDeclParams familyDecl)
+  (head', resultSig', equations') <-
+    extendScope paramScope $
+      (,,)
+        <$> resolveType (typeFamilyDeclHead familyDecl)
+        <*> traverse resolveTypeFamilyResultSig (typeFamilyDeclResultSig familyDecl)
+        <*> traverse (mapM resolveTypeFamilyEq) (typeFamilyDeclEquations familyDecl)
+  pure
+    familyDecl
+      { typeFamilyDeclHead = head',
+        typeFamilyDeclParams = params',
+        typeFamilyDeclResultSig = resultSig',
+        typeFamilyDeclEquations = equations'
+      }
+
+resolveTypeFamilyResultSig :: TypeFamilyResultSig -> ResolveM TypeFamilyResultSig
+resolveTypeFamilyResultSig resultSig =
+  case resultSig of
+    TypeFamilyKindSig ty -> TypeFamilyKindSig <$> resolveType ty
+    TypeFamilyTyVarSig binder -> TypeFamilyTyVarSig <$> resolveTyVarBinderKind binder
+    TypeFamilyInjectiveSig binder injectivity ->
+      TypeFamilyInjectiveSig <$> resolveTyVarBinderKind binder <*> pure injectivity
+
+resolveTyVarBinderKind :: TyVarBinder -> ResolveM TyVarBinder
+resolveTyVarBinderKind binder = do
+  kind' <- traverse resolveType (tyVarBinderKind binder)
+  pure binder {tyVarBinderKind = kind'}
+
+resolveTypeFamilyEq :: TypeFamilyEq -> ResolveM TypeFamilyEq
+resolveTypeFamilyEq equation = do
+  (forallScope, forallBinders') <- bindTyVarBinders (typeFamilyEqForall equation)
+  (lhs', rhs') <-
+    extendScope forallScope $
+      (,)
+        <$> resolveType (typeFamilyEqLhs equation)
+        <*> resolveType (typeFamilyEqRhs equation)
+  pure
+    equation
+      { typeFamilyEqForall = forallBinders',
+        typeFamilyEqLhs = lhs',
+        typeFamilyEqRhs = rhs'
+      }
+
+resolveTypeFamilyInst :: TypeFamilyInst -> ResolveM TypeFamilyInst
+resolveTypeFamilyInst familyInst = do
+  (forallScope, forallBinders') <- bindTyVarBinders (typeFamilyInstForall familyInst)
+  (lhs', rhs') <-
+    extendScope forallScope $
+      (,)
+        <$> resolveType (typeFamilyInstLhs familyInst)
+        <*> resolveType (typeFamilyInstRhs familyInst)
+  pure
+    familyInst
+      { typeFamilyInstForall = forallBinders',
+        typeFamilyInstLhs = lhs',
+        typeFamilyInstRhs = rhs'
       }
 
 resolveDataFamilyDecl :: DataFamilyDecl -> ResolveM DataFamilyDecl

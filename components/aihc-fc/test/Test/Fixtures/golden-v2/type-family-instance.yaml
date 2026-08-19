@@ -1,0 +1,24 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+    data Flag = Off | On
+    type family F a
+    type instance F Flag = Flag
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  module 1.Test where
+
+  pub type 1.tFlag :: 2.tType {
+      pub 1.vOff :: 1.tFlag
+      pub 1.vOn :: 1.tFlag
+  }
+
+  pub type 1.tF (a : 2.tType) :: 2.tType @N {}
+
+  axiom 1.$ax$F$Flag : 1.tF 1.tFlag ~N 1.tFlag
+status: pass
+reason: A type family is an empty type. An instance becomes a named nominal axiom.

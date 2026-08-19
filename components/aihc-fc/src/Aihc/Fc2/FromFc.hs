@@ -139,9 +139,9 @@ convertCoercion env coercion =
     Ev.Sym inner -> CoSym <$> convertCoercion env inner
     Ev.Trans left right -> CoTrans <$> convertCoercion env left <*> convertCoercion env right
     Ev.TyConAppCo tyCon arguments ->
-      CoTyConApp (tyConNameFc2 tyCon) <$> mapM (convertCoercion env) arguments
+      CoTyConApp (tyConNameFc2 env tyCon) <$> mapM (convertCoercion env) arguments
     Ev.AxiomInstCo name arguments ->
-      CoAxiom (Name name SortAxiom (OriginLocal (Unique 0))) <$> mapM (convertType env) arguments
+      CoAxiom (lookupAxiomName env name) <$> mapM (convertType env) arguments
 
 convertTermBinder :: ConvertEnv -> TopVars -> Fc.Var -> Either String Binder
 convertTermBinder env tops var = do

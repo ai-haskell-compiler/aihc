@@ -77,6 +77,8 @@ module Aihc.Tc.Monad
     getInstances,
     addDataFamilyInstance,
     getDataFamilyInstances,
+    addTypeFamilyInstance,
+    getTypeFamilyInstances,
     addClass,
     getClasses,
     lookupClass,
@@ -96,7 +98,7 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConInfo (..), dataTypeKey)
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataTypeKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -232,6 +234,8 @@ data TcState = TcState
     tcsInstances :: ![InstanceInfo],
     -- | Standalone data-family instance equations in scope.
     tcsDataFamilyInstances :: ![DataFamilyInstanceInfo],
+    -- | Type-family equations in scope. Closed-family order stays unchanged.
+    tcsTypeFamilyInstances :: ![TypeFamilyInstanceInfo],
     -- | Names of GADT constructors (have non-trivial result types).
     tcsGadtCons :: !(Set Text)
   }
@@ -254,6 +258,7 @@ initTcState =
       tcsClasses = Map.empty,
       tcsInstances = [],
       tcsDataFamilyInstances = [],
+      tcsTypeFamilyInstances = [],
       tcsGadtCons = Set.empty
     }
 
@@ -563,6 +568,16 @@ addDataFamilyInstance instanceInfo = do
 
 getDataFamilyInstances :: TcM [DataFamilyInstanceInfo]
 getDataFamilyInstances = lift $ gets tcsDataFamilyInstances
+
+addTypeFamilyInstance :: TypeFamilyInstanceInfo -> TcM ()
+addTypeFamilyInstance instanceInfo = do
+  instances <- lift $ gets tcsTypeFamilyInstances
+  when (any ((== tfiiAxiomName instanceInfo) . tfiiAxiomName) instances) $
+    abortTc ("duplicate type family instance state key: " <> show (tfiiAxiomName instanceInfo))
+  lift $ modify' $ \state -> state {tcsTypeFamilyInstances = instances <> [instanceInfo]}
+
+getTypeFamilyInstances :: TcM [TypeFamilyInstanceInfo]
+getTypeFamilyInstances = lift $ gets tcsTypeFamilyInstances
 
 addClass :: ClassInfo -> TcM ()
 addClass classInfo = do

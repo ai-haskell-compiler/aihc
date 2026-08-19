@@ -36,6 +36,7 @@ import Aihc.Tc
     InstanceInfo (iiDictName),
     TcInterface (..),
     TyConInfo (tciTyCon),
+    TypeFamilyInstanceInfo (tfiiAxiomName),
     dataTypeKey,
     emptyTcInterface,
     typecheckModuleSccWithInterface,
@@ -268,7 +269,8 @@ subtractInterface imported complete =
       tcInterfaceDataTypes = withoutImported dataTypeKey (tcInterfaceDataTypes imported) (tcInterfaceDataTypes complete),
       tcInterfaceClasses = withoutImported ciName (tcInterfaceClasses imported) (tcInterfaceClasses complete),
       tcInterfaceInstances = withoutImported iiDictName (tcInterfaceInstances imported) (tcInterfaceInstances complete),
-      tcInterfaceDataFamilyInstances = withoutImported dfiiAxiomName (tcInterfaceDataFamilyInstances imported) (tcInterfaceDataFamilyInstances complete)
+      tcInterfaceDataFamilyInstances = withoutImported dfiiAxiomName (tcInterfaceDataFamilyInstances imported) (tcInterfaceDataFamilyInstances complete),
+      tcInterfaceTypeFamilyInstances = withoutImported tfiiAxiomName (tcInterfaceTypeFamilyInstances imported) (tcInterfaceTypeFamilyInstances complete)
     }
 
 withoutImported :: (Ord key) => (value -> key) -> [value] -> [value] -> [value]

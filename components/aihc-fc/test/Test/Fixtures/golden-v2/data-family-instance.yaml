@@ -1,0 +1,23 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+    data family Payload a
+    data instance Payload a = PayloadValue a
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-internal" Aihc.Internal
+  scope 3 = "aihc-prim" GHC.Types
+
+  module 1.Test where
+
+  pub type 1.tPayload (a : 3.tType) :: 3.tType @N {}
+
+  type 2.t$R$Payload$PayloadValue (a{12} : 3.tType) :: 3.tType {
+      1.vPayloadValue :: ∀(a{12} : 3.tType). a{12} → 2.t$R$Payload$PayloadValue a{12}
+  }
+
+  axiom 1.$ax$Payload$PayloadValue (a{12} : 3.tType) : 1.tPayload a{12} ~N 2.t$R$Payload$PayloadValue a{12}
+status: pass
+reason: A data family is an empty type. An instance adds a hidden representation type and a nominal axiom.

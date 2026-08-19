@@ -33,6 +33,10 @@ module Aihc.Tc.Env
     DataFamilyInstanceInfo (..),
     dataFamilyAxiomName,
     dataFamilyRepresentationName,
+
+    -- * Type family equations
+    TypeFamilyInstanceInfo (..),
+    typeFamilyAxiomName,
   )
 where
 
@@ -41,6 +45,7 @@ import Aihc.Tc.Types
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
+import Data.Text qualified as T
 
 -- | Global environment, built from module declarations.
 data GlobalEnv = GlobalEnv
@@ -68,6 +73,7 @@ data TyConFlavor
   | DataFamilyTyCon
   | NewtypeTyCon
   | SynonymTyCon
+  | TypeFamilyTyCon
   deriving (Eq, Show, Read)
 
 data TyConInfo = TyConInfo
@@ -214,3 +220,19 @@ dataFamilyRepresentationName familyName firstConstructor =
 dataFamilyAxiomName :: Text -> Text -> Text
 dataFamilyAxiomName familyName firstConstructor =
   "$ax$" <> familyName <> "$" <> firstConstructor
+
+-- | A checked type-family equation. Fc2 prints this as a named axiom.
+-- Do not invent equations in a later phase.
+data TypeFamilyInstanceInfo = TypeFamilyInstanceInfo
+  { tfiiFamilyName :: !Text,
+    tfiiAxiomName :: !Text,
+    tfiiTyVars :: ![TyVarId],
+    tfiiLeft :: !TcType,
+    tfiiRight :: !TcType,
+    tfiiClosed :: !Bool
+  }
+  deriving (Eq, Show, Read)
+
+typeFamilyAxiomName :: Text -> Int -> Text
+typeFamilyAxiomName familyName index =
+  "$ax$" <> familyName <> "$" <> T.pack (show index)

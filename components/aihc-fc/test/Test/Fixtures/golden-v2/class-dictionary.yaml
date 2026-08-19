@@ -1,0 +1,31 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Flag = Off | On
+    class Parent a where
+      parent :: a -> Flag
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  module 1.Test where
+
+  pub type 1.tFlag :: 2.tType {
+      pub 1.vOff :: 1.tFlag
+      pub 1.vOn :: 1.tFlag
+  }
+
+  pub type 1.t$Dict$Parent (a{10} : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Parent :: ∀(a{10} : 2.tType). (a{10} → 1.tFlag) → 1.t$Dict$Parent a{10}
+  }
+
+  pub val 1.vparent :: ∀(a{10} : 2.tType). 1.t$Dict$Parent a{10} → a{10} → 1.tFlag
+   = Λ(a{10} : 2.tType).
+    λ($d0{1001} : 1.t$Dict$Parent a{10}).
+      case $d0{1001} as ($dict{1002} : 1.t$Dict$Parent a{10}) of {
+          1.v$Dict$Parent ($method0{1003} : a{10} → 1.tFlag) →
+              $method0{1003}
+      }
+status: pass
+reason: A class becomes a dictionary data type with a full constructor type.
