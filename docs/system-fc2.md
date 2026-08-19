@@ -242,11 +242,11 @@ Do not write `core` without `core-v2`.
 | --- | --- | --- |
 | 1 | `feat(fc2): add System FC 2 AST, pretty printer, and parser` | done, #1488 |
 | 2 | `feat(fc2): desugar data types and synonyms to System FC 2` | done, #1489 |
-| 3 | `feat(fc2): desugar values, lambda, application, and case` | open, #1490 |
-| 4 | `feat(fc2): desugar classes to dictionary data types` | this PR |
-| 5 | `feat(fc2): desugar newtypes to types, axioms, and casts` | this PR |
-| 6 | `feat(fc2): desugar data families` | this PR |
-| 7 | `feat(fc2): desugar type families` | this PR |
+| 3 | `feat(fc2): desugar values, lambda, application, and case` | done, #1490 |
+| 4 | `feat(fc2): desugar classes to dictionary data types` | done, #1492 |
+| 5 | `feat(fc2): desugar newtypes to types, axioms, and casts` | done, #1492 |
+| 6 | `feat(fc2): desugar data families` | done, #1492 |
+| 7 | `feat(fc2): desugar type families` | done, #1492 |
 | 8 | `feat(fc2): accept foreign import prim and reject ccall` | planned |
 | 9 | `feat(fc2): write core-v2 from install-v2` | planned |
 | 10 | `fix(fc2): correct System FC 2 output for aihc-prim` | planned |
