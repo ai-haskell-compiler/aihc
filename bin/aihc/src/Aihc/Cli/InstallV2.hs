@@ -25,13 +25,15 @@ import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
-import Aihc.Parser.Syntax (ImportDecl (..), Module, Name (..), moduleName)
+import Aihc.Parser.Syntax (ImportDecl (..), Module, Name (..), SourceSpan (..), moduleName)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve
   ( ModuleExports,
     ModuleKey (..),
     Package (..),
     PackageId (..),
+    ResolutionNamespace (..),
+    ResolveError (..),
     ResolveResult (..),
     ResolvedName (..),
     Scope (..),
@@ -66,7 +68,7 @@ import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.List (isSuffixOf, nub, sortOn)
+import Data.List (intercalate, isSuffixOf, nub, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
@@ -92,7 +94,8 @@ data InstallV2Result = InstallV2Result
 data SourceModule = SourceModule
   { sourceModulePath :: !FilePath,
     sourceModuleHash :: !Text,
-    sourceModuleAst :: !Module
+    sourceModuleAst :: !Module,
+    sourceModuleSourceLines :: !(Map.Map FilePath (Map.Map Int Text))
   }
 
 data InstalledV2Package = InstalledV2Package
@@ -209,7 +212,7 @@ parseSource root fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
   parsed <- parseInterfaceFile root fileInfo
   case parsed of
-    ParsedFileOk path modu _ _ -> pure (SourceModule path (T.pack (stableHash [bytes])) modu)
+    ParsedFileOk path modu sourceLines _ -> pure (SourceModule path (T.pack (stableHash [bytes])) modu sourceLines)
     ParsedFileFailed path _ _ _ -> ioError (userError ("Failed to parse " <> path))
 
 sourceModuleSccs :: [SourceModule] -> [[SourceModule]]
@@ -220,6 +223,67 @@ sourceModuleSccs = map flatten . stronglyConnComp . map node
     moduleImportsOf = Syntax.moduleImports . sourceModuleAst
     flatten (AcyclicSCC value) = [value]
     flatten (CyclicSCC values) = values
+
+renderResolveErrors :: [SourceModule] -> [ResolveError] -> String
+renderResolveErrors sources errors =
+  "Name resolution failed:\n"
+    <> intercalate "\n\n" (map (renderResolveError sourceLines) errors)
+    <> "\n"
+  where
+    sourceLines = Map.unions (map sourceModuleSourceLines sources)
+
+renderResolveError :: Map.Map FilePath (Map.Map Int Text) -> ResolveError -> String
+renderResolveError sourceLines resolveError =
+  case resolveError of
+    ResolveResolutionError sourceSpan name namespace message ->
+      renderResolveLocation sourceSpan
+        <> ": error: "
+        <> renderResolveMessage message name namespace
+        <> renderResolveExcerpt sourceLines sourceSpan
+    ResolveNotImplemented message -> "error: not implemented: " <> message
+
+renderResolveLocation :: SourceSpan -> String
+renderResolveLocation sourceSpan =
+  case sourceSpan of
+    NoSourceSpan -> "<unknown location>"
+    SourceSpan sourceName startLine startColumn _ _ _ _ ->
+      sourceName <> ":" <> show startLine <> ":" <> show startColumn
+
+renderResolveMessage :: String -> Text -> ResolutionNamespace -> String
+renderResolveMessage message name namespace
+  | message == "unbound" = "unbound " <> renderedNamespace <> " name ‘" <> T.unpack name <> "’"
+  | message == "not found" = renderedNamespace <> " ‘" <> T.unpack name <> "’ not found"
+  | otherwise = message <> ": " <> renderedNamespace <> " name ‘" <> T.unpack name <> "’"
+  where
+    renderedNamespace =
+      case namespace of
+        ResolutionNamespaceTerm -> "term"
+        ResolutionNamespaceType -> "type"
+        ResolutionNamespaceModule -> "module"
+
+renderResolveExcerpt :: Map.Map FilePath (Map.Map Int Text) -> SourceSpan -> String
+renderResolveExcerpt sourceLines sourceSpan =
+  case sourceSpan of
+    NoSourceSpan -> ""
+    SourceSpan sourceName startLine startColumn endLine endColumn _ _ ->
+      case Map.lookup sourceName sourceLines >>= Map.lookup startLine of
+        Nothing -> ""
+        Just sourceLine ->
+          let lineNumber = show startLine
+              gutterWidth = length lineNumber
+              caretStart = max 0 (startColumn - 1)
+              caretWidth
+                | startLine == endLine = max 1 (endColumn - startColumn)
+                | otherwise = max 1 (T.length sourceLine - caretStart)
+           in "\n  "
+                <> lineNumber
+                <> " | "
+                <> T.unpack sourceLine
+                <> "\n  "
+                <> replicate gutterWidth ' '
+                <> " | "
+                <> replicate caretStart ' '
+                <> replicate caretWidth '^'
 
 installUnit :: (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
 installUnit verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
@@ -239,7 +303,7 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
       pure (exports, Nothing, False)
     Nothing -> do
       let result = resolveWithDeps dependencyExports packageModules
-      unless (null (resolveErrors result)) (ioError (userError ("Name resolution failed: " <> show (resolveErrors result))))
+      unless (null (resolveErrors result)) (ioError (userError (renderResolveErrors unit (resolveErrors result))))
       let exports = extractInterfaceWithDeps dependencyExports result
       mapM_ (\source -> writeArtifact verbose hashes exports resolvePackage (resolvePath source) source) unit
       storedExports <- readUnitArtifacts hashes resolvePackage resolvePath unit
@@ -255,7 +319,7 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
           Just result -> pure result
           Nothing -> do
             let result = resolveWithDeps dependencyExports packageModules
-            unless (null (resolveErrors result)) (ioError (userError ("Name resolution failed: " <> show (resolveErrors result))))
+            unless (null (resolveErrors result)) (ioError (userError (renderResolveErrors unit (resolveErrors result))))
             pure result
         let checked@(checkedModules, _) =
               typecheckModuleSccWithInterfaceConfig

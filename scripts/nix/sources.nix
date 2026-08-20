@@ -171,6 +171,7 @@ in rec {
   aihcSrc = mkRootSubsetSrc ["bin/aihc/"] [
     ".hs"
     ".cabal"
+    "expected.txt"
   ];
 
   examplesSrc = mkRootSubsetSrc ["examples/"] exampleSourceSuffixes;
