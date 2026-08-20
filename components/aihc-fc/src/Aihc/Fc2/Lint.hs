@@ -358,12 +358,20 @@ stringLiteralType env =
 
 namedType :: LintEnv -> [Text] -> Maybe Name
 namedType env candidates =
-  listToMaybe
-    [ name
-    | name <- Map.keys (teHeaders (leTypes env)),
-      nameText name `elem` candidates,
-      nameClass (nameSort name) == NameClassType
-    ]
+  listToMaybe (ghcTypesNames <> otherNames)
+  where
+    matches =
+      [ name
+      | name <- Map.keys (teHeaders (leTypes env)),
+        nameText name `elem` candidates,
+        nameClass (nameSort name) == NameClassType
+      ]
+    fromGhcTypes name =
+      case tePrimPackage (leTypes env) of
+        Just package -> isGhcTypesOrigin package name
+        Nothing -> False
+    ghcTypesNames = filter fromGhcTypes matches
+    otherNames = filter (not . fromGhcTypes) matches
 
 missingTypeName :: LintEnv -> Text -> Name
 missingTypeName env text =
@@ -430,20 +438,9 @@ lintAlt env scrutType alt =
           lintExpr envFields (altRhs alt)
 
 matchLiteralAlternative :: LintEnv -> Type -> Literal -> Either LintError ()
-matchLiteralAlternative env scrutType literal =
-  case literal of
-    LitInt representation _ -> matchLiteralRep env scrutType representation
-    LitChar representation _ -> matchLiteralRep env scrutType representation
-    LitAddr representation _ -> matchLiteralRep env scrutType representation
-    LitString {} -> do
-      stringType <- stringLiteralType env
-      unless (typesEqual (leTypes env) stringType scrutType) (Left (TypeMismatch "literal alternative" scrutType stringType))
-
-matchLiteralRep :: LintEnv -> Type -> Type -> Either LintError ()
-matchLiteralRep env scrutType representation = do
-  _ <- lintType env representation
-  scrutRep <- representationOf env scrutType
-  unless (typesEqual (leTypes env) scrutRep representation) (Left (TypeMismatch "literal alternative" scrutType representation))
+matchLiteralAlternative env scrutType literal = do
+  literalType <- lintLiteral env literal
+  unless (typesEqual (leTypes env) scrutType literalType) (Left (TypeMismatch "literal alternative" scrutType literalType))
 
 bindField :: LintEnv -> (Type, Binder) -> Either LintError LintEnv
 bindField env (expected, binder) = do
