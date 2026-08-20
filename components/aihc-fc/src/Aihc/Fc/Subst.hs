@@ -53,7 +53,7 @@ programVars (FcProgram _ topBinds) = concatMap topBindVars topBinds
         FcLam var body -> var : exprVars body
         FcTyLam _ body -> exprVars body
         FcLet bind body -> bindVars bind <> exprVars body
-        FcCase scrutinee binder alternatives -> exprVars scrutinee <> (binder : concatMap alternativeVars alternatives)
+        FcCase scrutinee binder _ alternatives -> exprVars scrutinee <> (binder : concatMap alternativeVars alternatives)
         FcCast inner _ -> exprVars inner
         FcCallForeign _ arguments -> concatMap exprVars arguments
 
@@ -195,7 +195,7 @@ countExprVar target = go
             FcRec bindings
               | target `elem` map fst bindings -> Dead
               | otherwise -> foldMap (go . snd) bindings <> go body
-        FcCase scrutinee binder alternatives ->
+        FcCase scrutinee binder _ alternatives ->
           go scrutinee
             <> if binder == target
               then Dead
@@ -234,10 +234,11 @@ substExpr source replacement = go
             FcRec bindings
               | source `elem` map fst bindings -> expression
               | otherwise -> FcLet (FcRec [(binder, go rhs) | (binder, rhs) <- bindings]) (go body)
-        FcCase scrutinee binder alternatives ->
+        FcCase scrutinee binder resultType alternatives ->
           FcCase
             (go scrutinee)
             binder
+            resultType
             (if binder == source then alternatives else map goAlternative alternatives)
         FcCast inner coercion -> FcCast (go inner) coercion
         FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map go arguments)

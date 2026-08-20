@@ -18,7 +18,7 @@ expected: |-
   fromInteger{unique 1000} : ∀ (a{unique 20} : Type). tycon 1.Num/1 { :: Type → Type }[(a{unique 20} : Type)] → tycon 1.Integer/0 { :: Type } → (a{unique 20} : Type) =
     Λ(a{unique 20} : Type).
       λ($d0{unique 1001} : tycon 1.Num/1 { :: Type → Type }[(a{unique 20} : Type)]).
-        case ($d0{unique 1001} : tycon 1.Num/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon 1.Num/1 { :: Type → Type }[(a{unique 20} : Type)]) of {
+        case ($d0{unique 1001} : tycon 1.Num/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon 1.Num/1 { :: Type → Type }[(a{unique 20} : Type)]) return (tycon 1.Integer/0 { :: Type } → (a{unique 20} : Type)) of {
           1.$Dict$Num ($method0{unique 1003} : tycon 1.Integer/0 { :: Type } → (a{unique 20} : Type)) →
             ($method0{unique 1003} : tycon 1.Integer/0 { :: Type } → (a{unique 20} : Type))
         }

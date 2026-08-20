@@ -331,7 +331,7 @@ lintExpr env expr =
       recEnv <- foldM bindLocal env (map bindBinder binds)
       mapM_ (lintRecRhs recEnv) binds
       lintExpr recEnv body
-    ExCase scrutinee binder alts -> lintCase env scrutinee binder alts
+    ExCase scrutinee binder resultType alts -> lintCase env scrutinee binder resultType alts
     ExCast body coercion -> do
       bodyType <- lintExpr env body
       (source, target) <- coercionEndpoints env coercion
@@ -445,17 +445,14 @@ lintRecRhs env bind = do
   rhsType <- lintExpr env (bindRhs bind)
   unless (typesEqual (leTypes env) (binderType (bindBinder bind)) rhsType) (Left (TypeMismatch "rec binding" (binderType (bindBinder bind)) rhsType))
 
-lintCase :: LintEnv -> Expr -> Binder -> [Alt] -> Either LintError Type
-lintCase env scrutinee binder alts = do
+lintCase :: LintEnv -> Expr -> Binder -> Type -> [Alt] -> Either LintError Type
+lintCase env scrutinee binder resultType alts = do
   scrutType <- lintExpr env scrutinee
   unless (typesEqual (leTypes env) scrutType (binderType binder)) (Left (TypeMismatch "case binder" scrutType (binderType binder)))
   caseEnv <- bindLocal env binder
-  case alts of
-    [] -> Left (LintFailure "case expression has no alternatives")
-    first : rest -> do
-      resultType <- lintAlt caseEnv scrutType first
-      mapM_ (lintAltExpected caseEnv scrutType resultType) rest
-      Right resultType
+  _ <- representationOf caseEnv resultType
+  mapM_ (lintAltExpected caseEnv scrutType resultType) alts
+  Right resultType
 
 lintAltExpected :: LintEnv -> Type -> Type -> Alt -> Either LintError ()
 lintAltExpected env scrutType expected alt = do

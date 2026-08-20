@@ -97,11 +97,12 @@ convertExpr env tops expression =
         Fc.FcRec bindings -> do
           converted <- mapM (convertRecBind env tops) bindings
           ExRec converted <$> convertExpr env tops body
-    Fc.FcCase scrutinee binder alternatives -> do
+    Fc.FcCase scrutinee binder resultType alternatives -> do
       scrutinee' <- convertExpr env tops scrutinee
       caseBinder <- convertTermBinder env tops binder
+      resultType' <- convertType env resultType
       alts <- mapM (convertAlt env tops) alternatives
-      pure (ExCase scrutinee' caseBinder alts)
+      pure (ExCase scrutinee' caseBinder resultType' alts)
     Fc.FcCast inner coercion ->
       ExCast <$> convertExpr env tops inner <*> convertCoercion env coercion
     Fc.FcCallForeign {} ->

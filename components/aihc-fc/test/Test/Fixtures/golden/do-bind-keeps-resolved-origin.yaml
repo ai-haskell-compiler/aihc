@@ -25,7 +25,7 @@ expected: |-
         Λ(b{unique 35} : Type).
           λ(x1001{unique 1001} : tycon 1.Box/1 { :: Type → Type }[(a{unique 34} : Type)]).
             λ(y1002{unique 1002} : (a{unique 34} : Type) → (b{unique 35} : Type)).
-              case (x1001{unique 1001} : tycon 1.Box/1 { :: Type → Type }[(a{unique 34} : Type)]) as (_scrut{unique 1004} : tycon 1.Box/1 { :: Type → Type }[(a{unique 34} : Type)]) of {
+              case (x1001{unique 1001} : tycon 1.Box/1 { :: Type → Type }[(a{unique 34} : Type)]) as (_scrut{unique 1004} : tycon 1.Box/1 { :: Type → Type }[(a{unique 34} : Type)]) return ((b{unique 35} : Type)) of {
                 1.Box (value{unique 1003} : (a{unique 34} : Type)) →
                   (y1002{unique 1002} : (a{unique 34} : Type) → (b{unique 35} : Type)) (value{unique 1003} : (a{unique 34} : Type))
               }

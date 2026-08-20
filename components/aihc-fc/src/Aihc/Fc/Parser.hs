@@ -535,10 +535,12 @@ caseExpression termEnv tyEnv = do
   scrutinee <- expression termEnv tyEnv
   _ <- keyword "as"
   binder <- between "(" ")" (typedVar tyEnv)
+  _ <- keyword "return"
+  resultType <- between "(" ")" (tcType tyEnv)
   _ <- keyword "of"
   let caseEnv = Map.insert (varName binder) binder termEnv
   alternatives <- between "{" "}" (alternative caseEnv tyEnv `MP.sepBy` symbol ";")
-  pure (FcCase scrutinee binder alternatives)
+  pure (FcCase scrutinee binder resultType alternatives)
 
 alternative :: TermEnv -> TyEnv -> Parser FcAlt
 alternative termEnv tyEnv = do

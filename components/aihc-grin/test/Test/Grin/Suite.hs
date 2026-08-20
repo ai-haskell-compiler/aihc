@@ -1139,6 +1139,7 @@ sharedForcedLetProgram =
                   ( FcCase
                       (FcVar delayedVar)
                       evaluatedVar
+                      pairTy
                       [FcAlt DefaultAlt [] (FcApp (FcApp (FcVar pairVar) (FcVar evaluatedVar)) (FcVar delayedVar))]
                   )
             )
@@ -1481,6 +1482,7 @@ dictionaryProgram =
             ( FcCase
                 dictionary
                 dictionaryBinder
+                boxedIntTy
                 [FcAlt (DataAlt (FcConstructorId "test" "Test" "$Dict$Test")) [firstMethod, secondMethod] (FcVar secondMethod)]
             )
         )
@@ -1556,6 +1558,7 @@ exitPrimitiveProgram =
                 ( FcCase
                     exitCall
                     tupleBinder
+                    boxedIntTy
                     [FcAlt (DataAlt (FcConstructorId "aihc-prim" "GHC.Types" "(#,#)")) [nextStateVar, resultVar] (FcVar resultVar)]
                 )
             )

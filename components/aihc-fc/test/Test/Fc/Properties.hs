@@ -330,7 +330,7 @@ genExpr =
       FcLam <$> genBinder <*> genExpr,
       FcTyLam <$> genTyVar <*> genExpr,
       FcLet <$> genBindWith genExpr <*> genExpr,
-      FcCase <$> genExpr <*> genBinder <*> smallList (genAltWith genExpr),
+      FcCase <$> genExpr <*> genBinder <*> genType <*> smallList (genAltWith genExpr),
       FcCast <$> genExpr <*> genCoercion,
       FcCallForeign <$> genForeignCall <*> smallList genExpr
     ]

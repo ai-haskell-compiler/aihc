@@ -29,7 +29,7 @@ expected: |-
   pub val 1.vparent :: ∀(a{10} : 2.tType). 1.t$Dict$Parent a{10} → a{10} → 1.tFlag
    = Λ(a{10} : 2.tType).
     λ($d0{1001} : 1.t$Dict$Parent a{10}).
-      case $d0{1001} as ($dict{1002} : 1.t$Dict$Parent a{10}) of {
+      case $d0{1001} as ($dict{1002} : 1.t$Dict$Parent a{10}) return (a{10} → 1.tFlag) of {
           1.v$Dict$Parent ($method0{1003} : a{10} → 1.tFlag) →
               $method0{1003}
       }
@@ -37,7 +37,7 @@ expected: |-
   pub val 1.vchild :: ∀(a{12} : 2.tType). 1.t$Dict$Child a{12} → a{12} → 1.tFlag
    = Λ(a{12} : 2.tType).
     λ($d0{1005} : 1.t$Dict$Child a{12}).
-      case $d0{1005} as ($dict{1006} : 1.t$Dict$Child a{12}) of {
+      case $d0{1005} as ($dict{1006} : 1.t$Dict$Child a{12}) return (a{12} → 1.tFlag) of {
           1.v$Dict$Child ($method0{1007} : 1.t$Dict$Parent a{12}) ($method1{1008} : a{12} → 1.tFlag) →
               $method1{1008}
       }

@@ -23,7 +23,7 @@ expected: |-
   pub val 1.vparent :: ∀(a{10} : 2.tType). 1.t$Dict$Parent a{10} → a{10} → 1.tFlag
    = Λ(a{10} : 2.tType).
     λ($d0{1001} : 1.t$Dict$Parent a{10}).
-      case $d0{1001} as ($dict{1002} : 1.t$Dict$Parent a{10}) of {
+      case $d0{1001} as ($dict{1002} : 1.t$Dict$Parent a{10}) return (a{10} → 1.tFlag) of {
           1.v$Dict$Parent ($method0{1003} : a{10} → 1.tFlag) →
               $method0{1003}
       }

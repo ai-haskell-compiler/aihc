@@ -11,7 +11,7 @@ where
 
 import Aihc.Fc.Desugar.Deriving (dsDerivingPlans, moduleDerivingPlans)
 import Aihc.Fc.Desugar.Dictionary (checkedConstraintType, classMethodFieldType, defaultMethodName, peelForAlls, peelQuals, predType)
-import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, freshUnique, freshVar, lookupType, withDicts)
+import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, DsState (..), desugarBug, dsEvidence, dsMatches, dsMatchesWithEnclosingDicts, fcExprTypeM, freshUnique, freshVar, lookupType, withDicts)
 import Aihc.Fc.Desugar.Match (dsDataConPure)
 import Aihc.Fc.External (declareExternalSymbols)
 import Aihc.Fc.Lower (lowerPseudoOps)
@@ -276,8 +276,8 @@ lowerConstraintProgram (FcProgram moduleId topBinds) =
         FcLam var body -> FcLam <$> lowerVar var <*> lowerExpr body
         FcTyLam tyVar body -> FcTyLam tyVar <$> lowerExpr body
         FcLet bind body -> FcLet <$> lowerBind bind <*> lowerExpr body
-        FcCase scrutinee binder alternatives ->
-          FcCase <$> lowerExpr scrutinee <*> lowerVar binder <*> mapM lowerAlt alternatives
+        FcCase scrutinee binder resultType alternatives ->
+          FcCase <$> lowerExpr scrutinee <*> lowerVar binder <*> lowerConstraintType resultType <*> mapM lowerAlt alternatives
         FcCast inner coercion -> FcCast <$> lowerExpr inner <*> lowerCoercion coercion
         FcCallForeign foreignCall arguments -> FcCallForeign foreignCall <$> mapM lowerExpr arguments
 
@@ -603,7 +603,7 @@ dsRecordSelectors constructorInfos declarations =
       selectorType <- lookupType selectorName
       let (typeVariables, qualifiedBody) = peelForAlls selectorType
           (predicates, bodyType) = peelQuals qualifiedBody
-      (recordType, _fieldType) <-
+      (recordType, fieldType) <-
         case bodyType of
           TcFunTy argument result -> pure (argument, result)
           _ -> desugarBug ("record selector is not a function: " <> T.unpack selectorName)
@@ -619,11 +619,11 @@ dsRecordSelectors constructorInfos declarations =
       let matchingAlternatives = catMaybes alternatives
       failureBinder <- freshVar "$record_selector_failure" recordType
       let needsDefault = length matchingAlternatives < length constructorInfos
-          failure = FcCase (FcVar recordVar) failureBinder []
+          failure = FcCase (FcVar recordVar) failureBinder fieldType []
           completeAlternatives =
             matchingAlternatives
               <> [FcAlt DefaultAlt [] failure | needsDefault]
-          selection = FcCase (FcVar recordVar) caseBinder completeAlternatives
+          selection = FcCase (FcVar recordVar) caseBinder fieldType completeAlternatives
           body = foldr FcTyLam (foldr FcLam (FcLam recordVar selection) dictionaryVars) typeVariables
       pure (FcTopBind (FcNonRec selectorVar body))
     selectorAlternative layouts (constructorName, _, fieldTypes) =
@@ -762,11 +762,13 @@ unboxForeignValue binderName marshal expression continuation =
       caseBinder <- freshVar (binderName <> "_case") valueType
       fieldBinder <- freshVar (binderName <> "_field") fieldType
       rhs <- go fieldType constructors (FcVar fieldBinder)
+      resultType <- fcExprTypeM rhs
       constructorOrigin <- typeDataConOrigin valueType constructor
       pure
         ( FcCase
             value
             caseBinder
+            resultType
             [FcAlt (DataAlt (fcConstructorIdFromSymbol constructorOrigin)) [fieldBinder] rhs]
         )
 
@@ -878,6 +880,7 @@ makeForeignIoWrapper foreignCall resultMarshal arguments = do
           ( FcCase
               call
               tupleBinder
+              (unboxedTupleTy [statePrimRealWorldTy, tcForeignSourceType resultMarshal])
               [FcAlt (DataAlt (fcConstructorIdFromSymbol tupleOrigin)) [nextStateVar, rawResultVar] resultTuple]
           )
   pure (FcApp (FcTyApp (FcVar ioConstructor) (tcForeignSourceType resultMarshal)) stateAction)
@@ -1173,8 +1176,9 @@ dsClassSelector dictionaryConstructor superClassCount classTyVars fieldTypes met
           FcApp
           (foldl FcTyApp (FcVar selectedField) (map TcTyVar extraTyVars))
           (map FcVar extraDictVars)
-      selection = FcCase (FcVar classDictionaryVar) caseBinder [FcAlt (DataAlt (fcConstructorIdFromSymbol constructorOrigin)) fieldBinders selected]
       methodVar = Var (tcClassMethodName methodAnn) methodUnique (tcClassMethodType methodAnn)
+  resultType <- fcExprTypeM selected
+  let selection = FcCase (FcVar classDictionaryVar) caseBinder resultType [FcAlt (DataAlt (fcConstructorIdFromSymbol constructorOrigin)) fieldBinders selected]
       body = foldr FcTyLam (foldr FcLam selection dictVars) (tcClassMethodTyVars methodAnn)
   pure (FcTopBind (FcNonRec methodVar body))
   where

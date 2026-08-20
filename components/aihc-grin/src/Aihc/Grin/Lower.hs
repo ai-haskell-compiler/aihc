@@ -512,7 +512,7 @@ lowerNonTupleExpr expr =
       lowerExpr body
     FcLet bind body ->
       lowerLet bind body
-    FcCase scrutinee binder alternatives ->
+    FcCase scrutinee binder _ alternatives ->
       lowerCase scrutinee binder alternatives
     FcCast inner _ ->
       lowerExpr inner
@@ -1284,7 +1284,7 @@ freeVars expr =
     FcLam var body -> Set.delete var (freeVars body)
     FcTyLam _ body -> freeVars body
     FcLet bind body -> freeVarsBind bind body
-    FcCase scrutinee binder alternatives ->
+    FcCase scrutinee binder _ alternatives ->
       freeVars scrutinee
         <> Set.delete binder (foldMap freeVarsAlt alternatives)
     FcCast inner _ -> freeVars inner
@@ -1717,10 +1717,7 @@ exprType expr =
     FcLam var body -> TcFunTy (varType var) <$> exprType body
     FcTyLam tyVar body -> TcForAllTy tyVar <$> exprType body
     FcLet _ body -> exprType body
-    FcCase _ _ alternatives ->
-      case alternatives of
-        first : _ -> exprType (altRhs first)
-        [] -> Nothing
+    FcCase _ _ resultType _ -> Just resultType
     FcCast inner _ -> exprType inner
     FcCallForeign foreignCall _arguments ->
       Just (fcForeignCallResultType (fcForeignCallSignature foreignCall))
@@ -1924,7 +1921,7 @@ exprVars expr =
     FcLam var body -> var : exprVars body
     FcTyLam _ body -> exprVars body
     FcLet bind body -> bindVars bind <> exprVars body
-    FcCase scrutinee binder alternatives ->
+    FcCase scrutinee binder _ alternatives ->
       exprVars scrutinee <> (binder : concatMap altVars alternatives)
     FcCast inner _ -> exprVars inner
     FcCallForeign _ arguments -> concatMap exprVars arguments

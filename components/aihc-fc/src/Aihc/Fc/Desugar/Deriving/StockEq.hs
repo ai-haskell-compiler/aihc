@@ -105,7 +105,7 @@ equalityBody :: TyCon -> DataTypeInfo -> [(DataConInfo, [EvTerm])] -> TcType -> 
 equalityBody eqTyCon dataType constructors targetType boolTy left right = do
   outerBinder <- freshVar "$stock_eq_outer" targetType
   alternatives <- mapM (constructorEqualityAlternative eqTyCon dataType right targetType boolTy) constructors
-  pure (FcCase (FcVar left) outerBinder alternatives)
+  pure (FcCase (FcVar left) outerBinder boolTy alternatives)
 
 constructorEqualityAlternative :: TyCon -> DataTypeInfo -> Var -> TcType -> TcType -> (DataConInfo, [EvTerm]) -> DsM FcAlt
 constructorEqualityAlternative eqTyCon dataType right targetType boolTy (constructor, evidence) = do
@@ -124,7 +124,7 @@ constructorEqualityAlternative eqTyCon dataType right targetType boolTy (constru
   let constructorIdentity = dataConIdentity constructor
       matching = FcAlt (DataAlt constructorIdentity) rightFields equalFields
       different = FcAlt DefaultAlt [] mismatch
-      compareRight = FcCase (FcVar right) innerBinder [matching, different]
+      compareRight = FcCase (FcVar right) innerBinder boolTy [matching, different]
   pure (FcAlt (DataAlt constructorIdentity) leftFields compareRight)
 
 instantiatedFields :: DataTypeInfo -> TcType -> DataConInfo -> DsM [DataConFieldInfo]
@@ -159,6 +159,7 @@ fieldEquality eqTyCon boolTy leftFields rightFields index (field, evidence) = do
     ( FcCase
         dictionary
         dictionaryBinder
+        boolTy
         [ FcAlt
             (DataAlt (fcConstructorIdFromSymbol (tyConConstructorIdentity eqTyCon (fcDictionaryConstructorName "Eq"))))
             [equalityMethod, inequalityMethod]
@@ -186,6 +187,7 @@ andComparisons boolTy comparisons =
         ( FcCase
             comparison
             binder
+            boolTy
             [ FcAlt (DataAlt (fcConstructorIdFromSymbol falseConstructor)) [] false,
               FcAlt (DataAlt (fcConstructorIdFromSymbol trueConstructor)) [] trueBranch
             ]
@@ -202,6 +204,7 @@ negateBoolean boolTy expression = do
     ( FcCase
         expression
         binder
+        boolTy
         [ FcAlt (DataAlt (fcConstructorIdFromSymbol falseConstructor)) [] true,
           FcAlt (DataAlt (fcConstructorIdFromSymbol trueConstructor)) [] false
         ]

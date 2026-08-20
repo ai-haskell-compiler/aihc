@@ -97,7 +97,7 @@ lowerExpr env expr =
     FcLam var body -> FcLam var <$> lowerExpr env body
     FcTyLam tyVar body -> FcTyLam tyVar <$> lowerExpr env body
     FcLet bind body -> FcLet <$> lowerBind env bind <*> lowerExpr env body
-    FcCase scrutinee binder alternatives -> lowerCase env scrutinee binder alternatives
+    FcCase scrutinee binder resultType alternatives -> lowerCase env scrutinee binder resultType alternatives
     FcCast inner coercion -> (`FcCast` coercion) <$> lowerExpr env inner
     FcCallForeign foreignCall arguments -> FcCallForeign foreignCall <$> mapM (lowerExpr env) arguments
 
@@ -112,8 +112,8 @@ lowerConstructorValue declaration typeArgs = do
   binder <- freshVar "$newtype" (instantiateRepresentation declaration typeArgs)
   pure (FcLam binder (wrapNewtype declaration typeArgs (FcVar binder)))
 
-lowerCase :: NewtypeEnv -> FcExpr -> Var -> [FcAlt] -> LowerM FcExpr
-lowerCase env scrutinee binder alternatives =
+lowerCase :: NewtypeEnv -> FcExpr -> Var -> TcType -> [FcAlt] -> LowerM FcExpr
+lowerCase env scrutinee binder resultType alternatives =
   case firstNewtypeAlternative env alternatives of
     Just (declaration, fieldBinder, rhs) -> do
       scrutinee' <- lowerExpr env scrutinee
@@ -128,7 +128,7 @@ lowerCase env scrutinee binder alternatives =
     Nothing -> do
       scrutinee' <- lowerExpr env scrutinee
       alternatives' <- mapM (lowerAlt env) alternatives
-      pure (FcCase scrutinee' binder alternatives')
+      pure (FcCase scrutinee' binder resultType alternatives')
 
 lowerAlt :: NewtypeEnv -> FcAlt -> LowerM FcAlt
 lowerAlt env alternative = do
@@ -235,7 +235,7 @@ exprUniques expression =
     FcLam var body -> varUniques var <> exprUniques body
     FcTyLam _ body -> exprUniques body
     FcLet bind body -> bindUniques bind <> exprUniques body
-    FcCase scrutinee binder alternatives ->
+    FcCase scrutinee binder _ alternatives ->
       exprUniques scrutinee <> varUniques binder <> concatMap altUniques alternatives
     FcCast inner _ -> exprUniques inner
     FcCallForeign _ arguments -> concatMap exprUniques arguments

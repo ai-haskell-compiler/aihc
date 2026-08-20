@@ -60,8 +60,8 @@ expandExpr expression =
         FcLam binder body -> FcLam binder <$> expandExpr body
         FcTyLam tyVar body -> FcTyLam tyVar <$> expandExpr body
         FcLet bind body -> FcLet <$> expandBind bind <*> expandExpr body
-        FcCase scrutinee binder alternatives ->
-          FcCase <$> expandExpr scrutinee <*> pure binder <*> mapM expandAlt alternatives
+        FcCase scrutinee binder resultType alternatives ->
+          FcCase <$> expandExpr scrutinee <*> pure binder <*> pure resultType <*> mapM expandAlt alternatives
         FcCast inner coercion -> (`FcCast` coercion) <$> expandExpr inner
         FcCallForeign foreignCall arguments -> FcCallForeign foreignCall <$> mapM expandExpr arguments
 
@@ -112,7 +112,11 @@ seqCase first second = do
         case first of
           FcVar source -> substExprVar source binder second
           _ -> second
-  pure (FcCase first binder [FcAlt DefaultAlt [] result])
+  resultType <-
+    case expressionType result of
+      Just ty -> pure ty
+      Nothing -> error "FC pseudo-op expansion could not determine seq's result type"
+  pure (FcCase first binder resultType [FcAlt DefaultAlt [] result])
 
 expressionType :: FcExpr -> Maybe TcType
 expressionType expression =
@@ -128,10 +132,7 @@ expressionType expression =
     FcLam binder body -> TcFunTy (varType binder) <$> expressionType body
     FcTyLam tyVar body -> TcForAllTy tyVar <$> expressionType body
     FcLet _ body -> expressionType body
-    FcCase _ _ alternatives ->
-      case alternatives of
-        alternative : _ -> expressionType (altRhs alternative)
-        [] -> Nothing
+    FcCase _ _ resultType _ -> Just resultType
     FcCast inner _ -> expressionType inner
     FcCallForeign foreignCall _ -> Just (fcForeignCallResultType (fcForeignCallSignature foreignCall))
   where
@@ -177,7 +178,7 @@ exprUniques expression =
     FcLam binder body -> varUniques binder <> exprUniques body
     FcTyLam _ body -> exprUniques body
     FcLet bind body -> bindUniques bind <> exprUniques body
-    FcCase scrutinee binder alternatives ->
+    FcCase scrutinee binder _ alternatives ->
       exprUniques scrutinee <> varUniques binder <> concatMap altUniques alternatives
     FcCast inner _ -> exprUniques inner
     FcCallForeign _ arguments -> concatMap exprUniques arguments

@@ -51,13 +51,13 @@ expected: |-
     second{unique 1001} : tycon 2.Value/0 { :: Type } → tycon 2.Item/0 { :: Type };
     first{unique 1000} =
       λ(x1002{unique 1002} : tycon 1.Value/0 { :: Type }).
-        case (x1002{unique 1002} : tycon 1.Value/0 { :: Type }) as (_scrut{unique 1004} : tycon 1.Value/0 { :: Type }) of {
+        case (x1002{unique 1002} : tycon 1.Value/0 { :: Type }) as (_scrut{unique 1004} : tycon 1.Value/0 { :: Type }) return (tycon 1.Item/0 { :: Type }) of {
           1.Shared (value{unique 1003} : tycon 1.Item/0 { :: Type }) →
             (value{unique 1003} : tycon 1.Item/0 { :: Type })
         };
     second{unique 1001} =
       λ(x1005{unique 1005} : tycon 2.Value/0 { :: Type }).
-        case (x1005{unique 1005} : tycon 2.Value/0 { :: Type }) as (_scrut{unique 1007} : tycon 2.Value/0 { :: Type }) of {
+        case (x1005{unique 1005} : tycon 2.Value/0 { :: Type }) as (_scrut{unique 1007} : tycon 2.Value/0 { :: Type }) return (tycon 2.Item/0 { :: Type }) of {
           2.Shared (value{unique 1006} : tycon 2.Item/0 { :: Type }) →
             (value{unique 1006} : tycon 2.Item/0 { :: Type })
         }

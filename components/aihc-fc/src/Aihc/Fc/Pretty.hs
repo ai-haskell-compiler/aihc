@@ -73,7 +73,7 @@ exprScopes expression = case expression of
   FcLam var body -> varScopes var <> exprScopes body
   FcTyLam _ body -> exprScopes body
   FcLet bind body -> bindScopes bind <> exprScopes body
-  FcCase scrutinee binder alternatives -> exprScopes scrutinee <> varScopes binder <> foldMap altScopes alternatives
+  FcCase scrutinee binder resultType alternatives -> exprScopes scrutinee <> varScopes binder <> typeScopes resultType <> foldMap altScopes alternatives
   FcCast body coercion -> exprScopes body <> coercionScopes coercion
   FcCallForeign foreignCall arguments -> foreignCallScopes foreignCall <> foldMap exprScopes arguments
 
@@ -201,7 +201,7 @@ renderExprWith scopes indentation parenthesize expression = case expression of
   FcLam var body -> paren parenthesize ("λ(" <> renderBinder scopes var <> " : " <> renderTypeWith scopes (varType var) <> ").\n" <> renderExprIndented scopes (indentation + 2) body)
   FcTyLam tyVar body -> paren parenthesize ("Λ" <> renderTyVarBinder scopes tyVar <> ".\n" <> renderExprIndented scopes (indentation + 2) body)
   FcLet bind body -> paren parenthesize ("let {\n" <> renderBind scopes (indentation + 2) bind <> "\n" <> indent indentation <> "} in\n" <> renderExprIndented scopes (indentation + 2) body)
-  FcCase scrutinee binder alternatives -> paren parenthesize ("case " <> renderExprWith scopes indentation False scrutinee <> " as (" <> renderBinder scopes binder <> " : " <> renderTypeWith scopes (varType binder) <> ") of " <> renderAlternatives alternatives)
+  FcCase scrutinee binder resultType alternatives -> paren parenthesize ("case " <> renderExprWith scopes indentation False scrutinee <> " as (" <> renderBinder scopes binder <> " : " <> renderTypeWith scopes (varType binder) <> ") return (" <> renderTypeWith scopes resultType <> ") of " <> renderAlternatives alternatives)
   FcCast body coercion -> paren parenthesize (renderExprWith scopes indentation True body <> " ▷ " <> renderCoercion scopes coercion)
   FcCallForeign foreignCall arguments -> paren parenthesize ("foreign-call " <> renderForeignCallHeader foreignCall <> concatMap ((" " <>) . renderExprWith scopes indentation True) arguments)
   where

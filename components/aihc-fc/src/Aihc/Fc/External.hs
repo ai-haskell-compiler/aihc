@@ -40,7 +40,7 @@ normalizeExternalExpr externalVars expression =
     FcLam var body -> FcLam var (recur body)
     FcTyLam tyVar body -> FcTyLam tyVar (recur body)
     FcLet bind body -> FcLet (normalizeExternalBind externalVars bind) (recur body)
-    FcCase scrutinee binder alternatives -> FcCase (recur scrutinee) binder (map normalizeAlternative alternatives)
+    FcCase scrutinee binder resultType alternatives -> FcCase (recur scrutinee) binder resultType (map normalizeAlternative alternatives)
     FcCast body coercion -> FcCast (recur body) coercion
     FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map recur arguments)
   where
@@ -132,6 +132,6 @@ expressionOccurrences expression =
     FcLam _ body -> expressionOccurrences body
     FcTyLam _ body -> expressionOccurrences body
     FcLet bind body -> bindOccurrences bind <> expressionOccurrences body
-    FcCase scrutinee _ alternatives -> expressionOccurrences scrutinee <> concatMap (expressionOccurrences . altRhs) alternatives
+    FcCase scrutinee _ _ alternatives -> expressionOccurrences scrutinee <> concatMap (expressionOccurrences . altRhs) alternatives
     FcCast body _ -> expressionOccurrences body
     FcCallForeign _ arguments -> concatMap expressionOccurrences arguments

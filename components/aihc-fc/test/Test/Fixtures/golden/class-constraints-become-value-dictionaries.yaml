@@ -32,7 +32,7 @@ expected: |-
   parent{unique 1000} : ∀ (a{unique 20} : Type). tycon 1.Parent/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → tycon 1.Flag/0 { :: Type } =
     Λ(a{unique 20} : Type).
       λ($d0{unique 1001} : tycon 1.Parent/1 { :: Type → Type }[(a{unique 20} : Type)]).
-        case ($d0{unique 1001} : tycon 1.Parent/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon 1.Parent/1 { :: Type → Type }[(a{unique 20} : Type)]) of {
+        case ($d0{unique 1001} : tycon 1.Parent/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon 1.Parent/1 { :: Type → Type }[(a{unique 20} : Type)]) return ((a{unique 20} : Type) → tycon 1.Flag/0 { :: Type }) of {
           1.$Dict$Parent ($method0{unique 1003} : (a{unique 20} : Type) → tycon 1.Flag/0 { :: Type }) →
             ($method0{unique 1003} : (a{unique 20} : Type) → tycon 1.Flag/0 { :: Type })
         }
@@ -51,7 +51,7 @@ expected: |-
   child{unique 1000} : ∀ (a{unique 23} : Type). tycon 1.Child/1 { :: Type → Type }[(a{unique 23} : Type)] → (a{unique 23} : Type) → tycon 2.Flag/0 { :: Type } =
     Λ(a{unique 23} : Type).
       λ($d0{unique 1001} : tycon 1.Child/1 { :: Type → Type }[(a{unique 23} : Type)]).
-        case ($d0{unique 1001} : tycon 1.Child/1 { :: Type → Type }[(a{unique 23} : Type)]) as ($dict{unique 1002} : tycon 1.Child/1 { :: Type → Type }[(a{unique 23} : Type)]) of {
+        case ($d0{unique 1001} : tycon 1.Child/1 { :: Type → Type }[(a{unique 23} : Type)]) as ($dict{unique 1002} : tycon 1.Child/1 { :: Type → Type }[(a{unique 23} : Type)]) return ((a{unique 23} : Type) → tycon 2.Flag/0 { :: Type }) of {
           1.$Dict$Child ($method0{unique 1003} : tycon 2.Parent/1 { :: Type → Type }[(a{unique 23} : Type)]) ($method1{unique 1004} : (a{unique 23} : Type) → tycon 2.Flag/0 { :: Type }) →
             ($method1{unique 1004} : (a{unique 23} : Type) → tycon 2.Flag/0 { :: Type })
         }

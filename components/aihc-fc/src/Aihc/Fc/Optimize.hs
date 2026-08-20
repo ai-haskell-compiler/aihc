@@ -80,10 +80,11 @@ copyExpr aliases expression =
       let binders = map fst bindings
           innerAliases = removeAliases binders aliases
        in FcLet (copyBind innerAliases bind) (copyExpr innerAliases body)
-    FcCase scrutinee binder alternatives ->
+    FcCase scrutinee binder resultType alternatives ->
       FcCase
         (copyExpr aliases scrutinee)
         binder
+        resultType
         (map (copyAlt (Map.delete binder aliases)) alternatives)
     FcCast inner coercion -> FcCast (copyExpr aliases inner) coercion
     FcCallForeign foreignCall arguments ->
@@ -139,10 +140,11 @@ eliminateExpr expression =
           eliminateExpr body
       | otherwise -> FcLet (FcNonRec binder (eliminateExpr rhs)) (eliminateExpr body)
     FcLet bind body -> FcLet (eliminateBind bind) (eliminateExpr body)
-    FcCase scrutinee binder alternatives ->
+    FcCase scrutinee binder resultType alternatives ->
       FcCase
         (eliminateExpr scrutinee)
         binder
+        resultType
         [alternative {altRhs = eliminateExpr (altRhs alternative)} | alternative <- alternatives]
     FcCast inner coercion -> FcCast (eliminateExpr inner) coercion
     FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map eliminateExpr arguments)

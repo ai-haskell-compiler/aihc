@@ -678,8 +678,8 @@ exprOrigins expr =
     ExTyLam binder body -> binderOrigins binder <> exprOrigins body
     ExLet bind body -> bindOrigins bind <> exprOrigins body
     ExRec binds body -> concatMap bindOrigins binds <> exprOrigins body
-    ExCase scrutinee binder alts ->
-      exprOrigins scrutinee <> binderOrigins binder <> concatMap altOrigins alts
+    ExCase scrutinee binder resultType alts ->
+      exprOrigins scrutinee <> binderOrigins binder <> typeOrigins resultType <> concatMap altOrigins alts
     ExCast inner coercion -> exprOrigins inner <> coercionOrigins coercion
 
 bindOrigins :: Bind -> [(PackageId, Text)]

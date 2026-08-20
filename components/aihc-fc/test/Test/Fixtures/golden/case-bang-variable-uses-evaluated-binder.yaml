@@ -12,7 +12,7 @@ expected: |-
     forceBox{unique 1000} : tycon 1.Box/0 { :: Type } → tycon 1.Box/0 { :: Type };
     forceBox{unique 1000} =
       λ(x1001{unique 1001} : tycon 1.Box/0 { :: Type }).
-        case (x1001{unique 1001} : tycon 1.Box/0 { :: Type }) as (_bang1002{unique 1002} : tycon 1.Box/0 { :: Type }) of {
+        case (x1001{unique 1001} : tycon 1.Box/0 { :: Type }) as (_bang1002{unique 1002} : tycon 1.Box/0 { :: Type }) return (tycon 1.Box/0 { :: Type }) of {
           _ →
             (_bang1002{unique 1002} : tycon 1.Box/0 { :: Type })
         }
