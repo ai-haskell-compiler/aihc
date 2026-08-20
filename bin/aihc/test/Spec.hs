@@ -30,6 +30,7 @@ import System.Directory
 import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openTempFile)
+import System.IO.Error (ioeGetErrorString)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import Test.Tasty.Hedgehog (testProperty)
@@ -341,6 +342,7 @@ main =
           testCase "installs direct local dependencies" test_installV2LocalDependencies,
           testCase "rebuilds stale type artifact schemas" test_installV2StaleTypeArtifact,
           testCase "stops invalidation when a rebuilt scope stays equal" test_installV2StopsAtEqualScope,
+          testCase "reports resolve errors with source locations" test_installV2ResolveError,
           testCase "writes no core files when System FC 2 desugar fails" test_installV2Fc2DesugarFailure,
           testCase "install-v2 writes core-v2 for aihc-prim and lints stored programs" test_installV2AihcPrim
         ],
@@ -400,6 +402,37 @@ test_installV2ResolveArtifacts =
     repaired <- installV2 options
     assertEqual "repairs the complete corrupt SCC" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules repaired))
     assertEqual "does not reuse a corrupt SCC" [] (installV2ReusedModules repaired)
+
+test_installV2ResolveError :: Assertion
+test_installV2ResolveError = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/resolve-error"
+  expected <- readFile (fixtureRoot </> "expected.txt")
+  withTempDir "aihc-install-v2-resolve-error" $ \root -> do
+    let options = InstallV2Options fixtureRoot (Just (root </> "store")) False
+    result <- try (installV2 options) :: IO (Either IOException InstallV2Result)
+    case result of
+      Right _ -> assertFailure "expected name resolution to fail"
+      Left err ->
+        assertEqual
+          "formatted name resolution error"
+          expected
+          (T.unpack (T.replace (T.pack fixtureRoot) "<PACKAGE>" (T.pack (ioeGetErrorString err))))
+
+findFixtureRoot :: FilePath -> IO FilePath
+findFixtureRoot fixture = do
+  cwd <- getCurrentDirectory
+  findUp cwd
+  where
+    findUp directory = do
+      let candidate = directory </> fixture
+      exists <- doesDirectoryExist candidate
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory directory
+          if parent == directory
+            then assertFailure ("could not find fixture " <> fixture)
+            else findUp parent
 
 assertCoreV2File :: FilePath -> Assertion
 assertCoreV2File path = do
