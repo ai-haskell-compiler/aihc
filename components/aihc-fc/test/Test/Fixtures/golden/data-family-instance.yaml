@@ -7,13 +7,12 @@ modules:
     data instance Payload a = PayloadValue a
 expected: |-
   scope 1 = "" Test
-  scope 2 = "aihc-internal" Aihc.Internal
 
   module 1.Test where
 
   data 1.$R$Payload$PayloadValue (a{unique 22} : Type) : Type
    = 1.PayloadValue ((a{unique 22} : Type))
 
-  axiom $ax$Payload$PayloadValue (a{unique 22} : Type) : tycon 1.Payload/1 { :: Type → Type }[(a{unique 22} : Type)] ~N tycon 2.$R$Payload$PayloadValue/1 { :: Type → Type }[(a{unique 22} : Type)]
+  axiom $ax$Payload$PayloadValue (a{unique 22} : Type) : tycon 1.Payload/1 { :: Type → Type }[(a{unique 22} : Type)] ~N tycon 1.$R$Payload$PayloadValue/1 { :: Type → Type }[(a{unique 22} : Type)]
 status: pass
 reason: data-family instances retain an explicit representation type and nominal equality axiom in System FC
