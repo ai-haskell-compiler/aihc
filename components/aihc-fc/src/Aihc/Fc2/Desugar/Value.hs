@@ -393,7 +393,7 @@ desugarMatches ty matches =
       pure (foldr ExTyLam (foldr ExLam (foldr ExLam body arguments) dictionaries) typeBinders)
 
 desugarMatchArguments :: TcType -> [Binder] -> [Syn.Match] -> ValueM Expr
-desugarMatchArguments resultType [] (match : _) = desugarRhsExpected resultType (Syn.matchRhs match)
+desugarMatchArguments _ [] (match : _) = desugarRhs (Syn.matchRhs match)
 desugarMatchArguments _ [] [] = failValue "pattern match has no result"
 desugarMatchArguments resultType (argument : arguments) matches
   | all firstPatternIsVariable matches = do
@@ -540,25 +540,12 @@ nameTcType :: Syn.UnqualifiedName -> Maybe TcType
 nameTcType name =
   tcAnnType <$> listToMaybe (mapMaybe Syn.fromAnnotation (Syn.unqualifiedNameAnns name))
 
-desugarRhsExpected :: TcType -> Syn.Rhs Syn.Expr -> ValueM Expr
-desugarRhsExpected resultType rhs =
+desugarRhs :: Syn.Rhs Syn.Expr -> ValueM Expr
+desugarRhs rhs =
   case rhs of
-    Syn.UnguardedRhs _ expression Nothing -> desugarExprExpected resultType expression
-    Syn.UnguardedRhs _ expression (Just declarations) -> desugarLocalDecls declarations (desugarExprExpected resultType expression)
+    Syn.UnguardedRhs _ expression Nothing -> desugarExpr expression
+    Syn.UnguardedRhs _ expression (Just declarations) -> desugarLocalDecls declarations (desugarExpr expression)
     Syn.GuardedRhss {} -> failValue "guarded right-hand side remains after type checking"
-
-desugarExprExpected :: TcType -> Syn.Expr -> ValueM Expr
-desugarExprExpected resultType expression =
-  case expression of
-    Syn.EAnn annotation inner
-      | Just tcAnnotation <- Syn.fromAnnotation annotation -> desugarAnnotatedExpr tcAnnotation inner
-      | otherwise -> desugarExprExpected resultType inner
-    Syn.EParen inner -> desugarExprExpected resultType inner
-    Syn.ETypeSig inner _ -> desugarExprExpected resultType inner
-    Syn.ELambdaPats patterns body -> desugarLambdaExpected resultType patterns body
-    Syn.ECase scrutinee alternatives -> desugarCase resultType scrutinee alternatives
-    Syn.ELetDecls declarations body -> desugarLocalDecls declarations (desugarExprExpected resultType body)
-    _ -> desugarExpr expression
 
 desugarExpr :: Syn.Expr -> ValueM Expr
 desugarExpr expression =
@@ -599,7 +586,6 @@ desugarAnnotatedExpr annotation inner = do
       Syn.EStringHash value _ -> do
         representation <- convertRuntimeRep AddrRep
         pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
-      Syn.ELambdaPats patterns body -> desugarLambdaExpected (tcAnnType annotation) patterns body
       Syn.ECase scrutinee alternatives -> desugarCase (tcAnnType annotation) scrutinee alternatives
       _ -> desugarExpr inner
   typeBinders <- mapM convertTypeBinder (tcAnnTypeBinders annotation)
@@ -646,25 +632,17 @@ desugarLambda patterns body = do
   body' <- withLocals locals (desugarExpr body)
   pure (foldr ExLam body' binders)
 
-desugarLambdaExpected :: TcType -> [Syn.Pattern] -> Syn.Expr -> ValueM Expr
-desugarLambdaExpected functionType patterns body = do
-  let (argumentTypes, resultType) = peelFunctions (length patterns) functionType
-  binders <- zipWithM freshPatternBinder patterns argumentTypes
-  let locals = concat (zipWith patternLocalBindings patterns binders)
-  body' <- withLocals locals (desugarExprExpected resultType body)
-  pure (foldr ExLam body' binders)
-
 desugarCase :: TcType -> Syn.Expr -> [Syn.CaseAlt Syn.Expr] -> ValueM Expr
 desugarCase resultType scrutinee alternatives = do
   scrutinee' <- desugarExpr scrutinee
   scrutineeType <- requiredExprType scrutinee
   caseBinder <- freshBinder "_case" scrutineeType
   resultType' <- convertCheckedType resultType
-  alts <- mapM (desugarCaseAlt resultType caseBinder scrutineeType) alternatives
+  alts <- mapM (desugarCaseAlt caseBinder scrutineeType) alternatives
   pure (ExCase scrutinee' caseBinder resultType' alts)
 
-desugarCaseAlt :: TcType -> Binder -> TcType -> Syn.CaseAlt Syn.Expr -> ValueM Alt
-desugarCaseAlt resultType caseBinder scrutineeType alternative =
+desugarCaseAlt :: Binder -> TcType -> Syn.CaseAlt Syn.Expr -> ValueM Alt
+desugarCaseAlt caseBinder scrutineeType alternative =
   case alternative of
     Syn.CaseAlt _ pattern' rhs -> do
       constructor <- patternConstructor pattern'
@@ -673,7 +651,7 @@ desugarCaseAlt resultType caseBinder scrutineeType alternative =
       binders <- zipWithM freshPatternBinder children types
       let rootBindings = patternRootBindings pattern' caseBinder scrutineeType
           childBindings = concat (zipWith patternLocalBindings children binders)
-      body <- withLocals (rootBindings <> childBindings) (desugarRhsExpected resultType rhs)
+      body <- withLocals (rootBindings <> childBindings) (desugarRhs rhs)
       pure (Alt constructor binders body)
 
 patternRootBindings :: Syn.Pattern -> Binder -> TcType -> [(Text, (Binder, TcType))]
