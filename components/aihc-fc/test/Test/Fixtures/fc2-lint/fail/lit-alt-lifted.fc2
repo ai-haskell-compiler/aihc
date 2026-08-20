@@ -7,7 +7,7 @@ pub type 1.tBool :: 2.tType {
 }
 
 val 1.vbad :: 1.tBool
- = case 1.vTrue as (w : 1.tBool) of {
+ = case 1.vTrue as (w : 1.tBool) return (1.tBool) of {
      1#2.tLiftedRep →
        1.vFalse;
      _ →

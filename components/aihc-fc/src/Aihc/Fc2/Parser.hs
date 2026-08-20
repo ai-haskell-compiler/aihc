@@ -101,7 +101,7 @@ data OpenExpr
   | OTyLam OpenBinder OpenExpr
   | OLet OpenBind OpenExpr
   | ORec [OpenBind] OpenExpr
-  | OCase OpenExpr OpenBinder [OpenAlt]
+  | OCase OpenExpr OpenBinder OpenType [OpenAlt]
   | OCast OpenExpr OpenCoercion
   deriving (Eq, Show)
 
@@ -364,9 +364,11 @@ caseExpr = do
   scrutinee <- expression
   _ <- keyword "as"
   binder <- openTermBinder SortValue
+  _ <- keyword "return"
+  resultType <- parens fcType
   _ <- keyword "of"
   alts <- braces (MP.sepBy caseAlt (symbol ";"))
-  pure (OCase scrutinee binder alts)
+  pure (OCase scrutinee binder resultType alts)
 
 caseAlt :: Parser OpenAlt
 caseAlt =
@@ -681,11 +683,12 @@ fillExpr env expr =
           binds
           closedBinders
         <*> fillExpr recEnv body
-    OCase scrutinee binder alts -> do
+    OCase scrutinee binder resultType alts -> do
       closedBinder <- closeBinder env binder
       ExCase
         <$> fillExpr env scrutinee
         <*> pure closedBinder
+        <*> closeType env resultType
         <*> mapM (fillAlt (extend env closedBinder)) alts
     OCast body coercionValue -> ExCast <$> fillExpr env body <*> fillCoercion env coercionValue
 
@@ -826,8 +829,8 @@ normalizeExpr table expr =
     ExTyLam binder body -> ExTyLam (normalizeBinder table binder) (normalizeExpr table body)
     ExLet bind body -> ExLet (normalizeBind table bind) (normalizeExpr table body)
     ExRec binds body -> ExRec (map (normalizeBind table) binds) (normalizeExpr table body)
-    ExCase scrutinee binder alts ->
-      ExCase (normalizeExpr table scrutinee) (normalizeBinder table binder) (map (normalizeAlt table) alts)
+    ExCase scrutinee binder resultType alts ->
+      ExCase (normalizeExpr table scrutinee) (normalizeBinder table binder) (normalizeType table resultType) (map (normalizeAlt table) alts)
     ExCast body coercionValue -> ExCast (normalizeExpr table body) (normalizeCoercion table coercionValue)
 
 normalizeBind :: Map.Map Name Sort -> Bind -> Bind

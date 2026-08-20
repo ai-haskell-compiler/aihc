@@ -131,6 +131,7 @@ failClass :: FilePath -> Maybe (LintError -> Bool)
 failClass name
   | "unbound" `isInfixOf` name = Just isUnboundName
   | "app-mismatch" `isInfixOf` name = Just isTypeMismatch
+  | "case-result" `isInfixOf` name = Just isTypeMismatch
   | "tyapp-kind" `isInfixOf` name = Just isKindMismatch
   | "cast-source" `isInfixOf` name = Just isTypeMismatch
   | "shadowed" `isInfixOf` name = Just isShadowedBinder

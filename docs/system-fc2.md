@@ -127,7 +127,7 @@ pub type 1.tBool :: 2.tType {
 
 pub val 1.vnot :: 1.tBool → 1.tBool
  = λ(x : 1.tBool).
-     case x as (w{1} : 1.tBool) of {
+     case x as (w{1} : 1.tBool) return (1.tBool) of {
        1.vTrue → 1.vFalse;
        1.vFalse → 1.vTrue
      }
@@ -135,7 +135,8 @@ pub val 1.vnot :: 1.tBool → 1.tBool
 
 Use `::` on declarations.
 Use `:` on `λ`, `Λ`, and `∀` binders.
-Use Core-style `case` with a case binder and `_` for default.
+Use Core-style `case` with a case binder, a result type, and `_` for default.
+Permit an empty alternative set when the case has an explicit result type.
 Use `let` and `rec` for local groups.
 Use `val` for top-level values.
 Use `type T { cons }` for data types.

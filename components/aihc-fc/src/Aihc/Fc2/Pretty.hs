@@ -242,11 +242,14 @@ renderExprWith env scopes indent expr =
         <> indentLine (indent + 2) (renderExprWith recEnv scopes (indent + 2) body)
       where
         recEnv = foldl extendPrettyEnv env (map bindBinder binds)
-    ExCase scrutinee binder alts ->
+    ExCase scrutinee binder resultType alts ->
       "case "
         <> renderExprWith env scopes indent scrutinee
         <> " as "
         <> renderPiBinder env scopes binder
+        <> " return ("
+        <> renderTypeWith env scopes PrecForAll resultType
+        <> ")"
         <> " of {\n"
         <> intercalate ";\n" (map (indentLine (indent + 2) . renderAlt (extendPrettyEnv env binder) scopes (indent + 2)) alts)
         <> "\n"

@@ -102,11 +102,12 @@ tidyExpr env expr =
       let (binders, bodyEnv) = tidyBinders env (map bindBinder binds)
           binds' = zipWith (tidyRecBind bodyEnv) binders binds
        in ExRec binds' (tidyExpr bodyEnv body)
-    ExCase scrutinee binder alternatives ->
+    ExCase scrutinee binder resultType alternatives ->
       let (binder', caseEnv) = tidyBinder env binder
        in ExCase
             (tidyExpr env scrutinee)
             binder'
+            (tidyType env resultType)
             (map (tidyAlt caseEnv) alternatives)
     ExCast body coercion -> ExCast (tidyExpr env body) (tidyCoercion env coercion)
 
