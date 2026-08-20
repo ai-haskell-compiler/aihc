@@ -31,7 +31,7 @@ modules:
 expected: |-
   scope 1 = "aihc-prim" GHC.Types
 
-  pub type 1.tTYPE (rep{23} : 1.tRuntimeRep) :: 1.tType {}
+  pub type 1.tTYPE (rep : 1.tRuntimeRep) :: 1.tType {}
 
   pub type 1.tType :: 1.tType =
    1.tTYPE 1.tLiftedRep
@@ -49,13 +49,13 @@ expected: |-
       pub 1.vUnlifted :: 1.tLevity
   }
 
-  pub type 1.t[] (a{24} : 1.tType) :: 1.tType {
-      pub 1.v[] :: ∀(a{24} : 1.tType). 1.t[] a{24}
-      pub 1.v: :: ∀(a{24} : 1.tType). a{24} → 1.t[] a{24} → 1.t[] a{24}
+  pub type 1.t[] (a : 1.tType) :: 1.tType {
+      pub 1.v[] :: ∀(a : 1.tType). 1.t[] a
+      pub 1.v: :: ∀(a : 1.tType). a → 1.t[] a → 1.t[] a
   }
 
-  pub type 1.tTuple2# (r1{1} : 1.tRuntimeRep) (r2{2} : 1.tRuntimeRep) (a1{26} : 1.tTYPE r1{1}) (a2{27} : 1.tTYPE r2{2}) :: 1.tTYPE (1.vTupleRep (1.v: 1.tRuntimeRep r1{1} (1.v: 1.tRuntimeRep r2{2} (1.v[] 1.tRuntimeRep)))) {
-      pub 1.v(#,#) :: ∀(r1{1} : 1.tRuntimeRep) (r2{2} : 1.tRuntimeRep) (a1{26} : 1.tTYPE r1{1}) (a2{27} : 1.tTYPE r2{2}). FUN @r1{1} @1.tLiftedRep a1{26} (FUN @r2{2} @(1.vTupleRep (1.v: 1.tRuntimeRep r1{1} (1.v: 1.tRuntimeRep r2{2} (1.v[] 1.tRuntimeRep)))) a2{27} (1.tTuple2# r1{1} r2{2} a1{26} a2{27}))
+  pub type 1.tTuple2# (r1 : 1.tRuntimeRep) (r2 : 1.tRuntimeRep) (a1 : 1.tTYPE r1) (a2 : 1.tTYPE r2) :: 1.tTYPE (1.vTupleRep (1.v: 1.tRuntimeRep r1 (1.v: 1.tRuntimeRep r2 (1.v[] 1.tRuntimeRep)))) {
+      pub 1.v(#,#) :: ∀(r1 : 1.tRuntimeRep) (r2 : 1.tRuntimeRep) (a1 : 1.tTYPE r1) (a2 : 1.tTYPE r2). FUN @r1 @1.tLiftedRep a1 (FUN @r2 @(1.vTupleRep (1.v: 1.tRuntimeRep r1 (1.v: 1.tRuntimeRep r2 (1.v[] 1.tRuntimeRep)))) a2 (1.tTuple2# r1 r2 a1 a2))
   }
 status: pass
 reason: An unboxed tuple keeps kind parameters and TupleRep in the result kind.

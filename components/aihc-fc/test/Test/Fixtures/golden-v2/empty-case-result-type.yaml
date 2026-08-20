@@ -20,8 +20,8 @@ expected: |-
   }
 
   pub val 1.vabsurd :: 1.tEmpty → 1.tResult
-   = λ(x{1001} : 1.tEmpty).
-    case x{1001} as (_case{1002} : 1.tEmpty) return (1.tResult) of {
+   = λ(x : 1.tEmpty).
+    case x as (_case : 1.tEmpty) return (1.tResult) of {
 
     }
 status: pass

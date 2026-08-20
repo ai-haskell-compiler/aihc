@@ -24,12 +24,12 @@ expected: |-
   }
 
   pub val 1.vconsume :: 1.tFlag → 1.tFlag
-   = λ(x{1002} : 1.tFlag).
-    x{1002}
+   = λ(x : 1.tFlag).
+    x
 
   pub val 1.vswitch :: 1.tFlag → 1.tFlag
-   = λ(x{1003} : 1.tFlag).
-    1.vconsume (case x{1003} as (_case{1004} : 1.tFlag) return (1.tFlag) of {
+   = λ(x : 1.tFlag).
+    1.vconsume (case x as (_case : 1.tFlag) return (1.tFlag) of {
         1.vOff →
             1.vOn;
         1.vOn →

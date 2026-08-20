@@ -39,7 +39,7 @@ modules:
 expected: |-
   scope 1 = "aihc-prim" GHC.Types
 
-  pub type 1.tTYPE (rep{13} : 1.tRuntimeRep) :: 1.tType {}
+  pub type 1.tTYPE (rep : 1.tRuntimeRep) :: 1.tType {}
 
   pub type 1.tType :: 1.tType =
    1.tTYPE 1.tLiftedRep
@@ -62,10 +62,10 @@ expected: |-
   scope 1 = "aihc-prim" GHC.Prim
   scope 2 = "aihc-prim" GHC.Types
 
-  pub type 1.tStableName# (a{18} : 2.tType) :: 2.tTYPE 2.tUnliftedRep {}
+  pub type 1.tStableName# (a : 2.tType) :: 2.tTYPE 2.tUnliftedRep {}
 
   pub type 1.tInt# :: 2.tTYPE 2.vIntRep {}
 
-  foreign import prim 1.veqStableName# :: ∀(a{21} : 2.tType) (b{22} : 2.tType). FUN @2.tUnliftedRep @2.tLiftedRep (1.tStableName# a{21}) (FUN @2.tUnliftedRep @2.vIntRep (1.tStableName# b{22}) 1.tInt#)
+  foreign import prim 1.veqStableName# :: ∀(a : 2.tType) (b : 2.tType). FUN @2.tUnliftedRep @2.tLiftedRep (1.tStableName# a) (FUN @2.tUnliftedRep @2.vIntRep (1.tStableName# b) 1.tInt#)
 status: pass
 reason: An unlifted foreign import prim uses UnliftedRep on FUN.

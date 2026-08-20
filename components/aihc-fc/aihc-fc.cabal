@@ -36,6 +36,7 @@ library
     Aihc.Fc2.Parser
     Aihc.Fc2.Pretty
     Aihc.Fc2.Syntax
+    Aihc.Fc2.Tidy
     Aihc.Fc2.TypeOf
     Aihc.Fc2.Wired
 
