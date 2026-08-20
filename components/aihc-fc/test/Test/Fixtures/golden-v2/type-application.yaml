@@ -17,10 +17,10 @@ expected: |-
       pub 1.vFalse :: 1.tBool
   }
 
-  pub val 1.vid :: ∀(a{14} : 2.tType). a{14} → a{14}
-   = Λ(a{14} : 2.tType).
-    λ(x{1002} : a{14}).
-      x{1002}
+  pub val 1.vid :: ∀(a : 2.tType). a → a
+   = Λ(a : 2.tType).
+    λ(x : a).
+      x
 
   pub val 1.vtrue :: 1.tBool
    = 1.vid @1.tBool 1.vTrue

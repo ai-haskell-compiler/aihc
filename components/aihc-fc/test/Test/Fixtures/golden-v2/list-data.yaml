@@ -9,9 +9,9 @@ expected: |-
 
   module 1.Test where
 
-  pub type 1.t[] (a{12} : 2.tType) :: 2.tType {
-      pub 1.vNil :: ∀(a{12} : 2.tType). 1.t[] a{12}
-      pub 1.vCons :: ∀(a{12} : 2.tType). a{12} → 1.t[] a{12} → 1.t[] a{12}
+  pub type 1.t[] (a : 2.tType) :: 2.tType {
+      pub 1.vNil :: ∀(a : 2.tType). 1.t[] a
+      pub 1.vCons :: ∀(a : 2.tType). a → 1.t[] a → 1.t[] a
   }
 status: pass
 reason: A parameterized data type prints header binders and full constructor types.

@@ -8,6 +8,7 @@ module Aihc.Fc2
     parseProgram,
     renderParseError,
     Fc2ParseError,
+    tidyProgram,
     desugarModuleFc2,
     Fc2DesugarResult (..),
     lintPrograms,
@@ -24,3 +25,4 @@ import Aihc.Fc2.Name
 import Aihc.Fc2.Parser (Fc2ParseError, parseProgram, renderParseError)
 import Aihc.Fc2.Pretty (renderExpr, renderProgram, renderType)
 import Aihc.Fc2.Syntax
+import Aihc.Fc2.Tidy (tidyProgram)

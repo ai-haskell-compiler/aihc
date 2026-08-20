@@ -13,6 +13,7 @@ import Aihc.Fc2.Convert
 import Aihc.Fc2.FromFc (convertValueDecls)
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
+import Aihc.Fc2.Tidy (tidyProgram)
 import Aihc.Parser.Syntax
   ( DataDecl (..),
     Module (..),
@@ -117,7 +118,7 @@ desugarChecked config bindings interface checked = do
   valueDecls <- convertFcValues config bindings interface checked env
   let decls = typeDecls <> valueDecls
       scopes = buildScopes moduleId decls
-  pure (Program moduleId scopes decls)
+  pure (tidyProgram (Program moduleId scopes decls))
 
 axiomEntries :: PackageId -> Text -> [DataTypeInfo] -> [DataFamilyInstanceInfo] -> [TypeFamilyInstanceInfo] -> [(Text, Name)]
 axiomEntries package moduleName' dataTypes dataFamilyInstances typeFamilyInstances =

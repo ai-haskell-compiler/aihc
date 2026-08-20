@@ -13,12 +13,12 @@ expected: |-
 
   module 1.Test where
 
-  foreign import prim 1.vraise# :: ∀(a{10} : 2.tType) (b{11} : 2.tType). a{10} → b{11}
+  foreign import prim 1.vraise# :: ∀(a : 2.tType) (b : 2.tType). a → b
 
-  pub val 1.vboom :: ∀(a{22} : 2.tType) (b{23} : 2.tType). a{22} → b{23}
-   = Λ(a{22} : 2.tType).
-    Λ(b{23} : 2.tType).
-      λ(x{1002} : a{22}).
-        1.vraise# @a{22} @b{23} x{1002}
+  pub val 1.vboom :: ∀(a : 2.tType) (b : 2.tType). a → b
+   = Λ(a : 2.tType).
+    Λ(b : 2.tType).
+      λ(x : a).
+        1.vraise# @a @b x
 status: pass
 reason: A use of a foreign import prim stays an ordinary application.

@@ -38,7 +38,7 @@ expected: |-
 
   module 1.GHC.Types where
 
-  pub type 1.tTYPE (rep{17} : 1.tRuntimeRep) :: 1.tType {}
+  pub type 1.tTYPE (rep : 1.tRuntimeRep) :: 1.tType {}
 
   pub type 1.tType :: 1.tType =
    1.tTYPE 1.tLiftedRep
@@ -68,6 +68,6 @@ expected: |-
 
   module 1.GHC.Prim where
 
-  pub type 1.tMutVar# (d{23} : 2.tType) (a{25} : 2.tType) :: 2.tTYPE 2.tUnliftedRep {}
+  pub type 1.tMutVar# (d : 2.tType) (a : 2.tType) :: 2.tTYPE 2.tUnliftedRep {}
 status: pass
 reason: UnliftedType in a kind signature stays an unlifted result kind.

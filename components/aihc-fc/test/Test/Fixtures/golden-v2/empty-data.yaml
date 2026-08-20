@@ -17,6 +17,6 @@ expected: |-
 
   module 1.GHC.Prim where
 
-  pub type 1.tMutVar# (d{18} : 2.tType) (a{20} : 2.tType) :: 2.tTYPE 2.tUnliftedRep {}
+  pub type 1.tMutVar# (d : 2.tType) (a : 2.tType) :: 2.tTYPE 2.tUnliftedRep {}
 status: pass
 reason: An empty data type keeps its checked parameters and result kind.

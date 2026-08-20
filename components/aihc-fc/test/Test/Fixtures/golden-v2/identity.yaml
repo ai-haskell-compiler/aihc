@@ -9,9 +9,9 @@ expected: |-
 
   module 1.Test where
 
-  pub val 1.vid :: ∀(a{14} : 2.tType). a{14} → a{14}
-   = Λ(a{14} : 2.tType).
-    λ(x{1001} : a{14}).
-      x{1001}
+  pub val 1.vid :: ∀(a : 2.tType). a → a
+   = Λ(a : 2.tType).
+    λ(x : a).
+      x
 status: pass
 reason: A polymorphic identity becomes type and term lambdas.

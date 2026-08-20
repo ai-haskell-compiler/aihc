@@ -12,6 +12,6 @@ expected: |-
 
   module 1.Test where
 
-  foreign import prim 1.vraise# :: ∀(a{10} : 2.tType) (b{11} : 2.tType). a{10} → b{11}
+  foreign import prim 1.vraise# :: ∀(a : 2.tType) (b : 2.tType). a → b
 status: pass
 reason: A foreign import prim keeps its checked type.

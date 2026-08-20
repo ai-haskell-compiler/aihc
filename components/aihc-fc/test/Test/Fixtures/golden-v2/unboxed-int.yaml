@@ -34,7 +34,7 @@ expected: |-
 
   module 2.GHC.Types where
 
-  pub type 2.tTYPE (rep{8} : 2.tRuntimeRep) :: 2.tType {}
+  pub type 2.tTYPE (rep : 2.tRuntimeRep) :: 2.tType {}
 
   pub type 2.tType :: 2.tType =
    2.tTYPE 2.tLiftedRep

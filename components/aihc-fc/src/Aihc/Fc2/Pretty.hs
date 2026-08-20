@@ -32,6 +32,8 @@ data Prec
   | PrecForAll
   deriving (Eq, Ord)
 
+type SeenNames = Set (NameClass, Text)
+
 renderProgram :: Program -> String
 renderProgram program =
   intercalate "\n\n" (filter (not . null) (renderScopes scopes : renderModule scopes (programModule program) : map (renderDecl env scopes Set.empty) (programDecls program)))
@@ -51,7 +53,7 @@ renderModule :: ScopeTable -> ModuleId -> String
 renderModule scopes moduleId =
   "module " <> scopePrefix scopes (modulePackage moduleId) (moduleName moduleId) <> T.unpack (moduleName moduleId) <> " where"
 
-renderDecl :: TypeEnv -> ScopeTable -> Set Text -> Decl -> String
+renderDecl :: TypeEnv -> ScopeTable -> SeenNames -> Decl -> String
 renderDecl env scopes seen decl =
   case decl of
     DeclType declaration -> renderTypeDecl env scopes seen declaration
@@ -64,7 +66,7 @@ renderVis :: Vis -> String
 renderVis Pub = "pub "
 renderVis Private = ""
 
-renderTypeDecl :: TypeEnv -> ScopeTable -> Set Text -> TypeDecl -> String
+renderTypeDecl :: TypeEnv -> ScopeTable -> SeenNames -> TypeDecl -> String
 renderTypeDecl env scopes seen declaration =
   renderVis (typeVis declaration)
     <> "type "
@@ -75,18 +77,18 @@ renderTypeDecl env scopes seen declaration =
     <> renderRoleList (typeRoles declaration)
     <> renderConstructors env scopes seen (typeCons declaration)
 
-renderHeaderBinders :: TypeEnv -> ScopeTable -> Set Text -> [Binder] -> String
+renderHeaderBinders :: TypeEnv -> ScopeTable -> SeenNames -> [Binder] -> String
 renderHeaderBinders env scopes seen =
   concatMap ((" " <>) . renderPiBinder env scopes seen)
 
-renderConstructors :: TypeEnv -> ScopeTable -> Set Text -> [ConDecl] -> String
+renderConstructors :: TypeEnv -> ScopeTable -> SeenNames -> [ConDecl] -> String
 renderConstructors _ _ _ [] = " {}"
 renderConstructors env scopes seen constructors =
   " {\n"
     <> intercalate "\n" (map (renderConDecl env scopes seen) constructors)
     <> "\n}"
 
-renderConDecl :: TypeEnv -> ScopeTable -> Set Text -> ConDecl -> String
+renderConDecl :: TypeEnv -> ScopeTable -> SeenNames -> ConDecl -> String
 renderConDecl env scopes seen declaration =
   "    "
     <> renderVis (conVis declaration)
@@ -94,7 +96,7 @@ renderConDecl env scopes seen declaration =
     <> " :: "
     <> renderTypeWith env scopes seen PrecForAll (conType declaration)
 
-renderSynonymDecl :: TypeEnv -> ScopeTable -> Set Text -> SynonymDecl -> String
+renderSynonymDecl :: TypeEnv -> ScopeTable -> SeenNames -> SynonymDecl -> String
 renderSynonymDecl env scopes seen declaration =
   renderVis (synVis declaration)
     <> "type "
@@ -105,7 +107,7 @@ renderSynonymDecl env scopes seen declaration =
     <> " =\n "
     <> renderTypeWith (headerBinderEnv env (synBinders declaration)) scopes seen PrecForAll (synBody declaration)
 
-renderAxiomDecl :: TypeEnv -> ScopeTable -> Set Text -> AxiomDecl -> String
+renderAxiomDecl :: TypeEnv -> ScopeTable -> SeenNames -> AxiomDecl -> String
 renderAxiomDecl env scopes seen declaration =
   renderVis (axiomVis declaration)
     <> "axiom "
@@ -120,7 +122,7 @@ renderAxiomDecl env scopes seen declaration =
   where
     binderEnv = headerBinderEnv env (axiomBinders declaration)
 
-renderForAllBinders :: TypeEnv -> ScopeTable -> Set Text -> [Binder] -> String
+renderForAllBinders :: TypeEnv -> ScopeTable -> SeenNames -> [Binder] -> String
 renderForAllBinders _ _ _ [] = ""
 renderForAllBinders env scopes seen binders =
   " " <> unwords (map (renderPiBinder env scopes seen) binders)
@@ -140,7 +142,7 @@ renderRoleTag Nominal = "N"
 renderRoleTag Representational = "R"
 renderRoleTag Phantom = "P"
 
-renderValDecl :: TypeEnv -> ScopeTable -> Set Text -> ValDecl -> String
+renderValDecl :: TypeEnv -> ScopeTable -> SeenNames -> ValDecl -> String
 renderValDecl env scopes seen declaration =
   renderVis (valVis declaration)
     <> "val "
@@ -150,7 +152,7 @@ renderValDecl env scopes seen declaration =
     <> "\n = "
     <> renderExprWith env scopes seen 0 (valBody declaration)
 
-renderPrimDecl :: TypeEnv -> ScopeTable -> Set Text -> PrimDecl -> String
+renderPrimDecl :: TypeEnv -> ScopeTable -> SeenNames -> PrimDecl -> String
 renderPrimDecl env scopes seen declaration =
   "foreign import prim "
     <> renderTopName scopes (primName declaration)
@@ -161,7 +163,7 @@ renderType :: Program -> Type -> String
 renderType program =
   renderTypeWith (typeEnvFromProgram program) (programScopes program) Set.empty PrecForAll
 
-renderTypeWith :: TypeEnv -> ScopeTable -> Set Text -> Prec -> Type -> String
+renderTypeWith :: TypeEnv -> ScopeTable -> SeenNames -> Prec -> Type -> String
 renderTypeWith env scopes seen prec ty =
   case ty of
     TyVar name -> renderName scopes seen name
@@ -195,14 +197,14 @@ renderTypeWith env scopes seen prec ty =
     TyEq left right ->
       paren (prec < PrecEq) (renderTypeWith env scopes seen PrecApp left <> " ~ " <> renderTypeWith env scopes seen PrecApp right)
 
-forallTail :: TypeEnv -> ScopeTable -> Set Text -> Type -> String
+forallTail :: TypeEnv -> ScopeTable -> SeenNames -> Type -> String
 forallTail env scopes seen ty =
   case ty of
     TyForAll binder body ->
       " " <> renderPiBinder env scopes seen binder <> forallTail (extendPrettyEnv env binder) scopes (bindText seen binder) body
     _ -> ". " <> renderTypeWith env scopes seen PrecForAll ty
 
-renderPiBinder :: TypeEnv -> ScopeTable -> Set Text -> Binder -> String
+renderPiBinder :: TypeEnv -> ScopeTable -> SeenNames -> Binder -> String
 renderPiBinder env scopes seen binder =
   "("
     <> renderLocalBinder seen (binderName binder)
@@ -221,7 +223,7 @@ renderExpr :: Program -> Expr -> String
 renderExpr program =
   renderExprWith (typeEnvFromProgram program) (programScopes program) Set.empty 0
 
-renderExprWith :: TypeEnv -> ScopeTable -> Set Text -> Int -> Expr -> String
+renderExprWith :: TypeEnv -> ScopeTable -> SeenNames -> Int -> Expr -> String
 renderExprWith env scopes seen indent expr =
   case expr of
     ExVar name -> renderName scopes seen name
@@ -261,21 +263,21 @@ renderExprWith env scopes seen indent expr =
     ExCast body coercion ->
       renderExprAtom env scopes seen indent body <> " ▷ " <> renderCoercion env scopes seen coercion
 
-renderApp :: TypeEnv -> ScopeTable -> Set Text -> Int -> Expr -> String
+renderApp :: TypeEnv -> ScopeTable -> SeenNames -> Int -> Expr -> String
 renderApp env scopes seen indent expr =
   case expr of
     ExApp {} -> renderExprWith env scopes seen indent expr
     ExTyApp {} -> renderExprWith env scopes seen indent expr
     _ -> renderExprAtom env scopes seen indent expr
 
-renderExprAtom :: TypeEnv -> ScopeTable -> Set Text -> Int -> Expr -> String
+renderExprAtom :: TypeEnv -> ScopeTable -> SeenNames -> Int -> Expr -> String
 renderExprAtom env scopes seen indent expr =
   case expr of
     ExVar {} -> renderExprWith env scopes seen indent expr
     ExLit {} -> renderExprWith env scopes seen indent expr
     _ -> "(" <> renderExprWith env scopes seen indent expr <> ")"
 
-renderBind :: TypeEnv -> ScopeTable -> Set Text -> Int -> Bind -> String
+renderBind :: TypeEnv -> ScopeTable -> SeenNames -> Int -> Bind -> String
 renderBind env scopes seen indent bind =
   renderLocalBinder seen (binderName (bindBinder bind))
     <> " : "
@@ -283,7 +285,7 @@ renderBind env scopes seen indent bind =
     <> " =\n"
     <> indentLine (indent + 2) (renderExprWith env scopes (bindText seen (bindBinder bind)) (indent + 2) (bindRhs bind))
 
-renderAlt :: TypeEnv -> ScopeTable -> Set Text -> Int -> Alt -> String
+renderAlt :: TypeEnv -> ScopeTable -> SeenNames -> Int -> Alt -> String
 renderAlt env scopes seen indent alternative =
   case altCon alternative of
     AltDefault -> "_ →\n" <> indentLine (indent + 2) (renderExprWith env scopes seen (indent + 2) (altRhs alternative))
@@ -295,7 +297,7 @@ renderAlt env scopes seen indent alternative =
     altBinderText = concatMap ((" " <>) . renderPiBinder env scopes seen) (altBinders alternative)
     nextSeen = foldl bindText seen (altBinders alternative)
 
-renderCoercion :: TypeEnv -> ScopeTable -> Set Text -> Coercion -> String
+renderCoercion :: TypeEnv -> ScopeTable -> SeenNames -> Coercion -> String
 renderCoercion env scopes seen coercion =
   case coercion of
     CoVar name -> renderName scopes seen name
@@ -307,7 +309,7 @@ renderCoercion env scopes seen coercion =
     CoAxiom name arguments ->
       unwords ("axiom-co" : renderName scopes seen name : map (\argument -> "@" <> renderTypeWith env scopes seen PrecAtom argument) arguments)
 
-renderLiteral :: ScopeTable -> Set Text -> Literal -> String
+renderLiteral :: ScopeTable -> SeenNames -> Literal -> String
 renderLiteral scopes seen literal =
   case literal of
     LitInt representation value -> show value <> "#" <> renderName scopes seen (repName representation)
@@ -340,7 +342,7 @@ repName ty =
     TyVar name -> name
     _ -> Name "AddrRep" SortDataConstructor (OriginLocal (Unique 0))
 
-renderName :: ScopeTable -> Set Text -> Name -> String
+renderName :: ScopeTable -> SeenNames -> Name -> String
 renderName scopes _seen name =
   case nameOrigin name of
     OriginLocal {} -> renderLocalUse name
@@ -375,7 +377,7 @@ printedName name =
 rawPrinted :: Text -> String
 rawPrinted = T.unpack
 
-renderLocalBinder :: Set Text -> Name -> String
+renderLocalBinder :: SeenNames -> Name -> String
 renderLocalBinder seen name =
   T.unpack (nameText name) <> uniqueSuffix True seen name
 
@@ -383,17 +385,20 @@ renderLocalUse :: Name -> String
 renderLocalUse name =
   T.unpack (nameText name) <> uniqueSuffix False Set.empty name
 
-uniqueSuffix :: Bool -> Set Text -> Name -> String
+uniqueSuffix :: Bool -> SeenNames -> Name -> String
 uniqueSuffix isBinder seen name =
   case nameOrigin name of
     OriginLocal (Unique unique)
       | unique /= 0 -> "{" <> show unique <> "}"
-      | isBinder && nameText name `Set.member` seen -> "{0}"
+      | isBinder && nameKey name `Set.member` seen -> "{0}"
       | otherwise -> ""
     OriginTop {} -> ""
 
-bindText :: Set Text -> Binder -> Set Text
-bindText seen binder = Set.insert (nameText (binderName binder)) seen
+bindText :: SeenNames -> Binder -> SeenNames
+bindText seen binder = Set.insert (nameKey (binderName binder)) seen
+
+nameKey :: Name -> (NameClass, Text)
+nameKey name = (nameClass (nameSort name), nameText name)
 
 paren :: Bool -> String -> String
 paren False value = value
