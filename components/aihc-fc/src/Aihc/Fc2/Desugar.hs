@@ -3,14 +3,15 @@
 -- | Convert a checked module into System FC 2 types, axioms, and values.
 module Aihc.Fc2.Desugar
   ( desugarModuleFc2,
+    DesugarConfig (..),
     Fc2DesugarResult (..),
   )
 where
 
-import Aihc.Fc.Desugar (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface)
-import Aihc.Fc.Syntax (fcProgramModule, fcTopBinds)
 import Aihc.Fc2.Convert
-import Aihc.Fc2.FromFc (convertValueDecls)
+import Aihc.Fc2.Desugar.ConvertCore (convertValueDecls)
+import Aihc.Fc2.Desugar.Core qualified as Core
+import Aihc.Fc2.Desugar.Core.Syntax (coreProgramModule, coreTopBinds)
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Parser.Syntax
@@ -73,6 +74,12 @@ data Fc2DesugarResult = Fc2DesugarResult
   }
   deriving (Show)
 
+-- | Configuration for System FC 2 desugaring.
+newtype DesugarConfig = DesugarConfig
+  { primPackageId :: PackageId
+  }
+  deriving (Eq, Show)
+
 desugarModuleFc2 :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> Fc2DesugarResult
 desugarModuleFc2 config bindings interface checked =
   if not (tcModuleSuccess checked)
@@ -114,7 +121,7 @@ desugarChecked config bindings interface checked = do
       <$> mapM
         (dsDecl env packageId currentModule dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings)
         (Syn.moduleDecls checked)
-  valueDecls <- convertFcValues config bindings interface checked env
+  valueDecls <- convertCoreValues config bindings interface checked env
   let decls = typeDecls <> valueDecls
       scopes = buildScopes moduleId decls
   pure (Program moduleId scopes decls)
@@ -143,15 +150,24 @@ axiomEntries package moduleName' dataTypes dataFamilyInstances typeFamilyInstanc
     typeFamilyAxiom currentPackage currentModule info =
       (tfiiAxiomName info, Name (tfiiAxiomName info) SortAxiom (OriginTop currentPackage currentModule))
 
-convertFcValues :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> ConvertEnv -> Either String [Decl]
-convertFcValues config bindings interface checked env =
-  let fcResult = desugarModuleWithInterface config bindings interface checked
-   in if not (dsSuccess fcResult)
+convertCoreValues :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> ConvertEnv -> Either String [Decl]
+convertCoreValues config bindings interface checked env =
+  let coreResult =
+        Core.desugarModuleWithInterface
+          (Core.DesugarConfig (primPackageId config))
+          bindings
+          interface
+          checked
+   in if not (Core.dsSuccess coreResult)
         then
-          if null (dsErrors fcResult)
+          if null (Core.dsErrors coreResult)
             then Right []
-            else Left (unlines (dsErrors fcResult))
-        else convertValueDecls env (fcProgramModule (dsProgram fcResult)) (fcTopBinds (dsProgram fcResult))
+            else Left (unlines (Core.dsErrors coreResult))
+        else
+          convertValueDecls
+            env
+            (coreProgramModule (Core.dsProgram coreResult))
+            (coreTopBinds (Core.dsProgram coreResult))
 
 dsDecl ::
   ConvertEnv ->
