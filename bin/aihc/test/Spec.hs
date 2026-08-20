@@ -28,6 +28,7 @@ import System.Directory
     removeDirectoryRecursive,
     removeFile,
   )
+import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openTempFile)
 import Test.Tasty (defaultMain, testGroup)
@@ -514,13 +515,21 @@ aihcPrimLibraryModules =
 
 findAihcPrimRoot :: IO FilePath
 findAihcPrimRoot = do
-  cwd <- getCurrentDirectory
-  findUp cwd
+  envRoot <- lookupEnv "AIHC_PRIM_SRC"
+  case envRoot of
+    Just root -> do
+      cabalExists <- doesFileExist (root </> "aihc-prim.cabal")
+      if cabalExists
+        then pure root
+        else assertFailure ("AIHC_PRIM_SRC has no aihc-prim.cabal: " <> root)
+    Nothing -> do
+      cwd <- getCurrentDirectory
+      findUp cwd
   where
     findUp dir = do
       let candidate = dir </> "core-libs" </> "aihc-prim"
-      exists <- doesDirectoryExist candidate
-      if exists
+      cabalExists <- doesFileExist (candidate </> "aihc-prim.cabal")
+      if cabalExists
         then pure candidate
         else do
           let parent = takeDirectory dir
