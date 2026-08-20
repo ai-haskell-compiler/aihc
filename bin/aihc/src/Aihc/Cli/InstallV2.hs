@@ -281,7 +281,7 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
     if typeChanged || not coreV2Exists
       then do
         (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
-        writeCoreV2Files verbose primIdentity completeInterface (takeDirectory storePath) coreV2Path checkedModules
+        writeCoreV2Files verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path checkedModules
         pure True
       else do
         mapM_ (verbose . ("Reuse Core-v2: " <>) . T.unpack) unitNames
@@ -302,13 +302,18 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
   where
     sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
 
-writeCoreV2Files :: (String -> IO ()) -> PackageId -> TcInterface -> FilePath -> (Module -> FilePath) -> [Module] -> IO ()
-writeCoreV2Files verbose primIdentity interface storeRoot coreV2Path checkedModules = do
+writeCoreV2Files :: (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Module -> FilePath) -> [Module] -> IO ()
+writeCoreV2Files verbose currentPackage primIdentity interface storeRoot coreV2Path checkedModules = do
   let bindings = tcInterfaceBindings interface <> concatMap tcModuleBindings checkedModules
       config = DesugarConfig primIdentity
       results2 = map (desugarModuleFc2 config bindings interface) checkedModules
+      currentModules = Set.fromList (map (fromMaybe "Main" . moduleName) checkedModules)
+      storeLoader = Fc2.storeModuleLoader storeRoot
+      dependencyLoader package name
+        | package == currentPackage && name `Set.member` currentModules = pure Nothing
+        | otherwise = storeLoader package name
   unless (all ds2Success results2) (ioError (userError ("Core-v2 generation failed: " <> unlines (concatMap ds2Errors results2))))
-  loadedFc2 <- Fc2.loadScopeClosure (Fc2.storeModuleLoader storeRoot) (map ds2Program results2)
+  loadedFc2 <- Fc2.loadScopeClosure dependencyLoader (map ds2Program results2)
   let fc2Errors = Fc2.lintPrograms loadedFc2
       fc2Report = map (("    " <>) . show) fc2Errors
   unless (null fc2Errors) $ do

@@ -20,7 +20,7 @@ import Control.Monad (foldM, unless, when)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -51,34 +51,18 @@ lintPrograms programs =
 
 loadScopeClosure :: ModuleLoader -> [Program] -> IO [Program]
 loadScopeClosure loader seeds = do
-  loaded <- go initial (concatMap scopeKeys seeds)
-  pure (List.nub (unkeyedSeeds <> Map.elems loaded))
+  resolved <- go Map.empty (concatMap scopeKeys seeds)
+  pure (List.nub (seeds <> catMaybes (Map.elems resolved)))
   where
-    initial = Map.fromList [(key, program) | program <- seeds, key <- programKeys program]
-    unkeyedSeeds = filter (null . programKeys) seeds
-
-    go seen [] = pure seen
-    go seen (key : rest)
-      | alreadyLoaded seen key = go seen rest
+    go resolved [] = pure resolved
+    go resolved (key : rest)
+      | Map.member key resolved = go resolved rest
       | otherwise = do
           loaded <- uncurry loader key
           case loaded of
-            Nothing -> go seen rest
+            Nothing -> go (Map.insert key Nothing resolved) rest
             Just program ->
-              go (Map.insert key program seen) (rest <> filter (not . alreadyLoaded seen) (scopeKeys program))
-
-    alreadyLoaded seen (package, name) =
-      Map.member (package, name) seen
-        || (isEmptyPackage package && hasModuleName seen name)
-        || hasEmptyPackageModule seen name
-
-    isEmptyPackage package = packageIdText package == ""
-
-    hasModuleName seen name =
-      any ((== name) . snd) (Map.keys seen)
-
-    hasEmptyPackageModule seen name =
-      Map.member (PackageId "", name) seen
+              go (Map.insert key (Just program) resolved) (rest <> scopeKeys program)
 
 storeModuleLoader :: FilePath -> ModuleLoader
 storeModuleLoader storeRoot package moduleName = do
@@ -95,22 +79,6 @@ storeModuleLoader storeRoot package moduleName = do
 moduleDirectoryText :: Text -> FilePath
 moduleDirectoryText name =
   List.foldl' (</>) "" (map T.unpack (T.splitOn "." name))
-
-programKeys :: Program -> [(PackageId, Text)]
-programKeys = List.nub . mapMaybe declKey . programDecls
-  where
-    declKey decl =
-      case nameOrigin (declName decl) of
-        OriginTop package name -> Just (package, name)
-        OriginLocal {} -> Nothing
-
-    declName decl =
-      case decl of
-        DeclType declaration -> typeName declaration
-        DeclSynonym declaration -> synName declaration
-        DeclAxiom declaration -> axiomName declaration
-        DeclVal declaration -> valName declaration
-        DeclPrim declaration -> primName declaration
 
 scopeKeys :: Program -> [(PackageId, Text)]
 scopeKeys program =
