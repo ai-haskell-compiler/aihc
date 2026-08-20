@@ -11,7 +11,7 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   pub type 1.tBool :: 2.tType {
-      pub 1.vTrue :: 1.tBool
+      pub 1.vTrue :: 1.tBool;
       pub 1.vFalse :: 1.tBool
   }
 

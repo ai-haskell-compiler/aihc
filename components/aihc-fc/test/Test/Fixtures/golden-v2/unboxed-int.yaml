@@ -41,12 +41,12 @@ expected: |-
    2.vBoxedRep 2.vLifted
 
   pub type 2.tRuntimeRep :: 2.tType {
-      pub 2.vBoxedRep :: 2.tLevity → 2.tRuntimeRep
+      pub 2.vBoxedRep :: 2.tLevity → 2.tRuntimeRep;
       pub 2.vIntRep :: 2.tRuntimeRep
   }
 
   pub type 2.tLevity :: 2.tType {
-      pub 2.vLifted :: 2.tLevity
+      pub 2.vLifted :: 2.tLevity;
       pub 2.vUnlifted :: 2.tLevity
   }
 

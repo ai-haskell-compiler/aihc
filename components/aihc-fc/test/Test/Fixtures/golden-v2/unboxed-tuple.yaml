@@ -40,17 +40,17 @@ expected: |-
    1.vBoxedRep 1.vLifted
 
   pub type 1.tRuntimeRep :: 1.tType {
-      pub 1.vBoxedRep :: 1.tLevity → 1.tRuntimeRep
+      pub 1.vBoxedRep :: 1.tLevity → 1.tRuntimeRep;
       pub 1.vTupleRep :: 1.t[] 1.tRuntimeRep → 1.tRuntimeRep
   }
 
   pub type 1.tLevity :: 1.tType {
-      pub 1.vLifted :: 1.tLevity
+      pub 1.vLifted :: 1.tLevity;
       pub 1.vUnlifted :: 1.tLevity
   }
 
   pub type 1.t[] (a : 1.tType) :: 1.tType {
-      pub 1.v[] :: ∀(a : 1.tType). 1.t[] a
+      pub 1.v[] :: ∀(a : 1.tType). 1.t[] a;
       pub 1.v: :: ∀(a : 1.tType). a → 1.t[] a → 1.t[] a
   }
 

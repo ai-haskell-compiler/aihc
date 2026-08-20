@@ -77,20 +77,8 @@ renderConstructors :: TypeEnv -> ScopeTable -> [ConDecl] -> String
 renderConstructors _ _ [] = " {}"
 renderConstructors env scopes constructors =
   " {\n"
-    <> intercalate "\n" (renderConDecls env scopes constructors)
+    <> intercalate ";\n" (map (renderConDecl env scopes) constructors)
     <> "\n}"
-
-renderConDecls :: TypeEnv -> ScopeTable -> [ConDecl] -> [String]
-renderConDecls _ _ [] = []
-renderConDecls env scopes [constructor] = [renderConDecl env scopes constructor]
-renderConDecls env scopes (constructor : next : rest) =
-  (renderConDecl env scopes constructor <> renderConSeparator next)
-    : renderConDecls env scopes (next : rest)
-
-renderConSeparator :: ConDecl -> String
-renderConSeparator constructor
-  | conVis constructor == Private = ";"
-  | otherwise = ""
 
 renderConDecl :: TypeEnv -> ScopeTable -> ConDecl -> String
 renderConDecl env scopes declaration =
