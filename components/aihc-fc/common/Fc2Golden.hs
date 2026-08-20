@@ -11,8 +11,7 @@ module Fc2Golden
   )
 where
 
-import Aihc.Fc.Desugar (DesugarConfig (..))
-import Aihc.Fc2 (Fc2DesugarResult (..), desugarModuleFc2, lintPrograms, parseProgram, renderParseError, renderProgram)
+import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2, lintPrograms, parseProgram, renderParseError, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension, moduleName, parseExtensionName)
 import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps)

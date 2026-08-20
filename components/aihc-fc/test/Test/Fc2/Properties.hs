@@ -114,8 +114,7 @@ localValueWith unique text = Name text SortValue (OriginLocal (Unique unique))
 identityProgram :: Program
 identityProgram =
   Program
-    { programModule = ModuleId testPackage "Test",
-      programScopes = scopes,
+    { programScopes = scopes,
       programDecls =
         [ DeclType
             TypeDecl
@@ -162,8 +161,7 @@ genProgram = do
       result = TyCon (typeWired "Type")
   pure
     Program
-      { programModule = ModuleId testPackage "Test",
-        programScopes = scopes,
+      { programScopes = scopes,
         programDecls =
           [ DeclType
               TypeDecl
@@ -206,8 +204,7 @@ genTidyProgram = do
       functionType = TyFun lifted lifted valueType valueType
   pure
     Program
-      { programModule = ModuleId testPackage "Test",
-        programScopes = scopes,
+      { programScopes = scopes,
         programDecls =
           [ DeclVal
               ValDecl

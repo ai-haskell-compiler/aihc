@@ -3,14 +3,13 @@
 -- | Convert a checked module into System FC 2 types, axioms, and values.
 module Aihc.Fc2.Desugar
   ( desugarModuleFc2,
+    DesugarConfig (..),
     Fc2DesugarResult (..),
   )
 where
 
-import Aihc.Fc.Desugar (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface)
-import Aihc.Fc.Syntax (fcProgramModule, fcTopBinds)
 import Aihc.Fc2.Convert
-import Aihc.Fc2.FromFc (convertValueDecls)
+import Aihc.Fc2.Desugar.Value (desugarValues)
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Fc2.Tidy (tidyProgram)
@@ -74,19 +73,24 @@ data Fc2DesugarResult = Fc2DesugarResult
   }
   deriving (Show)
 
+newtype DesugarConfig = DesugarConfig
+  { primPackageId :: PackageId
+  }
+  deriving (Eq, Show)
+
 desugarModuleFc2 :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> Fc2DesugarResult
 desugarModuleFc2 config bindings interface checked =
   if not (tcModuleSuccess checked)
     then
       Fc2DesugarResult
-        { ds2Program = Program (ModuleId "" (fromMaybe "Main" (Syn.moduleName checked))) emptyScopeTable [],
+        { ds2Program = Program emptyScopeTable [],
           ds2Success = False,
           ds2Errors = fmap show (tcModuleDiagnostics checked)
         }
     else case desugarChecked config bindings interface checked of
       Left errors ->
         Fc2DesugarResult
-          { ds2Program = Program (ModuleId "" (fromMaybe "Main" (Syn.moduleName checked))) emptyScopeTable [],
+          { ds2Program = Program emptyScopeTable [],
             ds2Success = False,
             ds2Errors = [errors]
           }
@@ -100,7 +104,7 @@ desugarModuleFc2 config bindings interface checked =
 desugarChecked :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> Either String Program
 desugarChecked config bindings interface checked = do
   let (packageId, currentModule) = resolvedModuleOrigin checked
-      moduleId = ModuleId packageId currentModule
+      moduleOrigin = (packageId, currentModule)
       dataTypes = tcInterfaceDataTypes interface
       tyCons = tcInterfaceTyCons interface
       classes = tcInterfaceClasses interface
@@ -115,10 +119,10 @@ desugarChecked config bindings interface checked = do
       <$> mapM
         (dsDecl env packageId currentModule dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings)
         (Syn.moduleDecls checked)
-  valueDecls <- convertFcValues config bindings interface checked env
+  valueDecls <- desugarValues env bindings interface moduleOrigin checked
   let decls = typeDecls <> valueDecls
-      scopes = buildScopes moduleId decls
-  pure (tidyProgram (Program moduleId scopes decls))
+      scopes = buildScopes moduleOrigin decls
+  pure (tidyProgram (Program scopes decls))
 
 axiomEntries :: PackageId -> Text -> [DataTypeInfo] -> [DataFamilyInstanceInfo] -> [TypeFamilyInstanceInfo] -> [(Text, Name)]
 axiomEntries package moduleName' dataTypes dataFamilyInstances typeFamilyInstances =
@@ -143,16 +147,6 @@ axiomEntries package moduleName' dataTypes dataFamilyInstances typeFamilyInstanc
           ]
     typeFamilyAxiom currentPackage currentModule info =
       (tfiiAxiomName info, Name (tfiiAxiomName info) SortAxiom (OriginTop currentPackage currentModule))
-
-convertFcValues :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> ConvertEnv -> Either String [Decl]
-convertFcValues config bindings interface checked env =
-  let fcResult = desugarModuleWithInterface config bindings interface checked
-   in if not (dsSuccess fcResult)
-        then
-          if null (dsErrors fcResult)
-            then Right []
-            else Left (unlines (dsErrors fcResult))
-        else convertValueDecls env (fcProgramModule (dsProgram fcResult)) (fcTopBinds (dsProgram fcResult))
 
 dsDecl ::
   ConvertEnv ->
@@ -618,8 +612,8 @@ synonymResult env tyCon params =
     dropParams remaining (KFun _ result) = dropParams (remaining - 1) result
     dropParams _ kind = kind
 
-buildScopes :: ModuleId -> [Decl] -> ScopeTable
-buildScopes moduleId decls =
+buildScopes :: (PackageId, Text) -> [Decl] -> ScopeTable
+buildScopes moduleOrigin decls =
   foldl
     ( \table (index, (package, moduleName')) ->
         insertScope index package moduleName' table
@@ -630,7 +624,7 @@ buildScopes moduleId decls =
     origins =
       sort
         ( nub
-            ( (modulePackage moduleId, Aihc.Fc2.Name.moduleName moduleId)
+            ( moduleOrigin
                 : concatMap declOrigins decls
             )
         )
@@ -746,12 +740,26 @@ resolvedModuleOrigin resolvedModule =
 definitionResolution :: Syn.Decl -> Maybe ResolutionAnnotation
 definitionResolution declaration =
   case peelDeclAnn declaration of
+    Syn.DeclValue (Syn.FunctionBind name _) -> nameResolution name
+    Syn.DeclValue (Syn.PatternBind _ pattern' _) -> patternResolution pattern'
     Syn.DeclData dataDeclaration -> nameResolution (binderHeadName (dataDeclHead dataDeclaration))
     Syn.DeclTypeSyn synonymDeclaration -> nameResolution (binderHeadName (typeSynHead synonymDeclaration))
     Syn.DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (Syn.newtypeDeclHead newtypeDeclaration))
     Syn.DeclClass classDeclaration -> nameResolution (binderHeadName (Syn.classDeclHead classDeclaration))
     Syn.DeclDataFamilyDecl familyDeclaration -> nameResolution (binderHeadName (Syn.dataFamilyDeclHead familyDeclaration))
     Syn.DeclForeign foreignDecl -> nameResolution (Syn.foreignName foreignDecl)
+    _ -> Nothing
+
+patternResolution :: Syn.Pattern -> Maybe ResolutionAnnotation
+patternResolution pattern' =
+  case pattern' of
+    Syn.PVar name -> nameResolution name
+    Syn.PAnn _ inner -> patternResolution inner
+    Syn.PParen inner -> patternResolution inner
+    Syn.PStrict inner -> patternResolution inner
+    Syn.PIrrefutable inner -> patternResolution inner
+    Syn.PAs name _ -> nameResolution name
+    Syn.PTypeSig inner _ -> patternResolution inner
     _ -> Nothing
 
 nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation
