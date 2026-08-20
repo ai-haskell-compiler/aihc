@@ -6,10 +6,11 @@ import Aihc.Cli.InstallV2 (InstallV2Result (..), installV2)
 import Aihc.Cli.Options (InstallV2Options (..))
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
+import Aihc.Fc2 qualified as Fc2
 import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
-import Control.Exception (bracket)
+import Control.Exception (IOException, bracket, try)
 import Data.ByteString qualified as BS
-import Data.List (isPrefixOf, sort)
+import Data.List (isInfixOf, isPrefixOf, sort)
 import Data.Maybe (mapMaybe)
 import Data.Text.IO qualified as TIO
 import Hedgehog (Property, property, success)
@@ -334,7 +335,8 @@ main =
           testCase "duplicates re-exported term signatures in type interfaces" test_installV2TypeReexports,
           testCase "installs direct local dependencies" test_installV2LocalDependencies,
           testCase "rebuilds stale type artifact schemas" test_installV2StaleTypeArtifact,
-          testCase "stops invalidation when a rebuilt scope stays equal" test_installV2StopsAtEqualScope
+          testCase "stops invalidation when a rebuilt scope stays equal" test_installV2StopsAtEqualScope,
+          testCase "writes no core files when System FC 2 desugar fails" test_installV2Fc2DesugarFailure
         ],
       testProperty "Hedgehog options" prop_dummy
     ]
@@ -372,12 +374,19 @@ test_installV2ResolveArtifacts =
     assertFileExists (installV2StorePath first </> "Demo" </> "B" </> "type.cbor")
     assertCoreFile (installV2StorePath first </> "Demo" </> "A" </> "core")
     assertCoreFile (installV2StorePath first </> "Demo" </> "B" </> "core")
+    assertCoreV2File (installV2StorePath first </> "Demo" </> "A" </> "core-v2")
+    assertCoreV2File (installV2StorePath first </> "Demo" </> "B" </> "core-v2")
     second <- installV2 options
     assertEqual "reused modules" ["Demo.A", "Demo.B"] (sort (installV2ReusedModules second))
     assertEqual "stable package directory" (installV2StorePath first) (installV2StorePath second)
+    assertCoreV2File (installV2StorePath second </> "Demo" </> "A" </> "core-v2")
+    assertCoreV2File (installV2StorePath second </> "Demo" </> "B" </> "core-v2")
     removeFile (installV2StorePath first </> "Demo" </> "A" </> "core")
     coreRepaired <- installV2 options
     assertEqual "repairs the complete SCC with cached types" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules coreRepaired))
+    removeFile (installV2StorePath first </> "Demo" </> "A" </> "core-v2")
+    coreV2Repaired <- installV2 options
+    assertEqual "repairs the complete SCC when core-v2 is absent" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules coreV2Repaired))
     writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb x = (x)\n"
     changed <- installV2 options
     assertEqual "source changes keep the package directory" (installV2StorePath first) (installV2StorePath changed)
@@ -396,6 +405,55 @@ assertCoreFile path = do
   case Fc.parseProgram core of
     Left parseError -> assertFailure ("invalid Core file " <> path <> ": " <> Fc.renderParseError parseError)
     Right program -> assertEqual ("Core lint errors in " <> path) [] (Fc.lintProgram Fc.emptyLintEnv program)
+
+assertCoreV2File :: FilePath -> Assertion
+assertCoreV2File path = do
+  assertFileExists path
+  core <- TIO.readFile path
+  case Fc2.parseProgram core of
+    Left parseError -> assertFailure ("invalid Core-v2 file " <> path <> ": " <> Fc2.renderParseError parseError)
+    Right _ -> pure ()
+
+test_installV2Fc2DesugarFailure :: Assertion
+test_installV2Fc2DesugarFailure =
+  withTempDir "aihc-install-v2-fc2-ccall" $ \root -> do
+    let sourceRoot = root </> "source"
+        storeRoot = root </> "store"
+        sourceDir = sourceRoot </> "src"
+        options = InstallV2Options sourceRoot (Just storeRoot) False
+    createDirectoryIfMissing True sourceDir
+    writeFile
+      (sourceRoot </> "demo.cabal")
+      ( unlines
+          [ "cabal-version: 3.0",
+            "name: demo",
+            "version: 0.1.0.0",
+            "library",
+            "  exposed-modules: Demo",
+            "  hs-source-dirs: src",
+            "  default-language: Haskell2010",
+            "  default-extensions: ForeignFunctionInterface"
+          ]
+      )
+    writeFile
+      (sourceDir </> "Demo.hs")
+      "module Demo where\ndata Int = I\nforeign import ccall unsafe \"foo\" foo :: Int -> Int\n"
+    caught <- try (installV2 options) :: IO (Either IOException InstallV2Result)
+    case caught of
+      Right _ -> assertFailure "expected install-v2 to fail on foreign import ccall"
+      Left err -> do
+        assertBool
+          ("expected System FC 2 ccall error, got: " <> show err)
+          ("System FC 2 accepts only foreign import prim" `isInfixOf` show err)
+        storeEntries <- listDirectory storeRoot
+        case storeEntries of
+          [packageDir] -> do
+            let moduleDir = storeRoot </> packageDir </> "Demo"
+            coreExists <- doesFileExist (moduleDir </> "core")
+            coreV2Exists <- doesFileExist (moduleDir </> "core-v2")
+            assertBool "writes no core after Fc2 desugar failure" (not coreExists)
+            assertBool "writes no core-v2 after Fc2 desugar failure" (not coreV2Exists)
+          other -> assertFailure ("expected one package directory, got " <> show other)
 
 test_installV2TypeDependencies :: Assertion
 test_installV2TypeDependencies =

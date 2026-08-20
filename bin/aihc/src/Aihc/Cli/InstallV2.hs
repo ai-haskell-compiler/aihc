@@ -19,6 +19,8 @@ import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, en
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeInterface)
 import Aihc.Fc (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface, emptyLintEnv, lintProgram, renderProgram)
+import Aihc.Fc2 (Fc2DesugarResult (..), desugarModuleFc2)
+import Aihc.Fc2 qualified as Fc2
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Util qualified as HackageUtil
@@ -230,6 +232,7 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
       resolvePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "resolve.cbor"
       typePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "type.cbor"
       corePath modu = storePath </> moduleDirectory modu </> "core"
+      coreV2Path modu = storePath </> moduleDirectory modu </> "core-v2"
   cachedExports <- tryReadUnitArtifacts hashes resolvePackage resolvePath unit
   (diskExports, resolveResult, resolveChanged) <- case cachedExports of
     Just exports -> do
@@ -275,8 +278,9 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
       pure (storedInterfaces, True, Just checked)
   updatedTypeHashes <- updateTypeHashes typePath typeHashes unit
   coreExists <- and <$> mapM (doesFileExist . corePath . sourceModuleAst) unit
+  coreV2Exists <- and <$> mapM (doesFileExist . coreV2Path . sourceModuleAst) unit
   coreChanged <-
-    if typeChanged || not coreExists
+    if typeChanged || not coreExists || not coreV2Exists
       then do
         (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
         writeCoreFiles verbose primIdentity completeInterface corePath checkedModules
@@ -303,11 +307,14 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
 writeCoreFiles :: (String -> IO ()) -> PackageId -> TcInterface -> (Module -> FilePath) -> [Module] -> IO ()
 writeCoreFiles verbose primIdentity interface corePath checkedModules = do
   let bindings = tcInterfaceBindings interface <> concatMap tcModuleBindings checkedModules
-      results = map (desugarModuleWithInterface (DesugarConfig primIdentity) bindings interface) checkedModules
+      config = DesugarConfig primIdentity
+      results = map (desugarModuleWithInterface config bindings interface) checkedModules
+      results2 = map (desugarModuleFc2 config bindings interface) checkedModules
+  unless (all ds2Success results2) (ioError (userError ("Core-v2 generation failed: " <> unlines (concatMap ds2Errors results2))))
   unless (all dsSuccess results) (ioError (userError ("Core generation failed: " <> unlines (concatMap dsErrors results))))
   let lintFailures =
-        [ (modu, result, errors)
-        | (modu, result) <- zip checkedModules results,
+        [ (modu, result, result2, errors)
+        | (modu, result, result2) <- zip3 checkedModules results results2,
           let errors = lintProgram emptyLintEnv (dsProgram result),
           not (null errors)
         ]
@@ -315,29 +322,46 @@ writeCoreFiles verbose primIdentity interface corePath checkedModules = do
   unless (null lintFailures) $ do
     mapM_ writeBadCore lintFailures
     ioError (userError (unlines ("Core lint failed:" : lintReport)))
-  mapM_ writeCore (zip checkedModules results)
+  mapM_ writeCore (zip3 checkedModules results results2)
   where
-    renderLintFailure (modu, _, errors) =
+    coreV2Path modu = takeDirectory (corePath modu) </> "core-v2"
+
+    renderLintFailure (modu, _, _, errors) =
       ("  module " <> T.unpack (fromMaybe "Main" (moduleName modu)) <> ":")
         : ("    bad Core file: " <> corePath modu <> ".bad")
+        : ("    bad Core-v2 file: " <> coreV2Path modu <> ".bad")
         : map (("    " <>) . show) errors
 
-    writeBadCore (modu, result, _) = do
+    writeBadCore (modu, result, result2, _) = do
       let path = corePath modu <> ".bad"
+          pathV2 = coreV2Path modu <> ".bad"
           name = fromMaybe "Main" (moduleName modu)
       removeFileIfExists (corePath modu)
+      removeFileIfExists (coreV2Path modu)
       writeCoreFile path result
+      writeCoreV2File pathV2 result2
       verbose ("Write bad Core: " <> T.unpack name <> " -> " <> path)
+      verbose ("Write bad Core-v2: " <> T.unpack name <> " -> " <> pathV2)
 
-    writeCore (modu, result) = do
+    writeCore (modu, result, result2) = do
       let path = corePath modu
+          pathV2 = coreV2Path modu
           name = fromMaybe "Main" (moduleName modu)
       removeFileIfExists (path <> ".bad")
+      removeFileIfExists (pathV2 <> ".bad")
       writeCoreFile path result
+      writeCoreV2File pathV2 result2
       verbose ("Write Core: " <> T.unpack name)
+      verbose ("Write Core-v2: " <> T.unpack name)
 
     writeCoreFile path result = do
       let rendered = renderProgram (dsProgram result)
+          output = if "\n" `isSuffixOf` rendered then rendered else rendered <> "\n"
+      createDirectoryIfMissing True (takeDirectory path)
+      writeFile path output
+
+    writeCoreV2File path result = do
+      let rendered = Fc2.renderProgram (ds2Program result)
           output = if "\n" `isSuffixOf` rendered then rendered else rendered <> "\n"
       createDirectoryIfMissing True (takeDirectory path)
       writeFile path output
