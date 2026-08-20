@@ -217,10 +217,9 @@ referencesExpr bound expression =
     FcLam var body -> referencesVarType var <> referencesExpr (Set.insert var bound) body
     FcTyLam _ body -> referencesExpr bound body
     FcLet bind body -> referencesLet bound bind body
-    FcCase scrutinee binder resultType alternatives ->
+    FcCase scrutinee binder alternatives ->
       referencesExpr bound scrutinee
         <> referencesVarType binder
-        <> referencesType resultType
         <> foldMap (referencesAlt (Set.insert binder bound)) alternatives
     FcCast inner coercion -> referencesExpr bound inner <> referencesCoercion coercion
     FcCallForeign foreignCall arguments ->

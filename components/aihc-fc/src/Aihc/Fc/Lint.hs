@@ -234,16 +234,19 @@ lintExpr env (FcLet bind body) = do
   case errs of
     [] -> lintExpr env' body
     (e : _) -> Left e
-lintExpr env (FcCase scrut binder resultType alts) = do
+lintExpr env (FcCase scrut binder alts) = do
   scrutTy <- lintExpr env scrut
   _ <- lintValueType "case binder" env (varType binder)
-  _ <- lintValueType "case result" env resultType
   if typesEqual scrutTy (varType binder)
     then pure ()
     else Left (TypeMismatch "case binder" scrutTy (varType binder))
   let caseEnv = extendTermEnv binder env
-  mapM_ (lintAltWithExpected caseEnv scrutTy resultType) alts
-  Right resultType
+  case alts of
+    [] -> Left (LintFailure "case expression has no alternatives")
+    alt : rest -> do
+      resTy <- lintAlt caseEnv scrutTy alt
+      mapM_ (lintAltWithExpected caseEnv scrutTy resTy) rest
+      Right resTy
 lintExpr env (FcCast e co) = do
   eTy <- lintExpr env e
   (coFrom, coTo) <- coercionEndpoints env co

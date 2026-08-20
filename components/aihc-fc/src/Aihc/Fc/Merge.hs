@@ -115,11 +115,10 @@ qualifyTopLevelBinders program =
           let binders = bindVars bind
               bodyBound = bound <> Set.fromList (map varUnique binders)
            in FcLet (resolveLocalBind bound bind) (recur bodyBound body)
-        FcCase scrutinee binder resultType alternatives ->
+        FcCase scrutinee binder alternatives ->
           FcCase
             (recur bound scrutinee)
             binder
-            resultType
             [ alternative
                 { altRhs =
                     recur
@@ -263,11 +262,10 @@ resolveExpr providers sourceProviders bound expression =
     FcLet bind body ->
       let bodyBound = bound <> Set.fromList (map varUnique (bindersOf bind))
        in FcLet (resolveBind providers sourceProviders bound bind) (resolveExpr providers sourceProviders bodyBound body)
-    FcCase scrutinee binder resultType alternatives ->
+    FcCase scrutinee binder alternatives ->
       FcCase
         (recur scrutinee)
         binder
-        resultType
         [ alternative
             { altRhs =
                 resolveExpr
@@ -311,7 +309,7 @@ shiftProgramVars offset program = program {fcTopBinds = map shiftTopBind (fcTopB
         FcLam var body -> FcLam (shiftVar var) (shiftExpr body)
         FcTyLam tyVar body -> FcTyLam tyVar (shiftExpr body)
         FcLet bind body -> FcLet (shiftBind bind) (shiftExpr body)
-        FcCase scrutinee binder resultType alternatives -> FcCase (shiftExpr scrutinee) (shiftVar binder) resultType (map shiftAlt alternatives)
+        FcCase scrutinee binder alternatives -> FcCase (shiftExpr scrutinee) (shiftVar binder) (map shiftAlt alternatives)
         FcCast inner coercion -> FcCast (shiftExpr inner) coercion
         FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map shiftExpr arguments)
     shiftAlt alternative =

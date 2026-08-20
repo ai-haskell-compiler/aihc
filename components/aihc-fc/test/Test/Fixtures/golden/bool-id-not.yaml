@@ -16,7 +16,7 @@ expected: |-
           (x1002{unique 1002} : (a{unique 31} : Type));
     not{unique 1001} =
       λ(x1003{unique 1003} : tycon 1.Bool/0 { :: Type }).
-        case (x1003{unique 1003} : tycon 1.Bool/0 { :: Type }) as (_scrut{unique 1004} : tycon 1.Bool/0 { :: Type }) return (tycon 1.Bool/0 { :: Type }) of {
+        case (x1003{unique 1003} : tycon 1.Bool/0 { :: Type }) as (_scrut{unique 1004} : tycon 1.Bool/0 { :: Type }) of {
           1.True →
             (False{unique -2286087477}{origin 1.False} : tycon 1.Bool/0 { :: Type });
           1.False →

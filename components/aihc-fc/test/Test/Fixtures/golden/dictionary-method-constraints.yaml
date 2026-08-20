@@ -12,7 +12,7 @@ expected: |-
   render{unique 1000} : ∀ (a{unique 20} : Type). tycon 1.Render/1 { :: Type → Type }[(a{unique 20} : Type)] → (a{unique 20} : Type) → tycon 1.Result/0 { :: Type } =
     Λ(a{unique 20} : Type).
       λ($d0{unique 1001} : tycon 1.Render/1 { :: Type → Type }[(a{unique 20} : Type)]).
-        case ($d0{unique 1001} : tycon 1.Render/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon 1.Render/1 { :: Type → Type }[(a{unique 20} : Type)]) return ((a{unique 20} : Type) → tycon 1.Result/0 { :: Type }) of {
+        case ($d0{unique 1001} : tycon 1.Render/1 { :: Type → Type }[(a{unique 20} : Type)]) as ($dict{unique 1002} : tycon 1.Render/1 { :: Type → Type }[(a{unique 20} : Type)]) of {
           1.$Dict$Render ($method0{unique 1003} : (a{unique 20} : Type) → tycon 1.Result/0 { :: Type }) →
             ($method0{unique 1003} : (a{unique 20} : Type) → tycon 1.Result/0 { :: Type })
         }
@@ -25,7 +25,7 @@ expected: |-
       Λ(b{unique 24} : Type).
         λ($d0{unique 1005} : tycon 1.Convert/1 { :: Type → Type }[(a{unique 22} : Type)]).
           λ($d1{unique 1006} : tycon 1.Render/1 { :: Type → Type }[(b{unique 24} : Type)]).
-            case ($d0{unique 1005} : tycon 1.Convert/1 { :: Type → Type }[(a{unique 22} : Type)]) as ($dict{unique 1007} : tycon 1.Convert/1 { :: Type → Type }[(a{unique 22} : Type)]) return ((a{unique 22} : Type) → (b{unique 24} : Type) → tycon 1.Result/0 { :: Type }) of {
+            case ($d0{unique 1005} : tycon 1.Convert/1 { :: Type → Type }[(a{unique 22} : Type)]) as ($dict{unique 1007} : tycon 1.Convert/1 { :: Type → Type }[(a{unique 22} : Type)]) of {
               1.$Dict$Convert ($method0{unique 1008} : ∀ (b{unique 24} : Type). tycon 1.Render/1 { :: Type → Type }[(b{unique 24} : Type)] → (a{unique 22} : Type) → (b{unique 24} : Type) → tycon 1.Result/0 { :: Type }) →
                 (($method0{unique 1008} : ∀ (b{unique 24} : Type). tycon 1.Render/1 { :: Type → Type }[(b{unique 24} : Type)] → (a{unique 22} : Type) → (b{unique 24} : Type) → tycon 1.Result/0 { :: Type }) @(b{unique 24} : Type)) ($d1{unique 1006} : tycon 1.Render/1 { :: Type → Type }[(b{unique 24} : Type)])
             }

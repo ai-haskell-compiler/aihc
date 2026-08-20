@@ -42,7 +42,7 @@ expected: |-
         (True{unique -2360662326}{origin 1.True} : tycon 1.Bool/0 { :: Type });
     single{unique 1001} =
       λ(x1004{unique 1004} : tycon 2.[]/1 { :: Type → Type }[tycon 1.Bool/0 { :: Type }]).
-        case (x1004{unique 1004} : tycon 2.[]/1 { :: Type → Type }[tycon 1.Bool/0 { :: Type }]) as (_match1008{unique 1008} : tycon 2.[]/1 { :: Type → Type }[tycon 1.Bool/0 { :: Type }]) return (tycon 1.Bool/0 { :: Type }) of {
+        case (x1004{unique 1004} : tycon 2.[]/1 { :: Type → Type }[tycon 1.Bool/0 { :: Type }]) as (_match1008{unique 1008} : tycon 2.[]/1 { :: Type → Type }[tycon 1.Bool/0 { :: Type }]) of {
           2.[] →
             (True{unique -2360662326}{origin 1.True} : tycon 1.Bool/0 { :: Type });
           _ →
@@ -54,9 +54,9 @@ expected: |-
           _next_match1012{unique 1012} : tycon 1.Bool/0 { :: Type } =
             (False{unique -2286087477}{origin 1.False} : tycon 1.Bool/0 { :: Type })
         } in
-          case (x1009{unique 1009} : tycon 1.MaybeBool/0 { :: Type }) as (_match1015{unique 1015} : tycon 1.MaybeBool/0 { :: Type }) return (tycon 1.Bool/0 { :: Type }) of {
+          case (x1009{unique 1009} : tycon 1.MaybeBool/0 { :: Type }) as (_match1015{unique 1015} : tycon 1.MaybeBool/0 { :: Type }) of {
             1.Just (_pat{unique 1013} : tycon 1.Bool/0 { :: Type }) →
-              case (_pat{unique 1013} : tycon 1.Bool/0 { :: Type }) as (_match1014{unique 1014} : tycon 1.Bool/0 { :: Type }) return (tycon 1.Bool/0 { :: Type }) of {
+              case (_pat{unique 1013} : tycon 1.Bool/0 { :: Type }) as (_match1014{unique 1014} : tycon 1.Bool/0 { :: Type }) of {
                 1.True →
                   (True{unique -2360662326}{origin 1.True} : tycon 1.Bool/0 { :: Type });
                 _ →

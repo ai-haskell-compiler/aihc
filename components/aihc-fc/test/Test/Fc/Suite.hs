@@ -67,7 +67,7 @@ rejectsWrongCaseBinderType :: TestTree
 rejectsWrongCaseBinderType = testCase "rejects a wrong case binder type" $ do
   let scrutinee = Var "scrutinee" (Unique 10) liftedType
       binder = Var "binder" (Unique 11) (TcTyCon (TyCon "Char" 0) [])
-      expression = Fc.FcCase (FcVar scrutinee) binder liftedType [FcAlt DefaultAlt [] (FcVar scrutinee)]
+      expression = Fc.FcCase (FcVar scrutinee) binder [FcAlt DefaultAlt [] (FcVar scrutinee)]
       environment = emptyLintEnv {leTerms = Map.singleton (varUnique scrutinee) (varType scrutinee)}
   case lintExpr environment expression of
     Left TypeMismatch {} -> pure ()
@@ -82,7 +82,7 @@ rejectsWrongAlternativeBinderType = testCase "rejects a wrong case alternative b
       caseBinder = Var "caseBinder" (Unique 14) boxType
       constructorOrigin = FcTopLevelOrigin "test" "Test" "Box"
       constructor = fcConstructorIdFromSymbol constructorOrigin
-      expression = Fc.FcCase (FcVar scrutinee) caseBinder liftedType [FcAlt (DataAlt constructor) [wrongField] (FcVar wrongField)]
+      expression = Fc.FcCase (FcVar scrutinee) caseBinder [FcAlt (DataAlt constructor) [wrongField] (FcVar wrongField)]
       environment =
         emptyLintEnv
           { leTerms = Map.singleton (varUnique scrutinee) (varType scrutinee),

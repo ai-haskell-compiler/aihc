@@ -6,13 +6,14 @@ module Aihc.Fc2.FromFc
   )
 where
 
+import Aihc.Fc.Subst (substType)
 import Aihc.Fc.Syntax qualified as Fc
 import Aihc.Fc2.Convert
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Evidence qualified as Ev
-import Aihc.Tc.Types (RuntimeRep (..), Unique (..))
+import Aihc.Tc.Types (RuntimeRep (..), TcType (..), Unique (..))
 import Data.Char (isAsciiUpper)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -56,7 +57,7 @@ convertBindDecls env moduleId tops bind =
 convertVal :: ConvertEnv -> Fc.FcModuleId -> TopVars -> Fc.Var -> Fc.FcExpr -> Either String ValDecl
 convertVal env moduleId tops var expr = do
   ty <- convertType env (Fc.varType var)
-  body <- convertExpr env tops expr
+  body <- convertExpr env tops (Just (Fc.varType var)) expr
   pure
     ValDecl
       { valVis = Pub,
@@ -75,50 +76,102 @@ convertPrim env moduleId var = do
         primType = ty
       }
 
-convertExpr :: ConvertEnv -> TopVars -> Fc.FcExpr -> Either String Expr
-convertExpr env tops expression =
+convertExpr :: ConvertEnv -> TopVars -> Maybe TcType -> Fc.FcExpr -> Either String Expr
+convertExpr env tops expectedType expression =
   case expression of
     Fc.FcVar var -> Right (ExVar (varNameFc2 tops var))
     Fc.FcLit literal _ -> ExLit <$> convertLiteral env literal
-    Fc.FcApp function argument -> ExApp <$> convertExpr env tops function <*> convertExpr env tops argument
-    Fc.FcTyApp function ty -> ExTyApp <$> convertExpr env tops function <*> convertType env ty
+    Fc.FcApp function argument -> do
+      argumentType <- functionArgumentType =<< fcExprType function
+      ExApp
+        <$> convertExpr env tops Nothing function
+        <*> convertExpr env tops (Just argumentType) argument
+    Fc.FcTyApp function ty -> ExTyApp <$> convertExpr env tops Nothing function <*> convertType env ty
     Fc.FcLam var body -> do
       binder <- convertTermBinder env tops var
-      ExLam binder <$> convertExpr env tops body
+      bodyType <- case expectedType of
+        Just ty -> functionResultType ty
+        Nothing -> fcExprType body
+      ExLam binder <$> convertExpr env tops (Just bodyType) body
     Fc.FcTyLam tyVar body -> do
       binder <- tyVarBinder env tyVar
-      ExTyLam binder <$> convertExpr (withTyVar tyVar env) tops body
+      bodyType <- case expectedType of
+        Just (TcForAllTy _ ty) -> Right ty
+        _ -> fcExprType body
+      ExTyLam binder <$> convertExpr (withTyVar tyVar env) tops (Just bodyType) body
     Fc.FcLet bind body ->
       case bind of
         Fc.FcNonRec var expr -> do
           binder <- convertTermBinder env tops var
-          rhs <- convertExpr env tops expr
-          ExLet (Bind binder rhs) <$> convertExpr env tops body
+          rhs <- convertExpr env tops (Just (Fc.varType var)) expr
+          ExLet (Bind binder rhs) <$> convertExpr env tops expectedType body
         Fc.FcRec bindings -> do
           converted <- mapM (convertRecBind env tops) bindings
-          ExRec converted <$> convertExpr env tops body
-    Fc.FcCase scrutinee binder resultType alternatives -> do
-      scrutinee' <- convertExpr env tops scrutinee
+          ExRec converted <$> convertExpr env tops expectedType body
+    Fc.FcCase scrutinee binder alternatives -> do
+      resultType <- case expectedType of
+        Just ty -> Right ty
+        Nothing -> case alternatives of
+          first : _ -> fcExprType (Fc.altRhs first)
+          [] -> Left "Core-v2 case expression does not have an expected result type"
+      scrutinee' <- convertExpr env tops (Just (Fc.varType binder)) scrutinee
       caseBinder <- convertTermBinder env tops binder
       resultType' <- convertType env resultType
-      alts <- mapM (convertAlt env tops) alternatives
+      alts <- mapM (convertAlt env tops resultType) alternatives
       pure (ExCase scrutinee' caseBinder resultType' alts)
     Fc.FcCast inner coercion ->
-      ExCast <$> convertExpr env tops inner <*> convertCoercion env coercion
+      ExCast <$> convertExpr env tops Nothing inner <*> convertCoercion env coercion
     Fc.FcCallForeign {} ->
       Left "System FC 2 accepts only foreign import prim"
 
 convertRecBind :: ConvertEnv -> TopVars -> (Fc.Var, Fc.FcExpr) -> Either String Bind
 convertRecBind env tops (var, expr) = do
   binder <- convertTermBinder env tops var
-  Bind binder <$> convertExpr env tops expr
+  Bind binder <$> convertExpr env tops (Just (Fc.varType var)) expr
 
-convertAlt :: ConvertEnv -> TopVars -> Fc.FcAlt -> Either String Alt
-convertAlt env tops alternative = do
+convertAlt :: ConvertEnv -> TopVars -> TcType -> Fc.FcAlt -> Either String Alt
+convertAlt env tops resultType alternative = do
   con <- convertAltCon env (Fc.altCon alternative)
   binders <- mapM (convertTermBinder env tops) (Fc.altBinders alternative)
-  rhs <- convertExpr env tops (Fc.altRhs alternative)
+  rhs <- convertExpr env tops (Just resultType) (Fc.altRhs alternative)
   pure (Alt con binders rhs)
+
+fcExprType :: Fc.FcExpr -> Either String TcType
+fcExprType expression =
+  case expression of
+    Fc.FcVar var -> Right (Fc.varType var)
+    Fc.FcLit _ ty -> Right ty
+    Fc.FcApp function _ -> functionResultType =<< fcExprType function
+    Fc.FcTyApp function ty -> do
+      functionType <- fcExprType function
+      case functionType of
+        TcForAllTy tyVar body -> Right (substType (Map.singleton tyVar ty) body)
+        _ -> Left "Core-v2 type application does not have a quantified function type"
+    Fc.FcLam binder body -> TcFunTy (Fc.varType binder) <$> fcExprType body
+    Fc.FcTyLam tyVar body -> TcForAllTy tyVar <$> fcExprType body
+    Fc.FcLet _ body -> fcExprType body
+    Fc.FcCase _ _ alternatives ->
+      case alternatives of
+        first : _ -> fcExprType (Fc.altRhs first)
+        [] -> Left "Core-v2 cannot infer the result type of an empty FC1 case expression"
+    Fc.FcCast inner _ -> fcExprType inner
+    Fc.FcCallForeign foreignCall _ -> Right (Fc.fcForeignCallResultType (Fc.fcForeignCallSignature foreignCall))
+
+functionArgumentType :: TcType -> Either String TcType
+functionArgumentType ty =
+  case ty of
+    TcFunTy argument _ -> Right argument
+    TcQualTy [] body -> functionArgumentType body
+    TcQualTy (_ : predicates) body -> Right (TcQualTy predicates body)
+    _ -> Left "Core-v2 application does not have a function type"
+
+functionResultType :: TcType -> Either String TcType
+functionResultType ty =
+  case ty of
+    TcFunTy _ result -> Right result
+    TcQualTy [] body -> functionResultType body
+    TcQualTy (_ : predicates) body -> Right (if null predicates then body else TcQualTy predicates body)
+    _ -> Left "Core-v2 expression does not have a function result type"
 
 convertAltCon :: ConvertEnv -> Fc.FcAltCon -> Either String AltCon
 convertAltCon env alternative =

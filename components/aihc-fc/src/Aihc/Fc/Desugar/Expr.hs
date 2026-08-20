@@ -17,7 +17,6 @@ module Aihc.Fc.Desugar.Expr
     DsState (..),
     ClassDict (..),
     desugarBug,
-    fcExprTypeM,
     freshUnique,
     freshVar,
     lookupType,
@@ -259,8 +258,7 @@ dsMatchesWithDictSource enclosingDicts givenDicts abstractDicts ty matches = cas
             let (tyLams, afterForAlls) = peelForAlls ty
                 dictPreds = fst (peelQuals afterForAlls)
             dicts <- dictionariesFor dictPreds
-            let resultType = snd (peelQuals afterForAlls)
-            body <- withDicts (enclosingDicts <> dicts) (dsRhsExpected resultType (matchRhs m0))
+            body <- withDicts (enclosingDicts <> dicts) (dsRhs (matchRhs m0))
             let dictLamExpr
                   | abstractDicts = foldr (FcLam . classDictVar) body dicts
                   | otherwise = body
@@ -328,7 +326,7 @@ peelFunTys _ ty = ([], ty)
 -- For variable patterns, binds the pattern variable to the scrutinee
 -- and recurses on remaining arguments.
 buildCaseChain :: [Var] -> TcType -> [Match] -> DsM FcExpr
-buildCaseChain [] resTy (m : _) = dsRhsExpected resTy (matchRhs m)
+buildCaseChain [] _resTy (m : _) = dsRhs (matchRhs m)
 buildCaseChain [] resTy [] = do
   v <- freshVar "_error" resTy
   pure (FcVar v)
@@ -349,7 +347,7 @@ buildCaseChain scrutVars@(scrutVar : restVars) resTy matches
       packageId <- gets dsPrimPackageId
       alts <- mapM (buildAltGroup scrutVar restVars resTy) (groupFirstPatterns packageId matches)
       caseBinder <- freshVar "_scrut" (varType scrutVar)
-      pure (FcCase (FcVar scrutVar) caseBinder resTy alts)
+      pure (FcCase (FcVar scrutVar) caseBinder alts)
 
 dsOrderedMatches :: TcType -> [Var] -> [Match] -> DsM FcExpr
 dsOrderedMatches resultTy scrutVars matches =
@@ -365,9 +363,9 @@ dsOrderedMatches resultTy scrutVars matches =
       if isLiftedType resultTy
         then do
           failureVar <- freshInternalVar "_next_match" resultTy
-          matched <- dsMatchPatterns scrutVars (matchPats match) (dsRhsExpected resultTy (matchRhs match)) (FcVar failureVar)
+          matched <- dsMatchPatterns scrutVars (matchPats match) (dsRhs (matchRhs match)) (FcVar failureVar)
           pure (shareFailure failureVar failure matched)
-        else dsMatchPatterns scrutVars (matchPats match) (dsRhsExpected resultTy (matchRhs match)) failure
+        else dsMatchPatterns scrutVars (matchPats match) (dsRhs (matchRhs match)) failure
 
 -- | Materialize a pattern-match failure continuation only when its decision
 -- tree contains enough failure leaves to benefit from sharing. Match binders
@@ -454,13 +452,11 @@ dsBoxedCharPatternMatch scrutVar char success failure = do
   outerBinder <- freshInternalVar "_boxed_char" checkedCharTy
   innerBinder <- freshInternalVar "_unboxed_char" checkedCharHashTy
   matched <- success
-  resultType <- fcExprTypeM matched
   charConstructor <- lookupDataConOrigin "C#"
   let innerCase =
         FcCase
           (FcVar charVar)
           innerBinder
-          resultType
           [ FcAlt (LitAlt (LitChar WordRep char) checkedCharHashTy) [] matched,
             FcAlt DefaultAlt [] failure
           ]
@@ -468,7 +464,6 @@ dsBoxedCharPatternMatch scrutVar char success failure = do
     ( FcCase
         (FcVar scrutVar)
         outerBinder
-        resultType
         [ FcAlt (DataAlt (fcConstructorIdFromSymbol charConstructor)) [charVar] innerCase,
           FcAlt DefaultAlt [] failure
         ]
@@ -496,13 +491,11 @@ dsOrdinaryPatternMatch scrutVar pat success failure = do
       binders <- zipWithM freshVar binderNames binderTys
       (evidenceBinders, dictionaries) <- patternEvidenceBinders pat
       matched <- withDicts dictionaries (dsMatchPatterns binders (constructorSubpatterns pat) success failure)
-      resultType <- fcExprTypeM matched
       caseBinder <- freshInternalVar "_match" (varType scrutVar)
       pure
         ( FcCase
             (FcVar scrutVar)
             caseBinder
-            resultType
             [ FcAlt con (evidenceBinders <> binders) matched,
               FcAlt DefaultAlt [] failure
             ]
@@ -518,11 +511,11 @@ constructorSubpatterns (PInfix left _operator right) = [left, right]
 constructorSubpatterns (PTuple _ subpatterns) = subpatterns
 constructorSubpatterns _ = []
 
-noPatternMatch :: TcType -> [Var] -> DsM FcExpr
-noPatternMatch resultType (scrutVar : _) = do
+noPatternMatch :: [Var] -> DsM FcExpr
+noPatternMatch (scrutVar : _) = do
   binder <- freshInternalVar "_no_match" (varType scrutVar)
-  pure (FcCase (FcVar scrutVar) binder resultType [])
-noPatternMatch _ [] =
+  pure (FcCase (FcVar scrutVar) binder [])
+noPatternMatch [] =
   desugarBug "cannot construct a pattern-match failure without a scrutinee"
 
 -- | Extract variable bindings from the first pattern of each match,
@@ -618,41 +611,6 @@ dsRhs (UnguardedRhs _sp expr maybeDecls) =
 dsRhs GuardedRhss {} =
   desugarBug "unsupported guarded RHS after type checking"
 
-dsRhsExpected :: TcType -> Rhs Expr -> DsM FcExpr
-dsRhsExpected resultType rhs =
-  case rhs of
-    UnguardedRhs _ expression maybeDecls ->
-      case maybeDecls of
-        Nothing -> dsExprExpected resultType expression
-        Just decls -> dsLetDecls decls (dsExprExpected resultType expression)
-    GuardedRhss {} -> desugarBug "unsupported guarded RHS after type checking"
-
-dsExprExpected :: TcType -> Expr -> DsM FcExpr
-dsExprExpected resultType expression =
-  case expression of
-    EAnn ann inner
-      | Just resolution <- fromAnnotation ann,
-        isTupleResolution resolution ->
-          withTupleConstructorOrigin (resolvedNameOrigin (resolutionTarget resolution)) (dsExprExpected resultType inner)
-      | Just _ <- (fromAnnotation ann :: Maybe TcAnnotation) -> dsExpr expression
-      | otherwise -> dsExprExpected resultType inner
-    EParen inner -> dsExprExpected resultType inner
-    ETypeSig inner _ -> dsExprExpected resultType inner
-    ECase scrutinee alternatives -> dsCase resultType scrutinee alternatives
-    ELambdaPats patterns body ->
-      dsLambda (functionResultTypeRequired (length patterns) resultType) patterns body
-    ELambdaCase alternatives ->
-      dsLambdaCase (functionResultTypeRequired 1 resultType) alternatives
-    ELambdaCases alternatives ->
-      dsLambdaCases (functionResultTypeRequired (lambdaCaseArity alternatives) resultType) alternatives
-    _ -> dsExpr expression
-
-rhsAnnotationType :: Rhs Expr -> Maybe TcType
-rhsAnnotationType rhs =
-  case rhs of
-    UnguardedRhs _ expression _ -> exprAnnotationType expression
-    GuardedRhss {} -> Nothing
-
 dsExpr :: Expr -> DsM FcExpr
 dsExpr (EAnn ann inner)
   | Just resolution <- fromAnnotation ann,
@@ -691,17 +649,13 @@ dsExpr (ETypeApp fun _ty) = dsExpr fun
 dsExpr (EIf cond thenE elseE) =
   dsIf cond thenE elseE
 dsExpr (ECase scrut alts) =
-  case caseAlternativesResultTypePure alts of
-    Just resultType -> dsCase resultType scrut alts
-    Nothing -> desugarBug "case expression does not have a checked result type"
+  dsCase scrut alts
 dsExpr (ELambdaPats pats body) =
-  case exprAnnotationType body of
-    Just resultType -> dsLambda resultType pats body
-    Nothing -> desugarBug "lambda expression does not have a checked result type"
+  dsLambda pats body
 dsExpr (ELambdaCase alts) =
-  dsLambdaCaseFromAlternatives alts
+  dsLambdaCase alts
 dsExpr (ELambdaCases alts) =
-  dsLambdaCasesFromAlternatives alts
+  dsLambdaCases alts
 dsExpr (ELetDecls decls body) =
   dsLetDecls decls (dsExpr body)
 dsExpr expr =
@@ -758,12 +712,12 @@ dsAnnotatedExpr tcAnn inner = do
     EListComp body quals -> dsListComp tcAnn body quals
     EDo stmts Surface.DoPlain -> dsDo stmts
     ETuple flavor elems -> dsTuple flavor tcAnn elems
-    ELambdaPats pats body -> dsLambda (functionResultTypeRequired (length pats) (tcAnnType tcAnn)) pats body
-    ELambdaCase alts -> dsLambdaCase (functionResultTypeRequired 1 (tcAnnType tcAnn)) alts
-    ELambdaCases alts -> dsLambdaCases (functionResultTypeRequired (lambdaCaseArity alts) (tcAnnType tcAnn)) alts
+    ELambdaPats pats body -> dsLambda pats body
+    ELambdaCase alts -> dsLambdaCase alts
+    ELambdaCases alts -> dsLambdaCases alts
     EIf cond thenE elseE -> dsIf cond thenE elseE
     EInfix lhs op rhs -> dsInfix lhs op rhs
-    ECase scrut alts -> dsCase (tcAnnType tcAnn) scrut alts
+    ECase scrut alts -> dsCase scrut alts
     _ -> desugarBug ("unsupported annotated expression form after type checking: " <> take 80 (show inner))
   pure (foldr FcTyLam body (tcAnnTypeBinders tcAnn))
 
@@ -771,30 +725,13 @@ dsApplication :: Expr -> DsM FcExpr
 dsApplication expression = do
   let (headExpression, arguments) = collectApplications expression
   headCore <- dsExpr headExpression
-  argumentCores <- dsApplicationArguments headCore arguments
+  argumentCores <- mapM dsExpr arguments
   fields <- constructorApplicationFields headExpression
   case fields of
     Just constructorFields
       | length arguments >= length constructorFields ->
           dsStrictConstructorApplication headCore arguments argumentCores constructorFields
     _ -> pure (foldl FcApp headCore argumentCores)
-
-dsApplicationArguments :: FcExpr -> [Expr] -> DsM [FcExpr]
-dsApplicationArguments _ [] = pure []
-dsApplicationArguments functionCore (argument : rest) = do
-  functionType <- fcExprTypeM functionCore
-  argumentType <- functionArgumentTypeRequired functionType
-  argumentCore <- dsExprExpected argumentType argument
-  restCores <- dsApplicationArguments (FcApp functionCore argumentCore) rest
-  pure (argumentCore : restCores)
-
-functionArgumentTypeRequired :: TcType -> DsM TcType
-functionArgumentTypeRequired ty =
-  case ty of
-    TcForAllTy _ body -> functionArgumentTypeRequired body
-    TcQualTy _ body -> functionArgumentTypeRequired body
-    TcFunTy argumentType _ -> pure argumentType
-    _ -> desugarBug "application function does not have a checked function type"
 
 collectApplications :: Expr -> (Expr, [Expr])
 collectApplications expression =
@@ -841,7 +778,7 @@ dsStrictConstructorApplication headCore argumentExpressions argumentCores fields
         [ (argumentCore, binder)
         | (argumentCore, Just binder) <- zip argumentCores strictBinders
         ]
-  forceStrictArguments (reverse strictArguments) application
+  pure (foldr forceStrictArgument application strictArguments)
   where
     strictFieldBinder (argumentExpression, _, field) =
       case dcfiStrict field of
@@ -855,10 +792,8 @@ dsStrictConstructorApplication headCore argumentExpressions argumentCores fields
     replaceStrictArgument maybeBinder argumentCore =
       maybe argumentCore FcVar maybeBinder
 
-    forceStrictArguments [] body = pure body
-    forceStrictArguments ((argumentCore, binder) : rest) body = do
-      resultType <- fcExprTypeM body
-      forceStrictArguments rest (FcCase argumentCore binder resultType [FcAlt DefaultAlt [] body])
+    forceStrictArgument (argumentCore, binder) body =
+      FcCase argumentCore binder [FcAlt DefaultAlt [] body]
 
 dsDo :: [DoStmt Expr] -> DsM FcExpr
 dsDo stmts =
@@ -891,10 +826,8 @@ dsDoPatternContinuation pat rest = do
     case directPatternBindings pat arg of
       Just bindings -> withLocals bindings (dsDo rest)
       Nothing -> do
-        success <- dsDo rest
-        resultType <- fcExprTypeM success
-        failure <- noPatternMatch resultType [arg]
-        dsMatchPattern arg pat (pure success) failure
+        failure <- noPatternMatch [arg]
+        dsMatchPattern arg pat (dsDo rest) failure
   pure (FcLam arg body)
 
 dsDoDiscardContinuation :: DoStmt Expr -> [DoStmt Expr] -> DsM FcExpr
@@ -1061,7 +994,6 @@ dsIf cond thenE elseE = do
   cond' <- dsExpr cond
   then' <- dsExpr thenE
   else' <- dsExpr elseE
-  resultType <- fcExprTypeM then'
   boolTy <- primBoolType
   binder <- freshVar "_if" boolTy
   trueConstructor <- primitiveDataConOrigin "GHC.Types" "True"
@@ -1070,24 +1002,23 @@ dsIf cond thenE elseE = do
     ( FcCase
         cond'
         binder
-        resultType
         [ FcAlt (DataAlt (fcConstructorIdFromSymbol trueConstructor)) [] then',
           FcAlt (DataAlt (fcConstructorIdFromSymbol falseConstructor)) [] else'
         ]
     )
 
-dsCase :: TcType -> Expr -> [CaseAlt Expr] -> DsM FcExpr
-dsCase resultType scrut alts = do
+dsCase :: Expr -> [CaseAlt Expr] -> DsM FcExpr
+dsCase scrut alts = do
   scrut' <- dsExpr scrut
   scrutTy <-
     case exprAnnotationType scrut of
       Just ty -> pure ty
       Nothing -> fcExprTypeM scrut'
   case scrut' of
-    FcVar scrutVar -> dsCaseAlternatives resultType scrutVar alts
+    FcVar scrutVar -> dsCaseAlternatives scrutVar alts
     _ -> do
       scrutVar <- freshVar "_case_value" scrutTy
-      body <- dsCaseAlternatives resultType scrutVar alts
+      body <- dsCaseAlternatives scrutVar alts
       bindCaseScrutinee scrutVar scrut' body
 
 -- A source case does not necessarily evaluate its scrutinee: wildcard,
@@ -1124,26 +1055,14 @@ data CaseMatchResult
   = CaseMatchInfallible (DsM FcExpr)
   | CaseMatchFallible (DsM FcExpr -> DsM FcExpr)
 
-dsCaseAlternatives :: TcType -> Var -> [CaseAlt Expr] -> DsM FcExpr
-dsCaseAlternatives resultType scrutVar alternatives =
+dsCaseAlternatives :: Var -> [CaseAlt Expr] -> DsM FcExpr
+dsCaseAlternatives scrutVar alternatives =
   extractCaseMatchResult combined noMatch
   where
-    combined = foldr (combineCaseMatchResults . dsCaseAlternative resultType scrutVar) alwaysFailCaseMatch alternatives
+    combined = foldr (combineCaseMatchResults . dsCaseAlternative scrutVar) alwaysFailCaseMatch alternatives
     noMatch = do
       binder <- freshVar "_case_nomatch" (varType scrutVar)
-      pure (FcCase (FcVar scrutVar) binder resultType [])
-
-caseAlternativesResultType :: [CaseAlt Expr] -> DsM TcType
-caseAlternativesResultType alternatives =
-  case caseAlternativesResultTypePure alternatives of
-    Just resultType -> pure resultType
-    Nothing -> desugarBug "case alternative does not have a checked result type"
-
-caseAlternativesResultTypePure :: [CaseAlt Expr] -> Maybe TcType
-caseAlternativesResultTypePure alternatives =
-  case alternatives of
-    first : _ -> rhsAnnotationType (caseAltRhs first)
-    [] -> Nothing
+      pure (FcCase (FcVar scrutVar) binder [])
 
 alwaysFailCaseMatch :: CaseMatchResult
 alwaysFailCaseMatch = CaseMatchFallible id
@@ -1163,9 +1082,9 @@ combineCaseMatchResults first second =
         CaseMatchInfallible body -> CaseMatchInfallible (buildFirst body)
         CaseMatchFallible buildSecond -> CaseMatchFallible (buildFirst . buildSecond)
 
-dsCaseAlternative :: TcType -> Var -> CaseAlt Expr -> CaseMatchResult
-dsCaseAlternative resultType scrutVar alternative =
-  dsPatternMatchResult scrutVar (caseAltPattern alternative) (dsRhsExpected resultType (caseAltRhs alternative))
+dsCaseAlternative :: Var -> CaseAlt Expr -> CaseMatchResult
+dsCaseAlternative scrutVar alternative =
+  dsPatternMatchResult scrutVar (caseAltPattern alternative) (dsRhs (caseAltRhs alternative))
 
 dsPatternMatchResult :: Var -> Pattern -> DsM FcExpr -> CaseMatchResult
 dsPatternMatchResult scrutVar pattern' success =
@@ -1210,12 +1129,10 @@ adjustCaseMatchResult adjust matchResult =
 forceCaseScrutinee :: Var -> FcExpr -> DsM FcExpr
 forceCaseScrutinee scrutVar body = do
   caseBinder <- freshInternalVar "_bang" (varType scrutVar)
-  resultType <- fcExprTypeM body
   pure
     ( FcCase
         (FcVar scrutVar)
         caseBinder
-        resultType
         [FcAlt DefaultAlt [] (substExprVar scrutVar caseBinder body)]
     )
 
@@ -1223,7 +1140,6 @@ dsOverloadedIntegerPatternMatch :: Var -> Pattern -> DsM FcExpr -> FcExpr -> DsM
 dsOverloadedIntegerPatternMatch scrutVar pat success failure = do
   test <- dsOverloadedIntegerPatternTest (FcVar scrutVar) pat
   trueBranch <- success
-  resultType <- fcExprTypeM trueBranch
   testTy <- fcExprTypeM test
   binder <- freshVar "_case_guard" testTy
   trueConstructor <- dataConOriginForType testTy "True"
@@ -1232,7 +1148,6 @@ dsOverloadedIntegerPatternMatch scrutVar pat success failure = do
     ( FcCase
         test
         binder
-        resultType
         [ FcAlt (DataAlt (fcConstructorIdFromSymbol trueConstructor)) [] trueBranch,
           FcAlt (DataAlt (fcConstructorIdFromSymbol falseConstructor)) [] failure
         ]
@@ -1421,7 +1336,7 @@ dsLocalGroup var group =
       rhs <- dsMatches (varType var) matches
       pure (var, rhs)
     LocalPattern _ _ rhs -> do
-      rhs' <- dsRhsExpected (varType var) rhs
+      rhs' <- dsRhs rhs
       pure (var, rhs')
 
 dsStringLiteral :: Text -> DsM FcExpr
@@ -1495,7 +1410,6 @@ dsCompGuard :: TcType -> Expr -> Expr -> [CompStmt] -> FcExpr -> DsM FcExpr
 dsCompGuard elemTy body guard rest tailExpr = do
   guard' <- dsExpr guard
   trueBranch <- dsCompQuals elemTy body rest tailExpr
-  let resultType = listType elemTy
   boolTy <- primBoolType
   binder <- freshInternalVar "_lc_guard" boolTy
   trueConstructor <- primitiveDataConOrigin "GHC.Types" "True"
@@ -1504,7 +1418,6 @@ dsCompGuard elemTy body guard rest tailExpr = do
     ( FcCase
         guard'
         binder
-        resultType
         [ FcAlt (DataAlt (fcConstructorIdFromSymbol trueConstructor)) [] trueBranch,
           FcAlt (DataAlt (fcConstructorIdFromSymbol falseConstructor)) [] tailExpr
         ]
@@ -1529,7 +1442,6 @@ dsCompGen elemTy body pat src rest tailExpr = do
           FcCase
             (FcVar listVar)
             caseBinder
-            (listType elemTy)
             [ FcAlt (DataAlt (fcConstructorIdFromSymbol nilConstructor)) [] tailExpr,
               FcAlt (DataAlt (fcConstructorIdFromSymbol consConstructor)) [headVar, restVar] consRhs
             ]
@@ -1556,7 +1468,6 @@ dsCompGenMatch elemTy body pat rest headVar skipExpr =
             ( FcCase
                 (FcVar headVar)
                 caseBinder
-                (listType elemTy)
                 [ FcAlt con (evidenceBinders <> binders) matched,
                   FcAlt DefaultAlt [] skipExpr
                 ]
@@ -1573,82 +1484,45 @@ directPatternBindings pat var =
     PStrict inner -> directPatternBindings inner var
     _ -> Nothing
 
-dsLambda :: TcType -> [Pattern] -> Expr -> DsM FcExpr
-dsLambda resultType pats body = do
+dsLambda :: [Pattern] -> Expr -> DsM FcExpr
+dsLambda pats body = do
   argTys <- mapM lambdaPatternTypeRequired pats
   vars <- zipWithM freshInternalVar (map lambdaArgName pats) argTys
   body' <-
     case traverse (uncurry directPatternBindings) (zip pats vars) of
       Nothing -> do
-        failure <- noPatternMatch resultType vars
-        dsMatchPatterns vars pats (dsExprExpected resultType body) failure
-      Just bindings -> withLocals (concat bindings) (dsExprExpected resultType body)
+        failure <- noPatternMatch vars
+        dsMatchPatterns vars pats (dsExpr body) failure
+      Just bindings -> withLocals (concat bindings) (dsExpr body)
   pure (foldr FcLam body' vars)
 
-dsLambdaCaseFromAlternatives :: [CaseAlt Expr] -> DsM FcExpr
-dsLambdaCaseFromAlternatives alts = do
-  resultType <- caseAlternativesResultType alts
-  dsLambdaCase resultType alts
-
-dsLambdaCase :: TcType -> [CaseAlt Expr] -> DsM FcExpr
-dsLambdaCase resultType alts =
+dsLambdaCase :: [CaseAlt Expr] -> DsM FcExpr
+dsLambdaCase alts =
   case alts of
     firstAlt : _ -> do
       argTy <- lambdaPatternTypeRequired (caseAltPattern firstAlt)
       argVar <- freshInternalVar "_lambda_case" argTy
-      body <- dsCaseAlternatives resultType argVar alts
+      body <- dsCaseAlternatives argVar alts
       pure (FcLam argVar body)
     [] -> desugarBug "cannot desugar an empty lambda-case"
 
-dsLambdaCasesFromAlternatives :: [LambdaCaseAlt] -> DsM FcExpr
-dsLambdaCasesFromAlternatives alts = do
-  resultType <- lambdaCaseAlternativesResultType alts
-  dsLambdaCases resultType alts
-
-dsLambdaCases :: TcType -> [LambdaCaseAlt] -> DsM FcExpr
-dsLambdaCases resultType alts =
+dsLambdaCases :: [LambdaCaseAlt] -> DsM FcExpr
+dsLambdaCases alts =
   case alts of
     firstAlt : _ -> do
       argTys <- mapM lambdaPatternTypeRequired (lambdaCaseAltPats firstAlt)
       argVars <- mapM (\(index, ty) -> freshInternalVar ("_lambda_cases" <> T.pack (show index)) ty) (zip [0 :: Int ..] argTys)
-      body <- dsLambdaCaseAlternatives resultType argVars alts
+      body <- dsLambdaCaseAlternatives argVars alts
       pure (foldr FcLam body argVars)
     [] -> desugarBug "cannot desugar an empty multi-argument lambda-case"
 
-dsLambdaCaseAlternatives :: TcType -> [Var] -> [LambdaCaseAlt] -> DsM FcExpr
-dsLambdaCaseAlternatives resultType argVars alts = do
-  go resultType alts
-  where
-    go expectedType alternatives =
-      case alternatives of
-        [] -> noPatternMatch expectedType argVars
-        alt : rest -> do
-          failure <- go expectedType rest
-          dsMatchPatterns argVars (lambdaCaseAltPats alt) (dsRhsExpected expectedType (lambdaCaseAltRhs alt)) failure
-
-lambdaCaseAlternativesResultType :: [LambdaCaseAlt] -> DsM TcType
-lambdaCaseAlternativesResultType alternatives =
-  case alternatives of
-    first : _ ->
-      case rhsAnnotationType (lambdaCaseAltRhs first) of
-        Just resultType -> pure resultType
-        Nothing -> desugarBug "lambda-case alternative does not have a checked result type"
-    [] -> desugarBug "cannot desugar an empty multi-argument lambda-case"
-
-lambdaCaseArity :: [LambdaCaseAlt] -> Int
-lambdaCaseArity alternatives =
-  case alternatives of
-    first : _ -> length (lambdaCaseAltPats first)
-    [] -> 0
-
-functionResultTypeRequired :: Int -> TcType -> TcType
-functionResultTypeRequired argumentCount ty =
-  case (argumentCount, ty) of
-    (0, resultType) -> resultType
-    (_, TcForAllTy _ body) -> functionResultTypeRequired argumentCount body
-    (_, TcQualTy _ body) -> functionResultTypeRequired argumentCount body
-    (_, TcFunTy _ body) -> functionResultTypeRequired (argumentCount - 1) body
-    _ -> error "checked lambda-case type does not have the expected function arity"
+dsLambdaCaseAlternatives :: [Var] -> [LambdaCaseAlt] -> DsM FcExpr
+dsLambdaCaseAlternatives argVars alts =
+  case alts of
+    [] -> noPatternMatch argVars
+    alt : rest -> do
+      failure <- dsLambdaCaseAlternatives argVars rest
+      dsMatchPatterns argVars (lambdaCaseAltPats alt) (dsRhs (lambdaCaseAltRhs alt)) failure
 
 lambdaArgName :: Pattern -> Text
 lambdaArgName pat =
@@ -1825,7 +1699,7 @@ dsEvidence evidence =
             case sourceOrigin of
               Just (packageName, moduleName) -> FcTopLevelOrigin packageName moduleName constructor
               Nothing -> FcBuiltinOrigin constructor
-      pure (FcCase sourceExpression sourceBinder (varType selected) [FcAlt (DataAlt (fcConstructorIdFromSymbol constructorOrigin)) fieldBinders (FcVar selected)])
+      pure (FcCase sourceExpression sourceBinder [FcAlt (DataAlt (fcConstructorIdFromSymbol constructorOrigin)) fieldBinders (FcVar selected)])
     EvCast dict _co ->
       dsEvidence dict
     EvTypeable origin ty arguments ->
@@ -1885,7 +1759,6 @@ dsTypeableArgument typeableOrigin ty evidence = do
     ( FcCase
         dictionary
         dictionaryBinder
-        typeRepTy
         [ FcAlt
             (DataAlt (fcConstructorIdFromSymbol dictionaryOrigin))
             [proxyMethod, valueMethod]
@@ -1964,7 +1837,6 @@ exprAnnotationType expr =
         Nothing -> exprAnnotationType inner
     EParen inner -> exprAnnotationType inner
     ETypeSig inner _ -> exprAnnotationType inner
-    EVar name -> tcAnnType <$> nameTcAnnotation name
     _ -> Nothing
 
 nameTcAnnotation :: Name -> Maybe TcAnnotation
@@ -2115,7 +1987,10 @@ fcExprTypeM expr =
     FcLam var body -> TcFunTy (varType var) <$> fcExprTypeM body
     FcTyLam tv body -> TcForAllTy tv <$> fcExprTypeM body
     FcLet _bind body -> fcExprTypeM body
-    FcCase _scrut _binder resultType _alts -> pure resultType
+    FcCase _scrut _binder alts ->
+      case alts of
+        [] -> desugarBug "case expression has no alternatives while desugaring"
+        FcAlt _ _ body : _ -> fcExprTypeM body
     FcCast inner _co -> fcExprTypeM inner
     FcCallForeign foreignCall _arguments ->
       pure (fcForeignCallResultType (fcForeignCallSignature foreignCall))
