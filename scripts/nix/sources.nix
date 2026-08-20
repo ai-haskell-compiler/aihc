@@ -45,6 +45,7 @@ in rec {
     ".cabal"
     ".yaml"
     ".yml"
+    ".fc2"
   ];
 
   arm64Src = mkRootSubsetSrc ["components/aihc-arm64/" "test/support/" "test/Test/Fixtures/grin-snapshot/"] [

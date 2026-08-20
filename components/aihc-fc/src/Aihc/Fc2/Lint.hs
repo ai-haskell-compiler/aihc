@@ -17,6 +17,7 @@ import Aihc.Fc2.TypeOf
 import Aihc.Fc2.Wired
 import Aihc.Resolve (PackageId (..), packageIdText)
 import Control.Monad (foldM, unless, when)
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
@@ -93,7 +94,7 @@ storeModuleLoader storeRoot package moduleName = do
 
 moduleDirectoryText :: Text -> FilePath
 moduleDirectoryText name =
-  foldl' (</>) "" (map T.unpack (T.splitOn "." name))
+  List.foldl' (</>) "" (map T.unpack (T.splitOn "." name))
 
 moduleKey :: Program -> (PackageId, Text)
 moduleKey program =
@@ -110,7 +111,7 @@ registerPrograms :: [Program] -> LintEnv
 registerPrograms programs =
   LintEnv
     { leTypes = typeEnvFromPrograms programs,
-      leAxioms = foldl' addAxiom Map.empty (allDecls programs)
+      leAxioms = List.foldl' addAxiom Map.empty (allDecls programs)
     }
   where
     addAxiom axioms decl =
@@ -537,7 +538,7 @@ coercionEndpoints env coercion =
         Just ty -> Right ty
       pairs <- mapM (coercionEndpoints env) arguments
       checkTyConCoercion env header pairs
-      Right (foldl' TyApp (TyCon name) (map fst pairs), foldl' TyApp (TyCon name) (map snd pairs))
+      Right (List.foldl' TyApp (TyCon name) (map fst pairs), List.foldl' TyApp (TyCon name) (map snd pairs))
     CoAxiom name arguments ->
       case Map.lookup name (leAxioms env) of
         Nothing -> Left (UnboundName name)

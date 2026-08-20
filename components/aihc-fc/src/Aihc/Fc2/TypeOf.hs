@@ -27,6 +27,7 @@ import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Fc2.Wired
 import Aihc.Resolve (PackageId)
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe, mapMaybe)
@@ -57,19 +58,19 @@ typeEnvFromProgram program =
 -- | Register every header from every program. Later programs replace equal names.
 typeEnvFromPrograms :: [Program] -> TypeEnv
 typeEnvFromPrograms programs =
-  foldl' addProgram baseEnv programs
+  List.foldl' addProgram baseEnv programs
   where
     baseEnv =
       emptyTypeEnv
         { tePrimPackage = listToMaybe (mapMaybe (primPackageFromScopes . programScopes) programs)
         }
-    addProgram env program = foldl' addDecl env (programDecls program)
+    addProgram env program = List.foldl' addDecl env (programDecls program)
 
 addDecl :: TypeEnv -> Decl -> TypeEnv
 addDecl env decl =
   case decl of
     DeclType declaration ->
-      env {teHeaders = foldl' addConstructor (Map.insert (typeName declaration) (headerType (typeBinders declaration) (typeResult declaration)) (teHeaders env)) (typeCons declaration)}
+      env {teHeaders = List.foldl' addConstructor (Map.insert (typeName declaration) (headerType (typeBinders declaration) (typeResult declaration)) (teHeaders env)) (typeCons declaration)}
       where
         addConstructor headers constructor = Map.insert (conName constructor) (conType constructor) headers
     DeclSynonym declaration ->
