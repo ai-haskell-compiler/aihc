@@ -34,7 +34,7 @@ data Prec
 
 renderProgram :: Program -> String
 renderProgram program =
-  intercalate "\n\n" (filter (not . null) (renderScopes scopes : renderModule scopes (programModule program) : map (renderDecl env scopes Set.empty) (programDecls program)))
+  intercalate "\n\n" (filter (not . null) (renderScopes scopes : map (renderDecl env scopes Set.empty) (programDecls program)))
   where
     scopes = programScopes program
     env = typeEnvFromProgram program
@@ -46,10 +46,6 @@ renderScopes table =
 renderScopeEntry :: Int -> PackageId -> Text -> String
 renderScopeEntry scopeId package moduleName =
   "scope " <> show scopeId <> " = " <> show (T.unpack (packageIdText package)) <> " " <> T.unpack moduleName
-
-renderModule :: ScopeTable -> ModuleId -> String
-renderModule scopes moduleId =
-  "module " <> scopePrefix scopes (modulePackage moduleId) (moduleName moduleId) <> T.unpack (moduleName moduleId) <> " where"
 
 renderDecl :: TypeEnv -> ScopeTable -> Set Text -> Decl -> String
 renderDecl env scopes seen decl =

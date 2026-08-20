@@ -75,28 +75,8 @@ scopeDeclaration = do
 
 program :: ScopeTable -> Parser Program
 program scopes = do
-  moduleId <- moduleHeader
   openDecls <- MP.many (declaration scopes)
-  fillProgram scopes moduleId openDecls
-
-moduleHeader :: Parser ModuleId
-moduleHeader = do
-  _ <- keyword "module"
-  (package, moduleName) <- scopedModuleName
-  _ <- keyword "where"
-  pure (ModuleId package moduleName)
-
-scopedModuleName :: Parser (PackageId, Text)
-scopedModuleName = do
-  scopeId <- int
-  _ <- symbol "."
-  moduleName <- qualifiedModuleName
-  scopes <- ask
-  case lookupScope scopeId scopes of
-    Just (package, boundName)
-      | boundName == moduleName -> pure (package, moduleName)
-      | otherwise -> fail ("module name does not match scope " <> show scopeId)
-    Nothing -> fail ("unknown scope " <> show scopeId)
+  fillProgram scopes openDecls
 
 data OpenBinder = OpenBinder Name OpenType
   deriving (Eq, Show)
@@ -607,11 +587,11 @@ bracesInt = do
   _ <- MPC.char '}'
   pure value
 
-fillProgram :: ScopeTable -> ModuleId -> [OpenDecl] -> Parser Program
-fillProgram scopes moduleId openDecls =
+fillProgram :: ScopeTable -> [OpenDecl] -> Parser Program
+fillProgram scopes openDecls =
   case fillDecls scopes openDecls of
     Left message -> fail message
-    Right decls -> pure (normalizeProgram (Program moduleId scopes decls))
+    Right decls -> pure (normalizeProgram (Program scopes decls))
 
 fillDecls :: ScopeTable -> [OpenDecl] -> Either String [Decl]
 fillDecls scopes openDecls = do

@@ -78,14 +78,14 @@ desugarModuleFc2 config bindings interface checked =
   if not (tcModuleSuccess checked)
     then
       Fc2DesugarResult
-        { ds2Program = Program (ModuleId "" (fromMaybe "Main" (Syn.moduleName checked))) emptyScopeTable [],
+        { ds2Program = Program emptyScopeTable [],
           ds2Success = False,
           ds2Errors = fmap show (tcModuleDiagnostics checked)
         }
     else case desugarChecked config bindings interface checked of
       Left errors ->
         Fc2DesugarResult
-          { ds2Program = Program (ModuleId "" (fromMaybe "Main" (Syn.moduleName checked))) emptyScopeTable [],
+          { ds2Program = Program emptyScopeTable [],
             ds2Success = False,
             ds2Errors = [errors]
           }
@@ -99,7 +99,7 @@ desugarModuleFc2 config bindings interface checked =
 desugarChecked :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> Either String Program
 desugarChecked config bindings interface checked = do
   let (packageId, currentModule) = resolvedModuleOrigin checked
-      moduleId = ModuleId packageId currentModule
+      moduleOrigin = (packageId, currentModule)
       dataTypes = tcInterfaceDataTypes interface
       tyCons = tcInterfaceTyCons interface
       classes = tcInterfaceClasses interface
@@ -116,8 +116,8 @@ desugarChecked config bindings interface checked = do
         (Syn.moduleDecls checked)
   valueDecls <- convertFcValues config bindings interface checked env
   let decls = typeDecls <> valueDecls
-      scopes = buildScopes moduleId decls
-  pure (Program moduleId scopes decls)
+      scopes = buildScopes moduleOrigin decls
+  pure (Program scopes decls)
 
 axiomEntries :: PackageId -> Text -> [DataTypeInfo] -> [DataFamilyInstanceInfo] -> [TypeFamilyInstanceInfo] -> [(Text, Name)]
 axiomEntries package moduleName' dataTypes dataFamilyInstances typeFamilyInstances =
@@ -617,8 +617,8 @@ synonymResult env tyCon params =
     dropParams remaining (KFun _ result) = dropParams (remaining - 1) result
     dropParams _ kind = kind
 
-buildScopes :: ModuleId -> [Decl] -> ScopeTable
-buildScopes moduleId decls =
+buildScopes :: (PackageId, Text) -> [Decl] -> ScopeTable
+buildScopes moduleOrigin decls =
   foldl
     ( \table (index, (package, moduleName')) ->
         insertScope index package moduleName' table
@@ -629,7 +629,7 @@ buildScopes moduleId decls =
     origins =
       sort
         ( nub
-            ( (modulePackage moduleId, Aihc.Fc2.Name.moduleName moduleId)
+            ( moduleOrigin
                 : concatMap declOrigins decls
             )
         )

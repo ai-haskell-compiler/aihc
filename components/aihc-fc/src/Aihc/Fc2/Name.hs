@@ -6,7 +6,6 @@ module Aihc.Fc2.Name
     Origin (..),
     Name (..),
     nameEquals,
-    ModuleId (..),
     ScopeTable (..),
     emptyScopeTable,
     lookupScope,
@@ -79,12 +78,6 @@ nameEquals left right =
   nameClass (nameSort left) == nameClass (nameSort right)
     && nameText left == nameText right
     && nameOrigin left == nameOrigin right
-
-data ModuleId = ModuleId
-  { modulePackage :: PackageId,
-    moduleName :: Text
-  }
-  deriving (Eq, Ord, Show, Read)
 
 newtype ScopeTable = ScopeTable (Map Int (PackageId, Text))
   deriving (Eq, Ord, Show, Read)
