@@ -1,0 +1,9 @@
+extensions:
+  - ForeignFunctionInterface
+modules:
+  - |
+    module Test where
+    data Int = I
+    foreign import ccall unsafe "identity" identityInt :: Int -> Int
+status: fail
+reason: System FC 2 accepts only foreign import prim.
