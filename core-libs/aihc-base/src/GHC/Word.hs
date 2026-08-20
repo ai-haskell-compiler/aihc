@@ -9,6 +9,8 @@ module GHC.Word
   )
 where
 
+import GHC.Prim (Word#, Word16#, Word32#, Word64#, Word8#)
+
 data Word = W# Word#
 
 data Word8 = W8# Word8#

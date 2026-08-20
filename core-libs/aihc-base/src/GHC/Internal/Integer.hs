@@ -28,9 +28,11 @@ where
 
 import GHC.Prim
   ( ByteArray#,
+    Int#,
     MutableByteArray#,
     RealWorld,
     State#,
+    Word#,
     addIntC#,
     addWordC#,
     and#,
