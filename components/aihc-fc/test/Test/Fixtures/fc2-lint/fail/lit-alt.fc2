@@ -1,0 +1,19 @@
+scope 1 = "" Test
+scope 2 = "aihc-prim" GHC.Types
+
+module 1.Test where
+
+pub type 1.tBool :: 2.tType {
+    pub 1.vFalse :: 1.tBool
+    pub 1.vTrue :: 1.tBool
+}
+
+pub type 1.tIntRep :: 2.tRuntimeRep {}
+
+val 1.vbad :: 1.tBool
+ = case 1.vTrue as (w : 1.tBool) of {
+     1#1.tIntRep →
+       1.vFalse;
+     _ →
+       1.vTrue
+   }

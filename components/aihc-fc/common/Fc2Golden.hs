@@ -12,7 +12,7 @@ module Fc2Golden
 where
 
 import Aihc.Fc.Desugar (DesugarConfig (..))
-import Aihc.Fc2 (Fc2DesugarResult (..), desugarModuleFc2, parseProgram, renderParseError, renderProgram)
+import Aihc.Fc2 (Fc2DesugarResult (..), desugarModuleFc2, lintPrograms, parseProgram, renderParseError, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax (Extension, moduleName, parseExtensionName)
 import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps)
@@ -158,7 +158,7 @@ renderFc2Case tc =
                               tcResults
                           fixtureResults = drop supportModuleCount results
                        in if all ds2Success results
-                            then renderResults fixtureResults
+                            then lintAndRenderResults results fixtureResults
                             else Left (unlines (concatMap ds2Errors results))
                     else Left ("typecheck error: " <> unlines [show d | r <- tcResults, d <- tcModuleDiagnostics r])
             ResolveResult {resolveErrors} ->
@@ -180,6 +180,18 @@ renderFc2Case tc =
        in if null errs
             then Right ast
             else Left (show errs)
+    lintAndRenderResults results fixtureResults =
+      case renderResults fixtureResults of
+        Left renderError -> Left renderError
+        Right rendered ->
+          case lintPrograms (map ds2Program results) of
+            [] -> Right rendered
+            lintErrors ->
+              Left
+                ( unlines ["System FC 2 lint error: " <> show lintError | lintError <- lintErrors]
+                    <> "\nSystem FC 2 output:\n"
+                    <> rendered
+                )
     renderResults results =
       unlines <$> traverse renderResult results
     renderResult result =

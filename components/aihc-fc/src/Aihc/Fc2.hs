@@ -10,10 +10,16 @@ module Aihc.Fc2
     Fc2ParseError,
     desugarModuleFc2,
     Fc2DesugarResult (..),
+    lintPrograms,
+    loadScopeClosure,
+    ModuleLoader,
+    storeModuleLoader,
+    LintError (..),
   )
 where
 
 import Aihc.Fc2.Desugar (Fc2DesugarResult (..), desugarModuleFc2)
+import Aihc.Fc2.Lint (LintError (..), ModuleLoader, lintPrograms, loadScopeClosure, storeModuleLoader)
 import Aihc.Fc2.Name
 import Aihc.Fc2.Parser (Fc2ParseError, parseProgram, renderParseError)
 import Aihc.Fc2.Pretty (renderExpr, renderProgram, renderType)

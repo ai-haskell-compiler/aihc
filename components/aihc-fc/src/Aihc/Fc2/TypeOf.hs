@@ -5,6 +5,7 @@ module Aihc.Fc2.TypeOf
   ( TypeEnv (..),
     emptyTypeEnv,
     typeEnvFromProgram,
+    typeEnvFromPrograms,
     typeOf,
     unfoldType,
     unfoldRep,
@@ -14,6 +15,11 @@ module Aihc.Fc2.TypeOf
     headerType,
     applyType,
     lookupBinderType,
+    lookupHeaderType,
+    extendBinder,
+    substType,
+    reduceType,
+    typesEqual,
   )
 where
 
@@ -21,8 +27,10 @@ import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Fc2.Wired
 import Aihc.Resolve (PackageId)
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 
 -- | Local headers, synonym bodies, and binder types used by typeOf.
@@ -45,24 +53,36 @@ emptyTypeEnv =
 
 typeEnvFromProgram :: Program -> TypeEnv
 typeEnvFromProgram program =
-  foldl addDecl baseEnv (programDecls program)
+  typeEnvFromPrograms [program]
+
+-- | Register every header from every program. Later programs replace equal names.
+typeEnvFromPrograms :: [Program] -> TypeEnv
+typeEnvFromPrograms programs =
+  List.foldl' addProgram baseEnv programs
   where
     baseEnv =
       emptyTypeEnv
-        { tePrimPackage = primPackageFromScopes (programScopes program)
+        { tePrimPackage = listToMaybe (mapMaybe (primPackageFromScopes . programScopes) programs)
         }
-    addDecl env decl =
-      case decl of
-        DeclType declaration ->
-          env {teHeaders = Map.insert (typeName declaration) (headerType (typeBinders declaration) (typeResult declaration)) (teHeaders env)}
-        DeclSynonym declaration ->
-          env
-            { teHeaders = Map.insert (synName declaration) (headerType (synBinders declaration) (synResult declaration)) (teHeaders env),
-              teSynonyms = Map.insert (synName declaration) (foldr TyForAll (synBody declaration) (synBinders declaration)) (teSynonyms env)
-            }
-        DeclAxiom {} -> env
-        DeclVal {} -> env
-        DeclPrim {} -> env
+    addProgram env program = List.foldl' addDecl env (programDecls program)
+
+addDecl :: TypeEnv -> Decl -> TypeEnv
+addDecl env decl =
+  case decl of
+    DeclType declaration ->
+      env {teHeaders = List.foldl' addConstructor (Map.insert (typeName declaration) (headerType (typeBinders declaration) (typeResult declaration)) (teHeaders env)) (typeCons declaration)}
+      where
+        addConstructor headers constructor = Map.insert (conName constructor) (conType constructor) headers
+    DeclSynonym declaration ->
+      env
+        { teHeaders = Map.insert (synName declaration) (headerType (synBinders declaration) (synResult declaration)) (teHeaders env),
+          teSynonyms = Map.insert (synName declaration) (foldr TyForAll (synBody declaration) (synBinders declaration)) (teSynonyms env)
+        }
+    DeclAxiom {} -> env
+    DeclVal declaration ->
+      env {teHeaders = Map.insert (valName declaration) (valType declaration) (teHeaders env)}
+    DeclPrim declaration ->
+      env {teHeaders = Map.insert (primName declaration) (primType declaration) (teHeaders env)}
 
 headerType :: [Binder] -> Type -> Type
 headerType binders result = foldr TyForAll result binders
@@ -70,15 +90,19 @@ headerType binders result = foldr TyForAll result binders
 lookupBinderType :: TypeEnv -> Name -> Maybe Type
 lookupBinderType env name = Map.lookup name (teBinders env)
 
+lookupHeaderType :: TypeEnv -> Name -> Maybe Type
+lookupHeaderType env name =
+  case Map.lookup name (teHeaders env) of
+    Just header -> Just header
+    Nothing -> wiredTypeOf env name
+
 typeOf :: TypeEnv -> Type -> Maybe Type
 typeOf env ty =
   case ty of
     TyVar name ->
       Map.lookup name (teBinders env)
     TyCon name ->
-      case Map.lookup name (teHeaders env) of
-        Just header -> Just header
-        Nothing -> wiredTypeOf env name
+      lookupHeaderType env name
     TyApp function argument ->
       do
         functionType <- typeOf env function
@@ -104,14 +128,14 @@ unfoldType :: TypeEnv -> Type -> Type
 unfoldType env ty =
   case ty of
     TyCon name
+      | Just body <- Map.lookup name (teSynonyms env) ->
+          unfoldType env (stripForAlls body)
       | isWiredName env name "Type",
         Just representation <- liftedRepType env ->
           typeAppTYPE env representation
       | isWiredName env name "Constraint",
         Just representation <- liftedRepType env ->
           typeAppTYPE env representation
-      | Just body <- Map.lookup name (teSynonyms env) ->
-          unfoldType env (stripForAlls body)
       | isWiredName env name "TYPE" -> ty
       | isWiredName env name "RuntimeRep" -> ty
       | isWiredName env name "Levity" -> ty
@@ -125,6 +149,8 @@ unfoldRep :: TypeEnv -> Type -> Type
 unfoldRep env ty =
   case ty of
     TyCon name
+      | Just body <- Map.lookup name (teSynonyms env) ->
+          unfoldRep env (stripForAlls body)
       | isWiredName env name "LiftedRep",
         Just package <- tePrimPackage env ->
           TyApp (TyCon (boxedRepName package)) (TyCon (liftedName package))
@@ -205,6 +231,12 @@ wiredTypeOf env name =
       | nameText name == "Levity" -> Just (typeSynonym package)
       | nameText name == "LiftedRep" -> Just (TyCon (runtimeRepConstructor package))
       | nameText name == "UnliftedRep" -> Just (TyCon (runtimeRepConstructor package))
+      | nameText name == "BoxedRep" ->
+          do
+            lifted <- liftedRepType env
+            Just (TyFun lifted lifted (TyCon (levityConstructor package)) (TyCon (runtimeRepConstructor package)))
+      | nameText name == "Lifted" -> Just (TyCon (levityConstructor package))
+      | nameText name == "Unlifted" -> Just (TyCon (levityConstructor package))
       | otherwise -> Nothing
 
 typeAppTYPE :: TypeEnv -> Type -> Type
@@ -216,3 +248,39 @@ typeAppTYPE env representation =
 liftedRepType :: TypeEnv -> Maybe Type
 liftedRepType env =
   TyCon . liftedRepName <$> tePrimPackage env
+
+-- | Unfold synonyms and wired Type, then compare structure.
+reduceType :: TypeEnv -> Type -> Type
+reduceType env ty =
+  case ty of
+    TyVar {} -> ty
+    TyCon {} ->
+      let unfolded = unfoldRep env (unfoldType env ty)
+       in if unfolded == ty then ty else reduceType env unfolded
+    TyApp function argument ->
+      case reduceType env function of
+        TyForAll binder body ->
+          reduceType env (substType (binderName binder) argument body)
+        function' -> TyApp function' (reduceType env argument)
+    TyFun r1 r2 argument result ->
+      TyFun (reduceType env r1) (reduceType env r2) (reduceType env argument) (reduceType env result)
+    TyForAll binder body ->
+      TyForAll binder {binderType = reduceType env (binderType binder)} (reduceType env body)
+    TyEq left right ->
+      TyEq (reduceType env left) (reduceType env right)
+
+typesEqual :: TypeEnv -> Type -> Type -> Bool
+typesEqual env left right =
+  eq (reduceType env left) (reduceType env right)
+  where
+    eq (TyVar a) (TyVar b) = a == b
+    eq (TyCon a) (TyCon b) = a == b
+    eq (TyApp function1 argument1) (TyApp function2 argument2) =
+      eq function1 function2 && eq argument1 argument2
+    eq (TyFun r1a r2a a1 b1) (TyFun r1b r2b a2 b2) =
+      eq r1a r1b && eq r2a r2b && eq a1 a2 && eq b1 b2
+    eq (TyForAll binder1 body1) (TyForAll binder2 body2) =
+      eq (binderType binder1) (binderType binder2)
+        && typesEqual env body1 (substType (binderName binder2) (TyVar (binderName binder1)) body2)
+    eq (TyEq a1 b1) (TyEq a2 b2) = eq a1 a2 && eq b1 b2
+    eq _ _ = False
