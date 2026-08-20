@@ -60,6 +60,7 @@ library
     filepath,
     libffi >=0.2 && <0.3,
     megaparsec >=9.0 && <10,
+    prettyprinter,
     text >=1.2,
     transformers,
     unix,
