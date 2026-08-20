@@ -320,7 +320,8 @@ inferCase sp scrutinee alts = do
   (scrutinee', scrutTy, scrutCts) <- inferExpr scrutinee
   resTy <- freshMetaTv
   (alts', altCts) <- inferCaseAlts sp scrutTy resTy alts
-  pure (ECase scrutinee' alts', resTy, scrutCts ++ altCts)
+  let pending = pendingAnnotation resTy [] [] []
+  pure (annotatePendingExprAt sp pending (ECase scrutinee' alts'), resTy, scrutCts ++ altCts)
 
 inferLambdaCases :: SourceSpan -> [LambdaCaseAlt] -> TcM (Expr, TcType, [Ct])
 inferLambdaCases sp alts = do

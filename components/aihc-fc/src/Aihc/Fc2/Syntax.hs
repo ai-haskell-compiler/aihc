@@ -50,7 +50,7 @@ data Expr
   | ExTyLam Binder Expr
   | ExLet Bind Expr
   | ExRec [Bind] Expr
-  | ExCase Expr Binder [Alt]
+  | ExCase Expr Binder Type [Alt]
   | ExCast Expr Coercion
   deriving (Eq, Ord, Show, Read)
 

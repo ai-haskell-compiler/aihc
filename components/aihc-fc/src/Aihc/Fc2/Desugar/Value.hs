@@ -159,7 +159,7 @@ desugarSelector :: TyCon -> [TyVarId] -> [TcType] -> Int -> TcClassMethodAnnotat
 desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
   _ <- freshUnique
   let (typeVariables, afterForAlls) = peelForAlls (tcClassMethodType method)
-      (predicates, _) = peelConstraints afterForAlls
+      (predicates, resultType) = peelConstraints afterForAlls
   dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
   classDictionary <-
     case dictionaries of
@@ -172,6 +172,7 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
       field : _ -> pure field
       [] -> failValue ("invalid class method index for " <> T.unpack (tcClassMethodName method))
   extraTypes <- mapM (convertCheckedType . TcTyVar) (filter (`notElem` classTyVars) (tcClassMethodTyVars method))
+  resultType' <- convertCheckedType resultType
   let extraDictionaries = drop 1 dictionaries
       selectedExpr =
         foldl
@@ -182,6 +183,7 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
         ExCase
           (ExVar (binderName classDictionary))
           caseBinder
+          resultType'
           [Alt (AltData (classDictConName classTyCon)) fields selectedExpr]
   typeBinders <- mapM convertTypeBinder typeVariables
   methodType' <- convertCheckedType (tcClassMethodType method)
@@ -383,34 +385,35 @@ desugarMatches ty matches =
       let (typeVariables, afterForAlls) = peelForAlls ty
           (predicates, bodyType) = peelConstraints afterForAlls
           argumentCount = length (Syn.matchPats first)
-          (argumentTypes, _) = peelFunctions argumentCount bodyType
+          (argumentTypes, resultType) = peelFunctions argumentCount bodyType
       typeBinders <- mapM convertTypeBinder typeVariables
       dictionaries <- zipWithM (freshDictionaryBinder "$d") [0 :: Int ..] predicates
       arguments <- zipWithM freshArgument [0 :: Int ..] argumentTypes
-      body <- withDictionaries (zipWith predicateDictionary predicates dictionaries) (desugarMatchArguments arguments matches)
+      body <- withDictionaries (zipWith predicateDictionary predicates dictionaries) (desugarMatchArguments resultType arguments matches)
       pure (foldr ExTyLam (foldr ExLam (foldr ExLam body arguments) dictionaries) typeBinders)
 
-desugarMatchArguments :: [Binder] -> [Syn.Match] -> ValueM Expr
-desugarMatchArguments [] (match : _) = desugarRhs (Syn.matchRhs match)
-desugarMatchArguments [] [] = failValue "pattern match has no result"
-desugarMatchArguments (argument : arguments) matches
+desugarMatchArguments :: TcType -> [Binder] -> [Syn.Match] -> ValueM Expr
+desugarMatchArguments _ [] (match : _) = desugarRhs (Syn.matchRhs match)
+desugarMatchArguments _ [] [] = failValue "pattern match has no result"
+desugarMatchArguments resultType (argument : arguments) matches
   | all firstPatternIsVariable matches = do
       let locals = mapMaybe (firstPatternBinding argument) matches
-      withLocals locals (desugarMatchArguments arguments (map dropFirstPattern matches))
+      withLocals locals (desugarMatchArguments resultType arguments (map dropFirstPattern matches))
   | otherwise = do
       caseBinder <- freshBinderFromType "_scrut" (binderType argument)
-      alternatives <- mapM (desugarPatternGroup arguments) (groupPatterns matches)
-      pure (ExCase (ExVar (binderName argument)) caseBinder alternatives)
+      resultType' <- convertCheckedType resultType
+      alternatives <- mapM (desugarPatternGroup resultType arguments) (groupPatterns matches)
+      pure (ExCase (ExVar (binderName argument)) caseBinder resultType' alternatives)
 
-desugarPatternGroup :: [Binder] -> (Syn.Pattern, [Syn.Match]) -> ValueM Alt
-desugarPatternGroup remaining (pattern', matches) = do
+desugarPatternGroup :: TcType -> [Binder] -> (Syn.Pattern, [Syn.Match]) -> ValueM Alt
+desugarPatternGroup resultType remaining (pattern', matches) = do
   constructor <- patternConstructor pattern'
   let subpatterns = patternChildren pattern'
   fieldTypes <- mapM requiredPatternType subpatterns
   fields <- zipWithM freshPatternBinder subpatterns fieldTypes
   let localBindings = concat (zipWith patternLocalBindings subpatterns fields)
       expanded = map (expandFirstPattern subpatterns) matches
-  body <- withLocals localBindings (desugarMatchArguments (fields <> remaining) expanded)
+  body <- withLocals localBindings (desugarMatchArguments resultType (fields <> remaining) expanded)
   pure (Alt constructor fields body)
 
 groupPatterns :: [Syn.Match] -> [(Syn.Pattern, [Syn.Match])]
@@ -559,7 +562,7 @@ desugarExpr expression =
     Syn.ETypeSig inner _ -> desugarExpr inner
     Syn.ETypeApp function _ -> desugarExpr function
     Syn.ELambdaPats patterns body -> desugarLambda patterns body
-    Syn.ECase scrutinee alternatives -> desugarCase scrutinee alternatives
+    Syn.ECase {} -> failValue "case expression does not have a checked result type"
     Syn.ELetDecls declarations body -> desugarLocalDecls declarations (desugarExpr body)
     unsupported -> failValue ("unsupported System FC 2 expression: " <> take 80 (show unsupported))
 
@@ -583,6 +586,7 @@ desugarAnnotatedExpr annotation inner = do
       Syn.EStringHash value _ -> do
         representation <- convertRuntimeRep AddrRep
         pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
+      Syn.ECase scrutinee alternatives -> desugarCase (tcAnnType annotation) scrutinee alternatives
       _ -> desugarExpr inner
   typeBinders <- mapM convertTypeBinder (tcAnnTypeBinders annotation)
   pure (foldr ExTyLam body typeBinders)
@@ -628,13 +632,14 @@ desugarLambda patterns body = do
   body' <- withLocals locals (desugarExpr body)
   pure (foldr ExLam body' binders)
 
-desugarCase :: Syn.Expr -> [Syn.CaseAlt Syn.Expr] -> ValueM Expr
-desugarCase scrutinee alternatives = do
+desugarCase :: TcType -> Syn.Expr -> [Syn.CaseAlt Syn.Expr] -> ValueM Expr
+desugarCase resultType scrutinee alternatives = do
   scrutinee' <- desugarExpr scrutinee
   scrutineeType <- requiredExprType scrutinee
   caseBinder <- freshBinder "_case" scrutineeType
+  resultType' <- convertCheckedType resultType
   alts <- mapM (desugarCaseAlt caseBinder scrutineeType) alternatives
-  pure (ExCase scrutinee' caseBinder alts)
+  pure (ExCase scrutinee' caseBinder resultType' alts)
 
 desugarCaseAlt :: Binder -> TcType -> Syn.CaseAlt Syn.Expr -> ValueM Alt
 desugarCaseAlt caseBinder scrutineeType alternative =

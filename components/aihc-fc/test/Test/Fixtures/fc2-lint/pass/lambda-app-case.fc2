@@ -13,7 +13,7 @@ val 1.vid :: ∀(a : 2.tType). a → a
 
 val 1.vnot :: 1.tBool → 1.tBool
  = λ(x : 1.tBool).
-  case x as (w : 1.tBool) of {
+  case x as (w : 1.tBool) return (1.tBool) of {
     1.vTrue →
       1.vFalse;
     1.vFalse →
