@@ -20,7 +20,7 @@ import Control.Monad (foldM, unless, when)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -50,8 +50,13 @@ lintPrograms programs =
         <> concatMap (lintDeclBodies env) (allDecls programs)
 
 loadScopeClosure :: ModuleLoader -> [Program] -> IO [Program]
-loadScopeClosure loader seeds = Map.elems <$> go (Map.fromList [(moduleKey program, program) | program <- seeds]) (concatMap scopeKeys seeds)
+loadScopeClosure loader seeds = do
+  loaded <- go initial (concatMap scopeKeys seeds)
+  pure (List.nub (unkeyedSeeds <> Map.elems loaded))
   where
+    initial = Map.fromList [(key, program) | program <- seeds, key <- programKeys program]
+    unkeyedSeeds = filter (null . programKeys) seeds
+
     go seen [] = pure seen
     go seen (key : rest)
       | alreadyLoaded seen key = go seen rest
@@ -70,15 +75,10 @@ loadScopeClosure loader seeds = Map.elems <$> go (Map.fromList [(moduleKey progr
     isEmptyPackage package = packageIdText package == ""
 
     hasModuleName seen name =
-      any (\program -> moduleName (programModule program) == name) (Map.elems seen)
+      any ((== name) . snd) (Map.keys seen)
 
     hasEmptyPackageModule seen name =
-      any
-        ( \program ->
-            moduleName (programModule program) == name
-              && isEmptyPackage (modulePackage (programModule program))
-        )
-        (Map.elems seen)
+      Map.member (PackageId "", name) seen
 
 storeModuleLoader :: FilePath -> ModuleLoader
 storeModuleLoader storeRoot package moduleName = do
@@ -96,9 +96,21 @@ moduleDirectoryText :: Text -> FilePath
 moduleDirectoryText name =
   List.foldl' (</>) "" (map T.unpack (T.splitOn "." name))
 
-moduleKey :: Program -> (PackageId, Text)
-moduleKey program =
-  (modulePackage (programModule program), moduleName (programModule program))
+programKeys :: Program -> [(PackageId, Text)]
+programKeys = List.nub . mapMaybe declKey . programDecls
+  where
+    declKey decl =
+      case nameOrigin (declName decl) of
+        OriginTop package name -> Just (package, name)
+        OriginLocal {} -> Nothing
+
+    declName decl =
+      case decl of
+        DeclType declaration -> typeName declaration
+        DeclSynonym declaration -> synName declaration
+        DeclAxiom declaration -> axiomName declaration
+        DeclVal declaration -> valName declaration
+        DeclPrim declaration -> primName declaration
 
 scopeKeys :: Program -> [(PackageId, Text)]
 scopeKeys program =
