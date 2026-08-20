@@ -361,6 +361,7 @@ writeCoreFiles verbose primIdentity interface storeRoot corePath checkedModules 
       let pathV2 = coreV2Path modu <> ".bad"
           name = fromMaybe "Main" (moduleName modu)
       removeFileIfExists (corePath modu)
+      removeFileIfExists (corePath modu <> ".bad")
       removeFileIfExists (coreV2Path modu)
       writeCoreV2File pathV2 result2
       verbose ("Write bad Core-v2: " <> T.unpack name <> " -> " <> pathV2)

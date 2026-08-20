@@ -19,6 +19,7 @@ import Aihc.Resolve (PackageId (..), packageIdText)
 import Control.Monad (foldM, unless, when)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -60,10 +61,23 @@ loadScopeClosure loader seeds = Map.elems <$> go (Map.fromList [(moduleKey progr
             Just program ->
               go (Map.insert key program seen) (rest <> filter (not . alreadyLoaded seen) (scopeKeys program))
 
-    -- Skip a loaded module name. A seed can list a second package identity.
     alreadyLoaded seen (package, name) =
       Map.member (package, name) seen
-        || any (\program -> moduleName (programModule program) == name) (Map.elems seen)
+        || (isEmptyPackage package && hasModuleName seen name)
+        || hasEmptyPackageModule seen name
+
+    isEmptyPackage package = packageIdText package == ""
+
+    hasModuleName seen name =
+      any (\program -> moduleName (programModule program) == name) (Map.elems seen)
+
+    hasEmptyPackageModule seen name =
+      any
+        ( \program ->
+            moduleName (programModule program) == name
+              && isEmptyPackage (modulePackage (programModule program))
+        )
+        (Map.elems seen)
 
 storeModuleLoader :: FilePath -> ModuleLoader
 storeModuleLoader storeRoot package moduleName = do
@@ -215,7 +229,6 @@ applyKind env function functionKind argument argumentKind =
           Right result
         Nothing -> Left (LintFailure ("type application to a type that is not a pi-type or FUN: " <> show functionKind))
 
--- TYPE in a stub GHC.Types uses a Type parameter. Accept a RuntimeRep argument.
 kindsCompatible :: LintEnv -> Type -> Type -> Type -> Bool
 kindsCompatible env function expected actual =
   typesEqual (leTypes env) expected actual
@@ -329,12 +342,34 @@ lintLiteral env literal =
   case literal of
     LitInt representation _ -> typedRep representation
     LitChar representation _ -> typedRep representation
-    LitString {} -> typeKindType env
+    LitString {} -> stringLiteralType env
     LitAddr representation _ -> typedRep representation
   where
     typedRep representation = do
       _ <- lintType env representation
       Right (typeAppRep env representation)
+
+stringLiteralType :: LintEnv -> Either LintError Type
+stringLiteralType env =
+  case (namedType env ["[]", "List"], namedType env ["Char"]) of
+    (Just listName, Just charName) -> Right (TyApp (TyCon listName) (TyCon charName))
+    (Nothing, _) -> Left (UnboundName (missingTypeName env "[]"))
+    (_, Nothing) -> Left (UnboundName (missingTypeName env "Char"))
+
+namedType :: LintEnv -> [Text] -> Maybe Name
+namedType env candidates =
+  listToMaybe
+    [ name
+    | name <- Map.keys (teHeaders (leTypes env)),
+      nameText name `elem` candidates,
+      nameClass (nameSort name) == NameClassType
+    ]
+
+missingTypeName :: LintEnv -> Text -> Name
+missingTypeName env text =
+  case tePrimPackage (leTypes env) of
+    Just package -> Name text SortTypeConstructor (OriginTop package ghcTypesModule)
+    Nothing -> Name text SortTypeConstructor (OriginTop (PackageId "") "")
 
 lookupTerm :: LintEnv -> Name -> Either LintError Type
 lookupTerm env name =
@@ -382,7 +417,7 @@ lintAlt env scrutType alt =
       lintExpr env (altRhs alt)
     AltLit literal -> do
       unless (null (altBinders alt)) (Left (LintFailure "literal alternative has field binders"))
-      _ <- lintLiteral env literal
+      matchLiteralAlternative env scrutType literal
       lintExpr env (altRhs alt)
     AltData name ->
       case lookupHeaderType (leTypes env) name of
@@ -393,6 +428,22 @@ lintAlt env scrutType alt =
           envEx <- foldM bindLocal env existentials
           envFields <- foldM bindField envEx (zip fields (altBinders alt))
           lintExpr envFields (altRhs alt)
+
+matchLiteralAlternative :: LintEnv -> Type -> Literal -> Either LintError ()
+matchLiteralAlternative env scrutType literal =
+  case literal of
+    LitInt representation _ -> matchLiteralRep env scrutType representation
+    LitChar representation _ -> matchLiteralRep env scrutType representation
+    LitAddr representation _ -> matchLiteralRep env scrutType representation
+    LitString {} -> do
+      stringType <- stringLiteralType env
+      unless (typesEqual (leTypes env) stringType scrutType) (Left (TypeMismatch "literal alternative" scrutType stringType))
+
+matchLiteralRep :: LintEnv -> Type -> Type -> Either LintError ()
+matchLiteralRep env scrutType representation = do
+  _ <- lintType env representation
+  scrutRep <- representationOf env scrutType
+  unless (typesEqual (leTypes env) scrutRep representation) (Left (TypeMismatch "literal alternative" scrutType representation))
 
 bindField :: LintEnv -> (Type, Binder) -> Either LintError LintEnv
 bindField env (expected, binder) = do
@@ -484,11 +535,12 @@ coercionEndpoints env coercion =
       unless (typesEqual (leTypes env) middleLeft middleRight) (Left (TypeMismatch "coercion transitivity" middleLeft middleRight))
       Right (from, to)
     CoTyConApp name arguments -> do
-      _ <- case lookupHeaderType (leTypes env) name of
+      header <- case lookupHeaderType (leTypes env) name of
         Nothing -> Left (UnboundName name)
-        Just header -> Right header
+        Just ty -> Right ty
       pairs <- mapM (coercionEndpoints env) arguments
-      Right (foldl TyApp (TyCon name) (map fst pairs), foldl TyApp (TyCon name) (map snd pairs))
+      checkTyConCoercion env header pairs
+      Right (foldl' TyApp (TyCon name) (map fst pairs), foldl' TyApp (TyCon name) (map snd pairs))
     CoAxiom name arguments ->
       case Map.lookup name (leAxioms env) of
         Nothing -> Left (UnboundName name)
@@ -504,6 +556,35 @@ coercionEndpoints env coercion =
             )
             (zip (axiomBinders declaration) arguments)
           Right (applySubst subst (axiomLeft declaration), applySubst subst (axiomRight declaration))
+
+checkTyConCoercion :: LintEnv -> Type -> [(Type, Type)] -> Either LintError ()
+checkTyConCoercion env = go
+  where
+    go ty [] =
+      case viewForAll env ty of
+        Just {} -> Left (LintFailure "type constructor coercion arity mismatch")
+        Nothing ->
+          case viewFun env ty of
+            Just {} -> Left (LintFailure "type constructor coercion arity mismatch")
+            Nothing -> Right ()
+    go ty ((left, right) : rest) =
+      case viewForAll env ty of
+        Just (binder, body) -> do
+          checkCoercionArgumentKind env (binderType binder) left right
+          go (substType (binderName binder) left body) rest
+        Nothing ->
+          case viewFun env ty of
+            Just (_, _, expected, result) -> do
+              checkCoercionArgumentKind env expected left right
+              go result rest
+            Nothing -> Left (LintFailure "type constructor coercion arity mismatch")
+
+checkCoercionArgumentKind :: LintEnv -> Type -> Type -> Type -> Either LintError ()
+checkCoercionArgumentKind env expected left right = do
+  leftKind <- lintType env left
+  rightKind <- lintType env right
+  unless (typesEqual (leTypes env) expected leftKind) (Left (KindMismatch "type constructor coercion argument" expected leftKind))
+  unless (typesEqual (leTypes env) expected rightKind) (Left (KindMismatch "type constructor coercion argument" expected rightKind))
 
 representationOf :: LintEnv -> Type -> Either LintError Type
 representationOf env ty = do

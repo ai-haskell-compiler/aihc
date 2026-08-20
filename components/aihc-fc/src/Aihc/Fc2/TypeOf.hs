@@ -101,9 +101,7 @@ typeOf env ty =
     TyVar name ->
       Map.lookup name (teBinders env)
     TyCon name ->
-      case Map.lookup name (teHeaders env) of
-        Just header -> Just header
-        Nothing -> wiredTypeOf env name
+      lookupHeaderType env name
     TyApp function argument ->
       do
         functionType <- typeOf env function
@@ -129,14 +127,14 @@ unfoldType :: TypeEnv -> Type -> Type
 unfoldType env ty =
   case ty of
     TyCon name
+      | Just body <- Map.lookup name (teSynonyms env) ->
+          unfoldType env (stripForAlls body)
       | isWiredName env name "Type",
         Just representation <- liftedRepType env ->
           typeAppTYPE env representation
       | isWiredName env name "Constraint",
         Just representation <- liftedRepType env ->
           typeAppTYPE env representation
-      | Just body <- Map.lookup name (teSynonyms env) ->
-          unfoldType env (stripForAlls body)
       | isWiredName env name "TYPE" -> ty
       | isWiredName env name "RuntimeRep" -> ty
       | isWiredName env name "Levity" -> ty
@@ -150,6 +148,8 @@ unfoldRep :: TypeEnv -> Type -> Type
 unfoldRep env ty =
   case ty of
     TyCon name
+      | Just body <- Map.lookup name (teSynonyms env) ->
+          unfoldRep env (stripForAlls body)
       | isWiredName env name "LiftedRep",
         Just package <- tePrimPackage env ->
           TyApp (TyCon (boxedRepName package)) (TyCon (liftedName package))
