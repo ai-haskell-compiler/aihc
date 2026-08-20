@@ -170,12 +170,13 @@ axiomDeclaration scopes = do
 
 primDeclaration :: ScopeTable -> Parser OpenDecl
 primDeclaration scopes = do
+  vis <- MP.option Pub (keyword "private" $> Private)
   _ <- keyword "foreign"
   _ <- keyword "import"
   _ <- keyword "prim"
   name <- topName scopes SortValue
   _ <- symbol "::"
-  OpenPrimDecl Pub name <$> fcType
+  OpenPrimDecl vis name <$> fcType
 
 valDeclaration :: ScopeTable -> Parser OpenDecl
 valDeclaration scopes = do
@@ -276,6 +277,7 @@ typeAtom =
 reservedWords :: [Text]
 reservedWords =
   [ "pub",
+    "private",
     "val",
     "type",
     "axiom",

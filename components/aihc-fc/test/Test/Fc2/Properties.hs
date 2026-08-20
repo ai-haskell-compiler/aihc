@@ -96,6 +96,12 @@ valueNameTop text = Name text SortValue (OriginTop testPackage "Test")
 dataNameTop :: Text -> Name
 dataNameTop text = Name text SortDataConstructor (OriginTop testPackage "Test")
 
+synonymNameTop :: Text -> Name
+synonymNameTop text = Name text SortSynonym (OriginTop testPackage "Test")
+
+axiomNameTop :: Text -> Name
+axiomNameTop text = Name text SortAxiom (OriginTop testPackage "Test")
+
 typeWired :: Text -> Name
 typeWired text = Name text SortSynonym (OriginTop primPackage "GHC.Types")
 
@@ -153,42 +159,122 @@ identityProgram =
     }
 
 genProgram :: Gen Program
-genProgram = do
-  suffix <- Gen.text (Range.linear 1 4) Gen.lower
-  let typeName = typeNameTop ("T" <> suffix)
-      consName = dataNameTop ("C" <> suffix)
-      valName = valueNameTop ("f" <> suffix)
-      result = TyCon (typeWired "Type")
-  pure
-    Program
-      { programScopes = scopes,
-        programDecls =
-          [ DeclType
-              TypeDecl
-                { typeVis = Pub,
-                  typeName = typeName,
-                  typeBinders = [],
-                  typeResult = result,
-                  typeRoles = [],
-                  typeCons = [ConDecl Pub consName (TyCon typeName)]
-                },
-            DeclVal
-              ValDecl
-                { valVis = Pub,
-                  valName = valName,
-                  valType =
-                    TyFun
-                      (TyCon (typeWired "LiftedRep"))
-                      (TyCon (typeWired "LiftedRep"))
-                      (TyCon typeName)
-                      (TyCon typeName),
-                  valBody =
-                    ExLam
-                      (Binder (localValue "x") (TyCon typeName))
-                      (ExVar (localValue "x"))
-                }
-          ]
-      }
+genProgram = Program scopes <$> Gen.list (Range.linear 0 10) genDecl
+
+genDecl :: Gen Decl
+genDecl =
+  Gen.choice
+    [ DeclType <$> genTypeDecl,
+      DeclSynonym <$> genSynonymDecl,
+      DeclAxiom <$> genAxiomDecl,
+      DeclVal <$> genValDecl,
+      DeclPrim <$> genPrimDecl
+    ]
+
+genTypeDecl :: Gen TypeDecl
+genTypeDecl = do
+  name <- typeNameTop . ("T" <>) <$> genSuffix
+  binders <- Gen.list (Range.linear 0 3) genTypeBinder
+  roles <- traverse (const genRole) binders
+  privateConstructors <- Gen.choice [pure [], (: []) <$> genConDecl Private name]
+  publicConstructors <- Gen.list (Range.linear 0 3) (genConDecl Pub name)
+  TypeDecl
+    <$> genVis
+    <*> pure name
+    <*> pure binders
+    <*> genType
+    <*> pure roles
+    <*> pure (privateConstructors <> publicConstructors)
+
+genConDecl :: Vis -> Name -> Gen ConDecl
+genConDecl visibility typeName =
+  (ConDecl visibility . dataNameTop . ("C" <>) <$> genSuffix)
+    <*> Gen.choice [pure (TyCon typeName), genType]
+
+genSynonymDecl :: Gen SynonymDecl
+genSynonymDecl =
+  SynonymDecl
+    <$> genVis
+    <*> (synonymNameTop . ("S" <>) <$> genSuffix)
+    <*> Gen.list (Range.linear 0 3) genTypeBinder
+    <*> genType
+    <*> genType
+
+genAxiomDecl :: Gen AxiomDecl
+genAxiomDecl =
+  AxiomDecl
+    <$> genVis
+    <*> (axiomNameTop . ("ax" <>) <$> genSuffix)
+    <*> Gen.list (Range.linear 0 3) genTypeBinder
+    <*> genRole
+    <*> genType
+    <*> genType
+
+genValDecl :: Gen ValDecl
+genValDecl =
+  ValDecl
+    <$> genVis
+    <*> (valueNameTop . ("f" <>) <$> genSuffix)
+    <*> genType
+    <*> (ExVar <$> genLocalValueName)
+
+genPrimDecl :: Gen PrimDecl
+genPrimDecl =
+  PrimDecl
+    <$> genVis
+    <*> (valueNameTop . ("prim" <>) <$> genSuffix)
+    <*> genType
+
+genType :: Gen Type
+genType =
+  Gen.recursive
+    Gen.choice
+    [ TyVar <$> genLocalTypeName,
+      TyCon <$> genTypeName
+    ]
+    [ TyApp <$> genType <*> genType,
+      TyFun liftedRep liftedRep <$> genType <*> genType,
+      TyForAll <$> genTypeBinder <*> genType,
+      TyEq <$> genType <*> genType
+    ]
+  where
+    liftedRep = TyCon (typeWired "LiftedRep")
+
+genTypeName :: Gen Name
+genTypeName =
+  Gen.choice
+    [ pure (typeWired "Type"),
+      pure (typeWired "LiftedRep"),
+      pure (typeWired "UnliftedRep"),
+      typeNameTop . ("T" <>) <$> genSuffix
+    ]
+
+genTypeBinder :: Gen Binder
+genTypeBinder =
+  Binder
+    <$> genLocalTypeName
+    <*> pure (TyCon (typeWired "Type"))
+
+genLocalTypeName :: Gen Name
+genLocalTypeName =
+  localTypeWith
+    <$> Gen.int (Range.linear 0 10000)
+    <*> (("tv" <>) <$> genSuffix)
+
+genLocalValueName :: Gen Name
+genLocalValueName =
+  localValueWith
+    <$> Gen.int (Range.linear 0 10000)
+    <*> (("x" <>) <$> genSuffix)
+
+genVis :: Gen Vis
+genVis = Gen.element [Pub, Private]
+
+genRole :: Gen Role
+genRole = Gen.element [Nominal, Representational, Phantom]
+
+genSuffix :: Gen Text
+genSuffix = Gen.text (Range.linear 1 4) Gen.lower
 
 genTidyProgram :: Gen Program
 genTidyProgram = do

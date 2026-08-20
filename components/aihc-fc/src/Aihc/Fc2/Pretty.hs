@@ -146,10 +146,15 @@ renderValDecl env scopes declaration =
 
 renderPrimDecl :: TypeEnv -> ScopeTable -> PrimDecl -> String
 renderPrimDecl env scopes declaration =
-  "foreign import prim "
+  renderPrimVis (primVis declaration)
+    <> "foreign import prim "
     <> renderTopName scopes (primName declaration)
     <> " :: "
     <> renderTypeWith env scopes PrecForAll (primType declaration)
+
+renderPrimVis :: Vis -> String
+renderPrimVis Pub = ""
+renderPrimVis Private = "private "
 
 renderType :: Program -> Type -> String
 renderType program =
