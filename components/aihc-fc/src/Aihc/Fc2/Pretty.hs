@@ -77,7 +77,7 @@ renderConstructors :: TypeEnv -> ScopeTable -> [ConDecl] -> String
 renderConstructors _ _ [] = " {}"
 renderConstructors env scopes constructors =
   " {\n"
-    <> intercalate "\n" (map (renderConDecl env scopes) constructors)
+    <> intercalate ";\n" (map (renderConDecl env scopes) constructors)
     <> "\n}"
 
 renderConDecl :: TypeEnv -> ScopeTable -> ConDecl -> String
@@ -146,7 +146,8 @@ renderValDecl env scopes declaration =
 
 renderPrimDecl :: TypeEnv -> ScopeTable -> PrimDecl -> String
 renderPrimDecl env scopes declaration =
-  "foreign import prim "
+  renderVis (primVis declaration)
+    <> "foreign import prim "
     <> renderTopName scopes (primName declaration)
     <> " :: "
     <> renderTypeWith env scopes PrecForAll (primType declaration)
@@ -167,7 +168,7 @@ renderTypeWith env scopes prec ty =
           paren (prec < PrecFun) (renderTypeWith env scopes PrecApp argument <> " → " <> renderTypeWith env scopes PrecFun result)
       | otherwise ->
           paren
-            (prec < PrecApp)
+            (prec < PrecFun)
             ( "FUN @"
                 <> renderTypeWith env scopes PrecAtom r1
                 <> " @"

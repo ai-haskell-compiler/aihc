@@ -58,7 +58,7 @@ expected: |-
   }
 
   pub type 1.tLevity :: 1.tType {
-      pub 1.vLifted :: 1.tLevity
+      pub 1.vLifted :: 1.tLevity;
       pub 1.vUnlifted :: 1.tLevity
   }
   scope 1 = "aihc-prim" GHC.Prim

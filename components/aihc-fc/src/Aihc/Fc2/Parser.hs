@@ -148,7 +148,7 @@ typeOrSynonym scopes = do
     ]
 
 constructorBlock :: ScopeTable -> Parser [OpenCon]
-constructorBlock scopes = braces (MP.many (constructorDecl scopes))
+constructorBlock scopes = braces (MP.many (constructorDecl scopes <* MP.optional (symbol ";")))
 
 constructorDecl :: ScopeTable -> Parser OpenCon
 constructorDecl scopes = do
@@ -170,12 +170,13 @@ axiomDeclaration scopes = do
 
 primDeclaration :: ScopeTable -> Parser OpenDecl
 primDeclaration scopes = do
+  vis <- optionalPub
   _ <- keyword "foreign"
   _ <- keyword "import"
   _ <- keyword "prim"
   name <- topName scopes SortValue
   _ <- symbol "::"
-  OpenPrimDecl Pub name <$> fcType
+  OpenPrimDecl vis name <$> fcType
 
 valDeclaration :: ScopeTable -> Parser OpenDecl
 valDeclaration scopes = do

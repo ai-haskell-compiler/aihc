@@ -2,6 +2,6 @@ scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
 pub type 1.t[] (a : 2.tType) :: 2.tType {
-    pub 1.v[] :: ∀(a : 2.tType). 1.t[] a
+    pub 1.v[] :: ∀(a : 2.tType). 1.t[] a;
     pub 1.v: :: ∀(a : 2.tType). a → 1.t[] a → 1.t[] a
 }

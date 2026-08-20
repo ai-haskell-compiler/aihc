@@ -1,0 +1,21 @@
+extensions:
+  - TypeFamilies
+modules:
+  - |
+    module Test where
+    data family Payload a
+    data instance Payload a = PayloadA a | PayloadB
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tPayload (a : 2.tType) :: 2.tType @N {}
+
+  type 1.t$R$Payload$PayloadA (a : 2.tType) :: 2.tType {
+      1.vPayloadA :: ∀(a : 2.tType). a → 1.t$R$Payload$PayloadA a;
+      1.vPayloadB :: ∀(a : 2.tType). 1.t$R$Payload$PayloadA a
+  }
+
+  axiom 1.$ax$Payload$PayloadA (a : 2.tType) : 1.tPayload a ~N 1.t$R$Payload$PayloadA a
+status: pass
+reason: Private constructor declarations use uniform separators.
