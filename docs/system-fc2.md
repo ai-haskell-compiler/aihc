@@ -248,7 +248,7 @@ Do not write `core` without `core-v2`.
 | 6 | `feat(fc2): desugar data families` | done, #1492 |
 | 7 | `feat(fc2): desugar type families` | done, #1492 |
 | 8 | `feat(fc2): accept foreign import prim and reject ccall` | done, #1493 |
-| 9 | `feat(fc2): write core-v2 from install-v2` | planned |
+| 9 | `feat(fc2): write core-v2 from install-v2` | done |
 | 10 | `fix(fc2): correct System FC 2 output for aihc-prim` | planned |
 
 PR 4 depends on PR 3.
