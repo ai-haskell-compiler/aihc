@@ -316,8 +316,9 @@ removeClassPredicate className predicates =
 convertNewtype :: ConvertEnv -> DataTypeInfo -> Either String [Decl]
 convertNewtype env info = do
   let tyCon = dtiTyCon info
-      bindersEnv = withTyVars (dtiTyVars info) env
-  binders <- mapM (tyVarBinder bindersEnv) (dtiTyVars info)
+      tyVars = extraKindVars tyCon (dtiTyVars info) <> dtiTyVars info
+      bindersEnv = withTyVars tyVars env
+  binders <- mapM (tyVarBinder bindersEnv) tyVars
   result <- convertKind bindersEnv (dtiResultKind info)
   representation <-
     case dtiConstructors info of
@@ -524,8 +525,9 @@ lookupSynonym package moduleName' name tyCons =
 convertDataType :: ConvertEnv -> DataTypeInfo -> Either String Decl
 convertDataType env info = do
   let tyCon = dtiTyCon info
-      bindersEnv = withTyVars (dtiTyVars info) env
-  binders <- mapM (tyVarBinder bindersEnv) (dtiTyVars info)
+      tyVars = extraKindVars tyCon (dtiTyVars info) <> dtiTyVars info
+      bindersEnv = withTyVars tyVars env
+  binders <- mapM (tyVarBinder bindersEnv) tyVars
   result <- convertKind bindersEnv (dtiResultKind info)
   constructors <- mapM (convertConstructor env) (dtiConstructors info)
   pure
@@ -548,8 +550,14 @@ convertConstructor env info = do
   predicates <- mapM (convertPred bindersEnv) (dciTheta info)
   fields <- mapM (convertType bindersEnv . dcfiType) (dciFields info)
   result <- convertType bindersEnv (dciResTy info)
-  let body = foldr (funType bindersEnv) result (predicates <> fields)
-      constructorType = foldr TyForAll body binders
+  body <-
+    constructorFun
+      bindersEnv
+      (replicate (length predicates) Nothing <> map (Just . dcfiType) (dciFields info))
+      (predicates <> fields)
+      (dciResTy info)
+      result
+  let constructorType = foldr TyForAll body binders
       (package, moduleName') = dciOrigin info
   pure
     ConDecl
@@ -557,6 +565,26 @@ convertConstructor env info = do
         conName = Name (dciName info) SortDataConstructor (OriginTop package moduleName'),
         conType = constructorType
       }
+
+constructorFun :: ConvertEnv -> [Maybe TcType] -> [Type] -> TcType -> Type -> Either String Type
+constructorFun env fieldTys convertedFields resultTy convertedResult =
+  go (zip fieldTys convertedFields)
+  where
+    go [] = Right convertedResult
+    go ((maybeField, converted) : rest) = do
+      restType <- go rest
+      r1 <- maybe (Right (liftedRepType env)) (typeRepOrLifted env) maybeField
+      r2 <-
+        if null rest
+          then typeRepOrLifted env resultTy
+          else Right (liftedRepType env)
+      Right (TyFun r1 r2 converted restType)
+
+typeRepOrLifted :: ConvertEnv -> TcType -> Either String Type
+typeRepOrLifted env ty =
+  case typeRep env ty of
+    Right representation -> Right representation
+    Left _ -> Right (liftedRepType env)
 
 convertSynonym :: ConvertEnv -> TyConInfo -> Either String Decl
 convertSynonym env info =

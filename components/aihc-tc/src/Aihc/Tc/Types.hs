@@ -537,7 +537,8 @@ typeAsKind :: TcType -> Kind
 typeAsKind ty =
   case ty of
     TcTyCon tyCon []
-      | tyConName tyCon `elem` ["*", "Type"] -> KType
+      | tyConName tyCon `elem` ["*", "Type", "LiftedType"] -> KType
+      | tyConName tyCon == "UnliftedType" -> KTYPE (BoxedRep Unlifted)
       | tyConName tyCon == "Constraint" -> KConstraint
       | tyConName tyCon == "RuntimeRep" -> KRuntimeRep
       | tyConName tyCon == "Levity" -> KLevity
@@ -557,6 +558,8 @@ typeAsBuiltinKind name arguments =
   case (bareName name, arguments) of
     ("*", []) -> KType
     ("Type", []) -> KType
+    ("LiftedType", []) -> KType
+    ("UnliftedType", []) -> KTYPE (BoxedRep Unlifted)
     ("Constraint", []) -> KConstraint
     ("RuntimeRep", []) -> KRuntimeRep
     ("Levity", []) -> KLevity

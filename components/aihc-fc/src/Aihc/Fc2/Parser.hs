@@ -18,13 +18,14 @@ import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
-import Data.Char (isAlpha, isAlphaNum)
+import Data.ByteString qualified as BS
+import Data.Char (chr, digitToInt, isAlpha, isAlphaNum, isHexDigit, ord)
 import Data.Functor (($>))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.Encoding qualified as TE
 import Data.Void (Void)
+import Data.Word (Word8)
 import Text.Megaparsec (ParseErrorBundle, Parsec)
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Char qualified as MPC
@@ -41,7 +42,7 @@ data OpenType
   | OpenFun OpenType OpenType
   | OpenForAll Name OpenType OpenType
   | OpenEq OpenType OpenType
-  | OpenExplicit Type
+  | OpenExplicitFun OpenType OpenType OpenType OpenType
   deriving (Eq, Show)
 
 parseProgram :: Text -> Either Fc2ParseError Program
@@ -282,20 +283,7 @@ explicitFun = do
   r1 <- symbol "@" *> typeAtom
   r2 <- symbol "@" *> typeAtom
   argument <- typeAtom
-  OpenExplicit . TyFun (demandType r1) (demandType r2) (demandType argument) . demandType <$> typeAtom
-
-demandType :: OpenType -> Type
-demandType open =
-  case open of
-    OpenVar name -> TyVar name
-    OpenCon name -> TyCon name
-    OpenApp function argument -> TyApp (demandType function) (demandType argument)
-    OpenFun argument result ->
-      TyFun (demandType argument) (demandType result) (demandType argument) (demandType result)
-    OpenForAll name kind body ->
-      TyForAll (Binder name (demandType kind)) (demandType body)
-    OpenEq left right -> TyEq (demandType left) (demandType right)
-    OpenExplicit ty -> ty
+  OpenExplicitFun r1 r2 argument <$> typeAtom
 
 typeAtom :: Parser OpenType
 typeAtom =
@@ -495,13 +483,13 @@ hashedLiteral =
         representation <- representationType
         pure (LitChar representation value),
       do
-        value <- stringLiteral
+        value <- addrLiteral
         _ <- MPC.char '#'
         representation <- representationType
         case representationName representation of
           Just name
             | nameText name == "AddrRep" ->
-                pure (LitAddr representation (TE.encodeUtf8 value))
+                pure (LitAddr representation value)
           _ -> fail "address literal representation must be AddrRep"
     ]
 
@@ -549,9 +537,27 @@ rawName :: Parser Text
 rawName =
   MP.choice
     [ "[]" <$ MPC.string "[]",
+      MP.try tupleName,
       MP.try identName,
       operatorName
     ]
+
+tupleName :: Parser Text
+tupleName = unboxedTupleName <|> boxedTupleName
+
+unboxedTupleName :: Parser Text
+unboxedTupleName = do
+  _ <- MPC.string "(#"
+  commas <- MP.many (MPC.char ',')
+  _ <- MPC.string "#)"
+  pure (T.pack ("(#" <> commas <> "#)"))
+
+boxedTupleName :: Parser Text
+boxedTupleName = do
+  _ <- MPC.char '('
+  commas <- MP.many (MPC.char ',')
+  _ <- MPC.char ')'
+  pure (T.pack ('(' : commas <> ")"))
 
 identName :: Parser Text
 identName = do
@@ -907,7 +913,8 @@ closeType env open =
       TyForAll binder <$> closeType (extend env binder) body
     OpenEq left right ->
       TyEq <$> closeType env left <*> closeType env right
-    OpenExplicit ty -> Right ty
+    OpenExplicitFun r1 r2 argument result ->
+      TyFun <$> closeType env r1 <*> closeType env r2 <*> closeType env argument <*> closeType env result
 
 -- Lexer
 
@@ -942,6 +949,13 @@ stringLiteral = lexeme $ do
   _ <- MPC.char '"'
   pure (T.pack characters)
 
+addrLiteral :: Parser BS.ByteString
+addrLiteral = lexeme $ do
+  _ <- MPC.char '"'
+  bytes <- MP.many addrByte
+  _ <- MPC.char '"'
+  pure (BS.pack bytes)
+
 charLiteral :: Parser Char
 charLiteral = lexeme $ do
   _ <- MPC.char '\''
@@ -952,12 +966,33 @@ charLiteral = lexeme $ do
 stringChar :: Parser Char
 stringChar =
   MP.choice
-    [ MP.satisfy (\character -> character /= '"' && character /= '\'' && character /= '\\'),
+    [ hexChar,
+      MP.satisfy (\character -> character /= '"' && character /= '\'' && character /= '\\'),
       MPC.string "\\\\" $> '\\',
       MPC.string "\\\"" $> '"',
       MPC.string "\\'" $> '\'',
       MPC.string "\\n" $> '\n'
     ]
+
+addrByte :: Parser Word8
+addrByte =
+  MP.choice
+    [ hexByte,
+      fromIntegral . ord <$> MP.satisfy (\character -> character /= '"' && character /= '\\'),
+      MPC.string "\\\\" $> 92,
+      MPC.string "\\\"" $> 34,
+      MPC.string "\\n" $> 10
+    ]
+
+hexChar :: Parser Char
+hexChar = chr . fromIntegral <$> hexByte
+
+hexByte :: Parser Word8
+hexByte = do
+  _ <- MPC.string "\\x"
+  high <- MP.satisfy isHexDigit
+  low <- MP.satisfy isHexDigit
+  pure (fromIntegral (digitToInt high * 16 + digitToInt low))
 
 qualifiedModuleName :: Parser Text
 qualifiedModuleName = lexeme $ do

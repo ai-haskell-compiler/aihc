@@ -19,13 +19,15 @@ module Aihc.Fc2.Convert
     lookupAxiomName,
     funType,
     liftedRepType,
+    typeRep,
+    extraKindVars,
   )
 where
 
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Fc2.Wired
-import Aihc.Resolve (PackageId)
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types
   ( Kind (..),
     Levity (..),
@@ -34,14 +36,18 @@ import Aihc.Tc.Types
     TcType (..),
     TyCon,
     TyVarId (..),
+    TypeScheme (..),
     Unique (..),
+    kindFromTypeScheme,
     liftedRuntimeRep,
     runtimeRepOfType,
     tvKind,
     tyConKey,
+    tyConKindScheme,
     tyConModuleName,
     tyConName,
     tyConPackageId,
+    typeKind,
   )
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -126,8 +132,12 @@ convertRep env runtimeRep =
     AddrRep -> Right (repCon env "AddrRep")
     FloatRep -> Right (repCon env "FloatRep")
     DoubleRep -> Right (repCon env "DoubleRep")
-    TupleRep fields -> TyApp (repCon env "TupleRep") <$> promotedList env fields
-    SumRep fields -> TyApp (repCon env "SumRep") <$> promotedList env fields
+    TupleRep fields -> do
+      converted <- mapM (convertRep env) fields
+      Right (TyApp (repCon env "TupleRep") (promotedRuntimeRepList env converted))
+    SumRep fields -> do
+      converted <- mapM (convertRep env) fields
+      Right (TyApp (repCon env "SumRep") (promotedRuntimeRepList env converted))
     VecRep count element ->
       Right
         ( TyApp
@@ -150,13 +160,13 @@ convertRep env runtimeRep =
         Unique uniqueValue = unique
     RuntimeRepMeta {} -> Left "runtime representation still has a meta variable"
 
-promotedList :: ConvertEnv -> [RuntimeRep] -> Either String Type
-promotedList env fields = do
-  converted <- mapM (convertRep env) fields
-  pure (foldr cons nil converted)
+promotedRuntimeRepList :: ConvertEnv -> [Type] -> Type
+promotedRuntimeRepList env =
+  foldr cons nil
   where
-    cons item = TyApp (TyApp (repCon env ":") item)
-    nil = repCon env "[]"
+    runtimeRep = TyCon (runtimeRepConstructor (cePrimPackage env))
+    nil = TyApp (repCon env "[]") runtimeRep
+    cons item = TyApp (TyApp (TyApp (repCon env ":") runtimeRep) item)
 
 repCon :: ConvertEnv -> Text -> Type
 repCon env name = TyCon (wiredGhcTypes (cePrimPackage env) name SortDataConstructor)
@@ -167,8 +177,9 @@ convertType env ty =
     TcTyVar tyVar -> Right (tyVarType tyVar)
     TcMetaTv {} -> Left "type still has a meta variable"
     TcTyCon tyCon arguments -> do
+      kindArgs <- invisibleKindArgs env tyCon arguments
       converted <- mapM (convertType env) arguments
-      pure (foldl TyApp (TyCon (tyConNameFc2 env tyCon)) converted)
+      pure (foldl TyApp (TyCon (tyConNameFc2 env tyCon)) (kindArgs <> converted))
     TcFunTy argument result -> do
       convertedArgument <- convertType env argument
       convertedResult <- convertType env result
@@ -189,10 +200,7 @@ convertType env ty =
       headType <- builtinType env name
       converted <- mapM (convertType env) arguments
       case (bareBuiltin name, converted) of
-        ("[]", items) -> Right (foldr cons nil items)
-          where
-            cons item = TyApp (TyApp (repCon env ":") item)
-            nil = repCon env "[]"
+        ("[]", items) -> Right (promotedRuntimeRepList env items)
         _ -> pure (foldl TyApp headType converted)
 
 convertPred :: ConvertEnv -> Pred -> Either String Type
@@ -232,7 +240,63 @@ tyConNameFc2 :: ConvertEnv -> TyCon -> Name
 tyConNameFc2 env tyCon =
   if Set.member (tyConKey tyCon) (ceClassTyCons env)
     then classDictTypeName tyCon
-    else Name (tyConName tyCon) SortTypeConstructor (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
+    else case wiredRewriteName env tyCon of
+      Just name -> name
+      Nothing -> Name (tyConName tyCon) SortTypeConstructor (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
+
+-- | Promoted runtime names from aihc-internal become GHC.Types data constructors.
+wiredRewriteName :: ConvertEnv -> TyCon -> Maybe Name
+wiredRewriteName env tyCon =
+  if shouldRewrite
+    then wiredBuiltinName env (tyConName tyCon)
+    else Nothing
+  where
+    shouldRewrite =
+      T.isPrefixOf "'" (tyConName tyCon)
+        || tyConPackageId tyCon == PackageId "aihc-internal"
+        || tyConModuleName tyCon == "Aihc.Internal"
+
+wiredBuiltinName :: ConvertEnv -> Text -> Maybe Name
+wiredBuiltinName env raw =
+  case Map.lookup (bareBuiltin raw) builtinTable of
+    Just (sort, moduleName) ->
+      Just (Name (bareBuiltin raw) sort (OriginTop (cePrimPackage env) moduleName))
+    Nothing -> Nothing
+
+-- | Invisible kind parameters that the type constructor quantifies before visible arguments.
+extraKindVars :: TyCon -> [TyVarId] -> [TyVarId]
+extraKindVars tyCon visible =
+  case tyConKindScheme tyCon of
+    ForAll vars _ _ ->
+      let seen = map tvUnique visible
+       in filter (\tyVar -> tvUnique tyVar `notElem` seen) vars
+
+invisibleKindArgs :: ConvertEnv -> TyCon -> [TcType] -> Either String [Type]
+invisibleKindArgs env tyCon arguments =
+  mapM (kindVarToType env tyCon arguments) (extraKindVars tyCon [])
+
+kindVarToType :: ConvertEnv -> TyCon -> [TcType] -> TyVarId -> Either String Type
+kindVarToType env tyCon arguments tyVar =
+  case Map.lookup (tvUnique tyVar) (ceTyVars env) of
+    Just found -> Right (tyVarType found)
+    Nothing ->
+      case Map.lookup (tvUnique tyVar) (repSubst tyCon arguments) of
+        Just runtimeRep -> convertRep env runtimeRep
+        Nothing -> convertRep env (RuntimeRepVar (tvUnique tyVar))
+
+repSubst :: TyCon -> [TcType] -> Map Unique RuntimeRep
+repSubst tyCon =
+  go (kindFromTypeScheme (tyConKindScheme tyCon))
+  where
+    go (KFun formal result) (argument : rest) =
+      matchKind formal (typeKind argument) <> go result rest
+    go _ _ = Map.empty
+
+    matchKind (KTYPE (RuntimeRepVar unique)) (KTYPE runtimeRep) =
+      Map.singleton unique runtimeRep
+    matchKind (KFun left right) (KFun left' right') =
+      matchKind left left' <> matchKind right right'
+    matchKind _ _ = Map.empty
 
 builtinType :: ConvertEnv -> Text -> Either String Type
 builtinType env name =

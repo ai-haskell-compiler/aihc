@@ -14,13 +14,15 @@ import Aihc.Fc2.TypeOf
 import Aihc.Resolve (PackageId (..), packageIdText)
 import Aihc.Tc.Types (Unique (..))
 import Data.ByteString qualified as BS
-import Data.Char (chr)
+import Data.Char (chr, isAscii, isPrint, ord)
 import Data.List (intercalate)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Word (Word8)
+import Numeric (showHex)
 
 data Prec
   = PrecAtom
@@ -310,8 +312,26 @@ renderLiteral scopes seen literal =
   case literal of
     LitInt representation value -> show value <> "#" <> renderName scopes seen (repName representation)
     LitChar representation value -> show value <> "#" <> renderName scopes seen (repName representation)
-    LitString value -> show (T.unpack value)
-    LitAddr representation value -> show (map (chr . fromIntegral) (BS.unpack value)) <> "#" <> renderName scopes seen (repName representation)
+    LitString value -> "\"" <> concatMap encodeStringChar (T.unpack value) <> "\""
+    LitAddr representation value -> "\"" <> concatMap encodeByte (BS.unpack value) <> "\"#" <> renderName scopes seen (repName representation)
+
+encodeStringChar :: Char -> String
+encodeStringChar character
+  | character == '"' = "\\\""
+  | character == '\\' = "\\\\"
+  | character == '\n' = "\\n"
+  | isAscii character && isPrint character = [character]
+  | otherwise = encodeByte (fromIntegral (ord character))
+
+encodeByte :: Word8 -> String
+encodeByte byte
+  | isAscii character && isPrint character && character `notElem` ("\"\\'" :: String) =
+      [character]
+  | otherwise = "\\x" <> padHex (showHex (fromIntegral byte :: Int) "")
+  where
+    character = chr (fromIntegral byte)
+    padHex [digit] = ['0', digit]
+    padHex digits = digits
 
 repName :: Type -> Name
 repName ty =

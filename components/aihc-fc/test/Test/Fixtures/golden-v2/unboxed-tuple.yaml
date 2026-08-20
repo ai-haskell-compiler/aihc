@@ -1,0 +1,63 @@
+extensions:
+  - DataKinds
+  - KindSignatures
+  - MagicHash
+  - StandaloneKindSignatures
+  - UnboxedTuples
+modules:
+  - |
+    module GHC.Types where
+
+    data TYPE (rep :: RuntimeRep)
+
+    type Type :: Type
+    type Type = TYPE LiftedRep
+
+    type LiftedRep :: RuntimeRep
+    type LiftedRep = 'BoxedRep 'Lifted
+
+    data RuntimeRep
+      = BoxedRep Levity
+      | TupleRep [RuntimeRep]
+
+    data Levity = Lifted | Unlifted
+
+    data List a = [] | a : [a]
+
+    infixr 5 :
+
+    type Tuple2# :: TYPE r1 -> TYPE r2 -> TYPE ('TupleRep '[r1, r2])
+    data Tuple2# (a1 :: TYPE r1) (a2 :: TYPE r2) = (# a1, a2 #)
+expected: |-
+  scope 1 = "aihc-prim" GHC.Types
+
+  module 1.GHC.Types where
+
+  pub type 1.tTYPE (rep{23} : 1.tRuntimeRep) :: 1.tType {}
+
+  pub type 1.tType :: 1.tType =
+   1.tTYPE 1.tLiftedRep
+
+  pub type 1.tLiftedRep :: 1.tRuntimeRep =
+   1.vBoxedRep 1.vLifted
+
+  pub type 1.tRuntimeRep :: 1.tType {
+      pub 1.vBoxedRep :: 1.tLevity → 1.tRuntimeRep
+      pub 1.vTupleRep :: 1.t[] 1.tRuntimeRep → 1.tRuntimeRep
+  }
+
+  pub type 1.tLevity :: 1.tType {
+      pub 1.vLifted :: 1.tLevity
+      pub 1.vUnlifted :: 1.tLevity
+  }
+
+  pub type 1.t[] (a{24} : 1.tType) :: 1.tType {
+      pub 1.v[] :: ∀(a{24} : 1.tType). 1.t[] a{24}
+      pub 1.v: :: ∀(a{24} : 1.tType). a{24} → 1.t[] a{24} → 1.t[] a{24}
+  }
+
+  pub type 1.tTuple2# (r1{1} : 1.tRuntimeRep) (r2{2} : 1.tRuntimeRep) (a1{26} : 1.tTYPE r1{1}) (a2{27} : 1.tTYPE r2{2}) :: 1.tTYPE (1.vTupleRep (1.v: 1.tRuntimeRep r1{1} (1.v: 1.tRuntimeRep r2{2} (1.v[] 1.tRuntimeRep)))) {
+      pub 1.v(#,#) :: ∀(r1{1} : 1.tRuntimeRep) (r2{2} : 1.tRuntimeRep) (a1{26} : 1.tTYPE r1{1}) (a2{27} : 1.tTYPE r2{2}). FUN @r1{1} @1.tLiftedRep a1{26} (FUN @r2{2} @(1.vTupleRep (1.v: 1.tRuntimeRep r1{1} (1.v: 1.tRuntimeRep r2{2} (1.v[] 1.tRuntimeRep)))) a2{27} (1.tTuple2# r1{1} r2{2} a1{26} a2{27}))
+  }
+status: pass
+reason: An unboxed tuple keeps kind parameters and TupleRep in the result kind.
