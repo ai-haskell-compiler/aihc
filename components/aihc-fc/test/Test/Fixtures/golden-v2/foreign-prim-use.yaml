@@ -1,0 +1,24 @@
+extensions:
+  - ForeignFunctionInterface
+  - GHCForeignImportPrim
+  - MagicHash
+modules:
+  - |
+    module Test where
+    foreign import prim raise# :: a -> b
+    boom x = raise# x
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  module 1.Test where
+
+  foreign import prim 1.vraise# :: ∀(a{10} : 2.tType) (b{11} : 2.tType). a{10} → b{11}
+
+  pub val 1.vboom :: ∀(a{22} : 2.tType) (b{23} : 2.tType). a{22} → b{23}
+   = Λ(a{22} : 2.tType).
+    Λ(b{23} : 2.tType).
+      λ(x{1002} : a{22}).
+        1.vraise# @a{22} @b{23} x{1002}
+status: pass
+reason: A use of a foreign import prim stays an ordinary application.

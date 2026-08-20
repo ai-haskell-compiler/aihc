@@ -200,6 +200,10 @@ dsDecl env package moduleName' dataTypes tyCons classes dataFamilyInstances type
               (convertTypeFamilyEquation env package moduleName')
               [equation | equation <- typeFamilyInstances, tfiiFamilyName equation == familyName, tfiiClosed equation]
           pure (typeDecl : axioms)
+        Syn.DeclForeign foreignDecl ->
+          case Syn.foreignCallConv foreignDecl of
+            Syn.CPrim -> Right []
+            _ -> Left "System FC 2 accepts only foreign import prim"
         _ -> Right []
 
 lookupDataType :: TyConFlavor -> PackageId -> Text -> Text -> [DataTypeInfo] -> Either String DataTypeInfo
@@ -718,6 +722,7 @@ definitionResolution declaration =
     Syn.DeclNewtype newtypeDeclaration -> nameResolution (binderHeadName (Syn.newtypeDeclHead newtypeDeclaration))
     Syn.DeclClass classDeclaration -> nameResolution (binderHeadName (Syn.classDeclHead classDeclaration))
     Syn.DeclDataFamilyDecl familyDeclaration -> nameResolution (binderHeadName (Syn.dataFamilyDeclHead familyDeclaration))
+    Syn.DeclForeign foreignDecl -> nameResolution (Syn.foreignName foreignDecl)
     _ -> Nothing
 
 nameResolution :: UnqualifiedName -> Maybe ResolutionAnnotation

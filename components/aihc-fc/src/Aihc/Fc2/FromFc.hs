@@ -43,6 +43,8 @@ convertTopBind :: ConvertEnv -> Fc.FcModuleId -> TopVars -> Fc.FcTopBind -> Eith
 convertTopBind env moduleId tops topBind =
   case topBind of
     Fc.FcTopBind bind -> convertBindDecls env moduleId tops bind
+    Fc.FcPrimitive var _ -> (: []) . DeclPrim <$> convertPrim env moduleId var
+    Fc.FcForeignImport {} -> Left "System FC 2 accepts only foreign import prim"
     _ -> Right []
 
 convertBindDecls :: ConvertEnv -> Fc.FcModuleId -> TopVars -> Fc.FcBind -> Either String [Decl]
@@ -61,6 +63,16 @@ convertVal env moduleId tops var expr = do
         valName = topVarName moduleId var,
         valType = ty,
         valBody = body
+      }
+
+convertPrim :: ConvertEnv -> Fc.FcModuleId -> Fc.Var -> Either String PrimDecl
+convertPrim env moduleId var = do
+  ty <- convertType env (Fc.varType var)
+  pure
+    PrimDecl
+      { primVis = Pub,
+        primName = topVarName moduleId var,
+        primType = ty
       }
 
 convertExpr :: ConvertEnv -> TopVars -> Fc.FcExpr -> Either String Expr
@@ -93,7 +105,7 @@ convertExpr env tops expression =
     Fc.FcCast inner coercion ->
       ExCast <$> convertExpr env tops inner <*> convertCoercion env coercion
     Fc.FcCallForeign {} ->
-      Left "foreign-call terms are not in System FC 2 yet"
+      Left "System FC 2 accepts only foreign import prim"
 
 convertRecBind :: ConvertEnv -> TopVars -> (Fc.Var, Fc.FcExpr) -> Either String Bind
 convertRecBind env tops (var, expr) = do
