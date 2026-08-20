@@ -1954,7 +1954,7 @@ registerTypeDeclHeader _ _ = pure []
 registerStructuralDecl :: (Text, Text) -> Decl -> TcM [TcBindingResult]
 registerStructuralDecl _ (DeclData dataDecl) = registerDataConstructors dataDecl
 registerStructuralDecl _ (DeclNewtype newtypeDecl) = registerNewtypeConstructor newtypeDecl
-registerStructuralDecl _ (DeclDataFamilyInst familyInst) = registerDataFamilyInstance familyInst
+registerStructuralDecl origin (DeclDataFamilyInst familyInst) = registerDataFamilyInstance origin familyInst
 registerStructuralDecl _ (DeclTypeFamilyDecl familyDecl) = registerClosedTypeFamilyEquations familyDecl
 registerStructuralDecl _ (DeclTypeFamilyInst familyInst) = registerTypeFamilyInstance familyInst
 registerStructuralDecl origin (DeclClass classDecl) = registerClassDecl origin classDecl
@@ -2138,8 +2138,8 @@ registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
   zonkedKind <- defaultKindMetas declaredKind
   pure [TcBindingResult familyName familyName (kindToTcType zonkedKind)]
 
-registerDataFamilyInstance :: DataFamilyInst -> TcM [TcBindingResult]
-registerDataFamilyInstance familyInst = do
+registerDataFamilyInstance :: (Text, Text) -> DataFamilyInst -> TcM [TcBindingResult]
+registerDataFamilyInstance (packageName, moduleName') familyInst = do
   paramInfos <- dataFamilyInstanceParams familyInst
   let tvEnv =
         Map.fromList
@@ -2160,7 +2160,13 @@ registerDataFamilyInstance familyInst = do
               representationKind <- tyConKindFromParams paramInfos (dataFamilyInstKind familyInst)
               let familyName = tciName familyInfo
                   representationName = dataFamilyRepresentationName familyName firstConstructor
-                  representationTyCon = mkTyCon representationName (length paramInfos) representationKind
+                  representationTyCon =
+                    mkTyConWithOrigin
+                      (PackageId packageName)
+                      moduleName'
+                      representationName
+                      (length paramInfos)
+                      representationKind
                   axiomName = dataFamilyAxiomName familyName firstConstructor
                   instanceInfo =
                     DataFamilyInstanceInfo
