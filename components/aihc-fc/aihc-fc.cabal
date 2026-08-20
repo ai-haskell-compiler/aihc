@@ -31,7 +31,6 @@ library
     Aihc.Fc2
     Aihc.Fc2.Convert
     Aihc.Fc2.Desugar
-    Aihc.Fc2.FromFc
     Aihc.Fc2.Lint
     Aihc.Fc2.Name
     Aihc.Fc2.Parser
@@ -46,6 +45,7 @@ library
     Aihc.Fc.Desugar.Deriving.StockEq
     Aihc.Fc.Desugar.Dictionary
     Aihc.Fc.External
+    Aihc.Fc2.Desugar.Value
 
   hs-source-dirs: src
   build-depends:

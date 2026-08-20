@@ -1,8 +1,6 @@
 scope 1 = "" Parent
 scope 2 = "aihc-prim" GHC.Types
 
-module 1.Parent where
-
 pub type 1.tFlag :: 2.tType {
     pub 1.vOff :: 1.tFlag
     pub 1.vOn :: 1.tFlag

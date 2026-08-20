@@ -90,8 +90,7 @@ localValue text = Name text SortValue (OriginLocal (Unique 0))
 identityProgram :: Program
 identityProgram =
   Program
-    { programModule = ModuleId testPackage "Test",
-      programScopes = scopes,
+    { programScopes = scopes,
       programDecls =
         [ DeclType
             TypeDecl
@@ -138,8 +137,7 @@ genProgram = do
       result = TyCon (typeWired "Type")
   pure
     Program
-      { programModule = ModuleId testPackage "Test",
-        programScopes = scopes,
+      { programScopes = scopes,
         programDecls =
           [ DeclType
               TypeDecl

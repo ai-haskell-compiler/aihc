@@ -120,8 +120,6 @@ source
 scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
-module 1.Test where
-
 pub type 1.tBool :: 2.tType {
     pub 1.vFalse :: 1.tBool
     pub 1.vTrue :: 1.tBool

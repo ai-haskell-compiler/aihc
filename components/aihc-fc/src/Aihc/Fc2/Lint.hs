@@ -20,7 +20,7 @@ import Control.Monad (foldM, unless, when)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe)
+import Data.Maybe (catMaybes, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -50,35 +50,19 @@ lintPrograms programs =
         <> concatMap (lintDeclBodies env) (allDecls programs)
 
 loadScopeClosure :: ModuleLoader -> [Program] -> IO [Program]
-loadScopeClosure loader seeds = Map.elems <$> go (Map.fromList [(moduleKey program, program) | program <- seeds]) (concatMap scopeKeys seeds)
+loadScopeClosure loader seeds = do
+  resolved <- go Map.empty (concatMap scopeKeys seeds)
+  pure (List.nub (seeds <> catMaybes (Map.elems resolved)))
   where
-    go seen [] = pure seen
-    go seen (key : rest)
-      | alreadyLoaded seen key = go seen rest
+    go resolved [] = pure resolved
+    go resolved (key : rest)
+      | Map.member key resolved = go resolved rest
       | otherwise = do
           loaded <- uncurry loader key
           case loaded of
-            Nothing -> go seen rest
+            Nothing -> go (Map.insert key Nothing resolved) rest
             Just program ->
-              go (Map.insert key program seen) (rest <> filter (not . alreadyLoaded seen) (scopeKeys program))
-
-    alreadyLoaded seen (package, name) =
-      Map.member (package, name) seen
-        || (isEmptyPackage package && hasModuleName seen name)
-        || hasEmptyPackageModule seen name
-
-    isEmptyPackage package = packageIdText package == ""
-
-    hasModuleName seen name =
-      any (\program -> moduleName (programModule program) == name) (Map.elems seen)
-
-    hasEmptyPackageModule seen name =
-      any
-        ( \program ->
-            moduleName (programModule program) == name
-              && isEmptyPackage (modulePackage (programModule program))
-        )
-        (Map.elems seen)
+              go (Map.insert key (Just program) resolved) (rest <> scopeKeys program)
 
 storeModuleLoader :: FilePath -> ModuleLoader
 storeModuleLoader storeRoot package moduleName = do
@@ -95,10 +79,6 @@ storeModuleLoader storeRoot package moduleName = do
 moduleDirectoryText :: Text -> FilePath
 moduleDirectoryText name =
   List.foldl' (</>) "" (map T.unpack (T.splitOn "." name))
-
-moduleKey :: Program -> (PackageId, Text)
-moduleKey program =
-  (modulePackage (programModule program), moduleName (programModule program))
 
 scopeKeys :: Program -> [(PackageId, Text)]
 scopeKeys program =

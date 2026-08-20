@@ -1,37 +1,28 @@
-extensions: []
+extensions:
+  - EmptyCase
 modules:
   - |
     module Test where
 
+    data Empty
     data Result = Result
-    data Only = Only Result
 
-    select value =
-      case value of
-        Only result -> result
+    absurd :: Empty -> Result
+    absurd value = case value of {}
 expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Types
 
-  module 1.Test where
+  pub type 1.tEmpty :: 2.tType {}
 
   pub type 1.tResult :: 2.tType {
       pub 1.vResult :: 1.tResult
   }
 
-  pub type 1.tOnly :: 2.tType {
-      pub 1.vOnly :: 1.tResult → 1.tOnly
-  }
+  pub val 1.vabsurd :: 1.tEmpty → 1.tResult
+   = λ(x{1001} : 1.tEmpty).
+    case x{1001} as (_case{1002} : 1.tEmpty) return (1.tResult) of {
 
-  pub val 1.vselect :: 1.tOnly → 1.tResult
-   = λ(x{1001} : 1.tOnly).
-    case x{1001} as (_match{1004} : 1.tOnly) return (1.tResult) of {
-        1.vOnly (result{1003} : 1.tResult) →
-            result{1003};
-        _ →
-            case x{1001} as (_case_nomatch{1002} : 1.tOnly) return (1.tResult) of {
-
-            }
     }
 status: pass
-reason: An empty failure case keeps the checked result type.
+reason: An empty case keeps its checked result type.

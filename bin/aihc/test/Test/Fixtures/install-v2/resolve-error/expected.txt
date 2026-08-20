@@ -1,0 +1,4 @@
+Name resolution failed:
+<PACKAGE>/src/Demo.hs:3:16: error: unbound type name ‘MissingType’
+  3 | data Box = Box MissingType
+    |                ^^^^^^^^^^^

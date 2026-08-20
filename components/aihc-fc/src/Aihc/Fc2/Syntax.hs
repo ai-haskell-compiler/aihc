@@ -97,8 +97,7 @@ data Coercion
   deriving (Eq, Ord, Show, Read)
 
 data Program = Program
-  { programModule :: ModuleId,
-    programScopes :: ScopeTable,
+  { programScopes :: ScopeTable,
     programDecls :: [Decl]
   }
   deriving (Eq, Ord, Show, Read)
