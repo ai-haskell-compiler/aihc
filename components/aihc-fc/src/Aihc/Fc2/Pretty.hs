@@ -77,8 +77,20 @@ renderConstructors :: TypeEnv -> ScopeTable -> [ConDecl] -> String
 renderConstructors _ _ [] = " {}"
 renderConstructors env scopes constructors =
   " {\n"
-    <> intercalate "\n" (map (renderConDecl env scopes) constructors)
+    <> intercalate "\n" (renderConDecls env scopes constructors)
     <> "\n}"
+
+renderConDecls :: TypeEnv -> ScopeTable -> [ConDecl] -> [String]
+renderConDecls _ _ [] = []
+renderConDecls env scopes [constructor] = [renderConDecl env scopes constructor]
+renderConDecls env scopes (constructor : next : rest) =
+  (renderConDecl env scopes constructor <> renderConSeparator next)
+    : renderConDecls env scopes (next : rest)
+
+renderConSeparator :: ConDecl -> String
+renderConSeparator constructor
+  | conVis constructor == Private = ";"
+  | otherwise = ""
 
 renderConDecl :: TypeEnv -> ScopeTable -> ConDecl -> String
 renderConDecl env scopes declaration =
@@ -146,15 +158,11 @@ renderValDecl env scopes declaration =
 
 renderPrimDecl :: TypeEnv -> ScopeTable -> PrimDecl -> String
 renderPrimDecl env scopes declaration =
-  renderPrimVis (primVis declaration)
+  renderVis (primVis declaration)
     <> "foreign import prim "
     <> renderTopName scopes (primName declaration)
     <> " :: "
     <> renderTypeWith env scopes PrecForAll (primType declaration)
-
-renderPrimVis :: Vis -> String
-renderPrimVis Pub = ""
-renderPrimVis Private = "private "
 
 renderType :: Program -> Type -> String
 renderType program =
@@ -172,7 +180,7 @@ renderTypeWith env scopes prec ty =
           paren (prec < PrecFun) (renderTypeWith env scopes PrecApp argument <> " → " <> renderTypeWith env scopes PrecFun result)
       | otherwise ->
           paren
-            (prec < PrecApp)
+            (prec < PrecFun)
             ( "FUN @"
                 <> renderTypeWith env scopes PrecAtom r1
                 <> " @"

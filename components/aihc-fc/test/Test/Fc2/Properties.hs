@@ -176,19 +176,19 @@ genTypeDecl = do
   name <- typeNameTop . ("T" <>) <$> genSuffix
   binders <- Gen.list (Range.linear 0 3) genTypeBinder
   roles <- traverse (const genRole) binders
-  privateConstructors <- Gen.choice [pure [], (: []) <$> genConDecl Private name]
-  publicConstructors <- Gen.list (Range.linear 0 3) (genConDecl Pub name)
   TypeDecl
     <$> genVis
     <*> pure name
     <*> pure binders
     <*> genType
     <*> pure roles
-    <*> pure (privateConstructors <> publicConstructors)
+    <*> Gen.list (Range.linear 0 3) (genConDecl name)
 
-genConDecl :: Vis -> Name -> Gen ConDecl
-genConDecl visibility typeName =
-  (ConDecl visibility . dataNameTop . ("C" <>) <$> genSuffix)
+genConDecl :: Name -> Gen ConDecl
+genConDecl typeName =
+  ConDecl
+    <$> genVis
+    <*> (dataNameTop . ("C" <>) <$> genSuffix)
     <*> Gen.choice [pure (TyCon typeName), genType]
 
 genSynonymDecl :: Gen SynonymDecl
@@ -204,7 +204,7 @@ genAxiomDecl :: Gen AxiomDecl
 genAxiomDecl =
   AxiomDecl
     <$> genVis
-    <*> (axiomNameTop . ("ax" <>) <$> genSuffix)
+    <*> (axiomNameTop . ("axiom" <>) <$> genSuffix)
     <*> Gen.list (Range.linear 0 3) genTypeBinder
     <*> genRole
     <*> genType
@@ -233,12 +233,10 @@ genType =
       TyCon <$> genTypeName
     ]
     [ TyApp <$> genType <*> genType,
-      TyFun liftedRep liftedRep <$> genType <*> genType,
+      TyFun <$> genType <*> genType <*> genType <*> genType,
       TyForAll <$> genTypeBinder <*> genType,
       TyEq <$> genType <*> genType
     ]
-  where
-    liftedRep = TyCon (typeWired "LiftedRep")
 
 genTypeName :: Gen Name
 genTypeName =

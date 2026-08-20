@@ -148,7 +148,7 @@ typeOrSynonym scopes = do
     ]
 
 constructorBlock :: ScopeTable -> Parser [OpenCon]
-constructorBlock scopes = braces (MP.many (constructorDecl scopes))
+constructorBlock scopes = braces (MP.many (constructorDecl scopes <* MP.optional (symbol ";")))
 
 constructorDecl :: ScopeTable -> Parser OpenCon
 constructorDecl scopes = do
@@ -170,7 +170,7 @@ axiomDeclaration scopes = do
 
 primDeclaration :: ScopeTable -> Parser OpenDecl
 primDeclaration scopes = do
-  vis <- MP.option Pub (keyword "private" $> Private)
+  vis <- optionalPub
   _ <- keyword "foreign"
   _ <- keyword "import"
   _ <- keyword "prim"
@@ -277,7 +277,6 @@ typeAtom =
 reservedWords :: [Text]
 reservedWords =
   [ "pub",
-    "private",
     "val",
     "type",
     "axiom",
