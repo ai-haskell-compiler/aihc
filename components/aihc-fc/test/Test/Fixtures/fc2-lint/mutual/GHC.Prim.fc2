@@ -1,0 +1,6 @@
+scope 1 = "aihc-prim" GHC.Prim
+scope 2 = "aihc-prim" GHC.Types
+
+module 1.GHC.Prim where
+
+pub type 1.tInt# :: 2.tTYPE 2.vIntRep {}

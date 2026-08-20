@@ -28,7 +28,6 @@ It has no ambiguity.
 - Do not add source spans in the first version.
 - Do not add an evaluator in the first version.
 - Do not add a CBOR schema in the first version.
-- Do not add Fc2 lint in the first version.
 - Do not point GRIN at Fc2 in this plan.
 
 ## Place in the compiler
@@ -233,8 +232,11 @@ It must also write `core-v2` next to it:
 Example: `Demo/A/core-v2`.
 
 If Fc2 desugar fails, the install fails.
+If Fc2 lint fails, the install fails.
+Write `core-v2.bad` when Fc2 lint fails.
 Do not write `core` without `core-v2`.
-`install-v2` does not parse `core-v2`.
+`install-v2` does not parse the `core-v2` file that it writes.
+It may parse imported `core-v2` files through the store loader.
 
 ## PR plan
 
@@ -250,6 +252,7 @@ Do not write `core` without `core-v2`.
 | 8 | `feat(fc2): accept foreign import prim and reject ccall` | done, #1493 |
 | 9 | `feat(fc2): write core-v2 from install-v2` | done |
 | 10 | `fix(fc2): correct System FC 2 output for aihc-prim` | planned |
+| 11 | `feat(fc2): add System FC 2 type linter` | done |
 
 PR 4 depends on PR 3.
 PR 5 depends on PR 3.
