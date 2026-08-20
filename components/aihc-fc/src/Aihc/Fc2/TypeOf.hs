@@ -272,7 +272,6 @@ reduceType env ty =
 typesEqual :: TypeEnv -> Type -> Type -> Bool
 typesEqual env left right =
   eq (reduceType env left) (reduceType env right)
-    || unboxedPrimitiveEqual env left right
   where
     eq (TyVar a) (TyVar b) = a == b
     eq (TyCon a) (TyCon b) = a == b
@@ -285,18 +284,3 @@ typesEqual env left right =
         && typesEqual env body1 (substType (binderName binder2) (TyVar (binderName binder1)) body2)
     eq (TyEq a1 b1) (TyEq a2 b2) = eq a1 a2 && eq b1 b2
     eq _ _ = False
-
--- | A nullary unboxed primitive T :: TYPE r is the type of literals of representation r.
-unboxedPrimitiveEqual :: TypeEnv -> Type -> Type -> Bool
-unboxedPrimitiveEqual env left right =
-  case (reduceType env left, reduceType env right) of
-    (TyCon name, kind@(TyApp (TyCon typeName) representation))
-      | isWiredName env typeName "TYPE",
-        not (isLiftedRep env representation) ->
-          case lookupHeaderType env name of
-            Just header -> typesEqual env header kind
-            Nothing -> False
-    (TyApp (TyCon typeName) _, TyCon _)
-      | isWiredName env typeName "TYPE" ->
-          unboxedPrimitiveEqual env right left
-    _ -> False
