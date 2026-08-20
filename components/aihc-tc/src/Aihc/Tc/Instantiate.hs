@@ -8,6 +8,7 @@ module Aihc.Tc.Instantiate
     instantiate,
     instantiateWithArgs,
     applySubst,
+    substKind,
   )
 where
 

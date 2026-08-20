@@ -542,7 +542,7 @@ annotatePendingModule pending = do
   -- Only bindings that checked without errors are eligible for value
   -- annotations. Failed bindings remain in the recovery environment, but
   -- they must not be rendered as successful inferred types.
-  annotateModuleTc (Set.fromList (map tbName (pendingValueResults pending))) (pendingSyntax pending)
+  annotateModuleTc (Map.fromList [(tbName result, tbType result) | result <- pendingValueResults pending]) (pendingSyntax pending)
 
 defaultGlobalKindMetas :: TcM ()
 defaultGlobalKindMetas = do
@@ -686,10 +686,10 @@ renderCheckedGroup :: Map Int [Decl] -> (Int, DeclGroup) -> [Decl]
 renderCheckedGroup checkedGroups (groupId, group) =
   fromMaybe (renderDeclGroup group) (Map.lookup groupId checkedGroups)
 
-annotateModuleTc :: Set.Set Text -> Module -> TcM Module
-annotateModuleTc checkedValueNames m = do
+annotateModuleTc :: Map Text TcType -> Module -> TcM Module
+annotateModuleTc checkedValueTypes m = do
   let classMethods = collectClassMethodNames (moduleDecls m)
-  decls <- mapM (annotateDeclTc classMethods checkedValueNames) (moduleDecls m)
+  decls <- mapM (annotateDeclTc classMethods checkedValueTypes) (moduleDecls m)
   pure (m {moduleDecls = decls})
 
 annotateModuleDerivingTc :: Module -> TcM Module
@@ -715,13 +715,13 @@ moduleEnabledExtensions modu =
   applyImpliedExtensions $
     foldr applyExtensionSetting [] (moduleLanguagePragmas modu)
 
-annotateDeclTc :: Map Text [Text] -> Set.Set Text -> Decl -> TcM Decl
-annotateDeclTc classMethods checkedValueNames decl =
+annotateDeclTc :: Map Text [Text] -> Map Text TcType -> Decl -> TcM Decl
+annotateDeclTc classMethods checkedValueTypes decl =
   case decl of
-    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc classMethods checkedValueNames inner
+    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc classMethods checkedValueTypes inner
     DeclValue valueDecl
-      | valueDeclWasChecked checkedValueNames valueDecl -> do
-          (ty, valueDecl') <- annotateValueDeclTc valueDecl
+      | valueDeclWasChecked checkedValueTypes valueDecl -> do
+          (ty, valueDecl') <- annotateValueDeclTc checkedValueTypes valueDecl
           pure (annotateDeclAt (valueDeclSpan valueDecl) (TcAnnotation ty [] [] [] []) (DeclValue valueDecl'))
       | otherwise -> pure decl
     DeclData dataDecl -> annotateDataDeclTc dataDecl
@@ -738,9 +738,9 @@ annotateDeclTc classMethods checkedValueNames decl =
     DeclStandaloneDeriving {} -> pure decl
     _ -> pure decl
 
-valueDeclWasChecked :: Set.Set Text -> ValueDecl -> Bool
-valueDeclWasChecked checkedValueNames valueDecl =
-  any (`Set.member` checkedValueNames) (valueDeclBinderNames valueDecl)
+valueDeclWasChecked :: Map Text TcType -> ValueDecl -> Bool
+valueDeclWasChecked checkedValueTypes valueDecl =
+  any (`Map.member` checkedValueTypes) (valueDeclBinderNames valueDecl)
 
 valueDeclBinderNames :: ValueDecl -> [Text]
 valueDeclBinderNames valueDecl =
@@ -1040,20 +1040,23 @@ tyConBindingType name = do
     Just info -> kindToTcType <$> defaultKindMetas (tyConKind (tciTyCon info))
     Nothing -> missingTypeInfo ("type constructor " <> T.unpack name)
 
-annotateValueDeclTc :: ValueDecl -> TcM (TcType, ValueDecl)
-annotateValueDeclTc valueDecl =
+annotateValueDeclTc :: Map Text TcType -> ValueDecl -> TcM (TcType, ValueDecl)
+annotateValueDeclTc checkedValueTypes valueDecl =
   case valueDecl of
     FunctionBind name matches -> do
-      bindingTy <- bindingType (unqualifiedNameText name)
+      bindingTy <- checkedBindingType (unqualifiedNameText name)
       pure (bindingTy, FunctionBind name matches)
     PatternBind anns pat rhs ->
       case patternBinderName pat of
         Just (_, name) -> do
-          bindingTy <- bindingType name
+          bindingTy <- checkedBindingType name
           pure (bindingTy, PatternBind anns pat rhs)
         Nothing -> do
           ty <- missingTypeInfo ("top-level pattern binding " <> show pat)
           pure (ty, valueDecl)
+  where
+    checkedBindingType name =
+      maybe (bindingType name) pure (Map.lookup name checkedValueTypes)
 
 annotateInstanceDeclTc :: InstanceDecl -> TcM Decl
 annotateInstanceDeclTc instanceDecl =
@@ -1193,7 +1196,7 @@ tcInstanceItemBody givens headTys item =
       InstanceItemAnn ann <$> tcInstanceItemBody givens headTys inner
     InstanceItemBind (FunctionBind name matches) -> do
       methodScheme <- methodExpectedScheme headTys (unqualifiedNameText name)
-      (methodGivens, methodTy) <- skolemizeQualified methodScheme
+      (_, methodGivens, methodTy) <- skolemizeQualified methodScheme
       let (argTys, resTy) = splitFunTy methodTy (matchArity matches)
       results <- mapM (tcMatchEquation Nothing argTys resTy) matches
       solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
@@ -1202,7 +1205,7 @@ tcInstanceItemBody givens headTys item =
       case patternBinderName pat of
         Just (_, methodName) -> do
           methodScheme <- methodExpectedScheme headTys methodName
-          (methodGivens, methodTy) <- skolemizeQualified methodScheme
+          (_, methodGivens, methodTy) <- skolemizeQualified methodScheme
           results <- mapM (tcMatchEquation Nothing [] methodTy) [zeroArgMatch (patternSpan pat) rhs]
           solveInstanceBodyConstraints (givens <> methodGivens) [(cts, impls) | (_match, cts, impls) <- results]
           case results of
@@ -1466,14 +1469,15 @@ checkInstanceHeadTypes className tvEnv headArgTypes = do
 -- preserving the scheme predicates as scoped givens for the checked body.
 -- Unlike regular instantiation (which uses metas), this produces rigid
 -- type variables that cannot be unified during constraint solving.
-skolemizeQualified :: TypeScheme -> TcM ([Pred], TcType)
+skolemizeQualified :: TypeScheme -> TcM ([TyVarId], [Pred], TcType)
 skolemizeQualified (ForAll tvs preds body) = do
-  subst <- Map.fromList <$> mapM mkSubst tvs
-  pure (map (substPred subst) preds, substType subst body)
+  (skolems, subst) <- foldM extendSubst ([], Map.empty) tvs
+  pure (skolems, map (substPred subst) preds, substType subst body)
   where
-    mkSubst tv = do
-      sk <- freshSkolemTv (tvName tv)
-      pure (tvUnique tv, TcTyVar sk)
+    extendSubst (skolems, subst) tv = do
+      rawSkolem <- freshSkolemTv (tvName tv)
+      let skolem = setTyVarKind (Aihc.Tc.Instantiate.substKind subst (tvKind tv)) rawSkolem
+      pure (skolems <> [skolem], Map.insert (tvUnique tv) (TcTyVar skolem) subst)
 
 -- | Split a function type into argument types and result type.
 splitFunTy :: TcType -> Int -> ([TcType], TcType)
@@ -1788,10 +1792,10 @@ tcMergedFunctionGroup sigs groupId binder decls matches = do
 tcFunctionWithSig :: Text -> Text -> CheckedSig -> [Match] -> TcM (Maybe [Match], [TcBindingResult])
 tcFunctionWithSig displayName name sig matches = do
   let scheme = checkedSigScheme sig
-  (matches', failed) <-
+  ((skolems, sigPreds, sigTy, matches'), failed) <-
     withErrorTracking $ do
       -- Open the scheme with skolems (not metas) for checking.
-      (sigPreds, sigTy) <- skolemizeQualified scheme
+      (skolems, sigPreds, sigTy) <- skolemizeQualified scheme
       let nArgs = case matches of
             (m : _) -> length (matchPats m)
             [] -> 0
@@ -1803,13 +1807,16 @@ tcFunctionWithSig displayName name sig matches = do
           allImpls = concat implsList
       solveBodyConstraintsWithGivens sigPreds allCts allImpls
       rejectEscapingExistentials sigTy allImpls
-      pure _matches'
+      pure (skolems, sigPreds, sigTy, _matches')
   if failed
     then pure (Nothing, [])
     else do
-      -- Report the declared scheme as the binding's type.
-      let declaredTy = schemeToType scheme
-      zonkedTy <- zonkType declaredTy
+      -- Close the binding over the same skolems that occur in its checked body.
+      let qualifiedTy
+            | null sigPreds = sigTy
+            | otherwise = TcQualTy sigPreds sigTy
+          checkedTy = foldr TcForAllTy qualifiedTy skolems
+      zonkedTy <- zonkType checkedTy
       pure (Just matches', [TcBindingResult name displayName zonkedTy])
 
 -- | Type-check a function without a type signature (infer).
