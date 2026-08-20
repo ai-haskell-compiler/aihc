@@ -21,6 +21,8 @@ fc2PropertyTests =
   testGroup
     "SystemFC2 properties"
     [ testProperty "parseProgram . renderProgram = id" prop_programRoundTrip,
+      testProperty "tidyProgram is idempotent" prop_tidyIdempotent,
+      testProperty "tidyProgram output round trips" prop_tidyRoundTrip,
       testProperty "t prefix stores Bool" prop_prefixStrip,
       testProperty "uses have no type suffix" prop_noUseTypes
     ]
@@ -28,6 +30,22 @@ fc2PropertyTests =
 prop_programRoundTrip :: Property
 prop_programRoundTrip = property $ do
   program <- forAll genProgram
+  let printed = T.pack (renderProgram program)
+  annotate (T.unpack printed)
+  case parseProgram printed of
+    Left parseError -> do
+      annotate (renderParseError parseError)
+      failure
+    Right parsed -> parsed === program
+
+prop_tidyIdempotent :: Property
+prop_tidyIdempotent = property $ do
+  program <- forAll genTidyProgram
+  tidyProgram (tidyProgram program) === tidyProgram program
+
+prop_tidyRoundTrip :: Property
+prop_tidyRoundTrip = property $ do
+  program <- tidyProgram <$> forAll genTidyProgram
   let printed = T.pack (renderProgram program)
   annotate (T.unpack printed)
   case parseProgram printed of
@@ -86,6 +104,12 @@ localType text = Name text SortTypeVariable (OriginLocal (Unique 0))
 
 localValue :: Text -> Name
 localValue text = Name text SortValue (OriginLocal (Unique 0))
+
+localTypeWith :: Int -> Text -> Name
+localTypeWith unique text = Name text SortTypeVariable (OriginLocal (Unique unique))
+
+localValueWith :: Int -> Text -> Name
+localValueWith unique text = Name text SortValue (OriginLocal (Unique unique))
 
 identityProgram :: Program
 identityProgram =
@@ -162,6 +186,41 @@ genProgram = do
                     ExLam
                       (Binder (localValue "x") (TyCon typeName))
                       (ExVar (localValue "x"))
+                }
+          ]
+      }
+
+genTidyProgram :: Gen Program
+genTidyProgram = do
+  typeUnique <- Gen.int (Range.linear 0 10000)
+  outerUnique <- Gen.int (Range.linear 0 10000)
+  innerOffset <- Gen.int (Range.linear 1 10000)
+  let typeVar = localTypeWith typeUnique "a"
+      outer = localValueWith outerUnique "a"
+      inner = localValueWith (outerUnique + innerOffset) "a"
+      kind = TyCon (typeWired "Type")
+      valueType = TyVar typeVar
+      lifted = TyCon (typeWired "LiftedRep")
+      functionType = TyFun lifted lifted valueType valueType
+  pure
+    Program
+      { programScopes = scopes,
+        programDecls =
+          [ DeclVal
+              ValDecl
+                { valVis = Pub,
+                  valName = valueNameTop "shadow",
+                  valType = TyForAll (Binder typeVar kind) functionType,
+                  valBody =
+                    ExTyLam
+                      (Binder typeVar kind)
+                      ( ExLam
+                          (Binder outer valueType)
+                          ( ExApp
+                              (ExLam (Binder inner valueType) (ExVar inner))
+                              (ExVar outer)
+                          )
+                      )
                 }
           ]
       }

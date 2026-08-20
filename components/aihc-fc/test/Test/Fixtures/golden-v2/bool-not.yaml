@@ -15,8 +15,8 @@ expected: |-
   }
 
   pub val 1.vnot :: 1.tBool → 1.tBool
-   = λ(x{1001} : 1.tBool).
-    case x{1001} as (_scrut{1002} : 1.tBool) of {
+   = λ(x : 1.tBool).
+    case x as (_scrut : 1.tBool) of {
         1.vTrue →
             1.vFalse;
         1.vFalse →

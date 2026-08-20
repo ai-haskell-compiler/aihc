@@ -25,7 +25,7 @@ modules:
 expected: |-
   scope 1 = "aihc-prim" GHC.Types
 
-  pub type 1.tTYPE (rep{13} : 1.tRuntimeRep) :: 1.tType {}
+  pub type 1.tTYPE (rep : 1.tRuntimeRep) :: 1.tType {}
 
   pub type 1.tType :: 1.tType =
    1.tTYPE 1.tLiftedRep

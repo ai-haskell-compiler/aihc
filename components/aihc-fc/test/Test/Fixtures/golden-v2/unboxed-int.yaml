@@ -32,7 +32,7 @@ expected: |-
   scope 1 = "aihc-prim" GHC.Prim
   scope 2 = "aihc-prim" GHC.Types
 
-  pub type 2.tTYPE (rep{8} : 2.tRuntimeRep) :: 2.tType {}
+  pub type 2.tTYPE (rep : 2.tRuntimeRep) :: 2.tType {}
 
   pub type 2.tType :: 2.tType =
    2.tTYPE 2.tLiftedRep
