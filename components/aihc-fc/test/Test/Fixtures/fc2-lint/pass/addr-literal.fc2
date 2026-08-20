@@ -1,0 +1,13 @@
+scope 1 = "" Test
+scope 2 = "aihc-prim" GHC.Types
+
+module 1.Test where
+
+pub type 2.tRuntimeRep :: 2.tType {
+    pub 2.vAddrRep :: 2.tRuntimeRep
+}
+
+pub type 1.tAddr# :: 2.tTYPE 2.vAddrRep {}
+
+val 1.vtable :: 1.tAddr#
+ = "\x00\x1fA"#2.vAddrRep

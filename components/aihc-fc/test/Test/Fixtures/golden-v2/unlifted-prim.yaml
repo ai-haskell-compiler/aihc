@@ -1,0 +1,75 @@
+extensions:
+  - DataKinds
+  - ForeignFunctionInterface
+  - GHCForeignImportPrim
+  - KindSignatures
+  - MagicHash
+  - StandaloneKindSignatures
+modules:
+  - |
+    module GHC.Types where
+
+    data TYPE (rep :: RuntimeRep)
+
+    type Type :: Type
+    type Type = TYPE LiftedRep
+
+    type LiftedRep :: RuntimeRep
+    type LiftedRep = 'BoxedRep 'Lifted
+
+    type UnliftedRep :: RuntimeRep
+    type UnliftedRep = 'BoxedRep 'Unlifted
+
+    data RuntimeRep
+      = BoxedRep Levity
+      | IntRep
+
+    data Levity = Lifted | Unlifted
+  - |
+    module GHC.Prim where
+
+    import GHC.Types (TYPE, Type, UnliftedRep)
+
+    type StableName# :: Type -> TYPE UnliftedRep
+    data StableName# a
+
+    data Int#
+
+    foreign import prim eqStableName# :: StableName# a -> StableName# b -> Int#
+expected: |-
+  scope 1 = "aihc-prim" GHC.Types
+
+  module 1.GHC.Types where
+
+  pub type 1.tTYPE (rep{13} : 1.tRuntimeRep) :: 1.tType {}
+
+  pub type 1.tType :: 1.tType =
+   1.tTYPE 1.tLiftedRep
+
+  pub type 1.tLiftedRep :: 1.tRuntimeRep =
+   1.vBoxedRep 1.vLifted
+
+  pub type 1.tUnliftedRep :: 1.tRuntimeRep =
+   1.vBoxedRep 1.vUnlifted
+
+  pub type 1.tRuntimeRep :: 1.tType {
+      pub 1.vBoxedRep :: 1.tLevity → 1.tRuntimeRep
+      pub 1.vIntRep :: 1.tRuntimeRep
+  }
+
+  pub type 1.tLevity :: 1.tType {
+      pub 1.vLifted :: 1.tLevity
+      pub 1.vUnlifted :: 1.tLevity
+  }
+  scope 1 = "aihc-prim" GHC.Prim
+  scope 2 = "aihc-prim" GHC.Types
+
+  module 1.GHC.Prim where
+
+  pub type 1.tStableName# (a{18} : 2.tType) :: 2.tTYPE 2.tUnliftedRep {}
+
+  pub type 1.tInt# :: 2.tTYPE 2.vIntRep {}
+
+  foreign import prim 1.veqStableName# :: ∀(a{21} : 2.tType) (b{22} : 2.tType). FUN @2.tUnliftedRep @2.tLiftedRep (1.tStableName# a{21}) (FUN @2.tUnliftedRep @2.vIntRep (1.tStableName# b{22}) 1.tInt#)
+status: pass
+reason: An unlifted foreign import prim uses UnliftedRep on FUN.

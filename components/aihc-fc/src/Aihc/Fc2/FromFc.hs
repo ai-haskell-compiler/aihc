@@ -164,12 +164,18 @@ topVarName :: Fc.FcModuleId -> Fc.Var -> Name
 topVarName moduleId var =
   case Fc.varResolvedName var of
     Just (Fc.FcTopLevelOrigin package moduleName' name) ->
-      Name name SortValue (OriginTop (PackageId package) moduleName')
+      Name name SortValue (OriginTop (originPackage package moduleId) moduleName')
     _ ->
       Name
         (displayName var)
         SortValue
         (OriginTop (Fc.fcModulePackage moduleId) (Fc.fcModuleName moduleId))
+
+originPackage :: Text -> Fc.FcModuleId -> PackageId
+originPackage package moduleId =
+  if T.null package
+    then Fc.fcModulePackage moduleId
+    else PackageId package
 
 varNameFc2 :: TopVars -> Fc.Var -> Name
 varNameFc2 tops var =

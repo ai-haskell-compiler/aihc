@@ -7,23 +7,29 @@ import Aihc.Cli.Options (InstallV2Options (..))
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
 import Aihc.Fc2 qualified as Fc2
+import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
 import Control.Exception (IOException, bracket, try)
 import Data.ByteString qualified as BS
 import Data.List (isInfixOf, isPrefixOf, sort)
 import Data.Maybe (mapMaybe)
+import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Hedgehog (Property, property, success)
 import System.Directory
   ( createDirectory,
     createDirectoryIfMissing,
+    doesDirectoryExist,
     doesFileExist,
+    getCurrentDirectory,
     getTemporaryDirectory,
     listDirectory,
     removeDirectoryRecursive,
     removeFile,
   )
-import System.FilePath ((</>))
+import System.Environment (lookupEnv)
+import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openTempFile)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
@@ -336,7 +342,8 @@ main =
           testCase "installs direct local dependencies" test_installV2LocalDependencies,
           testCase "rebuilds stale type artifact schemas" test_installV2StaleTypeArtifact,
           testCase "stops invalidation when a rebuilt scope stays equal" test_installV2StopsAtEqualScope,
-          testCase "writes no core files when System FC 2 desugar fails" test_installV2Fc2DesugarFailure
+          testCase "writes no core files when System FC 2 desugar fails" test_installV2Fc2DesugarFailure,
+          testCase "install-v2 writes core-v2 for aihc-prim and lints stored programs" test_installV2AihcPrim
         ],
       testProperty "Hedgehog options" prop_dummy
     ]
@@ -454,6 +461,123 @@ test_installV2Fc2DesugarFailure =
             assertBool "writes no core after Fc2 desugar failure" (not coreExists)
             assertBool "writes no core-v2 after Fc2 desugar failure" (not coreV2Exists)
           other -> assertFailure ("expected one package directory, got " <> show other)
+
+test_installV2AihcPrim :: Assertion
+test_installV2AihcPrim = do
+  aihcPrimRoot <- findAihcPrimRoot
+  withTempDir "aihc-install-v2-aihc-prim" $ \root -> do
+    let storeRoot = root </> "store"
+        options = InstallV2Options aihcPrimRoot (Just storeRoot) False
+    createDirectoryIfMissing True storeRoot
+    caught <- try (installV2 options) :: IO (Either IOException InstallV2Result)
+    result <- case caught of
+      Left err -> do
+        badFiles <- listNamedFiles storeRoot "core-v2.bad"
+        assertFailure
+          ( "install-v2 aihc-prim failed: "
+              <> show err
+              <> if null badFiles
+                then ""
+                else "\nbad core-v2 files:\n" <> unlines badFiles
+          )
+      Right value -> pure value
+    let packageDir = installV2StorePath result
+        packageId = PackageId (T.pack (takeFileName packageDir))
+        loader = Fc2.storeModuleLoader storeRoot
+    mapM_ (assertModuleCoreV2 packageDir) aihcPrimLibraryModules
+    coreV2Files <- listNamedFiles packageDir "core-v2"
+    mapM_ assertCoreV2File coreV2Files
+    types <- loadStoredFc2 loader packageId "GHC.Types"
+    prim <- loadStoredFc2 loader packageId "GHC.Prim"
+    assertBool "GHC.Types lint needs GHC.Prim" (not (null (Fc2.lintPrograms [types])))
+    assertBool "GHC.Prim lint needs GHC.Types" (not (null (Fc2.lintPrograms [prim])))
+    typesAndPrim <- Fc2.loadScopeClosure loader [types, prim]
+    assertEqual "GHC.Types and GHC.Prim closure lint errors" [] (Fc2.lintPrograms typesAndPrim)
+    mapM_ (assertModuleClosureLints loader packageId) (filter (`notElem` ["GHC.Types", "GHC.Prim"]) aihcPrimLibraryModules)
+
+aihcPrimLibraryModules :: [Text]
+aihcPrimLibraryModules =
+  [ "GHC.CString",
+    "GHC.Classes",
+    "GHC.Debug",
+    "GHC.Magic",
+    "GHC.Magic.Dict",
+    "GHC.Prim",
+    "GHC.Prim.Exception",
+    "GHC.Prim.Ext",
+    "GHC.Prim.Panic",
+    "GHC.Prim.PtrEq",
+    "GHC.Prim.Unicode",
+    "GHC.PrimopWrappers",
+    "GHC.Tuple",
+    "GHC.Types"
+  ]
+
+findAihcPrimRoot :: IO FilePath
+findAihcPrimRoot = do
+  envRoot <- lookupEnv "AIHC_PRIM_SRC"
+  case envRoot of
+    Just root -> do
+      cabalExists <- doesFileExist (root </> "aihc-prim.cabal")
+      if cabalExists
+        then pure root
+        else assertFailure ("AIHC_PRIM_SRC has no aihc-prim.cabal: " <> root)
+    Nothing -> do
+      cwd <- getCurrentDirectory
+      findUp cwd
+  where
+    findUp dir = do
+      let candidate = dir </> "core-libs" </> "aihc-prim"
+      cabalExists <- doesFileExist (candidate </> "aihc-prim.cabal")
+      if cabalExists
+        then pure candidate
+        else do
+          let parent = takeDirectory dir
+          if parent == dir
+            then assertFailure ("could not find core-libs/aihc-prim from " <> dir)
+            else findUp parent
+
+moduleCoreV2Path :: FilePath -> Text -> FilePath
+moduleCoreV2Path packageDir moduleName =
+  foldl (</>) packageDir (map T.unpack (T.splitOn "." moduleName) ++ ["core-v2"])
+
+assertModuleCoreV2 :: FilePath -> Text -> Assertion
+assertModuleCoreV2 packageDir moduleName =
+  assertFileExists (moduleCoreV2Path packageDir moduleName)
+
+loadStoredFc2 :: Fc2.ModuleLoader -> PackageId -> Text -> IO Fc2.Program
+loadStoredFc2 loader packageId moduleName = do
+  loaded <- loader packageId moduleName
+  case loaded of
+    Nothing -> assertFailure ("store loader did not find " <> T.unpack moduleName)
+    Just program -> pure program
+
+assertModuleClosureLints :: Fc2.ModuleLoader -> PackageId -> Text -> Assertion
+assertModuleClosureLints loader packageId moduleName = do
+  program <- loadStoredFc2 loader packageId moduleName
+  loaded <- Fc2.loadScopeClosure loader [program]
+  assertEqual
+    (T.unpack moduleName <> " closure lint errors")
+    []
+    (Fc2.lintPrograms loaded)
+
+listNamedFiles :: FilePath -> FilePath -> IO [FilePath]
+listNamedFiles root name = do
+  exists <- doesDirectoryExist root
+  if not exists
+    then pure []
+    else do
+      entries <- listDirectory root
+      concat <$> mapM (go . (root </>)) entries
+  where
+    go path = do
+      isDir <- doesDirectoryExist path
+      if isDir
+        then listNamedFiles path name
+        else
+          if takeFileName path == name
+            then pure [path]
+            else pure []
 
 test_installV2TypeDependencies :: Assertion
 test_installV2TypeDependencies =

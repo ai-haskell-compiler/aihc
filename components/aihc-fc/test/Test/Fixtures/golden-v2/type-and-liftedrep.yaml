@@ -1,0 +1,51 @@
+extensions:
+  - DataKinds
+  - KindSignatures
+  - StandaloneKindSignatures
+modules:
+  - |
+    module GHC.Types where
+
+    data TYPE (rep :: RuntimeRep)
+
+    type Type :: Type
+    type Type = TYPE LiftedRep
+
+    type LiftedRep :: RuntimeRep
+    type LiftedRep = 'BoxedRep 'Lifted
+
+    type UnliftedRep :: RuntimeRep
+    type UnliftedRep = 'BoxedRep 'Unlifted
+
+    data RuntimeRep
+      = BoxedRep Levity
+      | IntRep
+
+    data Levity = Lifted | Unlifted
+expected: |-
+  scope 1 = "aihc-prim" GHC.Types
+
+  module 1.GHC.Types where
+
+  pub type 1.tTYPE (rep{13} : 1.tRuntimeRep) :: 1.tType {}
+
+  pub type 1.tType :: 1.tType =
+   1.tTYPE 1.tLiftedRep
+
+  pub type 1.tLiftedRep :: 1.tRuntimeRep =
+   1.vBoxedRep 1.vLifted
+
+  pub type 1.tUnliftedRep :: 1.tRuntimeRep =
+   1.vBoxedRep 1.vUnlifted
+
+  pub type 1.tRuntimeRep :: 1.tType {
+      pub 1.vBoxedRep :: 1.tLevity → 1.tRuntimeRep
+      pub 1.vIntRep :: 1.tRuntimeRep
+  }
+
+  pub type 1.tLevity :: 1.tType {
+      pub 1.vLifted :: 1.tLevity
+      pub 1.vUnlifted :: 1.tLevity
+  }
+status: pass
+reason: TYPE, Type, and promoted BoxedRep stay GHC.Types names.

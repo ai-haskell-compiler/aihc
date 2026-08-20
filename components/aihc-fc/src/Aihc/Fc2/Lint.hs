@@ -341,14 +341,58 @@ lintExpr env expr =
 lintLiteral :: LintEnv -> Literal -> Either LintError Type
 lintLiteral env literal =
   case literal of
-    LitInt representation _ -> typedRep representation
-    LitChar representation _ -> typedRep representation
+    LitInt representation _ ->
+      case intLiteralPrimitiveName representation of
+        Just primitiveName -> unboxedLiteralType env primitiveName representation
+        Nothing -> typedKind representation
+    LitChar representation _ -> unboxedLiteralType env "Char#" representation
     LitString {} -> stringLiteralType env
-    LitAddr representation _ -> typedRep representation
+    LitAddr representation _ -> unboxedLiteralType env "Addr#" representation
   where
-    typedRep representation = do
+    typedKind representation = do
       _ <- lintType env representation
       Right (typeAppRep env representation)
+
+-- | An unboxed literal inhabits the primitive type for r. It does not inhabit TYPE r.
+unboxedLiteralType :: LintEnv -> Text -> Type -> Either LintError Type
+unboxedLiteralType env primitiveName representation = do
+  _ <- lintType env representation
+  case namedType env [primitiveName] of
+    Nothing -> Left (UnboundName (missingPrimitiveName env primitiveName))
+    Just name -> do
+      let expectedKind = typeAppRep env representation
+      case lookupHeaderType (leTypes env) name of
+        Nothing -> Left (UnboundName name)
+        Just actualKind -> do
+          unless (typesEqual (leTypes env) expectedKind actualKind) (Left (KindMismatch "unboxed literal type" expectedKind actualKind))
+          Right (TyCon name)
+
+intLiteralPrimitiveName :: Type -> Maybe Text
+intLiteralPrimitiveName ty =
+  case ty of
+    TyCon name ->
+      lookup
+        (nameText name)
+        [ ("IntRep", "Int#"),
+          ("WordRep", "Word#"),
+          ("Int8Rep", "Int8#"),
+          ("Int16Rep", "Int16#"),
+          ("Int32Rep", "Int32#"),
+          ("Int64Rep", "Int64#"),
+          ("Word8Rep", "Word8#"),
+          ("Word16Rep", "Word16#"),
+          ("Word32Rep", "Word32#"),
+          ("Word64Rep", "Word64#"),
+          ("FloatRep", "Float#"),
+          ("DoubleRep", "Double#")
+        ]
+    _ -> Nothing
+
+missingPrimitiveName :: LintEnv -> Text -> Name
+missingPrimitiveName env text =
+  case tePrimPackage (leTypes env) of
+    Just package -> Name text SortTypeConstructor (OriginTop package "GHC.Prim")
+    Nothing -> Name text SortTypeConstructor (OriginTop (PackageId "") "GHC.Prim")
 
 stringLiteralType :: LintEnv -> Either LintError Type
 stringLiteralType env =
