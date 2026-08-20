@@ -104,6 +104,7 @@ desugarChecked :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module ->
 desugarChecked config bindings interface checked = do
   let (packageId, currentModule) = resolvedModuleOrigin checked
       moduleId = ModuleId packageId currentModule
+      moduleOrigin = (packageId, currentModule)
       dataTypes = tcInterfaceDataTypes interface
       tyCons = tcInterfaceTyCons interface
       classes = tcInterfaceClasses interface
@@ -118,7 +119,7 @@ desugarChecked config bindings interface checked = do
       <$> mapM
         (dsDecl env packageId currentModule dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings)
         (Syn.moduleDecls checked)
-  valueDecls <- desugarValues env bindings interface moduleId checked
+  valueDecls <- desugarValues env bindings interface moduleOrigin checked
   let decls = typeDecls <> valueDecls
       scopes = buildScopes moduleId decls
   pure (Program moduleId scopes decls)

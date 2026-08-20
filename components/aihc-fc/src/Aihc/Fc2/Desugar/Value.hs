@@ -59,7 +59,7 @@ import Data.Text qualified as T
 
 data ValueState = ValueState
   { vsNextUnique :: !Int,
-    vsModule :: !ModuleId,
+    vsModuleOrigin :: !(PackageId, Text),
     vsConvertEnv :: !ConvertEnv,
     vsTypes :: !(Map Text TcType),
     vsLocals :: !(Map Text (Binder, TcType)),
@@ -84,8 +84,8 @@ data Dictionary = Dictionary
     dictionaryBinder :: !Binder
   }
 
-desugarValues :: ConvertEnv -> [TcBindingResult] -> TcInterface -> ModuleId -> Syn.Module -> Either String [Decl]
-desugarValues convertEnv bindings interface moduleId checked = do
+desugarValues :: ConvertEnv -> [TcBindingResult] -> TcInterface -> (PackageId, Text) -> Syn.Module -> Either String [Decl]
+desugarValues convertEnv bindings interface moduleOrigin checked = do
   let typeEntries = Map.fromList [(tbName binding, tbType binding) | binding <- bindings]
       newtypes =
         Map.fromList
@@ -98,7 +98,7 @@ desugarValues convertEnv bindings interface moduleId checked = do
       initialState =
         ValueState
           { vsNextUnique = 1000,
-            vsModule = moduleId,
+            vsModuleOrigin = moduleOrigin,
             vsConvertEnv = convertEnv,
             vsTypes = typeEntries,
             vsLocals = Map.empty,
@@ -133,14 +133,14 @@ desugarForeign annotation foreignDecl =
   case Syn.foreignCallConv foreignDecl of
     Syn.CPrim -> do
       _ <- freshUnique
-      moduleId <- gets vsModule
+      moduleOrigin <- gets vsModuleOrigin
       ty <- convertCheckedType (tcAnnType annotation)
       let valueName = Syn.unqualifiedNameText (Syn.foreignName foreignDecl)
       pure
         [ DeclPrim
             PrimDecl
               { primVis = Pub,
-                primName = topName moduleId valueName,
+                primName = topName moduleOrigin valueName,
                 primType = ty
               }
         ]
@@ -185,12 +185,12 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
           [Alt (AltData (classDictConName classTyCon)) fields selectedExpr]
   typeBinders <- mapM convertTypeBinder typeVariables
   methodType' <- convertCheckedType (tcClassMethodType method)
-  moduleId <- gets vsModule
+  moduleOrigin <- gets vsModuleOrigin
   pure
     ( DeclVal
         ValDecl
           { valVis = Pub,
-            valName = topName moduleId (tcClassMethodName method),
+            valName = topName moduleOrigin (tcClassMethodName method),
             valType = methodType',
             valBody = foldr ExTyLam (foldr ExLam selection dictionaries) typeBinders
           }
@@ -239,12 +239,12 @@ desugarInstance annotation instanceDecl = do
   let dictionaryBinders = map dictionaryBinder contextDictionaries
       constructor = foldl ExTyApp (ExVar (classDictConName (tcInstanceClassTyCon annotation))) headTypes
       body = foldr ExTyLam (foldr ExLam (foldl ExApp constructor fields) dictionaryBinders) typeBinders
-  moduleId <- gets vsModule
+  moduleOrigin <- gets vsModuleOrigin
   pure
     ( DeclVal
         ValDecl
           { valVis = Pub,
-            valName = topName moduleId (tcInstanceDictName annotation),
+            valName = topName moduleOrigin (tcInstanceDictName annotation),
             valType = dictionaryType,
             valBody = body
           }
@@ -336,8 +336,8 @@ allocateTopValue group = do
   _ <- freshUnique
   let name = groupName group
   ty <- lookupCheckedType name
-  moduleId <- gets vsModule
-  pure (TopValue (topName moduleId name) ty group)
+  moduleOrigin <- gets vsModuleOrigin
+  pure (TopValue (topName moduleOrigin name) ty group)
 
 groupName :: ValueGroup -> Text
 groupName group =
@@ -687,11 +687,11 @@ desugarEvidence evidence =
     Ev.EvDict origin dictionaryName types subEvidence -> do
       convertedTypes <- mapM convertCheckedType types
       evidenceArguments <- mapM desugarEvidence subEvidence
-      moduleId <- gets vsModule
+      moduleOrigin <- gets vsModuleOrigin
       let (package, moduleName') =
             case origin of
               Just (packageName, originModule) -> (PackageId packageName, originModule)
-              Nothing -> (modulePackage moduleId, moduleName moduleId)
+              Nothing -> moduleOrigin
           name = Name dictionaryName SortValue (OriginTop package moduleName')
       pure (foldl ExApp (foldl ExTyApp (ExVar name) convertedTypes) evidenceArguments)
     Ev.EvCoercion coercion -> ExCast (ExVar (Name "coercion" SortValue (OriginLocal (Unique 0)))) <$> convertCoercion coercion
@@ -763,8 +763,8 @@ sourceNameSort sourceName =
       | first == ':' || first == '[' || first == '(' || isAsciiUpper first -> SortDataConstructor
     _ -> SortValue
 
-topName :: ModuleId -> Text -> Name
-topName moduleId name = Name name SortValue (OriginTop (modulePackage moduleId) (moduleName moduleId))
+topName :: (PackageId, Text) -> Text -> Name
+topName (package, moduleName') name = Name name SortValue (OriginTop package moduleName')
 
 primitiveName :: Text -> Text -> Sort -> Name
 primitiveName moduleName' name sort = Name name sort (OriginTop (PackageId "aihc-prim") moduleName')
