@@ -12,15 +12,15 @@ expected: |-
 
   pub val 1.vchoose :: ∀(a : 2.tType). a → a
    = Λ(a : 2.tType).
-    λ(a : a).
-      (λ(a{1} : a).
-        a{1}) a
+    λ(a{1} : a).
+      (λ(a{2} : a).
+        a{2}) a{1}
 
   pub val 1.vreuse :: ∀(a : 2.tType). a → a
    = Λ(a : 2.tType).
-    λ(a : a).
-      (λ(a{1} : a).
-        a{1}) ((λ(a{1} : a).
-        a{1}) a)
+    λ(a{1} : a).
+      (λ(a{2} : a).
+        a{2}) ((λ(a{2} : a).
+        a{2}) a{1})
 status: pass
 reason: Local names use the lowest number in each lexical scope.

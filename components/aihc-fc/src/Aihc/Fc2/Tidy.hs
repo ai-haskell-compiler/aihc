@@ -13,7 +13,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 
-type NameKey = (NameClass, Text)
+type NameKey = Text
 
 data TidyEnv = TidyEnv
   { tidyNames :: Map Name Name,
@@ -191,7 +191,7 @@ tidyUse env name =
     OriginTop {} -> name
 
 nameKey :: Name -> NameKey
-nameKey name = (nameClass (nameSort name), nameText name)
+nameKey = nameText
 
 lowestUnused :: Set Int -> Int
 lowestUnused used = go 0
