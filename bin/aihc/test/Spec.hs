@@ -5,7 +5,6 @@ module Main (main) where
 import Aihc.Cli.InstallV2 (InstallV2Result (..), installV2)
 import Aihc.Cli.Options (InstallV2Options (..))
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
-import Aihc.Fc qualified as Fc
 import Aihc.Fc2 qualified as Fc2
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
@@ -335,7 +334,7 @@ main =
       --   ],
       testGroup
         "install-v2"
-        [ testCase "writes one resolve artifact for each module and reuses equal SCC inputs" test_installV2ResolveArtifacts,
+        [ testCase "writes no legacy Core files and reuses equal SCC inputs" test_installV2ResolveArtifacts,
           testCase "rebuilds a module when a predecessor resolve artifact changes" test_installV2ResolveDependencies,
           testCase "rebuilds a module when a predecessor type interface changes" test_installV2TypeDependencies,
           testCase "duplicates re-exported term signatures in type interfaces" test_installV2TypeReexports,
@@ -379,8 +378,8 @@ test_installV2ResolveArtifacts =
     assertFileExists (installV2StorePath first </> "Demo" </> "B" </> "resolve.cbor")
     assertFileExists (installV2StorePath first </> "Demo" </> "A" </> "type.cbor")
     assertFileExists (installV2StorePath first </> "Demo" </> "B" </> "type.cbor")
-    assertCoreFile (installV2StorePath first </> "Demo" </> "A" </> "core")
-    assertCoreFile (installV2StorePath first </> "Demo" </> "B" </> "core")
+    assertFileDoesNotExist (installV2StorePath first </> "Demo" </> "A" </> "core")
+    assertFileDoesNotExist (installV2StorePath first </> "Demo" </> "B" </> "core")
     assertCoreV2File (installV2StorePath first </> "Demo" </> "A" </> "core-v2")
     assertCoreV2File (installV2StorePath first </> "Demo" </> "B" </> "core-v2")
     second <- installV2 options
@@ -388,9 +387,6 @@ test_installV2ResolveArtifacts =
     assertEqual "stable package directory" (installV2StorePath first) (installV2StorePath second)
     assertCoreV2File (installV2StorePath second </> "Demo" </> "A" </> "core-v2")
     assertCoreV2File (installV2StorePath second </> "Demo" </> "B" </> "core-v2")
-    removeFile (installV2StorePath first </> "Demo" </> "A" </> "core")
-    coreRepaired <- installV2 options
-    assertEqual "repairs the complete SCC with cached types" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules coreRepaired))
     removeFile (installV2StorePath first </> "Demo" </> "A" </> "core-v2")
     coreV2Repaired <- installV2 options
     assertEqual "repairs the complete SCC when core-v2 is absent" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules coreV2Repaired))
@@ -404,14 +400,6 @@ test_installV2ResolveArtifacts =
     repaired <- installV2 options
     assertEqual "repairs the complete corrupt SCC" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules repaired))
     assertEqual "does not reuse a corrupt SCC" [] (installV2ReusedModules repaired)
-
-assertCoreFile :: FilePath -> Assertion
-assertCoreFile path = do
-  assertFileExists path
-  core <- TIO.readFile path
-  case Fc.parseProgram core of
-    Left parseError -> assertFailure ("invalid Core file " <> path <> ": " <> Fc.renderParseError parseError)
-    Right program -> assertEqual ("Core lint errors in " <> path) [] (Fc.lintProgram Fc.emptyLintEnv program)
 
 assertCoreV2File :: FilePath -> Assertion
 assertCoreV2File path = do
@@ -1632,6 +1620,11 @@ assertFileExists :: FilePath -> Assertion
 assertFileExists path = do
   exists <- doesFileExist path
   assertBool ("expected file to exist: " <> path) exists
+
+assertFileDoesNotExist :: FilePath -> Assertion
+assertFileDoesNotExist path = do
+  exists <- doesFileExist path
+  assertBool ("expected file not to exist: " <> path) (not exists)
 
 {- Disabled with the related test groups in main.
 assertFileDoesNotExist :: FilePath -> Assertion
