@@ -56,9 +56,15 @@ jobs:
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
-      - name: Free self-hosted Nix store space
+      - name: Free self-hosted Nix store space when disk use is high
         if: needs.select-runner.outputs.use_self_hosted == 'true'
-        run: nix store gc
+        run: |
+          disk_use="$(df --output=pcent /nix/store | tail -n 1 | tr -dc '0-9')"
+          if (( disk_use >= 90 )); then
+            nix store gc
+          else
+            echo "Nix store disk use is ${disk_use}%. Skip garbage collection."
+          fi
 
       - name: Run flake checks
         run: nix flake check
