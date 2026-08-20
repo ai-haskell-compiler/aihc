@@ -75,8 +75,14 @@
               preCheck =
                 (old.preCheck or "")
                 + ''
-                  export AIHC_BASE_SRC=${sources.baseSrc pkgs}
-                  export AIHC_PRIM_SRC=${sources.primSrc pkgs}
+                  coreLibsRoot="$TMPDIR/aihc-core-libs-root"
+                  mkdir -p "$coreLibsRoot/core-libs"
+                  ln -sfn ${sources.baseSrc pkgs} "$coreLibsRoot/core-libs/aihc-base"
+                  ln -sfn ${sources.primSrc pkgs} "$coreLibsRoot/core-libs/aihc-prim"
+                  ln -sfn ${sources.internalSrc pkgs} "$coreLibsRoot/core-libs/aihc-internal"
+                  export AIHC_CORE_LIBS_ROOT="$coreLibsRoot"
+                  export AIHC_BASE_SRC="$coreLibsRoot/core-libs/aihc-base"
+                  export AIHC_PRIM_SRC="$coreLibsRoot/core-libs/aihc-prim"
                 '';
             }
         )
