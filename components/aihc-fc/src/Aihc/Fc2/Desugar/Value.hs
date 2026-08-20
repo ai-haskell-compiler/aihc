@@ -402,18 +402,19 @@ desugarMatchArguments resultType (argument : arguments) matches
   | otherwise = do
       caseBinder <- freshBinderFromType "_scrut" (binderType argument)
       resultType' <- convertCheckedType resultType
-      alternatives <- mapM (desugarPatternGroup resultType arguments) (groupPatterns matches)
+      alternatives <- mapM (desugarPatternGroup caseBinder resultType arguments) (groupPatterns matches)
       pure (ExCase (ExVar (binderName argument)) caseBinder resultType' alternatives)
 
-desugarPatternGroup :: TcType -> [Binder] -> (Syn.Pattern, [Syn.Match]) -> ValueM Alt
-desugarPatternGroup resultType remaining (pattern', matches) = do
+desugarPatternGroup :: Binder -> TcType -> [Binder] -> (Syn.Pattern, [Syn.Match]) -> ValueM Alt
+desugarPatternGroup caseBinder resultType remaining (pattern', matches) = do
   constructor <- patternConstructor pattern'
   let subpatterns = patternChildren pattern'
   fieldTypes <- mapM requiredPatternType subpatterns
   fields <- zipWithM freshPatternBinder subpatterns fieldTypes
-  let localBindings = concat (zipWith patternLocalBindings subpatterns fields)
+  let rootBindings = patternLocalBindings pattern' caseBinder
+      localBindings = concat (zipWith patternLocalBindings subpatterns fields)
       expanded = map (expandFirstPattern subpatterns) matches
-  body <- withLocals localBindings (desugarMatchArguments resultType (fields <> remaining) expanded)
+  body <- withLocals (rootBindings <> localBindings) (desugarMatchArguments resultType (fields <> remaining) expanded)
   pure (Alt constructor fields body)
 
 groupPatterns :: [Syn.Match] -> [(Syn.Pattern, [Syn.Match])]

@@ -1,0 +1,26 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Value = Negative | Positive
+    absolute Negative = Positive
+    absolute value = value
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tValue :: 2.tType {
+      pub 1.vNegative :: 1.tValue
+      pub 1.vPositive :: 1.tValue
+  }
+
+  pub val 1.vabsolute :: 1.tValue → 1.tValue
+   = λ(x : 1.tValue).
+    case x as (_scrut : 1.tValue) return (1.tValue) of {
+        1.vNegative →
+            1.vPositive;
+        _ →
+            _scrut
+    }
+status: pass
+reason: A variable fallback keeps its local binding after a constructor equation.
