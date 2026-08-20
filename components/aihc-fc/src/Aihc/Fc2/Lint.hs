@@ -32,7 +32,6 @@ data LintError
   | TypeMismatch !String !Type !Type
   | KindMismatch !String !Type !Type
   | ShadowedBinder !Name
-  | InconsistentAlts !Type !Type
   | LintFailure !String
   deriving (Eq, Show)
 
@@ -430,14 +429,14 @@ lintCase env scrutinee binder resultType alts = do
   scrutType <- lintExpr env scrutinee
   unless (typesEqual (leTypes env) scrutType (binderType binder)) (Left (TypeMismatch "case binder" scrutType (binderType binder)))
   caseEnv <- bindLocal env binder
-  _ <- representationOf caseEnv resultType
+  _ <- representationOf env resultType
   mapM_ (lintAltExpected caseEnv scrutType resultType) alts
   Right resultType
 
 lintAltExpected :: LintEnv -> Type -> Type -> Alt -> Either LintError ()
 lintAltExpected env scrutType expected alt = do
   actual <- lintAlt env scrutType alt
-  unless (typesEqual (leTypes env) expected actual) (Left (InconsistentAlts expected actual))
+  unless (typesEqual (leTypes env) expected actual) (Left (TypeMismatch "case alternative" expected actual))
 
 lintAlt :: LintEnv -> Type -> Alt -> Either LintError Type
 lintAlt env scrutType alt =
