@@ -652,9 +652,9 @@ declOrigins decl =
       nameOriginPair (valName valDecl)
         <> typeOrigins (valType valDecl)
         <> exprOrigins (valBody valDecl)
-    DeclPrim primDecl ->
-      nameOriginPair (primName primDecl)
-        <> typeOrigins (primType primDecl)
+    DeclForeignImport foreignImportDecl ->
+      nameOriginPair (foreignImportName foreignImportDecl)
+        <> typeOrigins (foreignImportType foreignImportDecl)
 
 conOrigins :: ConDecl -> [(PackageId, Text)]
 conOrigins constructor =

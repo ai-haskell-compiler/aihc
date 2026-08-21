@@ -52,7 +52,7 @@ renderDecl env scopes decl =
     DeclSynonym declaration -> renderSynonymDecl env scopes declaration
     DeclAxiom declaration -> renderAxiomDecl env scopes declaration
     DeclVal declaration -> renderValDecl env scopes declaration
-    DeclPrim declaration -> renderPrimDecl env scopes declaration
+    DeclForeignImport declaration -> renderForeignImportDecl env scopes declaration
 
 renderVis :: Vis -> String
 renderVis Pub = "pub "
@@ -144,27 +144,28 @@ renderValDecl env scopes declaration =
     <> "\n = "
     <> renderExprWith env scopes 0 (valBody declaration)
 
-renderPrimDecl :: TypeEnv -> ScopeTable -> PrimDecl -> String
-renderPrimDecl env scopes declaration =
-  renderVis (primVis declaration)
-    <> renderPrimOp (primOp declaration)
-    <> renderTopName scopes (primName declaration)
+renderForeignImportDecl :: TypeEnv -> ScopeTable -> ForeignImportDecl -> String
+renderForeignImportDecl env scopes declaration =
+  renderVis (foreignImportVis declaration)
+    <> "foreign import "
+    <> renderCallingConvention (foreignImportCallingConvention declaration)
+    <> renderTopName scopes (foreignImportName declaration)
     <> " :: "
-    <> renderTypeWith env scopes PrecForAll (primType declaration)
+    <> renderTypeWith env scopes PrecForAll (foreignImportType declaration)
 
-renderPrimOp :: PrimOp -> String
-renderPrimOp operation =
-  case operation of
-    PrimIntrinsic -> "foreign import prim "
-    PrimCcall symbol arguments result effect ->
-      "foreign import ccall unsafe "
-        <> show (T.unpack symbol)
+renderCallingConvention :: CallingConvention -> String
+renderCallingConvention convention =
+  case convention of
+    Prim -> "prim "
+    CCall specification ->
+      "ccall unsafe "
+        <> show (T.unpack (ccallSymbol specification))
         <> " ["
-        <> intercalate ", " (map renderCAbiType arguments)
+        <> intercalate ", " (map renderCAbiType (ccallArgumentTypes specification))
         <> " → "
-        <> renderCAbiType result
+        <> renderCAbiType (ccallResultType specification)
         <> "; "
-        <> renderForeignEffect effect
+        <> renderForeignEffect (ccallEffect specification)
         <> "] "
 
 renderCAbiType :: CAbiType -> String

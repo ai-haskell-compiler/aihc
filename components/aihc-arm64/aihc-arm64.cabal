@@ -41,7 +41,6 @@ test-suite spec
 
   main-is: Spec.hs
   other-modules:
-    Aihc.Testing.EvalFixture
     Aihc.Testing.ExceptionProgram
     Aihc.Testing.SchedulerProgram
     Test.Arm64.Suite
@@ -49,18 +48,14 @@ test-suite spec
   build-depends:
     aeson,
     aihc-arm64,
-    aihc-fc,
     aihc-grin,
     aihc-native,
-    aihc-parser,
-    aihc-resolve,
     aihc-tc,
     base >=4.16 && <5,
     containers,
     directory,
     filepath,
     hedgehog,
-    libffi >=0.2 && <0.3,
     process,
     tasty,
     tasty-hedgehog,

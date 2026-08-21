@@ -888,7 +888,7 @@ validatePrimitiveImport name ty =
     Nothing ->
       desugarBug ("unknown foreign import prim: " <> T.unpack name)
     Just spec
-      | primitiveImportTypeMatches name spec (typeSchemeFromType ty) ->
+      | equivalentTypeSchemes (primitiveSpecExpected spec) (typeSchemeFromType ty) ->
           pure (typeSchemeArity (primitiveSpecExpected spec))
       | otherwise ->
           desugarBug
@@ -899,11 +899,6 @@ validatePrimitiveImport name ty =
                 <> ", got "
                 <> renderTcSignature "" ty
             )
-
-primitiveImportTypeMatches :: Text -> PrimitiveSpec -> TypeScheme -> Bool
-primitiveImportTypeMatches name spec actual =
-  equivalentTypeSchemes (primitiveSpecExpected spec) actual
-    || (name == "raise#" && equivalentTypeSchemes (parsePrimitiveTypeScheme "a -> b") actual)
 
 data PrimitiveSpec = PrimitiveSpec
   { primitiveSpecSource :: !Text,
@@ -953,7 +948,7 @@ primitiveImportSpecs =
       primitive "clz#" "Word# -> Word#",
       primitive "ctz#" "Word# -> Word#",
       primitive "popCnt#" "Word# -> Word#",
-      primitive "raise#" "forall (r :: RuntimeRep) a (b :: TYPE r). a -> b",
+      primitive "raise#" "a -> b",
       primitive "aihcExit#" "Int# -> State# RealWorld -> (# State# RealWorld, a #)",
       primitive "unsafeCoerce#" "a -> b",
       seqPrimitive,

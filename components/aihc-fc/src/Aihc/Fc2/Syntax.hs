@@ -16,8 +16,9 @@ module Aihc.Fc2.Syntax
     SynonymDecl (..),
     AxiomDecl (..),
     ValDecl (..),
-    PrimDecl (..),
-    PrimOp (..),
+    ForeignImportDecl (..),
+    CallingConvention (..),
+    CCallSpec (..),
     CAbiType (..),
     ForeignEffect (..),
   )
@@ -110,7 +111,7 @@ data Decl
   | DeclSynonym SynonymDecl
   | DeclAxiom AxiomDecl
   | DeclVal ValDecl
-  | DeclPrim PrimDecl
+  | DeclForeignImport ForeignImportDecl
   deriving (Eq, Ord, Show, Read)
 
 data TypeDecl = TypeDecl
@@ -157,17 +158,25 @@ data ValDecl = ValDecl
   }
   deriving (Eq, Ord, Show, Read)
 
-data PrimDecl = PrimDecl
-  { primVis :: Vis,
-    primName :: Name,
-    primOp :: PrimOp,
-    primType :: Type
+data ForeignImportDecl = ForeignImportDecl
+  { foreignImportVis :: Vis,
+    foreignImportName :: Name,
+    foreignImportCallingConvention :: CallingConvention,
+    foreignImportType :: Type
   }
   deriving (Eq, Ord, Show, Read)
 
-data PrimOp
-  = PrimIntrinsic
-  | PrimCcall Text [CAbiType] CAbiType ForeignEffect
+data CallingConvention
+  = Prim
+  | CCall CCallSpec
+  deriving (Eq, Ord, Show, Read)
+
+data CCallSpec = CCallSpec
+  { ccallSymbol :: Text,
+    ccallArgumentTypes :: [CAbiType],
+    ccallResultType :: CAbiType,
+    ccallEffect :: ForeignEffect
+  }
   deriving (Eq, Ord, Show, Read)
 
 data CAbiType

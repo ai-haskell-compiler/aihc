@@ -164,33 +164,35 @@ annotatedForeignDecl = go Nothing Nothing
 desugarForeign :: TcAnnotation -> Maybe TcForeignImportAnnotation -> Syn.ForeignDecl -> ValueM [Decl]
 desugarForeign annotation foreignPlan foreignDecl =
   case Syn.foreignCallConv foreignDecl of
-    Syn.CPrim -> (: []) <$> makePrimitive PrimIntrinsic
+    Syn.CPrim -> (: []) <$> makeForeignImport Prim
     Syn.CCall -> do
       unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC 2 does not accept foreign exports")
       unless (Syn.foreignSafety foreignDecl == Just Syn.Unsafe) (failValue "System FC 2 accepts only unsafe foreign imports")
       plan <- maybe (failValue "missing checked foreign import plan") pure foreignPlan
       symbol <- foreignSymbol foreignDecl
-      let operation =
-            PrimCcall
-              symbol
-              (map (convertCAbiType . tcForeignAbiType) (tcForeignArguments plan))
-              (convertCAbiType (tcForeignAbiType (tcForeignResult plan)))
-              (convertForeignEffect (tcForeignEffect plan))
-      (: []) <$> makePrimitive operation
+      let convention =
+            CCall
+              CCallSpec
+                { ccallSymbol = symbol,
+                  ccallArgumentTypes = map (convertCAbiType . tcForeignAbiType) (tcForeignArguments plan),
+                  ccallResultType = convertCAbiType (tcForeignAbiType (tcForeignResult plan)),
+                  ccallEffect = convertForeignEffect (tcForeignEffect plan)
+                }
+      (: []) <$> makeForeignImport convention
     callConv -> failValue ("unsupported System FC 2 foreign calling convention: " <> show callConv)
   where
-    makePrimitive operation = do
+    makeForeignImport convention = do
       _ <- freshUnique
       moduleOrigin <- gets vsModuleOrigin
       ty <- convertCheckedType (tcAnnType annotation)
       let valueName = Syn.unqualifiedNameText (Syn.foreignName foreignDecl)
       pure
-        ( DeclPrim
-            PrimDecl
-              { primVis = Pub,
-                primName = topName moduleOrigin valueName,
-                primOp = operation,
-                primType = ty
+        ( DeclForeignImport
+            ForeignImportDecl
+              { foreignImportVis = Pub,
+                foreignImportName = topName moduleOrigin valueName,
+                foreignImportCallingConvention = convention,
+                foreignImportType = ty
               }
         )
 

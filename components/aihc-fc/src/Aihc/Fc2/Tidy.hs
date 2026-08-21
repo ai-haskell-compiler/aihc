@@ -61,8 +61,8 @@ tidyDecl decl =
           { valType = tidyType emptyTidyEnv (valType declaration),
             valBody = tidyExpr emptyTidyEnv (valBody declaration)
           }
-    DeclPrim declaration ->
-      DeclPrim declaration {primType = tidyType emptyTidyEnv (primType declaration)}
+    DeclForeignImport declaration ->
+      DeclForeignImport declaration {foreignImportType = tidyType emptyTidyEnv (foreignImportType declaration)}
 
 tidyConDecl :: ConDecl -> ConDecl
 tidyConDecl declaration =

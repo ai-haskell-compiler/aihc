@@ -1,20 +1,13 @@
 module Main (main) where
 
 import Test.Grin.Arbitrary (prop_grinPrettyRoundTrip)
-import Test.Grin.Suite ({-grinEvalFixtureTests, grinGoldenTests, -} grinUnitTests)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 
 main :: IO ()
-main = do
-  -- goldenFixtures <- grinGoldenTests
-  -- evalFixtures <- grinEvalFixtureTests
+main =
   defaultMain
     ( testGroup
         "aihc-grin"
-        [ grinUnitTests,
-          -- goldenFixtures,
-          -- evalFixtures,
-          testProperty "generated GRIN pretty-printer round-trip" prop_grinPrettyRoundTrip
-        ]
+        [testProperty "generated GRIN pretty-printer round-trip" prop_grinPrettyRoundTrip]
     )

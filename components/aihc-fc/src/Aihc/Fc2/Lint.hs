@@ -105,7 +105,7 @@ lintDeclHeaders env decl =
     DeclSynonym declaration -> lintSynonymDecl env declaration
     DeclAxiom declaration -> lintAxiomDecl env declaration
     DeclVal declaration -> eitherToList (lintType env (valType declaration))
-    DeclPrim declaration -> eitherToList (lintType env (primType declaration))
+    DeclForeignImport declaration -> eitherToList (lintType env (foreignImportType declaration))
 
 lintDeclBodies :: LintEnv -> Decl -> [LintError]
 lintDeclBodies env decl =

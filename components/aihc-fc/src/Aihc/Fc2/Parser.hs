@@ -86,7 +86,7 @@ data OpenDecl
   | OpenSynonymDecl Vis Name [OpenBinder] OpenType OpenType
   | OpenAxiomDecl Vis Name [OpenBinder] Role OpenType OpenType
   | OpenValDecl Vis Name OpenType OpenExpr
-  | OpenPrimDecl Vis Name PrimOp OpenType
+  | OpenForeignImportDecl Vis Name CallingConvention OpenType
   deriving (Eq, Show)
 
 data OpenCon = OpenConDecl Vis Name OpenType
@@ -125,7 +125,7 @@ declaration scopes =
   MP.choice
     [ MP.try (typeOrSynonym scopes),
       MP.try (axiomDeclaration scopes),
-      MP.try (primDeclaration scopes),
+      MP.try (foreignImportDeclaration scopes),
       valDeclaration scopes
     ]
 
@@ -168,26 +168,34 @@ axiomDeclaration scopes = do
   role <- parseAxiomRole
   OpenAxiomDecl vis name binders role left <$> fcType
 
-primDeclaration :: ScopeTable -> Parser OpenDecl
-primDeclaration scopes = do
+foreignImportDeclaration :: ScopeTable -> Parser OpenDecl
+foreignImportDeclaration scopes = do
   vis <- optionalPub
   _ <- keyword "foreign"
   _ <- keyword "import"
-  operation <- primOperation
+  convention <- callingConvention
   name <- topName scopes SortValue
   _ <- symbol "::"
-  OpenPrimDecl vis name operation <$> fcType
+  OpenForeignImportDecl vis name convention <$> fcType
 
-primOperation :: Parser PrimOp
-primOperation =
+callingConvention :: Parser CallingConvention
+callingConvention =
   MP.choice
-    [ keyword "prim" $> PrimIntrinsic,
+    [ keyword "prim" $> Prim,
       do
         _ <- keyword "ccall"
         _ <- keyword "unsafe"
         foreignSymbol <- stringLiteral
         (arguments, result, effect) <- MP.between (symbol "[") (symbol "]") foreignSignature
-        pure (PrimCcall foreignSymbol arguments result effect)
+        pure
+          ( CCall
+              CCallSpec
+                { ccallSymbol = foreignSymbol,
+                  ccallArgumentTypes = arguments,
+                  ccallResultType = result,
+                  ccallEffect = effect
+                }
+          )
     ]
 
 foreignSignature :: Parser ([CAbiType], CAbiType, ForeignEffect)
@@ -678,9 +686,9 @@ fillDecl env decl =
       closedType <- closeType env ty
       closedBody <- fillExpr env body
       pure (DeclVal (ValDecl vis name closedType closedBody))
-    OpenPrimDecl vis name operation ty -> do
+    OpenForeignImportDecl vis name callingConvention' ty -> do
       closedType <- closeType env ty
-      pure (DeclPrim (PrimDecl vis name operation closedType))
+      pure (DeclForeignImport (ForeignImportDecl vis name callingConvention' closedType))
 
 fillCon :: TypeEnv -> OpenCon -> Either String ConDecl
 fillCon env (OpenConDecl vis name ty) = do
@@ -775,7 +783,7 @@ declaredSorts scopes decls =
         DeclSynonym synonymDecl -> [(synName synonymDecl, SortSynonym)]
         DeclAxiom axiomDecl -> [(axiomName axiomDecl, SortAxiom)]
         DeclVal valDecl -> [(valName valDecl, SortValue)]
-        DeclPrim primDecl -> [(primName primDecl, SortValue)]
+        DeclForeignImport foreignImportDecl -> [(foreignImportName foreignImportDecl, SortValue)]
 
 normalizeDecl :: Map.Map Name Sort -> Decl -> Decl
 normalizeDecl table decl =
@@ -812,11 +820,11 @@ normalizeDecl table decl =
             valType = normalizeType table (valType valDecl),
             valBody = normalizeExpr table (valBody valDecl)
           }
-    DeclPrim primDecl ->
-      DeclPrim
-        primDecl
-          { primName = rewriteName table (primName primDecl),
-            primType = normalizeType table (primType primDecl)
+    DeclForeignImport foreignImportDecl ->
+      DeclForeignImport
+        foreignImportDecl
+          { foreignImportName = rewriteName table (foreignImportName foreignImportDecl),
+            foreignImportType = normalizeType table (foreignImportType foreignImportDecl)
           }
 
 defaultRoles :: [Binder] -> [Role] -> [Role]
