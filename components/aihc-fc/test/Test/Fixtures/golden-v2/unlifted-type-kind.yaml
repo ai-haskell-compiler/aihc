@@ -1,9 +1,0 @@
-extensions:
-  - DataKinds
-  - KindSignatures
-  - MagicHash
-  - StandaloneKindSignatures
-modules: []
-expected: ''
-status: pass
-reason: UnliftedType in a kind signature stays an unlifted result kind.

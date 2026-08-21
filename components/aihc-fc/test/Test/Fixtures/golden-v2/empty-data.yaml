@@ -1,9 +1,0 @@
-extensions:
-  - DataKinds
-  - KindSignatures
-  - MagicHash
-  - StandaloneKindSignatures
-modules: []
-expected: ''
-status: pass
-reason: An empty data type keeps its checked parameters and result kind.

@@ -1,8 +1,0 @@
-extensions:
-  - DataKinds
-  - KindSignatures
-  - StandaloneKindSignatures
-modules: []
-expected: ''
-status: pass
-reason: TYPE, Type, and promoted BoxedRep stay GHC.Types names.
