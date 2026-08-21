@@ -15,12 +15,13 @@ import Aihc.Resolve (PackageId (..), packageIdText)
 import Aihc.Tc.Types (Unique (..))
 import Data.ByteString qualified as BS
 import Data.Char (chr, isAscii, isPrint, ord)
-import Data.List (intercalate)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word8)
 import Numeric (showHex)
+import Prettyprinter (Doc, defaultLayoutOptions, hardline, hsep, indent, layoutPretty, parens, pretty, punctuate, space, vsep, (<+>))
+import Prettyprinter.Render.String (renderString)
 
 data Prec
   = PrecAtom
@@ -31,208 +32,218 @@ data Prec
   deriving (Eq, Ord)
 
 renderProgram :: Program -> String
-renderProgram program =
-  intercalate "\n\n" (filter (not . null) (renderScopes scopes : map (renderDecl env scopes) (programDecls program)))
+renderProgram = renderDocument . prettyProgram
+
+prettyProgram :: Program -> Doc ann
+prettyProgram program =
+  vsep (punctuate hardline documents)
   where
     scopes = programScopes program
     env = typeEnvFromProgram program
+    scopeDocuments =
+      case scopeEntries scopes of
+        [] -> []
+        entries -> [prettyScopes entries]
+    documents = scopeDocuments <> map (prettyDecl env scopes) (programDecls program)
 
-renderScopes :: ScopeTable -> String
-renderScopes table =
-  intercalate "\n" [renderScopeEntry scopeId package moduleName | (scopeId, package, moduleName) <- scopeEntries table]
+prettyScopes :: [(Int, PackageId, Text)] -> Doc ann
+prettyScopes = vsep . map prettyScopeEntry
 
-renderScopeEntry :: Int -> PackageId -> Text -> String
-renderScopeEntry scopeId package moduleName =
-  "scope " <> show scopeId <> " = " <> show (T.unpack (packageIdText package)) <> " " <> T.unpack moduleName
+prettyScopeEntry :: (Int, PackageId, Text) -> Doc ann
+prettyScopeEntry (scopeId, package, moduleName) =
+  "scope" <+> pretty scopeId <+> "=" <+> pretty (show (T.unpack (packageIdText package))) <+> pretty moduleName
 
-renderDecl :: TypeEnv -> ScopeTable -> Decl -> String
-renderDecl env scopes decl =
+prettyDecl :: TypeEnv -> ScopeTable -> Decl -> Doc ann
+prettyDecl env scopes decl =
   case decl of
-    DeclType declaration -> renderTypeDecl env scopes declaration
-    DeclSynonym declaration -> renderSynonymDecl env scopes declaration
-    DeclAxiom declaration -> renderAxiomDecl env scopes declaration
-    DeclVal declaration -> renderValDecl env scopes declaration
-    DeclForeignImport declaration -> renderForeignImportDecl env scopes declaration
+    DeclType declaration -> prettyTypeDecl env scopes declaration
+    DeclSynonym declaration -> prettySynonymDecl env scopes declaration
+    DeclAxiom declaration -> prettyAxiomDecl env scopes declaration
+    DeclVal declaration -> prettyValDecl env scopes declaration
+    DeclForeignImport declaration -> prettyForeignImportDecl env scopes declaration
 
-renderVis :: Vis -> String
-renderVis Pub = "pub "
-renderVis Private = ""
+prettyVis :: Vis -> Doc ann
+prettyVis Pub = "pub "
+prettyVis Private = mempty
 
-renderTypeDecl :: TypeEnv -> ScopeTable -> TypeDecl -> String
-renderTypeDecl env scopes declaration =
-  renderVis (typeVis declaration)
+prettyTypeDecl :: TypeEnv -> ScopeTable -> TypeDecl -> Doc ann
+prettyTypeDecl env scopes declaration =
+  prettyVis (typeVis declaration)
     <> "type "
-    <> renderTopName scopes (typeName declaration)
-    <> renderHeaderBinders env scopes (typeBinders declaration)
+    <> prettyTopName scopes (typeName declaration)
+    <> prettyHeaderBinders env scopes (typeBinders declaration)
     <> " :: "
-    <> renderTypeWith (headerBinderEnv env (typeBinders declaration)) scopes PrecForAll (typeResult declaration)
-    <> renderRoleList (typeRoles declaration)
-    <> renderConstructors env scopes (typeCons declaration)
+    <> prettyTypeWith (headerBinderEnv env (typeBinders declaration)) scopes PrecForAll (typeResult declaration)
+    <> prettyRoleList (typeRoles declaration)
+    <> prettyConstructors env scopes (typeCons declaration)
 
-renderHeaderBinders :: TypeEnv -> ScopeTable -> [Binder] -> String
-renderHeaderBinders env scopes =
-  concatMap ((" " <>) . renderPiBinder env scopes)
+prettyHeaderBinders :: TypeEnv -> ScopeTable -> [Binder] -> Doc ann
+prettyHeaderBinders env scopes =
+  foldMap ((space <>) . prettyPiBinder env scopes)
 
-renderConstructors :: TypeEnv -> ScopeTable -> [ConDecl] -> String
-renderConstructors _ _ [] = " {}"
-renderConstructors env scopes constructors =
-  " {\n"
-    <> intercalate ";\n" (map (renderConDecl env scopes) constructors)
-    <> "\n}"
+prettyConstructors :: TypeEnv -> ScopeTable -> [ConDecl] -> Doc ann
+prettyConstructors _ _ [] = " {}"
+prettyConstructors env scopes constructors =
+  " {"
+    <> hardline
+    <> indent 4 (vsep (punctuate ";" (map (prettyConDecl env scopes) constructors)))
+    <> hardline
+    <> "}"
 
-renderConDecl :: TypeEnv -> ScopeTable -> ConDecl -> String
-renderConDecl env scopes declaration =
-  "    "
-    <> renderVis (conVis declaration)
-    <> renderTopName scopes (conName declaration)
+prettyConDecl :: TypeEnv -> ScopeTable -> ConDecl -> Doc ann
+prettyConDecl env scopes declaration =
+  prettyVis (conVis declaration)
+    <> prettyTopName scopes (conName declaration)
     <> " :: "
-    <> renderTypeWith env scopes PrecForAll (conType declaration)
+    <> prettyTypeWith env scopes PrecForAll (conType declaration)
 
-renderSynonymDecl :: TypeEnv -> ScopeTable -> SynonymDecl -> String
-renderSynonymDecl env scopes declaration =
-  renderVis (synVis declaration)
+prettySynonymDecl :: TypeEnv -> ScopeTable -> SynonymDecl -> Doc ann
+prettySynonymDecl env scopes declaration =
+  prettyVis (synVis declaration)
     <> "type "
-    <> renderTopName scopes (synName declaration)
-    <> renderHeaderBinders env scopes (synBinders declaration)
+    <> prettyTopName scopes (synName declaration)
+    <> prettyHeaderBinders env scopes (synBinders declaration)
     <> " :: "
-    <> renderTypeWith (headerBinderEnv env (synBinders declaration)) scopes PrecForAll (synResult declaration)
-    <> " =\n "
-    <> renderTypeWith (headerBinderEnv env (synBinders declaration)) scopes PrecForAll (synBody declaration)
+    <> prettyTypeWith binderEnv scopes PrecForAll (synResult declaration)
+    <> " ="
+    <> hardline
+    <> indent 1 (prettyTypeWith binderEnv scopes PrecForAll (synBody declaration))
+  where
+    binderEnv = headerBinderEnv env (synBinders declaration)
 
-renderAxiomDecl :: TypeEnv -> ScopeTable -> AxiomDecl -> String
-renderAxiomDecl env scopes declaration =
-  renderVis (axiomVis declaration)
+prettyAxiomDecl :: TypeEnv -> ScopeTable -> AxiomDecl -> Doc ann
+prettyAxiomDecl env scopes declaration =
+  prettyVis (axiomVis declaration)
     <> "axiom "
-    <> renderTopName scopes (axiomName declaration)
-    <> renderForAllBinders env scopes (axiomBinders declaration)
+    <> prettyTopName scopes (axiomName declaration)
+    <> prettyForAllBinders env scopes (axiomBinders declaration)
     <> " : "
-    <> renderTypeWith binderEnv scopes PrecForAll (axiomLeft declaration)
-    <> " "
-    <> renderAxiomRole (axiomRole declaration)
-    <> " "
-    <> renderTypeWith binderEnv scopes PrecForAll (axiomRight declaration)
+    <> prettyTypeWith binderEnv scopes PrecForAll (axiomLeft declaration)
+    <+> prettyAxiomRole (axiomRole declaration)
+    <+> prettyTypeWith binderEnv scopes PrecForAll (axiomRight declaration)
   where
     binderEnv = headerBinderEnv env (axiomBinders declaration)
 
-renderForAllBinders :: TypeEnv -> ScopeTable -> [Binder] -> String
-renderForAllBinders _ _ [] = ""
-renderForAllBinders env scopes binders =
-  " " <> unwords (map (renderPiBinder env scopes) binders)
+prettyForAllBinders :: TypeEnv -> ScopeTable -> [Binder] -> Doc ann
+prettyForAllBinders _ _ [] = mempty
+prettyForAllBinders env scopes binders =
+  space <> hsep (map (prettyPiBinder env scopes) binders)
 
-renderAxiomRole :: Role -> String
-renderAxiomRole Nominal = "~N"
-renderAxiomRole Representational = "~R"
-renderAxiomRole Phantom = "~P"
+prettyAxiomRole :: Role -> Doc ann
+prettyAxiomRole Nominal = "~N"
+prettyAxiomRole Representational = "~R"
+prettyAxiomRole Phantom = "~P"
 
-renderRoleList :: [Role] -> String
-renderRoleList roles
-  | all (== Representational) roles = ""
-  | otherwise = concatMap ((" @" <>) . renderRoleTag) roles
+prettyRoleList :: [Role] -> Doc ann
+prettyRoleList roles
+  | all (== Representational) roles = mempty
+  | otherwise = foldMap ((" @" <>) . prettyRoleTag) roles
 
-renderRoleTag :: Role -> String
-renderRoleTag Nominal = "N"
-renderRoleTag Representational = "R"
-renderRoleTag Phantom = "P"
+prettyRoleTag :: Role -> Doc ann
+prettyRoleTag Nominal = "N"
+prettyRoleTag Representational = "R"
+prettyRoleTag Phantom = "P"
 
-renderValDecl :: TypeEnv -> ScopeTable -> ValDecl -> String
-renderValDecl env scopes declaration =
-  renderVis (valVis declaration)
+prettyValDecl :: TypeEnv -> ScopeTable -> ValDecl -> Doc ann
+prettyValDecl env scopes declaration =
+  prettyVis (valVis declaration)
     <> "val "
-    <> renderTopName scopes (valName declaration)
+    <> prettyTopName scopes (valName declaration)
     <> " :: "
-    <> renderTypeWith env scopes PrecForAll (valType declaration)
-    <> "\n = "
-    <> renderExprWith env scopes 0 (valBody declaration)
+    <> prettyTypeWith env scopes PrecForAll (valType declaration)
+    <> hardline
+    <> " = "
+    <> prettyExprWith env scopes (valBody declaration)
 
-renderForeignImportDecl :: TypeEnv -> ScopeTable -> ForeignImportDecl -> String
-renderForeignImportDecl env scopes declaration =
-  renderVis (foreignImportVis declaration)
+prettyForeignImportDecl :: TypeEnv -> ScopeTable -> ForeignImportDecl -> Doc ann
+prettyForeignImportDecl env scopes declaration =
+  prettyVis (foreignImportVis declaration)
     <> "foreign import "
-    <> renderCallingConvention (foreignImportCallingConvention declaration)
-    <> renderTopName scopes (foreignImportName declaration)
+    <> prettyCallingConvention (foreignImportCallingConvention declaration)
+    <> prettyTopName scopes (foreignImportName declaration)
     <> " :: "
-    <> renderTypeWith env scopes PrecForAll (foreignImportType declaration)
+    <> prettyTypeWith env scopes PrecForAll (foreignImportType declaration)
 
-renderCallingConvention :: CallingConvention -> String
-renderCallingConvention convention =
+prettyCallingConvention :: CallingConvention -> Doc ann
+prettyCallingConvention convention =
   case convention of
     Prim -> "prim "
     CCall specification ->
       "ccall unsafe "
-        <> show (T.unpack (ccallSymbol specification))
+        <> pretty (show (T.unpack (ccallSymbol specification)))
         <> " ["
-        <> intercalate ", " (map renderCAbiType (ccallArgumentTypes specification))
+        <> hsep (punctuate "," (map prettyCAbiType (ccallArgumentTypes specification)))
         <> " → "
-        <> renderCAbiType (ccallResultType specification)
+        <> prettyCAbiType (ccallResultType specification)
         <> "; "
-        <> renderForeignEffect (ccallEffect specification)
+        <> prettyForeignEffect (ccallEffect specification)
         <> "] "
 
-renderCAbiType :: CAbiType -> String
-renderCAbiType abiType =
+prettyCAbiType :: CAbiType -> Doc ann
+prettyCAbiType abiType =
   case abiType of
     CAbiInt -> "Int"
     CAbiInt32 -> "Int32"
     CAbiWord64 -> "Word64"
     CAbiAddr -> "Addr"
 
-renderForeignEffect :: ForeignEffect -> String
-renderForeignEffect effect =
+prettyForeignEffect :: ForeignEffect -> Doc ann
+prettyForeignEffect effect =
   case effect of
     ForeignPure -> "pure"
     ForeignRealWorld -> "real-world"
 
 renderType :: Program -> Type -> String
 renderType program =
-  renderTypeWith (typeEnvFromProgram program) (programScopes program) PrecForAll
+  renderDocument . prettyTypeWith (typeEnvFromProgram program) (programScopes program) PrecForAll
 
-renderTypeWith :: TypeEnv -> ScopeTable -> Prec -> Type -> String
-renderTypeWith env scopes prec ty =
+prettyTypeWith :: TypeEnv -> ScopeTable -> Prec -> Type -> Doc ann
+prettyTypeWith env scopes prec ty =
   case ty of
-    TyVar name -> renderName scopes name
-    TyCon name -> renderName scopes name
+    TyVar name -> prettyName scopes name
+    TyCon name -> prettyName scopes name
     TyApp function argument ->
-      paren (prec < PrecApp) (renderTypeWith env scopes PrecApp function <> " " <> renderTypeWith env scopes PrecAtom argument)
+      parenthesize (prec < PrecApp) (prettyTypeWith env scopes PrecApp function <+> prettyTypeWith env scopes PrecAtom argument)
     TyFun r1 r2 argument result
       | isLiftedRep env r1 && isLiftedRep env r2 ->
-          paren (prec < PrecFun) (renderTypeWith env scopes PrecApp argument <> " → " <> renderTypeWith env scopes PrecFun result)
+          parenthesize (prec < PrecFun) (prettyTypeWith env scopes PrecApp argument <+> "→" <+> prettyTypeWith env scopes PrecFun result)
       | otherwise ->
-          paren
+          parenthesize
             (prec < PrecFun)
             ( "FUN @"
-                <> renderTypeWith env scopes PrecAtom r1
+                <> prettyTypeWith env scopes PrecAtom r1
                 <> " @"
-                <> renderTypeWith env scopes PrecAtom r2
-                <> " "
-                <> renderTypeWith env scopes PrecAtom argument
-                <> " "
-                <> renderTypeWith env scopes PrecAtom result
+                <> prettyTypeWith env scopes PrecAtom r2
+                <> space
+                <> prettyTypeWith env scopes PrecAtom argument
+                <> space
+                <> prettyTypeWith env scopes PrecAtom result
             )
     TyForAll binder body ->
       let env' = extendPrettyEnv env binder
-       in paren
+       in parenthesize
             (prec < PrecForAll)
             ( "∀"
-                <> renderPiBinder env scopes binder
-                <> forallTail env' scopes body
+                <> prettyPiBinder env scopes binder
+                <> prettyForallTail env' scopes body
             )
     TyEq left right ->
-      paren (prec < PrecEq) (renderTypeWith env scopes PrecApp left <> " ~ " <> renderTypeWith env scopes PrecApp right)
+      parenthesize (prec < PrecEq) (prettyTypeWith env scopes PrecApp left <+> "~" <+> prettyTypeWith env scopes PrecApp right)
 
-forallTail :: TypeEnv -> ScopeTable -> Type -> String
-forallTail env scopes ty =
+prettyForallTail :: TypeEnv -> ScopeTable -> Type -> Doc ann
+prettyForallTail env scopes ty =
   case ty of
     TyForAll binder body ->
-      " " <> renderPiBinder env scopes binder <> forallTail (extendPrettyEnv env binder) scopes body
-    _ -> ". " <> renderTypeWith env scopes PrecForAll ty
+      space <> prettyPiBinder env scopes binder <> prettyForallTail (extendPrettyEnv env binder) scopes body
+    _ -> ". " <> prettyTypeWith env scopes PrecForAll ty
 
-renderPiBinder :: TypeEnv -> ScopeTable -> Binder -> String
-renderPiBinder env scopes binder =
-  "("
-    <> renderLocalBinder (binderName binder)
-    <> " : "
-    <> renderTypeWith env scopes PrecForAll (binderType binder)
-    <> ")"
+prettyPiBinder :: TypeEnv -> ScopeTable -> Binder -> Doc ann
+prettyPiBinder env scopes binder =
+  parens
+    ( prettyLocalBinder (binderName binder)
+        <> " : "
+        <> prettyTypeWith env scopes PrecForAll (binderType binder)
+    )
 
 extendPrettyEnv :: TypeEnv -> Binder -> TypeEnv
 extendPrettyEnv env binder =
@@ -243,102 +254,116 @@ headerBinderEnv = foldl (\env binder -> env {teBinders = Map.insert (binderName 
 
 renderExpr :: Program -> Expr -> String
 renderExpr program =
-  renderExprWith (typeEnvFromProgram program) (programScopes program) 0
+  renderDocument . prettyExprWith (typeEnvFromProgram program) (programScopes program)
 
-renderExprWith :: TypeEnv -> ScopeTable -> Int -> Expr -> String
-renderExprWith env scopes indent expr =
+prettyExprWith :: TypeEnv -> ScopeTable -> Expr -> Doc ann
+prettyExprWith env scopes expr =
   case expr of
-    ExVar name -> renderName scopes name
-    ExLit literal -> renderLiteral scopes literal
+    ExVar name -> prettyName scopes name
+    ExLit literal -> prettyLiteral scopes literal
     ExApp function argument ->
-      renderApp env scopes indent function <> " " <> renderExprAtom env scopes indent argument
+      prettyApp env scopes function <+> prettyExprAtom env scopes argument
     ExTyApp function argument ->
-      renderApp env scopes indent function <> " @" <> renderTypeWith env scopes PrecAtom argument
+      prettyApp env scopes function <+> ("@" <> prettyTypeWith env scopes PrecAtom argument)
     ExLam binder body ->
-      "λ" <> renderPiBinder env scopes binder <> ".\n" <> indentLine (indent + 1) (renderExprWith (extendPrettyEnv env binder) scopes (indent + 1) body)
+      "λ" <> prettyPiBinder env scopes binder <> "." <> hardline <> indent 2 (prettyExprWith (extendPrettyEnv env binder) scopes body)
     ExTyLam binder body ->
-      "Λ" <> renderPiBinder env scopes binder <> ".\n" <> indentLine (indent + 1) (renderExprWith (extendPrettyEnv env binder) scopes (indent + 1) body)
+      "Λ" <> prettyPiBinder env scopes binder <> "." <> hardline <> indent 2 (prettyExprWith (extendPrettyEnv env binder) scopes body)
     ExLet bind body ->
-      "let {\n"
-        <> indentLine (indent + 2) (renderBind env scopes (indent + 2) bind)
-        <> "\n"
-        <> indentLine indent "} in\n"
-        <> indentLine (indent + 2) (renderExprWith (extendPrettyEnv env (bindBinder bind)) scopes (indent + 2) body)
+      "let {"
+        <> hardline
+        <> indent 4 (prettyBind env scopes bind)
+        <> hardline
+        <> "} in"
+        <> hardline
+        <> indent 4 (prettyExprWith (extendPrettyEnv env (bindBinder bind)) scopes body)
     ExRec binds body ->
-      "rec {\n"
-        <> intercalate ";\n" (map (indentLine (indent + 2) . renderBind recEnv scopes (indent + 2)) binds)
-        <> "\n"
-        <> indentLine indent "} in\n"
-        <> indentLine (indent + 2) (renderExprWith recEnv scopes (indent + 2) body)
+      "rec {"
+        <> hardline
+        <> prettyIndentedItems 4 (map (prettyBind recEnv scopes) binds)
+        <> hardline
+        <> "} in"
+        <> hardline
+        <> indent 4 (prettyExprWith recEnv scopes body)
       where
         recEnv = foldl extendPrettyEnv env (map bindBinder binds)
     ExCase scrutinee binder resultType alts ->
       "case "
-        <> renderExprWith env scopes indent scrutinee
+        <> prettyExprWith env scopes scrutinee
         <> " as "
-        <> renderPiBinder env scopes binder
-        <> " return ("
-        <> renderTypeWith env scopes PrecForAll resultType
-        <> ")"
-        <> " of {\n"
-        <> intercalate ";\n" (map (indentLine (indent + 2) . renderAlt (extendPrettyEnv env binder) scopes (indent + 2)) alts)
-        <> "\n"
-        <> indentLine indent "}"
+        <> prettyPiBinder env scopes binder
+        <> " return "
+        <> parens (prettyTypeWith env scopes PrecForAll resultType)
+        <> " of {"
+        <> hardline
+        <> prettyIndentedItems 4 (map (prettyAlt (extendPrettyEnv env binder) scopes) alts)
+        <> hardline
+        <> "}"
     ExCast body coercion ->
-      renderExprAtom env scopes indent body <> " ▷ " <> renderCoercion env scopes coercion
+      prettyExprAtom env scopes body <+> "▷" <+> prettyCoercion env scopes coercion
 
-renderApp :: TypeEnv -> ScopeTable -> Int -> Expr -> String
-renderApp env scopes indent expr =
+prettyApp :: TypeEnv -> ScopeTable -> Expr -> Doc ann
+prettyApp env scopes expr =
   case expr of
-    ExApp {} -> renderExprWith env scopes indent expr
-    ExTyApp {} -> renderExprWith env scopes indent expr
-    _ -> renderExprAtom env scopes indent expr
+    ExApp {} -> prettyExprWith env scopes expr
+    ExTyApp {} -> prettyExprWith env scopes expr
+    _ -> prettyExprAtom env scopes expr
 
-renderExprAtom :: TypeEnv -> ScopeTable -> Int -> Expr -> String
-renderExprAtom env scopes indent expr =
+prettyExprAtom :: TypeEnv -> ScopeTable -> Expr -> Doc ann
+prettyExprAtom env scopes expr =
   case expr of
-    ExVar {} -> renderExprWith env scopes indent expr
-    ExLit {} -> renderExprWith env scopes indent expr
-    _ -> "(" <> renderExprWith env scopes indent expr <> ")"
+    ExVar {} -> prettyExprWith env scopes expr
+    ExLit {} -> prettyExprWith env scopes expr
+    _ -> parens (prettyExprWith env scopes expr)
 
-renderBind :: TypeEnv -> ScopeTable -> Int -> Bind -> String
-renderBind env scopes indent bind =
-  renderLocalBinder (binderName (bindBinder bind))
+prettyBind :: TypeEnv -> ScopeTable -> Bind -> Doc ann
+prettyBind env scopes bind =
+  prettyLocalBinder (binderName (bindBinder bind))
     <> " : "
-    <> renderTypeWith env scopes PrecForAll (binderType (bindBinder bind))
-    <> " =\n"
-    <> indentLine (indent + 2) (renderExprWith env scopes (indent + 2) (bindRhs bind))
+    <> prettyTypeWith env scopes PrecForAll (binderType (bindBinder bind))
+    <> " ="
+    <> hardline
+    <> indent 4 (prettyExprWith env scopes (bindRhs bind))
 
-renderAlt :: TypeEnv -> ScopeTable -> Int -> Alt -> String
-renderAlt env scopes indent alternative =
+prettyAlt :: TypeEnv -> ScopeTable -> Alt -> Doc ann
+prettyAlt env scopes alternative =
+  prettyAltHead env scopes alternative
+    <> " →"
+    <> hardline
+    <> indent 4 (prettyExprWith env scopes (altRhs alternative))
+
+prettyAltHead :: TypeEnv -> ScopeTable -> Alt -> Doc ann
+prettyAltHead env scopes alternative =
   case altCon alternative of
-    AltDefault -> "_ →\n" <> indentLine (indent + 2) (renderExprWith env scopes (indent + 2) (altRhs alternative))
-    AltLit literal ->
-      renderLiteral scopes literal <> altBinderText <> " →\n" <> indentLine (indent + 2) (renderExprWith env scopes (indent + 2) (altRhs alternative))
-    AltData name ->
-      renderName scopes name <> altBinderText <> " →\n" <> indentLine (indent + 2) (renderExprWith env scopes (indent + 2) (altRhs alternative))
+    AltDefault -> "_"
+    AltLit literal -> prettyLiteral scopes literal <> prettyAltBinders
+    AltData name -> prettyName scopes name <> prettyAltBinders
   where
-    altBinderText = concatMap ((" " <>) . renderPiBinder env scopes) (altBinders alternative)
+    prettyAltBinders = foldMap ((space <>) . prettyPiBinder env scopes) (altBinders alternative)
 
-renderCoercion :: TypeEnv -> ScopeTable -> Coercion -> String
-renderCoercion env scopes coercion =
+prettyIndentedItems :: Int -> [Doc ann] -> Doc ann
+prettyIndentedItems _ [] = mempty
+prettyIndentedItems amount documents = indent amount (vsep (punctuate ";" documents))
+
+prettyCoercion :: TypeEnv -> ScopeTable -> Coercion -> Doc ann
+prettyCoercion env scopes coercion =
   case coercion of
-    CoVar name -> renderName scopes name
-    CoRefl ty -> "refl " <> renderTypeWith env scopes PrecAtom ty
-    CoSym inner -> "sym (" <> renderCoercion env scopes inner <> ")"
-    CoTrans left right -> "trans (" <> renderCoercion env scopes left <> ") (" <> renderCoercion env scopes right <> ")"
+    CoVar name -> prettyName scopes name
+    CoRefl ty -> "refl " <> prettyTypeWith env scopes PrecAtom ty
+    CoSym inner -> "sym " <> parens (prettyCoercion env scopes inner)
+    CoTrans left right -> "trans " <> parens (prettyCoercion env scopes left) <+> parens (prettyCoercion env scopes right)
     CoTyConApp name arguments ->
-      unwords ("tycon-co" : renderName scopes name : map (\argument -> "(" <> renderCoercion env scopes argument <> ")") arguments)
+      hsep ("tycon-co" : prettyName scopes name : map (parens . prettyCoercion env scopes) arguments)
     CoAxiom name arguments ->
-      unwords ("axiom-co" : renderName scopes name : map (\argument -> "@" <> renderTypeWith env scopes PrecAtom argument) arguments)
+      hsep ("axiom-co" : prettyName scopes name : map (("@" <>) . prettyTypeWith env scopes PrecAtom) arguments)
 
-renderLiteral :: ScopeTable -> Literal -> String
-renderLiteral scopes literal =
+prettyLiteral :: ScopeTable -> Literal -> Doc ann
+prettyLiteral scopes literal =
   case literal of
-    LitInt representation value -> show value <> "#" <> renderName scopes (repName representation)
-    LitChar representation value -> "'" <> encodeCharLiteral value <> "'#" <> renderName scopes (repName representation)
-    LitString value -> "\"" <> concatMap encodeStringChar (T.unpack value) <> "\""
-    LitAddr representation value -> "\"" <> concatMap encodeByte (BS.unpack value) <> "\"#" <> renderName scopes (repName representation)
+    LitInt representation value -> pretty value <> "#" <> prettyName scopes (repName representation)
+    LitChar representation value -> "'" <> pretty (encodeCharLiteral value) <> "'#" <> prettyName scopes (repName representation)
+    LitString value -> "\"" <> pretty (concatMap encodeStringChar (T.unpack value)) <> "\""
+    LitAddr representation value -> "\"" <> pretty (concatMap encodeByte (BS.unpack value)) <> "\"#" <> prettyName scopes (repName representation)
 
 encodeStringChar :: Char -> String
 encodeStringChar character
@@ -373,60 +398,60 @@ repName ty =
     TyVar name -> name
     _ -> Name "AddrRep" SortDataConstructor (OriginLocal (Unique 0))
 
-renderName :: ScopeTable -> Name -> String
-renderName scopes name =
+prettyName :: ScopeTable -> Name -> Doc ann
+prettyName scopes name =
   case nameOrigin name of
-    OriginLocal {} -> renderLocalUse name
-    OriginTop {} -> renderTopName scopes name
+    OriginLocal {} -> prettyLocalUse name
+    OriginTop {} -> prettyTopName scopes name
 
-renderTopName :: ScopeTable -> Name -> String
-renderTopName scopes name =
+prettyTopName :: ScopeTable -> Name -> Doc ann
+prettyTopName scopes name =
   case nameOrigin name of
     OriginTop package moduleName ->
-      scopePrefix scopes package moduleName <> printedName name
+      prettyScopePrefix scopes package moduleName <> prettyPrintedName name
     OriginLocal {} ->
-      printedName name
+      prettyPrintedName name
 
-scopePrefix :: ScopeTable -> PackageId -> Text -> String
-scopePrefix scopes package moduleName =
+prettyScopePrefix :: ScopeTable -> PackageId -> Text -> Doc ann
+prettyScopePrefix scopes package moduleName =
   case lookupScopeId scopes package moduleName of
-    Just scopeId -> show scopeId <> "."
+    Just scopeId -> pretty scopeId <> "."
     Nothing -> error ("missing System FC 2 scope for " <> show (packageIdText package, moduleName))
 
 lookupScopeId :: ScopeTable -> PackageId -> Text -> Maybe Int
 lookupScopeId table package moduleName =
   lookup (package, moduleName) [((entryPackage, entryModule), scopeId) | (scopeId, entryPackage, entryModule) <- scopeEntries table]
 
-printedName :: Name -> String
-printedName name =
+prettyPrintedName :: Name -> Doc ann
+prettyPrintedName name =
   case nameClass (nameSort name) of
-    NameClassType -> "t" <> rawPrinted (nameText name)
-    NameClassValue -> "v" <> rawPrinted (nameText name)
-    NameClassAxiom -> T.unpack (nameText name)
-    NameClassTypeVar -> T.unpack (nameText name)
+    NameClassType -> "t" <> prettyRawPrinted (nameText name)
+    NameClassValue -> "v" <> prettyRawPrinted (nameText name)
+    NameClassAxiom -> pretty (nameText name)
+    NameClassTypeVar -> pretty (nameText name)
 
-rawPrinted :: Text -> String
-rawPrinted = T.unpack
+prettyRawPrinted :: Text -> Doc ann
+prettyRawPrinted = pretty
 
-renderLocalBinder :: Name -> String
-renderLocalBinder name =
-  T.unpack (nameText name) <> uniqueSuffix name
+prettyLocalBinder :: Name -> Doc ann
+prettyLocalBinder name =
+  pretty (nameText name) <> prettyUniqueSuffix name
 
-renderLocalUse :: Name -> String
-renderLocalUse name =
-  T.unpack (nameText name) <> uniqueSuffix name
+prettyLocalUse :: Name -> Doc ann
+prettyLocalUse name =
+  pretty (nameText name) <> prettyUniqueSuffix name
 
-uniqueSuffix :: Name -> String
-uniqueSuffix name =
+prettyUniqueSuffix :: Name -> Doc ann
+prettyUniqueSuffix name =
   case nameOrigin name of
     OriginLocal (Unique unique)
-      | unique /= 0 -> "{" <> show unique <> "}"
-      | otherwise -> ""
-    OriginTop {} -> ""
+      | unique /= 0 -> "{" <> pretty unique <> "}"
+      | otherwise -> mempty
+    OriginTop {} -> mempty
 
-paren :: Bool -> String -> String
-paren False value = value
-paren True value = "(" <> value <> ")"
+parenthesize :: Bool -> Doc ann -> Doc ann
+parenthesize False value = value
+parenthesize True value = parens value
 
-indentLine :: Int -> String -> String
-indentLine count value = replicate (count * 2) ' ' <> value
+renderDocument :: Doc ann -> String
+renderDocument = renderString . layoutPretty defaultLayoutOptions
