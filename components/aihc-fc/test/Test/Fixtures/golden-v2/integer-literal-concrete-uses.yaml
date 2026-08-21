@@ -1,0 +1,45 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module GHC.Prim where
+  data Int#
+- |
+  module GHC.Types where
+  import GHC.Prim (Int#)
+  data Bool = False | True
+  data Int = I Int#
+  data Integer = IS Int#
+- |
+  module GHC.Classes where
+  import GHC.Types (Bool (..), Int (..))
+  class Eq a where
+    (==) :: a -> a -> Bool
+  instance Eq Int where
+    I x == I y = True
+- |
+  module GHC.Num where
+  import GHC.Types (Int (..), Integer (..))
+  class Num a where
+    fromInteger :: Integer -> a
+  instance Num Int where
+    fromInteger (IS x) = I x
+  instance Num Integer where
+    fromInteger x = x
+- |
+  module Prelude (Int, Integer) where
+  import GHC.Types (Int, Integer)
+- |
+  module Main where
+  asInt :: Int
+  asInt = 1 :: Int
+  asInteger :: Integer
+  asInteger = 1 :: Integer
+  caseInt :: ()
+  caseInt = case (1 :: Int) of
+    1 -> ()
+expected: ''
+status: xfail
+reason: FC lint rejects the empty failure case generated for the concrete integer
+  pattern

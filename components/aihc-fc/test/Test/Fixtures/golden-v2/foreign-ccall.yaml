@@ -5,5 +5,14 @@ modules:
     module Test where
     data Int = I
     foreign import ccall unsafe "identity" identityInt :: Int -> Int
-status: fail
-reason: System FC 2 accepts only foreign import prim.
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tInt :: 2.tType {
+      pub 1.vI :: 1.tInt
+  }
+
+  pub foreign import ccall unsafe "identity" [Int → Int; pure] 1.videntityInt :: 1.tInt → 1.tInt
+status: pass
+reason: ''

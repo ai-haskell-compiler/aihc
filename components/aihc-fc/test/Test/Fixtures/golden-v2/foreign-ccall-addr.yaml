@@ -1,0 +1,29 @@
+---
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module GHC.Prim where
+  data Addr#
+  data Int32#
+- |
+  module Test where
+
+  import GHC.Prim (Addr#, Int32#)
+
+  data State# s
+  data RealWorld
+  data Int32 = I32# Int32#
+  newtype CInt = CInt Int32
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+
+  foreign import ccall unsafe puts :: Addr# -> IO CInt
+
+  main :: IO CInt
+  main = puts "hello world\n"#
+expected: ''
+status: xfail
+reason: FC lint finds internal primitive types in the foreign descriptor and a different
+  identity for the local puts occurrence

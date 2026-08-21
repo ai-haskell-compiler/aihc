@@ -1,0 +1,24 @@
+---
+extensions:
+- ForeignFunctionInterface
+- GHCForeignImportPrim
+- MagicHash
+modules:
+- |
+  module GHC.Prim where
+  data Addr#
+- |
+  module Test where
+
+  import GHC.Prim (Addr#)
+
+  data State# s
+  data RealWorld
+
+  foreign import prim awaitIO# ::
+    Addr# -> State# RealWorld -> State# RealWorld
+
+  await request state = awaitIO# request state
+expected: ''
+status: xfail
+reason: FC lint cannot find the declared primitive identity for the awaitIO# occurrence

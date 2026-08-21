@@ -1,0 +1,14 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+
+  data StrictPair a = StrictPair !a !a
+
+  makePair :: a -> a -> StrictPair a
+  makePair left right = StrictPair left right
+expected: ''
+status: xfail
+reason: FC lint finds declaration type variables in strict field binders after constructor
+  instantiation

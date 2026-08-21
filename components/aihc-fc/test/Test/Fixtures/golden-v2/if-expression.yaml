@@ -1,0 +1,22 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    choose flag left right = if flag then left else right
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub val 1.vchoose :: ∀(a : 2.tType). 2.tBool → a → a → a
+   = Λ(a : 2.tType).
+    λ(x : 2.tBool).
+      λ(y : a).
+        λ(z : a).
+          case x as (_if : 2.tBool) return (a) of {
+              2.vTrue →
+                  y;
+              2.vFalse →
+                  z
+          }
+status: pass
+reason: ''

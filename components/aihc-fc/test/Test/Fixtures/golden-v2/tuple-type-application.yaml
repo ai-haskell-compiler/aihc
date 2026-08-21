@@ -1,0 +1,23 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = True | False
+
+  pair :: (Bool, ())
+  pair = (True, ())
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub type 1.tBool :: 3.tType {
+      pub 1.vTrue :: 1.tBool;
+      pub 1.vFalse :: 1.tBool
+  }
+
+  pub val 1.vpair :: 2.tTuple2 1.tBool 2.tUnit
+   = 2.v(,) @1.tBool @2.tUnit 1.vTrue 2.v()
+status: pass
+reason: reifies tuple constructor type arguments from type-checker annotations

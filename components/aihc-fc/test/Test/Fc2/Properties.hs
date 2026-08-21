@@ -223,6 +223,7 @@ genPrimDecl =
   PrimDecl
     <$> genVis
     <*> (valueNameTop . ("prim" <>) <$> genSuffix)
+    <*> pure PrimIntrinsic
     <*> genType
 
 genType :: Gen Type

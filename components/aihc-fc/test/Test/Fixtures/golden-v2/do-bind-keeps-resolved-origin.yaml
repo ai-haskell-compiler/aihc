@@ -1,0 +1,41 @@
+---
+extensions: []
+modules:
+- |
+  module GHC.Base where
+  data Box a = Box a
+  (>>=) (Box value) next = next value
+- |
+  module Test where
+  import GHC.Base
+  run action = do
+    value <- action
+    Box value
+expected: |-
+  scope 1 = "" GHC.Base
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tBox (a : 2.tType) :: 2.tType {
+      pub 1.vBox :: ∀(a : 2.tType). a → 1.tBox a
+  }
+
+  pub val 1.v>>= :: ∀(a : 2.tType) (b : 2.tType). 1.tBox a → (a → b) → b
+   = Λ(a : 2.tType).
+    Λ(b : 2.tType).
+      λ(x : 1.tBox a).
+        λ(y : a → b).
+          case x as (_scrut : 1.tBox a) return (b) of {
+              1.vBox (value : a) →
+                  y value
+          }
+  scope 1 = "" GHC.Base
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub val 2.vrun :: ∀(a : 3.tType). 1.tBox a → 1.tBox a
+   = Λ(a : 3.tType).
+    λ(x : 1.tBox a).
+      1.v>>= @a @(1.tBox a) x (λ(value : a).
+        1.vBox @a value)
+status: pass
+reason: keeps the resolved GHC.Base origin on the do-notation bind operation

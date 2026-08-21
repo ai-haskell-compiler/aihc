@@ -1,0 +1,21 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+  data Bool = False | True
+
+  class Eq a where
+    (==) :: a -> a -> Bool
+
+  instance Eq Bool where
+    False == False = True
+    False == True = False
+    True == False = False
+    True == True = True
+
+  eqBool :: Bool -> Bool -> Bool
+  eqBool = (==)
+expected: ''
+status: xfail
+reason: FC lint cannot find the global identity of the class method occurrence

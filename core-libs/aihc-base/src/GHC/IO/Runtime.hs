@@ -24,6 +24,7 @@ where
 
 import GHC.IO (IO)
 import GHC.Int (Int)
+import GHC.Prim (Addr#)
 import GHC.Ptr (Ptr)
 
 data IOHandle

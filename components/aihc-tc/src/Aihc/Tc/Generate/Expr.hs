@@ -162,11 +162,11 @@ inferNameOccurrence ambient nameSyntax = do
               (instTypeArgs inst)
               (map ctEvVar cts)
               []
-      pure (elaborationAnnotation pending, instType inst, cts)
+      pure (Just pending, instType inst, cts)
     Just (TcMonoIdBinder ty) -> do
       (instantiatedTy, typeArgs) <- instantiateSigmaType ty
       let pending = pendingAnnotation instantiatedTy typeArgs [] []
-      pure (elaborationAnnotation pending, instantiatedTy, [])
+      pure (Just pending, instantiatedTy, [])
     Nothing ->
       abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
 
@@ -262,16 +262,6 @@ annotatePendingExprAt sp ann =
 annotatePendingName :: PendingTcAnnotation -> Name -> Name
 annotatePendingName ann name =
   name {nameAnns = nameAnns name <> [mkAnnotation ann]}
-
--- | Occurrence annotations are for elaboration facts consumed by FC, not for
--- restating the occurrence type. Binder types live on binder annotations.
-elaborationAnnotation :: PendingTcAnnotation -> Maybe PendingTcAnnotation
-elaborationAnnotation pending
-  | null (pendingTcAnnTypeArgs pending)
-      && null (pendingTcAnnEvidenceVars pending)
-      && null (pendingTcAnnTermArgTypes pending) =
-      Nothing
-  | otherwise = Just pending
 
 -- | Convert a predicate to a wanted constraint.
 predToCt :: SourceSpan -> Text -> Pred -> TcM Ct

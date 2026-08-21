@@ -1,0 +1,70 @@
+extensions:
+  - DataKinds
+  - KindSignatures
+  - MagicHash
+  - StandaloneKindSignatures
+  - UnboxedTuples
+modules:
+  - |
+    module GHC.Types where
+    data TYPE rep
+    data RuntimeRep = BoxedRep Levity | TupleRep [RuntimeRep] | IntRep
+    data Levity = Lifted | Unlifted
+    data List a = [] | a : [a]
+    type Type = TYPE ('BoxedRep 'Lifted)
+    type Tuple2# :: TYPE r1 -> TYPE r2 -> TYPE ('TupleRep '[r1, r2])
+    data Tuple2# (a :: TYPE r1) (b :: TYPE r2) = (# a, b #)
+  - |
+    module GHC.Prim where
+    data Int#
+  - |
+    module Test where
+    import GHC.Prim (Int#)
+
+    second :: (# Int#, Int# #) -> Int#
+    second pair =
+      case pair of
+        (# _, value #) -> value
+expected: |-
+  scope 1 = "aihc-prim" GHC.Types
+
+  pub type 1.tTYPE (rep : 1.tType) :: 1.tType {}
+
+  pub type 1.tRuntimeRep :: 1.tType {
+      pub 1.vBoxedRep :: 1.tLevity → 1.tRuntimeRep;
+      pub 1.vTupleRep :: 1.t[] 1.tRuntimeRep → 1.tRuntimeRep;
+      pub 1.vIntRep :: 1.tRuntimeRep
+  }
+
+  pub type 1.tLevity :: 1.tType {
+      pub 1.vLifted :: 1.tLevity;
+      pub 1.vUnlifted :: 1.tLevity
+  }
+
+  pub type 1.t[] (a : 1.tType) :: 1.tType {
+      pub 1.v[] :: ∀(a : 1.tType). 1.t[] a;
+      pub 1.v: :: ∀(a : 1.tType). a → 1.t[] a → 1.t[] a
+  }
+
+  pub type 1.tType :: 1.tType =
+   1.tTYPE (1.vBoxedRep 1.vLifted)
+
+  pub type 1.tTuple2# (r1 : 1.tRuntimeRep) (r2 : 1.tRuntimeRep) (a : 1.tTYPE r1) (b : 1.tTYPE r2) :: 1.tTYPE (1.vTupleRep (1.v: 1.tRuntimeRep r1 (1.v: 1.tRuntimeRep r2 (1.v[] 1.tRuntimeRep)))) {
+      pub 1.v(#,#) :: ∀(r1 : 1.tRuntimeRep) (r2 : 1.tRuntimeRep) (a : 1.tTYPE r1) (b : 1.tTYPE r2). FUN @r1 @1.tLiftedRep a (FUN @r2 @(1.vTupleRep (1.v: 1.tRuntimeRep r1 (1.v: 1.tRuntimeRep r2 (1.v[] 1.tRuntimeRep)))) b (1.tTuple2# r1 r2 a b))
+  }
+  scope 1 = "aihc-prim" GHC.Prim
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tInt# :: 2.tTYPE 2.vIntRep {}
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub val 1.vsecond :: FUN @(3.vTupleRep (3.v: 3.tRuntimeRep 3.vIntRep (3.v: 3.tRuntimeRep 3.vIntRep (3.v[] 3.tRuntimeRep)))) @3.vIntRep (3.tTuple2# 3.vIntRep 3.vIntRep 2.tInt# 2.tInt#) 2.tInt#
+   = λ(x : 3.tTuple2# 3.vIntRep 3.vIntRep 2.tInt# 2.tInt#).
+    case x as (_scrut : 3.tTuple2# 3.vIntRep 3.vIntRep 2.tInt# 2.tInt#) return (2.tInt#) of {
+        3.v(#,#) (_pat : 2.tInt#) (value : 2.tInt#) →
+            value
+    }
+status: pass
+reason: An unboxed tuple wildcard keeps its checked field type.

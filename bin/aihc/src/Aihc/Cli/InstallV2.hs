@@ -322,7 +322,7 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
             pure result
         let checked@(checkedModules, _) =
               typecheckModuleSccWithInterfaceConfig
-                (tcConfig (packageId resolvePackage))
+                (tcConfig primIdentity)
                 dependencyTypes
                 (map snd (resolvedModules resolved))
         unless (all tcModuleSuccess checkedModules) (ioError (userError ("Type check failed: " <> show (concatMap tcModuleDiagnostics checkedModules))))

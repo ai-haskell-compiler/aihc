@@ -1,0 +1,62 @@
+---
+extensions:
+- DataKinds
+- ForeignFunctionInterface
+- GHCForeignImportPrim
+- KindSignatures
+- MagicHash
+- StandaloneKindSignatures
+- UnboxedTuples
+modules:
+- |
+  module GHC.Types where
+  data TYPE rep
+  data RuntimeRep = BoxedRep Levity | TupleRep [RuntimeRep]
+  data Levity = Lifted | Unlifted
+  data List a = [] | a : [a]
+  type Type = TYPE ('BoxedRep 'Lifted)
+  type Tuple2# :: TYPE r1 -> TYPE r2 -> TYPE ('TupleRep '[r1, r2])
+  data Tuple2# (a :: TYPE r1) (b :: TYPE r2) = (# a, b #)
+- |
+  module Test where
+
+  data State# s
+  data MutVar# d a
+
+  foreign import prim newMutVar# :: a -> State# d -> (# State# d, MutVar# d a #)
+expected: |-
+  scope 1 = "aihc-prim" GHC.Types
+
+  pub type 1.tTYPE (rep : 1.tType) :: 1.tType {}
+
+  pub type 1.tRuntimeRep :: 1.tType {
+      pub 1.vBoxedRep :: 1.tLevity → 1.tRuntimeRep;
+      pub 1.vTupleRep :: 1.t[] 1.tRuntimeRep → 1.tRuntimeRep
+  }
+
+  pub type 1.tLevity :: 1.tType {
+      pub 1.vLifted :: 1.tLevity;
+      pub 1.vUnlifted :: 1.tLevity
+  }
+
+  pub type 1.t[] (a : 1.tType) :: 1.tType {
+      pub 1.v[] :: ∀(a : 1.tType). 1.t[] a;
+      pub 1.v: :: ∀(a : 1.tType). a → 1.t[] a → 1.t[] a
+  }
+
+  pub type 1.tType :: 1.tType =
+   1.tTYPE (1.vBoxedRep 1.vLifted)
+
+  pub type 1.tTuple2# (r1 : 1.tRuntimeRep) (r2 : 1.tRuntimeRep) (a : 1.tTYPE r1) (b : 1.tTYPE r2) :: 1.tTYPE (1.vTupleRep (1.v: 1.tRuntimeRep r1 (1.v: 1.tRuntimeRep r2 (1.v[] 1.tRuntimeRep)))) {
+      pub 1.v(#,#) :: ∀(r1 : 1.tRuntimeRep) (r2 : 1.tRuntimeRep) (a : 1.tTYPE r1) (b : 1.tTYPE r2). FUN @r1 @1.tLiftedRep a (FUN @r2 @(1.vTupleRep (1.v: 1.tRuntimeRep r1 (1.v: 1.tRuntimeRep r2 (1.v[] 1.tRuntimeRep)))) b (1.tTuple2# r1 r2 a b))
+  }
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tState# (s : 2.tType) :: 2.tTYPE (2.vTupleRep (2.v[] 2.tRuntimeRep)) {}
+
+  pub type 1.tMutVar# (d : 2.tType) (a : 2.tType) :: 2.tTYPE 2.tUnliftedRep {}
+
+  pub foreign import prim 1.vnewMutVar# :: ∀(a : 2.tType) (d : 2.tType). a → FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @(2.vTupleRep (2.v: 2.tRuntimeRep (2.vTupleRep (2.v[] 2.tRuntimeRep)) (2.v: 2.tRuntimeRep 2.tUnliftedRep (2.v[] 2.tRuntimeRep)))) (1.tState# d) (2.tTuple2# (2.vTupleRep (2.v[] 2.tRuntimeRep)) 2.tUnliftedRep (1.tState# d) (1.tMutVar# d a))
+status: pass
+reason:

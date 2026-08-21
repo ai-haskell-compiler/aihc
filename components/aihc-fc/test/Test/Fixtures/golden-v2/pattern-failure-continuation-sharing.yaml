@@ -1,0 +1,65 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+
+  data Bool = False | True
+  data MaybeBool = Nothing | Just Bool
+
+  unused :: Bool -> Bool
+  unused value =
+    case value of
+      _ -> True
+      False -> False
+
+  single :: [Bool] -> Bool
+  single [] = True
+  single _ = False
+
+  shared :: MaybeBool -> Bool
+  shared (Just True) = True
+  shared _ = False
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tBool :: 2.tType {
+      pub 1.vFalse :: 1.tBool;
+      pub 1.vTrue :: 1.tBool
+  }
+
+  pub type 1.tMaybeBool :: 2.tType {
+      pub 1.vNothing :: 1.tMaybeBool;
+      pub 1.vJust :: 1.tBool → 1.tMaybeBool
+  }
+
+  pub val 1.vunused :: 1.tBool → 1.tBool
+   = λ(x : 1.tBool).
+    1.vTrue
+
+  pub val 1.vsingle :: 2.t[] 1.tBool → 1.tBool
+   = λ(x : 2.t[] 1.tBool).
+    case x as (_scrut : 2.t[] 1.tBool) return (1.tBool) of {
+        2.v[] →
+            1.vTrue;
+        _ →
+            1.vFalse
+    }
+
+  pub val 1.vshared :: 1.tMaybeBool → 1.tBool
+   = λ(x : 1.tMaybeBool).
+    case x as (_scrut : 1.tMaybeBool) return (1.tBool) of {
+        1.vJust (_pat : 1.tBool) →
+            case _pat as (_scrut{1} : 1.tBool) return (1.tBool) of {
+                1.vTrue →
+                    1.vTrue;
+                _ →
+                    1.vFalse
+            };
+        _ →
+            1.vFalse
+    }
+status: pass
+reason: pattern failure continuations are omitted, inlined, or shared according to
+  their occurrence count

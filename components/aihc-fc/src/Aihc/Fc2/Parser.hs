@@ -86,7 +86,7 @@ data OpenDecl
   | OpenSynonymDecl Vis Name [OpenBinder] OpenType OpenType
   | OpenAxiomDecl Vis Name [OpenBinder] Role OpenType OpenType
   | OpenValDecl Vis Name OpenType OpenExpr
-  | OpenPrimDecl Vis Name OpenType
+  | OpenPrimDecl Vis Name PrimOp OpenType
   deriving (Eq, Show)
 
 data OpenCon = OpenConDecl Vis Name OpenType
@@ -173,10 +173,40 @@ primDeclaration scopes = do
   vis <- optionalPub
   _ <- keyword "foreign"
   _ <- keyword "import"
-  _ <- keyword "prim"
+  operation <- primOperation
   name <- topName scopes SortValue
   _ <- symbol "::"
-  OpenPrimDecl vis name <$> fcType
+  OpenPrimDecl vis name operation <$> fcType
+
+primOperation :: Parser PrimOp
+primOperation =
+  MP.choice
+    [ keyword "prim" $> PrimIntrinsic,
+      do
+        _ <- keyword "ccall"
+        _ <- keyword "unsafe"
+        foreignSymbol <- stringLiteral
+        (arguments, result, effect) <- MP.between (symbol "[") (symbol "]") foreignSignature
+        pure (PrimCcall foreignSymbol arguments result effect)
+    ]
+
+foreignSignature :: Parser ([CAbiType], CAbiType, ForeignEffect)
+foreignSignature = do
+  arguments <- cAbiType `MP.sepBy` symbol ","
+  _ <- symbol "→"
+  result <- cAbiType
+  _ <- symbol ";"
+  effect <- (keyword "pure" $> ForeignPure) <|> (keyword "real-world" $> ForeignRealWorld)
+  pure (arguments, result, effect)
+
+cAbiType :: Parser CAbiType
+cAbiType =
+  MP.choice
+    [ keyword "Int32" $> CAbiInt32,
+      keyword "Int" $> CAbiInt,
+      keyword "Word64" $> CAbiWord64,
+      keyword "Addr" $> CAbiAddr
+    ]
 
 valDeclaration :: ScopeTable -> Parser OpenDecl
 valDeclaration scopes = do
@@ -546,7 +576,8 @@ identName :: Parser Text
 identName = do
   first <- MP.satisfy identStart
   rest <- MP.many (MP.satisfy identContinue)
-  let value = T.pack (first : rest)
+  listSuffix <- MP.option "" (MPC.string "[]")
+  let value = T.pack (first : rest) <> listSuffix
   following <- MP.optional (MP.lookAhead MP.anySingle)
   case following of
     Just next
@@ -647,9 +678,9 @@ fillDecl env decl =
       closedType <- closeType env ty
       closedBody <- fillExpr env body
       pure (DeclVal (ValDecl vis name closedType closedBody))
-    OpenPrimDecl vis name ty -> do
+    OpenPrimDecl vis name operation ty -> do
       closedType <- closeType env ty
-      pure (DeclPrim (PrimDecl vis name closedType))
+      pure (DeclPrim (PrimDecl vis name operation closedType))
 
 fillCon :: TypeEnv -> OpenCon -> Either String ConDecl
 fillCon env (OpenConDecl vis name ty) = do
@@ -943,15 +974,34 @@ addrLiteral = lexeme $ do
 charLiteral :: Parser Char
 charLiteral = lexeme $ do
   _ <- MPC.char '\''
-  character <- stringChar
+  character <- charLiteralValue
   _ <- MPC.char '\''
   pure character
+
+charLiteralValue :: Parser Char
+charLiteralValue =
+  MP.choice
+    [ bracedHexChar,
+      MP.satisfy (\character -> character /= '\'' && character /= '\\'),
+      MPC.string "\\\\" $> '\\',
+      MPC.string "\\'" $> '\'',
+      MPC.string "\\n" $> '\n'
+    ]
+
+bracedHexChar :: Parser Char
+bracedHexChar = do
+  _ <- MPC.string "\\x{"
+  value <- L.hexadecimal
+  _ <- MPC.char '}'
+  if value <= fromEnum (maxBound :: Char)
+    then pure (chr value)
+    else fail "character literal is outside the character range"
 
 stringChar :: Parser Char
 stringChar =
   MP.choice
     [ hexChar,
-      MP.satisfy (\character -> character /= '"' && character /= '\'' && character /= '\\'),
+      MP.satisfy (\character -> character /= '"' && character /= '\\'),
       MPC.string "\\\\" $> '\\',
       MPC.string "\\\"" $> '"',
       MPC.string "\\'" $> '\'',

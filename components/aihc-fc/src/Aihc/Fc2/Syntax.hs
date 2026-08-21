@@ -17,6 +17,9 @@ module Aihc.Fc2.Syntax
     AxiomDecl (..),
     ValDecl (..),
     PrimDecl (..),
+    PrimOp (..),
+    CAbiType (..),
+    ForeignEffect (..),
   )
 where
 
@@ -157,6 +160,24 @@ data ValDecl = ValDecl
 data PrimDecl = PrimDecl
   { primVis :: Vis,
     primName :: Name,
+    primOp :: PrimOp,
     primType :: Type
   }
+  deriving (Eq, Ord, Show, Read)
+
+data PrimOp
+  = PrimIntrinsic
+  | PrimCcall Text [CAbiType] CAbiType ForeignEffect
+  deriving (Eq, Ord, Show, Read)
+
+data CAbiType
+  = CAbiInt
+  | CAbiInt32
+  | CAbiWord64
+  | CAbiAddr
+  deriving (Eq, Ord, Show, Read)
+
+data ForeignEffect
+  = ForeignPure
+  | ForeignRealWorld
   deriving (Eq, Ord, Show, Read)

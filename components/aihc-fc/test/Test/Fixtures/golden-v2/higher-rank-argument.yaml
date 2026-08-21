@@ -1,0 +1,35 @@
+extensions:
+  - RankNTypes
+modules:
+  - |
+    module Test where
+    data Tag = Tag
+    data Box s a = Box a
+    instantiate :: (forall s. Box s a) -> Box Tag a
+    instantiate value = value
+    run :: (forall s. Box s a) -> Box Tag a
+    run value = instantiate value
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tTag :: 2.tType {
+      pub 1.vTag :: 1.tTag
+  }
+
+  pub type 1.tBox (s : 2.tType) (a : 2.tType) :: 2.tType {
+      pub 1.vBox :: ∀(s : 2.tType) (a : 2.tType). a → 1.tBox s a
+  }
+
+  pub val 1.vinstantiate :: ∀(a : 2.tType). (∀(s : 2.tType). 1.tBox s a) → 1.tBox 1.tTag a
+   = Λ(a : 2.tType).
+    λ(x : ∀(s : 2.tType). 1.tBox s a).
+      x @1.tTag
+
+  pub val 1.vrun :: ∀(a : 2.tType). (∀(s : 2.tType). 1.tBox s a) → 1.tBox 1.tTag a
+   = Λ(a : 2.tType).
+    λ(x : ∀(s : 2.tType). 1.tBox s a).
+      1.vinstantiate @a (Λ(s : 2.tType).
+        x @s)
+status: pass
+reason: ''

@@ -1,0 +1,45 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module GHC.Prim where
+
+  data Int#
+  data Addr#
+- |
+  module Test where
+
+  import GHC.Prim
+
+  data BoxInt = BoxInt Int#
+  data BoxAddr = BoxAddr Addr#
+
+  intValue = BoxInt 1#
+  addrValue = BoxAddr "test"#
+expected: |-
+  scope 1 = "aihc-prim" GHC.Prim
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tInt# :: 2.tTYPE 2.vIntRep {}
+
+  pub type 1.tAddr# :: 2.tTYPE 2.vAddrRep {}
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub type 1.tBoxInt :: 3.tType {
+      pub 1.vBoxInt :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 1.tBoxInt
+  }
+
+  pub type 1.tBoxAddr :: 3.tType {
+      pub 1.vBoxAddr :: FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# 1.tBoxAddr
+  }
+
+  pub val 1.vintValue :: 1.tBoxInt
+   = 1.vBoxInt 1#3.vIntRep
+
+  pub val 1.vaddrValue :: 1.tBoxAddr
+   = 1.vBoxAddr "test"#3.vAddrRep
+status: pass
+reason: keeps checked GHC.Prim identities on primitive Core literals

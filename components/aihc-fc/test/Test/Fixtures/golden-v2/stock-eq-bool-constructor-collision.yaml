@@ -1,0 +1,27 @@
+---
+extensions:
+- DerivingStrategies
+modules:
+- |
+  module PrimTypes where
+
+  data Bool = False | True
+- |
+  module Shadow where
+
+  data Marker = True
+- |
+  {-# LANGUAGE DerivingStrategies #-}
+  module Test where
+
+  import qualified PrimTypes
+
+  class Eq a where
+    (==) :: a -> a -> PrimTypes.Bool
+    (/=) :: a -> a -> PrimTypes.Bool
+
+  data Flag = Flag
+    deriving stock Eq
+expected: ''
+status: fail
+reason: stock deriving rejects a class outside aihc-prim

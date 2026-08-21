@@ -1,0 +1,48 @@
+extensions: []
+modules:
+  - |
+    module GHC.Base where
+    data Box a = Box a
+    (>>=) (Box value) next = next value
+  - |
+    module Test where
+    import GHC.Base
+    data Pair a = Pair a a
+    select action = do
+      Pair first _ <- action
+      Box first
+expected: |-
+  scope 1 = "" GHC.Base
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tBox (a : 2.tType) :: 2.tType {
+      pub 1.vBox :: ∀(a : 2.tType). a → 1.tBox a
+  }
+
+  pub val 1.v>>= :: ∀(a : 2.tType) (b : 2.tType). 1.tBox a → (a → b) → b
+   = Λ(a : 2.tType).
+    Λ(b : 2.tType).
+      λ(x : 1.tBox a).
+        λ(y : a → b).
+          case x as (_scrut : 1.tBox a) return (b) of {
+              1.vBox (value : a) →
+                  y value
+          }
+  scope 1 = "" GHC.Base
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub type 2.tPair (a : 3.tType) :: 3.tType {
+      pub 2.vPair :: ∀(a : 3.tType). a → a → 2.tPair a
+  }
+
+  pub val 2.vselect :: ∀(a : 3.tType). 1.tBox (2.tPair a) → 1.tBox a
+   = Λ(a : 3.tType).
+    λ(x : 1.tBox (2.tPair a)).
+      1.v>>= @(2.tPair a) @(1.tBox a) x (λ(_pat : 2.tPair a).
+        case _pat as (_do_scrut : 2.tPair a) return (1.tBox a) of {
+            2.vPair (first : a) (_pat{1} : a) →
+                1.vBox @a first
+        })
+status: pass
+reason: ''

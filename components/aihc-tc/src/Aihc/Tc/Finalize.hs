@@ -214,6 +214,7 @@ firstMetaInstanceAnnotation ann =
     ( firstMetaType (tcInstanceDictType ann)
         : map firstMetaType (tcInstanceHeadTypes ann)
         ++ map firstMetaDictBinderAnnotation (tcInstanceClassSuperClasses ann)
+        ++ map (firstMetaType . tcClassMethodType) (tcInstanceClassMethods ann)
         ++ map firstMetaDictBinderAnnotation (tcInstanceContextDicts ann)
         ++ [ firstMetaDictBinderAnnotation superClass <|> firstMetaEvTerm evidence
            | (superClass, evidence) <- tcInstanceSuperClasses ann

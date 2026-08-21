@@ -9,7 +9,7 @@ module GHC.Int
   )
 where
 
-import GHC.Prim ((*#), (+#), (-#))
+import GHC.Prim (Int16#, Int32#, Int64#, Int8#, (*#), (+#), (-#))
 import GHC.Types (Int (..))
 
 data Int8 = I8# Int8#

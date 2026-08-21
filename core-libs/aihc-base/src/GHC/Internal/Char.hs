@@ -5,4 +5,6 @@ module GHC.Internal.Char
   )
 where
 
+import GHC.Prim (Char#)
+
 data Char = C# Char#

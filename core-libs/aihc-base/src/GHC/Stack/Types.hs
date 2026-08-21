@@ -11,6 +11,7 @@ where
 
 import GHC.Base (String)
 import GHC.Int (Int)
+import GHC.Types (List (..))
 
 -- | A source location for one call site.
 data SrcLoc = SrcLoc

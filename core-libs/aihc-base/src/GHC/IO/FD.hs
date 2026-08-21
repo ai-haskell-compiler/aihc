@@ -43,7 +43,7 @@ import GHC.IO.Runtime
 import GHC.Int (Int (..))
 import GHC.Internal.Classes (Eq (..))
 import GHC.Num (Num (..))
-import GHC.Prim (MutableByteArray#, RealWorld, copyAddrToByteArray#, mutableByteArrayContents#)
+import GHC.Prim (Addr#, Int#, MutableByteArray#, RealWorld, copyAddrToByteArray#, mutableByteArrayContents#)
 import GHC.Ptr (Ptr (..))
 
 openIOHandle :: Addr# -> Int -> Int -> IO (Either Int (Ptr IOHandle))

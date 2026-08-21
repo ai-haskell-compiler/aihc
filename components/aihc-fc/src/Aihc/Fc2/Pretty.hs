@@ -147,10 +147,39 @@ renderValDecl env scopes declaration =
 renderPrimDecl :: TypeEnv -> ScopeTable -> PrimDecl -> String
 renderPrimDecl env scopes declaration =
   renderVis (primVis declaration)
-    <> "foreign import prim "
+    <> renderPrimOp (primOp declaration)
     <> renderTopName scopes (primName declaration)
     <> " :: "
     <> renderTypeWith env scopes PrecForAll (primType declaration)
+
+renderPrimOp :: PrimOp -> String
+renderPrimOp operation =
+  case operation of
+    PrimIntrinsic -> "foreign import prim "
+    PrimCcall symbol arguments result effect ->
+      "foreign import ccall unsafe "
+        <> show (T.unpack symbol)
+        <> " ["
+        <> intercalate ", " (map renderCAbiType arguments)
+        <> " → "
+        <> renderCAbiType result
+        <> "; "
+        <> renderForeignEffect effect
+        <> "] "
+
+renderCAbiType :: CAbiType -> String
+renderCAbiType abiType =
+  case abiType of
+    CAbiInt -> "Int"
+    CAbiInt32 -> "Int32"
+    CAbiWord64 -> "Word64"
+    CAbiAddr -> "Addr"
+
+renderForeignEffect :: ForeignEffect -> String
+renderForeignEffect effect =
+  case effect of
+    ForeignPure -> "pure"
+    ForeignRealWorld -> "real-world"
 
 renderType :: Program -> Type -> String
 renderType program =
@@ -306,7 +335,7 @@ renderLiteral :: ScopeTable -> Literal -> String
 renderLiteral scopes literal =
   case literal of
     LitInt representation value -> show value <> "#" <> renderName scopes (repName representation)
-    LitChar representation value -> show value <> "#" <> renderName scopes (repName representation)
+    LitChar representation value -> "'" <> encodeCharLiteral value <> "'#" <> renderName scopes (repName representation)
     LitString value -> "\"" <> concatMap encodeStringChar (T.unpack value) <> "\""
     LitAddr representation value -> "\"" <> concatMap encodeByte (BS.unpack value) <> "\"#" <> renderName scopes (repName representation)
 
@@ -317,6 +346,14 @@ encodeStringChar character
   | character == '\n' = "\\n"
   | isAscii character && isPrint character = [character]
   | otherwise = encodeByte (fromIntegral (ord character))
+
+encodeCharLiteral :: Char -> String
+encodeCharLiteral character
+  | character == '\'' = "\\'"
+  | character == '\\' = "\\\\"
+  | character == '\n' = "\\n"
+  | isPrint character = [character]
+  | otherwise = "\\x{" <> showHex (ord character) "" <> "}"
 
 encodeByte :: Word8 -> String
 encodeByte byte

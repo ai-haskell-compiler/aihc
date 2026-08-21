@@ -1,0 +1,45 @@
+---
+extensions:
+- ExistentialQuantification
+modules:
+- |
+  {-# LANGUAGE ExistentialQuantification #-}
+  module Test where
+  data Mark = Marked
+  class Markable a where
+    mark :: a -> Mark
+  data Box = forall a. Markable a => Box a
+  inspect :: Box -> Mark
+  inspect (Box value) = mark value
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tMark :: 2.tType {
+      pub 1.vMarked :: 1.tMark
+  }
+
+  pub type 1.t$Dict$Markable (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Markable :: ∀(a : 2.tType). (a → 1.tMark) → 1.t$Dict$Markable a
+  }
+
+  pub type 1.tBox :: 2.tType {
+      pub 1.vBox :: ∀(a : 2.tType). 1.t$Dict$Markable a → a → 1.tBox
+  }
+
+  pub val 1.vmark :: ∀(a : 2.tType). 1.t$Dict$Markable a → a → 1.tMark
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Markable a).
+      case $d0 as ($dict : 1.t$Dict$Markable a) return (a → 1.tMark) of {
+          1.v$Dict$Markable ($method0 : a → 1.tMark) →
+              $method0
+      }
+
+  pub val 1.vinspect :: 1.tBox → 1.tMark
+   = λ(x : 1.tBox).
+    case x as (_scrut : 1.tBox) return (1.tMark) of {
+        1.vBox ($pattern_d0 : 1.t$Dict$Markable a{24}) (value : a{24}) →
+            1.vmark @a{24} $pattern_d0 value
+    }
+status: pass
+reason: ''

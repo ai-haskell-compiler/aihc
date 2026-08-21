@@ -1,0 +1,25 @@
+---
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module GHC.Prim where
+  data Int32#
+- |
+  module Test where
+
+  import GHC.Prim (Int32#)
+
+  data State# s
+  data RealWorld
+  data Int32 = I32# Int32#
+  newtype CInt = CInt Int32
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+
+  foreign import ccall unsafe putchar :: CInt -> IO CInt
+expected: ''
+status: xfail
+reason: FC lint finds internal primitive types in the foreign descriptor but aihc-prim
+  types in the call arguments

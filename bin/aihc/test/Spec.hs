@@ -10,7 +10,7 @@ import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
 import Control.Exception (IOException, bracket, try)
 import Data.ByteString qualified as BS
-import Data.List (isInfixOf, isPrefixOf, sort)
+import Data.List (isPrefixOf, sort)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -343,7 +343,7 @@ main =
           testCase "rebuilds stale type artifact schemas" test_installV2StaleTypeArtifact,
           testCase "stops invalidation when a rebuilt scope stays equal" test_installV2StopsAtEqualScope,
           testCase "reports resolve errors with source locations" test_installV2ResolveError,
-          testCase "writes no core files when System FC 2 desugar fails" test_installV2Fc2DesugarFailure,
+          testCase "writes Core-v2 for a ccall import" test_installV2Fc2Ccall,
           testCase "install-v2 writes core-v2 for aihc-prim and lints stored programs" test_installV2AihcPrim
         ],
       testProperty "Hedgehog options" prop_dummy
@@ -442,8 +442,8 @@ assertCoreV2File path = do
     Left parseError -> assertFailure ("invalid Core-v2 file " <> path <> ": " <> Fc2.renderParseError parseError)
     Right _ -> pure ()
 
-test_installV2Fc2DesugarFailure :: Assertion
-test_installV2Fc2DesugarFailure =
+test_installV2Fc2Ccall :: Assertion
+test_installV2Fc2Ccall =
   withTempDir "aihc-install-v2-fc2-ccall" $ \root -> do
     let sourceRoot = root </> "source"
         storeRoot = root </> "store"
@@ -466,22 +466,11 @@ test_installV2Fc2DesugarFailure =
     writeFile
       (sourceDir </> "Demo.hs")
       "module Demo where\ndata Int = I\nforeign import ccall unsafe \"foo\" foo :: Int -> Int\n"
-    caught <- try (installV2 options) :: IO (Either IOException InstallV2Result)
-    case caught of
-      Right _ -> assertFailure "expected install-v2 to fail on foreign import ccall"
-      Left err -> do
-        assertBool
-          ("expected System FC 2 ccall error, got: " <> show err)
-          ("System FC 2 accepts only foreign import prim" `isInfixOf` show err)
-        storeEntries <- listDirectory storeRoot
-        case storeEntries of
-          [packageDir] -> do
-            let moduleDir = storeRoot </> packageDir </> "Demo"
-            coreExists <- doesFileExist (moduleDir </> "core")
-            coreV2Exists <- doesFileExist (moduleDir </> "core-v2")
-            assertBool "writes no core after Fc2 desugar failure" (not coreExists)
-            assertBool "writes no core-v2 after Fc2 desugar failure" (not coreV2Exists)
-          other -> assertFailure ("expected one package directory, got " <> show other)
+    _ <- installV2 options
+    storeEntries <- listDirectory storeRoot
+    case storeEntries of
+      [packageDir] -> assertCoreV2File (storeRoot </> packageDir </> "Demo" </> "core-v2")
+      other -> assertFailure ("expected one package directory, got " <> show other)
 
 test_installV2AihcPrim :: Assertion
 test_installV2AihcPrim = do

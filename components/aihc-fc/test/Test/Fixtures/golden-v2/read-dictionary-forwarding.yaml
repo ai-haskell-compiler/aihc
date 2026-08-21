@@ -1,0 +1,16 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+
+  data Result = Result
+
+  class Read a where
+    reads :: Result -> a
+
+  parse :: Read a => Result -> a
+  parse = reads
+expected: ''
+status: xfail
+reason: forwards a supplied Read dictionary

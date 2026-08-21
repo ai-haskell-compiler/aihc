@@ -1,0 +1,51 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module GHC.Prim where
+  data Int#
+- |
+  module GHC.Num where
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
+  class Num a where
+    fromInteger :: Integer -> a
+- |
+  module Main where
+  one = 1
+expected: |-
+  scope 1 = "aihc-prim" GHC.Prim
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tInt# :: 2.tTYPE 2.vIntRep {}
+  scope 1 = "" GHC.Num
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub type 1.tInteger :: 3.tType {
+      pub 1.vIS :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 1.tInteger
+  }
+
+  pub type 1.t$Dict$Num (a : 3.tType) :: 3.tType {
+      pub 1.v$Dict$Num :: ∀(a : 3.tType). (1.tInteger → a) → 1.t$Dict$Num a
+  }
+
+  pub val 1.vfromInteger :: ∀(a : 3.tType). 1.t$Dict$Num a → 1.tInteger → a
+   = Λ(a : 3.tType).
+    λ($d0 : 1.t$Dict$Num a).
+      case $d0 as ($dict : 1.t$Dict$Num a) return (1.tInteger → a) of {
+          1.v$Dict$Num ($method0 : 1.tInteger → a) →
+              $method0
+      }
+  scope 1 = "" GHC.Num
+  scope 2 = "" Main
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub val 2.vone :: ∀(a : 3.tType). 1.t$Dict$Num a → a
+   = Λ(a : 3.tType).
+    λ($d0 : 1.t$Dict$Num a).
+      1.vfromInteger @a $d0 (1.vIS 1#3.vIntRep)
+status: pass
+reason: desugars default integer literals through GHC.Num.fromInteger applied to an
+  Integer constructor value
