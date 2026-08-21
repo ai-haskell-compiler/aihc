@@ -5,9 +5,6 @@ extensions:
 - MagicHash
 modules:
 - |
-  module GHC.Prim where
-  data Addr#
-- |
   module Test where
 
   import GHC.Prim (Addr#)
@@ -20,10 +17,6 @@ modules:
 
   await request state = awaitIO# request state
 expected: |-
-  scope 1 = "aihc-prim" GHC.Prim
-  scope 2 = "aihc-prim" GHC.Types
-
-  pub type 1.tAddr# :: 2.tTYPE 2.vAddrRep {}
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types

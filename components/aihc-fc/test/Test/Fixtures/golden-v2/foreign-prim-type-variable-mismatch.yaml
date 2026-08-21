@@ -12,7 +12,7 @@ modules:
   data MutVar# d a
 
   foreign import prim newMutVar# ::
-    value -> State# domain -> (# State# domain, MutVar# domain domain #)
+    value -> State# domain -> (# State# domain, MutVar# domain (# value, value #) #)
 expected: ''
 status: fail
-reason: primitive import type variables must occur consistently throughout the signature
+reason: a lifted primitive type variable cannot use an unboxed tuple type

@@ -3,9 +3,6 @@ extensions:
 - MagicHash
 modules:
 - |
-  module GHC.Prim where
-  data Int#
-- |
   module GHC.Num where
   import GHC.Prim (Int#)
   data Integer = IS Int#
@@ -15,10 +12,6 @@ modules:
   module Main where
   one = 1
 expected: |-
-  scope 1 = "aihc-prim" GHC.Prim
-  scope 2 = "aihc-prim" GHC.Types
-
-  pub type 1.tInt# :: 2.tTYPE 2.vIntRep {}
   scope 1 = "" GHC.Num
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
