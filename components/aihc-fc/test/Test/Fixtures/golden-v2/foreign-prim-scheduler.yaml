@@ -22,6 +22,28 @@ modules:
   spawn action state = fork# action state
 
   reschedule state = yield# state
-expected: ''
-status: xfail
-reason: FC2 lint cannot find GHC.Types.Tuple2# in the generated primitive types.
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tState# (s : 2.tType) :: 2.tTYPE (2.vTupleRep (2.v[] 2.tRuntimeRep)) {}
+
+  pub type 1.tRealWorld :: 2.tType {}
+
+  pub type 1.tThreadId# :: 2.tTYPE 2.tUnliftedRep {}
+
+  pub foreign import prim 1.vfork# :: ∀(a : 2.tType). (FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @(2.vTupleRep (2.v: 2.tRuntimeRep (2.vTupleRep (2.v[] 2.tRuntimeRep)) (2.v: 2.tRuntimeRep 2.tLiftedRep (2.v[] 2.tRuntimeRep)))) (1.tState# 1.tRealWorld) (2.tTuple2# (2.vTupleRep (2.v[] 2.tRuntimeRep)) 2.tLiftedRep (1.tState# 1.tRealWorld) a)) → FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @(2.vTupleRep (2.v: 2.tRuntimeRep (2.vTupleRep (2.v[] 2.tRuntimeRep)) (2.v: 2.tRuntimeRep 2.tUnliftedRep (2.v[] 2.tRuntimeRep)))) (1.tState# 1.tRealWorld) (2.tTuple2# (2.vTupleRep (2.v[] 2.tRuntimeRep)) 2.tUnliftedRep (1.tState# 1.tRealWorld) 1.tThreadId#)
+
+  pub foreign import prim 1.vyield# :: FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @(2.vTupleRep (2.v[] 2.tRuntimeRep)) (1.tState# 1.tRealWorld) (1.tState# 1.tRealWorld)
+
+  pub val 1.vspawn :: ∀(a : 2.tType). (FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @(2.vTupleRep (2.v: 2.tRuntimeRep (2.vTupleRep (2.v[] 2.tRuntimeRep)) (2.v: 2.tRuntimeRep 2.tLiftedRep (2.v[] 2.tRuntimeRep)))) (1.tState# 1.tRealWorld) (2.tTuple2# (2.vTupleRep (2.v[] 2.tRuntimeRep)) 2.tLiftedRep (1.tState# 1.tRealWorld) a)) → FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @(2.vTupleRep (2.v: 2.tRuntimeRep (2.vTupleRep (2.v[] 2.tRuntimeRep)) (2.v: 2.tRuntimeRep 2.tUnliftedRep (2.v[] 2.tRuntimeRep)))) (1.tState# 1.tRealWorld) (2.tTuple2# (2.vTupleRep (2.v[] 2.tRuntimeRep)) 2.tUnliftedRep (1.tState# 1.tRealWorld) 1.tThreadId#)
+   = Λ(a : 2.tType).
+    λ(x : FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @(2.vTupleRep (2.v: 2.tRuntimeRep (2.vTupleRep (2.v[] 2.tRuntimeRep)) (2.v: 2.tRuntimeRep 2.tLiftedRep (2.v[] 2.tRuntimeRep)))) (1.tState# 1.tRealWorld) (2.tTuple2# (2.vTupleRep (2.v[] 2.tRuntimeRep)) 2.tLiftedRep (1.tState# 1.tRealWorld) a)).
+      λ(y : 1.tState# 1.tRealWorld).
+        1.vfork# @a x y
+
+  pub val 1.vreschedule :: FUN @(2.vTupleRep (2.v[] 2.tRuntimeRep)) @(2.vTupleRep (2.v[] 2.tRuntimeRep)) (1.tState# 1.tRealWorld) (1.tState# 1.tRealWorld)
+   = λ(x : 1.tState# 1.tRealWorld).
+    1.vyield# x
+status: pass
+reason: The real primitive modules provide Tuple2# for lint.

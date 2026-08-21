@@ -11,20 +11,41 @@ module Fc2Golden
   )
 where
 
-import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2, lintPrograms, parseProgram, renderParseError, renderProgram)
+import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), Program, desugarModuleFc2, lintPrograms, parseProgram, renderParseError, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
-import Aihc.Parser.Syntax (Extension, moduleName, parseExtensionName)
-import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Parser.Syntax
+  ( Extension (ImplicitPrelude),
+    LanguageEdition (Haskell98Edition),
+    Module,
+    effectiveExtensions,
+    headerExtensionSettings,
+    headerLanguageEdition,
+    parseExtensionName,
+    parseLanguageEdition,
+  )
+import Aihc.Parser.Token (readModuleHeaderPragmas)
+import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), extractInterface, modulesInPackage, resolveWithDeps)
+import Aihc.Tc
+  ( TcInterface,
+    emptyTcInterface,
+    tcModuleBindings,
+    tcModuleDiagnostics,
+    tcModuleSuccess,
+    typecheckModuleSccWithInterface,
+    typecheckModulesWithInterface,
+  )
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
-import System.Directory (doesDirectoryExist, listDirectory)
-import System.FilePath (takeExtension, (</>))
+import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
+import System.FilePath (takeDirectory, takeExtension, (</>))
+import System.IO.Unsafe (unsafePerformIO)
 
 data ExpectedStatus
   = StatusPass
@@ -44,13 +65,18 @@ data Fc2Case = Fc2Case
   { caseId :: !String,
     casePath :: !FilePath,
     caseExtensions :: ![Extension],
-    caseSupportModules :: ![Text],
     caseModules :: ![Text],
     caseExpected :: !String,
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
   }
   deriving (Eq, Show)
+
+data PrimitiveSupport = PrimitiveSupport
+  { supportScopes :: !ModuleExports,
+    supportTcInterface :: !TcInterface,
+    supportPrograms :: ![Program]
+  }
 
 fixtureRoot :: FilePath
 fixtureRoot = "test/Test/Fixtures/golden-v2"
@@ -61,41 +87,54 @@ loadFc2Cases = do
   if not exists
     then pure []
     else do
+      primitiveSupport `seq` pure ()
       paths <- listFixtureFiles fixtureRoot
-      mapM (loadFc2Case [listSupportModule, tupleSupportModule]) paths
+      mapM loadFc2Case paths
 
-tupleSupportModule :: Text
-tupleSupportModule =
-  T.unlines
-    [ "module GHC.Tuple where",
-      "data Unit = ()",
-      "data Tuple2 a b = (a, b)"
-    ]
+primitiveSupport :: PrimitiveSupport
+primitiveSupport = unsafePerformIO $ do
+  primitiveModules <- loadPrimitiveModules
+  case preparePrimitiveSupport primitiveModules of
+    Left errMsg -> fail errMsg
+    Right support -> pure support
+{-# NOINLINE primitiveSupport #-}
 
-listSupportModule :: Text
-listSupportModule =
-  T.unlines
-    [ "module GHC.Types (Bool(..), Levity(..), List(..), RuntimeRep(..), Type, TYPE) where",
-      "data Bool = False | True",
-      "data Levity = Lifted | Unlifted",
-      "data List a = [] | a : [a]",
-      "data RuntimeRep = AddrRep | BoxedRep Levity | IntRep | SumRep [RuntimeRep] | TupleRep [RuntimeRep] | WordRep",
-      "data Type",
-      "data TYPE rep",
-      "infixr 5 :"
-    ]
+loadPrimitiveModules :: IO [(FilePath, Text)]
+loadPrimitiveModules = do
+  sourceRoot <- findPrimitiveSourceRoot
+  mapM (loadOne sourceRoot) ["GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs"]
+  where
+    loadOne sourceRoot relativePath = do
+      let path = sourceRoot </> relativePath
+      source <- TIO.readFile path
+      pure (path, source)
 
-loadFc2Case :: [Text] -> FilePath -> IO Fc2Case
-loadFc2Case supportModules path = do
+findPrimitiveSourceRoot :: IO FilePath
+findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
+  where
+    findUp directory = do
+      let candidate = directory </> "core-libs/aihc-prim/src"
+          files = [candidate </> "GHC/Types.hs", candidate </> "GHC/Prim.hs", candidate </> "GHC/Tuple.hs"]
+      exists <- and <$> mapM doesFileExist files
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory directory
+          if parent == directory
+            then fail "Cannot find the aihc-prim source modules."
+            else findUp parent
+
+loadFc2Case :: FilePath -> IO Fc2Case
+loadFc2Case path = do
   raw <- Y.decodeFileEither path
   case raw of
     Left err -> fail ("Invalid YAML fixture " <> path <> ": " <> Y.prettyPrintParseException err)
-    Right value -> case parseFc2Fixture supportModules path value of
+    Right value -> case parseFc2Fixture path value of
       Left e -> fail e
       Right c -> pure c
 
-parseFc2Fixture :: [Text] -> FilePath -> Y.Value -> Either String Fc2Case
-parseFc2Fixture supportModules path value = do
+parseFc2Fixture :: FilePath -> Y.Value -> Either String Fc2Case
+parseFc2Fixture path value = do
   (extNames, modules, expectedText, statusText, reasonText) <-
     parseEither
       ( withObject "fc2 fixture" $ \obj -> do
@@ -117,7 +156,6 @@ parseFc2Fixture supportModules path value = do
       { caseId = relPath,
         casePath = relPath,
         caseExtensions = exts,
-        caseSupportModules = supportModules,
         caseModules = modules,
         caseExpected = expected,
         caseStatus = status,
@@ -147,51 +185,35 @@ evaluateFc2Case tc =
 
 renderFc2Case :: Fc2Case -> Either String String
 renderFc2Case tc =
-  let supportModuleCount = length supportModules
-      parsedModules = map parseOne (supportModules <> caseModules tc)
+  let parsedModules = map parseFixtureModule (caseModules tc)
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps mempty (zipWith modulePackage [0 :: Int ..] modules) of
+          case resolveWithDeps (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
-              let moduleAsts = map snd resolvedModules
-                  (tcResults, tcInterface) = typecheckModulesWithInterface emptyTcInterface moduleAsts
-               in if all tcModuleSuccess tcResults
+              let fixtureAsts = map snd resolvedModules
+                  (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (supportTcInterface primitiveSupport) fixtureAsts
+               in if all tcModuleSuccess fixtureTcResults
                     then
-                      let allBindings = concatMap tcModuleBindings tcResults
-                          results =
+                      let fixtureBindings = concatMap tcModuleBindings fixtureTcResults
+                          fixtureResults =
                             map
-                              (desugarModuleFc2 (DesugarConfig {primPackageId = PackageId "aihc-prim"}) allBindings tcInterface)
-                              tcResults
-                          fixtureResults = drop supportModuleCount results
-                       in if all ds2Success results
-                            then lintAndRenderResults results fixtureResults
-                            else Left (unlines (concatMap ds2Errors results))
-                    else Left ("typecheck error: " <> unlines [show d | r <- tcResults, d <- tcModuleDiagnostics r])
+                              (desugarModuleFc2 desugarConfig fixtureBindings tcInterface)
+                              fixtureTcResults
+                       in if all ds2Success fixtureResults
+                            then lintAndRenderResults (supportPrograms primitiveSupport <> map ds2Program fixtureResults) fixtureResults
+                            else Left (unlines (concatMap ds2Errors fixtureResults))
+                    else Left ("typecheck error: " <> unlines [show d | r <- fixtureTcResults, d <- tcModuleDiagnostics r])
             ResolveResult {resolveErrors} ->
               Left ("resolve error: " <> show resolveErrors)
   where
-    hasFixtureGhcTypes = any (T.isPrefixOf "module GHC.Types" . T.stripStart) (caseModules tc)
-    supportModules = if hasFixtureGhcTypes then [] else caseSupportModules tc
-    modulePackage _ modu
-      | moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
-          (Package "aihc-prim" (PackageId "aihc-prim"), modu)
-      | otherwise = (Package "" (PackageId ""), modu)
-    parseOne input =
-      let config =
-            defaultConfig
-              { parserSourceName = T.unpack (T.takeWhile (/= '\n') input),
-                parserExtensions = caseExtensions tc
-              }
-          (errs, ast) = parseModule config input
-       in if null errs
-            then Right ast
-            else Left (show errs)
-    lintAndRenderResults results fixtureResults =
+    parseFixtureModule input =
+      parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
+    lintAndRenderResults programs fixtureResults =
       case renderResults fixtureResults of
         Left renderError -> Left renderError
         Right rendered ->
-          case lintPrograms (map ds2Program results) of
+          case lintPrograms programs of
             [] -> Right rendered
             lintErrors ->
               Left
@@ -210,6 +232,64 @@ renderFc2Case tc =
                in if canonical == rendered
                     then Right rendered
                     else Left ("System FC 2 round trip changed canonical syntax:\n" <> canonical <> "\noriginal:\n" <> rendered)
+
+preparePrimitiveSupport :: [(FilePath, Text)] -> Either String PrimitiveSupport
+preparePrimitiveSupport primitiveModules =
+  case mapM (uncurry parsePrimitiveModule) primitiveModules of
+    Left errMsg -> Left ("parse error: " <> errMsg)
+    Right modules ->
+      case resolveWithDeps mempty (modulesInPackage primitivePackage modules) of
+        resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
+          let primitiveAsts = map snd resolvedModules
+              (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface emptyTcInterface primitiveAsts
+           in if all tcModuleSuccess primitiveTcResults
+                then
+                  let primitiveBindings = concatMap tcModuleBindings primitiveTcResults
+                      primitiveResults = map (desugarModuleFc2 desugarConfig primitiveBindings tcInterface) primitiveTcResults
+                   in if all ds2Success primitiveResults
+                        then
+                          Right
+                            PrimitiveSupport
+                              { supportScopes = extractInterface resolved,
+                                supportTcInterface = tcInterface,
+                                supportPrograms = map ds2Program primitiveResults
+                              }
+                        else Left (unlines (concatMap ds2Errors primitiveResults))
+                else Left ("typecheck error: " <> unlines [show d | r <- primitiveTcResults, d <- tcModuleDiagnostics r])
+        ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+
+primitivePackage :: Package
+primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
+
+fixturePackage :: Package
+fixturePackage = Package "" (PackageId "")
+
+desugarConfig :: DesugarConfig
+desugarConfig = DesugarConfig {primPackageId = PackageId "aihc-prim"}
+
+parsePrimitiveModule :: FilePath -> Text -> Either String Module
+parsePrimitiveModule sourceName input =
+  parseModuleText sourceName (primitiveExtensions input) input
+
+parseModuleText :: FilePath -> [Extension] -> Text -> Either String Module
+parseModuleText sourceName extensions input =
+  let config =
+        defaultConfig
+          { parserSourceName = sourceName,
+            parserExtensions = extensions
+          }
+      (errs, ast) = parseModule config input
+   in if null errs
+        then Right ast
+        else Left (show errs)
+
+primitiveExtensions :: Text -> [Extension]
+primitiveExtensions source =
+  filter (/= ImplicitPrelude) (effectiveExtensions language (headerExtensionSettings header))
+  where
+    header = readModuleHeaderPragmas source
+    defaultLanguage = fromMaybe Haskell98Edition (parseLanguageEdition "GHC2021")
+    language = fromMaybe defaultLanguage (headerLanguageEdition header)
 
 classifySuccess :: Fc2Case -> String -> (Outcome, String)
 classifySuccess tc actual =

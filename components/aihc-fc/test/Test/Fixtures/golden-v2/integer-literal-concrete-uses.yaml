@@ -3,33 +3,27 @@ extensions:
 - MagicHash
 modules:
 - |
-  module GHC.Prim where
-  data Int#
-- |
-  module GHC.Types where
-  import GHC.Prim (Int#)
-  data Bool = False | True
-  data Int = I Int#
-  data Integer = IS Int#
-- |
   module GHC.Classes where
   import GHC.Types (Bool (..), Int (..))
   class Eq a where
     (==) :: a -> a -> Bool
   instance Eq Int where
-    I x == I y = True
+    I# x == I# y = True
 - |
   module GHC.Num where
-  import GHC.Types (Int (..), Integer (..))
+  import GHC.Prim (Int#)
+  import GHC.Types (Int (..))
+  data Integer = IS Int#
   class Num a where
     fromInteger :: Integer -> a
   instance Num Int where
-    fromInteger (IS x) = I x
+    fromInteger (IS x) = I# x
   instance Num Integer where
     fromInteger x = x
 - |
   module Prelude (Int, Integer) where
-  import GHC.Types (Int, Integer)
+  import GHC.Num (Integer)
+  import GHC.Types (Int)
 - |
   module Main where
   asInt :: Int
@@ -39,6 +33,88 @@ modules:
   caseInt :: ()
   caseInt = case (1 :: Int) of
     1 -> ()
-expected: ''
-status: xfail
-reason: FC2 lint cannot find GHC.Types.IntRep or GHC.Tuple.Unit in the fixture modules.
+expected: |-
+  scope 1 = "" GHC.Classes
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub type 1.t$Dict$Eq (a : 3.tType) :: 3.tType {
+      pub 1.v$Dict$Eq :: ∀(a : 3.tType). (a → a → 3.tBool) → 1.t$Dict$Eq a
+  }
+
+  pub val 1.v== :: ∀(a : 3.tType). 1.t$Dict$Eq a → a → a → 3.tBool
+   = Λ(a : 3.tType).
+    λ($d0 : 1.t$Dict$Eq a).
+      case $d0 as ($dict : 1.t$Dict$Eq a) return (a → a → 3.tBool) of {
+          1.v$Dict$Eq ($method0 : a → a → 3.tBool) →
+              $method0
+      }
+
+  pub val 1.v$fEqInt :: 1.t$Dict$Eq 3.tInt
+   = 1.v$Dict$Eq @3.tInt (λ(x : 3.tInt).
+    λ(y : 3.tInt).
+      case x as (_scrut : 3.tInt) return (3.tBool) of {
+          3.vI# (x{1} : 2.tInt#) →
+              case y as (_scrut{1} : 3.tInt) return (3.tBool) of {
+                  3.vI# (y{1} : 2.tInt#) →
+                      3.vTrue
+              }
+      })
+  scope 1 = "" GHC.Num
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub type 1.tInteger :: 3.tType {
+      pub 1.vIS :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 1.tInteger
+  }
+
+  pub type 1.t$Dict$Num (a : 3.tType) :: 3.tType {
+      pub 1.v$Dict$Num :: ∀(a : 3.tType). (1.tInteger → a) → 1.t$Dict$Num a
+  }
+
+  pub val 1.vfromInteger :: ∀(a : 3.tType). 1.t$Dict$Num a → 1.tInteger → a
+   = Λ(a : 3.tType).
+    λ($d0 : 1.t$Dict$Num a).
+      case $d0 as ($dict : 1.t$Dict$Num a) return (1.tInteger → a) of {
+          1.v$Dict$Num ($method0 : 1.tInteger → a) →
+              $method0
+      }
+
+  pub val 1.v$fNumInt :: 1.t$Dict$Num 3.tInt
+   = 1.v$Dict$Num @3.tInt (λ(x : 1.tInteger).
+    case x as (_scrut : 1.tInteger) return (3.tInt) of {
+        1.vIS (x{1} : 2.tInt#) →
+            3.vI# x{1}
+    })
+
+  pub val 1.v$fNumInteger :: 1.t$Dict$Num 1.tInteger
+   = 1.v$Dict$Num @1.tInteger (λ(x : 1.tInteger).
+    x)
+  scope 1 = "" Prelude
+  scope 1 = "" GHC.Classes
+  scope 2 = "" GHC.Num
+  scope 3 = "" Main
+  scope 4 = "aihc-prim" GHC.Tuple
+  scope 5 = "aihc-prim" GHC.Types
+
+  pub val 3.vasInt :: 5.tInt
+   = 2.vfromInteger @5.tInt 2.v$fNumInt (2.vIS 1#5.vIntRep)
+
+  pub val 3.vasInteger :: 2.tInteger
+   = 2.vfromInteger @2.tInteger 2.v$fNumInteger (2.vIS 1#5.vIntRep)
+
+  pub val 3.vcaseInt :: 4.tUnit
+   = let {
+      _case : 5.tInt =
+          2.vfromInteger @5.tInt 2.v$fNumInt (2.vIS 1#5.vIntRep)
+  } in
+      case 1.v== @5.tInt 1.v$fEqInt _case (2.vfromInteger @5.tInt 2.v$fNumInt (2.vIS 1#5.vIntRep)) as (_case_guard : 5.tBool) return (4.tUnit) of {
+          5.vTrue →
+              4.v();
+          5.vFalse →
+              case _case as (_case_nomatch : 5.tInt) return (4.tUnit) of {
+
+              }
+      }
+status: pass
+reason: The real primitive modules provide IntRep and Unit for lint.
