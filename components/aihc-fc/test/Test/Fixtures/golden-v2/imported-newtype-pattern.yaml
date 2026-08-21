@@ -1,0 +1,31 @@
+extensions: []
+modules:
+  - |
+    module Base where
+    newtype Box a = Box a
+  - |
+    module Test where
+    import Base (Box(..))
+    unbox :: Box a -> a
+    unbox (Box value) = value
+expected: |-
+  scope 1 = "" Base
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tBox (a : 2.tType) :: 2.tType {}
+
+  axiom 1.$ax$Box (a : 2.tType) : 1.tBox a ~R a
+  scope 1 = "" Base
+  scope 2 = "" Test
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub val 2.vunbox :: ∀(a : 3.tType). 1.tBox a → a
+   = Λ(a : 3.tType).
+    λ(x : 1.tBox a).
+      let {
+          value : a =
+              x ▷ axiom-co 1.$ax$Box @a
+      } in
+          value
+status: pass
+reason: ''

@@ -15,7 +15,9 @@ import GHC.IO (IO)
 import GHC.IO.Runtime (IOHandle, raiseIOErrorRaw, stdoutHandle, submitWrite, takeResult, writeMemoryByte)
 import GHC.Int (Int (..))
 import GHC.Prim
-  ( MutableByteArray#,
+  ( Addr#,
+    Int#,
+    MutableByteArray#,
     RealWorld,
     mutableByteArrayContents#,
     (+#),

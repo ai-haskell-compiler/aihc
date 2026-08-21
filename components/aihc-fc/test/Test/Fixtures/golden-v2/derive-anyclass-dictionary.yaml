@@ -1,0 +1,41 @@
+---
+extensions:
+- DefaultSignatures
+- DeriveAnyClass
+- DerivingStrategies
+modules:
+- |
+  {-# LANGUAGE DefaultSignatures, DeriveAnyClass, DerivingStrategies #-}
+  module Test where
+
+  data Unit = Unit
+  data Box a = Box a
+
+  class Required a where
+    required :: a -> a
+
+  instance Required a => Required (Box a) where
+    required value = value
+
+  class Any a where
+    anyValue :: a -> a
+    default anyValue :: Required a => a -> a
+    anyValue value = required value
+
+  data Wrapped a = Wrapped (Box a)
+    deriving anyclass Any
+
+  instance Required a => Required (Wrapped a) where
+    required value = value
+
+  class Parent a where
+  class Parent a => Child a where
+
+  data Both = Both
+    deriving anyclass (Child, Parent)
+
+  useAny :: Required a => Wrapped a -> Wrapped a
+  useAny = anyValue
+expected: ''
+status: xfail
+reason: FC2 desugaring does not emit the derived Any dictionary $fAnyWrappeda.

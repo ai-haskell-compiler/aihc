@@ -60,7 +60,7 @@ prettyDecl env scopes decl =
     DeclSynonym declaration -> prettySynonymDecl env scopes declaration
     DeclAxiom declaration -> prettyAxiomDecl env scopes declaration
     DeclVal declaration -> prettyValDecl env scopes declaration
-    DeclPrim declaration -> prettyPrimDecl env scopes declaration
+    DeclForeignImport declaration -> prettyForeignImportDecl env scopes declaration
 
 prettyVis :: Vis -> Doc ann
 prettyVis Pub = "pub "
@@ -155,13 +155,43 @@ prettyValDecl env scopes declaration =
     <> " = "
     <> prettyExprWith env scopes (valBody declaration)
 
-prettyPrimDecl :: TypeEnv -> ScopeTable -> PrimDecl -> Doc ann
-prettyPrimDecl env scopes declaration =
-  prettyVis (primVis declaration)
-    <> "foreign import prim "
-    <> prettyTopName scopes (primName declaration)
+prettyForeignImportDecl :: TypeEnv -> ScopeTable -> ForeignImportDecl -> Doc ann
+prettyForeignImportDecl env scopes declaration =
+  prettyVis (foreignImportVis declaration)
+    <> "foreign import "
+    <> prettyCallingConvention (foreignImportCallingConvention declaration)
+    <> prettyTopName scopes (foreignImportName declaration)
     <> " :: "
-    <> prettyTypeWith env scopes PrecForAll (primType declaration)
+    <> prettyTypeWith env scopes PrecForAll (foreignImportType declaration)
+
+prettyCallingConvention :: CallingConvention -> Doc ann
+prettyCallingConvention convention =
+  case convention of
+    Prim -> "prim "
+    CCall specification ->
+      "ccall unsafe "
+        <> pretty (show (T.unpack (ccallSymbol specification)))
+        <> " ["
+        <> hsep (punctuate "," (map prettyCAbiType (ccallArgumentTypes specification)))
+        <> " → "
+        <> prettyCAbiType (ccallResultType specification)
+        <> "; "
+        <> prettyForeignEffect (ccallEffect specification)
+        <> "] "
+
+prettyCAbiType :: CAbiType -> Doc ann
+prettyCAbiType abiType =
+  case abiType of
+    CAbiInt -> "Int"
+    CAbiInt32 -> "Int32"
+    CAbiWord64 -> "Word64"
+    CAbiAddr -> "Addr"
+
+prettyForeignEffect :: ForeignEffect -> Doc ann
+prettyForeignEffect effect =
+  case effect of
+    ForeignPure -> "pure"
+    ForeignRealWorld -> "real-world"
 
 renderType :: Program -> Type -> String
 renderType program =
@@ -331,7 +361,7 @@ prettyLiteral :: ScopeTable -> Literal -> Doc ann
 prettyLiteral scopes literal =
   case literal of
     LitInt representation value -> pretty value <> "#" <> prettyName scopes (repName representation)
-    LitChar representation value -> pretty (show value) <> "#" <> prettyName scopes (repName representation)
+    LitChar representation value -> "'" <> pretty (encodeCharLiteral value) <> "'#" <> prettyName scopes (repName representation)
     LitString value -> "\"" <> pretty (concatMap encodeStringChar (T.unpack value)) <> "\""
     LitAddr representation value -> "\"" <> pretty (concatMap encodeByte (BS.unpack value)) <> "\"#" <> prettyName scopes (repName representation)
 
@@ -342,6 +372,14 @@ encodeStringChar character
   | character == '\n' = "\\n"
   | isAscii character && isPrint character = [character]
   | otherwise = encodeByte (fromIntegral (ord character))
+
+encodeCharLiteral :: Char -> String
+encodeCharLiteral character
+  | character == '\'' = "\\'"
+  | character == '\\' = "\\\\"
+  | character == '\n' = "\\n"
+  | isPrint character = [character]
+  | otherwise = "\\x{" <> showHex (ord character) "" <> "}"
 
 encodeByte :: Word8 -> String
 encodeByte byte

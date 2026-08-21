@@ -1,0 +1,29 @@
+---
+extensions:
+- BangPatterns
+modules:
+- |
+  module Test where
+
+  data Box = Box
+
+  forceBox :: Box -> Box
+  forceBox value =
+    case value of
+      !evaluated -> evaluated
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tBox :: 2.tType {
+      pub 1.vBox :: 1.tBox
+  }
+
+  pub val 1.vforceBox :: 1.tBox → 1.tBox
+   = λ(x : 1.tBox).
+    case x as (_scrut : 1.tBox) return (1.tBox) of {
+        _ →
+            _scrut
+    }
+status: pass
+reason: a strict variable pattern binds its RHS to the evaluated Core case binder

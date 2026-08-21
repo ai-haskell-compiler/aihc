@@ -1,0 +1,69 @@
+---
+extensions: []
+modules:
+- |
+  module Types where
+  data Bool = False | True
+
+  class Eq a where
+    (==) :: a -> a -> Bool
+
+  instance Eq Bool where
+    False == False = True
+    False == True = False
+    True == False = False
+    True == True = True
+- |
+  module Test where
+  import Types
+
+  eqBool :: Bool -> Bool -> Bool
+  eqBool = (==)
+expected: |-
+  scope 1 = "" Types
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tBool :: 2.tType {
+      pub 1.vFalse :: 1.tBool;
+      pub 1.vTrue :: 1.tBool
+  }
+
+  pub type 1.t$Dict$Eq (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Eq :: ∀(a : 2.tType). (a → a → 1.tBool) → 1.t$Dict$Eq a
+  }
+
+  pub val 1.v== :: ∀(a : 2.tType). 1.t$Dict$Eq a → a → a → 1.tBool
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Eq a).
+      case $d0 as ($dict : 1.t$Dict$Eq a) return (a → a → 1.tBool) of {
+          1.v$Dict$Eq ($method0 : a → a → 1.tBool) →
+              $method0
+      }
+
+  pub val 1.v$fEqBool :: 1.t$Dict$Eq 1.tBool
+   = 1.v$Dict$Eq @1.tBool (λ(x : 1.tBool).
+    λ(y : 1.tBool).
+      case x as (_scrut : 1.tBool) return (1.tBool) of {
+          1.vFalse →
+              case y as (_scrut{1} : 1.tBool) return (1.tBool) of {
+                  1.vFalse →
+                      1.vTrue;
+                  1.vTrue →
+                      1.vFalse
+              };
+          1.vTrue →
+              case y as (_scrut{1} : 1.tBool) return (1.tBool) of {
+                  1.vFalse →
+                      1.vFalse;
+                  1.vTrue →
+                      1.vTrue
+              }
+      })
+  scope 1 = "" Test
+  scope 2 = "" Types
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub val 1.veqBool :: 2.tBool → 2.tBool → 2.tBool
+   = 2.v== @2.tBool 2.v$fEqBool
+status: pass
+reason: keeps the defining module origin on an imported instance dictionary

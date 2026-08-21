@@ -21,7 +21,7 @@ import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Instantiate (applySubst)
 import Aihc.Tc.Monad (TcM, bindEvidence, freshEvVar, getInstances, lookupClass, lookupEvidence)
 import Aihc.Tc.Types
-import Aihc.Tc.Zonk (zonkType)
+import Aihc.Tc.Zonk (zonkPred, zonkType)
 import Control.Monad (foldM)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -49,7 +49,8 @@ solveDictWithGivens givens ct =
   case ctPred ct of
     ClassPred className args -> do
       args' <- mapM zonkType args
-      givenEvidence <- givenDict className args'
+      givens' <- mapM zonkPred givens
+      givenEvidence <- givenDict givens' className args'
       case givenEvidence of
         Just evidence -> do
           bindEvidence (ctEvVar ct) evidence
@@ -63,8 +64,8 @@ solveDictWithGivens givens ct =
     _ ->
       pure (DictStuck ct)
   where
-    givenDict className args =
-      firstGivenOrSuperclass (ClassPred className args) givens
+    givenDict zonkedGivens className args =
+      firstGivenOrSuperclass (ClassPred className args) zonkedGivens
 
     firstGivenOrSuperclass _ [] = pure Nothing
     firstGivenOrSuperclass target (given : rest)

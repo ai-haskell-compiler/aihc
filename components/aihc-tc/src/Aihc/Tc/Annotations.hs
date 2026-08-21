@@ -226,6 +226,7 @@ data TcInstanceAnnotation = TcInstanceAnnotation
     tcInstanceClassTyVars :: ![TyVarId],
     tcInstanceClassOrigin :: !(Maybe (Text, Text)),
     tcInstanceClassSuperClasses :: ![TcDictBinderAnnotation],
+    tcInstanceClassMethods :: ![TcClassMethodAnnotation],
     tcInstanceContextDicts :: ![TcDictBinderAnnotation],
     tcInstanceSuperClasses :: ![(TcDictBinderAnnotation, EvTerm)],
     tcInstanceMethodOrder :: ![Text],

@@ -1,0 +1,30 @@
+extensions:
+  - KindSignatures
+modules:
+  - |
+    module Test where
+    data Token = Token
+    class Supply (a :: Type) where
+      supply :: p a -> Token
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tToken :: 2.tType {
+      pub 1.vToken :: 1.tToken
+  }
+
+  pub type 1.t$Dict$Supply (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Supply :: ∀(a : 2.tType). (∀(p : 2.tType → 2.tType). p a → 1.tToken) → 1.t$Dict$Supply a
+  }
+
+  pub val 1.vsupply :: ∀(a : 2.tType) (p : 2.tType → 2.tType). 1.t$Dict$Supply a → p a → 1.tToken
+   = Λ(a : 2.tType).
+    Λ(p : 2.tType → 2.tType).
+      λ($d0 : 1.t$Dict$Supply a).
+        case $d0 as ($dict : 1.t$Dict$Supply a) return (p a → 1.tToken) of {
+            1.v$Dict$Supply ($method0 : ∀(p{1} : 2.tType → 2.tType). p{1} a → 1.tToken) →
+                $method0 @p
+        }
+status: pass
+reason: ''

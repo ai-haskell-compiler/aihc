@@ -32,6 +32,7 @@ module GHC.Unicode
 where
 
 import GHC.Char (ord)
+import GHC.Prim (Int#)
 import GHC.Prim.Unicode
   ( generalCategory#,
     isLowercase#,

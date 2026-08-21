@@ -1,0 +1,42 @@
+---
+extensions:
+- ForeignFunctionInterface
+- GHCForeignImportPrim
+- MagicHash
+modules:
+- |
+  module GHC.Prim where
+  data Addr#
+- |
+  module Test where
+
+  import GHC.Prim (Addr#)
+
+  data State# s
+  data RealWorld
+
+  foreign import prim awaitIO# ::
+    Addr# -> State# RealWorld -> State# RealWorld
+
+  await request state = awaitIO# request state
+expected: |-
+  scope 1 = "aihc-prim" GHC.Prim
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tAddr# :: 2.tTYPE 2.vAddrRep {}
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub type 1.tState# (s : 3.tType) :: 3.tTYPE (3.vTupleRep (3.v[] 3.tRuntimeRep)) {}
+
+  pub type 1.tRealWorld :: 3.tType {}
+
+  pub foreign import prim 1.vawaitIO# :: FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# (FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v[] 3.tRuntimeRep)) (1.tState# 1.tRealWorld) (1.tState# 1.tRealWorld))
+
+  pub val 1.vawait :: FUN @3.vAddrRep @3.tLiftedRep 2.tAddr# (FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v[] 3.tRuntimeRep)) (1.tState# 1.tRealWorld) (1.tState# 1.tRealWorld))
+   = λ(x : 2.tAddr#).
+    λ(y : 1.tState# 1.tRealWorld).
+      1.vawaitIO# x y
+status: pass
+reason: A primitive occurrence uses the identity of its foreign import declaration.

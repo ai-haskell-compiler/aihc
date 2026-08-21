@@ -97,7 +97,7 @@ import GHC.Internal.Char (Char (..))
 import GHC.Internal.Classes (Eq (..), Ord (..), Ordering (..))
 import GHC.Internal.Integer (Integer (..), compareInteger#, eqInteger#, integerAbs, integerQuotRemWord#)
 import GHC.Num (Num (..))
-import GHC.Prim (chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, (+#), (<#), (==#))
+import GHC.Prim (Int#, Word#, chr#, eqWord#, int2Word#, minusWord#, ord#, quotRemWord#, seq, word2Int#, (+#), (<#), (==#))
 import GHC.Real
   ( Fractional (..),
     Integral (..),

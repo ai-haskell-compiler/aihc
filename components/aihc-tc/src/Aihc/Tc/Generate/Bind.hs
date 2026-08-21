@@ -34,14 +34,13 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Generalize (generalizeAndCommitIgnoring)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (sigToScheme)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Control.Monad (foldM)
-import Data.List (mapAccumL, nub)
+import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (maybeToList)
@@ -54,7 +53,7 @@ type InferExpr = Expr -> TcM (Expr, TcType, [Ct])
 inferLocalDecls :: InferExpr -> [Decl] -> TcM (a, TcType, [Ct]) -> TcM ([Decl], a, TcType, [Ct])
 inferLocalDecls inferExpr decls body = do
   let groups = groupValueDecls decls
-      binders = nub (concatMap groupBinders groups)
+  binders <- distinctLocalBinders (concatMap groupBinders groups)
   rawSigs <- collectRawSigs decls
   sigs <- traverse sigToScheme rawSigs
   placeholders <- traverse (placeholderFor sigs) binders
@@ -69,7 +68,7 @@ inferLocalDecls inferExpr decls body = do
         _ <- solveConstraints bindingCts
         polyBinders <- traverse (generalizedBinder sigs binderSet placeholderMap) binders
         decls' <- annotateLocalBindingDecls polyBinders (concatMap (renderGroup . fst) groupResults)
-        withLocalBinders polyBinders $ do
+        withReboundLocalBinders polyBinders $ do
           (bodyResult, bodyTy, bodyCts) <- body
           pure (decls', bodyResult, bodyTy, bodyCts)
       else do
@@ -77,6 +76,15 @@ inferLocalDecls inferExpr decls body = do
         decls' <- annotateLocalBindingDecls monoBinders (concatMap (renderGroup . fst) groupResults)
         (bodyResult, bodyTy, bodyCts) <- body
         pure (decls', bodyResult, bodyTy, bindingCts ++ bodyCts)
+
+distinctLocalBinders :: [UnqualifiedName] -> TcM [UnqualifiedName]
+distinctLocalBinders = fmap snd . foldM addBinder (Set.empty, [])
+  where
+    addBinder (keys, binders) binder = do
+      key <- resolvedLocalTermKey binder
+      if Set.member key keys
+        then pure (keys, binders)
+        else pure (Set.insert key keys, binders <> [binder])
 
 annotateLocalBindingDecls :: [(UnqualifiedName, TcBinder)] -> [Decl] -> TcM [Decl]
 annotateLocalBindingDecls binders decls = do
@@ -154,6 +162,12 @@ withLocalBinders :: [(UnqualifiedName, TcBinder)] -> TcM a -> TcM a
 withLocalBinders [] action = action
 withLocalBinders ((name, binder) : rest) action =
   extendResolvedTermEnv name binder (withLocalBinders rest action)
+
+withReboundLocalBinders :: [(UnqualifiedName, TcBinder)] -> TcM a -> TcM a
+withReboundLocalBinders [] action = action
+withReboundLocalBinders ((name, binder) : rest) action = do
+  key <- resolvedLocalTermKey name
+  rebindTermEnv key binder (withReboundLocalBinders rest action)
 
 generalizedBinder :: Map TcTermKey TypeScheme -> Set.Set TcTermKey -> Map TcTermKey TcType -> UnqualifiedName -> TcM (UnqualifiedName, TcBinder)
 generalizedBinder sigs ignored placeholders name =
@@ -386,13 +400,7 @@ collectRawSigs decls = Map.fromList . concat <$> mapM extractSig decls
     extractSig _ = pure []
 
 skolemize :: TypeScheme -> TcM TcType
-skolemize (ForAll tvs _preds body) = do
-  subst <- Map.fromList <$> mapM mkSubst tvs
-  pure (Aihc.Tc.Instantiate.applySubst subst body)
-  where
-    mkSubst tv = do
-      sk <- freshSkolemTv (tvName tv)
-      pure (tvUnique tv, TcTyVar sk)
+skolemize (ForAll _ _ body) = pure body
 
 splitFunTy :: TcType -> Int -> ([TcType], TcType)
 splitFunTy ty 0 = ([], ty)

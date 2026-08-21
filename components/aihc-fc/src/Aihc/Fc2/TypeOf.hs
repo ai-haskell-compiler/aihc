@@ -18,6 +18,7 @@ module Aihc.Fc2.TypeOf
     lookupHeaderType,
     extendBinder,
     substType,
+    substTypes,
     reduceType,
     typesEqual,
   )
@@ -27,6 +28,7 @@ import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Fc2.Wired
 import Aihc.Resolve (PackageId)
+import Aihc.Tc.Types (Unique (..))
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -81,8 +83,8 @@ addDecl env decl =
     DeclAxiom {} -> env
     DeclVal declaration ->
       env {teHeaders = Map.insert (valName declaration) (valType declaration) (teHeaders env)}
-    DeclPrim declaration ->
-      env {teHeaders = Map.insert (primName declaration) (primType declaration) (teHeaders env)}
+    DeclForeignImport declaration ->
+      env {teHeaders = Map.insert (foreignImportName declaration) (foreignImportType declaration) (teHeaders env)}
 
 headerType :: [Binder] -> Type -> Type
 headerType binders result = foldr TyForAll result binders
@@ -205,8 +207,55 @@ substType target replacement = go
         TyFun r1 r2 argument result -> TyFun (go r1) (go r2) (go argument) (go result)
         TyForAll binder body
           | binderName binder == target -> TyForAll binder {binderType = go (binderType binder)} body
+          | binderName binder `elem` typeVariableNames replacement ->
+              let freshName = freshTypeVariableName (binderName binder) (target : typeVariableNames replacement <> typeVariableNames body)
+                  freshBinder = binder {binderName = freshName, binderType = go (binderType binder)}
+                  freshBody = substType (binderName binder) (TyVar freshName) body
+               in TyForAll freshBinder (go freshBody)
           | otherwise -> TyForAll binder {binderType = go (binderType binder)} (go body)
         TyEq left right -> TyEq (go left) (go right)
+
+-- | Substitute types at the same time.
+substTypes :: Map Name Type -> Type -> Type
+substTypes = go
+  where
+    go current ty =
+      case ty of
+        TyVar name -> Map.findWithDefault ty name current
+        TyCon {} -> ty
+        TyApp function argument -> TyApp (go current function) (go current argument)
+        TyFun r1 r2 argument result -> TyFun (go current r1) (go current r2) (go current argument) (go current result)
+        TyForAll binder body
+          | binderName binder `elem` concatMap typeVariableNames (Map.elems bodySubstitutions) ->
+              let usedNames = Map.keys current <> concatMap typeVariableNames (Map.elems current) <> typeVariableNames body
+                  freshName = freshTypeVariableName (binderName binder) usedNames
+                  freshBinder = binder {binderName = freshName, binderType = go current (binderType binder)}
+                  freshBody = substType (binderName binder) (TyVar freshName) body
+               in TyForAll freshBinder (go (Map.delete freshName bodySubstitutions) freshBody)
+          | otherwise -> TyForAll binder {binderType = go current (binderType binder)} (go bodySubstitutions body)
+          where
+            bodySubstitutions = Map.delete (binderName binder) current
+        TyEq left right -> TyEq (go current left) (go current right)
+
+typeVariableNames :: Type -> [Name]
+typeVariableNames ty =
+  case ty of
+    TyVar name -> [name]
+    TyCon {} -> []
+    TyApp function argument -> typeVariableNames function <> typeVariableNames argument
+    TyFun r1 r2 argument result -> concatMap typeVariableNames [r1, r2, argument, result]
+    TyForAll binder body -> binderName binder : typeVariableNames (binderType binder) <> typeVariableNames body
+    TyEq left right -> typeVariableNames left <> typeVariableNames right
+
+freshTypeVariableName :: Name -> [Name] -> Name
+freshTypeVariableName name used =
+  case nameOrigin name of
+    OriginLocal (Unique initial) -> choose (initial + 1)
+    OriginTop {} -> name
+  where
+    choose unique =
+      let candidate = name {nameOrigin = OriginLocal (Unique unique)}
+       in if candidate `elem` used then choose (unique + 1) else candidate
 
 isWiredName :: TypeEnv -> Name -> Text -> Bool
 isWiredName env name expected =

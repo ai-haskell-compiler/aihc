@@ -1,0 +1,27 @@
+---
+extensions:
+- ForeignFunctionInterface
+- GHCForeignImportPrim
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test where
+
+  data State# s
+  data RealWorld
+  data ThreadId#
+
+  foreign import prim fork# ::
+    (State# RealWorld -> (# State# RealWorld, a #)) ->
+    State# RealWorld ->
+    (# State# RealWorld, ThreadId# #)
+
+  foreign import prim yield# :: State# RealWorld -> State# RealWorld
+
+  spawn action state = fork# action state
+
+  reschedule state = yield# state
+expected: ''
+status: xfail
+reason: FC2 lint cannot find GHC.Types.Tuple2# in the generated primitive types.

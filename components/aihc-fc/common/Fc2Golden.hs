@@ -62,7 +62,15 @@ loadFc2Cases = do
     then pure []
     else do
       paths <- listFixtureFiles fixtureRoot
-      mapM (loadFc2Case [listSupportModule]) paths
+      mapM (loadFc2Case [listSupportModule, tupleSupportModule]) paths
+
+tupleSupportModule :: Text
+tupleSupportModule =
+  T.unlines
+    [ "module GHC.Tuple where",
+      "data Unit = ()",
+      "data Tuple2 a b = (a, b)"
+    ]
 
 listSupportModule :: Text
 listSupportModule =
@@ -71,7 +79,7 @@ listSupportModule =
       "data Bool = False | True",
       "data Levity = Lifted | Unlifted",
       "data List a = [] | a : [a]",
-      "data RuntimeRep = BoxedRep Levity",
+      "data RuntimeRep = AddrRep | BoxedRep Levity | IntRep | SumRep [RuntimeRep] | TupleRep [RuntimeRep] | WordRep",
       "data Type",
       "data TYPE rep",
       "infixr 5 :"
@@ -166,7 +174,7 @@ renderFc2Case tc =
     hasFixtureGhcTypes = any (T.isPrefixOf "module GHC.Types" . T.stripStart) (caseModules tc)
     supportModules = if hasFixtureGhcTypes then [] else caseSupportModules tc
     modulePackage _ modu
-      | moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Prim", Just "GHC.Types"] =
+      | moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
           (Package "aihc-prim" (PackageId "aihc-prim"), modu)
       | otherwise = (Package "" (PackageId ""), modu)
     parseOne input =

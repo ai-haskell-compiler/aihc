@@ -1,0 +1,37 @@
+extensions:
+  - KindSignatures
+modules:
+  - |
+    module Test where
+    data Box a = Box a
+    class Map (f :: Type -> Type) where
+      mapValue :: f a -> f a
+    instance Map Box where
+      mapValue value = value
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tBox (a : 2.tType) :: 2.tType {
+      pub 1.vBox :: ∀(a : 2.tType). a → 1.tBox a
+  }
+
+  pub type 1.t$Dict$Map (f : 2.tType → 2.tType) :: 2.tType {
+      pub 1.v$Dict$Map :: ∀(f : 2.tType → 2.tType). (∀(a : 2.tType). f a → f a) → 1.t$Dict$Map f
+  }
+
+  pub val 1.vmapValue :: ∀(f : 2.tType → 2.tType) (a : 2.tType). 1.t$Dict$Map f → f a → f a
+   = Λ(f : 2.tType → 2.tType).
+    Λ(a : 2.tType).
+      λ($d0 : 1.t$Dict$Map f).
+        case $d0 as ($dict : 1.t$Dict$Map f) return (f a → f a) of {
+            1.v$Dict$Map ($method0 : ∀(a{1} : 2.tType). f a{1} → f a{1}) →
+                $method0 @a
+        }
+
+  pub val 1.v$fMapBox :: 1.t$Dict$Map 1.tBox
+   = 1.v$Dict$Map @1.tBox (Λ(a : 2.tType).
+    λ(x : 1.tBox a).
+      x)
+status: pass
+reason: ''

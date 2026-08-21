@@ -22,7 +22,7 @@ import GHC.Internal.Char (Char (C#))
 import GHC.Internal.Classes (Eq (..), Ord (..))
 import GHC.MVar (putMVar, takeMVar)
 import GHC.Num (Num (..))
-import GHC.Prim (MutableByteArray#, RealWorld, and#, int2Word#, mutableByteArrayContents#, newPinnedByteArray#, ord#, word2Int#, (+#), (==#))
+import GHC.Prim (Int#, MutableByteArray#, RealWorld, and#, int2Word#, mutableByteArrayContents#, newPinnedByteArray#, ord#, word2Int#, (+#), (==#))
 import GHC.Ptr (Ptr (..))
 
 hGetBuf :: Handle -> Ptr a -> Int -> IO Int

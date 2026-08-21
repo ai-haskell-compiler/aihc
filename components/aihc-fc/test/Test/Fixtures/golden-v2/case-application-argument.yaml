@@ -29,7 +29,7 @@ expected: |-
 
   pub val 1.vswitch :: 1.tFlag → 1.tFlag
    = λ(x : 1.tFlag).
-    1.vconsume (case x as (_case : 1.tFlag) return (1.tFlag) of {
+    1.vconsume (case x as (_scrut : 1.tFlag) return (1.tFlag) of {
         1.vOff →
             1.vOn;
         1.vOn →

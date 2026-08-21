@@ -168,7 +168,7 @@ genDecl =
       DeclSynonym <$> genSynonymDecl,
       DeclAxiom <$> genAxiomDecl,
       DeclVal <$> genValDecl,
-      DeclPrim <$> genPrimDecl
+      DeclForeignImport <$> genForeignImportDecl
     ]
 
 genTypeDecl :: Gen TypeDecl
@@ -218,12 +218,44 @@ genValDecl =
     <*> genType
     <*> (ExVar <$> genLocalValueName)
 
-genPrimDecl :: Gen PrimDecl
-genPrimDecl =
-  PrimDecl
+genForeignImportDecl :: Gen ForeignImportDecl
+genForeignImportDecl =
+  ForeignImportDecl
     <$> genVis
-    <*> (valueNameTop . ("prim" <>) <$> genSuffix)
+    <*> (valueNameTop . ("foreign" <>) <$> genSuffix)
+    <*> genCallingConvention
     <*> genType
+
+genCallingConvention :: Gen CallingConvention
+genCallingConvention =
+  Gen.choice
+    [ pure Prim,
+      CCall <$> genCCallSpec
+    ]
+
+genCCallSpec :: Gen CCallSpec
+genCCallSpec =
+  CCallSpec
+    <$> genForeignSymbol
+    <*> Gen.list (Range.linear 0 6) genCAbiType
+    <*> genCAbiType
+    <*> genForeignEffect
+
+genForeignSymbol :: Gen Text
+genForeignSymbol =
+  Gen.text
+    (Range.linear 0 16)
+    ( Gen.frequency
+        [ (12, Gen.alphaNum),
+          (1, Gen.element ['_', '.', '-', ' ', '\'', '"', '\\', '\n'])
+        ]
+    )
+
+genCAbiType :: Gen CAbiType
+genCAbiType = Gen.element [CAbiInt, CAbiInt32, CAbiWord64, CAbiAddr]
+
+genForeignEffect :: Gen ForeignEffect
+genForeignEffect = Gen.element [ForeignPure, ForeignRealWorld]
 
 genType :: Gen Type
 genType =

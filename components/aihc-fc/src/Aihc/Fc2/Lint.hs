@@ -20,7 +20,7 @@ import Control.Monad (foldM, unless, when)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, listToMaybe)
+import Data.Maybe (catMaybes, isNothing, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -105,7 +105,7 @@ lintDeclHeaders env decl =
     DeclSynonym declaration -> lintSynonymDecl env declaration
     DeclAxiom declaration -> lintAxiomDecl env declaration
     DeclVal declaration -> eitherToList (lintType env (valType declaration))
-    DeclPrim declaration -> eitherToList (lintType env (primType declaration))
+    DeclForeignImport declaration -> eitherToList (lintType env (foreignImportType declaration))
 
 lintDeclBodies :: LintEnv -> Decl -> [LintError]
 lintDeclBodies env decl =
@@ -212,7 +212,36 @@ applyKind env function functionKind argument argumentKind =
 kindsCompatible :: LintEnv -> Type -> Type -> Type -> Bool
 kindsCompatible env function expected actual =
   typesEqual (leTypes env) expected actual
+    || kindFunctionsEqual env expected actual
     || (isTYPEName env function && isTypeKind env expected && isRuntimeRepKind env actual)
+
+kindFunctionsEqual :: LintEnv -> Type -> Type -> Bool
+kindFunctionsEqual env left right =
+  compareKinds (reduceType (leTypes env) left) (reduceType (leTypes env) right)
+  where
+    compareKinds first second
+      | typesEqual (leTypes env) first second = True
+    compareKinds (TyFun _ _ argument result) (TyForAll binder body) =
+      not (typeUsesName (binderName binder) body)
+        && typesEqual (leTypes env) argument (binderType binder)
+        && compareKinds result body
+    compareKinds (TyForAll binder body) (TyFun _ _ argument result) =
+      not (typeUsesName (binderName binder) body)
+        && typesEqual (leTypes env) (binderType binder) argument
+        && compareKinds body result
+    compareKinds _ _ = False
+
+typeUsesName :: Name -> Type -> Bool
+typeUsesName target ty =
+  case ty of
+    TyVar name -> name == target
+    TyCon {} -> False
+    TyApp function argument -> typeUsesName target function || typeUsesName target argument
+    TyFun r1 r2 argument result -> any (typeUsesName target) [r1, r2, argument, result]
+    TyForAll binder body
+      | binderName binder == target -> typeUsesName target (binderType binder)
+      | otherwise -> typeUsesName target (binderType binder) || typeUsesName target body
+    TyEq left right -> typeUsesName target left || typeUsesName target right
 
 isTYPEName :: LintEnv -> Type -> Bool
 isTYPEName env ty =
@@ -290,7 +319,7 @@ lintExpr env expr =
       argumentKind <- lintType env argument
       case viewForAll env functionType of
         Just (binder, body) -> do
-          unless (typesEqual (leTypes env) (binderType binder) argumentKind) (Left (KindMismatch "type application argument" (binderType binder) argumentKind))
+          unless (kindsCompatible env argument (binderType binder) argumentKind) (Left (KindMismatch "type application argument" (binderType binder) argumentKind))
           Right (substType (binderName binder) argument body)
         Nothing -> Left (LintFailure ("type application to a non-pi type: " <> show functionType))
     ExLam binder body -> do
@@ -454,19 +483,36 @@ lintAlt env scrutType alt =
         Just constructorType -> do
           (existentials, fields) <- matchConstructor env constructorType scrutType
           unless (length fields == length (altBinders alt)) (Left (LintFailure ("case alternative binder count does not match constructor: " <> show name)))
-          envEx <- foldM bindLocal env existentials
-          envFields <- foldM bindField envEx (zip fields (altBinders alt))
+          existentialSubst <- matchExistentialFields env existentials fields (map binderType (altBinders alt))
+          envEx <- foldM (bindMatchedExistential existentialSubst) env existentials
+          let matchedFields = map (applySubst existentialSubst) fields
+          envFields <- foldM (bindField name) envEx (zip matchedFields (altBinders alt))
           lintExpr envFields (altRhs alt)
+
+matchExistentialFields :: LintEnv -> [Binder] -> [Type] -> [Type] -> Either LintError (Map Name Type)
+matchExistentialFields env existentials expected actual =
+  foldM matchOne Map.empty (zip expected actual)
+  where
+    names = map binderName existentials
+    matchOne subst (expectedType, actualType) = matchExpected env names subst expectedType actualType
+
+bindMatchedExistential :: Map Name Type -> LintEnv -> Binder -> Either LintError LintEnv
+bindMatchedExistential subst env binder =
+  case Map.lookup (binderName binder) subst of
+    Just (TyVar actualName)
+      | isNothing (lookupBinderType (leTypes env) actualName) ->
+          bindLocal env (Binder actualName (applySubst subst (binderType binder)))
+    _ -> Right env
 
 matchLiteralAlternative :: LintEnv -> Type -> Literal -> Either LintError ()
 matchLiteralAlternative env scrutType literal = do
   literalType <- lintLiteral env literal
   unless (typesEqual (leTypes env) scrutType literalType) (Left (TypeMismatch "literal alternative" scrutType literalType))
 
-bindField :: LintEnv -> (Type, Binder) -> Either LintError LintEnv
-bindField env (expected, binder) = do
+bindField :: Name -> LintEnv -> (Type, Binder) -> Either LintError LintEnv
+bindField constructorName env (expected, binder) = do
   env' <- bindLocal env binder
-  unless (typesEqual (leTypes env) expected (binderType binder)) (Left (TypeMismatch "case alternative binder" expected (binderType binder)))
+  unless (typesEqual (leTypes env) expected (binderType binder)) (Left (TypeMismatch ("case alternative binder for " <> show constructorName) expected (binderType binder)))
   Right env'
 
 matchConstructor :: LintEnv -> Type -> Type -> Either LintError ([Binder], [Type])
@@ -531,7 +577,7 @@ matchReduced env foralls subst expected actual =
       | otherwise -> Left (TypeMismatch "constructor result" expected actual)
 
 applySubst :: Map Name Type -> Type -> Type
-applySubst subst ty = Map.foldrWithKey substType ty subst
+applySubst = substTypes
 
 coercionEndpoints :: LintEnv -> Coercion -> Either LintError (Type, Type)
 coercionEndpoints env coercion =
@@ -564,13 +610,12 @@ coercionEndpoints env coercion =
         Nothing -> Left (UnboundName name)
         Just declaration -> do
           unless (length arguments == length (axiomBinders declaration)) (Left (LintFailure ("coercion axiom arity mismatch: " <> show name)))
-          envBinders <- foldM bindLocal env (axiomBinders declaration)
           mapM_ (lintType env) arguments
           let subst = Map.fromList (zip (map binderName (axiomBinders declaration)) arguments)
           mapM_
             ( \(binder, argument) -> do
                 argumentKind <- lintType env argument
-                unless (typesEqual (leTypes envBinders) (applySubst subst (binderType binder)) argumentKind) (Left (KindMismatch "coercion axiom argument" (binderType binder) argumentKind))
+                unless (typesEqual (leTypes env) (applySubst subst (binderType binder)) argumentKind) (Left (KindMismatch "coercion axiom argument" (binderType binder) argumentKind))
             )
             (zip (axiomBinders declaration) arguments)
           Right (applySubst subst (axiomLeft declaration), applySubst subst (axiomRight declaration))

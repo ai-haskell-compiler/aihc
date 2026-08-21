@@ -1,0 +1,29 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+
+  data Pair a = a :*: a
+
+  infix 6 :*:
+
+  first :: Pair a -> a
+  first (value :*: _) = value
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tPair (a : 2.tType) :: 2.tType {
+      pub 1.v:*: :: ∀(a : 2.tType). a → a → 1.tPair a
+  }
+
+  pub val 1.vfirst :: ∀(a : 2.tType). 1.tPair a → a
+   = Λ(a : 2.tType).
+    λ(x : 1.tPair a).
+      case x as (_scrut : 1.tPair a) return (a) of {
+          1.v:*: (value : a) (_pat : a) →
+              value
+      }
+status: pass
+reason: An infix constructor pattern keeps its field binders and types during FC desugaring.

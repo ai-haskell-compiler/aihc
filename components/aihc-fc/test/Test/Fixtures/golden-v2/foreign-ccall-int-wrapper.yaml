@@ -1,0 +1,23 @@
+---
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module GHC.Prim where
+  data Int#
+- |
+  module Test where
+
+  import GHC.Prim (Int#)
+
+  data State# s
+  data RealWorld
+  data Int = I# Int#
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+
+  foreign import ccall unsafe "identity_int" identityInt :: Int -> IO Int
+expected: ''
+status: xfail
+reason: FC2 lint cannot find GHC.Types.Tuple2#.

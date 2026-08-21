@@ -11,7 +11,7 @@ import Data.Bool (not)
 import GHC.Classes (Eq (..), Ord (..))
 import GHC.Int (Int (..))
 import GHC.Internal.Integer (Integer, compareInteger#, eqInteger#)
-import GHC.Prim (compareInt#, (==#))
+import GHC.Prim (Int#, compareInt#, (==#))
 import GHC.Types (Bool (..), Ordering (..))
 
 instance Eq Bool where

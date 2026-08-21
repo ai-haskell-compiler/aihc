@@ -1,0 +1,11 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+  import GHC.Types (Bool)
+
+  select fn list = [x | x <- list, fn x]
+expected: ''
+status: xfail
+reason: FC2 desugaring does not support EListComp expressions.

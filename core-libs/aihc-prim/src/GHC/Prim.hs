@@ -172,7 +172,7 @@ data StableName# a
 
 data RealWorld
 
-foreign import prim raise# :: a -> b
+foreign import prim raise# :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b
 
 foreign import prim unsafeCoerce# :: a -> b
 

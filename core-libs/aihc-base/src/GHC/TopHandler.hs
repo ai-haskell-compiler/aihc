@@ -19,7 +19,7 @@ import Control.Exception (SomeException, catch, displayException, fromException)
 import Data.Maybe (Maybe (..))
 import GHC.IO (IO (..))
 import GHC.Int (Int (..))
-import GHC.Prim (RealWorld, State#)
+import GHC.Prim (Int#, RealWorld, State#)
 import System.Exit (ExitCode (..))
 import System.IO (hPutStr, stderr)
 import Prelude

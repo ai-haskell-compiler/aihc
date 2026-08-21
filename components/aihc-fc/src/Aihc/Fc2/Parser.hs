@@ -86,7 +86,7 @@ data OpenDecl
   | OpenSynonymDecl Vis Name [OpenBinder] OpenType OpenType
   | OpenAxiomDecl Vis Name [OpenBinder] Role OpenType OpenType
   | OpenValDecl Vis Name OpenType OpenExpr
-  | OpenPrimDecl Vis Name OpenType
+  | OpenForeignImportDecl Vis Name CallingConvention OpenType
   deriving (Eq, Show)
 
 data OpenCon = OpenConDecl Vis Name OpenType
@@ -125,7 +125,7 @@ declaration scopes =
   MP.choice
     [ MP.try (typeOrSynonym scopes),
       MP.try (axiomDeclaration scopes),
-      MP.try (primDeclaration scopes),
+      MP.try (foreignImportDeclaration scopes),
       valDeclaration scopes
     ]
 
@@ -168,15 +168,53 @@ axiomDeclaration scopes = do
   role <- parseAxiomRole
   OpenAxiomDecl vis name binders role left <$> fcType
 
-primDeclaration :: ScopeTable -> Parser OpenDecl
-primDeclaration scopes = do
+foreignImportDeclaration :: ScopeTable -> Parser OpenDecl
+foreignImportDeclaration scopes = do
   vis <- optionalPub
   _ <- keyword "foreign"
   _ <- keyword "import"
-  _ <- keyword "prim"
+  convention <- callingConvention
   name <- topName scopes SortValue
   _ <- symbol "::"
-  OpenPrimDecl vis name <$> fcType
+  OpenForeignImportDecl vis name convention <$> fcType
+
+callingConvention :: Parser CallingConvention
+callingConvention =
+  MP.choice
+    [ keyword "prim" $> Prim,
+      do
+        _ <- keyword "ccall"
+        _ <- keyword "unsafe"
+        foreignSymbol <- stringLiteral
+        (arguments, result, effect) <- MP.between (symbol "[") (symbol "]") foreignSignature
+        pure
+          ( CCall
+              CCallSpec
+                { ccallSymbol = foreignSymbol,
+                  ccallArgumentTypes = arguments,
+                  ccallResultType = result,
+                  ccallEffect = effect
+                }
+          )
+    ]
+
+foreignSignature :: Parser ([CAbiType], CAbiType, ForeignEffect)
+foreignSignature = do
+  arguments <- cAbiType `MP.sepBy` symbol ","
+  _ <- symbol "→"
+  result <- cAbiType
+  _ <- symbol ";"
+  effect <- (keyword "pure" $> ForeignPure) <|> (keyword "real-world" $> ForeignRealWorld)
+  pure (arguments, result, effect)
+
+cAbiType :: Parser CAbiType
+cAbiType =
+  MP.choice
+    [ keyword "Int32" $> CAbiInt32,
+      keyword "Int" $> CAbiInt,
+      keyword "Word64" $> CAbiWord64,
+      keyword "Addr" $> CAbiAddr
+    ]
 
 valDeclaration :: ScopeTable -> Parser OpenDecl
 valDeclaration scopes = do
@@ -546,7 +584,8 @@ identName :: Parser Text
 identName = do
   first <- MP.satisfy identStart
   rest <- MP.many (MP.satisfy identContinue)
-  let value = T.pack (first : rest)
+  listSuffix <- MP.option "" (MPC.string "[]")
+  let value = T.pack (first : rest) <> listSuffix
   following <- MP.optional (MP.lookAhead MP.anySingle)
   case following of
     Just next
@@ -647,9 +686,9 @@ fillDecl env decl =
       closedType <- closeType env ty
       closedBody <- fillExpr env body
       pure (DeclVal (ValDecl vis name closedType closedBody))
-    OpenPrimDecl vis name ty -> do
+    OpenForeignImportDecl vis name callingConvention' ty -> do
       closedType <- closeType env ty
-      pure (DeclPrim (PrimDecl vis name closedType))
+      pure (DeclForeignImport (ForeignImportDecl vis name callingConvention' closedType))
 
 fillCon :: TypeEnv -> OpenCon -> Either String ConDecl
 fillCon env (OpenConDecl vis name ty) = do
@@ -744,7 +783,7 @@ declaredSorts scopes decls =
         DeclSynonym synonymDecl -> [(synName synonymDecl, SortSynonym)]
         DeclAxiom axiomDecl -> [(axiomName axiomDecl, SortAxiom)]
         DeclVal valDecl -> [(valName valDecl, SortValue)]
-        DeclPrim primDecl -> [(primName primDecl, SortValue)]
+        DeclForeignImport foreignImportDecl -> [(foreignImportName foreignImportDecl, SortValue)]
 
 normalizeDecl :: Map.Map Name Sort -> Decl -> Decl
 normalizeDecl table decl =
@@ -781,11 +820,11 @@ normalizeDecl table decl =
             valType = normalizeType table (valType valDecl),
             valBody = normalizeExpr table (valBody valDecl)
           }
-    DeclPrim primDecl ->
-      DeclPrim
-        primDecl
-          { primName = rewriteName table (primName primDecl),
-            primType = normalizeType table (primType primDecl)
+    DeclForeignImport foreignImportDecl ->
+      DeclForeignImport
+        foreignImportDecl
+          { foreignImportName = rewriteName table (foreignImportName foreignImportDecl),
+            foreignImportType = normalizeType table (foreignImportType foreignImportDecl)
           }
 
 defaultRoles :: [Binder] -> [Role] -> [Role]
@@ -943,15 +982,34 @@ addrLiteral = lexeme $ do
 charLiteral :: Parser Char
 charLiteral = lexeme $ do
   _ <- MPC.char '\''
-  character <- stringChar
+  character <- charLiteralValue
   _ <- MPC.char '\''
   pure character
+
+charLiteralValue :: Parser Char
+charLiteralValue =
+  MP.choice
+    [ bracedHexChar,
+      MP.satisfy (\character -> character /= '\'' && character /= '\\'),
+      MPC.string "\\\\" $> '\\',
+      MPC.string "\\'" $> '\'',
+      MPC.string "\\n" $> '\n'
+    ]
+
+bracedHexChar :: Parser Char
+bracedHexChar = do
+  _ <- MPC.string "\\x{"
+  value <- L.hexadecimal
+  _ <- MPC.char '}'
+  if value <= fromEnum (maxBound :: Char)
+    then pure (chr value)
+    else fail "character literal is outside the character range"
 
 stringChar :: Parser Char
 stringChar =
   MP.choice
     [ hexChar,
-      MP.satisfy (\character -> character /= '"' && character /= '\'' && character /= '\\'),
+      MP.satisfy (\character -> character /= '"' && character /= '\\'),
       MPC.string "\\\\" $> '\\',
       MPC.string "\\\"" $> '"',
       MPC.string "\\'" $> '\'',

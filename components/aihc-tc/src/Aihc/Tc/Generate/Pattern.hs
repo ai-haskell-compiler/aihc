@@ -84,10 +84,14 @@ checkPattern :: SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPattern = checkPatternWith GadtAsWanted
 
 checkPatternWith :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
-checkPatternWith gadtHandling sp pat scrutTy =
-  case overloadedIntegerPatternLiteral pat of
+checkPatternWith gadtHandling sp pat scrutTy = do
+  check <- case overloadedIntegerPatternLiteral pat of
     Just isNegative -> checkOverloadedIntegerPattern sp pat isNegative scrutTy
     Nothing -> checkPatternCore gadtHandling sp pat scrutTy
+  pure check {pcPatterns = map (checkedPatternType scrutTy) (pcPatterns check)}
+
+checkedPatternType :: TcType -> Pattern -> Pattern
+checkedPatternType ty = PAnn (mkAnnotation (pendingAnnotation ty [] [] []))
 
 checkPatternCore :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternCore gadtHandling sp pat scrutTy =

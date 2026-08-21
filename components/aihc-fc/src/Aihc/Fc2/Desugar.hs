@@ -198,7 +198,8 @@ dsDecl env package moduleName' dataTypes tyCons classes dataFamilyInstances type
         Syn.DeclForeign foreignDecl ->
           case Syn.foreignCallConv foreignDecl of
             Syn.CPrim -> Right []
-            _ -> Left "System FC 2 accepts only foreign import prim"
+            Syn.CCall -> Right []
+            callConv -> Left ("unsupported System FC 2 foreign calling convention: " <> show callConv)
         _ -> Right []
 
 lookupDataType :: TyConFlavor -> PackageId -> Text -> Text -> [DataTypeInfo] -> Either String DataTypeInfo
@@ -651,9 +652,9 @@ declOrigins decl =
       nameOriginPair (valName valDecl)
         <> typeOrigins (valType valDecl)
         <> exprOrigins (valBody valDecl)
-    DeclPrim primDecl ->
-      nameOriginPair (primName primDecl)
-        <> typeOrigins (primType primDecl)
+    DeclForeignImport foreignImportDecl ->
+      nameOriginPair (foreignImportName foreignImportDecl)
+        <> typeOrigins (foreignImportType foreignImportDecl)
 
 conOrigins :: ConDecl -> [(PackageId, Text)]
 conOrigins constructor =

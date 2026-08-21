@@ -1,0 +1,18 @@
+---
+extensions:
+- ForeignFunctionInterface
+- GHCForeignImportPrim
+- MagicHash
+- UnboxedTuples
+modules:
+- |
+  module Test where
+
+  data State# s
+  data MutVar# d a
+
+  foreign import prim newMutVar# ::
+    value -> State# domain -> (# State# domain, MutVar# domain domain #)
+expected: ''
+status: fail
+reason: primitive import type variables must occur consistently throughout the signature

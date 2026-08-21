@@ -51,6 +51,7 @@ module Aihc.Tc.Monad
     resolvedUnqualifiedTermKey,
     resolvedLocalTermKey,
     extendTermEnv,
+    rebindTermEnv,
     extendResolvedTermEnv,
     extendTermKeyEnvPermanent,
     extendTermEnvPermanent,
@@ -405,6 +406,10 @@ extendTermEnv key binder action = do
   terms <- asks tcEnvTerms
   terms' <- insertNewMap "local term environment" key binder terms
   local (\env -> env {tcEnvTerms = terms'}) action
+
+rebindTermEnv :: TcTermKey -> TcBinder -> TcM a -> TcM a
+rebindTermEnv key binder =
+  local (\env -> env {tcEnvTerms = Map.insert key binder (tcEnvTerms env)})
 
 extendResolvedTermEnv :: UnqualifiedName -> TcBinder -> TcM a -> TcM a
 extendResolvedTermEnv name binder action = do

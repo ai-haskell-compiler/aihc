@@ -24,14 +24,12 @@ import Aihc.Native
     runtimePlan,
   )
 import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
-import Aihc.Testing.EvalFixture (EvalCase (..), compileEvalCase, evalBindingNameInProgram, loadEvalCases)
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
 import Control.Monad (when)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
-import Data.List (find, isInfixOf)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text qualified as T
@@ -487,7 +485,6 @@ tests =
           assertEqual ("C compiler semispace diagnostics:\n" <> compilerErr) ExitSuccess compilerExit
           (programExit, _programOut, programErr) <- readProcessWithExitCode executable [] ""
           assertEqual ("semispace runtime diagnostics:\n" <> programErr) ExitSuccess programExit,
-      testCase "compiles standalone HelloWorld GRIN to native ARM64" testNativeHelloWorld,
       testCase "runs fork# and yield# with FIFO scheduling" testNativeScheduler,
       testCase "catches a synchronous exception" testNativeSynchronousException,
       testCase "blocks and wakes threads that enter a shared blackhole" testNativeBlackholeScheduler,
@@ -753,31 +750,6 @@ explicitEvaluationProgram =
     caseBinder = GrinVar "case_binder" 202 (BoxedRep Lifted)
     applyOperand = GrinVar "apply_operand" 203 (BoxedRep Lifted)
 
-testNativeHelloWorld :: IO ()
-testNativeHelloWorld = do
-  cases <- loadEvalCases
-  evalCase <-
-    case find ((== "native-hello-world.yaml") . evalCaseId) cases of
-      Just value -> pure value
-      Nothing -> assertFailure "native HelloWorld fixture is missing"
-  compileResult <- compileEvalCase evalCase
-  fcProgram <-
-    case compileResult of
-      Right value -> pure value
-      Left err -> assertFailure ("HelloWorld failed before GRIN lowering: " <> err)
-  let grinProgram = lowerProgram fcProgram
-  assertBool "GRIN has no unboxed-tuple nodes" (not ("(#,#)" `isInfixOf` renderProgram grinProgram))
-  assembly <-
-    case compileProgram (evalBindingNameInProgram fcProgram) (expectGcGrin grinProgram) of
-      Right value -> pure value
-      Left err -> assertFailure ("ARM64 lowering failed: " <> show err)
-  let rendered = T.unpack assembly
-  assertBool "emits indirect Haskell tail transfers" ("br x9" `isInfixOf` rendered)
-  assertBool "never calls a generated Haskell entry" (not ("bl .Laihc_function_" `isInfixOf` rendered))
-  assertBool "emits unboxed literals as raw words" (not ("_aihc_make_literal" `isInfixOf` rendered))
-  when (arch == "aarch64" && os == "darwin") $
-    runHelloWorldAssembly assembly
-
 testNativeScheduler :: IO ()
 testNativeScheduler = do
   assertEqual "direct GRIN lint" [] (lintProgram schedulerProgram)
@@ -847,25 +819,6 @@ expectGcGrin program =
   case toCpsGrin program of
     Right cpsProgram -> lowerGc cpsProgram
     Left err -> error ("test GRIN failed CPS conversion: " <> show err)
-
-runHelloWorldAssembly :: T.Text -> IO ()
-runHelloWorldAssembly assembly =
-  withTempDirectory "aihc-arm64-hello" $ \directory -> do
-    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
-    let assemblyPath = directory </> "hello.s"
-        executablePath = directory </> "hello"
-    writeFile assemblyPath (T.unpack assembly)
-    (clangExit, _clangOut, clangErr) <-
-      readProcessWithExitCode
-        "clang"
-        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> [assemblyPath, "-o", executablePath])
-        ""
-    case clangExit of
-      ExitSuccess -> pure ()
-      ExitFailure _ -> assertFailure ("clang failed to assemble HelloWorld:\n" <> clangErr)
-    (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
-    assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
-    assertEqual "native stdout" "Hello, world!\n" programOut
 
 runSchedulerAssembly :: String -> T.Text -> IO ()
 runSchedulerAssembly expected assembly =

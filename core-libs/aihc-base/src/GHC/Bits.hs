@@ -25,7 +25,9 @@ import GHC.Internal.Integer
     integerXor,
   )
 import GHC.Prim
-  ( and#,
+  ( Int#,
+    Word#,
+    and#,
     clz#,
     ctz#,
     int2Word#,

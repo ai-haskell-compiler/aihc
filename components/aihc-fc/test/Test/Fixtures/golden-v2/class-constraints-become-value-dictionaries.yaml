@@ -1,0 +1,62 @@
+---
+extensions: []
+modules:
+- |
+  module Parent where
+
+  data Flag = Off | On
+
+  class Parent a where
+    parent :: a -> Flag
+
+  instance Parent Flag where
+    parent value = value
+- |
+  module Child where
+
+  import Parent
+
+  class Parent a => Child a where
+    child :: a -> Flag
+expected: |-
+  scope 1 = "" Parent
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tFlag :: 2.tType {
+      pub 1.vOff :: 1.tFlag;
+      pub 1.vOn :: 1.tFlag
+  }
+
+  pub type 1.t$Dict$Parent (a : 2.tType) :: 2.tType {
+      pub 1.v$Dict$Parent :: ∀(a : 2.tType). (a → 1.tFlag) → 1.t$Dict$Parent a
+  }
+
+  pub val 1.vparent :: ∀(a : 2.tType). 1.t$Dict$Parent a → a → 1.tFlag
+   = Λ(a : 2.tType).
+    λ($d0 : 1.t$Dict$Parent a).
+      case $d0 as ($dict : 1.t$Dict$Parent a) return (a → 1.tFlag) of {
+          1.v$Dict$Parent ($method0 : a → 1.tFlag) →
+              $method0
+      }
+
+  pub val 1.v$fParentFlag :: 1.t$Dict$Parent 1.tFlag
+   = 1.v$Dict$Parent @1.tFlag (λ(x : 1.tFlag).
+    x)
+  scope 1 = "" Child
+  scope 2 = "" Parent
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub type 1.t$Dict$Child (a : 3.tType) :: 3.tType {
+      pub 1.v$Dict$Child :: ∀(a : 3.tType). 2.t$Dict$Parent a → (a → 2.tFlag) → 1.t$Dict$Child a
+  }
+
+  pub val 1.vchild :: ∀(a : 3.tType). 1.t$Dict$Child a → a → 2.tFlag
+   = Λ(a : 3.tType).
+    λ($d0 : 1.t$Dict$Child a).
+      case $d0 as ($dict : 1.t$Dict$Child a) return (a → 2.tFlag) of {
+          1.v$Dict$Child ($method0 : 2.t$Dict$Parent a) ($method1 : a → 2.tFlag) →
+              $method1
+      }
+status: pass
+reason: Class constraints become value dictionary types and keep their checked source
+  identity.

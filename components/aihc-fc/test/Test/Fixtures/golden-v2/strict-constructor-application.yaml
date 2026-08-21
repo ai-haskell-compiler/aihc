@@ -1,0 +1,25 @@
+---
+extensions: []
+modules:
+- |
+  module Test where
+
+  data StrictPair a = StrictPair !a !a
+
+  makePair :: a -> a -> StrictPair a
+  makePair left right = StrictPair left right
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tStrictPair (a : 2.tType) :: 2.tType {
+      pub 1.vStrictPair :: ∀(a : 2.tType). a → a → 1.tStrictPair a
+  }
+
+  pub val 1.vmakePair :: ∀(a : 2.tType). a → a → 1.tStrictPair a
+   = Λ(a : 2.tType).
+    λ(x : a).
+      λ(y : a).
+        1.vStrictPair @a x y
+status: pass
+reason: A strict constructor application uses instantiated field binder types.
