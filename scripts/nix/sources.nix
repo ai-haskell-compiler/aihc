@@ -40,13 +40,20 @@
 in rec {
   # Source filtering: only include relevant files for each component.
   # This prevents rebuilds when unrelated files change.
-  fcSrc = mkRootSubsetSrc ["components/aihc-fc/" "test/support/"] [
-    ".hs"
-    ".cabal"
-    ".yaml"
-    ".yml"
-    ".fc2"
-  ];
+  fcSrc =
+    mkRootSubsetSrc [
+      "components/aihc-fc/"
+      "core-libs/aihc-prim/src/GHC/Prim.hs"
+      "core-libs/aihc-prim/src/GHC/Tuple.hs"
+      "core-libs/aihc-prim/src/GHC/Types.hs"
+      "test/support/"
+    ] [
+      ".hs"
+      ".cabal"
+      ".yaml"
+      ".yml"
+      ".fc2"
+    ];
 
   arm64Src = mkRootSubsetSrc ["components/aihc-arm64/" "test/support/" "test/Test/Fixtures/grin-snapshot/"] [
     ".hs"
