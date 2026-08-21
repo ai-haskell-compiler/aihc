@@ -8,4 +8,4 @@ modules:
   select fn list = [x | x <- list, fn x]
 expected: ''
 status: xfail
-reason: desugars list comprehensions directly to recursive Core without Prelude helpers
+reason: FC2 desugaring does not support EListComp expressions.

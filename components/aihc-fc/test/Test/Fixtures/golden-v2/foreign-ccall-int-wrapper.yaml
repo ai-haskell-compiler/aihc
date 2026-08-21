@@ -20,5 +20,4 @@ modules:
   foreign import ccall unsafe "identity_int" identityInt :: Int -> IO Int
 expected: ''
 status: xfail
-reason: FC lint finds internal primitive types in the foreign descriptor but aihc-prim
-  types in the call arguments
+reason: FC2 lint cannot find GHC.Types.Tuple2#.

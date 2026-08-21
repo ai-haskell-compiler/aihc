@@ -41,5 +41,4 @@ modules:
     1 -> ()
 expected: ''
 status: xfail
-reason: FC lint rejects the empty failure case generated for the concrete integer
-  pattern
+reason: FC2 lint cannot find GHC.Types.IntRep or GHC.Tuple.Unit in the fixture modules.

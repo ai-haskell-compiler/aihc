@@ -21,5 +21,4 @@ modules:
   foreign import ccall unsafe putchar :: CInt -> IO CInt
 expected: ''
 status: xfail
-reason: FC lint finds internal primitive types in the foreign descriptor but aihc-prim
-  types in the call arguments
+reason: FC2 lint cannot find GHC.Types.Int32Rep or GHC.Types.Tuple2#.

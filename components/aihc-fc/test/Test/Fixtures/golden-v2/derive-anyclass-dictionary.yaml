@@ -38,5 +38,4 @@ modules:
   useAny = anyValue
 expected: ''
 status: xfail
-reason: AnyClass lowering consumes finalized contexts, superclass evidence, and default-method
-  evidence attached by the type checker
+reason: FC2 desugaring does not emit the derived Any dictionary $fAnyWrappeda.

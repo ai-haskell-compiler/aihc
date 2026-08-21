@@ -25,5 +25,4 @@ modules:
   main = puts "hello world\n"#
 expected: ''
 status: xfail
-reason: FC lint finds internal primitive types in the foreign descriptor and a different
-  identity for the local puts occurrence
+reason: FC2 lint cannot find GHC.Types.Int32Rep or GHC.Types.Tuple2#.

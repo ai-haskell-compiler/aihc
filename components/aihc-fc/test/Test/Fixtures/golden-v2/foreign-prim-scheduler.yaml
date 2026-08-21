@@ -24,5 +24,4 @@ modules:
   reschedule state = yield# state
 expected: ''
 status: xfail
-reason: FC lint cannot find the declared primitive identities for the fork# and yield#
-  occurrences
+reason: FC2 lint cannot find GHC.Types.Tuple2# in the generated primitive types.
