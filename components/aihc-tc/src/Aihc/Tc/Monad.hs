@@ -192,10 +192,10 @@ unqualifiedTermKey :: Text -> TcTermKey
 unqualifiedTermKey = TcTermGlobal (PackageId "") ""
 
 -- | An empty environment at the top level.
-emptyTcEnv :: TcEnv
-emptyTcEnv =
+emptyTcEnv :: TcConfig -> TcEnv
+emptyTcEnv config =
   TcEnv
-    { tcEnvConfig = tcConfig (PackageId "aihc-prim"),
+    { tcEnvConfig = config,
       tcEnvTerms = Map.empty,
       tcEnvMonoLocalBinds = True,
       tcEnvMonomorphismRestriction = True,

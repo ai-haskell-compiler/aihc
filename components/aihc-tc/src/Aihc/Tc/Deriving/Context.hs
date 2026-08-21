@@ -185,13 +185,14 @@ attachDerivingEvidence plan =
   case (tcDerivingStrategy plan, tcDerivingContext plan) of
     (TcDerivingAnyclass, TcDerivingExplicitContext context) -> do
       superClassEvidence <- mapM (solveObligation context) superClasses
+      superClassBinders <- mapM predDictBinder superClasses
       defaultMethodEvidence <-
         mapM
           (traverse (mapM (solveObligation context)))
           (instantiatedDefaultSignaturePredicates plan)
       pure
         plan
-          { tcDerivingSuperClasses = zip (map predDictBinder superClasses) superClassEvidence,
+          { tcDerivingSuperClasses = zip superClassBinders superClassEvidence,
             tcDerivingDefaultMethodEvidence = defaultMethodEvidence
           }
     (TcDerivingStock, TcDerivingExplicitContext context)
@@ -251,7 +252,7 @@ derivingPlanInstanceInfoWithOrigin origin plan =
               { iiClassName = tcDerivingClassName plan,
                 iiDictName = tcDerivingDictName plan,
                 iiDictOrigin = Just origin,
-                iiDictType = foldr TcForAllTy (TcQualTy context (predType (planPredicate plan))) (tcDerivingTyVars plan),
+                iiDictType = foldr TcForAllTy (TcQualTy context (planPredicateType plan)) (tcDerivingTyVars plan),
                 iiTyVars = tcDerivingTyVars plan,
                 iiContext = context,
                 iiHead = tcDerivingHeadTypes plan
@@ -480,15 +481,15 @@ typeTyVars ty =
     TcAppTy function argument -> typeTyVars function <> typeTyVars argument
     TcBuiltinTyCon _ _ arguments -> concatMap typeTyVars arguments
 
-predDictBinder :: Pred -> TcDictBinderAnnotation
+planPredicateType :: TcDerivingPlan -> TcType
+planPredicateType plan =
+  TcTyCon (tcDerivingClassTyCon plan) (tcDerivingHeadTypes plan)
+
+predDictBinder :: Pred -> TcM TcDictBinderAnnotation
 predDictBinder predicate =
   case predicate of
     ClassPred classTyCon arguments ->
-      TcDictBinderAnnotation (tyConName classTyCon) arguments (predType predicate)
-    EqPred {} -> TcDictBinderAnnotation "<constraint>" [] (predType predicate)
-
-predType :: Pred -> TcType
-predType predicate =
-  case predicate of
-    ClassPred classTyCon arguments -> TcTyCon classTyCon arguments
-    EqPred left right -> TcTyCon (TyCon "~" 2) [left, right]
+      pure (TcDictBinderAnnotation (tyConName classTyCon) arguments (TcTyCon classTyCon arguments))
+    EqPred left right -> do
+      equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
+      pure (TcDictBinderAnnotation "<constraint>" [] (TcTyCon equalityTyCon [left, right]))

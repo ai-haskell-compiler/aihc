@@ -254,7 +254,7 @@ mkPredicateDict index predicate = do
   pure $
     case predicate of
       ClassPred className arguments -> ClassDict className arguments dictVar
-      EqPred {} -> ClassDict (TyCon "<equality>" 0) [] dictVar
+      EqPred {} -> ClassDict (legacyTyCon "<equality>" 0) [] dictVar
 
 qualifyType :: [Pred] -> TcType -> TcType
 qualifyType [] body = body

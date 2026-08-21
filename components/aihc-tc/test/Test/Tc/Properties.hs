@@ -3,6 +3,7 @@
 -- | Hedgehog property tests for the type checker.
 module Test.Tc.Properties
   ( prop_interfaceMergeIdempotent,
+    prop_knownTypesUseConfiguredPackage,
     prop_kindEncodingUsesType,
     prop_reflexiveEq,
     prop_starUsesType,
@@ -11,7 +12,7 @@ module Test.Tc.Properties
   )
 where
 
-import Aihc.Parser.Syntax (Type (TStar))
+import Aihc.Parser.Syntax (Type (TBuiltinCon, TStar), TypeBuiltinCon (TBuiltinList))
 import Aihc.Resolve (PackageId (PackageId))
 import Aihc.Tc
   ( ClassInfo (..),
@@ -25,7 +26,7 @@ import Aihc.Tc
     TypeFamilyInstanceInfo (..),
   )
 import Aihc.Tc.Kind (convertSurfaceTypeWithKinds)
-import Aihc.Tc.Monad (emptyTcEnv, freshMetaTv, initTcState, runTcM, writeMetaTv)
+import Aihc.Tc.Monad (TcEnv, emptyTcEnv, freshMetaTv, initTcState, mkKnownTyCon, runTcM, tcConfig, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Data.Map.Strict qualified as Map
@@ -39,12 +40,46 @@ tcProperties :: TestTree
 tcProperties =
   testGroup
     "properties"
-    [ testProperty "lifted kind encoding uses GHC.Types.Type" prop_kindEncodingUsesType,
+    [ testProperty "known types use the configured primitive package" prop_knownTypesUseConfiguredPackage,
+      testProperty "lifted kind encoding uses GHC.Types.Type" prop_kindEncodingUsesType,
       testProperty "star uses GHC.Types.Type" prop_starUsesType,
       testProperty "zonking idempotent" prop_zonkIdempotent,
       testProperty "reflexive equality solved" prop_reflexiveEq,
       testProperty "interface merge is idempotent" prop_interfaceMergeIdempotent
     ]
+
+-- | Type-checker-created primitive references must use the caller's package identity.
+prop_knownTypesUseConfiguredPackage :: Property
+prop_knownTypesUseConfiguredPackage = property $
+  case runTcM configuredEnv initTcState configuredTypes of
+    Right (((actual, kind), knownTyCons), _) -> do
+      let expectedTyCon = mkTyConWithOrigin configuredPackage "GHC.Types" "[]" 1 (KFun KType KType)
+      actual === TcTyCon expectedTyCon []
+      kind === KFun KType KType
+      map (\tyCon -> (tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon)) knownTyCons
+        === [ (configuredPackage, "GHC.Prim", "Int#"),
+              (configuredPackage, "GHC.Types", "'IntRep"),
+              (configuredPackage, "GHC.Tuple", "(,)"),
+              (configuredPackage, "GHC.Types", "~"),
+              (configuredPackage, "GHC.Types", "'[]"),
+              (configuredPackage, "GHC.Types", "':")
+            ]
+    Left err -> fail (show err)
+  where
+    configuredPackage = PackageId "test-ghc-prim"
+    configuredEnv = emptyTcEnv (tcConfig configuredPackage)
+    configuredTypes = do
+      listTy <- convertSurfaceTypeWithKinds Map.empty (TBuiltinCon TBuiltinList)
+      knownTyCons <-
+        sequence
+          [ mkKnownTyCon "GHC.Prim" "Int#" 0 KType,
+            mkKnownTyCon "GHC.Types" "'IntRep" 0 KRuntimeRep,
+            mkKnownTyCon "GHC.Tuple" "(,)" 2 (KFun KType (KFun KType KType)),
+            mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint)),
+            mkKnownTyCon "GHC.Types" "'[]" 0 KType,
+            mkKnownTyCon "GHC.Types" "':" 2 (KFun KType (KFun KType KType))
+          ]
+      pure (listTy, knownTyCons)
 
 -- | Repeated module views must not change a semantic interface.
 prop_interfaceMergeIdempotent :: Property
@@ -83,9 +118,9 @@ prop_kindEncodingUsesType = property $ do
 -- | A source star becomes the canonical GHC.Types.Type constructor.
 prop_starUsesType :: Property
 prop_starUsesType = property $
-  case runTcM emptyTcEnv initTcState (convertSurfaceTypeWithKinds Map.empty (TStar "*")) of
+  case runTcM testTcEnv initTcState (convertSurfaceTypeWithKinds Map.empty (TStar "*")) of
     Right ((actual, kind), _) -> do
-      let expected = TcTyCon (mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types" "Type" 0 KType) []
+      let expected = TcTyCon (mkTyConWithOrigin (PackageId "test-ghc-prim") "GHC.Types" "Type" 0 KType) []
       actual === expected
       kind === KType
     Left err -> fail (show err)
@@ -95,7 +130,7 @@ prop_zonkIdempotent :: Property
 prop_zonkIdempotent = property $ do
   ty <- forAll genSimpleType
   case runTcM
-    emptyTcEnv
+    testTcEnv
     initTcState
     ( do
         z1 <- zonkType ty
@@ -109,14 +144,14 @@ prop_zonkIdempotent = property $ do
 prop_reflexiveEq :: Property
 prop_reflexiveEq = property $
   case runTcM
-    emptyTcEnv
+    testTcEnv
     initTcState
     ( do
         alpha <- freshMetaTv
         -- Solve alpha := Int
         case alpha of
           TcMetaTv u -> do
-            let intTy = TcTyCon (TyCon "Int" 0) []
+            let intTy = TcTyCon (mkTyConWithOrigin (PackageId "test") "Test" "Int" 0 KType) []
             writeMetaTv u intTy
             result <- zonkType alpha
             pure (result == intTy)
@@ -160,19 +195,22 @@ genAppType depth = do
 genTyCon :: Gen TyCon
 genTyCon =
   Gen.element
-    [ TyCon "Int" 0,
-      TyCon "Bool" 0,
-      TyCon "Char" 0,
-      TyCon "Double" 0
+    [ mkTyConWithOrigin (PackageId "test") "Test" "Int" 0 KType,
+      mkTyConWithOrigin (PackageId "test") "Test" "Bool" 0 KType,
+      mkTyConWithOrigin (PackageId "test") "Test" "Char" 0 KType,
+      mkTyConWithOrigin (PackageId "test") "Test" "Double" 0 KType
     ]
 
 genTyCon1 :: Gen TyCon
 genTyCon1 =
   Gen.element
-    [ TyCon "Maybe" 1,
-      TyCon "[]" 1,
-      TyCon "IO" 1
+    [ mkTyConWithOrigin (PackageId "test") "Test" "Maybe" 1 (KFun KType KType),
+      mkTyConWithOrigin (PackageId "test") "Test" "[]" 1 (KFun KType KType),
+      mkTyConWithOrigin (PackageId "test") "Test" "IO" 1 (KFun KType KType)
     ]
+
+testTcEnv :: TcEnv
+testTcEnv = emptyTcEnv (tcConfig (PackageId "test-ghc-prim"))
 
 genUnique :: Gen Unique
 genUnique = Unique <$> Gen.int (Range.linear 100 199)

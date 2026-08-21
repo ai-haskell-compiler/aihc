@@ -27,7 +27,7 @@ where
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Fc2.Wired
-import Aihc.Resolve (PackageId (..))
+import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types
   ( Kind (..),
     Levity (..),
@@ -240,27 +240,22 @@ tyConNameFc2 :: ConvertEnv -> TyCon -> Name
 tyConNameFc2 env tyCon =
   if Set.member (tyConKey tyCon) (ceClassTyCons env)
     then classDictTypeName tyCon
-    else case wiredRewriteName env tyCon of
+    else case promotedNameFc2 tyCon of
       Just name -> name
       Nothing -> Name (tyConName tyCon) SortTypeConstructor (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
 
--- | Promoted runtime names from aihc-internal become GHC.Types data constructors.
-wiredRewriteName :: ConvertEnv -> TyCon -> Maybe Name
-wiredRewriteName env tyCon =
-  if shouldRewrite
-    then wiredBuiltinName env (tyConName tyCon)
+-- | Convert the type-checker promotion marker to an FC data-constructor name.
+promotedNameFc2 :: TyCon -> Maybe Name
+promotedNameFc2 tyCon =
+  if T.isPrefixOf "'" (tyConName tyCon)
+    then wiredBuiltinName tyCon
     else Nothing
-  where
-    shouldRewrite =
-      T.isPrefixOf "'" (tyConName tyCon)
-        || tyConPackageId tyCon == PackageId "aihc-internal"
-        || tyConModuleName tyCon == "Aihc.Internal"
 
-wiredBuiltinName :: ConvertEnv -> Text -> Maybe Name
-wiredBuiltinName env raw =
-  case Map.lookup (bareBuiltin raw) builtinTable of
-    Just (sort, moduleName) ->
-      Just (Name (bareBuiltin raw) sort (OriginTop (cePrimPackage env) moduleName))
+wiredBuiltinName :: TyCon -> Maybe Name
+wiredBuiltinName tyCon =
+  case Map.lookup (bareBuiltin (tyConName tyCon)) builtinTable of
+    Just (sort, _) ->
+      Just (Name (bareBuiltin (tyConName tyCon)) sort (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)))
     Nothing -> Nothing
 
 -- | Invisible kind parameters that the type constructor quantifies before visible arguments.

@@ -65,7 +65,7 @@ import Aihc.Tc
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
-    typecheckModuleSccWithInterfaceConfig,
+    typecheckModuleSccWithInterface,
   )
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket, bracketOnError)
@@ -402,7 +402,7 @@ compileLoadedModules loaded = do
         resolved@ResolveResult {resolvedModules} ->
           let moduleAsts = map snd resolvedModules
               (checkedModules, tcInterface) =
-                typecheckModuleSccWithInterfaceConfig (tcConfig primPackageId) (compileStateTcInterface state) moduleAsts
+                typecheckModuleSccWithInterface (tcConfig primPackageId) (compileStateTcInterface state) moduleAsts
            in if not (all tcModuleSuccess checkedModules)
                 then Left ("library typecheck error: " <> show (concatMap tcModuleDiagnostics checkedModules))
                 else

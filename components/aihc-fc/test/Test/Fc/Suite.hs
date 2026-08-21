@@ -15,8 +15,8 @@ import Aihc.Fc
 import Aihc.Fc.Syntax qualified as Fc
 import Aihc.Parser (defaultConfig, parseModule)
 import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (DataTypeInfo (..), TcInterface (..), emptyTcInterface, tcModuleBindings, typecheckModulesWithInterface)
-import Aihc.Tc.Types (Kind (..), Pred (..), TcType (..), TyCon (..), TyVarId (..), TypeScheme (..), Unique (..), mkTyCon, mkTyConWithOriginScheme, setTyConKindScheme, setTyVarKind)
+import Aihc.Tc (DataTypeInfo (..), TcConfig, TcInterface (..), emptyTcInterface, tcConfig, tcModuleBindings, typecheckModulesWithInterface)
+import Aihc.Tc.Types (Kind (..), Pred (..), TcType (..), TyCon (..), TyVarId (..), TypeScheme (..), Unique (..), mkTyConWithOriginScheme, setTyConKindScheme, setTyVarKind)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Control.Exception (SomeException, evaluate, try)
 import Data.List (find, isInfixOf)
@@ -40,7 +40,7 @@ fcLintTests =
       rejectsWrongCaseBinderType,
       rejectsWrongAlternativeBinderType,
       testCase "rejects a wrong type constructor argument kind" $ do
-        let proxyTyCon = mkTyCon "RuntimeRepProxy" 1 (KFun KRuntimeRep KType)
+        let proxyTyCon = legacyTyConWithKind "RuntimeRepProxy" 1 (KFun KRuntimeRep KType)
             badType = TcTyCon proxyTyCon [liftedType]
             program = FcProgram testModule [FcExternal (FcTopLevelOrigin "test" "Test" "value") badType]
         assertBool "expected a kind error" (any isKindError (lintProgram emptyLintEnv program)),
@@ -57,7 +57,7 @@ fcLintTests =
 -- This unit test verifies the required construction exception.
 rejectsPredicatesInKindSchemes :: TestTree
 rejectsPredicatesInKindSchemes = testCase "type constructor kind schemes reject predicates" $ do
-  let scheme = ForAll [] [ClassPred (TyCon "C" 0) []] (TcBuiltinTyCon "Type" 0 [])
+  let scheme = ForAll [] [ClassPred (legacyTyCon "C" 0) []] (TcBuiltinTyCon "Type" 0 [])
   result <- try (evaluate (mkTyConWithOriginScheme "pkg" "GHC.Prim" "T" 0 scheme)) :: IO (Either SomeException TyCon)
   case result of
     Left _ -> pure ()
@@ -66,7 +66,7 @@ rejectsPredicatesInKindSchemes = testCase "type constructor kind schemes reject 
 rejectsWrongCaseBinderType :: TestTree
 rejectsWrongCaseBinderType = testCase "rejects a wrong case binder type" $ do
   let scrutinee = Var "scrutinee" (Unique 10) liftedType
-      binder = Var "binder" (Unique 11) (TcTyCon (TyCon "Char" 0) [])
+      binder = Var "binder" (Unique 11) (TcTyCon (legacyTyCon "Char" 0) [])
       expression = Fc.FcCase (FcVar scrutinee) binder [FcAlt DefaultAlt [] (FcVar scrutinee)]
       environment = emptyLintEnv {leTerms = Map.singleton (varUnique scrutinee) (varType scrutinee)}
   case lintExpr environment expression of
@@ -75,9 +75,9 @@ rejectsWrongCaseBinderType = testCase "rejects a wrong case binder type" $ do
 
 rejectsWrongAlternativeBinderType :: TestTree
 rejectsWrongAlternativeBinderType = testCase "rejects a wrong case alternative binder type" $ do
-  let boxType = TcTyCon (mkTyCon "Box" 0 KType) []
+  let boxType = TcTyCon (legacyTyConWithKind "Box" 0 KType) []
       fieldType = liftedType
-      wrongField = Var "field" (Unique 12) (TcTyCon (TyCon "Char" 0) [])
+      wrongField = Var "field" (Unique 12) (TcTyCon (legacyTyCon "Char" 0) [])
       scrutinee = Var "scrutinee" (Unique 13) boxType
       caseBinder = Var "caseBinder" (Unique 14) boxType
       constructorOrigin = FcTopLevelOrigin "test" "Test" "Box"
@@ -104,7 +104,7 @@ missingGlobalEnvironmentTest = testCase "desugaring rejects a missing global var
       resolved = resolveWithDeps mempty [(Package "" (PackageId ""), modu) | modu <- parsed]
   case resolved of
     ResolveResult {resolvedModules, resolveErrors = []} -> do
-      let checkedModules = fst (typecheckModulesWithInterface emptyTcInterface (map snd resolvedModules))
+      let checkedModules = fst (typecheckModulesWithInterface testTcConfig emptyTcInterface (map snd resolvedModules))
           bindings = concatMap tcModuleBindings checkedModules
       case reverse checkedModules of
         checked : _ -> do
@@ -124,7 +124,7 @@ missingDataTypeInformationTest = testCase "desugaring rejects missing data type 
       resolved = resolveWithDeps mempty [(Package "" (PackageId ""), parsed)]
   case resolved of
     ResolveResult {resolvedModules = [(_, resolvedModule)], resolveErrors = []} -> do
-      let checkedModules = fst (typecheckModulesWithInterface emptyTcInterface [resolvedModule])
+      let checkedModules = fst (typecheckModulesWithInterface testTcConfig emptyTcInterface [resolvedModule])
       case checkedModules of
         [checked] -> do
           let result = desugarModuleWithInterface (DesugarConfig (PackageId "aihc-prim")) (tcModuleBindings checked) emptyTcInterface checked
@@ -143,7 +143,7 @@ corruptDataTypeInformationTest = testCase "desugaring rejects corrupt data type 
       resolved = resolveWithDeps mempty [(Package "" (PackageId ""), parsed)]
   case resolved of
     ResolveResult {resolvedModules = [(_, resolvedModule)], resolveErrors = []} -> do
-      let (checkedModules, interface) = typecheckModulesWithInterface emptyTcInterface [resolvedModule]
+      let (checkedModules, interface) = typecheckModulesWithInterface testTcConfig emptyTcInterface [resolvedModule]
           corrupt info
             | dtiName info == "Corrupt" = info {dtiResultKind = KMeta (Unique 999)}
             | otherwise = info
@@ -170,7 +170,7 @@ corruptClassKindTest = testCase "desugaring rejects a corrupt checked class kind
       resolved = resolveWithDeps mempty [(Package "" (PackageId ""), modu) | modu <- parsed]
   case resolved of
     ResolveResult {resolvedModules, resolveErrors = []} -> do
-      let (checkedModules, interface) = typecheckModulesWithInterface emptyTcInterface (map snd resolvedModules)
+      let (checkedModules, interface) = typecheckModulesWithInterface testTcConfig emptyTcInterface (map snd resolvedModules)
           corruptPredicate predicate =
             case predicate of
               ClassPred classTyCon arguments ->
@@ -225,10 +225,13 @@ runtimeRepVariable :: TyVarId
 runtimeRepVariable = setTyVarKind KRuntimeRep (TyVarId "rep" (Unique 1))
 
 liftedType :: TcType
-liftedType = TcTyCon (TyCon "Int" 0) []
+liftedType = TcTyCon (legacyTyCon "Int" 0) []
 
 runtimeRepType :: TcType
-runtimeRepType = TcTyCon (TyCon "'IntRep" 0) []
+runtimeRepType = TcTyCon (legacyTyCon "'IntRep" 0) []
+
+testTcConfig :: TcConfig
+testTcConfig = tcConfig (PackageId "aihc-prim")
 
 -- | Build the golden test tree from fixtures.
 fcGoldenTests :: IO TestTree

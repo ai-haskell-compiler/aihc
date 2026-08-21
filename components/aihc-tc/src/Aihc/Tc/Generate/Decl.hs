@@ -985,47 +985,32 @@ splitFunctionType ty =
 checkForeignValueType :: SourceSpan -> TcType -> TcM TcForeignMarshal
 checkForeignValueType sourceSpan ty =
   case ty of
-    TcTyCon (TyCon "Int" 0) [] -> pure (intMarshal ty ["I#"])
-    TcTyCon (TyCon "Int#" 0) [] -> pure (intMarshal ty [])
-    TcTyCon (TyCon "CInt" 0) [] -> pure (int32Marshal ty ["CInt", "I32#"])
-    TcTyCon (TyCon "Int32" 0) [] -> pure (int32Marshal ty ["I32#"])
-    TcTyCon (TyCon "Int32#" 0) [] -> pure (int32Marshal ty [])
-    TcTyCon (TyCon "Word64" 0) [] -> pure (word64Marshal ty ["W64#"])
-    TcTyCon (TyCon "Word64#" 0) [] -> pure (word64Marshal ty [])
-    TcTyCon (TyCon "Addr#" 0) [] -> pure (addrMarshal ty [])
-    TcTyCon (TyCon "Ptr" 1) [_] -> pure (addrMarshal ty ["Ptr"])
+    TcTyCon (TyCon "Int" 0) [] -> intMarshal ty ["I#"]
+    TcTyCon (TyCon "Int#" 0) [] -> intMarshal ty []
+    TcTyCon (TyCon "CInt" 0) [] -> int32Marshal ty ["CInt", "I32#"]
+    TcTyCon (TyCon "Int32" 0) [] -> int32Marshal ty ["I32#"]
+    TcTyCon (TyCon "Int32#" 0) [] -> int32Marshal ty []
+    TcTyCon (TyCon "Word64" 0) [] -> word64Marshal ty ["W64#"]
+    TcTyCon (TyCon "Word64#" 0) [] -> word64Marshal ty []
+    TcTyCon (TyCon "Addr#" 0) [] -> addrMarshal ty []
+    TcTyCon (TyCon "Ptr" 1) [_] -> addrMarshal ty ["Ptr"]
     _ -> do
       emitError sourceSpan (OtherError ("unsupported foreign import value type: " <> show ty))
-      pure (int32Marshal ty [])
+      int32Marshal ty []
   where
-    intMarshal sourceType constructors =
-      TcForeignMarshal
-        { tcForeignSourceType = sourceType,
-          tcForeignPrimitiveType = TcTyCon (TyCon "Int#" 0) [],
-          tcForeignConstructors = constructors,
-          tcForeignAbiType = TcForeignInt
-        }
-    int32Marshal sourceType constructors =
-      TcForeignMarshal
-        { tcForeignSourceType = sourceType,
-          tcForeignPrimitiveType = TcTyCon (TyCon "Int32#" 0) [],
-          tcForeignConstructors = constructors,
-          tcForeignAbiType = TcForeignInt32
-        }
-    word64Marshal sourceType constructors =
-      TcForeignMarshal
-        { tcForeignSourceType = sourceType,
-          tcForeignPrimitiveType = TcTyCon (TyCon "Word64#" 0) [],
-          tcForeignConstructors = constructors,
-          tcForeignAbiType = TcForeignWord64
-        }
-    addrMarshal sourceType constructors =
-      TcForeignMarshal
-        { tcForeignSourceType = sourceType,
-          tcForeignPrimitiveType = TcTyCon (TyCon "Addr#" 0) [],
-          tcForeignConstructors = constructors,
-          tcForeignAbiType = TcForeignAddr
-        }
+    intMarshal = marshal "Int#" TcForeignInt
+    int32Marshal = marshal "Int32#" TcForeignInt32
+    word64Marshal = marshal "Word64#" TcForeignWord64
+    addrMarshal = marshal "Addr#" TcForeignAddr
+    marshal primitiveName abiType sourceType constructors = do
+      primitiveTyCon <- mkKnownTyCon "GHC.Prim" primitiveName 0 liftedTypeKind
+      pure
+        TcForeignMarshal
+          { tcForeignSourceType = sourceType,
+            tcForeignPrimitiveType = TcTyCon primitiveTyCon [],
+            tcForeignConstructors = constructors,
+            tcForeignAbiType = abiType
+          }
 
 annotateDeclAt :: SourceSpan -> TcAnnotation -> Decl -> Decl
 annotateDeclAt NoSourceSpan tcAnn decl =
@@ -1090,8 +1075,9 @@ annotateInstanceDeclTc instanceDecl =
           defaults = ciDefaultMethods info
       superClasses <- mapM constraintTypePred superClassTypes
       superClassEvidence <- mapM (solveInstanceSuperClass classNameText context) superClasses
-      let contextDicts = map predDictBinder context
-          dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred (ciTyCon info) headTys))) tvIds
+      contextDicts <- mapM predDictBinder context
+      superClassBinders <- mapM predDictBinder superClasses
+      let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon info) headTys)) tvIds
           methodOrder = map fst (ciMethods info)
           classMethods = zipWith (classMethodFromInfo info) [0 :: Int ..] (ciMethods info)
           instAnn =
@@ -1106,7 +1092,7 @@ annotateInstanceDeclTc instanceDecl =
                 tcInstanceClassSuperClasses = map constraintTypeDictBinder (ciSuperClassTypes info),
                 tcInstanceClassMethods = classMethods,
                 tcInstanceContextDicts = contextDicts,
-                tcInstanceSuperClasses = zip (map predDictBinder superClasses) superClassEvidence,
+                tcInstanceSuperClasses = zip superClassBinders superClassEvidence,
                 tcInstanceMethodOrder = methodOrder,
                 tcInstanceDefaultMethods = defaults
               }
@@ -1117,7 +1103,7 @@ classMethodFromInfo :: ClassInfo -> Int -> (Text, TypeScheme) -> TcClassMethodAn
 classMethodFromInfo info index (methodName, scheme) =
   let methodType = schemeToType scheme
       (typeVariables, _) = peelForAlls methodType
-      dictionaryType = predType (ClassPred (ciTyCon info) (map TcTyVar (ciTyVars info)))
+      dictionaryType = TcTyCon (ciTyCon info) (map TcTyVar (ciTyVars info))
    in TcClassMethodAnnotation
         { tcClassMethodName = methodName,
           tcClassMethodType = methodType,
@@ -1331,7 +1317,7 @@ missingTypeInfo msg =
 selectorDictTypeTc :: Text -> TcType -> TcM TcType
 selectorDictTypeTc methodName methodTy =
   case snd (peelForAlls methodTy) of
-    TcQualTy (pred' : _) _ -> pure (predType pred')
+    TcQualTy (pred' : _) _ -> predType pred'
     _ -> missingTypeInfo ("class dictionary type for method selector " <> T.unpack methodName)
 
 peelForAlls :: TcType -> ([TyVarId], TcType)
@@ -1340,13 +1326,14 @@ peelForAlls (TcForAllTy tv body) =
    in (tv : tvs, inner)
 peelForAlls ty = ([], ty)
 
-predDictBinder :: Pred -> TcDictBinderAnnotation
+predDictBinder :: Pred -> TcM TcDictBinderAnnotation
 predDictBinder pred' =
   case pred' of
     ClassPred classTyCon args ->
-      TcDictBinderAnnotation (tyConName classTyCon) args (predType pred')
-    EqPred {} ->
-      TcDictBinderAnnotation "<constraint>" [] (predType pred')
+      pure (TcDictBinderAnnotation (tyConName classTyCon) args (TcTyCon classTyCon args))
+    EqPred {} -> do
+      ty <- predType pred'
+      pure (TcDictBinderAnnotation "<constraint>" [] ty)
 
 constraintTypeDictBinder :: TcType -> TcDictBinderAnnotation
 constraintTypeDictBinder ty =
@@ -2126,7 +2113,7 @@ registerInstanceDecl origin instanceDecl =
       let dictName = instanceDictName classNameText headTys
       context <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
       classInfo <- lookupClass classNameText >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
-      let dictTy = foldr TcForAllTy (TcQualTy context (predType (ClassPred (ciTyCon classInfo) headTys))) tvIds
+      let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon classInfo) headTys)) tvIds
       addInstance
         InstanceInfo
           { iiClassName = classNameText,
@@ -2139,9 +2126,11 @@ registerInstanceDecl origin instanceDecl =
           }
       pure [TcBindingResult dictName dictName dictTy]
 
-predType :: Pred -> TcType
-predType (ClassPred classTyCon args) = TcTyCon classTyCon args
-predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
+predType :: Pred -> TcM TcType
+predType (ClassPred classTyCon args) = pure (TcTyCon classTyCon args)
+predType (EqPred left right) = do
+  equalityTyCon <- mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint))
+  pure (TcTyCon equalityTyCon [left, right])
 
 instanceDictName :: Text -> [TcType] -> Text
 instanceDictName className tys = "$f" <> className <> T.concat (map typeSuffix tys)

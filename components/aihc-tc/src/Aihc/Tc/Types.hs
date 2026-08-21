@@ -29,7 +29,6 @@ module Aihc.Tc.Types
     tyConModuleName,
     tyConKind,
     tyConKindScheme,
-    mkTyCon,
     mkTyConWithOrigin,
     mkTyConWithOriginScheme,
     setTyConKindScheme,
@@ -114,14 +113,6 @@ type TcTypeKey = (PackageId, Text, Text)
 
 pattern TyCon :: Text -> Int -> TyCon
 pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ tyConName tyConArity _
-  where
-    TyCon name arity =
-      TyConInternal
-        (PackageId "aihc-internal")
-        "Aihc.Internal"
-        name
-        arity
-        (kindSchemeFromKind (wiredInTyConKind name arity))
 
 {-# COMPLETE TyCon #-}
 
@@ -139,9 +130,6 @@ tyConModuleName (TyConInternal _ moduleName _ _ _) = moduleName
 
 tyConKey :: TyCon -> TcTypeKey
 tyConKey tyCon = (tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon)
-
-mkTyCon :: Text -> Int -> Kind -> TyCon
-mkTyCon = mkTyConWithOrigin (PackageId "aihc-internal") "Aihc.Internal"
 
 -- | Make a type constructor with its installed package and module identity.
 mkTyConWithOrigin :: PackageId -> Text -> Text -> Int -> Kind -> TyCon

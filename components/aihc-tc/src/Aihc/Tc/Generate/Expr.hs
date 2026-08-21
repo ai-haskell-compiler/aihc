@@ -716,7 +716,7 @@ inferListComp sp body quals = do
 resolvedListTyCon :: TcM TyCon
 resolvedListTyCon = do
   maybeInfo <- lookupTyCon "[]"
-  pure (maybe (mkTyCon "[]" 1 (KFun KType KType)) tciTyCon maybeInfo)
+  maybe (mkKnownTyCon "GHC.Types" "[]" 1 (KFun KType KType)) (pure . tciTyCon) maybeInfo
 
 inferDo :: SourceSpan -> DoFlavor -> [DoStmt Expr] -> TcM (Expr, TcType, [Ct])
 inferDo sp flavor stmts =
@@ -940,7 +940,8 @@ doubleTyCon = do
 resolvedType :: Text -> TcM TcType
 resolvedType name = do
   maybeInfo <- lookupTyCon name
-  pure (TcTyCon (maybe (mkTyCon name 0 liftedTypeKind) tciTyCon maybeInfo) [])
+  tyCon <- maybe (mkKnownTyCon "GHC.Types" name 0 liftedTypeKind) (pure . tciTyCon) maybeInfo
+  pure (TcTyCon tyCon [])
 
 stringTyCon :: TcM TcType
 stringTyCon = do

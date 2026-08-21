@@ -20,7 +20,6 @@ import Aihc.Tc.Types
     VecCount (..),
     VecElem (..),
     liftedRuntimeRep,
-    mkTyCon,
     mkTyConWithOrigin,
     setTyVarKind,
   )
@@ -91,8 +90,8 @@ prop_tyVarEquality = property $ do
 
 prop_tyConEquality :: Property
 prop_tyConEquality = property $ do
-  let left = mkTyCon "T" 0 KType
-      right = mkTyCon "T" 0 KRuntimeRep
+  let left = legacyTyConWithKind "T" 0 KType
+      right = legacyTyConWithKind "T" 0 KRuntimeRep
   (left == right) === False
 
 prop_tyConKindSignature :: Property
@@ -144,7 +143,7 @@ prop_dependentRuntimeRep = property $ do
 
 prop_packageOrigins :: Property
 prop_packageOrigins = property $ do
-  let ty = TcTyCon (TyCon "Identity" 0) []
+  let ty = TcTyCon (legacyTyCon "Identity" 0) []
       occurrence packageName =
         FcVar
           ( (Var "id" (Unique 1) ty)
@@ -181,7 +180,7 @@ prop_externalSignatures = property $ do
 
 prop_nonPrimitiveBuiltinOrigin :: Property
 prop_nonPrimitiveBuiltinOrigin = property $ do
-  let ty = TcTyCon (TyCon "Int" 0) []
+  let ty = TcTyCon (legacyTyCon "Int" 0) []
       origin = FcBuiltinOrigin "value"
       binder = Var "local" (Unique 1) ty
       occurrence = (Var "value" (Unique 2) ty) {varResolvedName = Just origin}
@@ -204,7 +203,7 @@ prop_localSignatures = property $ do
   let origin = FcConstructorId "pkg" "Module" "True"
       declaration = FcDataDecl (FcTopLevelOrigin "pkg" "Module" "Bool") "Bool" [] KType [FcDataConDecl origin "True" []]
       constructor = (Var "True" (Unique 1) (fcDataResultType declaration)) {varResolvedName = Just (fcConstructorSymbolOrigin origin)}
-      result = Var "result" (Unique 2) (TcTyCon (TyCon "Bool" 0) [])
+      result = Var "result" (Unique 2) (TcTyCon (legacyTyCon "Bool" 0) [])
       program =
         FcProgram
           (FcModuleId "pkg" "Module")
@@ -414,7 +413,7 @@ genType =
     ]
 
 genPred :: Gen Pred
-genPred = Gen.choice [ClassPred <$> (TyCon <$> genTypeName <*> Gen.int (Range.linear 0 3)) <*> smallList genType, EqPred <$> genType <*> genType]
+genPred = Gen.choice [ClassPred <$> (legacyTyCon <$> genTypeName <*> Gen.int (Range.linear 0 3)) <*> smallList genType, EqPred <$> genType <*> genType]
 
 genTyVar :: Gen TyVarId
 genTyVar = do
@@ -428,7 +427,7 @@ genTyCon = do
   arity <- Gen.int (Range.linear 0 4)
   kind <- genKind
   Gen.choice
-    [ pure (mkTyCon typeName arity kind),
+    [ pure (legacyTyConWithKind typeName arity kind),
       (mkTyConWithOrigin . PackageId <$> genText) <*> genTypeName <*> pure typeName <*> pure arity <*> pure kind
     ]
 

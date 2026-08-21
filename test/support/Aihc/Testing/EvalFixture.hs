@@ -40,7 +40,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps, unnamedPackage)
-import Aihc.Tc (TcBindingResult, emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Tc (TcBindingResult, emptyTcInterface, tcConfig, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
 import Control.Exception (bracket, mask, onException)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -257,7 +257,7 @@ compileEvalCase tc =
            in case resolved of
                 ResolveResult {resolvedModules, resolveErrors = []} ->
                   let moduleAsts = map snd resolvedModules
-                      (tcResults, tcInterface) = typecheckModulesWithInterface emptyTcInterface moduleAsts
+                      (tcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (PackageId "aihc-prim")) emptyTcInterface moduleAsts
                    in if all tcModuleSuccess tcResults
                         then do
                           let allBindings = moduleGroupBindings tcResults

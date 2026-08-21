@@ -45,12 +45,12 @@ import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), PackageId (..), ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
 import Aihc.Tc
   ( InstanceInfo,
+    Kind (KFun, KType),
     TcBindingResult (..),
     TcDiagnostic (..),
     TcErrorKind (..),
     TcInterface,
     TcType (..),
-    TyCon (..),
     TyVarId (..),
     TypeScheme (..),
     Unique (..),
@@ -64,8 +64,9 @@ import Aihc.Tc
     tcModuleInstances,
     tcModuleSuccess,
     typecheckModuleWithEnvAndInstances,
-    typecheckModulesWithInterfaceConfig,
+    typecheckModulesWithInterface,
   )
+import Aihc.Tc.Types (mkTyConWithOrigin)
 import Control.Monad.IO.Class (liftIO)
 import Data.Aeson ((.:))
 import Data.Aeson qualified as Aeson
@@ -235,7 +236,7 @@ typecheckExpression session input = do
     case resolvedModules resolved of
       [(_, modu)] -> Right modu
       _ -> Left (ReplResolveError [ResolveNotImplemented "REPL resolver returned no module"])
-  let tcResult = typecheckModuleWithEnvAndInstances (replImportedTerms session) (replImportedInstances session) resolvedModule
+  let tcResult = typecheckModuleWithEnvAndInstances (tcConfig (PackageId "aihc-prim")) (replImportedTerms session) (replImportedInstances session) resolvedModule
   if tcModuleSuccess tcResult
     then pure ()
     else Left (ReplTypeError (map renderReplTcDiagnostic (tcModuleDiagnostics tcResult)))
@@ -515,7 +516,7 @@ buildBaseContext modules =
     resolved@ResolveResult {resolveErrors = [], resolvedModules} -> do
       let moduleAsts = map snd resolvedModules
           (tcResults, tcInterface) =
-            typecheckModulesWithInterfaceConfig
+            typecheckModulesWithInterface
               (tcConfig (PackageId "aihc-prim"))
               emptyTcInterface
               moduleAsts
@@ -804,7 +805,7 @@ appendScheme =
   ForAll [aVar] [] (TcFunTy listA (TcFunTy listA listA))
   where
     aVar = TyVarId "a" (Unique (-100))
-    listA = TcTyCon (TyCon "[]" 1) [TcTyVar aVar]
+    listA = TcTyCon (mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types" "[]" 1 (KFun KType KType)) [TcTyVar aVar]
 
 normalizeImportedBindingName :: Text -> Text
 normalizeImportedBindingName name =
