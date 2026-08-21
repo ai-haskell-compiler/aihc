@@ -34,7 +34,7 @@ modules:
   caseInt = case (1 :: Int) of
     1 -> ()
 expected: |-
-  scope 1 = "aihc-prim" GHC.Classes
+  scope 1 = "" GHC.Classes
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
@@ -91,24 +91,24 @@ expected: |-
    = 1.v$Dict$Num @1.tInteger (λ(x : 1.tInteger).
     x)
   scope 1 = "" Prelude
-  scope 1 = "" GHC.Num
-  scope 2 = "" Main
-  scope 3 = "aihc-prim" GHC.Classes
+  scope 1 = "" GHC.Classes
+  scope 2 = "" GHC.Num
+  scope 3 = "" Main
   scope 4 = "aihc-prim" GHC.Tuple
   scope 5 = "aihc-prim" GHC.Types
 
-  pub val 2.vasInt :: 5.tInt
-   = 1.vfromInteger @5.tInt 1.v$fNumInt (1.vIS 1#5.vIntRep)
+  pub val 3.vasInt :: 5.tInt
+   = 2.vfromInteger @5.tInt 2.v$fNumInt (2.vIS 1#5.vIntRep)
 
-  pub val 2.vasInteger :: 1.tInteger
-   = 1.vfromInteger @1.tInteger 1.v$fNumInteger (1.vIS 1#5.vIntRep)
+  pub val 3.vasInteger :: 2.tInteger
+   = 2.vfromInteger @2.tInteger 2.v$fNumInteger (2.vIS 1#5.vIntRep)
 
-  pub val 2.vcaseInt :: 4.tUnit
+  pub val 3.vcaseInt :: 4.tUnit
    = let {
       _case : 5.tInt =
-          1.vfromInteger @5.tInt 1.v$fNumInt (1.vIS 1#5.vIntRep)
+          2.vfromInteger @5.tInt 2.v$fNumInt (2.vIS 1#5.vIntRep)
   } in
-      case 3.v== @5.tInt 3.v$fEqInt _case (1.vfromInteger @5.tInt 1.v$fNumInt (1.vIS 1#5.vIntRep)) as (_case_guard : 5.tBool) return (4.tUnit) of {
+      case 1.v== @5.tInt 1.v$fEqInt _case (2.vfromInteger @5.tInt 2.v$fNumInt (2.vIS 1#5.vIntRep)) as (_case_guard : 5.tBool) return (4.tUnit) of {
           5.vTrue →
               4.v();
           5.vFalse →

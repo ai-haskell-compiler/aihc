@@ -20,12 +20,11 @@ import Aihc.Parser.Syntax
     effectiveExtensions,
     headerExtensionSettings,
     headerLanguageEdition,
-    moduleName,
     parseExtensionName,
     parseLanguageEdition,
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
-import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), extractInterface, resolveWithDeps)
+import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), extractInterface, modulesInPackage, resolveWithDeps)
 import Aihc.Tc
   ( TcInterface,
     emptyTcInterface,
@@ -190,7 +189,7 @@ renderFc2Case tc =
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps (supportScopes primitiveSupport) (map modulePackage modules) of
+          case resolveWithDeps (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               let fixtureAsts = map snd resolvedModules
                   (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (supportTcInterface primitiveSupport) fixtureAsts
@@ -239,7 +238,7 @@ preparePrimitiveSupport primitiveModules =
   case mapM (uncurry parsePrimitiveModule) primitiveModules of
     Left errMsg -> Left ("parse error: " <> errMsg)
     Right modules ->
-      case resolveWithDeps mempty (map modulePackage modules) of
+      case resolveWithDeps mempty (modulesInPackage primitivePackage modules) of
         resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
           let primitiveAsts = map snd resolvedModules
               (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface emptyTcInterface primitiveAsts
@@ -259,11 +258,11 @@ preparePrimitiveSupport primitiveModules =
                 else Left ("typecheck error: " <> unlines [show d | r <- primitiveTcResults, d <- tcModuleDiagnostics r])
         ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
 
-modulePackage :: Module -> (Package, Module)
-modulePackage modu
-  | moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
-      (Package "aihc-prim" (PackageId "aihc-prim"), modu)
-  | otherwise = (Package "" (PackageId ""), modu)
+primitivePackage :: Package
+primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
+
+fixturePackage :: Package
+fixturePackage = Package "" (PackageId "")
 
 desugarConfig :: DesugarConfig
 desugarConfig = DesugarConfig {primPackageId = PackageId "aihc-prim"}
