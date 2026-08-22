@@ -5,7 +5,6 @@ module Aihc.Cli
 where
 
 import Aihc.Cli.Compile (runCompile)
-import Aihc.Cli.Install (runInstall)
 import Aihc.Cli.InstallV2 (runInstallV2)
 import Aihc.Cli.Options (Command (..), ReplOptions (..), parseCommandIO)
 import Aihc.Cli.Repl (runRepl)
@@ -25,7 +24,6 @@ main = do
 
 runCommand :: Command -> IO ()
 runCommand (CmdCompile opts) = runCompile opts
-runCommand (CmdInstall opts) = runInstall opts
 runCommand (CmdInstallV2 opts) = runInstallV2 opts
 runCommand (CmdPrepareRuntime opts) = runPrepareRuntime opts
 runCommand (CmdRepl opts) = runRepl (replStoreRoot opts)
