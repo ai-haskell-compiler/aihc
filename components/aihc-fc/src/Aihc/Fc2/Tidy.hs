@@ -117,41 +117,22 @@ tidyRecBind env binder bind =
 
 tidyAlt :: TidyEnv -> Alt -> Alt
 tidyAlt env alternative =
-  let implicitEnv = foldl tidyImplicitTypeName env (implicitTypeNames env (altBinders alternative))
-      (binders, rhsEnv) = tidyBinders implicitEnv (altBinders alternative)
+  let (constructor, fieldEnv) = tidyAltCon env (altCon alternative)
+      (binders, rhsEnv) = tidyBinders fieldEnv (altBinders alternative)
    in alternative
-        { altCon = tidyAltCon env (altCon alternative),
+        { altCon = constructor,
           altBinders = binders,
           altRhs = tidyExpr rhsEnv (altRhs alternative)
         }
 
-implicitTypeNames :: TidyEnv -> [Binder] -> [Name]
-implicitTypeNames env binders =
-  filter (`Map.notMember` tidyNames env) (Set.toAscList (Set.unions (map (freeTypeNames Set.empty . binderType) binders)))
-
-freeTypeNames :: Set Name -> Type -> Set Name
-freeTypeNames bound ty =
-  case ty of
-    TyVar name
-      | name `Set.member` bound -> Set.empty
-      | otherwise -> Set.singleton name
-    TyCon {} -> Set.empty
-    TyApp function argument -> freeTypeNames bound function <> freeTypeNames bound argument
-    TyFun r1 r2 argument result -> Set.unions (map (freeTypeNames bound) [r1, r2, argument, result])
-    TyForAll binder body ->
-      freeTypeNames bound (binderType binder)
-        <> freeTypeNames (Set.insert (binderName binder) bound) body
-    TyEq left right -> freeTypeNames bound left <> freeTypeNames bound right
-
-tidyImplicitTypeName :: TidyEnv -> Name -> TidyEnv
-tidyImplicitTypeName env name = bindName env name (tidyBinderName env name)
-
-tidyAltCon :: TidyEnv -> AltCon -> AltCon
+tidyAltCon :: TidyEnv -> AltCon -> (AltCon, TidyEnv)
 tidyAltCon env alternative =
   case alternative of
-    AltData name -> AltData (tidyUse env name)
-    AltLit literal -> AltLit (tidyLiteral env literal)
-    AltDefault -> AltDefault
+    AltData name binders ->
+      let (binders', bodyEnv) = tidyBinders env binders
+       in (AltData (tidyUse env name) binders', bodyEnv)
+    AltLit literal -> (AltLit (tidyLiteral env literal), env)
+    AltDefault -> (AltDefault, env)
 
 tidyLiteral :: TidyEnv -> Literal -> Literal
 tidyLiteral env literal =

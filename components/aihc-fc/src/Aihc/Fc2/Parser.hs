@@ -416,7 +416,7 @@ caseAlt =
         _ <- symbol "→" <|> symbol "->"
         OpenAlt AltDefault [] <$> expression,
       do
-        constructor <- MP.try (AltLit <$> literal) <|> (AltData <$> topNameWithSort)
+        constructor <- MP.try (AltLit <$> literal) <|> (AltData <$> topNameWithSort <*> pure [])
         binders <- MP.many (openTermBinder SortValue)
         _ <- symbol "→" <|> symbol "->"
         OpenAlt constructor binders <$> expression
@@ -647,10 +647,18 @@ collectHeaders scopes =
     empty = emptyTypeEnv
     add env decl =
       case decl of
-        OpenTypeDecl _ name binders result _ _
+        OpenTypeDecl _ name binders result _ constructors
           | Right closedBinders <- mapM (closeBinder env) binders,
-            Right closed <- closeType (extendBinders env closedBinders) result ->
-              env {teHeaders = Map.insert name (headerType closedBinders closed) (teHeaders env)}
+            let binderEnv = extendBinders env closedBinders,
+            Right closed <- closeType binderEnv result,
+            Right closedConstructors <- mapM (fillCon binderEnv) constructors ->
+              env
+                { teHeaders =
+                    foldl
+                      (\headers constructor -> Map.insert (conName constructor) (conType constructor) headers)
+                      (Map.insert name (headerType closedBinders closed) (teHeaders env))
+                      closedConstructors
+                }
         OpenSynonymDecl _ name binders result body
           | Right closedBinders <- mapM (closeBinder env) binders,
             Right closedResult <- closeType (extendBinders env closedBinders) result,
@@ -732,10 +740,57 @@ fillExpr env expr =
     OCast body coercionValue -> ExCast <$> fillExpr env body <*> fillCoercion env coercionValue
 
 fillAlt :: TypeEnv -> OpenAlt -> Either String Alt
-fillAlt env (OpenAlt con binders rhs) = do
-  closedBinders <- mapM (closeBinder env) binders
-  closed <- fillExpr (extendBinders env closedBinders) rhs
-  pure (Alt con closedBinders closed)
+fillAlt env (OpenAlt con binders rhs) =
+  case con of
+    AltData name _ -> do
+      existentialCount <- constructorExistentialCount env name
+      let (openTypeBinders, openFieldBinders) = splitAt existentialCount binders
+      (typeBinders, fieldEnv) <- closeAltTypeBinders env openTypeBinders
+      fieldBinders <- mapM (closeBinder fieldEnv) openFieldBinders
+      closed <- fillExpr (extendBinders fieldEnv fieldBinders) rhs
+      pure (Alt (AltData name typeBinders) fieldBinders closed)
+    _ -> do
+      closedBinders <- mapM (closeBinder env) binders
+      closed <- fillExpr (extendBinders env closedBinders) rhs
+      pure (Alt con closedBinders closed)
+
+closeAltTypeBinders :: TypeEnv -> [OpenBinder] -> Either String ([Binder], TypeEnv)
+closeAltTypeBinders env binders =
+  case binders of
+    [] -> Right ([], env)
+    OpenBinder name kind : rest -> do
+      binder <- closeBinder env (OpenBinder name {nameSort = SortTypeVariable} kind)
+      (closed, finalEnv) <- closeAltTypeBinders (extend env binder) rest
+      Right (binder : closed, finalEnv)
+
+constructorExistentialCount :: TypeEnv -> Name -> Either String Int
+constructorExistentialCount env name =
+  case lookupHeaderType env name of
+    Nothing -> Right 0
+    Just constructorType ->
+      let (binders, result) = constructorBindersAndResult env constructorType
+       in Right (length [binder | binder <- binders, not (typeContainsName (binderName binder) result)])
+
+constructorBindersAndResult :: TypeEnv -> Type -> ([Binder], Type)
+constructorBindersAndResult env ty =
+  case ty of
+    TyForAll binder body ->
+      let (binders, result) = constructorBindersAndResult env body
+       in (binder : binders, result)
+    TyFun _ _ _ body -> constructorBindersAndResult env body
+    other ->
+      let reduced = reduceType env other
+       in if reduced == other then ([], other) else constructorBindersAndResult env reduced
+
+typeContainsName :: Name -> Type -> Bool
+typeContainsName target ty =
+  case ty of
+    TyVar name -> name == target
+    TyCon {} -> False
+    TyApp function argument -> typeContainsName target function || typeContainsName target argument
+    TyFun r1 r2 argument result -> any (typeContainsName target) [r1, r2, argument, result]
+    TyForAll binder body -> typeContainsName target (binderType binder) || (binderName binder /= target && typeContainsName target body)
+    TyEq left right -> typeContainsName target left || typeContainsName target right
 
 fillCoercion :: TypeEnv -> OpenCoercion -> Either String Coercion
 fillCoercion env coercionValue =
@@ -890,7 +945,7 @@ normalizeAlt table alternative =
 normalizeAltCon :: Map.Map Name Sort -> AltCon -> AltCon
 normalizeAltCon table alt =
   case alt of
-    AltData name -> AltData (rewriteName table name)
+    AltData name binders -> AltData (rewriteName table name) (map (normalizeBinder table) binders)
     AltLit literalValue -> AltLit (normalizeLiteral table literalValue)
     AltDefault -> AltDefault
 

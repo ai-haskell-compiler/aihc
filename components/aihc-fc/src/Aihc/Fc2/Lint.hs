@@ -477,14 +477,15 @@ lintAlt env scrutType alt =
       unless (null (altBinders alt)) (Left (LintFailure "literal alternative has field binders"))
       matchLiteralAlternative env scrutType literal
       lintExpr env (altRhs alt)
-    AltData name ->
+    AltData name typeBinders ->
       case lookupHeaderType (leTypes env) name of
         Nothing -> Left (UnboundName name)
         Just constructorType -> do
           (existentials, fields) <- matchConstructor env constructorType scrutType
+          unless (length existentials == length typeBinders) (Left (LintFailure ("case alternative type binder count does not match constructor: " <> show name)))
+          (envEx, substitution) <- foldM (bindExistential name) (env, Map.empty) (zip existentials typeBinders)
           unless (length fields == length (altBinders alt)) (Left (LintFailure ("case alternative binder count does not match constructor: " <> show name)))
-          envEx <- foldM bindLocal env existentials
-          envFields <- foldM (bindField name) envEx (zip fields (altBinders alt))
+          envFields <- foldM (bindField name) envEx (zip (map (applySubst substitution) fields) (altBinders alt))
           lintExpr envFields (altRhs alt)
 
 matchLiteralAlternative :: LintEnv -> Type -> Literal -> Either LintError ()
@@ -497,6 +498,14 @@ bindField constructorName env (expected, binder) = do
   env' <- bindLocal env binder
   unless (typesEqual (leTypes env) expected (binderType binder)) (Left (TypeMismatch ("case alternative binder for " <> show constructorName) expected (binderType binder)))
   Right env'
+
+bindExistential :: Name -> (LintEnv, Map Name Type) -> (Binder, Binder) -> Either LintError (LintEnv, Map Name Type)
+bindExistential constructorName (env, substitution) (expected, actual) = do
+  unless (nameSort (binderName actual) == SortTypeVariable) (Left (LintFailure ("case alternative type binder has an invalid name sort: " <> show constructorName)))
+  env' <- bindLocal env actual
+  let expectedKind = applySubst substitution (binderType expected)
+  unless (typesEqual (leTypes env') expectedKind (binderType actual)) (Left (KindMismatch ("case alternative type binder for " <> show constructorName) expectedKind (binderType actual)))
+  Right (env', Map.insert (binderName expected) (TyVar (binderName actual)) substitution)
 
 matchConstructor :: LintEnv -> Type -> Type -> Either LintError ([Binder], [Type])
 matchConstructor env constructorType scrutType = do

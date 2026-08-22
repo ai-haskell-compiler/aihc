@@ -75,7 +75,6 @@ data ValueState = ValueState
     vsDictionaries :: !(Map Text Binder),
     vsConstructors :: !(Map Text [Name]),
     vsDataConstructors :: !(Map (PackageId, Text, Text) DataConInfo),
-    vsTypeSubstitution :: !(Map Unique TcType),
     vsNewtypeConstructors :: !(Map (PackageId, Text, Text) DataTypeInfo)
   }
 
@@ -132,7 +131,6 @@ desugarValues convertEnv bindings interface moduleOrigin checked = do
             vsDictionaries = Map.empty,
             vsConstructors = constructors,
             vsDataConstructors = dataConstructors,
-            vsTypeSubstitution = Map.empty,
             vsNewtypeConstructors = newtypes
           }
   fst <$> runStateT (desugarModuleValues checked) initialState
@@ -305,7 +303,7 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
           (ExVar (binderName classDictionary))
           caseBinder
           resultType'
-          [Alt (AltData (classDictConName classTyCon)) fields selectedExpr]
+          [Alt (AltData (classDictConName classTyCon) []) fields selectedExpr]
   typeBinders <- mapM convertTypeBinder typeVariables
   methodType' <- convertCheckedType (tcClassMethodType method)
   moduleOrigin <- gets vsModuleOrigin
@@ -613,8 +611,8 @@ desugarOverloadedIntegerMatch resultType arguments match failure =
                 test
                 testBinder
                 resultType'
-                [ Alt (AltData trueName) [] success,
-                  Alt (AltData falseName) [] failure
+                [ Alt (AltData trueName []) [] success,
+                  Alt (AltData falseName []) [] failure
                 ]
             )
       | otherwise =
@@ -797,27 +795,27 @@ desugarPatternGroup resultType remaining matches key = do
   constructor <- patternConstructor pattern'
   let subpatterns = patternChildren pattern'
       predicates = patternGivenPredicates pattern'
-  substitution <- patternConstructorSubstitution pattern'
-  withTypeSubstitution substitution $ do
-    fieldTypes <- patternFieldTypes pattern' subpatterns
-    fields <- zipWithM freshPatternBinder subpatterns fieldTypes
-    dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
-    let arity = length fields
-        expanded = mapMaybe (specializeMatch key arity) matches
-        localBindings =
-          concat
-            [ concat (zipWith3 patternMatchBindings children fields fieldTypes)
-            | match <- matches,
-              candidate : _ <- [Syn.matchPats match],
-              not (patternIsDefault candidate),
-              patternKey candidate == key,
-              let children = patternChildren candidate
-            ]
-    body <-
-      withDictionaries
-        (zipWith predicateDictionary predicates dictionaries)
-        (withLocals localBindings (desugarMatchArguments resultType (fields <> remaining) expanded))
-    pure (Alt constructor (dictionaries <> fields) body)
+  existentialVariables <- patternConstructorExistentials pattern'
+  typeBinders <- mapM convertTypeBinder existentialVariables
+  fieldTypes <- patternFieldTypes pattern' subpatterns
+  fields <- zipWithM freshPatternBinder subpatterns fieldTypes
+  dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+  let arity = length fields
+      expanded = mapMaybe (specializeMatch key arity) matches
+      localBindings =
+        concat
+          [ concat (zipWith3 patternMatchBindings children fields fieldTypes)
+          | match <- matches,
+            candidate : _ <- [Syn.matchPats match],
+            not (patternIsDefault candidate),
+            patternKey candidate == key,
+            let children = patternChildren candidate
+          ]
+  body <-
+    withDictionaries
+      (zipWith predicateDictionary predicates dictionaries)
+      (withLocals localBindings (desugarMatchArguments resultType (fields <> remaining) expanded))
+  pure (Alt (constructorWithTypeBinders typeBinders constructor) (dictionaries <> fields) body)
 
 patternGivenPredicates :: Syn.Pattern -> [Pred]
 patternGivenPredicates = go
@@ -843,29 +841,29 @@ patternGivenPredicates = go
         ]
     evidencePredicates checked = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceTerms checked]
 
-patternConstructorSubstitution :: Syn.Pattern -> ValueM (Map Unique TcType)
-patternConstructorSubstitution pattern' = do
+patternConstructorExistentials :: Syn.Pattern -> ValueM [TyVarId]
+patternConstructorExistentials pattern' = do
   constructors <- gets vsDataConstructors
   case patternConstructorSourceName pattern' >>= resolvedTermKey >>= (`Map.lookup` constructors) of
-    Nothing -> pure Map.empty
+    Nothing -> pure []
     Just constructor ->
       case dciExTyVars constructor of
-        [] -> pure Map.empty
+        [] -> pure []
         existentials -> do
           annotation <- maybe (failValue "existential constructor pattern has no checked annotation") pure (patternConstructorAnnotation pattern')
           let declaredTypes = constructorBodyType constructor : concatMap predicateTypes (dciTheta constructor)
               actualTypes = tcAnnType annotation : concatMap predicateTypes (patternGivenPredicates pattern')
           instantiation <- maybe (failValue "existential constructor pattern types do not match its declaration") pure (matchTypes declaredTypes actualTypes)
-          Map.fromList <$> mapM (existentialSubstitution instantiation) existentials
+          mapM (existentialVariable instantiation) existentials
   where
     constructorBodyType constructor = foldr TcFunTy (dciResTy constructor) (dataConArgTypes constructor)
     predicateTypes predicate =
       case predicate of
         ClassPred _ arguments -> arguments
         EqPred left right -> [left, right]
-    existentialSubstitution instantiation existential =
+    existentialVariable instantiation existential =
       case Map.lookup (tvUnique existential) instantiation of
-        Just (TcTyVar skolem) -> pure (tvUnique skolem, TcTyVar existential)
+        Just (TcTyVar skolem) -> pure skolem
         Just ty -> failValue ("existential constructor pattern has a non-variable type: " <> show ty)
         Nothing -> failValue "existential constructor pattern does not instantiate all existential types"
 
@@ -991,10 +989,10 @@ patternChildren pattern' =
 patternConstructor :: Syn.Pattern -> ValueM AltCon
 patternConstructor pattern' =
   case peelPattern pattern' of
-    Syn.PCon name _ _ -> AltData <$> resolvedTermName name
-    Syn.PInfix _ name _ -> AltData <$> resolvedTermName name
-    Syn.PList [] -> AltData <$> primitiveName "GHC.Types" "[]" SortDataConstructor
-    Syn.PList (_ : _) -> AltData <$> primitiveName "GHC.Types" ":" SortDataConstructor
+    Syn.PCon name _ _ -> (`AltData` []) <$> resolvedTermName name
+    Syn.PInfix _ name _ -> (`AltData` []) <$> resolvedTermName name
+    Syn.PList [] -> (`AltData` []) <$> primitiveName "GHC.Types" "[]" SortDataConstructor
+    Syn.PList (_ : _) -> (`AltData` []) <$> primitiveName "GHC.Types" ":" SortDataConstructor
     Syn.PTuple flavor fields ->
       let arity = length fields
           constructor =
@@ -1005,13 +1003,19 @@ patternConstructor pattern' =
             case flavor of
               Syn.Boxed -> "GHC.Tuple"
               Syn.Unboxed -> "GHC.Types"
-       in AltData <$> primitiveName moduleName' constructor SortDataConstructor
+       in (`AltData` []) <$> primitiveName moduleName' constructor SortDataConstructor
     Syn.PLit literal
-      | isBoxedCharacterLiteral literal -> AltData <$> uniqueConstructorName "C#"
+      | isBoxedCharacterLiteral literal -> (`AltData` []) <$> uniqueConstructorName "C#"
       | otherwise -> AltLit <$> patternLiteral literal
     Syn.PWildcard -> pure AltDefault
     Syn.PVar {} -> pure AltDefault
     unsupported -> failValue ("unsupported System FC 2 pattern: " <> take 80 (show unsupported))
+
+constructorWithTypeBinders :: [Binder] -> AltCon -> AltCon
+constructorWithTypeBinders binders constructor =
+  case constructor of
+    AltData name _ -> AltData name binders
+    other -> other
 
 patternLiteral :: Syn.Literal -> ValueM Literal
 patternLiteral literal =
@@ -1190,8 +1194,8 @@ desugarIf resultType condition thenExpression elseExpression = do
         condition'
         binder
         resultType'
-        [ Alt (AltData trueName) [] thenExpression',
-          Alt (AltData falseName) [] elseExpression'
+        [ Alt (AltData trueName []) [] thenExpression',
+          Alt (AltData falseName []) [] elseExpression'
         ]
     )
 
@@ -1414,19 +1418,19 @@ desugarDoConstructorPattern resultType binder pattern' success = do
     Nothing -> do
       let children = patternChildren pattern'
           predicates = patternGivenPredicates pattern'
-      substitution <- patternConstructorSubstitution pattern'
-      withTypeSubstitution substitution $ do
-        fieldTypes <- patternFieldTypes pattern' children
-        fields <- zipWithM freshPatternBinder children fieldTypes
-        dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
-        constructor <- patternConstructor pattern'
-        resultType' <- convertCheckedType resultType
-        caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
-        body <-
-          withDictionaries
-            (zipWith predicateDictionary predicates dictionaries)
-            (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success)
-        pure (ExCase (ExVar (binderName binder)) caseBinder resultType' [Alt constructor (dictionaries <> fields) body])
+      existentialVariables <- patternConstructorExistentials pattern'
+      typeBinders <- mapM convertTypeBinder existentialVariables
+      fieldTypes <- patternFieldTypes pattern' children
+      fields <- zipWithM freshPatternBinder children fieldTypes
+      dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
+      constructor <- patternConstructor pattern'
+      resultType' <- convertCheckedType resultType
+      caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)
+      body <-
+        withDictionaries
+          (zipWith predicateDictionary predicates dictionaries)
+          (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success)
+      pure (ExCase (ExVar (binderName binder)) caseBinder resultType' [Alt (constructorWithTypeBinders typeBinders constructor) (dictionaries <> fields) body])
 
 desugarDoChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> ValueM Expr
 desugarDoChildPatterns resultType children success =
@@ -1596,7 +1600,7 @@ desugarEvidence evidence =
             sourceExpression
             sourceBinder
             resultType
-            [Alt (AltData (classDictConName classTyCon)) fieldBinders (ExVar (binderName selected))]
+            [Alt (AltData (classDictConName classTyCon) []) fieldBinders (ExVar (binderName selected))]
         )
     Ev.EvCast inner coercion -> ExCast <$> desugarEvidence inner <*> convertCoercion coercion
     Ev.EvTypeable origin ty arguments -> desugarTypeableEvidence origin ty arguments
@@ -1806,8 +1810,7 @@ freshDictionaryBinder :: Text -> Int -> Pred -> ValueM Binder
 freshDictionaryBinder prefix index predicate = do
   unique <- freshUnique
   env <- gets vsConvertEnv
-  substitution <- gets vsTypeSubstitution
-  ty <- liftEither (convertPred env (substitutePredicate substitution predicate))
+  ty <- liftEither (convertPred env predicate)
   pure (Binder (Name (prefix <> T.pack (show index)) SortValue (OriginLocal unique)) ty)
 
 freshBinder :: Text -> TcType -> ValueM Binder
@@ -1889,8 +1892,7 @@ applicationResultType ty =
 convertCheckedType :: TcType -> ValueM Type
 convertCheckedType ty = do
   env <- gets vsConvertEnv
-  substitution <- gets vsTypeSubstitution
-  liftEither (convertType env (TcInstantiate.applySubst substitution ty))
+  liftEither (convertType env ty)
 
 convertTypeBinder :: TyVarId -> ValueM Binder
 convertTypeBinder tyVar = do
@@ -1919,14 +1921,6 @@ numericRepresentation numericType =
 
 predicateDictionary :: Pred -> Binder -> Dictionary
 predicateDictionary = Dictionary
-
-withTypeSubstitution :: Map Unique TcType -> ValueM a -> ValueM a
-withTypeSubstitution additions action = do
-  previous <- gets vsTypeSubstitution
-  modify' (\state -> state {vsTypeSubstitution = Map.union additions previous})
-  result <- action
-  modify' (\state -> state {vsTypeSubstitution = previous})
-  pure result
 
 withLocals :: [(Text, (Binder, TcType))] -> ValueM a -> ValueM a
 withLocals additions action = do
