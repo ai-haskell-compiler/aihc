@@ -66,6 +66,7 @@ data Bind = Bind
 
 data Alt = Alt
   { altCon :: AltCon,
+    altTypeBinders :: [Binder],
     altBinders :: [Binder],
     altRhs :: Expr
   }
