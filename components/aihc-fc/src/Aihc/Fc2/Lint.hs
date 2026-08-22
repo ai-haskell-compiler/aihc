@@ -471,11 +471,9 @@ lintAlt :: LintEnv -> Type -> Alt -> Either LintError Type
 lintAlt env scrutType alt =
   case altCon alt of
     AltDefault -> do
-      unless (null (altTypeBinders alt)) (Left (LintFailure "default alternative has type binders"))
       unless (null (altBinders alt)) (Left (LintFailure "default alternative has field binders"))
       lintExpr env (altRhs alt)
     AltLit literal -> do
-      unless (null (altTypeBinders alt)) (Left (LintFailure "literal alternative has type binders"))
       unless (null (altBinders alt)) (Left (LintFailure "literal alternative has field binders"))
       matchLiteralAlternative env scrutType literal
       lintExpr env (altRhs alt)
@@ -484,23 +482,10 @@ lintAlt env scrutType alt =
         Nothing -> Left (UnboundName name)
         Just constructorType -> do
           (existentials, fields) <- matchConstructor env constructorType scrutType
-          scopeEnv <- foldM bindLocal env (altTypeBinders alt)
-          mapM_ (lintType scopeEnv . binderType) (altBinders alt)
-          unless (length existentials == length (altTypeBinders alt)) (Left (LintFailure ("case alternative type binder count does not match constructor: " <> show name)))
           unless (length fields == length (altBinders alt)) (Left (LintFailure ("case alternative binder count does not match constructor: " <> show name)))
-          (envEx, existentialSubst) <- foldM (bindExistential name) (env, Map.empty) (zip existentials (altTypeBinders alt))
-          let matchedFields = map (applySubst existentialSubst) fields
-          envFields <- foldM (bindField name) envEx (zip matchedFields (altBinders alt))
+          envEx <- foldM bindLocal env existentials
+          envFields <- foldM (bindField name) envEx (zip fields (altBinders alt))
           lintExpr envFields (altRhs alt)
-
-bindExistential :: Name -> (LintEnv, Map Name Type) -> (Binder, Binder) -> Either LintError (LintEnv, Map Name Type)
-bindExistential constructorName (env, subst) (expected, actual) = do
-  let expectedKind = applySubst subst (binderType expected)
-  env' <- bindLocal env actual
-  unless
-    (typesEqual (leTypes env) expectedKind (binderType actual))
-    (Left (KindMismatch ("case alternative type binder for " <> show constructorName) expectedKind (binderType actual)))
-  pure (env', Map.insert (binderName expected) (TyVar (binderName actual)) subst)
 
 matchLiteralAlternative :: LintEnv -> Type -> Literal -> Either LintError ()
 matchLiteralAlternative env scrutType literal = do
@@ -517,7 +502,7 @@ matchConstructor :: LintEnv -> Type -> Type -> Either LintError ([Binder], [Type
 matchConstructor env constructorType scrutType = do
   let (foralls, fields, result) = splitConType env constructorType
   subst <- matchExpected env (map binderName foralls) Map.empty result scrutType
-  let existentials = [binder | binder <- foralls, binderName binder `Map.notMember` subst]
+  let existentials = [binder {binderType = applySubst subst (binderType binder)} | binder <- foralls, binderName binder `Map.notMember` subst]
       substituted = map (applySubst subst) fields
   Right (existentials, substituted)
 

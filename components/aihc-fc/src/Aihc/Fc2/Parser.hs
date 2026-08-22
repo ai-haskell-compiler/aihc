@@ -108,7 +108,7 @@ data OpenExpr
 data OpenBind = OpenBind OpenBinder OpenExpr
   deriving (Eq, Show)
 
-data OpenAlt = OpenAlt AltCon [OpenBinder] [OpenBinder] OpenExpr
+data OpenAlt = OpenAlt AltCon [OpenBinder] OpenExpr
   deriving (Eq, Show)
 
 data OpenCoercion
@@ -414,13 +414,12 @@ caseAlt =
     [ do
         _ <- symbol "_"
         _ <- symbol "→" <|> symbol "->"
-        OpenAlt AltDefault [] [] <$> expression,
+        OpenAlt AltDefault [] <$> expression,
       do
         constructor <- MP.try (AltLit <$> literal) <|> (AltData <$> topNameWithSort)
-        typeBinders <- MP.many (symbol "@" *> openTermBinder SortTypeVariable)
         binders <- MP.many (openTermBinder SortValue)
         _ <- symbol "→" <|> symbol "->"
-        OpenAlt constructor typeBinders binders <$> expression
+        OpenAlt constructor binders <$> expression
     ]
 
 castOrApp :: Parser OpenExpr
@@ -733,20 +732,10 @@ fillExpr env expr =
     OCast body coercionValue -> ExCast <$> fillExpr env body <*> fillCoercion env coercionValue
 
 fillAlt :: TypeEnv -> OpenAlt -> Either String Alt
-fillAlt env (OpenAlt con typeBinders binders rhs) = do
-  (closedTypeBinders, typeEnv) <- closeScopedBinders env typeBinders
-  closedBinders <- mapM (closeBinder typeEnv) binders
-  closed <- fillExpr (extendBinders typeEnv closedBinders) rhs
-  pure (Alt con closedTypeBinders closedBinders closed)
-
-closeScopedBinders :: TypeEnv -> [OpenBinder] -> Either String ([Binder], TypeEnv)
-closeScopedBinders env binders =
-  case binders of
-    [] -> Right ([], env)
-    binder : rest -> do
-      closed <- closeBinder env binder
-      (closedRest, finalEnv) <- closeScopedBinders (extend env closed) rest
-      pure (closed : closedRest, finalEnv)
+fillAlt env (OpenAlt con binders rhs) = do
+  closedBinders <- mapM (closeBinder env) binders
+  closed <- fillExpr (extendBinders env closedBinders) rhs
+  pure (Alt con closedBinders closed)
 
 fillCoercion :: TypeEnv -> OpenCoercion -> Either String Coercion
 fillCoercion env coercionValue =
@@ -894,7 +883,6 @@ normalizeAlt :: Map.Map Name Sort -> Alt -> Alt
 normalizeAlt table alternative =
   alternative
     { altCon = normalizeAltCon table (altCon alternative),
-      altTypeBinders = map (normalizeBinder table) (altTypeBinders alternative),
       altBinders = map (normalizeBinder table) (altBinders alternative),
       altRhs = normalizeExpr table (altRhs alternative)
     }
