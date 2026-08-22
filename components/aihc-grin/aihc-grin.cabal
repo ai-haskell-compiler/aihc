@@ -23,6 +23,7 @@ library
     Aihc.Grin.Interpret
     Aihc.Grin.Lint
     Aihc.Grin.Lower
+    Aihc.Grin.Lower2
     Aihc.Grin.Parser
     Aihc.Grin.Pretty
     Aihc.Grin.Snapshot
@@ -34,6 +35,7 @@ library
   hs-source-dirs: src
   build-depends:
     aihc-fc,
+    aihc-resolve,
     aihc-tc,
     base >=4.16 && <5,
     bytestring,

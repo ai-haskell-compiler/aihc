@@ -1,0 +1,17 @@
+constructor Test.False []
+
+constructor Test.True []
+
+caf "Test\NULanswer"%2 :: BoxedRep Lifted = (Fanswer_thunk)
+
+"$entry$Test\NULnot" (x%0 :: BoxedRep Lifted) -> BoxedRep Lifted link "Test\NULnot" =
+  $grin_scrutinee_whnf_1%1 :: BoxedRep Lifted <-
+    eval @(BoxedRep Lifted) (x%0 :: BoxedRep Lifted)
+  case ($grin_scrutinee_whnf_1%1 :: BoxedRep Lifted) as scrutinee%0 :: BoxedRep Lifted of
+    data Test.False ->
+      constant (Test.True%-2081051811 :: BoxedRep Lifted)
+    data Test.True ->
+      constant (Test.False%-2174191602 :: BoxedRep Lifted)
+
+answer_thunk -> BoxedRep Lifted =
+  call @(BoxedRep Lifted) "$entry$Test\NULnot" (Test.False%-2174191602 :: BoxedRep Lifted)
