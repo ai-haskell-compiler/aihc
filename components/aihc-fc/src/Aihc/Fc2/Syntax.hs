@@ -72,7 +72,7 @@ data Alt = Alt
   deriving (Eq, Ord, Show, Read)
 
 data AltCon
-  = AltData Name
+  = AltData Name [Binder]
   | AltLit Literal
   | AltDefault
   deriving (Eq, Ord, Show, Read)

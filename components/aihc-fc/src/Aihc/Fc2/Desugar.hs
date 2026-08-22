@@ -690,7 +690,7 @@ altOrigins alternative =
 altConOrigins :: AltCon -> [(PackageId, Text)]
 altConOrigins alternative =
   case alternative of
-    AltData name -> nameOriginPair name
+    AltData name binders -> nameOriginPair name <> concatMap binderOrigins binders
     AltLit literal -> literalOrigins literal
     AltDefault -> []
 

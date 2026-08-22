@@ -336,10 +336,10 @@ prettyAltHead :: TypeEnv -> ScopeTable -> Alt -> Doc ann
 prettyAltHead env scopes alternative =
   case altCon alternative of
     AltDefault -> "_"
-    AltLit literal -> prettyLiteral scopes literal <> prettyAltBinders
-    AltData name -> prettyName scopes name <> prettyAltBinders
+    AltLit literal -> prettyLiteral scopes literal <> prettyAltBinders (altBinders alternative)
+    AltData name typeBinders -> prettyName scopes name <> prettyAltBinders (typeBinders <> altBinders alternative)
   where
-    prettyAltBinders = foldMap ((space <>) . prettyPiBinder env scopes) (altBinders alternative)
+    prettyAltBinders = foldMap ((space <>) . prettyPiBinder env scopes)
 
 prettyIndentedItems :: Int -> [Doc ann] -> Doc ann
 prettyIndentedItems _ [] = mempty
