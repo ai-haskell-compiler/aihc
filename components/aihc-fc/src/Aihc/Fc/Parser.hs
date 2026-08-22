@@ -20,7 +20,6 @@ import Control.Monad (guard, void)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import Data.ByteString qualified as BS
 import Data.Char (isAlphaNum, isAscii, isAsciiUpper, isDigit, isSpace, ord)
-import Data.Either (fromRight)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -53,19 +52,32 @@ parseProgram input = do
   let blocks = filter (not . T.null) (map T.strip (T.splitOn "\n\n" programInput))
   moduleHeaders <- traverse (parseModuleHeader scopes) blocks
   moduleId <- validateModuleDeclaration programInput (catMaybes moduleHeaders)
+  kindHeaders <- traverse (parseKindHeader scopes) blocks
+  let kindEnv = Map.fromList (catMaybes kindHeaders)
   let definitionBlocks =
         [ block
-        | (block, Nothing) <- zip blocks moduleHeaders
+        | (block, Nothing, Nothing) <- zip3 blocks moduleHeaders kindHeaders
         ]
   headers <- traverse (parseExternalHeader scopes) definitionBlocks
   validateExternalDeclarations programInput headers
   let moduleOrigin = Just (fcModulePackageText moduleId, fcModuleName moduleId)
   signatures <- traverse (parseSignatures scopes moduleOrigin) definitionBlocks
   let globals = Map.unions (catMaybes signatures) <> externalEnv headers
-  FcProgram moduleId <$> traverse (parseBlock scopes moduleOrigin globals) definitionBlocks
+  FcProgram moduleId kindEnv <$> traverse (parseBlock scopes moduleOrigin globals) definitionBlocks
 
 parseModuleHeader :: ScopeEnv -> Text -> Either FcParseError (Maybe FcModuleId)
 parseModuleHeader scopes = parseWith scopes (space *> MP.optional (MP.try moduleDeclaration) <* MP.takeRest) "<system-fc-header>"
+
+parseKindHeader :: ScopeEnv -> Text -> Either FcParseError (Maybe (TcTypeKey, TypeScheme))
+parseKindHeader scopes = parseWith scopes (space *> MP.optional (MP.try kindDeclaration) <* MP.takeRest) "<system-fc-header>"
+
+kindDeclaration :: Parser (TcTypeKey, TypeScheme)
+kindDeclaration = do
+  _ <- keyword "kind"
+  tyCon <- exactTyConHead
+  _ <- symbol "="
+  scheme <- between "{" "}" tyConKindSchemeSyntax
+  pure (tyConKey tyCon, scheme)
 
 parseExternalHeader :: ScopeEnv -> Text -> Either FcParseError (Maybe FcTopBind)
 parseExternalHeader scopes = parseWith scopes (space *> MP.optional (MP.try externalDeclaration) <* MP.takeRest) "<system-fc-header>"
@@ -784,9 +796,7 @@ unboxedTupleTypeApplication :: TyEnv -> Parser TcType
 unboxedTupleTypeApplication tyEnv = do
   arity <- unboxedTupleSyntaxArity <$> MP.try (lexeme unboxedTupleSyntax)
   arguments <- MP.count arity (typeAtom tyEnv)
-  let resultKind = KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) arguments))
-      tupleKind = foldr (KFun . typeKind) resultKind arguments
-  pure (TcTyCon (legacyTyConWithKind (unboxedTupleTyConName arity) arity tupleKind) arguments)
+  pure (TcTyCon (legacyTyCon (unboxedTupleTyConName arity) arity) arguments)
 
 unboxedTupleSyntax :: Parser UnboxedTupleSyntax
 unboxedTupleSyntax = do
@@ -822,7 +832,7 @@ builtinType tyEnv = do
   _ <- symbol "/"
   arity <- int
   arguments <- list (tcType tyEnv)
-  pure (TcBuiltinTyCon typeName arity arguments)
+  pure (TcTyCon (legacyTyCon typeName arity) arguments)
 
 exactTyConType :: TyEnv -> Parser TcType
 exactTyConType tyEnv = do
@@ -869,26 +879,10 @@ someTyVarBinders tyEnv = do
 tyVarEnv :: [TyVarId] -> TyEnv
 tyVarEnv = Map.fromList . map (\tyVar -> (tvName tyVar, tyVar))
 
-kindType :: TyEnv -> Parser Kind
-kindType tyEnv = do
-  argument <- kindAtom tyEnv
-  maybe argument (KFun argument) <$> MP.optional (symbol "→" *> kindType tyEnv)
+kindType :: TyEnv -> Parser TcType
+kindType = tcType
 
-kindAtom :: TyEnv -> Parser Kind
-kindAtom tyEnv =
-  MP.choice
-    [ KType <$ keyword "Type",
-      KTYPE <$> (keyword "TYPE" *> runtimeRep tyEnv),
-      KConstraint <$ keyword "Constraint",
-      KRuntimeRep <$ keyword "RuntimeRep",
-      KLevity <$ keyword "Levity",
-      KVecCount <$ keyword "VecCount",
-      KVecElem <$ keyword "VecElem",
-      KMeta . Unique <$> (symbol "?k" *> int),
-      between "(" ")" (kindType tyEnv)
-    ]
-
-runtimeRep :: TyEnv -> Parser RuntimeRep
+runtimeRep :: TyEnv -> Parser TcType
 runtimeRep tyEnv =
   MP.choice
     [ BoxedRep Lifted <$ keyword "LiftedRep",
@@ -910,16 +904,16 @@ runtimeRep tyEnv =
       AddrRep <$ keyword "AddrRep",
       FloatRep <$ keyword "FloatRep",
       DoubleRep <$ keyword "DoubleRep",
-      RuntimeRepVar . Unique <$> (keyword "RuntimeRepVar" *> int),
-      RuntimeRepMeta . Unique <$> (keyword "RuntimeRepMeta" *> int),
+      TcTyVar . setTyVarKind KRuntimeRep . TyVarId "rep" . Unique <$> (keyword "RuntimeRepVar" *> int),
+      TcMetaTv . Unique <$> (keyword "MetaTv" *> int),
       runtimeRepVariable tyEnv
     ]
 
-runtimeRepVariable :: TyEnv -> Parser RuntimeRep
+runtimeRepVariable :: TyEnv -> Parser TcType
 runtimeRepVariable tyEnv = do
   variableName <- name
   case Map.lookup variableName tyEnv of
-    Just tyVar | tvKind tyVar == KRuntimeRep -> pure (RuntimeRepVar (tvUnique tyVar))
+    Just tyVar | tvKind tyVar == KRuntimeRep -> pure (TcTyVar tyVar)
     _ -> fail ("unknown runtime representation variable " <> T.unpack variableName)
 
 coercion :: TyEnv -> Parser Coercion
@@ -954,8 +948,8 @@ scopedExternalTyConHead = do
   (packageName, moduleName, typeName) <- scopeReference
   _ <- symbol "/"
   arity <- int
-  scheme <- between "{" "}" tyConKindSchemeSyntax
-  pure (mkTyConWithOriginScheme (PackageId packageName) moduleName typeName arity scheme)
+  _ <- MP.optional (between "{" "}" tyConKindSchemeSyntax)
+  pure (mkTyConWithOrigin (PackageId packageName) moduleName typeName arity)
 
 legacyExternalTyConHead :: Parser TyCon
 legacyExternalTyConHead = do
@@ -967,16 +961,15 @@ legacyExternalTyConHead = do
   typeName <- name
   _ <- symbol "/"
   arity <- int
-  scheme <- between "{" "}" tyConKindSchemeSyntax
-  pure (mkTyConWithOriginScheme (PackageId packageName) moduleName typeName arity scheme)
+  _ <- MP.optional (between "{" "}" tyConKindSchemeSyntax)
+  pure (mkTyConWithOrigin (PackageId packageName) moduleName typeName arity)
 
 tyConKindSchemeSyntax :: Parser TypeScheme
 tyConKindSchemeSyntax = do
   _ <- symbol "::"
   tyVars <- MP.option [] (symbol "∀" *> someTyVarBinders mempty <* symbol ".")
   kind <- kindType (tyVarEnv tyVars)
-  let ForAll _ _ body = kindSchemeFromKind kind
-  pure (ForAll tyVars [] body)
+  pure (ForAll tyVars [] kind)
 
 uniqueFor :: Text -> Unique
 uniqueFor = Unique . T.foldl' (\hash character -> hash * 33 + ord character) 5381

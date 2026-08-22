@@ -64,23 +64,24 @@ where
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Evidence (Coercion)
 import Aihc.Tc.Types
-  ( Kind (..),
-    RuntimeRep (..),
+  ( Pred (..),
+    TcKindEnv,
     TcType (..),
     TyCon (..),
     TyVarId (..),
     Unique (..),
     liftedRuntimeRep,
     mkTyConWithOrigin,
-    runtimeRepOfType,
     setTyVarKind,
     tvKind,
-    typeKind,
     unboxedTupleTyConName,
+    pattern AddrRep,
+    pattern KFun,
+    pattern KRuntimeRep,
+    pattern KType,
   )
 import Data.ByteString (ByteString)
 import Data.Char (ord)
-import Data.Either (fromRight)
 import Data.List (nub)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -91,9 +92,9 @@ legacyTyCon name arity =
   legacyTyConWithKind name arity (foldr KFun KType (replicate arity KType))
 
 -- | Make a type constructor with a kind for the FC1 compatibility path.
-legacyTyConWithKind :: Text -> Int -> Kind -> TyCon
-legacyTyConWithKind =
-  mkTyConWithOrigin (PackageId "aihc-internal") "Aihc.Internal"
+legacyTyConWithKind :: Text -> Int -> TcType -> TyCon
+legacyTyConWithKind name arity _ =
+  mkTyConWithOrigin (PackageId "aihc-internal") "Aihc.Internal" name arity
 
 -- | The required identity of one System FC module container.
 data FcModuleId = FcModuleId
@@ -108,10 +109,12 @@ fcModulePackageText = packageIdText . fcModulePackage
 -- | A System FC program with one module identity.
 data FcProgram = FcProgram
   { fcProgramModule :: !FcModuleId,
-    -- | Declarative top-level bindings.
+    fcProgramKindEnv :: !TcKindEnv,
     fcTopBinds :: ![FcTopBind]
   }
   deriving (Eq, Show, Read)
+
+{-# COMPLETE FcProgram #-}
 
 -- | A top-level binding.
 data FcTopBind
@@ -145,7 +148,7 @@ data FcDataDecl = FcDataDecl
   { fcDataOrigin :: !FcSymbolOrigin,
     fcDataName :: !Text,
     fcDataTyVars :: ![TyVarId],
-    fcDataResultKind :: !Kind,
+    fcDataResultKind :: !TcType,
     fcDataConstructors :: ![FcDataConDecl]
   }
   deriving (Eq, Show, Read)
@@ -159,32 +162,32 @@ fcDataTyCon declaration =
         moduleName
         (fcDataName declaration)
         (length (fcDataTyVars declaration))
-        kind
     FcBuiltinOrigin {} ->
       legacyTyConWithKind
         (fcDataName declaration)
         (length (fcDataTyVars declaration))
-        kind
-  where
-    kind = foldr (KFun . tvKind) (fcDataResultKind declaration) (fcDataTyVars declaration)
+        (foldr (KFun . tvKind) (fcDataResultKind declaration) (fcDataTyVars declaration))
 
 fcDataKindTyVars :: FcDataDecl -> [TyVarId]
 fcDataKindTyVars declaration =
   [ setTyVarKind KRuntimeRep (TyVarId ("r" <> T.pack (show unique)) (Unique unique))
-  | Unique unique <- nub (concatMap (kindRuntimeRepVariables . tvKind) (fcDataTyVars declaration) <> kindRuntimeRepVariables (fcDataResultKind declaration))
+  | variable@(TyVarId _ (Unique unique)) <- nub (concatMap (typeVariables . tvKind) (fcDataTyVars declaration) <> typeVariables (fcDataResultKind declaration)),
+    tvKind variable == KRuntimeRep
   ]
   where
-    kindRuntimeRepVariables kind =
-      case kind of
-        KTYPE runtimeRep -> runtimeRepVariables runtimeRep
-        KFun argument result -> kindRuntimeRepVariables argument <> kindRuntimeRepVariables result
-        _ -> []
-    runtimeRepVariables runtimeRep =
-      case runtimeRep of
-        RuntimeRepVar unique -> [unique]
-        TupleRep fields -> concatMap runtimeRepVariables fields
-        SumRep fields -> concatMap runtimeRepVariables fields
-        _ -> []
+    typeVariables ty =
+      case ty of
+        TcTyVar variable -> [variable]
+        TcMetaTv {} -> []
+        TcTyCon _ arguments -> concatMap typeVariables arguments
+        TcFunTy argument result -> typeVariables argument <> typeVariables result
+        TcForAllTy variable body -> filter ((/= tvUnique variable) . tvUnique) (typeVariables body)
+        TcQualTy predicates body -> concatMap predicateVariables predicates <> typeVariables body
+        TcAppTy function argument -> typeVariables function <> typeVariables argument
+    predicateVariables predicate =
+      case predicate of
+        ClassPred _ arguments -> concatMap typeVariables arguments
+        EqPred left right -> typeVariables left <> typeVariables right
 
 fcDataResultType :: FcDataDecl -> TcType
 fcDataResultType declaration =
@@ -268,10 +271,7 @@ fcForeignCallResultType signature =
     FcForeignPure -> foreignPrimitiveType (fcForeignResultType signature)
     FcForeignRealWorld ->
       let fields = [statePrimRealWorldType, foreignPrimitiveType (fcForeignResultType signature)]
-          fieldRep field = fromRight liftedRuntimeRep (runtimeRepOfType field)
-          resultKind = KTYPE (TupleRep (map fieldRep fields))
-          tupleKind = foldr (KFun . typeKind) resultKind fields
-       in TcTyCon (legacyTyConWithKind (unboxedTupleTyConName 2) 2 tupleKind) fields
+       in TcTyCon (legacyTyCon (unboxedTupleTyConName 2) 2) fields
 
 fcForeignCallType :: FcForeignSignature -> TcType
 fcForeignCallType signature =
@@ -430,9 +430,9 @@ data FcAltCon
 
 -- | Literal values.
 data Literal
-  = LitInt !RuntimeRep !Integer
+  = LitInt !TcType !Integer
   | -- | An unboxed character literal, such as @'x'#@.
-    LitChar !RuntimeRep !Char
+    LitChar !TcType !Char
   | LitString !Text
   | -- | Latin-1 bytes with an implicit trailing NUL, such as @"hello"#@.
     LitAddr !ByteString
@@ -441,7 +441,7 @@ data Literal
 -- | The runtime representation carried by a Core literal. This is recorded
 -- during desugaring from type-checker information and must not be reconstructed
 -- by a downstream phase.
-literalRuntimeRep :: Literal -> RuntimeRep
+literalRuntimeRep :: Literal -> TcType
 literalRuntimeRep literal =
   case literal of
     LitInt runtimeRep _ -> runtimeRep

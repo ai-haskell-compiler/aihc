@@ -48,7 +48,7 @@ lowerNewtypes = lowerNewtypesWithInterface mempty
 -- unit. It contains declarations only; no term implementation crosses the
 -- incremental boundary.
 extractNewtypeInterface :: FcProgram -> NewtypeInterface
-extractNewtypeInterface (FcProgram _ topBinds) =
+extractNewtypeInterface (FcProgram _ _ topBinds) =
   NewtypeInterface
     ( Map.fromList
         [ (fcConstructorSymbolOrigin (fcNewtypeConstructorOrigin declaration), declaration)
@@ -59,8 +59,8 @@ extractNewtypeInterface (FcProgram _ topBinds) =
 -- | Lower one compilation unit using declaration interfaces imported from
 -- already compiled units. Local declarations take precedence.
 lowerNewtypesWithInterface :: NewtypeInterface -> FcProgram -> FcProgram
-lowerNewtypesWithInterface imported program@(FcProgram moduleId topBinds) =
-  FcProgram moduleId (evalState (mapM (lowerTopBind env) topBinds) (nextUnique program))
+lowerNewtypesWithInterface imported program@(FcProgram moduleId kindEnv topBinds) =
+  FcProgram moduleId kindEnv (evalState (mapM (lowerTopBind env) topBinds) (nextUnique program))
   where
     env = imported <> extractNewtypeInterface program
 
@@ -209,7 +209,7 @@ freshVar name ty =
   state $ \unique -> (Var name (Unique unique) ty, unique + 1)
 
 nextUnique :: FcProgram -> Int
-nextUnique (FcProgram _ topBinds) = maximum (0 : concatMap topBindUniques topBinds) + 1
+nextUnique (FcProgram _ _ topBinds) = maximum (0 : concatMap topBindUniques topBinds) + 1
 
 topBindUniques :: FcTopBind -> [Int]
 topBindUniques topBind =

@@ -11,7 +11,11 @@ modules:
 - |
   module Test where
 
+  import GHC.Types (RuntimeRep (..), TYPE, Type, UnliftedType)
+
+  type State# :: Type -> TYPE ('TupleRep '[])
   data State# s
+  type MutVar# :: Type -> Type -> UnliftedType
   data MutVar# d a
 
   foreign import prim newMutVar# :: a -> State# d -> (# State# d, MutVar# d a #)

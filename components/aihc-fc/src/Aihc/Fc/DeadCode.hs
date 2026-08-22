@@ -52,7 +52,7 @@ instance Monoid ReachabilityInterface where
   mempty = ReachabilityInterface Map.empty Set.empty
 
 extractReachabilityInterface :: FcProgram -> ReachabilityInterface
-extractReachabilityInterface (FcProgram _ topBinds) =
+extractReachabilityInterface (FcProgram _ _ topBinds) =
   ReachabilityInterface
     { reachabilityValueEdges =
         Map.fromList
@@ -79,9 +79,10 @@ reachablePrimitiveNames entry interface =
 -- the named entry point. The input is expected to be the combined program so
 -- references can cross module and package boundaries.
 eliminateDeadCode :: Text -> FcProgram -> FcProgram
-eliminateDeadCode entry (FcProgram moduleId topBinds) =
+eliminateDeadCode entry (FcProgram moduleId kindEnv topBinds) =
   FcProgram
     moduleId
+    kindEnv
     [ topBind
     | (index, topBind) <- indexedTopBinds,
       keepTopBind valueDefinitions typeDefinitions reachableValues reachableTypes index topBind
@@ -267,7 +268,6 @@ referencesType ty =
     TcForAllTy _ body -> referencesType body
     TcQualTy predicates body -> foldMap referencesPred predicates <> referencesType body
     TcAppTy function argument -> referencesType function <> referencesType argument
-    TcBuiltinTyCon _ _ arguments -> foldMap referencesType arguments
 
 referencesPred :: Pred -> References
 referencesPred predicate =

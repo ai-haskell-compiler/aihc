@@ -23,13 +23,14 @@ import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
 import Aihc.Tc.Types
-  ( Kind (KTYPE),
-    RuntimeRep (..),
+  ( TcKindEnv,
     TcType (..),
     Unique (..),
-    liftedRuntimeRep,
-    runtimeRepOfType,
+    liftedTypeKind,
+    runtimeRepOfTypeInEnv,
+    tyConName,
   )
+import Aihc.Tc.Types qualified as Tc
 import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
 import Data.List (mapAccumL)
@@ -60,13 +61,14 @@ data LowerState = LowerState
     lowerUseIncrementalCodeLookup :: !Bool,
     lowerLinkNames :: !GrinLinkNames,
     lowerLinkNameOccurrences :: !(Map Unique Int),
-    lowerUnboxedTupleConstructors :: !(Set Text)
+    lowerUnboxedTupleConstructors :: !(Set Text),
+    lowerKindEnv :: !TcKindEnv
   }
 
 type LowerM = State LowerState
 
 data LoweredTop = LoweredTop
-  { loweredConstructors :: ![(Text, [[RuntimeRep]])],
+  { loweredConstructors :: ![(Text, [[GrinRep]])],
     loweredPrimitives :: ![(GrinVar, Int)],
     loweredForeignCalls :: ![GrinForeignCall],
     loweredWhnfGlobals :: ![(GrinVar, GrinNode)],
@@ -352,7 +354,8 @@ lowerProgramWithEnvironment linkNames imported local environment program =
           lowerUseIncrementalCodeLookup = not (grinLinkNamesEmpty linkNames),
           lowerLinkNames = linkNames,
           lowerLinkNameOccurrences = Map.empty,
-          lowerUnboxedTupleConstructors = programEnvironmentUnboxedTupleConstructors environment
+          lowerUnboxedTupleConstructors = programEnvironmentUnboxedTupleConstructors environment,
+          lowerKindEnv = fcProgramKindEnv program
         }
     (topParts, finalState) = runState (mapM lowerTopBind (fcTopBinds program)) initialState
     tops = mconcat topParts
@@ -367,10 +370,11 @@ lowerTopBind :: FcTopBind -> LowerM LoweredTop
 lowerTopBind topBind =
   case topBind of
     FcExternal {} -> pure mempty
-    FcData declaration ->
+    FcData declaration -> do
+      kindEnv <- gets lowerKindEnv
       if isUnboxedTupleData declaration
         then pure mempty
-        else pure mempty {loweredConstructors = [(runtimeConstructorName (fcConstructorSymbolOrigin (fcDataConOrigin constructor)), map (runtimeRepComponents . typeRuntimeRep) (fcDataConFields constructor)) | constructor <- fcDataConstructors declaration]}
+        else pure mempty {loweredConstructors = [(runtimeConstructorName (fcConstructorSymbolOrigin (fcDataConOrigin constructor)), map (runtimeRepComponents . typeRuntimeRep kindEnv) (fcDataConFields constructor)) | constructor <- fcDataConstructors declaration]}
     FcAxiom {} ->
       pure mempty
     FcNewtype {} ->
@@ -434,6 +438,7 @@ emitTopFunction :: Text -> Var -> FcExpr -> LowerM ()
 emitTopFunction linkedName _var expr = do
   let (binders, body) = collectLeadingLambdas expr
       functionName = linkedFunctionName linkedName
+  kindEnv <- gets lowerKindEnv
   (parameters, loweredBody) <- withFreshLocalVars binders $ \groups -> do
     body' <- lowerExpr body
     pure (concat groups, body')
@@ -442,7 +447,7 @@ emitTopFunction linkedName _var expr = do
       { grinFunctionName = functionName,
         grinFunctionLinkName = Just linkedName,
         grinFunctionParameters = parameters,
-        grinFunctionResultRep = exprRuntimeRep body,
+        grinFunctionResultRep = exprRuntimeRep kindEnv body,
         grinFunctionBody = loweredBody
       }
 
@@ -451,6 +456,7 @@ lowerExpr expr = do
   constructorArities <- gets lowerConstructorArities
   primitiveArities <- gets lowerPrimitiveArities
   localVars <- gets lowerLocalVars
+  kindEnv <- gets lowerKindEnv
   case constructorApplication constructorArities (Map.keysSet localVars) expr of
     Just (constructor, arguments) ->
       lowerArgumentMany arguments $ \values ->
@@ -464,8 +470,8 @@ lowerExpr expr = do
           lowerSingleOperand "exit_status" status (pure . GrinExit)
         Just ("catch#", [action, handler, _state]) ->
           lowerSingleArgument action $ \actionValue ->
-            lowerCatchHandler (exprRuntimeRep expr) handler $ \handlerValue ->
-              pure (GrinCatch (exprRuntimeRep expr) actionValue handlerValue [])
+            lowerCatchHandler (exprRuntimeRep kindEnv expr) handler $ \handlerValue ->
+              pure (GrinCatch (exprRuntimeRep kindEnv expr) actionValue handlerValue [])
         Just ("unsafeCoerce#", argument : extraArguments) ->
           lowerUnsafeCoerceApplication expr argument extraArguments
         Just ("seq", _) ->
@@ -498,7 +504,8 @@ lowerNonTupleExpr expr =
               Just values -> pure (GrinConstant values)
               Nothing -> do
                 runtimeVar <- lookupRuntimeVar var
-                let resultRep = typeRuntimeRep (varType var)
+                kindEnv <- gets lowerKindEnv
+                let resultRep = typeRuntimeRep kindEnv (varType var)
                 pure (GrinEval resultRep (GrinVarValue runtimeVar))
     FcLit literal _ ->
       pure (GrinConstant [GrinLitValue (lowerLiteral literal)])
@@ -532,17 +539,18 @@ lowerApplication expr =
 
 lowerKnownApplication :: FcExpr -> GrinCodeInfo -> [FcExpr] -> LowerM GrinExpr
 lowerKnownApplication originalExpr info arguments = do
+  kindEnv <- gets lowerKindEnv
   let (entryArguments, extraArguments) = splitAt termArity arguments
   lowerArgumentMany entryArguments $ \values ->
     case extraArguments of
       [] ->
         case compare (length entryArguments) termArity of
           LT -> pure (GrinStore (knownFunctionNode info (length entryArguments) values))
-          EQ -> pure (GrinCall (exprRuntimeRep originalExpr) (grinCodeFunctionName info) values)
+          EQ -> pure (GrinCall (exprRuntimeRep kindEnv originalExpr) (grinCodeFunctionName info) values)
           GT -> error "GRIN lowering supplied more logical arguments than the known function accepts"
       _ -> do
         let saturatedExpr = dropLastTermApplications (length extraArguments) originalExpr
-            saturatedRep = exprRuntimeRep saturatedExpr
+            saturatedRep = exprRuntimeRep kindEnv saturatedExpr
         resultVars <- freshVars "call" saturatedRep
         case resultVars of
           [resultVar] -> do
@@ -553,18 +561,19 @@ lowerKnownApplication originalExpr info arguments = do
     termArity = length (grinCodeParameterLayouts info)
 
 lowerPrimitiveApplication :: FcExpr -> Text -> Int -> [FcExpr] -> LowerM GrinExpr
-lowerPrimitiveApplication originalExpr name arity arguments =
+lowerPrimitiveApplication originalExpr name arity arguments = do
+  kindEnv <- gets lowerKindEnv
   case compare suppliedArity arity of
     LT ->
       lowerArgumentMany arguments $
         fmap GrinStore . makePrimitiveClosure originalExpr name (arity - suppliedArity)
     EQ ->
       lowerArgumentMany arguments $ \values ->
-        lowerSaturatedPrimitive (exprRuntimeRep originalExpr) name values
+        lowerSaturatedPrimitive (exprRuntimeRep kindEnv originalExpr) name values
     GT -> do
       let (saturatedArguments, extraArguments) = splitAt arity arguments
           saturatedExpr = dropLastTermApplications (suppliedArity - arity) originalExpr
-          saturatedRep = exprRuntimeRep saturatedExpr
+          saturatedRep = exprRuntimeRep kindEnv saturatedExpr
       lowerArgumentMany saturatedArguments $ \values -> do
         resultVars <- freshVars "primitive" saturatedRep
         case resultVars of
@@ -579,7 +588,7 @@ lowerPrimitiveApplication originalExpr name arity arguments =
 -- Array storage is one info-table word, one length word, and one word per
 -- element. Make that dynamic reservation explicit before CPS so GC lowering
 -- only has to attach its ordinary live-root set to the safepoint.
-lowerSaturatedPrimitive :: RuntimeRep -> Text -> [GrinValue] -> LowerM GrinExpr
+lowerSaturatedPrimitive :: GrinRep -> Text -> [GrinValue] -> LowerM GrinExpr
 lowerSaturatedPrimitive resultRep "newArray#" arguments@[size, _] = do
   requiredWords <- freshVar "array_words" IntRep
   pure
@@ -657,18 +666,19 @@ makePrimitiveClosure originalExpr name remaining captured = do
       Just wrapperType -> pure wrapperType
       Nothing -> error ("GRIN lowering could not construct primitive wrapper for " <> show name)
   captureParameters <- mapM (freshVar "primitive_capture" . grinValueRuntimeRep) captured
-  argumentGroups <- mapM (freshVars "primitive_argument" . typeRuntimeRep) argumentTypes
+  kindEnv <- gets lowerKindEnv
+  argumentGroups <- mapM (freshVars "primitive_argument" . typeRuntimeRep kindEnv) argumentTypes
   functionName <- freshFunction "primitive"
   let argumentLayouts = map (map grinVarRuntimeRep) argumentGroups
       arguments = map GrinVarValue (captureParameters <> concat argumentGroups)
-      resultRep = typeRuntimeRep resultType
+      resultRep = typeRuntimeRep kindEnv resultType
   body <-
     case (name, arguments) of
       ("aihcExit#", [status]) -> pure (GrinExit status)
       ("unsafeCoerce#", _) -> pure (GrinConstant arguments)
       ("raise#", [exception]) -> pure (GrinThrow exception)
       ("catch#", [action, handler]) ->
-        wrapCatchHandlerValue resultRep liftedRuntimeRep liftedRuntimeRep liftedRuntimeRep handler $ \handlerValue ->
+        wrapCatchHandlerValue resultRep liftedGrinRep liftedGrinRep liftedGrinRep handler $ \handlerValue ->
           pure (GrinCatch resultRep action handlerValue [])
       _ -> lowerSaturatedPrimitive resultRep name arguments
   emitFunction
@@ -701,13 +711,14 @@ dropLastTermApplications count expr
         _ -> error "GRIN lowering could not split an overapplication"
 
 lowerRemainingApplications :: FcExpr -> GrinValue -> [FcExpr] -> LowerM GrinExpr
-lowerRemainingApplications functionExpr functionValue arguments =
+lowerRemainingApplications functionExpr functionValue arguments = do
+  kindEnv <- gets lowerKindEnv
   case arguments of
     [] -> pure (GrinConstant [functionValue])
     argument : rest ->
-      evaluateGrinValue "function" (exprRuntimeRep functionExpr) functionValue $ \evaluatedFunction -> do
+      evaluateGrinValue "function" (exprRuntimeRep kindEnv functionExpr) functionValue $ \evaluatedFunction -> do
         let appliedExpr = FcApp functionExpr argument
-            resultRep = exprRuntimeRep appliedExpr
+            resultRep = exprRuntimeRep kindEnv appliedExpr
         lowerArgument argument $ \argumentValues ->
           if null rest
             then pure (GrinApply resultRep evaluatedFunction argumentValues)
@@ -720,12 +731,13 @@ lowerRemainingApplications functionExpr functionValue arguments =
                 _ -> error "GRIN lowering expected an intermediate application to return one function value"
 
 lowerUnknownApplication :: FcExpr -> LowerM GrinExpr
-lowerUnknownApplication expr =
+lowerUnknownApplication expr = do
+  kindEnv <- gets lowerKindEnv
   case expr of
     FcApp function argument ->
       lowerSingleEvaluatedOperand "function" function $ \functionValue ->
         lowerArgument argument $ \argumentValues ->
-          pure (GrinApply (applicationResultRep function) functionValue argumentValues)
+          pure (GrinApply (applicationResultRep kindEnv function) functionValue argumentValues)
     _ -> error "GRIN lowering expected an application"
 
 knownFunctionNode :: GrinCodeInfo -> Int -> [GrinValue] -> GrinNode
@@ -734,7 +746,9 @@ knownFunctionNode info suppliedTermArity =
     (GrinClosure (grinCodeFunctionName info) (drop suppliedTermArity (grinCodeParameterLayouts info)))
 
 lowerCase :: FcExpr -> Var -> [FcAlt] -> LowerM GrinExpr
-lowerCase scrutinee binder alternatives =
+lowerCase scrutinee binder alternatives = do
+  kindEnv <- gets lowerKindEnv
+  let scrutineeRep = exprRuntimeRep kindEnv scrutinee
   case (runtimeRepComponents scrutineeRep, scrutineeRep, alternatives) of
     ([], _, [alternative]) -> do
       rhs <-
@@ -760,14 +774,13 @@ lowerCase scrutinee binder alternatives =
             _ -> error "GRIN lowering expected one ordinary case binder"
         loweredAlternatives <- mapM (lowerAlt (binder, [caseVar])) alternatives
         pure (GrinCase value caseVar loweredAlternatives)
-  where
-    scrutineeRep = exprRuntimeRep scrutinee
 
 lowerUnboxedTupleCase :: FcExpr -> Var -> FcAlt -> LowerM GrinExpr
 lowerUnboxedTupleCase scrutinee binder alternative = do
-  resultVars <- freshVars "tuple" (exprRuntimeRep scrutinee)
+  kindEnv <- gets lowerKindEnv
+  resultVars <- freshVars "tuple" (exprRuntimeRep kindEnv scrutinee)
   let fieldBinders = altBinders alternative
-      fieldWidths = map (length . runtimeRepComponents . typeRuntimeRep . varType) fieldBinders
+      fieldWidths = map (length . runtimeRepComponents . typeRuntimeRep kindEnv . varType) fieldBinders
       fieldGroups = splitWidths fieldWidths resultVars
   if sum fieldWidths /= length resultVars
     then error "GRIN lowering found inconsistent unboxed-tuple case fields"
@@ -825,6 +838,7 @@ makeClosureNode expr = do
     Just node -> pure node
     Nothing -> do
       let (binders, lambdaBody) = collectLeadingLambdas expr
+      kindEnv <- gets lowerKindEnv
       captures <- capturesFor expr
       functionName <- freshFunction "closure"
       (parameterLayouts, parameters, loweredBody) <- withFreshLocalVars binders $ \groups -> do
@@ -835,7 +849,7 @@ makeClosureNode expr = do
           { grinFunctionName = functionName,
             grinFunctionLinkName = Nothing,
             grinFunctionParameters = captures <> parameters,
-            grinFunctionResultRep = exprRuntimeRep lambdaBody,
+            grinFunctionResultRep = exprRuntimeRep kindEnv lambdaBody,
             grinFunctionBody = loweredBody
           }
       pure (GrinNode (GrinClosure functionName parameterLayouts) (map GrinVarValue captures))
@@ -852,9 +866,10 @@ etaReduceKnownFunction expr =
         (FcVar target, arguments)
           | map etaArgumentVar arguments == map Just binders -> do
               codeInfo <- lookupCodeInfo target
+              kindEnv <- gets lowerKindEnv
               pure $ do
                 info <- codeInfo
-                let binderLayouts = map (runtimeRepComponents . typeRuntimeRep . varType) binders
+                let binderLayouts = map (runtimeRepComponents . typeRuntimeRep kindEnv . varType) binders
                 if binderLayouts == take (length binders) (grinCodeParameterLayouts info)
                   then Just (knownFunctionNode info 0 [])
                   else Nothing
@@ -869,8 +884,10 @@ etaReduceKnownFunction expr =
 lowerLet :: FcBind -> FcExpr -> LowerM GrinExpr
 lowerLet bind body =
   case bind of
-    FcNonRec var rhs
-      | typeRuntimeRep (varType var) == liftedRuntimeRep -> do
+    FcNonRec var rhs -> do
+      kindEnv <- gets lowerKindEnv
+      if typeRuntimeRep kindEnv (varType var) == liftedGrinRep
+        then do
           alias <- lookupAliasVars rhs
           case alias of
             Just values -> withBindings [(var, values)] (lowerExpr body)
@@ -890,7 +907,7 @@ lowerLet bind body =
                   Nothing -> do
                     node <- withProvenance (varName var) (makeThunk rhs)
                     pure (bindExpr vars (GrinStore node) loweredBody)
-      | otherwise -> do
+        else do
           (vars, loweredBody) <- withFreshLocalVars [var] $ \groups -> do
             body' <- lowerExpr body
             pure (concat groups, body')
@@ -933,10 +950,12 @@ makeTopThunk :: Var -> FcExpr -> LowerM GrinNode
 makeTopThunk var = makeThunkNamed (Just (FunctionName (varName var <> "_thunk")))
 
 makeThunkNamed :: Maybe FunctionName -> FcExpr -> LowerM GrinNode
-makeThunkNamed requestedName expr
-  | not (isLiftedRuntimeRep runtimeRep) =
-      error ("GRIN lowering cannot suspend an expression with runtime representation " <> show runtimeRep)
-  | otherwise = do
+makeThunkNamed requestedName expr = do
+  kindEnv <- gets lowerKindEnv
+  let runtimeRep = exprRuntimeRep kindEnv expr
+  if not (isLiftedRuntimeRep runtimeRep)
+    then error ("GRIN lowering cannot suspend an expression with runtime representation " <> show runtimeRep)
+    else do
       captures <- capturesFor expr
       functionName <- maybe (freshFunction "thunk") freshNamedFunction requestedName
       body <- lowerExpr expr
@@ -949,8 +968,6 @@ makeThunkNamed requestedName expr
             grinFunctionBody = body
           }
       pure (GrinNode (GrinThunk functionName) (map GrinVarValue captures))
-  where
-    runtimeRep = exprRuntimeRep expr
 
 lowerStaticNode :: FcExpr -> LowerM (Maybe GrinNode)
 lowerStaticNode expr = do
@@ -964,11 +981,12 @@ lowerStaticNode expr = do
     Nothing -> pure Nothing
 
 lowerStaticValues :: FcExpr -> LowerM (Maybe [GrinValue])
-lowerStaticValues expr =
+lowerStaticValues expr = do
+  kindEnv <- gets lowerKindEnv
   case expr of
     FcLit literal _ -> pure (Just [GrinLitValue (lowerLiteral literal)])
     FcVar var
-      | null (runtimeRepComponents (typeRuntimeRep (varType var))) -> pure (Just [])
+      | null (runtimeRepComponents (typeRuntimeRep kindEnv (varType var))) -> pure (Just [])
       | otherwise -> do
           constructorArity <- lookupConstructorArity var
           isWhnfGlobal <- isWhnfGlobalVar var
@@ -994,7 +1012,8 @@ lowerStrict hint expr continuation = do
   case direct of
     Just values -> continuation values
     Nothing -> do
-      valueVars <- freshVars hint (exprRuntimeRep expr)
+      kindEnv <- gets lowerKindEnv
+      valueVars <- freshVars hint (exprRuntimeRep kindEnv expr)
       valueExpr <- lowerExpr expr
       rest <- continuation (map GrinVarValue valueVars)
       pure (bindExpr valueVars valueExpr rest)
@@ -1008,7 +1027,8 @@ lowerOperand hint expr continuation = do
   case direct of
     Just values -> continuation values
     Nothing -> do
-      valueVars <- freshVars hint (exprRuntimeRep expr)
+      kindEnv <- gets lowerKindEnv
+      valueVars <- freshVars hint (exprRuntimeRep kindEnv expr)
       valueExpr <- lowerExpr expr
       rest <- continuation (map GrinVarValue valueVars)
       pure (bindExpr valueVars valueExpr rest)
@@ -1023,11 +1043,12 @@ lowerSingleOperand hint expr continuation =
 -- is structural. GRIN operations never enter heap cells implicitly: a lifted
 -- function or case scrutinee must pass through 'GrinEval' before use.
 lowerSingleEvaluatedOperand :: Text -> FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
-lowerSingleEvaluatedOperand hint expr continuation =
+lowerSingleEvaluatedOperand hint expr continuation = do
+  kindEnv <- gets lowerKindEnv
   lowerSingleOperand hint expr $ \value ->
-    evaluateGrinValue hint (exprRuntimeRep expr) value continuation
+    evaluateGrinValue hint (exprRuntimeRep kindEnv expr) value continuation
 
-evaluateGrinValue :: Text -> RuntimeRep -> GrinValue -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+evaluateGrinValue :: Text -> GrinRep -> GrinValue -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
 evaluateGrinValue hint runtimeRep value continuation
   | isLiftedRuntimeRep runtimeRep = do
       evaluated <- freshVar (hint <> "_whnf") runtimeRep
@@ -1039,18 +1060,19 @@ evaluateGrinValue hint runtimeRep value continuation
 -- every function entry explicit. The wrapper accepts the exception and runs
 -- the IO action returned by the captured source handler, so the runtime can
 -- resume it directly with the catch frame's parent continuation.
-lowerCatchHandler :: RuntimeRep -> FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
-lowerCatchHandler catchResultRep handler continuation =
+lowerCatchHandler :: GrinRep -> FcExpr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerCatchHandler catchResultRep handler continuation = do
+  kindEnv <- gets lowerKindEnv
   lowerSingleArgument handler $ \handlerValue ->
     wrapCatchHandlerValue
       catchResultRep
-      (exprRuntimeRep handler)
-      (applicationResultRep handler)
-      (functionArgumentRep handler)
+      (exprRuntimeRep kindEnv handler)
+      (applicationResultRep kindEnv handler)
+      (functionArgumentRep kindEnv handler)
       handlerValue
       continuation
 
-wrapCatchHandlerValue :: RuntimeRep -> RuntimeRep -> RuntimeRep -> RuntimeRep -> GrinValue -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+wrapCatchHandlerValue :: GrinRep -> GrinRep -> GrinRep -> GrinRep -> GrinValue -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
 wrapCatchHandlerValue catchResultRep handlerRep actionRep exceptionRep handlerValue continuation = do
   capturedHandler <- freshVar "catch_handler" handlerRep
   exception <- freshVar "catch_exception" exceptionRep
@@ -1075,14 +1097,14 @@ wrapCatchHandlerValue catchResultRep handlerRep actionRep exceptionRep handlerVa
                   (GrinApply catchResultRep (GrinVarValue evaluatedAction) [])
               )
       }
-  wrapperPointer <- freshVar "catch_handler_wrapper" liftedRuntimeRep
-  evaluatedWrapper <- freshVar "catch_handler_wrapper_whnf" liftedRuntimeRep
+  wrapperPointer <- freshVar "catch_handler_wrapper" liftedGrinRep
+  evaluatedWrapper <- freshVar "catch_handler_wrapper_whnf" liftedGrinRep
   rest <- continuation (GrinVarValue evaluatedWrapper)
   pure $
     bindExpr
       [wrapperPointer]
       (GrinStore (GrinNode (GrinClosure wrapperName [runtimeRepComponents exceptionRep]) [handlerValue]))
-      (bindExpr [evaluatedWrapper] (GrinEval liftedRuntimeRep (GrinVarValue wrapperPointer)) rest)
+      (bindExpr [evaluatedWrapper] (GrinEval liftedGrinRep (GrinVarValue wrapperPointer)) rest)
 
 lowerDelayed :: FcExpr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerDelayed expr continuation = do
@@ -1094,7 +1116,7 @@ lowerDelayed expr continuation = do
     Nothing -> makeThunk expr >>= storeDelayedNode
   where
     storeDelayedNode node = do
-      pointerVar <- freshVar "thunk" liftedRuntimeRep
+      pointerVar <- freshVar "thunk" liftedGrinRep
       rest <- continuation [GrinVarValue pointerVar]
       pure (bindExpr [pointerVar] (GrinStore node) rest)
 
@@ -1105,10 +1127,11 @@ lowerArgument expr continuation = do
     Just values -> continuation values
     Nothing -> do
       whnf <- isWhnfExpr expr
+      kindEnv <- gets lowerKindEnv
       if whnf
         then lowerOperand "argument" expr continuation
         else
-          if exprRuntimeRep expr == liftedRuntimeRep
+          if exprRuntimeRep kindEnv expr == liftedGrinRep
             then lowerDelayed expr continuation
             else lowerStrict "argument" expr continuation
 
@@ -1136,16 +1159,17 @@ lowerStrictMany expressions continuation =
         lowerStrictMany rest $ \restValues ->
           continuation (firstValues <> restValues)
 
-freshVars :: Text -> RuntimeRep -> LowerM [GrinVar]
+freshVars :: Text -> GrinRep -> LowerM [GrinVar]
 freshVars hint = mapM (freshVar hint) . runtimeRepComponents
 
 unboxedTupleArguments :: FcExpr -> LowerM (Maybe [FcExpr])
 unboxedTupleArguments expr = do
   tupleConstructors <- gets lowerUnboxedTupleConstructors
+  kindEnv <- gets lowerKindEnv
   case collectApplications expr of
     (FcVar constructor, arguments)
       | isKnownUnboxedTupleConstructor tupleConstructors constructor ->
-          case exprRuntimeRep expr of
+          case exprRuntimeRep kindEnv expr of
             TupleRep fieldReps
               | length arguments == length fieldReps -> pure (Just arguments)
             _ -> pure Nothing
@@ -1167,7 +1191,7 @@ unboxedTuplePunctuation name =
     Just punctuation -> T.all (== ',') punctuation
     Nothing -> False
 
-freshVar :: Text -> RuntimeRep -> LowerM GrinVar
+freshVar :: Text -> GrinRep -> LowerM GrinVar
 freshVar hint runtimeRep = do
   unique <- gets lowerNextUnique
   modify' $ \state -> state {lowerNextUnique = unique + 1}
@@ -1177,7 +1201,7 @@ freshTopVar :: Text -> LowerM GrinVar
 freshTopVar linkedName = do
   unique <- gets lowerNextUnique
   modify' $ \state -> state {lowerNextUnique = unique + 1}
-  pure (GrinVar linkedName unique liftedRuntimeRep)
+  pure (GrinVar linkedName unique liftedGrinRep)
 
 freshFunction :: Text -> LowerM FunctionName
 freshFunction kind = do
@@ -1233,7 +1257,7 @@ ensureWhnfResult owner expr =
       rhs <- ensureWhnfResult owner (grinAltRhs alternative)
       pure alternative {grinAltRhs = rhs}
 
-lookupFunctionResultRep :: GrinFunction -> FunctionName -> LowerM RuntimeRep
+lookupFunctionResultRep :: GrinFunction -> FunctionName -> LowerM GrinRep
 lookupFunctionResultRep owner functionName
   | functionName == grinFunctionName owner = pure (grinFunctionResultRep owner)
   | otherwise = do
@@ -1304,7 +1328,7 @@ freeVarsAlt alt =
   freeVars (altRhs alt) `Set.difference` Set.fromList (altBinders alt)
 
 plainGlobalVar :: Var -> GrinVar
-plainGlobalVar var = GrinVar (varName var) (sourceUnique var) liftedRuntimeRep
+plainGlobalVar var = GrinVar (varName var) (sourceUnique var) liftedGrinRep
 
 lowerGlobalVar :: Var -> LowerM GrinVar
 lowerGlobalVar var = do
@@ -1314,7 +1338,7 @@ lowerGlobalVar var = do
   let sourceName = sourceLookupName incremental var
       lookupName = fromMaybe sourceName constructorName
       linkedName = Map.findWithDefault (varName var) lookupName globalNames
-  pure (GrinVar linkedName (sourceUnique var) liftedRuntimeRep)
+  pure (GrinVar linkedName (sourceUnique var) liftedGrinRep)
 
 capturesFor :: FcExpr -> LowerM [GrinVar]
 capturesFor expr =
@@ -1349,14 +1373,15 @@ isGlobalVar var = do
 -- Dynamic constructors, closures, and primitives are deliberately excluded:
 -- they must be introduced by 'GrinStore'.
 lowerDirectValues :: FcExpr -> LowerM (Maybe [GrinValue])
-lowerDirectValues expr =
+lowerDirectValues expr = do
+  kindEnv <- gets lowerKindEnv
   case expr of
     FcVar var -> do
       isGlobal <- isGlobalVar var
       isWhnfGlobal <- isWhnfGlobalVar var
       constructorArity <- lookupConstructorArity var
       primitiveArity <- lookupPrimitiveArity var
-      let runtimeRep = typeRuntimeRep (varType var)
+      let runtimeRep = typeRuntimeRep kindEnv (varType var)
       case (constructorArity, primitiveArity) of
         _ | null (runtimeRepComponents runtimeRep) -> pure (Just [])
         (Just arity, _)
@@ -1368,7 +1393,7 @@ lowerDirectValues expr =
               noteExternalGlobalReference var
               global <- lowerGlobalVar var
               pure (Just [GrinVarValue global])
-          | not isGlobal && runtimeRep /= liftedRuntimeRep ->
+          | not isGlobal && runtimeRep /= liftedGrinRep ->
               Just . map GrinVarValue <$> lookupLocalVars var
           | otherwise -> pure Nothing
     FcLit literal _ -> pure (Just [GrinLitValue (lowerLiteral literal)])
@@ -1402,7 +1427,8 @@ lowerLazyDirectValues expr =
 
 lookupRuntimeVars :: Var -> LowerM [GrinVar]
 lookupRuntimeVars var = do
-  let runtimeReps = runtimeRepComponents (typeRuntimeRep (varType var))
+  kindEnv <- gets lowerKindEnv
+  let runtimeReps = runtimeRepComponents (typeRuntimeRep kindEnv (varType var))
   if null runtimeReps
     then pure []
     else do
@@ -1519,8 +1545,9 @@ isWhnfExpr expr =
     FcLam {} -> pure True
     FcTyLam _ body -> isWhnfExpr body
     FcCast inner _ -> isWhnfExpr inner
-    FcLit literal _ -> pure (isLiftedRuntimeRep (literalRuntimeRep literal))
+    FcLit literal _ -> pure (isLiftedRuntimeRep (tcRuntimeRepToGrin (literalRuntimeRep literal)))
     FcVar var -> do
+      kindEnv <- gets lowerKindEnv
       codeInfo <- lookupCodeInfo var
       primitiveArity <- lookupPrimitiveArity var
       constructorArity <- lookupConstructorArity var
@@ -1528,12 +1555,13 @@ isWhnfExpr expr =
         ( case codeInfo of
             Just info ->
               not (null (grinCodeParameterLayouts info))
-                || grinCodeResultRep info /= exprRuntimeRep expr
+                || grinCodeResultRep info /= exprRuntimeRep kindEnv expr
             Nothing -> maybe False (> 0) primitiveArity || maybe False (> 0) constructorArity
         )
     FcApp {} -> do
       constructorArities <- gets lowerConstructorArities
       localVars <- gets lowerLocalVars
+      kindEnv <- gets lowerKindEnv
       case constructorApplication constructorArities (Map.keysSet localVars) expr of
         Just _ -> pure True
         Nothing ->
@@ -1543,7 +1571,7 @@ isWhnfExpr expr =
               pure $ case codeInfo of
                 Just info ->
                   length arguments < length (grinCodeParameterLayouts info)
-                    || grinCodeResultRep info /= exprRuntimeRep expr
+                    || grinCodeResultRep info /= exprRuntimeRep kindEnv expr
                 Nothing -> False
             _ -> pure False
     _ -> pure False
@@ -1617,8 +1645,9 @@ withProvenance provenance action = do
   pure result
 
 binderVars :: Var -> LowerM [GrinVar]
-binderVars var =
-  case runtimeRepComponents (typeRuntimeRep (varType var)) of
+binderVars var = do
+  kindEnv <- gets lowerKindEnv
+  case runtimeRepComponents (typeRuntimeRep kindEnv (varType var)) of
     [] -> pure []
     [runtimeRep] -> pure [GrinVar (varName var) (sourceUnique var) runtimeRep]
     runtimeReps ->
@@ -1645,8 +1674,8 @@ sourceUnique var =
 lowerLiteral :: Literal -> GrinLiteral
 lowerLiteral literal =
   case literal of
-    LitInt runtimeRep value -> GrinLitInt runtimeRep value
-    LitChar runtimeRep value -> GrinLitChar runtimeRep value
+    LitInt runtimeRep value -> GrinLitInt (tcRuntimeRepToGrin runtimeRep) value
+    LitChar runtimeRep value -> GrinLitChar (tcRuntimeRepToGrin runtimeRep) value
     LitString value -> GrinLitString value
     LitAddr value -> GrinLitAddr value
 
@@ -1656,7 +1685,7 @@ lowerAltCon altCon =
     DataAlt origin -> do
       constructorArities <- gets lowerConstructorArities
       let symbolOrigin = fcConstructorSymbolOrigin origin
-          occurrence = (Var (fcConstructorName origin) (Unique (-1)) (TcBuiltinTyCon "Type" 0 [])) {varResolvedName = Just symbolOrigin}
+          occurrence = (Var (fcConstructorName origin) (Unique (-1)) liftedTypeKind) {varResolvedName = Just symbolOrigin}
           constructorName = fromMaybe (runtimeConstructorName symbolOrigin) (resolveConstructorName constructorArities occurrence)
       pure (GrinDataAlt constructorName)
     LitAlt literal _ -> pure (GrinLitAlt (lowerLiteral literal))
@@ -1692,15 +1721,15 @@ lowerForeignType foreignType =
     FcForeignWord64 -> GrinForeignWord64
     FcForeignAddr -> GrinForeignAddr
 
-exprRuntimeRep :: FcExpr -> RuntimeRep
-exprRuntimeRep expr =
+exprRuntimeRep :: TcKindEnv -> FcExpr -> GrinRep
+exprRuntimeRep kindEnv expr =
   case expr of
-    FcLit literal _ -> literalRuntimeRep literal
-    FcLam {} -> liftedRuntimeRep
-    FcTyLam {} -> liftedRuntimeRep
+    FcLit literal _ -> tcRuntimeRepToGrin (literalRuntimeRep literal)
+    FcLam {} -> liftedGrinRep
+    FcTyLam {} -> liftedGrinRep
     _ ->
       case exprType expr of
-        Just ty -> typeRuntimeRep ty
+        Just ty -> typeRuntimeRep kindEnv ty
         Nothing -> error ("GRIN lowering could not determine expression type: " <> show expr)
 
 exprType :: FcExpr -> Maybe TcType
@@ -1737,22 +1766,80 @@ functionResultType functionType =
     TcQualTy (_ : predicates) body -> Just (if null predicates then body else TcQualTy predicates body)
     _ -> Nothing
 
-typeRuntimeRep :: TcType -> RuntimeRep
-typeRuntimeRep ty =
-  case runtimeRepOfType ty of
-    Right runtimeRep -> runtimeRep
+typeRuntimeRep :: TcKindEnv -> TcType -> GrinRep
+typeRuntimeRep kindEnv ty =
+  case runtimeRepOfTypeInEnv kindEnv ty of
+    Right runtimeRep -> tcRuntimeRepToGrin runtimeRep
     Left problem -> error ("GRIN lowering received a non-runtime type: " <> problem)
 
-applicationResultRep :: FcExpr -> RuntimeRep
-applicationResultRep function =
+-- | Remove Haskell type identity at the FC-to-GRIN ABI boundary.
+tcRuntimeRepToGrin :: TcType -> GrinRep
+tcRuntimeRepToGrin runtimeRep =
+  case runtimeRep of
+    Tc.BoxedRep levity -> BoxedRep (convertLevity levity)
+    Tc.IntRep -> IntRep
+    Tc.Int8Rep -> Int8Rep
+    Tc.Int16Rep -> Int16Rep
+    Tc.Int32Rep -> Int32Rep
+    Tc.Int64Rep -> Int64Rep
+    Tc.WordRep -> WordRep
+    Tc.Word8Rep -> Word8Rep
+    Tc.Word16Rep -> Word16Rep
+    Tc.Word32Rep -> Word32Rep
+    Tc.Word64Rep -> Word64Rep
+    Tc.AddrRep -> AddrRep
+    Tc.FloatRep -> FloatRep
+    Tc.DoubleRep -> DoubleRep
+    Tc.TupleRep fields -> TupleRep (map tcRuntimeRepToGrin fields)
+    Tc.SumRep fields -> SumRep (map tcRuntimeRepToGrin fields)
+    Tc.VecRep count element -> VecRep (convertVecCount count) (convertVecElem element)
+    _ -> error ("GRIN lowering received an unresolved runtime representation: " <> show runtimeRep)
+  where
+    convertLevity levity =
+      case levity of
+        Tc.Lifted -> Lifted
+        Tc.Unlifted -> Unlifted
+        _ -> error ("GRIN lowering received an invalid levity: " <> show levity)
+    convertVecCount = namedValue "vector count" vecCounts
+    convertVecElem = namedValue "vector element" vecElems
+    namedValue context values ty =
+      case ty of
+        TcTyCon tyCon [] ->
+          fromMaybe
+            (error ("GRIN lowering received an invalid " <> context <> ": " <> show ty))
+            (lookup (T.dropWhile (== '\'') (tyConName tyCon)) values)
+        _ -> error ("GRIN lowering received an invalid " <> context <> ": " <> show ty)
+    vecCounts =
+      [ ("Vec2", Vec2),
+        ("Vec4", Vec4),
+        ("Vec8", Vec8),
+        ("Vec16", Vec16),
+        ("Vec32", Vec32),
+        ("Vec64", Vec64)
+      ]
+    vecElems =
+      [ ("Int8ElemRep", Int8ElemRep),
+        ("Int16ElemRep", Int16ElemRep),
+        ("Int32ElemRep", Int32ElemRep),
+        ("Int64ElemRep", Int64ElemRep),
+        ("Word8ElemRep", Word8ElemRep),
+        ("Word16ElemRep", Word16ElemRep),
+        ("Word32ElemRep", Word32ElemRep),
+        ("Word64ElemRep", Word64ElemRep),
+        ("FloatElemRep", FloatElemRep),
+        ("DoubleElemRep", DoubleElemRep)
+      ]
+
+applicationResultRep :: TcKindEnv -> FcExpr -> GrinRep
+applicationResultRep kindEnv function =
   case exprType function >>= functionResultType of
-    Just result -> typeRuntimeRep result
+    Just result -> typeRuntimeRep kindEnv result
     Nothing -> error ("GRIN lowering could not determine application result type: " <> show function)
 
-functionArgumentRep :: FcExpr -> RuntimeRep
-functionArgumentRep function =
+functionArgumentRep :: TcKindEnv -> FcExpr -> GrinRep
+functionArgumentRep kindEnv function =
   case exprType function >>= functionArgumentType of
-    Just argument -> typeRuntimeRep argument
+    Just argument -> typeRuntimeRep kindEnv argument
     Nothing -> error ("GRIN lowering could not determine function argument type: " <> show function)
   where
     functionArgumentType functionType =
@@ -1776,12 +1863,13 @@ programConstructors program =
 isUnboxedTupleData :: FcDataDecl -> Bool
 isUnboxedTupleData declaration =
   case fcDataResultKind declaration of
-    KTYPE TupleRep {} -> any (unboxedTuplePunctuation . fcDataConName) (fcDataConstructors declaration)
+    Tc.KTYPE Tc.TupleRep {} -> any (unboxedTuplePunctuation . fcDataConName) (fcDataConstructors declaration)
     _ -> False
 
 programGlobalInfos :: GrinLinkNames -> FcProgram -> [(Var, Text, Text, Bool)]
 programGlobalInfos linkNames program = concat (snd (mapAccumL buildInfo Map.empty bindings))
   where
+    kindEnv = fcProgramKindEnv program
     constructorArities =
       Map.fromList [(name, length layouts) | (name, layouts) <- builtinConstructors]
         <> Map.fromList (programConstructors program)
@@ -1789,7 +1877,7 @@ programGlobalInfos linkNames program = concat (snd (mapAccumL buildInfo Map.empt
     buildInfo occurrences (var, expr) =
       let (occurrences', index, linkedName) = linkNameAt linkNames occurrences var
           sourceName = sourceNameAt linkNames index var
-       in (occurrences', [(var, sourceName, linkedName, isStaticWhnf constructorArities expr) | not (isDirectFunction expr)])
+       in (occurrences', [(var, sourceName, linkedName, isStaticWhnf kindEnv constructorArities expr) | not (isDirectFunction expr)])
     topBindings bind =
       case bind of
         FcNonRec var expr -> [(var, expr)]
@@ -1798,26 +1886,27 @@ programGlobalInfos linkNames program = concat (snd (mapAccumL buildInfo Map.empt
 programCodeInfos :: GrinLinkNames -> FcProgram -> [(Var, Text, GrinCodeInfo)]
 programCodeInfos linkNames program = concat (snd (mapAccumL buildInfo Map.empty bindings))
   where
+    kindEnv = fcProgramKindEnv program
     bindings = [(var, expr) | FcTopBind bind <- fcTopBinds program, (var, expr) <- topBindings bind]
     buildInfo occurrences (var, expr) =
       let (occurrences', index, linkedName) = linkNameAt linkNames occurrences var
           sourceName = sourceNameAt linkNames index var
-       in (occurrences', [(var, sourceName, codeInfoFor linkedName var expr) | isDirectFunction expr])
+       in (occurrences', [(var, sourceName, codeInfoFor kindEnv linkedName var expr) | isDirectFunction expr])
     topBindings bind =
       case bind of
         FcNonRec var expr -> [(var, expr)]
         FcRec recursiveBindings -> recursiveBindings
 
-codeInfoFor :: Text -> Var -> FcExpr -> GrinCodeInfo
-codeInfoFor linkedName _var expr =
+codeInfoFor :: TcKindEnv -> Text -> Var -> FcExpr -> GrinCodeInfo
+codeInfoFor kindEnv linkedName _var expr =
   GrinCodeInfo
     { grinCodeSourceName = linkedName,
       grinCodeFunctionName = linkedFunctionName linkedName,
       grinCodeParameterLayouts =
-        [ runtimeRepComponents (typeRuntimeRep (varType binder))
+        [ runtimeRepComponents (typeRuntimeRep kindEnv (varType binder))
         | binder <- binders
         ],
-      grinCodeResultRep = exprRuntimeRep body
+      grinCodeResultRep = exprRuntimeRep kindEnv body
     }
   where
     (binders, body) = collectLeadingLambdas expr
@@ -1881,8 +1970,8 @@ isRuntimeAliasExpression expression =
     FcCast inner _ -> isRuntimeAliasExpression inner
     _ -> False
 
-isStaticWhnf :: Map Text Int -> FcExpr -> Bool
-isStaticWhnf constructorArities expr =
+isStaticWhnf :: TcKindEnv -> Map Text Int -> FcExpr -> Bool
+isStaticWhnf kindEnv constructorArities expr =
   case constructorApplication constructorArities Set.empty expr of
     Just (_, arguments) -> all isStaticArgument arguments
     Nothing -> False
@@ -1891,7 +1980,7 @@ isStaticWhnf constructorArities expr =
       case argument of
         FcLit {} -> True
         FcVar var ->
-          null (runtimeRepComponents (typeRuntimeRep (varType var)))
+          null (runtimeRepComponents (typeRuntimeRep kindEnv (varType var)))
             || Map.lookup (varName var) constructorArities == Just 0
         FcTyApp inner _ -> isStaticArgument inner
         FcCast inner _ -> isStaticArgument inner

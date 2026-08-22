@@ -111,30 +111,5 @@ equivalentPred renaming left right =
       equivalentType renaming leftA rightA && equivalentType renaming leftB rightB
     _ -> False
 
-equivalentKind :: Map Unique Unique -> Kind -> Kind -> Bool
-equivalentKind renaming left right =
-  case (left, right) of
-    (KTYPE leftRep, KTYPE rightRep) -> equivalentRuntimeRep renaming leftRep rightRep
-    (KConstraint, KConstraint) -> True
-    (KRuntimeRep, KRuntimeRep) -> True
-    (KLevity, KLevity) -> True
-    (KVecCount, KVecCount) -> True
-    (KVecElem, KVecElem) -> True
-    (KFun leftArg leftResult, KFun rightArg rightResult) ->
-      equivalentKind renaming leftArg rightArg
-        && equivalentKind renaming leftResult rightResult
-    (KMeta leftMeta, KMeta rightMeta) -> leftMeta == rightMeta
-    _ -> False
-
-equivalentRuntimeRep :: Map Unique Unique -> RuntimeRep -> RuntimeRep -> Bool
-equivalentRuntimeRep renaming left right =
-  case (left, right) of
-    (RuntimeRepVar leftVar, RuntimeRepVar rightVar) -> Map.lookup leftVar renaming == Just rightVar
-    (RuntimeRepMeta leftMeta, RuntimeRepMeta rightMeta) -> leftMeta == rightMeta
-    (TupleRep leftReps, TupleRep rightReps) ->
-      length leftReps == length rightReps
-        && and (zipWith (equivalentRuntimeRep renaming) leftReps rightReps)
-    (SumRep leftReps, SumRep rightReps) ->
-      length leftReps == length rightReps
-        && and (zipWith (equivalentRuntimeRep renaming) leftReps rightReps)
-    _ -> left == right
+equivalentKind :: Map Unique Unique -> TcType -> TcType -> Bool
+equivalentKind = equivalentType

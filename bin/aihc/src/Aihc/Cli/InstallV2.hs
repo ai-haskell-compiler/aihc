@@ -47,7 +47,6 @@ import Aihc.Tc
     TcTermKey (..),
     TcType (..),
     TyCon,
-    TyConFlavor (..),
     TyConInfo (..),
     TypeScheme (..),
     dataTypeKey,
@@ -56,8 +55,6 @@ import Aihc.Tc
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
-    tyConArity,
-    tyConName,
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Types (tyConModuleName, tyConPackageId)
@@ -439,14 +436,15 @@ moduleTypeInterface exports package interface source =
       let tyCon = tciTyCon info
           identity = (tyConPackageId tyCon, tyConModuleName tyCon, tciName info)
        in Map.member (tciName info) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (tciName info)
-    visibleTypeIdentity identity = Map.member (third identity) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (third identity)
+    visibleTypeIdentity (packageId', moduleName', identifier, _) =
+      let identity = (packageId', moduleName', identifier)
+       in Map.member identifier (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity identifier
     visibleClass info =
       case ciOrigin info of
         Just (packageIdText, moduleName') ->
           let identity = (PackageId packageIdText, moduleName', ciName info)
            in Map.member (ciName info) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (ciName info)
         Nothing -> False
-    third (_, _, value) = value
     resolvedIdentity resolved = case resolved of
       ResolvedTopLevel packageId' resolvedName -> Just (packageId', fromMaybe name (nameQualifier resolvedName), nameText resolvedName)
       _ -> Nothing
@@ -460,9 +458,10 @@ addTermSupportTyCons complete interface =
     referenced = concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface)
     support =
       Map.fromList
-        [ (tyCon, Map.findWithDefault (TyConInfo (tyConName tyCon) (tyConArity tyCon) tyCon DataTyCon Nothing) tyCon available)
+        [ (tyCon, info)
         | tyCon <- referenced,
-          tyCon `Map.notMember` existing
+          tyCon `Map.notMember` existing,
+          Just info <- [Map.lookup tyCon available]
         ]
 
 typeSchemeTyCons :: TypeScheme -> [TyCon]
@@ -482,7 +481,6 @@ typeTyCons ty = case ty of
   TcForAllTy _ body -> typeTyCons body
   TcQualTy predicates body -> concatMap predTyCons predicates <> typeTyCons body
   TcAppTy function argument -> typeTyCons function <> typeTyCons argument
-  TcBuiltinTyCon _ _ arguments -> concatMap typeTyCons arguments
 
 writeTypeArtifact :: (String -> IO ()) -> [(Text, Text)] -> (SourceModule -> FilePath) -> SourceModule -> TcInterface -> IO ()
 writeTypeArtifact verbose hashes artifactPath source interface = do

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Shared System FC dictionary-layout operations.
 module Aihc.Fc.Desugar.Dictionary
@@ -11,9 +12,10 @@ module Aihc.Fc.Desugar.Dictionary
   )
 where
 
-import Aihc.Fc.Desugar.Expr (DsM, desugarBug)
+import Aihc.Fc.Desugar.Expr (DsM, DsState (..), desugarBug)
 import Aihc.Fc.Syntax (legacyTyCon)
-import Aihc.Tc.Types (Kind (..), Pred (..), TcType (..), TyCon (..), TyVarId, typeKind)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId, typeKindInEnv, pattern KConstraint)
+import Control.Monad.Trans.State.Strict (gets)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -35,10 +37,12 @@ predType (ClassPred classTyCon args) = TcTyCon classTyCon args
 predType (EqPred left right) = TcTyCon (legacyTyCon "~" 2) [left, right]
 
 checkedConstraintType :: String -> TcType -> DsM TcType
-checkedConstraintType context ty =
-  case typeKind ty of
-    KConstraint -> pure ty
-    kind -> desugarBug (context <> " does not have the checked Constraint kind: " <> show kind)
+checkedConstraintType context ty = do
+  kindEnv <- gets dsKindEnv
+  case typeKindInEnv kindEnv ty of
+    Left problem -> desugarBug (context <> " has no kind: " <> problem)
+    Right KConstraint -> pure ty
+    Right kind -> desugarBug (context <> " does not have the checked Constraint kind: " <> show kind)
 
 classMethodFieldType :: Text -> [TyVarId] -> TcType -> DsM TcType
 classMethodFieldType className classTyVars methodType = do

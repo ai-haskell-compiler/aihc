@@ -19,7 +19,14 @@ type Scope = (T.Text, T.Text)
 type ScopeTable = Map.Map Scope Int
 
 renderProgram :: FcProgram -> String
-renderProgram program = intercalate "\n\n" (renderScopes scopes : renderModuleDeclaration scopes (fcProgramModule program) : map (renderTopBindWith scopes) (fcTopBinds program))
+renderProgram program =
+  intercalate
+    "\n\n"
+    ( renderScopes scopes
+        : renderModuleDeclaration scopes (fcProgramModule program)
+        : map (renderKindEntry scopes) (Map.toAscList (fcProgramKindEnv program))
+          <> map (renderTopBindWith scopes) (fcTopBinds program)
+    )
   where
     scopes = scopeTable program
 
@@ -38,7 +45,27 @@ renderStandalone scopes render =
     table = scopeTableFrom scopes
 
 programScopes :: FcProgram -> Set.Set Scope
-programScopes program = moduleScopes (fcProgramModule program) <> foldMap topBindScopes (fcTopBinds program)
+programScopes program =
+  moduleScopes (fcProgramModule program)
+    <> foldMap kindEntryScopes (Map.toList (fcProgramKindEnv program))
+    <> foldMap topBindScopes (fcTopBinds program)
+
+kindEntryScopes :: (TcTypeKey, TypeScheme) -> Set.Set Scope
+kindEntryScopes ((packageId, moduleName, _, _), ForAll variables predicates body) =
+  Set.singleton (packageIdText packageId, moduleName)
+    <> foldMap (typeScopes . tvKind) variables
+    <> foldMap predScopes predicates
+    <> typeScopes body
+
+renderKindEntry :: ScopeTable -> (TcTypeKey, TypeScheme) -> String
+renderKindEntry scopes ((packageId, moduleName, name, arity), scheme) =
+  "kind tycon "
+    <> scopeReference scopes (packageIdText packageId) moduleName name
+    <> "/"
+    <> show arity
+    <> " = { :: "
+    <> renderKindScheme scopes scheme
+    <> " }"
 
 moduleScopes :: FcModuleId -> Set.Set Scope
 moduleScopes moduleId = Set.singleton (fcModulePackageText moduleId, fcModuleName moduleId)
@@ -106,7 +133,6 @@ typeScopes ty = case ty of
   TcForAllTy _ body -> typeScopes body
   TcQualTy predicates body -> foldMap predScopes predicates <> typeScopes body
   TcAppTy function argument -> typeScopes function <> typeScopes argument
-  TcBuiltinTyCon _ _ arguments -> foldMap typeScopes arguments
 
 tyConScopes :: TyCon -> Set.Set Scope
 tyConScopes tyCon = Set.singleton (packageIdText (tyConPackageId tyCon), tyConModuleName tyCon)
@@ -259,7 +285,6 @@ renderTypeWith scopes ty = case ty of
   TcForAllTy tyVar body -> "∀ " <> renderTyVarBinder scopes tyVar <> ". " <> renderTypeWith scopes body
   TcQualTy predicates body -> "(" <> intercalate ", " (map (renderPred scopes) predicates) <> ") ⇒ " <> renderTypeWith scopes body
   TcAppTy function argument -> renderTypeAtom scopes function <> " · " <> renderTypeAtom scopes argument
-  TcBuiltinTyCon name arity arguments -> "builtin " <> T.unpack name <> "/" <> show arity <> "[" <> intercalate ", " (map (renderTypeWith scopes) arguments) <> "]"
 
 renderTyConHead :: ScopeTable -> TyCon -> String
 renderTyConHead scopes tyCon =
@@ -267,21 +292,19 @@ renderTyConHead scopes tyCon =
     <> scopeReference scopes (packageIdText (tyConPackageId tyCon)) (tyConModuleName tyCon) (tyConName tyCon)
     <> "/"
     <> show (tyConArity tyCon)
-    <> " { :: "
-    <> renderKindScheme scopes (tyConKindScheme tyCon)
-    <> " }"
 
 renderKindScheme :: ScopeTable -> TypeScheme -> String
-renderKindScheme scopes scheme@(ForAll tyVars _ _) = prefix <> renderKind scopes (kindFromTypeScheme scheme)
+renderKindScheme scopes (ForAll tyVars predicates body) =
+  prefix <> qualifiedPrefix <> renderTypeWith scopes body
   where
     prefix = case tyVars of [] -> ""; _ -> "∀ " <> unwords (map (renderTyVarBinder scopes) tyVars) <> ". "
+    qualifiedPrefix = case predicates of [] -> ""; _ -> "(" <> intercalate ", " (map (renderPred scopes) predicates) <> ") ⇒ "
 
 renderTypeAtom :: ScopeTable -> TcType -> String
 renderTypeAtom scopes ty = case ty of
   TcTyVar {} -> renderTypeWith scopes ty
   TcMetaTv {} -> renderTypeWith scopes ty
   TcTyCon {} -> renderTypeWith scopes ty
-  TcBuiltinTyCon {} -> renderTypeWith scopes ty
   _ -> "(" <> renderTypeWith scopes ty <> ")"
 
 renderTyVarBinder :: ScopeTable -> TyVarId -> String
@@ -292,25 +315,10 @@ renderPred scopes predicate = case predicate of
   ClassPred classTyCon arguments -> renderTypeAtom scopes (TcTyCon classTyCon arguments)
   EqPred left right -> renderTypeAtom scopes left <> " ~ " <> renderTypeAtom scopes right
 
-renderKind :: ScopeTable -> Kind -> String
-renderKind scopes kind = case kind of
-  KTYPE (BoxedRep Lifted) -> "Type"
-  KTYPE (BoxedRep Unlifted) -> "TYPE UnliftedRep"
-  KTYPE runtimeRep -> "TYPE " <> renderRuntimeRep runtimeRep
-  KConstraint -> "Constraint"
-  KRuntimeRep -> "RuntimeRep"
-  KLevity -> "Levity"
-  KVecCount -> "VecCount"
-  KVecElem -> "VecElem"
-  KFun argument result -> renderKindAtom scopes argument <> " → " <> renderKind scopes result
-  KMeta (Unique unique) -> "?k" <> show unique
+renderKind :: ScopeTable -> TcType -> String
+renderKind = renderTypeWith
 
-renderKindAtom :: ScopeTable -> Kind -> String
-renderKindAtom scopes kind = case kind of
-  KFun {} -> "(" <> renderKind scopes kind <> ")"
-  _ -> renderKind scopes kind
-
-renderRuntimeRep :: RuntimeRep -> String
+renderRuntimeRep :: TcType -> String
 renderRuntimeRep runtimeRep = case runtimeRep of
   VecRep count element -> "VecRep " <> show count <> " " <> show element
   TupleRep fields -> "TupleRep [" <> intercalate ", " (map renderRuntimeRep fields) <> "]"
@@ -329,8 +337,11 @@ renderRuntimeRep runtimeRep = case runtimeRep of
   AddrRep -> "AddrRep"
   FloatRep -> "FloatRep"
   DoubleRep -> "DoubleRep"
-  RuntimeRepVar (Unique unique) -> "RuntimeRepVar " <> show unique
-  RuntimeRepMeta (Unique unique) -> "RuntimeRepMeta " <> show unique
+  TcTyVar tyVar -> "RuntimeRepVar " <> show unique
+    where
+      Unique unique = tvUnique tyVar
+  TcMetaTv (Unique unique) -> "MetaTv " <> show unique
+  _ -> show runtimeRep
 
 renderCoercion :: ScopeTable -> Coercion -> String
 renderCoercion scopes coercion = case coercion of

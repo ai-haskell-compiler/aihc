@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Small evaluator for the System FC subset used by the REPL MVP.
 module Aihc.Fc.Eval
@@ -14,7 +15,19 @@ where
 import Aihc.Fc.Lower (lowerPseudoOps)
 import Aihc.Fc.Newtype (lowerNewtypes)
 import Aihc.Fc.Syntax
-import Aihc.Tc.Types (RuntimeRep (..), TcType (..), TyCon (..), Unique, isLiftedType)
+import Aihc.Tc.Types
+  ( TcKindEnv,
+    TcType (..),
+    TyCon (..),
+    Unique,
+    isLiftedTypeInEnv,
+    pattern Int32Rep,
+    pattern IntRep,
+    pattern Word32Rep,
+    pattern Word64Rep,
+    pattern Word8Rep,
+    pattern WordRep,
+  )
 import Control.Applicative ((<|>))
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (forM, forM_, when, zipWithM, (<=<), (>=>))
@@ -171,21 +184,23 @@ instance Show EvalIORequest where
 
 data Env = Env
   { envLocals :: !(Map Unique Value),
-    envGlobals :: !(Map Text Value)
+    envGlobals :: !(Map Text Value),
+    envKindEnv :: !TcKindEnv
   }
   deriving (Eq, Show)
 
 emptyEnv :: Env
-emptyEnv = Env Map.empty Map.empty
+emptyEnv = Env Map.empty Map.empty Map.empty
 
 globalEnv :: [(Text, Value)] -> Env
-globalEnv = Env Map.empty . Map.fromList
+globalEnv bindings = Env Map.empty (Map.fromList bindings) Map.empty
 
 unionEnv :: Env -> Env -> Env
 unionEnv left right =
   Env
     { envLocals = envLocals left `Map.union` envLocals right,
-      envGlobals = envGlobals left `Map.union` envGlobals right
+      envGlobals = envGlobals left `Map.union` envGlobals right,
+      envKindEnv = envKindEnv left `Map.union` envKindEnv right
     }
 
 lookupEnvVar :: Var -> Env -> Maybe Value
@@ -199,7 +214,7 @@ insertLocal var value env =
   env {envLocals = Map.insert (varUnique var) value (envLocals env)}
 
 localEnv :: [(Var, Value)] -> Env
-localEnv bindings = Env (Map.fromList [(varUnique var, value) | (var, value) <- bindings]) Map.empty
+localEnv bindings = Env (Map.fromList [(varUnique var, value) | (var, value) <- bindings]) Map.empty Map.empty
 
 type EvalM = ExceptT EvalError IO
 
@@ -231,7 +246,10 @@ evalProgramBinding name sourceProgram = runExceptT $ do
 buildProgramEnv :: FcProgram -> EvalM Env
 buildProgramEnv program = do
   thunkBindings <- mapM allocateTopBinding valueBindings
-  let env = globalEnv (directBindings <> [(varName var, VThunk thunk) | (var, _, thunk) <- thunkBindings]) `unionEnv` builtinConstructorEnv
+  let env =
+        (globalEnv (directBindings <> [(varName var, VThunk thunk) | (var, _, thunk) <- thunkBindings]) `unionEnv` builtinConstructorEnv)
+          { envKindEnv = fcProgramKindEnv program
+          }
   forM_ thunkBindings $ \(_, expression, EvalThunk ref) ->
     lift (writeIORef ref (ThunkSuspended env expression))
   pure env
@@ -832,7 +850,7 @@ forceIntPrimitiveArg name value = do
 forceWordPrimitiveArg :: Text -> Value -> EvalM Integer
 forceWordPrimitiveArg name value = normalizeWord <$> forceIntPrimitiveArg name value
 
-forceRuntimeRepPrimitiveArg :: Text -> RuntimeRep -> Value -> EvalM Integer
+forceRuntimeRepPrimitiveArg :: Text -> TcType -> Value -> EvalM Integer
 forceRuntimeRepPrimitiveArg name expectedRep value = do
   forced <- forceValue value
   case forced of
@@ -1183,7 +1201,7 @@ extendBind :: Env -> FcBind -> EvalM Env
 extendBind env bind =
   case bind of
     FcNonRec var expr
-      | isLiftedType (varType var) -> do
+      | isLiftedTypeInEnv (envKindEnv env) (varType var) -> do
           thunk <- newThunk env expr
           pure (insertLocal var (VThunk thunk) env)
       | otherwise -> do

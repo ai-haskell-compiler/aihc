@@ -67,7 +67,6 @@ import Aihc.Grin.Syntax
 import Aihc.Native (renderLinkedFunctionSymbol)
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..))
-import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Monad (forM)
 import Control.Monad.Trans.State.Strict (StateT)
 import Data.ByteString qualified as BS
@@ -87,7 +86,7 @@ data Arm64Error
   | Arm64UnsupportedPrimitive !Text
   | Arm64UnsupportedExpression !Text
   | Arm64UnsupportedValue !Text
-  | Arm64UnsupportedRuntimeRep !RuntimeRep
+  | Arm64UnsupportedRuntimeRep !GrinRep
   deriving (Eq, Show)
 
 data CompileEnv = CompileEnv
@@ -134,7 +133,7 @@ data ValueEnv = ValueEnv
 data RuntimeInfo = RuntimeInfo
   { runtimeInfoLabel :: !Text,
     runtimeInfoIdentity :: !NodeInfo,
-    runtimeInfoFields :: ![RuntimeRep],
+    runtimeInfoFields :: ![GrinRep],
     runtimeInfoRemainingArity :: !Int,
     runtimeInfoNext :: !(Maybe Text),
     runtimeInfoEnter :: !(Maybe RuntimeEnter),
@@ -150,8 +149,8 @@ data RuntimeEnter = RuntimeEnter
 
 data RuntimeInfoKey
   = ConstructorRuntimeInfo !Text !Int
-  | ClosureRuntimeInfo !FunctionName ![RuntimeRep] ![[RuntimeRep]]
-  | ThunkRuntimeInfo !FunctionName ![RuntimeRep]
+  | ClosureRuntimeInfo !FunctionName ![GrinRep] ![[GrinRep]]
+  | ThunkRuntimeInfo !FunctionName ![GrinRep]
   deriving (Eq, Ord, Show)
 
 data NodeInfo
@@ -177,7 +176,7 @@ makeNodeUncheckedLines info =
 -- | Describe a unary continuation before and after it receives its result.
 -- The result can occupy several machine slots even though it is one GRIN
 -- argument, hence the distinct runtime arity and supplied-slot count.
-continuationRuntimeInfos :: ContinuationFrameKind -> Text -> Text -> Text -> [RuntimeRep] -> [RuntimeRep] -> [RuntimeInfo]
+continuationRuntimeInfos :: ContinuationFrameKind -> Text -> Text -> Text -> [GrinRep] -> [GrinRep] -> [RuntimeInfo]
 continuationRuntimeInfos frameKind infoLabel appliedInfoLabel target storedFields suppliedFields =
   [ RuntimeInfo
       infoLabel
@@ -471,7 +470,7 @@ runtimeInfoFunctionName ConstructorRuntimeInfo {} = Nothing
 runtimeInfoFunctionName (ClosureRuntimeInfo functionName _ _) = Just functionName
 runtimeInfoFunctionName (ThunkRuntimeInfo functionName _) = Just functionName
 
-runtimeInfoKeyFields :: RuntimeInfoKey -> [RuntimeRep]
+runtimeInfoKeyFields :: RuntimeInfoKey -> [GrinRep]
 runtimeInfoKeyFields ConstructorRuntimeInfo {} = []
 runtimeInfoKeyFields (ClosureRuntimeInfo _ fields _) = fields
 runtimeInfoKeyFields (ThunkRuntimeInfo _ fields) = fields
@@ -590,7 +589,7 @@ normalizedLiteralInteger literal =
     GrinLitString {} -> Nothing
     GrinLitAddr {} -> Nothing
 
-normalizeScalar :: RuntimeRep -> Integer -> Integer
+normalizeScalar :: GrinRep -> Integer -> Integer
 normalizeScalar runtimeRep integer =
   case runtimeRep of
     IntRep -> normalizeSigned 64 integer

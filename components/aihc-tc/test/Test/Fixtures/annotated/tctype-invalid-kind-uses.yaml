@@ -1,0 +1,25 @@
+extensions:
+  - DataKinds
+  - KindSignatures
+modules:
+  - |
+    module Test where
+    data Color = Red
+    data BadApplication (a :: Color Type)
+    data BadField (r :: RuntimeRep) = BadField r
+annotated:
+  - |-
+    module Test where
+    └─ error: kind mismatch: expected TYPE ('BoxedRep 'Lifted), got RuntimeRep
+    └─ error: kind mismatch: expected TYPE ('BoxedRep 'Lifted), got TYPE ('BoxedRep 'Lifted) → ?9
+    └─ error: kind mismatch: expected TYPE ('BoxedRep 'Lifted), got TYPE ('BoxedRep 'Lifted) → ?6
+    data Color = Red
+         │       └─ type: Color
+         └─ type: TYPE ('BoxedRep 'Lifted)
+    data BadApplication (a :: Color Type)
+         └─ type: Color (TYPE ('BoxedRep 'Lifted)) → TYPE ('BoxedRep 'Lifted)
+    data BadField (r :: RuntimeRep) = BadField r
+         │                            └─ type: ∀ r. r → BadField r
+         └─ type: RuntimeRep → TYPE ('BoxedRep 'Lifted)
+status: pass
+reason: rejects invalid kind applications and fields whose types have no runtime representation

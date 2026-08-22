@@ -1,62 +1,94 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Core type representation for the type checker.
---
--- These are the semantic types used during type checking, distinct from
--- the surface syntax types in "Aihc.Parser.Syntax". Surface types are
--- syntax; internal types are semantic.
---
--- For the MVP, meta-variable solutions are stored in a map in the TcM
--- state rather than using STRef. This keeps the API simpler while being
--- functionally equivalent. The module structure supports migrating to
--- STRef-backed meta-variables later without changing the public interface.
 module Aihc.Tc.Types
-  ( -- * Unique identifiers
-    Unique (..),
-
-    -- * Type variables
+  ( Unique (..),
     TyVarId (TyVarId, tvName, tvUnique),
     tvKind,
     setTyVarKind,
-
-    -- * Types
     TcType (..),
     TcTypeKey,
+    TcKindEnv,
     TyCon (TyCon, tyConName, tyConArity),
     tyConKey,
     tyConPackageId,
     tyConModuleName,
-    tyConKind,
-    tyConKindScheme,
     mkTyConWithOrigin,
-    mkTyConWithOriginScheme,
-    setTyConKindScheme,
-    Kind (KTYPE, KConstraint, KRuntimeRep, KLevity, KVecCount, KVecElem, KFun, KMeta, KType),
-    RuntimeRep (..),
-    Levity (..),
-    VecCount (..),
-    VecElem (..),
     TypeScheme (..),
-    kindSchemeFromKind,
-    kindToTcType,
-    kindFromTypeScheme,
-    runtimeRepToTcType,
     boxedTupleTyConName,
     unboxedTupleTyConName,
     isUnboxedTupleType,
+    typeTyCon,
+    constraintTyCon,
+    runtimeRepTyCon,
+    levityTyCon,
+    vecCountTyCon,
+    vecElemTyCon,
+    typeKindInEnv,
+    constraintKind,
+    runtimeRepKind,
+    levityKind,
+    vecCountKind,
+    vecElemKind,
+    mkTYPEKind,
+    boxedRep,
+    tupleRep,
+    sumRep,
+    vecRep,
+    liftedRep,
+    unliftedRep,
+    intRep,
+    int8Rep,
+    int16Rep,
+    int32Rep,
+    int64Rep,
+    wordRep,
+    word8Rep,
+    word16Rep,
+    word32Rep,
+    word64Rep,
+    addrRep,
+    floatRep,
+    doubleRep,
     liftedRuntimeRep,
     liftedTypeKind,
-    typeKind,
-    runtimeRepOfType,
-    runtimeRepFromType,
-    isLiftedType,
-    isUnliftedType,
-
-    -- * Predicates
+    runtimeRepFromKind,
+    runtimeRepOfTypeInEnv,
+    isLiftedTypeInEnv,
+    isUnliftedTypeInEnv,
+    isUnboxedTupleTypeWithKind,
+    pattern KTYPE,
+    pattern KConstraint,
+    pattern KRuntimeRep,
+    pattern KLevity,
+    pattern KVecCount,
+    pattern KVecElem,
+    pattern KFun,
+    pattern KMeta,
+    pattern KType,
+    pattern BoxedRep,
+    pattern TupleRep,
+    pattern SumRep,
+    pattern VecRep,
+    pattern Lifted,
+    pattern Unlifted,
+    pattern IntRep,
+    pattern Int8Rep,
+    pattern Int16Rep,
+    pattern Int32Rep,
+    pattern Int64Rep,
+    pattern WordRep,
+    pattern Word8Rep,
+    pattern Word16Rep,
+    pattern Word32Rep,
+    pattern Word64Rep,
+    pattern AddrRep,
+    pattern FloatRep,
+    pattern DoubleRep,
+    typeSchemeBody,
     Pred (..),
-
-    -- * Tc level
     TcLevel (..),
     topTcLevel,
     pushLevel,
@@ -64,32 +96,17 @@ module Aihc.Tc.Types
 where
 
 import Aihc.Resolve (PackageId (..))
+import Control.Monad (zipWithM)
+import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
-import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
--- | Source-level names of the lifted tuple types declared by @ghc-prim@.
--- Their data constructors retain the familiar parenthesized comma syntax.
-boxedTupleTyConName :: Int -> Text
-boxedTupleTyConName arity =
-  case arity of
-    0 -> "Unit"
-    1 -> "Solo"
-    _ -> "Tuple" <> T.pack (show arity)
-
--- | Source-level names of the unboxed tuple types declared by @GHC.Types@.
-unboxedTupleTyConName :: Int -> Text
-unboxedTupleTyConName arity = "Tuple" <> T.pack (show arity) <> "#"
-
--- | Unique identifier for type variables and evidence variables.
 newtype Unique = Unique Int
   deriving (Eq, Ord, Show, Read)
 
--- | A type variable identifier, carrying both a human-readable name and
--- a unique tag for alpha-equivalence.
-data TyVarId = TyVarIdInternal !Text !Unique !Kind
+-- | A type variable and its type-level kind.
+data TyVarId = TyVarIdInternal !Text !Unique !TcType
   deriving (Eq, Ord, Show, Read)
 
 pattern TyVarId :: Text -> Unique -> TyVarId
@@ -99,598 +116,429 @@ pattern TyVarId {tvName, tvUnique} <- TyVarIdInternal tvName tvUnique _
 
 {-# COMPLETE TyVarId #-}
 
-tvKind :: TyVarId -> Kind
+tvKind :: TyVarId -> TcType
 tvKind (TyVarIdInternal _ _ kind) = kind
 
-setTyVarKind :: Kind -> TyVarId -> TyVarId
+setTyVarKind :: TcType -> TyVarId -> TyVarId
 setTyVarKind kind (TyVarIdInternal name unique _) = TyVarIdInternal name unique kind
 
--- | Type constructor. The kind scheme is the only stored kind representation.
-data TyCon = TyConInternal !PackageId !Text !Text !Int !TypeScheme
+-- | A type-constructor identity. Kind schemes live in the type-constructor environment.
+data TyCon = TyConInternal !PackageId !Text !Text !Int
   deriving (Eq, Ord, Show, Read)
 
-type TcTypeKey = (PackageId, Text, Text)
-
 pattern TyCon :: Text -> Int -> TyCon
-pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ tyConName tyConArity _
+pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ tyConName tyConArity
 
 {-# COMPLETE TyCon #-}
 
-tyConKind :: TyCon -> Kind
-tyConKind = kindFromTypeScheme . tyConKindScheme
+type TcTypeKey = (PackageId, Text, Text, Int)
 
-tyConKindScheme :: TyCon -> TypeScheme
-tyConKindScheme (TyConInternal _ _ _ _ scheme) = scheme
+type TcKindEnv = Map TcTypeKey TypeScheme
 
 tyConPackageId :: TyCon -> PackageId
-tyConPackageId (TyConInternal packageId _ _ _ _) = packageId
+tyConPackageId (TyConInternal packageId _ _ _) = packageId
 
 tyConModuleName :: TyCon -> Text
-tyConModuleName (TyConInternal _ moduleName _ _ _) = moduleName
+tyConModuleName (TyConInternal _ moduleName _ _) = moduleName
 
 tyConKey :: TyCon -> TcTypeKey
-tyConKey tyCon = (tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon)
+tyConKey tyCon = (tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon, tyConArity tyCon)
 
--- | Make a type constructor with its installed package and module identity.
-mkTyConWithOrigin :: PackageId -> Text -> Text -> Int -> Kind -> TyCon
-mkTyConWithOrigin packageId moduleName name arity inferredKind =
-  TyConInternal packageId moduleName name arity (kindSchemeFromKind (fromMaybe inferredKind (fixedTyConKind name)))
+mkTyConWithOrigin :: PackageId -> Text -> Text -> Int -> TyCon
+mkTyConWithOrigin = TyConInternal
 
--- | Make a type constructor from its authoritative kind scheme.
-mkTyConWithOriginScheme :: PackageId -> Text -> Text -> Int -> TypeScheme -> TyCon
-mkTyConWithOriginScheme packageId moduleName name arity scheme =
-  requirePredicateFreeKindScheme scheme `seq`
-    TyConInternal packageId moduleName name arity scheme
-
--- | Replace a type constructor's authoritative kind scheme.
-setTyConKindScheme :: TypeScheme -> TyCon -> TyCon
-setTyConKindScheme scheme (TyConInternal packageId moduleName name arity _) =
-  requirePredicateFreeKindScheme scheme `seq`
-    TyConInternal packageId moduleName name arity scheme
-
--- | Kinds for the type language checked by @aihc-tc@.
-data Kind
-  = KTYPE !RuntimeRep
-  | KConstraint
-  | KRuntimeRep
-  | KLevity
-  | KVecCount
-  | KVecElem
-  | KFun !Kind !Kind
-  | KMeta !Unique
-  deriving (Eq, Ord, Show, Read)
-
--- | The traditional @Type@ / @*@ kind.
-pattern KType :: Kind
-pattern KType = KTYPE (BoxedRep Lifted)
-
-data RuntimeRep
-  = VecRep !VecCount !VecElem
-  | TupleRep ![RuntimeRep]
-  | SumRep ![RuntimeRep]
-  | BoxedRep !Levity
-  | IntRep
-  | Int8Rep
-  | Int16Rep
-  | Int32Rep
-  | Int64Rep
-  | WordRep
-  | Word8Rep
-  | Word16Rep
-  | Word32Rep
-  | Word64Rep
-  | AddrRep
-  | FloatRep
-  | DoubleRep
-  | RuntimeRepVar !Unique
-  | RuntimeRepMeta !Unique
-  deriving (Eq, Ord, Show, Read)
-
-data Levity = Lifted | Unlifted
-  deriving (Eq, Ord, Show, Read)
-
-data VecCount = Vec2 | Vec4 | Vec8 | Vec16 | Vec32 | Vec64
-  deriving (Eq, Ord, Show, Read)
-
-data VecElem
-  = Int8ElemRep
-  | Int16ElemRep
-  | Int32ElemRep
-  | Int64ElemRep
-  | Word8ElemRep
-  | Word16ElemRep
-  | Word32ElemRep
-  | Word64ElemRep
-  | FloatElemRep
-  | DoubleElemRep
-  deriving (Eq, Ord, Show, Read)
-
-liftedRuntimeRep :: RuntimeRep
-liftedRuntimeRep = BoxedRep Lifted
-
-liftedTypeKind :: Kind
-liftedTypeKind = KTYPE liftedRuntimeRep
-
--- | Internal type representation.
---
--- Note: 'TcForAllTy', 'TcQualTy', 'TcAppTy' are included from the start
--- to support polymorphism and type classes. For the MVP only
--- 'TcTyVar', 'TcMetaTv', 'TcTyCon', and 'TcFunTy' are actively used
--- during constraint generation and solving.
+-- | Internal types. Kinds use this same representation.
 data TcType
-  = -- | Rigid (skolem) type variable.
-    TcTyVar !TyVarId
-  | -- | Meta (unification) variable, identified by 'Unique'.
-    TcMetaTv !Unique
-  | -- | Saturated or partially applied type constructor.
-    TcTyCon !TyCon ![TcType]
-  | -- | Function type @a -> b@.
-    TcFunTy !TcType !TcType
-  | -- | Universal quantification @forall a. ty@.
-    TcForAllTy !TyVarId !TcType
-  | -- | Qualified type @(constraints) => ty@.
-    TcQualTy ![Pred] !TcType
-  | -- | Unsaturated type application @f a@.
-    TcAppTy !TcType !TcType
-  | -- | A primitive type constructor used to define kind schemes without a recursive 'TyCon'.
-    TcBuiltinTyCon !Text !Int ![TcType]
+  = TcTyVar !TyVarId
+  | TcMetaTv !Unique
+  | TcTyCon !TyCon ![TcType]
+  | TcFunTy !TcType !TcType
+  | TcForAllTy !TyVarId !TcType
+  | TcQualTy ![Pred] !TcType
+  | TcAppTy !TcType !TcType
   deriving (Eq, Ord, Show, Read)
 
--- | Whether a type has an unlifted runtime representation in the subset of
--- primitive types and runtime representations currently modeled by AIHC.
--- This is deliberately semantic rather than a @#@ suffix check: user-defined
--- lifted type constructors may legally end in @#@.
-isUnliftedType :: TcType -> Bool
-isUnliftedType ty =
-  case runtimeRepOfType ty of
-    Right runtimeRep -> runtimeRep /= liftedRuntimeRep
-    Left _ -> False
-
-isLiftedType :: TcType -> Bool
-isLiftedType ty = runtimeRepOfType ty == Right liftedRuntimeRep
-
-runtimeRepOfType :: TcType -> Either String RuntimeRep
-runtimeRepOfType ty =
-  case typeKind ty of
-    KTYPE runtimeRep -> Right runtimeRep
-    KConstraint -> Right liftedRuntimeRep
-    other -> Left ("type does not have a runtime representation: " <> show other)
-
-typeKind :: TcType -> Kind
-typeKind ty =
-  case ty of
-    TcTyVar tyVar -> tvKind tyVar
-    TcMetaTv {} -> liftedTypeKind
-    TcTyCon tyCon args
-      | isUnboxedSumTyCon (tyConName tyCon) (tyConArity tyCon),
-        length args == tyConArity tyCon ->
-          KTYPE (SumRep (map runtimeRepOrLifted args))
-      | otherwise -> applyTyConKind tyCon args
-    TcFunTy {} -> liftedTypeKind
-    TcForAllTy _ body -> typeKind body
-    TcQualTy _ body -> typeKind body
-    TcAppTy function _ -> applyKindArgumentCount (typeKind function) 1
-    TcBuiltinTyCon name arity arguments ->
-      applyKindArgumentCount (wiredInTyConKind name arity) (length arguments)
-  where
-    runtimeRepOrLifted argument =
-      case runtimeRepOfType argument of
-        Right runtimeRep -> runtimeRep
-        Left _ -> liftedRuntimeRep
-
-applyKindArgumentCount :: Kind -> Int -> Kind
-applyKindArgumentCount kind count
-  | count <= 0 = kind
-applyKindArgumentCount (KFun _ result) count = applyKindArgumentCount result (count - 1)
-applyKindArgumentCount kind _ = kind
-
-applyTyConKind :: TyCon -> [TcType] -> Kind
-applyTyConKind tyCon = go Map.empty authoritativeKind
-  where
-    scheme@(ForAll kindTyVars _ _) = tyConKindScheme tyCon
-    authoritativeKind = kindFromTypeScheme scheme
-    quantified =
-      kindParameterRuntimeRepVariables authoritativeKind
-        <> Set.fromList (map tvUnique kindTyVars)
-
-    go substitution kind [] = substituteKindRuntimeReps substitution kind
-    go substitution (KFun formal result) (argument : arguments) =
-      let formal' = substituteKindRuntimeReps substitution formal
-          actual = typeKind argument
-          substitution' = matchKindRuntimeReps quantified formal' actual <> substitution
-       in go substitution' (substituteKindRuntimeReps substitution' result) arguments
-    go substitution kind _ = substituteKindRuntimeReps substitution kind
-
-kindParameterRuntimeRepVariables :: Kind -> Set.Set Unique
-kindParameterRuntimeRepVariables kind =
-  case kind of
-    KFun parameter result -> runtimeRepVariablesInKind parameter <> kindParameterRuntimeRepVariables result
-    _ -> Set.empty
-
-runtimeRepVariablesInKind :: Kind -> Set.Set Unique
-runtimeRepVariablesInKind kind =
-  case kind of
-    KTYPE runtimeRep -> runtimeRepVariables runtimeRep
-    KFun argument result -> runtimeRepVariablesInKind argument <> runtimeRepVariablesInKind result
-    _ -> Set.empty
-  where
-    runtimeRepVariables runtimeRep =
-      case runtimeRep of
-        RuntimeRepVar unique -> Set.singleton unique
-        TupleRep fields -> Set.unions (map runtimeRepVariables fields)
-        SumRep fields -> Set.unions (map runtimeRepVariables fields)
-        _ -> Set.empty
-
-matchKindRuntimeReps :: Set.Set Unique -> Kind -> Kind -> Map.Map Unique RuntimeRep
-matchKindRuntimeReps quantified formal actual =
-  case (formal, actual) of
-    (KTYPE formalRep, KTYPE actualRep) -> matchRuntimeRep formalRep actualRep
-    (KFun formalArgument formalResult, KFun actualArgument actualResult) ->
-      matchKindRuntimeReps quantified formalArgument actualArgument
-        <> matchKindRuntimeReps quantified formalResult actualResult
-    _ -> Map.empty
-  where
-    matchRuntimeRep formalRep actualRep =
-      case (formalRep, actualRep) of
-        (RuntimeRepVar unique, _)
-          | unique `Set.member` quantified -> Map.singleton unique actualRep
-        (TupleRep formalFields, TupleRep actualFields) ->
-          Map.unionsWith const (zipWith matchRuntimeRep formalFields actualFields)
-        (SumRep formalFields, SumRep actualFields) ->
-          Map.unionsWith const (zipWith matchRuntimeRep formalFields actualFields)
-        _ -> Map.empty
-
-substituteKindRuntimeReps :: Map.Map Unique RuntimeRep -> Kind -> Kind
-substituteKindRuntimeReps substitution kind =
-  case kind of
-    KTYPE runtimeRep -> KTYPE (substituteRuntimeRep runtimeRep)
-    KFun argument result ->
-      KFun
-        (substituteKindRuntimeReps substitution argument)
-        (substituteKindRuntimeReps substitution result)
-    _ -> kind
-  where
-    substituteRuntimeRep runtimeRep =
-      case runtimeRep of
-        RuntimeRepVar unique -> Map.findWithDefault runtimeRep unique substitution
-        TupleRep fields -> TupleRep (map substituteRuntimeRep fields)
-        SumRep fields -> SumRep (map substituteRuntimeRep fields)
-        _ -> runtimeRep
-
--- | Test whether a constructed type has an explicit unboxed-tuple representation.
-isUnboxedTupleType :: TcType -> Bool
-isUnboxedTupleType (TcTyCon tyCon arguments) =
-  let arity = length arguments
-   in tyConName tyCon == unboxedTupleTyConName arity
-        && arity == tyConArity tyCon
-        && case applyTyConKind tyCon arguments of
-          KTYPE (TupleRep fields) -> length fields == length arguments
-          _ -> False
-isUnboxedTupleType _ = False
-
-isUnboxedSumTyCon :: Text -> Int -> Bool
-isUnboxedSumTyCon name arity =
-  arity >= 2
-    && name == "(#" <> T.replicate (arity - 1) "|" <> "#)"
-
-wiredInTyConKind :: Text -> Int -> Kind
-wiredInTyConKind name arity =
-  fromMaybe (defaultTyConKind name arity) (fixedTyConKind name)
-
-fixedTyConKind :: Text -> Maybe Kind
-fixedTyConKind name =
-  case name of
-    "State#" -> Just (KFun liftedTypeKind (KTYPE (TupleRep [])))
-    "Array#" -> Just (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted)))
-    "ByteArray#" -> Just (KTYPE (BoxedRep Unlifted))
-    "MutableArray#" -> Just (KFun liftedTypeKind (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted))))
-    "MutableByteArray#" -> Just (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted)))
-    "MVar#" -> Just (KFun liftedTypeKind (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted))))
-    "MutVar#" -> Just (KFun liftedTypeKind (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted))))
-    "StableName#" -> Just (KFun liftedTypeKind (KTYPE (BoxedRep Unlifted)))
-    "ThreadId#" -> Just (KTYPE (BoxedRep Unlifted))
-    _
-      | Just runtimeRep <- primitiveRuntimeRep name -> Just (KTYPE runtimeRep)
-      | isPromotedRuntimeRep name -> Just KRuntimeRep
-      | otherwise ->
-          lookup
-            name
-            [ ("TYPE", KFun KRuntimeRep liftedTypeKind),
-              ("RuntimeRep", liftedTypeKind),
-              ("Levity", liftedTypeKind),
-              ("VecCount", liftedTypeKind),
-              ("VecElem", liftedTypeKind),
-              ("Constraint", liftedTypeKind),
-              ("*", liftedTypeKind),
-              ("Type", liftedTypeKind),
-              ("(->)", KFun liftedTypeKind (KFun liftedTypeKind liftedTypeKind)),
-              ("[]", KFun liftedTypeKind liftedTypeKind),
-              (":", KFun liftedTypeKind (KFun (KFun liftedTypeKind liftedTypeKind) (KFun liftedTypeKind liftedTypeKind)))
-            ]
-
-defaultTyConKind :: Text -> Int -> Kind
-defaultTyConKind _ arity = foldr KFun liftedTypeKind (replicate arity liftedTypeKind)
-
-isPromotedRuntimeRep :: Text -> Bool
-isPromotedRuntimeRep name =
-  T.dropWhile (== '\'') name
-    `elem` [ "LiftedRep",
-             "UnliftedRep",
-             "IntRep",
-             "Int8Rep",
-             "Int16Rep",
-             "Int32Rep",
-             "Int64Rep",
-             "WordRep",
-             "Word8Rep",
-             "Word16Rep",
-             "Word32Rep",
-             "Word64Rep",
-             "AddrRep",
-             "FloatRep",
-             "DoubleRep"
-           ]
-
-primitiveRuntimeRep :: Text -> Maybe RuntimeRep
-primitiveRuntimeRep name =
-  lookup
-    name
-    [ ("Addr#", AddrRep),
-      ("Char#", WordRep),
-      ("Double#", DoubleRep),
-      ("Float#", FloatRep),
-      ("Int#", IntRep),
-      ("Int8#", Int8Rep),
-      ("Int16#", Int16Rep),
-      ("Int32#", Int32Rep),
-      ("Int64#", Int64Rep),
-      ("Word#", WordRep),
-      ("Word8#", Word8Rep),
-      ("Word16#", Word16Rep),
-      ("Word32#", Word32Rep),
-      ("Word64#", Word64Rep)
-    ]
-
--- | A type scheme: universally quantified type with constraints.
---
--- @ForAll [a, b] [Eq a] (a -> b -> Bool)@
--- represents @forall a b. Eq a => a -> b -> Bool@.
 data TypeScheme = ForAll ![TyVarId] ![Pred] !TcType
   deriving (Eq, Ord, Show, Read)
 
-kindSchemeFromKind :: Kind -> TypeScheme
-kindSchemeFromKind = ForAll [] [] . kindToTcType
+typeSchemeBody :: TypeScheme -> TcType
+typeSchemeBody (ForAll _ _ body) = body
 
-kindToTcType :: Kind -> TcType
-kindToTcType kind =
-  case kind of
-    KTYPE runtimeRep
-      | runtimeRep == liftedRuntimeRep -> builtin "Type" 0 []
-      | otherwise -> builtin "TYPE" 1 [runtimeRepToTcType runtimeRep]
-    KConstraint -> builtin "Constraint" 0 []
-    KRuntimeRep -> builtin "RuntimeRep" 0 []
-    KLevity -> builtin "Levity" 0 []
-    KVecCount -> builtin "VecCount" 0 []
-    KVecElem -> builtin "VecElem" 0 []
-    KMeta unique -> TcMetaTv unique
-    KFun argument result -> TcFunTy (kindToTcType argument) (kindToTcType result)
-  where
-    builtin = TcBuiltinTyCon
-
-runtimeRepToTcType :: RuntimeRep -> TcType
-runtimeRepToTcType runtimeRep =
-  case runtimeRep of
-    BoxedRep Lifted -> promoted "LiftedRep" 0 []
-    BoxedRep Unlifted -> promoted "UnliftedRep" 0 []
-    IntRep -> nullary "IntRep"
-    Int8Rep -> nullary "Int8Rep"
-    Int16Rep -> nullary "Int16Rep"
-    Int32Rep -> nullary "Int32Rep"
-    Int64Rep -> nullary "Int64Rep"
-    WordRep -> nullary "WordRep"
-    Word8Rep -> nullary "Word8Rep"
-    Word16Rep -> nullary "Word16Rep"
-    Word32Rep -> nullary "Word32Rep"
-    Word64Rep -> nullary "Word64Rep"
-    AddrRep -> nullary "AddrRep"
-    FloatRep -> nullary "FloatRep"
-    DoubleRep -> nullary "DoubleRep"
-    RuntimeRepVar unique ->
-      TcTyVar (setTyVarKind KRuntimeRep (TyVarId ("rep" <> T.pack (showUnique unique)) unique))
-    RuntimeRepMeta unique -> TcMetaTv unique
-    TupleRep fields -> promotedList "TupleRep" fields
-    SumRep fields -> promotedList "SumRep" fields
-    VecRep count element ->
-      promoted
-        "VecRep"
-        2
-        [nullary (T.pack (show count)), nullary (T.pack (show element))]
-  where
-    nullary name = promoted name 0 []
-    promoted name = TcBuiltinTyCon ("'" <> name)
-    promotedList name fields =
-      promoted name 1 [promoted "[]" (length fields) (map runtimeRepToTcType fields)]
-    showUnique (Unique value) = show value
-
-kindFromTypeScheme :: TypeScheme -> Kind
-kindFromTypeScheme scheme@(ForAll _ _ body) =
-  requirePredicateFreeKindScheme scheme `seq` typeAsKind body
-
-requirePredicateFreeKindScheme :: TypeScheme -> ()
-requirePredicateFreeKindScheme (ForAll _ [] _) = ()
-requirePredicateFreeKindScheme ForAll {} =
-  error "type constructor kind scheme contains predicates"
-
-typeAsKind :: TcType -> Kind
-typeAsKind ty =
-  case ty of
-    TcTyCon tyCon []
-      | tyConName tyCon `elem` ["*", "Type", "LiftedType"] -> KType
-      | tyConName tyCon == "UnliftedType" -> KTYPE (BoxedRep Unlifted)
-      | tyConName tyCon == "Constraint" -> KConstraint
-      | tyConName tyCon == "RuntimeRep" -> KRuntimeRep
-      | tyConName tyCon == "Levity" -> KLevity
-      | tyConName tyCon == "VecCount" -> KVecCount
-      | tyConName tyCon == "VecElem" -> KVecElem
-    TcTyCon tyCon [runtimeRep]
-      | tyConName tyCon == "TYPE" -> KTYPE (runtimeRepFromType runtimeRep)
-    TcFunTy argument result -> KFun (typeAsKind argument) (typeAsKind result)
-    TcForAllTy _ body -> typeAsKind body
-    TcMetaTv unique -> KMeta unique
-    TcTyVar tyVar -> tvKind tyVar
-    TcBuiltinTyCon name _ arguments -> typeAsBuiltinKind name arguments
-    _ -> KType
-
-typeAsBuiltinKind :: Text -> [TcType] -> Kind
-typeAsBuiltinKind name arguments =
-  case (bareName name, arguments) of
-    ("*", []) -> KType
-    ("Type", []) -> KType
-    ("LiftedType", []) -> KType
-    ("UnliftedType", []) -> KTYPE (BoxedRep Unlifted)
-    ("Constraint", []) -> KConstraint
-    ("RuntimeRep", []) -> KRuntimeRep
-    ("Levity", []) -> KLevity
-    ("VecCount", []) -> KVecCount
-    ("VecElem", []) -> KVecElem
-    ("TYPE", [runtimeRep]) -> KTYPE (runtimeRepFromType runtimeRep)
-    _ -> KType
-
-runtimeRepFromType :: TcType -> RuntimeRep
-runtimeRepFromType ty =
-  case ty of
-    TcTyVar tyVar -> RuntimeRepVar (tvUnique tyVar)
-    TcMetaTv unique -> RuntimeRepMeta unique
-    TcTyCon tyCon [] ->
-      fromMaybe liftedRuntimeRep (runtimeRepConstructorByName (tyConName tyCon))
-    TcTyCon tyCon [levity]
-      | bareName (tyConName tyCon) == "BoxedRep" -> BoxedRep (typeAsLevity levity)
-    TcTyCon tyCon [fields]
-      | bareName (tyConName tyCon) == "TupleRep" -> TupleRep (map runtimeRepFromType (promotedListItems fields))
-      | bareName (tyConName tyCon) == "SumRep" -> SumRep (map runtimeRepFromType (promotedListItems fields))
-    TcTyCon tyCon [count, element]
-      | bareName (tyConName tyCon) == "VecRep" -> VecRep (typeAsVecCount count) (typeAsVecElem element)
-    TcBuiltinTyCon name _ arguments -> runtimeRepFromBuiltin name arguments
-    _ -> liftedRuntimeRep
-
-runtimeRepFromBuiltin :: Text -> [TcType] -> RuntimeRep
-runtimeRepFromBuiltin name arguments =
-  case (bareName name, arguments) of
-    ("BoxedRep", [levity]) -> BoxedRep (typeAsLevity levity)
-    ("TupleRep", [fields]) -> TupleRep (map runtimeRepFromType (promotedListItems fields))
-    ("SumRep", [fields]) -> SumRep (map runtimeRepFromType (promotedListItems fields))
-    ("VecRep", [count, element]) -> VecRep (typeAsVecCount count) (typeAsVecElem element)
-    (constructor, []) -> fromMaybe liftedRuntimeRep (runtimeRepConstructorByName constructor)
-    _ -> liftedRuntimeRep
-
-typeAsLevity :: TcType -> Levity
-typeAsLevity (TcTyCon tyCon [])
-  | bareName (tyConName tyCon) == "Unlifted" = Unlifted
-typeAsLevity (TcBuiltinTyCon name _ [])
-  | bareName name == "Unlifted" = Unlifted
-typeAsLevity _ = Lifted
-
-typeAsVecCount :: TcType -> VecCount
-typeAsVecCount (TcTyCon tyCon []) =
-  case bareName (tyConName tyCon) of
-    "Vec2" -> Vec2
-    "Vec4" -> Vec4
-    "Vec8" -> Vec8
-    "Vec16" -> Vec16
-    "Vec32" -> Vec32
-    "Vec64" -> Vec64
-    _ -> Vec2
-typeAsVecCount (TcBuiltinTyCon name _ []) = typeAsVecCountName (bareName name)
-typeAsVecCount _ = Vec2
-
-typeAsVecCountName :: Text -> VecCount
-typeAsVecCountName name =
-  case name of
-    "Vec2" -> Vec2
-    "Vec4" -> Vec4
-    "Vec8" -> Vec8
-    "Vec16" -> Vec16
-    "Vec32" -> Vec32
-    "Vec64" -> Vec64
-    _ -> Vec2
-
-typeAsVecElem :: TcType -> VecElem
-typeAsVecElem (TcTyCon tyCon []) =
-  fromMaybe Int8ElemRep (lookup (bareName (tyConName tyCon)) vecElemNames)
-typeAsVecElem (TcBuiltinTyCon name _ []) =
-  fromMaybe Int8ElemRep (lookup (bareName name) vecElemNames)
-typeAsVecElem _ = Int8ElemRep
-
-vecElemNames :: [(Text, VecElem)]
-vecElemNames =
-  [ ("Int8ElemRep", Int8ElemRep),
-    ("Int16ElemRep", Int16ElemRep),
-    ("Int32ElemRep", Int32ElemRep),
-    ("Int64ElemRep", Int64ElemRep),
-    ("Word8ElemRep", Word8ElemRep),
-    ("Word16ElemRep", Word16ElemRep),
-    ("Word32ElemRep", Word32ElemRep),
-    ("Word64ElemRep", Word64ElemRep),
-    ("FloatElemRep", FloatElemRep),
-    ("DoubleElemRep", DoubleElemRep)
-  ]
-
-promotedListItems :: TcType -> [TcType]
-promotedListItems (TcTyCon tyCon items)
-  | bareName (tyConName tyCon) == "[]" = items
-promotedListItems (TcBuiltinTyCon name _ items)
-  | bareName name == "[]" = items
-promotedListItems _ = []
-
-runtimeRepConstructorByName :: Text -> Maybe RuntimeRep
-runtimeRepConstructorByName name =
-  lookup
-    (bareName name)
-    [ ("LiftedRep", liftedRuntimeRep),
-      ("UnliftedRep", BoxedRep Unlifted),
-      ("IntRep", IntRep),
-      ("Int8Rep", Int8Rep),
-      ("Int16Rep", Int16Rep),
-      ("Int32Rep", Int32Rep),
-      ("Int64Rep", Int64Rep),
-      ("WordRep", WordRep),
-      ("Word8Rep", Word8Rep),
-      ("Word16Rep", Word16Rep),
-      ("Word32Rep", Word32Rep),
-      ("Word64Rep", Word64Rep),
-      ("AddrRep", AddrRep),
-      ("FloatRep", FloatRep),
-      ("DoubleRep", DoubleRep)
-    ]
-
-bareName :: Text -> Text
-bareName = T.dropWhile (== '\'')
-
--- | A predicate (primitive constraint).
---
--- OutsideIn(X) is parameterized over the constraint domain. For our
--- Haskell-like language, the domain includes class predicates and
--- equality predicates.
 data Pred
-  = -- | Class predicate, e.g. @Eq a@.
-    ClassPred !TyCon ![TcType]
-  | -- | Type equality predicate, e.g. @a ~ Int@.
-    EqPred !TcType !TcType
+  = ClassPred !TyCon ![TcType]
+  | EqPred !TcType !TcType
   deriving (Eq, Ord, Show, Read)
 
--- | The nesting level of implication constraints.
---
--- Meta-variables created at level N cannot be unified by the solver
--- when processing constraints at level N+1, unless the solution
--- involves only types visible at level N. This enforces the
--- OutsideIn discipline.
-newtype TcLevel = TcLevel Int
-  deriving (Eq, Ord, Show)
+boxedTupleTyConName :: Int -> Text
+boxedTupleTyConName arity =
+  case arity of
+    0 -> "Unit"
+    1 -> "Solo"
+    _ -> "Tuple" <> T.pack (show arity)
 
--- | The top level (outermost scope).
+unboxedTupleTyConName :: Int -> Text
+unboxedTupleTyConName arity = "Tuple" <> T.pack (show arity) <> "#"
+
+-- These values identify source declarations. They do not contain kind data.
+primTypeCon :: Text -> Int -> TyCon
+primTypeCon = mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types"
+
+promotedTypeCon :: Text -> Int -> TyCon
+promotedTypeCon name = primTypeCon ("'" <> name)
+
+typeTyCon, constraintTyCon, runtimeRepTyCon, levityTyCon, vecCountTyCon, vecElemTyCon :: TyCon
+typeTyCon = primTypeCon "Type" 0
+constraintTyCon = primTypeCon "Constraint" 0
+runtimeRepTyCon = primTypeCon "RuntimeRep" 0
+levityTyCon = primTypeCon "Levity" 0
+vecCountTyCon = primTypeCon "VecCount" 0
+vecElemTyCon = primTypeCon "VecElem" 0
+
+typeKindType, constraintKind, runtimeRepKind, levityKind, vecCountKind, vecElemKind :: TcType
+typeKindType = mkTYPEKind liftedRep
+constraintKind = TcTyCon constraintTyCon []
+runtimeRepKind = TcTyCon runtimeRepTyCon []
+levityKind = TcTyCon levityTyCon []
+vecCountKind = TcTyCon vecCountTyCon []
+vecElemKind = TcTyCon vecElemTyCon []
+
+mkTYPEKind :: TcType -> TcType
+mkTYPEKind representation = TcTyCon (primTypeCon "TYPE" 1) [representation]
+
+nullaryRep :: Text -> TcType
+nullaryRep name = TcTyCon (promotedTypeCon name 0) []
+
+liftedRep, unliftedRep, intRep, int8Rep, int16Rep, int32Rep, int64Rep :: TcType
+wordRep, word8Rep, word16Rep, word32Rep, word64Rep, addrRep, floatRep, doubleRep :: TcType
+liftedRep = boxedRep (TcTyCon (promotedTypeCon "Lifted" 0) [])
+unliftedRep = boxedRep (TcTyCon (promotedTypeCon "Unlifted" 0) [])
+intRep = nullaryRep "IntRep"
+int8Rep = nullaryRep "Int8Rep"
+int16Rep = nullaryRep "Int16Rep"
+int32Rep = nullaryRep "Int32Rep"
+int64Rep = nullaryRep "Int64Rep"
+
+wordRep = nullaryRep "WordRep"
+
+word8Rep = nullaryRep "Word8Rep"
+
+word16Rep = nullaryRep "Word16Rep"
+
+word32Rep = nullaryRep "Word32Rep"
+
+word64Rep = nullaryRep "Word64Rep"
+
+addrRep = nullaryRep "AddrRep"
+
+floatRep = nullaryRep "FloatRep"
+
+doubleRep = nullaryRep "DoubleRep"
+
+boxedRep :: TcType -> TcType
+boxedRep levity = TcTyCon (promotedTypeCon "BoxedRep" 1) [levity]
+
+tupleRep :: [TcType] -> TcType
+tupleRep fields = TcTyCon (promotedTypeCon "TupleRep" 1) [promotedList fields]
+
+sumRep :: [TcType] -> TcType
+sumRep fields = TcTyCon (promotedTypeCon "SumRep" 1) [promotedList fields]
+
+vecRep :: TcType -> TcType -> TcType
+vecRep count element = TcTyCon (promotedTypeCon "VecRep" 2) [count, element]
+
+promotedList :: [TcType] -> TcType
+promotedList = foldr promotedCons promotedNil
+  where
+    promotedNil = TcTyCon (promotedTypeCon "[]" 0) []
+    promotedCons field rest = TcTyCon (promotedTypeCon ":" 2) [field, rest]
+
+liftedRuntimeRep :: TcType
+liftedRuntimeRep = liftedRep
+
+liftedTypeKind :: TcType
+liftedTypeKind = typeKindType
+
+-- | Get a type kind from the complete type-constructor identity table.
+typeKindInEnv :: TcKindEnv -> TcType -> Either String TcType
+typeKindInEnv kindEnv = go
+  where
+    go rawType =
+      case configurePrimitiveType rawType of
+        TcTyVar tyVar -> Right (configurePrimitiveType (tvKind tyVar))
+        TcMetaTv {} -> Left "type still has a meta variable"
+        TcTyCon tyCon arguments -> do
+          scheme <-
+            maybe
+              (Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon)))
+              Right
+              (Map.lookup (tyConKey tyCon) kindEnv)
+          applyArguments scheme arguments
+        TcFunTy {} -> Right (configurePrimitiveType liftedTypeKind)
+        TcForAllTy _ body -> go body
+        TcQualTy _ body -> go body
+        TcAppTy function argument -> do
+          functionKind <- go function
+          applyKind functionKind argument
+
+    applyArguments (ForAll quantified _ body) = applyMany (map tvUnique quantified) (configurePrimitiveType body)
+
+    applyMany _ kind [] = Right kind
+    applyMany quantified kind (argument : rest) = do
+      kind' <- applyKindWith quantified kind argument
+      applyMany quantified kind' rest
+
+    applyKind = applyKindWith []
+
+    applyKindWith quantified (TcFunTy formal result) argument = do
+      actual <- go argument
+      substitution <- matchKinds quantified formal actual
+      Right (substituteType substitution result)
+    applyKindWith _ kind _ = Left ("type application uses a non-function kind: " <> show kind)
+
+    matchKinds quantified formal actual =
+      case (formal, actual) of
+        (TcTyVar tyVar, _)
+          | tvUnique tyVar `elem` quantified -> Right (Map.singleton (tvUnique tyVar) actual)
+        (KTYPE formalRep, KTYPE actualRep) -> matchKinds quantified formalRep actualRep
+        (TcFunTy left right, TcFunTy left' right') ->
+          Map.union <$> matchKinds quantified left left' <*> matchKinds quantified right right'
+        (TcTyCon left leftArguments, TcTyCon right rightArguments)
+          | left == right,
+            length leftArguments == length rightArguments ->
+              Map.unions <$> zipWithM (matchKinds quantified) leftArguments rightArguments
+        _
+          | equivalentKind formal actual -> Right Map.empty
+          | otherwise -> Left ("kind mismatch: expected " <> show formal <> ", got " <> show actual)
+
+    equivalentKind left right =
+      configurePrimitiveType left == configurePrimitiveType right
+        || case (left, right) of
+          (KTYPE leftRep, KTYPE rightRep) -> leftRep == rightRep
+          _ -> False
+
+    configurePrimitiveType ty =
+      case ty of
+        TcTyVar tyVar -> TcTyVar (setTyVarKind (configurePrimitiveType (tvKind tyVar)) tyVar)
+        TcMetaTv {} -> ty
+        TcTyCon tyCon arguments -> TcTyCon (configurePrimitiveTyCon tyCon) (map configurePrimitiveType arguments)
+        TcFunTy argument result -> TcFunTy (configurePrimitiveType argument) (configurePrimitiveType result)
+        TcForAllTy tyVar body ->
+          TcForAllTy
+            (setTyVarKind (configurePrimitiveType (tvKind tyVar)) tyVar)
+            (configurePrimitiveType body)
+        TcQualTy predicates body -> TcQualTy (map configurePred predicates) (configurePrimitiveType body)
+        TcAppTy function argument -> TcAppTy (configurePrimitiveType function) (configurePrimitiveType argument)
+
+    configurePred predicate =
+      case predicate of
+        ClassPred className arguments -> ClassPred (configurePrimitiveTyCon className) (map configurePrimitiveType arguments)
+        EqPred left right -> EqPred (configurePrimitiveType left) (configurePrimitiveType right)
+
+    configurePrimitiveTyCon tyCon
+      | tyConPackageId tyCon == PackageId "aihc-prim",
+        tyConModuleName tyCon == "GHC.Types" =
+          mkTyConWithOrigin primitivePackage "GHC.Types" (tyConName tyCon) (tyConArity tyCon)
+      | otherwise = tyCon
+
+    primitivePackage =
+      case [ packageId
+           | ((packageId, moduleName, name, arity), _) <- Map.toList kindEnv,
+             moduleName == "GHC.Types",
+             name == "TYPE",
+             arity == 1
+           ] of
+        packageId : _ -> packageId
+        [] -> PackageId "aihc-prim"
+
+runtimeRepOfTypeInEnv :: TcKindEnv -> TcType -> Either String TcType
+runtimeRepOfTypeInEnv kindEnv ty = typeKindInEnv kindEnv ty >>= runtimeRepFromKind
+
+isLiftedTypeInEnv :: TcKindEnv -> TcType -> Bool
+isLiftedTypeInEnv kindEnv ty =
+  case runtimeRepOfTypeInEnv kindEnv ty of
+    Right representation -> matchesLiftedRuntimeRep representation
+    Left _ -> False
+
+isUnliftedTypeInEnv :: TcKindEnv -> TcType -> Bool
+isUnliftedTypeInEnv kindEnv ty =
+  case runtimeRepOfTypeInEnv kindEnv ty of
+    Right representation -> not (matchesLiftedRuntimeRep representation)
+    Left _ -> False
+
+substituteType :: Map Unique TcType -> TcType -> TcType
+substituteType substitution ty =
+  case ty of
+    TcTyVar tyVar -> Map.findWithDefault ty (tvUnique tyVar) substitution
+    TcMetaTv {} -> ty
+    TcTyCon tyCon arguments -> TcTyCon tyCon (map (substituteType substitution) arguments)
+    TcFunTy argument result -> TcFunTy (substituteType substitution argument) (substituteType substitution result)
+    TcForAllTy tyVar body -> TcForAllTy tyVar (substituteType (Map.delete (tvUnique tyVar) substitution) body)
+    TcQualTy predicates body -> TcQualTy (map substitutePred predicates) (substituteType substitution body)
+    TcAppTy function argument -> TcAppTy (substituteType substitution function) (substituteType substitution argument)
+  where
+    substitutePred predicate =
+      case predicate of
+        ClassPred className arguments -> ClassPred className (map (substituteType substitution) arguments)
+        EqPred left right -> EqPred (substituteType substitution left) (substituteType substitution right)
+
+pattern KTYPE :: TcType -> TcType
+pattern KTYPE representation <- (matchTYPEKind -> Just representation)
+  where
+    KTYPE representation = mkTYPEKind representation
+
+pattern KConstraint, KRuntimeRep, KLevity, KVecCount, KVecElem, KType :: TcType
+pattern KConstraint <- (matchesNullary "Constraint" -> True) where KConstraint = constraintKind
+pattern KRuntimeRep <- (matchesNullary "RuntimeRep" -> True) where KRuntimeRep = runtimeRepKind
+pattern KLevity <- (matchesNullary "Levity" -> True) where KLevity = levityKind
+pattern KVecCount <- (matchesNullary "VecCount" -> True) where KVecCount = vecCountKind
+pattern KVecElem <- (matchesNullary "VecElem" -> True) where KVecElem = vecElemKind
+pattern KType <- (matchesLiftedTypeKind -> True) where KType = typeKindType
+
+pattern KFun :: TcType -> TcType -> TcType
+pattern KFun argument result = TcFunTy argument result
+
+pattern KMeta :: Unique -> TcType
+pattern KMeta unique = TcMetaTv unique
+
+matchTYPEKind :: TcType -> Maybe TcType
+matchTYPEKind kind =
+  case kind of
+    TcTyCon tyCon []
+      | tyConName tyCon `elem` ["Type", "LiftedType"] -> Just liftedRep
+      | tyConName tyCon == "UnliftedType" -> Just unliftedRep
+    TcTyCon tyCon [representation]
+      | tyConName tyCon == "TYPE" -> Just representation
+    _ -> Nothing
+
+matchesLiftedTypeKind :: TcType -> Bool
+matchesLiftedTypeKind = maybe False matchesLiftedRuntimeRep . matchTYPEKind
+
+matchesLiftedRuntimeRep :: TcType -> Bool
+matchesLiftedRuntimeRep representation =
+  case representation of
+    TcTyCon boxed [TcTyCon levity []] ->
+      tyConName boxed == "'BoxedRep"
+        && tyConName levity == "'Lifted"
+    _ -> False
+
+pattern BoxedRep :: TcType -> TcType
+pattern BoxedRep levity <- (matchUnaryRep "BoxedRep" -> Just levity)
+  where
+    BoxedRep levity = boxedRep levity
+
+pattern TupleRep :: [TcType] -> TcType
+pattern TupleRep fields <- (matchListRep "TupleRep" -> Just fields)
+  where
+    TupleRep fields = tupleRep fields
+
+pattern SumRep :: [TcType] -> TcType
+pattern SumRep fields <- (matchListRep "SumRep" -> Just fields)
+  where
+    SumRep fields = sumRep fields
+
+pattern VecRep :: TcType -> TcType -> TcType
+pattern VecRep count element <- (matchBinaryRep "VecRep" -> Just (count, element))
+  where
+    VecRep count element = vecRep count element
+
+pattern Lifted, Unlifted :: TcType
+pattern Lifted <- (matchesNullary "Lifted" -> True)
+  where
+    Lifted = TcTyCon (promotedTypeCon "Lifted" 0) []
+pattern Unlifted <- (matchesNullary "Unlifted" -> True)
+  where
+    Unlifted = TcTyCon (promotedTypeCon "Unlifted" 0) []
+
+pattern IntRep, Int8Rep, Int16Rep, Int32Rep, Int64Rep :: TcType
+
+pattern WordRep, Word8Rep, Word16Rep, Word32Rep, Word64Rep :: TcType
+
+pattern AddrRep, FloatRep, DoubleRep :: TcType
+
+pattern IntRep <- (matchesNullary "IntRep" -> True) where IntRep = intRep
+
+pattern Int8Rep <- (matchesNullary "Int8Rep" -> True) where Int8Rep = int8Rep
+
+pattern Int16Rep <- (matchesNullary "Int16Rep" -> True) where Int16Rep = int16Rep
+
+pattern Int32Rep <- (matchesNullary "Int32Rep" -> True) where Int32Rep = int32Rep
+
+pattern Int64Rep <- (matchesNullary "Int64Rep" -> True) where Int64Rep = int64Rep
+
+pattern WordRep <- (matchesNullary "WordRep" -> True) where WordRep = wordRep
+
+pattern Word8Rep <- (matchesNullary "Word8Rep" -> True) where Word8Rep = word8Rep
+
+pattern Word16Rep <- (matchesNullary "Word16Rep" -> True) where Word16Rep = word16Rep
+
+pattern Word32Rep <- (matchesNullary "Word32Rep" -> True) where Word32Rep = word32Rep
+
+pattern Word64Rep <- (matchesNullary "Word64Rep" -> True) where Word64Rep = word64Rep
+
+pattern AddrRep <- (matchesNullary "AddrRep" -> True) where AddrRep = addrRep
+
+pattern FloatRep <- (matchesNullary "FloatRep" -> True) where FloatRep = floatRep
+
+pattern DoubleRep <- (matchesNullary "DoubleRep" -> True) where DoubleRep = doubleRep
+
+matchUnaryRep :: Text -> TcType -> Maybe TcType
+matchUnaryRep expected (TcTyCon tyCon [argument])
+  | T.dropWhile (== '\'') (tyConName tyCon) == expected = Just argument
+matchUnaryRep _ _ = Nothing
+
+matchBinaryRep :: Text -> TcType -> Maybe (TcType, TcType)
+matchBinaryRep expected (TcTyCon tyCon [left, right])
+  | T.dropWhile (== '\'') (tyConName tyCon) == expected = Just (left, right)
+matchBinaryRep _ _ = Nothing
+
+matchListRep :: Text -> TcType -> Maybe [TcType]
+matchListRep expected (TcTyCon tyCon [listType])
+  | T.dropWhile (== '\'') (tyConName tyCon) == expected = decodePromotedList listType
+matchListRep _ _ = Nothing
+
+decodePromotedList :: TcType -> Maybe [TcType]
+decodePromotedList ty =
+  case ty of
+    TcTyCon tyCon []
+      | tyConName tyCon == "'[]" -> Just []
+    TcTyCon tyCon [field, rest]
+      | tyConName tyCon == "':" -> (field :) <$> decodePromotedList rest
+    _ -> Nothing
+
+matchesNullary :: Text -> TcType -> Bool
+matchesNullary expected (TcTyCon tyCon []) = T.dropWhile (== '\'') (tyConName tyCon) == expected
+matchesNullary _ _ = False
+
+runtimeRepFromKind :: TcType -> Either String TcType
+runtimeRepFromKind kind =
+  case kind of
+    TcTyCon tyCon []
+      | tyConName tyCon `elem` ["Type", "LiftedType", "Constraint"] -> Right liftedRuntimeRep
+      | tyConName tyCon == "UnliftedType" -> Right unliftedRep
+    TcTyCon tyCon [representation]
+      | tyConName tyCon == "TYPE" -> Right representation
+    _ -> Left ("type does not have a runtime representation: " <> show kind)
+
+isUnboxedTupleTypeWithKind :: TcType -> TcType -> Bool
+isUnboxedTupleTypeWithKind ty kind =
+  case (ty, runtimeRepFromKind kind) of
+    (TcTyCon tyCon arguments, Right (TupleRep fields)) ->
+      tyConName tyCon == unboxedTupleTyConName (length arguments)
+        && tyConArity tyCon == length arguments
+        && length fields == length arguments
+    _ -> False
+
+isUnboxedTupleType :: TcType -> Bool
+isUnboxedTupleType (TcTyCon tyCon arguments) =
+  tyConName tyCon == unboxedTupleTyConName (length arguments)
+    && tyConArity tyCon == length arguments
+isUnboxedTupleType _ = False
+
+newtype TcLevel = TcLevel Int
+  deriving (Eq, Ord, Show, Read)
+
 topTcLevel :: TcLevel
 topTcLevel = TcLevel 0
 
--- | Enter a deeper implication level.
 pushLevel :: TcLevel -> TcLevel
-pushLevel (TcLevel n) = TcLevel (n + 1)
+pushLevel (TcLevel level) = TcLevel (level + 1)

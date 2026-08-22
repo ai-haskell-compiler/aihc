@@ -149,7 +149,6 @@ typeableArguments ty =
     TcForAllTy {} -> Nothing
     TcQualTy {} -> Nothing
     TcAppTy {} -> Nothing
-    TcBuiltinTyCon _ _ arguments -> Just arguments
 
 classFieldTypes :: ClassInfo -> Map Unique TcType -> [TcType]
 classFieldTypes classInfo substitution =

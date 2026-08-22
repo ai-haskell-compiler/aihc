@@ -12,7 +12,7 @@ import Data.Text (Text)
 
 declareExternalSymbols :: FcProgram -> FcProgram
 declareExternalSymbols program =
-  FcProgram (fcProgramModule program) (map (normalizeExternalTopBind externalVars) canonicalBinds)
+  FcProgram (fcProgramModule program) (fcProgramKindEnv program) (map (normalizeExternalTopBind externalVars) canonicalBinds)
   where
     canonicalBinds = canonicalProgramBinds program
     externalVars = Map.fromList [(origin, fcExternalVar origin ty) | FcExternal origin ty <- canonicalBinds]
@@ -48,7 +48,7 @@ normalizeExternalExpr externalVars expression =
     normalizeAlternative alternative = alternative {altRhs = recur (altRhs alternative)}
 
 canonicalProgramBinds :: FcProgram -> [FcTopBind]
-canonicalProgramBinds (FcProgram moduleId topBinds) =
+canonicalProgramBinds (FcProgram moduleId _ topBinds) =
   [FcExternal origin ty | (origin, ty) <- Map.toAscList externalTypes, not (originIsLocal origin)]
     <> definitions
   where

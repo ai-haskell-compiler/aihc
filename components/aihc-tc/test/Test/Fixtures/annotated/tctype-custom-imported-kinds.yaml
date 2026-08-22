@@ -1,0 +1,66 @@
+extensions:
+  - DataKinds
+  - KindSignatures
+modules:
+  - |
+    module Kinds where
+    data Color = Red | Blue
+    data Proxy (a :: Color) = Proxy
+  - |
+    module LeftKind where
+    data Key = LeftKey
+  - |
+    module RightKind where
+    data Key = RightKey
+  - |
+    module Test where
+    import Kinds
+    import qualified LeftKind
+    import qualified RightKind
+    data Uses (a :: Color) = Uses (Proxy a)
+    data LeftUse (a :: LeftKind.Key) = LeftUse
+    data RightUse (a :: RightKind.Key) = RightUse
+    left = LeftKind.LeftKey
+    right = RightKind.RightKey
+annotated:
+  - |-
+    module Kinds where
+    data Color = Red | Blue
+         │       │     └─ type: Color
+         │       └─ type: Color
+         └─ type: TYPE ('BoxedRep 'Lifted)
+    data Proxy (a :: Color) = Proxy
+         │                    └─ type: ∀ a. Proxy a
+         └─ type: Color → TYPE ('BoxedRep 'Lifted)
+  - |-
+    module LeftKind where
+    data Key = LeftKey
+         │     └─ type: Key
+         └─ type: TYPE ('BoxedRep 'Lifted)
+  - |-
+    module RightKind where
+    data Key = RightKey
+         │     └─ type: Key
+         └─ type: TYPE ('BoxedRep 'Lifted)
+  - |-
+    module Test where
+    import Kinds
+    import qualified LeftKind
+    import qualified RightKind
+    data Uses (a :: Color) = Uses (Proxy a)
+         │                   └─ type: ∀ a. Kinds.Proxy a → Uses a
+         └─ type: Kinds.Color → TYPE ('BoxedRep 'Lifted)
+    data LeftUse (a :: LeftKind.Key) = LeftUse
+         │                             └─ type: ∀ a. LeftUse a
+         └─ type: LeftKind.Key → TYPE ('BoxedRep 'Lifted)
+    data RightUse (a :: RightKind.Key) = RightUse
+         │                               └─ type: ∀ a. RightUse a
+         └─ type: RightKind.Key → TYPE ('BoxedRep 'Lifted)
+    left = LeftKind.LeftKey
+    │      └─ type: LeftKind.Key
+    └─ type: LeftKind.Key
+    right = RightKind.RightKey
+    │       └─ type: RightKind.Key
+    └─ type: RightKind.Key
+status: pass
+reason: uses ordinary type constructor identities for custom, imported, and same-name kinds

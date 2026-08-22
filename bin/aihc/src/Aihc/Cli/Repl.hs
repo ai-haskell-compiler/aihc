@@ -45,7 +45,6 @@ import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve (ModuleExports, ModuleKey (..), Package (..), PackageId (..), ResolveError (..), ResolveResult (..), ResolvedName (..), Scope (..), extractInterface, resolveWithDeps)
 import Aihc.Tc
   ( InstanceInfo,
-    Kind (KFun, KType),
     TcBindingResult (..),
     TcDiagnostic (..),
     TcErrorKind (..),
@@ -593,7 +592,7 @@ instantiateSchemeBody (ForAll tvs preds body) =
 concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs =
   case NonEmpty.nonEmpty programs of
-    Nothing -> FcProgram (FcModuleId "repl" "Interactive") []
+    Nothing -> FcProgram (FcModuleId "repl" "Interactive") mempty []
     Just nonEmptyPrograms ->
       either
         (error . ("System FC merge error: " <>) . show)
@@ -805,7 +804,7 @@ appendScheme =
   ForAll [aVar] [] (TcFunTy listA (TcFunTy listA listA))
   where
     aVar = TyVarId "a" (Unique (-100))
-    listA = TcTyCon (mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types" "[]" 1 (KFun KType KType)) [TcTyVar aVar]
+    listA = TcTyCon (mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types" "[]" 1) [TcTyVar aVar]
 
 normalizeImportedBindingName :: Text -> Text
 normalizeImportedBindingName name =

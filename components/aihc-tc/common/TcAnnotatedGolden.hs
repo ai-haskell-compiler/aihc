@@ -183,7 +183,23 @@ evaluateTcAnnotatedCasePure tc =
               classifyFailure tc ("resolve error: " <> show resolveErrors)
   where
     corePackage = Package "aihc-prim" (PackageId "aihc-prim")
-    coreSource = "module GHC.Types (List(..)) where\ndata List a = [] | a : [a]\ninfixr 5 :\n"
+    coreSource =
+      T.unlines
+        [ "module GHC.Types (List(..), Type, Constraint, RuntimeRep(..), Levity(..), VecCount(..), VecElem(..), TYPE, LiftedRep, UnliftedRep, Int) where",
+          "data List a = [] | a : [a]",
+          "infixr 5 :",
+          "data Constraint",
+          "data Levity = Lifted | Unlifted",
+          "data VecCount = Vec2 | Vec4 | Vec8 | Vec16 | Vec32 | Vec64",
+          "data VecElem = Int8ElemRep | Int16ElemRep | Int32ElemRep | Int64ElemRep | Word8ElemRep | Word16ElemRep | Word32ElemRep | Word64ElemRep | FloatElemRep | DoubleElemRep",
+          "data RuntimeRep = BoxedRep Levity | TupleRep [RuntimeRep] | SumRep [RuntimeRep] | VecRep VecCount VecElem | IntRep | Int8Rep | Int16Rep | Int32Rep | Int64Rep | WordRep | Word8Rep | Word16Rep | Word32Rep | Word64Rep | AddrRep | FloatRep | DoubleRep",
+          "type TYPE :: RuntimeRep -> Type",
+          "data TYPE (r :: RuntimeRep)",
+          "type Type = TYPE LiftedRep",
+          "type LiftedRep = 'BoxedRep 'Lifted",
+          "type UnliftedRep = 'BoxedRep 'Unlifted",
+          "data Int"
+        ]
     coreModule = parseCoreModule coreSource
     coreResolved = resolveWithDeps mempty [(corePackage, coreModule)]
     coreExports = extractInterface coreResolved
@@ -207,7 +223,11 @@ evaluateTcAnnotatedCasePure tc =
             then Right ast
             else Left (show errs)
     parseCoreModule input =
-      let config = defaultConfig {parserSourceName = "GHC.Types"}
+      let config =
+            defaultConfig
+              { parserSourceName = "GHC.Types",
+                parserExtensions = mapMaybe parseExtensionName ["DataKinds", "KindSignatures", "StandaloneKindSignatures"]
+              }
           (errs, ast) = parseModule config input
        in if null errs then ast else error (show errs)
 

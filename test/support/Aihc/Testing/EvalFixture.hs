@@ -362,7 +362,7 @@ moduleGroupBindings =
 concatPrograms :: [FcProgram] -> FcProgram
 concatPrograms programs =
   case NonEmpty.nonEmpty programs of
-    Nothing -> FcProgram (FcModuleId "test" "Merged") []
+    Nothing -> FcProgram (FcModuleId "test" "Merged") mempty []
     Just nonEmptyPrograms ->
       either
         (error . ("System FC merge error: " <>) . show)

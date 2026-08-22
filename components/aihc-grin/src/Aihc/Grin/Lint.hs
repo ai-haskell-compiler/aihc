@@ -8,7 +8,6 @@ module Aihc.Grin.Lint
 where
 
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types (Levity (..), RuntimeRep (..), liftedRuntimeRep)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
@@ -25,25 +24,25 @@ data GrinLintError
   | GrinLintUnknownPrimitive !Text
   | GrinLintFunctionArity !FunctionName !Int !Int
   | GrinLintSaturatedClosure !FunctionName
-  | GrinLintThunkResult !FunctionName !RuntimeRep
-  | GrinLintRepresentationMismatch !String !RuntimeRep !RuntimeRep
-  | GrinLintResultLayout !String ![RuntimeRep] ![RuntimeRep]
-  | GrinLintEvalNonLifted !RuntimeRep
-  | GrinLintUpdateNonLifted !RuntimeRep
+  | GrinLintThunkResult !FunctionName !GrinRep
+  | GrinLintRepresentationMismatch !String !GrinRep !GrinRep
+  | GrinLintResultLayout !String ![GrinRep] ![GrinRep]
+  | GrinLintEvalNonLifted !GrinRep
+  | GrinLintUpdateNonLifted !GrinRep
   | GrinLintForeignArity !Text !Int !Int
   | GrinLintUnknownForeignCall !Text
   | GrinLintForeignCallDescriptorMismatch !Text
-  | GrinLintConstructorLayout !Text ![RuntimeRep] ![RuntimeRep]
+  | GrinLintConstructorLayout !Text ![GrinRep] ![GrinRep]
   deriving (Eq, Show)
 
 data LintEnv = LintEnv
   { lintFunctionArities :: !(Map FunctionName Int),
     lintFunctionNodeArities :: !(Map FunctionName Int),
-    lintFunctionResults :: !(Map FunctionName RuntimeRep),
+    lintFunctionResults :: !(Map FunctionName GrinRep),
     lintPrimitiveArities :: !(Map Text Int),
     lintGlobalVars :: !(Set GrinVar),
     lintGlobalNames :: !(Set Text),
-    lintConstructorLayouts :: !(Map Text [[RuntimeRep]]),
+    lintConstructorLayouts :: !(Map Text [[GrinRep]]),
     lintForeignCalls :: !(Map Text GrinForeignCall)
   }
 
@@ -117,15 +116,15 @@ lintProgram program =
 
 lintWhnfGlobal :: LintEnv -> (GrinVar, GrinNode) -> [GrinLintError]
 lintWhnfGlobal env (var, node) =
-  [ GrinLintRepresentationMismatch "global" (grinVarRuntimeRep var) liftedRuntimeRep
-  | grinVarRuntimeRep var /= liftedRuntimeRep
+  [ GrinLintRepresentationMismatch "global" (grinVarRuntimeRep var) liftedGrinRep
+  | grinVarRuntimeRep var /= liftedGrinRep
   ]
     <> lintNode env (lintGlobalVars env) node
 
 lintCaf :: LintEnv -> (GrinVar, GrinNode) -> [GrinLintError]
 lintCaf env (var, node) =
-  [ GrinLintRepresentationMismatch "CAF" (grinVarRuntimeRep var) liftedRuntimeRep
-  | grinVarRuntimeRep var /= liftedRuntimeRep
+  [ GrinLintRepresentationMismatch "CAF" (grinVarRuntimeRep var) liftedGrinRep
+  | grinVarRuntimeRep var /= liftedGrinRep
   ]
     <> lintNode env (lintGlobalVars env) node
 
@@ -144,7 +143,7 @@ lintFunction env function =
         _ -> []
     expected = runtimeRepComponents (grinFunctionResultRep function)
 
-lintFunctionResult :: LintEnv -> RuntimeRep -> GrinExpr -> [GrinLintError]
+lintFunctionResult :: LintEnv -> GrinRep -> GrinExpr -> [GrinLintError]
 lintFunctionResult env resultRep expr =
   case expr of
     GrinBind _ _ body -> lintFunctionResult env resultRep body
@@ -193,10 +192,10 @@ lintExpr env bound expr =
         <> lintValue env bound pointer
         <> lintValue env bound value
     GrinEval _ value ->
-      [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedRuntimeRep]
+      [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedGrinRep]
         <> lintValue env bound value
     GrinCpsEval _ value continuation updateContinuation ->
-      [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedRuntimeRep]
+      [GrinLintEvalNonLifted runtimeRep | let runtimeRep = grinValueRuntimeRep value, runtimeRep /= liftedGrinRep]
         <> lintValue env bound value
         <> lintValue env bound continuation
         <> lintValue env bound updateContinuation
@@ -249,7 +248,7 @@ lintExpr env bound expr =
                ]
             <> concatMap (lintValue env bound) arguments
 
-lintKnownCall :: LintEnv -> Set GrinVar -> RuntimeRep -> FunctionName -> [GrinValue] -> [GrinLintError]
+lintKnownCall :: LintEnv -> Set GrinVar -> GrinRep -> FunctionName -> [GrinValue] -> [GrinLintError]
 lintKnownCall env bound _runtimeRep functionName arguments =
   functionErrors <> concatMap (lintValue env bound) arguments
   where
@@ -334,14 +333,14 @@ duplicates = go Set.empty Set.empty
       | value `Set.member` seen = go seen (Set.insert value repeated) rest
       | otherwise = go (Set.insert value seen) repeated rest
 
-exprRuntimeReps :: GrinExpr -> Maybe [RuntimeRep]
+exprRuntimeReps :: GrinExpr -> Maybe [GrinRep]
 exprRuntimeReps expr =
   case expr of
     GrinConstant values -> Just (map grinValueRuntimeRep values)
     GrinBind _ _ body -> exprRuntimeReps body
-    GrinStore {} -> Just [liftedRuntimeRep]
+    GrinStore {} -> Just [liftedGrinRep]
     GrinEnsureHeap _ roots -> Just (map grinValueRuntimeRep roots)
-    GrinStoreUnchecked {} -> Just [liftedRuntimeRep]
+    GrinStoreUnchecked {} -> Just [liftedGrinRep]
     GrinStoreRec _ body -> exprRuntimeReps body
     GrinStoreRecUnchecked _ body -> exprRuntimeReps body
     GrinFetch runtimeRep _ -> Just (runtimeRepComponents runtimeRep)

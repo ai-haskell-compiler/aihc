@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TupleSections #-}
 
 -- | Expression desugaring from surface AST to System FC Core.
@@ -60,8 +61,28 @@ import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionForm (
 import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Env (DataConFieldInfo (..), DataTypeInfo)
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Kind (runtimeRepToTcType)
-import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType, liftedRuntimeRep, runtimeRepOfType, setTyVarKind, tvKind, tyConModuleName, tyConPackageId, unboxedTupleTyConName)
+import Aihc.Tc.Types
+  ( Pred (..),
+    TcKindEnv,
+    TcType (..),
+    TyCon (..),
+    TyVarId (..),
+    Unique (..),
+    isLiftedTypeInEnv,
+    liftedRuntimeRep,
+    runtimeRepOfTypeInEnv,
+    setTyVarKind,
+    tvKind,
+    tyConModuleName,
+    tyConPackageId,
+    unboxedTupleTyConName,
+    pattern IntRep,
+    pattern KFun,
+    pattern KRuntimeRep,
+    pattern KTYPE,
+    pattern TupleRep,
+    pattern WordRep,
+  )
 import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -89,6 +110,7 @@ data DsState = DsState
     dsTypeEnv :: !(Map Text TcType),
     -- | Map from a complete global identity to its type constructor.
     dsGlobalTyConEnv :: !(Map (PackageId, Text, Text) TyCon),
+    dsKindEnv :: !TcKindEnv,
     -- | Checked data type declarations from the type checker.
     dsDataTypes :: ![DataTypeInfo],
     -- | Top-level variables, keyed by their complete resolved identity.
@@ -354,13 +376,15 @@ dsOrderedMatches resultTy scrutVars matches =
   case matches of
     [] -> do
       failureVar <- freshInternalVar "_no_match" resultTy
+      kindEnv <- gets dsKindEnv
       pure $
-        if isLiftedType resultTy
+        if isLiftedTypeInEnv kindEnv resultTy
           then FcLet (FcRec [(failureVar, FcVar failureVar)]) (FcVar failureVar)
           else FcVar failureVar
     match : rest -> do
       failure <- dsOrderedMatches resultTy scrutVars rest
-      if isLiftedType resultTy
+      kindEnv <- gets dsKindEnv
+      if isLiftedTypeInEnv kindEnv resultTy
         then do
           failureVar <- freshInternalVar "_next_match" resultTy
           matched <- dsMatchPatterns scrutVars (matchPats match) (dsRhs (matchRhs match)) (FcVar failureVar)
@@ -1568,10 +1592,11 @@ tupleConExpr flavor elemTys = do
     case resolvedOrigin of
       Just FcBuiltinOrigin {} -> pure (builtinVar name (Unique (-20 - arity)) constructorTy)
       _ -> freshVar name constructorTy
+  kindEnv <- gets dsKindEnv
   let representationTypes =
         case flavor of
           Boxed -> []
-          Unboxed -> map (runtimeRepToTcType . fromRight liftedRuntimeRep . runtimeRepOfType) elemTys
+          Unboxed -> map (fromRight liftedRuntimeRep . runtimeRepOfTypeInEnv kindEnv) elemTys
       typeArguments = representationTypes <> elemTys
   pure (List.foldl' FcTyApp (FcVar constructor {varResolvedName = resolvedOrigin}) typeArguments)
 
@@ -1584,7 +1609,7 @@ unboxedTupleConType arity =
       | index <- [1 .. arity]
       ]
     valueVariables =
-      [ setTyVarKind (KTYPE (RuntimeRepVar (tvUnique representation))) (TyVarId ("a" <> T.pack (show index)) (Unique (-2000000 - arity * 200 - 100 - index)))
+      [ setTyVarKind (KTYPE (TcTyVar representation)) (TyVarId ("a" <> T.pack (show index)) (Unique (-2000000 - arity * 200 - 100 - index)))
       | (index, representation) <- zip [1 ..] representationVariables
       ]
     resultKind = KTYPE (TupleRep [runtimeRep | variable <- valueVariables, KTYPE runtimeRep <- [tvKind variable]])
@@ -2013,7 +2038,6 @@ exactTypeKey ty =
     TcFunTy argument result -> exactTypeKey argument <> "->" <> exactTypeKey result
     TcForAllTy _ body -> exactTypeKey body
     TcQualTy _ body -> exactTypeKey body
-    TcBuiltinTyCon name _ arguments -> name <> T.concat (map (("_" <>) . exactTypeKey) arguments)
 
 uniqueInt :: Unique -> Int
 uniqueInt (Unique unique) = unique

@@ -16,12 +16,10 @@ module Aihc.Fc.Subst
 where
 
 import Aihc.Fc.Syntax
-import Aihc.Tc.Types (Kind (..), Levity (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (tyConName), TyVarId (..), Unique (..), setTyVarKind, tvKind)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyVarId (..), Unique (..), setTyVarKind, tvKind)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
-import Data.Text qualified as T
 
 -- | The greatest term-variable unique used anywhere in a program.
 maximumProgramUnique :: FcProgram -> Int
@@ -31,7 +29,7 @@ maximumProgramUnique = maximum . (0 :) . map uniqueInt . programVars
 
 -- | All term variables in a program, including nested binders and occurrences.
 programVars :: FcProgram -> [Var]
-programVars (FcProgram _ topBinds) = concatMap topBindVars topBinds
+programVars (FcProgram _ _ topBinds) = concatMap topBindVars topBinds
   where
     topBindVars topBind =
       case topBind of
@@ -94,7 +92,6 @@ freeRigidTyVarsOf = uniqueTyVars . concatMap go
         TcForAllTy tyVar body -> filter (/= tyVar) (go body)
         TcQualTy predicates body -> concatMap goPredicate predicates <> go body
         TcAppTy function argument -> go function <> go argument
-        TcBuiltinTyCon _ _ arguments -> concatMap go arguments
 
     goPredicate predicate =
       case predicate of
@@ -124,52 +121,11 @@ substType subst ty
        in TcForAllTy (setTyVarKind (goKind s (tvKind tv)) tv) (go s' body)
     go s (TcQualTy preds body) = TcQualTy (map (goPred s) preds) (go s body)
     go s (TcAppTy f a) = TcAppTy (go s f) (go s a)
-    go s (TcBuiltinTyCon name arity arguments) = TcBuiltinTyCon name arity (map (go s) arguments)
 
     goPred s (ClassPred cls args) = ClassPred cls (map (go s) args)
     goPred s (EqPred t1 t2) = EqPred (go s t1) (go s t2)
 
-    goKind s kind =
-      case kind of
-        KTYPE runtimeRep -> KTYPE (goRuntimeRep s runtimeRep)
-        KFun argument result -> KFun (goKind s argument) (goKind s result)
-        _ -> kind
-
-    goRuntimeRep s runtimeRep =
-      case runtimeRep of
-        RuntimeRepVar unique ->
-          case [replacement | (variable, replacement) <- Map.toList s, tvUnique variable == unique] of
-            replacement : _ -> fromMaybe runtimeRep (runtimeRepType replacement)
-            [] -> runtimeRep
-        TupleRep fields -> TupleRep (map (goRuntimeRep s) fields)
-        SumRep fields -> SumRep (map (goRuntimeRep s) fields)
-        _ -> runtimeRep
-
-    runtimeRepType replacement =
-      case replacement of
-        TcTyVar variable
-          | tvKind variable == KRuntimeRep -> Just (RuntimeRepVar (tvUnique variable))
-        TcMetaTv unique -> Just (RuntimeRepMeta unique)
-        TcTyCon tyCon [] ->
-          lookup
-            (T.unpack (tyConName tyCon))
-            [ ("'LiftedRep", BoxedRep Lifted),
-              ("'UnliftedRep", BoxedRep Unlifted),
-              ("'IntRep", IntRep),
-              ("'Int8Rep", Int8Rep),
-              ("'Int16Rep", Int16Rep),
-              ("'Int32Rep", Int32Rep),
-              ("'Int64Rep", Int64Rep),
-              ("'WordRep", WordRep),
-              ("'Word8Rep", Word8Rep),
-              ("'Word16Rep", Word16Rep),
-              ("'Word32Rep", Word32Rep),
-              ("'Word64Rep", Word64Rep),
-              ("'AddrRep", AddrRep),
-              ("'FloatRep", FloatRep),
-              ("'DoubleRep", DoubleRep)
-            ]
-        _ -> Nothing
+    goKind = go
 
 -- | Count the free occurrences of a System FC term variable, stopping once
 -- more than one occurrence has been found.

@@ -12,7 +12,7 @@ where
 
 import Aihc.Fc.Subst (OccurrenceCount (..), countExprVar)
 import Aihc.Fc.Syntax
-import Aihc.Tc.Types (isLiftedType)
+import Aihc.Tc.Types (TcKindEnv, isLiftedTypeInEnv)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -41,8 +41,8 @@ untilStable transform input =
 -- when it is not genuinely recursive. Computed right-hand sides are
 -- intentionally retained.
 copyPropagateProgram :: FcProgram -> FcProgram
-copyPropagateProgram (FcProgram moduleId topBinds) =
-  FcProgram moduleId (map copyTopBind topBinds)
+copyPropagateProgram (FcProgram moduleId kindEnv topBinds) =
+  FcProgram moduleId kindEnv (map copyTopBind topBinds)
   where
     copyTopBind topBind =
       case topBind of
@@ -111,38 +111,38 @@ resolveAlias aliases var =
 -- unlifted binding is strict, so its right-hand side must be retained even
 -- when the binder is absent from the body.
 eliminateDeadLetsProgram :: FcProgram -> FcProgram
-eliminateDeadLetsProgram (FcProgram moduleId topBinds) = FcProgram moduleId (map eliminateTopBind topBinds)
+eliminateDeadLetsProgram (FcProgram moduleId kindEnv topBinds) = FcProgram moduleId kindEnv (map eliminateTopBind topBinds)
   where
     eliminateTopBind topBind =
       case topBind of
-        FcTopBind bind -> FcTopBind (eliminateBind bind)
+        FcTopBind bind -> FcTopBind (eliminateBind kindEnv bind)
         _ -> topBind
 
-eliminateBind :: FcBind -> FcBind
-eliminateBind bind =
+eliminateBind :: TcKindEnv -> FcBind -> FcBind
+eliminateBind kindEnv bind =
   case bind of
-    FcNonRec binder rhs -> FcNonRec binder (eliminateExpr rhs)
-    FcRec bindings -> FcRec [(binder, eliminateExpr rhs) | (binder, rhs) <- bindings]
+    FcNonRec binder rhs -> FcNonRec binder (eliminateExpr kindEnv rhs)
+    FcRec bindings -> FcRec [(binder, eliminateExpr kindEnv rhs) | (binder, rhs) <- bindings]
 
-eliminateExpr :: FcExpr -> FcExpr
-eliminateExpr expression =
+eliminateExpr :: TcKindEnv -> FcExpr -> FcExpr
+eliminateExpr kindEnv expression =
   case expression of
     FcVar {} -> expression
     FcLit {} -> expression
-    FcApp function argument -> FcApp (eliminateExpr function) (eliminateExpr argument)
-    FcTyApp function ty -> FcTyApp (eliminateExpr function) ty
-    FcLam binder body -> FcLam binder (eliminateExpr body)
-    FcTyLam tyVar body -> FcTyLam tyVar (eliminateExpr body)
+    FcApp function argument -> FcApp (eliminateExpr kindEnv function) (eliminateExpr kindEnv argument)
+    FcTyApp function ty -> FcTyApp (eliminateExpr kindEnv function) ty
+    FcLam binder body -> FcLam binder (eliminateExpr kindEnv body)
+    FcTyLam tyVar body -> FcTyLam tyVar (eliminateExpr kindEnv body)
     FcLet (FcNonRec binder rhs) body
       | Dead <- countExprVar binder body,
-        isLiftedType (varType binder) ->
-          eliminateExpr body
-      | otherwise -> FcLet (FcNonRec binder (eliminateExpr rhs)) (eliminateExpr body)
-    FcLet bind body -> FcLet (eliminateBind bind) (eliminateExpr body)
+        isLiftedTypeInEnv kindEnv (varType binder) ->
+          eliminateExpr kindEnv body
+      | otherwise -> FcLet (FcNonRec binder (eliminateExpr kindEnv rhs)) (eliminateExpr kindEnv body)
+    FcLet bind body -> FcLet (eliminateBind kindEnv bind) (eliminateExpr kindEnv body)
     FcCase scrutinee binder alternatives ->
       FcCase
-        (eliminateExpr scrutinee)
+        (eliminateExpr kindEnv scrutinee)
         binder
-        [alternative {altRhs = eliminateExpr (altRhs alternative)} | alternative <- alternatives]
-    FcCast inner coercion -> FcCast (eliminateExpr inner) coercion
-    FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map eliminateExpr arguments)
+        [alternative {altRhs = eliminateExpr kindEnv (altRhs alternative)} | alternative <- alternatives]
+    FcCast inner coercion -> FcCast (eliminateExpr kindEnv inner) coercion
+    FcCallForeign foreignCall arguments -> FcCallForeign foreignCall (map (eliminateExpr kindEnv) arguments)

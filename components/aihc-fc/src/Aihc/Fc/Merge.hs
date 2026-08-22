@@ -46,6 +46,7 @@ mergePrograms target programs =
     merged =
       FcProgram
         target
+        (Map.unions (map fcProgramKindEnv qualifiedPrograms))
         ( concatMap
             (map (resolveTopBind providers sourceProviders) . filter (keepExternal providers) . fcTopBinds)
             qualifiedPrograms

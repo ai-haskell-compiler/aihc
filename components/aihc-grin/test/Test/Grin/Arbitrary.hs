@@ -8,13 +8,6 @@ where
 import Aihc.Grin.Parser (parseProgram, renderParseError)
 import Aihc.Grin.Pretty (renderProgram)
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types
-  ( Levity (..),
-    RuntimeRep (..),
-    Unique (..),
-    VecCount (..),
-    VecElem (..),
-  )
 import Data.ByteString qualified as BS
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -150,14 +143,12 @@ genForeignEffect = Gen.element [GrinForeignPure, GrinForeignRealWorld]
 genForeignType :: Gen GrinForeignType
 genForeignType = Gen.element [GrinForeignInt, GrinForeignInt32, GrinForeignWord64, GrinForeignAddr]
 
-genRuntimeRep :: Gen RuntimeRep
+genRuntimeRep :: Gen GrinRep
 genRuntimeRep =
   Gen.recursive
     Gen.choice
     [ VecRep <$> Gen.element allVecCounts <*> Gen.element allVecElems,
       BoxedRep <$> Gen.element [Lifted, Unlifted],
-      RuntimeRepVar . Unique <$> genInt,
-      RuntimeRepMeta . Unique <$> genInt,
       Gen.element
         [ IntRep,
           Int8Rep,
@@ -178,10 +169,10 @@ genRuntimeRep =
       SumRep <$> smallList genRuntimeRep
     ]
 
-allVecCounts :: [VecCount]
+allVecCounts :: [GrinVecCount]
 allVecCounts = [Vec2, Vec4, Vec8, Vec16, Vec32, Vec64]
 
-allVecElems :: [VecElem]
+allVecElems :: [GrinVecElem]
 allVecElems =
   [ Int8ElemRep,
     Int16ElemRep,

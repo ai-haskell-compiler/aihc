@@ -29,7 +29,6 @@ import Aihc.Native
     renderLinkedFunctionSymbol,
     supportedNativePrimitiveNames,
   )
-import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Control.Monad (forM, zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, get, modify', runStateT)
@@ -50,7 +49,7 @@ data LlvmError
   | LlvmUnsupportedPrimitive !Text
   | LlvmUnsupportedExpression !Text
   | LlvmUnsupportedValue !Text
-  | LlvmUnsupportedRuntimeRep !RuntimeRep
+  | LlvmUnsupportedRuntimeRep !GrinRep
   deriving (Eq, Show)
 
 data CompilationUnit
@@ -73,7 +72,7 @@ data RuntimeInfo = RuntimeInfo
   { runtimeInfoLabel :: !Text,
     runtimeInfoIdentity :: !(Maybe Int),
     runtimeInfoEntry :: !(Maybe Text),
-    runtimeInfoFields :: ![RuntimeRep],
+    runtimeInfoFields :: ![GrinRep],
     runtimeInfoRemainingArity :: !Int,
     runtimeInfoNext :: !(Maybe Text),
     runtimeInfoEnter :: !(Maybe RuntimeEnter),
@@ -90,8 +89,8 @@ data RuntimeEnter = RuntimeEnter
 
 data RuntimeInfoKey
   = ConstructorRuntimeInfo !Text !Int
-  | ClosureRuntimeInfo !FunctionName ![RuntimeRep] ![[RuntimeRep]]
-  | ThunkRuntimeInfo !FunctionName ![RuntimeRep]
+  | ClosureRuntimeInfo !FunctionName ![GrinRep] ![[GrinRep]]
+  | ThunkRuntimeInfo !FunctionName ![GrinRep]
   deriving (Eq, Ord, Show)
 
 data FunctionState = FunctionState
@@ -1795,7 +1794,7 @@ runtimeInfoFunctionName key = case key of
   ClosureRuntimeInfo name _ _ -> Just name
   ThunkRuntimeInfo name _ -> Just name
 
-runtimeInfoKeyFields :: RuntimeInfoKey -> [RuntimeRep]
+runtimeInfoKeyFields :: RuntimeInfoKey -> [GrinRep]
 runtimeInfoKeyFields key = case key of
   ConstructorRuntimeInfo {} -> []
   ClosureRuntimeInfo _ fields _ -> fields
@@ -1857,13 +1856,13 @@ exprNodes expression = case expression of
   GrinCase _ _ alternatives -> concatMap (exprNodes . grinAltRhs) alternatives
   _ -> []
 
-programRuntimeReps :: GrinProgram -> [RuntimeRep]
+programRuntimeReps :: GrinProgram -> [GrinRep]
 programRuntimeReps program = concatMap (concat . snd) (grinConstructors program) <> concatMap nodeReps (programNodes program) <> concatMap functionReps (grinFunctions program)
   where
     nodeReps = map grinValueRuntimeRep . grinNodeFields
     functionReps function = grinFunctionResultRep function : map grinVarRuntimeRep (grinFunctionParameters function) <> exprReps (grinFunctionBody function)
 
-exprReps :: GrinExpr -> [RuntimeRep]
+exprReps :: GrinExpr -> [GrinRep]
 exprReps expression = case expression of
   GrinBind vars value body -> map grinVarRuntimeRep vars <> exprReps value <> exprReps body
   GrinStore node -> nodeReps node
@@ -1876,13 +1875,11 @@ exprReps expression = case expression of
   where
     nodeReps = map grinValueRuntimeRep . grinNodeFields
 
-validateRuntimeRep :: RuntimeRep -> Either LlvmError ()
+validateRuntimeRep :: GrinRep -> Either LlvmError ()
 validateRuntimeRep runtimeRep = case runtimeRep of
   VecRep {} -> Left (LlvmUnsupportedRuntimeRep runtimeRep)
   TupleRep reps -> mapM_ validateRuntimeRep reps
   SumRep reps -> mapM_ validateRuntimeRep reps
-  RuntimeRepVar {} -> Left (LlvmUnsupportedRuntimeRep runtimeRep)
-  RuntimeRepMeta {} -> Left (LlvmUnsupportedRuntimeRep runtimeRep)
   _ -> Right ()
 
 normalizedLiteralInteger :: GrinLiteral -> Maybe Integer
@@ -1895,7 +1892,7 @@ normalizedLiteralInteger literal = do
     GrinLitInt runtimeRep _ -> normalizeScalar runtimeRep integer
     _ -> integer
 
-normalizeScalar :: RuntimeRep -> Integer -> Integer
+normalizeScalar :: GrinRep -> Integer -> Integer
 normalizeScalar runtimeRep integer = case runtimeRep of
   IntRep -> signed 64
   Int8Rep -> signed 8

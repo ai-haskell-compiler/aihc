@@ -31,7 +31,7 @@ lowerPseudoOps program = evalState (lowerProgram program) (nextUnique program)
 type ExpandM = State Int
 
 lowerProgram :: FcProgram -> ExpandM FcProgram
-lowerProgram (FcProgram moduleId topBinds) = FcProgram moduleId <$> mapM expandTopBind topBinds
+lowerProgram (FcProgram moduleId kindEnv topBinds) = FcProgram moduleId kindEnv <$> mapM expandTopBind topBinds
 
 expandTopBind :: FcTopBind -> ExpandM FcTopBind
 expandTopBind topBind =
@@ -148,7 +148,7 @@ freshVar name ty = do
   pure (Var name (Unique unique) ty)
 
 nextUnique :: FcProgram -> Int
-nextUnique (FcProgram _ topBinds) = maximum (0 : concatMap topBindUniques topBinds) + 1
+nextUnique (FcProgram _ _ topBinds) = maximum (0 : concatMap topBindUniques topBinds) + 1
 
 topBindUniques :: FcTopBind -> [Int]
 topBindUniques topBind =

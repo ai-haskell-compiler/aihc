@@ -677,7 +677,7 @@ test_installV2StaleTypeArtifact =
     first <- installV2 options
     let artifactPath = installV2StorePath first </> "Demo" </> "type.cbor"
     artifact <- BS.readFile artifactPath
-    BS.writeFile artifactPath (BS.take 11 artifact <> BS.singleton 1 <> BS.drop 12 artifact)
+    BS.writeFile artifactPath (BS.take 11 artifact <> BS.singleton 4 <> BS.drop 12 artifact)
     rebuilt <- installV2 options
     assertEqual "rebuilt module" ["Demo"] (installV2WrittenModules rebuilt)
 
@@ -771,7 +771,7 @@ testReplSession = do
         replBindingTypes = Map.empty,
         replImportedInstances = [],
         replTcInterface = emptyTcInterface,
-        replDependencyProgram = FcProgram (FcModuleId "test" "Test") [],
+        replDependencyProgram = FcProgram (FcModuleId "test" "Test") mempty [],
         replSettings = settingsRef
       }
 -}
@@ -1486,6 +1486,7 @@ test_runtimePrimitiveValidation = do
       core =
         FcProgram
           (FcModuleId "test" "Test")
+          mempty
           [ FcPrimitive kept 1,
             FcPrimitive unsafeCoerce 1,
             FcTopBind (FcNonRec mainVar (FcApp (FcVar unsafeCoerce) (FcApp (FcVar kept) (FcLit (LitInt IntRep 1) intTy))))

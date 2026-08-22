@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Pattern match desugaring for System FC Core.
 --
@@ -28,7 +29,19 @@ import Aihc.Parser.Syntax
 import Aihc.Parser.Syntax qualified as Surface
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations (TcAnnotation (..))
-import Aihc.Tc.Types (RuntimeRep (..))
+import Aihc.Tc.Types
+  ( TcType,
+    pattern Int16Rep,
+    pattern Int32Rep,
+    pattern Int64Rep,
+    pattern Int8Rep,
+    pattern IntRep,
+    pattern Word16Rep,
+    pattern Word32Rep,
+    pattern Word64Rep,
+    pattern Word8Rep,
+    pattern WordRep,
+  )
 import Control.Applicative ((<|>))
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
@@ -106,7 +119,7 @@ dsLiteralAlt = go Nothing
         Just ty -> LitAlt literal ty
         Nothing -> error ("literal pattern does not have a checked type: " <> show literal)
 
-numericRuntimeRep :: NumericType -> RuntimeRep
+numericRuntimeRep :: NumericType -> TcType
 numericRuntimeRep numericType =
   case numericType of
     TInteger -> IntRep

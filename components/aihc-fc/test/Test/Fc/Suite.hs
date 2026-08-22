@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Test suite for System FC desugaring golden tests.
 -- Use the existing test fixture framework for all tests.
@@ -15,10 +16,9 @@ import Aihc.Fc
 import Aihc.Fc.Syntax qualified as Fc
 import Aihc.Parser (defaultConfig, parseModule)
 import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (DataTypeInfo (..), TcConfig, TcInterface (..), emptyTcInterface, tcConfig, tcModuleBindings, typecheckModulesWithInterface)
-import Aihc.Tc.Types (Kind (..), Pred (..), TcType (..), TyCon (..), TyVarId (..), TypeScheme (..), Unique (..), mkTyConWithOriginScheme, setTyConKindScheme, setTyVarKind)
+import Aihc.Tc (DataTypeInfo (..), TcConfig, TcInterface (..), TyConInfo (..), emptyTcInterface, tcConfig, tcModuleBindings, typecheckModulesWithInterface)
+import Aihc.Tc.Types (TcType (..), TyVarId (..), TypeScheme (..), Unique (..), setTyVarKind, tyConKey, pattern KFun, pattern KMeta, pattern KRuntimeRep, pattern KType)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
-import Control.Exception (SomeException, evaluate, try)
 import Data.List (find, isInfixOf)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
@@ -42,9 +42,8 @@ fcLintTests =
       testCase "rejects a wrong type constructor argument kind" $ do
         let proxyTyCon = legacyTyConWithKind "RuntimeRepProxy" 1 (KFun KRuntimeRep KType)
             badType = TcTyCon proxyTyCon [liftedType]
-            program = FcProgram testModule [FcExternal (FcTopLevelOrigin "test" "Test" "value") badType]
+            program = FcProgram testModule (Map.singleton (tyConKey proxyTyCon) (ForAll [] [] (KFun KRuntimeRep KType))) [FcExternal (FcTopLevelOrigin "test" "Test" "value") badType]
         assertBool "expected a kind error" (any isKindError (lintProgram emptyLintEnv program)),
-      rejectsPredicatesInKindSchemes,
       missingGlobalEnvironmentTest,
       missingDataTypeInformationTest,
       corruptDataTypeInformationTest,
@@ -52,16 +51,6 @@ fcLintTests =
       missingLiteralTypeTest,
       testProperty "Hedgehog options" (property success)
     ]
-
--- A source fixture cannot construct a type constructor kind scheme directly.
--- This unit test verifies the required construction exception.
-rejectsPredicatesInKindSchemes :: TestTree
-rejectsPredicatesInKindSchemes = testCase "type constructor kind schemes reject predicates" $ do
-  let scheme = ForAll [] [ClassPred (legacyTyCon "C" 0) []] (TcBuiltinTyCon "Type" 0 [])
-  result <- try (evaluate (mkTyConWithOriginScheme "pkg" "GHC.Prim" "T" 0 scheme)) :: IO (Either SomeException TyCon)
-  case result of
-    Left _ -> pure ()
-    Right _ -> assertFailure "expected a type constructor kind scheme exception"
 
 rejectsWrongCaseBinderType :: TestTree
 rejectsWrongCaseBinderType = testCase "rejects a wrong case binder type" $ do
@@ -171,15 +160,10 @@ corruptClassKindTest = testCase "desugaring rejects a corrupt checked class kind
   case resolved of
     ResolveResult {resolvedModules, resolveErrors = []} -> do
       let (checkedModules, interface) = typecheckModulesWithInterface testTcConfig emptyTcInterface (map snd resolvedModules)
-          corruptPredicate predicate =
-            case predicate of
-              ClassPred classTyCon arguments ->
-                ClassPred
-                  (setTyConKindScheme (ForAll [] [] (TcBuiltinTyCon "Type" 0 [])) classTyCon)
-                  arguments
-              EqPred {} -> predicate
-          corruptScheme (ForAll tyVars predicates body) = ForAll tyVars (map corruptPredicate predicates) body
-          corruptInterface = interface {tcInterfaceTerms = map (fmap corruptScheme) (tcInterfaceTerms interface)}
+          corrupt info
+            | tciName info == "C" = info {tciKindScheme = ForAll [] [] KType}
+            | otherwise = info
+          corruptInterface = interface {tcInterfaceTyCons = map corrupt (tcInterfaceTyCons interface)}
       case reverse checkedModules of
         checked : _ -> do
           let result = desugarModuleWithInterface (DesugarConfig (PackageId "aihc-prim")) (concatMap tcModuleBindings checkedModules) corruptInterface checked
@@ -207,6 +191,7 @@ typeApplicationProgram :: TcType -> FcProgram
 typeApplicationProgram argumentType =
   FcProgram
     testModule
+    mempty
     [ FcExternal origin polymorphicType,
       FcTopBind (FcNonRec result (FcTyApp (FcVar imported) argumentType))
     ]
