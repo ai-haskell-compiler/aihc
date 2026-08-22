@@ -692,6 +692,7 @@ bindOrigins bind = binderOrigins (bindBinder bind) <> exprOrigins (bindRhs bind)
 altOrigins :: Alt -> [(PackageId, Text)]
 altOrigins alternative =
   altConOrigins (altCon alternative)
+    <> concatMap binderOrigins (altTypeBinders alternative)
     <> concatMap binderOrigins (altBinders alternative)
     <> exprOrigins (altRhs alternative)
 

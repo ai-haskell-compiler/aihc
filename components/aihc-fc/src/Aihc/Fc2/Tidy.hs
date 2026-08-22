@@ -117,36 +117,14 @@ tidyRecBind env binder bind =
 
 tidyAlt :: TidyEnv -> Alt -> Alt
 tidyAlt env alternative =
-  let implicitEnv = tidyImplicitTypeNames env (map binderType (altBinders alternative))
-      (binders, rhsEnv) = tidyBinders implicitEnv (altBinders alternative)
+  let (typeBinders, typeEnv) = tidyBinders env (altTypeBinders alternative)
+      (binders, rhsEnv) = tidyBinders typeEnv (altBinders alternative)
    in alternative
         { altCon = tidyAltCon env (altCon alternative),
+          altTypeBinders = typeBinders,
           altBinders = binders,
           altRhs = tidyExpr rhsEnv (altRhs alternative)
         }
-
-tidyImplicitTypeNames :: TidyEnv -> [Type] -> TidyEnv
-tidyImplicitTypeNames = foldl bindImplicitTypeName
-  where
-    bindImplicitTypeName env ty = foldl bindNameIfFree env (freeLocalTypeNames ty)
-    bindNameIfFree env name
-      | Map.member name (tidyNames env) = env
-      | otherwise = bindName env name (tidyBinderName env name)
-
-freeLocalTypeNames :: Type -> [Name]
-freeLocalTypeNames ty =
-  case ty of
-    TyVar name ->
-      case nameOrigin name of
-        OriginLocal {} -> [name]
-        OriginTop {} -> []
-    TyCon {} -> []
-    TyApp function argument -> freeLocalTypeNames function <> freeLocalTypeNames argument
-    TyFun r1 r2 argument result -> concatMap freeLocalTypeNames [r1, r2, argument, result]
-    TyForAll binder body ->
-      freeLocalTypeNames (binderType binder)
-        <> filter (/= binderName binder) (freeLocalTypeNames body)
-    TyEq left right -> freeLocalTypeNames left <> freeLocalTypeNames right
 
 tidyAltCon :: TidyEnv -> AltCon -> AltCon
 tidyAltCon env alternative =
