@@ -11,23 +11,6 @@ synopsis: System FC core language with desugaring and lint
 
 library
   exposed-modules:
-    Aihc.Fc
-    Aihc.Fc.Axiom
-    Aihc.Fc.DeadCode
-    Aihc.Fc.Desugar
-    Aihc.Fc.Desugar.Expr
-    Aihc.Fc.Desugar.Match
-    Aihc.Fc.Eval
-    Aihc.Fc.Lint
-    Aihc.Fc.Lower
-    Aihc.Fc.Main
-    Aihc.Fc.Merge
-    Aihc.Fc.Newtype
-    Aihc.Fc.Optimize
-    Aihc.Fc.Parser
-    Aihc.Fc.Pretty
-    Aihc.Fc.Subst
-    Aihc.Fc.Syntax
     Aihc.Fc2
     Aihc.Fc2.Convert
     Aihc.Fc2.Desugar
@@ -41,11 +24,6 @@ library
     Aihc.Fc2.Wired
 
   other-modules:
-    Aihc.Fc.Desugar.Deriving
-    Aihc.Fc.Desugar.Deriving.AnyClass
-    Aihc.Fc.Desugar.Deriving.StockEq
-    Aihc.Fc.Desugar.Dictionary
-    Aihc.Fc.External
     Aihc.Fc2.Desugar.Value
 
   hs-source-dirs: src
@@ -77,10 +55,7 @@ test-suite spec
 
   main-is: Spec.hs
   other-modules:
-    Aihc.Testing.EvalFixture
     Fc2Golden
-    FcGolden
-    Test.Fc.Suite
     Test.Fc2.Properties
     Test.Fc2.Suite
 

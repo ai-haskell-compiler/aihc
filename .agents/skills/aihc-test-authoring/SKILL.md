@@ -33,8 +33,8 @@ Prefer a single focused fixture over a large scenario unless the behavior only a
 - `aihc-parser`: read `references/aihc-parser.md` for parser golden, equivalent, lexer golden, error-message, oracle, unit, performance, and property tests.
 - `aihc-resolve`: read `references/aihc-resolve.md` for resolver golden fixtures and unit tests.
 - `aihc-tc`: read `references/aihc-tc.md` for type-checker annotated golden fixtures, unit tests, and properties.
-- `aihc-fc`: read `references/aihc-fc.md` for FC golden fixtures, eval fixtures, and unit tests.
-- `aihc-grin`: read `references/aihc-grin.md` for shared pipeline evaluation fixtures and GRIN structural/interpreter tests.
+- `aihc-fc`: read `references/aihc-fc.md` for FC2 golden, lint, text, and property tests.
+- `aihc-grin`: read `references/aihc-grin.md` for the active GRIN property test.
 - Shared commands and status semantics: read `references/validation.md`.
 
 ## Ground Rules
