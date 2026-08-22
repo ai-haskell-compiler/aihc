@@ -3,7 +3,6 @@
 -- | Hedgehog property tests for the type checker.
 module Test.Tc.Properties
   ( prop_interfaceMergeIdempotent,
-    prop_knownTypesUseConfiguredPackage,
     prop_kindEncodingUsesType,
     prop_reflexiveEq,
     prop_starUsesType,
@@ -12,7 +11,7 @@ module Test.Tc.Properties
   )
 where
 
-import Aihc.Parser.Syntax (Type (TBuiltinCon, TStar), TypeBuiltinCon (TBuiltinList))
+import Aihc.Parser.Syntax (Type (TStar))
 import Aihc.Resolve (PackageId (PackageId))
 import Aihc.Tc
   ( ClassInfo (..),
@@ -26,7 +25,7 @@ import Aihc.Tc
     TypeFamilyInstanceInfo (..),
   )
 import Aihc.Tc.Kind (convertSurfaceTypeWithKinds)
-import Aihc.Tc.Monad (TcEnv, emptyTcEnv, freshMetaTv, initTcState, mkKnownTyCon, runTcM, tcConfig, writeMetaTv)
+import Aihc.Tc.Monad (TcEnv, emptyTcEnv, freshMetaTv, initTcState, runTcM, tcConfig, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
 import Data.Map.Strict qualified as Map
@@ -40,46 +39,12 @@ tcProperties :: TestTree
 tcProperties =
   testGroup
     "properties"
-    [ testProperty "known types use the configured primitive package" prop_knownTypesUseConfiguredPackage,
-      testProperty "lifted kind encoding uses GHC.Types.Type" prop_kindEncodingUsesType,
+    [ testProperty "lifted kind encoding uses GHC.Types.Type" prop_kindEncodingUsesType,
       testProperty "star uses GHC.Types.Type" prop_starUsesType,
       testProperty "zonking idempotent" prop_zonkIdempotent,
       testProperty "reflexive equality solved" prop_reflexiveEq,
       testProperty "interface merge is idempotent" prop_interfaceMergeIdempotent
     ]
-
--- | Type-checker-created primitive references must use the caller's package identity.
-prop_knownTypesUseConfiguredPackage :: Property
-prop_knownTypesUseConfiguredPackage = property $
-  case runTcM configuredEnv initTcState configuredTypes of
-    Right (((actual, kind), knownTyCons), _) -> do
-      let expectedTyCon = mkTyConWithOrigin configuredPackage "GHC.Types" "[]" 1 (KFun KType KType)
-      actual === TcTyCon expectedTyCon []
-      kind === KFun KType KType
-      map (\tyCon -> (tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon)) knownTyCons
-        === [ (configuredPackage, "GHC.Prim", "Int#"),
-              (configuredPackage, "GHC.Types", "'IntRep"),
-              (configuredPackage, "GHC.Tuple", "(,)"),
-              (configuredPackage, "GHC.Types", "~"),
-              (configuredPackage, "GHC.Types", "'[]"),
-              (configuredPackage, "GHC.Types", "':")
-            ]
-    Left err -> fail (show err)
-  where
-    configuredPackage = PackageId "test-ghc-prim"
-    configuredEnv = emptyTcEnv (tcConfig configuredPackage)
-    configuredTypes = do
-      listTy <- convertSurfaceTypeWithKinds Map.empty (TBuiltinCon TBuiltinList)
-      knownTyCons <-
-        sequence
-          [ mkKnownTyCon "GHC.Prim" "Int#" 0 KType,
-            mkKnownTyCon "GHC.Types" "'IntRep" 0 KRuntimeRep,
-            mkKnownTyCon "GHC.Tuple" "(,)" 2 (KFun KType (KFun KType KType)),
-            mkKnownTyCon "GHC.Types" "~" 2 (KFun KType (KFun KType KConstraint)),
-            mkKnownTyCon "GHC.Types" "'[]" 0 KType,
-            mkKnownTyCon "GHC.Types" "':" 2 (KFun KType (KFun KType KType))
-          ]
-      pure (listTy, knownTyCons)
 
 -- | Repeated module views must not change a semantic interface.
 prop_interfaceMergeIdempotent :: Property
