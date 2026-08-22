@@ -351,7 +351,7 @@ inferTypeVariable tvEnv name =
   let n = unqualifiedNameText name
    in case Map.lookup n tvEnv of
         Just (tv, kind) -> pure (TcTyVar tv, kind)
-        Nothing -> inferOpenTypeConstructor n
+        Nothing -> inferUnknownType
 
 inferTypeConstructor :: TypePromotion -> Name -> TcM (TcType, Kind)
 inferTypeConstructor promoted name =
@@ -399,7 +399,7 @@ inferBuiltinOrOpenTypeConstructor :: Text -> TcM (TcType, Kind)
 inferBuiltinOrOpenTypeConstructor name =
   case wiredInTypeKind name of
     Just kind -> knownType (knownTypeModule name) name kind
-    Nothing -> inferOpenTypeConstructor name
+    Nothing -> inferUnknownType
 
 knownType :: Text -> Text -> Kind -> TcM (TcType, Kind)
 knownType moduleName name = knownTypeWithArity moduleName name 0
@@ -419,10 +419,10 @@ inferPromotedTypeConstructor :: Text -> TcM (TcType, Kind)
 inferPromotedTypeConstructor name =
   case knownPromotedType name of
     Just (arity, kind) -> knownTypeWithArity "GHC.Types" ("'" <> name) arity kind
-    Nothing -> inferOpenTypeConstructor ("'" <> name)
+    Nothing -> inferUnknownType
 
-inferOpenTypeConstructor :: Text -> TcM (TcType, Kind)
-inferOpenTypeConstructor _name = do
+inferUnknownType :: TcM (TcType, Kind)
+inferUnknownType = do
   kind <- freshKindMeta
   ty <- freshMetaTvOfKind kind
   pure (ty, kind)
