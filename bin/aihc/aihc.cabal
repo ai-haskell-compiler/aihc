@@ -9,6 +9,8 @@ maintainer: lemmih@gmail.com
 category: Development
 synopsis: Production command-line interface for the aihc compiler
 extra-source-files:
+  test/Test/Fixtures/install-v2/keep-grin/demo.cabal
+  test/Test/Fixtures/install-v2/keep-grin/src/Demo.hs
   test/Test/Fixtures/install-v2/resolve-error/demo.cabal
   test/Test/Fixtures/install-v2/resolve-error/expected.txt
   test/Test/Fixtures/install-v2/resolve-error/src/Demo.hs

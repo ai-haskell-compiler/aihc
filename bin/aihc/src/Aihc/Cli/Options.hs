@@ -73,7 +73,8 @@ data InstallOptions = InstallOptions
 data InstallV2Options = InstallV2Options
   { installV2PackageDirectory :: !FilePath,
     installV2StoreRoot :: !(Maybe FilePath),
-    installV2Verbose :: !Bool
+    installV2Verbose :: !Bool,
+    installV2KeepGrin :: !Bool
   }
   deriving (Eq, Show)
 
@@ -307,6 +308,10 @@ installV2OptionsParser =
       ( OA.long "verbose"
           <> OA.short 'v'
           <> OA.help "Print each installation step"
+      )
+    <*> OA.switch
+      ( OA.long "keep-grin"
+          <> OA.help "Keep the generated GRIN next to each Core-v2 file"
       )
 
 errorFormatParser :: OA.Parser InstallErrorFormat
