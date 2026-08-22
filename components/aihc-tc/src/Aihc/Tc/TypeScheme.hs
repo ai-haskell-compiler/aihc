@@ -15,7 +15,7 @@ import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseSig
 import Aihc.Parser.Syntax (Extension (ExplicitForAll, KindSignatures, MagicHash, UnboxedTuples))
 import Aihc.Tc.Error (TcDiagnostic (..), TcSeverity (TcError))
 import Aihc.Tc.Kind (sigToScheme)
-import Aihc.Tc.Monad (emptyTcEnv, initTcState, runTcM, tcAbortMessage, tcsDiagnostics)
+import Aihc.Tc.Monad (TcConfig, emptyTcEnv, initTcState, runTcM, tcAbortMessage, tcsDiagnostics)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultTypeSchemeKinds)
 import Data.Map.Strict (Map)
@@ -23,12 +23,12 @@ import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 
 -- | Parse and kind-check a standalone type scheme.
-parseTypeScheme :: Text -> Either String TypeScheme
-parseTypeScheme source =
+parseTypeScheme :: TcConfig -> Text -> Either String TypeScheme
+parseTypeScheme config source =
   case parseSignatureType parserConfig source of
     ParseErr errors -> Left (show errors)
     ParseOk surfaceType ->
-      case runTcM emptyTcEnv initTcState $ sigToScheme surfaceType >>= defaultTypeSchemeKinds of
+      case runTcM (emptyTcEnv config) initTcState $ sigToScheme surfaceType >>= defaultTypeSchemeKinds of
         Left abort -> Left (tcAbortMessage abort)
         Right (scheme, state) ->
           case [diagnostic | diagnostic <- tcsDiagnostics state, diagSeverity diagnostic == TcError] of

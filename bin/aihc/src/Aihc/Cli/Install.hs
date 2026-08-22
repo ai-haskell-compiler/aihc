@@ -99,7 +99,7 @@ import Aihc.Tc
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
-    typecheckModulesWithInterfaceConfig,
+    typecheckModulesWithInterface,
   )
 import Control.Applicative ((<|>))
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newEmptyMVar, newMVar, putMVar, readMVar)
@@ -1351,7 +1351,7 @@ typecheckInterfaceModules primPackageId importedTcInterface modules = do
     go current = do
       mapM_ (writeIORef current . Just) sortedModules
       let (checkedModules, tcInterface) =
-            typecheckModulesWithInterfaceConfig (tcConfig primPackageId) importedTcInterface sortedModules
+            typecheckModulesWithInterface (tcConfig primPackageId) importedTcInterface sortedModules
           tcModules = zipWith tcModuleValue sortedModules checkedModules
       _ <- evaluate (forceJsonValue (Aeson.toJSON tcModules))
       length (show tcInterface) `seq`

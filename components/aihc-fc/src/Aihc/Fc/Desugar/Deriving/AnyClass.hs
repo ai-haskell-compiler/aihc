@@ -11,7 +11,7 @@ import Aihc.Fc.Desugar.Expr (ClassDict (..), DsM, desugarBug, dsEvidence, freshU
 import Aihc.Fc.Syntax
 import Aihc.Resolve (packageIdText)
 import Aihc.Tc.Annotations (TcClassMethodAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDictBinderAnnotation (..))
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), tyConModuleName, tyConPackageId)
+import Aihc.Tc.Types (Pred (..), TcType (..), tyConModuleName, tyConPackageId)
 import Control.Monad (when, zipWithM)
 import Data.Text qualified as T
 
@@ -122,7 +122,7 @@ mkPredicateDict index predicate = do
   pure $
     case predicate of
       ClassPred className arguments -> ClassDict className arguments dictVar
-      EqPred {} -> ClassDict (TyCon "<equality>" 0) [] dictVar
+      EqPred {} -> ClassDict (legacyTyCon "<equality>" 0) [] dictVar
 
 qualifyType :: [Pred] -> TcType -> TcType
 qualifyType [] body = body

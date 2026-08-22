@@ -64,7 +64,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve (ModuleKey (..), Package (..), PackageId (..), ResolveResult (..), Scope (..), resolveWithDeps)
-import Aihc.Tc (tcConfig, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterfaceConfig)
+import Aihc.Tc (tcConfig, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
 import Control.Monad (forM_, when)
@@ -237,7 +237,7 @@ compileWithDependencies target wholeProgram dependencies parsed = do
     ResolveResult {resolvedModules} ->
       let moduleAsts = map snd resolvedModules
           (checkedModules, tcInterface) =
-            typecheckModulesWithInterfaceConfig
+            typecheckModulesWithInterface
               (tcConfig primPackageId)
               (dependencyTcInterface dependencies)
               moduleAsts

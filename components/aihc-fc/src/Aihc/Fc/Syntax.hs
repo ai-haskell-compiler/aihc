@@ -48,6 +48,8 @@ module Aihc.Fc.Syntax
     fcForeignCallResultType,
     fcForeignCallType,
     fcDictionaryConstructorName,
+    legacyTyCon,
+    legacyTyConWithKind,
 
     -- * Case alternatives
     FcAlt (..),
@@ -69,7 +71,6 @@ import Aihc.Tc.Types
     TyVarId (..),
     Unique (..),
     liftedRuntimeRep,
-    mkTyCon,
     mkTyConWithOrigin,
     runtimeRepOfType,
     setTyVarKind,
@@ -83,6 +84,16 @@ import Data.Either (fromRight)
 import Data.List (nub)
 import Data.Text (Text)
 import Data.Text qualified as T
+
+-- | Make a type constructor for the FC1 compatibility path.
+legacyTyCon :: Text -> Int -> TyCon
+legacyTyCon name arity =
+  legacyTyConWithKind name arity (foldr KFun KType (replicate arity KType))
+
+-- | Make a type constructor with a kind for the FC1 compatibility path.
+legacyTyConWithKind :: Text -> Int -> Kind -> TyCon
+legacyTyConWithKind =
+  mkTyConWithOrigin (PackageId "aihc-internal") "Aihc.Internal"
 
 -- | The required identity of one System FC module container.
 data FcModuleId = FcModuleId
@@ -150,7 +161,7 @@ fcDataTyCon declaration =
         (length (fcDataTyVars declaration))
         kind
     FcBuiltinOrigin {} ->
-      mkTyCon
+      legacyTyConWithKind
         (fcDataName declaration)
         (length (fcDataTyVars declaration))
         kind
@@ -260,7 +271,7 @@ fcForeignCallResultType signature =
           fieldRep field = fromRight liftedRuntimeRep (runtimeRepOfType field)
           resultKind = KTYPE (TupleRep (map fieldRep fields))
           tupleKind = foldr (KFun . typeKind) resultKind fields
-       in TcTyCon (mkTyCon (unboxedTupleTyConName 2) 2 tupleKind) fields
+       in TcTyCon (legacyTyConWithKind (unboxedTupleTyConName 2) 2 tupleKind) fields
 
 fcForeignCallType :: FcForeignSignature -> TcType
 fcForeignCallType signature =
@@ -269,14 +280,14 @@ fcForeignCallType signature =
 foreignPrimitiveType :: FcForeignType -> TcType
 foreignPrimitiveType foreignType =
   case foreignType of
-    FcForeignInt -> TcTyCon (TyCon "Int#" 0) []
-    FcForeignInt32 -> TcTyCon (TyCon "Int32#" 0) []
-    FcForeignWord64 -> TcTyCon (TyCon "Word64#" 0) []
-    FcForeignAddr -> TcTyCon (TyCon "Addr#" 0) []
+    FcForeignInt -> TcTyCon (legacyTyCon "Int#" 0) []
+    FcForeignInt32 -> TcTyCon (legacyTyCon "Int32#" 0) []
+    FcForeignWord64 -> TcTyCon (legacyTyCon "Word64#" 0) []
+    FcForeignAddr -> TcTyCon (legacyTyCon "Addr#" 0) []
 
 statePrimRealWorldType :: TcType
 statePrimRealWorldType =
-  TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
+  TcTyCon (legacyTyCon "State#" 1) [TcTyCon (legacyTyCon "RealWorld" 0) []]
 
 fcDictionaryConstructorName :: Text -> Text
 fcDictionaryConstructorName className = "$Dict$" <> className

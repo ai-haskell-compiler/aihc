@@ -12,7 +12,6 @@ import Aihc.Fc.Syntax
 import Aihc.Grin
 import Aihc.Tc (Kind (..), Levity (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), runtimeRepOfType, typeKind)
 import Aihc.Tc.Evidence (Coercion (..))
-import Aihc.Tc.Types (mkTyCon)
 import Aihc.Testing.EvalFixture qualified as EvalGolden
 import Control.Monad (forM_)
 import Data.List (isInfixOf)
@@ -620,7 +619,7 @@ grinUnitTests =
         result <- interpretProgramBinding "answer" program
         assertEqual "selected field is evaluated" (Right "Box 2") result,
       testCase "FC lowering keeps local nullary constructors out of external globals" $ do
-        let localTy = TcTyCon (TyCon "Local" 0) []
+        let localTy = TcTyCon (legacyTyCon "Local" 0) []
             localConstructor = Var "Local" (Unique 60) localTy
             boxConstructor = Var "Box" (Unique 61) (TcFunTy localTy boxedIntTy)
             answer = Var "answer" (Unique 62) boxedIntTy
@@ -932,7 +931,7 @@ prepareEvalProgram name program@(FcProgram _ topBinds) =
         else do
           let componentCount = length (runtimeRepComponents runtimeRep)
               constructorName = evalResultConstructor componentCount
-              wrapperType = TcTyCon (TyCon "__AihcEvalResultType" 0) []
+              wrapperType = TcTyCon (legacyTyCon "__AihcEvalResultType" 0) []
               constructorVar = Var constructorName (Unique (-1000000)) (TcFunTy (varType var) wrapperType)
               wrappedVar = var {varType = wrapperType}
               declaration = fcData "__AihcEvalResultType" [] [(constructorName, [varType var])]
@@ -1090,7 +1089,7 @@ hiddenLambdaProgram aliasRhs =
   where
     binaryFunctionTy = TcFunTy boxedIntTy (TcFunTy boxedIntTy boxedIntTy)
     unaryFunctionTy = TcFunTy boxedIntTy boxedIntTy
-    holderTy = TcTyCon (TyCon "Holder" 0) []
+    holderTy = TcTyCon (legacyTyCon "Holder" 0) []
     dictionaryVar = Var "dictionary" (Unique 170) holderTy
     holderVar = Var "Holder" (Unique 171) (TcFunTy binaryFunctionTy holderTy)
     firstVar = Var "first" (Unique 172) boxedIntTy
@@ -1146,7 +1145,7 @@ sharedForcedLetProgram =
     ]
   where
     unaryFunctionTy = TcFunTy boxedIntTy boxedIntTy
-    pairTy = TcTyCon (TyCon "FunctionPair" 0) []
+    pairTy = TcTyCon (legacyTyCon "FunctionPair" 0) []
     ownerVar = Var "forceShared" (Unique 185) (TcFunTy boxedIntTy pairTy)
     inputVar = Var "input" (Unique 186) boxedIntTy
     delayedVar = Var "delayed" (Unique 187) unaryFunctionTy
@@ -1281,7 +1280,7 @@ arrayPrimitiveProgram =
         )
     ]
   where
-    arrayTy = TcTyCon (TyCon "Array#" 1) [boxedIntTy]
+    arrayTy = TcTyCon (legacyTyCon "Array#" 1) [boxedIntTy]
     newArrayVar = Var "newArray#" (Unique 220) (TcFunTy intTy (TcFunTy boxedIntTy arrayTy))
     addVar = Var "+#" (Unique 221) (TcFunTy intTy (TcFunTy intTy intTy))
     allocateVar = Var "allocate" (Unique 222) (TcFunTy intTy (TcFunTy boxedIntTy arrayTy))
@@ -1300,7 +1299,7 @@ mutVarPrimitiveProgram =
         )
     ]
   where
-    mutVarTy = TcTyCon (TyCon "MutVar#" 2) [boxedIntTy, boxedIntTy]
+    mutVarTy = TcTyCon (legacyTyCon "MutVar#" 2) [boxedIntTy, boxedIntTy]
     newMutVarVar = Var "newMutVar#" (Unique 225) (TcFunTy boxedIntTy mutVarTy)
     allocateVar = Var "allocateMutVar" (Unique 226) (TcFunTy boxedIntTy mutVarTy)
     initialVar = Var "initial" (Unique 227) boxedIntTy
@@ -1334,8 +1333,8 @@ unsafeCoerceProgram =
       FcTopBind (FcNonRec coerceAliasVar (FcVar unsafeCoerceVar))
     ]
   where
-    sourceTy = TcTyCon (TyCon "Source" 0) []
-    targetTy = TcTyCon (TyCon "Target" 0) []
+    sourceTy = TcTyCon (legacyTyCon "Source" 0) []
+    targetTy = TcTyCon (legacyTyCon "Target" 0) []
     coerceTy = TcFunTy sourceTy targetTy
     unsafeCoerceVar = Var "unsafeCoerce#" (Unique 133) coerceTy
     coerceVar = Var "coerce" (Unique 134) coerceTy
@@ -1358,7 +1357,7 @@ zeroWidthSaturatedApplicationProgram =
         )
     ]
   where
-    stateTy = TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
+    stateTy = TcTyCon (legacyTyCon "State#" 1) [TcTyCon (legacyTyCon "RealWorld" 0) []]
     targetVar = Var "zeroWidthTarget" (Unique 32) (TcFunTy boxedIntTy (TcFunTy stateTy boxedIntTy))
     callerVar = Var "zeroWidthCaller" (Unique 33) (TcFunTy boxedIntTy (TcFunTy stateTy boxedIntTy))
     targetValueVar = Var "targetValue" (Unique 34) boxedIntTy
@@ -1376,7 +1375,7 @@ zeroWidthUnknownApplicationProgram =
         )
     ]
   where
-    stateTy = TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
+    stateTy = TcTyCon (legacyTyCon "State#" 1) [TcTyCon (legacyTyCon "RealWorld" 0) []]
     actionTy = TcFunTy stateTy boxedIntTy
     callerVar = Var "applyZeroWidth" (Unique 37) (TcFunTy actionTy actionTy)
     actionVar = Var "action" (Unique 38) actionTy
@@ -1394,8 +1393,8 @@ zeroWidthConstructorProgram =
         )
     ]
   where
-    stateTy = TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
-    resultTy = TcTyCon (TyCon "StateBox" 0) []
+    stateTy = TcTyCon (legacyTyCon "State#" 1) [TcTyCon (legacyTyCon "RealWorld" 0) []]
+    resultTy = TcTyCon (legacyTyCon "StateBox" 0) []
     constructorVar = Var "StateBox" (Unique 40) (TcFunTy stateTy (TcFunTy boxedIntTy resultTy))
     partialVar = Var "partialStateBox" (Unique 41) (TcFunTy stateTy (TcFunTy boxedIntTy resultTy))
     stateVar = Var "state" (Unique 42) stateTy
@@ -1458,7 +1457,7 @@ knownFunctionWrapperProgram isEtaExpansion =
   where
     unaryFunctionTy = TcFunTy boxedIntTy boxedIntTy
     pureIoTy = TcFunTy boxedIntTy unaryFunctionTy
-    dictionaryTy = TcTyCon (TyCon "Applicative" 0) []
+    dictionaryTy = TcTyCon (legacyTyCon "Applicative" 0) []
     pureIoVar = Var "pureIO" (Unique 140) pureIoTy
     pureValueVar = Var "value" (Unique 141) boxedIntTy
     stateVar = Var "state" (Unique 142) boxedIntTy
@@ -1486,7 +1485,7 @@ dictionaryProgram =
         )
     ]
   where
-    dictionaryTy = TcTyCon (TyCon "Test" 0) []
+    dictionaryTy = TcTyCon (legacyTyCon "Test" 0) []
     answerVar = Var "answer" (Unique 40) boxedIntTy
     boxConstructorVar = Var "Box" (Unique 41) (TcFunTy intTy boxedIntTy)
     dictionaryConstructorVar = Var "$Dict$Test" (Unique 42) (TcFunTy boxedIntTy (TcFunTy boxedIntTy dictionaryTy))
@@ -1537,8 +1536,8 @@ partialCatchProgram =
     catchVar = Var "catch#" (Unique 8) (TcFunTy actionTy (TcFunTy handlerTy (TcFunTy stateTy resultTy)))
     wrapCatchVar = Var "wrapCatch" (Unique 9) (TcFunTy actionTy (TcFunTy handlerTy (TcFunTy stateTy resultTy)))
     actionVar = Var "action" (Unique 10) actionTy
-    stateTy = TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
-    resultTy = TcTyCon (TyCon "(#,#)" 2) [stateTy, boxedIntTy]
+    stateTy = TcTyCon (legacyTyCon "State#" 1) [TcTyCon (legacyTyCon "RealWorld" 0) []]
+    resultTy = TcTyCon (legacyTyCon "(#,#)" 2) [stateTy, boxedIntTy]
     actionTy = TcFunTy stateTy resultTy
     handlerTy = TcFunTy boxedIntTy actionTy
 
@@ -1562,8 +1561,8 @@ exitPrimitiveProgram =
         )
     ]
   where
-    stateTy = TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
-    resultTy = TcTyCon (TyCon "(#,#)" 2) [stateTy, intTy]
+    stateTy = TcTyCon (legacyTyCon "State#" 1) [TcTyCon (legacyTyCon "RealWorld" 0) []]
+    resultTy = TcTyCon (legacyTyCon "(#,#)" 2) [stateTy, intTy]
     exitVar = Var "aihcExit#" (Unique 11) (TcFunTy intTy (TcFunTy stateTy resultTy))
     processExitVar = Var "processExit" (Unique 12) (TcFunTy stateTy intTy)
     stateVar = Var "state" (Unique 13) stateTy
@@ -2307,10 +2306,10 @@ unliftedThunkFunction :: FunctionName
 unliftedThunkFunction = FunctionName "unlifted_thunk"
 
 intTy :: TcType
-intTy = TcTyCon (TyCon "Int#" 0) []
+intTy = TcTyCon (legacyTyCon "Int#" 0) []
 
 boxedIntTy :: TcType
-boxedIntTy = TcTyCon (TyCon "Int" 0) []
+boxedIntTy = TcTyCon (legacyTyCon "Int" 0) []
 
 foreignProgram :: FcProgram
 foreignProgram =
@@ -2354,7 +2353,7 @@ foreignBoxConstructorVar :: Var
 foreignBoxConstructorVar = Var "BoxedInt32" (Unique 51) (TcFunTy int32Ty boxedIntTy)
 
 int32Ty :: TcType
-int32Ty = TcTyCon (TyCon "Int32#" 0) []
+int32Ty = TcTyCon (legacyTyCon "Int32#" 0) []
 
 saturatedConstructorProgram :: FcProgram
 saturatedConstructorProgram =
@@ -2407,19 +2406,19 @@ tailStoredTupleConstructorVar =
   Var "(#,#)" (Unique 84) (TcFunTy tailStoredStateTy (TcFunTy tailStoredBoxTy tailStoredTupleTy))
 
 tailStoredStateTy :: TcType
-tailStoredStateTy = TcTyCon (TyCon "State#" 1) [TcTyCon (TyCon "RealWorld" 0) []]
+tailStoredStateTy = TcTyCon (legacyTyCon "State#" 1) [TcTyCon (legacyTyCon "RealWorld" 0) []]
 
 tailStoredBoxTy :: TcType
-tailStoredBoxTy = TcTyCon (TyCon "Box" 0) []
+tailStoredBoxTy = TcTyCon (legacyTyCon "Box" 0) []
 
 tailStoredTupleTy :: TcType
 tailStoredTupleTy = TcTyCon tupleTyCon fields
   where
     fields = [tailStoredStateTy, tailStoredBoxTy]
-    tupleTyCon = mkTyCon "Tuple2#" 2 (foldr (KFun . typeKind) (KTYPE (TupleRep [TupleRep [], BoxedRep Lifted])) fields)
+    tupleTyCon = legacyTyConWithKind "Tuple2#" 2 (foldr (KFun . typeKind) (KTYPE (TupleRep [TupleRep [], BoxedRep Lifted])) fields)
 
 boxedInt32Ty :: TcType
-boxedInt32Ty = TcTyCon (TyCon "Int32" 0) []
+boxedInt32Ty = TcTyCon (legacyTyCon "Int32" 0) []
 
 int32ArgumentVar :: Var
 int32ArgumentVar = Var "value" (Unique 62) int32Ty
@@ -2509,7 +2508,7 @@ separateBuiltinUnitPrograms =
   where
     unitConstructor = FcConstructorId "aihc-prim" "GHC.Tuple" "()"
     unitOrigin = fcConstructorSymbolOrigin unitConstructor
-    unitTy = TcTyCon (TyCon "Unit" 0) []
+    unitTy = TcTyCon (legacyTyCon "Unit" 0) []
     importedUnitVar = (Var "()" (Unique 130) unitTy) {varResolvedName = Just unitOrigin}
     answerVar = Var "answer" (Unique 131) unitTy
 
@@ -2529,7 +2528,7 @@ separateNewtypePrograms =
           fcNewtypeRepresentation = intTy,
           fcNewtypeResult = wrapperTy
         }
-    wrapperTy = TcTyCon (TyCon "Wrapper" 0) []
+    wrapperTy = TcTyCon (legacyTyCon "Wrapper" 0) []
     constructorVar = Var "Wrap" (Unique 40) (TcFunTy intTy wrapperTy)
     answerVar = Var "answer" (Unique 41) (TcFunTy boxedIntTy wrapperTy)
     argumentVar = Var "argument" (Unique 42) boxedIntTy

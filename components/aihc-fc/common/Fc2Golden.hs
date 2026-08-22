@@ -28,6 +28,7 @@ import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult 
 import Aihc.Tc
   ( TcInterface,
     emptyTcInterface,
+    tcConfig,
     tcModuleBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
@@ -192,7 +193,7 @@ renderFc2Case tc =
           case resolveWithDeps (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               let fixtureAsts = map snd resolvedModules
-                  (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (supportTcInterface primitiveSupport) fixtureAsts
+                  (fixtureTcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (primPackageId desugarConfig)) (supportTcInterface primitiveSupport) fixtureAsts
                in if all tcModuleSuccess fixtureTcResults
                     then
                       let fixtureBindings = concatMap tcModuleBindings fixtureTcResults
@@ -241,7 +242,7 @@ preparePrimitiveSupport primitiveModules =
       case resolveWithDeps mempty (modulesInPackage primitivePackage modules) of
         resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
           let primitiveAsts = map snd resolvedModules
-              (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface emptyTcInterface primitiveAsts
+              (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface (tcConfig (primPackageId desugarConfig)) emptyTcInterface primitiveAsts
            in if all tcModuleSuccess primitiveTcResults
                 then
                   let primitiveBindings = concatMap tcModuleBindings primitiveTcResults

@@ -51,7 +51,7 @@ import Aihc.Parser.Syntax
     unqualifiedNameText,
   )
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..), packageIdText)
-import Aihc.Tc (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TcTermKey (..), TyConFlavor (..), TyConInfo (..), renderTcSignature, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
+import Aihc.Tc (DataConFieldInfo (..), DataConInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), TcBindingResult (..), TcInterface (..), TcTermKey (..), TyConFlavor (..), TyConInfo (..), renderTcSignature, tcConfig, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess)
 import Aihc.Tc.Annotations (TcAnnotation (..), TcClassAnnotation (..), TcClassMethodAnnotation (..), TcDictBinderAnnotation (..), TcForeignAbiType (..), TcForeignEffect (..), TcForeignImportAnnotation (..), TcForeignMarshal (..), TcInstanceAnnotation (..), TcInstanceMethodAnnotation (..))
 import Aihc.Tc.Evidence (Coercion (..))
 import Aihc.Tc.TypeScheme (equivalentTypeSchemes, parseTypeScheme, typeSchemeArity, typeSchemeFromType)
@@ -65,7 +65,6 @@ import Aihc.Tc.Types
     TypeScheme (..),
     Unique (..),
     liftedRuntimeRep,
-    mkTyCon,
     runtimeRepOfType,
     setTyConKindScheme,
     tvKind,
@@ -1028,7 +1027,7 @@ seqPrimitive =
 
 parsePrimitiveTypeScheme :: Text -> TypeScheme
 parsePrimitiveTypeScheme source =
-  case parseTypeScheme source of
+  case parseTypeScheme (tcConfig (PackageId "aihc-internal")) source of
     Right scheme -> scheme
     Left err -> invalidPrimitiveType err
   where
@@ -1036,15 +1035,15 @@ parsePrimitiveTypeScheme source =
       error ("invalid primitive type specification `" <> T.unpack source <> "`: " <> err)
 
 statePrimRealWorldTy :: TcType
-statePrimRealWorldTy = TcTyCon (TyCon "State#" 1) [realWorldTy]
+statePrimRealWorldTy = TcTyCon (legacyTyCon "State#" 1) [realWorldTy]
 
 realWorldTy :: TcType
-realWorldTy = TcTyCon (TyCon "RealWorld" 0) []
+realWorldTy = TcTyCon (legacyTyCon "RealWorld" 0) []
 
 unboxedTupleTy :: [TcType] -> TcType
 unboxedTupleTy tys =
   TcTyCon
-    (mkTyCon (unboxedTupleTyConName (length tys)) (length tys) tupleKind)
+    (legacyTyConWithKind (unboxedTupleTyConName (length tys)) (length tys) tupleKind)
     tys
   where
     tupleKind = foldr (KFun . typeKind) (KTYPE (TupleRep (map runtimeRep tys))) tys

@@ -34,11 +34,13 @@ import Aihc.Tc
   ( ClassInfo (ciName),
     DataFamilyInstanceInfo (dfiiAxiomName),
     InstanceInfo (iiDictName),
+    TcConfig,
     TcInterface (..),
     TyConInfo (tciTyCon),
     TypeFamilyInstanceInfo (tfiiAxiomName),
     dataTypeKey,
     emptyTcInterface,
+    tcConfig,
     typecheckModuleSccWithInterface,
     typecheckModulesWithInterface,
   )
@@ -86,6 +88,9 @@ data TcAnnotatedCase = TcAnnotatedCase
 
 fixtureRoot :: FilePath
 fixtureRoot = "test/Test/Fixtures/annotated"
+
+testTcConfig :: TcConfig
+testTcConfig = tcConfig (PackageId "aihc-prim")
 
 loadTcAnnotatedCases :: IO [TcAnnotatedCase]
 loadTcAnnotatedCases = do
@@ -185,7 +190,7 @@ evaluateTcAnnotatedCasePure tc =
     coreInterface =
       case coreResolved of
         ResolveResult {resolvedModules = [(_, resolvedCore)], resolveErrors = []} ->
-          snd (typecheckModulesWithInterface emptyTcInterface [resolvedCore])
+          snd (typecheckModulesWithInterface testTcConfig emptyTcInterface [resolvedCore])
         _ -> emptyTcInterface
     modulePackage modu
       | moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
@@ -241,7 +246,7 @@ typecheckModuleGraph baseInterface modules = do
       dependencyInterfaces <- traverse (lookupDependencyInterface interfacesByIndex) dependencyIndices
       let importedInterface = mconcat (baseInterface : dependencyInterfaces)
           (checked, checkedInterface) =
-            typecheckModuleSccWithInterface importedInterface (map nodeModule componentNodes)
+            typecheckModuleSccWithInterface testTcConfig importedInterface (map nodeModule componentNodes)
           localInterface = subtractInterface importedInterface checkedInterface
           checkedByIndex' = foldl' (\acc (node, modu) -> Map.insert (nodeIndex node) modu acc) checkedByIndex (zip componentNodes checked)
           interfacesByIndex' = foldl' (\acc node -> Map.insert (nodeIndex node) localInterface acc) interfacesByIndex componentNodes

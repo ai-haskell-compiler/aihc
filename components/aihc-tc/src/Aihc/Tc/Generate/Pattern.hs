@@ -212,7 +212,8 @@ charLiteralPatternType literal =
   case peelLiteralAnn literal of
     LitChar {} -> do
       maybeInfo <- lookupTyCon "Char"
-      pure (Just (TcTyCon (maybe (mkTyCon "Char" 0 liftedTypeKind) tciTyCon maybeInfo) []))
+      tyCon <- maybe (mkKnownTyCon "GHC.Types" "Char" 0 liftedTypeKind) (pure . tciTyCon) maybeInfo
+      pure (Just (TcTyCon tyCon []))
     LitCharHash {} -> do
       tyCon <- mkKnownTyCon "GHC.Prim" "Char#" 0 liftedTypeKind
       pure (Just (TcTyCon tyCon []))

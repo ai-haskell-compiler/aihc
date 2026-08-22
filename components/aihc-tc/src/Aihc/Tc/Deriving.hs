@@ -33,7 +33,6 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameText,
   )
-import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations
   ( TcClassMethodAnnotation (..),
     TcDerivingAnnotation (..),
@@ -262,22 +261,7 @@ derivingClassMethods classInfo =
 
 classDictionaryType :: ClassInfo -> TcType
 classDictionaryType classInfo =
-  TcTyCon classTyCon (map TcTyVar (ciTyVars classInfo))
-  where
-    classTyCon =
-      case ciOrigin classInfo of
-        Just (packageId, moduleName) ->
-          mkTyConWithOrigin
-            (PackageId packageId)
-            moduleName
-            (ciName classInfo)
-            (length (ciTyVars classInfo))
-            (foldr (KFun . tvKind) KType (ciTyVars classInfo))
-        Nothing ->
-          mkTyCon
-            (ciName classInfo)
-            (length (ciTyVars classInfo))
-            (foldr (KFun . tvKind) KType (ciTyVars classInfo))
+  TcTyCon (ciTyCon classInfo) (map TcTyVar (ciTyVars classInfo))
 
 derivingStrategyTypes :: Maybe DerivingStrategy -> [Type]
 derivingStrategyTypes (Just (DerivingVia viaType)) = [viaType]

@@ -58,7 +58,7 @@ import Aihc.Tc
     tcModuleSuccess,
     tyConArity,
     tyConName,
-    typecheckModuleSccWithInterfaceConfig,
+    typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Types (tyConModuleName, tyConPackageId)
 import Control.Exception (IOException, try)
@@ -321,7 +321,7 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
             unless (null (resolveErrors result)) (ioError (userError (renderResolveErrors unit (resolveErrors result))))
             pure result
         let checked@(checkedModules, _) =
-              typecheckModuleSccWithInterfaceConfig
+              typecheckModuleSccWithInterface
                 (tcConfig primIdentity)
                 dependencyTypes
                 (map snd (resolvedModules resolved))

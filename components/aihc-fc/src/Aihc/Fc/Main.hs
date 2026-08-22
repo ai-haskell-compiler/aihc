@@ -72,7 +72,7 @@ runMainType =
     resultVar = TyVarId "a" (Unique (-1))
 
 ioType :: TcType -> TcType
-ioType resultType = TcTyCon (TyCon "IO" 1) [resultType]
+ioType resultType = TcTyCon (legacyTyCon "IO" 1) [resultType]
 
 freshTermUnique :: FcProgram -> Unique
 freshTermUnique = Unique . (+ 1) . maximumProgramUnique

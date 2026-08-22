@@ -80,7 +80,6 @@ test-suite spec
     Aihc.Testing.EvalFixture
     Fc2Golden
     FcGolden
-    Test.Fc.Properties
     Test.Fc.Suite
     Test.Fc2.Properties
     Test.Fc2.Suite

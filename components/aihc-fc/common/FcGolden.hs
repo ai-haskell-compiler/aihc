@@ -21,7 +21,7 @@ import Aihc.Fc.Desugar (DesugarConfig (..), DesugarResult (..), desugarModuleWit
 import Aihc.Fc.Lint (LintEnv (..), emptyLintEnv, lintProgramWithAxiomInterface)
 import Aihc.Fc.Parser (parseProgram, renderParseError)
 import Aihc.Fc.Pretty (renderProgram)
-import Aihc.Fc.Syntax (FcProgram (..), FcSymbolOrigin (..))
+import Aihc.Fc.Syntax (FcProgram (..), FcSymbolOrigin (..), legacyTyCon)
 import Aihc.Parser
   ( ParserConfig (..),
     defaultConfig,
@@ -29,7 +29,7 @@ import Aihc.Parser
   )
 import Aihc.Parser.Syntax (Extension, Module, moduleName, parseExtensionName)
 import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), resolveWithDeps)
-import Aihc.Tc (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), Pred (..), TcBindingResult, TcInterface (..), TcType (..), TyCon (..), emptyTcInterface, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
+import Aihc.Tc (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), Pred (..), TcBindingResult, TcInterface (..), TcType (..), emptyTcInterface, tcConfig, tcModuleBindings, tcModuleDiagnostics, tcModuleSuccess, typecheckModulesWithInterface)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
@@ -176,7 +176,7 @@ renderFcCase tc =
           case resolveWithDeps mempty (zipWith modulePackage [0 :: Int ..] modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               let moduleAsts = map snd resolvedModules
-                  (tcResults, tcInterface) = typecheckModulesWithInterface emptyTcInterface moduleAsts
+                  (tcResults, tcInterface) = typecheckModulesWithInterface (tcConfig (PackageId "aihc-prim")) emptyTcInterface moduleAsts
                in if all tcModuleSuccess tcResults
                     then
                       let allBindings = moduleGroupBindings tcResults
@@ -264,7 +264,7 @@ interfaceLintEnvironment interface =
 
 predicateType :: Pred -> TcType
 predicateType (ClassPred classTyCon arguments) = TcTyCon classTyCon arguments
-predicateType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
+predicateType (EqPred left right) = TcTyCon (legacyTyCon "~" 2) [left, right]
 
 -- | Refresh passing FC fixtures with the current canonical rendering while
 -- preserving their source and metadata layout.

@@ -777,7 +777,7 @@ applyTyCon function [] = function
 applyTyCon (TcTyCon tyCon existing) arguments =
   let allArguments = existing <> arguments
       arity = length allArguments
-   in TcTyCon (TyCon (tyConName tyCon) arity) allArguments
+   in TcTyCon (legacyTyCon (tyConName tyCon) arity) allArguments
 applyTyCon function arguments = List.foldl' TcAppTy function arguments
 
 unboxedTupleTypeApplication :: TyEnv -> Parser TcType
@@ -786,7 +786,7 @@ unboxedTupleTypeApplication tyEnv = do
   arguments <- MP.count arity (typeAtom tyEnv)
   let resultKind = KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) arguments))
       tupleKind = foldr (KFun . typeKind) resultKind arguments
-  pure (TcTyCon (mkTyCon (unboxedTupleTyConName arity) arity tupleKind) arguments)
+  pure (TcTyCon (legacyTyConWithKind (unboxedTupleTyConName arity) arity tupleKind) arguments)
 
 unboxedTupleSyntax :: Parser UnboxedTupleSyntax
 unboxedTupleSyntax = do
@@ -798,7 +798,7 @@ unboxedTupleSyntax = do
 typeAtom :: TyEnv -> Parser TcType
 typeAtom tyEnv =
   MP.choice
-    [ between "[" "]" (TcTyCon (TyCon "[]" 1) . pure <$> tcType tyEnv),
+    [ between "[" "]" (TcTyCon (legacyTyCon "[]" 1) . pure <$> tcType tyEnv),
       MP.try (freeTyVar tyEnv),
       metaType,
       unboxedTupleTypeApplication tyEnv,
@@ -830,7 +830,7 @@ exactTyConType tyEnv = do
   _ <- symbol "/"
   arity <- int
   arguments <- MP.option [] (list (tcType tyEnv))
-  pure (TcTyCon (TyCon typeName arity) arguments)
+  pure (TcTyCon (legacyTyCon typeName arity) arguments)
 
 freeTyVar :: TyEnv -> Parser TcType
 freeTyVar tyEnv = do
@@ -843,7 +843,7 @@ metaType = TcMetaTv . Unique <$> (symbol "?" *> int)
 namedType :: TyEnv -> Parser TcType
 namedType tyEnv = do
   typeName <- name
-  pure $ maybe (TcTyCon (TyCon typeName 0) []) TcTyVar (Map.lookup typeName tyEnv)
+  pure $ maybe (TcTyCon (legacyTyCon typeName 0) []) TcTyVar (Map.lookup typeName tyEnv)
 
 tyVarBinder :: TyEnv -> Parser TyVarId
 tyVarBinder tyEnv = between "(" ")" $ do
@@ -943,7 +943,7 @@ localTyConHead :: Parser TyCon
 localTyConHead = do
   typeName <- name
   _ <- symbol "/"
-  TyCon typeName <$> int
+  legacyTyCon typeName <$> int
 
 externalTyConHead :: Parser TyCon
 externalTyConHead = MP.try scopedExternalTyConHead <|> legacyExternalTyConHead

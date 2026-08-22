@@ -61,7 +61,7 @@ import Aihc.Tc.Annotations (TcAnnotation (..))
 import Aihc.Tc.Env (DataConFieldInfo (..), DataTypeInfo)
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Kind (runtimeRepToTcType)
-import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType, liftedRuntimeRep, mkTyCon, runtimeRepOfType, setTyVarKind, tvKind, tyConModuleName, tyConPackageId, unboxedTupleTyConName)
+import Aihc.Tc.Types (Kind (..), Pred (..), RuntimeRep (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), isLiftedType, liftedRuntimeRep, runtimeRepOfType, setTyVarKind, tvKind, tyConModuleName, tyConPackageId, unboxedTupleTyConName)
 import Control.Applicative ((<|>))
 import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -289,7 +289,7 @@ mkClassDict (i, pred') =
       pure (ClassDict className args var)
     _ -> do
       var <- freshVar ("$d" <> T.pack (show i)) (predType pred')
-      pure (ClassDict (TyCon "<constraint>" 0) [] var)
+      pure (ClassDict (legacyTyCon "<constraint>" 0) [] var)
 
 -- | Generate argument names: x, y, z, x1, y1, ...
 argName :: Int -> Text
@@ -310,7 +310,7 @@ peelQuals ty = ([], ty)
 
 predType :: Pred -> TcType
 predType (ClassPred classTyCon args) = TcTyCon classTyCon args
-predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
+predType (EqPred left right) = TcTyCon (legacyTyCon "~" 2) [left, right]
 
 -- | Peel a fixed number of function argument types.
 peelFunTys :: Int -> TcType -> ([TcType], TcType)
@@ -877,7 +877,7 @@ dsIntegerLiteral resolution value = do
   if value >= minIntLiteral && value <= maxIntLiteral
     then pure (small value)
     else do
-      let integerTy = TcTyCon (TyCon "Integer" 0) []
+      let integerTy = TcTyCon (legacyTyCon "Integer" 0) []
           binaryTy = TcFunTy integerTy (TcFunTy integerTy integerTy)
           unaryTy = TcFunTy integerTy integerTy
       add <- freshVar "integerAdd" binaryTy
@@ -1589,7 +1589,7 @@ unboxedTupleConType arity =
       ]
     resultKind = KTYPE (TupleRep [runtimeRep | variable <- valueVariables, KTYPE runtimeRep <- [tvKind variable]])
     tyConKind = foldr (KFun . tvKind) resultKind valueVariables
-    resultType = TcTyCon (mkTyCon (unboxedTupleTyConName arity) arity tyConKind) (map TcTyVar valueVariables)
+    resultType = TcTyCon (legacyTyConWithKind (unboxedTupleTyConName arity) arity tyConKind) (map TcTyVar valueVariables)
 
 isTupleResolution :: ResolutionAnnotation -> Bool
 isTupleResolution resolution =
@@ -1662,7 +1662,7 @@ builtinVar name unique ty =
 
 listType :: TcType -> TcType
 listType ty =
-  TcTyCon (TyCon "[]" 1) [ty]
+  TcTyCon (legacyTyCon "[]" 1) [ty]
 
 dsEvidence :: EvTerm -> DsM FcExpr
 dsEvidence evidence =
@@ -1718,7 +1718,7 @@ dsTypeableEvidence typeableOrigin ty argumentEvidence = do
     else do
       argumentRepresentations <- zipWithM (dsTypeableArgument typeableOrigin) argumentTypes argumentEvidence
       representation <- dsTypeRepresentation typeableOrigin ty argumentRepresentations
-      proxy <- freshVar "$typeable_proxy" (TcTyCon (TyCon "Proxy" 1) [ty])
+      proxy <- freshVar "$typeable_proxy" (TcTyCon (legacyTyCon "Proxy" 1) [ty])
       value <- freshVar "$typeable_value" ty
       dictionaryOrigin <- typeableConstructorOrigin typeableOrigin (fcDictionaryConstructorName "Typeable")
       let proxyMethod = FcLam proxy representation
@@ -1730,10 +1730,10 @@ dsTypeableEvidence typeableOrigin ty argumentEvidence = do
                 ( TcForAllTy
                     typeableTyVar
                     ( TcFunTy
-                        (TcFunTy (TcTyCon (TyCon "Proxy" 1) [TcTyVar typeableTyVar]) typeRepTy)
+                        (TcFunTy (TcTyCon (legacyTyCon "Proxy" 1) [TcTyVar typeableTyVar]) typeRepTy)
                         ( TcFunTy
                             (TcFunTy (TcTyVar typeableTyVar) typeRepTy)
-                            (TcTyCon (TyCon "Typeable" 1) [TcTyVar typeableTyVar])
+                            (TcTyCon (legacyTyCon "Typeable" 1) [TcTyVar typeableTyVar])
                         )
                     )
                 )
@@ -1745,13 +1745,13 @@ dsTypeableEvidence typeableOrigin ty argumentEvidence = do
 dsTypeableArgument :: Maybe (Text, Text) -> TcType -> EvTerm -> DsM FcExpr
 dsTypeableArgument typeableOrigin ty evidence = do
   dictionary <- dsEvidence evidence
-  dictionaryBinder <- freshVar "$typeable_dictionary" (TcTyCon (TyCon "Typeable" 1) [ty])
-  proxyMethod <- freshVar "$typeable_proxy_method" (TcFunTy (TcTyCon (TyCon "Proxy" 1) [ty]) typeRepTy)
+  dictionaryBinder <- freshVar "$typeable_dictionary" (TcTyCon (legacyTyCon "Typeable" 1) [ty])
+  proxyMethod <- freshVar "$typeable_proxy_method" (TcFunTy (TcTyCon (legacyTyCon "Proxy" 1) [ty]) typeRepTy)
   valueMethod <- freshVar "$typeable_value_method" (TcFunTy ty typeRepTy)
   dictionaryOrigin <- typeableConstructorOrigin typeableOrigin (fcDictionaryConstructorName "Typeable")
   proxyOrigin <- typeableConstructorOrigin typeableOrigin "Proxy"
   let proxyConstructor =
-        (Var "Proxy" (Unique (-2101)) (TcForAllTy typeableTyVar (TcTyCon (TyCon "Proxy" 1) [TcTyVar typeableTyVar])))
+        (Var "Proxy" (Unique (-2101)) (TcForAllTy typeableTyVar (TcTyCon (legacyTyCon "Proxy" 1) [TcTyVar typeableTyVar])))
           { varResolvedName = Just proxyOrigin
           }
       proxy = FcTyApp (FcVar proxyConstructor) ty
@@ -1815,10 +1815,10 @@ typeableTyVar :: TyVarId
 typeableTyVar = TyVarId "a" (Unique (-2104))
 
 typeRepTy :: TcType
-typeRepTy = TcTyCon (TyCon "TypeRep" 0) []
+typeRepTy = TcTyCon (legacyTyCon "TypeRep" 0) []
 
 tyConTy :: TcType
-tyConTy = TcTyCon (TyCon "TyCon" 0) []
+tyConTy = TcTyCon (legacyTyCon "TyCon" 0) []
 
 stringTy :: TcType
 stringTy = listType charTy
@@ -1855,7 +1855,7 @@ patternEvidenceBinders pattern' = do
     patternDictionary predicate binder =
       case predicate of
         ClassPred classTyCon arguments -> ClassDict classTyCon arguments binder
-        EqPred {} -> ClassDict (TyCon "<constraint>" 0) [] binder
+        EqPred {} -> ClassDict (legacyTyCon "<constraint>" 0) [] binder
 
 patternTcAnnotation :: Pattern -> Maybe TcAnnotation
 patternTcAnnotation pattern' =
@@ -2019,7 +2019,7 @@ uniqueInt :: Unique -> Int
 uniqueInt (Unique unique) = unique
 
 charTy :: TcType
-charTy = TcTyCon (TyCon "Char" 0) []
+charTy = TcTyCon (legacyTyCon "Char" 0) []
 
 -- | Convert a Name to Text.
 nameToText :: Name -> Text

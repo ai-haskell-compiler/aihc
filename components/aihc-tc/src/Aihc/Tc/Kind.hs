@@ -231,7 +231,9 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       let arity = length tys
           resultKind = KTYPE (SumRep (map runtimeRepOrLifted tys))
           tyConKind' = foldr (KFun . typeKind) resultKind tys
-      pure (TcTyCon (mkTyCon ("(#" <> bars (arity - 1) <> "#)") arity tyConKind') tys, resultKind)
+          name = "(#" <> bars (arity - 1) <> "#)"
+      tyCon <- mkKnownTyCon "GHC.Types" name arity tyConKind'
+      pure (TcTyCon tyCon tys, resultKind)
     TList Unpromoted [arg] -> do
       argTy <- checkSurfaceType tvEnv arg KType
       listTy <- listType argTy
@@ -239,7 +241,8 @@ convertNonSynonymTypeWithKinds tvEnv ty =
     TList Promoted args -> do
       elemKind <- freshKindMeta
       args' <- mapM (\arg -> checkSurfaceType tvEnv arg elemKind) args
-      pure (TcTyCon (TyCon "'[]" (length args')) args', KType)
+      tyCon <- mkKnownTyCon "GHC.Types" "'[]" (length args') KType
+      pure (TcTyCon tyCon args', KType)
     TKindSig inner kindTy -> do
       expected <- kindFromSurfaceType tvEnv kindTy
       checkSurfaceType tvEnv inner expected >>= \innerTy -> pure (innerTy, expected)
@@ -348,7 +351,7 @@ inferTypeVariable tvEnv name =
   let n = unqualifiedNameText name
    in case Map.lookup n tvEnv of
         Just (tv, kind) -> pure (TcTyVar tv, kind)
-        Nothing -> inferOpenTypeConstructor n
+        Nothing -> inferUnknownType
 
 inferTypeConstructor :: TypePromotion -> Name -> TcM (TcType, Kind)
 inferTypeConstructor promoted name =
@@ -377,21 +380,26 @@ inferBuiltinTypeConstructor builtin =
     TBuiltinList ->
       do
         maybeInfo <- lookupTyCon "[]"
-        pure (TcTyCon (maybe (mkTyCon "[]" 1 (KFun KType KType)) tciTyCon maybeInfo) [], KFun KType KType)
-    TBuiltinCons ->
-      pure (TcTyCon (TyCon ":" 2) [], KFun KType (KFun (listTypeKind KType) (listTypeKind KType)))
+        tyCon <- maybe (mkKnownTyCon "GHC.Types" "[]" 1 (KFun KType KType)) (pure . tciTyCon) maybeInfo
+        pure (TcTyCon tyCon [], KFun KType KType)
+    TBuiltinCons -> do
+      let kind = KFun KType (KFun (listTypeKind KType) (listTypeKind KType))
+      tyCon <- mkKnownTyCon "GHC.Types" "':" 2 kind
+      pure (TcTyCon tyCon [], kind)
     TBuiltinTuple arity ->
       let argKinds = replicate arity KType
           kind = foldr KFun KType argKinds
        in knownTypeWithArity "GHC.Tuple" (tupleTyConText Boxed arity) arity kind
-    TBuiltinArrow ->
-      pure (TcTyCon (TyCon "(->)" 2) [], KFun KType (KFun KType KType))
+    TBuiltinArrow -> do
+      let kind = KFun KType (KFun KType KType)
+      tyCon <- mkKnownTyCon "GHC.Types" "(->)" 2 kind
+      pure (TcTyCon tyCon [], kind)
 
 inferBuiltinOrOpenTypeConstructor :: Text -> TcM (TcType, Kind)
 inferBuiltinOrOpenTypeConstructor name =
   case wiredInTypeKind name of
     Just kind -> knownType (knownTypeModule name) name kind
-    Nothing -> inferOpenTypeConstructor name
+    Nothing -> inferUnknownType
 
 knownType :: Text -> Text -> Kind -> TcM (TcType, Kind)
 knownType moduleName name = knownTypeWithArity moduleName name 0
@@ -409,14 +417,15 @@ knownTypeModule name
 
 inferPromotedTypeConstructor :: Text -> TcM (TcType, Kind)
 inferPromotedTypeConstructor name =
-  case runtimeRepConstructor name of
-    Just _ -> pure (TcTyCon (mkTyCon ("'" <> name) 0 KRuntimeRep) [], KRuntimeRep)
-    Nothing -> inferOpenTypeConstructor ("'" <> name)
+  case knownPromotedType name of
+    Just (arity, kind) -> knownTypeWithArity "GHC.Types" ("'" <> name) arity kind
+    Nothing -> inferUnknownType
 
-inferOpenTypeConstructor :: Text -> TcM (TcType, Kind)
-inferOpenTypeConstructor name = do
+inferUnknownType :: TcM (TcType, Kind)
+inferUnknownType = do
   kind <- freshKindMeta
-  pure (TcTyCon (mkTyCon name 0 kind) [], kind)
+  ty <- freshMetaTvOfKind kind
+  pure (ty, kind)
 
 makeParamEnv :: [TyVarBinder] -> TcM [ParamInfo]
 makeParamEnv = makeParamEnvWith Map.empty
@@ -573,7 +582,8 @@ applyType f arg = TcAppTy f arg
 listType :: TcType -> TcM TcType
 listType ty = do
   maybeInfo <- lookupTyCon "[]"
-  pure (TcTyCon (maybe (mkTyCon "[]" 1 (KFun KType KType)) tciTyCon maybeInfo) [ty])
+  tyCon <- maybe (mkKnownTyCon "GHC.Types" "[]" 1 (KFun KType KType)) (pure . tciTyCon) maybeInfo
+  pure (TcTyCon tyCon [ty])
 
 listTypeKind :: Kind -> Kind
 listTypeKind kind = KFun kind kind
@@ -587,6 +597,13 @@ runtimeRepOrLifted ty =
 wiredInTypeKind :: Text -> Maybe Kind
 wiredInTypeKind name =
   case name of
+    "TYPE" -> Just (KFun KRuntimeRep KType)
+    "RuntimeRep" -> Just KType
+    "Levity" -> Just KType
+    "VecCount" -> Just KType
+    "VecElem" -> Just KType
+    "LiftedType" -> Just KType
+    "UnliftedType" -> Just KType
     "Int" -> Just KType
     "Integer" -> Just KType
     "Double" -> Just KType
@@ -612,6 +629,39 @@ wiredInTypeKind name =
     "Double#" -> Just (KTYPE DoubleRep)
     "Char#" -> Just (KTYPE WordRep)
     _ -> Nothing
+
+knownPromotedType :: Text -> Maybe (Int, Kind)
+knownPromotedType rawName =
+  case T.dropWhile (== '\'') rawName of
+    "BoxedRep" -> Just (1, KFun KLevity KRuntimeRep)
+    "TupleRep" -> Just (1, KFun KType KRuntimeRep)
+    "SumRep" -> Just (1, KFun KType KRuntimeRep)
+    "VecRep" -> Just (2, KFun KVecCount (KFun KVecElem KRuntimeRep))
+    "Lifted" -> Just (0, KLevity)
+    "Unlifted" -> Just (0, KLevity)
+    "Vec2" -> Just (0, KVecCount)
+    "Vec4" -> Just (0, KVecCount)
+    "Vec8" -> Just (0, KVecCount)
+    "Vec16" -> Just (0, KVecCount)
+    "Vec32" -> Just (0, KVecCount)
+    "Vec64" -> Just (0, KVecCount)
+    name
+      | name `elem` vectorElementNames -> Just (0, KVecElem)
+      | Just _ <- runtimeRepConstructor name -> Just (0, KRuntimeRep)
+      | otherwise -> Nothing
+  where
+    vectorElementNames =
+      [ "DoubleElemRep",
+        "FloatElemRep",
+        "Int16ElemRep",
+        "Int32ElemRep",
+        "Int64ElemRep",
+        "Int8ElemRep",
+        "Word16ElemRep",
+        "Word32ElemRep",
+        "Word64ElemRep",
+        "Word8ElemRep"
+      ]
 
 runtimeRepFromSurfaceType :: TvKindEnv -> Type -> TcM RuntimeRep
 runtimeRepFromSurfaceType tvEnv ty =

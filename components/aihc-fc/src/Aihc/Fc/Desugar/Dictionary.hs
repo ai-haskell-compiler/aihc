@@ -12,6 +12,7 @@ module Aihc.Fc.Desugar.Dictionary
 where
 
 import Aihc.Fc.Desugar.Expr (DsM, desugarBug)
+import Aihc.Fc.Syntax (legacyTyCon)
 import Aihc.Tc.Types (Kind (..), Pred (..), TcType (..), TyCon (..), TyVarId, typeKind)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -31,7 +32,7 @@ peelQuals ty = ([], ty)
 
 predType :: Pred -> TcType
 predType (ClassPred classTyCon args) = TcTyCon classTyCon args
-predType (EqPred left right) = TcTyCon (TyCon "~" 2) [left, right]
+predType (EqPred left right) = TcTyCon (legacyTyCon "~" 2) [left, right]
 
 checkedConstraintType :: String -> TcType -> DsM TcType
 checkedConstraintType context ty =
