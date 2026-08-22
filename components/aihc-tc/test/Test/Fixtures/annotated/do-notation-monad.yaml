@@ -20,22 +20,14 @@ annotated:
 
   almostFixM :: Monad m => m Bool -> (a -> m a) -> a -> m a
   almostFixM p f x = do
-  │          │││ │││ │││   └─ type: m a
-  │          │││ │││ └─ type: a
-  │          │││ │││ └─ type: a
-  │          │││ │││ └─ type: a
-  │          │││ └─ type: a → m a
-  │          │││ └─ type: a → m a
-  │          │││ └─ type: a → m a
-  │          └─ type: m Bool
-  │          └─ type: m Bool
+  │          │ │ │   └─ type: m a
+  │          │ │ └─ type: a
+  │          │ └─ type: a → m a
   │          └─ type: m Bool
   └─ type: ∀ m a. (Monad m) ⇒ m Bool → (a → m a) → a → m a
     p' <- p
-    ││││     └─ type: m Bool
+    ││     └─ type: m Bool
     └─ type: m Bool → (Bool → m a) → m a; type-args: m, Bool, a; evidence: given Monad m
-    └─ type: Bool
-    └─ type: Bool
     └─ type: Bool
     if p' then almostFixM p f =<< f x
        │       │          │ │ │   │ └─ type: a
