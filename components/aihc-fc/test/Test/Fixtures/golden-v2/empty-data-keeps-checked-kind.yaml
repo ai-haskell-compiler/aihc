@@ -12,10 +12,9 @@ modules:
     type MutVar# :: Type -> Type -> TYPE ('BoxedRep 'Unlifted)
     data MutVar# d a
 expected: |-
-  scope 1 = "aihc-prim" GHC.Prim
+  scope 1 = "" GHC.Prim
+  scope 2 = "aihc-prim" GHC.Types
 
-  module 1.GHC.Prim where
-
-  data 1.MutVar# (d{unique 28} : Type) (a{unique 30} : Type) : TYPE UnliftedRep
+  pub type 1.tMutVar# (d : 2.tType) (a : 2.tType) :: 2.tTYPE 2.tUnliftedRep {}
 status: pass
 reason: keeps checked parameters and the checked result kind for data declarations without constructors

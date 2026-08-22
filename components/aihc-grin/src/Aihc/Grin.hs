@@ -20,15 +20,6 @@ module Aihc.Grin
     gcGrinProgram,
     gcUpdateFunction,
     lowerGc,
-    lowerProgram,
-    GrinLinkNames,
-    linkNamesForProgram,
-    lowerProgramWithLinkNames,
-    GrinInterface,
-    extractGrinInterface,
-    extractGrinInterfaceWithLinkNames,
-    lowerProgramWithInterface,
-    lowerProgramWithInterfaceAndLinkNames,
     lintProgram,
     GrinLintError (..),
     GrinParseError,
@@ -67,17 +58,6 @@ import Aihc.Grin.Cps
 import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, gcUpdateFunction, lowerGc)
 import Aihc.Grin.Interpret (InterpretError (..), RuntimeValue (..), interpretProgramBinding, interpretProgramFunctionSnapshot, interpretProgramIoBinding)
 import Aihc.Grin.Lint (GrinLintError (..), lintProgram)
-import Aihc.Grin.Lower
-  ( GrinInterface,
-    GrinLinkNames,
-    extractGrinInterface,
-    extractGrinInterfaceWithLinkNames,
-    linkNamesForProgram,
-    lowerProgram,
-    lowerProgramWithInterface,
-    lowerProgramWithInterfaceAndLinkNames,
-    lowerProgramWithLinkNames,
-  )
 import Aihc.Grin.Parser (GrinParseError, parseExpr, parseProgram, renderParseError)
 import Aihc.Grin.Pretty (renderExpr, renderProgram)
 import Aihc.Grin.Snapshot

@@ -1,12 +1,9 @@
 module Aihc.Cli.Options
   ( Command (..),
-    CompileOptions (..),
     GarbageCollector (..),
     InstallErrorFormat (..),
-    InstallOptions (..),
     InstallV2Options (..),
     PrepareRuntimeOptions (..),
-    ReplOptions (..),
     parseCommandIO,
     parseCommandPure,
     parserInfo,
@@ -17,24 +14,8 @@ import Aihc.Native (NativeTarget, parseNativeTarget)
 import Options.Applicative qualified as OA
 
 data Command
-  = CmdCompile !CompileOptions
-  | CmdInstallV2 !InstallV2Options
+  = CmdInstallV2 !InstallV2Options
   | CmdPrepareRuntime !PrepareRuntimeOptions
-  | CmdRepl !ReplOptions
-  deriving (Eq, Show)
-
-data CompileOptions = CompileOptions
-  { compileSourceFile :: !FilePath,
-    compileOutputFile :: !(Maybe FilePath),
-    compileKeepCore :: !Bool,
-    compileKeepGrin :: !Bool,
-    compileKeepAsm :: !Bool,
-    compileWholeProgram :: !Bool,
-    compileTarget :: !(Maybe NativeTarget),
-    compileGarbageCollector :: !GarbageCollector,
-    compileStoreRoot :: !(Maybe FilePath),
-    compileUseWasmOpt :: !Bool
-  }
   deriving (Eq, Show)
 
 data GarbageCollector
@@ -46,25 +27,6 @@ data PrepareRuntimeOptions = PrepareRuntimeOptions
   { prepareRuntimeTarget :: !NativeTarget,
     prepareRuntimeGarbageCollector :: !GarbageCollector,
     prepareRuntimeStoreRoot :: !(Maybe FilePath)
-  }
-  deriving (Eq, Show)
-
-newtype ReplOptions = ReplOptions
-  { replStoreRoot :: Maybe FilePath
-  }
-  deriving (Eq, Show)
-
-data InstallOptions = InstallOptions
-  { installPackageName :: !String,
-    installPackageVersion :: !(Maybe String),
-    installStoreRoot :: !(Maybe FilePath),
-    installOffline :: !Bool,
-    installDryRun :: !Bool,
-    installKeepCore :: !Bool,
-    installKeepGrin :: !Bool,
-    installTargets :: ![NativeTarget],
-    installFirstErrorModule :: !Bool,
-    installErrorFormat :: !InstallErrorFormat
   }
   deriving (Eq, Show)
 
@@ -104,89 +66,18 @@ commandParser :: OA.Parser Command
 commandParser =
   OA.subparser
     ( OA.command
-        "compile"
+        "install-v2"
         ( OA.info
-            (CmdCompile <$> compileOptionsParser OA.<**> OA.helper)
-            (OA.progDesc "Compile a Haskell source file to an executable")
+            (CmdInstallV2 <$> installV2OptionsParser OA.<**> OA.helper)
+            (OA.progDesc "Build and install one local Cabal library")
         )
-        <> OA.command
-          "install-v2"
-          ( OA.info
-              (CmdInstallV2 <$> installV2OptionsParser OA.<**> OA.helper)
-              (OA.progDesc "Build and install one local Cabal library")
-          )
         <> OA.command
           "prepare-runtime"
           ( OA.info
               (CmdPrepareRuntime <$> prepareRuntimeOptionsParser OA.<**> OA.helper)
               (OA.progDesc "Compile and install a runtime for one backend and garbage collector")
           )
-        <> OA.command
-          "repl"
-          ( OA.info
-              (CmdRepl <$> replOptionsParser OA.<**> OA.helper)
-              (OA.progDesc "Start the aihc expression REPL")
-          )
     )
-
-compileOptionsParser :: OA.Parser CompileOptions
-compileOptionsParser =
-  CompileOptions
-    <$> OA.strArgument
-      ( OA.metavar "SOURCE"
-          <> OA.help "Haskell source file containing the main binding"
-      )
-    <*> OA.optional
-      ( OA.strOption
-          ( OA.short 'o'
-              <> OA.long "output"
-              <> OA.metavar "FILE"
-              <> OA.help "Write the executable to FILE (default: SOURCE without its extension)"
-          )
-      )
-    <*> OA.switch
-      ( OA.long "keep-core"
-          <> OA.help "Keep the generated System FC core as OUTPUT.core"
-      )
-    <*> OA.switch
-      ( OA.long "keep-grin"
-          <> OA.help "Keep the generated GRIN as OUTPUT.grin"
-      )
-    <*> OA.switch
-      ( OA.long "keep-asm"
-          <> OA.help "Keep generated backend source as OUTPUT.s or OUTPUT.ll"
-      )
-    <*> OA.switch
-      ( OA.long "whole-program"
-          <> OA.help "After incremental module compilation, merge Core units for whole-program DCE and code generation"
-      )
-    <*> OA.optional
-      ( OA.option
-          (OA.eitherReader parseNativeTarget)
-          ( OA.long "target"
-              <> OA.metavar "TARGET"
-              <> OA.help "Target: apple-arm64, linux-amd64, llvm, or wasm32-wasip3 (default: host)"
-          )
-      )
-    <*> OA.option
-      (OA.eitherReader parseGarbageCollector)
-      ( OA.long "gc"
-          <> OA.metavar "calloc|semispace"
-          <> OA.value GcCalloc
-          <> OA.showDefaultWith (const "calloc")
-          <> OA.help "Select the garbage collector compiled into the executable"
-      )
-    <*> OA.optional
-      ( OA.strOption
-          ( OA.long "store"
-              <> OA.metavar "DIR"
-              <> OA.help "Read installed runtimes and core libraries from DIR"
-          )
-      )
-    <*> OA.switch
-      ( OA.long "use-wasm-opt"
-          <> OA.help "Optimize the linked core WebAssembly module with wasm-opt when available"
-      )
 
 parseGarbageCollector :: String -> Either String GarbageCollector
 parseGarbageCollector value =
@@ -231,17 +122,6 @@ storeRootOption description =
             <> OA.help description
         )
     )
-
-replOptionsParser :: OA.Parser ReplOptions
-replOptionsParser =
-  ReplOptions
-    <$> OA.optional
-      ( OA.strOption
-          ( OA.long "store"
-              <> OA.metavar "DIR"
-              <> OA.help "Override the aihc store root"
-          )
-      )
 
 installV2OptionsParser :: OA.Parser InstallV2Options
 installV2OptionsParser =

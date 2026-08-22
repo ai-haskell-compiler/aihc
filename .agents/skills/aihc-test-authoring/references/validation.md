@@ -13,8 +13,8 @@ Use narrow commands while developing, then run the mandatory checks before commi
 - Deep parser fuzzing: `cabal test -v0 aihc-parser:spec --test-options="--pattern properties --hedgehog-tests 10000"`
 - Resolve golden: `cabal test -v0 aihc-resolve:spec --test-options="--pattern resolver-golden --hide-successes"`
 - Type checker annotated golden/unit/properties: `cabal test -v0 aihc-tc:spec --test-options="--hide-successes"`
-- FC golden/eval: `cabal test -v0 aihc-fc:spec --test-options="--hide-successes"`
-- GRIN lowering/interpreter/shared eval: `cabal test -v0 aihc-grin:spec --test-options="--hide-successes"`
+- FC2 golden/lint/property: `cabal test -v0 aihc-fc:spec --test-options="--hide-successes"`
+- GRIN property: `cabal test -v0 aihc-grin:spec --test-options="--hide-successes"`
 - CPP oracle/unit suite: `cabal test -v0 aihc-cpp:spec --test-options="--hide-successes"`
 
 ## Updating Golden Outputs
@@ -26,7 +26,7 @@ cabal run -v0 aihc-dev -- update-goldens --dry-run
 cabal run -v0 aihc-dev -- update-goldens
 ```
 
-Run it from the repository root. Use `--root <dir>` only when invoking it from another working directory. The updater scans parser AST goldens, lexer goldens, parser error messages, resolver goldens, TC annotated goldens, FC goldens, FC eval outputs, formatter goldens, and parser CLI goldens. It updates generated expectation fields such as `ast`, `tokens`, `expected`, `output`, and `annotated` only for `pass` and `xpass` fixtures; `fail` and `xfail` cases are skipped because their expected output is not the current success contract.
+Run it from the repository root. Use `--root <dir>` only from another working directory. The updater does not update FC2 fixtures. It updates the supported fixture outputs only for `pass` and `xpass`. It skips `fail` and `xfail` cases.
 
 After running without `--dry-run`, inspect the diff before accepting it. A changed golden is evidence that behavior changed, not evidence that the new behavior is correct. Keep intentional fixture metadata (`status`, `reason`, extension lists, dependencies, module sources, and expression sources) under review.
 
@@ -44,7 +44,7 @@ Do not commit if `just check` fails. Fix formatting, lint, or test failures firs
 ## Status Semantics
 
 - `pass`: expected to pass now.
-- `fail`: expected to fail now; supported by parser golden, FC golden, and FC eval fixtures where the loader accepts it. TC annotated fixtures do not accept `fail`.
+- `fail`: expected to fail now. Parser and FC2 golden fixtures accept this status. TC annotated fixtures do not accept it.
 - `xfail`: known gap; the test is expected not to satisfy the success contract yet and must include `reason`.
 - `xpass`: known bug that currently passes unexpectedly; treat as strict tracking and include `reason`. Not every fixture format accepts `xpass` (`aihc-parser` parser golden and equivalent fixtures reject it).
 
