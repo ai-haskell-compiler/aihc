@@ -16,10 +16,7 @@ import Aihc.Tc
     DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
     InstanceInfo (..),
-    Kind (..),
-    Levity (..),
     Pred (..),
-    RuntimeRep (..),
     TcInterface (..),
     TcTermKey (..),
     TcType (..),
@@ -30,15 +27,12 @@ import Aihc.Tc
     TypeFamilyInstanceInfo (..),
     TypeScheme (..),
     Unique (..),
-    VecCount (..),
-    VecElem (..),
     tvKind,
     tyConArity,
-    tyConKindScheme,
     tyConName,
   )
 import Aihc.Tc.Env (TypeSynonymInfo (..))
-import Aihc.Tc.Types (mkTyConWithOriginScheme, setTyVarKind, tyConModuleName, tyConPackageId)
+import Aihc.Tc.Types (mkTyConWithOrigin, setTyVarKind, tyConModuleName, tyConPackageId)
 import Control.Monad (replicateM, unless)
 import Data.Binary.Get qualified as Get
 import Data.Bits (shiftR)
@@ -61,7 +55,7 @@ encodeTypeArtifact artifact =
   Builder.toLazyByteString $
     cborArray 5
       <> cborText "aihc-type"
-      <> cborWord 4
+      <> cborWord 5
       <> cborText (typeArtifactModuleName artifact)
       <> encodeList encodeHash (typeArtifactInputHashes artifact)
       <> putInterface (typeArtifactInterface artifact)
@@ -83,7 +77,7 @@ getArtifact :: Get.Get TypeArtifact
 getArtifact = do
   expectArray 5
   expectText "aihc-type"
-  expectWord 4
+  expectWord 5
   typeArtifactModuleName <- getText
   typeArtifactInputHashes <- getList getHash
   typeArtifactInterface <- getInterface
@@ -145,14 +139,14 @@ getTypeScheme :: Get.Get TypeScheme
 getTypeScheme = expectArray 3 >> (ForAll <$> getList getTyVar <*> getList getPred <*> getType)
 
 putTyVar :: TyVarId -> Builder.Builder
-putTyVar variable = cborArray 3 <> cborText (tvName variable) <> putUnique (tvUnique variable) <> putKind (tvKind variable)
+putTyVar variable = cborArray 3 <> cborText (tvName variable) <> putUnique (tvUnique variable) <> putType (tvKind variable)
 
 getTyVar :: Get.Get TyVarId
 getTyVar = do
   expectArray 3
   name <- getText
   unique <- getUnique
-  kind <- getKind
+  kind <- getType
   pure (setTyVarKind kind (TyVarId name unique))
 
 putUnique :: Unique -> Builder.Builder
@@ -163,97 +157,22 @@ getUnique = Unique <$> getInt
 
 putTyCon :: TyCon -> Builder.Builder
 putTyCon tyCon =
-  cborArray 5
+  cborArray 4
     <> putPackageId (tyConPackageId tyCon)
     <> cborText (tyConModuleName tyCon)
     <> cborText (tyConName tyCon)
     <> cborInt (tyConArity tyCon)
-    <> putTypeScheme (tyConKindScheme tyCon)
 
 getTyCon :: Get.Get TyCon
 getTyCon = do
-  expectArray 5
-  mkTyConWithOriginScheme <$> getPackageId <*> getText <*> getText <*> getInt <*> getTypeScheme
+  expectArray 4
+  mkTyConWithOrigin <$> getPackageId <*> getText <*> getText <*> getInt
 
 putPackageId :: PackageId -> Builder.Builder
 putPackageId (PackageId identity) = cborText identity
 
 getPackageId :: Get.Get PackageId
 getPackageId = PackageId <$> getText
-
-putKind :: Kind -> Builder.Builder
-putKind kind = case kind of
-  KTYPE representation -> sum1 0 (putRuntimeRep representation)
-  KConstraint -> sum0 1
-  KRuntimeRep -> sum0 2
-  KLevity -> sum0 3
-  KVecCount -> sum0 4
-  KVecElem -> sum0 5
-  KFun argument result -> sum2 6 (putKind argument) (putKind result)
-  KMeta unique -> sum1 7 (putUnique unique)
-
-getKind :: Get.Get Kind
-getKind = do
-  length' <- getArrayLength
-  tag <- getWord
-  case (length', tag) of
-    (2, 0) -> KTYPE <$> getRuntimeRep
-    (1, 1) -> pure KConstraint
-    (1, 2) -> pure KRuntimeRep
-    (1, 3) -> pure KLevity
-    (1, 4) -> pure KVecCount
-    (1, 5) -> pure KVecElem
-    (3, 6) -> KFun <$> getKind <*> getKind
-    (2, 7) -> KMeta <$> getUnique
-    _ -> fail "unsupported kind"
-
-putRuntimeRep :: RuntimeRep -> Builder.Builder
-putRuntimeRep representation = case representation of
-  VecRep count element -> sum2 0 (putVecCount count) (putVecElem element)
-  TupleRep fields -> sum1 1 (encodeList putRuntimeRep fields)
-  SumRep fields -> sum1 2 (encodeList putRuntimeRep fields)
-  BoxedRep levity -> sum1 3 (putLevity levity)
-  IntRep -> sum0 4
-  Int8Rep -> sum0 5
-  Int16Rep -> sum0 6
-  Int32Rep -> sum0 7
-  Int64Rep -> sum0 8
-  WordRep -> sum0 9
-  Word8Rep -> sum0 10
-  Word16Rep -> sum0 11
-  Word32Rep -> sum0 12
-  Word64Rep -> sum0 13
-  AddrRep -> sum0 14
-  FloatRep -> sum0 15
-  DoubleRep -> sum0 16
-  RuntimeRepVar unique -> sum1 17 (putUnique unique)
-  RuntimeRepMeta unique -> sum1 18 (putUnique unique)
-
-getRuntimeRep :: Get.Get RuntimeRep
-getRuntimeRep = do
-  length' <- getArrayLength
-  tag <- getWord
-  case (length', tag) of
-    (3, 0) -> VecRep <$> getVecCount <*> getVecElem
-    (2, 1) -> TupleRep <$> getList getRuntimeRep
-    (2, 2) -> SumRep <$> getList getRuntimeRep
-    (2, 3) -> BoxedRep <$> getLevity
-    (1, 4) -> pure IntRep
-    (1, 5) -> pure Int8Rep
-    (1, 6) -> pure Int16Rep
-    (1, 7) -> pure Int32Rep
-    (1, 8) -> pure Int64Rep
-    (1, 9) -> pure WordRep
-    (1, 10) -> pure Word8Rep
-    (1, 11) -> pure Word16Rep
-    (1, 12) -> pure Word32Rep
-    (1, 13) -> pure Word64Rep
-    (1, 14) -> pure AddrRep
-    (1, 15) -> pure FloatRep
-    (1, 16) -> pure DoubleRep
-    (2, 17) -> RuntimeRepVar <$> getUnique
-    (2, 18) -> RuntimeRepMeta <$> getUnique
-    _ -> fail "unsupported runtime representation"
 
 putType :: TcType -> Builder.Builder
 putType ty = case ty of
@@ -264,7 +183,6 @@ putType ty = case ty of
   TcForAllTy variable body -> sum2 4 (putTyVar variable) (putType body)
   TcQualTy predicates body -> sum2 5 (encodeList putPred predicates) (putType body)
   TcAppTy function argument -> sum2 6 (putType function) (putType argument)
-  TcBuiltinTyCon name arity arguments -> cborArray 4 <> cborWord 7 <> cborText name <> cborInt arity <> encodeList putType arguments
 
 getType :: Get.Get TcType
 getType = do
@@ -278,7 +196,6 @@ getType = do
     (3, 4) -> TcForAllTy <$> getTyVar <*> getType
     (3, 5) -> TcQualTy <$> getList getPred <*> getType
     (3, 6) -> TcAppTy <$> getType <*> getType
-    (4, 7) -> TcBuiltinTyCon <$> getText <*> getInt <*> getList getType
     _ -> fail "unsupported type"
 
 putPred :: Pred -> Builder.Builder
@@ -296,17 +213,18 @@ getPred = do
     _ -> fail "unsupported predicate"
 
 putTyConInfo :: TyConInfo -> Builder.Builder
-putTyConInfo info = cborArray 5 <> cborText (tciName info) <> cborInt (tciArity info) <> putTyCon (tciTyCon info) <> putTyConFlavor (tciFlavor info) <> putMaybe putTypeSynonymInfo (tciTypeSynonym info)
+putTyConInfo info = cborArray 6 <> cborText (tciName info) <> cborInt (tciArity info) <> putTyCon (tciTyCon info) <> putTypeScheme (tciKindScheme info) <> putTyConFlavor (tciFlavor info) <> putMaybe putTypeSynonymInfo (tciTypeSynonym info)
 
 getTyConInfo :: Get.Get TyConInfo
 getTyConInfo = do
-  expectArray 5
+  expectArray 6
   tciName <- getText
   tciArity <- getInt
   tciTyCon <- getTyCon
+  tciKindScheme <- getTypeScheme
   tciFlavor <- getTyConFlavor
   tciTypeSynonym <- getMaybe getTypeSynonymInfo
-  pure TyConInfo {tciName, tciArity, tciTyCon, tciFlavor, tciTypeSynonym}
+  pure TyConInfo {tciName, tciArity, tciTyCon, tciKindScheme, tciFlavor, tciTypeSynonym}
 
 putTypeSynonymInfo :: TypeSynonymInfo -> Builder.Builder
 putTypeSynonymInfo info = cborArray 2 <> encodeList putTyVar (tsiParams info) <> putMaybe putType (tsiBody info)
@@ -315,7 +233,7 @@ getTypeSynonymInfo :: Get.Get TypeSynonymInfo
 getTypeSynonymInfo = expectArray 2 >> (TypeSynonymInfo <$> getList getTyVar <*> getMaybe getType)
 
 putDataTypeInfo :: DataTypeInfo -> Builder.Builder
-putDataTypeInfo info = cborArray 6 <> cborText (dtiName info) <> putTyCon (dtiTyCon info) <> encodeList putTyVar (dtiTyVars info) <> putKind (dtiResultKind info) <> putTyConFlavor (dtiFlavor info) <> encodeList putDataConInfo (dtiConstructors info)
+putDataTypeInfo info = cborArray 6 <> cborText (dtiName info) <> putTyCon (dtiTyCon info) <> encodeList putTyVar (dtiTyVars info) <> putType (dtiResultKind info) <> putTyConFlavor (dtiFlavor info) <> encodeList putDataConInfo (dtiConstructors info)
 
 getDataTypeInfo :: Get.Get DataTypeInfo
 getDataTypeInfo = do
@@ -323,7 +241,7 @@ getDataTypeInfo = do
   dtiName <- getText
   dtiTyCon <- getTyCon
   dtiTyVars <- getList getTyVar
-  dtiResultKind <- getKind
+  dtiResultKind <- getType
   dtiFlavor <- getTyConFlavor
   dtiConstructors <- getList getDataConInfo
   pure DataTypeInfo {dtiName, dtiTyCon, dtiTyVars, dtiResultKind, dtiFlavor, dtiConstructors}
@@ -537,64 +455,12 @@ putDataConFieldUnpack unpack = cborWord $ case unpack of
 getDataConFieldUnpack :: Get.Get DataConFieldUnpack
 getDataConFieldUnpack = getTagged "field unpack mode" [(0, NoFieldUnpack), (1, UnpackField), (2, NoUnpackField)]
 
-putLevity :: Levity -> Builder.Builder
-putLevity levity = cborWord $ case levity of
-  Lifted -> 0
-  Unlifted -> 1
-
-getLevity :: Get.Get Levity
-getLevity = getTagged "levity" [(0, Lifted), (1, Unlifted)]
-
-putVecCount :: VecCount -> Builder.Builder
-putVecCount count = cborWord $ case count of
-  Vec2 -> 0
-  Vec4 -> 1
-  Vec8 -> 2
-  Vec16 -> 3
-  Vec32 -> 4
-  Vec64 -> 5
-
-getVecCount :: Get.Get VecCount
-getVecCount = getTagged "vector count" [(0, Vec2), (1, Vec4), (2, Vec8), (3, Vec16), (4, Vec32), (5, Vec64)]
-
-putVecElem :: VecElem -> Builder.Builder
-putVecElem element = cborWord $ case element of
-  Int8ElemRep -> 0
-  Int16ElemRep -> 1
-  Int32ElemRep -> 2
-  Int64ElemRep -> 3
-  Word8ElemRep -> 4
-  Word16ElemRep -> 5
-  Word32ElemRep -> 6
-  Word64ElemRep -> 7
-  FloatElemRep -> 8
-  DoubleElemRep -> 9
-
-getVecElem :: Get.Get VecElem
-getVecElem =
-  getTagged
-    "vector element"
-    [ (0, Int8ElemRep),
-      (1, Int16ElemRep),
-      (2, Int32ElemRep),
-      (3, Int64ElemRep),
-      (4, Word8ElemRep),
-      (5, Word16ElemRep),
-      (6, Word32ElemRep),
-      (7, Word64ElemRep),
-      (8, FloatElemRep),
-      (9, DoubleElemRep)
-    ]
-
 getTagged :: String -> [(Word64, value)] -> Get.Get value
 getTagged label values = do
   tag <- getWord
   case lookup tag values of
     Just value -> pure value
     Nothing -> fail ("unsupported " <> label)
-
-sum0 :: Word64 -> Builder.Builder
-sum0 tag = cborArray 1 <> cborWord tag
 
 sum1 :: Word64 -> Builder.Builder -> Builder.Builder
 sum1 tag first = cborArray 2 <> cborWord tag <> first

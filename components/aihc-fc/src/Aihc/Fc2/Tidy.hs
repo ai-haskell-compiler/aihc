@@ -117,9 +117,11 @@ tidyRecBind env binder bind =
 
 tidyAlt :: TidyEnv -> Alt -> Alt
 tidyAlt env alternative =
-  let (binders, rhsEnv) = tidyBinders env (altBinders alternative)
+  let (typeBinders, typeEnv) = tidyBinders env (altTypeBinders alternative)
+      (binders, rhsEnv) = tidyBinders typeEnv (altBinders alternative)
    in alternative
         { altCon = tidyAltCon env (altCon alternative),
+          altTypeBinders = typeBinders,
           altBinders = binders,
           altRhs = tidyExpr rhsEnv (altRhs alternative)
         }

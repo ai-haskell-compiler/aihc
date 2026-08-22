@@ -330,16 +330,21 @@ prettyAlt env scopes alternative =
   prettyAltHead env scopes alternative
     <> " →"
     <> hardline
-    <> indent 4 (prettyExprWith env scopes (altRhs alternative))
+    <> indent 4 (prettyExprWith bodyEnv scopes (altRhs alternative))
+  where
+    typeEnv = foldl extendPrettyEnv env (altTypeBinders alternative)
+    bodyEnv = foldl extendPrettyEnv typeEnv (altBinders alternative)
 
 prettyAltHead :: TypeEnv -> ScopeTable -> Alt -> Doc ann
 prettyAltHead env scopes alternative =
   case altCon alternative of
     AltDefault -> "_"
-    AltLit literal -> prettyLiteral scopes literal <> prettyAltBinders
-    AltData name -> prettyName scopes name <> prettyAltBinders
+    AltLit literal -> prettyLiteral scopes literal <> prettyTypeBinders <> prettyAltBinders
+    AltData name -> prettyName scopes name <> prettyTypeBinders <> prettyAltBinders
   where
-    prettyAltBinders = foldMap ((space <>) . prettyPiBinder env scopes) (altBinders alternative)
+    typeEnv = foldl extendPrettyEnv env (altTypeBinders alternative)
+    prettyTypeBinders = foldMap ((space <>) . ("@" <>) . prettyPiBinder env scopes) (altTypeBinders alternative)
+    prettyAltBinders = foldMap ((space <>) . prettyPiBinder typeEnv scopes) (altBinders alternative)
 
 prettyIndentedItems :: Int -> [Doc ann] -> Doc ann
 prettyIndentedItems _ [] = mempty

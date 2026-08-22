@@ -15,7 +15,6 @@ where
 import Aihc.Grin.Analysis (freeExprVars, freeNodeVars)
 import Aihc.Grin.Cps (ContinuationFrameKind, CpsGrinProgram (..))
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types (RuntimeRep (..))
 import Control.Monad.Trans.State.Strict (State, evalState, get, put)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map

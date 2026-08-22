@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Convert a checked module into System FC 2 types, axioms, and values.
 module Aihc.Fc2.Desugar
@@ -46,22 +47,21 @@ import Aihc.Tc
   )
 import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types
-  ( Kind (..),
-    Pred (..),
+  ( Pred (..),
     TcType (..),
-    TyCon,
     TyVarId,
     TypeScheme (..),
     Unique (..),
     tyConKey,
-    tyConKind,
     tyConModuleName,
     tyConName,
     tyConPackageId,
-    typeKind,
+    pattern KFun,
+    pattern KType,
   )
 import Control.Monad (zipWithM)
 import Data.List (nub, sort)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -113,7 +113,10 @@ desugarChecked config bindings interface checked = do
       env =
         withAxioms
           (axiomEntries packageId currentModule dataTypes dataFamilyInstances typeFamilyInstances)
-          (withClassTyCons (map (tyConKey . ciTyCon) classes) (emptyConvertEnv (primPackageId config)))
+          ( withKindEnv
+              (Map.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tyCons])
+              (withClassTyCons (map (tyConKey . ciTyCon) classes) (emptyConvertEnv (primPackageId config)))
+          )
   typeDecls <-
     concat
       <$> mapM
@@ -312,7 +315,7 @@ removeClassPredicate className predicates =
 convertNewtype :: ConvertEnv -> DataTypeInfo -> Either String [Decl]
 convertNewtype env info = do
   let tyCon = dtiTyCon info
-      tyVars = extraKindVars tyCon (dtiTyVars info) <> dtiTyVars info
+      tyVars = extraKindVars env tyCon (dtiTyVars info) <> dtiTyVars info
       bindersEnv = withTyVars tyVars env
   binders <- mapM (tyVarBinder bindersEnv) tyVars
   result <- convertKind bindersEnv (dtiResultKind info)
@@ -349,13 +352,14 @@ convertNewtype env info = do
 convertEmptyFamily :: ConvertEnv -> [Text] -> Role -> TyConInfo -> Either String Decl
 convertEmptyFamily env paramNames roles info = do
   let tyCon = tciTyCon info
-      argKinds = take (tciArity info) (visibleArgKinds (tyConKind tyCon))
+      constructorKind = schemeBody (tciKindScheme info)
+      argKinds = take (tciArity info) (visibleArgKinds constructorKind)
       names =
         if length paramNames == length argKinds
           then paramNames
           else ["a" <> T.pack (show index) | index <- [1 .. length argKinds]]
   binders <- zipWithM (kindBinder env) names argKinds
-  result <- convertKind env (dropKindParams (length binders) (tyConKind tyCon))
+  result <- convertKind env (dropKindParams (length binders) constructorKind)
   pure
     ( DeclType
         TypeDecl
@@ -368,18 +372,18 @@ convertEmptyFamily env paramNames roles info = do
           }
     )
 
-kindBinder :: ConvertEnv -> Text -> Kind -> Either String Binder
+kindBinder :: ConvertEnv -> Text -> TcType -> Either String Binder
 kindBinder env name kind = do
   converted <- convertKind env kind
   pure (Binder (Name name SortTypeVariable (OriginLocal (Unique 0))) converted)
 
-visibleArgKinds :: Kind -> [Kind]
+visibleArgKinds :: TcType -> [TcType]
 visibleArgKinds kind =
   case kind of
     KFun argument result -> argument : visibleArgKinds result
     _ -> []
 
-dropKindParams :: Int -> Kind -> Kind
+dropKindParams :: Int -> TcType -> TcType
 dropKindParams remaining kind
   | remaining <= 0 = kind
 dropKindParams remaining (KFun _ result) = dropKindParams (remaining - 1) result
@@ -392,7 +396,8 @@ convertDataFamilyInst env package moduleName' bindings info = do
       representationTyCon = dfiiRepresentationTyCon info
       representationName = tyConNameFc2 env representationTyCon
   binders <- mapM (tyVarBinder bindersEnv) tyVars
-  result <- convertKind bindersEnv (typeKind (TcTyCon representationTyCon (map TcTyVar tyVars)))
+  representationKind <- typeKindInEnv bindersEnv (TcTyCon representationTyCon (map TcTyVar tyVars))
+  result <- convertKind bindersEnv representationKind
   familyType <- convertType bindersEnv (dfiiFamilyType info)
   let representationType = foldl TyApp (TyCon representationName) (map (TyVar . binderName) binders)
       familyAxiom =
@@ -521,7 +526,7 @@ lookupSynonym package moduleName' name tyCons =
 convertDataType :: ConvertEnv -> DataTypeInfo -> Either String Decl
 convertDataType env info = do
   let tyCon = dtiTyCon info
-      tyVars = extraKindVars tyCon (dtiTyVars info) <> dtiTyVars info
+      tyVars = extraKindVars env tyCon (dtiTyVars info) <> dtiTyVars info
       bindersEnv = withTyVars tyVars env
   binders <- mapM (tyVarBinder bindersEnv) tyVars
   result <- convertKind bindersEnv (dtiResultKind info)
@@ -589,7 +594,7 @@ convertSynonym env info =
       | Just body <- tsiBody synonym -> do
           let bindersEnv = withTyVars (tsiParams synonym) env
           binders <- mapM (tyVarBinder bindersEnv) (tsiParams synonym)
-          result <- synonymResult bindersEnv (tciTyCon info) (tsiParams synonym)
+          result <- synonymResult bindersEnv (tciKindScheme info) (tsiParams synonym)
           convertedBody <- convertType bindersEnv body
           pure
             ( DeclSynonym
@@ -604,14 +609,17 @@ convertSynonym env info =
       | otherwise -> Left ("type synonym " <> T.unpack (tciName info) <> " has no body")
     Nothing -> Left ("type synonym " <> T.unpack (tciName info) <> " has no synonym info")
 
-synonymResult :: ConvertEnv -> TyCon -> [TyVarId] -> Either String Type
-synonymResult env tyCon params =
-  convertKind env (dropParams (length params) (tyConKind tyCon))
+synonymResult :: ConvertEnv -> TypeScheme -> [TyVarId] -> Either String Type
+synonymResult env scheme params =
+  convertKind env (dropParams (length params) (schemeBody scheme))
   where
     dropParams remaining kind
       | remaining <= 0 = kind
     dropParams remaining (KFun _ result) = dropParams (remaining - 1) result
     dropParams _ kind = kind
+
+schemeBody :: TypeScheme -> TcType
+schemeBody (ForAll _ _ body) = body
 
 buildScopes :: (PackageId, Text) -> [Decl] -> ScopeTable
 buildScopes moduleOrigin decls =
@@ -684,6 +692,7 @@ bindOrigins bind = binderOrigins (bindBinder bind) <> exprOrigins (bindRhs bind)
 altOrigins :: Alt -> [(PackageId, Text)]
 altOrigins alternative =
   altConOrigins (altCon alternative)
+    <> concatMap binderOrigins (altTypeBinders alternative)
     <> concatMap binderOrigins (altBinders alternative)
     <> exprOrigins (altRhs alternative)
 

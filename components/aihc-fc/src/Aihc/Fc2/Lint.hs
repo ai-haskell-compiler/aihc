@@ -20,7 +20,7 @@ import Control.Monad (foldM, unless, when)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, isNothing, listToMaybe)
+import Data.Maybe (catMaybes, listToMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -471,9 +471,11 @@ lintAlt :: LintEnv -> Type -> Alt -> Either LintError Type
 lintAlt env scrutType alt =
   case altCon alt of
     AltDefault -> do
+      unless (null (altTypeBinders alt)) (Left (LintFailure "default alternative has type binders"))
       unless (null (altBinders alt)) (Left (LintFailure "default alternative has field binders"))
       lintExpr env (altRhs alt)
     AltLit literal -> do
+      unless (null (altTypeBinders alt)) (Left (LintFailure "literal alternative has type binders"))
       unless (null (altBinders alt)) (Left (LintFailure "literal alternative has field binders"))
       matchLiteralAlternative env scrutType literal
       lintExpr env (altRhs alt)
@@ -482,27 +484,21 @@ lintAlt env scrutType alt =
         Nothing -> Left (UnboundName name)
         Just constructorType -> do
           (existentials, fields) <- matchConstructor env constructorType scrutType
+          unless (length existentials == length (altTypeBinders alt)) (Left (LintFailure ("case alternative type-binder count does not match constructor: " <> show name)))
           unless (length fields == length (altBinders alt)) (Left (LintFailure ("case alternative binder count does not match constructor: " <> show name)))
-          existentialSubst <- matchExistentialFields env existentials fields (map binderType (altBinders alt))
-          envEx <- foldM (bindMatchedExistential existentialSubst) env existentials
+          (existentialSubst, envEx) <- foldM bindExistential (Map.empty, env) (zip existentials (altTypeBinders alt))
           let matchedFields = map (applySubst existentialSubst) fields
           envFields <- foldM (bindField name) envEx (zip matchedFields (altBinders alt))
           lintExpr envFields (altRhs alt)
 
-matchExistentialFields :: LintEnv -> [Binder] -> [Type] -> [Type] -> Either LintError (Map Name Type)
-matchExistentialFields env existentials expected actual =
-  foldM matchOne Map.empty (zip expected actual)
-  where
-    names = map binderName existentials
-    matchOne subst (expectedType, actualType) = matchExpected env names subst expectedType actualType
-
-bindMatchedExistential :: Map Name Type -> LintEnv -> Binder -> Either LintError LintEnv
-bindMatchedExistential subst env binder =
-  case Map.lookup (binderName binder) subst of
-    Just (TyVar actualName)
-      | isNothing (lookupBinderType (leTypes env) actualName) ->
-          bindLocal env (Binder actualName (applySubst subst (binderType binder)))
-    _ -> Right env
+bindExistential :: (Map Name Type, LintEnv) -> (Binder, Binder) -> Either LintError (Map Name Type, LintEnv)
+bindExistential (subst, env) (expected, actual) = do
+  let expectedKind = applySubst subst (binderType expected)
+      actualKind = binderType actual
+  unless (nameSort (binderName actual) == SortTypeVariable) (Left (LintFailure "case alternative type binder has the wrong sort"))
+  unless (typesEqual (leTypes env) expectedKind actualKind) (Left (KindMismatch "case alternative type binder" expectedKind actualKind))
+  env' <- bindLocal env actual
+  pure (Map.insert (binderName expected) (TyVar (binderName actual)) subst, env')
 
 matchLiteralAlternative :: LintEnv -> Type -> Literal -> Either LintError ()
 matchLiteralAlternative env scrutType literal = do
@@ -519,7 +515,7 @@ matchConstructor :: LintEnv -> Type -> Type -> Either LintError ([Binder], [Type
 matchConstructor env constructorType scrutType = do
   let (foralls, fields, result) = splitConType env constructorType
   subst <- matchExpected env (map binderName foralls) Map.empty result scrutType
-  let existentials = [binder | binder <- foralls, binderName binder `Map.notMember` subst]
+  let existentials = [binder {binderType = applySubst subst (binderType binder)} | binder <- foralls, binderName binder `Map.notMember` subst]
       substituted = map (applySubst subst) fields
   Right (existentials, substituted)
 

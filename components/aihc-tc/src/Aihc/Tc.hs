@@ -49,15 +49,11 @@ module Aihc.Tc
     -- * Re-exports for convenience
     TcType (..),
     TcTypeKey,
-    Kind (..),
-    RuntimeRep (..),
-    Levity (..),
-    VecCount (..),
-    VecElem (..),
+    TcKindEnv,
     TyCon (..),
     tyConKey,
-    tyConKind,
-    tyConKindScheme,
+    tyConPackageId,
+    tyConModuleName,
     TyVarId (..),
     tvKind,
     TypeScheme (..),
@@ -82,10 +78,10 @@ module Aihc.Tc
     Unique (..),
     liftedRuntimeRep,
     liftedTypeKind,
-    typeKind,
-    runtimeRepOfType,
-    isLiftedType,
-    isUnliftedType,
+    typeKindInEnv,
+    runtimeRepOfTypeInEnv,
+    isLiftedTypeInEnv,
+    isUnliftedTypeInEnv,
     TcAnnotation (..),
     TcDerivingAnnotation (..),
     TcDerivingContext (..),
@@ -538,7 +534,7 @@ typecheckModuleSccWithState config st modules =
             st'
               { tcsDiagnostics = [],
                 tcsMetaSolutions = Map.empty,
-                tcsKindSolutions = Map.empty,
+                tcsTrackedKindMetas = mempty,
                 tcsEvBinds = Map.empty
               }
        in (results, nextState)
@@ -586,7 +582,7 @@ typecheckModuleWithState config st m =
             st'
               { tcsDiagnostics = [],
                 tcsMetaSolutions = Map.empty,
-                tcsKindSolutions = Map.empty,
+                tcsTrackedKindMetas = mempty,
                 tcsEvBinds = Map.empty
               }
        in (result, nextState)

@@ -1,14 +1,19 @@
 ---
 extensions:
+- DataKinds
 - ForeignFunctionInterface
+- KindSignatures
 - MagicHash
+- StandaloneKindSignatures
 - UnboxedTuples
 modules:
 - |
   module Test where
 
   import GHC.Prim (Int#)
+  import GHC.Types (RuntimeRep (..), TYPE, Type)
 
+  type State# :: Type -> TYPE ('TupleRep '[])
   data State# s
   data RealWorld
   data Int = I# Int#

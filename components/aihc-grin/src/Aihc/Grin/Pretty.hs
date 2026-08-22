@@ -6,7 +6,6 @@ module Aihc.Grin.Pretty
 where
 
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Data.ByteString qualified as BS
 import Data.Char (chr, isPrint, isSpace)
 import Data.List (intercalate)
@@ -37,7 +36,7 @@ renderExternalFunction info =
     <> " = "
     <> renderFunctionName (grinCodeFunctionName info)
 
-renderConstructor :: (T.Text, [[RuntimeRep]]) -> String
+renderConstructor :: (T.Text, [[GrinRep]]) -> String
 renderConstructor (name, fieldLayouts) =
   "constructor "
     <> renderName name
@@ -280,20 +279,18 @@ renderVar var =
 renderVarAtom :: GrinVar -> String
 renderVarAtom var = "(" <> renderVar var <> ")"
 
-renderRuntimeRepArgument :: RuntimeRep -> String
+renderRuntimeRepArgument :: GrinRep -> String
 renderRuntimeRepArgument runtimeRep =
   case runtimeRep of
     VecRep {} -> parenthesized
     TupleRep {} -> parenthesized
     SumRep {} -> parenthesized
     BoxedRep {} -> parenthesized
-    RuntimeRepVar {} -> parenthesized
-    RuntimeRepMeta {} -> parenthesized
     _ -> show runtimeRep
   where
     parenthesized = "(" <> show runtimeRep <> ")"
 
-renderLayouts :: [[RuntimeRep]] -> String
+renderLayouts :: [[GrinRep]] -> String
 renderLayouts layouts = "[" <> intercalate ", " (map renderLayout layouts) <> "]"
   where
     renderLayout layout = "[" <> intercalate ", " (map show layout) <> "]"

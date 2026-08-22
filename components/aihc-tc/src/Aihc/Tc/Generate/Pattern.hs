@@ -29,12 +29,13 @@ import Aihc.Parser.Syntax
     peelPatternAnn,
   )
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
-import Aihc.Tc.Annotations (PendingTcAnnotation, pendingAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Instantiate (Instantiation (..), applySubst, instantiateWithArgs)
+import Aihc.Tc.Kind (tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Data.Either (fromRight)
@@ -132,10 +133,11 @@ checkPatternCore gadtHandling sp pat scrutTy =
       let arity = length items
           typeName = tupleTyConText flavor arity
       maybeTyCon <- lookupTyCon typeName
+      elementKinds <- mapM tcTypeKind elemTys
       let fallbackKind =
             case flavor of
-              Boxed -> foldr (KFun . typeKind) KType elemTys
-              Unboxed -> foldr (KFun . typeKind) (KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) elemTys))) elemTys
+              Boxed -> foldr KFun KType elementKinds
+              Unboxed -> foldr KFun (KTYPE (TupleRep (map runtimeRepOrLifted elementKinds))) elementKinds
       tupleTyCon <-
         case maybeTyCon of
           Just info -> pure (tciTyCon info)
@@ -148,6 +150,9 @@ checkPatternCore gadtHandling sp pat scrutTy =
 
 checkedOnly :: Pattern -> PatternCheck
 checkedOnly pat = mempty {pcPatterns = [pat]}
+
+runtimeRepOrLifted :: TcType -> TcType
+runtimeRepOrLifted kind = fromRight liftedRuntimeRep (runtimeRepFromKind kind)
 
 checkedLiteral :: TcType -> Literal -> Literal
 checkedLiteral ty = LitAnn (mkAnnotation (pendingAnnotation ty [] [] []))
@@ -407,7 +412,7 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
             | null predicateGivens && null skolems = rebuiltPattern
             | otherwise =
                 PAnn
-                  (mkAnnotation (pendingAnnotation conTy typeArgs (map ctEvVar predicateGivens) []))
+                  (mkAnnotation (PendingTcAnnotation conTy skolems typeArgs (map ctEvVar predicateGivens) []))
                   rebuiltPattern
       pure
         subCheck
@@ -476,7 +481,6 @@ typeTyVars ty =
     TcForAllTy tyVar body -> Set.delete (tvUnique tyVar) (typeTyVars body)
     TcQualTy predicates body -> Set.unions (typeTyVars body : map predTyVars predicates)
     TcAppTy function argument -> typeTyVars function <> typeTyVars argument
-    TcBuiltinTyCon _ _ arguments -> Set.unions (map typeTyVars arguments)
 
 predTyVars :: Pred -> Set.Set Unique
 predTyVars predicate =

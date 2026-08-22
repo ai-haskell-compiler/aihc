@@ -104,7 +104,9 @@ typeOf env ty =
     TyVar name ->
       Map.lookup name (teBinders env)
     TyCon name ->
-      lookupHeaderType env name
+      case promotedListType env name of
+        Just promotedKind -> Just promotedKind
+        Nothing -> lookupHeaderType env name
     TyApp function argument ->
       do
         functionType <- typeOf env function
@@ -115,6 +117,23 @@ typeOf env ty =
       typeOf (extendBinder env binder) body
     TyEq {} ->
       TyCon . constraintName <$> tePrimPackage env
+
+promotedListType :: TypeEnv -> Name -> Maybe Type
+promotedListType env name = do
+  package <- tePrimPackage env
+  if nameSort name /= SortDataConstructor || not (isGhcTypesOrigin package name)
+    then Nothing
+    else case nameText name of
+      "[]" -> Just (TyForAll kindBinder listKind)
+      ":" -> Just (TyForAll kindBinder (TyFun lifted lifted kindVariable (TyFun lifted lifted listKind listKind)))
+      _ -> Nothing
+  where
+    kindName = Name "k" SortTypeVariable (OriginLocal (Unique (-1000)))
+    kindVariable = TyVar kindName
+    kindBinder = Binder kindName (maybe kindVariable typeSynonym (tePrimPackage env))
+    listName package = Name "[]" SortTypeConstructor (OriginTop package "GHC.Types")
+    listKind = maybe kindVariable (\package -> TyApp (TyCon (listName package)) kindVariable) (tePrimPackage env)
+    lifted = maybe kindVariable (TyCon . liftedRepName) (tePrimPackage env)
 
 applyType :: Type -> Type -> Maybe Type
 applyType function argument =

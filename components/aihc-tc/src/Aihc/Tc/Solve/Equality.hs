@@ -10,6 +10,7 @@ where
 
 import Aihc.Tc.Constraint
 import Aihc.Tc.Evidence
+import Aihc.Tc.Kind (tcTypeKind, unifyKinds)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
@@ -76,6 +77,9 @@ solveMetaEq :: Ct -> Unique -> TcType -> TcM EqResult
 solveMetaEq ct u ty
   | occursIn u ty = pure (EqError ct)
   | otherwise = do
+      declaredKind <- readMetaTvKind u
+      solvedKind <- tcTypeKind ty
+      unifyKinds declaredKind solvedKind
       writeMetaTv u ty
       bindEvidence (ctEvVar ct) (EvCoercion (Refl ty))
       pure EqSolved
@@ -108,7 +112,6 @@ occursIn u = go
     go (TcForAllTy _ body) = go body
     go (TcQualTy preds body) = any goPred preds || go body
     go (TcAppTy f a) = go f || go a
-    go (TcBuiltinTyCon _ _ arguments) = any go arguments
 
     goPred (ClassPred _ args) = any go args
     goPred (EqPred a b) = go a || go b

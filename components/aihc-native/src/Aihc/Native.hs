@@ -31,7 +31,6 @@ module Aihc.Native
 where
 
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types (RuntimeRep)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Char (chr)
@@ -133,7 +132,7 @@ backendCompiler target =
 -- | The process-wide constructor tags and global table slots shared by all
 -- compilation units in one executable.
 data LinkLayout = LinkLayout
-  { linkConstructors :: ![(Text, [[RuntimeRep]])],
+  { linkConstructors :: ![(Text, [[GrinRep]])],
     linkGlobalNames :: ![Text]
   }
   deriving (Eq, Show)
@@ -141,7 +140,7 @@ data LinkLayout = LinkLayout
 -- | Constructor and global-table metadata exported by a compilation
 -- unit. Code generation for another unit never needs its GRIN bodies.
 data LinkInterface = LinkInterface
-  { linkInterfaceConstructors :: ![(Text, [[RuntimeRep]])],
+  { linkInterfaceConstructors :: ![(Text, [[GrinRep]])],
     linkInterfaceGlobalNames :: ![Text]
   }
   deriving (Eq, Show, Read)

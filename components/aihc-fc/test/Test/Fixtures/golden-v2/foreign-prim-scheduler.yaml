@@ -1,15 +1,22 @@
 ---
 extensions:
+- DataKinds
 - ForeignFunctionInterface
 - GHCForeignImportPrim
+- KindSignatures
 - MagicHash
+- StandaloneKindSignatures
 - UnboxedTuples
 modules:
 - |
   module Test where
 
+  import GHC.Types (RuntimeRep (..), TYPE, Type, UnliftedType)
+
+  type State# :: Type -> TYPE ('TupleRep '[])
   data State# s
   data RealWorld
+  type ThreadId# :: UnliftedType
   data ThreadId#
 
   foreign import prim fork# ::

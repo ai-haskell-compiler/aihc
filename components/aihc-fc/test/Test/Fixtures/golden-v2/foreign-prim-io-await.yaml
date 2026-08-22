@@ -1,14 +1,19 @@
 ---
 extensions:
+- DataKinds
 - ForeignFunctionInterface
 - GHCForeignImportPrim
+- KindSignatures
 - MagicHash
+- StandaloneKindSignatures
 modules:
 - |
   module Test where
 
   import GHC.Prim (Addr#)
+  import GHC.Types (RuntimeRep (..), TYPE, Type)
 
+  type State# :: Type -> TYPE ('TupleRep '[])
   data State# s
   data RealWorld
 

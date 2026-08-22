@@ -5,9 +5,11 @@ In that test, explain fully why the property is essential and why the framework 
 -}
 module Test.Tc.Suite
   ( tcAnnotatedGoldenTests,
+    tcTypeKindGoldenTests,
   )
 where
 
+import Data.List (isPrefixOf)
 import TcAnnotatedGolden qualified as TAG
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase)
@@ -18,6 +20,11 @@ tcAnnotatedGoldenTests = do
   cases <- TAG.loadTcAnnotatedCases
   let tests = map mkAnnotatedGoldenTest cases
   pure (testGroup "tc-annotated-golden" tests)
+
+tcTypeKindGoldenTests :: IO TestTree
+tcTypeKindGoldenTests = do
+  cases <- filter (("tctype-" `isPrefixOf`) . TAG.caseId) <$> TAG.loadTcAnnotatedCases
+  pure (testGroup "tc-type-kind-golden" (map mkAnnotatedGoldenTest cases))
 
 mkAnnotatedGoldenTest :: TAG.TcAnnotatedCase -> TestTree
 mkAnnotatedGoldenTest tcase = testCase (TAG.caseId tcase) $ do

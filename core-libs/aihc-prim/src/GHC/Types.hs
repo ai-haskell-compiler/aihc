@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 {-# HLINT ignore "Unused LANGUAGE pragma" #-}
@@ -10,6 +11,7 @@ module GHC.Types
     Int (..),
     Bool (..),
     Ordering (..),
+    Constraint,
     TYPE,
     Type,
     LiftedType,
@@ -98,6 +100,9 @@ data Int = I# Int#
 data Bool = False | True
 
 data Ordering = LT | EQ | GT
+
+type Constraint :: Type
+data Constraint
 
 data TYPE (rep :: RuntimeRep)
 

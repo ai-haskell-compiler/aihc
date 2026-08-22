@@ -19,12 +19,12 @@ import Aihc.Tc.Env (TyConFlavor (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Kind (TvKindEnv, checkSurfaceType)
 import Aihc.Tc.Monad (TcM, emitError, emitWarning)
-import Aihc.Tc.Types (Kind)
+import Aihc.Tc.Types (TcType)
 import Control.Monad (unless, when)
 import Data.Text (Text)
 import Data.Text qualified as T
 
-checkDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Maybe (Text, Text) -> TvKindEnv -> Kind -> SourceSpan -> Maybe DerivingStrategy -> TcM TcDerivingStrategy
+checkDerivingStrategy :: [Extension] -> TyConFlavor -> Text -> Maybe (Text, Text) -> TvKindEnv -> TcType -> SourceSpan -> Maybe DerivingStrategy -> TcM TcDerivingStrategy
 checkDerivingStrategy extensions targetFlavor className classOrigin tvEnv targetKind sourceSpan strategy =
   case strategy of
     Nothing -> selectDefaultDerivingStrategy extensions targetFlavor className classOrigin sourceSpan

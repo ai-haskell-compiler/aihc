@@ -20,6 +20,7 @@ import Aihc.Parser.Syntax
     effectiveExtensions,
     headerExtensionSettings,
     headerLanguageEdition,
+    moduleName,
     parseExtensionName,
     parseLanguageEdition,
   )
@@ -256,7 +257,7 @@ preparePrimitiveSupport primitiveModules =
                                 supportPrograms = map ds2Program primitiveResults
                               }
                         else Left (unlines (concatMap ds2Errors primitiveResults))
-                else Left ("typecheck error: " <> unlines [show d | r <- primitiveTcResults, d <- tcModuleDiagnostics r])
+                else Left ("typecheck error: " <> unlines [show (moduleName ast) <> ": " <> show diagnostic | (ast, result) <- zip primitiveAsts primitiveTcResults, diagnostic <- tcModuleDiagnostics result])
         ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
 
 primitivePackage :: Package

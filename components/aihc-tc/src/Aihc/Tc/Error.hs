@@ -38,7 +38,7 @@ data TcErrorKind
   | -- | Unbound variable.
     UnboundVariable !String
   | -- | Type-level expression has a different kind than expected.
-    KindMismatch !Kind !Kind
+    KindMismatch !TcType !TcType
   | -- | Unsolved wanted constraint.
     UnsolvedWanted !Pred !CtOrigin
   | -- | A source top-level value has an unlifted runtime representation.

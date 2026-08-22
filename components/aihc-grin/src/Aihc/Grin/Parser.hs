@@ -11,14 +11,6 @@ module Aihc.Grin.Parser
 where
 
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types
-  ( Levity (..),
-    RuntimeRep (..),
-    Unique (..),
-    VecCount (..),
-    VecElem (..),
-    liftedRuntimeRep,
-  )
 import Control.Applicative (optional, (<|>))
 import Control.Monad (guard, void, when)
 import Data.ByteString qualified as BS
@@ -46,7 +38,7 @@ renderParseError :: GrinParseError -> String
 renderParseError = MP.errorBundlePretty
 
 data TopDeclaration
-  = TopConstructor (Text, [[RuntimeRep]])
+  = TopConstructor (Text, [[GrinRep]])
   | TopPrimitive (GrinVar, Int)
   | TopForeign GrinForeignCall
   | TopExternalGlobal Text
@@ -387,7 +379,7 @@ ensureHeapExpr = do
   lineEnd
   pure (GrinEnsureHeap requiredWords roots)
 
-runtimeRepValueExpr :: Text -> (RuntimeRep -> GrinValue -> GrinExpr) -> Parser GrinExpr
+runtimeRepValueExpr :: Text -> (GrinRep -> GrinValue -> GrinExpr) -> Parser GrinExpr
 runtimeRepValueExpr expressionName constructor = do
   keyword expressionName
   horizontal1
@@ -421,7 +413,7 @@ cpsEvalExpr = do
   lineEnd
   pure (GrinCpsEval representation value continuation updateContinuation)
 
-namedCallExpr :: Text -> (RuntimeRep -> FunctionName -> [GrinValue] -> GrinExpr) -> Parser GrinExpr
+namedCallExpr :: Text -> (GrinRep -> FunctionName -> [GrinValue] -> GrinExpr) -> Parser GrinExpr
 namedCallExpr expressionName constructor = do
   keyword expressionName
   horizontal1
@@ -549,7 +541,7 @@ nodeTag =
           MP.try layouts <|> do
             arity <- natural
             exactLayouts <- optional layouts
-            let parsedLayouts = fromMaybe (replicate arity [liftedRuntimeRep]) exactLayouts
+            let parsedLayouts = fromMaybe (replicate arity [liftedGrinRep]) exactLayouts
             when (arity /= length parsedLayouts) $ fail "closure arity does not match its layouts"
             pure parsedLayouts
         pure (GrinClosure functionName argumentLayouts),
@@ -652,10 +644,10 @@ foreignType =
       GrinForeignAddr <$ keyword "addr"
     ]
 
-runtimeRepArgument :: Parser RuntimeRep
+runtimeRepArgument :: Parser GrinRep
 runtimeRepArgument = MPC.char '@' *> runtimeRep
 
-runtimeRep :: Parser RuntimeRep
+runtimeRep :: Parser GrinRep
 runtimeRep =
   MP.try (betweenHorizontal '(' ')' runtimeRep)
     <|> MP.choice
@@ -663,8 +655,6 @@ runtimeRep =
         TupleRep <$ keyword "TupleRep" <* horizontal1 <*> runtimeRepList,
         SumRep <$ keyword "SumRep" <* horizontal1 <*> runtimeRepList,
         BoxedRep <$ keyword "BoxedRep" <* horizontal1 <*> levity,
-        RuntimeRepVar <$ keyword "RuntimeRepVar" <* horizontal1 <*> unique,
-        RuntimeRepMeta <$ keyword "RuntimeRepMeta" <* horizontal1 <*> unique,
         Int8Rep <$ keyword "Int8Rep",
         Int16Rep <$ keyword "Int16Rep",
         Int32Rep <$ keyword "Int32Rep",
@@ -680,22 +670,22 @@ runtimeRep =
         DoubleRep <$ keyword "DoubleRep"
       ]
 
-runtimeRepList :: Parser [RuntimeRep]
+runtimeRepList :: Parser [GrinRep]
 runtimeRepList = betweenHorizontal '[' ']' (runtimeRep `MP.sepBy` commaSeparator)
 
-constructorLayouts :: Parser [[RuntimeRep]]
+constructorLayouts :: Parser [[GrinRep]]
 constructorLayouts =
   betweenHorizontal '[' ']' (constructorLayout `MP.sepBy` commaSeparator)
   where
     constructorLayout = runtimeRepList <|> ((: []) <$> runtimeRep)
 
-layouts :: Parser [[RuntimeRep]]
+layouts :: Parser [[GrinRep]]
 layouts = betweenHorizontal '[' ']' (runtimeRepList `MP.sepBy` commaSeparator)
 
-levity :: Parser Levity
+levity :: Parser GrinLevity
 levity = Lifted <$ keyword "Lifted" <|> Unlifted <$ keyword "Unlifted"
 
-vecCount :: Parser VecCount
+vecCount :: Parser GrinVecCount
 vecCount =
   MP.choice
     [ Vec2 <$ keyword "Vec2",
@@ -706,7 +696,7 @@ vecCount =
       Vec64 <$ keyword "Vec64"
     ]
 
-vecElem :: Parser VecElem
+vecElem :: Parser GrinVecElem
 vecElem =
   MP.choice
     [ Int8ElemRep <$ keyword "Int8ElemRep",
@@ -720,12 +710,6 @@ vecElem =
       FloatElemRep <$ keyword "FloatElemRep",
       DoubleElemRep <$ keyword "DoubleElemRep"
     ]
-
-unique :: Parser Unique
-unique = betweenHorizontal '(' ')' (Unique <$ keyword "Unique" <* horizontal1 <*> signedIntAtom)
-
-signedIntAtom :: Parser Int
-signedIntAtom = MP.try (betweenHorizontal '(' ')' signedInt) <|> signedInt
 
 name :: Parser Text
 name = stringText <|> MP.takeWhile1P (Just "name") isBareNameCharacter

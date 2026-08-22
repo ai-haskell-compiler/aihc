@@ -44,12 +44,12 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Deriving.Strategy (checkDerivingStrategy)
 import Aihc.Tc.Env (ClassInfo (..), DataTypeInfo, TyConFlavor (..), TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, surfacePredToPred)
+import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkSurfaceType, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, surfacePredToPred, tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (defaultPredKinds, defaultTyVarKinds, defaultTypeKinds)
-import Control.Monad (zipWithM)
-import Data.List (find, nub, (\\))
+import Control.Monad (filterM, zipWithM)
+import Data.List (nub, (\\))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, fromMaybe, maybeToList)
 import Data.Text (Text)
@@ -152,7 +152,7 @@ checkAttachedDerivingPlan extensions targetFlavor targetInfo dataType params tvE
                   quantified = filter (\param -> any (typeMentionsTyVar (paramTyVar param)) (headTypes <> strategyTypes)) params
               pure (Just (mkDerivingPlan classSpan checkedStrategy classInfo (map paramTyVar quantified) headTypes dataType TcDerivingInferContext methods))
 
-attachedTargetType :: SourceSpan -> TyConInfo -> [ParamInfo] -> Kind -> TcM TcType
+attachedTargetType :: SourceSpan -> TyConInfo -> [ParamInfo] -> TcType -> TcM TcType
 attachedTargetType sourceSpan targetInfo params expectedKind = do
   let tyCon = tciTyCon targetInfo
       arguments = map (TcTyVar . paramTyVar) params
@@ -160,10 +160,11 @@ attachedTargetType sourceSpan targetInfo params expectedKind = do
         [ TcTyCon tyCon (take argumentCount arguments)
         | argumentCount <- [length arguments, length arguments - 1 .. 0]
         ]
-  case find ((== expectedKind) . typeKind) candidates of
-    Just target -> pure target
-    Nothing -> do
-      emitError sourceSpan (KindMismatch expectedKind (tyConKind (tciTyCon targetInfo)))
+  matching <- filterM (fmap (== expectedKind) . tcTypeKind) candidates
+  case matching of
+    target : _ -> pure target
+    [] -> do
+      emitError sourceSpan (KindMismatch expectedKind (typeSchemeBody (tciKindScheme targetInfo)))
       pure (TcTyCon tyCon arguments)
 
 annotateStandaloneDerivingTc :: [Extension] -> StandaloneDerivingDecl -> TcM Decl
@@ -354,7 +355,6 @@ typeMentionsTyVar target ty =
     TcForAllTy tyVar body -> tyVar /= target && typeMentionsTyVar target body
     TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
     TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
-    TcBuiltinTyCon _ _ arguments -> any (typeMentionsTyVar target) arguments
 
 predicateMentionsTyVar :: TyVarId -> Pred -> Bool
 predicateMentionsTyVar target predicate =

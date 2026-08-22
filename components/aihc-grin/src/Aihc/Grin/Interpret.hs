@@ -12,7 +12,6 @@ where
 
 import Aihc.Grin.Snapshot
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (when, zipWithM)
 import Control.Monad.Trans.Class (lift)
@@ -61,7 +60,7 @@ data InterpretError
   | InterpretInvalidByteArrayRange !Text !Integer !Integer !Int
   | InterpretResultArity !Int !Int
   | InterpretInvalidThunkResult ![RuntimeValue]
-  | InterpretInvalidThunkResultRep !FunctionName !RuntimeRep
+  | InterpretInvalidThunkResultRep !FunctionName !GrinRep
   | InterpretInvalidUpdateValue !RuntimeValue
   | InterpretExpectedLocation !RuntimeValue
   | InterpretInvalidLocation !Int
@@ -1104,7 +1103,7 @@ evalWordCount name operation value = do
 wordRuntimeValue :: Integer -> RuntimeValue
 wordRuntimeValue = RuntimeLit . GrinLitInt WordRep . normalizeWord
 
-expectRuntimeRepPrimitiveArgument :: Text -> RuntimeRep -> RuntimeValue -> EvalM Integer
+expectRuntimeRepPrimitiveArgument :: Text -> GrinRep -> RuntimeValue -> EvalM Integer
 expectRuntimeRepPrimitiveArgument name expectedRep value =
   case value of
     RuntimeLit (GrinLitInt actualRep intValue)

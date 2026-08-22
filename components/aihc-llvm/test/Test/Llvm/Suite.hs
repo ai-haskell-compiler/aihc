@@ -14,7 +14,6 @@ import Aihc.Native
     runtimePlan,
     supportedNativePrimitiveNames,
   )
-import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.SchedulerProgram (schedulerProgram, stdioSchedulerProgram)
 import Control.Exception (bracket)
@@ -97,7 +96,7 @@ testIntegerPrimitives = forM_ integerPrimitiveCases $ \primitiveCase -> do
 data PrimitiveCase = PrimitiveCase
   { primitiveCaseName :: !T.Text,
     primitiveCaseArguments :: ![GrinValue],
-    primitiveCaseResults :: ![RuntimeRep],
+    primitiveCaseResults :: ![GrinRep],
     primitiveCaseInstructions :: ![T.Text]
   }
 
