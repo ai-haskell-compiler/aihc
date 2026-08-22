@@ -1,58 +1,67 @@
 annotated:
 - |-
   module GHC.Num where
-  import GHC.Types (Int (..), Integer (..))
+  import GHC.Prim (Int#)
+  import GHC.Types (Int (..))
+  data Integer = IS Int#
+       │         └─ type: Int# → Integer
+       └─ type: Type
   class Num a where
   └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
     fromInteger :: Integer -> a
   instance Num Int where
   └─ $fNumInt ∷ () ⇒ Num Int
-    fromInteger (IS x) = I x
-    │               └─ type: Int#
+    fromInteger (IS x) = I# x
+    ││           ││││  │││    │  └─ type: Int#
+    ││           ││││  │││    └─ type: Int# → Int
+    ││           ││││  └─ type: Int#
+    ││           ││││  └─ type: Int#
+    ││           ││││  └─ type: Int#
+    ││           │└─ type: Integer
+    ││           │└─ type: Integer
+    ││           └─ type: Integer
+    ││           └─ type: Integer
+    └─ fromInteger ∷ Integer → Int
     └─ fromInteger ∷ Integer → Int
   instance Num Integer where
   └─ $fNumInteger ∷ () ⇒ Num Integer
     fromInteger x = x
-    │           └─ type: Integer
+    ││           │││   └─ type: Integer
+    ││           └─ type: Integer
+    ││           └─ type: Integer
+    ││           └─ type: Integer
+    └─ fromInteger ∷ Integer → Integer
     └─ fromInteger ∷ Integer → Integer
 - |-
-  module GHC.Types where
-  data Int = I Int#
-       │     └─ type: Int# → Int
-       └─ type: Type
-  data Integer = IS Int#
-       │         └─ type: Int# → Integer
-       └─ type: Type
-- |-
   module Main where
-  import GHC.Types (Int, Integer)
+  import GHC.Num (Integer)
+  import GHC.Types (Int)
   asInt :: Int
   asInt = 1 :: Int
   │       └─ type: Int; type-args: Int; evidence: $fNumInt
   └─ type: Int
   asInteger :: Integer
   asInteger = 1 :: Integer
-  │           └─ type: Integer; type-args: Integer; evidence: $fNumInteger
-  └─ type: Integer
+  │           └─ type: GHC.Num.Integer; type-args: Integer; evidence: $fNumInteger
+  └─ type: GHC.Num.Integer
 extensions:
 - MagicHash
 modules:
 - |
-  module GHC.Types where
-  data Int = I Int#
-  data Integer = IS Int#
-- |
   module GHC.Num where
-  import GHC.Types (Int (..), Integer (..))
+  import GHC.Prim (Int#)
+  import GHC.Types (Int (..))
+  data Integer = IS Int#
   class Num a where
     fromInteger :: Integer -> a
   instance Num Int where
-    fromInteger (IS x) = I x
+    fromInteger (IS x) = I# x
   instance Num Integer where
     fromInteger x = x
 - |
   module Main where
-  import GHC.Types (Int, Integer)
+  import GHC.Num (Integer)
+  import GHC.Types (Int)
   asInt :: Int
   asInt = 1 :: Int
   asInteger :: Integer

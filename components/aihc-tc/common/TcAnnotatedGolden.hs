@@ -22,25 +22,24 @@ import Aihc.Parser
     parseModule,
   )
 import Aihc.Parser.Syntax
-  ( Extension,
+  ( Extension (ImplicitPrelude),
+    LanguageEdition (Haskell98Edition),
     Module,
-    importDeclModule,
-    moduleImports,
-    moduleName,
+    effectiveExtensions,
+    headerExtensionSettings,
+    headerLanguageEdition,
     parseExtensionName,
+    parseLanguageEdition,
   )
-import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), extractInterface, resolveWithDeps, unnamedPackage)
+import Aihc.Parser.Token (readModuleHeaderPragmas)
+import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), extractInterface, modulesInPackage, resolveWithDeps)
 import Aihc.Tc
-  ( ClassInfo (ciName),
-    DataFamilyInstanceInfo (dfiiAxiomName),
-    InstanceInfo (iiDictName),
-    TcConfig,
+  ( TcConfig,
     TcInterface (..),
-    TyConInfo (tciTyCon),
-    TypeFamilyInstanceInfo (tfiiAxiomName),
-    dataTypeKey,
     emptyTcInterface,
     tcConfig,
+    tcModuleDiagnostics,
+    tcModuleSuccess,
     typecheckModuleSccWithInterface,
     typecheckModulesWithInterface,
   )
@@ -48,17 +47,15 @@ import Control.Exception (ErrorCall, displayException, evaluate, try)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
-import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (dropWhileEnd, sort)
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
-import Data.Set qualified as Set
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
-import System.Directory (doesDirectoryExist, listDirectory)
+import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
+import System.IO.Unsafe (unsafePerformIO)
 import TcAnnotatedRender (renderAnnotatedTcResults)
 
 data ExpectedStatus
@@ -86,6 +83,11 @@ data TcAnnotatedCase = TcAnnotatedCase
   }
   deriving (Eq, Show)
 
+data PrimitiveSupport = PrimitiveSupport
+  { supportScopes :: !ModuleExports,
+    supportTcInterface :: !TcInterface
+  }
+
 fixtureRoot :: FilePath
 fixtureRoot = "test/Test/Fixtures/annotated"
 
@@ -98,8 +100,42 @@ loadTcAnnotatedCases = do
   if not exists
     then pure []
     else do
+      primitiveSupport `seq` pure ()
       paths <- listFixtureFiles fixtureRoot
       mapM loadTcAnnotatedCase paths
+
+primitiveSupport :: PrimitiveSupport
+primitiveSupport = unsafePerformIO $ do
+  primitiveModules <- loadPrimitiveModules
+  case preparePrimitiveSupport primitiveModules of
+    Left errMsg -> fail errMsg
+    Right support -> pure support
+{-# NOINLINE primitiveSupport #-}
+
+loadPrimitiveModules :: IO [(FilePath, Text)]
+loadPrimitiveModules = do
+  sourceRoot <- findPrimitiveSourceRoot
+  mapM (loadOne sourceRoot) ["GHC/Classes.hs", "GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs"]
+  where
+    loadOne sourceRoot relativePath = do
+      let path = sourceRoot </> relativePath
+      source <- TIO.readFile path
+      pure (path, source)
+
+findPrimitiveSourceRoot :: IO FilePath
+findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
+  where
+    findUp directory = do
+      let candidate = directory </> "core-libs/aihc-prim/src"
+          files = [candidate </> "GHC/Classes.hs", candidate </> "GHC/Types.hs", candidate </> "GHC/Prim.hs", candidate </> "GHC/Tuple.hs"]
+      exists <- and <$> mapM doesFileExist files
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory directory
+          if parent == directory
+            then fail "Cannot find the aihc-prim source modules."
+            else findUp parent
 
 loadTcAnnotatedCase :: FilePath -> IO TcAnnotatedCase
 loadTcAnnotatedCase path = do
@@ -172,116 +208,69 @@ evaluateTcAnnotatedCasePure tc =
    in case sequence parsedModules of
         Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps coreExports (map modulePackage modules) of
+          case resolveWithDeps (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
-              case typecheckModuleGraph coreInterface (map snd resolvedModules) of
-                Left errMsg -> classifyFailure tc errMsg
-                Right results ->
-                  let actual = renderAnnotatedTcResults (caseModules tc) results
-                   in classifySuccess tc actual
+              let (results, _) =
+                    typecheckModulesWithInterface
+                      testTcConfig
+                      (supportTcInterface primitiveSupport)
+                      (map snd resolvedModules)
+                  actual = renderAnnotatedTcResults (caseModules tc) results
+               in classifySuccess tc actual
             ResolveResult {resolveErrors} ->
               classifyFailure tc ("resolve error: " <> show resolveErrors)
   where
-    corePackage = Package "aihc-prim" (PackageId "aihc-prim")
-    coreSource = "module GHC.Types (List(..)) where\ndata List a = [] | a : [a]\ninfixr 5 :\n"
-    coreModule = parseCoreModule coreSource
-    coreResolved = resolveWithDeps mempty [(corePackage, coreModule)]
-    coreExports = extractInterface coreResolved
-    coreInterface =
-      case coreResolved of
-        ResolveResult {resolvedModules = [(_, resolvedCore)], resolveErrors = []} ->
-          snd (typecheckModulesWithInterface testTcConfig emptyTcInterface [resolvedCore])
-        _ -> emptyTcInterface
-    modulePackage modu
-      | moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
-          (Package "aihc-prim" (PackageId "aihc-prim"), modu)
-      | otherwise = (unnamedPackage, modu)
     parseOne input =
-      let config =
-            defaultConfig
-              { parserSourceName = T.unpack (T.takeWhile (/= '\n') input),
-                parserExtensions = caseExtensions tc
-              }
-          (errs, ast) = parseModule config input
-       in if null errs
-            then Right ast
-            else Left (show errs)
-    parseCoreModule input =
-      let config = defaultConfig {parserSourceName = "GHC.Types"}
-          (errs, ast) = parseModule config input
-       in if null errs then ast else error (show errs)
+      parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
 
-data ModuleNode = ModuleNode
-  { nodeIndex :: !Int,
-    nodeModule :: !Module,
-    nodeDependencies :: ![Int]
-  }
+preparePrimitiveSupport :: [(FilePath, Text)] -> Either String PrimitiveSupport
+preparePrimitiveSupport primitiveModules =
+  case mapM (uncurry parsePrimitiveModule) primitiveModules of
+    Left errMsg -> Left ("parse error: " <> errMsg)
+    Right modules ->
+      case resolveWithDeps mempty (modulesInPackage primitivePackage modules) of
+        resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
+          let primitiveAsts = map snd resolvedModules
+              (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface testTcConfig emptyTcInterface primitiveAsts
+           in if all tcModuleSuccess primitiveTcResults
+                then
+                  Right
+                    PrimitiveSupport
+                      { supportScopes = extractInterface resolved,
+                        supportTcInterface = tcInterface
+                      }
+                else Left ("typecheck error: " <> unlines [show d | r <- primitiveTcResults, d <- tcModuleDiagnostics r])
+        ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
 
-typecheckModuleGraph :: TcInterface -> [Module] -> Either String [Module]
-typecheckModuleGraph baseInterface modules = do
-  (checkedModules, _) <- foldl' checkComponent (Right (Map.empty, Map.empty)) components
-  traverse (lookupCheckedModule checkedModules) [0 .. length modules - 1]
+primitivePackage :: Package
+primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
+
+fixturePackage :: Package
+fixturePackage = Package "" (PackageId "")
+
+parsePrimitiveModule :: FilePath -> Text -> Either String Module
+parsePrimitiveModule sourceName input =
+  parseModuleText sourceName (primitiveExtensions input) input
+
+parseModuleText :: FilePath -> [Extension] -> Text -> Either String Module
+parseModuleText sourceName extensions input =
+  let config =
+        defaultConfig
+          { parserSourceName = sourceName,
+            parserExtensions = extensions
+          }
+      (errs, ast) = parseModule config input
+   in if null errs
+        then Right ast
+        else Left (show errs)
+
+primitiveExtensions :: Text -> [Extension]
+primitiveExtensions source =
+  filter (/= ImplicitPrelude) (effectiveExtensions language (headerExtensionSettings header))
   where
-    moduleIndices =
-      Map.fromList
-        [ (name, index)
-        | (index, modu) <- zip [0 ..] modules,
-          Just name <- [moduleName modu]
-        ]
-    nodes =
-      [ let dependencies = mapMaybe ((`Map.lookup` moduleIndices) . importDeclModule) (moduleImports modu)
-         in (ModuleNode index modu dependencies, index, dependencies)
-      | (index, modu) <- zip [0 ..] modules
-      ]
-    components = stronglyConnComp nodes
-    checkComponent stateResult component = do
-      (checkedByIndex, interfacesByIndex) <- stateResult
-      let componentNodes = flattenComponent component
-          componentIndices = Set.fromList (map nodeIndex componentNodes)
-          dependencyIndices =
-            Set.toList
-              ( Set.fromList (concatMap nodeDependencies componentNodes)
-                  `Set.difference` componentIndices
-              )
-      dependencyInterfaces <- traverse (lookupDependencyInterface interfacesByIndex) dependencyIndices
-      let importedInterface = mconcat (baseInterface : dependencyInterfaces)
-          (checked, checkedInterface) =
-            typecheckModuleSccWithInterface testTcConfig importedInterface (map nodeModule componentNodes)
-          localInterface = subtractInterface importedInterface checkedInterface
-          checkedByIndex' = foldl' (\acc (node, modu) -> Map.insert (nodeIndex node) modu acc) checkedByIndex (zip componentNodes checked)
-          interfacesByIndex' = foldl' (\acc node -> Map.insert (nodeIndex node) localInterface acc) interfacesByIndex componentNodes
-      pure (checkedByIndex', interfacesByIndex')
-
-flattenComponent :: SCC ModuleNode -> [ModuleNode]
-flattenComponent component =
-  case component of
-    AcyclicSCC node -> [node]
-    CyclicSCC nodes -> nodes
-
-lookupDependencyInterface :: Map Int TcInterface -> Int -> Either String TcInterface
-lookupDependencyInterface interfaces index =
-  maybe (Left ("module graph dependency was not checked: " <> show index)) Right (Map.lookup index interfaces)
-
-lookupCheckedModule :: Map Int Module -> Int -> Either String Module
-lookupCheckedModule checked index =
-  maybe (Left ("module graph result is missing: " <> show index)) Right (Map.lookup index checked)
-
-subtractInterface :: TcInterface -> TcInterface -> TcInterface
-subtractInterface imported complete =
-  TcInterface
-    { tcInterfaceTerms = withoutImported fst (tcInterfaceTerms imported) (tcInterfaceTerms complete),
-      tcInterfaceTyCons = withoutImported tciTyCon (tcInterfaceTyCons imported) (tcInterfaceTyCons complete),
-      tcInterfaceDataTypes = withoutImported dataTypeKey (tcInterfaceDataTypes imported) (tcInterfaceDataTypes complete),
-      tcInterfaceClasses = withoutImported ciName (tcInterfaceClasses imported) (tcInterfaceClasses complete),
-      tcInterfaceInstances = withoutImported iiDictName (tcInterfaceInstances imported) (tcInterfaceInstances complete),
-      tcInterfaceDataFamilyInstances = withoutImported dfiiAxiomName (tcInterfaceDataFamilyInstances imported) (tcInterfaceDataFamilyInstances complete),
-      tcInterfaceTypeFamilyInstances = withoutImported tfiiAxiomName (tcInterfaceTypeFamilyInstances imported) (tcInterfaceTypeFamilyInstances complete)
-    }
-
-withoutImported :: (Ord key) => (value -> key) -> [value] -> [value] -> [value]
-withoutImported key imported =
-  let importedKeys = Set.fromList (map key imported)
-   in filter ((`Set.notMember` importedKeys) . key)
+    header = readModuleHeaderPragmas source
+    defaultLanguage = fromMaybe Haskell98Edition (parseLanguageEdition "GHC2021")
+    language = fromMaybe defaultLanguage (headerLanguageEdition header)
 
 classifySuccess :: TcAnnotatedCase -> [String] -> (Outcome, String)
 classifySuccess tc actual =
