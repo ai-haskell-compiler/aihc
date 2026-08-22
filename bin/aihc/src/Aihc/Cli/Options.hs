@@ -14,12 +14,10 @@ module Aihc.Cli.Options
 where
 
 import Aihc.Native (NativeTarget, parseNativeTarget)
-import Control.Applicative (many)
 import Options.Applicative qualified as OA
 
 data Command
   = CmdCompile !CompileOptions
-  | CmdInstall !InstallOptions
   | CmdInstallV2 !InstallV2Options
   | CmdPrepareRuntime !PrepareRuntimeOptions
   | CmdRepl !ReplOptions
@@ -111,12 +109,6 @@ commandParser =
             (CmdCompile <$> compileOptionsParser OA.<**> OA.helper)
             (OA.progDesc "Compile a Haskell source file to an executable")
         )
-        <> OA.command
-          "install"
-          ( OA.info
-              (CmdInstall <$> installOptionsParser OA.<**> OA.helper)
-              (OA.progDesc "Compile and install a library package and its dependencies")
-          )
         <> OA.command
           "install-v2"
           ( OA.info
@@ -251,50 +243,6 @@ replOptionsParser =
           )
       )
 
-installOptionsParser :: OA.Parser InstallOptions
-installOptionsParser =
-  InstallOptions
-    <$> OA.strArgument
-      ( OA.metavar "PACKAGE"
-          <> OA.help "Hackage package name or local package directory"
-      )
-    <*> OA.optional
-      ( OA.strOption
-          ( OA.long "version"
-              <> OA.metavar "VERSION"
-              <> OA.help "Exact Hackage package version"
-          )
-      )
-    <*> OA.optional
-      ( OA.strOption
-          ( OA.long "store"
-              <> OA.metavar "DIR"
-              <> OA.help "Override the aihc store root"
-          )
-      )
-    <*> OA.switch
-      ( OA.long "offline"
-          <> OA.help "Use only cached package data"
-      )
-    <*> OA.switch
-      ( OA.long "dry-run"
-          <> OA.help "Plan the install without writing store artifacts or package cache files"
-      )
-    <*> OA.switch
-      ( OA.long "keep-core"
-          <> OA.help "Keep the generated System FC core in the library cache"
-      )
-    <*> OA.switch
-      ( OA.long "keep-grin"
-          <> OA.help "Keep the generated GRIN in the library cache"
-      )
-    <*> many nativeTargetOption
-    <*> OA.switch
-      ( OA.long "first-error-module"
-          <> OA.help "Only print diagnostics from the module or file that produced the first install error"
-      )
-    <*> errorFormatParser
-
 installV2OptionsParser :: OA.Parser InstallV2Options
 installV2OptionsParser =
   InstallV2Options
@@ -308,14 +256,3 @@ installV2OptionsParser =
           <> OA.short 'v'
           <> OA.help "Print each installation step"
       )
-
-errorFormatParser :: OA.Parser InstallErrorFormat
-errorFormatParser =
-  flagFromSwitch
-    <$> OA.switch
-      ( OA.long "json-errors"
-          <> OA.help "Print install interface diagnostics as JSON instead of human-readable text"
-      )
-  where
-    flagFromSwitch True = InstallErrorsJson
-    flagFromSwitch False = InstallErrorsHuman
