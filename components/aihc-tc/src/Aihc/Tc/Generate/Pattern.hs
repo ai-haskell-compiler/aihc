@@ -14,7 +14,8 @@ module Aihc.Tc.Generate.Pattern
 where
 
 import Aihc.Parser.Syntax
-  ( Literal (..),
+  ( Annotation,
+    Literal (..),
     Name (..),
     NumericType (..),
     Pattern (..),
@@ -29,7 +30,7 @@ import Aihc.Parser.Syntax
     peelPatternAnn,
   )
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
-import Aihc.Tc.Annotations (PendingTcAnnotation, pendingAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -91,7 +92,43 @@ checkPatternWith gadtHandling sp pat scrutTy = do
   pure check {pcPatterns = map (checkedPatternType scrutTy) (pcPatterns check)}
 
 checkedPatternType :: TcType -> Pattern -> Pattern
-checkedPatternType ty = PAnn (mkAnnotation (pendingAnnotation ty [] [] []))
+checkedPatternType ty pat
+  | patternCarriesBinderType pat = pat
+  | patternHasCheckedType ty pat = pat
+  | otherwise = PAnn (mkAnnotation (pendingAnnotation ty [] [] [])) pat
+
+patternCarriesBinderType :: Pattern -> Bool
+patternCarriesBinderType pat =
+  case pat of
+    PAnn _ inner -> patternCarriesBinderType inner
+    PVar {} -> True
+    PParen inner -> patternCarriesBinderType inner
+    PAs {} -> True
+    PStrict inner -> patternCarriesBinderType inner
+    PIrrefutable inner -> patternCarriesBinderType inner
+    PTypeSig inner _ -> patternCarriesBinderType inner
+    _ -> False
+
+patternHasCheckedType :: TcType -> Pattern -> Bool
+patternHasCheckedType ty pat =
+  case pat of
+    PAnn ann inner -> annotationHasCheckedType ty ann || patternHasCheckedType ty inner
+    PParen inner -> patternHasCheckedType ty inner
+    PStrict inner -> patternHasCheckedType ty inner
+    PIrrefutable inner -> patternHasCheckedType ty inner
+    PTypeSig inner _ -> patternHasCheckedType ty inner
+    _ -> False
+
+annotationHasCheckedType :: TcType -> Annotation -> Bool
+annotationHasCheckedType ty ann =
+  case fromAnnotation ann of
+    Just pending ->
+      pendingTcAnnType pending == ty
+        && null (pendingTcAnnTypeBinders pending)
+        && null (pendingTcAnnTypeArgs pending)
+        && null (pendingTcAnnEvidenceVars pending)
+        && null (pendingTcAnnTermArgTypes pending)
+    Nothing -> False
 
 checkPatternCore :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternCore gadtHandling sp pat scrutTy =
