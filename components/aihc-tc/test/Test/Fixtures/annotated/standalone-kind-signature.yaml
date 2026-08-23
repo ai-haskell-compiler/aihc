@@ -1,20 +1,22 @@
-extensions:
-  - DataKinds
-  - KindSignatures
-  - MagicHash
-  - StandaloneKindSignatures
-  - UnboxedTuples
-modules:
-  - |
-    module Test where
-    type Tuple2# :: TYPE r1 -> TYPE r2 -> TYPE ('TupleRep '[r2, r1])
-    data Tuple2# (a1 :: TYPE r1) (a2 :: TYPE r2) = (# a1, a2 #)
 annotated:
-  - |-
-    module Test where
-    type Tuple2# :: TYPE r1 -> TYPE r2 -> TYPE ('TupleRep '[r2, r1])
-    data Tuple2# (a1 :: TYPE r1) (a2 :: TYPE r2) = (# a1, a2 #)
-         │                                         └─ type: ∀ r1 r2 a1 a2. a1 → a2 → (# a1, a2 #)
-         └─ type: TYPE rep0 → TYPE rep1 → TYPE ('TupleRep ('[] rep1 rep0))
-status: pass
+- |-
+  module Test where
+  import GHC.Types (RuntimeRep(..), TYPE)
+  type Tuple2# :: TYPE r1 -> TYPE r2 -> TYPE ('TupleRep '[r2, r1])
+  data Tuple2# (a1 :: TYPE r1) (a2 :: TYPE r2) = (# a1, a2 #)
+       │                                         └─ type: ∀ r1 r2 a1 a2. a1 → a2 → (# a1, a2 #)
+       └─ type: TYPE rep0 → TYPE rep1 → TYPE ('TupleRep ('[] rep1 rep0))
+extensions:
+- DataKinds
+- KindSignatures
+- MagicHash
+- StandaloneKindSignatures
+- UnboxedTuples
+modules:
+- |
+  module Test where
+  import GHC.Types (RuntimeRep(..), TYPE)
+  type Tuple2# :: TYPE r1 -> TYPE r2 -> TYPE ('TupleRep '[r2, r1])
+  data Tuple2# (a1 :: TYPE r1) (a2 :: TYPE r2) = (# a1, a2 #)
 reason: uses the standalone kind signature as the type constructor kind
+status: pass

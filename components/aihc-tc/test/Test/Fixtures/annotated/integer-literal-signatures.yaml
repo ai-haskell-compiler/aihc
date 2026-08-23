@@ -8,7 +8,8 @@ annotated:
   instance Num Int where
   └─ $fNumInt ∷ () ⇒ Num Int
     fromInteger (IS x) = I x
-    │               └─ type: Int#
+    │            │  └─ type: Int#
+    │            └─ type: Integer
     └─ fromInteger ∷ Integer → Int
   instance Num Integer where
   └─ $fNumInteger ∷ () ⇒ Num Integer
@@ -17,6 +18,7 @@ annotated:
     └─ fromInteger ∷ Integer → Integer
 - |-
   module GHC.Types where
+  import GHC.Prim (Int#)
   data Int = I Int#
        │     └─ type: Int# → Int
        └─ type: Type
@@ -25,6 +27,7 @@ annotated:
        └─ type: Type
 - |-
   module Main where
+  import GHC.Num (fromInteger)
   import GHC.Types (Int, Integer)
   asInt :: Int
   asInt = 1 :: Int
@@ -39,6 +42,7 @@ extensions:
 modules:
 - |
   module GHC.Types where
+  import GHC.Prim (Int#)
   data Int = I Int#
   data Integer = IS Int#
 - |
@@ -52,11 +56,12 @@ modules:
     fromInteger x = x
 - |
   module Main where
+  import GHC.Num (fromInteger)
   import GHC.Types (Int, Integer)
   asInt :: Int
   asInt = 1 :: Int
   asInteger :: Integer
   asInteger = 1 :: Integer
-reason: expression signatures constrain overloaded integer literals to concrete
-  GHC.Num instances
+reason: expression signatures constrain overloaded integer literals to concrete GHC.Num
+  instances
 status: pass
