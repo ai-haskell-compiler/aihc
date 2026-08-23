@@ -13,6 +13,6 @@ expected: |-
       pub 1.vI :: 1.tInt
   }
 
-  pub foreign import ccall unsafe "identity" [Int → Int; pure] 1.videntityInt :: 1.tInt → 1.tInt
+  pub foreign import ccall unsafe "identity" [Int → Int; pure] 1.videntityInt :: 1.tInt 2.→ 1.tInt
 status: pass
 reason: ''

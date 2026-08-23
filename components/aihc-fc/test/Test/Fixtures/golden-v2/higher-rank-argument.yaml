@@ -18,15 +18,15 @@ expected: |-
   }
 
   pub type 1.tBox (s : 2.tType) (a : 2.tType) :: 2.tType {
-      pub 1.vBox :: ∀(s : 2.tType) (a : 2.tType). a → 1.tBox s a
+      pub 1.vBox :: ∀(s : 2.tType) (a : 2.tType). a 2.→ 1.tBox s a
   }
 
-  pub val 1.vinstantiate :: ∀(a : 2.tType). (∀(s : 2.tType). 1.tBox s a) → 1.tBox 1.tTag a
+  pub val 1.vinstantiate :: ∀(a : 2.tType). (∀(s : 2.tType). 1.tBox s a) 2.→ 1.tBox 1.tTag a
    = Λ(a : 2.tType).
     λ(x : ∀(s : 2.tType). 1.tBox s a).
       x @1.tTag
 
-  pub val 1.vrun :: ∀(a : 2.tType). (∀(s : 2.tType). 1.tBox s a) → 1.tBox 1.tTag a
+  pub val 1.vrun :: ∀(a : 2.tType). (∀(s : 2.tType). 1.tBox s a) 2.→ 1.tBox 1.tTag a
    = Λ(a : 2.tType).
     λ(x : ∀(s : 2.tType). 1.tBox s a).
       1.vinstantiate @a (Λ(s : 2.tType).

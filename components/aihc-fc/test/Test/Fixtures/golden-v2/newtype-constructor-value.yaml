@@ -13,7 +13,7 @@ expected: |-
 
   axiom 1.$ax$Identity (a : 2.tType) : 1.tIdentity a ~R a
 
-  pub val 1.vwrap :: ∀(x : 2.tType) (y : 2.tType) (a : 2.tType). x → y → a → 1.tIdentity a
+  pub val 1.vwrap :: ∀(x : 2.tType) (y : 2.tType) (a : 2.tType). x 2.→ y 2.→ a 2.→ 1.tIdentity a
    = Λ(x : 2.tType).
     Λ(y : 2.tType).
       Λ(a : 2.tType).

@@ -31,6 +31,6 @@ expected: |-
 
   axiom 1.$ax$IO (a : 3.tType) : 1.tIO a ~R FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tLiftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# 2.tRealWorld) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tLiftedRep (2.tState# 2.tRealWorld) a)
 
-  pub foreign import ccall unsafe "putchar" [Int32 → Int32; real-world] 1.vputchar :: 1.tCInt → 1.tIO 1.tCInt
+  pub foreign import ccall unsafe "putchar" [Int32 → Int32; real-world] 1.vputchar :: 1.tCInt 3.→ 1.tIO 1.tCInt
 status: pass
 reason: The real primitive modules provide Int32Rep and Tuple2# for lint.

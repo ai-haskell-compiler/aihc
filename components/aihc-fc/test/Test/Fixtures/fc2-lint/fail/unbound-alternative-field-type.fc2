@@ -6,14 +6,14 @@ pub type 1.tMark :: 2.tType {
 }
 
 pub type 1.t$Dict$Markable (a : 2.tType) :: 2.tType {
-    pub 1.v$Dict$Markable :: ∀(a : 2.tType). (a → 1.tMark) → 1.t$Dict$Markable a
+    pub 1.v$Dict$Markable :: ∀(a : 2.tType). (a 2.→ 1.tMark) 2.→ 1.t$Dict$Markable a
 }
 
 pub type 1.tBox :: 2.tType {
-    pub 1.vBox :: ∀(a : 2.tType). 1.t$Dict$Markable a → a → 1.tBox
+    pub 1.vBox :: ∀(a : 2.tType). 1.t$Dict$Markable a 2.→ a 2.→ 1.tBox
 }
 
-pub val 1.vinspect :: 1.tBox → 1.tMark
+pub val 1.vinspect :: 1.tBox 2.→ 1.tMark
  = λ(x : 1.tBox).
     case x as (_scrut : 1.tBox) return (1.tMark) of {
         1.vBox @(a : 2.tType) ($pattern_d0 : 1.t$Dict$Markable b) (value : b) →

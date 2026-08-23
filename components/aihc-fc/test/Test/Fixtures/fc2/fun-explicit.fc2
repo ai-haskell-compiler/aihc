@@ -1,6 +1,6 @@
 scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
-val 1.vidBool :: 2.tBool → 2.tBool
+val 1.vidBool :: 2.tBool 2.→ 2.tBool
  = λ(x : 2.tBool).
   x

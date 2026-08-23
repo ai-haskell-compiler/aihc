@@ -24,6 +24,6 @@ expected: |-
 
   pub type 1.tMutVar# (d : 3.tType) (a : 3.tType) :: 3.tTYPE 3.tUnliftedRep {}
 
-  pub foreign import prim 1.vnewMutVar# :: ∀(a : 3.tType) (d : 3.tType). a → FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tUnliftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# d) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tUnliftedRep (2.tState# d) (1.tMutVar# d a))
+  pub foreign import prim 1.vnewMutVar# :: ∀(a : 3.tType) (d : 3.tType). a 3.→ FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tUnliftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# d) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tUnliftedRep (2.tState# d) (1.tMutVar# d a))
 status: pass
 reason:
