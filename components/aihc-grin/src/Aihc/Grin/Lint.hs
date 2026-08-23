@@ -199,8 +199,8 @@ lintExpr env bound expr =
         <> lintValue env bound value
         <> lintValue env bound continuation
         <> lintValue env bound updateContinuation
-    GrinCall runtimeRep functionName arguments ->
-      lintKnownCall env bound runtimeRep functionName arguments
+    GrinCall _ functionName arguments ->
+      lintKnownCall env bound functionName arguments
     GrinPrimitiveCall _ name arguments ->
       [GrinLintUnknownPrimitive name | name `Map.notMember` lintPrimitiveArities env]
         <> concatMap (lintValue env bound) arguments
@@ -248,8 +248,8 @@ lintExpr env bound expr =
                ]
             <> concatMap (lintValue env bound) arguments
 
-lintKnownCall :: LintEnv -> Set GrinVar -> GrinRep -> FunctionName -> [GrinValue] -> [GrinLintError]
-lintKnownCall env bound _runtimeRep functionName arguments =
+lintKnownCall :: LintEnv -> Set GrinVar -> FunctionName -> [GrinValue] -> [GrinLintError]
+lintKnownCall env bound functionName arguments =
   functionErrors <> concatMap (lintValue env bound) arguments
   where
     functionErrors =

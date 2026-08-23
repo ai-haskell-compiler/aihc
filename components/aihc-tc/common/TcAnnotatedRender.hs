@@ -157,7 +157,7 @@ renderDiagnosticKind kind =
     UnboundVariable name ->
       "unbound variable " <> name
     KindMismatch expected actual ->
-      "kind mismatch: expected " <> renderKind expected <> ", got " <> renderKind actual
+      "kind mismatch: expected " <> renderTcType expected <> ", got " <> renderTcType actual
     UnsolvedWanted pred' _ ->
       "unsolved constraint " <> renderPred pred'
     TopLevelUnliftedBinding name ty ->
@@ -208,9 +208,6 @@ renderOrigin origin =
     CaseBranchOrigin {} -> "a case branch"
     InstOrigin name -> "the instance " <> T.unpack name
     UnifyOrigin {} -> "a unification constraint"
-
-renderKind :: TcType -> String
-renderKind = renderTcType
 
 renderUnique :: Unique -> String
 renderUnique (Unique unique) = "?" <> show unique

@@ -56,6 +56,7 @@ import Aihc.Tc.Types
     tyConModuleName,
     tyConName,
     tyConPackageId,
+    typeSchemeBody,
     pattern KFun,
     pattern KType,
   )
@@ -315,7 +316,8 @@ removeClassPredicate className predicates =
 convertNewtype :: ConvertEnv -> DataTypeInfo -> Either String [Decl]
 convertNewtype env info = do
   let tyCon = dtiTyCon info
-      tyVars = extraKindVars env tyCon (dtiTyVars info) <> dtiTyVars info
+  kindVars <- extraKindVars env tyCon (dtiTyVars info)
+  let tyVars = kindVars <> dtiTyVars info
       bindersEnv = withTyVars tyVars env
   binders <- mapM (tyVarBinder bindersEnv) tyVars
   result <- convertKind bindersEnv (dtiResultKind info)
@@ -352,7 +354,7 @@ convertNewtype env info = do
 convertEmptyFamily :: ConvertEnv -> [Text] -> Role -> TyConInfo -> Either String Decl
 convertEmptyFamily env paramNames roles info = do
   let tyCon = tciTyCon info
-      constructorKind = schemeBody (tciKindScheme info)
+      constructorKind = typeSchemeBody (tciKindScheme info)
       argKinds = take (tciArity info) (visibleArgKinds constructorKind)
       names =
         if length paramNames == length argKinds
@@ -526,7 +528,8 @@ lookupSynonym package moduleName' name tyCons =
 convertDataType :: ConvertEnv -> DataTypeInfo -> Either String Decl
 convertDataType env info = do
   let tyCon = dtiTyCon info
-      tyVars = extraKindVars env tyCon (dtiTyVars info) <> dtiTyVars info
+  kindVars <- extraKindVars env tyCon (dtiTyVars info)
+  let tyVars = kindVars <> dtiTyVars info
       bindersEnv = withTyVars tyVars env
   binders <- mapM (tyVarBinder bindersEnv) tyVars
   result <- convertKind bindersEnv (dtiResultKind info)
@@ -611,15 +614,12 @@ convertSynonym env info =
 
 synonymResult :: ConvertEnv -> TypeScheme -> [TyVarId] -> Either String Type
 synonymResult env scheme params =
-  convertKind env (dropParams (length params) (schemeBody scheme))
+  convertKind env (dropParams (length params) (typeSchemeBody scheme))
   where
     dropParams remaining kind
       | remaining <= 0 = kind
     dropParams remaining (KFun _ result) = dropParams (remaining - 1) result
     dropParams _ kind = kind
-
-schemeBody :: TypeScheme -> TcType
-schemeBody (ForAll _ _ body) = body
 
 buildScopes :: (PackageId, Text) -> [Decl] -> ScopeTable
 buildScopes moduleOrigin decls =

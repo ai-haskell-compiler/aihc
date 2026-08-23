@@ -40,7 +40,8 @@ import Aihc.Tc.Types
     TyVarId (..),
     TypeScheme (..),
     Unique (..),
-    liftedRuntimeRep,
+    applySubst,
+    liftedRep,
     runtimeRepFromKind,
     tvKind,
     tyConKey,
@@ -136,7 +137,7 @@ convertKind :: ConvertEnv -> TcType -> Either String Type
 convertKind env kind =
   case kind of
     KTYPE runtimeRep
-      | runtimeRep == liftedRuntimeRep -> Right (typeSynonym (cePrimPackage env))
+      | runtimeRep == liftedRep -> Right (typeSynonym (cePrimPackage env))
       | otherwise -> TyApp (TyCon (typeConstructor (cePrimPackage env))) <$> convertRep env runtimeRep
     KConstraint -> Right (TyCon (constraintName (cePrimPackage env)))
     KRuntimeRep -> Right (TyCon (runtimeRepConstructor (cePrimPackage env)))
@@ -209,8 +210,8 @@ convertTypeWithExpectedKind env expectedKind ty =
     TcMetaTv {} -> Left "type still has a meta variable"
     TcTyCon tyCon arguments -> do
       kindArgs <- invisibleKindArgs env tyCon arguments expectedKind
-      let argumentKinds = visibleArgumentKinds env tyCon arguments expectedKind
-      converted <- zipWithM (convertTypeWithExpectedKind env . Just) argumentKinds arguments
+      argumentKinds <- visibleArgumentKinds env tyCon arguments expectedKind
+      converted <- zipWithM (convertTypeWithExpectedKind env) (map Just argumentKinds <> repeat Nothing) arguments
       pure (foldl TyApp (TyCon (tyConNameFc2 env tyCon)) (kindArgs <> converted))
     TcFunTy argument result -> do
       convertedArgument <- convertType env argument
@@ -286,29 +287,32 @@ promotedNameFc2 tyCon =
 
 wiredBuiltinName :: TyCon -> Maybe Name
 wiredBuiltinName tyCon =
-  case Map.lookup (bareBuiltin (tyConName tyCon)) builtinTable of
+  case Map.lookup name builtinTable of
     Just (sort, _) ->
-      Just (Name (bareBuiltin (tyConName tyCon)) sort (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)))
+      Just (Name name sort (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)))
     Nothing -> Nothing
+  where
+    name = T.dropWhile (== '\'') (tyConName tyCon)
 
 -- | Invisible kind parameters that the type constructor quantifies before visible arguments.
-extraKindVars :: ConvertEnv -> TyCon -> [TyVarId] -> [TyVarId]
-extraKindVars env tyCon visible =
-  case kindScheme env tyCon of
-    ForAll vars _ _ ->
-      let seen = map tvUnique visible
-       in filter (\tyVar -> tvUnique tyVar `notElem` seen) vars
+extraKindVars :: ConvertEnv -> TyCon -> [TyVarId] -> Either String [TyVarId]
+extraKindVars env tyCon visible = do
+  ForAll vars _ _ <- kindScheme env tyCon
+  let seen = map tvUnique visible
+  pure (filter (\tyVar -> tvUnique tyVar `notElem` seen) vars)
 
 invisibleKindArgs :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String [Type]
-invisibleKindArgs env tyCon arguments expectedKind =
-  mapM (kindVarToType env tyCon arguments expectedKind) (extraKindVars env tyCon [])
+invisibleKindArgs env tyCon arguments expectedKind = do
+  variables <- extraKindVars env tyCon []
+  mapM (kindVarToType env tyCon arguments expectedKind) variables
 
 kindVarToType :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> TyVarId -> Either String Type
 kindVarToType env tyCon arguments expectedKind tyVar =
   case Map.lookup (tvUnique tyVar) (ceTyVars env) of
     Just found -> Right (tyVarType found)
-    Nothing ->
-      case Map.lookup (tvUnique tyVar) (kindSubst env tyCon arguments expectedKind) of
+    Nothing -> do
+      substitution <- kindSubst env tyCon arguments expectedKind
+      case Map.lookup (tvUnique tyVar) substitution of
         Just runtimeRep -> convertRep env runtimeRep
         Nothing ->
           Left
@@ -318,72 +322,51 @@ kindVarToType env tyCon arguments expectedKind tyVar =
                 <> T.unpack (tyConName tyCon)
             )
 
-kindSubst :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Map Unique TcType
-kindSubst env tyCon arguments expectedKind =
-  argumentSubstitution <> resultSubstitution
+kindSubst :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String (Map Unique TcType)
+kindSubst env tyCon arguments expectedKind = do
+  ForAll quantified _ resultKind <- kindScheme env tyCon
+  let quantifiedUniques = map tvUnique quantified
+      (argumentSubstitution, remainingKind) = go quantifiedUniques Map.empty resultKind arguments
+      resultSubstitution =
+        case expectedKind of
+          Just expected -> matchKind quantifiedUniques remainingKind expected
+          Nothing -> Map.empty
+  pure (argumentSubstitution <> resultSubstitution)
   where
-    ForAll quantified _ resultKind = kindScheme env tyCon
-    quantifiedUniques = map tvUnique quantified
-    (argumentSubstitution, remainingKind) = go Map.empty resultKind arguments
-    resultSubstitution =
-      case expectedKind of
-        Just expected -> matchKind remainingKind expected
-        Nothing -> Map.empty
-
-    go substitution (KFun formal result) (argument : rest) =
+    go quantifiedUniques substitution (KFun formal result) (argument : rest) =
       case typeKindInEnv env argument of
         Right argumentKind ->
-          let found = matchKind (substituteKind substitution formal) argumentKind
-           in go (substitution <> found) (substituteKind found result) rest
-        Left _ -> go substitution result rest
-    go substitution kind _ = (substitution, substituteKind substitution kind)
+          let found = matchKind quantifiedUniques (applySubst substitution formal) argumentKind
+           in go quantifiedUniques (substitution <> found) (applySubst found result) rest
+        Left _ -> go quantifiedUniques substitution result rest
+    go _ substitution kind _ = (substitution, applySubst substitution kind)
 
-    matchKind (TcTyVar tyVar) actual
+    matchKind quantifiedUniques (TcTyVar tyVar) actual
       | tvUnique tyVar `elem` quantifiedUniques = Map.singleton (tvUnique tyVar) actual
-    matchKind (KTYPE (TcTyVar tyVar)) (KTYPE runtimeRep)
+    matchKind quantifiedUniques (KTYPE (TcTyVar tyVar)) (KTYPE runtimeRep)
       | tvUnique tyVar `elem` quantifiedUniques = Map.singleton (tvUnique tyVar) runtimeRep
-    matchKind (KFun left right) (KFun left' right') =
-      matchKind left left' <> matchKind right right'
-    matchKind (TcTyCon left formalArguments) (TcTyCon right actualArguments)
+    matchKind quantifiedUniques (KFun left right) (KFun left' right') =
+      matchKind quantifiedUniques left left' <> matchKind quantifiedUniques right right'
+    matchKind quantifiedUniques (TcTyCon left formalArguments) (TcTyCon right actualArguments)
       | left == right,
         length formalArguments == length actualArguments =
-          Map.unions (zipWith matchKind formalArguments actualArguments)
-    matchKind _ _ = Map.empty
+          Map.unions (zipWith (matchKind quantifiedUniques) formalArguments actualArguments)
+    matchKind _ _ _ = Map.empty
 
-visibleArgumentKinds :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> [TcType]
-visibleArgumentKinds env tyCon arguments expectedKind =
-  takeArgumentKinds (substituteKind substitution resultKind)
+visibleArgumentKinds :: ConvertEnv -> TyCon -> [TcType] -> Maybe TcType -> Either String [TcType]
+visibleArgumentKinds env tyCon arguments expectedKind = do
+  ForAll _ _ resultKind <- kindScheme env tyCon
+  substitution <- kindSubst env tyCon arguments expectedKind
+  pure (takeArgumentKinds (applySubst substitution resultKind))
   where
-    ForAll _ _ resultKind = kindScheme env tyCon
-    substitution = kindSubst env tyCon arguments expectedKind
-
     takeArgumentKinds (KFun argument result) = argument : takeArgumentKinds result
     takeArgumentKinds _ = []
 
-substituteKind :: Map Unique TcType -> TcType -> TcType
-substituteKind substitution ty =
-  case ty of
-    TcTyVar tyVar -> Map.findWithDefault ty (tvUnique tyVar) substitution
-    TcMetaTv {} -> ty
-    TcTyCon tyCon arguments -> TcTyCon tyCon (map (substituteKind substitution) arguments)
-    TcFunTy argument result -> TcFunTy (substituteKind substitution argument) (substituteKind substitution result)
-    TcForAllTy tyVar body -> TcForAllTy tyVar (substituteKind (Map.delete (tvUnique tyVar) substitution) body)
-    TcQualTy predicates body -> TcQualTy (map substitutePred predicates) (substituteKind substitution body)
-    TcAppTy function argument -> TcAppTy (substituteKind substitution function) (substituteKind substitution argument)
-  where
-    substitutePred predicate =
-      case predicate of
-        ClassPred className arguments -> ClassPred className (map (substituteKind substitution) arguments)
-        EqPred left right -> EqPred (substituteKind substitution left) (substituteKind substitution right)
-
-bareBuiltin :: Text -> Text
-bareBuiltin = T.dropWhile (== '\'')
-
-kindScheme :: ConvertEnv -> TyCon -> TypeScheme
+kindScheme :: ConvertEnv -> TyCon -> Either String TypeScheme
 kindScheme env tyCon =
   case Map.lookup (tyConKey tyCon) (ceKindEnv env) of
-    Just scheme -> scheme
-    Nothing -> error ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))
+    Just scheme -> Right scheme
+    Nothing -> Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))
 
 builtinTable :: Map Text (Sort, Text)
 builtinTable =

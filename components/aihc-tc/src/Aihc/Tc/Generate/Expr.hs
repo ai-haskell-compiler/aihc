@@ -40,7 +40,7 @@ import Aihc.Tc.Evidence (EvVar)
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Instantiate (Instantiation (..), applySubst, instantiateWithArgs)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (checkSurfaceType, tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
@@ -585,7 +585,7 @@ inferTuple sp flavor elems = do
       (e', ty, cts) <- inferExpr e
       pure (Just e', ty, cts)
 
-    runtimeRepOrLifted kind = fromRight liftedRuntimeRep (runtimeRepFromKind kind)
+    runtimeRepOrLifted kind = fromRight liftedRep (runtimeRepFromKind kind)
 
 tupleTyConText :: TupleFlavor -> Int -> Text
 tupleTyConText flavor arity =
@@ -930,7 +930,7 @@ primType = knownTyConType "GHC.Prim"
 knownTyConType :: Text -> Text -> TcM TcType
 knownTyConType moduleName name = do
   maybeInfo <- lookupTyCon name
-  tyCon <- maybe (mkKnownTyCon moduleName name 0 liftedTypeKind) (pure . tciTyCon) maybeInfo
+  tyCon <- maybe (mkKnownTyCon moduleName name 0 typeKindType) (pure . tciTyCon) maybeInfo
   pure (TcTyCon tyCon [])
 
 doubleTyCon :: TcM TcType
@@ -938,12 +938,12 @@ doubleTyCon = do
   maybeInfo <- lookupTyCon "Double"
   case maybeInfo of
     Just info -> pure (TcTyCon (tciTyCon info) [])
-    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Double" 0 liftedTypeKind <*> pure []
+    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Double" 0 typeKindType <*> pure []
 
 resolvedType :: Text -> TcM TcType
 resolvedType name = do
   maybeInfo <- lookupTyCon name
-  tyCon <- maybe (mkKnownTyCon "GHC.Types" name 0 liftedTypeKind) (pure . tciTyCon) maybeInfo
+  tyCon <- maybe (mkKnownTyCon "GHC.Types" name 0 typeKindType) (pure . tciTyCon) maybeInfo
   pure (TcTyCon tyCon [])
 
 stringTyCon :: TcM TcType
@@ -957,4 +957,4 @@ boolTyCon = do
   maybeInfo <- lookupTyCon "Bool"
   case maybeInfo of
     Just info -> pure (TcTyCon (tciTyCon info) [])
-    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Bool" 0 liftedTypeKind <*> pure []
+    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Bool" 0 typeKindType <*> pure []

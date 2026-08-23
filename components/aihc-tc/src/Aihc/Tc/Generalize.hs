@@ -16,7 +16,7 @@ import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, freshSkolemTv, getTermEnv, readMetaTvKind, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
-import Control.Monad (forM_)
+import Control.Monad (forM_, void)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -112,8 +112,8 @@ metaVarsToTyVars uniques = mapM makeTyVar (zip [0 ..] uniques)
 defaultMetaKind :: Unique -> TcM ()
 defaultMetaKind unique = do
   kind <- readMetaTvKind unique
-  _ <- defaultKindMetas kind
-  pure ()
+  -- defaultKindMetas writes each solution to the meta-variable store.
+  void (defaultKindMetas kind)
 
 -- | Substitute meta-variables with their corresponding type variables.
 substMetas :: [(Unique, TcType)] -> TcType -> TcType

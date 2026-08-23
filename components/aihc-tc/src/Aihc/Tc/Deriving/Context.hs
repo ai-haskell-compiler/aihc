@@ -32,9 +32,8 @@ import Aihc.Tc.Constraint (Ct (..), CtOrigin (..), mkWantedCt)
 import Aihc.Tc.Env (DataConFieldInfo (..), DataConInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Instantiate (applySubst)
 import Aihc.Tc.Monad
-import Aihc.Tc.Solve.Dict (DictResult (..), constraintTypeToPred, matchTypes, solveDictWithGivens, substPred)
+import Aihc.Tc.Solve.Dict (DictResult (..), constraintTypeToPred, matchTypes, solveDictWithGivens)
 import Aihc.Tc.Types
 import Data.List (find, nub)
 import Data.Map.Strict qualified as Map
@@ -140,13 +139,13 @@ simplifyPredicate existingInstances plans stack owner predicate
     simplifyExisting (instanceInfo, substitution) =
       concat
         <$> mapM
-          (simplifyPredicate existingInstances plans stack owner . substPred substitution)
+          (simplifyPredicate existingInstances plans stack owner . applySubstPred substitution)
           (iiContext instanceInfo)
     simplifyDerived (candidate, substitution) = do
       context <- candidateContext candidate
       concat
         <$> mapM
-          (simplifyPredicate existingInstances plans stack owner . substPred substitution)
+          (simplifyPredicate existingInstances plans stack owner . applySubstPred substitution)
           context
     candidateContext candidate =
       case tcDerivingContext candidate of
@@ -227,7 +226,7 @@ attachDerivingEvidence plan =
 
 instantiatedDefaultSignaturePredicates :: TcDerivingPlan -> [(Text, [Pred])]
 instantiatedDefaultSignaturePredicates plan =
-  [ (methodName, map (substPred substitution) predicates)
+  [ (methodName, map (applySubstPred substitution) predicates)
   | (methodName, predicates) <- tcDerivingDefaultSignatures plan,
     methodName `elem` tcDerivingDefaultMethods plan
   ]

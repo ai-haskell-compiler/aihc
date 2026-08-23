@@ -38,7 +38,6 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
-import Aihc.Tc.Instantiate qualified as TcInstantiate
 import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
@@ -46,12 +45,13 @@ import Aihc.Tc.Types
     TyCon,
     TyVarId,
     Unique (..),
-    liftedTypeKind,
+    applySubstPred,
     runtimeRepOfTypeInEnv,
     tvUnique,
     tyConModuleName,
     tyConName,
     tyConPackageId,
+    typeKindType,
     pattern AddrRep,
     pattern Int16Rep,
     pattern Int32Rep,
@@ -399,7 +399,7 @@ desugarDefaultMethod annotation dictionaries methodName = do
       substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, _) = peelConstraints methodAfterForAlls
-      extraPredicates = map (substitutePredicate substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates)
+      extraPredicates = map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates)
   extraTypeBinders <- mapM convertTypeBinder extraTyVars
   convertedExtraTypes <- mapM (convertCheckedType . TcTyVar) extraTyVars
   extraDictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] extraPredicates
@@ -422,12 +422,6 @@ dropClassPredicate classTyCon predicates =
     ClassPred predicateClass _ : rest
       | predicateClass == classTyCon -> rest
     predicate : rest -> predicate : dropClassPredicate classTyCon rest
-
-substitutePredicate :: Map Unique TcType -> Pred -> Pred
-substitutePredicate substitution predicate =
-  case predicate of
-    ClassPred classTyCon arguments -> ClassPred classTyCon (map (TcInstantiate.applySubst substitution) arguments)
-    EqPred left right -> EqPred (TcInstantiate.applySubst substitution left) (TcInstantiate.applySubst substitution right)
 
 makeContextDictionary :: Int -> TcDictBinderAnnotation -> ValueM Dictionary
 makeContextDictionary index annotation = do
@@ -1067,7 +1061,7 @@ patternType pattern' =
     _ -> Nothing
 
 fromBinderType :: Syn.Pattern -> TcType
-fromBinderType pattern' = fromMaybe liftedTypeKind (patternType pattern')
+fromBinderType pattern' = fromMaybe typeKindType (patternType pattern')
 
 nameTcType :: Syn.UnqualifiedName -> Maybe TcType
 nameTcType name =
@@ -1258,7 +1252,7 @@ annotatedHead = go Nothing
         Syn.ETypeApp inner _ -> go maybeAnnotation inner
         Syn.EVar name -> (,fromMaybe emptyTcAnnotation maybeAnnotation) <$> Just name
         _ -> Nothing
-    emptyTcAnnotation = TcAnnotation liftedTypeKind [] [] [] []
+    emptyTcAnnotation = TcAnnotation typeKindType [] [] [] []
 
 desugarLambda :: [Syn.Pattern] -> Syn.Expr -> ValueM Expr
 desugarLambda patterns body = do

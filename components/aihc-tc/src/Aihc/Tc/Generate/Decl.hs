@@ -103,7 +103,6 @@ import Aihc.Tc.Generalize (generalizeAndCommitIgnoring, predMetaVars)
 import Aihc.Tc.Generate.Bind (inferRhsWithLocals)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Generate.Pattern
-import Aihc.Tc.Instantiate qualified
 import Aihc.Tc.Kind (ParamInfo (..), TvKindEnv, checkRuntimeType, checkSurfaceType, classPredicateArgKinds, convertSurfaceTypeWithKinds, defaultKindMetas, freeTypeVars, freshKindMeta, makeParamEnv, makeParamEnvWith, sigToScheme, standaloneKindSigToScheme, surfacePredToPred, tcTypeKind, tyConKindFromParams, tyConKindFromParamsWith, unifyKinds)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (SolveResult (..), solveConstraints, solveWithImpls)
@@ -1005,7 +1004,7 @@ checkForeignValueType sourceSpan ty =
     word64Marshal = marshal "Word64#" TcForeignWord64
     addrMarshal = marshal "Addr#" TcForeignAddr
     marshal primitiveName abiType sourceType constructors = do
-      primitiveTyCon <- mkKnownTyCon "GHC.Prim" primitiveName 0 liftedTypeKind
+      primitiveTyCon <- mkKnownTyCon "GHC.Prim" primitiveName 0 typeKindType
       pure
         TcForeignMarshal
           { tcForeignSourceType = sourceType,
@@ -1073,7 +1072,7 @@ annotateInstanceDeclTc instanceDecl =
       info <- maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure classInfo
       let classSubstitution =
             Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip (ciTyVars info) headTys]
-          superClassTypes = map (substType classSubstitution) (ciSuperClassTypes info)
+          superClassTypes = map (applySubst classSubstitution) (ciSuperClassTypes info)
           defaults = ciDefaultMethods info
       superClasses <- mapM constraintTypePred superClassTypes
       superClassEvidence <- mapM (solveInstanceSuperClass classNameText context) superClasses
@@ -1277,8 +1276,8 @@ methodExpectedScheme classInfo headTys methodName =
           pure
             ( ForAll
                 (filter (\tyVar -> not (Map.member (tvUnique tyVar) subst)) tyVars)
-                (map (substPred subst) methodPredicates)
-                (substType subst body)
+                (map (applySubstPred subst) methodPredicates)
+                (applySubst subst body)
             )
         Nothing -> missingTypeInfo ("class method receiver for " <> T.unpack methodName)
     Nothing -> missingTypeInfo ("class method " <> T.unpack methodName)
@@ -1405,13 +1404,6 @@ matchOne subst (patternTy, targetTy)
   | patternTy == targetTy = Just subst
   | otherwise = Nothing
 
-substPred :: Map Unique TcType -> Pred -> Pred
-substPred subst (ClassPred className args) = ClassPred className (map (substType subst) args)
-substPred subst (EqPred left right) = EqPred (substType subst left) (substType subst right)
-
-substType :: Map Unique TcType -> TcType -> TcType
-substType = Aihc.Tc.Instantiate.applySubst
-
 -- | Collect type signatures from a list of declarations.
 collectUserSigs :: [Decl] -> TcM (Map TcTermKey UserSig)
 collectUserSigs decls = do
@@ -1481,11 +1473,11 @@ checkInstanceHeadTypes className tvEnv headArgTypes = do
 skolemizeQualified :: TypeScheme -> TcM ([TyVarId], [Pred], TcType)
 skolemizeQualified (ForAll tvs preds body) = do
   (skolems, subst) <- foldM extendSubst ([], Map.empty) tvs
-  pure (skolems, map (substPred subst) preds, substType subst body)
+  pure (skolems, map (applySubstPred subst) preds, applySubst subst body)
   where
     extendSubst (skolems, subst) tv = do
       rawSkolem <- freshSkolemTv (tvName tv)
-      let skolem = setTyVarKind (Aihc.Tc.Instantiate.substKind subst (tvKind tv)) rawSkolem
+      let skolem = setTyVarKind (applySubst subst (tvKind tv)) rawSkolem
       pure (skolems <> [skolem], Map.insert (tvUnique tv) (TcTyVar skolem) subst)
 
 -- | Split a function type into argument types and result type.
@@ -1986,9 +1978,8 @@ predeclareTypeConstructor declaration =
   where
     predeclare binder name arity flavor = do
       provisionalKind <- freshKindMeta
-      tyCon <- mkDeclaredTyCon binder name arity provisionalKind
+      tyCon <- mkDeclaredTyCon binder name arity
       storeTyConInfo
-        name
         TyConInfo
           { tciName = name,
             tciArity = arity,
@@ -1998,14 +1989,14 @@ predeclareTypeConstructor declaration =
             tciTypeSynonym = Nothing
           }
 
-storeTyConInfo :: Text -> TyConInfo -> TcM ()
-storeTyConInfo _ info = do
+storeTyConInfo :: TyConInfo -> TcM ()
+storeTyConInfo info = do
   existing <- lookupTyConByIdentity (tciTyCon info)
   case existing of
     Just provisional -> do
       unifyKinds (typeSchemeBody (tciKindScheme provisional)) (typeSchemeBody (tciKindScheme info))
       replaceTyConEnvPermanent info
-    Nothing -> extendTyConEnvPermanent (tciName info) info
+    Nothing -> extendTyConEnvPermanent info
 
 registerStructuralDecl :: (Text, Text) -> Decl -> TcM [TcBindingResult]
 registerStructuralDecl _ (DeclData dataDecl) = registerDataConstructors dataDecl
@@ -2026,13 +2017,13 @@ predeclarePromotedConstructors declaration =
       let parentBinder = binderHeadName (dataDeclHead dataDeclaration)
           parentName = unqualifiedNameText parentBinder
           parentArity = length (binderHeadParams (dataDeclHead dataDeclaration))
-      parent <- dataDeclTyCon parentBinder parentName parentArity KType
+      parent <- dataDeclTyCon parentBinder parentName parentArity
       mapM_ (predeclareConstructor parent) (dataDeclConstructors dataDeclaration)
     DeclNewtype newtypeDeclaration -> do
       let parentBinder = binderHeadName (newtypeDeclHead newtypeDeclaration)
           parentName = unqualifiedNameText parentBinder
           parentArity = length (binderHeadParams (newtypeDeclHead newtypeDeclaration))
-      parent <- mkDeclaredTyCon parentBinder parentName parentArity KType
+      parent <- mkDeclaredTyCon parentBinder parentName parentArity
       maybe (pure ()) (predeclareConstructor parent) (newtypeDeclConstructor newtypeDeclaration)
     _ -> pure ()
   where
@@ -2052,7 +2043,6 @@ predeclarePromotedConstructors declaration =
           else ForAll [] [] <$> freshKindMeta
       let promotedTyCon = mkTyConWithOrigin (tyConPackageId parent) (tyConModuleName parent) promotedName arity
       storeTyConInfo
-        promotedName
         TyConInfo
           { tciName = promotedName,
             tciArity = arity,
@@ -2077,10 +2067,9 @@ registerClassDecl origin classDecl = do
       paramTvEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- paramInfos]
   superClassTypes <- mapM (\ty -> checkSurfaceType paramTvEnv ty KConstraint) (fromMaybe [] (classDeclContext classDecl))
   classKind <- defaultKindMetas (foldr KFun KConstraint paramKinds)
-  classTyCon <- mkDeclaredTyCon classBinder className (length params) classKind
+  classTyCon <- mkDeclaredTyCon classBinder className (length params)
   let classPred = ClassPred classTyCon (map TcTyVar paramTyVars)
   storeTyConInfo
-    className
     TyConInfo
       { tciName = className,
         tciArity = length params,
@@ -2226,13 +2215,9 @@ registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
       arity = length params
   (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
   inferredKind <- tyConKindFromParams paramInfos (dataFamilyDeclKind familyDecl)
-  familyTyCon <-
-    case maybeKindScheme of
-      Just kindScheme -> declaredTyConWithKindScheme familyBinder familyName arity kindScheme
-      Nothing -> mkDeclaredTyCon familyBinder familyName arity inferredKind
+  familyTyCon <- mkDeclaredTyCon familyBinder familyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
   storeTyConInfo
-    familyName
     TyConInfo
       { tciName = familyName,
         tciArity = arity,
@@ -2292,7 +2277,7 @@ registerDataFamilyInstance (packageName, moduleName') familyInst = do
                         dfiiConstructorNames = constructorNames,
                         dfiiIsNewtype = dataFamilyInstIsNewtype familyInst
                       }
-              extendTyConEnvPermanent representationName representationInfo
+              extendTyConEnvPermanent representationInfo
               addDataFamilyInstance instanceInfo
               mapM (registerDataConWithResult paramInfos familyType) (dataFamilyInstConstructors familyInst)
         _ -> do
@@ -2362,13 +2347,9 @@ registerTypeFamilyDeclHeader maybeKindScheme familyDecl =
           arity = length params
       (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
       inferredKind <- tyConKindFromParams paramInfos (typeFamilyResultKindType familyDecl)
-      familyTyCon <-
-        case maybeKindScheme of
-          Just kindScheme -> declaredTyConWithKindScheme familyBinder familyName arity kindScheme
-          Nothing -> mkDeclaredTyCon familyBinder familyName arity inferredKind
+      familyTyCon <- mkDeclaredTyCon familyBinder familyName arity
       let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
       storeTyConInfo
-        familyName
         TyConInfo
           { tciName = familyName,
             tciArity = arity,
@@ -2526,13 +2507,9 @@ registerDataDeclHeader maybeKindScheme dd = do
   (kindParams, paramInfos) <- dataDeclParamInfos maybeKindScheme dd
   let kindEnv = Map.fromList [(paramName param, (paramTyVar param, paramKind param)) | param <- kindParams]
   inferredKind <- tyConKindFromParamsWith kindEnv paramInfos (dataDeclKind dd)
-  tc <-
-    case maybeKindScheme of
-      Just kindScheme -> declaredTyConWithKindScheme tyBinder tyName arity kindScheme
-      Nothing -> dataDeclTyCon tyBinder tyName arity inferredKind
+  tc <- dataDeclTyCon tyBinder tyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
   storeTyConInfo
-    tyName
     TyConInfo
       { tciName = tyName,
         tciArity = arity,
@@ -2582,13 +2559,9 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
       arity = length params
   (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
   inferredKind <- tyConKindFromParams paramInfos (newtypeDeclKind nd)
-  tc <-
-    case maybeKindScheme of
-      Just kindScheme -> declaredTyConWithKindScheme tyBinder tyName arity kindScheme
-      Nothing -> mkDeclaredTyCon tyBinder tyName arity inferredKind
+  tc <- mkDeclaredTyCon tyBinder tyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
   storeTyConInfo
-    tyName
     TyConInfo
       { tciName = tyName,
         tciArity = arity,
@@ -2655,7 +2628,7 @@ registerPromotedDataCon constructor = do
           }
   if moduleName' == "GHC.Types" && promotedName `elem` ["'[]", "':"]
     then replaceTyConEnvPermanent info
-    else storeTyConInfo promotedName info
+    else storeTyConInfo info
 
 promotedListConstructorKind :: Text -> TcM TypeScheme
 promotedListConstructorKind promotedName = do
@@ -2708,14 +2681,10 @@ registerTypeSynonymHeader maybeKindScheme typeSynDecl = do
   (_, paramInfos) <- typeDeclParamInfos maybeKindScheme params
   inferredResultKind <- freshKindMeta
   let inferredKind = foldr (KFun . paramKind) inferredResultKind paramInfos
-  tyCon <-
-    case maybeKindScheme of
-      Just kindScheme -> declaredTyConWithKindScheme tyBinder tyName arity kindScheme
-      Nothing -> mkDeclaredTyCon tyBinder tyName arity inferredKind
+  tyCon <- mkDeclaredTyCon tyBinder tyName arity
   let declaredKind = maybe inferredKind typeSchemeBody maybeKindScheme
   let synonym = TypeSynonymInfo (map paramTyVar paramInfos) Nothing
   storeTyConInfo
-    tyName
     TyConInfo
       { tciName = tyName,
         tciArity = arity,
@@ -2765,20 +2734,12 @@ typeResultKind remaining kind
 typeResultKind remaining (KFun _ result) = typeResultKind (remaining - 1) result
 typeResultKind _ kind = kind
 
-dataDeclTyCon :: UnqualifiedName -> Text -> Int -> TcType -> TcM TyCon
-dataDeclTyCon binder "List" 1 kind = mkDeclaredTyCon binder "[]" 1 kind
-dataDeclTyCon binder name arity kind = mkDeclaredTyCon binder name arity kind
+dataDeclTyCon :: UnqualifiedName -> Text -> Int -> TcM TyCon
+dataDeclTyCon binder "List" 1 = mkDeclaredTyCon binder "[]" 1
+dataDeclTyCon binder name arity = mkDeclaredTyCon binder name arity
 
-mkDeclaredTyCon :: UnqualifiedName -> Text -> Int -> TcType -> TcM TyCon
-mkDeclaredTyCon binder name arity _kind =
-  case nameResolution binder of
-    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName}
-      | Just definingModuleName <- nameQualifier resolvedName ->
-          pure (mkTyConWithOrigin packageId definingModuleName name arity)
-    _ -> abortTc ("type declaration has no package or module identity: " <> T.unpack name)
-
-declaredTyConWithKindScheme :: UnqualifiedName -> Text -> Int -> TypeScheme -> TcM TyCon
-declaredTyConWithKindScheme binder name arity _kindScheme =
+mkDeclaredTyCon :: UnqualifiedName -> Text -> Int -> TcM TyCon
+mkDeclaredTyCon binder name arity =
   case nameResolution binder of
     Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName}
       | Just definingModuleName <- nameQualifier resolvedName ->

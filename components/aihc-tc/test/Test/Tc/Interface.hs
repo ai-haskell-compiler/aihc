@@ -23,7 +23,7 @@ tcInterfaceTests =
     ]
   where
     listTyCon = mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types" "[]" 1
-    listKind = ForAll [] [] (TcFunTy liftedTypeKind liftedTypeKind)
+    listKind = ForAll [] [] (TcFunTy typeKindType typeKindType)
     canonicalInfo = TyConInfo "List" 1 listTyCon listKind DataTyCon Nothing
     supportInfo = TyConInfo "[]" 1 listTyCon listKind DataTyCon Nothing
     canonicalInterface = emptyTcInterface {tcInterfaceTyCons = [canonicalInfo]}

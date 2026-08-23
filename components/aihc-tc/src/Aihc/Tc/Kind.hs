@@ -44,7 +44,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Env (TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
-import Aihc.Tc.Instantiate (applySubst, instantiate)
+import Aihc.Tc.Instantiate (instantiate)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Control.Monad (foldM, zipWithM, zipWithM_)
@@ -338,13 +338,13 @@ inferTypeConstructor promoted name =
       case nameText name of
         "Type" -> knownType "GHC.Types" "Type" KType
         "Constraint" -> knownType "GHC.Types" "Constraint" KType
-        raw -> do
+        _ -> do
           mInfo <- lookupResolvedTyCon name
           case mInfo of
             Just info -> do
               kind <- instantiateTyConKind info
               pure (TcTyCon (tciTyCon info) [], kind)
-            Nothing -> inferBuiltinOrOpenTypeConstructor raw
+            Nothing -> inferUnknownType
 
 instantiateTyConKind :: TyConInfo -> TcM TcType
 instantiateTyConKind info = do
@@ -371,9 +371,6 @@ inferBuiltinTypeConstructor builtin =
       let kind = KFun KType (KFun KType KType)
       tyCon <- mkKnownTyCon "GHC.Types" "(->)" 2 kind
       pure (TcTyCon tyCon [], kind)
-
-inferBuiltinOrOpenTypeConstructor :: Text -> TcM (TcType, TcType)
-inferBuiltinOrOpenTypeConstructor _ = inferUnknownType
 
 knownType :: Text -> Text -> TcType -> TcM (TcType, TcType)
 knownType moduleName name = knownTypeWithArity moduleName name 0
@@ -631,7 +628,7 @@ runtimeRepOrLifted :: TcType -> TcType
 runtimeRepOrLifted kind =
   case runtimeRepFromKind kind of
     Right runtimeRep -> runtimeRep
-    Left _ -> liftedRuntimeRep
+    Left _ -> liftedRep
 
 freeTypeVars :: Type -> [Text]
 freeTypeVars = nub . go

@@ -35,7 +35,7 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Instantiate (Instantiation (..), applySubst, instantiateWithArgs)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
 import Aihc.Tc.Kind (tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
@@ -261,7 +261,7 @@ checkedOnly :: Pattern -> PatternCheck
 checkedOnly pat = mempty {pcPatterns = [pat]}
 
 runtimeRepOrLifted :: TcType -> TcType
-runtimeRepOrLifted kind = fromRight liftedRuntimeRep (runtimeRepFromKind kind)
+runtimeRepOrLifted kind = fromRight liftedRep (runtimeRepFromKind kind)
 
 checkedLiteral :: TcType -> Literal -> Literal
 checkedLiteral ty = LitAnn (mkAnnotation (pendingAnnotation ty [] [] []))
@@ -326,10 +326,10 @@ charLiteralPatternType literal =
   case peelLiteralAnn literal of
     LitChar {} -> do
       maybeInfo <- lookupTyCon "Char"
-      tyCon <- maybe (mkKnownTyCon "GHC.Types" "Char" 0 liftedTypeKind) (pure . tciTyCon) maybeInfo
+      tyCon <- maybe (mkKnownTyCon "GHC.Types" "Char" 0 typeKindType) (pure . tciTyCon) maybeInfo
       pure (Just (TcTyCon tyCon []))
     LitCharHash {} -> do
-      tyCon <- mkKnownTyCon "GHC.Prim" "Char#" 0 liftedTypeKind
+      tyCon <- mkKnownTyCon "GHC.Prim" "Char#" 0 typeKindType
       pure (Just (TcTyCon tyCon []))
     _ -> pure Nothing
 
@@ -569,7 +569,7 @@ instantiateConstructorPattern (ForAll tyVars predicates body) = do
   pure
     ( instantiateType body,
       typeArgs,
-      map (instantiatePred substitution) predicates,
+      map (applySubstPred substitution) predicates,
       skolems
     )
   where
@@ -603,12 +603,6 @@ predTyVars predicate =
   case predicate of
     ClassPred _ arguments -> Set.unions (map typeTyVars arguments)
     EqPred left right -> typeTyVars left <> typeTyVars right
-
-instantiatePred :: Map.Map Unique TcType -> Pred -> Pred
-instantiatePred substitution predicate =
-  case predicate of
-    ClassPred className arguments -> ClassPred className (map (applySubst substitution) arguments)
-    EqPred left right -> EqPred (applySubst substitution left) (applySubst substitution right)
 
 replaceConstructorSubpatterns :: Pattern -> [Pattern] -> Pattern
 replaceConstructorSubpatterns pat subPats =

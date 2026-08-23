@@ -52,8 +52,7 @@ module Aihc.Tc.Types
     addrRep,
     floatRep,
     doubleRep,
-    liftedRuntimeRep,
-    liftedTypeKind,
+    typeKindType,
     runtimeRepFromKind,
     runtimeRepOfTypeInEnv,
     isLiftedTypeInEnv,
@@ -88,6 +87,8 @@ module Aihc.Tc.Types
     pattern FloatRep,
     pattern DoubleRep,
     typeSchemeBody,
+    applySubst,
+    applySubstPred,
     Pred (..),
     TcLevel (..),
     topTcLevel,
@@ -112,7 +113,7 @@ data TyVarId = TyVarIdInternal !Text !Unique !TcType
 pattern TyVarId :: Text -> Unique -> TyVarId
 pattern TyVarId {tvName, tvUnique} <- TyVarIdInternal tvName tvUnique _
   where
-    TyVarId name unique = TyVarIdInternal name unique liftedTypeKind
+    TyVarId name unique = TyVarIdInternal name unique typeKindType
 
 {-# COMPLETE TyVarId #-}
 
@@ -252,12 +253,6 @@ promotedList = foldr promotedCons promotedNil
     promotedNil = TcTyCon (promotedTypeCon "[]" 0) []
     promotedCons field rest = TcTyCon (promotedTypeCon ":" 2) [field, rest]
 
-liftedRuntimeRep :: TcType
-liftedRuntimeRep = liftedRep
-
-liftedTypeKind :: TcType
-liftedTypeKind = typeKindType
-
 -- | Get a type kind from the complete type-constructor identity table.
 typeKindInEnv :: TcKindEnv -> TcType -> Either String TcType
 typeKindInEnv kindEnv = go
@@ -273,7 +268,7 @@ typeKindInEnv kindEnv = go
               Right
               (Map.lookup (tyConKey tyCon) kindEnv)
           applyArguments scheme arguments
-        TcFunTy {} -> Right (configurePrimitiveType liftedTypeKind)
+        TcFunTy {} -> Right (configurePrimitiveType typeKindType)
         TcForAllTy _ body -> go body
         TcQualTy _ body -> go body
         TcAppTy function argument -> do
@@ -292,7 +287,7 @@ typeKindInEnv kindEnv = go
     applyKindWith quantified (TcFunTy formal result) argument = do
       actual <- go argument
       substitution <- matchKinds quantified formal actual
-      Right (substituteType substitution result)
+      Right (applySubst substitution result)
     applyKindWith _ kind _ = Left ("type application uses a non-function kind: " <> show kind)
 
     matchKinds quantified formal actual =
@@ -364,21 +359,30 @@ isUnliftedTypeInEnv kindEnv ty =
     Right representation -> not (matchesLiftedRuntimeRep representation)
     Left _ -> False
 
-substituteType :: Map Unique TcType -> TcType -> TcType
-substituteType substitution ty =
-  case ty of
-    TcTyVar tyVar -> Map.findWithDefault ty (tvUnique tyVar) substitution
-    TcMetaTv {} -> ty
-    TcTyCon tyCon arguments -> TcTyCon tyCon (map (substituteType substitution) arguments)
-    TcFunTy argument result -> TcFunTy (substituteType substitution argument) (substituteType substitution result)
-    TcForAllTy tyVar body -> TcForAllTy tyVar (substituteType (Map.delete (tvUnique tyVar) substitution) body)
-    TcQualTy predicates body -> TcQualTy (map substitutePred predicates) (substituteType substitution body)
-    TcAppTy function argument -> TcAppTy (substituteType substitution function) (substituteType substitution argument)
+-- | Apply a type-variable substitution to a type.
+applySubst :: Map Unique TcType -> TcType -> TcType
+applySubst substitution = go
   where
-    substitutePred predicate =
-      case predicate of
-        ClassPred className arguments -> ClassPred className (map (substituteType substitution) arguments)
-        EqPred left right -> EqPred (substituteType substitution left) (substituteType substitution right)
+    go ty =
+      case ty of
+        TcTyVar tyVar -> Map.findWithDefault ty (tvUnique tyVar) substitution
+        TcMetaTv {} -> ty
+        TcTyCon tyCon arguments -> TcTyCon tyCon (map go arguments)
+        TcFunTy argument result -> TcFunTy (go argument) (go result)
+        TcForAllTy tyVar body ->
+          TcForAllTy tyVar (applySubst (Map.delete (tvUnique tyVar) substitution) body)
+        TcQualTy predicates body -> TcQualTy (map (applySubstPred substitution) predicates) (go body)
+        TcAppTy function argument -> applyType (go function) (go argument)
+
+    applyType (TcTyCon tyCon arguments) argument = TcTyCon tyCon (arguments <> [argument])
+    applyType function argument = TcAppTy function argument
+
+-- | Apply a type-variable substitution to a predicate.
+applySubstPred :: Map Unique TcType -> Pred -> Pred
+applySubstPred substitution predicate =
+  case predicate of
+    ClassPred className arguments -> ClassPred className (map (applySubst substitution) arguments)
+    EqPred left right -> EqPred (applySubst substitution left) (applySubst substitution right)
 
 pattern KTYPE :: TcType -> TcType
 pattern KTYPE representation <- (matchTYPEKind -> Just representation)
@@ -512,7 +516,7 @@ runtimeRepFromKind :: TcType -> Either String TcType
 runtimeRepFromKind kind =
   case kind of
     TcTyCon tyCon []
-      | tyConName tyCon `elem` ["Type", "LiftedType", "Constraint"] -> Right liftedRuntimeRep
+      | tyConName tyCon `elem` ["Type", "LiftedType", "Constraint"] -> Right liftedRep
       | tyConName tyCon == "UnliftedType" -> Right unliftedRep
     TcTyCon tyCon [representation]
       | tyConName tyCon == "TYPE" -> Right representation

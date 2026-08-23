@@ -289,7 +289,7 @@ freshMetaTv = do
   kindUnique <- freshUnique
   lift $ modify' $ \state ->
     state
-      { tcsMetaKinds = Map.insert kindUnique liftedTypeKind (tcsMetaKinds state),
+      { tcsMetaKinds = Map.insert kindUnique typeKindType (tcsMetaKinds state),
         tcsTrackedKindMetas = Set.insert kindUnique (tcsTrackedKindMetas state)
       }
   freshMetaTvOfKind (TcMetaTv kindUnique)
@@ -328,7 +328,7 @@ readMetaTv u = lift $ gets $ \s ->
 
 readMetaTvKind :: Unique -> TcM TcType
 readMetaTvKind unique =
-  lift $ gets $ Map.findWithDefault liftedTypeKind unique . tcsMetaKinds
+  lift $ gets $ Map.findWithDefault typeKindType unique . tcsMetaKinds
 
 trackKindMeta :: Unique -> TcM ()
 trackKindMeta unique =
@@ -554,8 +554,8 @@ typeResolution =
 getTyConEnv :: TcM (Map TyCon TyConInfo)
 getTyConEnv = lift $ gets tcsGlobalTyCons
 
-extendTyConEnvPermanent :: Text -> TyConInfo -> TcM ()
-extendTyConEnvPermanent _ info = do
+extendTyConEnvPermanent :: TyConInfo -> TcM ()
+extendTyConEnvPermanent info = do
   tyCons <- lift $ gets tcsGlobalTyCons
   tyCons' <- insertNewMap "global type constructor environment" (tciTyCon info) info tyCons
   lift $ modify' $ \state -> state {tcsGlobalTyCons = tyCons'}
