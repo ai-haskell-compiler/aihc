@@ -38,7 +38,7 @@ expected: |-
   pub val 1.vinspect :: 1.tBox → 1.tMark
    = λ(x : 1.tBox).
     case x as (_scrut : 1.tBox) return (1.tMark) of {
-        1.vBox (a : 2.tType) ($pattern_d0 : 1.t$Dict$Markable a) (value : a) →
+        1.vBox @(a : 2.tType) ($pattern_d0 : 1.t$Dict$Markable a) (value : a) →
             1.vmark @a $pattern_d0 value
     }
 status: pass

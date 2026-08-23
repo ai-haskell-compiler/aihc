@@ -66,13 +66,14 @@ data Bind = Bind
 
 data Alt = Alt
   { altCon :: AltCon,
+    altTypeBinders :: [Binder],
     altBinders :: [Binder],
     altRhs :: Expr
   }
   deriving (Eq, Ord, Show, Read)
 
 data AltCon
-  = AltData Name [Binder]
+  = AltData Name
   | AltLit Literal
   | AltDefault
   deriving (Eq, Ord, Show, Read)

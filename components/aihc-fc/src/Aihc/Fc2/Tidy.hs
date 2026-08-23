@@ -117,22 +117,21 @@ tidyRecBind env binder bind =
 
 tidyAlt :: TidyEnv -> Alt -> Alt
 tidyAlt env alternative =
-  let (constructor, fieldEnv) = tidyAltCon env (altCon alternative)
-      (binders, rhsEnv) = tidyBinders fieldEnv (altBinders alternative)
+  let (typeBinders, typeEnv) = tidyBinders env (altTypeBinders alternative)
+      (binders, rhsEnv) = tidyBinders typeEnv (altBinders alternative)
    in alternative
-        { altCon = constructor,
+        { altCon = tidyAltCon env (altCon alternative),
+          altTypeBinders = typeBinders,
           altBinders = binders,
           altRhs = tidyExpr rhsEnv (altRhs alternative)
         }
 
-tidyAltCon :: TidyEnv -> AltCon -> (AltCon, TidyEnv)
+tidyAltCon :: TidyEnv -> AltCon -> AltCon
 tidyAltCon env alternative =
   case alternative of
-    AltData name binders ->
-      let (binders', bodyEnv) = tidyBinders env binders
-       in (AltData (tidyUse env name) binders', bodyEnv)
-    AltLit literal -> (AltLit (tidyLiteral env literal), env)
-    AltDefault -> (AltDefault, env)
+    AltData name -> AltData (tidyUse env name)
+    AltLit literal -> AltLit (tidyLiteral env literal)
+    AltDefault -> AltDefault
 
 tidyLiteral :: TidyEnv -> Literal -> Literal
 tidyLiteral env literal =

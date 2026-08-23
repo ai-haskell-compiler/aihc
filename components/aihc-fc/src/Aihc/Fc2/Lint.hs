@@ -471,20 +471,24 @@ lintAlt :: LintEnv -> Type -> Alt -> Either LintError Type
 lintAlt env scrutType alt =
   case altCon alt of
     AltDefault -> do
+      unless (null (altTypeBinders alt)) (Left (LintFailure "default alternative has type binders"))
       unless (null (altBinders alt)) (Left (LintFailure "default alternative has field binders"))
       lintExpr env (altRhs alt)
     AltLit literal -> do
+      unless (null (altTypeBinders alt)) (Left (LintFailure "literal alternative has type binders"))
       unless (null (altBinders alt)) (Left (LintFailure "literal alternative has field binders"))
       matchLiteralAlternative env scrutType literal
       lintExpr env (altRhs alt)
-    AltData name typeBinders ->
+    AltData name ->
       case lookupHeaderType (leTypes env) name of
         Nothing -> Left (UnboundName name)
         Just constructorType -> do
           (existentials, fields) <- matchConstructor env constructorType scrutType
-          unless (length existentials == length typeBinders) (Left (LintFailure ("case alternative type binder count does not match constructor: " <> show name)))
-          (envEx, substitution) <- foldM (bindExistential name) (env, Map.empty) (zip existentials typeBinders)
+          scopeEnv <- foldM bindLocal env (altTypeBinders alt)
+          mapM_ (lintType scopeEnv . binderType) (altBinders alt)
+          unless (length existentials == length (altTypeBinders alt)) (Left (LintFailure ("case alternative type binder count does not match constructor: " <> show name)))
           unless (length fields == length (altBinders alt)) (Left (LintFailure ("case alternative binder count does not match constructor: " <> show name)))
+          (envEx, substitution) <- foldM (bindExistential name) (env, Map.empty) (zip existentials (altTypeBinders alt))
           envFields <- foldM (bindField name) envEx (zip (map (applySubst substitution) fields) (altBinders alt))
           lintExpr envFields (altRhs alt)
 
