@@ -10,7 +10,6 @@ where
 
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
-import Aihc.Fc2.Wired (ghcTypesModule, liftedRepName)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
@@ -46,24 +45,18 @@ parseWith scopes parser = MP.parse (runReaderT parser scopes)
 parseScopeHeader :: Text -> Either Fc2ParseError (ScopeTable, Text)
 parseScopeHeader = MP.parse parser "<system-fc2-scope>"
   where
-    parser = do
-      scopes <- runReaderT (MP.many scopeDeclaration) emptyScopeTable
-      body <- MP.takeRest
-      pure (foldr (\(scopeId, package, moduleName) table -> insertScope scopeId package moduleName table) emptyScopeTable scopes, body)
+    parser = ((,) . toScopeTable <$> runReaderT (MP.many scopeDeclaration) emptyScopeTable) <*> MP.takeRest
+    toScopeTable = foldr (\(scopeId, package, moduleName) -> insertScope scopeId package moduleName) emptyScopeTable
 
 scopeDeclaration :: Parser (Int, PackageId, Text)
-scopeDeclaration = do
-  _ <- keyword "scope"
-  scopeId <- int
-  _ <- symbol "="
-  package <- stringLiteral
-  moduleName <- qualifiedModuleName
-  pure (scopeId, PackageId package, moduleName)
+scopeDeclaration =
+  (,,)
+    <$> (keyword "scope" *> int)
+    <*> (PackageId <$> (symbol "=" *> stringLiteral))
+    <*> qualifiedModuleName
 
 program :: Parser Program
-program = do
-  scopes <- ask
-  Program scopes <$> MP.many declaration
+program = Program <$> ask <*> MP.many declaration
 
 declaration :: Parser Decl
 declaration =
@@ -98,11 +91,7 @@ constructorBlock :: Parser [ConDecl]
 constructorBlock = braces (MP.many (constructorDecl <* MP.optional (symbol ";")))
 
 constructorDecl :: Parser ConDecl
-constructorDecl = do
-  vis <- optionalPub
-  name <- topName SortDataConstructor
-  _ <- symbol "::"
-  ConDecl vis name <$> fcType
+constructorDecl = ConDecl <$> optionalPub <*> topName SortDataConstructor <*> (symbol "::" *> fcType)
 
 axiomDeclaration :: Parser Decl
 axiomDeclaration = do
@@ -129,30 +118,29 @@ callingConvention :: Parser CallingConvention
 callingConvention =
   MP.choice
     [ keyword "prim" $> Prim,
-      do
-        _ <- keyword "ccall"
-        _ <- keyword "unsafe"
-        foreignSymbol <- stringLiteral
-        (arguments, result, effect) <- MP.between (symbol "[") (symbol "]") foreignSignature
-        pure
-          ( CCall
-              CCallSpec
-                { ccallSymbol = foreignSymbol,
-                  ccallArgumentTypes = arguments,
-                  ccallResultType = result,
-                  ccallEffect = effect
-                }
-          )
+      makeCCall
+        <$> (keyword "ccall" *> keyword "unsafe" *> stringLiteral)
+        <*> MP.between (symbol "[") (symbol "]") foreignSignature
     ]
+  where
+    makeCCall foreignSymbol (arguments, result, effect) =
+      CCall
+        CCallSpec
+          { ccallSymbol = foreignSymbol,
+            ccallArgumentTypes = arguments,
+            ccallResultType = result,
+            ccallEffect = effect
+          }
 
 foreignSignature :: Parser ([CAbiType], CAbiType, ForeignEffect)
-foreignSignature = do
-  arguments <- cAbiType `MP.sepBy` symbol ","
-  _ <- symbol "→"
-  result <- cAbiType
-  _ <- symbol ";"
-  effect <- (keyword "pure" $> ForeignPure) <|> (keyword "real-world" $> ForeignRealWorld)
-  pure (arguments, result, effect)
+foreignSignature =
+  (,,)
+    <$> cAbiType `MP.sepBy` symbol ","
+    <*> (symbol "→" *> cAbiType)
+    <*> (symbol ";" *> foreignEffect)
+
+foreignEffect :: Parser ForeignEffect
+foreignEffect = (keyword "pure" $> ForeignPure) <|> (keyword "real-world" $> ForeignRealWorld)
 
 cAbiType :: Parser CAbiType
 cAbiType =
@@ -201,12 +189,9 @@ fcType = forallType
 forallType :: Parser Type
 forallType =
   MP.choice
-    [ do
-        _ <- symbol "∀"
-        binders <- MP.some openPiBinder
-        _ <- symbol "."
-        body <- forallType
-        pure (foldr TyForAll body binders),
+    [ flip (foldr TyForAll)
+        <$> (symbol "∀" *> MP.some openPiBinder <* symbol ".")
+        <*> forallType,
       funType
     ]
 
@@ -219,15 +204,9 @@ funType = do
 
 scopedArrow :: Parser Type
 scopedArrow = lexeme $ do
-  scopeId <- L.decimal
-  _ <- MPC.char '.'
+  (package, moduleName) <- scopeReference
   _ <- MPC.string "→" <|> MPC.string "->"
-  scopes <- ask
-  case lookupScope scopeId scopes of
-    Just (package, moduleName)
-      | moduleName == ghcTypesModule -> pure (TyCon (liftedRepName package))
-      | otherwise -> fail ("arrow scope is not " <> T.unpack ghcTypesModule)
-    Nothing -> fail ("unknown scope " <> show scopeId)
+  pure (TyCon (Name "LiftedRep" SortSynonym (OriginTop package moduleName)))
 
 eqType :: Parser Type
 eqType = do
@@ -246,22 +225,15 @@ axiomRoleLetter = do
     _ -> pure letter
 
 appType :: Parser Type
-appType = do
-  explicit <- MP.optional (MP.try explicitFun)
-  case explicit of
-    Just ty -> pure ty
-    Nothing -> do
-      function <- typeAtom
-      arguments <- MP.many (MP.try typeAtom)
-      pure (foldl TyApp function arguments)
+appType = MP.try explicitFun <|> (foldl TyApp <$> typeAtom <*> MP.many (MP.try typeAtom))
 
 explicitFun :: Parser Type
-explicitFun = do
-  _ <- keyword "FUN"
-  r1 <- symbol "@" *> typeAtom
-  r2 <- symbol "@" *> typeAtom
-  argument <- typeAtom
-  TyFun r1 r2 argument <$> typeAtom
+explicitFun =
+  TyFun
+    <$> (keyword "FUN" *> symbol "@" *> typeAtom)
+    <*> (symbol "@" *> typeAtom)
+    <*> typeAtom
+    <*> typeAtom
 
 typeAtom :: Parser Type
 typeAtom =
@@ -297,10 +269,7 @@ reservedWords =
   ]
 
 openPiBinder :: Parser Binder
-openPiBinder = parens $ do
-  name <- localBinderName SortTypeVariable
-  _ <- symbol ":"
-  Binder name <$> fcType
+openPiBinder = parens (Binder <$> localBinderName SortTypeVariable <*> (symbol ":" *> fcType))
 
 expression :: Parser Expr
 expression =
@@ -314,73 +283,46 @@ expression =
     ]
 
 lambdaExpr :: Parser Expr
-lambdaExpr = do
-  _ <- symbol "λ"
-  binder <- openTermBinder SortValue
-  _ <- symbol "."
-  ExLam binder <$> expression
+lambdaExpr = ExLam <$> (symbol "λ" *> openTermBinder SortValue) <*> (symbol "." *> expression)
 
 typeLambdaExpr :: Parser Expr
-typeLambdaExpr = do
-  _ <- symbol "Λ"
-  binder <- openTermBinder SortTypeVariable
-  _ <- symbol "."
-  ExTyLam binder <$> expression
+typeLambdaExpr = ExTyLam <$> (symbol "Λ" *> openTermBinder SortTypeVariable) <*> (symbol "." *> expression)
 
 openTermBinder :: Sort -> Parser Binder
-openTermBinder sort = parens $ do
-  name <- localBinderName sort
-  _ <- symbol ":"
-  Binder name <$> fcType
+openTermBinder sort = parens (Binder <$> localBinderName sort <*> (symbol ":" *> fcType))
 
 letExpr :: Parser Expr
-letExpr = do
-  _ <- keyword "let"
-  bind <- braces openBind
-  _ <- keyword "in"
-  ExLet bind <$> expression
+letExpr = ExLet <$> (keyword "let" *> braces openBind) <*> (keyword "in" *> expression)
 
 recExpr :: Parser Expr
-recExpr = do
-  _ <- keyword "rec"
-  binds <- braces (MP.sepBy openBind (symbol ";"))
-  _ <- keyword "in"
-  ExRec binds <$> expression
+recExpr = ExRec <$> (keyword "rec" *> braces (MP.sepBy openBind (symbol ";"))) <*> (keyword "in" *> expression)
 
 openBind :: Parser Bind
-openBind = do
-  name <- localBinderName SortValue
-  _ <- symbol ":"
-  ty <- fcType
-  _ <- symbol "="
-  Bind (Binder name ty) <$> expression
+openBind = makeBind <$> localBinderName SortValue <*> (symbol ":" *> fcType) <*> (symbol "=" *> expression)
+  where
+    makeBind name ty = Bind (Binder name ty)
 
 caseExpr :: Parser Expr
-caseExpr = do
-  _ <- keyword "case"
-  scrutinee <- expression
-  _ <- keyword "as"
-  binder <- openTermBinder SortValue
-  _ <- keyword "return"
-  resultType <- parens fcType
-  _ <- keyword "of"
-  alts <- braces (MP.sepBy caseAlt (symbol ";"))
-  pure (ExCase scrutinee binder resultType alts)
+caseExpr =
+  ExCase
+    <$> (keyword "case" *> expression)
+    <*> (keyword "as" *> openTermBinder SortValue)
+    <*> (keyword "return" *> parens fcType)
+    <*> (keyword "of" *> braces (MP.sepBy caseAlt (symbol ";")))
 
 caseAlt :: Parser Alt
 caseAlt =
   MP.choice
-    [ do
-        _ <- symbol "_"
-        _ <- symbol "→" <|> symbol "->"
-        Alt AltDefault [] [] <$> expression,
-      do
-        constructor <- MP.try (AltLit <$> literal) <|> (AltData <$> topNameWithSort)
-        typeBinders <- MP.many (symbol "@" *> openTermBinder SortTypeVariable)
-        binders <- MP.many (openTermBinder SortValue)
-        _ <- symbol "→" <|> symbol "->"
-        Alt constructor typeBinders binders <$> expression
+    [ Alt AltDefault [] [] <$> (symbol "_" *> caseArrow *> expression),
+      Alt
+        <$> (MP.try (AltLit <$> literal) <|> (AltData <$> topNameWithSort))
+        <*> MP.many (symbol "@" *> openTermBinder SortTypeVariable)
+        <*> MP.many (openTermBinder SortValue)
+        <*> (caseArrow *> expression)
     ]
+
+caseArrow :: Parser Text
+caseArrow = symbol "→" <|> symbol "->"
 
 castOrApp :: Parser Expr
 castOrApp = do
@@ -390,10 +332,7 @@ castOrApp = do
     ExCast function <$> coercion
 
 appExpr :: Parser Expr
-appExpr = do
-  function <- exprAtom
-  rest <- MP.many appArgument
-  pure (foldl applyArg function rest)
+appExpr = foldl applyArg <$> exprAtom <*> MP.many appArgument
   where
     applyArg function argument =
       case argument of
@@ -419,27 +358,11 @@ exprAtom =
 coercion :: Parser Coercion
 coercion =
   MP.choice
-    [ do
-        _ <- keyword "refl"
-        CoRefl <$> typeAtom,
-      do
-        _ <- keyword "sym"
-        CoSym <$> parens coercion,
-      do
-        _ <- keyword "trans"
-        left <- parens coercion
-        right <- parens coercion
-        pure (CoTrans left right),
-      do
-        _ <- keyword "tycon-co"
-        name <- topNameWithSort
-        arguments <- MP.many (parens coercion)
-        pure (CoTyConApp name arguments),
-      do
-        _ <- keyword "axiom-co"
-        name <- topNameWithSort
-        arguments <- MP.many (symbol "@" *> typeAtom)
-        pure (CoAxiom name arguments),
+    [ CoRefl <$> (keyword "refl" *> typeAtom),
+      CoSym <$> (keyword "sym" *> parens coercion),
+      CoTrans <$> (keyword "trans" *> parens coercion) <*> parens coercion,
+      CoTyConApp <$> (keyword "tycon-co" *> topNameWithSort) <*> MP.many (parens coercion),
+      CoAxiom <$> (keyword "axiom-co" *> topNameWithSort) <*> MP.many (symbol "@" *> typeAtom),
       CoVar <$> localName
     ]
 
@@ -453,49 +376,28 @@ literal =
 hashedLiteral :: Parser Literal
 hashedLiteral =
   MP.choice
-    [ do
-        value <- integerLiteral
-        _ <- MPC.char '#'
-        representation <- representationType
-        pure (LitInt representation value),
-      do
-        value <- charLiteral
-        _ <- MPC.char '#'
-        representation <- representationType
-        pure (LitChar representation value),
-      do
-        value <- addrLiteral
-        _ <- MPC.char '#'
-        representation <- representationType
-        case representationName representation of
-          Just name
-            | nameText name == "AddrRep" ->
-                pure (LitAddr representation value)
-          _ -> fail "address literal representation must be AddrRep"
+    [ flip LitInt <$> integerLiteral <*> (MPC.char '#' *> representationType),
+      flip LitChar <$> charLiteral <*> (MPC.char '#' *> representationType),
+      flip LitAddr <$> addrLiteral <*> (MPC.char '#' *> representationType)
     ]
 
 representationType :: Parser Type
-representationType = do
-  name <- MP.try localName <|> topNameWithSort
-  pure (TyCon name)
-
-representationName :: Type -> Maybe Name
-representationName ty =
-  case ty of
-    TyCon name -> Just name
-    _ -> Nothing
+representationType = TyCon <$> (MP.try localName <|> topNameWithSort)
 
 topNameWithSort :: Parser Name
 topNameWithSort = topName SortValue
 
 topName :: Sort -> Parser Name
-topName defaultSort = lexeme $ do
-  scopeId <- L.decimal
-  _ <- MPC.char '.'
-  (printed, sort) <- printedName defaultSort
+topName defaultSort = lexeme (makeName <$> scopeReference <*> printedName defaultSort)
+  where
+    makeName (package, moduleName) (printed, sort) = Name printed sort (OriginTop package moduleName)
+
+scopeReference :: Parser (PackageId, Text)
+scopeReference = do
+  scopeId <- L.decimal <* MPC.char '.'
   scopes <- ask
   case lookupScope scopeId scopes of
-    Just (package, moduleName) -> pure (Name printed sort (OriginTop package moduleName))
+    Just scope -> pure scope
     Nothing -> fail ("unknown scope " <> show scopeId)
 
 printedName :: Sort -> Parser (Text, Sort)
@@ -534,18 +436,14 @@ tupleName :: Parser Text
 tupleName = unboxedTupleName <|> boxedTupleName
 
 unboxedTupleName :: Parser Text
-unboxedTupleName = do
-  _ <- MPC.string "(#"
-  commas <- MP.many (MPC.char ',')
-  _ <- MPC.string "#)"
-  pure (T.pack ("(#" <> commas <> "#)"))
+unboxedTupleName = makeTuple <$> MP.between (MPC.string "(#") (MPC.string "#)") (MP.many (MPC.char ','))
+  where
+    makeTuple commas = T.pack ("(#" <> commas <> "#)")
 
 boxedTupleName :: Parser Text
-boxedTupleName = do
-  _ <- MPC.char '('
-  commas <- MP.many (MPC.char ',')
-  _ <- MPC.char ')'
-  pure (T.pack ('(' : commas <> ")"))
+boxedTupleName = makeTuple <$> MP.between (MPC.char '(') (MPC.char ')') (MP.many (MPC.char ','))
+  where
+    makeTuple commas = T.pack ('(' : commas <> ")")
 
 identName :: Parser Text
 identName = do
@@ -572,29 +470,21 @@ reservedOperators :: [Text]
 reservedOperators = ["=", "::", "→", "->", "~", "@", "▷", "|"]
 
 localName :: Parser Name
-localName = lexeme $ do
-  text <- rawName
-  unique <- MP.option 0 bracesInt
-  pure (Name text SortValue (OriginLocal (Unique unique)))
+localName = localNameWithSort SortValue
 
 typeLocalName :: Parser Name
-typeLocalName = lexeme $ do
-  text <- rawName
-  unique <- MP.option 0 bracesInt
-  pure (Name text SortTypeVariable (OriginLocal (Unique unique)))
+typeLocalName = localNameWithSort SortTypeVariable
 
 localBinderName :: Sort -> Parser Name
-localBinderName sort = lexeme $ do
-  text <- rawName
-  unique <- MP.option 0 bracesInt
-  pure (Name text sort (OriginLocal (Unique unique)))
+localBinderName = localNameWithSort
+
+localNameWithSort :: Sort -> Parser Name
+localNameWithSort sort = lexeme (makeName <$> rawName <*> MP.option 0 bracesInt)
+  where
+    makeName text unique = Name text sort (OriginLocal (Unique unique))
 
 bracesInt :: Parser Int
-bracesInt = do
-  _ <- MPC.char '{'
-  value <- L.decimal
-  _ <- MPC.char '}'
-  pure value
+bracesInt = MP.between (MPC.char '{') (MPC.char '}') L.decimal
 
 defaultRoles :: [Binder] -> [Role] -> [Role]
 defaultRoles binders roles
@@ -628,25 +518,13 @@ integerLiteral :: Parser Integer
 integerLiteral = lexeme L.decimal
 
 stringLiteral :: Parser Text
-stringLiteral = lexeme $ do
-  _ <- MPC.char '"'
-  characters <- MP.many stringChar
-  _ <- MPC.char '"'
-  pure (T.pack characters)
+stringLiteral = lexeme (T.pack <$> MP.between (MPC.char '"') (MPC.char '"') (MP.many stringChar))
 
 addrLiteral :: Parser BS.ByteString
-addrLiteral = lexeme $ do
-  _ <- MPC.char '"'
-  bytes <- MP.many addrByte
-  _ <- MPC.char '"'
-  pure (BS.pack bytes)
+addrLiteral = lexeme (BS.pack <$> MP.between (MPC.char '"') (MPC.char '"') (MP.many addrByte))
 
 charLiteral :: Parser Char
-charLiteral = lexeme $ do
-  _ <- MPC.char '\''
-  character <- charLiteralValue
-  _ <- MPC.char '\''
-  pure character
+charLiteral = lexeme (MP.between (MPC.char '\'') (MPC.char '\'') charLiteralValue)
 
 charLiteralValue :: Parser Char
 charLiteralValue =
@@ -692,17 +570,12 @@ hexChar :: Parser Char
 hexChar = chr . fromIntegral <$> hexByte
 
 hexByte :: Parser Word8
-hexByte = do
-  _ <- MPC.string "\\x"
-  high <- MP.satisfy isHexDigit
-  low <- MP.satisfy isHexDigit
-  pure (fromIntegral (digitToInt high * 16 + digitToInt low))
+hexByte = makeByte <$> (MPC.string "\\x" *> MP.satisfy isHexDigit) <*> MP.satisfy isHexDigit
+  where
+    makeByte high low = fromIntegral (digitToInt high * 16 + digitToInt low)
 
 qualifiedModuleName :: Parser Text
-qualifiedModuleName = lexeme $ do
-  first <- identName
-  rest <- MP.many (MPC.char '.' *> identName)
-  pure (T.intercalate "." (first : rest))
+qualifiedModuleName = lexeme (T.intercalate "." <$> ((:) <$> identName <*> MP.many (MPC.char '.' *> identName)))
 
 parens :: Parser a -> Parser a
 parens = MP.between (symbol "(") (symbol ")")

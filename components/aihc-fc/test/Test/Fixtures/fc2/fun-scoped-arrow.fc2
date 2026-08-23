@@ -7,3 +7,6 @@ val 1.vleft :: 1.tA 2.→ 1.tA
 
 val 1.vright :: 1.tA 3.→ 1.tA
  = 1.vright
+
+val 1.vlocal :: 1.tA 1.→ 1.tA
+ = 1.vlocal

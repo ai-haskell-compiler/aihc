@@ -11,7 +11,6 @@ where
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Fc2.TypeOf
-import Aihc.Fc2.Wired (ghcTypesModule)
 import Aihc.Resolve (PackageId (..), packageIdText)
 import Aihc.Tc.Types (Unique (..))
 import Data.ByteString qualified as BS
@@ -239,8 +238,7 @@ liftedArrowScope scopes left right =
     (TyCon leftName, TyCon rightName)
       | leftName == rightName,
         nameText leftName == "LiftedRep",
-        OriginTop package moduleName <- nameOrigin leftName,
-        moduleName == ghcTypesModule ->
+        OriginTop package moduleName <- nameOrigin leftName ->
           lookupScopeId scopes package moduleName
     _ -> Nothing
 
