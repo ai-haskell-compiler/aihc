@@ -65,7 +65,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
-import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
+import System.Directory (doesDirectoryExist, getCurrentDirectory, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO.Unsafe (unsafePerformIO)
 import TcAnnotatedRender (renderAnnotatedTcResults)
@@ -139,14 +139,13 @@ findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
   where
     findUp directory = do
       let candidate = directory </> "core-libs/aihc-prim/src"
-          files = [candidate </> "GHC/Classes.hs", candidate </> "GHC/Types.hs", candidate </> "GHC/Prim.hs", candidate </> "GHC/Tuple.hs"]
-      exists <- and <$> mapM doesFileExist files
+      exists <- doesDirectoryExist candidate
       if exists
         then pure candidate
         else do
           let parent = takeDirectory directory
           if parent == directory
-            then fail "Cannot find the aihc-prim source modules."
+            then fail "Cannot find the aihc-prim source directory."
             else findUp parent
 
 loadTcAnnotatedCase :: FilePath -> IO TcAnnotatedCase
