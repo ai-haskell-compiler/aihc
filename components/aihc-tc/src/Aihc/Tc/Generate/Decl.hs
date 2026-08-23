@@ -1929,9 +1929,7 @@ zonkPred pred' =
     ClassPred className args -> ClassPred className <$> mapM zonkType args
     EqPred left right -> EqPred <$> zonkType left <*> zonkType right
 
-type SourceTyConKey = (PackageId, Text, Text)
-
-collectStandaloneKindSignatures :: [Decl] -> Map SourceTyConKey Type
+collectStandaloneKindSignatures :: [Decl] -> Map TcTypeKey Type
 collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
   where
     collect declaration =
@@ -1940,13 +1938,13 @@ collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
         DeclStandaloneKindSig name kind -> (,kind) <$> resolvedTypeKey name
         _ -> Nothing
 
-resolvedTypeKey :: UnqualifiedName -> Maybe SourceTyConKey
+resolvedTypeKey :: UnqualifiedName -> Maybe TcTypeKey
 resolvedTypeKey name = do
   ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} <- nameResolution name
   moduleName' <- nameQualifier resolvedName
   pure (packageId, moduleName', nameText resolvedName)
 
-registerTypeDeclHeader :: Map SourceTyConKey TypeScheme -> Decl -> TcM [TcBindingResult]
+registerTypeDeclHeader :: Map TcTypeKey TypeScheme -> Decl -> TcM [TcBindingResult]
 registerTypeDeclHeader kindSchemes (DeclData dataDecl) =
   registerDataDeclHeader (resolvedTypeKey (binderHeadName (dataDeclHead dataDecl)) >>= (`Map.lookup` kindSchemes)) dataDecl
 registerTypeDeclHeader kindSchemes (DeclNewtype newtypeDecl) =

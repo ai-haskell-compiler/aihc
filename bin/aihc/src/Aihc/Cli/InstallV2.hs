@@ -436,7 +436,7 @@ moduleTypeInterface exports package interface source =
       let tyCon = tciTyCon info
           identity = (tyConPackageId tyCon, tyConModuleName tyCon, tciName info)
        in Map.member (tciName info) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (tciName info)
-    visibleTypeIdentity (packageId', moduleName', identifier, _) =
+    visibleTypeIdentity (packageId', moduleName', identifier) =
       let identity = (packageId', moduleName', identifier)
        in Map.member identifier (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity identifier
     visibleClass info =

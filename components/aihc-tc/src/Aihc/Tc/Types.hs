@@ -131,7 +131,7 @@ pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ tyConName tyConArity
 
 {-# COMPLETE TyCon #-}
 
-type TcTypeKey = (PackageId, Text, Text, Int)
+type TcTypeKey = (PackageId, Text, Text)
 
 type TcKindEnv = Map TcTypeKey TypeScheme
 
@@ -142,7 +142,7 @@ tyConModuleName :: TyCon -> Text
 tyConModuleName (TyConInternal _ moduleName _ _) = moduleName
 
 tyConKey :: TyCon -> TcTypeKey
-tyConKey tyCon = (tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon, tyConArity tyCon)
+tyConKey tyCon = (tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon)
 
 mkTyConWithOrigin :: PackageId -> Text -> Text -> Int -> TyCon
 mkTyConWithOrigin = TyConInternal
@@ -342,10 +342,9 @@ typeKindInEnv kindEnv = go
 
     primitivePackage =
       case [ packageId
-           | ((packageId, moduleName, name, arity), _) <- Map.toList kindEnv,
+           | ((packageId, moduleName, name), _) <- Map.toList kindEnv,
              moduleName == "GHC.Types",
-             name == "TYPE",
-             arity == 1
+             name == "TYPE"
            ] of
         packageId : _ -> packageId
         [] -> PackageId "aihc-prim"
