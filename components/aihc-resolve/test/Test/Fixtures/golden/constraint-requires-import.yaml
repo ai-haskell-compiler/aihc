@@ -1,0 +1,13 @@
+---
+extensions: []
+modules:
+- |
+  module Main where
+  type Predicate = Constraint
+annotated:
+- |
+  module Main where
+  type Predicate = Constraint
+       └─ t Main   └─ t Error unbound
+status: pass
+reason: Constraint requires an ordinary import from GHC.Types
