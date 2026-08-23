@@ -18,19 +18,14 @@ extra-source-files:
 library
   exposed-modules:
     Aihc.Cli
-    Aihc.Cli.Compile
     Aihc.Cli.Install
     Aihc.Cli.InstallV2
     Aihc.Cli.Options
     Aihc.Cli.PackageInterface
-    Aihc.Cli.Repl
     Aihc.Cli.ResolveArtifact
     Aihc.Cli.Runtime
     Aihc.Cli.Store
     Aihc.Cli.TypeArtifact
-
-  other-modules:
-    Aihc.Cli.Compile.Dependencies
 
   hs-source-dirs: src
   build-depends:

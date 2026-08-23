@@ -1,0 +1,4 @@
+scope 1 = "" Test
+
+val 1.vbytes :: 1.tBytes
+ = "A"#1.vByteRep

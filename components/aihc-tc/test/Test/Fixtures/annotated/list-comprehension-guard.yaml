@@ -1,11 +1,5 @@
 annotated:
 - |-
-  module GHC.Types where
-  data Bool = True | False
-       │      │      └─ type: Bool
-       │      └─ type: Bool
-       └─ type: Type
-- |-
   module Test where
   import GHC.Types (Bool)
   filter f list = [ x | x <- list, f x ]
@@ -16,9 +10,6 @@ annotated:
   └─ type: ∀ a. (a → Bool) → [a] → [a]
 extensions: []
 modules:
-- |
-  module GHC.Types where
-  data Bool = True | False
 - |
   module Test where
   import GHC.Types (Bool)

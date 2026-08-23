@@ -23,11 +23,9 @@ module Aihc.Tc.Monad
     -- * Meta-variable solutions
     writeMetaTv,
     readMetaTv,
-    writeKindMeta,
-    readKindMeta,
+    trackKindMeta,
+    isTrackedKindMeta,
     readMetaTvKind,
-    writeRuntimeRepDependency,
-    readRuntimeRepDependency,
 
     -- * Evidence
     bindEvidence,
@@ -43,6 +41,7 @@ module Aihc.Tc.Monad
     Closedness (..),
     emptyTcEnv,
     mkKnownTyCon,
+    configuredTyCon,
     lookupTerm,
     lookupKnownTerm,
     lookupResolvedTerm,
@@ -60,7 +59,9 @@ module Aihc.Tc.Monad
     extendResolvedTermEnvPermanent,
     getTermEnv,
     lookupTyCon,
+    lookupTyConQualified,
     lookupResolvedTyCon,
+    lookupResolvedPromotedTyCon,
     lookupDeclaredTyCon,
     lookupTyConByIdentity,
     extendTyConEnvPermanent,
@@ -99,7 +100,7 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataTypeKey)
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataTypeKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -164,10 +165,25 @@ newtype TcConfig = TcConfig PackageId
 tcConfig :: PackageId -> TcConfig
 tcConfig = TcConfig
 
-mkKnownTyCon :: Text -> Text -> Int -> Kind -> TcM TyCon
+mkKnownTyCon :: Text -> Text -> Int -> TcType -> TcM TyCon
 mkKnownTyCon moduleName name arity kind = do
   TcConfig packageIdentity <- asks tcEnvConfig
-  pure (mkTyConWithOrigin packageIdentity moduleName name arity kind)
+  let tyCon = mkTyConWithOrigin packageIdentity moduleName name arity
+  maybeInfo <- lookupTyConByIdentity tyCon
+  case maybeInfo of
+    Just info -> pure (tciTyCon info)
+    Nothing -> do
+      let info = TyConInfo name arity tyCon (ForAll [] [] kind) DataTyCon Nothing
+      lift $ modify' $ \state -> state {tcsGlobalTyCons = Map.insert tyCon info (tcsGlobalTyCons state)}
+      pure tyCon
+
+configuredTyCon :: TyCon -> TcM TyCon
+configuredTyCon tyCon
+  | tyConPackageId tyCon == PackageId "aihc-prim",
+    tyConModuleName tyCon == "GHC.Types" = do
+      TcConfig packageIdentity <- asks tcEnvConfig
+      pure (mkTyConWithOrigin packageIdentity (tyConModuleName tyCon) (tyConName tyCon) (tyConArity tyCon))
+  | otherwise = pure tyCon
 
 -- | Whether a polymorphic binding is known to have no free type variables.
 data Closedness
@@ -208,13 +224,10 @@ data TcState = TcState
     tcsNextUnique :: !Int,
     -- | Solutions for meta (unification) variables.
     tcsMetaSolutions :: !(Map Unique TcType),
-    -- | Solutions for kind meta-variables.
-    tcsKindSolutions :: !(Map Unique Kind),
+    -- | Meta-variables that can default to 'Type' at a kind boundary.
+    tcsTrackedKindMetas :: !(Set Unique),
     -- | Declared kinds of representation-polymorphic meta-variables.
-    tcsMetaKinds :: !(Map Unique Kind),
-    -- | A runtime-representation meta and the value type whose representation
-    -- determines it.
-    tcsRuntimeRepDependencies :: !(Map Unique TcType),
+    tcsMetaKinds :: !(Map Unique TcType),
     -- | Evidence bindings accumulated during solving.
     tcsEvBinds :: !(Map Unique EvTerm),
     -- | Diagnostics (errors and warnings) collected.
@@ -248,9 +261,8 @@ initTcState =
   TcState
     { tcsNextUnique = 0,
       tcsMetaSolutions = Map.empty,
-      tcsKindSolutions = Map.empty,
+      tcsTrackedKindMetas = Set.empty,
       tcsMetaKinds = Map.empty,
-      tcsRuntimeRepDependencies = Map.empty,
       tcsEvBinds = Map.empty,
       tcsDiagnostics = [],
       tcsGlobalTerms = Map.empty,
@@ -273,9 +285,16 @@ freshUnique = lift $ do
 
 -- | Allocate a fresh meta (unification) type variable.
 freshMetaTv :: TcM TcType
-freshMetaTv = TcMetaTv <$> freshUnique
+freshMetaTv = do
+  kindUnique <- freshUnique
+  lift $ modify' $ \state ->
+    state
+      { tcsMetaKinds = Map.insert kindUnique typeKindType (tcsMetaKinds state),
+        tcsTrackedKindMetas = Set.insert kindUnique (tcsTrackedKindMetas state)
+      }
+  freshMetaTvOfKind (TcMetaTv kindUnique)
 
-freshMetaTvOfKind :: Kind -> TcM TcType
+freshMetaTvOfKind :: TcType -> TcM TcType
 freshMetaTvOfKind kind = do
   unique <- freshUnique
   lift $ modify' $ \state ->
@@ -307,31 +326,18 @@ readMetaTv :: Unique -> TcM (Maybe TcType)
 readMetaTv u = lift $ gets $ \s ->
   Map.lookup u (tcsMetaSolutions s)
 
-readMetaTvKind :: Unique -> TcM Kind
+readMetaTvKind :: Unique -> TcM TcType
 readMetaTvKind unique =
-  lift $ gets $ Map.findWithDefault liftedTypeKind unique . tcsMetaKinds
+  lift $ gets $ Map.findWithDefault typeKindType unique . tcsMetaKinds
 
-writeRuntimeRepDependency :: Unique -> TcType -> TcM ()
-writeRuntimeRepDependency unique representedType =
+trackKindMeta :: Unique -> TcM ()
+trackKindMeta unique =
   lift $ modify' $ \state ->
-    state
-      { tcsRuntimeRepDependencies =
-          Map.insert unique representedType (tcsRuntimeRepDependencies state)
-      }
+    state {tcsTrackedKindMetas = Set.insert unique (tcsTrackedKindMetas state)}
 
-readRuntimeRepDependency :: Unique -> TcM (Maybe TcType)
-readRuntimeRepDependency unique =
-  lift $ gets $ Map.lookup unique . tcsRuntimeRepDependencies
-
--- | Record the solution for a kind meta-variable.
-writeKindMeta :: Unique -> Kind -> TcM ()
-writeKindMeta u kind = lift $ modify' $ \s ->
-  s {tcsKindSolutions = Map.insert u kind (tcsKindSolutions s)}
-
--- | Look up the current solution for a kind meta-variable.
-readKindMeta :: Unique -> TcM (Maybe Kind)
-readKindMeta u = lift $ gets $ \s ->
-  Map.lookup u (tcsKindSolutions s)
+isTrackedKindMeta :: Unique -> TcM Bool
+isTrackedKindMeta unique =
+  lift $ gets $ Set.member unique . tcsTrackedKindMetas
 
 -- | Bind an evidence variable to an evidence term.
 bindEvidence :: EvVar -> EvTerm -> TcM ()
@@ -493,13 +499,31 @@ lookupTyCon name =
   where
     matches info = tciName info == name || tyConName (tciTyCon info) == name
 
+lookupTyConQualified :: Text -> Text -> TcM (Maybe TyConInfo)
+lookupTyConQualified moduleName name =
+  lift $ gets $ find matches . Map.elems . tcsGlobalTyCons
+  where
+    matches info =
+      let tyCon = tciTyCon info
+       in tyConModuleName tyCon == moduleName
+            && (tciName info == name || tyConName tyCon == name)
+
 lookupResolvedTyCon :: Name -> TcM (Maybe TyConInfo)
 lookupResolvedTyCon name =
   case typeResolution (nameAnns name) of
     Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
       exact <- lookupTyConOrigin packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
       maybe (lookupTyCon (nameText name)) (pure . Just) exact
-    _ -> lookupTyCon (nameText name)
+    _ -> maybe (lookupTyCon (nameText name)) (\moduleName -> lookupTyConQualified moduleName (nameText name)) (nameQualifier name)
+
+lookupResolvedPromotedTyCon :: Name -> TcM (Maybe TyConInfo)
+lookupResolvedPromotedTyCon name =
+  case typeResolution (nameAnns name) of
+    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
+      let promotedName = "'" <> nameText resolvedName
+      exact <- lookupTyConOrigin packageId (fromMaybe "" (nameQualifier resolvedName)) promotedName
+      maybe (lookupTyCon ("'" <> nameText name)) (pure . Just) exact
+    _ -> maybe (lookupTyCon ("'" <> nameText name)) (\moduleName -> lookupTyConQualified moduleName ("'" <> nameText name)) (nameQualifier name)
 
 lookupDeclaredTyCon :: UnqualifiedName -> TcM (Maybe TyConInfo)
 lookupDeclaredTyCon name =
@@ -530,8 +554,8 @@ typeResolution =
 getTyConEnv :: TcM (Map TyCon TyConInfo)
 getTyConEnv = lift $ gets tcsGlobalTyCons
 
-extendTyConEnvPermanent :: Text -> TyConInfo -> TcM ()
-extendTyConEnvPermanent _ info = do
+extendTyConEnvPermanent :: TyConInfo -> TcM ()
+extendTyConEnvPermanent info = do
   tyCons <- lift $ gets tcsGlobalTyCons
   tyCons' <- insertNewMap "global type constructor environment" (tciTyCon info) info tyCons
   lift $ modify' $ \state -> state {tcsGlobalTyCons = tyCons'}

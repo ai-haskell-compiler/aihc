@@ -15,10 +15,10 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   pub type 1.tPair (a : 2.tType) :: 2.tType {
-      pub 1.v:*: :: ∀(a : 2.tType). a → a → 1.tPair a
+      pub 1.v:*: :: ∀(a : 2.tType). a 2.→ a 2.→ 1.tPair a
   }
 
-  pub val 1.vfirst :: ∀(a : 2.tType). 1.tPair a → a
+  pub val 1.vfirst :: ∀(a : 2.tType). 1.tPair a 2.→ a
    = Λ(a : 2.tType).
     λ(x : 1.tPair a).
       case x as (_scrut : 1.tPair a) return (a) of {

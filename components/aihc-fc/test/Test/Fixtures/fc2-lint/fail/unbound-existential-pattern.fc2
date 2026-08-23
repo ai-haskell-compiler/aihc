@@ -1,0 +1,13 @@
+scope 1 = "" Test
+scope 2 = "aihc-prim" GHC.Types
+
+pub type 1.tBox :: 2.tType {
+    pub 1.vBox :: ∀(a : 2.tType). a 2.→ 1.tBox
+}
+
+val 1.vkeep :: 1.tBox 2.→ 1.tBox
+ = λ(x : 1.tBox).
+  case x as (w : 1.tBox) return (1.tBox) of {
+    1.vBox (value : a{1}) →
+      x
+  }

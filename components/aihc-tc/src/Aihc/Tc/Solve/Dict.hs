@@ -11,14 +11,12 @@ module Aihc.Tc.Solve.Dict
     DictResult (..),
     constraintTypeToPred,
     matchTypes,
-    substPred,
   )
 where
 
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (ClassInfo (..), InstanceInfo (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Instantiate (applySubst)
 import Aihc.Tc.Monad (TcM, bindEvidence, freshEvVar, getInstances, lookupClass, lookupEvidence)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkPred, zonkType)
@@ -111,7 +109,7 @@ solveDictWithGivens givens ct =
           case matchTypes (iiHead instanceInfo) args of
             Nothing -> tryInstances className args rest
             Just subst -> do
-              let context = map (substPred subst) (iiContext instanceInfo)
+              let context = map (applySubstPred subst) (iiContext instanceInfo)
                   typeArgs = map (applySubst subst . TcTyVar) (iiTyVars instanceInfo)
               contextEvidence <- mapM solveSubPred context
               case sequence contextEvidence of
@@ -149,7 +147,6 @@ typeableArguments ty =
     TcForAllTy {} -> Nothing
     TcQualTy {} -> Nothing
     TcAppTy {} -> Nothing
-    TcBuiltinTyCon _ _ arguments -> Just arguments
 
 classFieldTypes :: ClassInfo -> Map Unique TcType -> [TcType]
 classFieldTypes classInfo substitution =
@@ -211,7 +208,3 @@ matchOne subst (TcAppTy f a, TcAppTy targetF targetA) =
 matchOne subst (patternTy, targetTy)
   | patternTy == targetTy = Just subst
   | otherwise = Nothing
-
-substPred :: Map Unique TcType -> Pred -> Pred
-substPred subst (ClassPred className args) = ClassPred className (map (applySubst subst) args)
-substPred subst (EqPred left right) = EqPred (applySubst subst left) (applySubst subst right)

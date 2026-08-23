@@ -31,7 +31,7 @@ expected: |-
   }
 
   pub type 1.tValue :: 2.tType {
-      pub 1.vShared :: 1.tItem → 1.tValue
+      pub 1.vShared :: 1.tItem 2.→ 1.tValue
   }
   scope 1 = "" Second
   scope 2 = "aihc-prim" GHC.Types
@@ -41,21 +41,21 @@ expected: |-
   }
 
   pub type 1.tValue :: 2.tType {
-      pub 1.vShared :: 1.tItem → 1.tValue
+      pub 1.vShared :: 1.tItem 2.→ 1.tValue
   }
   scope 1 = "" First
   scope 2 = "" Second
   scope 3 = "" Test
   scope 4 = "aihc-prim" GHC.Types
 
-  pub val 3.vfirst :: 1.tValue → 1.tItem
+  pub val 3.vfirst :: 1.tValue 4.→ 1.tItem
    = λ(x : 1.tValue).
     case x as (_scrut : 1.tValue) return (1.tItem) of {
         1.vShared (value : 1.tItem) →
             value
     }
 
-  pub val 3.vsecond :: 2.tValue → 2.tItem
+  pub val 3.vsecond :: 2.tValue 4.→ 2.tItem
    = λ(x : 2.tValue).
     case x as (_scrut : 2.tValue) return (2.tItem) of {
         2.vShared (value : 2.tItem) →

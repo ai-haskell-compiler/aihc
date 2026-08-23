@@ -8,6 +8,9 @@ author: David Himmelstrup
 maintainer: lemmih@gmail.com
 category: Development
 synopsis: Strict graph-reduction intermediate language for AIHC
+extra-source-files:
+  test/Test/Fixtures/fc2-grin/basic.fc2
+  test/Test/Fixtures/fc2-grin/basic.grin
 
 flag fuzz
   description: Build the developer-only Hedgehog property registry
@@ -22,7 +25,6 @@ library
     Aihc.Grin.Gc
     Aihc.Grin.Interpret
     Aihc.Grin.Lint
-    Aihc.Grin.Lower
     Aihc.Grin.Lower2
     Aihc.Grin.Parser
     Aihc.Grin.Pretty
@@ -31,6 +33,8 @@ library
 
   other-modules:
     Aihc.Grin.Analysis
+    Aihc.Grin.Lower
+    Aihc.Grin.Lower.Syntax
 
   hs-source-dirs: src
   build-depends:
@@ -83,17 +87,11 @@ test-suite spec
 
   main-is: Spec.hs
   other-modules:
-    Aihc.Testing.EvalFixture
-    GrinGolden
     Test.Grin.Arbitrary
-    Test.Grin.Suite
 
   build-depends:
-    aeson,
     aihc-fc,
     aihc-grin,
-    aihc-parser,
-    aihc-resolve,
     aihc-tc,
     base >=4.16 && <5,
     bytestring,
@@ -101,13 +99,10 @@ test-suite spec
     directory,
     filepath,
     hedgehog,
-    libffi >=0.2 && <0.3,
     tasty,
     tasty-hedgehog,
     tasty-hunit,
     text,
-    unix,
-    yaml,
 
   ghc-options:
     -Wall

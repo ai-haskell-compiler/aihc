@@ -1,6 +1,7 @@
 annotated:
 - |-
   module GHC.Num where
+  import GHC.Prim (Int#)
   data Integer = IS Int#
        │         └─ type: Int# → Integer
        └─ type: Type
@@ -9,19 +10,22 @@ annotated:
     fromInteger :: Integer -> a
 - |-
   module Main where
+  import GHC.Num (fromInteger)
   one = 1
   │     └─ type: a; type-args: a; evidence: given Num a
-  └─ type: ∀ a. (Num a) ⇒ a
+  └─ type: ∀ a. (GHC.Num.Num a) ⇒ a
 extensions:
 - MagicHash
 modules:
 - |
   module GHC.Num where
+  import GHC.Prim (Int#)
   data Integer = IS Int#
   class Num a where
     fromInteger :: Integer -> a
 - |
   module Main where
+  import GHC.Num (fromInteger)
   one = 1
 reason: integer literals use GHC.Num.fromInteger and infer a Num-constrained result
   type

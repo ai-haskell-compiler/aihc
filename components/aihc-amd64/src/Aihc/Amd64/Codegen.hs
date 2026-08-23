@@ -46,7 +46,6 @@ import Aihc.Native
     extractLinkInterface,
     supportedNativePrimitiveNames,
   )
-import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Control.Monad (forM)
 import Data.List (find)
 import Data.Map.Strict qualified as Map
@@ -445,17 +444,15 @@ validatePrimitiveName allowUnsupported name
   | allowUnsupported = Right ()
   | otherwise = Left (Amd64UnsupportedPrimitive name)
 
-validateRuntimeRep :: RuntimeRep -> Either Amd64Error ()
+validateRuntimeRep :: GrinRep -> Either Amd64Error ()
 validateRuntimeRep runtimeRep =
   case runtimeRep of
     VecRep {} -> Left (Amd64UnsupportedRuntimeRep runtimeRep)
     TupleRep fieldReps -> mapM_ validateRuntimeRep fieldReps
     SumRep alternativeReps -> mapM_ validateRuntimeRep alternativeReps
-    RuntimeRepVar {} -> Left (Amd64UnsupportedRuntimeRep runtimeRep)
-    RuntimeRepMeta {} -> Left (Amd64UnsupportedRuntimeRep runtimeRep)
     _ -> Right ()
 
-programRuntimeReps :: GrinProgram -> [RuntimeRep]
+programRuntimeReps :: GrinProgram -> [GrinRep]
 programRuntimeReps program =
   concatMap (concat . snd) (grinConstructors program)
     <> map (grinVarRuntimeRep . fst) (grinPrimitives program)
@@ -506,7 +503,7 @@ exprNodes expression =
   where
     storedNodes bindings body = map snd bindings <> exprNodes body
 
-exprRuntimeReps :: GrinExpr -> [RuntimeRep]
+exprRuntimeReps :: GrinExpr -> [GrinRep]
 exprRuntimeReps expression =
   case expression of
     GrinConstant values -> concatMap valueRuntimeReps values
@@ -561,16 +558,16 @@ exprRuntimeReps expression =
         <> exprRuntimeReps body
     updatedRuntimeReps pointer value = valueRuntimeReps pointer <> valueRuntimeReps value
 
-valueRuntimeReps :: GrinValue -> [RuntimeRep]
+valueRuntimeReps :: GrinValue -> [GrinRep]
 valueRuntimeReps value = [grinValueRuntimeRep value]
 
-nodeRuntimeReps :: GrinNode -> [RuntimeRep]
+nodeRuntimeReps :: GrinNode -> [GrinRep]
 nodeRuntimeReps node = concatMap valueRuntimeReps (grinNodeFields node)
 
 findFunction :: FunctionName -> [GrinFunction] -> Maybe GrinFunction
 findFunction name = find ((== name) . grinFunctionName)
 
-renderObservedMetadata :: CompileEnv -> GrinProgram -> [RuntimeRep] -> Either Amd64Error Text
+renderObservedMetadata :: CompileEnv -> GrinProgram -> [GrinRep] -> Either Amd64Error Text
 renderObservedMetadata env program resultReps = do
   renderedResultReps <- mapM snapshotRepName resultReps
   constructors <- mapM renderConstructorDescriptor constructorEntries
@@ -682,7 +679,7 @@ renderFunctionTable functions =
        ]
     <> ["};"]
 
-snapshotRepName :: RuntimeRep -> Either Amd64Error Text
+snapshotRepName :: GrinRep -> Either Amd64Error Text
 snapshotRepName runtimeRep =
   case runtimeRep of
     BoxedRep {} -> pure "AIHC_SNAPSHOT_POINTER"

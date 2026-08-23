@@ -14,7 +14,8 @@ module Aihc.Tc.Generate.Bind
 where
 
 import Aihc.Parser.Syntax
-  ( CaseAlt (..),
+  ( Annotation,
+    CaseAlt (..),
     Decl (..),
     Expr (..),
     Match (..),
@@ -25,6 +26,7 @@ import Aihc.Parser.Syntax
     Type (..),
     UnqualifiedName (..),
     ValueDecl (..),
+    fromAnnotation,
     mkAnnotation,
     peelDeclAnn,
     unqualifiedNameText,
@@ -43,7 +45,7 @@ import Control.Monad (foldM)
 import Data.List (mapAccumL)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (maybeToList)
+import Data.Maybe (mapMaybe, maybeToList)
 import Data.Set qualified as Set
 import Data.Text (Text)
 
@@ -60,7 +62,7 @@ inferLocalDecls inferExpr decls body = do
   let placeholderMap = Map.fromList [(key, ty) | (_, key, ty) <- placeholders]
   binderSet <- Set.fromList <$> traverse resolvedLocalTermKey binders
   shouldGen <- shouldGeneralizeLocal binderSet decls
-  withLocalPlaceholders placeholders $ do
+  withLocalPlaceholders sigs placeholders $ do
     groupResults <- mapM (inferLocalGroup inferExpr sigs placeholderMap) groups
     let bindingCts = concatMap snd groupResults
     if shouldGen
@@ -151,11 +153,11 @@ placeholderFor sigs name = do
   ty <- maybe freshMetaTv skolemize (Map.lookup key sigs)
   pure (name, key, ty)
 
-withLocalPlaceholders :: [(UnqualifiedName, TcTermKey, TcType)] -> TcM a -> TcM a
-withLocalPlaceholders placeholders =
+withLocalPlaceholders :: Map TcTermKey TypeScheme -> [(UnqualifiedName, TcTermKey, TcType)] -> TcM a -> TcM a
+withLocalPlaceholders sigs placeholders =
   withLocalBinders
-    [ (name, TcMonoIdBinder ty)
-    | (name, _, ty) <- placeholders
+    [ (name, maybe (TcMonoIdBinder ty) (`TcIdBinder` Closed) (Map.lookup key sigs))
+    | (name, key, ty) <- placeholders
     ]
 
 withLocalBinders :: [(UnqualifiedName, TcBinder)] -> TcM a -> TcM a
@@ -286,7 +288,8 @@ inferZeroArgMatch inferExpr match = do
 tcMatchEquation :: InferExpr -> [TcType] -> TcType -> Match -> TcM (Match, [Ct])
 tcMatchEquation inferExpr argTys resTy match = do
   let pats = matchPats match
-  patCheck <- checkPatternsWithGivens NoSourceSpan (zip pats argTys)
+      matchSpan = sourceSpanFromAnnotations (matchAnns match)
+  patCheck <- checkPatternsWithGivens matchSpan (zip pats argTys)
   (rhs', rhsTy, rhsCts) <- withPatternBindings (pcBindings patCheck) (inferRhsWithLocals inferExpr (matchRhs match))
   ev <- freshEvVar
   let pats' = map (annotatePatternBindings (pcBindings patCheck)) (pcPatterns patCheck)
@@ -294,6 +297,12 @@ tcMatchEquation inferExpr argTys resTy match = do
       bodyWanteds = rhsCts ++ [resCt]
   remainingCts <- solvePatternBranch NoSourceSpan patCheck resTy bodyWanteds
   pure (match {matchPats = pats', matchRhs = rhs'}, remainingCts)
+
+sourceSpanFromAnnotations :: [Annotation] -> SourceSpan
+sourceSpanFromAnnotations annotations =
+  case mapMaybe fromAnnotation annotations of
+    sourceSpan : _ -> sourceSpan
+    [] -> NoSourceSpan
 
 unifyMatchRhs :: InferExpr -> TcType -> Match -> TcM (Match, [Ct])
 unifyMatchRhs inferExpr expectedTy match = do

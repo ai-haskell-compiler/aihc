@@ -22,14 +22,20 @@ import Aihc.Parser
     parseModule,
   )
 import Aihc.Parser.Syntax
-  ( Extension,
+  ( Extension (ImplicitPrelude),
+    LanguageEdition (Haskell98Edition),
     Module,
+    effectiveExtensions,
+    headerExtensionSettings,
+    headerLanguageEdition,
     importDeclModule,
     moduleImports,
     moduleName,
     parseExtensionName,
+    parseLanguageEdition,
   )
-import Aihc.Resolve (Package (..), PackageId (..), ResolveResult (..), extractInterface, resolveWithDeps, unnamedPackage)
+import Aihc.Parser.Token (readModuleHeaderPragmas)
+import Aihc.Resolve (ModuleExports, Package (..), PackageId (..), ResolveResult (..), extractInterface, modulesInPackage, resolveWithDeps)
 import Aihc.Tc
   ( ClassInfo (ciName),
     DataFamilyInstanceInfo (dfiiAxiomName),
@@ -41,8 +47,9 @@ import Aihc.Tc
     dataTypeKey,
     emptyTcInterface,
     tcConfig,
+    tcModuleDiagnostics,
+    tcModuleSuccess,
     typecheckModuleSccWithInterface,
-    typecheckModulesWithInterface,
   )
 import Control.Exception (ErrorCall, displayException, evaluate, try)
 import Data.Aeson ((.!=), (.:), (.:?))
@@ -52,13 +59,15 @@ import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (dropWhileEnd, sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
-import System.Directory (doesDirectoryExist, listDirectory)
+import System.Directory (doesDirectoryExist, getCurrentDirectory, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
+import System.IO.Unsafe (unsafePerformIO)
 import TcAnnotatedRender (renderAnnotatedTcResults)
 
 data ExpectedStatus
@@ -86,6 +95,11 @@ data TcAnnotatedCase = TcAnnotatedCase
   }
   deriving (Eq, Show)
 
+data PrimitiveSupport = PrimitiveSupport
+  { supportScopes :: !ModuleExports,
+    supportTcInterface :: !TcInterface
+  }
+
 fixtureRoot :: FilePath
 fixtureRoot = "test/Test/Fixtures/annotated"
 
@@ -98,8 +112,41 @@ loadTcAnnotatedCases = do
   if not exists
     then pure []
     else do
+      primitiveSupport `seq` pure ()
       paths <- listFixtureFiles fixtureRoot
       mapM loadTcAnnotatedCase paths
+
+primitiveSupport :: PrimitiveSupport
+primitiveSupport = unsafePerformIO $ do
+  primitiveModules <- loadPrimitiveModules
+  case preparePrimitiveSupport primitiveModules of
+    Left errMsg -> fail errMsg
+    Right support -> pure support
+{-# NOINLINE primitiveSupport #-}
+
+loadPrimitiveModules :: IO [(FilePath, Text)]
+loadPrimitiveModules = do
+  sourceRoot <- findPrimitiveSourceRoot
+  mapM (loadOne sourceRoot) ["GHC/Classes.hs", "GHC/Types.hs", "GHC/Prim.hs", "GHC/Tuple.hs"]
+  where
+    loadOne sourceRoot relativePath = do
+      let path = sourceRoot </> relativePath
+      source <- TIO.readFile path
+      pure (path, source)
+
+findPrimitiveSourceRoot :: IO FilePath
+findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
+  where
+    findUp directory = do
+      let candidate = directory </> "core-libs/aihc-prim/src"
+      exists <- doesDirectoryExist candidate
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory directory
+          if parent == directory
+            then fail "Cannot find the aihc-prim source directory."
+            else findUp parent
 
 loadTcAnnotatedCase :: FilePath -> IO TcAnnotatedCase
 loadTcAnnotatedCase path = do
@@ -168,48 +215,26 @@ forceEvaluation result@(outcome, details) = outcome `seq` length details `seq` r
 
 evaluateTcAnnotatedCasePure :: TcAnnotatedCase -> (Outcome, String)
 evaluateTcAnnotatedCasePure tc =
+  case renderTcAnnotatedCase tc of
+    Left errMsg -> classifyFailure tc errMsg
+    Right actual -> classifySuccess tc actual
+
+renderTcAnnotatedCase :: TcAnnotatedCase -> Either String [String]
+renderTcAnnotatedCase tc =
   let parsedModules = map parseOne (caseModules tc)
    in case sequence parsedModules of
-        Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
+        Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
-          case resolveWithDeps coreExports (map modulePackage modules) of
+          case resolveWithDeps (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
-              case typecheckModuleGraph coreInterface (map snd resolvedModules) of
-                Left errMsg -> classifyFailure tc errMsg
-                Right results ->
-                  let actual = renderAnnotatedTcResults (caseModules tc) results
-                   in classifySuccess tc actual
+              case typecheckModuleGraph (supportTcInterface primitiveSupport) (map snd resolvedModules) of
+                Left errMsg -> Left errMsg
+                Right results -> Right (renderAnnotatedTcResults (caseModules tc) results)
             ResolveResult {resolveErrors} ->
-              classifyFailure tc ("resolve error: " <> show resolveErrors)
+              Left ("resolve error: " <> show resolveErrors)
   where
-    corePackage = Package "aihc-prim" (PackageId "aihc-prim")
-    coreSource = "module GHC.Types (List(..)) where\ndata List a = [] | a : [a]\ninfixr 5 :\n"
-    coreModule = parseCoreModule coreSource
-    coreResolved = resolveWithDeps mempty [(corePackage, coreModule)]
-    coreExports = extractInterface coreResolved
-    coreInterface =
-      case coreResolved of
-        ResolveResult {resolvedModules = [(_, resolvedCore)], resolveErrors = []} ->
-          snd (typecheckModulesWithInterface testTcConfig emptyTcInterface [resolvedCore])
-        _ -> emptyTcInterface
-    modulePackage modu
-      | moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
-          (Package "aihc-prim" (PackageId "aihc-prim"), modu)
-      | otherwise = (unnamedPackage, modu)
     parseOne input =
-      let config =
-            defaultConfig
-              { parserSourceName = T.unpack (T.takeWhile (/= '\n') input),
-                parserExtensions = caseExtensions tc
-              }
-          (errs, ast) = parseModule config input
-       in if null errs
-            then Right ast
-            else Left (show errs)
-    parseCoreModule input =
-      let config = defaultConfig {parserSourceName = "GHC.Types"}
-          (errs, ast) = parseModule config input
-       in if null errs then ast else error (show errs)
+      parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
 
 data ModuleNode = ModuleNode
   { nodeIndex :: !Int,
@@ -282,6 +307,55 @@ withoutImported :: (Ord key) => (value -> key) -> [value] -> [value] -> [value]
 withoutImported key imported =
   let importedKeys = Set.fromList (map key imported)
    in filter ((`Set.notMember` importedKeys) . key)
+
+preparePrimitiveSupport :: [(FilePath, Text)] -> Either String PrimitiveSupport
+preparePrimitiveSupport primitiveModules =
+  case mapM (uncurry parsePrimitiveModule) primitiveModules of
+    Left errMsg -> Left ("parse error: " <> errMsg)
+    Right modules ->
+      case resolveWithDeps mempty (modulesInPackage primitivePackage modules) of
+        resolved@ResolveResult {resolvedModules, resolveErrors = []} ->
+          let primitiveAsts = map snd resolvedModules
+              (primitiveTcResults, tcInterface) = typecheckModuleSccWithInterface testTcConfig emptyTcInterface primitiveAsts
+           in if all tcModuleSuccess primitiveTcResults
+                then
+                  Right
+                    PrimitiveSupport
+                      { supportScopes = extractInterface resolved,
+                        supportTcInterface = tcInterface
+                      }
+                else Left ("typecheck error: " <> unlines [show d | r <- primitiveTcResults, d <- tcModuleDiagnostics r])
+        ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
+
+primitivePackage :: Package
+primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")
+
+fixturePackage :: Package
+fixturePackage = Package "" (PackageId "")
+
+parsePrimitiveModule :: FilePath -> Text -> Either String Module
+parsePrimitiveModule sourceName input =
+  parseModuleText sourceName (primitiveExtensions input) input
+
+parseModuleText :: FilePath -> [Extension] -> Text -> Either String Module
+parseModuleText sourceName extensions input =
+  let config =
+        defaultConfig
+          { parserSourceName = sourceName,
+            parserExtensions = extensions
+          }
+      (errs, ast) = parseModule config input
+   in if null errs
+        then Right ast
+        else Left (show errs)
+
+primitiveExtensions :: Text -> [Extension]
+primitiveExtensions source =
+  filter (/= ImplicitPrelude) (effectiveExtensions language (headerExtensionSettings header))
+  where
+    header = readModuleHeaderPragmas source
+    defaultLanguage = fromMaybe Haskell98Edition (parseLanguageEdition "GHC2021")
+    language = fromMaybe defaultLanguage (headerLanguageEdition header)
 
 classifySuccess :: TcAnnotatedCase -> [String] -> (Outcome, String)
 classifySuccess tc actual =

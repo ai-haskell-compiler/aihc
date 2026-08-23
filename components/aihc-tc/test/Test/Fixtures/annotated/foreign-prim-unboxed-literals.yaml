@@ -1,21 +1,26 @@
 annotated:
 - |-
   module Test where
+  import GHC.Prim (Int#)
   foreign import prim (+#) :: Int# -> Int# -> Int#
   └─ type: Int# → Int# → Int#
   int# = 10#
-  └─ error: top-level binding int# has unlifted type Int#
+  ││      └─ type: Int#
   └─ type: Int#
+  └─ error: top-level binding int# has unlifted type Int#
   word# = 10##
-  └─ error: top-level binding word# has unlifted type Word#
+  ││       └─ type: Word#
   └─ type: Word#
+  └─ error: top-level binding word# has unlifted type Word#
 extensions:
 - MagicHash
 modules:
 - |
   module Test where
+  import GHC.Prim (Int#)
   foreign import prim (+#) :: Int# -> Int# -> Int#
   int# = 10#
   word# = 10##
-reason: foreign primitives may have unlifted types but source top-level unboxed values are rejected
+reason: foreign primitives may have unlifted types but source top-level unboxed values
+  are rejected
 status: pass

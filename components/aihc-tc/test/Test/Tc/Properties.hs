@@ -57,12 +57,12 @@ genInterface = do
   ty <- genSimpleType
   let packageId = PackageId "pkg"
       moduleName = "Module"
-      tyCon = mkTyConWithOrigin packageId moduleName "T" 0 KType
-      classTyCon = mkTyConWithOrigin packageId moduleName "C" 0 KConstraint
+      tyCon = mkTyConWithOrigin packageId moduleName "T" 0
+      classTyCon = mkTyConWithOrigin packageId moduleName "C" 0
   firstTerm <- optionalEntry (TcTermGlobal packageId moduleName "value", ForAll [] [] ty)
   secondTerm <- optionalEntry (TcTermGlobal packageId moduleName "another", ForAll [] [] ty)
   let tcInterfaceTerms = firstTerm <> secondTerm
-  tcInterfaceTyCons <- optionalEntry (TyConInfo "T" 0 tyCon DataTyCon Nothing)
+  tcInterfaceTyCons <- optionalEntry (TyConInfo "T" 0 tyCon (ForAll [] [] KType) DataTyCon Nothing)
   tcInterfaceDataTypes <- optionalEntry (DataTypeInfo "T" tyCon [] KType DataTyCon [])
   tcInterfaceClasses <- optionalEntry (ClassInfo "C" classTyCon (Just ("pkg", moduleName)) [] [] [] [] [])
   tcInterfaceInstances <- optionalEntry (InstanceInfo "C" "$fC" (Just ("pkg", moduleName)) ty [] [] [])
@@ -73,19 +73,19 @@ genInterface = do
 optionalEntry :: value -> Gen [value]
 optionalEntry value = Gen.element [[], [value]]
 
--- | All lifted kind encoders use the canonical Type constructor.
+-- | A lifted kind uses the ordinary Type constructor.
 prop_kindEncodingUsesType :: Property
 prop_kindEncodingUsesType = property $ do
-  let expected = TcBuiltinTyCon "Type" 0 []
-  kindToTcType KType === expected
-  kindSchemeFromKind KType === ForAll [] [] expected
+  let expected = KType
+  KType === expected
+  ForAll [] [] KType === ForAll [] [] expected
 
 -- | A source star becomes the canonical GHC.Types.Type constructor.
 prop_starUsesType :: Property
 prop_starUsesType = property $
   case runTcM testTcEnv initTcState (convertSurfaceTypeWithKinds Map.empty (TStar "*")) of
     Right ((actual, kind), _) -> do
-      let expected = TcTyCon (mkTyConWithOrigin (PackageId "test-ghc-prim") "GHC.Types" "Type" 0 KType) []
+      let expected = TcTyCon (mkTyConWithOrigin (PackageId "test-ghc-prim") "GHC.Types" "Type" 0) []
       actual === expected
       kind === KType
     Left err -> fail (show err)
@@ -116,7 +116,7 @@ prop_reflexiveEq = property $
         -- Solve alpha := Int
         case alpha of
           TcMetaTv u -> do
-            let intTy = TcTyCon (mkTyConWithOrigin (PackageId "test") "Test" "Int" 0 KType) []
+            let intTy = TcTyCon (mkTyConWithOrigin (PackageId "test") "Test" "Int" 0) []
             writeMetaTv u intTy
             result <- zonkType alpha
             pure (result == intTy)
@@ -160,18 +160,18 @@ genAppType depth = do
 genTyCon :: Gen TyCon
 genTyCon =
   Gen.element
-    [ mkTyConWithOrigin (PackageId "test") "Test" "Int" 0 KType,
-      mkTyConWithOrigin (PackageId "test") "Test" "Bool" 0 KType,
-      mkTyConWithOrigin (PackageId "test") "Test" "Char" 0 KType,
-      mkTyConWithOrigin (PackageId "test") "Test" "Double" 0 KType
+    [ mkTyConWithOrigin (PackageId "test") "Test" "Int" 0,
+      mkTyConWithOrigin (PackageId "test") "Test" "Bool" 0,
+      mkTyConWithOrigin (PackageId "test") "Test" "Char" 0,
+      mkTyConWithOrigin (PackageId "test") "Test" "Double" 0
     ]
 
 genTyCon1 :: Gen TyCon
 genTyCon1 =
   Gen.element
-    [ mkTyConWithOrigin (PackageId "test") "Test" "Maybe" 1 (KFun KType KType),
-      mkTyConWithOrigin (PackageId "test") "Test" "[]" 1 (KFun KType KType),
-      mkTyConWithOrigin (PackageId "test") "Test" "IO" 1 (KFun KType KType)
+    [ mkTyConWithOrigin (PackageId "test") "Test" "Maybe" 1,
+      mkTyConWithOrigin (PackageId "test") "Test" "[]" 1,
+      mkTyConWithOrigin (PackageId "test") "Test" "IO" 1
     ]
 
 testTcEnv :: TcEnv

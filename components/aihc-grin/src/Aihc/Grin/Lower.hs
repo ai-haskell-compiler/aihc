@@ -15,21 +15,10 @@ module Aihc.Grin.Lower
   )
 where
 
-import Aihc.Fc.Lower (lowerPseudoOps)
-import Aihc.Fc.Newtype (lowerNewtypes)
-import Aihc.Fc.Subst (substType)
-import Aihc.Fc.Syntax
 import Aihc.Grin.Analysis (freeExprVars)
 import Aihc.Grin.Anf (normalizeGrinProgram)
+import Aihc.Grin.Lower.Syntax
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types
-  ( Kind (KTYPE),
-    RuntimeRep (..),
-    TcType (..),
-    Unique (..),
-    liftedRuntimeRep,
-    runtimeRepOfType,
-  )
 import Control.Applicative ((<|>))
 import Control.Monad.Trans.State.Strict (State, gets, modify', runState)
 import Data.List (mapAccumL)
@@ -292,7 +281,7 @@ lowerProgramWithInterfaceAndLinkNames linkNames imported sourceProgram =
 -- | Establish the System FC forms required by GRIN lowering. These semantic
 -- lowerings are deliberately independent of optional FC optimization.
 lowerRequiredFc :: FcProgram -> FcProgram
-lowerRequiredFc = lowerPseudoOps . lowerNewtypes
+lowerRequiredFc = id
 
 data ProgramEnvironment = ProgramEnvironment
   { programEnvironmentGlobals :: !(Map Text Text),

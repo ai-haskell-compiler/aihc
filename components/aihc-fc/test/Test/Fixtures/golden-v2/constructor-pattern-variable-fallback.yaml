@@ -14,7 +14,7 @@ expected: |-
       pub 1.vPositive :: 1.tValue
   }
 
-  pub val 1.vabsolute :: 1.tValue → 1.tValue
+  pub val 1.vabsolute :: 1.tValue 2.→ 1.tValue
    = λ(x : 1.tValue).
     case x as (_scrut : 1.tValue) return (1.tValue) of {
         1.vNegative →

@@ -2,6 +2,8 @@ annotated:
 - |-
   module Test where
 
+  import GHC.Prim (Addr#)
+
   data CInt
        └─ type: Type
   data IO a
@@ -12,6 +14,7 @@ annotated:
 
   main :: IO CInt
   main = puts "hello world\n"#
+  │           └─ type: Addr#
   └─ type: IO CInt
 extensions:
 - ForeignFunctionInterface
@@ -19,6 +22,8 @@ extensions:
 modules:
 - |
   module Test where
+
+  import GHC.Prim (Addr#)
 
   data CInt
   data IO a

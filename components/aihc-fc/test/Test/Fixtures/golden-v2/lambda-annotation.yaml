@@ -16,7 +16,7 @@ expected: |-
       pub 1.vFalse :: 1.tBool
   }
 
-  pub val 1.vidBool :: 1.tBool → 1.tBool
+  pub val 1.vidBool :: 1.tBool 2.→ 1.tBool
    = λ(x : 1.tBool).
     x
 status: pass

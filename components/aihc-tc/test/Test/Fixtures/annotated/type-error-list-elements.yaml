@@ -1,17 +1,18 @@
+annotated:
+- |-
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  list = [True, ()]
+                └─ error: expression has type (), but expected Bool from an earlier list element
 extensions: []
 modules:
-  - |
-    module Test where
-    data Bool = True | False
-    list = [True, ()]
-annotated:
-  - |-
-    module Test where
-    data Bool = True | False
-         │      │      └─ type: Bool
-         │      └─ type: Bool
-         └─ type: Type
-    list = [True, ()]
-                  └─ error: expression has type (), but expected Bool from an earlier list element
+- |
+  module Test where
+  data Bool = True | False
+  list = [True, ()]
+reason: list element mismatches should explain where the expected element type came
+  from
 status: pass
-reason: list element mismatches should explain where the expected element type came from

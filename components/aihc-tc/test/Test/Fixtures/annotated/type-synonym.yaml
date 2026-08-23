@@ -1,22 +1,22 @@
+annotated:
+- |-
+  module Test where
+  type MyBool = Bool
+       └─ type: Type
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  x :: MyBool
+  x = True
+  └─ type: Bool
 extensions: []
 modules:
-  - |
-    module Test where
-    type MyBool = Bool
-    data Bool = True | False
-    x :: MyBool
-    x = True
-annotated:
-  - |-
-    module Test where
-    type MyBool = Bool
-         └─ type: Type
-    data Bool = True | False
-         │      │      └─ type: Bool
-         │      └─ type: Bool
-         └─ type: Type
-    x :: MyBool
-    x = True
-    └─ type: Bool
+- |
+  module Test where
+  type MyBool = Bool
+  data Bool = True | False
+  x :: MyBool
+  x = True
+reason: nullary type synonyms expand to their representation type
 status: pass
-reason: "nullary type synonyms expand to their representation type"

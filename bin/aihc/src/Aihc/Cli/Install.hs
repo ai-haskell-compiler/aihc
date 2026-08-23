@@ -21,7 +21,6 @@ module Aihc.Cli.Install
     defaultStoreRoot,
     dryRunInstallScaffold,
     installFailureIsForPackage,
-    installPackageLibraries,
     ParsedInterfaceFile (..),
     parseInterfaceFile,
     lookupPackagePlanSourceLineCount,
@@ -32,14 +31,11 @@ module Aihc.Cli.Install
     packagePlanFailureShouldBeReportedForPackage,
     packageVariantLibraryId,
     renderInstallFailure,
-    renderInstallFailureWithOptions,
-    runInstall,
     writeInstallScaffold,
   )
 where
 
-import Aihc.Cli.Compile.Dependencies (LibraryPackage (..), installLibraries)
-import Aihc.Cli.Options (InstallErrorFormat (..), InstallOptions (..))
+import Aihc.Cli.Options (InstallErrorFormat (..))
 import Aihc.Cli.PackageInterface
   ( PackageInterface (..),
     PackageInterfaceBinding (..),
@@ -54,15 +50,12 @@ import Aihc.Cli.PackageInterface
   )
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cpp qualified as Cpp
-import Aihc.Fc (DesugarConfig (..), DesugarResult (..), desugarModuleWithInterface, renderProgram)
+import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2, renderProgram)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cache (sanitizeName)
 import Aihc.Hackage.Cpp (cppMacrosFromOptions, injectSyntheticCppMacros, minVersionMacroNamesFromDeps)
-import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HackageUtil
-import Aihc.Hackage.VersionResolver (getLatestVersion)
-import Aihc.Native (NativeTarget)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (..),
@@ -114,7 +107,7 @@ import Data.ByteString.Char8 qualified as BSC
 import Data.ByteString.Lazy qualified as BL
 import Data.Either (rights)
 import Data.IORef (newIORef, readIORef, writeIORef)
-import Data.List (nub, nubBy, sort, sortOn)
+import Data.List (nub, sort, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
@@ -136,9 +129,7 @@ import System.Directory
     getCurrentDirectory,
   )
 import System.Environment (lookupEnv)
-import System.Exit (exitFailure)
 import System.FilePath (makeRelative, normalise, splitDirectories, takeDirectory, takeExtension, (</>))
-import System.IO (hPutStrLn, stderr)
 import System.Timeout (timeout)
 import Text.Read (readMaybe)
 
@@ -331,55 +322,6 @@ instance ToJSON PhaseStatus where
         Unimplemented -> "unimplemented"
         Complete -> "complete"
 
-runInstall :: InstallOptions -> IO ()
-runInstall opts = do
-  storeRoot <- maybe defaultStoreRoot pure (installStoreRoot opts)
-  (spec, resolver) <- installRequest opts
-  plan <-
-    if installDryRun opts
-      then buildDryRunPackagePlanWithResolver resolver storeRoot spec
-      else buildPackagePlanWithResolver resolver storeRoot spec
-  if installDryRun opts
-    then do
-      result <- dryRunInstallScaffold plan
-      printInstallResult result
-      putStrLn "dry-run: no files written"
-    else
-      if null (installTargets opts)
-        then do
-          writeResult <- writeInstallScaffold plan
-          case writeResult of
-            Right result -> printInstallResult result
-            Left failure -> do
-              hPutStrLn stderr (renderInstallFailureWithOptions opts failure)
-              exitFailure
-        else do
-          libraryResult <- installPackageLibraries (installTargets opts) (installKeepCore opts) (installKeepGrin opts) plan
-          artifactRoot <- either (ioError . userError) pure libraryResult
-          putStrLn ("libraries: " <> artifactRoot)
-  where
-    printInstallResult result = do
-      putStrLn ("store: " <> resultStorePath result)
-      putStrLn ("manifest: " <> resultManifestPath result)
-      putStrLn ("interfaces: " <> resultInterfacePath result)
-      putStrLn ("system-fc: " <> resultFcPath result)
-
-installRequest :: InstallOptions -> IO (PackageSpec, DependencyResolver)
-installRequest opts = do
-  let packageArgument = installPackageName opts
-  localSource <- doesDirectoryExist packageArgument
-  if localSource
-    then do
-      spec <- packageSpecFromSource packageArgument
-      pure (spec, localDependencyResolver opts packageArgument)
-    else do
-      version <- resolveVersion opts
-      pure (PackageSpec packageArgument version, hackageDependencyResolver opts)
-
-localDependencyResolver :: InstallOptions -> FilePath -> DependencyResolver
-localDependencyResolver opts =
-  localDependencyResolverWithFallback (hackageDependencyResolver opts)
-
 localDependencyResolverWithFallback :: DependencyResolver -> FilePath -> DependencyResolver
 localDependencyResolverWithFallback fallback rootSource =
   DependencyResolver
@@ -426,69 +368,6 @@ packageSpecFromSource sourcePath = do
       { pkgName = CabalPackage.unPackageName (CabalPackage.packageName packageId),
         pkgVersion = prettyShow (CabalPackage.packageVersion packageId)
       }
-
--- | Install the compiled library closure represented by a generic package
--- plan. Cabal chooses the modules; callers never enumerate them.
-installPackageLibraries :: [NativeTarget] -> Bool -> Bool -> PackagePlan -> IO (Either String FilePath)
-installPackageLibraries targets keepCore keepGrin plan = do
-  packages <- mapM packageLibrary (flattenPackagePlan plan)
-  installLibraries (planStoreRoot plan) packages targets keepCore keepGrin
-  where
-    packageLibrary package = do
-      gpd <- readPlanPackageDescription package
-      files <- HackageCabal.collectLibraryFiles gpd (planSourcePath package)
-      pure
-        LibraryPackage
-          { libraryPackageName = T.pack (pkgName (packageKeySpec (planPackageKey package))),
-            libraryPackageId = packageVariantLibraryId (planPackageKey package),
-            libraryPackageRoot = planSourcePath package,
-            libraryPackageFiles = map HackageCabal.fileInfoPath files,
-            libraryPackageExposedModules = HackageCabal.collectLibraryExposedModules gpd
-          }
-
-    flattenPackagePlan =
-      nubBy samePackage . go
-      where
-        go package = concatMap go (planDependencyPlans package) <> [package]
-        samePackage left right = planPackageKey left == planPackageKey right
-
-hackageDependencyResolver :: InstallOptions -> DependencyResolver
-hackageDependencyResolver opts =
-  DependencyResolver
-    { resolverResolveVersion = resolveDependencyVersion opts,
-      resolverSourcePath =
-        HackageDownload.downloadPackageWithOptions
-          HackageDownload.defaultDownloadOptions
-            { HackageDownload.downloadAllowNetwork = not (installOffline opts || installDryRun opts)
-            }
-    }
-
-resolveDependencyVersion :: InstallOptions -> String -> IO String
-resolveDependencyVersion opts packageName
-  | Just provider <- lookupCoreProvider packageName =
-      pure (coreProviderVersion provider)
-  | installOffline opts =
-      ioError (userError ("aihc install --offline cannot resolve dependency " <> packageName <> " without cached dependency-plan metadata"))
-  | otherwise = do
-      result <- getLatestVersion Nothing packageName
-      case result of
-        Right version -> pure version
-        Left err -> ioError (userError err)
-
-resolveVersion :: InstallOptions -> IO String
-resolveVersion opts =
-  case installPackageVersion opts of
-    Just version -> pure version
-    Nothing
-      | Just provider <- lookupCoreProvider (installPackageName opts) ->
-          pure (coreProviderVersion provider)
-      | installOffline opts ->
-          ioError (userError "aihc install --offline requires --version because latest-version resolution needs Hackage metadata")
-      | otherwise -> do
-          result <- getLatestVersion Nothing (installPackageName opts)
-          case result of
-            Right version -> pure version
-            Left err -> ioError (userError err)
 
 buildPackagePlanWithResolver :: DependencyResolver -> FilePath -> PackageSpec -> IO PackagePlan
 buildPackagePlanWithResolver resolver storeRoot spec = do
@@ -887,10 +766,6 @@ blockingInterfaceFailures result =
 renderInstallFailure :: InstallFailure -> String
 renderInstallFailure =
   renderInstallFailureWith False InstallErrorsHuman
-
-renderInstallFailureWithOptions :: InstallOptions -> InstallFailure -> String
-renderInstallFailureWithOptions opts =
-  renderInstallFailureWith (installFirstErrorModule opts) (installErrorFormat opts)
 
 renderInstallFailureWith :: Bool -> InstallErrorFormat -> InstallFailure -> String
 renderInstallFailureWith limitToFirstModule errorFormat failure =
@@ -1309,7 +1184,7 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
       resolvedModuleAsts = map snd (resolvedModules resolveResult)
       fcResults =
         map
-          (desugarModuleWithInterface (DesugarConfig {primPackageId = primIdentity}) allBindings tcInterface)
+          (desugarModuleFc2 (DesugarConfig {primPackageId = primIdentity}) allBindings tcInterface)
           checkedModules
       fcModules = zipWith fcModuleValue resolvedModuleAsts fcResults
       fcDiagnostics = concatMap fcModuleDiagnosticValues fcModules
@@ -1621,19 +1496,19 @@ tcModuleValue modu result =
 tcModuleDiagnosticValues :: PackageInterfaceTcModule -> [Aeson.Value]
 tcModuleDiagnosticValues = packageInterfaceTcModuleDiagnostics
 
-fcModuleValue :: Module -> DesugarResult -> Aeson.Value
+fcModuleValue :: Module -> Fc2DesugarResult -> Aeson.Value
 fcModuleValue modu result =
   object
     [ "module" .= moduleDisplayName modu,
-      "success" .= dsSuccess result,
-      "program" .= renderProgram (dsProgram result),
+      "success" .= ds2Success result,
+      "program" .= renderProgram (ds2Program result),
       "diagnostics"
         .= [ object
                [ "module" .= moduleDisplayName modu,
                  "severity" .= ("error" :: String),
                  "message" .= err
                ]
-           | err <- dsErrors result
+           | err <- ds2Errors result
            ]
     ]
 

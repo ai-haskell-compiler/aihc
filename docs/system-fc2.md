@@ -1,11 +1,11 @@
 # System FC 2
 
-Status: in progress.
+Status: complete.
 Date: 2026-08-18.
 
-This document is the plan for System FC 2.
+This document records the System FC 2 design.
 The code lives in `components/aihc-fc/src/Aihc/Fc2/`.
-The current System FC in `Aihc.Fc` stays in place.
+The old System FC 1 code is removed.
 
 System FC 2 is a Core language.
 It is similar to Haskell.
@@ -18,17 +18,14 @@ It has no ambiguity.
 - Put no type on a use.
 - Use one namespace for types and values.
 - Make the text readable for a person.
-- Keep `Aihc.Fc` and its tests until the switch is complete.
 
 ## Non-goals
 
-- Do not replace `Aihc.Fc` in this plan.
 - Do not add join points.
 - Do not add `INLINE`, demand, unfolding, or linear types.
 - Do not add source spans in the first version.
 - Do not add an evaluator in the first version.
 - Do not add a CBOR schema in the first version.
-- Do not point GRIN at Fc2 in this plan.
 
 ## Place in the compiler
 
@@ -36,13 +33,10 @@ It has no ambiguity.
 source
   -> aihc-resolve
   -> aihc-tc
-  -> Aihc.Fc.Desugar     -> store .../core
   -> Aihc.Fc2.Desugar    -> store .../core-v2
-  -> aihc-grin           (still reads Aihc.Fc)
 ```
 
-`aihc-grin` still reads `Aihc.Fc`.
-`core-v2` is for a person in this plan.
+GRIN lowering is temporarily disabled.
 
 ## Key decisions
 
@@ -136,6 +130,7 @@ pub val 1.vnot :: 1.tBool → 1.tBool
 Use `::` on declarations.
 Use `:` on `λ`, `Λ`, and `∀` binders.
 Use Core-style `case` with a case binder, a result type, and `_` for default.
+Use `@(a : k)` before field binders to bind existential types in constructor alternatives.
 Permit an empty alternative set when the case has an explicit result type.
 Use `let` and `rec` for local groups.
 Use `val` for top-level values.
@@ -262,7 +257,6 @@ PR 9 depends on PR 4, PR 5, PR 6, and PR 8.
 PR 10 depends on PR 9.
 
 Do not invent type-family equations in Fc2.
-Do not remove `Aihc.Fc`.
 
 ## Defaults
 

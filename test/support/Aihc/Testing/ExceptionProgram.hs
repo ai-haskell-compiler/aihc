@@ -6,7 +6,6 @@ module Aihc.Testing.ExceptionProgram
 where
 
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 
 -- | Raise while evaluating a thunk, catch it, rethrow from that handler, and
 -- print from an outer handler. This exercises normal, update, and nested catch

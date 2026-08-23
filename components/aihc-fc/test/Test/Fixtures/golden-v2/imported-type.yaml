@@ -20,7 +20,7 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   pub type 1.tBox :: 3.tType {
-      pub 1.vBox :: 2.tFlag → 1.tBox
+      pub 1.vBox :: 2.tFlag 3.→ 1.tBox
   }
 status: pass
 reason: A child module keeps the parent type identity in a second scope.

@@ -5,7 +5,7 @@ pub type 1.tMaybe (a : 2.tType) :: 2.tType {
     pub 1.vNothing :: ∀(a : 2.tType). 1.tMaybe a
 }
 
-val 1.vbad :: ∀(a : 2.tType). 1.tMaybe a → 1.tMaybe a
+val 1.vbad :: ∀(a : 2.tType). 1.tMaybe a 2.→ 1.tMaybe a
  = Λ(a : 2.tType).
   λ(x : 1.tMaybe a).
     x ▷ tycon-co 1.tMaybe (refl a) (refl a)

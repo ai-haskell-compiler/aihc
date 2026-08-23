@@ -205,8 +205,10 @@ prettyTypeWith env scopes prec ty =
     TyApp function argument ->
       parenthesize (prec < PrecApp) (prettyTypeWith env scopes PrecApp function <+> prettyTypeWith env scopes PrecAtom argument)
     TyFun r1 r2 argument result
-      | isLiftedRep env r1 && isLiftedRep env r2 ->
-          parenthesize (prec < PrecFun) (prettyTypeWith env scopes PrecApp argument <+> "→" <+> prettyTypeWith env scopes PrecFun result)
+      | Just scopeId <- liftedArrowScope scopes r1 r2 ->
+          parenthesize
+            (prec < PrecFun)
+            (prettyTypeWith env scopes PrecApp argument <+> (pretty scopeId <> ".→") <+> prettyTypeWith env scopes PrecFun result)
       | otherwise ->
           parenthesize
             (prec < PrecFun)
@@ -229,6 +231,16 @@ prettyTypeWith env scopes prec ty =
             )
     TyEq left right ->
       parenthesize (prec < PrecEq) (prettyTypeWith env scopes PrecApp left <+> "~" <+> prettyTypeWith env scopes PrecApp right)
+
+liftedArrowScope :: ScopeTable -> Type -> Type -> Maybe Int
+liftedArrowScope scopes left right =
+  case (left, right) of
+    (TyCon leftName, TyCon rightName)
+      | leftName == rightName,
+        nameText leftName == "LiftedRep",
+        OriginTop package moduleName <- nameOrigin leftName ->
+          lookupScopeId scopes package moduleName
+    _ -> Nothing
 
 prettyForallTail :: TypeEnv -> ScopeTable -> Type -> Doc ann
 prettyForallTail env scopes ty =
@@ -330,16 +342,33 @@ prettyAlt env scopes alternative =
   prettyAltHead env scopes alternative
     <> " →"
     <> hardline
-    <> indent 4 (prettyExprWith env scopes (altRhs alternative))
+    <> indent 4 (prettyExprWith rhsEnv scopes (altRhs alternative))
+  where
+    rhsEnv = foldl extendPrettyEnv env (altTypeBinders alternative <> altBinders alternative)
 
 prettyAltHead :: TypeEnv -> ScopeTable -> Alt -> Doc ann
 prettyAltHead env scopes alternative =
   case altCon alternative of
     AltDefault -> "_"
-    AltLit literal -> prettyLiteral scopes literal <> prettyAltBinders
-    AltData name -> prettyName scopes name <> prettyAltBinders
+    AltLit literal -> prettyLiteral scopes literal <> prettyTypeBinders env (altTypeBinders alternative) <> prettyTermBinders typeEnv (altBinders alternative)
+    AltData name -> prettyName scopes name <> prettyTypeBinders env (altTypeBinders alternative) <> prettyTermBinders typeEnv (altBinders alternative)
   where
-    prettyAltBinders = foldMap ((space <>) . prettyPiBinder env scopes) (altBinders alternative)
+    typeEnv = foldl extendPrettyEnv env (altTypeBinders alternative)
+    prettyTypeBinders current binders =
+      case binders of
+        [] -> mempty
+        binder : rest ->
+          space
+            <> "@"
+            <> prettyPiBinder current scopes binder
+            <> prettyTypeBinders (extendPrettyEnv current binder) rest
+    prettyTermBinders current binders =
+      case binders of
+        [] -> mempty
+        binder : rest ->
+          space
+            <> prettyPiBinder current scopes binder
+            <> prettyTermBinders (extendPrettyEnv current binder) rest
 
 prettyIndentedItems :: Int -> [Doc ann] -> Doc ann
 prettyIndentedItems _ [] = mempty

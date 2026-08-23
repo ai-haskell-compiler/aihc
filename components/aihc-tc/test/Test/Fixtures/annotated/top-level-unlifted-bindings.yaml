@@ -1,50 +1,63 @@
-extensions:
-  - MagicHash
-  - UnboxedTuples
-modules:
-  - |
-    module Test where
-    data State# s
-    data RealWorld
-    data Box# = MkBox#
-
-    intValue = 10#
-
-    state :: State# RealWorld
-    state = state
-
-    tupleValue = (# 1#, 2# #)
-
-    returnsInt _ = 10#
-    boxedHash = MkBox#
 annotated:
-  - |-
-    module Test where
-    data State# s
-         └─ type: Type → TYPE ('TupleRep '[])
-    data RealWorld
-         └─ type: Type
-    data Box# = MkBox#
-         │      └─ type: Box#
-         └─ type: Type
+- |-
+  module Test where
+  import GHC.Types (RuntimeRep(..), TYPE, Type)
+  type State# :: Type -> TYPE ('TupleRep '[])
+  data State# s
+       └─ type: Type → TYPE ('TupleRep '[])
+  data RealWorld
+       └─ type: Type
+  data Box# = MkBox#
+       │      └─ type: Box#
+       └─ type: Type
 
-    intValue = 10#
-    └─ error: top-level binding intValue has unlifted type Int#
-    └─ type: Int#
+  intValue = 10#
+  ││          └─ type: Int#
+  └─ type: Int#
+  └─ error: top-level binding intValue has unlifted type Int#
 
-    state :: State# RealWorld
-    state = state
-    └─ error: top-level binding state has unlifted type State# RealWorld
-    └─ type: State# RealWorld
+  state :: State# RealWorld
+  state = state
+  └─ error: top-level binding state has unlifted type State# RealWorld
+  └─ type: State# RealWorld
 
-    tupleValue = (# 1#, 2# #)
-    ││            └─ type: (# Int#, Int# #); type-args: Int#, Int#
-    └─ type: (# Int#, Int# #)
-    └─ error: top-level binding tupleValue has unlifted type (# Int#, Int# #)
+  tupleValue = (# 1#, 2# #)
+  ││            │  │   └─ type: Int#
+  ││            │  └─ type: Int#
+  ││            └─ type: (# Int#, Int# #); type-args: Int#, Int#
+  └─ type: (# Int#, Int# #)
+  └─ error: top-level binding tupleValue has unlifted type (# Int#, Int# #)
 
-    returnsInt _ = 10#
-    └─ type: ∀ a. a → Int#
-    boxedHash = MkBox#
-    └─ type: Box#
+  returnsInt _ = 10#
+  │          │   └─ type: Int#
+  │          └─ type: a
+  └─ type: ∀ a. a → Int#
+  boxedHash = MkBox#
+  └─ type: Box#
+extensions:
+- DataKinds
+- KindSignatures
+- MagicHash
+- StandaloneKindSignatures
+- UnboxedTuples
+modules:
+- |
+  module Test where
+  import GHC.Types (RuntimeRep(..), TYPE, Type)
+  type State# :: Type -> TYPE ('TupleRep '[])
+  data State# s
+  data RealWorld
+  data Box# = MkBox#
+
+  intValue = 10#
+
+  state :: State# RealWorld
+  state = state
+
+  tupleValue = (# 1#, 2# #)
+
+  returnsInt _ = 10#
+  boxedHash = MkBox#
+reason: rejects source top-level bindings with unlifted types while allowing functions
+  and lifted hash-named types
 status: pass
-reason: rejects source top-level bindings with unlifted types while allowing functions and lifted hash-named types

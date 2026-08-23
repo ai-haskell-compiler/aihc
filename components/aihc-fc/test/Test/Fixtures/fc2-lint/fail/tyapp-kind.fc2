@@ -6,7 +6,7 @@ pub type 1.tBool :: 2.tType {
     pub 1.vTrue :: 1.tBool
 }
 
-val 1.vid :: ∀(a : 2.tType). a → a
+val 1.vid :: ∀(a : 2.tType). a 2.→ a
  = Λ(a : 2.tType).
   λ(x : a).
     x

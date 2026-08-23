@@ -36,11 +36,12 @@ import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, pending
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Evidence (EvVar)
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Instantiate (Instantiation (..), applySubst, instantiateWithArgs)
-import Aihc.Tc.Kind (checkSurfaceType)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
+import Aihc.Tc.Kind (checkSurfaceType, tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
@@ -156,19 +157,20 @@ inferNameOccurrence ambient nameSyntax = do
     Just (TcIdBinder scheme _) -> do
       inst <- instantiateWithArgs scheme
       cts <- mapM (predToCt sp name) (instPreds inst)
-      let pending =
-            pendingAnnotation
-              (instType inst)
-              (instTypeArgs inst)
-              (map ctEvVar cts)
-              []
-      pure (Just pending, instType inst, cts)
+      let typeArgs = instTypeArgs inst
+          evidenceVars = map ctEvVar cts
+          pending = occurrenceAnnotation (instType inst) typeArgs evidenceVars
+      pure (pending, instType inst, cts)
     Just (TcMonoIdBinder ty) -> do
       (instantiatedTy, typeArgs) <- instantiateSigmaType ty
-      let pending = pendingAnnotation instantiatedTy typeArgs [] []
-      pure (Just pending, instantiatedTy, [])
+      pure (occurrenceAnnotation instantiatedTy typeArgs [], instantiatedTy, [])
     Nothing ->
       abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
+
+occurrenceAnnotation :: TcType -> [TcType] -> [EvVar] -> Maybe PendingTcAnnotation
+occurrenceAnnotation ty typeArgs evidenceVars
+  | null typeArgs && null evidenceVars = Nothing
+  | otherwise = Just (pendingAnnotation ty typeArgs evidenceVars [])
 
 inferTypeSig :: SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
 inferTypeSig sp inner tyAnn = do
@@ -456,7 +458,6 @@ typeMetaVariables ty =
     TcForAllTy _ body -> typeMetaVariables body
     TcQualTy predicates body -> concatMap predicateMetaVariables predicates <> typeMetaVariables body
     TcAppTy function argument -> typeMetaVariables function <> typeMetaVariables argument
-    TcBuiltinTyCon _ _ arguments -> concatMap typeMetaVariables arguments
 
 predicateMetaVariables :: Pred -> [Unique]
 predicateMetaVariables predicate =
@@ -474,7 +475,6 @@ typeMentionsTyVar target ty =
     TcForAllTy binder body -> binder /= target && typeMentionsTyVar target body
     TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
     TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
-    TcBuiltinTyCon _ _ arguments -> any (typeMentionsTyVar target) arguments
 
 predicateMentionsTyVar :: TyVarId -> Pred -> Bool
 predicateMentionsTyVar target predicate =
@@ -565,10 +565,11 @@ inferTuple sp flavor elems = do
       n = length tys
       typeName = tupleTyConText flavor n
   maybeTyCon <- lookupTyCon typeName
+  elementKinds <- mapM tcTypeKind tys
   let fallbackKind =
         case flavor of
-          Boxed -> foldr (KFun . typeKind) KType tys
-          Unboxed -> foldr (KFun . typeKind) (KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) tys))) tys
+          Boxed -> foldr KFun KType elementKinds
+          Unboxed -> foldr KFun (KTYPE (TupleRep (map runtimeRepOrLifted elementKinds))) elementKinds
   tc <-
     case maybeTyCon of
       Just info -> pure (tciTyCon info)
@@ -583,6 +584,8 @@ inferTuple sp flavor elems = do
     inferElem (Just e) = do
       (e', ty, cts) <- inferExpr e
       pure (Just e', ty, cts)
+
+    runtimeRepOrLifted kind = fromRight liftedRep (runtimeRepFromKind kind)
 
 tupleTyConText :: TupleFlavor -> Int -> Text
 tupleTyConText flavor arity =
@@ -927,7 +930,7 @@ primType = knownTyConType "GHC.Prim"
 knownTyConType :: Text -> Text -> TcM TcType
 knownTyConType moduleName name = do
   maybeInfo <- lookupTyCon name
-  tyCon <- maybe (mkKnownTyCon moduleName name 0 liftedTypeKind) (pure . tciTyCon) maybeInfo
+  tyCon <- maybe (mkKnownTyCon moduleName name 0 typeKindType) (pure . tciTyCon) maybeInfo
   pure (TcTyCon tyCon [])
 
 doubleTyCon :: TcM TcType
@@ -935,12 +938,12 @@ doubleTyCon = do
   maybeInfo <- lookupTyCon "Double"
   case maybeInfo of
     Just info -> pure (TcTyCon (tciTyCon info) [])
-    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Double" 0 liftedTypeKind <*> pure []
+    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Double" 0 typeKindType <*> pure []
 
 resolvedType :: Text -> TcM TcType
 resolvedType name = do
   maybeInfo <- lookupTyCon name
-  tyCon <- maybe (mkKnownTyCon "GHC.Types" name 0 liftedTypeKind) (pure . tciTyCon) maybeInfo
+  tyCon <- maybe (mkKnownTyCon "GHC.Types" name 0 typeKindType) (pure . tciTyCon) maybeInfo
   pure (TcTyCon tyCon [])
 
 stringTyCon :: TcM TcType
@@ -954,4 +957,4 @@ boolTyCon = do
   maybeInfo <- lookupTyCon "Bool"
   case maybeInfo of
     Just info -> pure (TcTyCon (tciTyCon info) [])
-    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Bool" 0 liftedTypeKind <*> pure []
+    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Bool" 0 typeKindType <*> pure []

@@ -60,7 +60,7 @@ equivalentTypeSchemes (ForAll leftVars leftPredicates leftBody) (ForAll rightVar
   | length leftPredicates /= length rightPredicates = False
   | otherwise =
       let renaming = Map.fromList (zip (map tvUnique leftVars) (map tvUnique rightVars))
-       in and (zipWith (equivalentKind renaming `onTyVar`) leftVars rightVars)
+       in and (zipWith (equivalentType renaming `onTyVar`) leftVars rightVars)
             && and (zipWith (equivalentPred renaming) leftPredicates rightPredicates)
             && equivalentType renaming leftBody rightBody
   where
@@ -86,7 +86,7 @@ equivalentType renaming left right =
       equivalentType renaming leftArg rightArg
         && equivalentType renaming leftResult rightResult
     (TcForAllTy leftVar leftBody, TcForAllTy rightVar rightBody) ->
-      equivalentKind renaming (tvKind leftVar) (tvKind rightVar)
+      equivalentType renaming (tvKind leftVar) (tvKind rightVar)
         && equivalentType
           (Map.insert (tvUnique leftVar) (tvUnique rightVar) renaming)
           leftBody
@@ -110,31 +110,3 @@ equivalentPred renaming left right =
     (EqPred leftA leftB, EqPred rightA rightB) ->
       equivalentType renaming leftA rightA && equivalentType renaming leftB rightB
     _ -> False
-
-equivalentKind :: Map Unique Unique -> Kind -> Kind -> Bool
-equivalentKind renaming left right =
-  case (left, right) of
-    (KTYPE leftRep, KTYPE rightRep) -> equivalentRuntimeRep renaming leftRep rightRep
-    (KConstraint, KConstraint) -> True
-    (KRuntimeRep, KRuntimeRep) -> True
-    (KLevity, KLevity) -> True
-    (KVecCount, KVecCount) -> True
-    (KVecElem, KVecElem) -> True
-    (KFun leftArg leftResult, KFun rightArg rightResult) ->
-      equivalentKind renaming leftArg rightArg
-        && equivalentKind renaming leftResult rightResult
-    (KMeta leftMeta, KMeta rightMeta) -> leftMeta == rightMeta
-    _ -> False
-
-equivalentRuntimeRep :: Map Unique Unique -> RuntimeRep -> RuntimeRep -> Bool
-equivalentRuntimeRep renaming left right =
-  case (left, right) of
-    (RuntimeRepVar leftVar, RuntimeRepVar rightVar) -> Map.lookup leftVar renaming == Just rightVar
-    (RuntimeRepMeta leftMeta, RuntimeRepMeta rightMeta) -> leftMeta == rightMeta
-    (TupleRep leftReps, TupleRep rightReps) ->
-      length leftReps == length rightReps
-        && and (zipWith (equivalentRuntimeRep renaming) leftReps rightReps)
-    (SumRep leftReps, SumRep rightReps) ->
-      length leftReps == length rightReps
-        && and (zipWith (equivalentRuntimeRep renaming) leftReps rightReps)
-    _ -> left == right

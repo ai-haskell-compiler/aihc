@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Direct value desugaring from checked source syntax to System FC 2.
 module Aihc.Fc2.Desugar.Value
@@ -37,20 +38,31 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
-import Aihc.Tc.Instantiate qualified as TcInstantiate
 import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
-    RuntimeRep (..),
     TcType (..),
     TyCon,
     TyVarId,
     Unique (..),
-    runtimeRepOfType,
+    applySubstPred,
+    runtimeRepOfTypeInEnv,
     tvUnique,
     tyConModuleName,
     tyConName,
     tyConPackageId,
+    typeKindType,
+    pattern AddrRep,
+    pattern Int16Rep,
+    pattern Int32Rep,
+    pattern Int64Rep,
+    pattern Int8Rep,
+    pattern IntRep,
+    pattern Word16Rep,
+    pattern Word32Rep,
+    pattern Word64Rep,
+    pattern Word8Rep,
+    pattern WordRep,
   )
 import Control.Applicative ((<|>))
 import Control.Monad (unless, zipWithM)
@@ -293,7 +305,7 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
           (ExVar (binderName classDictionary))
           caseBinder
           resultType'
-          [Alt (AltData (classDictConName classTyCon)) fields selectedExpr]
+          [Alt (AltData (classDictConName classTyCon)) [] fields selectedExpr]
   typeBinders <- mapM convertTypeBinder typeVariables
   methodType' <- convertCheckedType (tcClassMethodType method)
   moduleOrigin <- gets vsModuleOrigin
@@ -387,7 +399,7 @@ desugarDefaultMethod annotation dictionaries methodName = do
       substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, _) = peelConstraints methodAfterForAlls
-      extraPredicates = map (substitutePredicate substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates)
+      extraPredicates = map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates)
   extraTypeBinders <- mapM convertTypeBinder extraTyVars
   convertedExtraTypes <- mapM (convertCheckedType . TcTyVar) extraTyVars
   extraDictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] extraPredicates
@@ -410,12 +422,6 @@ dropClassPredicate classTyCon predicates =
     ClassPred predicateClass _ : rest
       | predicateClass == classTyCon -> rest
     predicate : rest -> predicate : dropClassPredicate classTyCon rest
-
-substitutePredicate :: Map Unique TcType -> Pred -> Pred
-substitutePredicate substitution predicate =
-  case predicate of
-    ClassPred classTyCon arguments -> ClassPred classTyCon (map (TcInstantiate.applySubst substitution) arguments)
-    EqPred left right -> EqPred (TcInstantiate.applySubst substitution left) (TcInstantiate.applySubst substitution right)
 
 makeContextDictionary :: Int -> TcDictBinderAnnotation -> ValueM Dictionary
 makeContextDictionary index annotation = do
@@ -601,8 +607,8 @@ desugarOverloadedIntegerMatch resultType arguments match failure =
                 test
                 testBinder
                 resultType'
-                [ Alt (AltData trueName) [] success,
-                  Alt (AltData falseName) [] failure
+                [ Alt (AltData trueName) [] [] success,
+                  Alt (AltData falseName) [] [] failure
                 ]
             )
       | otherwise =
@@ -716,7 +722,7 @@ desugarDataPatterns resultType argument arguments matches = do
         [] -> pure []
         _ -> do
           body <- desugarMatchArguments resultType arguments (map dropFirstPattern defaultMatches)
-          pure [Alt AltDefault [] body]
+          pure [Alt AltDefault [] [] body]
     pure (ExCase (ExVar (binderName argument)) caseBinder resultType' (constructorAlternatives <> defaultAlternatives))
 
 firstNewtypePattern :: [Syn.Match] -> ValueM (Maybe (Syn.Pattern, DataTypeInfo))
@@ -785,6 +791,8 @@ desugarPatternGroup resultType remaining matches key = do
   constructor <- patternConstructor pattern'
   let subpatterns = patternChildren pattern'
       predicates = patternGivenPredicates pattern'
+      typeVariables = patternTypeVariables pattern'
+  typeBinders <- mapM convertTypeBinder typeVariables
   fieldTypes <- patternFieldTypes pattern' subpatterns
   fields <- zipWithM freshPatternBinder subpatterns fieldTypes
   dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
@@ -803,7 +811,7 @@ desugarPatternGroup resultType remaining matches key = do
     withDictionaries
       (zipWith predicateDictionary predicates dictionaries)
       (withLocals localBindings (desugarMatchArguments resultType (fields <> remaining) expanded))
-  pure (Alt constructor (dictionaries <> fields) body)
+  pure (Alt constructor typeBinders (dictionaries <> fields) body)
 
 patternGivenPredicates :: Syn.Pattern -> [Pred]
 patternGivenPredicates = go
@@ -828,6 +836,21 @@ patternGivenPredicates = go
           Just checked <- [Syn.fromAnnotation annotation :: Maybe TcAnnotation]
         ]
     evidencePredicates checked = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceTerms checked]
+
+patternTypeVariables :: Syn.Pattern -> [TyVarId]
+patternTypeVariables = go
+  where
+    go pattern' =
+      case pattern' of
+        Syn.PAnn annotation inner -> annotationTypeVariables annotation <> go inner
+        Syn.PParen inner -> go inner
+        Syn.PStrict inner -> go inner
+        Syn.PIrrefutable inner -> go inner
+        Syn.PAs _ inner -> go inner
+        Syn.PTypeSig inner _ -> go inner
+        _ -> []
+    annotationTypeVariables annotation =
+      maybe [] tcAnnTypeBinders (Syn.fromAnnotation annotation :: Maybe TcAnnotation)
 
 patternKeys :: [Syn.Match] -> [Text]
 patternKeys matches =
@@ -1038,7 +1061,7 @@ patternType pattern' =
     _ -> Nothing
 
 fromBinderType :: Syn.Pattern -> TcType
-fromBinderType pattern' = fromMaybe (TcBuiltinTyCon "Type" 0 []) (patternType pattern')
+fromBinderType pattern' = fromMaybe typeKindType (patternType pattern')
 
 nameTcType :: Syn.UnqualifiedName -> Maybe TcType
 nameTcType name =
@@ -1135,8 +1158,8 @@ desugarIf resultType condition thenExpression elseExpression = do
         condition'
         binder
         resultType'
-        [ Alt (AltData trueName) [] thenExpression',
-          Alt (AltData falseName) [] elseExpression'
+        [ Alt (AltData trueName) [] [] thenExpression',
+          Alt (AltData falseName) [] [] elseExpression'
         ]
     )
 
@@ -1229,7 +1252,7 @@ annotatedHead = go Nothing
         Syn.ETypeApp inner _ -> go maybeAnnotation inner
         Syn.EVar name -> (,fromMaybe emptyTcAnnotation maybeAnnotation) <$> Just name
         _ -> Nothing
-    emptyTcAnnotation = TcAnnotation (TcBuiltinTyCon "Type" 0 []) [] [] [] []
+    emptyTcAnnotation = TcAnnotation typeKindType [] [] [] []
 
 desugarLambda :: [Syn.Pattern] -> Syn.Expr -> ValueM Expr
 desugarLambda patterns body = do
@@ -1271,7 +1294,9 @@ desugarTuple annotation flavor elements = do
   pure (foldr ExLam applied (concatMap snd convertedElements))
 
 checkedRuntimeRep :: TcType -> ValueM Type
-checkedRuntimeRep ty = liftEither (runtimeRepOfType ty) >>= convertRuntimeRep
+checkedRuntimeRep ty = do
+  kindEnv <- gets (ceKindEnv . vsConvertEnv)
+  liftEither (runtimeRepOfTypeInEnv kindEnv ty) >>= convertRuntimeRep
 
 desugarTupleElement :: TcType -> Maybe Syn.Expr -> ValueM (Expr, [Binder])
 desugarTupleElement _ (Just expression) = (,[]) <$> desugarExpr expression
@@ -1359,6 +1384,8 @@ desugarDoConstructorPattern resultType binder pattern' success = do
     Nothing -> do
       let children = patternChildren pattern'
           predicates = patternGivenPredicates pattern'
+      let typeVariables = patternTypeVariables pattern'
+      typeBinders <- mapM convertTypeBinder typeVariables
       fieldTypes <- patternFieldTypes pattern' children
       fields <- zipWithM freshPatternBinder children fieldTypes
       dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
@@ -1369,7 +1396,7 @@ desugarDoConstructorPattern resultType binder pattern' success = do
         withDictionaries
           (zipWith predicateDictionary predicates dictionaries)
           (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success)
-      pure (ExCase (ExVar (binderName binder)) caseBinder resultType' [Alt constructor (dictionaries <> fields) body])
+      pure (ExCase (ExVar (binderName binder)) caseBinder resultType' [Alt constructor typeBinders (dictionaries <> fields) body])
 
 desugarDoChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> ValueM Expr
 desugarDoChildPatterns resultType children success =
@@ -1539,7 +1566,7 @@ desugarEvidence evidence =
             sourceExpression
             sourceBinder
             resultType
-            [Alt (AltData (classDictConName classTyCon)) fieldBinders (ExVar (binderName selected))]
+            [Alt (AltData (classDictConName classTyCon)) [] fieldBinders (ExVar (binderName selected))]
         )
     Ev.EvCast inner coercion -> ExCast <$> desugarEvidence inner <*> convertCoercion coercion
     Ev.EvTypeable origin ty arguments -> desugarTypeableEvidence origin ty arguments
@@ -1613,7 +1640,6 @@ typeableTypeView ty =
   case ty of
     TcTyCon tyCon arguments -> pure (tyConName tyCon, arguments)
     TcFunTy argument result -> pure ("(->)", [argument, result])
-    TcBuiltinTyCon name _ arguments -> pure (name, arguments)
     _ -> failValue ("cannot construct Typeable evidence for " <> show ty)
 
 desugarResolvedOccurrence :: TcAnnotation -> ResolutionAnnotation -> ValueM Expr
@@ -1838,12 +1864,12 @@ convertTypeBinder tyVar = do
   env <- gets vsConvertEnv
   liftEither (tyVarBinder env tyVar)
 
-convertRuntimeRep :: RuntimeRep -> ValueM Type
+convertRuntimeRep :: TcType -> ValueM Type
 convertRuntimeRep runtimeRep = do
   env <- gets vsConvertEnv
   liftEither (convertRep env runtimeRep)
 
-numericRepresentation :: Syn.NumericType -> RuntimeRep
+numericRepresentation :: Syn.NumericType -> TcType
 numericRepresentation numericType =
   case numericType of
     Syn.TInteger -> IntRep

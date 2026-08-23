@@ -20,18 +20,18 @@ expected: |-
   }
 
   pub type 1.t$Dict$Read (a : 2.tType) :: 2.tType {
-      pub 1.v$Dict$Read :: ∀(a : 2.tType). (1.tResult → a) → 1.t$Dict$Read a
+      pub 1.v$Dict$Read :: ∀(a : 2.tType). (1.tResult 2.→ a) 2.→ 1.t$Dict$Read a
   }
 
-  pub val 1.vreads :: ∀(a : 2.tType). 1.t$Dict$Read a → 1.tResult → a
+  pub val 1.vreads :: ∀(a : 2.tType). 1.t$Dict$Read a 2.→ 1.tResult 2.→ a
    = Λ(a : 2.tType).
     λ($d0 : 1.t$Dict$Read a).
-      case $d0 as ($dict : 1.t$Dict$Read a) return (1.tResult → a) of {
-          1.v$Dict$Read ($method0 : 1.tResult → a) →
+      case $d0 as ($dict : 1.t$Dict$Read a) return (1.tResult 2.→ a) of {
+          1.v$Dict$Read ($method0 : 1.tResult 2.→ a) →
               $method0
       }
 
-  pub val 1.vparse :: ∀(a : 2.tType). 1.t$Dict$Read a → 1.tResult → a
+  pub val 1.vparse :: ∀(a : 2.tType). 1.t$Dict$Read a 2.→ 1.tResult 2.→ a
    = Λ(a : 2.tType).
     λ($d0 : 1.t$Dict$Read a).
       1.vreads @a $d0

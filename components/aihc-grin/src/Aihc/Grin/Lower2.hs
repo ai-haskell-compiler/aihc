@@ -7,22 +7,13 @@ module Aihc.Grin.Lower2
   )
 where
 
-import Aihc.Fc.Syntax qualified as Fc
 import Aihc.Fc2 qualified as Fc2
 import Aihc.Fc2.TypeOf qualified as Fc2Type
 import Aihc.Grin.Lower qualified as Grin
-import Aihc.Grin.Syntax (GrinProgram (..), GrinVar (..))
+import Aihc.Grin.Lower.Syntax
+import Aihc.Grin.Lower.Syntax qualified as Fc
+import Aihc.Grin.Syntax (GrinLevity (..), GrinProgram (..), GrinRep (..), GrinVar (..))
 import Aihc.Resolve (PackageId (..))
-import Aihc.Tc.Types
-  ( Kind (..),
-    Levity (..),
-    RuntimeRep (..),
-    TcType (..),
-    TyVarId (..),
-    Unique (..),
-    liftedRuntimeRep,
-    setTyVarKind,
-  )
 import Control.Applicative ((<|>))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -323,7 +314,7 @@ convertTypeBinder :: Fc2Type.TypeEnv -> TypeVars -> Fc2.Binder -> Either String 
 convertTypeBinder types typeVars binder = do
   kind <- convertKind types (Fc2.binderType binder)
   unique <- nameUnique (Fc2.binderName binder)
-  let typeVar = setTyVarKind kind (TyVarId (Fc2.nameText (Fc2.binderName binder)) unique)
+  let typeVar = TyVarId (Fc2.nameText (Fc2.binderName binder)) unique kind
   pure (typeVar, Fc2Type.extendBinder types binder, Map.insert (Fc2.binderName binder) typeVar typeVars)
 
 convertType :: Fc2Type.TypeEnv -> TypeVars -> Fc2.Type -> Either String TcType
@@ -350,6 +341,8 @@ kindOfType types ty =
 convertKind :: Fc2Type.TypeEnv -> Fc2.Type -> Either String Kind
 convertKind types sourceKind =
   case Fc2Type.reduceType types sourceKind of
+    Fc2.TyApp (Fc2.TyCon name) (Fc2.TyVar representation)
+      | Fc2.nameText name == "TYPE" -> KTYPEVar <$> nameUnique representation
     Fc2.TyApp (Fc2.TyCon name) representation
       | Fc2.nameText name == "TYPE" -> KTYPE <$> convertRep types representation
     Fc2.TyFun _ _ argument result -> KFun <$> convertKind types argument <*> convertKind types result
@@ -365,7 +358,7 @@ convertKind types sourceKind =
 convertRep :: Fc2Type.TypeEnv -> Fc2.Type -> Either String RuntimeRep
 convertRep types sourceRep =
   case Fc2Type.reduceType types sourceRep of
-    Fc2.TyVar name -> RuntimeRepVar <$> nameUnique name
+    Fc2.TyVar _ -> pure liftedRuntimeRep
     Fc2.TyCon name -> simpleRep (Fc2.nameText name)
     Fc2.TyApp (Fc2.TyCon name) levity
       | Fc2.nameText name == "BoxedRep" -> BoxedRep <$> convertLevity levity

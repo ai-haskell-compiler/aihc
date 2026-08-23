@@ -6,7 +6,12 @@
 -- through 'GrinBind'. Haskell laziness is represented by heap-allocated thunk
 -- nodes and the explicit 'GrinEval' and 'GrinApply' operations.
 module Aihc.Grin.Syntax
-  ( GrinProgram (..),
+  ( GrinRep (..),
+    GrinLevity (..),
+    GrinVecCount (..),
+    GrinVecElem (..),
+    liftedGrinRep,
+    GrinProgram (..),
     GrinCodeInfo (..),
     GrinFunction (..),
     FunctionName (..),
@@ -34,13 +39,55 @@ module Aihc.Grin.Syntax
   )
 where
 
-import Aihc.Tc.Types (RuntimeRep (..), liftedRuntimeRep)
 import Data.ByteString (ByteString)
 import Data.Text (Text)
 
+-- | One runtime ABI layout. This data does not contain Haskell type information.
+data GrinRep
+  = BoxedRep !GrinLevity
+  | IntRep
+  | Int8Rep
+  | Int16Rep
+  | Int32Rep
+  | Int64Rep
+  | WordRep
+  | Word8Rep
+  | Word16Rep
+  | Word32Rep
+  | Word64Rep
+  | AddrRep
+  | FloatRep
+  | DoubleRep
+  | SumRep ![GrinRep]
+  | TupleRep ![GrinRep]
+  | VecRep !GrinVecCount !GrinVecElem
+  deriving (Eq, Ord, Show, Read)
+
+data GrinLevity = Lifted | Unlifted
+  deriving (Eq, Ord, Show, Read)
+
+data GrinVecCount = Vec16 | Vec2 | Vec32 | Vec4 | Vec64 | Vec8
+  deriving (Eq, Ord, Show, Read)
+
+data GrinVecElem
+  = Int16ElemRep
+  | Int32ElemRep
+  | Int64ElemRep
+  | Int8ElemRep
+  | Word8ElemRep
+  | Word16ElemRep
+  | Word32ElemRep
+  | Word64ElemRep
+  | FloatElemRep
+  | DoubleElemRep
+  deriving (Eq, Ord, Show, Read)
+
+liftedGrinRep :: GrinRep
+liftedGrinRep = BoxedRep Lifted
+
 -- | A whole GRIN program.
 data GrinProgram = GrinProgram
-  { grinConstructors :: ![(Text, [[RuntimeRep]])],
+  { grinConstructors :: ![(Text, [[GrinRep]])],
     grinPrimitives :: ![(GrinVar, Int)],
     grinForeignCalls :: ![GrinForeignCall],
     -- | Global slots supplied by dependency units and referenced by this unit.
@@ -62,8 +109,8 @@ data GrinProgram = GrinProgram
 data GrinCodeInfo = GrinCodeInfo
   { grinCodeSourceName :: !Text,
     grinCodeFunctionName :: !FunctionName,
-    grinCodeParameterLayouts :: ![[RuntimeRep]],
-    grinCodeResultRep :: !RuntimeRep
+    grinCodeParameterLayouts :: ![[GrinRep]],
+    grinCodeResultRep :: !GrinRep
   }
   deriving (Eq, Show, Read)
 
@@ -74,7 +121,7 @@ data GrinFunction = GrinFunction
     -- | Source-level name when this entry is link-visible to other units.
     grinFunctionLinkName :: !(Maybe Text),
     grinFunctionParameters :: ![GrinVar],
-    grinFunctionResultRep :: !RuntimeRep,
+    grinFunctionResultRep :: !GrinRep,
     grinFunctionBody :: !GrinExpr
   }
   deriving (Eq, Show, Read)
@@ -89,7 +136,7 @@ newtype FunctionName = FunctionName
 data GrinVar = GrinVar
   { grinVarName :: !Text,
     grinVarUnique :: !Int,
-    grinVarRuntimeRep :: !RuntimeRep
+    grinVarRuntimeRep :: !GrinRep
   }
   deriving (Show, Read)
 
@@ -124,33 +171,33 @@ data GrinExpr
   | -- | A recursive allocation group covered by one preceding
     -- 'GrinEnsureHeap'.
     GrinStoreRecUnchecked ![(GrinVar, GrinNode)] !GrinExpr
-  | GrinFetch !RuntimeRep !GrinValue
+  | GrinFetch !GrinRep !GrinValue
   | GrinUpdate !GrinValue !GrinValue
   | -- | Enter a heap pointer until it points to a node in weak-head normal
     -- form. The result remains a heap pointer; evaluation never returns the
     -- fetched node payload directly.
-    GrinEval !RuntimeRep !GrinValue
+    GrinEval !GrinRep !GrinValue
   | -- | CPS-only evaluation. The first continuation receives a value already
     -- in weak-head normal form. The second continuation receives the result
     -- of an entered thunk and is responsible for updating its blackhole.
-    GrinCpsEval !RuntimeRep !GrinValue !GrinValue !GrinValue
+    GrinCpsEval !GrinRep !GrinValue !GrinValue !GrinValue
   | -- | A saturated call to a statically known code entry.
-    GrinCall !RuntimeRep !FunctionName ![GrinValue]
+    GrinCall !GrinRep !FunctionName ![GrinValue]
   | -- | A saturated call to a statically known primitive entry.
-    GrinPrimitiveCall !RuntimeRep !Text ![GrinValue]
+    GrinPrimitiveCall !GrinRep !Text ![GrinValue]
   | -- | A CPS-only primitive that may transfer execution to another thread.
     -- The continuation receives the primitive's logical result.
-    GrinCpsPrimitiveCall !RuntimeRep !Text ![GrinValue] !GrinValue
+    GrinCpsPrimitiveCall !GrinRep !Text ![GrinValue] !GrinValue
   | -- | Apply exactly one logical argument to a heap pointer whose node is
     -- already in weak-head normal form. The list contains that argument's
     -- runtime values and may be empty for a zero-width argument such as
     -- @State# RealWorld@.
-    GrinApply !RuntimeRep !GrinValue ![GrinValue]
+    GrinApply !GrinRep !GrinValue ![GrinValue]
   | -- | CPS-only application. Partial applications and saturated
     -- constructors transfer their result to the continuation; saturated
     -- closures enter their code with the continuation as the hidden final
     -- argument.
-    GrinCpsApply !RuntimeRep !GrinValue ![GrinValue] !GrinValue
+    GrinCpsApply !GrinRep !GrinValue ![GrinValue] !GrinValue
   | -- | Invoke an ordinary continuation closure with one logical result.
     -- Unlike 'GrinCpsApply', continuation entries do not themselves receive a
     -- return continuation.
@@ -169,7 +216,7 @@ data GrinExpr
   | -- | Match a value that is already in weak-head normal form.
     GrinCase !GrinValue !GrinVar ![GrinAlt]
   | GrinThrow !GrinValue
-  | GrinCatch !RuntimeRep !GrinValue !GrinValue ![GrinValue]
+  | GrinCatch !GrinRep !GrinValue !GrinValue ![GrinValue]
   | -- | A saturated call whose operands are already strict primitive values.
     GrinForeignCallExpr !GrinForeignCall ![GrinValue]
   deriving (Eq, Show, Read)
@@ -192,7 +239,7 @@ data GrinNodeTag
   | -- | A function closure with the runtime layout of every remaining logical
     -- argument. Empty layouts are retained because they still count toward
     -- semantic arity even though they carry no runtime values.
-    GrinClosure !FunctionName ![[RuntimeRep]]
+    GrinClosure !FunctionName ![[GrinRep]]
   | -- | A suspended computation. Its target function must return exactly
     -- @BoxedRep Lifted@; unlifted computations are always evaluated strictly.
     GrinThunk !FunctionName
@@ -212,8 +259,8 @@ data GrinAltCon
   deriving (Eq, Show, Read)
 
 data GrinLiteral
-  = GrinLitInt !RuntimeRep !Integer
-  | GrinLitChar !RuntimeRep !Char
+  = GrinLitInt !GrinRep !Integer
+  | GrinLitChar !GrinRep !Char
   | GrinLitString !Text
   | GrinLitAddr !ByteString
   deriving (Eq, Show, Read)
@@ -267,7 +314,7 @@ grinProgramLiterals program =
         GrinLitValue literal -> [literal]
         GrinVarValue {} -> []
 
-grinValueRuntimeRep :: GrinValue -> RuntimeRep
+grinValueRuntimeRep :: GrinValue -> GrinRep
 grinValueRuntimeRep value =
   case value of
     GrinVarValue var -> grinVarRuntimeRep var
@@ -275,23 +322,23 @@ grinValueRuntimeRep value =
       case literal of
         GrinLitInt runtimeRep _ -> runtimeRep
         GrinLitChar runtimeRep _ -> runtimeRep
-        GrinLitString {} -> liftedRuntimeRep
+        GrinLitString {} -> liftedGrinRep
         GrinLitAddr {} -> AddrRep
 
-isLiftedRuntimeRep :: RuntimeRep -> Bool
-isLiftedRuntimeRep runtimeRep = runtimeRep == liftedRuntimeRep
+isLiftedRuntimeRep :: GrinRep -> Bool
+isLiftedRuntimeRep runtimeRep = runtimeRep == liftedGrinRep
 
 -- | Flatten a source runtime representation into the values carried by GRIN's
 -- calling convention. Tuple components compose recursively, and zero-width
 -- tuples such as @State# RealWorld@ occupy no runtime slot.
-runtimeRepComponents :: RuntimeRep -> [RuntimeRep]
+runtimeRepComponents :: GrinRep -> [GrinRep]
 runtimeRepComponents runtimeRep =
   case runtimeRep of
     TupleRep fieldReps -> concatMap runtimeRepComponents fieldReps
     _ -> [runtimeRep]
 
 -- | Runtime reps carried in one pointer-sized slot.
-isPointerRuntimeRep :: RuntimeRep -> Bool
+isPointerRuntimeRep :: GrinRep -> Bool
 isPointerRuntimeRep runtimeRep =
   case runtimeRep of
     BoxedRep {} -> True
@@ -302,7 +349,7 @@ isPointerRuntimeRep runtimeRep =
 -- Keeping their arities with the shared GRIN syntax makes lowering,
 -- interpretation, linting, and native code generation agree on which global
 -- constructor values exist before the program starts.
-builtinConstructors :: [(Text, [[RuntimeRep]])]
+builtinConstructors :: [(Text, [[GrinRep]])]
 builtinConstructors =
   [ ("C#", [[WordRep]]),
     ("aihc-prim:GHC.Types.C#", [[WordRep]]),
@@ -312,7 +359,7 @@ builtinConstructors =
 -- | Flattened storage layouts for runtime-supplied constructors. Source-level
 -- argument boundaries matter for arity, while heap snapshots describe the
 -- individual machine values stored in each node.
-builtinConstructorLayouts :: [(Text, [RuntimeRep])]
+builtinConstructorLayouts :: [(Text, [GrinRep])]
 builtinConstructorLayouts =
   [(name, concat argumentLayouts) | (name, argumentLayouts) <- builtinConstructors]
 
@@ -342,15 +389,15 @@ data GrinForeignType
   | GrinForeignAddr
   deriving (Eq, Show, Read)
 
-grinForeignOperandReps :: GrinForeignSignature -> [RuntimeRep]
+grinForeignOperandReps :: GrinForeignSignature -> [GrinRep]
 grinForeignOperandReps signature =
   map foreignTypeRuntimeRep (grinForeignArgumentTypes signature)
 
-grinForeignCallResultReps :: GrinForeignSignature -> [RuntimeRep]
+grinForeignCallResultReps :: GrinForeignSignature -> [GrinRep]
 grinForeignCallResultReps signature =
   [foreignTypeRuntimeRep (grinForeignResultType signature)]
 
-foreignTypeRuntimeRep :: GrinForeignType -> RuntimeRep
+foreignTypeRuntimeRep :: GrinForeignType -> GrinRep
 foreignTypeRuntimeRep foreignType =
   case foreignType of
     GrinForeignInt -> IntRep
