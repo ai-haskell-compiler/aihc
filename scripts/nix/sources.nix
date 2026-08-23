@@ -110,12 +110,19 @@ in rec {
     ".yml"
   ];
 
-  tcSrc = mkComponentSrc "/components/aihc-tc" [
-    ".hs"
-    ".cabal"
-    ".yaml"
-    ".yml"
-  ];
+  tcSrc =
+    mkRootSubsetSrc [
+      "components/aihc-tc/"
+      "core-libs/aihc-prim/src/GHC/Classes.hs"
+      "core-libs/aihc-prim/src/GHC/Prim.hs"
+      "core-libs/aihc-prim/src/GHC/Tuple.hs"
+      "core-libs/aihc-prim/src/GHC/Types.hs"
+    ] [
+      ".hs"
+      ".cabal"
+      ".yaml"
+      ".yml"
+    ];
 
   baseSrc = mkComponentSrc "/core-libs/aihc-base" [
     ".hs"

@@ -98,7 +98,8 @@
     aihc-tc = {
       src = sources.tcSrc;
       cabal2nixOptions = {
-        extraCabal2nixOptions = "--flag fuzz";
+        extraCabal2nixOptions = "--flag fuzz --subpath components/aihc-tc";
+        srcModifier = src: src;
       };
       disableProfiling = true;
       optimizeForChecks = true;
