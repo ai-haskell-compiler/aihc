@@ -734,11 +734,19 @@ fillExpr env expr =
 
 fillAlt :: TypeEnv -> OpenAlt -> Either String Alt
 fillAlt env (OpenAlt con typeBinders binders rhs) = do
-  closedTypeBinders <- mapM (closeBinder env) typeBinders
-  let typeEnv = extendBinders env closedTypeBinders
+  (closedTypeBinders, typeEnv) <- closeScopedBinders env typeBinders
   closedBinders <- mapM (closeBinder typeEnv) binders
   closed <- fillExpr (extendBinders typeEnv closedBinders) rhs
   pure (Alt con closedTypeBinders closedBinders closed)
+
+closeScopedBinders :: TypeEnv -> [OpenBinder] -> Either String ([Binder], TypeEnv)
+closeScopedBinders env binders =
+  case binders of
+    [] -> Right ([], env)
+    binder : rest -> do
+      closed <- closeBinder env binder
+      (closedRest, finalEnv) <- closeScopedBinders (extend env closed) rest
+      pure (closed : closedRest, finalEnv)
 
 fillCoercion :: TypeEnv -> OpenCoercion -> Either String Coercion
 fillCoercion env coercionValue =

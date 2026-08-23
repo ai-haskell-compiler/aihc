@@ -795,9 +795,10 @@ desugarPatternGroup resultType remaining matches key = do
       candidate : _ -> pure candidate
       [] -> failValue ("missing representative pattern for " <> T.unpack key)
   constructor <- patternConstructor pattern'
-  typeBinders <- mapM convertTypeBinder (patternExistentialTypeBinders pattern')
   let subpatterns = patternChildren pattern'
       predicates = patternGivenPredicates pattern'
+      typeVariables = patternTypeVariables pattern'
+  typeBinders <- mapM convertTypeBinder typeVariables
   fieldTypes <- patternFieldTypes pattern' subpatterns
   fields <- zipWithM freshPatternBinder subpatterns fieldTypes
   dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
@@ -817,19 +818,6 @@ desugarPatternGroup resultType remaining matches key = do
       (zipWith predicateDictionary predicates dictionaries)
       (withLocals localBindings (desugarMatchArguments resultType (fields <> remaining) expanded))
   pure (Alt constructor typeBinders (dictionaries <> fields) body)
-
-patternExistentialTypeBinders :: Syn.Pattern -> [TyVarId]
-patternExistentialTypeBinders pattern' =
-  case pattern' of
-    Syn.PAnn annotation inner ->
-      maybe [] tcAnnTypeBinders (Syn.fromAnnotation annotation)
-        <> patternExistentialTypeBinders inner
-    Syn.PParen inner -> patternExistentialTypeBinders inner
-    Syn.PStrict inner -> patternExistentialTypeBinders inner
-    Syn.PIrrefutable inner -> patternExistentialTypeBinders inner
-    Syn.PAs _ inner -> patternExistentialTypeBinders inner
-    Syn.PTypeSig inner _ -> patternExistentialTypeBinders inner
-    _ -> []
 
 patternGivenPredicates :: Syn.Pattern -> [Pred]
 patternGivenPredicates = go
@@ -854,6 +842,21 @@ patternGivenPredicates = go
           Just checked <- [Syn.fromAnnotation annotation :: Maybe TcAnnotation]
         ]
     evidencePredicates checked = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceTerms checked]
+
+patternTypeVariables :: Syn.Pattern -> [TyVarId]
+patternTypeVariables = go
+  where
+    go pattern' =
+      case pattern' of
+        Syn.PAnn annotation inner -> annotationTypeVariables annotation <> go inner
+        Syn.PParen inner -> go inner
+        Syn.PStrict inner -> go inner
+        Syn.PIrrefutable inner -> go inner
+        Syn.PAs _ inner -> go inner
+        Syn.PTypeSig inner _ -> go inner
+        _ -> []
+    annotationTypeVariables annotation =
+      maybe [] tcAnnTypeBinders (Syn.fromAnnotation annotation :: Maybe TcAnnotation)
 
 patternKeys :: [Syn.Match] -> [Text]
 patternKeys matches =
@@ -1387,10 +1390,11 @@ desugarDoConstructorPattern resultType binder pattern' success = do
     Nothing -> do
       let children = patternChildren pattern'
           predicates = patternGivenPredicates pattern'
+      let typeVariables = patternTypeVariables pattern'
+      typeBinders <- mapM convertTypeBinder typeVariables
       fieldTypes <- patternFieldTypes pattern' children
       fields <- zipWithM freshPatternBinder children fieldTypes
       dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
-      typeBinders <- mapM convertTypeBinder (patternExistentialTypeBinders pattern')
       constructor <- patternConstructor pattern'
       resultType' <- convertCheckedType resultType
       caseBinder <- freshBinderFromType "_do_scrut" (binderType binder)

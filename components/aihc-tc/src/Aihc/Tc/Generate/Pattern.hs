@@ -523,7 +523,12 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
             | null predicateGivens && null skolems = rebuiltPattern
             | otherwise =
                 PAnn
-                  (mkAnnotation (PendingTcAnnotation conTy skolems typeArgs (map ctEvVar predicateGivens) []))
+                  ( mkAnnotation
+                      ( (pendingAnnotation conTy typeArgs (map ctEvVar predicateGivens) [])
+                          { pendingTcAnnTypeBinders = skolems
+                          }
+                      )
+                  )
                   rebuiltPattern
       pure
         subCheck
