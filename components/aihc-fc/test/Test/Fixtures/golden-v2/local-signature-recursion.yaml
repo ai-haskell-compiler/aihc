@@ -11,11 +11,11 @@ expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Types
 
-  pub val 1.vreverseValues :: ∀(a : 2.tType). 2.t[] a → 2.t[] a
+  pub val 1.vreverseValues :: ∀(a : 2.tType). 2.t[] a 2.→ 2.t[] a
    = Λ(a : 2.tType).
     λ(x : 2.t[] a).
       rec {
-          go : ∀(a{1} : 2.tType). 2.t[] a{1} → 2.t[] a{1} → 2.t[] a{1} =
+          go : ∀(a{1} : 2.tType). 2.t[] a{1} 2.→ 2.t[] a{1} 2.→ 2.t[] a{1} =
               Λ(a{1} : 2.tType).
                 λ(x{1} : 2.t[] a{1}).
                   λ(y : 2.t[] a{1}).

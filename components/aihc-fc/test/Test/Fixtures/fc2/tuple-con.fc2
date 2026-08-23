@@ -2,7 +2,7 @@ scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
 pub type 1.tPair (a : 2.tType) (b : 2.tType) :: 2.tType {
-    pub 1.v(,) :: ∀(a : 2.tType) (b : 2.tType). a → b → 1.tPair a b
+    pub 1.v(,) :: ∀(a : 2.tType) (b : 2.tType). a 2.→ b 2.→ 1.tPair a b
 }
 
 pub type 1.tUPair (r1 : 2.tRuntimeRep) (r2 : 2.tRuntimeRep) (a : 2.tTYPE r1) (b : 2.tTYPE r2) :: 2.tTYPE (2.vTupleRep (2.v: 2.tRuntimeRep r1 (2.v: 2.tRuntimeRep r2 (2.v[] 2.tRuntimeRep)))) {

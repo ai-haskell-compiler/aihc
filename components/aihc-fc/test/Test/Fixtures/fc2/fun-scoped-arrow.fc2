@@ -1,0 +1,9 @@
+scope 1 = "" Test
+scope 2 = "prim-a" GHC.Types
+scope 3 = "prim-b" GHC.Types
+
+val 1.vleft :: 1.tA 2.→ 1.tA
+ = 1.vleft
+
+val 1.vright :: 1.tA 3.→ 1.tA
+ = 1.vright

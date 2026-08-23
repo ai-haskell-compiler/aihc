@@ -6,12 +6,12 @@ pub type 1.tBool :: 2.tType {
     pub 1.vTrue :: 1.tBool
 }
 
-val 1.vid :: ∀(a : 2.tType). a → a
+val 1.vid :: ∀(a : 2.tType). a 2.→ a
  = Λ(a : 2.tType).
   λ(x : a).
     x
 
-val 1.vnot :: 1.tBool → 1.tBool
+val 1.vnot :: 1.tBool 2.→ 1.tBool
  = λ(x : 1.tBool).
   case x as (w : 1.tBool) return (1.tBool) of {
     1.vTrue →

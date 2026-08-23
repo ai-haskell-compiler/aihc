@@ -5,7 +5,7 @@ pub type 1.tChar :: 2.tType {}
 
 pub type 1.t[] (a : 2.tType) :: 2.tType {
     pub 1.v[] :: ∀(a : 2.tType). 1.t[] a
-    pub 1.v: :: ∀(a : 2.tType). a → 1.t[] a → 1.t[] a
+    pub 1.v: :: ∀(a : 2.tType). a 2.→ 1.t[] a 2.→ 1.t[] a
 }
 
 val 1.vmsg :: 1.t[] 1.tChar

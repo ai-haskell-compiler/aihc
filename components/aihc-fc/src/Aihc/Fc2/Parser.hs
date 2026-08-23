@@ -10,18 +10,15 @@ where
 
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
-import Aihc.Fc2.TypeOf
-import Aihc.Fc2.Wired (primPackageFromScopes)
+import Aihc.Fc2.Wired (ghcTypesModule, liftedRepName)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
-import Control.Monad (zipWithM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import Data.ByteString qualified as BS
 import Data.Char (chr, digitToInt, isAlpha, isAlphaNum, isHexDigit, ord)
 import Data.Functor (($>))
-import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Void (Void)
@@ -34,16 +31,6 @@ import Text.Megaparsec.Char.Lexer qualified as L
 type Parser = ReaderT ScopeTable (Parsec Void Text)
 
 type Fc2ParseError = ParseErrorBundle Text Void
-
-data OpenType
-  = OpenVar Name
-  | OpenCon Name
-  | OpenApp OpenType OpenType
-  | OpenFun OpenType OpenType
-  | OpenForAll Name OpenType OpenType
-  | OpenEq OpenType OpenType
-  | OpenExplicitFun OpenType OpenType OpenType OpenType
-  deriving (Eq, Show)
 
 parseProgram :: Text -> Either Fc2ParseError Program
 parseProgram input = do
@@ -75,52 +62,10 @@ scopeDeclaration = do
 
 program :: Parser Program
 program = do
-  openDecls <- MP.many declaration
-  fillProgram openDecls
+  scopes <- ask
+  Program scopes <$> MP.many declaration
 
-data OpenBinder = OpenBinder Name OpenType
-  deriving (Eq, Show)
-
-data OpenDecl
-  = OpenTypeDecl Vis Name [OpenBinder] OpenType [Role] [OpenCon]
-  | OpenSynonymDecl Vis Name [OpenBinder] OpenType OpenType
-  | OpenAxiomDecl Vis Name [OpenBinder] Role OpenType OpenType
-  | OpenValDecl Vis Name OpenType OpenExpr
-  | OpenForeignImportDecl Vis Name CallingConvention OpenType
-  deriving (Eq, Show)
-
-data OpenCon = OpenConDecl Vis Name OpenType
-  deriving (Eq, Show)
-
-data OpenExpr
-  = OVar Name
-  | OLit Literal
-  | OApp OpenExpr OpenExpr
-  | OTyApp OpenExpr OpenType
-  | OLam OpenBinder OpenExpr
-  | OTyLam OpenBinder OpenExpr
-  | OLet OpenBind OpenExpr
-  | ORec [OpenBind] OpenExpr
-  | OCase OpenExpr OpenBinder OpenType [OpenAlt]
-  | OCast OpenExpr OpenCoercion
-  deriving (Eq, Show)
-
-data OpenBind = OpenBind OpenBinder OpenExpr
-  deriving (Eq, Show)
-
-data OpenAlt = OpenAlt AltCon [OpenBinder] [OpenBinder] OpenExpr
-  deriving (Eq, Show)
-
-data OpenCoercion
-  = OCoVar Name
-  | OCoRefl OpenType
-  | OCoSym OpenCoercion
-  | OCoTrans OpenCoercion OpenCoercion
-  | OCoTyConApp Name [OpenCoercion]
-  | OCoAxiom Name [OpenType]
-  deriving (Eq, Show)
-
-declaration :: Parser OpenDecl
+declaration :: Parser Decl
 declaration =
   MP.choice
     [ MP.try typeOrSynonym,
@@ -129,7 +74,7 @@ declaration =
       valDeclaration
     ]
 
-typeOrSynonym :: Parser OpenDecl
+typeOrSynonym :: Parser Decl
 typeOrSynonym = do
   vis <- optionalPub
   _ <- keyword "type"
@@ -141,22 +86,25 @@ typeOrSynonym = do
   MP.choice
     [ do
         _ <- symbol "="
-        OpenSynonymDecl vis name binders result <$> fcType,
-      do
-        OpenTypeDecl vis name binders result roles <$> constructorBlock
+        DeclSynonym
+          . SynonymDecl vis name {nameSort = SortSynonym} binders result
+          <$> fcType,
+      DeclType
+        . TypeDecl vis name binders result (defaultRoles binders roles)
+        <$> constructorBlock
     ]
 
-constructorBlock :: Parser [OpenCon]
+constructorBlock :: Parser [ConDecl]
 constructorBlock = braces (MP.many (constructorDecl <* MP.optional (symbol ";")))
 
-constructorDecl :: Parser OpenCon
+constructorDecl :: Parser ConDecl
 constructorDecl = do
   vis <- optionalPub
   name <- topName SortDataConstructor
   _ <- symbol "::"
-  OpenConDecl vis name <$> fcType
+  ConDecl vis name <$> fcType
 
-axiomDeclaration :: Parser OpenDecl
+axiomDeclaration :: Parser Decl
 axiomDeclaration = do
   vis <- optionalPub
   _ <- keyword "axiom"
@@ -165,9 +113,9 @@ axiomDeclaration = do
   _ <- symbol ":"
   left <- fcType
   role <- parseAxiomRole
-  OpenAxiomDecl vis name binders role left <$> fcType
+  DeclAxiom . AxiomDecl vis name binders role left <$> fcType
 
-foreignImportDeclaration :: Parser OpenDecl
+foreignImportDeclaration :: Parser Decl
 foreignImportDeclaration = do
   vis <- optionalPub
   _ <- keyword "foreign"
@@ -175,7 +123,7 @@ foreignImportDeclaration = do
   convention <- callingConvention
   name <- topName SortValue
   _ <- symbol "::"
-  OpenForeignImportDecl vis name convention <$> fcType
+  DeclForeignImport . ForeignImportDecl vis name convention <$> fcType
 
 callingConvention :: Parser CallingConvention
 callingConvention =
@@ -215,7 +163,7 @@ cAbiType =
       keyword "Addr" $> CAbiAddr
     ]
 
-valDeclaration :: Parser OpenDecl
+valDeclaration :: Parser Decl
 valDeclaration = do
   vis <- optionalPub
   _ <- keyword "val"
@@ -223,7 +171,7 @@ valDeclaration = do
   _ <- symbol "::"
   ty <- fcType
   _ <- symbol "="
-  OpenValDecl vis name ty <$> expression
+  DeclVal . ValDecl vis name ty <$> expression
 
 optionalPub :: Parser Vis
 optionalPub = MP.option Private (keyword "pub" $> Pub)
@@ -247,10 +195,10 @@ parseAxiomRole =
       symbol "~P" $> Phantom
     ]
 
-fcType :: Parser OpenType
+fcType :: Parser Type
 fcType = forallType
 
-forallType :: Parser OpenType
+forallType :: Parser Type
 forallType =
   MP.choice
     [ do
@@ -258,23 +206,35 @@ forallType =
         binders <- MP.some openPiBinder
         _ <- symbol "."
         body <- forallType
-        pure (foldr (\(OpenBinder name kind) -> OpenForAll name kind) body binders),
+        pure (foldr TyForAll body binders),
       funType
     ]
 
-funType :: Parser OpenType
+funType :: Parser Type
 funType = do
   left <- eqType
   MP.option left $ do
-    _ <- symbol "→" <|> symbol "->"
-    OpenFun left <$> funType
+    representation <- scopedArrow
+    TyFun representation representation left <$> funType
 
-eqType :: Parser OpenType
+scopedArrow :: Parser Type
+scopedArrow = lexeme $ do
+  scopeId <- L.decimal
+  _ <- MPC.char '.'
+  _ <- MPC.string "→" <|> MPC.string "->"
+  scopes <- ask
+  case lookupScope scopeId scopes of
+    Just (package, moduleName)
+      | moduleName == ghcTypesModule -> pure (TyCon (liftedRepName package))
+      | otherwise -> fail ("arrow scope is not " <> T.unpack ghcTypesModule)
+    Nothing -> fail ("unknown scope " <> show scopeId)
+
+eqType :: Parser Type
 eqType = do
   left <- appType
   MP.option left $ do
     _ <- MP.try (symbol "~" <* MP.notFollowedBy axiomRoleLetter)
-    OpenEq left <$> appType
+    TyEq left <$> appType
 
 axiomRoleLetter :: Parser Char
 axiomRoleLetter = do
@@ -285,30 +245,30 @@ axiomRoleLetter = do
       | identContinue character -> fail "role prefix"
     _ -> pure letter
 
-appType :: Parser OpenType
+appType :: Parser Type
 appType = do
   explicit <- MP.optional (MP.try explicitFun)
   case explicit of
     Just ty -> pure ty
     Nothing -> do
       function <- typeAtom
-      arguments <- MP.many typeAtom
-      pure (foldl OpenApp function arguments)
+      arguments <- MP.many (MP.try typeAtom)
+      pure (foldl TyApp function arguments)
 
-explicitFun :: Parser OpenType
+explicitFun :: Parser Type
 explicitFun = do
   _ <- keyword "FUN"
   r1 <- symbol "@" *> typeAtom
   r2 <- symbol "@" *> typeAtom
   argument <- typeAtom
-  OpenExplicitFun r1 r2 argument <$> typeAtom
+  TyFun r1 r2 argument <$> typeAtom
 
-typeAtom :: Parser OpenType
+typeAtom :: Parser Type
 typeAtom =
   MP.choice
     [ parens fcType,
-      OpenVar <$> MP.try typeLocalName,
-      OpenCon <$> topNameWithSort
+      TyVar <$> MP.try typeLocalName,
+      TyCon <$> topNameWithSort
     ]
 
 reservedWords :: [Text]
@@ -336,13 +296,13 @@ reservedWords =
     "axiom-co"
   ]
 
-openPiBinder :: Parser OpenBinder
+openPiBinder :: Parser Binder
 openPiBinder = parens $ do
   name <- localBinderName SortTypeVariable
   _ <- symbol ":"
-  OpenBinder name <$> fcType
+  Binder name <$> fcType
 
-expression :: Parser OpenExpr
+expression :: Parser Expr
 expression =
   MP.choice
     [ lambdaExpr,
@@ -353,49 +313,49 @@ expression =
       castOrApp
     ]
 
-lambdaExpr :: Parser OpenExpr
+lambdaExpr :: Parser Expr
 lambdaExpr = do
   _ <- symbol "λ"
   binder <- openTermBinder SortValue
   _ <- symbol "."
-  OLam binder <$> expression
+  ExLam binder <$> expression
 
-typeLambdaExpr :: Parser OpenExpr
+typeLambdaExpr :: Parser Expr
 typeLambdaExpr = do
   _ <- symbol "Λ"
   binder <- openTermBinder SortTypeVariable
   _ <- symbol "."
-  OTyLam binder <$> expression
+  ExTyLam binder <$> expression
 
-openTermBinder :: Sort -> Parser OpenBinder
+openTermBinder :: Sort -> Parser Binder
 openTermBinder sort = parens $ do
   name <- localBinderName sort
   _ <- symbol ":"
-  OpenBinder name <$> fcType
+  Binder name <$> fcType
 
-letExpr :: Parser OpenExpr
+letExpr :: Parser Expr
 letExpr = do
   _ <- keyword "let"
   bind <- braces openBind
   _ <- keyword "in"
-  OLet bind <$> expression
+  ExLet bind <$> expression
 
-recExpr :: Parser OpenExpr
+recExpr :: Parser Expr
 recExpr = do
   _ <- keyword "rec"
   binds <- braces (MP.sepBy openBind (symbol ";"))
   _ <- keyword "in"
-  ORec binds <$> expression
+  ExRec binds <$> expression
 
-openBind :: Parser OpenBind
+openBind :: Parser Bind
 openBind = do
   name <- localBinderName SortValue
   _ <- symbol ":"
   ty <- fcType
   _ <- symbol "="
-  OpenBind (OpenBinder name ty) <$> expression
+  Bind (Binder name ty) <$> expression
 
-caseExpr :: Parser OpenExpr
+caseExpr :: Parser Expr
 caseExpr = do
   _ <- keyword "case"
   scrutinee <- expression
@@ -405,31 +365,31 @@ caseExpr = do
   resultType <- parens fcType
   _ <- keyword "of"
   alts <- braces (MP.sepBy caseAlt (symbol ";"))
-  pure (OCase scrutinee binder resultType alts)
+  pure (ExCase scrutinee binder resultType alts)
 
-caseAlt :: Parser OpenAlt
+caseAlt :: Parser Alt
 caseAlt =
   MP.choice
     [ do
         _ <- symbol "_"
         _ <- symbol "→" <|> symbol "->"
-        OpenAlt AltDefault [] [] <$> expression,
+        Alt AltDefault [] [] <$> expression,
       do
         constructor <- MP.try (AltLit <$> literal) <|> (AltData <$> topNameWithSort)
         typeBinders <- MP.many (symbol "@" *> openTermBinder SortTypeVariable)
         binders <- MP.many (openTermBinder SortValue)
         _ <- symbol "→" <|> symbol "->"
-        OpenAlt constructor typeBinders binders <$> expression
+        Alt constructor typeBinders binders <$> expression
     ]
 
-castOrApp :: Parser OpenExpr
+castOrApp :: Parser Expr
 castOrApp = do
   function <- appExpr
   MP.option function $ do
     _ <- symbol "▷"
-    OCast function <$> coercion
+    ExCast function <$> coercion
 
-appExpr :: Parser OpenExpr
+appExpr :: Parser Expr
 appExpr = do
   function <- exprAtom
   rest <- MP.many appArgument
@@ -437,50 +397,50 @@ appExpr = do
   where
     applyArg function argument =
       case argument of
-        Left ty -> OTyApp function ty
-        Right expr -> OApp function expr
+        Left ty -> ExTyApp function ty
+        Right expr -> ExApp function expr
 
-appArgument :: Parser (Either OpenType OpenExpr)
+appArgument :: Parser (Either Type Expr)
 appArgument =
   MP.choice
     [ Left <$> (symbol "@" *> typeAtom),
       Right <$> exprAtom
     ]
 
-exprAtom :: Parser OpenExpr
+exprAtom :: Parser Expr
 exprAtom =
   MP.choice
     [ parens expression,
-      OLit <$> MP.try literal,
-      OVar <$> MP.try localName,
-      OVar <$> topNameWithSort
+      ExLit <$> MP.try literal,
+      ExVar <$> MP.try localName,
+      ExVar <$> topNameWithSort
     ]
 
-coercion :: Parser OpenCoercion
+coercion :: Parser Coercion
 coercion =
   MP.choice
     [ do
         _ <- keyword "refl"
-        OCoRefl <$> typeAtom,
+        CoRefl <$> typeAtom,
       do
         _ <- keyword "sym"
-        OCoSym <$> parens coercion,
+        CoSym <$> parens coercion,
       do
         _ <- keyword "trans"
         left <- parens coercion
         right <- parens coercion
-        pure (OCoTrans left right),
+        pure (CoTrans left right),
       do
         _ <- keyword "tycon-co"
         name <- topNameWithSort
         arguments <- MP.many (parens coercion)
-        pure (OCoTyConApp name arguments),
+        pure (CoTyConApp name arguments),
       do
         _ <- keyword "axiom-co"
         name <- topNameWithSort
         arguments <- MP.many (symbol "@" *> typeAtom)
-        pure (OCoAxiom name arguments),
-      OCoVar <$> localName
+        pure (CoAxiom name arguments),
+      CoVar <$> localName
     ]
 
 literal :: Parser Literal
@@ -544,11 +504,19 @@ printedName defaultSort =
     [ do
         prefix <- MP.optional (MP.satisfy (\character -> character == 't' || character == 'v'))
         raw <- rawName
-        let sort =
+        let printedClass =
               case prefix of
-                Just 't' -> SortTypeConstructor
-                Just 'v' -> SortValue
-                _ | "$ax$" `T.isPrefixOf` raw -> SortAxiom
+                Just 't' -> Just NameClassType
+                Just 'v' -> Just NameClassValue
+                _ | "$ax$" `T.isPrefixOf` raw -> Just NameClassAxiom
+                _ -> Nothing
+            sort =
+              case printedClass of
+                Just class'
+                  | class' == nameClass defaultSort -> defaultSort
+                  | class' == NameClassType -> SortTypeConstructor
+                  | class' == NameClassValue -> SortValue
+                  | class' == NameClassAxiom -> SortAxiom
                 _ -> defaultSort
         pure (raw, sort)
     ]
@@ -628,327 +596,10 @@ bracesInt = do
   _ <- MPC.char '}'
   pure value
 
-fillProgram :: [OpenDecl] -> Parser Program
-fillProgram openDecls = do
-  scopes <- ask
-  case fillDecls scopes openDecls of
-    Left message -> fail message
-    Right decls -> pure (normalizeProgram (Program scopes decls))
-
-fillDecls :: ScopeTable -> [OpenDecl] -> Either String [Decl]
-fillDecls scopes openDecls = do
-  let headers = collectHeaders scopes openDecls
-  mapM (fillDecl headers) openDecls
-
-collectHeaders :: ScopeTable -> [OpenDecl] -> TypeEnv
-collectHeaders scopes =
-  foldl add empty {tePrimPackage = primPackageFromScopes scopes}
-  where
-    empty = emptyTypeEnv
-    add env decl =
-      case decl of
-        OpenTypeDecl _ name binders result _ _
-          | Right closedBinders <- mapM (closeBinder env) binders,
-            Right closed <- closeType (extendBinders env closedBinders) result ->
-              env {teHeaders = Map.insert name (headerType closedBinders closed) (teHeaders env)}
-        OpenSynonymDecl _ name binders result body
-          | Right closedBinders <- mapM (closeBinder env) binders,
-            Right closedResult <- closeType (extendBinders env closedBinders) result,
-            Right closedBody <- closeType (extendBinders env closedBinders) body ->
-              env
-                { teHeaders = Map.insert name (headerType closedBinders closedResult) (teHeaders env),
-                  teSynonyms = Map.insert name (foldr TyForAll closedBody closedBinders) (teSynonyms env)
-                }
-        _ -> env
-
-fillDecl :: TypeEnv -> OpenDecl -> Either String Decl
-fillDecl env decl =
-  case decl of
-    OpenTypeDecl vis name binders result roles constructors -> do
-      closedBinders <- mapM (closeBinder env) binders
-      let binderEnv = extendBinders env closedBinders
-      closedResult <- closeType binderEnv result
-      closedCons <- mapM (fillCon binderEnv) constructors
-      pure (DeclType (TypeDecl vis name closedBinders closedResult roles closedCons))
-    OpenSynonymDecl vis name binders result body -> do
-      closedBinders <- mapM (closeBinder env) binders
-      let binderEnv = extendBinders env closedBinders
-      closedResult <- closeType binderEnv result
-      closedBody <- closeType binderEnv body
-      pure (DeclSynonym (SynonymDecl vis name closedBinders closedResult closedBody))
-    OpenAxiomDecl vis name binders role left right -> do
-      closedBinders <- mapM (closeBinder env) binders
-      let binderEnv = extendBinders env closedBinders
-      closedLeft <- closeType binderEnv left
-      closedRight <- closeType binderEnv right
-      pure (DeclAxiom (AxiomDecl vis name closedBinders role closedLeft closedRight))
-    OpenValDecl vis name ty body -> do
-      closedType <- closeType env ty
-      closedBody <- fillExpr env body
-      pure (DeclVal (ValDecl vis name closedType closedBody))
-    OpenForeignImportDecl vis name callingConvention' ty -> do
-      closedType <- closeType env ty
-      pure (DeclForeignImport (ForeignImportDecl vis name callingConvention' closedType))
-
-fillCon :: TypeEnv -> OpenCon -> Either String ConDecl
-fillCon env (OpenConDecl vis name ty) = do
-  closed <- closeType env ty
-  pure (ConDecl vis name closed)
-
-fillExpr :: TypeEnv -> OpenExpr -> Either String Expr
-fillExpr env expr =
-  case expr of
-    OVar name -> Right (ExVar name)
-    OLit literalValue -> Right (ExLit literalValue)
-    OApp function argument -> ExApp <$> fillExpr env function <*> fillExpr env argument
-    OTyApp function ty -> ExTyApp <$> fillExpr env function <*> closeType env ty
-    OLam binder body -> do
-      closedBinder <- closeBinder env binder
-      ExLam closedBinder <$> fillExpr (extend env closedBinder) body
-    OTyLam binder body -> do
-      closedBinder <- closeBinder env binder
-      ExTyLam closedBinder <$> fillExpr (extend env closedBinder) body
-    OLet (OpenBind binder rhs) body -> do
-      closedBinder <- closeBinder env binder
-      (ExLet . Bind closedBinder <$> fillExpr env rhs) <*> fillExpr (extend env closedBinder) body
-    ORec binds body -> do
-      closedBinders <- mapM (\(OpenBind binder _) -> closeBinder env binder) binds
-      let recEnv = extendBinders env closedBinders
-      ExRec
-        <$> zipWithM
-          ( \(OpenBind _ rhs) closedBinder ->
-              Bind closedBinder <$> fillExpr recEnv rhs
-          )
-          binds
-          closedBinders
-        <*> fillExpr recEnv body
-    OCase scrutinee binder resultType alts -> do
-      closedBinder <- closeBinder env binder
-      ExCase
-        <$> fillExpr env scrutinee
-        <*> pure closedBinder
-        <*> closeType env resultType
-        <*> mapM (fillAlt (extend env closedBinder)) alts
-    OCast body coercionValue -> ExCast <$> fillExpr env body <*> fillCoercion env coercionValue
-
-fillAlt :: TypeEnv -> OpenAlt -> Either String Alt
-fillAlt env (OpenAlt con typeBinders binders rhs) = do
-  (closedTypeBinders, typeEnv) <- closeScopedBinders env typeBinders
-  closedBinders <- mapM (closeBinder typeEnv) binders
-  closed <- fillExpr (extendBinders typeEnv closedBinders) rhs
-  pure (Alt con closedTypeBinders closedBinders closed)
-
-closeScopedBinders :: TypeEnv -> [OpenBinder] -> Either String ([Binder], TypeEnv)
-closeScopedBinders env binders =
-  case binders of
-    [] -> Right ([], env)
-    binder : rest -> do
-      closed <- closeBinder env binder
-      (closedRest, finalEnv) <- closeScopedBinders (extend env closed) rest
-      pure (closed : closedRest, finalEnv)
-
-fillCoercion :: TypeEnv -> OpenCoercion -> Either String Coercion
-fillCoercion env coercionValue =
-  case coercionValue of
-    OCoVar name -> Right (CoVar name)
-    OCoRefl ty -> CoRefl <$> closeType env ty
-    OCoSym inner -> CoSym <$> fillCoercion env inner
-    OCoTrans left right -> CoTrans <$> fillCoercion env left <*> fillCoercion env right
-    OCoTyConApp name arguments -> CoTyConApp name <$> mapM (fillCoercion env) arguments
-    OCoAxiom name arguments -> CoAxiom name <$> mapM (closeType env) arguments
-
-closeBinder :: TypeEnv -> OpenBinder -> Either String Binder
-closeBinder env (OpenBinder name ty) = Binder name <$> closeType env ty
-
-extend :: TypeEnv -> Binder -> TypeEnv
-extend env binder =
-  env {teBinders = Map.insert (binderName binder) (binderType binder) (teBinders env)}
-
-extendBinders :: TypeEnv -> [Binder] -> TypeEnv
-extendBinders = foldl extend
-
-normalizeProgram :: Program -> Program
-normalizeProgram parsed =
-  parsed {programDecls = map (normalizeDecl table) (programDecls parsed)}
-  where
-    table = declaredSorts (programScopes parsed) (programDecls parsed)
-
-declaredSorts :: ScopeTable -> [Decl] -> Map.Map Name Sort
-declaredSorts scopes decls =
-  Map.fromList (wired ++ concatMap declSorts decls)
-  where
-    wired =
-      case primPackageFromScopes scopes of
-        Nothing -> []
-        Just package ->
-          [ (Name "Type" SortTypeConstructor (OriginTop package "GHC.Types"), SortSynonym),
-            (Name "LiftedRep" SortTypeConstructor (OriginTop package "GHC.Types"), SortSynonym),
-            (Name "UnliftedRep" SortTypeConstructor (OriginTop package "GHC.Types"), SortSynonym)
-          ]
-    declSorts decl =
-      case decl of
-        DeclType typeDecl ->
-          (typeName typeDecl, SortTypeConstructor)
-            : [(conName constructor, SortDataConstructor) | constructor <- typeCons typeDecl]
-        DeclSynonym synonymDecl -> [(synName synonymDecl, SortSynonym)]
-        DeclAxiom axiomDecl -> [(axiomName axiomDecl, SortAxiom)]
-        DeclVal valDecl -> [(valName valDecl, SortValue)]
-        DeclForeignImport foreignImportDecl -> [(foreignImportName foreignImportDecl, SortValue)]
-
-normalizeDecl :: Map.Map Name Sort -> Decl -> Decl
-normalizeDecl table decl =
-  case decl of
-    DeclType typeDecl ->
-      DeclType
-        typeDecl
-          { typeName = rewriteName table (typeName typeDecl),
-            typeBinders = map (normalizeBinder table) (typeBinders typeDecl),
-            typeResult = normalizeType table (typeResult typeDecl),
-            typeRoles = defaultRoles (typeBinders typeDecl) (typeRoles typeDecl),
-            typeCons = map (normalizeCon table) (typeCons typeDecl)
-          }
-    DeclSynonym synonymDecl ->
-      DeclSynonym
-        synonymDecl
-          { synName = rewriteName table (synName synonymDecl),
-            synBinders = map (normalizeBinder table) (synBinders synonymDecl),
-            synResult = normalizeType table (synResult synonymDecl),
-            synBody = normalizeType table (synBody synonymDecl)
-          }
-    DeclAxiom axiomDecl ->
-      DeclAxiom
-        axiomDecl
-          { axiomName = rewriteName table (axiomName axiomDecl),
-            axiomBinders = map (normalizeBinder table) (axiomBinders axiomDecl),
-            axiomLeft = normalizeType table (axiomLeft axiomDecl),
-            axiomRight = normalizeType table (axiomRight axiomDecl)
-          }
-    DeclVal valDecl ->
-      DeclVal
-        valDecl
-          { valName = rewriteName table (valName valDecl),
-            valType = normalizeType table (valType valDecl),
-            valBody = normalizeExpr table (valBody valDecl)
-          }
-    DeclForeignImport foreignImportDecl ->
-      DeclForeignImport
-        foreignImportDecl
-          { foreignImportName = rewriteName table (foreignImportName foreignImportDecl),
-            foreignImportType = normalizeType table (foreignImportType foreignImportDecl)
-          }
-
 defaultRoles :: [Binder] -> [Role] -> [Role]
 defaultRoles binders roles
   | null roles && not (null binders) = replicate (length binders) Representational
   | otherwise = roles
-
-normalizeCon :: Map.Map Name Sort -> ConDecl -> ConDecl
-normalizeCon table conDecl =
-  conDecl
-    { conName = rewriteName table (conName conDecl),
-      conType = normalizeType table (conType conDecl)
-    }
-
-normalizeBinder :: Map.Map Name Sort -> Binder -> Binder
-normalizeBinder table binder =
-  binder
-    { binderName = rewriteName table (binderName binder),
-      binderType = normalizeType table (binderType binder)
-    }
-
-normalizeType :: Map.Map Name Sort -> Type -> Type
-normalizeType table ty =
-  case ty of
-    TyVar name -> TyVar (rewriteName table name)
-    TyCon name -> TyCon (rewriteName table name)
-    TyApp function argument -> TyApp (normalizeType table function) (normalizeType table argument)
-    TyFun r1 r2 argument result ->
-      TyFun (normalizeType table r1) (normalizeType table r2) (normalizeType table argument) (normalizeType table result)
-    TyForAll binder body -> TyForAll (normalizeBinder table binder) (normalizeType table body)
-    TyEq left right -> TyEq (normalizeType table left) (normalizeType table right)
-
-normalizeExpr :: Map.Map Name Sort -> Expr -> Expr
-normalizeExpr table expr =
-  case expr of
-    ExVar name -> ExVar (rewriteName table name)
-    ExLit literalValue -> ExLit (normalizeLiteral table literalValue)
-    ExApp function argument -> ExApp (normalizeExpr table function) (normalizeExpr table argument)
-    ExTyApp function ty -> ExTyApp (normalizeExpr table function) (normalizeType table ty)
-    ExLam binder body -> ExLam (normalizeBinder table binder) (normalizeExpr table body)
-    ExTyLam binder body -> ExTyLam (normalizeBinder table binder) (normalizeExpr table body)
-    ExLet bind body -> ExLet (normalizeBind table bind) (normalizeExpr table body)
-    ExRec binds body -> ExRec (map (normalizeBind table) binds) (normalizeExpr table body)
-    ExCase scrutinee binder resultType alts ->
-      ExCase (normalizeExpr table scrutinee) (normalizeBinder table binder) (normalizeType table resultType) (map (normalizeAlt table) alts)
-    ExCast body coercionValue -> ExCast (normalizeExpr table body) (normalizeCoercion table coercionValue)
-
-normalizeBind :: Map.Map Name Sort -> Bind -> Bind
-normalizeBind table bind =
-  bind
-    { bindBinder = normalizeBinder table (bindBinder bind),
-      bindRhs = normalizeExpr table (bindRhs bind)
-    }
-
-normalizeAlt :: Map.Map Name Sort -> Alt -> Alt
-normalizeAlt table alternative =
-  alternative
-    { altCon = normalizeAltCon table (altCon alternative),
-      altTypeBinders = map (normalizeBinder table) (altTypeBinders alternative),
-      altBinders = map (normalizeBinder table) (altBinders alternative),
-      altRhs = normalizeExpr table (altRhs alternative)
-    }
-
-normalizeAltCon :: Map.Map Name Sort -> AltCon -> AltCon
-normalizeAltCon table alt =
-  case alt of
-    AltData name -> AltData (rewriteName table name)
-    AltLit literalValue -> AltLit (normalizeLiteral table literalValue)
-    AltDefault -> AltDefault
-
-normalizeLiteral :: Map.Map Name Sort -> Literal -> Literal
-normalizeLiteral table literalValue =
-  case literalValue of
-    LitInt representation value -> LitInt (normalizeType table representation) value
-    LitChar representation value -> LitChar (normalizeType table representation) value
-    LitString value -> LitString value
-    LitAddr representation value -> LitAddr (normalizeType table representation) value
-
-normalizeCoercion :: Map.Map Name Sort -> Coercion -> Coercion
-normalizeCoercion table coercionValue =
-  case coercionValue of
-    CoVar name -> CoVar (rewriteName table name)
-    CoRefl ty -> CoRefl (normalizeType table ty)
-    CoSym inner -> CoSym (normalizeCoercion table inner)
-    CoTrans left right -> CoTrans (normalizeCoercion table left) (normalizeCoercion table right)
-    CoTyConApp name arguments -> CoTyConApp (rewriteName table name) (map (normalizeCoercion table) arguments)
-    CoAxiom name arguments -> CoAxiom (rewriteName table name) (map (normalizeType table) arguments)
-
-rewriteName :: Map.Map Name Sort -> Name -> Name
-rewriteName table name =
-  case Map.lookup name table of
-    Just sort -> name {nameSort = sort}
-    Nothing -> name
-
-closeType :: TypeEnv -> OpenType -> Either String Type
-closeType env open =
-  case open of
-    OpenVar name -> Right (TyVar name)
-    OpenCon name -> Right (TyCon name)
-    OpenApp function argument -> TyApp <$> closeType env function <*> closeType env argument
-    OpenFun argument result -> do
-      closedArgument <- closeType env argument
-      closedResult <- closeType env result
-      case liftedRepType env of
-        Just lifted -> Right (TyFun lifted lifted closedArgument closedResult)
-        Nothing -> Left "implicit FUN needs a GHC.Types scope for LiftedRep"
-    OpenForAll name kind body -> do
-      closedKind <- closeType env kind
-      let binder = Binder name closedKind
-      TyForAll binder <$> closeType (extend env binder) body
-    OpenEq left right ->
-      TyEq <$> closeType env left <*> closeType env right
-    OpenExplicitFun r1 r2 argument result ->
-      TyFun <$> closeType env r1 <*> closeType env r2 <*> closeType env argument <*> closeType env result
 
 -- Lexer
 

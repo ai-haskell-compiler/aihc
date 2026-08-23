@@ -15,15 +15,15 @@ expected: |-
   }
 
   pub type 1.t$Dict$Supply (a : 2.tType) :: 2.tType {
-      pub 1.v$Dict$Supply :: ∀(a : 2.tType). (∀(p : 2.tType → 2.tType). p a → 1.tToken) → 1.t$Dict$Supply a
+      pub 1.v$Dict$Supply :: ∀(a : 2.tType). (∀(p : 2.tType 2.→ 2.tType). p a 2.→ 1.tToken) 2.→ 1.t$Dict$Supply a
   }
 
-  pub val 1.vsupply :: ∀(a : 2.tType) (p : 2.tType → 2.tType). 1.t$Dict$Supply a → p a → 1.tToken
+  pub val 1.vsupply :: ∀(a : 2.tType) (p : 2.tType 2.→ 2.tType). 1.t$Dict$Supply a 2.→ p a 2.→ 1.tToken
    = Λ(a : 2.tType).
-    Λ(p : 2.tType → 2.tType).
+    Λ(p : 2.tType 2.→ 2.tType).
       λ($d0 : 1.t$Dict$Supply a).
-        case $d0 as ($dict : 1.t$Dict$Supply a) return (p a → 1.tToken) of {
-            1.v$Dict$Supply ($method0 : ∀(p{1} : 2.tType → 2.tType). p{1} a → 1.tToken) →
+        case $d0 as ($dict : 1.t$Dict$Supply a) return (p a 2.→ 1.tToken) of {
+            1.v$Dict$Supply ($method0 : ∀(p{1} : 2.tType 2.→ 2.tType). p{1} a 2.→ 1.tToken) →
                 $method0 @p
         }
 status: pass

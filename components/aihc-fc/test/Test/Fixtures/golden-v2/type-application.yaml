@@ -15,7 +15,7 @@ expected: |-
       pub 1.vFalse :: 1.tBool
   }
 
-  pub val 1.vid :: ∀(a : 2.tType). a → a
+  pub val 1.vid :: ∀(a : 2.tType). a 2.→ a
    = Λ(a : 2.tType).
     λ(x : a).
       x

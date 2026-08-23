@@ -21,21 +21,21 @@ expected: |-
   }
 
   pub type 1.t$Dict$Num (a : 3.tType) :: 3.tType {
-      pub 1.v$Dict$Num :: ∀(a : 3.tType). (1.tInteger → a) → 1.t$Dict$Num a
+      pub 1.v$Dict$Num :: ∀(a : 3.tType). (1.tInteger 3.→ a) 3.→ 1.t$Dict$Num a
   }
 
-  pub val 1.vfromInteger :: ∀(a : 3.tType). 1.t$Dict$Num a → 1.tInteger → a
+  pub val 1.vfromInteger :: ∀(a : 3.tType). 1.t$Dict$Num a 3.→ 1.tInteger 3.→ a
    = Λ(a : 3.tType).
     λ($d0 : 1.t$Dict$Num a).
-      case $d0 as ($dict : 1.t$Dict$Num a) return (1.tInteger → a) of {
-          1.v$Dict$Num ($method0 : 1.tInteger → a) →
+      case $d0 as ($dict : 1.t$Dict$Num a) return (1.tInteger 3.→ a) of {
+          1.v$Dict$Num ($method0 : 1.tInteger 3.→ a) →
               $method0
       }
   scope 1 = "" GHC.Num
   scope 2 = "" Main
   scope 3 = "aihc-prim" GHC.Types
 
-  pub val 2.vone :: ∀(a : 3.tType). 1.t$Dict$Num a → a
+  pub val 2.vone :: ∀(a : 3.tType). 1.t$Dict$Num a 3.→ a
    = Λ(a : 3.tType).
     λ($d0 : 1.t$Dict$Num a).
       1.vfromInteger @a $d0 (1.vIS 1#3.vIntRep)

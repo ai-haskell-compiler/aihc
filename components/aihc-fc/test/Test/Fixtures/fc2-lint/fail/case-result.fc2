@@ -7,7 +7,7 @@ pub type 1.tBool :: 2.tType {
 }
 
 pub type 1.tOnly :: 2.tType {
-    pub 1.vOnly :: 1.tBool → 1.tOnly
+    pub 1.vOnly :: 1.tBool 2.→ 1.tOnly
 }
 
 val 1.vbad :: 1.tBool

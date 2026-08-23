@@ -12,7 +12,7 @@ expected: |-
   pub type 1.tPayload (a : 2.tType) :: 2.tType @N {}
 
   type 1.t$R$Payload$PayloadA (a : 2.tType) :: 2.tType {
-      1.vPayloadA :: ∀(a : 2.tType). a → 1.t$R$Payload$PayloadA a;
+      1.vPayloadA :: ∀(a : 2.tType). a 2.→ 1.t$R$Payload$PayloadA a;
       1.vPayloadB :: ∀(a : 2.tType). 1.t$R$Payload$PayloadA a
   }
 

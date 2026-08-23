@@ -19,7 +19,7 @@ expected: |-
       pub 1.vBox :: 1.tBox
   }
 
-  pub val 1.vforceBox :: 1.tBox → 1.tBox
+  pub val 1.vforceBox :: 1.tBox 2.→ 1.tBox
    = λ(x : 1.tBox).
     case x as (_scrut : 1.tBox) return (1.tBox) of {
         _ →

@@ -29,14 +29,14 @@ expected: |-
   }
 
   pub type 1.t$Dict$Eq (a : 2.tType) :: 2.tType {
-      pub 1.v$Dict$Eq :: ∀(a : 2.tType). (a → a → 1.tBool) → 1.t$Dict$Eq a
+      pub 1.v$Dict$Eq :: ∀(a : 2.tType). (a 2.→ a 2.→ 1.tBool) 2.→ 1.t$Dict$Eq a
   }
 
-  pub val 1.v== :: ∀(a : 2.tType). 1.t$Dict$Eq a → a → a → 1.tBool
+  pub val 1.v== :: ∀(a : 2.tType). 1.t$Dict$Eq a 2.→ a 2.→ a 2.→ 1.tBool
    = Λ(a : 2.tType).
     λ($d0 : 1.t$Dict$Eq a).
-      case $d0 as ($dict : 1.t$Dict$Eq a) return (a → a → 1.tBool) of {
-          1.v$Dict$Eq ($method0 : a → a → 1.tBool) →
+      case $d0 as ($dict : 1.t$Dict$Eq a) return (a 2.→ a 2.→ 1.tBool) of {
+          1.v$Dict$Eq ($method0 : a 2.→ a 2.→ 1.tBool) →
               $method0
       }
 
@@ -63,7 +63,7 @@ expected: |-
   scope 2 = "" Types
   scope 3 = "aihc-prim" GHC.Types
 
-  pub val 1.veqBool :: 2.tBool → 2.tBool → 2.tBool
+  pub val 1.veqBool :: 2.tBool 3.→ 2.tBool 3.→ 2.tBool
    = 2.v== @2.tBool 2.v$fEqBool
 status: pass
 reason: keeps the defining module origin on an imported instance dictionary
