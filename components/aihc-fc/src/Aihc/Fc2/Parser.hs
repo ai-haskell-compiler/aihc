@@ -48,7 +48,7 @@ data OpenType
 parseProgram :: Text -> Either Fc2ParseError Program
 parseProgram input = do
   (scopes, body) <- parseScopeHeader input
-  parseWith scopes (space *> program scopes <* MP.eof) "<system-fc2>" body
+  parseWith scopes (space *> program <* MP.eof) "<system-fc2>" body
 
 renderParseError :: Fc2ParseError -> String
 renderParseError = MP.errorBundlePretty
@@ -73,9 +73,10 @@ scopeDeclaration = do
   moduleName <- qualifiedModuleName
   pure (scopeId, PackageId package, moduleName)
 
-program :: ScopeTable -> Parser Program
-program scopes = do
-  openDecls <- MP.many (declaration scopes)
+program :: Parser Program
+program = do
+  openDecls <- MP.many declaration
+  scopes <- ask
   fillProgram scopes openDecls
 
 data OpenBinder = OpenBinder Name OpenType
@@ -120,20 +121,20 @@ data OpenCoercion
   | OCoAxiom Name [OpenType]
   deriving (Eq, Show)
 
-declaration :: ScopeTable -> Parser OpenDecl
-declaration scopes =
+declaration :: Parser OpenDecl
+declaration =
   MP.choice
-    [ MP.try (typeOrSynonym scopes),
-      MP.try (axiomDeclaration scopes),
-      MP.try (foreignImportDeclaration scopes),
-      valDeclaration scopes
+    [ MP.try typeOrSynonym,
+      MP.try axiomDeclaration,
+      MP.try foreignImportDeclaration,
+      valDeclaration
     ]
 
-typeOrSynonym :: ScopeTable -> Parser OpenDecl
-typeOrSynonym scopes = do
+typeOrSynonym :: Parser OpenDecl
+typeOrSynonym = do
   vis <- optionalPub
   _ <- keyword "type"
-  name <- topName scopes SortTypeConstructor
+  name <- topName SortTypeConstructor
   binders <- MP.many openPiBinder
   _ <- symbol "::"
   result <- fcType
@@ -143,38 +144,37 @@ typeOrSynonym scopes = do
         _ <- symbol "="
         OpenSynonymDecl vis name binders result <$> fcType,
       do
-        constructors <- constructorBlock scopes
-        pure (OpenTypeDecl vis name binders result roles constructors)
+        OpenTypeDecl vis name binders result roles <$> constructorBlock
     ]
 
-constructorBlock :: ScopeTable -> Parser [OpenCon]
-constructorBlock scopes = braces (MP.many (constructorDecl scopes <* MP.optional (symbol ";")))
+constructorBlock :: Parser [OpenCon]
+constructorBlock = braces (MP.many (constructorDecl <* MP.optional (symbol ";")))
 
-constructorDecl :: ScopeTable -> Parser OpenCon
-constructorDecl scopes = do
+constructorDecl :: Parser OpenCon
+constructorDecl = do
   vis <- optionalPub
-  name <- topName scopes SortDataConstructor
+  name <- topName SortDataConstructor
   _ <- symbol "::"
   OpenConDecl vis name <$> fcType
 
-axiomDeclaration :: ScopeTable -> Parser OpenDecl
-axiomDeclaration scopes = do
+axiomDeclaration :: Parser OpenDecl
+axiomDeclaration = do
   vis <- optionalPub
   _ <- keyword "axiom"
-  name <- topName scopes SortAxiom
+  name <- topName SortAxiom
   binders <- MP.option [] (MP.try (MP.some openPiBinder))
   _ <- symbol ":"
   left <- fcType
   role <- parseAxiomRole
   OpenAxiomDecl vis name binders role left <$> fcType
 
-foreignImportDeclaration :: ScopeTable -> Parser OpenDecl
-foreignImportDeclaration scopes = do
+foreignImportDeclaration :: Parser OpenDecl
+foreignImportDeclaration = do
   vis <- optionalPub
   _ <- keyword "foreign"
   _ <- keyword "import"
   convention <- callingConvention
-  name <- topName scopes SortValue
+  name <- topName SortValue
   _ <- symbol "::"
   OpenForeignImportDecl vis name convention <$> fcType
 
@@ -216,11 +216,11 @@ cAbiType =
       keyword "Addr" $> CAbiAddr
     ]
 
-valDeclaration :: ScopeTable -> Parser OpenDecl
-valDeclaration scopes = do
+valDeclaration :: Parser OpenDecl
+valDeclaration = do
   vis <- optionalPub
   _ <- keyword "val"
-  name <- topName scopes SortValue
+  name <- topName SortValue
   _ <- symbol "::"
   ty <- fcType
   _ <- symbol "="
@@ -527,15 +527,14 @@ representationName ty =
     _ -> Nothing
 
 topNameWithSort :: Parser Name
-topNameWithSort = do
-  scopes <- ask
-  topName scopes SortValue
+topNameWithSort = topName SortValue
 
-topName :: ScopeTable -> Sort -> Parser Name
-topName scopes defaultSort = lexeme $ do
+topName :: Sort -> Parser Name
+topName defaultSort = lexeme $ do
   scopeId <- L.decimal
   _ <- MPC.char '.'
   (printed, sort) <- printedName defaultSort
+  scopes <- ask
   case lookupScope scopeId scopes of
     Just (package, moduleName) -> pure (Name printed sort (OriginTop package moduleName))
     Nothing -> fail ("unknown scope " <> show scopeId)
