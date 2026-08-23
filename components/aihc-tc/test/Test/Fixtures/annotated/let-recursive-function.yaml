@@ -2,6 +2,9 @@ annotated:
 - |-
   module Test where
   f x = let loop y = loop y in x
+  │ │       │    │   │    │    └─ type: a
+  │ │       │    │   │    └─ type: a
+  │ │       │    │   └─ type: a → b
   │ │       │    └─ type: a
   │ │       └─ type: ∀ a b. a → b
   │ └─ type: a

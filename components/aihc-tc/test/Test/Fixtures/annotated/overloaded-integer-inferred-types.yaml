@@ -13,6 +13,7 @@ annotated:
     fromInteger :: Integer -> a
 - |-
   module GHC.Types where
+  import GHC.Prim (Int#)
   data Bool = False | True
        │      │       └─ type: Bool
        │      └─ type: Bool
@@ -22,11 +23,13 @@ annotated:
        └─ type: Type
 - |-
   module Main where
+  import GHC.Classes ((==))
+  import GHC.Num (fromInteger)
   literal = 1
   │         └─ type: a; type-args: a; evidence: given Num a
-  └─ type: ∀ a. (Num a) ⇒ a
+  └─ type: ∀ a. (GHC.Num.Num a) ⇒ a
   match = \case
-  └─ type: ∀ a. (Eq a, Num a) ⇒ a → ()
+  └─ type: ∀ a. (GHC.Classes.Eq a, GHC.Num.Num a) ⇒ a → ()
     1 -> ()
     ││    └─ type: ()
     └─ type: a; type-args: a; evidence: given Num a
@@ -37,6 +40,7 @@ extensions:
 modules:
 - |
   module GHC.Types where
+  import GHC.Prim (Int#)
   data Bool = False | True
   data Integer = IS Int#
 - |
@@ -51,8 +55,11 @@ modules:
     fromInteger :: Integer -> a
 - |
   module Main where
+  import GHC.Classes ((==))
+  import GHC.Num (fromInteger)
   literal = 1
   match = \case
     1 -> ()
-reason: overloaded integer expressions and patterns infer GHC-compatible Num and Eq constraints
+reason: overloaded integer expressions and patterns infer GHC-compatible Num and Eq
+  constraints
 status: pass

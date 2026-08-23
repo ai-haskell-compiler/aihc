@@ -11,13 +11,25 @@ annotated:
   instance Eq Bool where
   └─ $fEqBool ∷ () ⇒ Eq Bool
     False == False = True
+    ││        │       └─ type: Bool
+    ││        └─ type: Bool
     └─ == ∷ Bool → Bool → Bool
+    └─ type: Bool
     False == True = False
+    ││        │      └─ type: Bool
+    ││        └─ type: Bool
     └─ == ∷ Bool → Bool → Bool
+    └─ type: Bool
     True == False = False
+    ││       │       └─ type: Bool
+    ││       └─ type: Bool
     └─ == ∷ Bool → Bool → Bool
+    └─ type: Bool
     True == True = True
+    ││       │      └─ type: Bool
+    ││       └─ type: Bool
     └─ == ∷ Bool → Bool → Bool
+    └─ type: Bool
   eqBool :: Bool -> Bool -> Bool
   eqBool = (==)
   │        └─ type: Bool → Bool → Bool; type-args: Bool; evidence: $fEqBool

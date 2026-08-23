@@ -2,9 +2,11 @@ annotated:
 - |-
   module Test where
   x x = let x x = x in x where x x = x
-  │ │       │ │        │       │ └─ type: a
-  │ │       │ │        │       └─ type: ∀ a. a → a
-  │ │       │ │        └─ type: b → b; type-args: b
+  │ │       │ │   │    │       │ │   └─ type: a
+  │ │       │ │   │    │       │ └─ type: a
+  │ │       │ │   │    │       └─ type: ∀ a. a → a
+  │ │       │ │   │    └─ type: b → b; type-args: b
+  │ │       │ │   └─ type: a
   │ │       │ └─ type: a
   │ │       └─ type: ∀ a. a → a
   │ └─ type: a

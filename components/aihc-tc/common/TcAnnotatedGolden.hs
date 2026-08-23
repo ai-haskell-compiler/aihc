@@ -168,29 +168,44 @@ forceEvaluation result@(outcome, details) = outcome `seq` length details `seq` r
 
 evaluateTcAnnotatedCasePure :: TcAnnotatedCase -> (Outcome, String)
 evaluateTcAnnotatedCasePure tc =
+  case renderTcAnnotatedCase tc of
+    Left errMsg -> classifyFailure tc errMsg
+    Right actual -> classifySuccess tc actual
+
+renderTcAnnotatedCase :: TcAnnotatedCase -> Either String [String]
+renderTcAnnotatedCase tc =
   let parsedModules = map parseOne (caseModules tc)
    in case sequence parsedModules of
-        Left errMsg -> classifyFailure tc ("parse error: " <> errMsg)
+        Left errMsg -> Left ("parse error: " <> errMsg)
         Right modules ->
           case resolveWithDeps coreExports (map modulePackage modules) of
             ResolveResult {resolvedModules, resolveErrors = []} ->
               case typecheckModuleGraph coreInterface (map snd resolvedModules) of
-                Left errMsg -> classifyFailure tc errMsg
-                Right results ->
-                  let actual = renderAnnotatedTcResults (caseModules tc) results
-                   in classifySuccess tc actual
+                Left errMsg -> Left errMsg
+                Right results -> Right (renderAnnotatedTcResults (caseModules tc) results)
             ResolveResult {resolveErrors} ->
-              classifyFailure tc ("resolve error: " <> show resolveErrors)
+              Left ("resolve error: " <> show resolveErrors)
   where
     corePackage = Package "aihc-prim" (PackageId "aihc-prim")
-    coreSource = "module GHC.Types (List(..)) where\ndata List a = [] | a : [a]\ninfixr 5 :\n"
-    coreModule = parseCoreModule coreSource
-    coreResolved = resolveWithDeps mempty [(corePackage, coreModule)]
+    coreSources =
+      [ "module GHC.Types where\n\
+        \data RuntimeRep = BoxedRep Levity | TupleRep [RuntimeRep]\n\
+        \data Levity = Lifted | Unlifted\n\
+        \data TYPE (rep :: RuntimeRep)\n"
+          <> if any (T.isInfixOf "data List ") (caseModules tc)
+            then ""
+            else "data List a = [] | a : [a]\ninfixr 5 :\n"
+      ]
+        <> [ "module GHC.Prim where\ndata Addr#\ndata Int#\ndata Int8#\n"
+           | any (T.isInfixOf "import GHC.Prim") (caseModules tc)
+           ]
+    coreModules = map parseCoreModule coreSources
+    coreResolved = resolveWithDeps mempty (map (corePackage,) coreModules)
     coreExports = extractInterface coreResolved
     coreInterface =
       case coreResolved of
-        ResolveResult {resolvedModules = [(_, resolvedCore)], resolveErrors = []} ->
-          snd (typecheckModulesWithInterface testTcConfig emptyTcInterface [resolvedCore])
+        ResolveResult {resolvedModules, resolveErrors = []} ->
+          snd (typecheckModulesWithInterface testTcConfig emptyTcInterface (map snd resolvedModules))
         _ -> emptyTcInterface
     modulePackage modu
       | moduleName modu `elem` [Just "GHC.Classes", Just "GHC.Prim", Just "GHC.Tuple", Just "GHC.Types"] =
@@ -207,7 +222,11 @@ evaluateTcAnnotatedCasePure tc =
             then Right ast
             else Left (show errs)
     parseCoreModule input =
-      let config = defaultConfig {parserSourceName = "GHC.Types"}
+      let config =
+            defaultConfig
+              { parserSourceName = "<tc-annotated-core>",
+                parserExtensions = mapMaybe parseExtensionName ["KindSignatures", "MagicHash"]
+              }
           (errs, ast) = parseModule config input
        in if null errs then ast else error (show errs)
 

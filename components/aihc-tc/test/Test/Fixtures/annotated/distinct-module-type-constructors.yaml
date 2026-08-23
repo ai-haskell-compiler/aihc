@@ -14,8 +14,10 @@ annotated:
   import qualified A
   import qualified B
   val1 = A.Con
+  │      └─ type: A.Ty
   └─ type: A.Ty
   val2 = B.Con
+  │      └─ type: B.Ty
   └─ type: B.Ty
 extensions: []
 modules:

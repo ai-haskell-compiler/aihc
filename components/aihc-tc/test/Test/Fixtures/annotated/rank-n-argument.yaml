@@ -1,52 +1,55 @@
-extensions:
-  - RankNTypes
-modules:
-  - |
-    module Test where
-
-    data State s a = State a
-    data World = World
-    data Result = Result
-
-    runState :: (forall s. State s a) -> a
-    runState action = runWorld action
-
-    runWorld :: State World a -> a
-    runWorld (State value) = value
-
-    result :: Result
-    result = runState (State Result)
 annotated:
-  - |-
-    module Test where
+- |-
+  module Test where
 
-    data State s a = State a
-         │           └─ type: ∀ s a. a → State s a
-         └─ type: Type → Type → Type
-    data World = World
-         │       └─ type: World
-         └─ type: Type
-    data Result = Result
-         │        └─ type: Result
-         └─ type: Type
+  data State s a = State a
+       │           └─ type: ∀ s a. a → State s a
+       └─ type: Type → Type → Type
+  data World = World
+       │       └─ type: World
+       └─ type: Type
+  data Result = Result
+       │        └─ type: Result
+       └─ type: Type
 
-    runState :: (forall s. State s a) -> a
-    runState action = runWorld action
-    │        │        │        └─ type: State World a; type-args: World
-    │        │        └─ type: State World a → a; type-args: a
-    │        └─ type: ∀ s. State s a
-    └─ type: ∀ a. (∀ s. State s a) → a
+  runState :: (forall s. State s a) -> a
+  runState action = runWorld action
+  │        │        │        └─ type: State World a; type-args: World
+  │        │        └─ type: State World a → a; type-args: a
+  │        └─ type: ∀ s. State s a
+  └─ type: ∀ a. (∀ s. State s a) → a
 
-    runWorld :: State World a -> a
-    runWorld (State value) = value
-    │               └─ type: a
-    └─ type: ∀ a. State World a → a
+  runWorld :: State World a -> a
+  runWorld (State value) = value
+  │         │     │        └─ type: a
+  │         │     └─ type: a
+  │         └─ type: State World a
+  └─ type: ∀ a. State World a → a
 
-    result :: Result
-    result = runState (State Result)
-    │        ││         └─ type: Result → State s Result; type-args: s, Result
-    │        └─ type: ∀ s. State s Result
-    │        └─ type: (∀ s. State s Result) → Result; type-args: Result
-    └─ type: Result
-status: pass
+  result :: Result
+  result = runState (State Result)
+  │        ││         │     └─ type: Result
+  │        ││         └─ type: Result → State s Result; type-args: s, Result
+  │        └─ type: (∀ s. State s Result) → Result; type-args: Result
+  │        └─ type: ∀ s. State s Result
+  └─ type: Result
+extensions:
+- RankNTypes
+modules:
+- |
+  module Test where
+
+  data State s a = State a
+  data World = World
+  data Result = Result
+
+  runState :: (forall s. State s a) -> a
+  runState action = runWorld action
+
+  runWorld :: State World a -> a
+  runWorld (State value) = value
+
+  result :: Result
+  result = runState (State Result)
 reason: checks and elaborates a monomorphic expression against a rank-N function argument
+status: pass

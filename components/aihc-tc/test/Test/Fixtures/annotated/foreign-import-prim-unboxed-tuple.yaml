@@ -1,9 +1,11 @@
 annotated:
 - |-
   module Test where
+  import GHC.Prim (Int#)
   foreign import prim "tup" tuple :: () -> (# Int#, Int# #)
   └─ type: () → (# Int#, Int# #)
   test = tuple
+  │      └─ type: () → (# Int#, Int# #)
   └─ type: () → (# Int#, Int# #)
 extensions:
 - GHCForeignImportPrim
@@ -12,6 +14,7 @@ extensions:
 modules:
 - |
   module Test where
+  import GHC.Prim (Int#)
   foreign import prim "tup" tuple :: () -> (# Int#, Int# #)
   test = tuple
 reason: annotated output includes a prim import whose result is an unboxed tuple

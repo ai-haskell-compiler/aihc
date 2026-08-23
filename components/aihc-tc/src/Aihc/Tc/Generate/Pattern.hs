@@ -14,7 +14,8 @@ module Aihc.Tc.Generate.Pattern
 where
 
 import Aihc.Parser.Syntax
-  ( Literal (..),
+  ( Annotation,
+    Literal (..),
     Name (..),
     NumericType (..),
     Pattern (..),
@@ -29,7 +30,7 @@ import Aihc.Parser.Syntax
     peelPatternAnn,
   )
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
-import Aihc.Tc.Annotations (PendingTcAnnotation, pendingAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation, TcAnnotation, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -39,7 +40,7 @@ import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Data.Either (fromRight)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -88,10 +89,97 @@ checkPatternWith gadtHandling sp pat scrutTy = do
   check <- case overloadedIntegerPatternLiteral pat of
     Just isNegative -> checkOverloadedIntegerPattern sp pat isNegative scrutTy
     Nothing -> checkPatternCore gadtHandling sp pat scrutTy
-  pure check {pcPatterns = map (checkedPatternType scrutTy) (pcPatterns check)}
+  pure check {pcPatterns = map (checkedPatternType sp scrutTy) (pcPatterns check)}
 
-checkedPatternType :: TcType -> Pattern -> Pattern
-checkedPatternType ty = PAnn (mkAnnotation (pendingAnnotation ty [] [] []))
+checkedPatternType :: SourceSpan -> TcType -> Pattern -> Pattern
+checkedPatternType sp ty pat
+  | patternUsesBinderAnnotation pat = pat
+  | not (patternNeedsCheckedType pat) = pat
+  | patternHasPendingType pat = pat
+  | otherwise = annotatePendingPatternAt (patternOwnSpan pat `orSourceSpan` sp) (pendingAnnotation ty [] [] []) pat
+
+annotatePendingPatternAt :: SourceSpan -> PendingTcAnnotation -> Pattern -> Pattern
+annotatePendingPatternAt NoSourceSpan pending = PAnn (mkAnnotation pending)
+annotatePendingPatternAt sp pending = PAnn (mkAnnotation sp) . PAnn (mkAnnotation pending)
+
+patternUsesBinderAnnotation :: Pattern -> Bool
+patternUsesBinderAnnotation pat =
+  case pat of
+    PAnn _ inner -> patternUsesBinderAnnotation inner
+    PParen inner -> patternUsesBinderAnnotation inner
+    PVar {} -> True
+    PAs {} -> True
+    PStrict inner -> patternUsesBinderAnnotation inner
+    PIrrefutable inner -> patternUsesBinderAnnotation inner
+    PTypeSig inner _ -> patternUsesBinderAnnotation inner
+    _ -> False
+
+patternNeedsCheckedType :: Pattern -> Bool
+patternNeedsCheckedType pat =
+  case pat of
+    PAnn _ inner -> patternNeedsCheckedType inner
+    PParen inner -> patternNeedsCheckedType inner
+    PLit {} -> False
+    PNegLit {} -> False
+    PList [] -> False
+    PStrict inner -> patternNeedsCheckedType inner
+    PIrrefutable inner -> patternNeedsCheckedType inner
+    PTypeSig inner _ -> patternNeedsCheckedType inner
+    _ -> True
+
+patternHasPendingType :: Pattern -> Bool
+patternHasPendingType pat =
+  case pat of
+    PAnn ann inner -> annotationHasType ann || patternHasPendingType inner
+    PParen inner -> patternHasPendingType inner
+    PLit literal -> literalHasPendingType literal
+    PStrict inner -> patternHasPendingType inner
+    PIrrefutable inner -> patternHasPendingType inner
+    PTypeSig inner _ -> patternHasPendingType inner
+    _ -> False
+
+literalHasPendingType :: Literal -> Bool
+literalHasPendingType literal =
+  case literal of
+    LitAnn ann inner -> annotationHasType ann || literalHasPendingType inner
+    _ -> False
+
+annotationIsPending :: Annotation -> Bool
+annotationIsPending ann =
+  case fromAnnotation ann :: Maybe PendingTcAnnotation of
+    Just _ -> True
+    Nothing -> False
+
+annotationHasType :: Annotation -> Bool
+annotationHasType ann =
+  annotationIsPending ann
+    || case fromAnnotation ann :: Maybe TcAnnotation of
+      Just _ -> True
+      Nothing -> False
+
+sourceSpanFromAnnotations :: [Annotation] -> SourceSpan
+sourceSpanFromAnnotations annotations =
+  case mapMaybe fromAnnotation annotations of
+    sourceSpan : _ -> sourceSpan
+    [] -> NoSourceSpan
+
+patternOwnSpan :: Pattern -> SourceSpan
+patternOwnSpan pat =
+  case pat of
+    PAnn ann inner -> fromMaybe (patternOwnSpan inner) (fromAnnotation ann)
+    PVar name -> sourceSpanFromAnnotations (unqualifiedNameAnns name)
+    PParen inner -> patternOwnSpan inner
+    PAs name _ -> sourceSpanFromAnnotations (unqualifiedNameAnns name)
+    PStrict inner -> patternOwnSpan inner
+    PIrrefutable inner -> patternOwnSpan inner
+    PCon name _ _ -> sourceSpanFromAnnotations (nameAnns name)
+    PInfix _ name _ -> sourceSpanFromAnnotations (nameAnns name)
+    PTypeSig inner _ -> patternOwnSpan inner
+    _ -> NoSourceSpan
+
+orSourceSpan :: SourceSpan -> SourceSpan -> SourceSpan
+orSourceSpan NoSourceSpan fallback = fallback
+orSourceSpan sourceSpan _ = sourceSpan
 
 checkPatternCore :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
 checkPatternCore gadtHandling sp pat scrutTy =
@@ -114,7 +202,8 @@ checkPatternCore gadtHandling sp pat scrutTy =
         Nothing -> pure (checkedOnly (PLit (checkedLiteral scrutTy lit)))
     PNegLit {} -> pure (checkedOnly pat)
     PAs name inner -> do
-      innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
+      let innerSpan = patternOwnSpan inner `orSourceSpan` sp
+      innerCheck <- checkPatternWith gadtHandling innerSpan inner scrutTy
       pure innerCheck {pcBindings = (name, scrutTy) : pcBindings innerCheck, pcPatterns = [PAs name (checkedPattern innerCheck)]}
     PStrict inner -> do
       innerCheck <- checkPatternWith gadtHandling sp inner scrutTy
@@ -388,7 +477,9 @@ annotateBinderName :: [(UnqualifiedName, TcType)] -> UnqualifiedName -> Unqualif
 annotateBinderName bindings name =
   case lookup name bindings of
     Nothing -> name
-    Just ty -> name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (pendingAnnotation ty [] [] [])]}
+    Just ty
+      | any annotationIsPending (unqualifiedNameAnns name) -> name
+      | otherwise -> name {unqualifiedNameAnns = unqualifiedNameAnns name <> [mkAnnotation (pendingAnnotation ty [] [] [])]}
 
 checkConPattern :: GadtHandling -> SourceSpan -> Pattern -> Name -> [Pattern] -> TcType -> TcM PatternCheck
 checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do

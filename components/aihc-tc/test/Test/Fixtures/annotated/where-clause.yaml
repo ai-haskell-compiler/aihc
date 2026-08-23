@@ -6,15 +6,19 @@ annotated:
        │      └─ type: Bool
        └─ type: Type
   f x = x + one
-  │ │     └─ type: a → Bool → a; type-args: a, Bool
+  │ │   │ │ └─ type: Bool
+  │ │   │ └─ type: a → Bool → a; type-args: a, Bool
+  │ │   └─ type: a
   │ └─ type: a
   └─ type: ∀ a. a → a
     where
       (+) a b = a
+      │   │ │   └─ type: a
       │   │ └─ type: b
       │   └─ type: a
       └─ type: ∀ a b. a → b → a
       one = True
+      │     └─ type: Bool
       └─ type: Bool
 extensions: []
 modules:

@@ -6,16 +6,20 @@ annotated:
        │      └─ type: Bool
        └─ type: Type
   f x y = x + y
-  │ │ │     └─ type: a → b → a; type-args: a, b
+  │ │ │   │ │ └─ type: b
+  │ │ │   │ └─ type: a → b → a; type-args: a, b
+  │ │ │   └─ type: a
   │ │ └─ type: b
   │ └─ type: a
   └─ type: ∀ a b. a → b → a
     where
       (+) a b = a
+      │   │ │   └─ type: a
       │   │ └─ type: b
       │   └─ type: a
       └─ type: ∀ a b. a → b → a
       zero = True
+      │      └─ type: Bool
       └─ type: Bool
 extensions: []
 modules:

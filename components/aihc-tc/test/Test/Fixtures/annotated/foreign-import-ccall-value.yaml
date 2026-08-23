@@ -6,6 +6,7 @@ annotated:
   foreign import ccall unsafe "rdtsc.h" rdtsc :: Word64
   └─ type: Word64
   test = rdtsc
+  │      └─ type: Word64
   └─ type: Word64
 extensions:
 - ForeignFunctionInterface

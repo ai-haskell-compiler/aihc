@@ -9,6 +9,7 @@ annotated:
     c :: a -> a
     default c :: Show a => a -> a
     c x = x
+    │ │   └─ type: a
     │ └─ type: a
     └─ c ∷ ∀ a. (C a, Show a) ⇒ a → a
   data T a = T a
@@ -55,5 +56,6 @@ modules:
     deriving anyclass (Child, Parent)
   data Missing = Missing
     deriving anyclass Child
-reason: AnyClass contexts use checked default signatures and solve sibling derived superclasses as a declaration-order-independent batch
+reason: AnyClass contexts use checked default signatures and solve sibling derived
+  superclasses as a declaration-order-independent batch
 status: pass

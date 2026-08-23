@@ -3,13 +3,18 @@ annotated:
   module Test where
   (++) :: [a] -> [a] -> [a]
   [] ++ bs = bs
+  │     │    └─ type: [a]
   │     └─ type: [a]
   └─ type: ∀ a. [a] → [a] → [a]
   (a:as) ++ bs = a : (as ++ bs)
-  ││ │      │      │     └─ type: [a] → [a] → [a]; type-args: a
-  ││ │      │      └─ type: a → [a] → [a]; type-args: a
-  ││ │      └─ type: [a]
-  ││ └─ type: [a]
+  ││││      │    │ │  │  │  └─ type: [a]
+  ││││      │    │ │  │  └─ type: [a] → [a] → [a]; type-args: a
+  ││││      │    │ │  └─ type: [a]
+  ││││      │    │ └─ type: a → [a] → [a]; type-args: a
+  ││││      │    └─ type: a
+  ││││      └─ type: [a]
+  │││└─ type: [a]
+  ││└─ type: [a]
   │└─ type: a
   └─ type: ∀ a. [a] → [a] → [a]
 extensions: []

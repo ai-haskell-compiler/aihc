@@ -8,6 +8,7 @@ annotated:
   foreign import javascript unsafe "performance.now" js_now :: IO Double
   └─ type: IO Double
   test = js_now
+  │      └─ type: IO Double
   └─ type: IO Double
 extensions:
 - ForeignFunctionInterface

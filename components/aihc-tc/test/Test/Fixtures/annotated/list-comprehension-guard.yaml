@@ -9,7 +9,11 @@ annotated:
   module Test where
   import GHC.Types (Bool)
   filter f list = [ x | x <- list, f x ]
-  │      │ │      │     └─ type: a
+  │      │ │      │ │   │    │     │ └─ type: a
+  │      │ │      │ │   │    │     └─ type: a → Bool
+  │      │ │      │ │   │    └─ type: [a]
+  │      │ │      │ │   └─ type: a
+  │      │ │      │ └─ type: a
   │      │ │      └─ type: [a]; type-args: a
   │      │ └─ type: [a]
   │      └─ type: a → Bool

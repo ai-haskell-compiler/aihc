@@ -6,10 +6,16 @@ annotated:
        │      └─ type: Bool
        └─ type: Type
   f x = case x of
+  │ │   │    └─ type: Bool
+  │ │   └─ type: Bool
   │ └─ type: Bool
   └─ type: Bool → Bool
     True -> True
+    │       └─ type: Bool
+    └─ type: Bool
     False -> False
+    │        └─ type: Bool
+    └─ type: Bool
 extensions: []
 modules:
 - |

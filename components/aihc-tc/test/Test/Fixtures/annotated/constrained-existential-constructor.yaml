@@ -1,33 +1,35 @@
-extensions:
-  - ExistentialQuantification
-modules:
-  - |
-    {-# LANGUAGE ExistentialQuantification #-}
-    module Test where
-    data Mark = Marked
-    class Markable a where
-      mark :: a -> Mark
-    data Box = forall a. Markable a => Box a
-    inspect :: Box -> Mark
-    inspect (Box value) = mark value
 annotated:
-  - |
-    {-# LANGUAGE ExistentialQuantification #-}
-    module Test where
-    data Mark = Marked
-         │      └─ type: Mark
-         └─ type: Type
-    class Markable a where
-    └─ class methods: mark ∷ ∀ a. (Markable a) ⇒ a → Mark
-      mark :: a -> Mark
-    data Box = forall a. Markable a => Box a
-         │     └─ type: ∀ a. (Markable a) ⇒ a → Box
-         └─ type: Type
-    inspect :: Box -> Mark
-    inspect (Box value) = mark value
-    │        │   │        └─ type: a → Mark; type-args: a; evidence: given Markable a
-    │        │   └─ type: a
-    │        └─ type: a → Box; type-args: a; evidence: given Markable a
-    └─ type: Box → Mark
+- |-
+  {-# LANGUAGE ExistentialQuantification #-}
+  module Test where
+  data Mark = Marked
+       │      └─ type: Mark
+       └─ type: Type
+  class Markable a where
+  └─ class methods: mark ∷ ∀ a. (Markable a) ⇒ a → Mark
+    mark :: a -> Mark
+  data Box = forall a. Markable a => Box a
+       │     └─ type: ∀ a. (Markable a) ⇒ a → Box
+       └─ type: Type
+  inspect :: Box -> Mark
+  inspect (Box value) = mark value
+  │        │   │        │    └─ type: a
+  │        │   │        └─ type: a → Mark; type-args: a; evidence: given Markable a
+  │        │   └─ type: a
+  │        └─ type: a → Box; type-args: a; evidence: given Markable a
+  └─ type: Box → Mark
+extensions:
+- ExistentialQuantification
+modules:
+- |
+  {-# LANGUAGE ExistentialQuantification #-}
+  module Test where
+  data Mark = Marked
+  class Markable a where
+    mark :: a -> Mark
+  data Box = forall a. Markable a => Box a
+  inspect :: Box -> Mark
+  inspect (Box value) = mark value
+reason: constrained constructors quantify existential fields and provide their dictionaries
+  while matching
 status: pass
-reason: constrained constructors quantify existential fields and provide their dictionaries while matching
