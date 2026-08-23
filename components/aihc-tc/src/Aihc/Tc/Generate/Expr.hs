@@ -36,6 +36,7 @@ import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, pending
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Evidence (EvVar)
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
@@ -156,19 +157,20 @@ inferNameOccurrence ambient nameSyntax = do
     Just (TcIdBinder scheme _) -> do
       inst <- instantiateWithArgs scheme
       cts <- mapM (predToCt sp name) (instPreds inst)
-      let pending =
-            pendingAnnotation
-              (instType inst)
-              (instTypeArgs inst)
-              (map ctEvVar cts)
-              []
-      pure (Just pending, instType inst, cts)
+      let typeArgs = instTypeArgs inst
+          evidenceVars = map ctEvVar cts
+          pending = occurrenceAnnotation (instType inst) typeArgs evidenceVars
+      pure (pending, instType inst, cts)
     Just (TcMonoIdBinder ty) -> do
       (instantiatedTy, typeArgs) <- instantiateSigmaType ty
-      let pending = pendingAnnotation instantiatedTy typeArgs [] []
-      pure (Just pending, instantiatedTy, [])
+      pure (occurrenceAnnotation instantiatedTy typeArgs [], instantiatedTy, [])
     Nothing ->
       abortTc ("resolved term missing from type environment: " <> show name <> " resolved as " <> show target)
+
+occurrenceAnnotation :: TcType -> [TcType] -> [EvVar] -> Maybe PendingTcAnnotation
+occurrenceAnnotation ty typeArgs evidenceVars
+  | null typeArgs && null evidenceVars = Nothing
+  | otherwise = Just (pendingAnnotation ty typeArgs evidenceVars [])
 
 inferTypeSig :: SourceSpan -> Expr -> Type -> TcM (Expr, TcType, [Ct])
 inferTypeSig sp inner tyAnn = do

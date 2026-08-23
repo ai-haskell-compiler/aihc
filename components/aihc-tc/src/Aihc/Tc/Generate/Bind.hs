@@ -62,7 +62,7 @@ inferLocalDecls inferExpr decls body = do
   let placeholderMap = Map.fromList [(key, ty) | (_, key, ty) <- placeholders]
   binderSet <- Set.fromList <$> traverse resolvedLocalTermKey binders
   shouldGen <- shouldGeneralizeLocal binderSet decls
-  withLocalPlaceholders placeholders $ do
+  withLocalPlaceholders sigs placeholders $ do
     groupResults <- mapM (inferLocalGroup inferExpr sigs placeholderMap) groups
     let bindingCts = concatMap snd groupResults
     if shouldGen
@@ -153,11 +153,11 @@ placeholderFor sigs name = do
   ty <- maybe freshMetaTv skolemize (Map.lookup key sigs)
   pure (name, key, ty)
 
-withLocalPlaceholders :: [(UnqualifiedName, TcTermKey, TcType)] -> TcM a -> TcM a
-withLocalPlaceholders placeholders =
+withLocalPlaceholders :: Map TcTermKey TypeScheme -> [(UnqualifiedName, TcTermKey, TcType)] -> TcM a -> TcM a
+withLocalPlaceholders sigs placeholders =
   withLocalBinders
-    [ (name, TcMonoIdBinder ty)
-    | (name, _, ty) <- placeholders
+    [ (name, maybe (TcMonoIdBinder ty) (`TcIdBinder` Closed) (Map.lookup key sigs))
+    | (name, key, ty) <- placeholders
     ]
 
 withLocalBinders :: [(UnqualifiedName, TcBinder)] -> TcM a -> TcM a

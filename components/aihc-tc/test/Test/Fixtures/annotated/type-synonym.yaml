@@ -9,7 +9,6 @@ annotated:
        └─ type: Type
   x :: MyBool
   x = True
-  │   └─ type: Bool
   └─ type: Bool
 extensions: []
 modules:

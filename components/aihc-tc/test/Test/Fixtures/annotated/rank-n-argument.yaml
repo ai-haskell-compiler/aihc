@@ -21,17 +21,15 @@ annotated:
 
   runWorld :: State World a -> a
   runWorld (State value) = value
-  │         │     │        └─ type: a
   │         │     └─ type: a
   │         └─ type: State World a
   └─ type: ∀ a. State World a → a
 
   result :: Result
   result = runState (State Result)
-  │        ││         │     └─ type: Result
   │        ││         └─ type: Result → State s Result; type-args: s, Result
-  │        └─ type: (∀ s. State s Result) → Result; type-args: Result
   │        └─ type: ∀ s. State s Result
+  │        └─ type: (∀ s. State s Result) → Result; type-args: Result
   └─ type: Result
 extensions:
 - RankNTypes

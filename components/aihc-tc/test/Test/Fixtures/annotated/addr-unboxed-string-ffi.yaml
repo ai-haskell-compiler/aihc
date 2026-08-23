@@ -14,8 +14,7 @@ annotated:
 
   main :: IO CInt
   main = puts "hello world\n"#
-  │      │    └─ type: Addr#
-  │      └─ type: Addr# → IO CInt
+  │           └─ type: Addr#
   └─ type: IO CInt
 extensions:
 - ForeignFunctionInterface

@@ -91,6 +91,26 @@ checkPatternWith gadtHandling sp pat scrutTy = do
     Nothing -> checkPatternCore gadtHandling sp pat scrutTy
   pure check {pcPatterns = map (checkedPatternType sp scrutTy) (pcPatterns check)}
 
+checkPatternWithoutResultType :: GadtHandling -> SourceSpan -> Pattern -> TcType -> TcM PatternCheck
+checkPatternWithoutResultType gadtHandling sp pat scrutTy =
+  case overloadedIntegerPatternLiteral pat of
+    Just isNegative -> checkOverloadedIntegerPattern sp pat isNegative scrutTy
+    Nothing ->
+      case pat of
+        PAnn ann inner -> do
+          innerCheck <- checkPatternWithoutResultType gadtHandling sp inner scrutTy
+          pure innerCheck {pcPatterns = [PAnn ann (checkedPattern innerCheck)]}
+        PParen inner -> do
+          innerCheck <- checkPatternWithoutResultType gadtHandling sp inner scrutTy
+          pure innerCheck {pcPatterns = [PParen (checkedPattern innerCheck)]}
+        PStrict inner -> do
+          innerCheck <- checkPatternWithoutResultType gadtHandling sp inner scrutTy
+          pure innerCheck {pcPatterns = [PStrict (checkedPattern innerCheck)]}
+        PIrrefutable inner -> do
+          innerCheck <- checkPatternWithoutResultType gadtHandling sp inner scrutTy
+          pure innerCheck {pcPatterns = [PIrrefutable (checkedPattern innerCheck)]}
+        _ -> checkPatternCore gadtHandling sp pat scrutTy
+
 checkedPatternType :: SourceSpan -> TcType -> Pattern -> Pattern
 checkedPatternType sp ty pat
   | patternUsesBinderAnnotation pat = pat
@@ -203,7 +223,7 @@ checkPatternCore gadtHandling sp pat scrutTy =
     PNegLit {} -> pure (checkedOnly pat)
     PAs name inner -> do
       let innerSpan = patternOwnSpan inner `orSourceSpan` sp
-      innerCheck <- checkPatternWith gadtHandling innerSpan inner scrutTy
+      innerCheck <- checkPatternWithoutResultType gadtHandling innerSpan inner scrutTy
       pure innerCheck {pcBindings = (name, scrutTy) : pcBindings innerCheck, pcPatterns = [PAs name (checkedPattern innerCheck)]}
     PStrict inner -> do
       innerCheck <- checkPatternWith gadtHandling sp inner scrutTy

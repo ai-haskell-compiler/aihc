@@ -13,13 +13,10 @@ annotated:
        │       └─ type: ∀ a. a → Box a
        └─ type: Type → Type
   p = (True, False)
-  │   ││     └─ type: Bool
-  │   │└─ type: Bool
   │   └─ type: (Bool, Bool); type-args: Bool, Bool
   └─ type: (Bool, Bool)
   wrapped :: Wrapped Bool
   wrapped = Box True
-  │         │   └─ type: Bool
   │         └─ type: Bool → Box Bool; type-args: Bool
   └─ type: Box Bool
 extensions: []

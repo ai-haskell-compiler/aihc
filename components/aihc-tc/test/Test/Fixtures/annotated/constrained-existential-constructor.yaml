@@ -13,7 +13,6 @@ annotated:
        └─ type: Type
   inspect :: Box -> Mark
   inspect (Box value) = mark value
-  │        │   │        │    └─ type: a
   │        │   │        └─ type: a → Mark; type-args: a; evidence: given Markable a
   │        │   └─ type: a
   │        └─ type: a → Box; type-args: a; evidence: given Markable a

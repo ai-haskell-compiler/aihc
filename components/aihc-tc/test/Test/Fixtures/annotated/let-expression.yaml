@@ -2,8 +2,6 @@ annotated:
 - |-
   module Test where
   f x = let y = x in y
-  │ │       │   │    └─ type: a
-  │ │       │   └─ type: a
   │ │       └─ type: a
   │ └─ type: a
   └─ type: ∀ a. a → a

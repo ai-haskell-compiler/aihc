@@ -10,12 +10,8 @@ annotated:
                                └─ type: () → Payload ()
   unwrap :: Payload Unit -> Unit
   unwrap payload = case payload of PayloadUnit value -> value
-  │      │         │    │          │           │        └─ type: ()
-  │      │         │    │          │           └─ type: ()
-  │      │         │    │          └─ type: Payload ()
-  │      │         │    └─ type: Payload ()
-  │      │         └─ type: ()
-  │      └─ type: Payload ()
+  │      │         └─ type: ()     │           └─ type: ()
+  │      └─ type: Payload ()       └─ type: Payload ()
   └─ type: Payload () → ()
 extensions:
 - TypeFamilies

@@ -6,20 +6,15 @@ annotated:
        │      └─ type: Bool
        └─ type: Type
   f x = let y = x + one in y
-  │ │       │   │ │ │      └─ type: a
-  │ │       │   │ │ └─ type: Bool
-  │ │       │   │ └─ type: a → Bool → a; type-args: a, Bool
-  │ │       │   └─ type: a
+  │ │       │     └─ type: a → Bool → a; type-args: a, Bool
   │ │       └─ type: a
   │ └─ type: a
   └─ type: ∀ a. a → a
   (+) a b = a
-  │   │ │   └─ type: a
   │   │ └─ type: b
   │   └─ type: a
   └─ type: ∀ a b. a → b → a
   one = True
-  │     └─ type: Bool
   └─ type: Bool
 extensions: []
 modules:

@@ -9,7 +9,6 @@ annotated:
     c :: a -> a
     default c :: Show a => a -> a
     c x = x
-    │ │   └─ type: a
     │ └─ type: a
     └─ c ∷ ∀ a. (C a, Show a) ⇒ a → a
   data T a = T a

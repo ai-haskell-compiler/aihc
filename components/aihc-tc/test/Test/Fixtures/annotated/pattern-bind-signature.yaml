@@ -8,14 +8,12 @@ annotated:
 
   same :: Bool -> Bool -> Bool
   same x _ = x
-  │    │ │   └─ type: Bool
   │    │ └─ type: Bool
   │    └─ type: Bool
   └─ type: Bool → Bool → Bool
 
   eqBool :: Bool -> Bool -> Bool
   eqBool = same
-  │        └─ type: Bool → Bool → Bool
   └─ type: Bool → Bool → Bool
 extensions: []
 modules:

@@ -16,9 +16,8 @@ annotated:
 
   state :: State# RealWorld
   state = state
-  ││       └─ type: State# RealWorld
-  └─ type: State# RealWorld
   └─ error: top-level binding state has unlifted type State# RealWorld
+  └─ type: State# RealWorld
 
   tupleValue = (# 1#, 2# #)
   ││            │  │   └─ type: Int#
@@ -32,7 +31,6 @@ annotated:
   │          └─ type: a
   └─ type: ∀ a. a → Int#
   boxedHash = MkBox#
-  │           └─ type: Box#
   └─ type: Box#
 extensions:
 - MagicHash
