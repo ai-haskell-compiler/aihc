@@ -293,7 +293,7 @@ desugarSelector classTyCon classTyVars fieldTypes superClassCount method = do
           (ExVar (binderName classDictionary))
           caseBinder
           resultType'
-          [Alt (AltData (classDictConName classTyCon)) fields selectedExpr]
+          [Alt (AltData (classDictConName classTyCon)) [] fields selectedExpr]
   typeBinders <- mapM convertTypeBinder typeVariables
   methodType' <- convertCheckedType (tcClassMethodType method)
   moduleOrigin <- gets vsModuleOrigin
@@ -601,8 +601,8 @@ desugarOverloadedIntegerMatch resultType arguments match failure =
                 test
                 testBinder
                 resultType'
-                [ Alt (AltData trueName) [] success,
-                  Alt (AltData falseName) [] failure
+                [ Alt (AltData trueName) [] [] success,
+                  Alt (AltData falseName) [] [] failure
                 ]
             )
       | otherwise =
@@ -716,7 +716,7 @@ desugarDataPatterns resultType argument arguments matches = do
         [] -> pure []
         _ -> do
           body <- desugarMatchArguments resultType arguments (map dropFirstPattern defaultMatches)
-          pure [Alt AltDefault [] body]
+          pure [Alt AltDefault [] [] body]
     pure (ExCase (ExVar (binderName argument)) caseBinder resultType' (constructorAlternatives <> defaultAlternatives))
 
 firstNewtypePattern :: [Syn.Match] -> ValueM (Maybe (Syn.Pattern, DataTypeInfo))
@@ -785,6 +785,8 @@ desugarPatternGroup resultType remaining matches key = do
   constructor <- patternConstructor pattern'
   let subpatterns = patternChildren pattern'
       predicates = patternGivenPredicates pattern'
+      typeVariables = patternTypeVariables pattern'
+  typeBinders <- mapM convertTypeBinder typeVariables
   fieldTypes <- patternFieldTypes pattern' subpatterns
   fields <- zipWithM freshPatternBinder subpatterns fieldTypes
   dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
@@ -803,7 +805,7 @@ desugarPatternGroup resultType remaining matches key = do
     withDictionaries
       (zipWith predicateDictionary predicates dictionaries)
       (withLocals localBindings (desugarMatchArguments resultType (fields <> remaining) expanded))
-  pure (Alt constructor (dictionaries <> fields) body)
+  pure (Alt constructor typeBinders (dictionaries <> fields) body)
 
 patternGivenPredicates :: Syn.Pattern -> [Pred]
 patternGivenPredicates = go
@@ -828,6 +830,21 @@ patternGivenPredicates = go
           Just checked <- [Syn.fromAnnotation annotation :: Maybe TcAnnotation]
         ]
     evidencePredicates checked = [predicate | Ev.EvGiven predicate <- tcAnnEvidenceTerms checked]
+
+patternTypeVariables :: Syn.Pattern -> [TyVarId]
+patternTypeVariables = go
+  where
+    go pattern' =
+      case pattern' of
+        Syn.PAnn annotation inner -> annotationTypeVariables annotation <> go inner
+        Syn.PParen inner -> go inner
+        Syn.PStrict inner -> go inner
+        Syn.PIrrefutable inner -> go inner
+        Syn.PAs _ inner -> go inner
+        Syn.PTypeSig inner _ -> go inner
+        _ -> []
+    annotationTypeVariables annotation =
+      maybe [] tcAnnTypeBinders (Syn.fromAnnotation annotation :: Maybe TcAnnotation)
 
 patternKeys :: [Syn.Match] -> [Text]
 patternKeys matches =
@@ -1135,8 +1152,8 @@ desugarIf resultType condition thenExpression elseExpression = do
         condition'
         binder
         resultType'
-        [ Alt (AltData trueName) [] thenExpression',
-          Alt (AltData falseName) [] elseExpression'
+        [ Alt (AltData trueName) [] [] thenExpression',
+          Alt (AltData falseName) [] [] elseExpression'
         ]
     )
 
@@ -1359,6 +1376,8 @@ desugarDoConstructorPattern resultType binder pattern' success = do
     Nothing -> do
       let children = patternChildren pattern'
           predicates = patternGivenPredicates pattern'
+      let typeVariables = patternTypeVariables pattern'
+      typeBinders <- mapM convertTypeBinder typeVariables
       fieldTypes <- patternFieldTypes pattern' children
       fields <- zipWithM freshPatternBinder children fieldTypes
       dictionaries <- zipWithM (freshDictionaryBinder "$pattern_d") [0 :: Int ..] predicates
@@ -1369,7 +1388,7 @@ desugarDoConstructorPattern resultType binder pattern' success = do
         withDictionaries
           (zipWith predicateDictionary predicates dictionaries)
           (desugarDoChildPatterns resultType (zip3 fields fieldTypes children) success)
-      pure (ExCase (ExVar (binderName binder)) caseBinder resultType' [Alt constructor (dictionaries <> fields) body])
+      pure (ExCase (ExVar (binderName binder)) caseBinder resultType' [Alt constructor typeBinders (dictionaries <> fields) body])
 
 desugarDoChildPatterns :: TcType -> [(Binder, TcType, Syn.Pattern)] -> ValueM Expr -> ValueM Expr
 desugarDoChildPatterns resultType children success =
@@ -1539,7 +1558,7 @@ desugarEvidence evidence =
             sourceExpression
             sourceBinder
             resultType
-            [Alt (AltData (classDictConName classTyCon)) fieldBinders (ExVar (binderName selected))]
+            [Alt (AltData (classDictConName classTyCon)) [] fieldBinders (ExVar (binderName selected))]
         )
     Ev.EvCast inner coercion -> ExCast <$> desugarEvidence inner <*> convertCoercion coercion
     Ev.EvTypeable origin ty arguments -> desugarTypeableEvidence origin ty arguments

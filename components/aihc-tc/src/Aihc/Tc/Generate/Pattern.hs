@@ -30,7 +30,7 @@ import Aihc.Parser.Syntax
     peelPatternAnn,
   )
 import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
-import Aihc.Tc.Annotations (PendingTcAnnotation, TcAnnotation, pendingAnnotation)
+import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcAnnotation, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
@@ -518,7 +518,12 @@ checkConPattern gadtHandling sp originalPat conSyntax subPats scrutTy = do
             | null predicateGivens && null skolems = rebuiltPattern
             | otherwise =
                 PAnn
-                  (mkAnnotation (pendingAnnotation conTy typeArgs (map ctEvVar predicateGivens) []))
+                  ( mkAnnotation
+                      ( (pendingAnnotation conTy typeArgs (map ctEvVar predicateGivens) [])
+                          { pendingTcAnnTypeBinders = skolems
+                          }
+                      )
+                  )
                   rebuiltPattern
       pure
         subCheck
