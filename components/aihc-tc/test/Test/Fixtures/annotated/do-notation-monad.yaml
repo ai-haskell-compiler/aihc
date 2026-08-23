@@ -1,11 +1,5 @@
 annotated:
 - |-
-  module GHC.Types where
-  data Bool = False | True
-       │      │       └─ type: Bool
-       │      └─ type: Bool
-       └─ type: Type
-- |-
   {-# LANGUAGE KindSignatures, RebindableSyntax #-}
   module Test where
 
@@ -43,9 +37,6 @@ extensions:
 - KindSignatures
 - RebindableSyntax
 modules:
-- |
-  module GHC.Types where
-  data Bool = False | True
 - |
   {-# LANGUAGE KindSignatures, RebindableSyntax #-}
   module Test where

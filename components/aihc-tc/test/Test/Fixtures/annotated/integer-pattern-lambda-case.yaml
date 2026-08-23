@@ -1,26 +1,13 @@
 annotated:
 - |-
-  module GHC.Classes where
-  import GHC.Types (Bool)
-  class Eq a where
-  └─ class methods: == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
-    (==) :: a -> a -> Bool
-- |-
   module GHC.Num where
-  import GHC.Types (Integer)
-  class Num a where
-  └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
-    fromInteger :: Integer -> a
-- |-
-  module GHC.Types where
   import GHC.Prim (Int#)
-  data Bool = False | True
-       │      │       └─ type: Bool
-       │      └─ type: Bool
-       └─ type: Type
   data Integer = IS Int#
        │         └─ type: Int# → Integer
        └─ type: Type
+  class Num a where
+  └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
+    fromInteger :: Integer -> a
 - |-
   module Main where
   import GHC.Classes ((==))
@@ -36,18 +23,9 @@ extensions:
 - MagicHash
 modules:
 - |
-  module GHC.Types where
-  import GHC.Prim (Int#)
-  data Bool = False | True
-  data Integer = IS Int#
-- |
-  module GHC.Classes where
-  import GHC.Types (Bool)
-  class Eq a where
-    (==) :: a -> a -> Bool
-- |
   module GHC.Num where
-  import GHC.Types (Integer)
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
   class Num a where
     fromInteger :: Integer -> a
 - |
