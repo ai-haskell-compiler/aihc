@@ -76,8 +76,7 @@ scopeDeclaration = do
 program :: Parser Program
 program = do
   openDecls <- MP.many declaration
-  scopes <- ask
-  fillProgram scopes openDecls
+  fillProgram openDecls
 
 data OpenBinder = OpenBinder Name OpenType
   deriving (Eq, Show)
@@ -629,8 +628,9 @@ bracesInt = do
   _ <- MPC.char '}'
   pure value
 
-fillProgram :: ScopeTable -> [OpenDecl] -> Parser Program
-fillProgram scopes openDecls =
+fillProgram :: [OpenDecl] -> Parser Program
+fillProgram openDecls = do
+  scopes <- ask
   case fillDecls scopes openDecls of
     Left message -> fail message
     Right decls -> pure (normalizeProgram (Program scopes decls))
