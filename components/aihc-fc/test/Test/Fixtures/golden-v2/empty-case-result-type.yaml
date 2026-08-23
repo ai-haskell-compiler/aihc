@@ -19,7 +19,7 @@ expected: |-
       pub 1.vResult :: 1.tResult
   }
 
-  pub val 1.vabsurd :: 1.tEmpty → 1.tResult
+  pub val 1.vabsurd :: 1.tEmpty 2.→ 1.tResult
    = λ(x : 1.tEmpty).
     case x as (_case : 1.tEmpty) return (1.tResult) of {
 

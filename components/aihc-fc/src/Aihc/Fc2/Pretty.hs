@@ -205,8 +205,10 @@ prettyTypeWith env scopes prec ty =
     TyApp function argument ->
       parenthesize (prec < PrecApp) (prettyTypeWith env scopes PrecApp function <+> prettyTypeWith env scopes PrecAtom argument)
     TyFun r1 r2 argument result
-      | isLiftedRep env r1 && isLiftedRep env r2 ->
-          parenthesize (prec < PrecFun) (prettyTypeWith env scopes PrecApp argument <+> "→" <+> prettyTypeWith env scopes PrecFun result)
+      | Just scopeId <- liftedArrowScope scopes r1 r2 ->
+          parenthesize
+            (prec < PrecFun)
+            (prettyTypeWith env scopes PrecApp argument <+> (pretty scopeId <> ".→") <+> prettyTypeWith env scopes PrecFun result)
       | otherwise ->
           parenthesize
             (prec < PrecFun)
@@ -229,6 +231,16 @@ prettyTypeWith env scopes prec ty =
             )
     TyEq left right ->
       parenthesize (prec < PrecEq) (prettyTypeWith env scopes PrecApp left <+> "~" <+> prettyTypeWith env scopes PrecApp right)
+
+liftedArrowScope :: ScopeTable -> Type -> Type -> Maybe Int
+liftedArrowScope scopes left right =
+  case (left, right) of
+    (TyCon leftName, TyCon rightName)
+      | leftName == rightName,
+        nameText leftName == "LiftedRep",
+        OriginTop package moduleName <- nameOrigin leftName ->
+          lookupScopeId scopes package moduleName
+    _ -> Nothing
 
 prettyForallTail :: TypeEnv -> ScopeTable -> Type -> Doc ann
 prettyForallTail env scopes ty =

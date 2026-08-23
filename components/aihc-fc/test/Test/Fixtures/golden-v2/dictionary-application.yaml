@@ -26,14 +26,14 @@ expected: |-
   }
 
   pub type 1.t$Dict$Eq (a : 2.tType) :: 2.tType {
-      pub 1.v$Dict$Eq :: ∀(a : 2.tType). (a → a → 1.tBool) → 1.t$Dict$Eq a
+      pub 1.v$Dict$Eq :: ∀(a : 2.tType). (a 2.→ a 2.→ 1.tBool) 2.→ 1.t$Dict$Eq a
   }
 
-  pub val 1.v== :: ∀(a : 2.tType). 1.t$Dict$Eq a → a → a → 1.tBool
+  pub val 1.v== :: ∀(a : 2.tType). 1.t$Dict$Eq a 2.→ a 2.→ a 2.→ 1.tBool
    = Λ(a : 2.tType).
     λ($d0 : 1.t$Dict$Eq a).
-      case $d0 as ($dict : 1.t$Dict$Eq a) return (a → a → 1.tBool) of {
-          1.v$Dict$Eq ($method0 : a → a → 1.tBool) →
+      case $d0 as ($dict : 1.t$Dict$Eq a) return (a 2.→ a 2.→ 1.tBool) of {
+          1.v$Dict$Eq ($method0 : a 2.→ a 2.→ 1.tBool) →
               $method0
       }
 
@@ -57,7 +57,7 @@ expected: |-
               }
       })
 
-  pub val 1.veqBool :: 1.tBool → 1.tBool → 1.tBool
+  pub val 1.veqBool :: 1.tBool 2.→ 1.tBool 2.→ 1.tBool
    = 1.v== @1.tBool 1.v$fEqBool
 status: pass
 reason: A class method occurrence applies its type argument and instance dictionary.

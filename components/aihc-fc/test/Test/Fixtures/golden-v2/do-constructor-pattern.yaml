@@ -16,14 +16,14 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Types
 
   pub type 1.tBox (a : 2.tType) :: 2.tType {
-      pub 1.vBox :: ∀(a : 2.tType). a → 1.tBox a
+      pub 1.vBox :: ∀(a : 2.tType). a 2.→ 1.tBox a
   }
 
-  pub val 1.v>>= :: ∀(a : 2.tType) (b : 2.tType). 1.tBox a → (a → b) → b
+  pub val 1.v>>= :: ∀(a : 2.tType) (b : 2.tType). 1.tBox a 2.→ (a 2.→ b) 2.→ b
    = Λ(a : 2.tType).
     Λ(b : 2.tType).
       λ(x : 1.tBox a).
-        λ(y : a → b).
+        λ(y : a 2.→ b).
           case x as (_scrut : 1.tBox a) return (b) of {
               1.vBox (value : a) →
                   y value
@@ -33,10 +33,10 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Types
 
   pub type 2.tPair (a : 3.tType) :: 3.tType {
-      pub 2.vPair :: ∀(a : 3.tType). a → a → 2.tPair a
+      pub 2.vPair :: ∀(a : 3.tType). a 3.→ a 3.→ 2.tPair a
   }
 
-  pub val 2.vselect :: ∀(a : 3.tType). 1.tBox (2.tPair a) → 1.tBox a
+  pub val 2.vselect :: ∀(a : 3.tType). 1.tBox (2.tPair a) 3.→ 1.tBox a
    = Λ(a : 3.tType).
     λ(x : 1.tBox (2.tPair a)).
       1.v>>= @(2.tPair a) @(1.tBox a) x (λ(_pat : 2.tPair a).

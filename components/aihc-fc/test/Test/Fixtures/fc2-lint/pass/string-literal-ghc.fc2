@@ -5,7 +5,7 @@ pub type 2.tChar :: 2.tType {}
 
 pub type 2.t[] (a : 2.tType) :: 2.tType {
     pub 2.v[] :: ∀(a : 2.tType). 2.t[] a
-    pub 2.v: :: ∀(a : 2.tType). a → 2.t[] a → 2.t[] a
+    pub 2.v: :: ∀(a : 2.tType). a 2.→ 2.t[] a 2.→ 2.t[] a
 }
 
 pub type 1.tChar :: 2.tType {}

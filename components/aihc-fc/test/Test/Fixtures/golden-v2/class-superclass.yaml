@@ -17,26 +17,26 @@ expected: |-
   }
 
   pub type 1.t$Dict$Parent (a : 2.tType) :: 2.tType {
-      pub 1.v$Dict$Parent :: ∀(a : 2.tType). (a → 1.tFlag) → 1.t$Dict$Parent a
+      pub 1.v$Dict$Parent :: ∀(a : 2.tType). (a 2.→ 1.tFlag) 2.→ 1.t$Dict$Parent a
   }
 
   pub type 1.t$Dict$Child (a : 2.tType) :: 2.tType {
-      pub 1.v$Dict$Child :: ∀(a : 2.tType). 1.t$Dict$Parent a → (a → 1.tFlag) → 1.t$Dict$Child a
+      pub 1.v$Dict$Child :: ∀(a : 2.tType). 1.t$Dict$Parent a 2.→ (a 2.→ 1.tFlag) 2.→ 1.t$Dict$Child a
   }
 
-  pub val 1.vparent :: ∀(a : 2.tType). 1.t$Dict$Parent a → a → 1.tFlag
+  pub val 1.vparent :: ∀(a : 2.tType). 1.t$Dict$Parent a 2.→ a 2.→ 1.tFlag
    = Λ(a : 2.tType).
     λ($d0 : 1.t$Dict$Parent a).
-      case $d0 as ($dict : 1.t$Dict$Parent a) return (a → 1.tFlag) of {
-          1.v$Dict$Parent ($method0 : a → 1.tFlag) →
+      case $d0 as ($dict : 1.t$Dict$Parent a) return (a 2.→ 1.tFlag) of {
+          1.v$Dict$Parent ($method0 : a 2.→ 1.tFlag) →
               $method0
       }
 
-  pub val 1.vchild :: ∀(a : 2.tType). 1.t$Dict$Child a → a → 1.tFlag
+  pub val 1.vchild :: ∀(a : 2.tType). 1.t$Dict$Child a 2.→ a 2.→ 1.tFlag
    = Λ(a : 2.tType).
     λ($d0 : 1.t$Dict$Child a).
-      case $d0 as ($dict : 1.t$Dict$Child a) return (a → 1.tFlag) of {
-          1.v$Dict$Child ($method0 : 1.t$Dict$Parent a) ($method1 : a → 1.tFlag) →
+      case $d0 as ($dict : 1.t$Dict$Child a) return (a 2.→ 1.tFlag) of {
+          1.v$Dict$Child ($method0 : 1.t$Dict$Parent a) ($method1 : a 2.→ 1.tFlag) →
               $method1
       }
 status: pass

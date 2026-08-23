@@ -6,6 +6,6 @@ pub type 1.tBool :: 2.tType {
     pub 1.vTrue :: 1.tBool
 }
 
-val 1.vid :: 1.tBool → 1.tBool
+val 1.vid :: 1.tBool 2.→ 1.tBool
  = λ(x : 1.tBool).
   x
