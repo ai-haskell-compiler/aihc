@@ -1,6 +1,5 @@
 ---
 extensions:
-- DataKinds
 - ForeignFunctionInterface
 - GHCForeignImportPrim
 - KindSignatures
@@ -11,10 +10,9 @@ modules:
 - |
   module Test where
 
-  import GHC.Types (RuntimeRep (..), TYPE, Type, UnliftedType)
+  import GHC.Types (Type, UnliftedType)
+  import GHC.Prim (State#)
 
-  type State# :: Type -> TYPE ('TupleRep '[])
-  data State# s
   type MutVar# :: Type -> Type -> UnliftedType
   data MutVar# d a
 
