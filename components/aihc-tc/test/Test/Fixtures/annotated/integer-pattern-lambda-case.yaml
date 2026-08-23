@@ -1,29 +1,19 @@
 annotated:
 - |-
-  module GHC.Classes where
-  import GHC.Types (Bool)
-  class Eq a where
-  └─ class methods: == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
-    (==) :: a -> a -> Bool
-- |-
   module GHC.Num where
-  import GHC.Types (Integer)
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
+       │         └─ type: Int# → Integer
+       └─ type: Type
   class Num a where
   └─ class methods: fromInteger ∷ ∀ a. (Num a) ⇒ Integer → a
     fromInteger :: Integer -> a
 - |-
-  module GHC.Types where
-  data Bool = False | True
-       │      │       └─ type: Bool
-       │      └─ type: Bool
-       └─ type: Type
-  data Integer = IS Int#
-       │         └─ type: Int# → Integer
-       └─ type: Type
-- |-
   module Main where
+  import GHC.Classes ((==))
+  import GHC.Num (fromInteger)
   match = \case
-  └─ type: ∀ a. (Eq a, Num a) ⇒ a → ()
+  └─ type: ∀ a. (GHC.Classes.Eq a, GHC.Num.Num a) ⇒ a → ()
     1 -> ()
     ││    └─ type: ()
     └─ type: a; type-args: a; evidence: given Num a
@@ -33,21 +23,15 @@ extensions:
 - MagicHash
 modules:
 - |
-  module GHC.Types where
-  data Bool = False | True
-  data Integer = IS Int#
-- |
-  module GHC.Classes where
-  import GHC.Types (Bool)
-  class Eq a where
-    (==) :: a -> a -> Bool
-- |
   module GHC.Num where
-  import GHC.Types (Integer)
+  import GHC.Prim (Int#)
+  data Integer = IS Int#
   class Num a where
     fromInteger :: Integer -> a
 - |
   module Main where
+  import GHC.Classes ((==))
+  import GHC.Num (fromInteger)
   match = \case
     1 -> ()
 reason: overloaded integer patterns infer Eq and Num constraints like GHC

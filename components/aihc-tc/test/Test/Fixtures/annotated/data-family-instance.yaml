@@ -1,26 +1,28 @@
-extensions:
-  - TypeFamilies
-modules:
-  - |
-    module Test where
-    data Unit = Unit
-    data family Payload a
-    data instance Payload Unit = PayloadUnit Unit
-    unwrap :: Payload Unit -> Unit
-    unwrap payload = case payload of PayloadUnit value -> value
 annotated:
-  - |
-    module Test where
-    data Unit = Unit
-         │      └─ type: ()
-         └─ type: Type
-    data family Payload a
-                └─ type: Type → Type
-    data instance Payload Unit = PayloadUnit Unit
-                                 └─ type: () → Payload ()
-    unwrap :: Payload Unit -> Unit
-    unwrap payload = case payload of PayloadUnit value -> value
-    │      └─ type: Payload ()                   └─ type: ()
-    └─ type: Payload () → ()
+- |-
+  module Test where
+  data Unit = Unit
+       │      └─ type: ()
+       └─ type: Type
+  data family Payload a
+              └─ type: Type → Type
+  data instance Payload Unit = PayloadUnit Unit
+                               └─ type: () → Payload ()
+  unwrap :: Payload Unit -> Unit
+  unwrap payload = case payload of PayloadUnit value -> value
+  │      │         └─ type: ()     │           └─ type: ()
+  │      └─ type: Payload ()       └─ type: Payload ()
+  └─ type: Payload () → ()
+extensions:
+- TypeFamilies
+modules:
+- |
+  module Test where
+  data Unit = Unit
+  data family Payload a
+  data instance Payload Unit = PayloadUnit Unit
+  unwrap :: Payload Unit -> Unit
+  unwrap payload = case payload of PayloadUnit value -> value
+reason: data-family kinds, instance heads, constructors, and pattern uses are checked
+  together
 status: pass
-reason: data-family kinds, instance heads, constructors, and pattern uses are checked together

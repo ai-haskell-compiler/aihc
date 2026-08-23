@@ -56,7 +56,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Env (DataTypeInfo)
 import Aihc.Tc.Evidence (EvTerm, EvVar)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, isUnboxedTupleType, tyConModuleName)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, isUnboxedTupleType, tyConModuleName, pattern KType)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -298,6 +298,7 @@ renderTcTypeInModule currentModule = go 0
     go :: Int -> TcType -> String
     go _ (TcTyVar tv) = T.unpack (tvName tv)
     go _ (TcMetaTv (Unique u)) = "?" ++ show u
+    go _ KType = "Type"
     go _ (TcTyCon (TyCon name 1) [arg])
       | name == T.pack "[]" = "[" ++ go 0 arg ++ "]"
     go _ (TcTyCon (TyCon name arity) args)

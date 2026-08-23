@@ -10,16 +10,15 @@ modules:
 annotated:
   - |-
     module Test where
-    └─ error: kind mismatch: expected TYPE ('BoxedRep 'Lifted), got RuntimeRep
-    └─ error: kind mismatch: expected TYPE ('BoxedRep 'Lifted), got TYPE ('BoxedRep 'Lifted) → ?9
-    └─ error: kind mismatch: expected TYPE ('BoxedRep 'Lifted), got TYPE ('BoxedRep 'Lifted) → ?6
+    └─ error: kind mismatch: expected Type, got RuntimeRep
+    └─ error: kind mismatch: expected Type, got Type → ?9
+    └─ error: kind mismatch: expected Type, got Type → ?6
     data Color = Red
          │       └─ type: Color
-         └─ type: TYPE ('BoxedRep 'Lifted)
+         └─ type: Type
     data BadApplication (a :: Color Type)
-         └─ type: Color (TYPE ('BoxedRep 'Lifted)) → TYPE ('BoxedRep 'Lifted)
+         └─ type: Color Type → Type
     data BadField (r :: RuntimeRep) = BadField r
-         │                            └─ type: ∀ r. r → BadField r
-         └─ type: RuntimeRep → TYPE ('BoxedRep 'Lifted)
+         └─ type: RuntimeRep → Type   └─ type: ∀ r. r → BadField r
 status: pass
 reason: rejects invalid kind applications and fields whose types have no runtime representation

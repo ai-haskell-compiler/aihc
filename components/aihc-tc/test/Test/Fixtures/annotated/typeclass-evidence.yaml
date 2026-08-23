@@ -1,22 +1,25 @@
 annotated:
 - |-
   module Test where
-  data Bool = False | True
-       │      │       └─ type: Bool
-       │      └─ type: Bool
-       └─ type: Type
-  class Eq a where
-  └─ class methods: == ∷ ∀ a. (Eq a) ⇒ a → a → Bool
-    (==) :: a -> a -> Bool
+  import GHC.Classes (Eq (..))
+  import GHC.Types (Bool (..))
   instance Eq Bool where
   └─ $fEqBool ∷ () ⇒ Eq Bool
     False == False = True
+    ││        └─ type: Bool
+    └─ type: Bool
     └─ == ∷ Bool → Bool → Bool
     False == True = False
+    ││        └─ type: Bool
+    └─ type: Bool
     └─ == ∷ Bool → Bool → Bool
     True == False = False
+    ││       └─ type: Bool
+    └─ type: Bool
     └─ == ∷ Bool → Bool → Bool
     True == True = True
+    ││       └─ type: Bool
+    └─ type: Bool
     └─ == ∷ Bool → Bool → Bool
   eqBool :: Bool -> Bool -> Bool
   eqBool = (==)
@@ -26,9 +29,8 @@ extensions: []
 modules:
 - |
   module Test where
-  data Bool = False | True
-  class Eq a where
-    (==) :: a -> a -> Bool
+  import GHC.Classes (Eq (..))
+  import GHC.Types (Bool (..))
   instance Eq Bool where
     False == False = True
     False == True = False

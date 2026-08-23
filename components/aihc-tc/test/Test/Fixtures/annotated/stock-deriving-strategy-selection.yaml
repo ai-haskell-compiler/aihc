@@ -2,22 +2,14 @@ annotated:
 - |-
   {-# LANGUAGE DeriveAnyClass, DeriveFunctor, KindSignatures #-}
   module Main where
-  data Type
-       └─ type: Type
-  data Bool = False | True
-       │      │       └─ type: Bool
-       │      └─ type: Bool
-       └─ type: Type
-  class Eq a where
-  └─ class methods: == ∷ ∀ a. (Eq a) ⇒ a → a → Bool, /= ∷ ∀ a. (Eq a) ⇒ a → a → Bool
-    (==) :: a -> a -> Bool
-    (/=) :: a -> a -> Bool
+  import GHC.Classes (Eq)
+  import GHC.Types (Type)
   class Functor (f :: Type -> Type) where
   └─ class methods:
   data E = E
   │    │   └─ type: E
   │    └─ type: Type
-  └─ deriving plans: anyclass Eq E [context: ()] [methods: ==, /=]
+  └─ deriving plans: stock Eq E [context: ()] [methods: ==, /=]
     deriving Eq
   data F a = F a
   │    │     └─ type: ∀ a. a → F a
@@ -32,15 +24,12 @@ modules:
 - |
   {-# LANGUAGE DeriveAnyClass, DeriveFunctor, KindSignatures #-}
   module Main where
-  data Type
-  data Bool = False | True
-  class Eq a where
-    (==) :: a -> a -> Bool
-    (/=) :: a -> a -> Bool
+  import GHC.Classes (Eq)
+  import GHC.Types (Type)
   class Functor (f :: Type -> Type) where
   data E = E
     deriving Eq
   data F a = F a
     deriving Functor
-reason: local classes do not select stock mechanisms from their names
+reason: the real Eq class selects its stock mechanism
 status: pass

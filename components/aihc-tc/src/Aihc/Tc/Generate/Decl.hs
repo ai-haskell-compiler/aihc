@@ -1098,8 +1098,7 @@ annotateInstanceDeclTc instanceDecl =
                 tcInstanceMethodOrder = methodOrder,
                 tcInstanceDefaultMethods = defaults
               }
-      items <- mapM (annotateInstanceItemTc info headTys) (instanceDeclItems instanceDecl)
-      pure (DeclAnn (mkAnnotation instAnn) (DeclInstance (instanceDecl {instanceDeclItems = items})))
+      pure (DeclAnn (mkAnnotation instAnn) (DeclInstance instanceDecl))
 
 classMethodFromInfo :: ClassInfo -> Int -> (Text, TypeScheme) -> TcClassMethodAnnotation
 classMethodFromInfo info index (methodName, scheme) =
@@ -1128,22 +1127,6 @@ solveInstanceSuperClass className givens predicate = do
     DictStuck stuck -> do
       emitError (ctLoc stuck) (UnsolvedWanted (ctPred stuck) (ctOrigin stuck))
       pure (EvVarTerm evidenceVariable)
-
-annotateInstanceItemTc :: ClassInfo -> [TcType] -> InstanceDeclItem -> TcM InstanceDeclItem
-annotateInstanceItemTc classInfo headTys item =
-  case item of
-    InstanceItemAnn ann inner -> InstanceItemAnn ann <$> annotateInstanceItemTc classInfo headTys inner
-    InstanceItemBind (FunctionBind name matches) -> do
-      let methodName = unqualifiedNameText name
-      methodTy <- methodExpectedType classInfo headTys (unqualifiedNameText name)
-      pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (FunctionBind name matches)))
-    InstanceItemBind (PatternBind anns pat rhs) ->
-      case patternBinderName pat of
-        Just (_, methodName) -> do
-          methodTy <- methodExpectedType classInfo headTys methodName
-          pure (InstanceItemAnn (mkAnnotation (TcInstanceMethodAnnotation methodName methodTy)) (InstanceItemBind (PatternBind anns pat rhs)))
-        Nothing -> pure item
-    _ -> pure item
 
 tcClassDeclBodies :: Decl -> TcM Decl
 tcClassDeclBodies (DeclAnn ann inner) =
@@ -1284,9 +1267,6 @@ bindingType name = do
 binderType :: TcBinder -> TcType
 binderType (TcIdBinder scheme _) = schemeToType scheme
 binderType (TcMonoIdBinder ty) = ty
-
-methodExpectedType :: ClassInfo -> [TcType] -> Text -> TcM TcType
-methodExpectedType classInfo headTys methodName = schemeToType <$> methodExpectedScheme classInfo headTys methodName
 
 methodExpectedScheme :: ClassInfo -> [TcType] -> Text -> TcM TypeScheme
 methodExpectedScheme classInfo headTys methodName =

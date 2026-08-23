@@ -28,20 +28,20 @@ annotated:
     data Color = Red | Blue
          │       │     └─ type: Color
          │       └─ type: Color
-         └─ type: TYPE ('BoxedRep 'Lifted)
+         └─ type: Type
     data Proxy (a :: Color) = Proxy
          │                    └─ type: ∀ a. Proxy a
-         └─ type: Color → TYPE ('BoxedRep 'Lifted)
+         └─ type: Color → Type
   - |-
     module LeftKind where
     data Key = LeftKey
          │     └─ type: Key
-         └─ type: TYPE ('BoxedRep 'Lifted)
+         └─ type: Type
   - |-
     module RightKind where
     data Key = RightKey
          │     └─ type: Key
-         └─ type: TYPE ('BoxedRep 'Lifted)
+         └─ type: Type
   - |-
     module Test where
     import Kinds
@@ -49,18 +49,14 @@ annotated:
     import qualified RightKind
     data Uses (a :: Color) = Uses (Proxy a)
          │                   └─ type: ∀ a. Kinds.Proxy a → Uses a
-         └─ type: Kinds.Color → TYPE ('BoxedRep 'Lifted)
+         └─ type: Kinds.Color → Type
     data LeftUse (a :: LeftKind.Key) = LeftUse
-         │                             └─ type: ∀ a. LeftUse a
-         └─ type: LeftKind.Key → TYPE ('BoxedRep 'Lifted)
+         └─ type: LeftKind.Key → Type  └─ type: ∀ a. LeftUse a
     data RightUse (a :: RightKind.Key) = RightUse
-         │                               └─ type: ∀ a. RightUse a
-         └─ type: RightKind.Key → TYPE ('BoxedRep 'Lifted)
+         └─ type: RightKind.Key → Type   └─ type: ∀ a. RightUse a
     left = LeftKind.LeftKey
-    │      └─ type: LeftKind.Key
     └─ type: LeftKind.Key
     right = RightKind.RightKey
-    │       └─ type: RightKind.Key
     └─ type: RightKind.Key
 status: pass
 reason: uses ordinary type constructor identities for custom, imported, and same-name kinds

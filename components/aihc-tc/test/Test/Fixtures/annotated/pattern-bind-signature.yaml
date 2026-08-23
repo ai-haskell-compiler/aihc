@@ -8,6 +8,7 @@ annotated:
 
   same :: Bool -> Bool -> Bool
   same x _ = x
+  │    │ └─ type: Bool
   │    └─ type: Bool
   └─ type: Bool → Bool → Bool
 
