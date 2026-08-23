@@ -516,7 +516,7 @@ emptyScope = Scope Map.empty Map.empty Map.empty Map.empty Map.empty Map.empty M
 --
 -- The term namespace is empty.
 -- Promoted constructors from @aihc-prim@ use ordinary name resolution.
--- The type namespace contains only the function arrow and @Constraint@.
+-- The type namespace contains only the function arrow.
 -- Types from @aihc-prim@ use ordinary name resolution.
 --
 -- This scope is merged into every module's scope unconditionally (lowest
@@ -546,9 +546,7 @@ builtinPromotedConstructorNames = []
 -- (not @"(->)"@).
 builtinTypeNames :: [T.Text]
 builtinTypeNames =
-  [ "->",
-    "Constraint"
-  ]
+  ["->"]
 
 unionScope :: Scope -> Scope -> Scope
 unionScope left right =
