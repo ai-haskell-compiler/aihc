@@ -4,7 +4,7 @@ module Main (main) where
 
 import Aihc.Fc2 qualified as Fc2
 import Aihc.Grin (lintProgram, renderProgram)
-import Aihc.Grin.Lower2 qualified as Lower2
+import Aihc.Grin.Lower qualified as Lower
 import Data.Text.IO qualified as TIO
 import System.Directory (doesDirectoryExist, getCurrentDirectory)
 import System.FilePath (takeDirectory, (</>))
@@ -33,7 +33,7 @@ testLowerFc2 = do
       Left parseError -> assertFailure (Fc2.renderParseError parseError)
       Right parsed -> pure parsed
   grin <-
-    case Lower2.lowerProgram program of
+    case Lower.lowerProgram program of
       Left problem -> assertFailure problem
       Right lowered -> pure lowered
   assertEqual "GRIN lint errors" [] (lintProgram grin)

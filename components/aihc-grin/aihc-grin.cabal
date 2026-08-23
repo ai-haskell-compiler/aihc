@@ -25,7 +25,7 @@ library
     Aihc.Grin.Gc
     Aihc.Grin.Interpret
     Aihc.Grin.Lint
-    Aihc.Grin.Lower2
+    Aihc.Grin.Lower
     Aihc.Grin.Parser
     Aihc.Grin.Pretty
     Aihc.Grin.Snapshot
@@ -33,8 +33,8 @@ library
 
   other-modules:
     Aihc.Grin.Analysis
-    Aihc.Grin.Lower
-    Aihc.Grin.Lower.Syntax
+    Aihc.Grin.Lower.Closure
+    Aihc.Grin.Lower.Runtime
 
   hs-source-dirs: src
   build-depends:

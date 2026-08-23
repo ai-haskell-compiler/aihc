@@ -21,7 +21,7 @@ import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeA
 import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2)
 import Aihc.Fc2 qualified as Fc2
 import Aihc.Grin qualified as Grin
-import Aihc.Grin.Lower2 qualified as GrinLower2
+import Aihc.Grin.Lower qualified as GrinLower
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Util qualified as HackageUtil
@@ -400,7 +400,7 @@ writeCoreV2Files verbose keepGrin currentPackage primIdentity interface storeRoo
         traverse
           ( \result2 ->
               let program = ds2Program result2
-               in either (ioError . userError . ("GRIN generation failed: " <>)) pure (GrinLower2.lowerProgramWithDependencies (filter (/= program) loadedFc2) program)
+               in either (ioError . userError . ("GRIN generation failed: " <>)) pure (GrinLower.lowerProgramWithDependencies (filter (/= program) loadedFc2) program)
           )
           results2
       else pure []
