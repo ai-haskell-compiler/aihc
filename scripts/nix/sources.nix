@@ -96,6 +96,8 @@ in rec {
   grinSrc = mkRootSubsetSrc ["components/aihc-grin/" "test/support/"] [
     ".hs"
     ".cabal"
+    ".fc2"
+    ".grin"
   ];
 
   evalFixturesSrc = mkComponentSrc "/test/Test/Fixtures/eval" [
