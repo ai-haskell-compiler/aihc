@@ -10,6 +10,7 @@ where
 import Aihc.Parser.Syntax (SourceSpan (..))
 import Aihc.Tc.Constraint (CtOrigin (..))
 import Aihc.Tc.Error (TcErrorKind (..))
+import Aihc.Tc.Kind (tcTypeKind, unifyKinds)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
@@ -72,6 +73,9 @@ unifyMetaTv u ty = do
       if occursIn u ty'
         then pure $ Left $ OccursCheckError u ty'
         else do
+          declaredKind <- readMetaTvKind u
+          solvedKind <- tcTypeKind ty'
+          unifyKinds declaredKind solvedKind
           writeMetaTv u ty'
           pure (Right ())
 
@@ -86,7 +90,6 @@ occursIn u = go
     go (TcForAllTy _ body) = go body
     go (TcQualTy preds body) = any goPred preds || go body
     go (TcAppTy f a) = go f || go a
-    go (TcBuiltinTyCon _ _ arguments) = any go arguments
 
     goPred (ClassPred _ args) = any go args
     goPred (EqPred a b) = go a || go b

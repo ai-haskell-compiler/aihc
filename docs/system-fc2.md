@@ -130,6 +130,7 @@ pub val 1.vnot :: 1.tBool → 1.tBool
 Use `::` on declarations.
 Use `:` on `λ`, `Λ`, and `∀` binders.
 Use Core-style `case` with a case binder, a result type, and `_` for default.
+Use `@(a : k)` before field binders to bind existential types in constructor alternatives.
 Permit an empty alternative set when the case has an explicit result type.
 Use `let` and `rec` for local groups.
 Use `val` for top-level values.

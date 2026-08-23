@@ -3,8 +3,7 @@ annotated:
   {-# LANGUAGE DeriveAnyClass, DeriveFunctor, KindSignatures #-}
   module Main where
   import GHC.Classes (Eq)
-  data Type
-       └─ type: Type
+  import GHC.Types (Type)
   class Functor (f :: Type -> Type) where
   └─ class methods:
   data E = E
@@ -26,7 +25,7 @@ modules:
   {-# LANGUAGE DeriveAnyClass, DeriveFunctor, KindSignatures #-}
   module Main where
   import GHC.Classes (Eq)
-  data Type
+  import GHC.Types (Type)
   class Functor (f :: Type -> Type) where
   data E = E
     deriving Eq

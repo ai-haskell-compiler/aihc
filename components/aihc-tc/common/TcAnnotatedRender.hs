@@ -13,7 +13,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     moduleName,
   )
-import Aihc.Tc (TcType (..), renderTcSignature, renderTcType, renderTcTypeInModule)
+import Aihc.Tc (renderTcSignature, renderTcType, renderTcTypeInModule)
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -28,7 +28,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint (CtOrigin (..), EqProvenance (..), TypeOrigin (..), TypeRole (..), TypeTrace (..))
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Evidence (Coercion (..), EvTerm (..), EvVar (..))
-import Aihc.Tc.Types (Kind (..), Levity (..), Pred (..), RuntimeRep (..), TyCon (..), Unique (..), tyConName)
+import Aihc.Tc.Types
 import Aihc.Testing.AnnotatedModule (renderAnnotatedModuleSources)
 import Control.Applicative ((<|>))
 import Data.List (intercalate, sortOn)
@@ -157,7 +157,7 @@ renderDiagnosticKind kind =
     UnboundVariable name ->
       "unbound variable " <> name
     KindMismatch expected actual ->
-      "kind mismatch: expected " <> renderKind expected <> ", got " <> renderKind actual
+      "kind mismatch: expected " <> renderTcType expected <> ", got " <> renderTcType actual
     UnsolvedWanted pred' _ ->
       "unsolved constraint " <> renderPred pred'
     TopLevelUnliftedBinding name ty ->
@@ -208,31 +208,6 @@ renderOrigin origin =
     CaseBranchOrigin {} -> "a case branch"
     InstOrigin name -> "the instance " <> T.unpack name
     UnifyOrigin {} -> "a unification constraint"
-
-renderKind :: Kind -> String
-renderKind kind =
-  case kind of
-    KTYPE runtimeRep -> "TYPE " <> renderRuntimeRep runtimeRep
-    KConstraint -> "Constraint"
-    KRuntimeRep -> "RuntimeRep"
-    KLevity -> "Levity"
-    KVecCount -> "VecCount"
-    KVecElem -> "VecElem"
-    KFun arg result -> renderKindArg arg <> " -> " <> renderKind result
-    KMeta unique -> renderUnique unique
-
-renderRuntimeRep :: RuntimeRep -> String
-renderRuntimeRep runtimeRep =
-  case runtimeRep of
-    BoxedRep Lifted -> "LiftedRep"
-    BoxedRep Unlifted -> "UnliftedRep"
-    _ -> show runtimeRep
-
-renderKindArg :: Kind -> String
-renderKindArg kind =
-  case kind of
-    KFun {} -> "(" <> renderKind kind <> ")"
-    _ -> renderKind kind
 
 renderUnique :: Unique -> String
 renderUnique (Unique unique) = "?" <> show unique

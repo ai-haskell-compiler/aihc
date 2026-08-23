@@ -4,7 +4,7 @@ annotated:
   data Void
        └─ type: Type
   type X = (# (# #), Void #)
-       └─ type: TYPE ('TupleRep ('[] ('TupleRep '[]) 'LiftedRep))
+       └─ type: TYPE ('TupleRep (': ('TupleRep '[]) (': ('BoxedRep 'Lifted) '[])))
 extensions:
 - UnboxedTuples
 modules:

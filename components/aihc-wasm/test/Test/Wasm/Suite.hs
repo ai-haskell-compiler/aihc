@@ -5,7 +5,6 @@ module Test.Wasm.Suite (tests) where
 import Aihc.Grin (lowerGc, toCpsGrin)
 import Aihc.Grin.Syntax
 import Aihc.Native (LinkLayout (..), buildLinkLayout, renderLinkedFunctionSymbol, supportedNativePrimitiveNames)
-import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 import Aihc.Wasm (WasmError (..), compileModule, compileProgram, compileProgramWithDependencies, validatePrimitiveNames, validateProgramPrimitives)
 import Control.Monad (forM_)
 import Data.Text qualified as T
@@ -227,7 +226,7 @@ testIntegerPrimitives = forM_ integerPrimitiveCases $ \primitiveCase ->
 data PrimitiveCase = PrimitiveCase
   { primitiveCaseName :: !T.Text,
     primitiveCaseArguments :: ![GrinValue],
-    primitiveCaseResults :: ![RuntimeRep],
+    primitiveCaseResults :: ![GrinRep],
     primitiveCaseInstructions :: ![T.Text]
   }
 

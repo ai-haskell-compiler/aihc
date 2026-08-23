@@ -23,7 +23,6 @@ import Aihc.Native
     RuntimePlan (..),
     runtimePlan,
   )
-import Aihc.Tc (Levity (..), RuntimeRep (..), Unique (..))
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
@@ -49,24 +48,7 @@ tests :: TestTree
 tests =
   testGroup
     "aihc-arm64"
-    [ testCase "rejects unresolved representation-polymorphic native layouts" $ do
-        let runtimeRep = RuntimeRepVar (Unique 1)
-            program =
-              GrinProgram
-                { grinConstructors = [("Box", [[runtimeRep]])],
-                  grinPrimitives = [],
-                  grinForeignCalls = [],
-                  grinExternalGlobals = [],
-                  grinExternalFunctions = [],
-                  grinWhnfGlobals = [],
-                  grinCafs = [],
-                  grinFunctions = []
-                }
-        assertEqual
-          "native representation diagnostic"
-          (Left (Arm64UnsupportedRuntimeRep runtimeRep))
-          (compileProgram "missing" (expectGcGrin program)),
-      testCase "keeps unsupported dormant primitives out of linked programs" $ do
+    [ testCase "keeps unsupported dormant primitives out of linked programs" $ do
         let primitive = GrinVar "unsupported#" 1 (BoxedRep Lifted)
             program =
               GrinProgram

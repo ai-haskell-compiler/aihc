@@ -5,7 +5,7 @@ annotated:
   type Tuple2# :: TYPE r1 -> TYPE r2 -> TYPE ('TupleRep '[r2, r1])
   data Tuple2# (a1 :: TYPE r1) (a2 :: TYPE r2) = (# a1, a2 #)
        │                                         └─ type: ∀ r1 r2 a1 a2. a1 → a2 → (# a1, a2 #)
-       └─ type: TYPE rep0 → TYPE rep1 → TYPE ('TupleRep ('[] rep1 rep0))
+       └─ type: TYPE r1 → TYPE r2 → TYPE ('TupleRep (': r2 (': r1 '[])))
 extensions:
 - DataKinds
 - KindSignatures

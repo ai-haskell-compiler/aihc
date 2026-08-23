@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Direct value desugaring from checked source syntax to System FC 2.
 module Aihc.Fc2.Desugar.Value
@@ -37,20 +38,31 @@ import Aihc.Tc.Annotations
     TcInstanceMethodAnnotation (..),
   )
 import Aihc.Tc.Evidence qualified as Ev
-import Aihc.Tc.Instantiate qualified as TcInstantiate
 import Aihc.Tc.Solve.Dict (matchTypes)
 import Aihc.Tc.Types
   ( Pred (..),
-    RuntimeRep (..),
     TcType (..),
     TyCon,
     TyVarId,
     Unique (..),
-    runtimeRepOfType,
+    applySubstPred,
+    runtimeRepOfTypeInEnv,
     tvUnique,
     tyConModuleName,
     tyConName,
     tyConPackageId,
+    typeKindType,
+    pattern AddrRep,
+    pattern Int16Rep,
+    pattern Int32Rep,
+    pattern Int64Rep,
+    pattern Int8Rep,
+    pattern IntRep,
+    pattern Word16Rep,
+    pattern Word32Rep,
+    pattern Word64Rep,
+    pattern Word8Rep,
+    pattern WordRep,
   )
 import Control.Applicative ((<|>))
 import Control.Monad (unless, zipWithM)
@@ -387,7 +399,7 @@ desugarDefaultMethod annotation dictionaries methodName = do
       substitution = Map.fromList [(tvUnique tyVar, ty) | (tyVar, ty) <- zip classTyVars (tcInstanceHeadTypes annotation)]
       (_, methodAfterForAlls) = peelForAlls (tcClassMethodType method)
       (methodPredicates, _) = peelConstraints methodAfterForAlls
-      extraPredicates = map (substitutePredicate substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates)
+      extraPredicates = map (applySubstPred substitution) (dropClassPredicate (tcInstanceClassTyCon annotation) methodPredicates)
   extraTypeBinders <- mapM convertTypeBinder extraTyVars
   convertedExtraTypes <- mapM (convertCheckedType . TcTyVar) extraTyVars
   extraDictionaries <- zipWithM (freshDictionaryBinder "$method_d") [0 :: Int ..] extraPredicates
@@ -410,12 +422,6 @@ dropClassPredicate classTyCon predicates =
     ClassPred predicateClass _ : rest
       | predicateClass == classTyCon -> rest
     predicate : rest -> predicate : dropClassPredicate classTyCon rest
-
-substitutePredicate :: Map Unique TcType -> Pred -> Pred
-substitutePredicate substitution predicate =
-  case predicate of
-    ClassPred classTyCon arguments -> ClassPred classTyCon (map (TcInstantiate.applySubst substitution) arguments)
-    EqPred left right -> EqPred (TcInstantiate.applySubst substitution left) (TcInstantiate.applySubst substitution right)
 
 makeContextDictionary :: Int -> TcDictBinderAnnotation -> ValueM Dictionary
 makeContextDictionary index annotation = do
@@ -1055,7 +1061,7 @@ patternType pattern' =
     _ -> Nothing
 
 fromBinderType :: Syn.Pattern -> TcType
-fromBinderType pattern' = fromMaybe (TcBuiltinTyCon "Type" 0 []) (patternType pattern')
+fromBinderType pattern' = fromMaybe typeKindType (patternType pattern')
 
 nameTcType :: Syn.UnqualifiedName -> Maybe TcType
 nameTcType name =
@@ -1246,7 +1252,7 @@ annotatedHead = go Nothing
         Syn.ETypeApp inner _ -> go maybeAnnotation inner
         Syn.EVar name -> (,fromMaybe emptyTcAnnotation maybeAnnotation) <$> Just name
         _ -> Nothing
-    emptyTcAnnotation = TcAnnotation (TcBuiltinTyCon "Type" 0 []) [] [] [] []
+    emptyTcAnnotation = TcAnnotation typeKindType [] [] [] []
 
 desugarLambda :: [Syn.Pattern] -> Syn.Expr -> ValueM Expr
 desugarLambda patterns body = do
@@ -1288,7 +1294,9 @@ desugarTuple annotation flavor elements = do
   pure (foldr ExLam applied (concatMap snd convertedElements))
 
 checkedRuntimeRep :: TcType -> ValueM Type
-checkedRuntimeRep ty = liftEither (runtimeRepOfType ty) >>= convertRuntimeRep
+checkedRuntimeRep ty = do
+  kindEnv <- gets (ceKindEnv . vsConvertEnv)
+  liftEither (runtimeRepOfTypeInEnv kindEnv ty) >>= convertRuntimeRep
 
 desugarTupleElement :: TcType -> Maybe Syn.Expr -> ValueM (Expr, [Binder])
 desugarTupleElement _ (Just expression) = (,[]) <$> desugarExpr expression
@@ -1632,7 +1640,6 @@ typeableTypeView ty =
   case ty of
     TcTyCon tyCon arguments -> pure (tyConName tyCon, arguments)
     TcFunTy argument result -> pure ("(->)", [argument, result])
-    TcBuiltinTyCon name _ arguments -> pure (name, arguments)
     _ -> failValue ("cannot construct Typeable evidence for " <> show ty)
 
 desugarResolvedOccurrence :: TcAnnotation -> ResolutionAnnotation -> ValueM Expr
@@ -1857,12 +1864,12 @@ convertTypeBinder tyVar = do
   env <- gets vsConvertEnv
   liftEither (tyVarBinder env tyVar)
 
-convertRuntimeRep :: RuntimeRep -> ValueM Type
+convertRuntimeRep :: TcType -> ValueM Type
 convertRuntimeRep runtimeRep = do
   env <- gets vsConvertEnv
   liftEither (convertRep env runtimeRep)
 
-numericRepresentation :: Syn.NumericType -> RuntimeRep
+numericRepresentation :: Syn.NumericType -> TcType
 numericRepresentation numericType =
   case numericType of
     Syn.TInteger -> IntRep

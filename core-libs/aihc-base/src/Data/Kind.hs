@@ -3,4 +3,4 @@ module Data.Kind
   )
 where
 
-data Type
+import GHC.Types (Type)

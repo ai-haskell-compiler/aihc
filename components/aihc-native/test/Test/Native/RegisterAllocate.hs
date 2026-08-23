@@ -7,7 +7,6 @@ where
 
 import Aihc.Grin.Syntax
 import Aihc.Native.RegisterAllocate
-import Aihc.Tc.Types (RuntimeRep (IntRep), liftedRuntimeRep)
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Test.Tasty (TestTree, testGroup)
@@ -126,7 +125,7 @@ intVar :: Text -> Int -> GrinVar
 intVar name unique = GrinVar name unique IntRep
 
 pointerVar :: Text -> Int -> GrinVar
-pointerVar name unique = GrinVar name unique liftedRuntimeRep
+pointerVar name unique = GrinVar name unique liftedGrinRep
 
 var :: GrinVar -> GrinValue
 var = GrinVarValue

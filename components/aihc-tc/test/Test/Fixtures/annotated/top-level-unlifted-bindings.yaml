@@ -1,6 +1,8 @@
 annotated:
 - |-
   module Test where
+  import GHC.Types (RuntimeRep(..), TYPE, Type)
+  type State# :: Type -> TYPE ('TupleRep '[])
   data State# s
        └─ type: Type → TYPE ('TupleRep '[])
   data RealWorld
@@ -33,11 +35,16 @@ annotated:
   boxedHash = MkBox#
   └─ type: Box#
 extensions:
+- DataKinds
+- KindSignatures
 - MagicHash
+- StandaloneKindSignatures
 - UnboxedTuples
 modules:
 - |
   module Test where
+  import GHC.Types (RuntimeRep(..), TYPE, Type)
+  type State# :: Type -> TYPE ('TupleRep '[])
   data State# s
   data RealWorld
   data Box# = MkBox#

@@ -7,10 +7,8 @@ modules:
 - |
   module Test where
 
-  import GHC.Prim (Int32#)
+  import GHC.Prim (Int32#, RealWorld, State#)
 
-  data State# s
-  data RealWorld
   data Int32 = I32# Int32#
   newtype CInt = CInt Int32
   newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
@@ -20,10 +18,6 @@ expected: |-
   scope 1 = "" Test
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
-
-  pub type 1.tState# (s : 3.tType) :: 3.tTYPE (3.vTupleRep (3.v[] 3.tRuntimeRep)) {}
-
-  pub type 1.tRealWorld :: 3.tType {}
 
   pub type 1.tInt32 :: 3.tType {
       pub 1.vI32# :: FUN @3.vInt32Rep @3.tLiftedRep 2.tInt32# 1.tInt32
@@ -35,7 +29,7 @@ expected: |-
 
   pub type 1.tIO (a : 3.tType) :: 3.tType {}
 
-  axiom 1.$ax$IO (a : 3.tType) : 1.tIO a ~R FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tLiftedRep (3.v[] 3.tRuntimeRep)))) (1.tState# 1.tRealWorld) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tLiftedRep (1.tState# 1.tRealWorld) a)
+  axiom 1.$ax$IO (a : 3.tType) : 1.tIO a ~R FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tLiftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# 2.tRealWorld) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tLiftedRep (2.tState# 2.tRealWorld) a)
 
   pub foreign import ccall unsafe "putchar" [Int32 → Int32; real-world] 1.vputchar :: 1.tCInt 3.→ 1.tIO 1.tCInt
 status: pass

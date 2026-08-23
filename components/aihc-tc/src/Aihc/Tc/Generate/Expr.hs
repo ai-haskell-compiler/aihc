@@ -40,8 +40,8 @@ import Aihc.Tc.Evidence (EvVar)
 import Aihc.Tc.Generate.Bind (inferLocalDecls, inferRhsWithLocals)
 import Aihc.Tc.Generate.Pattern
 import Aihc.Tc.Generate.PatternBranch (solvePatternBranch)
-import Aihc.Tc.Instantiate (Instantiation (..), applySubst, instantiateWithArgs)
-import Aihc.Tc.Kind (checkSurfaceType)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
+import Aihc.Tc.Kind (checkSurfaceType, tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Aihc.Tc.Unify (unify)
@@ -458,7 +458,6 @@ typeMetaVariables ty =
     TcForAllTy _ body -> typeMetaVariables body
     TcQualTy predicates body -> concatMap predicateMetaVariables predicates <> typeMetaVariables body
     TcAppTy function argument -> typeMetaVariables function <> typeMetaVariables argument
-    TcBuiltinTyCon _ _ arguments -> concatMap typeMetaVariables arguments
 
 predicateMetaVariables :: Pred -> [Unique]
 predicateMetaVariables predicate =
@@ -476,7 +475,6 @@ typeMentionsTyVar target ty =
     TcForAllTy binder body -> binder /= target && typeMentionsTyVar target body
     TcQualTy predicates body -> any (predicateMentionsTyVar target) predicates || typeMentionsTyVar target body
     TcAppTy function argument -> typeMentionsTyVar target function || typeMentionsTyVar target argument
-    TcBuiltinTyCon _ _ arguments -> any (typeMentionsTyVar target) arguments
 
 predicateMentionsTyVar :: TyVarId -> Pred -> Bool
 predicateMentionsTyVar target predicate =
@@ -567,10 +565,11 @@ inferTuple sp flavor elems = do
       n = length tys
       typeName = tupleTyConText flavor n
   maybeTyCon <- lookupTyCon typeName
+  elementKinds <- mapM tcTypeKind tys
   let fallbackKind =
         case flavor of
-          Boxed -> foldr (KFun . typeKind) KType tys
-          Unboxed -> foldr (KFun . typeKind) (KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) tys))) tys
+          Boxed -> foldr KFun KType elementKinds
+          Unboxed -> foldr KFun (KTYPE (TupleRep (map runtimeRepOrLifted elementKinds))) elementKinds
   tc <-
     case maybeTyCon of
       Just info -> pure (tciTyCon info)
@@ -585,6 +584,8 @@ inferTuple sp flavor elems = do
     inferElem (Just e) = do
       (e', ty, cts) <- inferExpr e
       pure (Just e', ty, cts)
+
+    runtimeRepOrLifted kind = fromRight liftedRep (runtimeRepFromKind kind)
 
 tupleTyConText :: TupleFlavor -> Int -> Text
 tupleTyConText flavor arity =
@@ -929,7 +930,7 @@ primType = knownTyConType "GHC.Prim"
 knownTyConType :: Text -> Text -> TcM TcType
 knownTyConType moduleName name = do
   maybeInfo <- lookupTyCon name
-  tyCon <- maybe (mkKnownTyCon moduleName name 0 liftedTypeKind) (pure . tciTyCon) maybeInfo
+  tyCon <- maybe (mkKnownTyCon moduleName name 0 typeKindType) (pure . tciTyCon) maybeInfo
   pure (TcTyCon tyCon [])
 
 doubleTyCon :: TcM TcType
@@ -937,12 +938,12 @@ doubleTyCon = do
   maybeInfo <- lookupTyCon "Double"
   case maybeInfo of
     Just info -> pure (TcTyCon (tciTyCon info) [])
-    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Double" 0 liftedTypeKind <*> pure []
+    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Double" 0 typeKindType <*> pure []
 
 resolvedType :: Text -> TcM TcType
 resolvedType name = do
   maybeInfo <- lookupTyCon name
-  tyCon <- maybe (mkKnownTyCon "GHC.Types" name 0 liftedTypeKind) (pure . tciTyCon) maybeInfo
+  tyCon <- maybe (mkKnownTyCon "GHC.Types" name 0 typeKindType) (pure . tciTyCon) maybeInfo
   pure (TcTyCon tyCon [])
 
 stringTyCon :: TcM TcType
@@ -956,4 +957,4 @@ boolTyCon = do
   maybeInfo <- lookupTyCon "Bool"
   case maybeInfo of
     Just info -> pure (TcTyCon (tciTyCon info) [])
-    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Bool" 0 liftedTypeKind <*> pure []
+    Nothing -> TcTyCon <$> mkKnownTyCon "GHC.Types" "Bool" 0 typeKindType <*> pure []

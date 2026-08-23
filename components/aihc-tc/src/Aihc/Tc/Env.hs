@@ -80,6 +80,7 @@ data TyConInfo = TyConInfo
   { tciName :: !Text,
     tciArity :: !Int,
     tciTyCon :: !TyCon,
+    tciKindScheme :: !TypeScheme,
     tciFlavor :: !TyConFlavor,
     tciTypeSynonym :: !(Maybe TypeSynonymInfo)
   }
@@ -98,7 +99,7 @@ data DataTypeInfo = DataTypeInfo
   { dtiName :: !Text,
     dtiTyCon :: !TyCon,
     dtiTyVars :: ![TyVarId],
-    dtiResultKind :: !Kind,
+    dtiResultKind :: !TcType,
     dtiFlavor :: !TyConFlavor,
     dtiConstructors :: ![DataConInfo]
   }

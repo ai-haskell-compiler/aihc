@@ -12,10 +12,11 @@ module Aihc.Tc.Generalize
   )
 where
 
+import Aihc.Tc.Kind (defaultKindMetas)
 import Aihc.Tc.Monad (TcBinder (..), TcM, TcTermKey, freshSkolemTv, getTermEnv, readMetaTvKind, writeMetaTv)
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
-import Control.Monad (foldM, forM_)
+import Control.Monad (forM_, void)
 import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text qualified as T
@@ -63,11 +64,11 @@ generalizeIgnoringWithSubst ignoredKeys ty preds = do
         [binder | (key, binder) <- Map.toList env, key `Set.notMember` ignoredKeys]
   ty' <- zonkType ty
   preds' <- mapM zonkPred preds
-  envMetaVars <- expandMetaKindDependencies (nubOrd directEnvMetaVars)
   let freeMetaVars = collectMetaVars ty' ++ concatMap predMetaVars preds'
-  expandedMetaVars <- expandMetaKindDependencies (nubOrd freeMetaVars)
-  orderedMetaVars <- representationMetasFirst expandedMetaVars
-  let uniqueMetaVars = filter (`notElem` envMetaVars) orderedMetaVars
+      envMetaVars = nubOrd directEnvMetaVars
+      uniqueFreeMetaVars = nubOrd freeMetaVars
+  mapM_ defaultMetaKind (envMetaVars <> uniqueFreeMetaVars)
+  let uniqueMetaVars = filter (`notElem` envMetaVars) uniqueFreeMetaVars
   -- Create a type variable for each free meta-variable, naming them
   -- sequentially starting from 'a'.
   tvs <- metaVarsToTyVars uniqueMetaVars
@@ -85,7 +86,6 @@ collectMetaVars (TcFunTy a b) = collectMetaVars a ++ collectMetaVars b
 collectMetaVars (TcForAllTy _ body) = collectMetaVars body
 collectMetaVars (TcQualTy ps body) = concatMap predMetaVars ps ++ collectMetaVars body
 collectMetaVars (TcAppTy f a) = collectMetaVars f ++ collectMetaVars a
-collectMetaVars (TcBuiltinTyCon _ _ arguments) = concatMap collectMetaVars arguments
 
 -- | Collect free meta-variable uniques from a predicate.
 predMetaVars :: Pred -> [Unique]
@@ -96,13 +96,12 @@ predMetaVars (EqPred a b) = collectMetaVars a ++ collectMetaVars b
 -- sequential index for naming (so the first generalized variable is
 -- 'a', the second 'b', etc.).
 metaVarsToTyVars :: [Unique] -> TcM [TyVarId]
-metaVarsToTyVars uniques = reverse . fst <$> foldM addTyVar ([], Map.empty) (zip [0 ..] uniques)
+metaVarsToTyVars uniques = mapM makeTyVar (zip [0 ..] uniques)
   where
-    addTyVar (reversedTyVars, replacements) (index, unique) = do
-      kind <- substituteMetaRuntimeReps replacements <$> readMetaTvKind unique
+    makeTyVar (index, unique) = do
+      kind <- readMetaTvKind unique >>= defaultKindMetas
       rawTyVar <- freshSkolemTv (mkName index)
-      let tyVar = setTyVarKind kind rawTyVar
-      pure (tyVar : reversedTyVars, Map.insert unique tyVar replacements)
+      pure (setTyVarKind kind rawTyVar)
 
     mkName i =
       let c = toEnum (fromEnum 'a' + i `mod` 26)
@@ -110,58 +109,11 @@ metaVarsToTyVars uniques = reverse . fst <$> foldM addTyVar ([], Map.empty) (zip
             then T.singleton c
             else T.pack [c] <> T.pack (show (i `div` 26))
 
-expandMetaKindDependencies :: [Unique] -> TcM [Unique]
-expandMetaKindDependencies = foldM addWithDependencies []
-  where
-    addWithDependencies accumulated unique
-      | unique `elem` accumulated = pure accumulated
-      | otherwise = do
-          kind <- readMetaTvKind unique
-          withDependencies <- foldM addWithDependencies accumulated (runtimeRepMetasInKind kind)
-          pure (withDependencies <> [unique])
-
-representationMetasFirst :: [Unique] -> TcM [Unique]
-representationMetasFirst uniques = do
-  classified <- mapM classify uniques
-  let representationMetas = [unique | (unique, True) <- classified]
-      otherMetas = [unique | (unique, False) <- classified]
-  pure (representationMetas <> otherMetas)
-  where
-    classify unique = do
-      kind <- readMetaTvKind unique
-      pure (unique, kind == KRuntimeRep)
-
-runtimeRepMetasInKind :: Kind -> [Unique]
-runtimeRepMetasInKind kind =
-  case kind of
-    KTYPE runtimeRep -> runtimeRepMetas runtimeRep
-    KFun argument result -> runtimeRepMetasInKind argument <> runtimeRepMetasInKind result
-    _ -> []
-  where
-    runtimeRepMetas runtimeRepresentation =
-      case runtimeRepresentation of
-        RuntimeRepMeta unique -> [unique]
-        TupleRep reps -> concatMap runtimeRepMetas reps
-        SumRep reps -> concatMap runtimeRepMetas reps
-        _ -> []
-
-substituteMetaRuntimeReps :: Map.Map Unique TyVarId -> Kind -> Kind
-substituteMetaRuntimeReps replacements kind =
-  case kind of
-    KTYPE runtimeRep -> KTYPE (go runtimeRep)
-    KFun argument result ->
-      KFun
-        (substituteMetaRuntimeReps replacements argument)
-        (substituteMetaRuntimeReps replacements result)
-    _ -> kind
-  where
-    go runtimeRep =
-      case runtimeRep of
-        RuntimeRepMeta unique ->
-          maybe runtimeRep (RuntimeRepVar . tvUnique) (Map.lookup unique replacements)
-        TupleRep reps -> TupleRep (map go reps)
-        SumRep reps -> SumRep (map go reps)
-        _ -> runtimeRep
+defaultMetaKind :: Unique -> TcM ()
+defaultMetaKind unique = do
+  kind <- readMetaTvKind unique
+  -- defaultKindMetas writes each solution to the meta-variable store.
+  void (defaultKindMetas kind)
 
 -- | Substitute meta-variables with their corresponding type variables.
 substMetas :: [(Unique, TcType)] -> TcType -> TcType
@@ -176,7 +128,6 @@ substMetas subst = go
     go (TcForAllTy tv body) = TcForAllTy tv (go body)
     go (TcQualTy ps body) = TcQualTy (map (substMetasPred subst) ps) (go body)
     go (TcAppTy f a) = TcAppTy (go f) (go a)
-    go (TcBuiltinTyCon name arity arguments) = TcBuiltinTyCon name arity (map go arguments)
 
 -- | Substitute meta-variables in a predicate.
 substMetasPred :: [(Unique, TcType)] -> Pred -> Pred

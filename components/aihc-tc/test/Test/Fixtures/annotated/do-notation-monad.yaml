@@ -3,10 +3,7 @@ annotated:
   {-# LANGUAGE KindSignatures, RebindableSyntax #-}
   module Test where
 
-  import GHC.Types (Bool)
-
-  data Type
-       └─ type: Type
+  import GHC.Types (Bool, Type)
 
   class Applicative (m :: Type -> Type) where
   └─ class methods: pure ∷ ∀ m a. (Applicative m) ⇒ a → m a
@@ -41,9 +38,7 @@ modules:
   {-# LANGUAGE KindSignatures, RebindableSyntax #-}
   module Test where
 
-  import GHC.Types (Bool)
-
-  data Type
+  import GHC.Types (Bool, Type)
 
   class Applicative (m :: Type -> Type) where
     pure :: a -> m a

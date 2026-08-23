@@ -380,13 +380,6 @@ tcTypeValue ty =
           "fun" .= tcTypeValue fun,
           "arg" .= tcTypeValue arg
         ]
-    TcBuiltinTyCon name arity args ->
-      Aeson.object
-        [ "tag" .= ("builtin" :: Text),
-          "name" .= name,
-          "arity" .= arity,
-          "args" .= map tcTypeValue args
-        ]
 
 parseTcTypeJson :: Aeson.Value -> AesonTypes.Parser TcType
 parseTcTypeJson =
@@ -415,11 +408,6 @@ parseTcTypeJson =
         TcAppTy
           <$> (obj .: "fun" >>= parseTcTypeJson)
           <*> (obj .: "arg" >>= parseTcTypeJson)
-      "builtin" ->
-        TcBuiltinTyCon
-          <$> obj .: "name"
-          <*> obj .: "arity"
-          <*> (obj .: "args" >>= traverse parseTcTypeJson)
       other -> fail ("unknown type tag: " <> T.unpack other)
 
 parseTyVarObject :: AesonTypes.Object -> AesonTypes.Parser TyVarId

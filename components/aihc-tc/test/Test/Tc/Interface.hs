@@ -22,8 +22,9 @@ tcInterfaceTests =
           Right _ -> assertFailure "expected a conflicting interface value exception"
     ]
   where
-    listTyCon = mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types" "[]" 1 (KFun liftedTypeKind liftedTypeKind)
-    canonicalInfo = TyConInfo "List" 1 listTyCon DataTyCon Nothing
-    supportInfo = TyConInfo "[]" 1 listTyCon DataTyCon Nothing
+    listTyCon = mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types" "[]" 1
+    listKind = ForAll [] [] (TcFunTy typeKindType typeKindType)
+    canonicalInfo = TyConInfo "List" 1 listTyCon listKind DataTyCon Nothing
+    supportInfo = TyConInfo "[]" 1 listTyCon listKind DataTyCon Nothing
     canonicalInterface = emptyTcInterface {tcInterfaceTyCons = [canonicalInfo]}
     supportInterface = emptyTcInterface {tcInterfaceTyCons = [supportInfo]}

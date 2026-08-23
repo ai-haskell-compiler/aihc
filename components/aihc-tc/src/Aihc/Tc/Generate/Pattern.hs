@@ -35,7 +35,8 @@ import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
-import Aihc.Tc.Instantiate (Instantiation (..), applySubst, instantiateWithArgs)
+import Aihc.Tc.Instantiate (Instantiation (..), instantiateWithArgs)
+import Aihc.Tc.Kind (tcTypeKind)
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Data.Either (fromRight)
@@ -241,10 +242,11 @@ checkPatternCore gadtHandling sp pat scrutTy =
       let arity = length items
           typeName = tupleTyConText flavor arity
       maybeTyCon <- lookupTyCon typeName
+      elementKinds <- mapM tcTypeKind elemTys
       let fallbackKind =
             case flavor of
-              Boxed -> foldr (KFun . typeKind) KType elemTys
-              Unboxed -> foldr (KFun . typeKind) (KTYPE (TupleRep (map (fromRight liftedRuntimeRep . runtimeRepOfType) elemTys))) elemTys
+              Boxed -> foldr KFun KType elementKinds
+              Unboxed -> foldr KFun (KTYPE (TupleRep (map runtimeRepOrLifted elementKinds))) elementKinds
       tupleTyCon <-
         case maybeTyCon of
           Just info -> pure (tciTyCon info)
@@ -257,6 +259,9 @@ checkPatternCore gadtHandling sp pat scrutTy =
 
 checkedOnly :: Pattern -> PatternCheck
 checkedOnly pat = mempty {pcPatterns = [pat]}
+
+runtimeRepOrLifted :: TcType -> TcType
+runtimeRepOrLifted kind = fromRight liftedRep (runtimeRepFromKind kind)
 
 checkedLiteral :: TcType -> Literal -> Literal
 checkedLiteral ty = LitAnn (mkAnnotation (pendingAnnotation ty [] [] []))
@@ -321,10 +326,10 @@ charLiteralPatternType literal =
   case peelLiteralAnn literal of
     LitChar {} -> do
       maybeInfo <- lookupTyCon "Char"
-      tyCon <- maybe (mkKnownTyCon "GHC.Types" "Char" 0 liftedTypeKind) (pure . tciTyCon) maybeInfo
+      tyCon <- maybe (mkKnownTyCon "GHC.Types" "Char" 0 typeKindType) (pure . tciTyCon) maybeInfo
       pure (Just (TcTyCon tyCon []))
     LitCharHash {} -> do
-      tyCon <- mkKnownTyCon "GHC.Prim" "Char#" 0 liftedTypeKind
+      tyCon <- mkKnownTyCon "GHC.Prim" "Char#" 0 typeKindType
       pure (Just (TcTyCon tyCon []))
     _ -> pure Nothing
 
@@ -564,7 +569,7 @@ instantiateConstructorPattern (ForAll tyVars predicates body) = do
   pure
     ( instantiateType body,
       typeArgs,
-      map (instantiatePred substitution) predicates,
+      map (applySubstPred substitution) predicates,
       skolems
     )
   where
@@ -592,19 +597,12 @@ typeTyVars ty =
     TcForAllTy tyVar body -> Set.delete (tvUnique tyVar) (typeTyVars body)
     TcQualTy predicates body -> Set.unions (typeTyVars body : map predTyVars predicates)
     TcAppTy function argument -> typeTyVars function <> typeTyVars argument
-    TcBuiltinTyCon _ _ arguments -> Set.unions (map typeTyVars arguments)
 
 predTyVars :: Pred -> Set.Set Unique
 predTyVars predicate =
   case predicate of
     ClassPred _ arguments -> Set.unions (map typeTyVars arguments)
     EqPred left right -> typeTyVars left <> typeTyVars right
-
-instantiatePred :: Map.Map Unique TcType -> Pred -> Pred
-instantiatePred substitution predicate =
-  case predicate of
-    ClassPred className arguments -> ClassPred className (map (applySubst substitution) arguments)
-    EqPred left right -> EqPred (applySubst substitution left) (applySubst substitution right)
 
 replaceConstructorSubpatterns :: Pattern -> [Pattern] -> Pattern
 replaceConstructorSubpatterns pat subPats =

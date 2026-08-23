@@ -1,7 +1,9 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE GHCForeignImportPrim #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 module GHC.Prim
@@ -123,53 +125,76 @@ where
 
 import GHC.Types (Levity (..), RuntimeRep (..), TYPE, Type, UnliftedType)
 
+type Int# :: TYPE 'IntRep
 data Int#
 
+type Int8# :: TYPE 'Int8Rep
 data Int8#
 
+type Int16# :: TYPE 'Int16Rep
 data Int16#
 
+type Int32# :: TYPE 'Int32Rep
 data Int32#
 
+type Int64# :: TYPE 'Int64Rep
 data Int64#
 
+type Word# :: TYPE 'WordRep
 data Word#
 
+type Word8# :: TYPE 'Word8Rep
 data Word8#
 
+type Word16# :: TYPE 'Word16Rep
 data Word16#
 
+type Word32# :: TYPE 'Word32Rep
 data Word32#
 
+type Word64# :: TYPE 'Word64Rep
 data Word64#
 
+type Char# :: TYPE 'WordRep
 data Char#
 
+type Float# :: TYPE 'FloatRep
 data Float#
 
+type Double# :: TYPE 'DoubleRep
 data Double#
 
+type State# :: Type -> TYPE ('TupleRep '[])
 data State# s
 
+type Addr# :: TYPE 'AddrRep
 data Addr#
 
+type Array# :: Type -> UnliftedType
 data Array# a
 
+type ByteArray# :: UnliftedType
 data ByteArray#
 
+type MutableArray# :: Type -> Type -> UnliftedType
 data MutableArray# d a
 
+type MutableByteArray# :: Type -> UnliftedType
 data MutableByteArray# d
 
+type MVar# :: Type -> Type -> UnliftedType
 data MVar# d a
 
 type MutVar# :: Type -> Type -> UnliftedType
 data MutVar# d a
 
+type ThreadId# :: UnliftedType
 data ThreadId#
 
+type StableName# :: Type -> UnliftedType
 data StableName# a
 
+type RealWorld :: Type
 data RealWorld
 
 foreign import prim raise# :: forall (r :: RuntimeRep) a (b :: TYPE r). a -> b

@@ -2,13 +2,18 @@
 extensions:
 - ForeignFunctionInterface
 - GHCForeignImportPrim
+- KindSignatures
 - MagicHash
+- StandaloneKindSignatures
 - UnboxedTuples
 modules:
 - |
   module Test where
 
-  data State# s
+  import GHC.Types (Type, UnliftedType)
+  import GHC.Prim (State#)
+
+  type MutVar# :: Type -> Type -> UnliftedType
   data MutVar# d a
 
   foreign import prim newMutVar# ::

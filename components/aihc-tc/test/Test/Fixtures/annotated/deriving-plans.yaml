@@ -2,8 +2,7 @@ annotated:
 - |-
   {-# LANGUAGE DeriveAnyClass, DerivingStrategies, DerivingVia, GeneralizedNewtypeDeriving, KindSignatures #-}
   module Main where
-  data Type
-       └─ type: Type
+  import GHC.Types (Type)
   class C a where
   └─ class methods: c ∷ ∀ a. (C a) ⇒ a → a
     c :: a -> a
@@ -47,7 +46,7 @@ modules:
 - |
   {-# LANGUAGE DeriveAnyClass, DerivingStrategies, DerivingVia, GeneralizedNewtypeDeriving, KindSignatures #-}
   module Main where
-  data Type
+  import GHC.Types (Type)
   class C a where
     c :: a -> a
   class D a where

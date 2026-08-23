@@ -8,7 +8,6 @@ module Aihc.Testing.SchedulerProgram
 where
 
 import Aihc.Grin.Syntax
-import Aihc.Tc.Types (Levity (..), RuntimeRep (..))
 
 schedulerProgram :: GrinProgram
 schedulerProgram =
