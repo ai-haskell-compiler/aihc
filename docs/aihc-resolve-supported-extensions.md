@@ -23,5 +23,5 @@
 | ScopedTypeVariables       |   🟢    | 1/1           |
 | StandaloneDeriving        |   🟢    | 1/1           |
 | StandaloneKindSignatures  |   🟢    | 1/1           |
-| TypeFamilies              |   🟢    | 1/1           |
+| TypeFamilies              |   🟢    | 2/2           |
 
