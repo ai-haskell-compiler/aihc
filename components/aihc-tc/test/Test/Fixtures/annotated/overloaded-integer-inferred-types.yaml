@@ -10,15 +10,16 @@ annotated:
     fromInteger :: Integer -> a
 - |-
   module Main where
+  import GHC.Classes ((==))
+  import GHC.Num (fromInteger)
   literal = 1
   │         └─ type: a; type-args: a; evidence: given Num a
   └─ type: ∀ a. (GHC.Num.Num a) ⇒ a
   match = \case
   └─ type: ∀ a. (GHC.Classes.Eq a, GHC.Num.Num a) ⇒ a → ()
     1 -> ()
-    │││    └─ type: ()
+    ││    └─ type: ()
     └─ type: a; type-args: a; evidence: given Num a
-    └─ type: a
     └─ type: a → a → Bool; type-args: a; evidence: given Eq a
 extensions:
 - LambdaCase
@@ -32,6 +33,8 @@ modules:
     fromInteger :: Integer -> a
 - |
   module Main where
+  import GHC.Classes ((==))
+  import GHC.Num (fromInteger)
   literal = 1
   match = \case
     1 -> ()

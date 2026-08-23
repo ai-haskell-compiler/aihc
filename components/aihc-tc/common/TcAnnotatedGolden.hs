@@ -56,7 +56,7 @@ import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.List (dropWhileEnd, foldl', sort)
+import Data.List (dropWhileEnd, sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, mapMaybe)

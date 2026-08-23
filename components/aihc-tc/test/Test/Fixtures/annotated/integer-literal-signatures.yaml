@@ -12,25 +12,13 @@ annotated:
   instance Num Int where
   └─ $fNumInt ∷ () ⇒ Num Int
     fromInteger (IS x) = I# x
-    ││           ││││  │││    │  └─ type: Int#
-    ││           ││││  │││    └─ type: Int# → Int
-    ││           ││││  └─ type: Int#
-    ││           ││││  └─ type: Int#
-    ││           ││││  └─ type: Int#
-    ││           │└─ type: Integer
-    ││           │└─ type: Integer
-    ││           └─ type: Integer
-    ││           └─ type: Integer
-    └─ fromInteger ∷ Integer → Int
+    │            │  └─ type: Int#
+    │            └─ type: Integer
     └─ fromInteger ∷ Integer → Int
   instance Num Integer where
   └─ $fNumInteger ∷ () ⇒ Num Integer
     fromInteger x = x
-    ││           │││   └─ type: Integer
-    ││           └─ type: Integer
-    ││           └─ type: Integer
-    ││           └─ type: Integer
-    └─ fromInteger ∷ Integer → Integer
+    │           └─ type: Integer
     └─ fromInteger ∷ Integer → Integer
 - |-
   module Main where
