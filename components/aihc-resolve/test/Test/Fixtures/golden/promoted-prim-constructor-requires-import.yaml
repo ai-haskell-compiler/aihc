@@ -8,7 +8,7 @@ annotated:
 - |-
   module Main where
   type Rep = 'IntRep
-       │      └─ t Error unbound
+       │      └─ v Error unbound
        └─ t Main
 status: pass
 reason: aihc-prim promoted constructors require ordinary name resolution

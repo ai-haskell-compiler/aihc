@@ -12,6 +12,6 @@ annotated:
          │        └─ v Main
          └─ t Main
     type LiftedRep = 'Lifted
-         └─ t Main    └─ t Main
+         └─ t Main    └─ v Main
 status: pass
 reason: promoted data constructors resolve in type expressions

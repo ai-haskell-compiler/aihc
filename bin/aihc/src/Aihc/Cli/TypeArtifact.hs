@@ -6,7 +6,7 @@ module Aihc.Cli.TypeArtifact
   )
 where
 
-import Aihc.Resolve (PackageId (..))
+import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
 import Aihc.Tc
   ( ClassInfo (..),
     DataConFieldInfo (..),
@@ -32,7 +32,7 @@ import Aihc.Tc
     tyConName,
   )
 import Aihc.Tc.Env (TypeSynonymInfo (..))
-import Aihc.Tc.Types (mkTyConWithOrigin, setTyVarKind, tyConModuleName, tyConPackageId)
+import Aihc.Tc.Types (mkTyConWithNamespace, setTyVarKind, tyConModuleName, tyConNamespace, tyConPackageId)
 import Control.Monad (replicateM, unless)
 import Data.Binary.Get qualified as Get
 import Data.Bits (shiftR)
@@ -55,7 +55,7 @@ encodeTypeArtifact artifact =
   Builder.toLazyByteString $
     cborArray 5
       <> cborText "aihc-type"
-      <> cborWord 5
+      <> cborWord 6
       <> cborText (typeArtifactModuleName artifact)
       <> encodeList encodeHash (typeArtifactInputHashes artifact)
       <> putInterface (typeArtifactInterface artifact)
@@ -77,7 +77,7 @@ getArtifact :: Get.Get TypeArtifact
 getArtifact = do
   expectArray 5
   expectText "aihc-type"
-  expectWord 5
+  expectWord 6
   typeArtifactModuleName <- getText
   typeArtifactInputHashes <- getList getHash
   typeArtifactInterface <- getInterface
@@ -157,16 +157,37 @@ getUnique = Unique <$> getInt
 
 putTyCon :: TyCon -> Builder.Builder
 putTyCon tyCon =
-  cborArray 4
+  cborArray 5
     <> putPackageId (tyConPackageId tyCon)
     <> cborText (tyConModuleName tyCon)
+    <> putResolutionNamespace (tyConNamespace tyCon)
     <> cborText (tyConName tyCon)
     <> cborInt (tyConArity tyCon)
 
 getTyCon :: Get.Get TyCon
 getTyCon = do
-  expectArray 4
-  mkTyConWithOrigin <$> getPackageId <*> getText <*> getText <*> getInt
+  expectArray 5
+  packageId <- getPackageId
+  moduleName <- getText
+  namespace <- getResolutionNamespace
+  mkTyConWithNamespace namespace packageId moduleName <$> getText <*> getInt
+
+putResolutionNamespace :: ResolutionNamespace -> Builder.Builder
+putResolutionNamespace namespace =
+  cborWord $
+    case namespace of
+      ResolutionNamespaceTerm -> 0
+      ResolutionNamespaceType -> 1
+      ResolutionNamespaceModule -> 2
+
+getResolutionNamespace :: Get.Get ResolutionNamespace
+getResolutionNamespace = do
+  tag <- getWord
+  case tag of
+    0 -> pure ResolutionNamespaceTerm
+    1 -> pure ResolutionNamespaceType
+    2 -> pure ResolutionNamespaceModule
+    _ -> fail "unsupported resolution namespace"
 
 putPackageId :: PackageId -> Builder.Builder
 putPackageId (PackageId identity) = cborText identity

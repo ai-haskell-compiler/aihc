@@ -1,0 +1,23 @@
+extensions:
+  - DataKinds
+modules:
+  - |
+    module Test where
+    data Same = Same
+    type TypeName = Same
+    type TermName = 'Same
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tSame :: 2.tType {
+      pub 1.vSame :: 1.tSame
+  }
+
+  pub type 1.tTypeName :: 2.tType =
+   1.tSame
+
+  pub type 1.tTermName :: 1.tSame =
+   1.vSame
+status: pass
+reason: FC conversion keeps same-text type and term namespace identities separate

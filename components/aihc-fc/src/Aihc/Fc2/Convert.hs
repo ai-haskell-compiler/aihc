@@ -30,7 +30,7 @@ where
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Fc2.Wired
-import Aihc.Resolve (PackageId)
+import Aihc.Resolve (PackageId, ResolutionNamespace (..))
 import Aihc.Tc.Types
   ( Pred (..),
     TcKindEnv,
@@ -47,6 +47,7 @@ import Aihc.Tc.Types
     tyConKey,
     tyConModuleName,
     tyConName,
+    tyConNamespace,
     tyConPackageId,
     pattern AddrRep,
     pattern BoxedRep,
@@ -170,7 +171,7 @@ convertRep env runtimeRep =
     TupleRep fields -> convertTuple fields
     SumRep fields -> do
       converted <- mapM (convertRep env) fields
-      Right (TyApp (repCon env "SumRep") (promotedRuntimeRepList env converted))
+      Right (TyApp (repCon env "SumRep") (runtimeRepList env converted))
     VecRep count element ->
       Right
         ( TyApp
@@ -187,10 +188,10 @@ convertRep env runtimeRep =
   where
     convertTuple fields = do
       converted <- mapM (convertRep env) fields
-      Right (TyApp (repCon env "TupleRep") (promotedRuntimeRepList env converted))
+      Right (TyApp (repCon env "TupleRep") (runtimeRepList env converted))
 
-promotedRuntimeRepList :: ConvertEnv -> [Type] -> Type
-promotedRuntimeRepList env =
+runtimeRepList :: ConvertEnv -> [Type] -> Type
+runtimeRepList env =
   foldr cons nil
   where
     runtimeRep = TyCon (runtimeRepConstructor (cePrimPackage env))
@@ -274,25 +275,15 @@ tyConNameFc2 :: ConvertEnv -> TyCon -> Name
 tyConNameFc2 env tyCon =
   if Set.member (tyConKey tyCon) (ceClassTyCons env)
     then classDictTypeName tyCon
-    else case promotedNameFc2 tyCon of
-      Just name -> name
-      Nothing -> Name (tyConName tyCon) SortTypeConstructor (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
-
--- | Convert the type-checker promotion marker to an FC data-constructor name.
-promotedNameFc2 :: TyCon -> Maybe Name
-promotedNameFc2 tyCon =
-  if T.isPrefixOf "'" (tyConName tyCon)
-    then wiredBuiltinName tyCon
-    else Nothing
-
-wiredBuiltinName :: TyCon -> Maybe Name
-wiredBuiltinName tyCon =
-  case Map.lookup name builtinTable of
-    Just (sort, _) ->
-      Just (Name name sort (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)))
-    Nothing -> Nothing
+    else
+      Name
+        (tyConName tyCon)
+        (namespaceSort (tyConNamespace tyCon))
+        (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
   where
-    name = T.dropWhile (== '\'') (tyConName tyCon)
+    namespaceSort ResolutionNamespaceTerm = SortDataConstructor
+    namespaceSort ResolutionNamespaceType = SortTypeConstructor
+    namespaceSort ResolutionNamespaceModule = SortTypeConstructor
 
 -- | Invisible kind parameters that the type constructor quantifies before visible arguments.
 extraKindVars :: ConvertEnv -> TyCon -> [TyVarId] -> Either String [TyVarId]
@@ -367,54 +358,3 @@ kindScheme env tyCon =
   case Map.lookup (tyConKey tyCon) (ceKindEnv env) of
     Just scheme -> Right scheme
     Nothing -> Left ("missing kind scheme for type constructor: " <> T.unpack (tyConName tyCon))
-
-builtinTable :: Map Text (Sort, Text)
-builtinTable =
-  Map.fromList
-    [ ("Type", (SortSynonym, "GHC.Types")),
-      ("TYPE", (SortTypeConstructor, "GHC.Types")),
-      ("Constraint", (SortTypeConstructor, "GHC.Types")),
-      ("RuntimeRep", (SortTypeConstructor, "GHC.Types")),
-      ("Levity", (SortTypeConstructor, "GHC.Types")),
-      ("VecCount", (SortTypeConstructor, "GHC.Types")),
-      ("VecElem", (SortTypeConstructor, "GHC.Types")),
-      ("LiftedRep", (SortSynonym, "GHC.Types")),
-      ("UnliftedRep", (SortSynonym, "GHC.Types")),
-      ("IntRep", (SortDataConstructor, "GHC.Types")),
-      ("Int8Rep", (SortDataConstructor, "GHC.Types")),
-      ("Int16Rep", (SortDataConstructor, "GHC.Types")),
-      ("Int32Rep", (SortDataConstructor, "GHC.Types")),
-      ("Int64Rep", (SortDataConstructor, "GHC.Types")),
-      ("WordRep", (SortDataConstructor, "GHC.Types")),
-      ("Word8Rep", (SortDataConstructor, "GHC.Types")),
-      ("Word16Rep", (SortDataConstructor, "GHC.Types")),
-      ("Word32Rep", (SortDataConstructor, "GHC.Types")),
-      ("Word64Rep", (SortDataConstructor, "GHC.Types")),
-      ("AddrRep", (SortDataConstructor, "GHC.Types")),
-      ("FloatRep", (SortDataConstructor, "GHC.Types")),
-      ("DoubleRep", (SortDataConstructor, "GHC.Types")),
-      ("BoxedRep", (SortDataConstructor, "GHC.Types")),
-      ("Lifted", (SortDataConstructor, "GHC.Types")),
-      ("Unlifted", (SortDataConstructor, "GHC.Types")),
-      ("TupleRep", (SortDataConstructor, "GHC.Types")),
-      ("SumRep", (SortDataConstructor, "GHC.Types")),
-      ("VecRep", (SortDataConstructor, "GHC.Types")),
-      ("[]", (SortDataConstructor, "GHC.Types")),
-      (":", (SortDataConstructor, "GHC.Types")),
-      ("Vec2", (SortDataConstructor, "GHC.Types")),
-      ("Vec4", (SortDataConstructor, "GHC.Types")),
-      ("Vec8", (SortDataConstructor, "GHC.Types")),
-      ("Vec16", (SortDataConstructor, "GHC.Types")),
-      ("Vec32", (SortDataConstructor, "GHC.Types")),
-      ("Vec64", (SortDataConstructor, "GHC.Types")),
-      ("Int8ElemRep", (SortDataConstructor, "GHC.Types")),
-      ("Int16ElemRep", (SortDataConstructor, "GHC.Types")),
-      ("Int32ElemRep", (SortDataConstructor, "GHC.Types")),
-      ("Int64ElemRep", (SortDataConstructor, "GHC.Types")),
-      ("Word8ElemRep", (SortDataConstructor, "GHC.Types")),
-      ("Word16ElemRep", (SortDataConstructor, "GHC.Types")),
-      ("Word32ElemRep", (SortDataConstructor, "GHC.Types")),
-      ("Word64ElemRep", (SortDataConstructor, "GHC.Types")),
-      ("FloatElemRep", (SortDataConstructor, "GHC.Types")),
-      ("DoubleElemRep", (SortDataConstructor, "GHC.Types"))
-    ]

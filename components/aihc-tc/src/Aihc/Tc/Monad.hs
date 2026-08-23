@@ -41,6 +41,7 @@ module Aihc.Tc.Monad
     Closedness (..),
     emptyTcEnv,
     mkKnownTyCon,
+    mkKnownDataCon,
     configuredTyCon,
     lookupTerm,
     lookupKnownTerm,
@@ -61,7 +62,7 @@ module Aihc.Tc.Monad
     lookupTyCon,
     lookupTyConQualified,
     lookupResolvedTyCon,
-    lookupResolvedPromotedTyCon,
+    lookupResolvedTypeSyntax,
     lookupDeclaredTyCon,
     lookupTyConByIdentity,
     extendTyConEnvPermanent,
@@ -99,7 +100,7 @@ module Aihc.Tc.Monad
 where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), TypeSyntaxResolution (..))
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataTypeKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
@@ -166,9 +167,15 @@ tcConfig :: PackageId -> TcConfig
 tcConfig = TcConfig
 
 mkKnownTyCon :: Text -> Text -> Int -> TcType -> TcM TyCon
-mkKnownTyCon moduleName name arity kind = do
+mkKnownTyCon = mkKnownTyConInNamespace ResolutionNamespaceType
+
+mkKnownDataCon :: Text -> Text -> Int -> TcType -> TcM TyCon
+mkKnownDataCon = mkKnownTyConInNamespace ResolutionNamespaceTerm
+
+mkKnownTyConInNamespace :: ResolutionNamespace -> Text -> Text -> Int -> TcType -> TcM TyCon
+mkKnownTyConInNamespace namespace moduleName name arity kind = do
   TcConfig packageIdentity <- asks tcEnvConfig
-  let tyCon = mkTyConWithOrigin packageIdentity moduleName name arity
+  let tyCon = mkTyConWithNamespace namespace packageIdentity moduleName name arity
   maybeInfo <- lookupTyConByIdentity tyCon
   case maybeInfo of
     Just info -> pure (tciTyCon info)
@@ -182,7 +189,14 @@ configuredTyCon tyCon
   | tyConPackageId tyCon == PackageId "aihc-prim",
     tyConModuleName tyCon == "GHC.Types" = do
       TcConfig packageIdentity <- asks tcEnvConfig
-      pure (mkTyConWithOrigin packageIdentity (tyConModuleName tyCon) (tyConName tyCon) (tyConArity tyCon))
+      pure
+        ( mkTyConWithNamespace
+            (tyConNamespace tyCon)
+            packageIdentity
+            (tyConModuleName tyCon)
+            (tyConName tyCon)
+            (tyConArity tyCon)
+        )
   | otherwise = pure tyCon
 
 -- | Whether a polymorphic binding is known to have no free type variables.
@@ -494,61 +508,91 @@ termResolution =
     . mapMaybe fromAnnotation
 
 lookupTyCon :: Text -> TcM (Maybe TyConInfo)
-lookupTyCon name =
+lookupTyCon = lookupTyConInNamespace ResolutionNamespaceType
+
+lookupTyConInNamespace :: ResolutionNamespace -> Text -> TcM (Maybe TyConInfo)
+lookupTyConInNamespace namespace name =
   lift $ gets $ find matches . Map.elems . tcsGlobalTyCons
   where
-    matches info = tciName info == name || tyConName (tciTyCon info) == name
+    matches info =
+      tyConNamespace (tciTyCon info) == namespace
+        && (tciName info == name || tyConName (tciTyCon info) == name)
 
 lookupTyConQualified :: Text -> Text -> TcM (Maybe TyConInfo)
-lookupTyConQualified moduleName name =
+lookupTyConQualified = lookupTyConQualifiedInNamespace ResolutionNamespaceType
+
+lookupTyConQualifiedInNamespace :: ResolutionNamespace -> Text -> Text -> TcM (Maybe TyConInfo)
+lookupTyConQualifiedInNamespace namespace moduleName name =
   lift $ gets $ find matches . Map.elems . tcsGlobalTyCons
   where
     matches info =
       let tyCon = tciTyCon info
-       in tyConModuleName tyCon == moduleName
+       in tyConNamespace tyCon == namespace
+            && tyConModuleName tyCon == moduleName
             && (tciName info == name || tyConName tyCon == name)
 
 lookupResolvedTyCon :: Name -> TcM (Maybe TyConInfo)
 lookupResolvedTyCon name =
-  case typeResolution (nameAnns name) of
-    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
-      exact <- lookupTyConOrigin packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
-      maybe (lookupTyCon (nameText name)) (pure . Just) exact
+  case typeUseResolution (nameAnns name) of
+    Just ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
+      exact <- lookupTyConOrigin namespace packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+      maybe (lookupTyConInNamespace namespace (nameText name)) (pure . Just) exact
+    Just ResolutionAnnotation {resolutionTarget = ResolvedError {}} -> pure Nothing
+    Just ResolutionAnnotation {resolutionNamespace = namespace} ->
+      maybe
+        (lookupTyConInNamespace namespace (nameText name))
+        (\moduleName -> lookupTyConQualifiedInNamespace namespace moduleName (nameText name))
+        (nameQualifier name)
     _ -> maybe (lookupTyCon (nameText name)) (\moduleName -> lookupTyConQualified moduleName (nameText name)) (nameQualifier name)
 
-lookupResolvedPromotedTyCon :: Name -> TcM (Maybe TyConInfo)
-lookupResolvedPromotedTyCon name =
-  case typeResolution (nameAnns name) of
-    Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
-      let promotedName = "'" <> nameText resolvedName
-      exact <- lookupTyConOrigin packageId (fromMaybe "" (nameQualifier resolvedName)) promotedName
-      maybe (lookupTyCon ("'" <> nameText name)) (pure . Just) exact
-    _ -> maybe (lookupTyCon ("'" <> nameText name)) (\moduleName -> lookupTyConQualified moduleName ("'" <> nameText name)) (nameQualifier name)
+lookupResolvedTypeSyntax :: TypeSyntaxResolution -> TcM (Maybe TyConInfo)
+lookupResolvedTypeSyntax resolution =
+  case resolution of
+    TypeSyntaxResolution
+      { typeSyntaxResolutionName = sourceName,
+        typeSyntaxResolutionNamespace = namespace,
+        typeSyntaxResolutionTarget = ResolvedTopLevel packageId resolvedName
+      } -> do
+        exact <- lookupTyConOrigin namespace packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+        maybe (lookupTyConInNamespace namespace sourceName) (pure . Just) exact
+    TypeSyntaxResolution
+      { typeSyntaxResolutionTarget = ResolvedError {}
+      } -> pure Nothing
+    TypeSyntaxResolution
+      { typeSyntaxResolutionName = sourceName,
+        typeSyntaxResolutionNamespace = namespace
+      } -> lookupTyConInNamespace namespace sourceName
 
 lookupDeclaredTyCon :: UnqualifiedName -> TcM (Maybe TyConInfo)
 lookupDeclaredTyCon name =
   case typeResolution (unqualifiedNameAnns name) of
     Just ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} -> do
-      exact <- lookupTyConOrigin packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
+      exact <- lookupTyConOrigin ResolutionNamespaceType packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
       maybe (lookupTyCon (unqualifiedNameText name)) (pure . Just) exact
     _ -> lookupTyCon (unqualifiedNameText name)
 
 lookupTyConByIdentity :: TyCon -> TcM (Maybe TyConInfo)
 lookupTyConByIdentity tyCon = lift $ gets $ Map.lookup tyCon . tcsGlobalTyCons
 
-lookupTyConOrigin :: PackageId -> Text -> Text -> TcM (Maybe TyConInfo)
-lookupTyConOrigin packageId moduleName name =
+lookupTyConOrigin :: ResolutionNamespace -> PackageId -> Text -> Text -> TcM (Maybe TyConInfo)
+lookupTyConOrigin namespace packageId moduleName name =
   lift $ gets $ find matches . Map.elems . tcsGlobalTyCons
   where
     matches info =
       let tyCon = tciTyCon info
-       in tyConPackageId tyCon == packageId
+       in tyConNamespace tyCon == namespace
+            && tyConPackageId tyCon == packageId
             && tyConModuleName tyCon == moduleName
             && tyConName tyCon == name
 
 typeResolution :: [Annotation] -> Maybe ResolutionAnnotation
 typeResolution =
   find ((== ResolutionNamespaceType) . resolutionNamespace)
+    . mapMaybe fromAnnotation
+
+typeUseResolution :: [Annotation] -> Maybe ResolutionAnnotation
+typeUseResolution =
+  find ((/= ResolutionNamespaceModule) . resolutionNamespace)
     . mapMaybe fromAnnotation
 
 getTyConEnv :: TcM (Map TyCon TyConInfo)

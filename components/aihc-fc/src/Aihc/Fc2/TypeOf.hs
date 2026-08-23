@@ -104,8 +104,8 @@ typeOf env ty =
     TyVar name ->
       Map.lookup name (teBinders env)
     TyCon name ->
-      case promotedListType env name of
-        Just promotedKind -> Just promotedKind
+      case listDataConstructorType env name of
+        Just constructorType -> Just constructorType
         Nothing -> lookupHeaderType env name
     TyApp function argument ->
       do
@@ -118,8 +118,8 @@ typeOf env ty =
     TyEq {} ->
       TyCon . constraintName <$> tePrimPackage env
 
-promotedListType :: TypeEnv -> Name -> Maybe Type
-promotedListType env name = do
+listDataConstructorType :: TypeEnv -> Name -> Maybe Type
+listDataConstructorType env name = do
   package <- tePrimPackage env
   let kindName = Name "k" SortTypeVariable (OriginLocal (Unique (-1000)))
       kindVariable = TyVar kindName
