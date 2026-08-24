@@ -542,9 +542,6 @@ matchesNullary _ _ _ = False
 runtimeRepFromKind :: TcType -> Either String TcType
 runtimeRepFromKind kind =
   case kind of
-    TcTyCon tyCon []
-      | tyConName tyCon `elem` ["Type", "LiftedType", "Constraint"] -> Right liftedRep
-      | tyConName tyCon == "UnliftedType" -> Right unliftedRep
     TcTyCon tyCon [representation]
       | tyConName tyCon == "TYPE" -> Right representation
     _ -> Left ("type does not have a runtime representation: " <> show kind)
