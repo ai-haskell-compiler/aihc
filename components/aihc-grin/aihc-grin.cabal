@@ -79,12 +79,10 @@ test-suite spec
   type: exitcode-stdio-1.0
   hs-source-dirs:
     test
-    ../aihc-fc/common
     ../../test/support
 
   main-is: Spec.hs
   other-modules:
-    Fc2Golden
     GrinGolden
     Test.Grin.Arbitrary
 
