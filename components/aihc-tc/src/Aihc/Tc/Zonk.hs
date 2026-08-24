@@ -68,7 +68,7 @@ defaultTyConKindScheme :: TypeScheme -> TcM TypeScheme
 defaultTyConKindScheme scheme@(ForAll tyVars predicates _) = do
   tyVars' <- mapM defaultTyVarKinds tyVars
   predicates' <- mapM defaultPredKinds predicates
-  kind <- defaultKindMetas (typeSchemeBody scheme)
+  kind <- defaultKindMetas (typeSchemeBody scheme) >>= zonkKind
   pure (ForAll tyVars' predicates' kind)
 
 defaultPredKinds :: Pred -> TcM Pred

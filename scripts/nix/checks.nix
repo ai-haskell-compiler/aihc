@@ -393,6 +393,26 @@
     test "$failed" -eq 0
   '';
 
+  coreLibrariesInstallV2 =
+    pkgs.runCommand "aihc-core-libraries-install-v2" {
+      src = sources.coreLibrariesSrc pkgs;
+      nativeBuildInputs = [pkgs.findutils];
+    } ''
+      cd "$src"
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      store="$TMPDIR/store"
+      mkdir -p "$store"
+
+      ${aihcExe} install-v2 core-libs/aihc-prim --store "$store"
+      ${aihcExe} install-v2 core-libs/aihc-base --store "$store"
+
+      test -n "$(find "$store" -path '*/GHC/Prim/core-v2' -print -quit)"
+      test -n "$(find "$store" -path '*/Prelude/core-v2' -print -quit)"
+      test -z "$(find "$store" -type f -name 'core-v2.bad' -print -quit)"
+      touch "$out"
+    '';
+
   # The compiler owns preparation of the installed toolchain. Runtime archives
   # are built once per backend/GC pair, and ordinary package installation emits
   # the reusable library interfaces and target-specific archives.
@@ -647,4 +667,5 @@ in {
   c-lint = cLint;
   c-format = cFormat;
   cabal-format = cabalFormat;
+  core-libraries-install-v2 = coreLibrariesInstallV2;
 }

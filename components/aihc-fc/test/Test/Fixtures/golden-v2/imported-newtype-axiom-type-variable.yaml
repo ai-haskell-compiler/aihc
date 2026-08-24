@@ -22,6 +22,7 @@ expected: |-
   pub val 2.vwrap :: ∀(a : 3.tType). a 3.→ 1.tIdentity a
    = Λ(a : 3.tType).
     λ(x : a).
-      x ▷ sym (axiom-co 1.$ax$Identity @a)
+      (λ(_newtype : a).
+        _newtype ▷ sym (axiom-co 1.$ax$Identity @a)) x
 status: pass
 reason: ''

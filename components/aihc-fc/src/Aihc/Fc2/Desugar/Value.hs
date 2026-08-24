@@ -1055,11 +1055,19 @@ patternType pattern' =
   case pattern' of
     Syn.PVar name -> nameTcType name
     Syn.PAnn annotation inner -> (tcAnnType <$> Syn.fromAnnotation annotation) <|> patternType inner
+    Syn.PLit literal -> literalType literal
+    Syn.PNegLit literal -> literalType literal
     Syn.PParen inner -> patternType inner
     Syn.PStrict inner -> patternType inner
     Syn.PIrrefutable inner -> patternType inner
     Syn.PAs name inner -> nameTcType name <|> patternType inner
     Syn.PTypeSig inner _ -> patternType inner
+    _ -> Nothing
+
+literalType :: Syn.Literal -> Maybe TcType
+literalType literal =
+  case literal of
+    Syn.LitAnn annotation inner -> (tcAnnType <$> Syn.fromAnnotation annotation) <|> literalType inner
     _ -> Nothing
 
 fromBinderType :: Syn.Pattern -> TcType
@@ -1082,7 +1090,7 @@ desugarExpr expression =
     Syn.EAnn annotation inner
       | Just tcAnnotation <- Syn.fromAnnotation annotation -> desugarAnnotatedExpr tcAnnotation inner
       | otherwise -> desugarExpr inner
-    Syn.EVar name -> ExVar <$> occurrenceName name
+    Syn.EVar name -> desugarVariable Nothing name
     Syn.EApp function argument -> desugarApplication function argument
     Syn.EInfix left operator right -> do
       operator' <- desugarInfixOperator operator
@@ -1106,15 +1114,7 @@ desugarAnnotatedExpr annotation inner = do
         | not (null (tcAnnTypeBinders annotation)) -> desugarExpr inner
       expression
         | Just name <- annotatedVariable expression -> do
-            maybeNewtype <- newtypeConstructorData name
-            case maybeNewtype of
-              Just dataType -> desugarNewtypeConstructor annotation dataType
-              Nothing -> do
-                variable <- occurrenceName name
-                inferredTypes <- localOccurrenceTypeArguments name annotation
-                types <- mapM convertCheckedType inferredTypes
-                evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
-                pure (foldl ExApp (foldl ExTyApp (ExVar variable) types) evidence)
+            desugarVariable (Just annotation) name
       Syn.EAnn resolutionAnnotation (Syn.EInt value Syn.TInteger _)
         | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
           resolutionNamespace resolution == ResolutionNamespaceTerm,
@@ -1198,24 +1198,32 @@ desugarInfixOperator operator =
 
 desugarApplication :: Syn.Expr -> Syn.Expr -> ValueM Expr
 desugarApplication function argument = do
-  maybeNewtype <- newtypeApplication function
   argument' <- desugarExpr argument
-  case maybeNewtype of
-    Just (dataType, typeArguments) -> do
-      convertedArguments <- mapM convertCheckedType typeArguments
-      let tyCon = dtiTyCon dataType
-          axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
-      pure (ExCast argument' (CoSym (CoAxiom axiom convertedArguments)))
-    Nothing -> ExApp <$> desugarExpr function <*> pure argument'
+  ExApp <$> desugarExpr function <*> pure argument'
 
-newtypeApplication :: Syn.Expr -> ValueM (Maybe (DataTypeInfo, [TcType]))
-newtypeApplication expression = do
-  newtypes <- gets vsNewtypeConstructors
-  pure $ do
-    (name, annotation) <- annotatedHead expression
-    key <- resolvedTermKey name
-    dataType <- Map.lookup key newtypes
-    pure (dataType, tcAnnTypeArgs annotation)
+desugarVariable :: Maybe TcAnnotation -> Syn.Name -> ValueM Expr
+desugarVariable maybeAnnotation name = do
+  maybeNewtype <- newtypeConstructorData name
+  case maybeNewtype of
+    Just dataType -> do
+      annotation <-
+        case maybeAnnotation of
+          Just value -> pure value
+          Nothing -> do
+            types <- gets vsTypes
+            case Map.lookup (Syn.nameText name) types of
+              Just constructorType -> pure (TcAnnotation constructorType [] [] [] [])
+              Nothing -> failValue ("missing checked newtype constructor type " <> T.unpack (Syn.nameText name))
+      desugarNewtypeConstructor annotation dataType
+    Nothing -> do
+      variable <- occurrenceName name
+      case maybeAnnotation of
+        Nothing -> pure (ExVar variable)
+        Just annotation -> do
+          inferredTypes <- localOccurrenceTypeArguments name annotation
+          types <- mapM convertCheckedType inferredTypes
+          evidence <- mapM desugarEvidence (tcAnnEvidenceTerms annotation)
+          pure (foldl ExApp (foldl ExTyApp (ExVar variable) types) evidence)
 
 newtypeConstructorData :: Syn.Name -> ValueM (Maybe DataTypeInfo)
 newtypeConstructorData name = do
@@ -1243,18 +1251,6 @@ desugarNewtypeConstructor annotation dataType = do
       axiom = Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
   convertedArguments <- mapM convertCheckedType typeArguments
   pure (ExLam argument (ExCast (ExVar (binderName argument)) (CoSym (CoAxiom axiom convertedArguments))))
-
-annotatedHead :: Syn.Expr -> Maybe (Syn.Name, TcAnnotation)
-annotatedHead = go Nothing
-  where
-    go maybeAnnotation expression =
-      case expression of
-        Syn.EAnn annotation inner -> go ((Syn.fromAnnotation annotation :: Maybe TcAnnotation) <|> maybeAnnotation) inner
-        Syn.EParen inner -> go maybeAnnotation inner
-        Syn.ETypeApp inner _ -> go maybeAnnotation inner
-        Syn.EVar name -> (,fromMaybe emptyTcAnnotation maybeAnnotation) <$> Just name
-        _ -> Nothing
-    emptyTcAnnotation = TcAnnotation typeKindType [] [] [] []
 
 desugarLambda :: [Syn.Pattern] -> Syn.Expr -> ValueM Expr
 desugarLambda patterns body = do

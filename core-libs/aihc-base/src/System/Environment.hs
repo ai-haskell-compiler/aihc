@@ -74,5 +74,6 @@ baseName = go []
 reverseString :: String -> String
 reverseString = go []
   where
+    go :: String -> String -> String
     go reversed [] = reversed
     go reversed (character : rest) = go (character : reversed) rest
