@@ -420,9 +420,6 @@ pattern KMeta unique = TcMetaTv unique
 matchTYPEKind :: TcType -> Maybe TcType
 matchTYPEKind kind =
   case kind of
-    TcTyCon tyCon []
-      | tyConName tyCon `elem` ["Type", "LiftedType"] -> Just liftedRep
-      | tyConName tyCon == "UnliftedType" -> Just unliftedRep
     TcTyCon tyCon [representation]
       | tyConName tyCon == "TYPE" -> Just representation
     _ -> Nothing
