@@ -8,6 +8,7 @@ module Fc2Golden
     fixtureRoot,
     loadFc2Cases,
     evaluateFc2Case,
+    buildFc2CasePrograms,
   )
 where
 
@@ -186,7 +187,22 @@ evaluateFc2Case tc =
     Right actual -> classifySuccess tc actual
 
 renderFc2Case :: Fc2Case -> Either String String
-renderFc2Case tc =
+renderFc2Case tc = do
+  (_, fixturePrograms) <- buildFc2CasePrograms tc
+  unlines <$> traverse renderResult fixturePrograms
+  where
+    renderResult program =
+      let rendered = renderProgram program
+       in case parseProgram (T.pack rendered) of
+            Left parseError -> Left ("System FC 2 round-trip parse error:\n" <> renderParseError parseError <> "\n" <> rendered)
+            Right parsed ->
+              let canonical = renderProgram parsed
+               in if canonical == rendered
+                    then Right rendered
+                    else Left ("System FC 2 round trip changed canonical syntax:\n" <> canonical <> "\noriginal:\n" <> rendered)
+
+buildFc2CasePrograms :: Fc2Case -> Either String ([Program], [Program])
+buildFc2CasePrograms tc =
   let parsedModules = map parseFixtureModule (caseModules tc)
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
@@ -203,7 +219,7 @@ renderFc2Case tc =
                               (desugarModuleFc2 desugarConfig fixtureBindings tcInterface)
                               fixtureTcResults
                        in if all ds2Success fixtureResults
-                            then lintAndRenderResults (supportPrograms primitiveSupport <> map ds2Program fixtureResults) fixtureResults
+                            then lintResults (supportPrograms primitiveSupport <> map ds2Program fixtureResults) (map ds2Program fixtureResults)
                             else Left (unlines (concatMap ds2Errors fixtureResults))
                     else Left ("typecheck error: " <> unlines [show d | r <- fixtureTcResults, d <- tcModuleDiagnostics r])
             ResolveResult {resolveErrors} ->
@@ -211,29 +227,10 @@ renderFc2Case tc =
   where
     parseFixtureModule input =
       parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
-    lintAndRenderResults programs fixtureResults =
-      case renderResults fixtureResults of
-        Left renderError -> Left renderError
-        Right rendered ->
-          case lintPrograms programs of
-            [] -> Right rendered
-            lintErrors ->
-              Left
-                ( unlines ["System FC 2 lint error: " <> show lintError | lintError <- lintErrors]
-                    <> "\nSystem FC 2 output:\n"
-                    <> rendered
-                )
-    renderResults results =
-      unlines <$> traverse renderResult results
-    renderResult result =
-      let rendered = renderProgram (ds2Program result)
-       in case parseProgram (T.pack rendered) of
-            Left parseError -> Left ("System FC 2 round-trip parse error:\n" <> renderParseError parseError <> "\n" <> rendered)
-            Right parsed ->
-              let canonical = renderProgram parsed
-               in if canonical == rendered
-                    then Right rendered
-                    else Left ("System FC 2 round trip changed canonical syntax:\n" <> canonical <> "\noriginal:\n" <> rendered)
+    lintResults programs fixturePrograms =
+      case lintPrograms programs of
+        [] -> Right (programs, fixturePrograms)
+        lintErrors -> Left (unlines ["System FC 2 lint error: " <> show lintError | lintError <- lintErrors])
 
 preparePrimitiveSupport :: [(FilePath, Text)] -> Either String PrimitiveSupport
 preparePrimitiveSupport primitiveModules =

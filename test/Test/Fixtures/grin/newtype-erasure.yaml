@@ -1,15 +1,22 @@
 expected: |-
-  constructor main:Test.IS [IntRep]
+  constructor Test.IS [IntRep]
 
-  caf value%1003 :: BoxedRep Lifted = (Fvalue_thunk)
+  global "\NULTest\NULIS" = (CTest.IS/1)
 
-  value_thunk -> BoxedRep Lifted =
-    store (Cmain:Test.IS (42 :: IntRep))
+  global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
+
+  $grin_value_thunk_0 -> BoxedRep Lifted =
+    argument%-1000000001 :: IntRep <-
+      constant (42 :: IntRep)
+    function_whnf%-1000000000 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) global-ref "\NULTest\NULIS"
+    apply @(BoxedRep Lifted) (function_whnf%-1000000000 :: BoxedRep Lifted) (argument%-1000000001 :: IntRep)
 extensions:
 - MagicHash
 reason: erases newtype constructors and casts before producing runtime GRIN
 source: |
   module Test where
+  import GHC.Prim
   data Int = IS Int#
   newtype Identity a = Identity a
   value :: Identity Int

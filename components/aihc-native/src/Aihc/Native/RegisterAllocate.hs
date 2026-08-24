@@ -257,6 +257,7 @@ valueUses :: GrinValue -> Set GrinVar
 valueUses value =
   case value of
     GrinVarValue var -> Set.singleton var
+    GrinGlobalValue {} -> Set.empty
     GrinLitValue {} -> Set.empty
 
 -- | A call whose result is bound by an enclosing 'GrinBind'. Variables live

@@ -16,41 +16,35 @@ synchronousExceptionProgram =
     { grinConstructors = [("Exception", [])],
       grinPrimitives = [],
       grinForeignCalls = [putcharCall],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals =
-        [ (mainClosure, GrinNode (GrinClosure mainFunction [[]]) []),
-          (outerActionClosure, GrinNode (GrinClosure outerActionFunction [[]]) []),
-          (failingActionClosure, GrinNode (GrinClosure failingActionFunction [[]]) []),
-          (rethrowHandlerClosure, GrinNode (GrinClosure rethrowHandlerFunction [[lifted]]) []),
-          (outerHandlerClosure, GrinNode (GrinClosure outerHandlerFunction [[lifted]]) [])
+      grinGlobals =
+        [ (grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) []),
+          (grinVarName outerActionClosure, GrinNode (GrinClosure outerActionFunction [[]]) []),
+          (grinVarName failingActionClosure, GrinNode (GrinClosure failingActionFunction [[]]) []),
+          (grinVarName rethrowHandlerClosure, GrinNode (GrinClosure rethrowHandlerFunction [[lifted]]) []),
+          (grinVarName outerHandlerClosure, GrinNode (GrinClosure outerHandlerFunction [[lifted]]) []),
+          (grinVarName failingThunk, GrinNode (GrinThunk failingThunkFunction) [])
         ],
-      grinCafs = [(failingThunk, GrinNode (GrinThunk failingThunkFunction) [])],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = mainFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
-              grinFunctionBody = GrinCatch lifted (GrinVarValue outerActionClosure) (GrinVarValue outerHandlerClosure) []
+              grinFunctionBody = GrinCatch lifted (global outerActionClosure) (global outerHandlerClosure) []
             },
           GrinFunction
             { grinFunctionName = outerActionFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
-              grinFunctionBody = GrinCatch lifted (GrinVarValue failingActionClosure) (GrinVarValue rethrowHandlerClosure) []
+              grinFunctionBody = GrinCatch lifted (global failingActionClosure) (global rethrowHandlerClosure) []
             },
           GrinFunction
             { grinFunctionName = failingActionFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
-              grinFunctionBody = GrinEval lifted (GrinVarValue failingThunk)
+              grinFunctionBody = GrinEval lifted (global failingThunk)
             },
           GrinFunction
             { grinFunctionName = failingThunkFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
@@ -61,14 +55,12 @@ synchronousExceptionProgram =
             },
           GrinFunction
             { grinFunctionName = rethrowHandlerFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [innerException],
               grinFunctionResultRep = lifted,
               grinFunctionBody = GrinThrow (GrinVarValue innerException)
             },
           GrinFunction
             { grinFunctionName = outerHandlerFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [outerException],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
@@ -100,6 +92,7 @@ synchronousExceptionProgram =
     innerException = GrinVar "inner_exception" 8 lifted
     outerException = GrinVar "outer_exception" 9 lifted
     output = GrinVar "output" 10 Int32Rep
+    global = GrinGlobalValue . grinVarName
 
 putcharCall :: GrinForeignCall
 putcharCall =

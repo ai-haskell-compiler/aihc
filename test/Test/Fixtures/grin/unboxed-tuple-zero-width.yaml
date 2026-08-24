@@ -1,14 +1,29 @@
 expected: |-
-  constructor main:Test.Box [IntRep]
+  constructor Test.Box [IntRep]
 
-  primitive realWorld#%1000 :: BoxedRep Lifted/0
+  primitive realWorld#%-2000000000 :: TupleRep []/0
 
-  caf value%1010 :: BoxedRep Lifted = (Fvalue_thunk)
+  global "\NULTest\NULBox" = (CTest.Box/1)
 
-  value_thunk -> BoxedRep Lifted =
-    $grin_argument_1011%1011 :: IntRep <-
+  global "\NULTest\NULrealWorld#" = (P$grin_realWorld#_foreign_0/0)
+
+  global "\NULTest\NULvalue" = (F$grin_value_thunk_1)
+
+  $grin_realWorld#_foreign_0 -> TupleRep [] =
+    primitive-call @(TupleRep []) realWorld#
+
+  $grin_value_thunk_1 -> BoxedRep Lifted =
+    argument%-1000000004 :: IntRep <-
       constant (42 :: IntRep)
-    store (Cmain:Test.Box ($grin_argument_1011%1011 :: IntRep))
+    _case%-1000000002 :: IntRep <-
+      constant (argument%-1000000004 :: IntRep)
+    answer%-1000000003 :: IntRep <-
+      constant (_case%-1000000002 :: IntRep)
+    argument%-1000000001 :: IntRep <-
+      constant (answer%-1000000003 :: IntRep)
+    function_whnf%-1000000000 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) global-ref "\NULTest\NULBox"
+    apply @(BoxedRep Lifted) (function_whnf%-1000000000 :: BoxedRep Lifted) (argument%-1000000001 :: IntRep)
 extensions:
 - EmptyDataDecls
 - MagicHash
@@ -16,8 +31,7 @@ extensions:
 reason: omits zero-width State# components from unboxed-tuple returns and binds
 source: |
   module Test where
-  data State# s
-  data RealWorld
+  import GHC.Prim
   data Box = Box Int#
   foreign import prim realWorld# :: State# RealWorld
   value :: Box

@@ -18,23 +18,9 @@ renderProgram program =
     ( map renderConstructor (grinConstructors program)
         <> map renderPrimitive (grinPrimitives program)
         <> map renderForeign (grinForeignCalls program)
-        <> map (("external global " <>) . renderName) (grinExternalGlobals program)
-        <> map renderExternalFunction (grinExternalFunctions program)
-        <> map renderGlobal (grinWhnfGlobals program)
-        <> map renderCaf (grinCafs program)
+        <> map renderGlobal (grinGlobals program)
         <> map renderFunction (grinFunctions program)
     )
-
-renderExternalFunction :: GrinCodeInfo -> String
-renderExternalFunction info =
-  "external "
-    <> renderName (grinCodeSourceName info)
-    <> " "
-    <> renderLayouts (grinCodeParameterLayouts info)
-    <> " -> "
-    <> show (grinCodeResultRep info)
-    <> " = "
-    <> renderFunctionName (grinCodeFunctionName info)
 
 renderConstructor :: (T.Text, [[GrinRep]]) -> String
 renderConstructor (name, fieldLayouts) =
@@ -57,13 +43,9 @@ renderForeign :: GrinForeignCall -> String
 renderForeign foreignCall =
   "foreign " <> renderForeignCall foreignCall
 
-renderGlobal :: (GrinVar, GrinNode) -> String
-renderGlobal (var, node) =
-  "global " <> renderVar var <> " = " <> renderNode node
-
-renderCaf :: (GrinVar, GrinNode) -> String
-renderCaf (var, node) =
-  "caf " <> renderVar var <> " = " <> renderNode node
+renderGlobal :: (T.Text, GrinNode) -> String
+renderGlobal (name, node) =
+  "global " <> renderName name <> " = " <> renderNode node
 
 renderFunction :: GrinFunction -> String
 renderFunction function =
@@ -71,7 +53,6 @@ renderFunction function =
     <> concatMap ((" " <>) . renderVarAtom) (grinFunctionParameters function)
     <> " -> "
     <> show (grinFunctionResultRep function)
-    <> maybe "" ((" link " <>) . renderName) (grinFunctionLinkName function)
     <> " =\n"
     <> renderExprIndented 2 (grinFunctionBody function)
 
@@ -237,6 +218,7 @@ renderValue :: GrinValue -> String
 renderValue value =
   case value of
     GrinVarValue var -> renderVarAtom var
+    GrinGlobalValue name -> "global-ref " <> renderName name
     GrinLitValue literal -> renderLiteral literal
 
 renderNode :: GrinNode -> String

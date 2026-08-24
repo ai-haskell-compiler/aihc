@@ -18,36 +18,31 @@ schedulerProgram =
           (GrinVar "yield#" 2 lifted, 1)
         ],
       grinForeignCalls = [putcharCall],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals =
-        [ (mainClosure, GrinNode (GrinClosure mainFunction [[]]) []),
-          (childClosure, GrinNode (GrinClosure childFunction [[]]) [])
+      grinGlobals =
+        [ (grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) []),
+          (grinVarName childClosure, GrinNode (GrinClosure childFunction [[]]) [])
         ],
-      grinCafs = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = mainFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
-                GrinBind [threadId] (GrinPrimitiveCall forkResultRep "fork#" [GrinVarValue childClosure]) $
+                GrinBind [threadId] (GrinPrimitiveCall forkResultRep "fork#" [global childClosure]) $
                   GrinBind [parentBeforeYield] (putchar 'P') $
                     GrinBind [] (GrinPrimitiveCall (TupleRep []) "yield#" []) $
                       GrinBind [parentAfterYield] (putchar 'A') $
                         GrinBind [] (GrinPrimitiveCall (TupleRep []) "yield#" []) $
                           GrinBind [parentAfterSoloYield] (putchar 'B') $
-                            GrinConstant [GrinVarValue unitValue]
+                            GrinConstant [global unitValue]
             },
           GrinFunction
             { grinFunctionName = childFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
                 GrinBind [childOutput] (putchar 'C') $
-                  GrinConstant [GrinVarValue unitValue]
+                  GrinConstant [global unitValue]
             }
         ]
     }
@@ -64,6 +59,7 @@ schedulerProgram =
     childOutput = GrinVar "child_output" 8 Int32Rep
     unitValue = GrinVar "()" 9 lifted
     parentAfterSoloYield = GrinVar "parent_after_solo_yield" 10 Int32Rep
+    global = GrinGlobalValue . grinVarName
     putchar char =
       GrinForeignCallExpr
         putcharCall
@@ -79,14 +75,10 @@ stdioSchedulerProgram =
           (GrinVar "mutableByteArrayContents#" 32 AddrRep, 1)
         ],
       grinForeignCalls = [stdinCall, stdoutCall, submitReadCall, submitWriteCall, takeResultCall],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [(mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
-      grinCafs = [],
+      grinGlobals = [(grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = mainFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
@@ -100,7 +92,7 @@ stdioSchedulerProgram =
                               GrinBind [writeRequest] (GrinForeignCallExpr submitWriteCall [GrinVarValue stdoutIOHandle, GrinVarValue bufferContents, int32 0, GrinVarValue readCount]) $
                                 GrinBind [] (GrinPrimitiveCall (TupleRep []) "awaitIO#" [GrinVarValue writeRequest]) $
                                   GrinBind [writeResult] (GrinForeignCallExpr takeResultCall [GrinVarValue writeRequest]) $
-                                    GrinConstant [GrinVarValue unitValue]
+                                    GrinConstant [GrinGlobalValue (grinVarName unitValue)]
             }
         ]
     }
@@ -152,40 +144,37 @@ putcharCall =
 blackholeSchedulerProgram :: GrinProgram
 blackholeSchedulerProgram =
   schedulerProgram
-    { grinWhnfGlobals =
-        [ (mainClosure, GrinNode (GrinClosure mainFunction [[]]) []),
-          (childClosure, GrinNode (GrinClosure childFunction [[]]) [])
+    { grinGlobals =
+        [ (grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) []),
+          (grinVarName childClosure, GrinNode (GrinClosure childFunction [[]]) []),
+          (grinVarName sharedThunk, GrinNode (GrinThunk sharedFunction) [])
         ],
-      grinCafs = [(sharedThunk, GrinNode (GrinThunk sharedFunction) [])],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = mainFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
-                GrinBind [threadId] (GrinPrimitiveCall forkResultRep "fork#" [GrinVarValue childClosure]) $
+                GrinBind [threadId] (GrinPrimitiveCall forkResultRep "fork#" [global childClosure]) $
                   GrinBind [] (GrinPrimitiveCall (TupleRep []) "yield#" []) $
-                    GrinBind [mainShared] (GrinEval lifted (GrinVarValue sharedThunk)) $
+                    GrinBind [mainShared] (GrinEval lifted (global sharedThunk)) $
                       GrinBind [parentOutput] (putchar 'A') $
-                        GrinConstant [GrinVarValue unitValue]
+                        GrinConstant [global unitValue]
             },
           GrinFunction
             { grinFunctionName = childFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
-              grinFunctionBody = GrinEval lifted (GrinVarValue sharedThunk)
+              grinFunctionBody = GrinEval lifted (global sharedThunk)
             },
           GrinFunction
             { grinFunctionName = sharedFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
                 GrinBind [] (GrinPrimitiveCall (TupleRep []) "yield#" []) $
                   GrinBind [thunkOutput] (putchar 'T') $
-                    GrinConstant [GrinVarValue unitValue]
+                    GrinConstant [global unitValue]
             }
         ]
     }
@@ -203,6 +192,7 @@ blackholeSchedulerProgram =
     parentOutput = GrinVar "parent_output" 25 Int32Rep
     thunkOutput = GrinVar "thunk_output" 26 Int32Rep
     unitValue = GrinVar "()" 27 lifted
+    global = GrinGlobalValue . grinVarName
     putchar char =
       GrinForeignCallExpr
         putcharCall

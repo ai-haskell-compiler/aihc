@@ -20,6 +20,8 @@ import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeInterface)
 import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2)
 import Aihc.Fc2 qualified as Fc2
+import Aihc.Fc2.TypeOf qualified as Fc2Type
+import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Util qualified as HackageUtil
@@ -116,7 +118,7 @@ installV2 options = do
       resolver = localDependencyResolverWithFallback fallbackResolver root
   spec <- packageSpecFromSource root
   plan <- buildPackagePlanWithResolver resolver storeRoot spec
-  installedV2Result <$> installPackagePlanV2 verbose storeRoot plan
+  installedV2Result <$> installPackagePlanV2 (installV2KeepGrin options) verbose storeRoot plan
 
 networkDependencyResolver :: DependencyResolver
 networkDependencyResolver =
@@ -129,13 +131,13 @@ networkDependencyResolver =
       result <- getLatestVersion Nothing name
       either (ioError . userError) pure result
 
-installPackagePlanV2 :: (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
-installPackagePlanV2 verbose storeRoot plan = do
-  dependencies <- mapM (installPackagePlanV2 verbose storeRoot) (planDependencyPlans plan)
-  installPackageV2 verbose storeRoot dependencies (planSourcePath plan)
+installPackagePlanV2 :: Bool -> (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
+installPackagePlanV2 keepGrin verbose storeRoot plan = do
+  dependencies <- mapM (installPackagePlanV2 keepGrin verbose storeRoot) (planDependencyPlans plan)
+  installPackageV2 keepGrin verbose storeRoot dependencies (planSourcePath plan)
 
-installPackageV2 :: (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
-installPackageV2 verbose storeRoot dependencies root = do
+installPackageV2 :: Bool -> (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
+installPackageV2 keepGrin verbose storeRoot dependencies root = do
   verbose ("Read Cabal package: " <> root)
   cabalFiles <- HackageUtil.findCabalFiles root
   cabalFile <- case cabalFiles of
@@ -175,7 +177,7 @@ installPackageV2 verbose storeRoot dependencies root = do
   verbose ("Compute " <> show (length units) <> " SCC units")
   (allExports, allScopeHashes, _, allTypeHashes, written, reused) <-
     foldM
-      (installUnit verbose storePath resolvePackage primIdentity root)
+      (installUnit keepGrin verbose storePath resolvePackage primIdentity root)
       (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty)
       units
   let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
@@ -281,8 +283,8 @@ renderResolveExcerpt sourceLines sourceSpan =
                 <> replicate caretStart ' '
                 <> replicate caretWidth '^'
 
-installUnit :: (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
-installUnit verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
+installUnit :: Bool -> (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
+installUnit keepGrin verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
   let packageModules = modulesInPackage resolvePackage (map sourceModuleAst unit)
       unitNames = map sourceName unit
       importedNames = nub (concatMap (map importDeclModule . Syntax.moduleImports . sourceModuleAst) unit)
@@ -292,6 +294,7 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
       resolvePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "resolve.cbor"
       typePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "type.cbor"
       coreV2Path modu = storePath </> moduleDirectory modu </> "core-v2"
+      grinPath modu = storePath </> moduleDirectory modu </> "grin"
   cachedExports <- tryReadUnitArtifacts hashes resolvePackage resolvePath unit
   (diskExports, resolveResult, resolveChanged) <- case cachedExports of
     Just exports -> do
@@ -337,16 +340,23 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
       pure (storedInterfaces, True, Just checked)
   updatedTypeHashes <- updateTypeHashes typePath typeHashes unit
   coreV2Exists <- and <$> mapM (doesFileExist . coreV2Path . sourceModuleAst) unit
-  coreChanged <-
+  grinExists <- and <$> mapM (doesFileExist . grinPath . sourceModuleAst) unit
+  (coreChanged, grinChanged) <-
     if typeChanged || not coreV2Exists
       then do
         (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
-        writeCoreV2Files verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path checkedModules
-        pure True
-      else do
-        mapM_ (verbose . ("Reuse Core-v2: " <>) . T.unpack) unitNames
-        pure False
-  let changed = resolveChanged || typeChanged || coreChanged
+        writeCoreV2Files True keepGrin verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path grinPath checkedModules
+        pure (True, keepGrin)
+      else
+        if keepGrin && not grinExists
+          then do
+            (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
+            writeCoreV2Files False True verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path grinPath checkedModules
+            pure (False, True)
+          else do
+            mapM_ (verbose . ("Reuse Core-v2: " <>) . T.unpack) unitNames
+            pure (False, False)
+  let changed = resolveChanged || typeChanged || coreChanged || grinChanged
       unitSet = Set.fromList unitNames
       localUnitTypes = mconcat unitTypes
       written' = if changed then written <> unitSet else written
@@ -362,8 +372,8 @@ installUnit verbose storePath resolvePackage primIdentity root (dependencyExport
   where
     sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
 
-writeCoreV2Files :: (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Module -> FilePath) -> [Module] -> IO ()
-writeCoreV2Files verbose currentPackage primIdentity interface storeRoot coreV2Path checkedModules = do
+writeCoreV2Files :: Bool -> Bool -> (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Module -> FilePath) -> (Module -> FilePath) -> [Module] -> IO ()
+writeCoreV2Files writeCore keepGrin verbose currentPackage primIdentity interface storeRoot coreV2Path grinPath checkedModules = do
   let bindings = tcInterfaceBindings interface <> concatMap tcModuleBindings checkedModules
       config = DesugarConfig primIdentity
       results2 = map (desugarModuleFc2 config bindings interface) checkedModules
@@ -386,7 +396,10 @@ writeCoreV2Files verbose currentPackage primIdentity interface storeRoot coreV2P
               )
           )
       )
-  mapM_ writeCoreV2 (zip checkedModules results2)
+  when writeCore (mapM_ writeCoreV2 (zip checkedModules results2))
+  when keepGrin $ do
+    let typeEnv = Fc2Type.typeEnvFromPrograms loadedFc2
+    mapM_ (writeGrin typeEnv) (zip checkedModules results2)
   where
     writeBadFc2 (modu, result2) = do
       let pathV2 = coreV2Path modu <> ".bad"
@@ -407,6 +420,17 @@ writeCoreV2Files verbose currentPackage primIdentity interface storeRoot coreV2P
           output = if "\n" `isSuffixOf` rendered then rendered else rendered <> "\n"
       createDirectoryIfMissing True (takeDirectory path)
       writeFile path output
+
+    writeGrin typeEnv (modu, result2) = do
+      program <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv (ds2Program result2))
+      let errors = Grin.lintProgram program
+      unless (null errors) (ioError (userError ("GRIN lint failed: " <> show errors)))
+      let path = grinPath modu
+          rendered = Grin.renderProgram program
+          output = if "\n" `isSuffixOf` rendered then rendered else rendered <> "\n"
+      createDirectoryIfMissing True (takeDirectory path)
+      writeFile path output
+      verbose ("Write GRIN: " <> T.unpack (fromMaybe "Main" (moduleName modu)))
 
     removeFileIfExists path = do
       exists <- doesFileExist path

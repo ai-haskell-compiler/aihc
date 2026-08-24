@@ -21,6 +21,8 @@ module Aihc.Fc2.TypeOf
     substTypes,
     reduceType,
     typesEqual,
+    coercionEndpoints,
+    unwrapNewtype,
   )
 where
 
@@ -40,6 +42,7 @@ data TypeEnv = TypeEnv
   { tePrimPackage :: Maybe PackageId,
     teHeaders :: Map Name Type,
     teSynonyms :: Map Name Type,
+    teAxioms :: Map Name AxiomDecl,
     teBinders :: Map Name Type
   }
   deriving (Eq, Show)
@@ -50,6 +53,7 @@ emptyTypeEnv =
     { tePrimPackage = Nothing,
       teHeaders = Map.empty,
       teSynonyms = Map.empty,
+      teAxioms = Map.empty,
       teBinders = Map.empty
     }
 
@@ -80,7 +84,7 @@ addDecl env decl =
         { teHeaders = Map.insert (synName declaration) (headerType (synBinders declaration) (synResult declaration)) (teHeaders env),
           teSynonyms = Map.insert (synName declaration) (foldr TyForAll (synBody declaration) (synBinders declaration)) (teSynonyms env)
         }
-    DeclAxiom {} -> env
+    DeclAxiom declaration -> env {teAxioms = Map.insert (axiomName declaration) declaration (teAxioms env)}
     DeclVal declaration ->
       env {teHeaders = Map.insert (valName declaration) (valType declaration) (teHeaders env)}
     DeclForeignImport declaration ->
@@ -335,6 +339,84 @@ reduceType env ty =
       TyForAll binder {binderType = reduceType env (binderType binder)} (reduceType env body)
     TyEq left right ->
       TyEq (reduceType env left) (reduceType env right)
+
+coercionEndpoints :: TypeEnv -> Coercion -> Maybe (Type, Type)
+coercionEndpoints env coercion =
+  case coercion of
+    CoVar name ->
+      case Map.lookup name (teBinders env) of
+        Just (TyEq left right) -> Just (left, right)
+        _ -> Nothing
+    CoRefl ty -> Just (ty, ty)
+    CoSym inner -> swap <$> coercionEndpoints env inner
+    CoTrans first second -> do
+      (left, middle) <- coercionEndpoints env first
+      (middle', right) <- coercionEndpoints env second
+      if typesEqual env middle middle' then Just (left, right) else Nothing
+    CoTyConApp name arguments -> do
+      endpoints <- traverse (coercionEndpoints env) arguments
+      pure (foldl TyApp (TyCon name) (map fst endpoints), foldl TyApp (TyCon name) (map snd endpoints))
+    CoAxiom name arguments -> do
+      declaration <- Map.lookup name (teAxioms env)
+      if length arguments /= length (axiomBinders declaration)
+        then Nothing
+        else
+          let substitution = Map.fromList (zip (map binderName (axiomBinders declaration)) arguments)
+           in Just (substTypes substitution (axiomLeft declaration), substTypes substitution (axiomRight declaration))
+  where
+    swap (left, right) = (right, left)
+
+unwrapNewtype :: TypeEnv -> Type -> Maybe Type
+unwrapNewtype env source = listToMaybe (mapMaybe unwrap (Map.elems (teAxioms env)))
+  where
+    source' = reduceType env source
+    unwrap declaration
+      | axiomRole declaration /= Representational = Nothing
+      | otherwise = do
+          substitution <- matchTypes (Map.fromList [(binderName binder, Nothing) | binder <- axiomBinders declaration]) (reduceType env (axiomLeft declaration)) source'
+          resolved <- sequenceA substitution
+          pure (substTypes resolved (axiomRight declaration))
+
+    matchTypes substitution patternType actualType =
+      case patternType of
+        TyVar name
+          | Just current <- Map.lookup name substitution ->
+              case current of
+                Nothing -> Just (Map.insert name (Just actualType) substitution)
+                Just previous
+                  | typesEqual env previous actualType -> Just substitution
+                  | otherwise -> Nothing
+        TyVar name ->
+          case actualType of
+            TyVar actualName | name == actualName -> Just substitution
+            _ -> Nothing
+        TyCon name ->
+          case actualType of
+            TyCon actualName | name == actualName -> Just substitution
+            _ -> Nothing
+        TyApp function argument ->
+          case actualType of
+            TyApp actualFunction actualArgument ->
+              matchTypes substitution function actualFunction
+                >>= \next -> matchTypes next argument actualArgument
+            _ -> Nothing
+        TyFun r1 r2 argument result ->
+          case actualType of
+            TyFun actualR1 actualR2 actualArgument actualResult ->
+              matchTypes substitution r1 actualR1
+                >>= \s1 ->
+                  matchTypes s1 r2 actualR2
+                    >>= \s2 ->
+                      matchTypes s2 argument actualArgument
+                        >>= \s3 -> matchTypes s3 result actualResult
+            _ -> Nothing
+        TyForAll {} -> Nothing
+        TyEq left right ->
+          case actualType of
+            TyEq actualLeft actualRight ->
+              matchTypes substitution left actualLeft
+                >>= \next -> matchTypes next right actualRight
+            _ -> Nothing
 
 typesEqual :: TypeEnv -> Type -> Type -> Bool
 typesEqual env left right =

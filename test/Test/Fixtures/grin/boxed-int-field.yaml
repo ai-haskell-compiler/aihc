@@ -1,13 +1,23 @@
 expected: |-
-  constructor main:Test.Box [IntRep]
+  constructor Test.Box [IntRep]
 
-  global value%1002 :: BoxedRep Lifted = (Cmain:Test.Box (42 :: IntRep))
+  global "\NULTest\NULBox" = (CTest.Box/1)
+
+  global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
+
+  $grin_value_thunk_0 -> BoxedRep Lifted =
+    argument%-1000000001 :: IntRep <-
+      constant (42 :: IntRep)
+    function_whnf%-1000000000 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) global-ref "\NULTest\NULBox"
+    apply @(BoxedRep Lifted) (function_whnf%-1000000000 :: BoxedRep Lifted) (argument%-1000000001 :: IntRep)
 extensions:
 - MagicHash
 reason: initializes a static lifted constructor directly and preserves its IntRep
   field representation
 source: |
   module Test where
+  import GHC.Prim
   data Box = Box Int#
   value :: Box
   value = Box 42#
