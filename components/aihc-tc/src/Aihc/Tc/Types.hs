@@ -21,7 +21,6 @@ module Aihc.Tc.Types
     TypeScheme (..),
     boxedTupleTyConName,
     unboxedTupleTyConName,
-    isUnboxedTupleType,
     typeTyCon,
     constraintTyCon,
     runtimeRepTyCon,
@@ -59,7 +58,6 @@ module Aihc.Tc.Types
     runtimeRepOfTypeInEnv,
     isLiftedTypeInEnv,
     isUnliftedTypeInEnv,
-    isUnboxedTupleTypeWithKind,
     pattern KTYPE,
     pattern KConstraint,
     pattern KRuntimeRep,
@@ -550,21 +548,6 @@ runtimeRepFromKind kind =
     TcTyCon tyCon [representation]
       | tyConName tyCon == "TYPE" -> Right representation
     _ -> Left ("type does not have a runtime representation: " <> show kind)
-
-isUnboxedTupleTypeWithKind :: TcType -> TcType -> Bool
-isUnboxedTupleTypeWithKind ty kind =
-  case (ty, runtimeRepFromKind kind) of
-    (TcTyCon tyCon arguments, Right (TupleRep fields)) ->
-      tyConName tyCon == unboxedTupleTyConName (length arguments)
-        && tyConArity tyCon == length arguments
-        && length fields == length arguments
-    _ -> False
-
-isUnboxedTupleType :: TcType -> Bool
-isUnboxedTupleType (TcTyCon tyCon arguments) =
-  tyConName tyCon == unboxedTupleTyConName (length arguments)
-    && tyConArity tyCon == length arguments
-isUnboxedTupleType _ = False
 
 newtype TcLevel = TcLevel Int
   deriving (Eq, Ord, Show, Read)
