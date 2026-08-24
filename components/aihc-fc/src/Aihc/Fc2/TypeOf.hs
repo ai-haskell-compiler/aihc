@@ -31,7 +31,6 @@ import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe, mapMaybe)
-import Data.Text (Text)
 
 -- | Local headers, synonym bodies, and binder types used by typeOf.
 data TypeEnv = TypeEnv
@@ -151,18 +150,19 @@ unfoldType env ty =
 repOf :: TypeEnv -> Type -> Maybe Type
 repOf env ty = do
   kind <- typeOf env ty
+  package <- tePrimPackage env
   case unfoldType env kind of
     TyApp (TyCon name) representation
-      | isWiredName env name "TYPE" -> Just representation
+      | name == typeConstructor package -> Just representation
     _ -> Nothing
 
 -- | True when a stored FUN representation is lifted.
 isLiftedRep :: TypeEnv -> Type -> Bool
 isLiftedRep env ty =
-  case unfoldType env ty of
-    TyApp (TyCon boxed) (TyCon levity)
-      | isWiredName env boxed "BoxedRep",
-        isWiredName env levity "Lifted" ->
+  case (tePrimPackage env, unfoldType env ty) of
+    (Just package, TyApp (TyCon boxed) (TyCon levity))
+      | boxed == boxedRepName package,
+        levity == liftedName package ->
           True
     _ -> False
 
@@ -238,13 +238,6 @@ freshTypeVariableName name used =
     choose unique =
       let candidate = name {nameOrigin = OriginLocal (Unique unique)}
        in if candidate `elem` used then choose (unique + 1) else candidate
-
-isWiredName :: TypeEnv -> Name -> Text -> Bool
-isWiredName env name expected =
-  case tePrimPackage env of
-    Nothing -> False
-    Just package ->
-      isGhcTypesOrigin package name && nameText name == expected
 
 -- | Unfold synonyms, then compare structure.
 reduceType :: TypeEnv -> Type -> Type
