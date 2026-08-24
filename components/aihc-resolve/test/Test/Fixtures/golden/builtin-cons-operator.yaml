@@ -2,7 +2,8 @@ annotated:
 - |-
   module Main where
   cons :: a -> [a] -> [a]
-  └─ v Main
+  └─ v Main    │      └─ t Builtin []
+               └─ t Builtin []
   cons x xs = (:) x xs
   │    │ └─ v 1│  │ └─ v 1
   │    └─ v 0  │  └─ v 0

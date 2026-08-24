@@ -100,7 +100,7 @@ module Aihc.Tc.Monad
 where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), TypeSyntaxResolution (..))
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
 import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataTypeKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
@@ -407,8 +407,8 @@ resolvedNameTermKey displayName resolved =
       pure (TcTermLocal unique)
     ResolvedTopLevel packageId name ->
       pure (TcTermGlobal packageId (fromMaybe "" (nameQualifier name)) (nameText name))
-    ResolvedBuiltin name ->
-      pure (unqualifiedTermKey name)
+    ResolvedSyntax ->
+      pure (unqualifiedTermKey displayName)
     ResolvedError msg ->
       abortTc ("resolver error reached type checker for term " <> show displayName <> ": " <> msg)
 
@@ -545,23 +545,23 @@ lookupResolvedTyCon name =
         (nameQualifier name)
     _ -> maybe (lookupTyCon (nameText name)) (\moduleName -> lookupTyConQualified moduleName (nameText name)) (nameQualifier name)
 
-lookupResolvedTypeSyntax :: TypeSyntaxResolution -> TcM (Maybe TyConInfo)
+lookupResolvedTypeSyntax :: ResolutionAnnotation -> TcM (Maybe TyConInfo)
 lookupResolvedTypeSyntax resolution =
   case resolution of
-    TypeSyntaxResolution
-      { typeSyntaxResolutionName = sourceName,
-        typeSyntaxResolutionNamespace = namespace,
-        typeSyntaxResolutionTarget = ResolvedTopLevel packageId resolvedName
+    ResolutionAnnotation
+      { resolutionIdentifier = identifier,
+        resolutionNamespace = namespace,
+        resolutionTarget = ResolvedTopLevel packageId resolvedName
       } -> do
         exact <- lookupTyConOrigin namespace packageId (fromMaybe "" (nameQualifier resolvedName)) (nameText resolvedName)
-        maybe (lookupTyConInNamespace namespace sourceName) (pure . Just) exact
-    TypeSyntaxResolution
-      { typeSyntaxResolutionTarget = ResolvedError {}
+        maybe (lookupTyConInNamespace namespace (displayIdentifier identifier)) (pure . Just) exact
+    ResolutionAnnotation
+      { resolutionTarget = ResolvedError {}
       } -> pure Nothing
-    TypeSyntaxResolution
-      { typeSyntaxResolutionName = sourceName,
-        typeSyntaxResolutionNamespace = namespace
-      } -> lookupTyConInNamespace namespace sourceName
+    ResolutionAnnotation
+      { resolutionIdentifier = identifier,
+        resolutionNamespace = namespace
+      } -> lookupTyConInNamespace namespace (displayIdentifier identifier)
 
 lookupDeclaredTyCon :: UnqualifiedName -> TcM (Maybe TyConInfo)
 lookupDeclaredTyCon name =

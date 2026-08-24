@@ -31,12 +31,14 @@ import Aihc.Parser.Syntax
     renderName,
   )
 import Aihc.Resolve
-  ( Package (..),
+  ( Identifier,
+    Package (..),
     PackageId (..),
     ResolutionAnnotation (..),
     ResolutionNamespace (..),
     ResolveResult (..),
     ResolvedName (..),
+    displayIdentifier,
     resolveWithDeps,
     unnamedPackage,
   )
@@ -247,7 +249,7 @@ annotationLabel :: ResolutionAnnotation -> Text
 annotationLabel ann =
   renderConciseNamespace (resolutionNamespace ann)
     <> " "
-    <> renderConciseOrigin (resolutionTarget ann)
+    <> renderConciseOrigin (resolutionIdentifier ann) (resolutionTarget ann)
 
 renderConciseNamespace :: ResolutionNamespace -> Text
 renderConciseNamespace namespace =
@@ -256,14 +258,14 @@ renderConciseNamespace namespace =
     ResolutionNamespaceType -> "t"
     ResolutionNamespaceModule -> "m"
 
-renderConciseOrigin :: ResolvedName -> Text
-renderConciseOrigin resolvedName =
+renderConciseOrigin :: Identifier -> ResolvedName -> Text
+renderConciseOrigin identifier resolvedName =
   case resolvedName of
     ResolvedTopLevel identity name
       | packageIdText identity `elem` ["", "main"] -> fromMaybe (renderName name) (nameQualifier name)
       | otherwise -> packageIdText identity <> ":" <> fromMaybe (renderName name) (nameQualifier name)
     ResolvedLocal uniqueId _ -> T.pack (show uniqueId)
-    ResolvedBuiltin name -> "Builtin " <> name
+    ResolvedSyntax -> "Builtin " <> displayIdentifier identifier
     ResolvedError msg -> T.pack ("Error " <> msg)
 
 listFixtureFiles :: FilePath -> IO [FilePath]
