@@ -1,0 +1,12 @@
+extensions:
+- ExistentialQuantification
+source: |
+  module Test where
+  import GHC.Prim
+  data Box = forall a. Box a
+  copyBox :: Box -> Box
+  copyBox box = case box of
+    Box value -> Box value
+expected: ""
+status: xfail
+reason: the lowerer does not add alternative type binders to the local type environment

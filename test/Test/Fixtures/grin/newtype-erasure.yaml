@@ -5,15 +5,30 @@ expected: |-
 
   global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
 
-  $grin_value_thunk_0 -> BoxedRep Lifted =
-    argument%-1000000001 :: IntRep <-
+  $grin_closure_2 (_newtype%-1000000000 :: BoxedRep Lifted) -> BoxedRep Lifted =
+    eval @(BoxedRep Lifted) (_newtype%-1000000000 :: BoxedRep Lifted)
+
+  $grin_function_thunk_1 -> BoxedRep Lifted =
+    store (P$grin_closure_2/1)
+
+  $grin_argument_thunk_3 -> BoxedRep Lifted =
+    argument%-1000000004 :: IntRep <-
       constant (42 :: IntRep)
-    function_whnf%-1000000000 :: BoxedRep Lifted <-
+    function_whnf%-1000000003 :: BoxedRep Lifted <-
       eval @(BoxedRep Lifted) global-ref "\NULTest\NULIS"
-    apply @(BoxedRep Lifted) (function_whnf%-1000000000 :: BoxedRep Lifted) (argument%-1000000001 :: IntRep)
+    apply @(BoxedRep Lifted) (function_whnf%-1000000003 :: BoxedRep Lifted) (argument%-1000000004 :: IntRep)
+
+  $grin_value_thunk_0 -> BoxedRep Lifted =
+    function%-1000000001 :: BoxedRep Lifted <-
+      store (F$grin_function_thunk_1)
+    argument%-1000000005 :: BoxedRep Lifted <-
+      store (F$grin_argument_thunk_3)
+    function_whnf%-1000000002 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (function%-1000000001 :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_whnf%-1000000002 :: BoxedRep Lifted) (argument%-1000000005 :: BoxedRep Lifted)
 extensions:
 - MagicHash
-reason: erases newtype constructors and casts before producing runtime GRIN
+reason: does not allocate a newtype node and preserves its lifted coercion
 source: |
   module Test where
   import GHC.Prim
