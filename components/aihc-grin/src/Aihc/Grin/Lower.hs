@@ -9,6 +9,7 @@ where
 
 import Aihc.Fc2 qualified as Fc2
 import Aihc.Fc2.TypeOf qualified as TypeOf
+import Aihc.Fc2.Wired qualified as Wired
 import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
 import Aihc.Resolve (PackageId (..))
@@ -871,8 +872,14 @@ defaultRuntimeReps = foldl defaultOne
       case reduce env (Fc2.binderType binder) of
         Fc2.TyCon name
           | Fc2.nameText name == "RuntimeRep",
-            Just lifted <- TypeOf.liftedRepType (lowerTypes env) ->
-              env {lowerTypeSubstitution = Map.insert (Fc2.binderName binder) lifted (lowerTypeSubstitution env)}
+            Just package <- TypeOf.tePrimPackage (lowerTypes env) ->
+              env
+                { lowerTypeSubstitution =
+                    Map.insert
+                      (Fc2.binderName binder)
+                      (Fc2.TyCon (Wired.liftedRepName package))
+                      (lowerTypeSubstitution env)
+                }
         _ -> env
 
 extendTermBinder :: Fc2.Binder -> LowerEnv -> LowerEnv
