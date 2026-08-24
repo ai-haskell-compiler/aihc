@@ -12,10 +12,12 @@ import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Parser.Syntax qualified as Syn
 import Aihc.Resolve
-  ( PackageId (..),
+  ( Identifier (..),
+    PackageId (..),
     ResolutionAnnotation (..),
     ResolutionNamespace (..),
     ResolvedName (..),
+    displayIdentifier,
     packageIdText,
   )
 import Aihc.Tc
@@ -675,7 +677,7 @@ patternOccurrence target = go Nothing
           case (Syn.fromAnnotation annotation :: Maybe TcAnnotation, Syn.fromAnnotation annotation :: Maybe ResolutionAnnotation) of
             (Just checked, _) -> go (Just checked) inner
             (_, Just resolution)
-              | resolutionName resolution == target,
+              | resolutionIdentifier resolution == IdentifierNamed target,
                 resolutionNamespace resolution == ResolutionNamespaceTerm ->
                   (,resolution) <$> currentType
             _ -> go currentType inner
@@ -1116,7 +1118,7 @@ desugarAnnotatedExpr annotation inner = do
       Syn.EAnn resolutionAnnotation (Syn.EInt value Syn.TInteger _)
         | Just resolution <- Syn.fromAnnotation resolutionAnnotation,
           resolutionNamespace resolution == ResolutionNamespaceTerm,
-          resolutionName resolution == "fromInteger" ->
+          resolutionIdentifier resolution == IdentifierNamed "fromInteger" ->
             desugarOverloadedInteger annotation resolution value
       Syn.EInt value numericType _
         | numericType /= Syn.TInteger -> do
@@ -1664,7 +1666,7 @@ resolvedAnnotationName resolution =
       case local of
         Just (binder, _) -> pure (binderName binder)
         Nothing -> failValue ("missing local occurrence " <> T.unpack (Syn.unqualifiedNameText localName))
-    ResolvedBuiltin name -> pure (Name name SortValue (OriginLocal (Unique 0)))
+    ResolvedSyntax -> failValue ("syntax identifier reached ordinary occurrence " <> T.unpack (displayIdentifier (resolutionIdentifier resolution)))
     ResolvedError message -> failValue message
 
 desugarOverloadedInteger :: TcAnnotation -> ResolutionAnnotation -> Integer -> ValueM Expr
@@ -1721,7 +1723,7 @@ resolvedTermName sourceName =
                 (sourceNameSort target)
                 (OriginTop package (fromMaybe "" (Syn.nameQualifier target)))
             )
-        ResolvedBuiltin name -> pure (Name name SortValue (OriginLocal (Unique 0)))
+        ResolvedSyntax -> failValue ("syntax identifier reached ordinary term " <> T.unpack (Syn.nameText sourceName))
         ResolvedLocal _ localName -> do
           local <- Map.lookup (Syn.unqualifiedNameText localName) <$> gets vsLocals
           case local of

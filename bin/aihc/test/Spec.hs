@@ -190,11 +190,8 @@ test_installV2Fc2Ccall =
     writeFile
       (sourceDir </> "Demo.hs")
       "module Demo where\ndata Int = I\nforeign import ccall unsafe \"foo\" foo :: Int -> Int\n"
-    _ <- installV2 options
-    storeEntries <- listDirectory storeRoot
-    case storeEntries of
-      [packageDir] -> assertCoreV2File (storeRoot </> packageDir </> "Demo" </> "core-v2")
-      other -> assertFailure ("expected one package directory, got " <> show other)
+    result <- installV2 options
+    assertCoreV2File (installV2StorePath result </> "Demo" </> "core-v2")
 
 test_installV2AihcPrim :: Assertion
 test_installV2AihcPrim = do

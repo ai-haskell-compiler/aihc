@@ -533,8 +533,8 @@ builtinScope =
       scopeQualifiedModules = Map.empty
     }
   where
-    mkBuiltinTerm n = (n, ResolvedBuiltin n)
-    mkBuiltinType n = (n, ResolvedBuiltin n)
+    mkBuiltinTerm n = (n, ResolvedSyntax)
+    mkBuiltinType n = (n, ResolvedSyntax)
 
 builtinPromotedConstructorNames :: [T.Text]
 builtinPromotedConstructorNames = []

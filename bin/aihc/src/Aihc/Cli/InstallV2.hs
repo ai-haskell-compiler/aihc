@@ -216,9 +216,12 @@ parseSource root fileInfo = do
 sourceModuleSccs :: [SourceModule] -> [[SourceModule]]
 sourceModuleSccs = map flatten . stronglyConnComp . map node
   where
-    node source = (source, sourceName source, map importDeclModule (moduleImportsOf source))
+    node source = (source, sourceName source, moduleDependencies source)
     sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
     moduleImportsOf = Syntax.moduleImports . sourceModuleAst
+    moduleDependencies source
+      | sourceName source == "GHC.Types" = map importDeclModule (moduleImportsOf source)
+      | otherwise = "GHC.Types" : map importDeclModule (moduleImportsOf source)
     flatten (AcyclicSCC value) = [value]
     flatten (CyclicSCC values) = values
 

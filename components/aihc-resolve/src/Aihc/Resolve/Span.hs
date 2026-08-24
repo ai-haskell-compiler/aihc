@@ -103,10 +103,9 @@ unhandledSyntaxAnnotation :: (Data a) => ResolutionNamespace -> SourceSpan -> a 
 unhandledSyntaxAnnotation namespace span' node =
   ResolutionAnnotation
     span'
-    (T.pack (showConstr (toConstr node)))
+    (IdentifierNamed (T.pack (showConstr (toConstr node))))
     namespace
     (ResolvedError "unhandled syntax")
-    ResolutionNamed
 
 annotateUnhandledDecl :: SourceSpan -> Decl -> Decl
 annotateUnhandledDecl span' decl =

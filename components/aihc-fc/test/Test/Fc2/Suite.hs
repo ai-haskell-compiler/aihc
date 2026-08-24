@@ -15,7 +15,7 @@ import Data.List (dropWhileEnd, isInfixOf, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Fc2Golden (Fc2Case (..), Outcome (..), evaluateFc2Case, loadFc2Cases)
+import Fc2Golden (Fc2Case (..), Outcome (..), evaluateFc2Case, loadFc2Cases, primitivePrograms)
 import System.Directory (copyFile, createDirectoryIfMissing, doesDirectoryExist, getTemporaryDirectory, listDirectory, removeDirectoryRecursive)
 import System.FilePath (takeExtension, takeFileName, (</>))
 import Test.Tasty (TestTree, testGroup)
@@ -70,7 +70,7 @@ lintFileTests label expectPass dir = do
 lintFileTest :: Bool -> FilePath -> TestTree
 lintFileTest expectPass path = testCase path $ do
   program <- loadFc2Program path
-  let errors = lintPrograms [program]
+  let errors = lintPrograms (primitivePrograms <> [program])
   if expectPass
     then assertEqual (path <> " lint errors") [] errors
     else assertBool (path <> " expected lint errors") (matchesFail path errors)

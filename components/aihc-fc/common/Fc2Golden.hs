@@ -8,6 +8,7 @@ module Fc2Golden
     fixtureRoot,
     loadFc2Cases,
     evaluateFc2Case,
+    primitivePrograms,
   )
 where
 
@@ -100,6 +101,9 @@ primitiveSupport = unsafePerformIO $ do
     Left errMsg -> fail errMsg
     Right support -> pure support
 {-# NOINLINE primitiveSupport #-}
+
+primitivePrograms :: [Program]
+primitivePrograms = supportPrograms primitiveSupport
 
 loadPrimitiveModules :: IO [(FilePath, Text)]
 loadPrimitiveModules = do

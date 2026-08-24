@@ -31,7 +31,7 @@ import Aihc.Parser.Syntax
     fromAnnotation,
     mkAnnotation,
   )
-import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), pendingAnnotation, pendingTypeLambdaAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
@@ -244,12 +244,12 @@ inferResolvedFromInteger sp resolution = do
 isFromIntegerResolution :: ResolutionAnnotation -> Bool
 isFromIntegerResolution resolution =
   resolutionNamespace resolution == ResolutionNamespaceTerm
-    && resolutionName resolution == "fromInteger"
+    && resolutionIdentifier resolution == IdentifierNamed "fromInteger"
 
 isDoBindResolution :: ResolutionAnnotation -> Bool
 isDoBindResolution resolution =
   resolutionNamespace resolution == ResolutionNamespaceTerm
-    && resolutionName resolution == ">>="
+    && resolutionIdentifier resolution == IdentifierNamed ">>="
 
 annotatePendingExpr :: PendingTcAnnotation -> Expr -> Expr
 annotatePendingExpr ann =

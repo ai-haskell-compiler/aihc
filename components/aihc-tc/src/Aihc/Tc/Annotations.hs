@@ -57,7 +57,7 @@ import Aihc.Parser.Syntax
 import Aihc.Resolve (ResolutionNamespace (..))
 import Aihc.Tc.Env (DataTypeInfo)
 import Aihc.Tc.Evidence (EvTerm, EvVar)
-import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, isUnboxedTupleType, tyConModuleName, tyConNamespace, pattern KType)
+import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..), boxedTupleTyConName, tyConModuleName, tyConNamespace, pattern KType)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -307,9 +307,6 @@ renderTcTypeInModule currentModule = go 0
         isBoxedTupleCon name arity,
         arity == length args =
           "(" ++ commaSep (map (go 0) args) ++ ")"
-    go _ tupleType@(TcTyCon _ args)
-      | isUnboxedTupleType tupleType =
-          "(# " ++ commaSep (map (go 0) args) ++ " #)"
     go _ (TcTyCon tc []) = T.unpack (renderTyConName tc)
     go p (TcTyCon tc args) =
       parenIf (p >= 2) $
