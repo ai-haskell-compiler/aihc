@@ -687,13 +687,7 @@ resolveExpr expr =
     EList items -> do
       items' <- mapM resolveExpr items
       sp <- currentSpan
-      scope <- currentScope
-      let resolved = lookupTerm "[]" scope
-          target =
-            case resolved of
-              ResolvedError {} -> ResolvedSyntax
-              _ -> resolved
-          annotation = ResolutionAnnotation sp IdentifierList ResolutionNamespaceTerm target
+      let annotation = ResolutionAnnotation sp IdentifierList ResolutionNamespaceTerm ResolvedSyntax
       pure (EAnn (mkAnnotation annotation) (EList items'))
     ETuple flavor items -> do
       items' <- mapM resolveMaybeExpr items

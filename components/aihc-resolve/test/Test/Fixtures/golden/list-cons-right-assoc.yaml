@@ -2,7 +2,7 @@ annotated:
 - |-
   module Main where
   xs = 'a' : 'b' : 'c' : []
-  └─ v Main│     │     │ └─ v Prelude
+  └─ v Main│     │     │ └─ v Builtin []
            │     │     └─ v Prelude
            │     └─ v Prelude
            └─ v Prelude
