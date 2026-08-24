@@ -1,0 +1,18 @@
+extensions:
+  - DataKinds
+modules:
+  - |
+    module Test where
+    data Atom
+    type AtomPair = '(Atom, Atom)
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Tuple
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub type 1.tAtom :: 3.tType {}
+
+  pub type 1.tAtomPair :: 2.tTuple2 (3.tTYPE (3.vBoxedRep 3.vLifted)) (3.tTYPE (3.vBoxedRep 3.vLifted)) =
+   2.v(,) (3.tTYPE (3.vBoxedRep 3.vLifted)) (3.tTYPE (3.vBoxedRep 3.vLifted)) 1.tAtom 1.tAtom
+status: pass
+reason: promoted tuple syntax uses the resolved term namespace

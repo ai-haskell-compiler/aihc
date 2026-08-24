@@ -28,6 +28,7 @@ module Aihc.Resolve
     ResolutionForm (..),
     ResolvedName (..),
     ResolutionAnnotation (..),
+    TypeSyntaxResolution (..),
   )
 where
 
@@ -1381,15 +1382,38 @@ resolveType ty =
     TTypeApp left right ->
       TTypeApp <$> resolveType left <*> resolveType right
     TInfix left name promoted right ->
-      TInfix <$> resolveType left <*> pure name <*> pure promoted <*> resolveType right
+      TInfix <$> resolveType left <*> resolveTypeConstructorUse promoted name <*> pure promoted <*> resolveType right
     TFun arrowKind left right ->
       TFun <$> resolveArrowKind arrowKind <*> resolveType left <*> resolveType right
-    TTuple flavor promoted items ->
-      TTuple flavor promoted <$> mapM resolveType items
+    TTuple flavor promotion items -> do
+      items' <- mapM resolveType items
+      info <- currentModuleInfo
+      let constructorName = tupleConName flavor (length items)
+          renderedName = renderUnqualifiedName constructorName
+          tupleScope =
+            case flavor of
+              Boxed -> moduleInfoGhcTupleScope info
+              Unboxed -> moduleInfoGhcTypesScope info
+          (namespace, resolved) = resolveSyntaxName promotion renderedName tupleScope
+          syntaxResolution = TypeSyntaxResolution renderedName namespace resolved
+          tupleType = TTuple flavor promotion items'
+      pure $
+        case promotion of
+          Promoted -> TAnn (mkAnnotation syntaxResolution) tupleType
+          Unpromoted -> tupleType
     TUnboxedSum items ->
       TUnboxedSum <$> mapM resolveType items
-    TList promoted items ->
-      TList promoted <$> mapM resolveType items
+    TList promotion items -> do
+      items' <- mapM resolveType items
+      info <- currentModuleInfo
+      let renderedName = "[]"
+          (namespace, resolved) = resolveSyntaxName promotion renderedName (moduleInfoGhcTypesScope info)
+          syntaxResolution = TypeSyntaxResolution renderedName namespace resolved
+          listType = TList promotion items'
+      pure $
+        case promotion of
+          Promoted -> TAnn (mkAnnotation syntaxResolution) listType
+          Unpromoted -> listType
     TParen inner ->
       TParen <$> resolveType inner
     TKindSig inner kind ->
@@ -1648,7 +1672,20 @@ resolveTypeConstructorUse promotion name =
     Promoted -> do
       sp <- currentSpan
       scope <- currentScope
-      pure (resolveNameTo sp ResolutionNamespaceType (resolveTermName scope name) name)
+      pure (resolveNameTo sp ResolutionNamespaceTerm (resolveTermName scope name) name)
+
+resolveSyntaxName :: TypePromotion -> Text -> Scope -> (ResolutionNamespace, ResolvedName)
+resolveSyntaxName promotion renderedName scope =
+  case promotion of
+    Unpromoted ->
+      (ResolutionNamespaceType, fallbackBuiltin (lookupType renderedName scope))
+    Promoted ->
+      (ResolutionNamespaceTerm, fallbackBuiltin (lookupTerm renderedName scope))
+  where
+    fallbackBuiltin resolved =
+      case resolved of
+        ResolvedError {} -> ResolvedBuiltin renderedName
+        _ -> resolved
 
 resolveTypeUseAtName :: Name -> ResolveM Name
 resolveTypeUseAtName name = do

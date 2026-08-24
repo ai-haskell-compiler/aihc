@@ -31,9 +31,9 @@ import Aihc.Parser.Syntax
     TyVarBinder (..),
     Type (..),
     TypeBuiltinCon (..),
-    TypePromotion (..),
     UnqualifiedName (..),
     forallTelescopeBinders,
+    fromAnnotation,
     instanceHeadName,
     instanceHeadTypes,
     nameText,
@@ -42,6 +42,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameText,
   )
+import Aihc.Resolve (ResolutionNamespace (..), TypeSyntaxResolution (..))
 import Aihc.Tc.Env (TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Instantiate (instantiate)
@@ -129,21 +130,28 @@ checkRuntimeType tvEnv ty = do
     _ -> emitError NoSourceSpan (KindMismatch KType actual') >> pure tcTy
 
 convertSurfaceTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, TcType)
-convertSurfaceTypeWithKinds tvEnv ty = do
-  expanded <- expandTypeSynonym tvEnv (peelTypeHead ty)
-  case expanded of
-    Just result -> pure result
-    Nothing -> convertNonSynonymTypeWithKinds tvEnv (peelTypeHead ty)
+convertSurfaceTypeWithKinds tvEnv ty =
+  case ty of
+    TAnn ann _
+      | Just _ <- (fromAnnotation ann :: Maybe TypeSyntaxResolution) ->
+          convertNonSynonymTypeWithKinds tvEnv ty
+    _ -> do
+      expanded <- expandTypeSynonym tvEnv (peelTypeHead ty)
+      case expanded of
+        Just result -> pure result
+        Nothing -> convertNonSynonymTypeWithKinds tvEnv (peelTypeHead ty)
 
 convertNonSynonymTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, TcType)
 convertNonSynonymTypeWithKinds tvEnv ty =
   case ty of
-    TAnn _ inner ->
-      convertSurfaceTypeWithKinds tvEnv inner
+    TAnn ann inner ->
+      case fromAnnotation ann of
+        Just resolution -> convertResolvedSyntaxType tvEnv resolution inner
+        Nothing -> convertSurfaceTypeWithKinds tvEnv inner
     TVar name ->
       inferTypeVariable tvEnv name
-    TCon name promoted ->
-      inferTypeConstructor promoted name
+    TCon name _ ->
+      inferTypeConstructor name
     TBuiltinCon builtin ->
       inferBuiltinTypeConstructor builtin
     TStar {} ->
@@ -162,34 +170,15 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       unifyKinds fKind (KFun aKind resultKind)
       resultKind' <- zonkKind resultKind
       pure (applyType fTy aTy, resultKind')
-    TInfix lhs name promoted rhs ->
-      convertSurfaceTypeWithKinds tvEnv (TApp (TApp (TCon name promoted) lhs) rhs)
+    TInfix lhs name _ rhs -> do
+      constructor <- inferTypeConstructor name
+      applySurfaceTypeArguments tvEnv constructor [lhs, rhs]
     TFun _ a b -> do
       aTy <- checkRuntimeType tvEnv a
       bTy <- checkRuntimeType tvEnv b
       pure (TcFunTy aTy bTy, KType)
-    TTuple flavor _ args -> do
-      tys <-
-        case flavor of
-          Boxed -> mapM (\arg -> checkSurfaceType tvEnv arg KType) args
-          Unboxed -> mapM (checkRuntimeType tvEnv) args
-      argumentKinds <- mapM tcTypeKind tys
-      let argumentReps = map runtimeRepOrLifted argumentKinds
-      let arity = length tys
-          fallbackResultKind =
-            case flavor of
-              Boxed -> KType
-              Unboxed -> KTYPE (TupleRep argumentReps)
-          fallbackKind = foldr KFun fallbackResultKind argumentKinds
-          typeName = tupleTyConText flavor arity
-      maybeTyCon <- lookupTyCon typeName
-      tyCon <-
-        case maybeTyCon of
-          Just info -> pure (tciTyCon info)
-          Nothing -> mkKnownTyCon (tupleTyConModule flavor) typeName arity fallbackKind
-      let tupleType = TcTyCon tyCon tys
-      tupleKind <- tcTypeKind tupleType
-      pure (tupleType, tupleKind)
+    TTuple flavor _ args ->
+      convertTupleType tvEnv flavor args
     TUnboxedSum args -> do
       tys <- mapM (checkRuntimeType tvEnv) args
       argumentKinds <- mapM tcTypeKind tys
@@ -199,22 +188,8 @@ convertNonSynonymTypeWithKinds tvEnv ty =
           name = "(#" <> bars (arity - 1) <> "#)"
       tyCon <- mkKnownTyCon "GHC.Types" name arity tyConKind'
       pure (TcTyCon tyCon tys, resultKind)
-    TList Unpromoted [arg] -> do
-      argTy <- checkSurfaceType tvEnv arg KType
-      listTy <- listType argTy
-      pure (listTy, KType)
-    TList Promoted args -> do
-      elemKind <- freshKindMeta
-      args' <- mapM (\arg -> checkSurfaceType tvEnv arg elemKind) args
-      promotedListKind <- listType elemKind
-      maybeNilInfo <- lookupTyCon "'[]"
-      nilTyCon <- maybe (mkKnownTyCon "GHC.Types" "'[]" 0 promotedListKind) (pure . tciTyCon) maybeNilInfo
-      maybeConsInfo <- lookupTyCon "':"
-      let consKind = TcFunTy elemKind (TcFunTy promotedListKind promotedListKind)
-      consTyCon <- maybe (mkKnownTyCon "GHC.Types" "':" 2 consKind) (pure . tciTyCon) maybeConsInfo
-      let nil = TcTyCon nilTyCon []
-          cons field rest = TcTyCon consTyCon [field, rest]
-      pure (foldr cons nil args', promotedListKind)
+    TList _ [arg] ->
+      convertListType tvEnv arg
     TKindSig inner kindTy -> do
       expected <- kindFromSurfaceType tvEnv kindTy
       checkSurfaceType tvEnv inner expected >>= \innerTy -> pure (innerTy, expected)
@@ -231,10 +206,84 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       meta <- freshMetaTv
       pure (meta, KType)
 
+convertResolvedSyntaxType :: TvKindEnv -> TypeSyntaxResolution -> Type -> TcM (TcType, TcType)
+convertResolvedSyntaxType tvEnv resolution syntax =
+  case (typeSyntaxResolutionNamespace resolution, syntax) of
+    (ResolutionNamespaceType, TList _ [argument]) ->
+      convertListType tvEnv argument
+    (ResolutionNamespaceTerm, TList _ arguments) ->
+      convertDataConstructorList tvEnv arguments
+    (ResolutionNamespaceType, TTuple flavor _ arguments) ->
+      convertTupleType tvEnv flavor arguments
+    (ResolutionNamespaceTerm, TTuple _ _ arguments) ->
+      convertResolvedConstructorApplication tvEnv resolution arguments
+    _ -> convertSurfaceTypeWithKinds tvEnv syntax
+
+convertListType :: TvKindEnv -> Type -> TcM (TcType, TcType)
+convertListType tvEnv argument = do
+  argumentType <- checkSurfaceType tvEnv argument KType
+  result <- listType argumentType
+  pure (result, KType)
+
+convertDataConstructorList :: TvKindEnv -> [Type] -> TcM (TcType, TcType)
+convertDataConstructorList tvEnv arguments = do
+  elementKind <- freshKindMeta
+  argumentTypes <- mapM (\argument -> checkSurfaceType tvEnv argument elementKind) arguments
+  resultKind <- listType elementKind
+  let consKind = TcFunTy elementKind (TcFunTy resultKind resultKind)
+  nilTyCon <- mkKnownDataCon "GHC.Types" "[]" 0 resultKind
+  consTyCon <- mkKnownDataCon "GHC.Types" ":" 2 consKind
+  let nil = TcTyCon nilTyCon []
+      cons field rest = TcTyCon consTyCon [field, rest]
+  pure (foldr cons nil argumentTypes, resultKind)
+
+convertTupleType :: TvKindEnv -> TupleFlavor -> [Type] -> TcM (TcType, TcType)
+convertTupleType tvEnv flavor arguments = do
+  argumentTypes <-
+    case flavor of
+      Boxed -> mapM (\argument -> checkSurfaceType tvEnv argument KType) arguments
+      Unboxed -> mapM (checkRuntimeType tvEnv) arguments
+  argumentKinds <- mapM tcTypeKind argumentTypes
+  let argumentReps = map runtimeRepOrLifted argumentKinds
+      arity = length argumentTypes
+      fallbackResultKind =
+        case flavor of
+          Boxed -> KType
+          Unboxed -> KTYPE (TupleRep argumentReps)
+      fallbackKind = foldr KFun fallbackResultKind argumentKinds
+      typeName = tupleTyConText flavor arity
+  maybeTyCon <- lookupTyCon typeName
+  tyCon <-
+    case maybeTyCon of
+      Just info -> pure (tciTyCon info)
+      Nothing -> mkKnownTyCon (tupleTyConModule flavor) typeName arity fallbackKind
+  let tupleType = TcTyCon tyCon argumentTypes
+  tupleKind <- tcTypeKind tupleType
+  pure (tupleType, tupleKind)
+
+convertResolvedConstructorApplication :: TvKindEnv -> TypeSyntaxResolution -> [Type] -> TcM (TcType, TcType)
+convertResolvedConstructorApplication tvEnv resolution arguments = do
+  maybeInfo <- lookupResolvedTypeSyntax resolution
+  case maybeInfo of
+    Nothing -> inferUnknownType
+    Just info -> do
+      constructorKind <- instantiateTyConKind info
+      applySurfaceTypeArguments tvEnv (TcTyCon (tciTyCon info) [], constructorKind) arguments
+
+applySurfaceTypeArguments :: TvKindEnv -> (TcType, TcType) -> [Type] -> TcM (TcType, TcType)
+applySurfaceTypeArguments tvEnv = foldM applyArgument
+  where
+    applyArgument (functionType, functionKind) argument = do
+      (argumentType, argumentKind) <- convertSurfaceTypeWithKinds tvEnv argument
+      resultKind <- freshKindMeta
+      unifyKinds functionKind (KFun argumentKind resultKind)
+      resultKind' <- zonkKind resultKind
+      pure (applyType functionType argumentType, resultKind')
+
 expandTypeSynonym :: TvKindEnv -> Type -> TcM (Maybe (TcType, TcType))
 expandTypeSynonym tvEnv ty =
   case typeApplicationSpine ty of
-    (TCon name Unpromoted, arguments) -> do
+    (TCon name _, arguments) -> do
       maybeInfo <- lookupResolvedTyCon name
       case maybeInfo >>= tciTypeSynonym of
         Just synonym
@@ -324,27 +373,18 @@ inferTypeVariable tvEnv name =
         Just (tv, kind) -> pure (TcTyVar tv, kind)
         Nothing -> inferUnknownType
 
-inferTypeConstructor :: TypePromotion -> Name -> TcM (TcType, TcType)
-inferTypeConstructor promoted name =
-  case promoted of
-    Promoted -> do
-      maybeInfo <- lookupResolvedPromotedTyCon name
-      case maybeInfo of
+inferTypeConstructor :: Name -> TcM (TcType, TcType)
+inferTypeConstructor name =
+  case nameText name of
+    "Type" -> knownType "GHC.Types" "Type" KType
+    "Constraint" -> knownType "GHC.Types" "Constraint" KType
+    _ -> do
+      mInfo <- lookupResolvedTyCon name
+      case mInfo of
         Just info -> do
           kind <- instantiateTyConKind info
           pure (TcTyCon (tciTyCon info) [], kind)
-        Nothing -> inferPromotedTypeConstructor (nameText name)
-    Unpromoted ->
-      case nameText name of
-        "Type" -> knownType "GHC.Types" "Type" KType
-        "Constraint" -> knownType "GHC.Types" "Constraint" KType
-        _ -> do
-          mInfo <- lookupResolvedTyCon name
-          case mInfo of
-            Just info -> do
-              kind <- instantiateTyConKind info
-              pure (TcTyCon (tciTyCon info) [], kind)
-            Nothing -> inferUnknownType
+        Nothing -> inferUnknownType
 
 instantiateTyConKind :: TyConInfo -> TcM TcType
 instantiateTyConKind info = do
@@ -361,7 +401,7 @@ inferBuiltinTypeConstructor builtin =
         pure (TcTyCon tyCon [], KFun KType KType)
     TBuiltinCons -> do
       let kind = KFun KType (KFun (listTypeKind KType) (listTypeKind KType))
-      tyCon <- mkKnownTyCon "GHC.Types" "':" 2 kind
+      tyCon <- mkKnownDataCon "GHC.Types" ":" 2 kind
       pure (TcTyCon tyCon [], kind)
     TBuiltinTuple arity ->
       let argKinds = replicate arity KType
@@ -380,21 +420,6 @@ knownTypeWithArity moduleName name arity kind = do
   maybeInfo <- lookupTyCon name
   tyCon <- maybe (mkKnownTyCon moduleName name arity kind) (pure . tciTyCon) maybeInfo
   pure (TcTyCon tyCon [], kind)
-
-inferPromotedTypeConstructor :: Text -> TcM (TcType, TcType)
-inferPromotedTypeConstructor name
-  | name == "[]" = do
-      elementKind <- freshKindMeta
-      resultKind <- listType elementKind
-      tyCon <- mkKnownTyCon "GHC.Types" "'[]" 0 resultKind
-      pure (TcTyCon tyCon [], resultKind)
-  | name == ":" = do
-      elementKind <- freshKindMeta
-      resultKind <- listType elementKind
-      let kind = TcFunTy elementKind (TcFunTy resultKind resultKind)
-      tyCon <- mkKnownTyCon "GHC.Types" "':" 2 kind
-      pure (TcTyCon tyCon [], kind)
-  | otherwise = inferUnknownType
 
 inferUnknownType :: TcM (TcType, TcType)
 inferUnknownType = do

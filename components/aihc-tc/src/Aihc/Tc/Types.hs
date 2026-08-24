@@ -15,7 +15,9 @@ module Aihc.Tc.Types
     tyConKey,
     tyConPackageId,
     tyConModuleName,
+    tyConNamespace,
     mkTyConWithOrigin,
+    mkTyConWithNamespace,
     TypeScheme (..),
     boxedTupleTyConName,
     unboxedTupleTyConName,
@@ -96,7 +98,7 @@ module Aihc.Tc.Types
   )
 where
 
-import Aihc.Resolve (PackageId (..))
+import Aihc.Resolve (PackageId (..), ResolutionNamespace (..))
 import Control.Monad (zipWithM)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -124,29 +126,37 @@ setTyVarKind :: TcType -> TyVarId -> TyVarId
 setTyVarKind kind (TyVarIdInternal name unique _) = TyVarIdInternal name unique kind
 
 -- | A type-constructor identity. Kind schemes live in the type-constructor environment.
-data TyCon = TyConInternal !PackageId !Text !Text !Int
+data TyCon = TyConInternal !PackageId !Text !ResolutionNamespace !Text !Int
   deriving (Eq, Ord, Show, Read)
 
 pattern TyCon :: Text -> Int -> TyCon
-pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ tyConName tyConArity
+pattern TyCon {tyConName, tyConArity} <- TyConInternal _ _ _ tyConName tyConArity
 
 {-# COMPLETE TyCon #-}
 
-type TcTypeKey = (PackageId, Text, Text)
+type TcTypeKey = (PackageId, Text, ResolutionNamespace, Text)
 
 type TcKindEnv = Map TcTypeKey TypeScheme
 
 tyConPackageId :: TyCon -> PackageId
-tyConPackageId (TyConInternal packageId _ _ _) = packageId
+tyConPackageId (TyConInternal packageId _ _ _ _) = packageId
 
 tyConModuleName :: TyCon -> Text
-tyConModuleName (TyConInternal _ moduleName _ _) = moduleName
+tyConModuleName (TyConInternal _ moduleName _ _ _) = moduleName
+
+tyConNamespace :: TyCon -> ResolutionNamespace
+tyConNamespace (TyConInternal _ _ namespace _ _) = namespace
 
 tyConKey :: TyCon -> TcTypeKey
-tyConKey tyCon = (tyConPackageId tyCon, tyConModuleName tyCon, tyConName tyCon)
+tyConKey tyCon = (tyConPackageId tyCon, tyConModuleName tyCon, tyConNamespace tyCon, tyConName tyCon)
 
 mkTyConWithOrigin :: PackageId -> Text -> Text -> Int -> TyCon
-mkTyConWithOrigin = TyConInternal
+mkTyConWithOrigin packageId moduleName =
+  TyConInternal packageId moduleName ResolutionNamespaceType
+
+mkTyConWithNamespace :: ResolutionNamespace -> PackageId -> Text -> Text -> Int -> TyCon
+mkTyConWithNamespace namespace packageId moduleName =
+  TyConInternal packageId moduleName namespace
 
 -- | Internal types. Kinds use this same representation.
 data TcType
@@ -184,8 +194,8 @@ unboxedTupleTyConName arity = "Tuple" <> T.pack (show arity) <> "#"
 primTypeCon :: Text -> Int -> TyCon
 primTypeCon = mkTyConWithOrigin (PackageId "aihc-prim") "GHC.Types"
 
-promotedTypeCon :: Text -> Int -> TyCon
-promotedTypeCon name = primTypeCon ("'" <> name)
+primDataCon :: Text -> Int -> TyCon
+primDataCon = mkTyConWithNamespace ResolutionNamespaceTerm (PackageId "aihc-prim") "GHC.Types"
 
 typeTyCon, constraintTyCon, runtimeRepTyCon, levityTyCon, vecCountTyCon, vecElemTyCon :: TyCon
 typeTyCon = primTypeCon "Type" 0
@@ -207,12 +217,12 @@ mkTYPEKind :: TcType -> TcType
 mkTYPEKind representation = TcTyCon (primTypeCon "TYPE" 1) [representation]
 
 nullaryRep :: Text -> TcType
-nullaryRep name = TcTyCon (promotedTypeCon name 0) []
+nullaryRep name = TcTyCon (primDataCon name 0) []
 
 liftedRep, unliftedRep, intRep, int8Rep, int16Rep, int32Rep, int64Rep :: TcType
 wordRep, word8Rep, word16Rep, word32Rep, word64Rep, addrRep, floatRep, doubleRep :: TcType
-liftedRep = boxedRep (TcTyCon (promotedTypeCon "Lifted" 0) [])
-unliftedRep = boxedRep (TcTyCon (promotedTypeCon "Unlifted" 0) [])
+liftedRep = boxedRep (TcTyCon (primDataCon "Lifted" 0) [])
+unliftedRep = boxedRep (TcTyCon (primDataCon "Unlifted" 0) [])
 intRep = nullaryRep "IntRep"
 int8Rep = nullaryRep "Int8Rep"
 int16Rep = nullaryRep "Int16Rep"
@@ -236,22 +246,22 @@ floatRep = nullaryRep "FloatRep"
 doubleRep = nullaryRep "DoubleRep"
 
 boxedRep :: TcType -> TcType
-boxedRep levity = TcTyCon (promotedTypeCon "BoxedRep" 1) [levity]
+boxedRep levity = TcTyCon (primDataCon "BoxedRep" 1) [levity]
 
 tupleRep :: [TcType] -> TcType
-tupleRep fields = TcTyCon (promotedTypeCon "TupleRep" 1) [promotedList fields]
+tupleRep fields = TcTyCon (primDataCon "TupleRep" 1) [dataConstructorList fields]
 
 sumRep :: [TcType] -> TcType
-sumRep fields = TcTyCon (promotedTypeCon "SumRep" 1) [promotedList fields]
+sumRep fields = TcTyCon (primDataCon "SumRep" 1) [dataConstructorList fields]
 
 vecRep :: TcType -> TcType -> TcType
-vecRep count element = TcTyCon (promotedTypeCon "VecRep" 2) [count, element]
+vecRep count element = TcTyCon (primDataCon "VecRep" 2) [count, element]
 
-promotedList :: [TcType] -> TcType
-promotedList = foldr promotedCons promotedNil
+dataConstructorList :: [TcType] -> TcType
+dataConstructorList = foldr cons nil
   where
-    promotedNil = TcTyCon (promotedTypeCon "[]" 0) []
-    promotedCons field rest = TcTyCon (promotedTypeCon ":" 2) [field, rest]
+    nil = TcTyCon (primDataCon "[]" 0) []
+    cons field rest = TcTyCon (primDataCon ":" 2) [field, rest]
 
 -- | Get a type kind from the complete type-constructor identity table.
 typeKindInEnv :: TcKindEnv -> TcType -> Either String TcType
@@ -332,13 +342,19 @@ typeKindInEnv kindEnv = go
     configurePrimitiveTyCon tyCon
       | tyConPackageId tyCon == PackageId "aihc-prim",
         tyConModuleName tyCon == "GHC.Types" =
-          mkTyConWithOrigin primitivePackage "GHC.Types" (tyConName tyCon) (tyConArity tyCon)
+          mkTyConWithNamespace
+            (tyConNamespace tyCon)
+            primitivePackage
+            "GHC.Types"
+            (tyConName tyCon)
+            (tyConArity tyCon)
       | otherwise = tyCon
 
     primitivePackage =
       case [ packageId
-           | ((packageId, moduleName, name), _) <- Map.toList kindEnv,
+           | ((packageId, moduleName, namespace, name), _) <- Map.toList kindEnv,
              moduleName == "GHC.Types",
+             namespace == ResolutionNamespaceType,
              name == "TYPE"
            ] of
         packageId : _ -> packageId
@@ -390,11 +406,11 @@ pattern KTYPE representation <- (matchTYPEKind -> Just representation)
     KTYPE representation = mkTYPEKind representation
 
 pattern KConstraint, KRuntimeRep, KLevity, KVecCount, KVecElem, KType :: TcType
-pattern KConstraint <- (matchesNullary "Constraint" -> True) where KConstraint = constraintKind
-pattern KRuntimeRep <- (matchesNullary "RuntimeRep" -> True) where KRuntimeRep = runtimeRepKind
-pattern KLevity <- (matchesNullary "Levity" -> True) where KLevity = levityKind
-pattern KVecCount <- (matchesNullary "VecCount" -> True) where KVecCount = vecCountKind
-pattern KVecElem <- (matchesNullary "VecElem" -> True) where KVecElem = vecElemKind
+pattern KConstraint <- (matchesNullary ResolutionNamespaceType "Constraint" -> True) where KConstraint = constraintKind
+pattern KRuntimeRep <- (matchesNullary ResolutionNamespaceType "RuntimeRep" -> True) where KRuntimeRep = runtimeRepKind
+pattern KLevity <- (matchesNullary ResolutionNamespaceType "Levity" -> True) where KLevity = levityKind
+pattern KVecCount <- (matchesNullary ResolutionNamespaceType "VecCount" -> True) where KVecCount = vecCountKind
+pattern KVecElem <- (matchesNullary ResolutionNamespaceType "VecElem" -> True) where KVecElem = vecElemKind
 pattern KType <- (matchesLiftedTypeKind -> True) where KType = typeKindType
 
 pattern KFun :: TcType -> TcType -> TcType
@@ -420,8 +436,10 @@ matchesLiftedRuntimeRep :: TcType -> Bool
 matchesLiftedRuntimeRep representation =
   case representation of
     TcTyCon boxed [TcTyCon levity []] ->
-      tyConName boxed == "'BoxedRep"
-        && tyConName levity == "'Lifted"
+      tyConNamespace boxed == ResolutionNamespaceTerm
+        && tyConName boxed == "BoxedRep"
+        && tyConNamespace levity == ResolutionNamespaceTerm
+        && tyConName levity == "Lifted"
     _ -> False
 
 pattern BoxedRep :: TcType -> TcType
@@ -445,12 +463,12 @@ pattern VecRep count element <- (matchBinaryRep "VecRep" -> Just (count, element
     VecRep count element = vecRep count element
 
 pattern Lifted, Unlifted :: TcType
-pattern Lifted <- (matchesNullary "Lifted" -> True)
+pattern Lifted <- (matchesNullary ResolutionNamespaceTerm "Lifted" -> True)
   where
-    Lifted = TcTyCon (promotedTypeCon "Lifted" 0) []
-pattern Unlifted <- (matchesNullary "Unlifted" -> True)
+    Lifted = TcTyCon (primDataCon "Lifted" 0) []
+pattern Unlifted <- (matchesNullary ResolutionNamespaceTerm "Unlifted" -> True)
   where
-    Unlifted = TcTyCon (promotedTypeCon "Unlifted" 0) []
+    Unlifted = TcTyCon (primDataCon "Unlifted" 0) []
 
 pattern IntRep, Int8Rep, Int16Rep, Int32Rep, Int64Rep :: TcType
 
@@ -458,59 +476,70 @@ pattern WordRep, Word8Rep, Word16Rep, Word32Rep, Word64Rep :: TcType
 
 pattern AddrRep, FloatRep, DoubleRep :: TcType
 
-pattern IntRep <- (matchesNullary "IntRep" -> True) where IntRep = intRep
+pattern IntRep <- (matchesNullary ResolutionNamespaceTerm "IntRep" -> True) where IntRep = intRep
 
-pattern Int8Rep <- (matchesNullary "Int8Rep" -> True) where Int8Rep = int8Rep
+pattern Int8Rep <- (matchesNullary ResolutionNamespaceTerm "Int8Rep" -> True) where Int8Rep = int8Rep
 
-pattern Int16Rep <- (matchesNullary "Int16Rep" -> True) where Int16Rep = int16Rep
+pattern Int16Rep <- (matchesNullary ResolutionNamespaceTerm "Int16Rep" -> True) where Int16Rep = int16Rep
 
-pattern Int32Rep <- (matchesNullary "Int32Rep" -> True) where Int32Rep = int32Rep
+pattern Int32Rep <- (matchesNullary ResolutionNamespaceTerm "Int32Rep" -> True) where Int32Rep = int32Rep
 
-pattern Int64Rep <- (matchesNullary "Int64Rep" -> True) where Int64Rep = int64Rep
+pattern Int64Rep <- (matchesNullary ResolutionNamespaceTerm "Int64Rep" -> True) where Int64Rep = int64Rep
 
-pattern WordRep <- (matchesNullary "WordRep" -> True) where WordRep = wordRep
+pattern WordRep <- (matchesNullary ResolutionNamespaceTerm "WordRep" -> True) where WordRep = wordRep
 
-pattern Word8Rep <- (matchesNullary "Word8Rep" -> True) where Word8Rep = word8Rep
+pattern Word8Rep <- (matchesNullary ResolutionNamespaceTerm "Word8Rep" -> True) where Word8Rep = word8Rep
 
-pattern Word16Rep <- (matchesNullary "Word16Rep" -> True) where Word16Rep = word16Rep
+pattern Word16Rep <- (matchesNullary ResolutionNamespaceTerm "Word16Rep" -> True) where Word16Rep = word16Rep
 
-pattern Word32Rep <- (matchesNullary "Word32Rep" -> True) where Word32Rep = word32Rep
+pattern Word32Rep <- (matchesNullary ResolutionNamespaceTerm "Word32Rep" -> True) where Word32Rep = word32Rep
 
-pattern Word64Rep <- (matchesNullary "Word64Rep" -> True) where Word64Rep = word64Rep
+pattern Word64Rep <- (matchesNullary ResolutionNamespaceTerm "Word64Rep" -> True) where Word64Rep = word64Rep
 
-pattern AddrRep <- (matchesNullary "AddrRep" -> True) where AddrRep = addrRep
+pattern AddrRep <- (matchesNullary ResolutionNamespaceTerm "AddrRep" -> True) where AddrRep = addrRep
 
-pattern FloatRep <- (matchesNullary "FloatRep" -> True) where FloatRep = floatRep
+pattern FloatRep <- (matchesNullary ResolutionNamespaceTerm "FloatRep" -> True) where FloatRep = floatRep
 
-pattern DoubleRep <- (matchesNullary "DoubleRep" -> True) where DoubleRep = doubleRep
+pattern DoubleRep <- (matchesNullary ResolutionNamespaceTerm "DoubleRep" -> True) where DoubleRep = doubleRep
 
 matchUnaryRep :: Text -> TcType -> Maybe TcType
 matchUnaryRep expected (TcTyCon tyCon [argument])
-  | T.dropWhile (== '\'') (tyConName tyCon) == expected = Just argument
+  | tyConNamespace tyCon == ResolutionNamespaceTerm,
+    tyConName tyCon == expected =
+      Just argument
 matchUnaryRep _ _ = Nothing
 
 matchBinaryRep :: Text -> TcType -> Maybe (TcType, TcType)
 matchBinaryRep expected (TcTyCon tyCon [left, right])
-  | T.dropWhile (== '\'') (tyConName tyCon) == expected = Just (left, right)
+  | tyConNamespace tyCon == ResolutionNamespaceTerm,
+    tyConName tyCon == expected =
+      Just (left, right)
 matchBinaryRep _ _ = Nothing
 
 matchListRep :: Text -> TcType -> Maybe [TcType]
 matchListRep expected (TcTyCon tyCon [listType])
-  | T.dropWhile (== '\'') (tyConName tyCon) == expected = decodePromotedList listType
+  | tyConNamespace tyCon == ResolutionNamespaceTerm,
+    tyConName tyCon == expected =
+      decodeDataConstructorList listType
 matchListRep _ _ = Nothing
 
-decodePromotedList :: TcType -> Maybe [TcType]
-decodePromotedList ty =
+decodeDataConstructorList :: TcType -> Maybe [TcType]
+decodeDataConstructorList ty =
   case ty of
     TcTyCon tyCon []
-      | tyConName tyCon == "'[]" -> Just []
+      | tyConNamespace tyCon == ResolutionNamespaceTerm,
+        tyConName tyCon == "[]" ->
+          Just []
     TcTyCon tyCon [field, rest]
-      | tyConName tyCon == "':" -> (field :) <$> decodePromotedList rest
+      | tyConNamespace tyCon == ResolutionNamespaceTerm,
+        tyConName tyCon == ":" ->
+          (field :) <$> decodeDataConstructorList rest
     _ -> Nothing
 
-matchesNullary :: Text -> TcType -> Bool
-matchesNullary expected (TcTyCon tyCon []) = T.dropWhile (== '\'') (tyConName tyCon) == expected
-matchesNullary _ _ = False
+matchesNullary :: ResolutionNamespace -> Text -> TcType -> Bool
+matchesNullary namespace expected (TcTyCon tyCon []) =
+  tyConNamespace tyCon == namespace && tyConName tyCon == expected
+matchesNullary _ _ _ = False
 
 runtimeRepFromKind :: TcType -> Either String TcType
 runtimeRepFromKind kind =

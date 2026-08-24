@@ -16,6 +16,7 @@ module Aihc.Resolve.Types
     modulesInPackage,
     ResolvedName (..),
     ResolutionAnnotation (..),
+    TypeSyntaxResolution (..),
     ResolveError (..),
     ResolveResult (..),
     resolvedModuleAsts,
@@ -72,7 +73,7 @@ data ResolutionNamespace
   = ResolutionNamespaceTerm
   | ResolutionNamespaceType
   | ResolutionNamespaceModule
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show, Read)
 
 -- | The syntax form that caused one resolution request.
 data ResolutionForm
@@ -86,6 +87,14 @@ data ResolutionAnnotation = ResolutionAnnotation
     resolutionNamespace :: !ResolutionNamespace,
     resolutionTarget :: !ResolvedName,
     resolutionForm :: !ResolutionForm
+  }
+  deriving (Eq, Show)
+
+-- | A resolved namespace and target for type syntax that has no identifier node.
+data TypeSyntaxResolution = TypeSyntaxResolution
+  { typeSyntaxResolutionName :: !Text,
+    typeSyntaxResolutionNamespace :: !ResolutionNamespace,
+    typeSyntaxResolutionTarget :: !ResolvedName
   }
   deriving (Eq, Show)
 

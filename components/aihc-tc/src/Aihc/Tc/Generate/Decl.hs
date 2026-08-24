@@ -77,7 +77,7 @@ import Aihc.Parser.Syntax
     peelTypeHead,
     unqualifiedNameAnns,
   )
-import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolvedName (..))
+import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..))
 import Aihc.Tc.Annotations
   ( TcAnnotation (..),
     TcClassAnnotation (..),
@@ -477,7 +477,7 @@ tcModuleScc modules = do
   let declarations = concatMap moduleDecls modules
       standaloneKindSignatures = collectStandaloneKindSignatures declarations
   mapM_ predeclareTypeConstructor declarations
-  mapM_ predeclarePromotedConstructors declarations
+  mapM_ predeclareTypeLevelDataConstructors declarations
   standaloneKindSchemes <- traverse standaloneKindSigToScheme standaloneKindSignatures
   mapM_ (registerTypeDeclHeader standaloneKindSchemes) declarations
   mapM_ registerTypeSynonymBody declarations
@@ -1932,9 +1932,9 @@ collectStandaloneKindSignatures = Map.fromList . mapMaybe collect
 
 resolvedTypeKey :: UnqualifiedName -> Maybe TcTypeKey
 resolvedTypeKey name = do
-  ResolutionAnnotation {resolutionTarget = ResolvedTopLevel packageId resolvedName} <- nameResolution name
+  ResolutionAnnotation {resolutionNamespace = namespace, resolutionTarget = ResolvedTopLevel packageId resolvedName} <- nameResolution name
   moduleName' <- nameQualifier resolvedName
-  pure (packageId, moduleName', nameText resolvedName)
+  pure (packageId, moduleName', namespace, nameText resolvedName)
 
 registerTypeDeclHeader :: Map TcTypeKey TypeScheme -> Decl -> TcM [TcBindingResult]
 registerTypeDeclHeader kindSchemes (DeclData dataDecl) =
@@ -2009,10 +2009,10 @@ registerStructuralDecl origin (DeclInstance instanceDecl) = registerInstanceDecl
 registerStructuralDecl origin (DeclAnn _ inner) = registerStructuralDecl origin inner
 registerStructuralDecl _ _ = pure []
 
-predeclarePromotedConstructors :: Decl -> TcM ()
-predeclarePromotedConstructors declaration =
+predeclareTypeLevelDataConstructors :: Decl -> TcM ()
+predeclareTypeLevelDataConstructors declaration =
   case declaration of
-    DeclAnn _ inner -> predeclarePromotedConstructors inner
+    DeclAnn _ inner -> predeclareTypeLevelDataConstructors inner
     DeclData dataDeclaration -> do
       let parentBinder = binderHeadName (dataDeclHead dataDeclaration)
           parentName = unqualifiedNameText parentBinder
@@ -2032,21 +2032,26 @@ predeclarePromotedConstructors declaration =
           arity = length fields
       mapM_ (predeclareName parent arity) names
     predeclareName parent arity name = do
-      let promotedName = "'" <> name
-          isPromotedListConstructor =
+      let isListConstructor =
             tyConModuleName parent == "GHC.Types"
               && tyConName parent == "[]"
-              && promotedName `elem` ["'[]", "':"]
+              && name `elem` ["[]", ":"]
       kindScheme <-
-        if isPromotedListConstructor
-          then promotedListConstructorKind promotedName
+        if isListConstructor
+          then listDataConstructorKind name
           else ForAll [] [] <$> freshKindMeta
-      let promotedTyCon = mkTyConWithOrigin (tyConPackageId parent) (tyConModuleName parent) promotedName arity
+      let dataConTyCon =
+            mkTyConWithNamespace
+              ResolutionNamespaceTerm
+              (tyConPackageId parent)
+              (tyConModuleName parent)
+              name
+              arity
       storeTyConInfo
         TyConInfo
-          { tciName = promotedName,
+          { tciName = name,
             tciArity = arity,
-            tciTyCon = promotedTyCon,
+            tciTyCon = dataConTyCon,
             tciKindScheme = kindScheme,
             tciFlavor = DataTyCon,
             tciTypeSynonym = Nothing
@@ -2533,7 +2538,7 @@ registerDataConstructors dataDecl = do
       (kindParams, paramInfos) <- dataDeclParamInfos (quantifiedKindScheme info) dataDecl
       bindings <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (dataDeclConstructors dataDecl)
       constructors <- concat <$> mapM (checkedDataConInfos (tciTyCon info)) (dataDeclConstructors dataDecl)
-      mapM_ registerPromotedDataCon constructors
+      mapM_ registerTypeLevelDataCon constructors
       selectorBindings <- registerRecordSelectors constructors
       let tyVars = map paramTyVar paramInfos
       resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
@@ -2585,7 +2590,7 @@ registerNewtypeConstructor newtypeDecl = do
       (kindParams, paramInfos) <- typeDeclParamInfos (quantifiedKindScheme info) (binderHeadParams (newtypeDeclHead newtypeDecl))
       constructor <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (newtypeDeclConstructor newtypeDecl)
       constructors <- maybe (pure []) (checkedDataConInfos (tciTyCon info)) (newtypeDeclConstructor newtypeDecl)
-      mapM_ registerPromotedDataCon constructors
+      mapM_ registerTypeLevelDataCon constructors
       selectorBindings <- registerRecordSelectors constructors
       let tyVars = map paramTyVar paramInfos
       resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
@@ -2600,16 +2605,16 @@ registerNewtypeConstructor newtypeDecl = do
           }
       pure (maybeToList constructor <> selectorBindings)
 
-registerPromotedDataCon :: DataConInfo -> TcM ()
-registerPromotedDataCon constructor = do
-  let promotedName = "'" <> dciName constructor
+registerTypeLevelDataCon :: DataConInfo -> TcM ()
+registerTypeLevelDataCon constructor = do
+  let name = dciName constructor
       fieldTypes = dataConArgTypes constructor
       arity = length fieldTypes
       (packageId, moduleName') = dciOrigin constructor
-      promotedTyCon = mkTyConWithOrigin packageId moduleName' promotedName arity
+      dataConTyCon = mkTyConWithNamespace ResolutionNamespaceTerm packageId moduleName' name arity
   kindScheme <-
-    if moduleName' == "GHC.Types" && promotedName `elem` ["'[]", "':"]
-      then promotedListConstructorKind promotedName
+    if moduleName' == "GHC.Types" && name `elem` ["[]", ":"]
+      then listDataConstructorKind name
       else
         pure
           ( ForAll
@@ -2619,26 +2624,26 @@ registerPromotedDataCon constructor = do
           )
   let info =
         TyConInfo
-          { tciName = promotedName,
+          { tciName = name,
             tciArity = arity,
-            tciTyCon = promotedTyCon,
+            tciTyCon = dataConTyCon,
             tciKindScheme = kindScheme,
             tciFlavor = DataTyCon,
             tciTypeSynonym = Nothing
           }
-  if moduleName' == "GHC.Types" && promotedName `elem` ["'[]", "':"]
+  if moduleName' == "GHC.Types" && name `elem` ["[]", ":"]
     then replaceTyConEnvPermanent info
     else storeTyConInfo info
 
-promotedListConstructorKind :: Text -> TcM TypeScheme
-promotedListConstructorKind promotedName = do
+listDataConstructorKind :: Text -> TcM TypeScheme
+listDataConstructorKind name = do
   rawElementKind <- freshSkolemTv "k"
   let elementKindVar = setTyVarKind KType rawElementKind
       elementKind = TcTyVar elementKindVar
   resultKind <- listTypeForKind elementKind
   let body =
-        case promotedName of
-          "'[]" -> resultKind
+        case name of
+          "[]" -> resultKind
           _ -> TcFunTy elementKind (TcFunTy resultKind resultKind)
   pure (ForAll [elementKindVar] [] body)
 

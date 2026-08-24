@@ -1,0 +1,20 @@
+extensions:
+  - DataKinds
+modules:
+  - |
+    module Main where
+    data Same = Same
+    type TypeName = Same
+    type TermName = 'Same
+annotated:
+  - |
+    module Main where
+    data Same = Same
+         │      └─ v Main
+         └─ t Main
+    type TypeName = Same
+         └─ t Main  └─ t Main
+    type TermName = 'Same
+         └─ t Main   └─ v Main
+status: pass
+reason: promotion selects the term namespace when type and term names have the same text

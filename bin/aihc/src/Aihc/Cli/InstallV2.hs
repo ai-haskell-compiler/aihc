@@ -57,7 +57,7 @@ import Aihc.Tc
     tcModuleSuccess,
     typecheckModuleSccWithInterface,
   )
-import Aihc.Tc.Types (tyConModuleName, tyConPackageId)
+import Aihc.Tc.Types (tyConModuleName, tyConNamespace, tyConPackageId)
 import Control.Exception (IOException, try)
 import Control.Monad (foldM, unless, when)
 import Data.Bits (xor)
@@ -414,7 +414,7 @@ writeCoreV2Files verbose currentPackage primIdentity interface storeRoot coreV2P
 
 moduleTypeInterface :: ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
 moduleTypeInterface exports package interface source =
-  addTermSupportTyCons
+  addReferencedTyCons
     interface
     interface
       { tcInterfaceTerms = filter visibleTerm (tcInterfaceTerms interface),
@@ -435,10 +435,16 @@ moduleTypeInterface exports package interface source =
     visibleTyCon info =
       let tyCon = tciTyCon info
           identity = (tyConPackageId tyCon, tyConModuleName tyCon, tciName info)
-       in Map.member (tciName info) (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity (tciName info)
-    visibleTypeIdentity (packageId', moduleName', identifier) =
+          (namespaceScope, namespaceIdentities) =
+            case tyConNamespace tyCon of
+              ResolutionNamespaceTerm -> (scopeTerms scope, termIdentities)
+              ResolutionNamespaceType -> (scopeTypes scope, typeIdentities)
+              ResolutionNamespaceModule -> (Map.empty, Set.empty)
+       in Map.member (tciName info) namespaceScope || identity `Set.member` namespaceIdentities || identity == localIdentity (tciName info)
+    visibleTypeIdentity (packageId', moduleName', namespace, identifier) =
       let identity = (packageId', moduleName', identifier)
-       in Map.member identifier (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity identifier
+       in namespace == ResolutionNamespaceType
+            && (Map.member identifier (scopeTypes scope) || identity `Set.member` typeIdentities || identity == localIdentity identifier)
     visibleClass info =
       case ciOrigin info of
         Just (packageIdText, moduleName') ->
@@ -449,20 +455,30 @@ moduleTypeInterface exports package interface source =
       ResolvedTopLevel packageId' resolvedName -> Just (packageId', fromMaybe name (nameQualifier resolvedName), nameText resolvedName)
       _ -> Nothing
 
-addTermSupportTyCons :: TcInterface -> TcInterface -> TcInterface
-addTermSupportTyCons complete interface =
+addReferencedTyCons :: TcInterface -> TcInterface -> TcInterface
+addReferencedTyCons complete interface =
   interface {tcInterfaceTyCons = Map.elems (existing <> support)}
   where
     existing = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons interface]
     available = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons complete]
-    referenced = concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface)
-    support =
-      Map.fromList
-        [ (tyCon, info)
-        | tyCon <- referenced,
-          tyCon `Map.notMember` existing,
-          Just info <- [Map.lookup tyCon available]
-        ]
+    referenced =
+      Set.fromList
+        ( concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface)
+            <> concatMap (typeSchemeTyCons . tciKindScheme) (tcInterfaceTyCons interface)
+        )
+    reachable = closeTyCons Set.empty referenced
+    support = Map.restrictKeys available (reachable `Set.difference` Map.keysSet existing)
+    closeTyCons found pending
+      | Set.null pending = found
+      | otherwise =
+          let (tyCon, pending') = Set.deleteFindMin pending
+              dependencies =
+                maybe
+                  Set.empty
+                  (Set.fromList . typeSchemeTyCons . tciKindScheme)
+                  (Map.lookup tyCon available)
+              found' = Set.insert tyCon found
+           in closeTyCons found' (pending' <> (dependencies `Set.difference` found'))
 
 typeSchemeTyCons :: TypeScheme -> [TyCon]
 typeSchemeTyCons (ForAll _ predicates body) = concatMap predTyCons predicates <> typeTyCons body
