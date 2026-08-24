@@ -511,9 +511,10 @@ lowerTupleCase env scrutinee binder _fields alternatives = do
     case alternatives of
       first : _ -> pure first
       [] -> throwLower "GRIN cannot lower an empty unboxed tuple case"
-  fieldVariables <- mapM (freshVarsForBinder env) (Fc2.altBinders alternative)
+  let typeEnv = foldl extendTypeBinder env (Fc2.altTypeBinders alternative)
+  fieldVariables <- mapM (freshVarsForBinder typeEnv) (Fc2.altBinders alternative)
   let values = concat fieldVariables
-      binderEnv = bindLocal env binder values
+      binderEnv = bindLocal typeEnv binder values
       alternativeEnv = foldl bindPair binderEnv (zip (Fc2.altBinders alternative) fieldVariables)
   loweredRhs <- lowerExpr alternativeEnv (Fc2.altRhs alternative)
   loweredScrutinee <- lowerExpr env scrutinee
@@ -523,10 +524,11 @@ lowerTupleCase env scrutinee binder _fields alternatives = do
 
 lowerAlt :: LowerEnv -> Fc2.Alt -> LowerM GrinAlt
 lowerAlt env alternative = do
-  binderGroups <- mapM (freshVarsForBinder env) (Fc2.altBinders alternative)
-  let bodyEnv = foldl bindPair env (zip (Fc2.altBinders alternative) binderGroups)
+  let typeEnv = foldl extendTypeBinder env (Fc2.altTypeBinders alternative)
+  binderGroups <- mapM (freshVarsForBinder typeEnv) (Fc2.altBinders alternative)
+  let bodyEnv = foldl bindPair typeEnv (zip (Fc2.altBinders alternative) binderGroups)
   body <- lowerExpr bodyEnv (Fc2.altRhs alternative)
-  alternativeConstructor <- lowerAltCon env (Fc2.altCon alternative)
+  alternativeConstructor <- lowerAltCon typeEnv (Fc2.altCon alternative)
   pure
     GrinAlt
       { grinAltCon = alternativeConstructor,
