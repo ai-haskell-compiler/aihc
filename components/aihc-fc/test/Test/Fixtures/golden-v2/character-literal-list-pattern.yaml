@@ -1,0 +1,61 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Prim (Char#)
+
+  data Char = C# Char#
+
+  firstSpace :: [Char] -> Char
+  firstSpace (' ' : _) = 'y'
+  firstSpace _ = 'n'
+
+  emptyTail :: [Char] -> Char
+  emptyTail (_ : []) = 'y'
+  emptyTail _ = 'n'
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub type 1.tChar :: 3.tType {
+      pub 1.vC# :: FUN @3.vWordRep @3.tLiftedRep 2.tChar# 1.tChar
+  }
+
+  pub val 1.vfirstSpace :: 3.t[] 1.tChar 3.→ 1.tChar
+   = λ(x : 3.t[] 1.tChar).
+    case x as (_scrut : 3.t[] 1.tChar) return (1.tChar) of {
+        3.v: (_pat : 1.tChar) (_pat{1} : 3.t[] 1.tChar) →
+            case _pat as (_scrut{1} : 1.tChar) return (1.tChar) of {
+                1.vC# (_pat{2} : 2.tChar#) →
+                    case _pat{2} as (_scrut{2} : 2.tChar#) return (1.tChar) of {
+                        ' '#3.vWordRep →
+                            1.vC# 'y'#3.vWordRep;
+                        _ →
+                            1.vC# 'n'#3.vWordRep
+                    };
+                _ →
+                    1.vC# 'n'#3.vWordRep
+            };
+        _ →
+            1.vC# 'n'#3.vWordRep
+    }
+
+  pub val 1.vemptyTail :: 3.t[] 1.tChar 3.→ 1.tChar
+   = λ(x : 3.t[] 1.tChar).
+    case x as (_scrut : 3.t[] 1.tChar) return (1.tChar) of {
+        3.v: (_pat : 1.tChar) (_pat{1} : 3.t[] 1.tChar) →
+            case _pat{1} as (_scrut{1} : 3.t[] 1.tChar) return (1.tChar) of {
+                3.v[] →
+                    1.vC# 'y'#3.vWordRep;
+                _ →
+                    1.vC# 'n'#3.vWordRep
+            };
+        _ →
+            1.vC# 'n'#3.vWordRep
+    }
+status: pass
+reason: Character literals in constructor patterns retain their checked types.
