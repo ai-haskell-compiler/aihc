@@ -10,7 +10,8 @@ annotated:
 - |
   module Main where
   type String = [Char]
-       └─ t Main └─ t Error unbound
+       └─ t Main│└─ t Error unbound
+                └─ t Builtin []
   hello :: String
   │        └─ t Main
   └─ v Main

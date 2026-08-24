@@ -1366,24 +1366,20 @@ resolveType ty =
       TFun <$> resolveArrowKind arrowKind <*> resolveType left <*> resolveType right
     TTuple flavor promotion items -> do
       items' <- mapM resolveType items
+      sp <- currentSpan
       let namespace = typePromotionNamespace promotion
-          syntaxResolution = ResolutionAnnotation NoSourceSpan (IdentifierTuple flavor (length items)) namespace ResolvedSyntax
+          syntaxResolution = ResolutionAnnotation sp (IdentifierTuple flavor (length items)) namespace ResolvedSyntax
           tupleType = TTuple flavor promotion items'
-      pure $
-        case promotion of
-          Promoted -> TAnn (mkAnnotation syntaxResolution) tupleType
-          Unpromoted -> tupleType
+      pure (annotateTypeSyntax sp syntaxResolution tupleType)
     TUnboxedSum items ->
       TUnboxedSum <$> mapM resolveType items
     TList promotion items -> do
       items' <- mapM resolveType items
+      sp <- currentSpan
       let namespace = typePromotionNamespace promotion
-          syntaxResolution = ResolutionAnnotation NoSourceSpan IdentifierList namespace ResolvedSyntax
+          syntaxResolution = ResolutionAnnotation sp IdentifierList namespace ResolvedSyntax
           listType = TList promotion items'
-      pure $
-        case promotion of
-          Promoted -> TAnn (mkAnnotation syntaxResolution) listType
-          Unpromoted -> listType
+      pure (annotateTypeSyntax sp syntaxResolution listType)
     TParen inner ->
       TParen <$> resolveType inner
     TKindSig inner kind ->
@@ -1415,6 +1411,10 @@ resolveTypeSignature ty =
     _ -> do
       ty' <- resolveType ty
       pure (emptyScope, ty')
+
+annotateTypeSyntax :: SourceSpan -> ResolutionAnnotation -> Type -> Type
+annotateTypeSyntax sp resolution =
+  TAnn (mkAnnotation resolution) . TAnn (mkAnnotation sp)
 
 bindTyVarBinders :: [TyVarBinder] -> ResolveM (Scope, [TyVarBinder])
 bindTyVarBinders =

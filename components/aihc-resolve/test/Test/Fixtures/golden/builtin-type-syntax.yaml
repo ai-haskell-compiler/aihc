@@ -14,15 +14,20 @@ annotated:
   - |
     module Main where
     type Int = ()
+         │     └─ t Builtin ()
          └─ t Main
     type Bool = ()
+         │      └─ t Builtin ()
          └─ t Main
     type Pair = '(Int, Bool)
-         └─ t Main│    └─ t Main
-                  └─ t Main
+         │       ││    └─ t Main
+         │       │└─ t Main
+         │       └─ v Builtin (,)
+         └─ t Main
     type Items = '[Int, Bool]
-         └─ t Main │    └─ t Main
-                   └─ t Main
+         └─ t Main││    └─ t Main
+                  │└─ t Main
+                  └─ v Builtin []
     tuple x y = (x, y)
     │     │ │   ││  └─ v 1
     │     │ │   │└─ v 0

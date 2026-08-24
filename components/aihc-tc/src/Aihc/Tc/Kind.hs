@@ -133,7 +133,8 @@ convertSurfaceTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, TcType)
 convertSurfaceTypeWithKinds tvEnv ty =
   case ty of
     TAnn ann _
-      | Just _ <- (fromAnnotation ann :: Maybe ResolutionAnnotation) ->
+      | Just resolution <- (fromAnnotation ann :: Maybe ResolutionAnnotation),
+        resolutionNamespace resolution == ResolutionNamespaceTerm ->
           convertNonSynonymTypeWithKinds tvEnv ty
     _ -> do
       expanded <- expandTypeSynonym tvEnv (peelTypeHead ty)
@@ -146,8 +147,10 @@ convertNonSynonymTypeWithKinds tvEnv ty =
   case ty of
     TAnn ann inner ->
       case fromAnnotation ann of
-        Just resolution -> convertResolvedSyntaxType tvEnv resolution inner
-        Nothing -> convertSurfaceTypeWithKinds tvEnv inner
+        Just resolution
+          | resolutionNamespace resolution == ResolutionNamespaceTerm ->
+              convertPromotedSyntaxType tvEnv resolution inner
+        _ -> convertSurfaceTypeWithKinds tvEnv inner
     TVar name ->
       inferTypeVariable tvEnv name
     TCon name _ ->
@@ -206,16 +209,12 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       meta <- freshMetaTv
       pure (meta, KType)
 
-convertResolvedSyntaxType :: TvKindEnv -> ResolutionAnnotation -> Type -> TcM (TcType, TcType)
-convertResolvedSyntaxType tvEnv resolution syntax =
-  case (resolutionNamespace resolution, syntax) of
-    (ResolutionNamespaceType, TList _ [argument]) ->
-      convertListType tvEnv argument
-    (ResolutionNamespaceTerm, TList _ arguments) ->
+convertPromotedSyntaxType :: TvKindEnv -> ResolutionAnnotation -> Type -> TcM (TcType, TcType)
+convertPromotedSyntaxType tvEnv resolution syntax =
+  case peelTypeHead syntax of
+    TList _ arguments ->
       convertDataConstructorList tvEnv arguments
-    (ResolutionNamespaceType, TTuple flavor _ arguments) ->
-      convertTupleType tvEnv flavor arguments
-    (ResolutionNamespaceTerm, TTuple _ _ arguments) ->
+    TTuple _ _ arguments ->
       convertResolvedConstructorApplication tvEnv resolution arguments
     _ -> convertSurfaceTypeWithKinds tvEnv syntax
 

@@ -8,7 +8,8 @@ annotated:
 - |-
   module Prelude where
   data List a = [] | a : [a]
-       └─ t Prelude    └─ v Prelude
+       └─ t Prelude    │ └─ t Builtin []
+                       └─ v Prelude
   infixr 5 :
 extensions: []
 modules:

@@ -25,7 +25,6 @@ import Aihc.Parser.Syntax
     Extension,
     Module,
     Name (..),
-    SourceSpan (..),
     fromAnnotation,
     moduleName,
     parseExtensionName,
@@ -241,9 +240,7 @@ renderAnnotatedResolveResult sources result =
 resolutionAnnotationDoc :: Annotation -> Maybe (Doc ann)
 resolutionAnnotationDoc annotation = do
   resolution <- fromAnnotation annotation
-  case resolutionSpan resolution of
-    NoSourceSpan -> Nothing
-    _ -> pure (pretty (annotationLabel resolution))
+  pure (pretty (annotationLabel resolution))
 
 moduleDisplayName :: Module -> Text
 moduleDisplayName modu = fromMaybe (T.pack "<unnamed>") (moduleName modu)

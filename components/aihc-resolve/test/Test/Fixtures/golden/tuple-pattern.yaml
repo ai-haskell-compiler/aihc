@@ -9,6 +9,7 @@ annotated:
 - |
   module Main where
   fst3 :: (a, b, c) -> a
+  │       └─ t Builtin (,,)
   └─ v Main
   fst3 (x, _, _) = x
   │     └─ v 0     └─ v 0
