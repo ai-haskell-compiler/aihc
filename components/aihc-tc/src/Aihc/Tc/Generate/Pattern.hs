@@ -142,7 +142,6 @@ patternNeedsCheckedType pat =
     PParen inner -> patternNeedsCheckedType inner
     PLit {} -> False
     PNegLit {} -> False
-    PList [] -> False
     PStrict inner -> patternNeedsCheckedType inner
     PIrrefutable inner -> patternNeedsCheckedType inner
     PTypeSig inner _ -> patternNeedsCheckedType inner

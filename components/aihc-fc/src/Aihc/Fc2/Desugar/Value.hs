@@ -1055,11 +1055,19 @@ patternType pattern' =
   case pattern' of
     Syn.PVar name -> nameTcType name
     Syn.PAnn annotation inner -> (tcAnnType <$> Syn.fromAnnotation annotation) <|> patternType inner
+    Syn.PLit literal -> literalType literal
+    Syn.PNegLit literal -> literalType literal
     Syn.PParen inner -> patternType inner
     Syn.PStrict inner -> patternType inner
     Syn.PIrrefutable inner -> patternType inner
     Syn.PAs name inner -> nameTcType name <|> patternType inner
     Syn.PTypeSig inner _ -> patternType inner
+    _ -> Nothing
+
+literalType :: Syn.Literal -> Maybe TcType
+literalType literal =
+  case literal of
+    Syn.LitAnn annotation inner -> (tcAnnType <$> Syn.fromAnnotation annotation) <|> literalType inner
     _ -> Nothing
 
 fromBinderType :: Syn.Pattern -> TcType
