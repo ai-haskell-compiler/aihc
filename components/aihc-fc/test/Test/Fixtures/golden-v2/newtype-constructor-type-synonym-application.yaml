@@ -1,0 +1,32 @@
+extensions: []
+modules:
+  - |
+    module Test where
+
+    data Field = Field
+    newtype IOException = IOError Field
+    type IOError = IOException
+
+    makeError :: Field -> IOException
+    makeError value = IOError value
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Types
+
+  pub type 1.tField :: 2.tType {
+      pub 1.vField :: 1.tField
+  }
+
+  pub type 1.tIOException :: 2.tType {}
+
+  axiom 1.$ax$IOException : 1.tIOException ~R 1.tField
+
+  pub type 1.tIOError :: 2.tType =
+   1.tIOException
+
+  pub val 1.vmakeError :: 1.tField 2.→ 1.tIOException
+   = λ(x : 1.tField).
+    (λ(_newtype : 1.tField).
+      _newtype ▷ sym (axiom-co 1.$ax$IOException)) x
+status: pass
+reason: ""
