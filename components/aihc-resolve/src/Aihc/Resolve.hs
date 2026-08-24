@@ -684,8 +684,17 @@ resolveExpr expr =
       ETypeSig <$> resolveExpr inner <*> resolveType ty
     EParen inner ->
       EParen <$> resolveExpr inner
-    EList items ->
-      EList <$> mapM resolveExpr items
+    EList items -> do
+      items' <- mapM resolveExpr items
+      sp <- currentSpan
+      scope <- currentScope
+      let resolved = lookupTerm "[]" scope
+          target =
+            case resolved of
+              ResolvedError {} -> ResolvedSyntax
+              _ -> resolved
+          annotation = ResolutionAnnotation sp IdentifierList ResolutionNamespaceTerm target
+      pure (EAnn (mkAnnotation annotation) (EList items'))
     ETuple flavor items -> do
       items' <- mapM resolveMaybeExpr items
       sp <- currentSpan
@@ -1684,7 +1693,9 @@ resolveDataConDefinitions scope =
           GadtCon forallVars context (map (resolveConstructor ambient) names) body
         TupleCon {} -> current
         UnboxedSumCon {} -> current
-        ListCon {} -> current
+        ListCon {} ->
+          let resolution = ResolutionAnnotation ambient IdentifierList ResolutionNamespaceTerm (lookupTerm "[]" scope)
+           in DataConAnn (mkAnnotation resolution) current
 
     resolveConstructor span' name =
       let rendered = renderUnqualifiedName name

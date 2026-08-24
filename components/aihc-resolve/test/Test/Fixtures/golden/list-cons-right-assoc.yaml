@@ -2,14 +2,17 @@ annotated:
 - |-
   module Main where
   xs = 'a' : 'b' : 'c' : []
-  └─ v Main│     │     └─ v Prelude
+  └─ v Main│     │     │ └─ v Prelude
+           │     │     └─ v Prelude
            │     └─ v Prelude
            └─ v Prelude
 - |-
   module Prelude where
   data List a = [] | a : [a]
-       └─ t Prelude    │ └─ t Builtin []
-                       └─ v Prelude
+       │        │      │ └─ t Builtin []
+       │        │      └─ v Prelude
+       │        └─ v Prelude
+       └─ t Prelude
   infixr 5 :
 extensions: []
 modules:
