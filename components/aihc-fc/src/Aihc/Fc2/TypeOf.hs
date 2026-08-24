@@ -93,10 +93,7 @@ lookupBinderType :: TypeEnv -> Name -> Maybe Type
 lookupBinderType env name = Map.lookup name (teBinders env)
 
 lookupHeaderType :: TypeEnv -> Name -> Maybe Type
-lookupHeaderType env name =
-  case Map.lookup name (teHeaders env) of
-    Just header -> Just header
-    Nothing -> wiredTypeOf env name
+lookupHeaderType env name = Map.lookup name (teHeaders env)
 
 typeOf :: TypeEnv -> Type -> Maybe Type
 typeOf env ty =
@@ -281,30 +278,6 @@ isWiredName env name expected =
     Nothing -> False
     Just package ->
       isGhcTypesOrigin package name && nameText name == expected
-
-wiredTypeOf :: TypeEnv -> Name -> Maybe Type
-wiredTypeOf env name =
-  case tePrimPackage env of
-    Nothing -> Nothing
-    Just package
-      | not (isGhcTypesOrigin package name) -> Nothing
-      | nameText name == "Type" -> Just (typeSynonym package)
-      | nameText name == "Constraint" -> Just (typeSynonym package)
-      | nameText name == "TYPE" ->
-          do
-            lifted <- liftedRepType env
-            Just (TyFun lifted lifted (TyCon (runtimeRepConstructor package)) (typeSynonym package))
-      | nameText name == "RuntimeRep" -> Just (typeSynonym package)
-      | nameText name == "Levity" -> Just (typeSynonym package)
-      | nameText name == "LiftedRep" -> Just (TyCon (runtimeRepConstructor package))
-      | nameText name == "UnliftedRep" -> Just (TyCon (runtimeRepConstructor package))
-      | nameText name == "BoxedRep" ->
-          do
-            lifted <- liftedRepType env
-            Just (TyFun lifted lifted (TyCon (levityConstructor package)) (TyCon (runtimeRepConstructor package)))
-      | nameText name == "Lifted" -> Just (TyCon (levityConstructor package))
-      | nameText name == "Unlifted" -> Just (TyCon (levityConstructor package))
-      | otherwise -> Nothing
 
 typeAppTYPE :: TypeEnv -> Type -> Type
 typeAppTYPE env representation =
