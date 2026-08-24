@@ -408,7 +408,7 @@ buildPackagePlanRecursive cache mode resolver storeRoot stack rawSpec
         sourcePath <- sourcePathForSpec resolver spec
         analysis <- analyzeSourceWith mode sourcePath
         recordPackagePlanSourceLineCount cache mode spec (sourceLineCount analysis)
-        dependencySpecs <- mapM resolveDependencySpec (sourceDependencyNames analysis)
+        dependencySpecs <- mapM resolveDependencySpec (withImplicitPrimDependency spec (sourceDependencyNames analysis))
         dependencyPlans <- mapM (buildPackagePlanRecursive cache mode resolver storeRoot (spec : stack)) dependencySpecs
         let plan =
               buildPackagePlanFromAnalysis
@@ -430,6 +430,14 @@ buildPackagePlanRecursive cache mode resolver storeRoot stack rawSpec
       case lookupCoreProvider dependencyName of
         Just provider -> pure (coreProviderVersion provider)
         Nothing -> resolverResolveVersion resolver dependencyName
+
+withImplicitPrimDependency :: PackageSpec -> [String] -> [String]
+withImplicitPrimDependency spec dependencies
+  | pkgName spec == "aihc-prim" = dependencies
+  | any isPrimDependency dependencies = dependencies
+  | otherwise = "aihc-prim" : dependencies
+  where
+    isPrimDependency name = name == "aihc-prim" || name == "ghc-prim"
 
 buildPackagePlanCached :: PackagePlanCache -> SourceAnalysisMode -> PackageSpec -> IO (ResolvedDependency, PackagePlan) -> IO (ResolvedDependency, PackagePlan)
 buildPackagePlanCached cache mode spec action = mask $ \restore -> do

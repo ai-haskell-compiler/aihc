@@ -245,8 +245,8 @@ typeUsesName target ty =
 
 isTYPEName :: LintEnv -> Type -> Bool
 isTYPEName env ty =
-  case ty of
-    TyCon name -> isWiredText env name "TYPE"
+  case (tePrimPackage (leTypes env), ty) of
+    (Just package, TyCon name) -> name == typeConstructor package
     _ -> False
 
 isTypeKind :: LintEnv -> Type -> Bool
@@ -260,12 +260,6 @@ isRuntimeRepKind env ty =
   case runtimeRepKind env of
     Right expected -> typesEqual (leTypes env) expected ty
     Left _ -> False
-
-isWiredText :: LintEnv -> Name -> Text -> Bool
-isWiredText env name expected =
-  case tePrimPackage (leTypes env) of
-    Nothing -> False
-    Just package -> isGhcTypesOrigin package name && nameText name == expected
 
 viewForAll :: LintEnv -> Type -> Maybe (Binder, Type)
 viewForAll env ty =
@@ -648,10 +642,10 @@ checkCoercionArgumentKind env expected left right = do
 representationOf :: LintEnv -> Type -> Either LintError Type
 representationOf env ty = do
   kind <- lintType env ty
-  case reduceType (leTypes env) kind of
-    TyApp (TyCon name) representation
-      | isWiredText env name "TYPE" -> Right representation
-    other -> Left (LintFailure ("term type does not have a TYPE representation: " <> show other))
+  case (tePrimPackage (leTypes env), reduceType (leTypes env) kind) of
+    (Just package, TyApp (TyCon name) representation)
+      | name == typeConstructor package -> Right representation
+    (_, other) -> Left (LintFailure ("term type does not have a TYPE representation: " <> show other))
 
 eitherToList :: Either LintError a -> [LintError]
 eitherToList = either pure (const [])
