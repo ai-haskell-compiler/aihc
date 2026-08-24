@@ -8,9 +8,7 @@ module Aihc.Fc2.TypeOf
     typeEnvFromPrograms,
     typeOf,
     unfoldType,
-    unfoldRep,
     isLiftedRep,
-    liftedRepType,
     repOf,
     headerType,
     applyType,
@@ -147,36 +145,6 @@ unfoldType env ty =
     TyCon name
       | Just body <- Map.lookup name (teSynonyms env) ->
           unfoldType env (stripForAlls body)
-      | isWiredName env name "Type",
-        Just representation <- liftedRepType env ->
-          typeAppTYPE env representation
-      | isWiredName env name "Constraint",
-        Just representation <- liftedRepType env ->
-          typeAppTYPE env representation
-      | isWiredName env name "TYPE" -> ty
-      | isWiredName env name "RuntimeRep" -> ty
-      | isWiredName env name "Levity" -> ty
-      | otherwise -> ty
-    TyApp (TyCon name) argument
-      | isWiredName env name "TYPE" -> TyApp (TyCon name) argument
-      | otherwise -> ty
-    _ -> ty
-
-unfoldRep :: TypeEnv -> Type -> Type
-unfoldRep env ty =
-  case ty of
-    TyCon name
-      | Just body <- Map.lookup name (teSynonyms env) ->
-          unfoldRep env (stripForAlls body)
-      | isWiredName env name "LiftedRep",
-        Just package <- tePrimPackage env ->
-          TyApp (TyCon (boxedRepName package)) (TyCon (liftedName package))
-      | isWiredName env name "UnliftedRep",
-        Just package <- tePrimPackage env ->
-          TyApp (TyCon (boxedRepName package)) (TyCon (unliftedName package))
-      | otherwise -> ty
-    TyApp (TyCon name) argument
-      | isWiredName env name "BoxedRep" -> TyApp (TyCon name) argument
       | otherwise -> ty
     _ -> ty
 
@@ -191,12 +159,11 @@ repOf env ty = do
 -- | True when a stored FUN representation is lifted.
 isLiftedRep :: TypeEnv -> Type -> Bool
 isLiftedRep env ty =
-  case unfoldRep env ty of
+  case unfoldType env ty of
     TyApp (TyCon boxed) (TyCon levity)
       | isWiredName env boxed "BoxedRep",
         isWiredName env levity "Lifted" ->
           True
-    TyCon name -> isWiredName env name "LiftedRep"
     _ -> False
 
 extendBinder :: TypeEnv -> Binder -> TypeEnv
@@ -279,23 +246,13 @@ isWiredName env name expected =
     Just package ->
       isGhcTypesOrigin package name && nameText name == expected
 
-typeAppTYPE :: TypeEnv -> Type -> Type
-typeAppTYPE env representation =
-  case tePrimPackage env of
-    Nothing -> representation
-    Just package -> TyApp (TyCon (typeConstructor package)) representation
-
-liftedRepType :: TypeEnv -> Maybe Type
-liftedRepType env =
-  TyCon . liftedRepName <$> tePrimPackage env
-
--- | Unfold synonyms and wired Type, then compare structure.
+-- | Unfold synonyms, then compare structure.
 reduceType :: TypeEnv -> Type -> Type
 reduceType env ty =
   case ty of
     TyVar {} -> ty
     TyCon {} ->
-      let unfolded = unfoldRep env (unfoldType env ty)
+      let unfolded = unfoldType env ty
        in if unfolded == ty then ty else reduceType env unfolded
     TyApp function argument ->
       case reduceType env function of
