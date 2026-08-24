@@ -24,9 +24,9 @@ annotated:
   tupleValue = (# 1#, 2# #)
   ││            │  │   └─ type: Int#
   ││            │  └─ type: Int#
-  ││            └─ type: (# Int#, Int# #); type-args: Int#, Int#
-  └─ type: (# Int#, Int# #)
-  └─ error: top-level binding tupleValue has unlifted type (# Int#, Int# #)
+  ││            └─ type: Tuple2# Int# Int#; type-args: Int#, Int#
+  └─ type: Tuple2# Int# Int#
+  └─ error: top-level binding tupleValue has unlifted type Tuple2# Int# Int#
 
   returnsInt _ = 10#
   │          │   └─ type: Int#

@@ -3,9 +3,9 @@ annotated:
   module Test where
   import GHC.Prim (Int#)
   foreign import prim "tup" tuple :: () -> (# Int#, Int# #)
-  └─ type: () → (# Int#, Int# #)
+  └─ type: () → Tuple2# Int# Int#
   test = tuple
-  └─ type: () → (# Int#, Int# #)
+  └─ type: () → Tuple2# Int# Int#
 extensions:
 - GHCForeignImportPrim
 - MagicHash
