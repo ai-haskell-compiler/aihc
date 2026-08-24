@@ -33,7 +33,7 @@ encodeResolveArtifact artifact =
   Builder.toLazyByteString $
     cborArray 5
       <> cborText "aihc-resolve"
-      <> cborWord 2
+      <> cborWord 3
       <> cborText (resolveArtifactModuleName artifact)
       <> encodeHashes (resolveArtifactInputHashes artifact)
       <> encodeScope (resolveArtifactScope artifact)
@@ -53,7 +53,7 @@ getArtifact :: Get.Get ResolveArtifact
 getArtifact = do
   5 <- getArrayLength
   "aihc-resolve" <- getText
-  2 <- getWord
+  3 <- getWord
   resolveArtifactModuleName <- getText
   resolveArtifactInputHashes <- getHashes
   resolveArtifactScope <- getScope
@@ -113,7 +113,7 @@ encodeResolvedName resolved =
   case resolved of
     ResolvedTopLevel (PackageId packageId) name ->
       cborArray 5 <> cborWord 0 <> cborText packageId <> cborText (fromMaybe "" (nameQualifier name)) <> cborWord (nameTypeTag (nameType name)) <> cborText (nameText name)
-    ResolvedBuiltin name -> cborArray 2 <> cborWord 1 <> cborText name
+    ResolvedSyntax -> cborArray 1 <> cborWord 1
     ResolvedLocal unique name -> cborArray 3 <> cborWord 2 <> cborWord (fromIntegral unique) <> cborText (renderUnqualifiedName name)
     ResolvedError message -> cborArray 2 <> cborWord 3 <> cborText (T.pack message)
 
@@ -129,7 +129,7 @@ getResolvedName = do
       text <- getText
       let qualifier = if T.null qualifierText then Nothing else Just qualifierText
       pure (ResolvedTopLevel packageId (Name qualifier nameType' text []))
-    (2, 1) -> ResolvedBuiltin <$> getText
+    (1, 1) -> pure ResolvedSyntax
     _ -> fail "unsupported resolved name"
 
 nameTypeTag :: NameType -> Word64

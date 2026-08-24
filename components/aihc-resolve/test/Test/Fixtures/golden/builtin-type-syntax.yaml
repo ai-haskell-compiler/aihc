@@ -1,0 +1,41 @@
+extensions:
+  - DataKinds
+  - UnboxedTuples
+modules:
+  - |
+    module Main where
+    type Int = ()
+    type Bool = ()
+    type Pair = '(Int, Bool)
+    type Items = '[Int, Bool]
+    tuple x y = (x, y)
+    unboxed x y = (# x, y #)
+annotated:
+  - |
+    module Main where
+    type Int = ()
+         └─ t Main
+    type Bool = ()
+         └─ t Main
+    type Pair = '(Int, Bool)
+         └─ t Main│    └─ t Main
+                  └─ t Main
+    type Items = '[Int, Bool]
+         └─ t Main │    └─ t Main
+                   └─ t Main
+    tuple x y = (x, y)
+    │     │ │   ││  └─ v 1
+    │     │ │   │└─ v 0
+    │     │ │   └─ v Builtin (,)
+    │     │ └─ v 1
+    │     └─ v 0
+    └─ v Main
+    unboxed x y = (# x, y #)
+    │       │ │   │  │  └─ v 3
+    │       │ │   │  └─ v 2
+    │       │ │   └─ v Builtin (#,#)
+    │       │ └─ v 3
+    │       └─ v 2
+    └─ v Main
+status: pass
+reason: built-in list and tuple syntax uses structured identifiers

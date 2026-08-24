@@ -29,7 +29,7 @@ import Aihc.Parser.Syntax
     peelLiteralAnn,
     peelPatternAnn,
   )
-import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
+import Aihc.Resolve (Identifier (..), ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Annotations (PendingTcAnnotation (..), TcAnnotation, pendingAnnotation)
 import Aihc.Tc.Constraint
 import Aihc.Tc.Env (TyConInfo (..))
@@ -437,7 +437,7 @@ predToCt sp name pred' = do
 
 requiredPatternResolution :: Text -> Pattern -> TcM ResolutionAnnotation
 requiredPatternResolution name pat =
-  case [resolution | resolution <- patternResolutions pat, resolutionName resolution == name, resolutionNamespace resolution == ResolutionNamespaceTerm] of
+  case [resolution | resolution <- patternResolutions pat, resolutionIdentifier resolution == IdentifierNamed name, resolutionNamespace resolution == ResolutionNamespaceTerm] of
     resolution : _ -> pure resolution
     [] -> do
       emitError NoSourceSpan (OtherError ("missing resolver annotation for overloaded pattern method " <> T.unpack name))
@@ -460,7 +460,7 @@ attachPendingPatternAnnotation target pending pat =
     PAnn ann inner ->
       case fromAnnotation ann of
         Just resolution
-          | resolutionName resolution == target,
+          | resolutionIdentifier resolution == IdentifierNamed target,
             resolutionNamespace resolution == ResolutionNamespaceTerm ->
               PAnn (mkAnnotation pending) (PAnn ann inner)
         _ -> PAnn ann (attachPendingPatternAnnotation target pending inner)

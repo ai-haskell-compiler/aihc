@@ -25,18 +25,21 @@ import Aihc.Parser.Syntax
     Extension,
     Module,
     Name (..),
+    SourceSpan (..),
     fromAnnotation,
     moduleName,
     parseExtensionName,
     renderName,
   )
 import Aihc.Resolve
-  ( Package (..),
+  ( Identifier,
+    Package (..),
     PackageId (..),
     ResolutionAnnotation (..),
     ResolutionNamespace (..),
     ResolveResult (..),
     ResolvedName (..),
+    displayIdentifier,
     resolveWithDeps,
     unnamedPackage,
   )
@@ -238,7 +241,9 @@ renderAnnotatedResolveResult sources result =
 resolutionAnnotationDoc :: Annotation -> Maybe (Doc ann)
 resolutionAnnotationDoc annotation = do
   resolution <- fromAnnotation annotation
-  pure (pretty (annotationLabel resolution))
+  case resolutionSpan resolution of
+    NoSourceSpan -> Nothing
+    _ -> pure (pretty (annotationLabel resolution))
 
 moduleDisplayName :: Module -> Text
 moduleDisplayName modu = fromMaybe (T.pack "<unnamed>") (moduleName modu)
@@ -247,7 +252,7 @@ annotationLabel :: ResolutionAnnotation -> Text
 annotationLabel ann =
   renderConciseNamespace (resolutionNamespace ann)
     <> " "
-    <> renderConciseOrigin (resolutionTarget ann)
+    <> renderConciseOrigin (resolutionIdentifier ann) (resolutionTarget ann)
 
 renderConciseNamespace :: ResolutionNamespace -> Text
 renderConciseNamespace namespace =
@@ -256,14 +261,14 @@ renderConciseNamespace namespace =
     ResolutionNamespaceType -> "t"
     ResolutionNamespaceModule -> "m"
 
-renderConciseOrigin :: ResolvedName -> Text
-renderConciseOrigin resolvedName =
+renderConciseOrigin :: Identifier -> ResolvedName -> Text
+renderConciseOrigin identifier resolvedName =
   case resolvedName of
     ResolvedTopLevel identity name
       | packageIdText identity `elem` ["", "main"] -> fromMaybe (renderName name) (nameQualifier name)
       | otherwise -> packageIdText identity <> ":" <> fromMaybe (renderName name) (nameQualifier name)
     ResolvedLocal uniqueId _ -> T.pack (show uniqueId)
-    ResolvedBuiltin name -> "Builtin " <> name
+    ResolvedSyntax -> "Builtin " <> displayIdentifier identifier
     ResolvedError msg -> T.pack ("Error " <> msg)
 
 listFixtureFiles :: FilePath -> IO [FilePath]

@@ -9,14 +9,14 @@ module Aihc.Resolve.Types
     pattern PResolution,
     pattern TResolution,
     ResolutionNamespace (..),
-    ResolutionForm (..),
+    Identifier (..),
+    displayIdentifier,
     PackageId (..),
     Package (..),
     unnamedPackage,
     modulesInPackage,
     ResolvedName (..),
     ResolutionAnnotation (..),
-    TypeSyntaxResolution (..),
     ResolveError (..),
     ResolveResult (..),
     resolvedModuleAsts,
@@ -31,6 +31,7 @@ import Aihc.Parser.Syntax
     Name (..),
     Pattern (..),
     SourceSpan (..),
+    TupleFlavor (..),
     Type (..),
     UnqualifiedName (..),
     fromAnnotation,
@@ -65,9 +66,27 @@ modulesInPackage package = map pairWithPackage
 data ResolvedName
   = ResolvedTopLevel PackageId Name
   | ResolvedLocal Int UnqualifiedName
-  | ResolvedBuiltin Text
+  | ResolvedSyntax
   | ResolvedError String
   deriving (Eq, Show)
+
+-- | The source identifier that caused one resolution request.
+data Identifier
+  = IdentifierTuple !TupleFlavor !Int
+  | IdentifierList
+  | IdentifierNamed !Text
+  deriving (Eq, Show)
+
+-- | Render an identifier for diagnostics and other user output.
+displayIdentifier :: Identifier -> Text
+displayIdentifier identifier =
+  case identifier of
+    IdentifierTuple flavor arity ->
+      case flavor of
+        Boxed -> "(" <> T.replicate (max 0 (arity - 1)) "," <> ")"
+        Unboxed -> "(#" <> T.replicate (max 0 (arity - 1)) "," <> "#)"
+    IdentifierList -> "[]"
+    IdentifierNamed name -> name
 
 data ResolutionNamespace
   = ResolutionNamespaceTerm
@@ -75,26 +94,11 @@ data ResolutionNamespace
   | ResolutionNamespaceModule
   deriving (Eq, Ord, Show, Read)
 
--- | The syntax form that caused one resolution request.
-data ResolutionForm
-  = ResolutionNamed
-  | ResolutionTuple
-  deriving (Eq, Show)
-
 data ResolutionAnnotation = ResolutionAnnotation
   { resolutionSpan :: !SourceSpan,
-    resolutionName :: !Text,
+    resolutionIdentifier :: !Identifier,
     resolutionNamespace :: !ResolutionNamespace,
-    resolutionTarget :: !ResolvedName,
-    resolutionForm :: !ResolutionForm
-  }
-  deriving (Eq, Show)
-
--- | A resolved namespace and target for type syntax that has no identifier node.
-data TypeSyntaxResolution = TypeSyntaxResolution
-  { typeSyntaxResolutionName :: !Text,
-    typeSyntaxResolutionNamespace :: !ResolutionNamespace,
-    typeSyntaxResolutionTarget :: !ResolvedName
+    resolutionTarget :: !ResolvedName
   }
   deriving (Eq, Show)
 

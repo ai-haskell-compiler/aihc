@@ -42,7 +42,7 @@ import Aihc.Parser.Syntax
     tyVarBinderName,
     unqualifiedNameText,
   )
-import Aihc.Resolve (ResolutionNamespace (..), TypeSyntaxResolution (..))
+import Aihc.Resolve (ResolutionAnnotation (..), ResolutionNamespace (..))
 import Aihc.Tc.Env (TyConInfo (..), TypeSynonymInfo (..))
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Instantiate (instantiate)
@@ -133,7 +133,7 @@ convertSurfaceTypeWithKinds :: TvKindEnv -> Type -> TcM (TcType, TcType)
 convertSurfaceTypeWithKinds tvEnv ty =
   case ty of
     TAnn ann _
-      | Just _ <- (fromAnnotation ann :: Maybe TypeSyntaxResolution) ->
+      | Just _ <- (fromAnnotation ann :: Maybe ResolutionAnnotation) ->
           convertNonSynonymTypeWithKinds tvEnv ty
     _ -> do
       expanded <- expandTypeSynonym tvEnv (peelTypeHead ty)
@@ -206,9 +206,9 @@ convertNonSynonymTypeWithKinds tvEnv ty =
       meta <- freshMetaTv
       pure (meta, KType)
 
-convertResolvedSyntaxType :: TvKindEnv -> TypeSyntaxResolution -> Type -> TcM (TcType, TcType)
+convertResolvedSyntaxType :: TvKindEnv -> ResolutionAnnotation -> Type -> TcM (TcType, TcType)
 convertResolvedSyntaxType tvEnv resolution syntax =
-  case (typeSyntaxResolutionNamespace resolution, syntax) of
+  case (resolutionNamespace resolution, syntax) of
     (ResolutionNamespaceType, TList _ [argument]) ->
       convertListType tvEnv argument
     (ResolutionNamespaceTerm, TList _ arguments) ->
@@ -261,7 +261,7 @@ convertTupleType tvEnv flavor arguments = do
   tupleKind <- tcTypeKind tupleType
   pure (tupleType, tupleKind)
 
-convertResolvedConstructorApplication :: TvKindEnv -> TypeSyntaxResolution -> [Type] -> TcM (TcType, TcType)
+convertResolvedConstructorApplication :: TvKindEnv -> ResolutionAnnotation -> [Type] -> TcM (TcType, TcType)
 convertResolvedConstructorApplication tvEnv resolution arguments = do
   maybeInfo <- lookupResolvedTypeSyntax resolution
   case maybeInfo of
