@@ -11,7 +11,7 @@ annotated:
   data List a = [] | a : [a]
        │        │      │ └─ t Builtin []
        │        │      └─ v Prelude
-       │        └─ v Prelude
+       │        └─ v Builtin []
        └─ t Prelude
   infixr 5 :
 extensions: []

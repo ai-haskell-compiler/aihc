@@ -1688,7 +1688,7 @@ resolveDataConDefinitions scope =
         TupleCon {} -> current
         UnboxedSumCon {} -> current
         ListCon {} ->
-          let resolution = ResolutionAnnotation ambient IdentifierList ResolutionNamespaceTerm (lookupTerm "[]" scope)
+          let resolution = ResolutionAnnotation ambient IdentifierList ResolutionNamespaceTerm ResolvedSyntax
            in DataConAnn (mkAnnotation resolution) current
 
     resolveConstructor span' name =
