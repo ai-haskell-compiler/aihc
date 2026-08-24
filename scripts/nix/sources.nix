@@ -4,6 +4,10 @@
   in
     builtins.any (suffix: pkgs.lib.hasSuffix suffix baseName) suffixes;
 
+  # Runtime fixture trees are copied in check preCheck. Keep them out of compile src.
+  isFixtureRoot = pkgs: path: type:
+    type == "directory" && pkgs.lib.hasSuffix "/test/Test/Fixtures" (toString path);
+
   mkComponentSrc = subpath: suffixes: pkgs:
     pkgs.lib.cleanSourceWith {
       src = root + subpath;
@@ -11,7 +15,8 @@
         baseName = baseNameOf path;
         matchesSourceSuffix = matchesSuffix pkgs suffixes path;
       in
-        type == "directory" || matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md";
+        !(isFixtureRoot pkgs path type)
+        && (type == "directory" || matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md");
     };
 
   mkRootSubsetSrc = prefixes: suffixes: pkgs:
@@ -21,9 +26,28 @@
         baseName = baseNameOf path;
         relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
         inSubset = builtins.any (prefix: pkgs.lib.hasPrefix prefix relPath) prefixes;
+        # Keep only the subset tree and its parent directories.
+        inSubsetTree =
+          type
+          == "directory"
+          && builtins.any (
+            prefix: let
+              p = pkgs.lib.removeSuffix "/" prefix;
+            in
+              relPath
+              == ""
+              || relPath == p
+              || pkgs.lib.hasPrefix (p + "/") relPath
+              || pkgs.lib.hasPrefix (relPath + "/") p
+          )
+          prefixes;
         matchesSourceSuffix = matchesSuffix pkgs suffixes path;
       in
-        type == "directory" || (inSubset && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
+        !(isFixtureRoot pkgs path type)
+        && (
+          inSubsetTree
+          || (inSubset && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"))
+        );
     };
 
   exampleSourceSuffixes = [
@@ -38,39 +62,29 @@
     "stdout"
   ];
 in rec {
-  # Source filtering: only include relevant files for each component.
-  # This prevents rebuilds when unrelated files change.
+  # Source filtering: only include files that the package compile uses.
+  # Runtime test data is a separate input for check derivations.
   fcSrc =
     mkRootSubsetSrc [
       "components/aihc-fc/"
-      "core-libs/aihc-prim/src/GHC/Prim.hs"
-      "core-libs/aihc-prim/src/GHC/Tuple.hs"
-      "core-libs/aihc-prim/src/GHC/Types.hs"
       "test/support/"
     ] [
       ".hs"
       ".cabal"
-      ".yaml"
-      ".yml"
-      ".fc2"
     ];
 
-  arm64Src = mkRootSubsetSrc ["components/aihc-arm64/" "test/support/" "test/Test/Fixtures/grin-snapshot/"] [
+  arm64Src = mkRootSubsetSrc ["components/aihc-arm64/" "test/support/"] [
     ".hs"
     ".cabal"
     ".c"
     ".h"
-    ".yaml"
-    ".yml"
   ];
 
-  amd64Src = mkRootSubsetSrc ["components/aihc-amd64/" "test/support/" "test/Test/Fixtures/grin-snapshot/"] [
+  amd64Src = mkRootSubsetSrc ["components/aihc-amd64/" "test/support/"] [
     ".hs"
     ".cabal"
     ".c"
     ".h"
-    ".yaml"
-    ".yml"
   ];
 
   llvmSrc = mkRootSubsetSrc ["components/aihc-llvm/" "test/support/"] [
@@ -106,23 +120,38 @@ in rec {
   resolveSrc = mkComponentSrc "/components/aihc-resolve" [
     ".hs"
     ".cabal"
+  ];
+
+  tcSrc = mkRootSubsetSrc ["components/aihc-tc/"] [
+    ".hs"
+    ".cabal"
+  ];
+
+  tcFixturesSrc = mkComponentSrc "/components/aihc-tc/test/Test/Fixtures" [
     ".yaml"
     ".yml"
   ];
 
-  tcSrc =
-    mkRootSubsetSrc [
-      "components/aihc-tc/"
-      "core-libs/aihc-prim/src/GHC/Classes.hs"
-      "core-libs/aihc-prim/src/GHC/Prim.hs"
-      "core-libs/aihc-prim/src/GHC/Tuple.hs"
-      "core-libs/aihc-prim/src/GHC/Types.hs"
-    ] [
-      ".hs"
-      ".cabal"
-      ".yaml"
-      ".yml"
-    ];
+  resolveFixturesSrc = mkComponentSrc "/components/aihc-resolve/test/Test/Fixtures" [
+    ".yaml"
+    ".yml"
+  ];
+
+  fcFixturesSrc = mkComponentSrc "/components/aihc-fc/test/Test/Fixtures" [
+    ".yaml"
+    ".yml"
+    ".fc2"
+  ];
+
+  fmtFixturesSrc = mkComponentSrc "/bin/aihc-fmt/test/Test/Fixtures" [
+    ".yaml"
+    ".yml"
+  ];
+
+  grinSnapshotFixturesSrc = mkComponentSrc "/test/Test/Fixtures/grin-snapshot" [
+    ".yaml"
+    ".yml"
+  ];
 
   baseSrc = mkComponentSrc "/core-libs/aihc-base" [
     ".hs"
@@ -165,7 +194,7 @@ in rec {
         inDev = pkgs.lib.hasPrefix "tooling/aihc-dev/" relPath;
         inTcCommon = pkgs.lib.hasPrefix "components/aihc-tc/common/" relPath;
         inResolveCommon = pkgs.lib.hasPrefix "components/aihc-resolve/common/" relPath;
-        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal" ".yaml" ".yml"] path;
+        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal"] path;
       in
         type == "directory" || ((inDev || inTcCommon || inResolveCommon) && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
     };
@@ -198,8 +227,6 @@ in rec {
   fmtSrc = mkComponentSrc "/bin/aihc-fmt" [
     ".hs"
     ".cabal"
-    ".yaml"
-    ".yml"
   ];
 
   # Filtered source for nix linting - only nix files.

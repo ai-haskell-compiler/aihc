@@ -23,7 +23,6 @@
       src = sources.amd64Src;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--subpath components/aihc-amd64";
-        srcModifier = src: src;
       };
       disableProfiling = true;
       optimizeForChecks = true;
@@ -34,7 +33,6 @@
       src = sources.arm64Src;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--subpath components/aihc-arm64";
-        srcModifier = src: src;
       };
       disableProfiling = true;
       optimizeForChecks = true;
@@ -45,7 +43,6 @@
       src = sources.llvmSrc;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--subpath components/aihc-llvm";
-        srcModifier = src: src;
       };
       disableProfiling = true;
       optimizeForChecks = true;
@@ -70,7 +67,6 @@
       src = sources.fcSrc;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--subpath components/aihc-fc";
-        srcModifier = src: src;
       };
       disableProfiling = true;
       optimizeForChecks = true;
@@ -81,7 +77,6 @@
       src = sources.grinSrc;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--flag fuzz --subpath components/aihc-grin";
-        srcModifier = src: src;
       };
       disableProfiling = true;
       optimizeForChecks = true;
@@ -99,7 +94,6 @@
       src = sources.tcSrc;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--flag fuzz --subpath components/aihc-tc";
-        srcModifier = src: src;
       };
       disableProfiling = true;
       optimizeForChecks = true;
@@ -124,7 +118,6 @@
       src = sources.devSrc;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--subpath tooling/aihc-dev";
-        srcModifier = src: src;
       };
       disableProfiling = true;
       optimizeForChecks = true;
@@ -135,7 +128,6 @@
       src = sources.testingSrc;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--subpath tooling/aihc-testing";
-        srcModifier = src: src;
       };
       disableProfiling = true;
       optimizeForChecks = true;
@@ -146,7 +138,6 @@
       src = sources.resolveToolingCommonSrc;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--subpath tooling/aihc-resolve-tooling-common";
-        srcModifier = src: src;
       };
       disableProfiling = true;
       optimizeForChecks = true;
@@ -157,7 +148,6 @@
       src = sources.aihcSrc;
       cabal2nixOptions = {
         extraCabal2nixOptions = "--subpath bin/aihc";
-        srcModifier = src: src;
       };
       disableProfiling = true;
       optimizeForChecks = true;
@@ -258,13 +248,35 @@ in rec {
         })
       else drv;
 
+    # Keep directory nodes so --subpath still finds the Cabal file.
+    # Keep only Cabal files so YAML fixture edits do not re-run cabal2nix.
+    keepCabalFilesForIfd = src:
+      pkgs.lib.cleanSourceWith {
+        inherit src;
+        filter = path: type:
+          type
+          == "directory"
+          || pkgs.lib.hasSuffix ".cabal" (baseNameOf path)
+          || baseNameOf path == "package.yaml";
+      };
+
+    cabal2nixCallOptions = spec: let
+      extra =
+        if builtins.isString (spec.cabal2nixOptions or "")
+        then spec.cabal2nixOptions or ""
+        else (spec.cabal2nixOptions or {}).extraCabal2nixOptions or "";
+    in {
+      extraCabal2nixOptions = extra;
+      srcModifier = keepCabalFilesForIfd;
+    };
+
     mkComponent = final: name: spec: let
       prepareChecks = enableSeparateIntermediates && builtins.elem name checkedPackageNames;
       baseDrv =
         final.callCabal2nixWithOptions
         name
         (spec.src pkgs)
-        (spec.cabal2nixOptions or "")
+        (cabal2nixCallOptions spec)
         {};
       profilingAdjusted =
         if spec.disableProfiling
@@ -337,6 +349,7 @@ in rec {
 
   mkHsPkgsForChecks = pkgs:
     mkHsPkgsVariant pkgs {
+      disableOptimization = true;
       enableSeparateIntermediates = true;
       warningsAsErrors = true;
     };

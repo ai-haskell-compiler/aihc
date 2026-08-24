@@ -34,11 +34,33 @@
   addCheckSettings = drv: old:
     addHiddenSuccesses old
     // pkgs.lib.optionalAttrs (drv ? intermediates) {
-      # Reuse the optimized build, including its already-compiled test components.
+      # Reuse the package build, including its already-compiled test components.
       doInstallIntermediates = false;
       enableSeparateIntermediatesOutput = false;
       previousIntermediates = drv.intermediates;
     };
+
+  # Copy runtime test data into the package tree for Cabal relative paths.
+  copyInto = dest: src: ''
+    mkdir -p ${pkgs.lib.escapeShellArg dest}
+    cp -R -- ${src}/. ${pkgs.lib.escapeShellArg dest}/
+  '';
+
+  # Tests walk up from the package directory to find core-libs/aihc-prim/src.
+  installPrimModules = ''
+    if [[ -z "$sourceRoot" ]]; then
+      echo "sourceRoot is not set; cannot install aihc-prim test modules." >&2
+      exit 1
+    fi
+    unpackDir="$NIX_BUILD_TOP/''${sourceRoot%%/*}"
+    mkdir -p "$unpackDir/core-libs"
+    ln -sfn ${sources.primSrc pkgs} "$unpackDir/core-libs/aihc-prim"
+  '';
+
+  appendPreCheck = extra: drv:
+    pkgs.haskell.lib.overrideCabal drv (old: {
+      preCheck = (old.preCheck or "") + extra;
+    });
 
   mkPackageTest = drv:
     pkgs.haskell.lib.doCheck (
@@ -309,9 +331,16 @@
   amd64Tests = mkEvalPackageTest (
     pkgs.haskell.lib.overrideCabal hsPkgs.aihc-amd64 (old: {
       testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
+      preCheck =
+        (old.preCheck or "")
+        + copyInto "test/Test/Fixtures/grin-snapshot" (sources.grinSnapshotFixturesSrc pkgs);
     })
   );
-  arm64Tests = mkEvalPackageTest hsPkgs.aihc-arm64;
+  arm64Tests = mkEvalPackageTest (
+    appendPreCheck
+    (copyInto "test/Test/Fixtures/grin-snapshot" (sources.grinSnapshotFixturesSrc pkgs))
+    hsPkgs.aihc-arm64
+  );
   llvmTests = mkEvalPackageTest (
     pkgs.haskell.lib.overrideCabal hsPkgs.aihc-llvm (old: {
       testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
@@ -319,14 +348,36 @@
   );
   nativeTests = mkPackageTest hsPkgs.aihc-native;
   wasmTests = mkPackageTest hsPkgs.aihc-wasm;
-  fcTests = mkEvalPackageTest hsPkgs.aihc-fc;
+  fcTests = mkEvalPackageTest (
+    appendPreCheck
+    (
+      copyInto "test/Test/Fixtures" (sources.fcFixturesSrc pkgs)
+      + installPrimModules
+    )
+    hsPkgs.aihc-fc
+  );
   grinTests = mkEvalPackageTest hsPkgs.aihc-grin;
-  resolveTests = mkPackageTest hsPkgs.aihc-resolve;
-  tcTests = mkPackageTest hsPkgs.aihc-tc;
+  resolveTests = mkPackageTest (
+    appendPreCheck
+    (copyInto "test/Test/Fixtures" (sources.resolveFixturesSrc pkgs))
+    hsPkgs.aihc-resolve
+  );
+  tcTests = mkPackageTest (
+    appendPreCheck
+    (
+      copyInto "test/Test/Fixtures" (sources.tcFixturesSrc pkgs)
+      + installPrimModules
+    )
+    hsPkgs.aihc-tc
+  );
   testingTests = mkPackageTest hsPkgs.aihc-testing;
   devTests = mkPackageTest hsPkgs.aihc-dev;
   aihcTests = mkAihcPackageTest hsPkgs.aihc;
-  fmtTests = mkPackageTest hsPkgs.aihc-fmt;
+  fmtTests = mkPackageTest (
+    appendPreCheck
+    (copyInto "test/Test/Fixtures" (sources.fmtFixturesSrc pkgs))
+    hsPkgs.aihc-fmt
+  );
   unicode = import ./unicode.nix {inherit pkgs;};
   unicodeGenerated =
     pkgs.runCommand "aihc-unicode-generated" {
