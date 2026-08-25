@@ -55,7 +55,7 @@ encodeTypeArtifact artifact =
   Builder.toLazyByteString $
     cborArray 5
       <> cborText "aihc-type"
-      <> cborWord 6
+      <> cborWord 7
       <> cborText (typeArtifactModuleName artifact)
       <> encodeList encodeHash (typeArtifactInputHashes artifact)
       <> putInterface (typeArtifactInterface artifact)
@@ -77,7 +77,7 @@ getArtifact :: Get.Get TypeArtifact
 getArtifact = do
   expectArray 5
   expectText "aihc-type"
-  expectWord 6
+  expectWord 7
   typeArtifactModuleName <- getText
   typeArtifactInputHashes <- getList getHash
   typeArtifactInterface <- getInterface
@@ -335,7 +335,7 @@ putInstanceInfo info =
   cborArray 7
     <> cborText (iiClassName info)
     <> cborText (iiDictName info)
-    <> putMaybe putTextOrigin (iiDictOrigin info)
+    <> putTextOrigin (iiDictOrigin info)
     <> putType (iiDictType info)
     <> encodeList putTyVar (iiTyVars info)
     <> encodeList putPred (iiContext info)
@@ -346,7 +346,7 @@ getInstanceInfo = do
   expectArray 7
   iiClassName <- getText
   iiDictName <- getText
-  iiDictOrigin <- getMaybe getTextOrigin
+  iiDictOrigin <- getTextOrigin
   iiDictType <- getType
   iiTyVars <- getList getTyVar
   iiContext <- getList getPred
