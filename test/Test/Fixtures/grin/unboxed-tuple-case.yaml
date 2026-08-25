@@ -1,16 +1,24 @@
 expected: |-
-  constructor main:Test.Box [IntRep]
+  constructor Test.Box [IntRep]
 
-  caf value%1008 :: BoxedRep Lifted = (Fvalue_thunk)
+  global "\NULTest\NULBox" = (CTest.Box/1)
 
-  value_thunk -> BoxedRep Lifted =
-    $grin__case_value_0_1010%1010 :: IntRep, $grin__case_value_1_1011%1011 :: WordRep <-
-      constant (1 :: IntRep) (2 :: WordRep)
-    $grin_tuple_1012%1012 :: IntRep, $grin_tuple_1013%1013 :: WordRep <-
-      constant ($grin__case_value_0_1010%1010 :: IntRep) ($grin__case_value_1_1011%1011 :: WordRep)
-    $grin_argument_1009%1009 :: IntRep <-
-      constant ($grin_tuple_1012%1012 :: IntRep)
-    store (Cmain:Test.Box ($grin_argument_1009%1009 :: IntRep))
+  global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
+
+  $grin_value_thunk_0 -> BoxedRep Lifted =
+    argument%-1000000006 :: IntRep <-
+      constant (1 :: IntRep)
+    argument%-1000000007 :: WordRep <-
+      constant (2 :: WordRep)
+    _case%-1000000002 :: IntRep, _case%-1000000003 :: WordRep <-
+      constant (argument%-1000000006 :: IntRep) (argument%-1000000007 :: WordRep)
+    first%-1000000004 :: IntRep, _pat%-1000000005 :: WordRep <-
+      constant (_case%-1000000002 :: IntRep) (_case%-1000000003 :: WordRep)
+    argument%-1000000001 :: IntRep <-
+      constant (first%-1000000004 :: IntRep)
+    function_whnf%-1000000000 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) global-ref "\NULTest\NULBox"
+    apply @(BoxedRep Lifted) (function_whnf%-1000000000 :: BoxedRep Lifted) (argument%-1000000001 :: IntRep)
 extensions:
 - MagicHash
 - UnboxedTuples
@@ -18,6 +26,7 @@ reason: returns heterogeneous unboxed-tuple components directly without allocati
   or matching a node
 source: |
   module Test where
+  import GHC.Prim
   data Box = Box Int#
   value :: Box
   value = Box (case (# 1#, 2## #) of (# first, _ #) -> first)

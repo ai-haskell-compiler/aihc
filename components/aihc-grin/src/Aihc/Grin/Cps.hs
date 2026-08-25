@@ -91,8 +91,7 @@ toCpsGrin sourceProgram = do
     CpsGrinProgram
       { cpsGrinProgram =
           program
-            { grinExternalFunctions = map addExternalContinuation (grinExternalFunctions program),
-              grinFunctions =
+            { grinFunctions =
                 functions
                   <> reverse (cpsGeneratedFunctionsRev finalState)
                   <> [updateFunction]
@@ -119,12 +118,6 @@ toCpsGrin sourceProgram = do
       functions <- mapM (transformFunction updateName) sourceFunctions
       updateFunction <- makeUpdateFunction updateName
       pure (functions, updateFunction)
-
-    addExternalContinuation info =
-      info
-        { grinCodeParameterLayouts =
-            grinCodeParameterLayouts info <> [[liftedGrinRep]]
-        }
 
 transformFunction :: FunctionName -> GrinFunction -> CpsM GrinFunction
 transformFunction updateName function = do
@@ -292,13 +285,13 @@ reifyContinuation updateName parent bound resultRep outerContinuation resultVars
   parentContinuation <-
     case outerContinuation of
       GrinVarValue var -> pure var
+      GrinGlobalValue {} -> lift (Left (CpsGrinInvalidContinuationParent parent))
       GrinLitValue {} -> lift (Left (CpsGrinInvalidContinuationParent parent))
   let freeCaptures = freeExprVars transformedBody `Set.intersection` bound
       captures = parentContinuation : Set.toAscList (Set.delete parentContinuation freeCaptures)
       continuationFunction =
         GrinFunction
           { grinFunctionName = continuationName,
-            grinFunctionLinkName = Nothing,
             grinFunctionParameters = captures <> resultVars,
             grinFunctionResultRep = resultRep,
             grinFunctionBody = transformedBody
@@ -333,6 +326,7 @@ makeCatchContinuation parent resultRep outerContinuation handler = do
   parentContinuation <-
     case outerContinuation of
       GrinVarValue var -> pure var
+      GrinGlobalValue {} -> lift (Left (CpsGrinInvalidContinuationParent parent))
       GrinLitValue {} -> lift (Left (CpsGrinInvalidContinuationParent parent))
   catchName <- freshContinuationName parent
   pointer <- freshVar "$cps_catch" liftedGrinRep
@@ -341,7 +335,6 @@ makeCatchContinuation parent resultRep outerContinuation handler = do
   let catchFunction =
         GrinFunction
           { grinFunctionName = catchName,
-            grinFunctionLinkName = Nothing,
             grinFunctionParameters = parentContinuation : capturedHandler : resultVars,
             grinFunctionResultRep = resultRep,
             grinFunctionBody = GrinContinue (GrinVarValue parentContinuation) (map GrinVarValue resultVars)
@@ -367,7 +360,6 @@ makeUpdateFunction updateName = do
   pure
     GrinFunction
       { grinFunctionName = updateName,
-        grinFunctionLinkName = Nothing,
         grinFunctionParameters = [outerContinuation, blackhole, result],
         grinFunctionResultRep = liftedGrinRep,
         grinFunctionBody =
@@ -450,12 +442,11 @@ maximumProgramVarUnique program =
   maximum
     ( 0
         : map (grinVarUnique . fst) (grinPrimitives program)
-          <> concatMap bindingUniques (grinWhnfGlobals program)
-          <> concatMap bindingUniques (grinCafs program)
+          <> concatMap bindingUniques (grinGlobals program)
           <> concatMap functionUniques (grinFunctions program)
     )
   where
-    bindingUniques (var, node) = grinVarUnique var : nodeUniques node
+    bindingUniques (_, node) = nodeUniques node
     functionUniques function =
       map grinVarUnique (grinFunctionParameters function)
         <> exprUniques (grinFunctionBody function)
@@ -513,6 +504,7 @@ valueUniques :: GrinValue -> [Int]
 valueUniques value =
   case value of
     GrinVarValue var -> [grinVarUnique var]
+    GrinGlobalValue {} -> []
     GrinLitValue {} -> []
 
 nodeUniques :: GrinNode -> [Int]

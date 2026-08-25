@@ -374,8 +374,8 @@ emptyLinkLayout =
 programGlobalNames :: GrinProgram -> [Text]
 programGlobalNames program =
   [name | (name, arity) <- programConstructorArities program, arity == 0]
-    <> map (grinVarName . fst) (grinWhnfGlobals program)
-    <> map (grinVarName . fst) (grinCafs program)
+    <> map fst (grinGlobals program)
+    <> grinProgramGlobalReferences program
 
 programConstructorArities :: GrinProgram -> [(Text, Int)]
 programConstructorArities program =

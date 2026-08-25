@@ -2,10 +2,10 @@ entry: $fork_snapshot_main
 program: |
   constructor ChildResult/0 []
   primitive fork#%1 :: BoxedRep Lifted/2
-  global child%2 :: BoxedRep Lifted = (P$fork_snapshot_child/[[]])
+  global child = (P$fork_snapshot_child/[[]])
 
   $fork_snapshot_main -> BoxedRep Unlifted =
-    (thread_id%3 :: BoxedRep Unlifted) <- primitive-call @(TupleRep [TupleRep [], BoxedRep Unlifted]) fork# (child%2 :: BoxedRep Lifted)
+    (thread_id%3 :: BoxedRep Unlifted) <- primitive-call @(TupleRep [TupleRep [], BoxedRep Unlifted]) fork# global-ref child
     constant (thread_id%3 :: BoxedRep Unlifted)
 
   $fork_snapshot_child -> BoxedRep Lifted =

@@ -243,6 +243,7 @@ substituteValue :: Map GrinVar GrinVar -> GrinValue -> GrinValue
 substituteValue substitutions value =
   case value of
     GrinVarValue var -> GrinVarValue (Map.findWithDefault var var substitutions)
+    GrinGlobalValue {} -> value
     GrinLitValue {} -> value
 
 without :: [GrinVar] -> Map GrinVar GrinVar -> Map GrinVar GrinVar
@@ -253,16 +254,16 @@ maximumProgramVarUnique program =
   maximum
     ( 0
         : map (grinVarUnique . fst) (grinPrimitives program)
-          <> concatMap staticUniques (grinWhnfGlobals program)
-          <> concatMap staticUniques (grinCafs program)
+          <> concatMap staticUniques (grinGlobals program)
           <> concatMap functionUniques (grinFunctions program)
     )
   where
-    staticUniques (var, node) = grinVarUnique var : concatMap valueUnique (grinNodeFields node)
+    staticUniques (_, node) = concatMap valueUnique (grinNodeFields node)
     functionUniques function = map grinVarUnique (grinFunctionParameters function) <> exprUniques (grinFunctionBody function)
     valueUnique value =
       case value of
         GrinVarValue var -> [grinVarUnique var]
+        GrinGlobalValue {} -> []
         GrinLitValue {} -> []
     nodeUniques = concatMap valueUnique . grinNodeFields
     altUniques alternative = map grinVarUnique (grinAltBinders alternative) <> exprUniques (grinAltRhs alternative)

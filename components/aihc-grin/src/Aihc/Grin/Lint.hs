@@ -17,8 +17,7 @@ import Data.Text qualified as T
 
 data GrinLintError
   = GrinLintDuplicateFunction !FunctionName
-  | GrinLintDuplicateWhnfGlobal !GrinVar
-  | GrinLintDuplicateCaf !GrinVar
+  | GrinLintDuplicateGlobal !Text
   | GrinLintUnboundVariable !GrinVar
   | GrinLintUnknownFunction !FunctionName
   | GrinLintUnknownPrimitive !Text
@@ -40,8 +39,6 @@ data LintEnv = LintEnv
     lintFunctionNodeArities :: !(Map FunctionName Int),
     lintFunctionResults :: !(Map FunctionName GrinRep),
     lintPrimitiveArities :: !(Map Text Int),
-    lintGlobalVars :: !(Set GrinVar),
-    lintGlobalNames :: !(Set Text),
     lintConstructorLayouts :: !(Map Text [[GrinRep]]),
     lintForeignCalls :: !(Map Text GrinForeignCall)
   }
@@ -50,55 +47,31 @@ lintProgram :: GrinProgram -> [GrinLintError]
 lintProgram program =
   duplicateFunctionErrors
     <> duplicateGlobalErrors
-    <> duplicateCafErrors
-    <> concatMap (lintWhnfGlobal env) (grinWhnfGlobals program)
-    <> concatMap (lintCaf env) (grinCafs program)
+    <> concatMap (lintGlobal env) (grinGlobals program)
     <> concatMap (lintFunction env) (grinFunctions program)
   where
     functions = grinFunctions program
-    globals = grinWhnfGlobals program
-    cafs = grinCafs program
+    globals = grinGlobals program
     functionNames = map grinFunctionName functions
-    globalVars = map fst globals
-    cafVars = map fst cafs
+    globalNames = map fst globals
     duplicateFunctionErrors = map GrinLintDuplicateFunction (duplicates functionNames)
-    duplicateGlobalErrors = map GrinLintDuplicateWhnfGlobal (duplicates globalVars)
-    duplicateCafErrors = map GrinLintDuplicateCaf (duplicates cafVars)
+    duplicateGlobalErrors = map GrinLintDuplicateGlobal (duplicates globalNames)
     env =
       LintEnv
         { lintFunctionArities =
             Map.fromList
-              ( [ (grinFunctionName function, length (grinFunctionParameters function))
-                | function <- functions
-                ]
-                  <> [ (grinCodeFunctionName info, length (concat (grinCodeParameterLayouts info)))
-                     | info <- grinExternalFunctions program
-                     ]
-              ),
+              [ (grinFunctionName function, length (grinFunctionParameters function))
+              | function <- functions
+              ],
           lintFunctionResults =
             Map.fromList
-              ( [(grinFunctionName function, grinFunctionResultRep function) | function <- functions]
-                  <> [(grinCodeFunctionName info, grinCodeResultRep info) | info <- grinExternalFunctions program]
-              ),
+              [(grinFunctionName function, grinFunctionResultRep function) | function <- functions],
           lintFunctionNodeArities =
             Map.fromList
-              ( [ (grinFunctionName function, semanticFunctionArity function)
-                | function <- functions
-                ]
-                  <> [ (grinCodeFunctionName info, semanticExternalArity info)
-                     | info <- grinExternalFunctions program
-                     ]
-              ),
+              [ (grinFunctionName function, semanticFunctionArity function)
+              | function <- functions
+              ],
           lintPrimitiveArities = Map.fromList [(grinVarName var, arity) | (var, arity) <- grinPrimitives program],
-          lintGlobalVars = Set.fromList (globalVars <> cafVars),
-          lintGlobalNames =
-            Set.fromList
-              ( [name | (name, layouts) <- builtinConstructors, null layouts]
-                  <> [name | (name, fields) <- grinConstructors program, null fields]
-                  <> grinExternalGlobals program
-                  <> map grinVarName globalVars
-                  <> map grinVarName cafVars
-              ),
           lintConstructorLayouts = Map.fromList (grinConstructors program),
           lintForeignCalls = Map.fromList [(grinForeignCallName call, call) | call <- grinForeignCalls program]
         }
@@ -109,24 +82,9 @@ lintProgram program =
           continuation : rest
             | grinVarName continuation == "$cps_return" -> length rest
           _ -> length (grinFunctionParameters function)
-    semanticExternalArity info =
-      case reverse (grinCodeParameterLayouts info) of
-        [BoxedRep Lifted] : rest -> length (concat (reverse rest))
-        _ -> length (concat (grinCodeParameterLayouts info))
 
-lintWhnfGlobal :: LintEnv -> (GrinVar, GrinNode) -> [GrinLintError]
-lintWhnfGlobal env (var, node) =
-  [ GrinLintRepresentationMismatch "global" (grinVarRuntimeRep var) liftedGrinRep
-  | grinVarRuntimeRep var /= liftedGrinRep
-  ]
-    <> lintNode env (lintGlobalVars env) node
-
-lintCaf :: LintEnv -> (GrinVar, GrinNode) -> [GrinLintError]
-lintCaf env (var, node) =
-  [ GrinLintRepresentationMismatch "CAF" (grinVarRuntimeRep var) liftedGrinRep
-  | grinVarRuntimeRep var /= liftedGrinRep
-  ]
-    <> lintNode env (lintGlobalVars env) node
+lintGlobal :: LintEnv -> (Text, GrinNode) -> [GrinLintError]
+lintGlobal env (_, node) = lintNode env Set.empty node
 
 lintFunction :: LintEnv -> GrinFunction -> [GrinLintError]
 lintFunction env function =
@@ -134,7 +92,7 @@ lintFunction env function =
     <> lintFunctionResult env (grinFunctionResultRep function) (grinFunctionBody function)
     <> lintExpr env bound (grinFunctionBody function)
   where
-    bound = Set.fromList (grinFunctionParameters function) <> lintGlobalVars env
+    bound = Set.fromList (grinFunctionParameters function)
     resultErrors =
       case exprRuntimeReps (grinFunctionBody function) of
         Just actual
@@ -274,12 +232,12 @@ lintAlt env bound alt =
   lintExpr env (Set.fromList (grinAltBinders alt) <> bound) (grinAltRhs alt)
 
 lintValue :: LintEnv -> Set GrinVar -> GrinValue -> [GrinLintError]
-lintValue env bound value =
+lintValue _ bound value =
   case value of
     GrinVarValue var
       | var `Set.member` bound -> []
-      | grinVarName var `Set.member` lintGlobalNames env -> []
       | otherwise -> [GrinLintUnboundVariable var]
+    GrinGlobalValue _ -> []
     GrinLitValue _ -> []
 
 lintNode :: LintEnv -> Set GrinVar -> GrinNode -> [GrinLintError]

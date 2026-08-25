@@ -4,7 +4,7 @@ module Test.Wasm.Suite (tests) where
 
 import Aihc.Grin (lowerGc, toCpsGrin)
 import Aihc.Grin.Syntax
-import Aihc.Native (LinkLayout (..), buildLinkLayout, renderLinkedFunctionSymbol, supportedNativePrimitiveNames)
+import Aihc.Native (LinkLayout (..), buildLinkLayout, supportedNativePrimitiveNames)
 import Aihc.Wasm (WasmError (..), compileModule, compileProgram, compileProgramWithDependencies, validatePrimitiveNames, validateProgramPrimitives)
 import Control.Monad (forM_)
 import Data.Text qualified as T
@@ -67,7 +67,7 @@ testWasmLocals =
       case compileModule (buildLinkLayout [directCallProgram]) "_aihc_init_wasm_locals" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
-          let (_, fromFastEntry) = T.breakOn "aihc_entry_caller:" source
+          let (_, fromFastEntry) = T.breakOn ".Laihc_wasm_function_0:" source
               fastEntry = fst (T.breakOn "\tend_function" fromFastEntry)
           assertBool "reads the incoming parameter directly" ("local.get\t1" `T.isInfixOf` fastEntry)
           assertBool "does not copy fast-entry parameters from memory" (not ("i64.load" `T.isInfixOf` fastEntry))
@@ -82,7 +82,7 @@ testRepeatedParameterLocals =
       case compileModule (buildLinkLayout [repeatedParameterProgram]) "_aihc_init_repeated_parameters" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
-          let label = "\n" <> renderLinkedFunctionSymbol "repeated_parameters" <> ":\n"
+          let label = "\n.Laihc_wasm_function_0:\n"
               (_, fromFunction) = T.breakOn label source
               function = fst (T.breakOn "\tend_function" fromFunction)
           assertBool "uses the bound result local" ("local.set\t" `T.isInfixOf` function)
@@ -124,8 +124,8 @@ testDirectCallArguments =
       case compileModule (buildLinkLayout [directCallProgram]) "_aihc_init_direct_call" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
-          assertBool "declares the exact external fast-entry signature" ("\t.functype\taihc_entry_identity (i32, i64, i64) -> ()" `T.isInfixOf` source)
-          assertBool "tail-calls the known entry" ("return_call\taihc_entry_identity" `T.isInfixOf` source)
+          assertBool "declares the exact local fast-entry signature" ("\t.functype\t.Laihc_wasm_function_1 (i32, i64, i64) -> ()" `T.isInfixOf` source)
+          assertBool "tail-calls the known entry" ("return_call\t.Laihc_wasm_function_1" `T.isInfixOf` source)
           assertBool "does not route known calls through C" (not ("call\taihc_wasm_transfer_direct" `T.isInfixOf` source))
 
 testObjectEntryAdapters :: IO ()
@@ -284,14 +284,10 @@ primitiveProgram primitiveCase =
     { grinConstructors = [],
       grinPrimitives = [(GrinVar name 80 resultRep, length arguments)],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = FunctionName ("$primitive_" <> name),
-              grinFunctionLinkName = Just ("primitive." <> name),
               grinFunctionParameters = [],
               grinFunctionResultRep = resultRep,
               grinFunctionBody =
@@ -362,18 +358,14 @@ program =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals =
-        [ ( GrinVar "main" 1 (BoxedRep Lifted),
+      grinGlobals =
+        [ ( "main",
             GrinNode (GrinClosure mainFunction [[]]) []
           )
         ],
-      grinCafs = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = mainFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = IntRep,
               grinFunctionBody = GrinConstant [GrinLitValue (GrinLitInt IntRep 42)]
@@ -390,18 +382,14 @@ exceptionProgram =
     { grinConstructors = [("Exception", [])],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals =
-        [ (exceptionMainClosure, GrinNode (GrinClosure exceptionMainFunction [[]]) []),
-          (exceptionActionClosure, GrinNode (GrinClosure exceptionActionFunction [[]]) []),
-          (exceptionHandlerClosure, GrinNode (GrinClosure exceptionHandlerFunction [[lifted]]) [])
+      grinGlobals =
+        [ (grinVarName exceptionMainClosure, GrinNode (GrinClosure exceptionMainFunction [[]]) []),
+          (grinVarName exceptionActionClosure, GrinNode (GrinClosure exceptionActionFunction [[]]) []),
+          (grinVarName exceptionHandlerClosure, GrinNode (GrinClosure exceptionHandlerFunction [[lifted]]) [])
         ],
-      grinCafs = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = exceptionMainFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
@@ -413,7 +401,6 @@ exceptionProgram =
             },
           GrinFunction
             { grinFunctionName = exceptionActionFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
@@ -424,7 +411,6 @@ exceptionProgram =
             },
           GrinFunction
             { grinFunctionName = exceptionHandlerFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [caughtException],
               grinFunctionResultRep = lifted,
               grinFunctionBody = GrinConstant [GrinVarValue caughtException]
@@ -445,15 +431,14 @@ exceptionProgram =
 dependencyProgram :: GrinProgram
 dependencyProgram =
   program
-    { grinWhnfGlobals =
-        [ ( GrinVar "dependency" 2 (BoxedRep Lifted),
+    { grinGlobals =
+        [ ( "dependency",
             GrinNode (GrinClosure dependencyFunction [[]]) []
           )
         ],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = dependencyFunction,
-              grinFunctionLinkName = Just "Demo.dependency",
               grinFunctionParameters = [],
               grinFunctionResultRep = IntRep,
               grinFunctionBody = GrinConstant [GrinLitValue (GrinLitInt IntRep 7)]
@@ -470,18 +455,14 @@ capturedThunkProgram =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs =
-        [ ( GrinVar "thunk" 3 (BoxedRep Lifted),
+      grinGlobals =
+        [ ( "thunk",
             GrinNode (GrinThunk thunkFunction) [GrinLitValue (GrinLitInt IntRep 41)]
           )
         ],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = thunkFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [captured],
               grinFunctionResultRep = IntRep,
               grinFunctionBody = GrinConstant [GrinVarValue captured]
@@ -498,29 +479,25 @@ directCallProgram =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions =
-        [ GrinCodeInfo
-            { grinCodeSourceName = "identity",
-              grinCodeFunctionName = identityFunction,
-              grinCodeParameterLayouts = [[BoxedRep Lifted]],
-              grinCodeResultRep = BoxedRep Lifted
-            }
-        ],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = FunctionName "$caller",
-              grinFunctionLinkName = Just "caller",
               grinFunctionParameters = [argument],
               grinFunctionResultRep = BoxedRep Lifted,
               grinFunctionBody = GrinCall (BoxedRep Lifted) identityFunction [GrinVarValue argument]
+            },
+          GrinFunction
+            { grinFunctionName = identityFunction,
+              grinFunctionParameters = [identityArgument],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody = GrinConstant [GrinVarValue identityArgument]
             }
         ]
     }
   where
     argument = GrinVar "argument" 50 (BoxedRep Lifted)
+    identityArgument = GrinVar "identity_argument" 51 (BoxedRep Lifted)
     identityFunction = FunctionName "$identity"
 
 repeatedParameterProgram :: GrinProgram
@@ -529,14 +506,10 @@ repeatedParameterProgram =
     { grinConstructors = [],
       grinPrimitives = [(GrinVar "+#" 51 IntRep, 2)],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = FunctionName "$repeated_parameters",
-              grinFunctionLinkName = Just "repeated_parameters",
               grinFunctionParameters = [argument, argument],
               grinFunctionResultRep = IntRep,
               grinFunctionBody =
@@ -557,14 +530,10 @@ gcRootProgram =
     { grinConstructors = [("Box", [[BoxedRep Lifted]])],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = FunctionName "$allocate_box",
-              grinFunctionLinkName = Just "allocate_box",
               grinFunctionParameters = [root],
               grinFunctionResultRep = BoxedRep Lifted,
               grinFunctionBody = GrinStore (GrinNode (GrinConstructor "Box" 0) [GrinVarValue root])
@@ -580,14 +549,10 @@ literalCaseProgram =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = FunctionName "$literal_case",
-              grinFunctionLinkName = Just "literal_case",
               grinFunctionParameters = [input],
               grinFunctionResultRep = IntRep,
               grinFunctionBody =
@@ -614,14 +579,10 @@ byteArrayProgram =
           (GrinVar "mutableByteArrayContents#" 62 AddrRep, 1)
         ],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = FunctionName "$byte_array",
-              grinFunctionLinkName = Just "byte_array",
               grinFunctionParameters = [],
               grinFunctionResultRep = AddrRep,
               grinFunctionBody =
@@ -643,14 +604,10 @@ foreignIntProgram =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [takeResultCall],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = FunctionName "$foreign_int",
-              grinFunctionLinkName = Just "foreign_int",
               grinFunctionParameters = [request],
               grinFunctionResultRep = IntRep,
               grinFunctionBody = GrinForeignCallExpr takeResultCall [GrinVarValue request]
@@ -677,14 +634,10 @@ mvarProgram =
           (GrinVar "takeMVar#" 73 (BoxedRep Lifted), 2)
         ],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = FunctionName "$mvars",
-              grinFunctionLinkName = Just "mvars",
               grinFunctionParameters = [],
               grinFunctionResultRep = BoxedRep Lifted,
               grinFunctionBody =
@@ -708,10 +661,7 @@ intPrimitiveProgram =
     { grinConstructors = [],
       grinPrimitives = [(GrinVar name unique IntRep, 2) | (name, unique) <- zip primitiveNames [90 ..]],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions = zipWith primitiveFunction primitiveNames [100 ..]
     }
   where
@@ -719,7 +669,6 @@ intPrimitiveProgram =
     primitiveFunction name unique =
       GrinFunction
         { grinFunctionName = FunctionName ("$" <> name),
-          grinFunctionLinkName = Just ("primitive_" <> name),
           grinFunctionParameters = [left unique, right unique],
           grinFunctionResultRep = IntRep,
           grinFunctionBody = GrinPrimitiveCall IntRep name [GrinVarValue (left unique), GrinVarValue (right unique)]
@@ -733,14 +682,10 @@ dormantPrimitiveProgram =
     { grinConstructors = [],
       grinPrimitives = [(GrinVar "unsupported#" 40 IntRep, 1)],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = FunctionName "$dormant_unsupported",
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = IntRep,
               grinFunctionBody =

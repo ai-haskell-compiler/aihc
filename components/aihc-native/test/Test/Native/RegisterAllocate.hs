@@ -115,7 +115,6 @@ grinFunction :: [GrinVar] -> GrinExpr -> GrinFunction
 grinFunction parameters body =
   GrinFunction
     { grinFunctionName = FunctionName "loop",
-      grinFunctionLinkName = Nothing,
       grinFunctionParameters = parameters,
       grinFunctionResultRep = IntRep,
       grinFunctionBody = body

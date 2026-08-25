@@ -35,25 +35,13 @@ genGrinProgram =
     <$> smallList ((,) <$> genText <*> smallList (smallList genRuntimeRep))
     <*> smallList ((,) <$> genVar <*> genInt)
     <*> smallList genForeignCall
-    <*> smallList genText
-    <*> smallList genCodeInfo
-    <*> smallList ((,) <$> genVar <*> genNode)
-    <*> smallList ((,) <$> genVar <*> genNode)
+    <*> smallList ((,) <$> genText <*> genNode)
     <*> smallList genFunction
-
-genCodeInfo :: Gen GrinCodeInfo
-genCodeInfo =
-  GrinCodeInfo
-    <$> genText
-    <*> genFunctionName
-    <*> smallList (smallList genRuntimeRep)
-    <*> genRuntimeRep
 
 genFunction :: Gen GrinFunction
 genFunction =
   GrinFunction
     <$> genFunctionName
-    <*> Gen.maybe genText
     <*> smallList genVar
     <*> genRuntimeRep
     <*> genExpr
@@ -102,7 +90,7 @@ genAltCon =
     ]
 
 genValue :: Gen GrinValue
-genValue = Gen.choice [GrinVarValue <$> genVar, GrinLitValue <$> genLiteral]
+genValue = Gen.choice [GrinVarValue <$> genVar, GrinGlobalValue <$> genText, GrinLitValue <$> genLiteral]
 
 genNode :: Gen GrinNode
 genNode = GrinNode <$> genNodeTag <*> smallList genValue

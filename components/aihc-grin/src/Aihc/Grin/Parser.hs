@@ -41,10 +41,7 @@ data TopDeclaration
   = TopConstructor (Text, [[GrinRep]])
   | TopPrimitive (GrinVar, Int)
   | TopForeign GrinForeignCall
-  | TopExternalGlobal Text
-  | TopExternalFunction GrinCodeInfo
-  | TopWhnfGlobal (GrinVar, GrinNode)
-  | TopCaf (GrinVar, GrinNode)
+  | TopGlobal (Text, GrinNode)
   | TopFunction GrinFunction
 
 programParser :: Parser GrinProgram
@@ -60,10 +57,7 @@ emptyProgram =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions = []
     }
 
@@ -73,10 +67,7 @@ addDeclaration program declaration =
     TopConstructor value -> program {grinConstructors = grinConstructors program <> [value]}
     TopPrimitive value -> program {grinPrimitives = grinPrimitives program <> [value]}
     TopForeign value -> program {grinForeignCalls = grinForeignCalls program <> [value]}
-    TopExternalGlobal value -> program {grinExternalGlobals = grinExternalGlobals program <> [value]}
-    TopExternalFunction value -> program {grinExternalFunctions = grinExternalFunctions program <> [value]}
-    TopWhnfGlobal value -> program {grinWhnfGlobals = grinWhnfGlobals program <> [value]}
-    TopCaf value -> program {grinCafs = grinCafs program <> [value]}
+    TopGlobal value -> program {grinGlobals = grinGlobals program <> [value]}
     TopFunction value -> program {grinFunctions = grinFunctions program <> [value]}
 
 topDeclaration :: Parser TopDeclaration
@@ -86,10 +77,7 @@ topDeclaration = do
     [ MP.try constructorDeclaration,
       MP.try primitiveDeclaration,
       MP.try foreignDeclaration,
-      MP.try externalGlobalDeclaration,
-      MP.try externalFunctionDeclaration,
-      MP.try (TopWhnfGlobal <$> staticDeclaration "global"),
-      MP.try (TopCaf <$> staticDeclaration "caf"),
+      MP.try (TopGlobal <$> globalDeclaration),
       TopFunction <$> functionDeclaration
     ]
 
@@ -123,53 +111,17 @@ foreignDeclaration = do
   lineEnd
   pure (TopForeign foreignCall)
 
-externalGlobalDeclaration :: Parser TopDeclaration
-externalGlobalDeclaration = do
-  keyword "external"
-  horizontal1
+globalDeclaration :: Parser (Text, GrinNode)
+globalDeclaration = do
   keyword "global"
   horizontal1
-  TopExternalGlobal <$> name <* lineEnd
-
-externalFunctionDeclaration :: Parser TopDeclaration
-externalFunctionDeclaration = do
-  keyword "external"
-  horizontal1
-  sourceName <- name
-  legacyArity <- optional (MPC.char '/' *> natural)
-  horizontal1
-  parameterLayouts <- layouts
-  horizontal1
-  _ <- MPC.string "->"
-  horizontal1
-  resultRep <- runtimeRep
-  horizontal1
-  _ <- MPC.char '='
-  horizontal1
-  functionName <- FunctionName <$> name
-  lineEnd
-  when (maybe False (/= length parameterLayouts) legacyArity) $ fail "external function arity does not match its layouts"
-  pure
-    ( TopExternalFunction
-        GrinCodeInfo
-          { grinCodeSourceName = sourceName,
-            grinCodeFunctionName = functionName,
-            grinCodeParameterLayouts = parameterLayouts,
-            grinCodeResultRep = resultRep
-          }
-    )
-
-staticDeclaration :: Text -> Parser (GrinVar, GrinNode)
-staticDeclaration declarationName = do
-  keyword declarationName
-  horizontal1
-  variable <- bareVar
+  globalName <- name
   horizontal1
   _ <- MPC.char '='
   horizontal1
   node <- grinNode
   lineEnd
-  pure (variable, node)
+  pure (globalName, node)
 
 functionDeclaration :: Parser GrinFunction
 functionDeclaration = do
@@ -179,7 +131,6 @@ functionDeclaration = do
   _ <- MPC.string "->"
   horizontal1
   resultRep <- runtimeRep
-  linkName <- optional (MP.try (horizontal1 *> keyword "link" *> horizontal1 *> name))
   horizontal1
   _ <- MPC.char '='
   lineEnd
@@ -187,7 +138,6 @@ functionDeclaration = do
   pure
     GrinFunction
       { grinFunctionName = functionName,
-        grinFunctionLinkName = linkName,
         grinFunctionParameters = parameters,
         grinFunctionResultRep = resultRep,
         grinFunctionBody = body
@@ -550,7 +500,8 @@ nodeTag =
 
 grinValue :: Parser GrinValue
 grinValue =
-  MP.try (GrinVarValue <$> varAtom)
+  MP.try (GrinGlobalValue <$> (keyword "global-ref" *> horizontal1 *> name))
+    <|> MP.try (GrinVarValue <$> varAtom)
     <|> GrinLitValue <$> grinLiteral
 
 grinLiteral :: Parser GrinLiteral

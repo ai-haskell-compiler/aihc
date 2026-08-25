@@ -371,12 +371,9 @@ compileEnvironmentWith exposeAllFunctions continuationFrames layout program =
       ]
     constructorInfoLabels = Map.fromList [(key, label) | (key, label, _) <- constructorInfoEntries]
     functionLabels =
-      [ (grinCodeFunctionName info, linkedFunctionLabel (grinCodeSourceName info))
-      | info <- grinExternalFunctions program
+      [ (grinFunctionName function, localFunctionLabelWith exposeAllFunctions index function)
+      | (index, function) <- zip [0 ..] (grinFunctions program)
       ]
-        <> [ (grinFunctionName function, localFunctionLabelWith exposeAllFunctions index function)
-           | (index, function) <- zip [0 ..] (grinFunctions program)
-           ]
     functionLabelMap = Map.fromList functionLabels
     functionInfoKeys =
       [ (key, functionName)
@@ -422,21 +419,25 @@ compileConstructorInitializers env =
 
 compileInitializers :: CompileEnv -> GrinProgram -> Either Amd64Error [Text]
 compileInitializers env program = do
-  whnfGlobalLines <- compileGlobals materializeNode (grinWhnfGlobals program)
-  cafAllocationLines <- compileGlobals allocateNode (grinCafs program)
-  cafInitializationLines <- fmap concat . forM (grinCafs program) $ \(var, node) -> do
-    slot <- globalSlot env (grinVarName var)
+  valueGlobalLines <- compileGlobals materializeNode valueGlobals
+  thunkAllocationLines <- compileGlobals allocateNode thunkGlobals
+  thunkInitializationLines <- fmap concat . forM thunkGlobals $ \(name, node) -> do
+    slot <- globalSlot env name
     fieldLines <- initializeNodeFields valueEnv node
     pure $
       [loadByteOffset "r11" "r15" 0, loadAt "r13" "r11" slot]
         <> fieldLines
-  pure (cafAllocationLines <> whnfGlobalLines <> cafInitializationLines)
+  pure (thunkAllocationLines <> valueGlobalLines <> thunkInitializationLines)
   where
+    (thunkGlobals, valueGlobals) = partitionGlobals (grinGlobals program)
     valueEnv = ValueEnv env Map.empty ".Laihc_initializer" (FunctionName "") [] ".Laihc_initializer"
-    compileGlobals emit globals = fmap concat . forM globals $ \(var, node) -> do
-      slot <- globalSlot env (grinVarName var)
+    compileGlobals emit globals = fmap concat . forM globals $ \(name, node) -> do
+      slot <- globalSlot env name
       lines' <- emit valueEnv node
       pure (lines' <> storeGlobal slot)
+    partitionGlobals = foldr partitionOne ([], [])
+    partitionOne binding@(_, GrinNode GrinThunk {} _) (thunks, values) = (binding : thunks, values)
+    partitionOne binding (thunks, values) = (thunks, binding : values)
 
 validatePrimitiveName :: Bool -> Text -> Either Amd64Error ()
 validatePrimitiveName allowUnsupported name
@@ -456,11 +457,10 @@ programRuntimeReps :: GrinProgram -> [GrinRep]
 programRuntimeReps program =
   concatMap (concat . snd) (grinConstructors program)
     <> map (grinVarRuntimeRep . fst) (grinPrimitives program)
-    <> concatMap bindingRuntimeReps (grinWhnfGlobals program)
-    <> concatMap bindingRuntimeReps (grinCafs program)
+    <> concatMap bindingRuntimeReps (grinGlobals program)
     <> concatMap functionRuntimeReps (grinFunctions program)
   where
-    bindingRuntimeReps (var, node) = grinVarRuntimeRep var : nodeRuntimeReps node
+    bindingRuntimeReps (_, node) = nodeRuntimeReps node
     functionRuntimeReps function =
       grinFunctionResultRep function
         : map grinVarRuntimeRep (grinFunctionParameters function)
@@ -468,8 +468,7 @@ programRuntimeReps program =
 
 programNodes :: GrinProgram -> [GrinNode]
 programNodes program =
-  map snd (grinWhnfGlobals program)
-    <> map snd (grinCafs program)
+  map snd (grinGlobals program)
     <> concatMap (exprNodes . grinFunctionBody) (grinFunctions program)
 
 exprNodes :: GrinExpr -> [GrinNode]
@@ -606,11 +605,7 @@ renderObservedMetadata env program resultReps = do
       [ (grinFunctionName function, map grinVarRuntimeRep (grinFunctionParameters function))
       | function <- grinFunctions program
       ]
-    externalFunctionEntries =
-      [ (grinCodeFunctionName info, concat (grinCodeParameterLayouts info))
-      | info <- grinExternalFunctions program
-      ]
-    functionEntries = externalFunctionEntries <> localFunctionEntries
+    functionEntries = localFunctionEntries
 
     renderConstructorDescriptor (identifier, name, fields) = do
       reps <- mapM snapshotRepName fields

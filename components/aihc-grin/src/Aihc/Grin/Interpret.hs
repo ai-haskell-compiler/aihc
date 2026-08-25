@@ -280,8 +280,7 @@ initialMachine program =
     globalNodes = Map.toAscList globalNodeMap
     globalNodeMap =
       Map.unions
-        [ Map.fromList [(grinVarName var, node) | (var, node) <- grinCafs program],
-          Map.fromList [(grinVarName var, node) | (var, node) <- grinWhnfGlobals program],
+        [ Map.fromList (grinGlobals program),
           Map.fromList
             [ (constructor, GrinNode (GrinConstructor constructor 0) [])
             | (constructor, layouts) <- builtinConstructors <> grinConstructors program,
@@ -300,6 +299,10 @@ initialMachine program =
           case Map.lookup (grinVarName var) globals of
             Just runtimeValue -> runtimeValue
             Nothing -> error ("GRIN interpreter found an unbound static global " <> T.unpack (grinVarName var))
+        GrinGlobalValue name ->
+          case Map.lookup name globals of
+            Just runtimeValue -> runtimeValue
+            Nothing -> error ("GRIN interpreter found an external static global " <> T.unpack name)
         GrinLitValue literal -> RuntimeLit literal
 
 evalScheduledExpr :: Env -> GrinExpr -> ScheduledContinuation -> EvalM [RuntimeValue]
@@ -619,6 +622,11 @@ materializeValue env value =
           case Map.lookup (grinVarName var) globals of
             Just runtimeValue -> pure runtimeValue
             Nothing -> throwInterpret (InterpretUnboundVariable var)
+    GrinGlobalValue name -> do
+      globals <- getsMachine machineGlobals
+      case Map.lookup name globals of
+        Just runtimeValue -> pure runtimeValue
+        Nothing -> throwInterpret (InterpretMissingBinding name)
     GrinLitValue literal -> pure (RuntimeLit literal)
 
 materializeNode :: Env -> GrinNode -> EvalM RuntimeValue
