@@ -128,7 +128,7 @@ installV2 options = do
       resolver = localDependencyResolverWithFallback fallbackResolver root
   spec <- packageSpecFromSource root
   plan <- buildPackagePlanWithResolver resolver targetStoreRoot spec
-  installedV2Result <$> installPackagePlanV2 (installV2KeepGrin options) target verbose targetStoreRoot plan
+  installedV2Result <$> installPackagePlanV2 (installV2KeepGrin options) (installV2KeepNative options) target verbose targetStoreRoot plan
 
 networkDependencyResolver :: DependencyResolver
 networkDependencyResolver =
@@ -141,13 +141,13 @@ networkDependencyResolver =
       result <- getLatestVersion Nothing name
       either (ioError . userError) pure result
 
-installPackagePlanV2 :: Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
-installPackagePlanV2 keepGrin target verbose storeRoot plan = do
-  dependencies <- mapM (installPackagePlanV2 keepGrin target verbose storeRoot) (planDependencyPlans plan)
-  installPackageV2 keepGrin target verbose storeRoot dependencies (planSourcePath plan)
+installPackagePlanV2 :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
+installPackagePlanV2 keepGrin keepNative target verbose storeRoot plan = do
+  dependencies <- mapM (installPackagePlanV2 keepGrin keepNative target verbose storeRoot) (planDependencyPlans plan)
+  installPackageV2 keepGrin keepNative target verbose storeRoot dependencies (planSourcePath plan)
 
-installPackageV2 :: Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
-installPackageV2 keepGrin target verbose storeRoot dependencies root = do
+installPackageV2 :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
+installPackageV2 keepGrin keepNative target verbose storeRoot dependencies root = do
   verbose ("Read Cabal package: " <> root)
   cabalFiles <- HackageUtil.findCabalFiles root
   cabalFile <- case cabalFiles of
@@ -187,7 +187,7 @@ installPackageV2 keepGrin target verbose storeRoot dependencies root = do
   verbose ("Compute " <> show (length units) <> " SCC units")
   (allExports, allScopeHashes, _, allTypeHashes, written, reused) <-
     foldM
-      (installUnit keepGrin target verbose storePath resolvePackage primIdentity root)
+      (installUnit keepGrin keepNative target verbose storePath resolvePackage primIdentity root)
       (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty)
       units
   buildLibraryArchive target verbose storePath packageNameText parsed
@@ -297,8 +297,8 @@ renderResolveExcerpt sourceLines sourceSpan =
                 <> replicate caretStart ' '
                 <> replicate caretWidth '^'
 
-installUnit :: Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
-installUnit keepGrin target verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
+installUnit :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
+installUnit keepGrin keepNative target verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
   let packageModules = modulesInPackage resolvePackage (map sourceModuleAst unit)
       unitNames = map sourceName unit
       importedNames = nub (concatMap (map importDeclModule . Syntax.moduleImports . sourceModuleAst) unit)
@@ -310,6 +310,7 @@ installUnit keepGrin target verbose storePath resolvePackage primIdentity root (
       coreV2Path modu = storePath </> moduleDirectory modu </> "core-v2"
       grinPath modu = storePath </> moduleDirectory modu </> "grin"
       objectPath modu = storePath </> moduleDirectory modu </> T.unpack (fromMaybe "Main" (moduleName modu)) <> ".o"
+      nativePath modu = objectPath modu <> nativeSourceExtension target
   cachedExports <- tryReadUnitArtifacts hashes resolvePackage resolvePath unit
   (diskExports, resolveResult, resolveChanged) <- case cachedExports of
     Just exports -> do
@@ -357,17 +358,18 @@ installUnit keepGrin target verbose storePath resolvePackage primIdentity root (
   coreV2Exists <- and <$> mapM (doesFileExist . coreV2Path . sourceModuleAst) unit
   grinExists <- and <$> mapM (doesFileExist . grinPath . sourceModuleAst) unit
   objectExists <- and <$> mapM (doesFileExist . objectPath . sourceModuleAst) unit
+  nativeExists <- and <$> mapM (doesFileExist . nativePath . sourceModuleAst) unit
   (coreChanged, grinChanged) <-
     if typeChanged || not coreV2Exists
       then do
         (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
-        writeCoreV2Files True keepGrin target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path grinPath objectPath checkedModules
+        writeCoreV2Files True keepGrin keepNative target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path grinPath objectPath checkedModules
         pure (True, keepGrin)
       else
-        if (keepGrin && not grinExists) || not objectExists
+        if (keepGrin && not grinExists) || (keepNative && not nativeExists) || not objectExists
           then do
             (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
-            writeCoreV2Files False keepGrin target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path grinPath objectPath checkedModules
+            writeCoreV2Files False keepGrin keepNative target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path grinPath objectPath checkedModules
             pure (False, True)
           else do
             mapM_ (verbose . ("Reuse Core-v2: " <>) . T.unpack) unitNames
@@ -388,8 +390,8 @@ installUnit keepGrin target verbose storePath resolvePackage primIdentity root (
   where
     sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
 
-writeCoreV2Files :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Module -> FilePath) -> (Module -> FilePath) -> (Module -> FilePath) -> [Module] -> IO ()
-writeCoreV2Files writeCore keepGrin target verbose currentPackage primIdentity interface storeRoot coreV2Path grinPath objectPath checkedModules = do
+writeCoreV2Files :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Module -> FilePath) -> (Module -> FilePath) -> (Module -> FilePath) -> [Module] -> IO ()
+writeCoreV2Files writeCore keepGrin keepNative target verbose currentPackage primIdentity interface storeRoot coreV2Path grinPath objectPath checkedModules = do
   let bindings = tcInterfaceBindings interface <> concatMap tcModuleBindings checkedModules
       config = DesugarConfig primIdentity
       results2 = map (desugarModuleFc2 config bindings interface) checkedModules
@@ -463,7 +465,7 @@ writeCoreV2Files writeCore keepGrin target verbose currentPackage primIdentity i
       TIO.writeFile assemblyPath assembly
       (compiler, compilerArguments) <- backendCompiler selectedTarget
       runTool compiler (compilerArguments <> ["-c", assemblyPath, "-o", path])
-      removeFile assemblyPath
+      unless keepNative (removeFile assemblyPath)
       verbose ("Write object: " <> T.unpack (fromMaybe "Main" (moduleName modu)))
 
     removeFileIfExists path = do
