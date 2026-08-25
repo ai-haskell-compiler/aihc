@@ -24,7 +24,6 @@ module Aihc.Arm64.Codegen.Runtime
     functionCodeLabel,
     globalSlot,
     immediate,
-    linkedFunctionLabel,
     loadAt,
     loadByteOffset,
     loadLocation,
@@ -64,7 +63,6 @@ where
 
 import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
 import Aihc.Grin.Syntax
-import Aihc.Native (renderLinkedFunctionSymbol)
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..))
 import Control.Monad (forM)
@@ -515,15 +513,9 @@ functionLabel :: Int -> Text
 functionLabel index = ".Laihc_function_" <> tshow index
 
 localFunctionLabelWith :: Bool -> Int -> GrinFunction -> Text
-localFunctionLabelWith exposeAllFunctions index function
+localFunctionLabelWith exposeAllFunctions index _function
   | exposeAllFunctions = "_aihc_snapshot_function_" <> tshow index
-  | otherwise =
-      case grinFunctionLinkName function of
-        Just name -> linkedFunctionLabel name
-        Nothing -> functionLabel index
-
-linkedFunctionLabel :: Text -> Text
-linkedFunctionLabel = ("_" <>) . renderLinkedFunctionSymbol
+  | otherwise = functionLabel index
 
 storeGlobal :: Int -> [Text]
 storeGlobal slot = ["  ldr x9, [x22, #0]", storeAt "x0" "x9" slot]
@@ -564,6 +556,9 @@ materializeValueTo env destination value =
         Nothing -> do
           slot <- globalSlot (valueCompileEnv env) (grinVarName var)
           pure ["  ldr x9, [x22, #0]", loadAt destination "x9" slot]
+    GrinGlobalValue name -> do
+      slot <- globalSlot (valueCompileEnv env) name
+      pure ["  ldr x9, [x22, #0]", loadAt destination "x9" slot]
     GrinLitValue literal -> materializeLiteralTo destination (valueCompileEnv env) literal
 
 materializeLiteralTo :: Text -> CompileEnv -> GrinLiteral -> Either Arm64Error [Text]

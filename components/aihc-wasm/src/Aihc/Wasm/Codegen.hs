@@ -17,7 +17,7 @@ where
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
 import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
-import Aihc.Native (LinkLayout (..), NativeRuntimeCall (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, renderLinkedFunctionSymbol, supportedNativePrimitiveNames)
+import Aihc.Native (LinkLayout (..), NativeRuntimeCall (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, supportedNativePrimitiveNames)
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
 import Data.Char (ord)
@@ -212,22 +212,14 @@ compileEnvironment unitKind layout gcProgram =
     constructorIds = zip (map fst constructors) [1 ..]
     functionLabels =
       Map.fromList
-        ( [ (grinCodeFunctionName info, linkedFunctionLabel (grinCodeSourceName info))
-          | info <- grinExternalFunctions program
-          ]
-            <> [ (grinFunctionName function, localFunctionLabel index function)
-               | (index, function) <- zip [0 :: Int ..] (grinFunctions program)
-               ]
-        )
+        [ (grinFunctionName function, localFunctionLabel index function)
+        | (index, function) <- zip [0 :: Int ..] (grinFunctions program)
+        ]
     functionArities =
       Map.fromList
-        ( [ (grinCodeFunctionName info, length (concat (grinCodeParameterLayouts info)))
-          | info <- grinExternalFunctions program
-          ]
-            <> [ (grinFunctionName function, length (grinFunctionParameters function))
-               | function <- grinFunctions program
-               ]
-        )
+        [ (grinFunctionName function, length (grinFunctionParameters function))
+        | function <- grinFunctions program
+        ]
     constructorEntries =
       [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key))
       | ((name, layouts), (_, identifier)) <- zip (linkConstructors layout) constructorIds,
@@ -757,6 +749,10 @@ materializeValue env value = case value of
       Nothing -> case Map.lookup (grinVarName var) (compileGlobalSlots (valueCompileEnv env)) of
         Just slot -> machine <> i64Const (tshow slot) <> call "aihc_wasm_global_get"
         Nothing -> call "aihc_no_match" <> ["unreachable", "i64.const\t0"]
+  GrinGlobalValue name ->
+    case Map.lookup name (compileGlobalSlots (valueCompileEnv env)) of
+      Just slot -> machine <> i64Const (tshow slot) <> call "aihc_wasm_global_get"
+      Nothing -> call "aihc_no_match" <> ["unreachable", "i64.const\t0"]
   GrinLitValue literal -> case literal of
     GrinLitAddr bytes -> case Map.lookup bytes (compileAddrLiteralLabels (valueCompileEnv env)) of
       Just label -> i32Data label <> ["i64.extend_i32_u"]
@@ -878,15 +874,16 @@ compileConstructorInitializers env = forM nullary $ \(name, _identifier) -> do
       ]
 
 compileInitializers :: CompileEnv -> GrinProgram -> Either WasmError [InitialNode]
-compileInitializers env program = mapM withSlot (grinCafs program <> grinWhnfGlobals program)
+compileInitializers env program = mapM withSlot (grinGlobals program)
   where
-    withSlot (var, node) = do
-      slot <- globalSlot env (grinVarName var)
+    withSlot (name, node) = do
+      slot <- globalSlot env name
       info <- nodeHeader env node
       fields <- mapM initialValue (grinNodeFields node)
       pure (InitialNode slot info fields)
     initialValue value = case value of
       GrinVarValue var -> InitialGlobal <$> globalSlot env (grinVarName var)
+      GrinGlobalValue name -> InitialGlobal <$> globalSlot env name
       GrinLitValue literal -> case literal of
         GrinLitAddr bytes -> maybe (Left (WasmUnsupportedValue "unregistered initializer address")) (Right . InitialAddress) (Map.lookup bytes (compileAddrLiteralLabels env))
         _ -> maybe (Left (WasmUnsupportedValue "unsupported initializer literal")) (Right . InitialInteger) (normalizedLiteralInteger literal)
@@ -1209,7 +1206,7 @@ boundVarGroups expression = case expression of
   _ -> []
 
 programNodes :: GrinProgram -> [GrinNode]
-programNodes program = map snd (grinWhnfGlobals program <> grinCafs program) <> concatMap (exprNodes . grinFunctionBody) (grinFunctions program)
+programNodes program = map snd (grinGlobals program) <> concatMap (exprNodes . grinFunctionBody) (grinFunctions program)
 
 exprNodes :: GrinExpr -> [GrinNode]
 exprNodes expression = case expression of
@@ -1280,10 +1277,7 @@ renderInteger :: Integer -> Text
 renderInteger = tshow
 
 localFunctionLabel :: Int -> GrinFunction -> Text
-localFunctionLabel index function = maybe (".Laihc_wasm_function_" <> tshow index) linkedFunctionLabel (grinFunctionLinkName function)
-
-linkedFunctionLabel :: Text -> Text
-linkedFunctionLabel = renderLinkedFunctionSymbol
+localFunctionLabel index _function = ".Laihc_wasm_function_" <> tshow index
 
 boolInteger :: Bool -> Text
 boolInteger True = "1"

@@ -162,7 +162,8 @@ test-suite spec
 
   ghc-options:
     -Wall
+    -threaded
     -rtsopts
-    -with-rtsopts=-M10G
+    "-with-rtsopts=-N -M10G"
 
   default-language: GHC2021

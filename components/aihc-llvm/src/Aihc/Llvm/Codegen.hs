@@ -26,7 +26,6 @@ import Aihc.Native
     buildAddrLiteralPool,
     buildLinkLayout,
     nativeRuntimePrimitiveCall,
-    renderLinkedFunctionSymbol,
     supportedNativePrimitiveNames,
   )
 import Control.Monad (forM, zipWithM)
@@ -209,13 +208,9 @@ compileEnvironment unitKind continuationFunctions continuationFrames layout prog
     constructorIds = zip (map fst constructors) [1 ..]
     functionLabels =
       Map.fromList
-        ( [ (grinCodeFunctionName info, linkedFunctionLabel (grinCodeSourceName info))
-          | info <- grinExternalFunctions program
-          ]
-            <> [ (grinFunctionName function, localFunctionLabel index function)
-               | (index, function) <- zip [0 :: Int ..] (grinFunctions program)
-               ]
-        )
+        [ (grinFunctionName function, localFunctionLabel index function)
+        | (index, function) <- zip [0 :: Int ..] (grinFunctions program)
+        ]
     constructorEntries =
       [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key))
       | ((name, layouts), (_, identifier)) <- zip (linkConstructors layout) constructorIds,
@@ -1105,6 +1100,9 @@ materializeValue env value =
         Nothing -> do
           slot <- liftEither (globalSlot (valueCompileEnv env) (grinVarName var))
           loadGlobal slot
+    GrinGlobalValue name -> do
+      slot <- liftEither (globalSlot (valueCompileEnv env) name)
+      loadGlobal slot
     GrinLitValue literal -> materializeLiteral (valueCompileEnv env) literal
 
 materializeLiteral :: CompileEnv -> GrinLiteral -> FunctionM ([Text], Text)
@@ -1180,8 +1178,8 @@ compileConstructorInitializers env = fmap concat . forM nullary $ \(name, _) -> 
 
 compileInitializers :: CompileEnv -> GrinProgram -> FunctionM [Text]
 compileInitializers env program = do
-  cafAllocations <- fmap concat . forM (grinCafs program) $ \(var, node) -> do
-    slot <- liftEither (globalSlot env (grinVarName var))
+  thunkAllocations <- fmap concat . forM thunkGlobals $ \(name, node) -> do
+    slot <- liftEither (globalSlot env name)
     info <- liftEither (nodeHeader env node)
     object <- freshValue
     objectInteger <- freshValue
@@ -1192,17 +1190,21 @@ compileInitializers env program = do
         ]
           <> globalStore
       )
-  whnfs <- fmap concat . forM (grinWhnfGlobals program) $ \(var, node) -> do
-    slot <- liftEither (globalSlot env (grinVarName var))
+  values <- fmap concat . forM valueGlobals $ \(name, node) -> do
+    slot <- liftEither (globalSlot env name)
     (lines', operand) <- materializeNode (ValueEnv env Map.empty) False node
     globalStore <- storeGlobal slot operand
     pure (lines' <> globalStore)
-  cafFields <- fmap concat . forM (grinCafs program) $ \(var, node) -> do
-    slot <- liftEither (globalSlot env (grinVarName var))
+  thunkFields <- fmap concat . forM thunkGlobals $ \(name, node) -> do
+    slot <- liftEither (globalSlot env name)
     (objectLines, object) <- loadGlobal slot
     fields <- initializeLocalFields (ValueEnv env Map.empty) object node
     pure (objectLines <> fields)
-  pure (cafAllocations <> whnfs <> cafFields)
+  pure (thunkAllocations <> values <> thunkFields)
+  where
+    (thunkGlobals, valueGlobals) = foldr partitionOne ([], []) (grinGlobals program)
+    partitionOne binding@(_, GrinNode GrinThunk {} _) (thunks, values) = (binding : thunks, values)
+    partitionOne binding (thunks, values) = (thunks, binding : values)
 
 runInitializer :: FunctionM value -> Either LlvmError value
 runInitializer action = fst <$> runStateT action (FunctionState 0 0 0 [])
@@ -1685,16 +1687,7 @@ renderForeignDeclarations program =
       ]
 
 renderExternalFunctionDeclarations :: CompileEnv -> GrinProgram -> [Text]
-renderExternalFunctionDeclarations env program =
-  [ "declare tailcc void @"
-      <> label
-      <> "("
-      <> T.intercalate ", " ("ptr" : replicate (length (concat (grinCodeParameterLayouts info))) "i64")
-      <> ")"
-  | info <- grinExternalFunctions program,
-    Just label <- [Map.lookup (grinCodeFunctionName info) (compileFunctionLabels env)]
-  ]
-    <> ["" | not (null (grinExternalFunctions program))]
+renderExternalFunctionDeclarations _env _program = []
 
 renderAddrLiterals :: CompileEnv -> [Text]
 renderAddrLiterals env =
@@ -1844,7 +1837,7 @@ boundVarGroups expression = case expression of
   _ -> []
 
 programNodes :: GrinProgram -> [GrinNode]
-programNodes program = map snd (grinWhnfGlobals program <> grinCafs program) <> concatMap (exprNodes . grinFunctionBody) (grinFunctions program)
+programNodes program = map snd (grinGlobals program) <> concatMap (exprNodes . grinFunctionBody) (grinFunctions program)
 
 exprNodes :: GrinExpr -> [GrinNode]
 exprNodes expression = case expression of
@@ -1917,16 +1910,13 @@ renderI64 :: Integer -> Text
 renderI64 integer = tshow (integer `mod` (2 ^ (64 :: Int)))
 
 localFunctionLabel :: Int -> GrinFunction -> Text
-localFunctionLabel index function = maybe ("aihc_llvm_function_" <> tshow index) linkedFunctionLabel (grinFunctionLinkName function)
-
-linkedFunctionLabel :: Text -> Text
-linkedFunctionLabel = renderLinkedFunctionSymbol
+localFunctionLabel index _function = "aihc_llvm_function_" <> tshow index
 
 llvmLabel :: Text -> Text
 llvmLabel = T.map (\character -> if character `elem` ['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> ['_'] then character else '_')
 
 functionLinkage :: GrinFunction -> Text
-functionLinkage function = maybe "internal " (const "") (grinFunctionLinkName function)
+functionLinkage _function = "internal "
 
 boolInteger :: Bool -> Text
 boolInteger True = "1"

@@ -58,6 +58,7 @@ freeValueVars :: GrinValue -> Set GrinVar
 freeValueVars value =
   case value of
     GrinVarValue var -> Set.singleton var
+    GrinGlobalValue {} -> Set.empty
     GrinLitValue {} -> Set.empty
 
 freeNodeVars :: GrinNode -> Set GrinVar

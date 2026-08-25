@@ -55,10 +55,7 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [(primitive, 2)],
                   grinForeignCalls = [],
-                  grinExternalGlobals = [],
-                  grinExternalFunctions = [],
-                  grinWhnfGlobals = [],
-                  grinCafs = [],
+                  grinGlobals = [],
                   grinFunctions = []
                 }
         assertEqual "linked primitive validation" (Left (Amd64UnsupportedPrimitive "unsupported#")) (validateProgramPrimitives program)
@@ -73,14 +70,10 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [(GrinVar "+#" 1 IntRep, 2)],
                   grinForeignCalls = [],
-                  grinExternalGlobals = [],
-                  grinExternalFunctions = [],
-                  grinWhnfGlobals = [],
-                  grinCafs = [],
+                  grinGlobals = [],
                   grinFunctions =
                     [ GrinFunction
                         { grinFunctionName = entryName,
-                          grinFunctionLinkName = Nothing,
                           grinFunctionParameters = [],
                           grinFunctionResultRep = IntRep,
                           grinFunctionBody =
@@ -119,14 +112,10 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [(GrinVar "timesWord2#" 1 (TupleRep [WordRep, WordRep]), 2)],
                   grinForeignCalls = [],
-                  grinExternalGlobals = [],
-                  grinExternalFunctions = [],
-                  grinWhnfGlobals = [],
-                  grinCafs = [],
+                  grinGlobals = [],
                   grinFunctions =
                     [ GrinFunction
                         { grinFunctionName = entryName,
-                          grinFunctionLinkName = Nothing,
                           grinFunctionParameters = [],
                           grinFunctionResultRep = TupleRep [WordRep, WordRep],
                           grinFunctionBody =
@@ -149,14 +138,10 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [],
                   grinForeignCalls = [],
-                  grinExternalGlobals = [],
-                  grinExternalFunctions = [],
-                  grinWhnfGlobals = [],
-                  grinCafs = [],
+                  grinGlobals = [],
                   grinFunctions =
                     [ GrinFunction
                         { grinFunctionName = functionName,
-                          grinFunctionLinkName = Nothing,
                           grinFunctionParameters = [],
                           grinFunctionResultRep = TupleRep [Int8Rep, Word64Rep],
                           grinFunctionBody =
@@ -191,14 +176,10 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [],
                   grinForeignCalls = [foreignCall],
-                  grinExternalGlobals = [],
-                  grinExternalFunctions = [],
-                  grinWhnfGlobals = [],
-                  grinCafs = [],
+                  grinGlobals = [],
                   grinFunctions =
                     [ GrinFunction
                         { grinFunctionName = functionName,
-                          grinFunctionLinkName = Nothing,
                           grinFunctionParameters = [],
                           grinFunctionResultRep = Int32Rep,
                           grinFunctionBody = GrinForeignCallExpr foreignCall [GrinLitValue (GrinLitAddr "\xFF\0bar")]
@@ -219,14 +200,10 @@ tests =
                 { grinConstructors = [],
                   grinPrimitives = [],
                   grinForeignCalls = [],
-                  grinExternalGlobals = [],
-                  grinExternalFunctions = [],
-                  grinWhnfGlobals = [],
-                  grinCafs = [],
+                  grinGlobals = [],
                   grinFunctions =
                     [ GrinFunction
                         { grinFunctionName = functionName,
-                          grinFunctionLinkName = Nothing,
                           grinFunctionParameters = [],
                           grinFunctionResultRep = TupleRep [TupleRep [], IntRep, WordRep],
                           grinFunctionBody =
@@ -243,42 +220,6 @@ tests =
             assertBool "passes two values" ("mov rdx, 2" `T.isInfixOf` assembly)
             assertBool "enters the continuation through registers" ("jmp .Laihc_enter" `T.isInfixOf` assembly)
             assertBool "does not call a C continuation adapter" (not ("aihc_continue_values" `T.isInfixOf` assembly)),
-      testCase "exports stable entries and branches directly to dependency code" $ do
-        let identityName = FunctionName "$entry$identity"
-            callerName = FunctionName "$entry$caller"
-            argument = GrinVar "argument" 1 (BoxedRep Lifted)
-            program =
-              GrinProgram
-                { grinConstructors = [],
-                  grinPrimitives = [],
-                  grinForeignCalls = [],
-                  grinExternalGlobals = [],
-                  grinExternalFunctions =
-                    [ GrinCodeInfo
-                        { grinCodeSourceName = "identity",
-                          grinCodeFunctionName = identityName,
-                          grinCodeParameterLayouts = [[BoxedRep Lifted]],
-                          grinCodeResultRep = BoxedRep Lifted
-                        }
-                    ],
-                  grinWhnfGlobals = [],
-                  grinCafs = [],
-                  grinFunctions =
-                    [ GrinFunction
-                        { grinFunctionName = callerName,
-                          grinFunctionLinkName = Just "caller",
-                          grinFunctionParameters = [argument],
-                          grinFunctionResultRep = BoxedRep Lifted,
-                          grinFunctionBody = GrinCall (BoxedRep Lifted) identityName [GrinVarValue argument]
-                        }
-                    ]
-                }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_direct_call" (expectGcGrin program) of
-          Left err -> assertFailure ("native compilation failed: " <> show err)
-          Right assembly -> do
-            assertBool "exports caller entry" (".globl aihc_entry_caller" `T.isInfixOf` assembly)
-            assertBool "branches to dependency entry" ("jmp aihc_entry_identity" `T.isInfixOf` assembly)
-            assertBool "does not publish direct-call arguments through the machine" (not ("mov QWORD PTR [r15], r12" `T.isInfixOf` assembly)),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
       testCase "case and apply never evaluate operands implicitly" $ do
         case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_explicit_eval" (expectGcGrin explicitEvaluationProgram) of
@@ -555,14 +496,10 @@ explicitEvaluationProgram =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = FunctionName "case_operand",
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [caseOperand],
               grinFunctionResultRep = BoxedRep Lifted,
               grinFunctionBody =
@@ -573,7 +510,6 @@ explicitEvaluationProgram =
             },
           GrinFunction
             { grinFunctionName = FunctionName "apply_operand",
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [applyOperand],
               grinFunctionResultRep = BoxedRep Lifted,
               grinFunctionBody = GrinApply (BoxedRep Lifted) (GrinVarValue applyOperand) []
@@ -591,14 +527,10 @@ caseDispatchProgram =
     { grinConstructors = [("CaseA", [[]]), ("CaseB", [[]])],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = FunctionName "data_case_dispatch",
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [dataOperand],
               grinFunctionResultRep = BoxedRep Lifted,
               grinFunctionBody =
@@ -611,7 +543,6 @@ caseDispatchProgram =
             },
           GrinFunction
             { grinFunctionName = FunctionName "literal_case_dispatch",
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [literalOperand],
               grinFunctionResultRep = IntRep,
               grinFunctionBody =

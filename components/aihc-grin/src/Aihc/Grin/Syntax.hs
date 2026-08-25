@@ -12,7 +12,6 @@ module Aihc.Grin.Syntax
     GrinVecElem (..),
     liftedGrinRep,
     GrinProgram (..),
-    GrinCodeInfo (..),
     GrinFunction (..),
     FunctionName (..),
     GrinVar (..),
@@ -31,6 +30,7 @@ module Aihc.Grin.Syntax
     grinForeignOperandReps,
     grinForeignCallResultReps,
     grinProgramLiterals,
+    grinProgramGlobalReferences,
     grinValueRuntimeRep,
     isLiftedRuntimeRep,
     isPointerRuntimeRep,
@@ -90,27 +90,8 @@ data GrinProgram = GrinProgram
   { grinConstructors :: ![(Text, [[GrinRep]])],
     grinPrimitives :: ![(GrinVar, Int)],
     grinForeignCalls :: ![GrinForeignCall],
-    -- | Global slots supplied by dependency units and referenced by this unit.
-    grinExternalGlobals :: ![Text],
-    -- | Code entries supplied by other compilation units. Unlike runtime
-    -- globals, these names never occupy global-table slots.
-    grinExternalFunctions :: ![GrinCodeInfo],
-    -- | Top-level values that are already in weak-head normal form. These are
-    -- initialized directly rather than represented by updateable CAF cells.
-    grinWhnfGlobals :: ![(GrinVar, GrinNode)],
-    grinCafs :: ![(GrinVar, GrinNode)],
+    grinGlobals :: ![(Text, GrinNode)],
     grinFunctions :: ![GrinFunction]
-  }
-  deriving (Eq, Show, Read)
-
--- | Runtime calling information exported for a top-level code binding.
--- Parameter layouts retain source-argument boundaries because a Core term
--- argument such as @State# RealWorld@ may contribute no runtime values.
-data GrinCodeInfo = GrinCodeInfo
-  { grinCodeSourceName :: !Text,
-    grinCodeFunctionName :: !FunctionName,
-    grinCodeParameterLayouts :: ![[GrinRep]],
-    grinCodeResultRep :: !GrinRep
   }
   deriving (Eq, Show, Read)
 
@@ -118,8 +99,6 @@ data GrinCodeInfo = GrinCodeInfo
 -- name and carry their environment as node fields.
 data GrinFunction = GrinFunction
   { grinFunctionName :: !FunctionName,
-    -- | Source-level name when this entry is link-visible to other units.
-    grinFunctionLinkName :: !(Maybe Text),
     grinFunctionParameters :: ![GrinVar],
     grinFunctionResultRep :: !GrinRep,
     grinFunctionBody :: !GrinExpr
@@ -224,6 +203,7 @@ data GrinExpr
 -- | Atomic operands in the strict language.
 data GrinValue
   = GrinVarValue !GrinVar
+  | GrinGlobalValue !Text
   | GrinLitValue !GrinLiteral
   deriving (Eq, Show, Read)
 
@@ -269,7 +249,7 @@ data GrinLiteral
 -- alternatives. Native backends use this to build static literal pools.
 grinProgramLiterals :: GrinProgram -> [GrinLiteral]
 grinProgramLiterals program =
-  concatMap (nodeLiterals . snd) (grinWhnfGlobals program <> grinCafs program)
+  concatMap (nodeLiterals . snd) (grinGlobals program)
     <> concatMap (exprLiterals . grinFunctionBody) (grinFunctions program)
   where
     exprLiterals expression =
@@ -313,11 +293,54 @@ grinProgramLiterals program =
       case value of
         GrinLitValue literal -> [literal]
         GrinVarValue {} -> []
+        GrinGlobalValue {} -> []
+
+-- | Every explicit global-table reference in one program.
+grinProgramGlobalReferences :: GrinProgram -> [Text]
+grinProgramGlobalReferences program =
+  concatMap (nodeReferences . snd) (grinGlobals program)
+    <> concatMap (exprReferences . grinFunctionBody) (grinFunctions program)
+  where
+    exprReferences expression =
+      case expression of
+        GrinConstant values -> valuesReferences values
+        GrinBind _ valueExpression body -> exprReferences valueExpression <> exprReferences body
+        GrinStore node -> nodeReferences node
+        GrinEnsureHeap requiredWords roots -> valueReferences requiredWords <> valuesReferences roots
+        GrinStoreUnchecked node -> nodeReferences node
+        GrinStoreRec bindings body -> concatMap (nodeReferences . snd) bindings <> exprReferences body
+        GrinStoreRecUnchecked bindings body -> concatMap (nodeReferences . snd) bindings <> exprReferences body
+        GrinFetch _ pointer -> valueReferences pointer
+        GrinUpdate pointer value -> valueReferences pointer <> valueReferences value
+        GrinEval _ value -> valueReferences value
+        GrinCpsEval _ value continuation updateContinuation -> valuesReferences [value, continuation, updateContinuation]
+        GrinCall _ _ arguments -> valuesReferences arguments
+        GrinPrimitiveCall _ _ arguments -> valuesReferences arguments
+        GrinCpsPrimitiveCall _ _ arguments continuation -> valuesReferences arguments <> valueReferences continuation
+        GrinApply _ function arguments -> valueReferences function <> valuesReferences arguments
+        GrinCpsApply _ function arguments continuation -> valueReferences function <> valuesReferences arguments <> valueReferences continuation
+        GrinContinue continuation values -> valueReferences continuation <> valuesReferences values
+        GrinCpsRaise exception continuation -> valueReferences exception <> valueReferences continuation
+        GrinUpdateBlackhole pointer value -> valueReferences pointer <> valueReferences value
+        GrinHalt values -> valuesReferences values
+        GrinExit status -> valueReferences status
+        GrinCase scrutinee _ alternatives -> valueReferences scrutinee <> concatMap (exprReferences . grinAltRhs) alternatives
+        GrinThrow exception -> valueReferences exception
+        GrinCatch _ action handler state -> valuesReferences (action : handler : state)
+        GrinForeignCallExpr _ arguments -> valuesReferences arguments
+    nodeReferences = valuesReferences . grinNodeFields
+    valuesReferences = concatMap valueReferences
+    valueReferences value =
+      case value of
+        GrinGlobalValue name -> [name]
+        GrinVarValue {} -> []
+        GrinLitValue {} -> []
 
 grinValueRuntimeRep :: GrinValue -> GrinRep
 grinValueRuntimeRep value =
   case value of
     GrinVarValue var -> grinVarRuntimeRep var
+    GrinGlobalValue {} -> liftedGrinRep
     GrinLitValue literal ->
       case literal of
         GrinLitInt runtimeRep _ -> runtimeRep

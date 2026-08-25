@@ -1,7 +1,25 @@
 expected: |-
-  constructor main:Test.Narrow [Int8Rep, Word16Rep]
+  constructor Test.Narrow [Int8Rep, Word16Rep]
 
-  global value%1002 :: BoxedRep Lifted = (Cmain:Test.Narrow (123 :: Int8Rep) (456 :: Word16Rep))
+  global "\NULTest\NULNarrow" = (CTest.Narrow/2)
+
+  global "\NULTest\NULvalue" = (F$grin_value_thunk_0)
+
+  $grin_function_thunk_1 -> BoxedRep Lifted =
+    argument%-1000000001 :: Int8Rep <-
+      constant (123 :: Int8Rep)
+    function_whnf%-1000000000 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) global-ref "\NULTest\NULNarrow"
+    apply @(BoxedRep Lifted) (function_whnf%-1000000000 :: BoxedRep Lifted) (argument%-1000000001 :: Int8Rep)
+
+  $grin_value_thunk_0 -> BoxedRep Lifted =
+    function%-1000000002 :: BoxedRep Lifted <-
+      store (F$grin_function_thunk_1)
+    argument%-1000000004 :: Word16Rep <-
+      constant (456 :: Word16Rep)
+    function_whnf%-1000000003 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (function%-1000000002 :: BoxedRep Lifted)
+    apply @(BoxedRep Lifted) (function_whnf%-1000000003 :: BoxedRep Lifted) (argument%-1000000004 :: Word16Rep)
 extensions:
 - MagicHash
 - ExtendedLiterals
@@ -9,6 +27,7 @@ reason: initializes a static constructor directly while preserving distinct narr
   signed and unsigned runtime representations
 source: |
   module Test where
+  import GHC.Prim
   data Narrow = Narrow Int8# Word16#
   value :: Narrow
   value = Narrow 123#Int8 456#Word16

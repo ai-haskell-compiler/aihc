@@ -22,6 +22,7 @@ library
     Aihc.Grin.Gc
     Aihc.Grin.Interpret
     Aihc.Grin.Lint
+    Aihc.Grin.Lower
     Aihc.Grin.Parser
     Aihc.Grin.Pretty
     Aihc.Grin.Snapshot
@@ -32,6 +33,8 @@ library
 
   hs-source-dirs: src
   build-depends:
+    aihc-fc,
+    aihc-resolve,
     aihc-tc,
     base >=4.16 && <5,
     bytestring,
@@ -60,6 +63,7 @@ library fuzz
     Test.Grin.Arbitrary
 
   build-depends:
+    aihc-fc,
     aihc-grin,
     aihc-tc,
     base >=4.16 && <5,
@@ -79,18 +83,27 @@ test-suite spec
 
   main-is: Spec.hs
   other-modules:
+    GrinGolden
     Test.Grin.Arbitrary
 
   build-depends:
+    aeson,
+    aihc-fc,
     aihc-grin,
+    aihc-parser,
+    aihc-resolve,
     aihc-tc,
     base >=4.16 && <5,
     bytestring,
     containers,
+    directory,
+    filepath,
     hedgehog,
     tasty,
     tasty-hedgehog,
+    tasty-hunit,
     text,
+    yaml,
 
   ghc-options:
     -Wall

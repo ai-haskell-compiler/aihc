@@ -156,14 +156,10 @@ primitiveProgram primitiveCase =
     { grinConstructors = [],
       grinPrimitives = [(GrinVar name 80 resultRep, length arguments)],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [],
+      grinGlobals = [],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = FunctionName ("$primitive_" <> name),
-              grinFunctionLinkName = Just ("primitive." <> name),
               grinFunctionParameters = [],
               grinFunctionResultRep = resultRep,
               grinFunctionBody =
@@ -211,14 +207,10 @@ intAddProgram =
     { grinConstructors = [("()", [])],
       grinPrimitives = [(GrinVar "+#" 30 IntRep, 2)],
       grinForeignCalls = [putcharCall],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [(mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
-      grinCafs = [],
+      grinGlobals = [(grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = mainFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
@@ -248,7 +240,7 @@ intAddProgram =
           grinAltBinders = [],
           grinAltRhs =
             GrinBind [output] (GrinForeignCallExpr putcharCall [GrinLitValue (GrinLitInt Int32Rep (toInteger (fromEnum character)))]) $
-              GrinConstant [GrinVarValue unitValue]
+              GrinConstant [GrinGlobalValue (grinVarName unitValue)]
         }
 
 firstMatchCaseProgram :: GrinProgram
@@ -257,14 +249,10 @@ firstMatchCaseProgram =
     { grinConstructors = [("()", [])],
       grinPrimitives = [],
       grinForeignCalls = [putcharCall],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [(mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
-      grinCafs = [],
+      grinGlobals = [(grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = mainFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
@@ -294,7 +282,7 @@ firstMatchCaseProgram =
           grinAltBinders = [],
           grinAltRhs =
             GrinBind [output] (GrinForeignCallExpr putcharCall [GrinLitValue (GrinLitInt Int32Rep (toInteger (fromEnum character)))]) $
-              GrinConstant [GrinVarValue unitValue]
+              GrinConstant [GrinGlobalValue (grinVarName unitValue)]
         }
 
 thunkEntryProgram :: GrinProgram
@@ -303,28 +291,23 @@ thunkEntryProgram =
     { grinConstructors = [("()", [])],
       grinPrimitives = [],
       grinForeignCalls = [putcharCall],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [],
-      grinCafs = [(mainThunk, GrinNode (GrinThunk mainThunkFunction) [])],
+      grinGlobals = [(grinVarName mainThunk, GrinNode (GrinThunk mainThunkFunction) [])],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = mainThunkFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody = GrinStore (GrinNode (GrinClosure mainActionFunction [[]]) [])
             },
           GrinFunction
             { grinFunctionName = mainActionFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
                 GrinBind
                   [output]
                   (GrinForeignCallExpr putcharCall [GrinLitValue (GrinLitInt Int32Rep (toInteger (fromEnum 'T')))])
-                  (GrinConstant [GrinVarValue unitValue])
+                  (GrinConstant [GrinGlobalValue (grinVarName unitValue)])
             }
         ]
     }
@@ -355,14 +338,10 @@ foreignIntProgram =
     { grinConstructors = [("()", [])],
       grinPrimitives = [],
       grinForeignCalls = [labsCall, putcharCall],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [(mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
-      grinCafs = [],
+      grinGlobals = [(grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = mainFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = lifted,
               grinFunctionBody =
@@ -392,7 +371,7 @@ foreignIntProgram =
           grinAltBinders = [],
           grinAltRhs =
             GrinBind [output] (GrinForeignCallExpr putcharCall [GrinLitValue (GrinLitInt Int32Rep (toInteger (fromEnum character)))]) $
-              GrinConstant [GrinVarValue unitValue]
+              GrinConstant [GrinGlobalValue (grinVarName unitValue)]
         }
 
 labsCall :: GrinForeignCall
@@ -442,14 +421,10 @@ processExitProgram =
     { grinConstructors = [],
       grinPrimitives = [],
       grinForeignCalls = [],
-      grinExternalGlobals = [],
-      grinExternalFunctions = [],
-      grinWhnfGlobals = [(mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
-      grinCafs = [],
+      grinGlobals = [(grinVarName mainClosure, GrinNode (GrinClosure mainFunction [[]]) [])],
       grinFunctions =
         [ GrinFunction
             { grinFunctionName = mainFunction,
-              grinFunctionLinkName = Nothing,
               grinFunctionParameters = [],
               grinFunctionResultRep = IntRep,
               grinFunctionBody = GrinExit (intValue 7)

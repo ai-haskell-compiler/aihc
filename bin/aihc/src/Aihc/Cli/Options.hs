@@ -33,6 +33,7 @@ data PrepareRuntimeOptions = PrepareRuntimeOptions
 data InstallV2Options = InstallV2Options
   { installV2PackageDirectory :: !FilePath,
     installV2StoreRoot :: !(Maybe FilePath),
+    installV2KeepGrin :: !Bool,
     installV2Verbose :: !Bool
   }
   deriving (Eq, Show)
@@ -131,6 +132,10 @@ installV2OptionsParser =
           <> OA.help "Local Cabal package directory"
       )
     <*> storeRootOption "Override the aihc store root"
+    <*> OA.switch
+      ( OA.long "keep-grin"
+          <> OA.help "Retain GRIN files"
+      )
     <*> OA.switch
       ( OA.long "verbose"
           <> OA.short 'v'

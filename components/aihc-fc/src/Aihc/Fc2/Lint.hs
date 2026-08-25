@@ -13,7 +13,7 @@ where
 import Aihc.Fc2.Name
 import Aihc.Fc2.Parser (parseProgram, renderParseError)
 import Aihc.Fc2.Syntax
-import Aihc.Fc2.TypeOf
+import Aihc.Fc2.TypeOf hiding (coercionEndpoints)
 import Aihc.Fc2.Wired
 import Aihc.Resolve (PackageId (..), packageIdText)
 import Control.Monad (foldM, unless, when)

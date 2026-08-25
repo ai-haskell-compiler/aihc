@@ -86,12 +86,9 @@ reserveLocalsLines functions =
     maximumSlots = maximum (2 : map compiledFunctionSlots functions)
 
 exportLines :: CompileEnv -> GrinFunction -> Text -> [Text]
-exportLines env function label
+exportLines env _function label
   | compileExposeAllFunctions env = [".globl " <> label]
-  | otherwise =
-      case grinFunctionLinkName function of
-        Just _ -> [".globl " <> label]
-        Nothing -> []
+  | otherwise = []
 
 compileExpr :: ValueEnv -> [Text] -> Text -> GrinExpr -> FunctionM ()
 compileExpr env prefix label expression =
@@ -644,6 +641,7 @@ moveValuesToLocations env values destinations
     alreadyThere value destination =
       case value of
         GrinVarValue var -> Map.lookup var (valueLocations env) == Just destination
+        GrinGlobalValue {} -> False
         GrinLitValue {} -> False
 
 saveValueOverflowLines :: ValueEnv -> [GrinValue] -> Either Arm64Error [Text]

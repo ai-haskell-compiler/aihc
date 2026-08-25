@@ -27,7 +27,6 @@ module Aihc.Amd64.Codegen.Runtime
     globalSlot,
     immediate,
     initializeNodeFields,
-    linkedFunctionLabel,
     loadAt,
     loadByteOffset,
     loadLocation,
@@ -65,7 +64,6 @@ where
 
 import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
 import Aihc.Grin.Syntax
-import Aihc.Native (renderLinkedFunctionSymbol)
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..))
 import Control.Monad (forM)
@@ -188,6 +186,9 @@ materializeValueTo env destination value =
         Nothing -> do
           slot <- globalSlot (valueCompileEnv env) (grinVarName var)
           pure [loadByteOffset "r11" "r15" 0, loadAt destination "r11" slot]
+    GrinGlobalValue name -> do
+      slot <- globalSlot (valueCompileEnv env) name
+      pure [loadByteOffset "r11" "r15" 0, loadAt destination "r11" slot]
     GrinLitValue literal -> materializeLiteralTo destination (valueCompileEnv env) literal
 
 materializeLiteralTo :: Text -> CompileEnv -> GrinLiteral -> Either Amd64Error [Text]
@@ -638,15 +639,9 @@ functionLabel :: Int -> Text
 functionLabel index = ".Laihc_function_" <> tshow index
 
 localFunctionLabelWith :: Bool -> Int -> GrinFunction -> Text
-localFunctionLabelWith exposeAllFunctions index function
+localFunctionLabelWith exposeAllFunctions index _function
   | exposeAllFunctions = "aihc_snapshot_function_" <> tshow index
-  | otherwise =
-      case grinFunctionLinkName function of
-        Just name -> linkedFunctionLabel name
-        Nothing -> functionLabel index
-
-linkedFunctionLabel :: Text -> Text
-linkedFunctionLabel = renderLinkedFunctionSymbol
+  | otherwise = functionLabel index
 
 storeGlobal :: Int -> [Text]
 storeGlobal slot =
