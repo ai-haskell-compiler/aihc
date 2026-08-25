@@ -136,12 +136,12 @@ networkDependencyResolver =
       result <- getLatestVersion Nothing name
       either (ioError . userError) pure result
 
-installPackagePlanV2 :: Bool -> Maybe NativeTarget -> (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
+installPackagePlanV2 :: Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
 installPackagePlanV2 keepGrin target verbose storeRoot plan = do
   dependencies <- mapM (installPackagePlanV2 keepGrin target verbose storeRoot) (planDependencyPlans plan)
   installPackageV2 keepGrin target verbose storeRoot dependencies (planSourcePath plan)
 
-installPackageV2 :: Bool -> Maybe NativeTarget -> (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
+installPackageV2 :: Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
 installPackageV2 keepGrin target verbose storeRoot dependencies root = do
   verbose ("Read Cabal package: " <> root)
   cabalFiles <- HackageUtil.findCabalFiles root
@@ -159,7 +159,7 @@ installPackageV2 keepGrin target verbose storeRoot dependencies root = do
   verbose ("Parse " <> show (length files) <> " library modules")
   parsed <- mapM (parseSource root) files
   let dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
-      targetIdentity = maybe "core-only" (T.pack . renderNativeTarget) target
+      targetIdentity = T.pack (renderNativeTarget target)
       packageHash = stableHash (map TE.encodeUtf8 ("aihc-dependencies-v2" : targetIdentity : dependencyIdentities))
       packageDirectory = T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash
       storePath = storeRoot </> packageDirectory
@@ -186,9 +186,7 @@ installPackageV2 keepGrin target verbose storeRoot dependencies root = do
       (installUnit keepGrin target verbose storePath resolvePackage primIdentity root)
       (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty)
       units
-  case target of
-    Nothing -> pure ()
-    Just _ -> buildLibraryArchive verbose storePath packageNameText parsed
+  buildLibraryArchive verbose storePath packageNameText parsed
   let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
       ownExports =
         Map.filterWithKey
@@ -295,7 +293,7 @@ renderResolveExcerpt sourceLines sourceSpan =
                 <> replicate caretStart ' '
                 <> replicate caretWidth '^'
 
-installUnit :: Bool -> Maybe NativeTarget -> (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
+installUnit :: Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
 installUnit keepGrin target verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
   let packageModules = modulesInPackage resolvePackage (map sourceModuleAst unit)
       unitNames = map sourceName unit
@@ -354,9 +352,7 @@ installUnit keepGrin target verbose storePath resolvePackage primIdentity root (
   updatedTypeHashes <- updateTypeHashes typePath typeHashes unit
   coreV2Exists <- and <$> mapM (doesFileExist . coreV2Path . sourceModuleAst) unit
   grinExists <- and <$> mapM (doesFileExist . grinPath . sourceModuleAst) unit
-  objectExists <- case target of
-    Nothing -> pure True
-    Just _ -> and <$> mapM (doesFileExist . objectPath . sourceModuleAst) unit
+  objectExists <- and <$> mapM (doesFileExist . objectPath . sourceModuleAst) unit
   (coreChanged, grinChanged) <-
     if typeChanged || not coreV2Exists
       then do
@@ -388,7 +384,7 @@ installUnit keepGrin target verbose storePath resolvePackage primIdentity root (
   where
     sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
 
-writeCoreV2Files :: Bool -> Bool -> Maybe NativeTarget -> (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Module -> FilePath) -> (Module -> FilePath) -> (Module -> FilePath) -> [Module] -> IO ()
+writeCoreV2Files :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Module -> FilePath) -> (Module -> FilePath) -> (Module -> FilePath) -> [Module] -> IO ()
 writeCoreV2Files writeCore keepGrin target verbose currentPackage primIdentity interface storeRoot coreV2Path grinPath objectPath checkedModules = do
   let bindings = tcInterfaceBindings interface <> concatMap tcModuleBindings checkedModules
       config = DesugarConfig primIdentity
@@ -416,11 +412,8 @@ writeCoreV2Files writeCore keepGrin target verbose currentPackage primIdentity i
   when keepGrin $ do
     let typeEnv = Fc2Type.typeEnvFromPrograms loadedFc2
     mapM_ (writeGrin typeEnv) (zip checkedModules results2)
-  case target of
-    Nothing -> pure ()
-    Just selectedTarget -> do
-      let typeEnv = Fc2Type.typeEnvFromPrograms loadedFc2
-      mapM_ (writeObject selectedTarget typeEnv) (zip checkedModules results2)
+  let typeEnv = Fc2Type.typeEnvFromPrograms loadedFc2
+  mapM_ (writeObject target typeEnv) (zip checkedModules results2)
   where
     writeBadFc2 (modu, result2) = do
       let pathV2 = coreV2Path modu <> ".bad"
