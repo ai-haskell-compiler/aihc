@@ -156,6 +156,7 @@ AihcMachine *aihc_machine_new(uint64_t global_count);
 uint64_t aihc_allocation_count(const AihcMachine *machine);
 void aihc_reset_allocation_count(AihcMachine *machine);
 AihcSlot *aihc_alloc_locals(AihcMachine *machine, uint64_t count);
+AihcSlot *aihc_alloc_linked_locals(AihcMachine *machine);
 void aihc_no_match(void);
 void aihc_unsupported_primitive(void);
 /* The complete process argument vector is copied before the Haskell machine

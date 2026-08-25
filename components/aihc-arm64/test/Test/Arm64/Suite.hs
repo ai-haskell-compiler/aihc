@@ -8,7 +8,6 @@ where
 import Aihc.Arm64
   ( Arm64Error (..),
     ObservedProgram (..),
-    buildLinkLayout,
     compileModule,
     compileObservedFunction,
     compileProgram,
@@ -59,9 +58,9 @@ tests =
                   grinFunctions = []
                 }
         assertEqual "linked primitive validation" (Left (Arm64UnsupportedPrimitive "unsupported#")) (validateProgramPrimitives program)
-        case compileModule (buildLinkLayout [program]) "_aihc_init_test" (expectGcGrin program) of
+        case compileModule (expectGcGrin program) of
           Left err -> assertFailure ("relocatable module rejected a dormant primitive: " <> show err)
-          Right assembly -> assertBool "module initializer" (".globl _aihc_init_test" `T.isInfixOf` assembly),
+          Right assembly -> assertBool "linked locals section" ("__aihc_locals" `T.isInfixOf` assembly),
       testCase "adds Int# values with wrapping machine arithmetic" $ do
         let entryName = FunctionName "int_add"
             result = GrinVar "result" 2 IntRep
@@ -149,7 +148,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_narrow" (expectGcGrin program) of
+        case compileModule (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> assertBool "255 :: Int8# is stored as -1" ("ldr x0, =-1" `T.isInfixOf` assembly),
       testCase "passes static Addr# literals to native foreign calls" $ do
@@ -180,7 +179,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_addr" (expectGcGrin program) of
+        case compileModule (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "loads the static string address" ("adrp x0, .Laihc_addr_0@PAGE" `T.isInfixOf` assembly)
@@ -207,7 +206,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_pair" (expectGcGrin program) of
+        case compileModule (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "passes two values" ("ldr x2, =2" `T.isInfixOf` assembly)
@@ -215,13 +214,13 @@ tests =
             assertBool "does not call a C continuation adapter" (not ("_aihc_continue_values" `T.isInfixOf` assembly)),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
       testCase "case and apply never evaluate operands implicitly" $ do
-        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_explicit_eval" (expectGcGrin explicitEvaluationProgram) of
+        case compileModule (expectGcGrin explicitEvaluationProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly ->
             assertBool "generated case and apply contain no direct-style eval call" (not ("bl _aihc_eval\n" `T.isInfixOf` assembly))
         pure (),
       testCase "dynamic CPS transfers branch to runtime-selected entries" $ do
-        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_tail_dispatch" (expectGcGrin explicitEvaluationProgram) of
+        case compileModule (expectGcGrin explicitEvaluationProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool

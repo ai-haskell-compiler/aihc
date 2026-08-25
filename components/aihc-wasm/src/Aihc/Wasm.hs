@@ -3,7 +3,6 @@ module Aihc.Wasm
   ( WasmError (..),
     compileModule,
     compileProgram,
-    compileProgramWithDependencies,
     validatePrimitiveNames,
     validateProgramPrimitives,
     wasip3RuntimeSourcePath,

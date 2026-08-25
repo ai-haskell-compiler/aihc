@@ -10,7 +10,6 @@ import Aihc.Native
   ( NativeTarget (Llvm),
     RuntimeGarbageCollector (RuntimeGcCalloc),
     RuntimePlan (..),
-    buildLinkLayout,
     runtimePlan,
     supportedNativePrimitiveNames,
   )
@@ -81,7 +80,7 @@ testIntegerPrimitives = forM_ integerPrimitiveCases $ \primitiveCase -> do
   case toCpsGrin program of
     Left err -> assertFailure (T.unpack (primitiveCaseName primitiveCase) <> ": " <> show err)
     Right cps ->
-      case compileModule (buildLinkLayout [program]) "aihc_init_integer_primitive" (lowerGc cps) of
+      case compileModule (lowerGc cps) of
         Left err -> assertFailure (T.unpack (primitiveCaseName primitiveCase) <> ": " <> show err)
         Right source -> do
           assertBool

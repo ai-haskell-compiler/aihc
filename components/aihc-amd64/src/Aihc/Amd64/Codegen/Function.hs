@@ -585,7 +585,7 @@ alternativePrefix env resultLocation alternative =
     liveIndexedBinders = filter (isLive . snd) (zip [0 ..] (grinAltBinders alternative))
 
 caseChecks :: ValueEnv -> Location Text -> Bool -> [(GrinAlt, Text)] -> FunctionM ([Text], BlockLayout.Terminator Text)
-caseChecks env resultLocation scrutineeIsPointer targets = do
+caseChecks _env resultLocation scrutineeIsPointer targets = do
   let nonDefault = [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt]
       defaultTarget = [label | (alternative, label) <- targets, grinAltCon alternative == GrinDefaultAlt]
   checks <- fmap concat . forM nonDefault $ \(alternative, target) ->
@@ -594,12 +594,12 @@ caseChecks env resultLocation scrutineeIsPointer targets = do
         | not scrutineeIsPointer ->
             lift (Left (Amd64UnsupportedExpression "constructor case on an unboxed value"))
       GrinDataAlt name -> do
-        identifier <- liftEither (constructorId (valueCompileEnv env) name)
+        let identity = constructorStageLabel name 0
         pure $
           loadLocation "r11" resultLocation
             <> [ loadByteOffset "r10" "r11" 0,
                  loadByteOffset "r10" "r10" 0,
-                 immediate "r11" identifier,
+                 address "r11" identity,
                  "  cmp r10, r11",
                  "  je " <> target
                ]
