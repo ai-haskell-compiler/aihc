@@ -94,7 +94,7 @@ type ValueM = StateT ValueState (Either String)
 
 data ValueGroup
   = FunctionGroup !Text ![Syn.Match] !TcType
-  | PatternGroup !Text !(Syn.Rhs Syn.Expr) !(Maybe TcType)
+  | PatternGroup !Text !(Syn.Rhs Syn.Expr) !TcType
 
 data TopValue = TopValue
   { topCoreName :: !Name,
@@ -465,7 +465,8 @@ groupValues (declaration : rest) =
     Just (name, _, Nothing) -> failValue ("function " <> T.unpack name <> " does not have a checked type annotation")
     Nothing ->
       case patternBinding declaration of
-        Just group -> (group :) <$> groupValues rest
+        Just (name, rhs, Just checkedType) -> (PatternGroup name rhs checkedType :) <$> groupValues rest
+        Just (name, _, Nothing) -> failValue ("pattern binding " <> T.unpack name <> " does not have a checked type annotation")
         Nothing -> groupValues rest
 
 functionBinding :: Syn.Decl -> Maybe (Text, [Syn.Match], Maybe TcType)
@@ -477,10 +478,10 @@ functionBinding declaration =
 sameFunction :: Text -> Syn.Decl -> Bool
 sameFunction name declaration = maybe False ((== name) . tripleFirst) (functionBinding declaration)
 
-patternBinding :: Syn.Decl -> Maybe ValueGroup
+patternBinding :: Syn.Decl -> Maybe (Text, Syn.Rhs Syn.Expr, Maybe TcType)
 patternBinding declaration =
   case Syn.peelDeclAnn declaration of
-    Syn.DeclValue (Syn.PatternBind _ pattern' rhs) -> PatternGroup <$> barePatternName pattern' <*> pure rhs <*> pure (declarationType declaration)
+    Syn.DeclValue (Syn.PatternBind _ pattern' rhs) -> (,,declarationType declaration) <$> barePatternName pattern' <*> pure rhs
     _ -> Nothing
 
 declarationType :: Syn.Decl -> Maybe TcType
@@ -507,7 +508,7 @@ allocateTopValue :: ValueGroup -> ValueM TopValue
 allocateTopValue group = do
   _ <- freshUnique
   let name = groupName group
-  ty <- lookupCheckedType name
+      ty = groupType group
   moduleOrigin <- gets vsModuleOrigin
   pure (TopValue (topName moduleOrigin name) ty group)
 
@@ -517,10 +518,10 @@ groupName group =
     FunctionGroup name _ _ -> name
     PatternGroup name _ _ -> name
 
-groupType :: ValueGroup -> Maybe TcType
+groupType :: ValueGroup -> TcType
 groupType group =
   case group of
-    FunctionGroup _ _ ty -> Just ty
+    FunctionGroup _ _ ty -> ty
     PatternGroup _ _ ty -> ty
 
 desugarTopValue :: TopValue -> ValueM ValDecl
@@ -1516,7 +1517,7 @@ desugarLocalDecls declarations body = do
   where
     allocateLocal group = do
       let name = groupName group
-      ty <- maybe (lookupCheckedType name) pure (groupType group)
+          ty = groupType group
       binder <- freshBinder name ty
       pure (name, binder, ty, group)
     desugarLocal (_, binder, ty, group) = do
