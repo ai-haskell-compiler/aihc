@@ -201,7 +201,7 @@ data InstanceInfo = InstanceInfo
   }
   deriving (Eq, Show, Read)
 
-instanceInfoKey :: InstanceInfo -> (Maybe (Text, Text), Text)
+instanceInfoKey :: InstanceInfo -> ((Text, Text), Text)
 instanceInfoKey instanceInfo = (iiDictOrigin instanceInfo, iiDictName instanceInfo)
 
 -- | A checked standalone data-family instance equation. The representation
