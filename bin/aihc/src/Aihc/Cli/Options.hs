@@ -34,6 +34,7 @@ data InstallV2Options = InstallV2Options
   { installV2PackageDirectory :: !FilePath,
     installV2StoreRoot :: !(Maybe FilePath),
     installV2KeepGrin :: !Bool,
+    installV2KeepNative :: !Bool,
     installV2Verbose :: !Bool,
     installV2Target :: !NativeTarget
   }
@@ -136,6 +137,10 @@ installV2OptionsParser =
     <*> OA.switch
       ( OA.long "keep-grin"
           <> OA.help "Retain GRIN files"
+      )
+    <*> OA.switch
+      ( OA.long "keep-native"
+          <> OA.help "Retain native source files"
       )
     <*> OA.switch
       ( OA.long "verbose"
