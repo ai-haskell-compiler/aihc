@@ -404,11 +404,13 @@
       store="$TMPDIR/store"
       mkdir -p "$store"
 
-      ${aihcExe} install-v2 core-libs/aihc-prim --store "$store"
-      ${aihcExe} install-v2 core-libs/aihc-base --store "$store"
+      ${aihcExe} install-v2 core-libs/aihc-prim --store "$store" --keep-grin
+      ${aihcExe} install-v2 core-libs/aihc-base --store "$store" --keep-grin
 
       test -n "$(find "$store" -path '*/GHC/Prim/core-v2' -print -quit)"
+      test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
       test -n "$(find "$store" -path '*/Prelude/core-v2' -print -quit)"
+      test -n "$(find "$store" -path '*/Prelude/grin' -print -quit)"
       test -z "$(find "$store" -type f -name 'core-v2.bad' -print -quit)"
       touch "$out"
     '';
