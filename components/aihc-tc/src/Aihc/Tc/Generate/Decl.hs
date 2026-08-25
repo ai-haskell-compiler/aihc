@@ -161,15 +161,12 @@ data CheckedSig = CheckedSig
 
 moduleBindings :: Module -> [TcBindingResult]
 moduleBindings modu =
-  concatMap declBindings (moduleDecls modu)
+  concatMap (declBindings (resolvedModuleOrigin modu)) (moduleDecls modu)
 
 -- | Recover instance-environment entries from finalized module annotations.
 moduleInstances :: Module -> [InstanceInfo]
 moduleInstances modu =
-  map (setInstanceOrigin (resolvedModuleOrigin modu)) (concatMap declInstances (moduleDecls modu))
-
-setInstanceOrigin :: (Text, Text) -> InstanceInfo -> InstanceInfo
-setInstanceOrigin origin instanceInfo = instanceInfo {iiDictOrigin = Just origin}
+  concatMap (declInstances (resolvedModuleOrigin modu)) (moduleDecls modu)
 
 resolvedModuleOrigin :: Module -> (Text, Text)
 resolvedModuleOrigin resolvedModule =
@@ -248,15 +245,15 @@ typeToScheme ty =
         TcQualTy predicates result -> ForAll tyVars predicates result
         result -> ForAll tyVars [] result
 
-declInstances :: Decl -> [InstanceInfo]
-declInstances decl =
+declInstances :: (Text, Text) -> Decl -> [InstanceInfo]
+declInstances origin decl =
   case decl of
     DeclAnn ann inner ->
-      annotationInstances ann inner <> declInstances inner
+      annotationInstances origin ann inner <> declInstances origin inner
     _ -> []
 
-annotationInstances :: Annotation -> Decl -> [InstanceInfo]
-annotationInstances ann decl =
+annotationInstances :: (Text, Text) -> Annotation -> Decl -> [InstanceInfo]
+annotationInstances origin ann decl =
   explicitInstance <> derivedInstances
   where
     explicitInstance =
@@ -266,7 +263,7 @@ annotationInstances ann decl =
               [ InstanceInfo
                   { iiClassName = nameText className,
                     iiDictName = tcInstanceDictName instAnn,
-                    iiDictOrigin = Nothing,
+                    iiDictOrigin = origin,
                     iiDictType = tcInstanceDictType instAnn,
                     iiTyVars = tcInstanceTyVars instAnn,
                     iiContext = map dictBinderPred (tcInstanceContextDicts instAnn),
@@ -276,7 +273,7 @@ annotationInstances ann decl =
         _ -> []
     derivedInstances =
       case fromAnnotation @TcDerivingAnnotation ann of
-        Just derivingAnnotation -> mapMaybe derivingPlanInstanceInfo (tcDerivingPlans derivingAnnotation)
+        Just derivingAnnotation -> mapMaybe (derivingPlanInstanceInfo origin) (tcDerivingPlans derivingAnnotation)
         Nothing -> []
 
 dictBinderPred :: TcDictBinderAnnotation -> Pred
@@ -285,11 +282,11 @@ dictBinderPred dictBinder =
     Just predicate -> predicate
     Nothing -> error "invalid checked dictionary binder type"
 
-declBindings :: Decl -> [TcBindingResult]
-declBindings decl =
+declBindings :: (Text, Text) -> Decl -> [TcBindingResult]
+declBindings origin decl =
   case decl of
     DeclAnn ann inner ->
-      annotationBindings ann inner <> declBindings inner
+      annotationBindings origin ann inner <> declBindings origin inner
     DeclData dataDecl ->
       concatMap dataConBindings (dataDeclConstructors dataDecl)
         <> concatMap recordSelectorBindings (dataDeclConstructors dataDecl)
@@ -299,12 +296,12 @@ declBindings decl =
       concatMap dataConBindings (dataFamilyInstConstructors familyInst)
     _ -> []
 
-annotationBindings :: Annotation -> Decl -> [TcBindingResult]
-annotationBindings ann decl =
+annotationBindings :: (Text, Text) -> Annotation -> Decl -> [TcBindingResult]
+annotationBindings origin ann decl =
   tcAnnotationBindings ann decl
     <> classAnnotationBindings ann decl
     <> instanceAnnotationBindings ann
-    <> derivingAnnotationBindings ann
+    <> derivingAnnotationBindings origin ann
 
 tcAnnotationBindings :: Annotation -> Decl -> [TcBindingResult]
 tcAnnotationBindings ann decl =
@@ -364,13 +361,13 @@ instanceAnnotationBindings ann =
       [TcBindingResult (tcInstanceDictName instAnn) (tcInstanceDictName instAnn) (tcInstanceDictType instAnn)]
     Nothing -> []
 
-derivingAnnotationBindings :: Annotation -> [TcBindingResult]
-derivingAnnotationBindings ann =
+derivingAnnotationBindings :: (Text, Text) -> Annotation -> [TcBindingResult]
+derivingAnnotationBindings origin ann =
   case fromAnnotation ann of
     Just derivingAnnotation ->
       [ TcBindingResult (iiDictName instanceInfo) (iiDictName instanceInfo) (iiDictType instanceInfo)
       | plan <- tcDerivingPlans derivingAnnotation,
-        Just instanceInfo <- [derivingPlanInstanceInfo plan]
+        Just instanceInfo <- [derivingPlanInstanceInfo origin plan]
       ]
     Nothing -> []
 
@@ -2186,7 +2183,7 @@ registerInstanceDecl origin instanceDecl =
         InstanceInfo
           { iiClassName = classNameText,
             iiDictName = dictName,
-            iiDictOrigin = Just origin,
+            iiDictOrigin = origin,
             iiDictType = dictTy,
             iiTyVars = tvIds,
             iiContext = context,

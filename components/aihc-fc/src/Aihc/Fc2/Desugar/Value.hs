@@ -1535,11 +1535,8 @@ desugarEvidence evidence =
     Ev.EvDict origin dictionaryName types subEvidence -> do
       convertedTypes <- mapM convertCheckedType types
       evidenceArguments <- mapM desugarEvidence subEvidence
-      moduleOrigin <- gets vsModuleOrigin
-      let (package, moduleName') =
-            case origin of
-              Just (packageName, originModule) -> (PackageId packageName, originModule)
-              Nothing -> moduleOrigin
+      let (packageName, moduleName') = origin
+          package = PackageId packageName
           name = Name dictionaryName SortValue (OriginTop package moduleName')
       pure (foldl ExApp (foldl ExTyApp (ExVar name) convertedTypes) evidenceArguments)
     Ev.EvCoercion coercion -> ExCast (ExVar (Name "coercion" SortValue (OriginLocal (Unique 0)))) <$> convertCoercion coercion
