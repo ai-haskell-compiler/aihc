@@ -153,6 +153,12 @@ in rec {
     ".yml"
   ];
 
+  aihcFixturesSrc = mkComponentSrc "/bin/aihc/test/Test/Fixtures" [
+    ".hs"
+    ".cabal"
+    ".txt"
+  ];
+
   baseSrc = mkComponentSrc "/core-libs/aihc-base" [
     ".hs"
     ".cabal"
@@ -214,7 +220,6 @@ in rec {
   aihcSrc = mkRootSubsetSrc ["bin/aihc/"] [
     ".hs"
     ".cabal"
-    "expected.txt"
   ];
 
   examplesSrc = mkRootSubsetSrc ["examples/"] exampleSourceSuffixes;

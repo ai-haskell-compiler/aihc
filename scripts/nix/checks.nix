@@ -96,6 +96,7 @@
               testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
               preCheck =
                 (old.preCheck or "")
+                + copyInto "test/Test/Fixtures" (sources.aihcFixturesSrc pkgs)
                 + ''
                   coreLibsRoot="$TMPDIR/aihc-core-libs-root"
                   mkdir -p "$coreLibsRoot/core-libs"
