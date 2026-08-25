@@ -71,17 +71,22 @@ extern const uint64_t
     aihc_linked_locals_end[] __asm("section$end$__DATA$__aihc_locals")
         __attribute__((weak_import));
 #else
-extern AihcValue *__start_aihc_roots[] __attribute__((weak));
-extern AihcValue *__stop_aihc_roots[] __attribute__((weak));
-extern const uint64_t __start_aihc_locals[] __attribute__((weak));
-extern const uint64_t __stop_aihc_locals[] __attribute__((weak));
+extern AihcValue *aihc_elf_static_roots_start[] __asm__("__start_aihc_roots")
+    __attribute__((weak));
+extern AihcValue *aihc_elf_static_roots_end[] __asm__("__stop_aihc_roots")
+    __attribute__((weak));
+extern const uint64_t
+    aihc_elf_linked_locals_start[] __asm__("__start_aihc_locals")
+        __attribute__((weak));
+extern const uint64_t aihc_elf_linked_locals_end[] __asm__("__stop_aihc_locals")
+    __attribute__((weak));
 #endif
 
 static AihcValue **aihc_static_root_start(void) {
 #if defined(__APPLE__)
   return aihc_static_roots_start;
 #else
-  return __start_aihc_roots;
+  return aihc_elf_static_roots_start;
 #endif
 }
 
@@ -89,7 +94,7 @@ static AihcValue **aihc_static_root_end(void) {
 #if defined(__APPLE__)
   return aihc_static_roots_end;
 #else
-  return __stop_aihc_roots;
+  return aihc_elf_static_roots_end;
 #endif
 }
 
@@ -97,7 +102,7 @@ static const uint64_t *aihc_linked_local_start(void) {
 #if defined(__APPLE__)
   return aihc_linked_locals_start;
 #else
-  return __start_aihc_locals;
+  return aihc_elf_linked_locals_start;
 #endif
 }
 
@@ -105,7 +110,7 @@ static const uint64_t *aihc_linked_local_end(void) {
 #if defined(__APPLE__)
   return aihc_linked_locals_end;
 #else
-  return __stop_aihc_locals;
+  return aihc_elf_linked_locals_end;
 #endif
 }
 
