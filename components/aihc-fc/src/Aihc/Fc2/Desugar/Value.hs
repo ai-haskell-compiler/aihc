@@ -1134,7 +1134,7 @@ desugarAnnotatedExpr annotation inner = do
       Syn.ECharHash value _ -> do
         representation <- convertRuntimeRep WordRep
         pure (ExLit (LitChar representation value))
-      Syn.EString value _ -> pure (ExLit (LitString value))
+      Syn.EString value _ -> desugarString annotation value
       Syn.EStringHash value _ -> do
         representation <- convertRuntimeRep AddrRep
         pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
@@ -1276,6 +1276,23 @@ desugarList annotation elements = do
   let nil = ExTyApp (ExVar nilName) convertedType
       cons = ExTyApp (ExVar consName) convertedType
   pure (foldr (ExApp . ExApp cons) nil elements')
+
+desugarString :: TcAnnotation -> Text -> ValueM Expr
+desugarString annotation value = do
+  elementType <-
+    case tcAnnType annotation of
+      TcTyCon tyCon [ty]
+        | tyConName tyCon == "[]" -> pure ty
+      ty -> failValue ("string literal has non-list type " <> show ty)
+  convertedType <- convertCheckedType elementType
+  charConstructor <- uniqueConstructorName "C#"
+  representation <- convertRuntimeRep WordRep
+  nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
+  consName <- primitiveName "GHC.Types" ":" SortDataConstructor
+  let nil = ExTyApp (ExVar nilName) convertedType
+      cons = ExTyApp (ExVar consName) convertedType
+      boxedChar character = ExApp (ExVar charConstructor) (ExLit (LitChar representation character))
+  pure (foldr (ExApp . ExApp cons . boxedChar) nil (T.unpack value))
 
 desugarTuple :: TcAnnotation -> Syn.TupleFlavor -> [Maybe Syn.Expr] -> ValueM Expr
 desugarTuple annotation flavor elements = do

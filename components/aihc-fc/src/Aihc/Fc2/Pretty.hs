@@ -391,16 +391,7 @@ prettyLiteral scopes literal =
   case literal of
     LitInt representation value -> pretty value <> "#" <> prettyName scopes (repName representation)
     LitChar representation value -> "'" <> pretty (encodeCharLiteral value) <> "'#" <> prettyName scopes (repName representation)
-    LitString value -> "\"" <> pretty (concatMap encodeStringChar (T.unpack value)) <> "\""
     LitAddr representation value -> "\"" <> pretty (concatMap encodeByte (BS.unpack value)) <> "\"#" <> prettyName scopes (repName representation)
-
-encodeStringChar :: Char -> String
-encodeStringChar character
-  | character == '"' = "\\\""
-  | character == '\\' = "\\\\"
-  | character == '\n' = "\\n"
-  | isAscii character && isPrint character = [character]
-  | otherwise = encodeByte (fromIntegral (ord character))
 
 encodeCharLiteral :: Char -> String
 encodeCharLiteral character
