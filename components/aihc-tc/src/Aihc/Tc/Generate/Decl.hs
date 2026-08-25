@@ -1999,8 +1999,8 @@ storeTyConInfo info = do
     Nothing -> extendTyConEnvPermanent info
 
 registerStructuralDecl :: (Text, Text) -> Decl -> TcM [TcBindingResult]
-registerStructuralDecl _ (DeclData dataDecl) = registerDataConstructors dataDecl
-registerStructuralDecl _ (DeclNewtype newtypeDecl) = registerNewtypeConstructor newtypeDecl
+registerStructuralDecl origin (DeclData dataDecl) = registerDataConstructors origin dataDecl
+registerStructuralDecl origin (DeclNewtype newtypeDecl) = registerNewtypeConstructor origin newtypeDecl
 registerStructuralDecl origin (DeclDataFamilyInst familyInst) = registerDataFamilyInstance origin familyInst
 registerStructuralDecl _ (DeclTypeFamilyDecl familyDecl) = registerClosedTypeFamilyEquations familyDecl
 registerStructuralDecl _ (DeclTypeFamilyInst familyInst) = registerTypeFamilyInstance familyInst
@@ -2527,8 +2527,8 @@ registerDataDeclHeader maybeKindScheme dd = do
   let tyConResult = TcBindingResult tyName tyName zonkedKind
   pure [tyConResult]
 
-registerDataConstructors :: DataDecl -> TcM [TcBindingResult]
-registerDataConstructors dataDecl = do
+registerDataConstructors :: (Text, Text) -> DataDecl -> TcM [TcBindingResult]
+registerDataConstructors origin dataDecl = do
   let tyBinder = binderHeadName (dataDeclHead dataDecl)
       tyName = unqualifiedNameText tyBinder
   maybeInfo <- lookupDeclaredTyCon tyBinder
@@ -2539,7 +2539,7 @@ registerDataConstructors dataDecl = do
       bindings <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (dataDeclConstructors dataDecl)
       constructors <- concat <$> mapM (checkedDataConInfos (tciTyCon info)) (dataDeclConstructors dataDecl)
       mapM_ registerTypeLevelDataCon constructors
-      selectorBindings <- registerRecordSelectors constructors
+      selectorBindings <- registerRecordSelectors origin constructors
       let tyVars = map paramTyVar paramInfos
       resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
       addDataType
@@ -2579,8 +2579,8 @@ registerNewtypeDeclHeader maybeKindScheme nd = do
   let tyConResult = TcBindingResult tyName tyName zonkedKind
   pure [tyConResult]
 
-registerNewtypeConstructor :: NewtypeDecl -> TcM [TcBindingResult]
-registerNewtypeConstructor newtypeDecl = do
+registerNewtypeConstructor :: (Text, Text) -> NewtypeDecl -> TcM [TcBindingResult]
+registerNewtypeConstructor origin newtypeDecl = do
   let tyBinder = binderHeadName (newtypeDeclHead newtypeDecl)
       tyName = unqualifiedNameText tyBinder
   maybeInfo <- lookupDeclaredTyCon tyBinder
@@ -2591,7 +2591,7 @@ registerNewtypeConstructor newtypeDecl = do
       constructor <- mapM (registerDataCon (tciTyCon info) kindParams paramInfos) (newtypeDeclConstructor newtypeDecl)
       constructors <- maybe (pure []) (checkedDataConInfos (tciTyCon info)) (newtypeDeclConstructor newtypeDecl)
       mapM_ registerTypeLevelDataCon constructors
-      selectorBindings <- registerRecordSelectors constructors
+      selectorBindings <- registerRecordSelectors origin constructors
       let tyVars = map paramTyVar paramInfos
       resultKind <- tcTypeKind (TcTyCon (tciTyCon info) (map TcTyVar tyVars))
       addDataType
@@ -2653,8 +2653,8 @@ listTypeForKind elementKind = do
   listTyCon <- maybe (mkKnownTyCon "GHC.Types" "[]" 1 (TcFunTy KType KType)) (pure . tciTyCon) maybeList
   pure (TcTyCon listTyCon [elementKind])
 
-registerRecordSelectors :: [DataConInfo] -> TcM [TcBindingResult]
-registerRecordSelectors constructors =
+registerRecordSelectors :: (Text, Text) -> [DataConInfo] -> TcM [TcBindingResult]
+registerRecordSelectors origin constructors =
   mapM registerSelector (Map.toList selectors)
   where
     selectors =
@@ -2671,7 +2671,10 @@ registerRecordSelectors constructors =
               (dciUnivTyVars constructor)
               (dciTheta constructor)
               (TcFunTy (dciResTy constructor) (dcfiType field))
-      extendTermEnvPermanent label (TcIdBinder scheme Closed)
+      let binder = TcIdBinder scheme Closed
+          (packageId, moduleName') = origin
+      extendTermEnvPermanent label binder
+      extendTermKeyEnvPermanent (TcTermGlobal (PackageId packageId) moduleName' label) binder
       zonkedType <- zonkType (schemeToType scheme)
       pure (TcBindingResult label label zonkedType)
     registerSelector (label, []) =
