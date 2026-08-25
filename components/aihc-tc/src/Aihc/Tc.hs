@@ -124,7 +124,7 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Annotations (TcAnnotation (..), TcDerivingAnnotation (..), TcDerivingContext (..), TcDerivingPlan (..), TcDerivingStrategy (..), TcStockDerivingPlan (..), renderPred, renderTcSignature, renderTcType, renderTcTypeInModule)
-import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, typeFamilyAxiomName)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, dataTypeKey, instanceInfoKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
 import Aihc.Tc.Generate.Decl (TcBindingResult (..), moduleBindings, moduleClasses, moduleInstances, tcModule, tcModuleScc)
 import Aihc.Tc.Generate.Expr (inferExpr)
@@ -188,7 +188,7 @@ instance Semigroup TcInterface where
         tcInterfaceTyCons = mergeTyConInfos (tcInterfaceTyCons left <> tcInterfaceTyCons right),
         tcInterfaceDataTypes = mergeInterfaceEntries "data type interface" dataTypeKey (tcInterfaceDataTypes left <> tcInterfaceDataTypes right),
         tcInterfaceClasses = mergeInterfaceEntries "class interface" ciName (tcInterfaceClasses left <> tcInterfaceClasses right),
-        tcInterfaceInstances = mergeInterfaceEntries "instance interface" iiDictName (tcInterfaceInstances left <> tcInterfaceInstances right),
+        tcInterfaceInstances = mergeInterfaceEntries "instance interface" instanceInfoKey (tcInterfaceInstances left <> tcInterfaceInstances right),
         tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance interface" dfiiAxiomName (tcInterfaceDataFamilyInstances left <> tcInterfaceDataFamilyInstances right),
         tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance interface" tfiiAxiomName (tcInterfaceTypeFamilyInstances left <> tcInterfaceTypeFamilyInstances right)
       }
@@ -481,7 +481,7 @@ initialTcState imported =
           <> tcsGlobalTyCons initTcState,
       tcsDataTypes = mapFromListNoDuplicates "imported data type state" [(dataTypeKey dataType, dataType) | dataType <- tcInterfaceDataTypes imported],
       tcsClasses = mapFromListNoDuplicates "imported class state" [(ciName classInfo, classInfo) | classInfo <- tcInterfaceClasses imported],
-      tcsInstances = mergeInterfaceEntries "imported instance state" iiDictName (tcInterfaceInstances imported),
+      tcsInstances = mergeInterfaceEntries "imported instance state" instanceInfoKey (tcInterfaceInstances imported),
       tcsDataFamilyInstances = mergeInterfaceEntries "imported data family instance state" dfiiAxiomName (tcInterfaceDataFamilyInstances imported),
       tcsTypeFamilyInstances = mergeInterfaceEntries "imported type family instance state" tfiiAxiomName (tcInterfaceTypeFamilyInstances imported)
     }
@@ -493,7 +493,7 @@ tcInterfaceFromState state =
       tcInterfaceTyCons = Map.elems (tcsGlobalTyCons state),
       tcInterfaceDataTypes = Map.elems (tcsDataTypes state),
       tcInterfaceClasses = Map.elems (tcsClasses state),
-      tcInterfaceInstances = mergeInterfaceEntries "instance state" iiDictName (tcsInstances state),
+      tcInterfaceInstances = mergeInterfaceEntries "instance state" instanceInfoKey (tcsInstances state),
       tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance state" dfiiAxiomName (tcsDataFamilyInstances state),
       tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance state" tfiiAxiomName (tcsTypeFamilyInstances state)
     }

@@ -28,6 +28,7 @@ module Aihc.Tc.Env
 
     -- * Instance info
     InstanceInfo (..),
+    instanceInfoKey,
 
     -- * Data family instances
     DataFamilyInstanceInfo (..),
@@ -199,6 +200,9 @@ data InstanceInfo = InstanceInfo
     iiHead :: ![TcType]
   }
   deriving (Eq, Show, Read)
+
+instanceInfoKey :: InstanceInfo -> ((Text, Text), Text)
+instanceInfoKey instanceInfo = (iiDictOrigin instanceInfo, iiDictName instanceInfo)
 
 -- | A checked standalone data-family instance equation. The representation
 -- type and nominal axiom are compiler-internal names derived from the first

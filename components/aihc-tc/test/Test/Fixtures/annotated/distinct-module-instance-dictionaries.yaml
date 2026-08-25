@@ -1,0 +1,42 @@
+annotated:
+- |-
+  module A where
+  class C a where
+  └─ class methods: value ∷ ∀ a. (C a) ⇒ a → a
+    value :: a -> a
+  data First a = First { getValue :: a }
+       │         └─ type: ∀ a. a → First a
+       └─ type: Type → Type
+  instance C (First a) where
+  └─ $fCFirsta ∷ ∀ a. () ⇒ C (First a)
+    value input = input
+    │     └─ type: First a
+    └─ value ∷ First a → First a
+- |-
+  module B where
+  import A (C (..))
+  data First a = First { getValue :: a }
+       │         └─ type: ∀ a. a → First a
+       └─ type: Type → Type
+  instance C (First a) where
+  └─ $fCFirsta ∷ ∀ a. () ⇒ C (First a)
+    value input = input
+    │     └─ type: First a
+    └─ value ∷ First a → First a
+extensions: []
+modules:
+- |
+  module A where
+  class C a where
+    value :: a -> a
+  data First a = First { getValue :: a }
+  instance C (First a) where
+    value input = input
+- |
+  module B where
+  import A (C (..))
+  data First a = First { getValue :: a }
+  instance C (First a) where
+    value input = input
+reason: Instance dictionary identities include their module origins.
+status: pass

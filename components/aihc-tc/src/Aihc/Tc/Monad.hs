@@ -101,7 +101,7 @@ where
 
 import Aihc.Parser.Syntax (Annotation, Name (..), SourceSpan (..), UnqualifiedName (..), fromAnnotation, nameText, unqualifiedNameText)
 import Aihc.Resolve (PackageId (..), ResolutionAnnotation (..), ResolutionNamespace (..), ResolvedName (..), displayIdentifier)
-import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataTypeKey)
+import Aihc.Tc.Env (ClassInfo (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), dataTypeKey, instanceInfoKey)
 import Aihc.Tc.Error
 import Aihc.Tc.Evidence
 import Aihc.Tc.Types
@@ -625,7 +625,7 @@ lookupDataType tyCon = lift $ gets (Map.lookup (tyConKey tyCon) . tcsDataTypes)
 addInstance :: InstanceInfo -> TcM ()
 addInstance instanceInfo = do
   instances <- lift $ gets tcsInstances
-  when (any ((== iiDictName instanceInfo) . iiDictName) instances) $
+  when (any ((== instanceInfoKey instanceInfo) . instanceInfoKey) instances) $
     abortTc ("duplicate instance state key: " <> show (iiDictName instanceInfo))
   lift $ modify' $ \state -> state {tcsInstances = instanceInfo : instances}
 
