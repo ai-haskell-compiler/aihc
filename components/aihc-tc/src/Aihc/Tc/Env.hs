@@ -190,7 +190,7 @@ data InstanceInfo = InstanceInfo
     -- | Dictionary binding generated for this instance.
     iiDictName :: !Text,
     -- | Package and module that define the dictionary binding.
-    iiDictOrigin :: !(Maybe (Text, Text)),
+    iiDictOrigin :: !(Text, Text),
     iiDictType :: !TcType,
     -- | Type variables quantified over.
     iiTyVars :: ![TyVarId],

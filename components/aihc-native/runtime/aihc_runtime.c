@@ -57,6 +57,63 @@ static const AihcInfo aihc_array_info = {
 static uint8_t *aihc_program_arguments;
 static size_t aihc_program_arguments_length;
 
+#if defined(__APPLE__)
+extern AihcValue *
+    aihc_static_roots_start[] __asm("section$start$__DATA$__aihc_roots")
+        __attribute__((weak_import));
+extern AihcValue *
+    aihc_static_roots_end[] __asm("section$end$__DATA$__aihc_roots")
+        __attribute__((weak_import));
+extern const uint64_t
+    aihc_linked_locals_start[] __asm("section$start$__DATA$__aihc_locals")
+        __attribute__((weak_import));
+extern const uint64_t
+    aihc_linked_locals_end[] __asm("section$end$__DATA$__aihc_locals")
+        __attribute__((weak_import));
+#else
+extern AihcValue *aihc_elf_static_roots_start[] __asm__("__start_aihc_roots")
+    __attribute__((weak));
+extern AihcValue *aihc_elf_static_roots_end[] __asm__("__stop_aihc_roots")
+    __attribute__((weak));
+extern const uint64_t
+    aihc_elf_linked_locals_start[] __asm__("__start_aihc_locals")
+        __attribute__((weak));
+extern const uint64_t aihc_elf_linked_locals_end[] __asm__("__stop_aihc_locals")
+    __attribute__((weak));
+#endif
+
+static AihcValue **aihc_static_root_start(void) {
+#if defined(__APPLE__)
+  return aihc_static_roots_start;
+#else
+  return aihc_elf_static_roots_start;
+#endif
+}
+
+static AihcValue **aihc_static_root_end(void) {
+#if defined(__APPLE__)
+  return aihc_static_roots_end;
+#else
+  return aihc_elf_static_roots_end;
+#endif
+}
+
+static const uint64_t *aihc_linked_local_start(void) {
+#if defined(__APPLE__)
+  return aihc_linked_locals_start;
+#else
+  return aihc_elf_linked_locals_start;
+#endif
+}
+
+static const uint64_t *aihc_linked_local_end(void) {
+#if defined(__APPLE__)
+  return aihc_linked_locals_end;
+#else
+  return aihc_elf_linked_locals_end;
+#endif
+}
+
 static void aihc_program_arguments_install(uint8_t *arguments, size_t length) {
   free(aihc_program_arguments);
   aihc_program_arguments = arguments;
@@ -336,6 +393,19 @@ static void aihc_visit_thread(AihcThread *thread, AihcRootVisitor visitor,
 
 void aihc_visit_roots(AihcMachine *machine, uint64_t root_count,
                       AihcSlot *roots, AihcRootVisitor visitor, void *context) {
+  AihcValue **static_root = aihc_static_root_start();
+  AihcValue **static_root_end = aihc_static_root_end();
+  if (static_root != NULL && static_root_end != NULL) {
+    for (; static_root < static_root_end; ++static_root) {
+      AihcValue *object = *static_root;
+      const AihcInfo *info = aihc_value_info_table(object);
+      for (uint64_t index = 0; index < info->field_count; ++index) {
+        if (info->field_is_pointer != NULL && info->field_is_pointer[index]) {
+          object->fields[index] = visitor(object->fields[index], context);
+        }
+      }
+    }
+  }
   for (uint64_t index = 0; index < machine->global_count; ++index) {
     machine->globals[index] = visitor(machine->globals[index], context);
   }
@@ -589,6 +659,20 @@ AihcMachine *aihc_machine_new(uint64_t global_count) {
 AihcSlot *aihc_alloc_locals(AihcMachine *machine, uint64_t count) {
   return aihc_reserve_slots(machine, &machine->locals,
                             &machine->locals_capacity, count);
+}
+
+AihcSlot *aihc_alloc_linked_locals(AihcMachine *machine) {
+  uint64_t count = 2;
+  const uint64_t *linked_local = aihc_linked_local_start();
+  const uint64_t *linked_local_end = aihc_linked_local_end();
+  if (linked_local != NULL && linked_local_end != NULL) {
+    for (; linked_local < linked_local_end; ++linked_local) {
+      if (*linked_local > count) {
+        count = *linked_local;
+      }
+    }
+  }
+  return aihc_alloc_locals(machine, count);
 }
 
 void aihc_no_match(void) { aihc_fail("no matching case alternative"); }

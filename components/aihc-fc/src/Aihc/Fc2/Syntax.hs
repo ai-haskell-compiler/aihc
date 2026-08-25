@@ -82,7 +82,6 @@ data AltCon
 data Literal
   = LitInt Type Integer
   | LitChar Type Char
-  | LitString Text
   | LitAddr Type ByteString
   deriving (Eq, Ord, Show, Read)
 

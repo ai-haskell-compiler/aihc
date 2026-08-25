@@ -11,7 +11,6 @@ module Aihc.Llvm.Codegen
   ( LlvmError (..),
     compileModule,
     compileProgram,
-    compileProgramWithDependencies,
     validatePrimitiveNames,
     validateProgramPrimitives,
   )
@@ -21,11 +20,11 @@ import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
 import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
 import Aihc.Native
-  ( LinkLayout (..),
-    NativeRuntimeCall (..),
+  ( NativeRuntimeCall (..),
     buildAddrLiteralPool,
-    buildLinkLayout,
     nativeRuntimePrimitiveCall,
+    renderLinkedConstructorInfoSymbol,
+    renderLinkedGlobalSymbol,
     supportedNativePrimitiveNames,
   )
 import Control.Monad (forM, zipWithM)
@@ -39,6 +38,7 @@ import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import System.Info qualified as System
 
 data LlvmError
   = LlvmMissingEntry !Text
@@ -57,9 +57,7 @@ data CompilationUnit
   deriving (Eq)
 
 data CompileEnv = CompileEnv
-  { compileConstructorIds :: !(Map Text Int),
-    compileConstructorArities :: !(Map Text Int),
-    compileGlobalSlots :: !(Map Text Int),
+  { compileConstructorArities :: !(Map Text Int),
     compileFunctionLabels :: !(Map FunctionName Text),
     compileAddrLiteralLabels :: !(Map BS.ByteString Text),
     compileNodeInfoLabels :: !(Map RuntimeInfoKey Text),
@@ -69,7 +67,7 @@ data CompileEnv = CompileEnv
 
 data RuntimeInfo = RuntimeInfo
   { runtimeInfoLabel :: !Text,
-    runtimeInfoIdentity :: !(Maybe Int),
+    runtimeInfoIdentity :: !(Maybe Text),
     runtimeInfoEntry :: !(Maybe Text),
     runtimeInfoFields :: ![GrinRep],
     runtimeInfoRemainingArity :: !Int,
@@ -107,22 +105,13 @@ data ValueEnv = ValueEnv
 type FunctionM = StateT FunctionState (Either LlvmError)
 
 compileProgram :: Text -> GcGrinProgram -> Either LlvmError Text
-compileProgram entryName gcProgram =
-  compileProgramWithDependencies (buildLinkLayout [program]) [] entryName gcProgram
-  where
-    program = gcGrinProgram gcProgram
-
-compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either LlvmError Text
-compileProgramWithDependencies layout dependencyInitializers entryName gcProgram = do
+compileProgram entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   validateProgramPrimitives program
-  rootSlot <- maybe (Left (LlvmMissingEntry entryName)) Right (Map.lookup entryName (compileGlobalSlots env))
+  if entryName `elem` map fst (grinGlobals program) then pure () else Left (LlvmMissingEntry entryName)
   updateLabel <- functionCodeLabel env (gcUpdateFunction gcProgram)
   functions <- mapM (compileFunction env) (grinFunctions program)
-  (constructorInitialization, initialization) <- runInitializer $ do
-    constructors <- compileConstructorInitializers env
-    globals <- compileInitializers env program
-    pure (constructors, globals)
+  staticGlobals <- renderStaticGlobals True env program
   let specialInfos =
         [ specialInfo "aihc_llvm_final_info" "aihc_llvm_final_continuation" [] 1 (Just "aihc_llvm_final_applied_info") (Just (continuationEnter "aihc_llvm_final_continuation" 0 1)) ContinuationFrameStop,
           specialInfo "aihc_llvm_final_applied_info" "aihc_llvm_final_continuation" [BoxedRep Lifted] 0 Nothing Nothing ContinuationFrameStop,
@@ -139,27 +128,27 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
           <> renderRuntimeDeclarations
           <> renderForeignDeclarations program
           <> renderExternalFunctionDeclarations env program
-          <> ["declare void @" <> initializer <> "()" | initializer <- dependencyInitializers]
-          <> ["" | not (null dependencyInitializers)]
           <> renderAddrLiterals env
           <> renderRuntimeInfos (compileRuntimeInfos env <> specialInfos)
+          <> staticGlobals
+          <> renderLinkedLocals functions
           <> renderEnterStubs (compileRuntimeInfos env <> specialInfos)
           <> concatMap compiledFunctionLines functions
           <> renderNativeControlFunctions
           <> renderSpecialFunctions
-          <> renderMain env rootSlot dependencyInitializers constructorInitialization initialization
+          <> renderMain entryName
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment ExecutableUnit (gcContinuationFunctions gcProgram) (gcContinuationFrames gcProgram) layout program
+    env = compileEnvironment ExecutableUnit (gcContinuationFunctions gcProgram) (gcContinuationFrames gcProgram) program
     specialInfo label entry fields remaining next enter frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next enter (Just frameKind) runtimeObjectClosure
     continuationEnter target stored supplied = RuntimeEnter target stored supplied True
 
-compileModule :: LinkLayout -> Text -> GcGrinProgram -> Either LlvmError Text
-compileModule layout initializerSymbol gcProgram = do
+compileModule :: GcGrinProgram -> Either LlvmError Text
+compileModule gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction env) (grinFunctions program)
-  initialization <- runInitializer (compileInitializers env program)
+  staticGlobals <- renderStaticGlobals False env program
   let source =
         llvmPreamble
           <> ["@aihc_machine = external global ptr", ""]
@@ -168,19 +157,15 @@ compileModule layout initializerSymbol gcProgram = do
           <> renderExternalFunctionDeclarations env program
           <> renderAddrLiterals env
           <> renderRuntimeInfos (compileRuntimeInfos env)
+          <> staticGlobals
+          <> renderLinkedLocals functions
           <> renderEnterStubs (compileRuntimeInfos env)
           <> concatMap compiledFunctionLines functions
           <> renderNativeControlFunctions
-          <> [ "define void @" <> initializerSymbol <> "() {",
-               "entry:",
-               "  %machine = load ptr, ptr @aihc_machine, align 8"
-             ]
-          <> indent initialization
-          <> ["  ret void", "}", ""]
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment LibraryUnit (gcContinuationFunctions gcProgram) (gcContinuationFrames gcProgram) layout program
+    env = compileEnvironment LibraryUnit (gcContinuationFunctions gcProgram) (gcContinuationFrames gcProgram) program
 
 validateProgramPrimitives :: GrinProgram -> Either LlvmError ()
 validateProgramPrimitives = validatePrimitiveNames . map (grinVarName . fst) . grinPrimitives
@@ -191,12 +176,10 @@ validatePrimitiveNames = mapM_ $ \name ->
     then Right ()
     else Left (LlvmUnsupportedPrimitive name)
 
-compileEnvironment :: CompilationUnit -> Set.Set FunctionName -> Map FunctionName ContinuationFrameKind -> LinkLayout -> GrinProgram -> CompileEnv
-compileEnvironment unitKind continuationFunctions continuationFrames layout program =
+compileEnvironment :: CompilationUnit -> Set.Set FunctionName -> Map FunctionName ContinuationFrameKind -> GrinProgram -> CompileEnv
+compileEnvironment unitKind continuationFunctions continuationFrames program =
   CompileEnv
-    { compileConstructorIds = Map.fromList (zip (map fst constructors) [1 ..]),
-      compileConstructorArities = Map.fromList constructors,
-      compileGlobalSlots = Map.fromList (zip (linkGlobalNames layout) [0 ..]),
+    { compileConstructorArities = Map.fromList constructors,
       compileFunctionLabels = functionLabels,
       compileAddrLiteralLabels = Map.fromList [(bytes, llvmLabel label) | (bytes, label) <- buildAddrLiteralPool program],
       compileNodeInfoLabels = Map.fromList [(key, label) | (key, label, _) <- constructorEntries <> functionEntries],
@@ -204,23 +187,23 @@ compileEnvironment unitKind continuationFunctions continuationFrames layout prog
       compileAllowUnsupportedPrimitives = unitKind == LibraryUnit
     }
   where
-    constructors = [(name, length layouts) | (name, layouts) <- linkConstructors layout]
-    constructorIds = zip (map fst constructors) [1 ..]
+    constructorLayouts = (if unitKind == ExecutableUnit then builtinConstructors else []) <> grinConstructors program
+    constructors = [(name, length layouts) | (name, layouts) <- constructorLayouts]
     functionLabels =
       Map.fromList
         [ (grinFunctionName function, localFunctionLabel index function)
         | (index, function) <- zip [0 :: Int ..] (grinFunctions program)
         ]
     constructorEntries =
-      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key))
-      | ((name, layouts), (_, identifier)) <- zip (linkConstructors layout) constructorIds,
+      [ (key, label, RuntimeInfo label (Just (renderLinkedConstructorInfoSymbol name 0)) Nothing fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key))
+      | (name, layouts) <- constructorLayouts,
         let arity = length layouts,
         remaining <- [arity, arity - 1 .. 0],
         let key = ConstructorRuntimeInfo name remaining,
         key `Set.member` requiredConstructorInfos,
-        let label = "aihc_llvm_constructor_info_" <> tshow identifier <> "_remaining_" <> tshow remaining
+        let label = renderLinkedConstructorInfoSymbol name remaining
             fields = concat (take (arity - remaining) layouts)
-            next = if remaining == 0 then Nothing else Just ("aihc_llvm_constructor_info_" <> tshow identifier <> "_remaining_" <> tshow (remaining - 1))
+            next = if remaining == 0 then Nothing else Just (renderLinkedConstructorInfoSymbol name (remaining - 1))
       ]
     requiredConstructorInfos =
       Set.fromList
@@ -308,12 +291,13 @@ compileFunction env function = do
           <> parameterStores
           <> ["  br label %body"]
       blocks = concatMap renderBlock (reverse (functionBlocksRev final))
-  pure (CompiledFunction (header <> blocks <> ["}", ""]))
+  pure (CompiledFunction (header <> blocks <> ["}", ""]) slotCount)
   where
     renderParameters names = T.intercalate ", " ("ptr %machine" : map ("i64 " <>) names)
 
-newtype CompiledFunction = CompiledFunction
-  { compiledFunctionLines :: [Text]
+data CompiledFunction = CompiledFunction
+  { compiledFunctionLines :: [Text],
+    compiledFunctionSlots :: !Int
   }
 
 compileExpr :: ValueEnv -> [Text] -> Text -> GrinExpr -> FunctionM ()
@@ -1052,15 +1036,14 @@ alternativePrefix env resultSlot alternative =
       pure (resultLines <> bindings)
 
 caseSwitch :: ValueEnv -> Text -> [(GrinAlt, Text)] -> FunctionM [Text]
-caseSwitch env discriminator targets = do
+caseSwitch _env discriminator targets = do
   allCases <- fmap concat . forM nonDefault $ \(alternative, target) ->
     case grinAltCon alternative of
-      GrinDataAlt name -> do
-        identifier <- liftEither (constructorId (valueCompileEnv env) name)
-        pure [(toInteger identifier, target)]
+      GrinDataAlt name ->
+        pure [("ptrtoint (ptr @" <> renderLinkedConstructorInfoSymbol name 0 <> " to i64)", target)]
       GrinLitAlt literal ->
         case normalizedLiteralInteger literal of
-          Just integer -> pure [(integer, target)]
+          Just integer -> pure [(renderI64 integer, target)]
           Nothing -> lift (Left (LlvmUnsupportedValue "string case alternative"))
       GrinDefaultAlt -> pure []
   let cases = firstCases allCases
@@ -1071,11 +1054,7 @@ caseSwitch env discriminator targets = do
         missing <- freshLabel "case_no_match"
         addBlock missing ["  call void @aihc_no_match()", "  unreachable"]
         pure missing
-  pure
-    ( ["  switch i64 " <> discriminator <> ", label %" <> defaultLabel <> " ["]
-        <> ["    i64 " <> renderI64 integer <> ", label %" <> target | (integer, target) <- cases]
-        <> ["  ]"]
-    )
+  renderChecks defaultLabel cases
   where
     nonDefault = [(alternative, target) | (alternative, target) <- targets, grinAltCon alternative /= GrinDefaultAlt]
 
@@ -1085,6 +1064,23 @@ caseSwitch env discriminator targets = do
         go seen (entry@(discriminant, _) : rest)
           | discriminant `Set.member` seen = go seen rest
           | otherwise = entry : go (Set.insert discriminant seen) rest
+
+    renderChecks defaultLabel choices =
+      case choices of
+        [] -> pure ["  br label %" <> defaultLabel]
+        (value, target) : rest -> do
+          comparison <- freshValue
+          next <-
+            case rest of
+              [] -> pure defaultLabel
+              _ -> freshLabel "case_check"
+          case rest of
+            [] -> pure ()
+            _ -> renderChecks defaultLabel rest >>= addBlock next
+          pure
+            [ "  " <> comparison <> " = icmp eq i64 " <> discriminator <> ", " <> value,
+              "  br i1 " <> comparison <> ", label %" <> target <> ", label %" <> next
+            ]
 
 materializeValues :: ValueEnv -> [GrinValue] -> FunctionM ([Text], [Text])
 materializeValues env values = do
@@ -1097,12 +1093,8 @@ materializeValue env value =
     GrinVarValue var ->
       case Map.lookup var (valueLocalSlots env) of
         Just slot -> loadLocal slot
-        Nothing -> do
-          slot <- liftEither (globalSlot (valueCompileEnv env) (grinVarName var))
-          loadGlobal slot
-    GrinGlobalValue name -> do
-      slot <- liftEither (globalSlot (valueCompileEnv env) name)
-      loadGlobal slot
+        Nothing -> materializeGlobal (grinVarName var)
+    GrinGlobalValue name -> materializeGlobal name
     GrinLitValue literal -> materializeLiteral (valueCompileEnv env) literal
 
 materializeLiteral :: CompileEnv -> GrinLiteral -> FunctionM ([Text], Text)
@@ -1118,6 +1110,11 @@ materializeLiteral env literal =
       case normalizedLiteralInteger literal of
         Just integer -> pure ([], renderI64 integer)
         Nothing -> lift (Left (LlvmUnsupportedValue "string literal"))
+
+materializeGlobal :: Text -> FunctionM ([Text], Text)
+materializeGlobal name = do
+  result <- freshValue
+  pure (["  " <> result <> " = ptrtoint ptr @" <> renderLinkedGlobalSymbol name <> " to i64"], result)
 
 materializeNode :: ValueEnv -> Bool -> GrinNode -> FunctionM ([Text], Text)
 materializeNode env unchecked node = do
@@ -1156,80 +1153,81 @@ nodeHeader env node = lookupRuntimeInfoLabel env key
         GrinClosure functionName layouts -> ClosureRuntimeInfo functionName fields layouts
         GrinThunk functionName -> ThunkRuntimeInfo functionName fields
 
-compileConstructorInitializers :: CompileEnv -> FunctionM [Text]
-compileConstructorInitializers env = fmap concat . forM nullary $ \(name, _) -> do
-  slot <- liftEither (globalSlot env name)
-  info <- liftEither (lookupRuntimeInfoLabel env (ConstructorRuntimeInfo name 0))
-  object <- freshValue
-  objectInteger <- freshValue
-  globalStore <- storeGlobal slot objectInteger
-  pure
-    ( [ "  " <> object <> " = call ptr @aihc_make_node(ptr %machine, ptr @" <> info <> ")",
-        "  " <> objectInteger <> " = ptrtoint ptr " <> object <> " to i64"
-      ]
-        <> globalStore
-    )
+renderStaticGlobals :: Bool -> CompileEnv -> GrinProgram -> Either LlvmError [Text]
+renderStaticGlobals includeBuiltins env program = fmap concat (mapM renderGlobal globals)
   where
-    nullary =
-      [ (name, identifier)
-      | (name, identifier) <- Map.toAscList (compileConstructorIds env),
-        Map.lookup name (compileConstructorArities env) == Just 0
+    declaredGlobals = grinGlobals program
+    declaredNames = map fst declaredGlobals
+    constructorLayouts = (if includeBuiltins then builtinConstructors else []) <> grinConstructors program
+    implicitConstructors =
+      [ (name, GrinNode (GrinConstructor name 0) [])
+      | (name, layouts) <- constructorLayouts,
+        null layouts,
+        name `notElem` declaredNames
       ]
-
-compileInitializers :: CompileEnv -> GrinProgram -> FunctionM [Text]
-compileInitializers env program = do
-  thunkAllocations <- fmap concat . forM thunkGlobals $ \(name, node) -> do
-    slot <- liftEither (globalSlot env name)
-    info <- liftEither (nodeHeader env node)
-    object <- freshValue
-    objectInteger <- freshValue
-    globalStore <- storeGlobal slot objectInteger
-    pure
-      ( [ "  " <> object <> " = call ptr @aihc_make_node(ptr %machine, ptr @" <> info <> ")",
-          "  " <> objectInteger <> " = ptrtoint ptr " <> object <> " to i64"
+    globals = declaredGlobals <> implicitConstructors
+    renderGlobal (name, node) = do
+      info <- staticNodeInfo node
+      fields <- mapM renderStaticValue (grinNodeFields node)
+      let symbol = renderLinkedGlobalSymbol name
+          payload = if null fields && isThunk node then ["i64 0"] else fields
+          values = "i64 ptrtoint (ptr @" <> info <> " to i64)" : payload
+          count = length values
+      pure
+        [ "@" <> symbol <> " = global [" <> tshow count <> " x i64] [" <> T.intercalate ", " values <> "], align 8",
+          "@" <> symbol <> "_root = private constant ptr @" <> symbol <> ", section \"" <> nativeDataSection "aihc_roots" <> "\", align 8",
+          ""
         ]
-          <> globalStore
-      )
-  values <- fmap concat . forM valueGlobals $ \(name, node) -> do
-    slot <- liftEither (globalSlot env name)
-    (lines', operand) <- materializeNode (ValueEnv env Map.empty) False node
-    globalStore <- storeGlobal slot operand
-    pure (lines' <> globalStore)
-  thunkFields <- fmap concat . forM thunkGlobals $ \(name, node) -> do
-    slot <- liftEither (globalSlot env name)
-    (objectLines, object) <- loadGlobal slot
-    fields <- initializeLocalFields (ValueEnv env Map.empty) object node
-    pure (objectLines <> fields)
-  pure (thunkAllocations <> values <> thunkFields)
-  where
-    (thunkGlobals, valueGlobals) = foldr partitionOne ([], []) (grinGlobals program)
-    partitionOne binding@(_, GrinNode GrinThunk {} _) (thunks, values) = (binding : thunks, values)
-    partitionOne binding (thunks, values) = (thunks, binding : values)
+    staticNodeInfo node =
+      case grinNodeTag node of
+        GrinConstructor name remaining -> pure (renderLinkedConstructorInfoSymbol name remaining)
+        GrinClosure functionName layouts -> lookupRuntimeInfoLabel env (ClosureRuntimeInfo functionName fields layouts)
+        GrinThunk functionName -> lookupRuntimeInfoLabel env (ThunkRuntimeInfo functionName fields)
+      where
+        fields = map grinValueRuntimeRep (grinNodeFields node)
+    renderStaticValue value =
+      case value of
+        GrinVarValue var -> pure (globalAddress (grinVarName var))
+        GrinGlobalValue name -> pure (globalAddress name)
+        GrinLitValue literal ->
+          case literal of
+            GrinLitAddr bytes ->
+              maybe
+                (Left (LlvmUnsupportedValue "unregistered Addr# literal"))
+                (pure . ("i64 ptrtoint (ptr @" <>) . (<> " to i64)"))
+                (Map.lookup bytes (compileAddrLiteralLabels env))
+            _ -> maybe (Left (LlvmUnsupportedValue "string literal")) (pure . ("i64 " <>) . renderI64) (normalizedLiteralInteger literal)
+    globalAddress name = "i64 ptrtoint (ptr @" <> renderLinkedGlobalSymbol name <> " to i64)"
+    isThunk node =
+      case grinNodeTag node of
+        GrinThunk {} -> True
+        _ -> False
 
-runInitializer :: FunctionM value -> Either LlvmError value
-runInitializer action = fst <$> runStateT action (FunctionState 0 0 0 [])
+renderLinkedLocals :: [CompiledFunction] -> [Text]
+renderLinkedLocals functions =
+  [ "@aihc_llvm_linked_locals = private constant i64 "
+      <> tshow (maximum (2 : map compiledFunctionSlots functions))
+      <> ", section \""
+      <> nativeDataSection "aihc_locals"
+      <> "\", align 8",
+    ""
+  ]
 
-renderMain :: CompileEnv -> Int -> [Text] -> [Text] -> [Text] -> [Text]
-renderMain env rootSlot dependencyInitializers constructorInitialization initialization =
+renderMain :: Text -> [Text]
+renderMain entryName =
   [ "define i32 @main(i32 %argc, ptr %argv) {",
     "entry:",
     "  call void @aihc_program_arguments_initialize(i32 %argc, ptr %argv)",
-    "  %machine = call ptr @aihc_machine_new(i64 " <> tshow (Map.size (compileGlobalSlots env)) <> ")",
+    "  %machine = call ptr @aihc_machine_new(i64 0)",
     "  store ptr %machine, ptr @aihc_machine, align 8"
   ]
-    <> constructorInitialization
-    <> ["  call void @" <> initializer <> "()" | initializer <- dependencyInitializers]
-    <> initialization
     <> [ "  call void @aihc_ensure_heap(ptr %machine, i64 7, i64 0, ptr null)",
          "  %final = call ptr @aihc_make_node_unchecked(ptr %machine, ptr @aihc_llvm_final_info)",
          "  %top = call ptr @aihc_make_node_unchecked(ptr %machine, ptr @aihc_llvm_top_info)",
          "  %final_i64 = ptrtoint ptr %final to i64",
          "  call void @aihc_set_field(ptr %top, i64 0, i64 %final_i64)",
          "  %update = call ptr @aihc_make_node_unchecked(ptr %machine, ptr @aihc_llvm_update_info)",
-         "  %globals_field = getelementptr %AihcMachinePrefix, ptr %machine, i32 0, i32 0",
-         "  %globals = load ptr, ptr %globals_field, align 8",
-         "  %root_slot = getelementptr i64, ptr %globals, i64 " <> tshow rootSlot,
-         "  %root = load i64, ptr %root_slot, align 8",
+         "  %root = ptrtoint ptr @" <> renderLinkedGlobalSymbol entryName <> " to i64",
          "  %top_i64 = ptrtoint ptr %top to i64",
          "  call void @aihc_set_field(ptr %update, i64 0, i64 %top_i64)",
          "  call void @aihc_set_field(ptr %update, i64 1, i64 %root)",
@@ -1519,33 +1517,6 @@ loadLocal slot = do
   result <- freshValue
   pure (["  " <> result <> " = load i64, ptr " <> localSlotRef slot <> ", align 8"], result)
 
-loadGlobal :: Int -> FunctionM ([Text], Text)
-loadGlobal slot = do
-  globalsField <- freshValue
-  globals <- freshValue
-  globalPointer <- freshValue
-  result <- freshValue
-  pure
-    ( [ "  " <> globalsField <> " = getelementptr %AihcMachinePrefix, ptr %machine, i32 0, i32 0",
-        "  " <> globals <> " = load ptr, ptr " <> globalsField <> ", align 8",
-        "  " <> globalPointer <> " = getelementptr i64, ptr " <> globals <> ", i64 " <> tshow slot,
-        "  " <> result <> " = load i64, ptr " <> globalPointer <> ", align 8"
-      ],
-      result
-    )
-
-storeGlobal :: Int -> Text -> FunctionM [Text]
-storeGlobal slot operand = do
-  globalsField <- freshValue
-  globals <- freshValue
-  globalPointer <- freshValue
-  pure
-    [ "  " <> globalsField <> " = getelementptr %AihcMachinePrefix, ptr %machine, i32 0, i32 0",
-      "  " <> globals <> " = load ptr, ptr " <> globalsField <> ", align 8",
-      "  " <> globalPointer <> " = getelementptr i64, ptr " <> globals <> ", i64 " <> tshow slot,
-      "  store i64 " <> operand <> ", ptr " <> globalPointer <> ", align 8"
-    ]
-
 localSlot :: ValueEnv -> GrinVar -> FunctionM Int
 localSlot env var = maybe (lift (Left (LlvmUnsupportedExpression ("missing local slot for " <> grinVarName var)))) pure (Map.lookup var (valueLocalSlots env))
 
@@ -1641,8 +1612,10 @@ renderRuntimeInfos infos = concatMap bitmap infos <> map definition infos <> [""
     definition info =
       "@"
         <> runtimeInfoLabel info
-        <> " = internal constant %AihcInfo { i64 "
-        <> maybe "0" tshow (runtimeInfoIdentity info)
+        <> " = "
+        <> (if "aihc_constructor_" `T.isPrefixOf` runtimeInfoLabel info then "" else "internal ")
+        <> "constant %AihcInfo { i64 "
+        <> maybe "0" (\symbol -> "ptrtoint (ptr @" <> symbol <> " to i64)") (runtimeInfoIdentity info)
         <> ", ptr "
         <> maybe "null" ("@" <>) (runtimeInfoEntry info)
         <> ", i64 "
@@ -1687,7 +1660,38 @@ renderForeignDeclarations program =
       ]
 
 renderExternalFunctionDeclarations :: CompileEnv -> GrinProgram -> [Text]
-renderExternalFunctionDeclarations _env _program = []
+renderExternalFunctionDeclarations env program =
+  ["@" <> renderLinkedGlobalSymbol name <> " = external global i8" | name <- externalGlobals]
+    <> ["@" <> label <> " = external constant %AihcInfo" | label <- externalConstructorInfos]
+    <> ["" | not (null externalGlobals && null externalConstructorInfos)]
+  where
+    definedGlobals = Set.fromList (map fst (grinGlobals program) <> [name | (name, layouts) <- grinConstructors program, null layouts])
+    externalGlobals = Set.toAscList (Set.fromList (grinProgramGlobalReferences program) `Set.difference` definedGlobals)
+    definedInfos = Set.fromList (map runtimeInfoLabel (compileRuntimeInfos env))
+    externalConstructorInfos = Set.toAscList (programConstructorReferences program `Set.difference` definedInfos)
+
+programConstructorReferences :: GrinProgram -> Set.Set Text
+programConstructorReferences program =
+  Set.fromList
+    ( [renderLinkedConstructorInfoSymbol name remaining | GrinNode (GrinConstructor name remaining) _ <- programNodes program]
+        <> concatMap (exprConstructorReferences . grinFunctionBody) (grinFunctions program)
+    )
+
+exprConstructorReferences :: GrinExpr -> [Text]
+exprConstructorReferences expression =
+  case expression of
+    GrinBind _ value body -> exprConstructorReferences value <> exprConstructorReferences body
+    GrinStoreRec bindings body -> concatMap (nodeReference . snd) bindings <> exprConstructorReferences body
+    GrinStoreRecUnchecked bindings body -> concatMap (nodeReference . snd) bindings <> exprConstructorReferences body
+    GrinCase _ _ alternatives -> concatMap alternativeReferences alternatives
+    _ -> []
+  where
+    nodeReference (GrinNode (GrinConstructor name remaining) _) = [renderLinkedConstructorInfoSymbol name remaining]
+    nodeReference _ = []
+    alternativeReferences alternative =
+      case grinAltCon alternative of
+        GrinDataAlt name -> renderLinkedConstructorInfoSymbol name 0 : exprConstructorReferences (grinAltRhs alternative)
+        _ -> exprConstructorReferences (grinAltRhs alternative)
 
 renderAddrLiterals :: CompileEnv -> [Text]
 renderAddrLiterals env =
@@ -1749,18 +1753,12 @@ llvmForeignType foreignType =
     GrinForeignWord64 -> "i64"
     GrinForeignAddr -> "ptr"
 
-globalSlot :: CompileEnv -> Text -> Either LlvmError Int
-globalSlot env name = maybe (Left (LlvmMissingGlobal name)) Right (Map.lookup name (compileGlobalSlots env))
-
-constructorId :: CompileEnv -> Text -> Either LlvmError Int
-constructorId env name = maybe (Left (LlvmMissingConstructor name)) Right (Map.lookup name (compileConstructorIds env))
-
 lookupRuntimeInfoLabel :: CompileEnv -> RuntimeInfoKey -> Either LlvmError Text
 lookupRuntimeInfoLabel env key =
   case Map.lookup key (compileNodeInfoLabels env) of
     Just label -> Right label
     Nothing -> case key of
-      ConstructorRuntimeInfo name _ -> Left (LlvmMissingConstructor name)
+      ConstructorRuntimeInfo name remaining -> Right (renderLinkedConstructorInfoSymbol name remaining)
       ClosureRuntimeInfo functionName _ _ -> Left (LlvmMissingFunction functionName)
       ThunkRuntimeInfo functionName _ -> Left (LlvmMissingFunction functionName)
 
@@ -1922,8 +1920,10 @@ boolInteger :: Bool -> Text
 boolInteger True = "1"
 boolInteger False = "0"
 
-indent :: [Text] -> [Text]
-indent = map ("  " <>)
+nativeDataSection :: Text -> Text
+nativeDataSection name
+  | System.os == "darwin" = "__DATA,__" <> name
+  | otherwise = name
 
 tshow :: (Show value) => value -> Text
 tshow = T.pack . show

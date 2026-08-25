@@ -137,7 +137,6 @@ failClass name
   | "shadowed" `isInfixOf` name = Just isShadowedBinder
   | "lit-alt" `isInfixOf` name = Just isTypeMismatch
   | "lit-secret" `isInfixOf` name = Just isTypeMismatch
-  | "string-literal" `isInfixOf` name = Just isTypeMismatch
   | "tycon-co-arity" `isInfixOf` name = Just isLintFailure
   | otherwise = Nothing
 

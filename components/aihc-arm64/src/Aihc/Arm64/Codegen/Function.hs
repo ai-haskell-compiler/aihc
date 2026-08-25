@@ -548,7 +548,7 @@ compileCase env prefix label scrutinee binder alternatives = do
   alternativeTargets <- forM alternatives $ \alternative -> do
     alternativeLabel <- freshLabel label "case_alt"
     pure (alternative, alternativeLabel)
-  (checks, successor) <- caseChecks env resultLocation scrutineeIsPointer alternativeTargets
+  (checks, successor) <- caseChecks resultLocation scrutineeIsPointer alternativeTargets
   addBlock
     label
     ( prefix
@@ -587,8 +587,8 @@ alternativePrefix env resultLocation alternative =
     isLive binder = binder `Set.member` grinExprFreeVariables (grinAltRhs alternative)
     liveIndexedBinders = filter (isLive . snd) (zip [0 ..] (grinAltBinders alternative))
 
-caseChecks :: ValueEnv -> Location Text -> Bool -> [(GrinAlt, Text)] -> FunctionM ([Text], BlockLayout.Terminator Text)
-caseChecks env resultLocation scrutineeIsPointer targets = do
+caseChecks :: Location Text -> Bool -> [(GrinAlt, Text)] -> FunctionM ([Text], BlockLayout.Terminator Text)
+caseChecks resultLocation scrutineeIsPointer targets = do
   let nonDefault = [(alternative, label) | (alternative, label) <- targets, grinAltCon alternative /= GrinDefaultAlt]
       defaultTarget = [label | (alternative, label) <- targets, grinAltCon alternative == GrinDefaultAlt]
   checks <- fmap concat . forM nonDefault $ \(alternative, target) ->
@@ -597,12 +597,12 @@ caseChecks env resultLocation scrutineeIsPointer targets = do
         | not scrutineeIsPointer ->
             lift (Left (Arm64UnsupportedExpression "constructor case on an unboxed value"))
       GrinDataAlt name -> do
-        identifier <- liftEither (constructorId (valueCompileEnv env) name)
+        let identity = constructorStageLabel name 0
         pure $
           loadLocation "x9" resultLocation
             <> [ "  ldr x10, [x9, #0]",
                  "  ldr x10, [x10, #0]",
-                 immediate "x11" identifier,
+                 address "x11" identity,
                  "  cmp x10, x11",
                  "  b.eq " <> target
                ]

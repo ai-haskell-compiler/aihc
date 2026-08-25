@@ -93,8 +93,8 @@ data ValueState = ValueState
 type ValueM = StateT ValueState (Either String)
 
 data ValueGroup
-  = FunctionGroup !Text ![Syn.Match] !(Maybe TcType)
-  | PatternGroup !Text !(Syn.Rhs Syn.Expr) !(Maybe TcType)
+  = FunctionGroup !Text ![Syn.Match] !TcType
+  | PatternGroup !Text !(Syn.Rhs Syn.Expr) !TcType
 
 data TopValue = TopValue
   { topCoreName :: !Name,
@@ -143,7 +143,8 @@ desugarModuleValues :: Syn.Module -> ValueM [Decl]
 desugarModuleValues checked = do
   phaseOne <- concat <$> mapM desugarEarlyDecl (Syn.moduleDecls checked)
   instances <- concat <$> mapM desugarInstanceDecl (Syn.moduleDecls checked)
-  tops <- mapM allocateTopValue (groupValues (Syn.moduleDecls checked))
+  groups <- groupValues (Syn.moduleDecls checked)
+  tops <- mapM allocateTopValue groups
   values <- mapM desugarTopValue tops
   pure (phaseOne <> instances <> map DeclVal values)
 
@@ -453,17 +454,19 @@ instanceMethods instanceDecl = concatMap itemMethods (Syn.instanceDeclItems inst
           [(tcInstanceMethodName methodAnnotation, (tcInstanceMethodType methodAnnotation, [emptyMatch rhs]))]
         _ -> []
 
-groupValues :: [Syn.Decl] -> [ValueGroup]
-groupValues [] = []
+groupValues :: [Syn.Decl] -> ValueM [ValueGroup]
+groupValues [] = pure []
 groupValues (declaration : rest) =
   case functionBinding declaration of
-    Just (name, matches, checkedType) ->
+    Just (name, matches, Just checkedType) ->
       let (same, remaining) = span (sameFunction name) rest
           moreMatches = concatMap (maybe [] middle . functionBinding) same
-       in FunctionGroup name (matches <> moreMatches) checkedType : groupValues remaining
+       in (FunctionGroup name (matches <> moreMatches) checkedType :) <$> groupValues remaining
+    Just (name, _, Nothing) -> failValue ("function " <> T.unpack name <> " does not have a checked type annotation")
     Nothing ->
       case patternBinding declaration of
-        Just group -> group : groupValues rest
+        Just (name, rhs, Just checkedType) -> (PatternGroup name rhs checkedType :) <$> groupValues rest
+        Just (name, _, Nothing) -> failValue ("pattern binding " <> T.unpack name <> " does not have a checked type annotation")
         Nothing -> groupValues rest
 
 functionBinding :: Syn.Decl -> Maybe (Text, [Syn.Match], Maybe TcType)
@@ -475,10 +478,10 @@ functionBinding declaration =
 sameFunction :: Text -> Syn.Decl -> Bool
 sameFunction name declaration = maybe False ((== name) . tripleFirst) (functionBinding declaration)
 
-patternBinding :: Syn.Decl -> Maybe ValueGroup
+patternBinding :: Syn.Decl -> Maybe (Text, Syn.Rhs Syn.Expr, Maybe TcType)
 patternBinding declaration =
   case Syn.peelDeclAnn declaration of
-    Syn.DeclValue (Syn.PatternBind _ pattern' rhs) -> PatternGroup <$> barePatternName pattern' <*> pure rhs <*> pure (declarationType declaration)
+    Syn.DeclValue (Syn.PatternBind _ pattern' rhs) -> (,,declarationType declaration) <$> barePatternName pattern' <*> pure rhs
     _ -> Nothing
 
 declarationType :: Syn.Decl -> Maybe TcType
@@ -505,7 +508,7 @@ allocateTopValue :: ValueGroup -> ValueM TopValue
 allocateTopValue group = do
   _ <- freshUnique
   let name = groupName group
-  ty <- lookupCheckedType name
+      ty = groupType group
   moduleOrigin <- gets vsModuleOrigin
   pure (TopValue (topName moduleOrigin name) ty group)
 
@@ -515,7 +518,7 @@ groupName group =
     FunctionGroup name _ _ -> name
     PatternGroup name _ _ -> name
 
-groupType :: ValueGroup -> Maybe TcType
+groupType :: ValueGroup -> TcType
 groupType group =
   case group of
     FunctionGroup _ _ ty -> ty
@@ -1131,7 +1134,7 @@ desugarAnnotatedExpr annotation inner = do
       Syn.ECharHash value _ -> do
         representation <- convertRuntimeRep WordRep
         pure (ExLit (LitChar representation value))
-      Syn.EString value _ -> pure (ExLit (LitString value))
+      Syn.EString value _ -> desugarString annotation value
       Syn.EStringHash value _ -> do
         representation <- convertRuntimeRep AddrRep
         pure (ExLit (LitAddr representation (BS.pack (map (fromIntegral . fromEnum) (T.unpack value)))))
@@ -1273,6 +1276,23 @@ desugarList annotation elements = do
   let nil = ExTyApp (ExVar nilName) convertedType
       cons = ExTyApp (ExVar consName) convertedType
   pure (foldr (ExApp . ExApp cons) nil elements')
+
+desugarString :: TcAnnotation -> Text -> ValueM Expr
+desugarString annotation value = do
+  elementType <-
+    case tcAnnType annotation of
+      TcTyCon tyCon [ty]
+        | tyConName tyCon == "[]" -> pure ty
+      ty -> failValue ("string literal has non-list type " <> show ty)
+  convertedType <- convertCheckedType elementType
+  charConstructor <- uniqueConstructorName "C#"
+  representation <- convertRuntimeRep WordRep
+  nilName <- primitiveName "GHC.Types" "[]" SortDataConstructor
+  consName <- primitiveName "GHC.Types" ":" SortDataConstructor
+  let nil = ExTyApp (ExVar nilName) convertedType
+      cons = ExTyApp (ExVar consName) convertedType
+      boxedChar character = ExApp (ExVar charConstructor) (ExLit (LitChar representation character))
+  pure (foldr (ExApp . ExApp cons . boxedChar) nil (T.unpack value))
 
 desugarTuple :: TcAnnotation -> Syn.TupleFlavor -> [Maybe Syn.Expr] -> ValueM Expr
 desugarTuple annotation flavor elements = do
@@ -1506,7 +1526,7 @@ caseAlternativeMatch alternative =
 
 desugarLocalDecls :: [Syn.Decl] -> ValueM Expr -> ValueM Expr
 desugarLocalDecls declarations body = do
-  let groups = groupValues declarations
+  groups <- groupValues declarations
   allocated <- mapM allocateLocal groups
   withLocals [(name, (binder, ty)) | (name, binder, ty, _) <- allocated] $ do
     binds <- mapM desugarLocal allocated
@@ -1514,7 +1534,7 @@ desugarLocalDecls declarations body = do
   where
     allocateLocal group = do
       let name = groupName group
-      ty <- maybe (lookupCheckedType name) pure (groupType group)
+          ty = groupType group
       binder <- freshBinder name ty
       pure (name, binder, ty, group)
     desugarLocal (_, binder, ty, group) = do
@@ -1535,11 +1555,8 @@ desugarEvidence evidence =
     Ev.EvDict origin dictionaryName types subEvidence -> do
       convertedTypes <- mapM convertCheckedType types
       evidenceArguments <- mapM desugarEvidence subEvidence
-      moduleOrigin <- gets vsModuleOrigin
-      let (package, moduleName') =
-            case origin of
-              Just (packageName, originModule) -> (PackageId packageName, originModule)
-              Nothing -> moduleOrigin
+      let (packageName, moduleName') = origin
+          package = PackageId packageName
           name = Name dictionaryName SortValue (OriginTop package moduleName')
       pure (foldl ExApp (foldl ExTyApp (ExVar name) convertedTypes) evidenceArguments)
     Ev.EvCoercion coercion -> ExCast (ExVar (Name "coercion" SortValue (OriginLocal (Unique 0)))) <$> convertCoercion coercion

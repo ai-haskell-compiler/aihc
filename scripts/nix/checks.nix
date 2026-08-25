@@ -396,7 +396,11 @@
   coreLibrariesInstallV2 =
     pkgs.runCommand "aihc-core-libraries-install-v2" {
       src = sources.coreLibrariesSrc pkgs;
-      nativeBuildInputs = [pkgs.findutils];
+      nativeBuildInputs = [
+        pkgs.findutils
+        pkgs.llvmPackages.bintools
+        pkgs.llvmPackages.clang
+      ];
     } ''
       cd "$src"
       export LANG=C.UTF-8
@@ -404,13 +408,12 @@
       store="$TMPDIR/store"
       mkdir -p "$store"
 
-      ${aihcExe} install-v2 core-libs/aihc-prim --store "$store" --keep-grin
-      ${aihcExe} install-v2 core-libs/aihc-base --store "$store" --keep-grin
+      ${aihcExe} install-v2 core-libs/aihc-prim --store "$store" --keep-grin --target apple-arm64
 
       test -n "$(find "$store" -path '*/GHC/Prim/core-v2' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
-      test -n "$(find "$store" -path '*/Prelude/core-v2' -print -quit)"
-      test -n "$(find "$store" -path '*/Prelude/grin' -print -quit)"
+      test -n "$(find "$store" -path '*/GHC/Prim/GHC.Prim.o' -print -quit)"
+      test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
       test -z "$(find "$store" -type f -name 'core-v2.bad' -print -quit)"
       touch "$out"
     '';

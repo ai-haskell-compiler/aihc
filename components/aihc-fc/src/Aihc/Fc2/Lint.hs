@@ -348,7 +348,6 @@ lintLiteral env literal =
         Just primitiveName -> unboxedLiteralType env primitiveName representation
         Nothing -> typedKind representation
     LitChar representation _ -> unboxedLiteralType env "Char#" representation
-    LitString {} -> stringLiteralType env
     LitAddr representation _ -> unboxedLiteralType env "Addr#" representation
   where
     typedKind representation = do
@@ -396,13 +395,6 @@ missingPrimitiveName env text =
     Just package -> Name text SortTypeConstructor (OriginTop package "GHC.Prim")
     Nothing -> Name text SortTypeConstructor (OriginTop (PackageId "") "GHC.Prim")
 
-stringLiteralType :: LintEnv -> Either LintError Type
-stringLiteralType env =
-  case (namedType env ["[]", "List"], namedType env ["Char"]) of
-    (Just listName, Just charName) -> Right (TyApp (TyCon listName) (TyCon charName))
-    (Nothing, _) -> Left (UnboundName (missingTypeName env "[]"))
-    (_, Nothing) -> Left (UnboundName (missingTypeName env "Char"))
-
 namedType :: LintEnv -> [Text] -> Maybe Name
 namedType env candidates =
   listToMaybe (ghcTypesNames <> otherNames)
@@ -419,12 +411,6 @@ namedType env candidates =
         Nothing -> False
     ghcTypesNames = filter fromGhcTypes matches
     otherNames = filter (not . fromGhcTypes) matches
-
-missingTypeName :: LintEnv -> Text -> Name
-missingTypeName env text =
-  case tePrimPackage (leTypes env) of
-    Just package -> Name text SortTypeConstructor (OriginTop package ghcTypesModule)
-    Nothing -> Name text SortTypeConstructor (OriginTop (PackageId "") "")
 
 lookupTerm :: LintEnv -> Name -> Either LintError Type
 lookupTerm env name =

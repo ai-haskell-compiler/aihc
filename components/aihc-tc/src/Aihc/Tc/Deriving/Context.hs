@@ -46,7 +46,7 @@ finalizeDerivingModulesTc moduleOrigins modules = do
   let originalPlans = concatMap moduleDerivingPlans modules
       originalOrigins = concat (zipWith (\origin modu -> replicate (length (moduleDerivingPlans modu)) origin) moduleOrigins modules)
   contextPlans <- mapM (inferPlanContext existingInstances originalPlans) originalPlans
-  let derivedInstances = mapMaybe (uncurry derivingPlanInstanceInfoWithOrigin) (zip originalOrigins contextPlans)
+  let derivedInstances = mapMaybe (uncurry derivingPlanInstanceInfo) (zip originalOrigins contextPlans)
   mapM_ addInstance derivedInstances
   evidencePlans <- mapM attachDerivingEvidence contextPlans
   pure (map (replaceModulePlans evidencePlans) modules)
@@ -237,12 +237,8 @@ instantiatedDefaultSignaturePredicates plan =
         | (tyVar, headType) <- zip (tcDerivingClassTyVars plan) (tcDerivingHeadTypes plan)
         ]
 
-derivingPlanInstanceInfo :: TcDerivingPlan -> Maybe InstanceInfo
-derivingPlanInstanceInfo =
-  derivingPlanInstanceInfoWithOrigin ("", "")
-
-derivingPlanInstanceInfoWithOrigin :: (Text, Text) -> TcDerivingPlan -> Maybe InstanceInfo
-derivingPlanInstanceInfoWithOrigin origin plan =
+derivingPlanInstanceInfo :: (Text, Text) -> TcDerivingPlan -> Maybe InstanceInfo
+derivingPlanInstanceInfo origin plan =
   case (tcDerivingStrategy plan, tcDerivingContext plan) of
     (strategy, TcDerivingExplicitContext context)
       | strategy == TcDerivingAnyclass || isValidStockEqPlan plan ->
@@ -250,7 +246,7 @@ derivingPlanInstanceInfoWithOrigin origin plan =
             InstanceInfo
               { iiClassName = tcDerivingClassName plan,
                 iiDictName = tcDerivingDictName plan,
-                iiDictOrigin = Just origin,
+                iiDictOrigin = origin,
                 iiDictType = foldr TcForAllTy (TcQualTy context (planPredicateType plan)) (tcDerivingTyVars plan),
                 iiTyVars = tcDerivingTyVars plan,
                 iiContext = context,
