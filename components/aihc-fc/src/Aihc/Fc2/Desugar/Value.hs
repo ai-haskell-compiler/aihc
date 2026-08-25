@@ -93,7 +93,7 @@ data ValueState = ValueState
 type ValueM = StateT ValueState (Either String)
 
 data ValueGroup
-  = FunctionGroup !Text ![Syn.Match] !(Maybe TcType)
+  = FunctionGroup !Text ![Syn.Match] !TcType
   | PatternGroup !Text !(Syn.Rhs Syn.Expr) !(Maybe TcType)
 
 data TopValue = TopValue
@@ -143,7 +143,8 @@ desugarModuleValues :: Syn.Module -> ValueM [Decl]
 desugarModuleValues checked = do
   phaseOne <- concat <$> mapM desugarEarlyDecl (Syn.moduleDecls checked)
   instances <- concat <$> mapM desugarInstanceDecl (Syn.moduleDecls checked)
-  tops <- mapM allocateTopValue (groupValues (Syn.moduleDecls checked))
+  groups <- groupValues (Syn.moduleDecls checked)
+  tops <- mapM allocateTopValue groups
   values <- mapM desugarTopValue tops
   pure (phaseOne <> instances <> map DeclVal values)
 
@@ -453,17 +454,18 @@ instanceMethods instanceDecl = concatMap itemMethods (Syn.instanceDeclItems inst
           [(tcInstanceMethodName methodAnnotation, (tcInstanceMethodType methodAnnotation, [emptyMatch rhs]))]
         _ -> []
 
-groupValues :: [Syn.Decl] -> [ValueGroup]
-groupValues [] = []
+groupValues :: [Syn.Decl] -> ValueM [ValueGroup]
+groupValues [] = pure []
 groupValues (declaration : rest) =
   case functionBinding declaration of
-    Just (name, matches, checkedType) ->
+    Just (name, matches, Just checkedType) ->
       let (same, remaining) = span (sameFunction name) rest
           moreMatches = concatMap (maybe [] middle . functionBinding) same
-       in FunctionGroup name (matches <> moreMatches) checkedType : groupValues remaining
+       in (FunctionGroup name (matches <> moreMatches) checkedType :) <$> groupValues remaining
+    Just (name, _, Nothing) -> failValue ("function " <> T.unpack name <> " does not have a checked type annotation")
     Nothing ->
       case patternBinding declaration of
-        Just group -> group : groupValues rest
+        Just group -> (group :) <$> groupValues rest
         Nothing -> groupValues rest
 
 functionBinding :: Syn.Decl -> Maybe (Text, [Syn.Match], Maybe TcType)
@@ -518,7 +520,7 @@ groupName group =
 groupType :: ValueGroup -> Maybe TcType
 groupType group =
   case group of
-    FunctionGroup _ _ ty -> ty
+    FunctionGroup _ _ ty -> Just ty
     PatternGroup _ _ ty -> ty
 
 desugarTopValue :: TopValue -> ValueM ValDecl
@@ -1506,7 +1508,7 @@ caseAlternativeMatch alternative =
 
 desugarLocalDecls :: [Syn.Decl] -> ValueM Expr -> ValueM Expr
 desugarLocalDecls declarations body = do
-  let groups = groupValues declarations
+  groups <- groupValues declarations
   allocated <- mapM allocateLocal groups
   withLocals [(name, (binder, ty)) | (name, binder, ty, _) <- allocated] $ do
     binds <- mapM desugarLocal allocated
