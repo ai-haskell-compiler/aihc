@@ -8,7 +8,6 @@ where
 import Aihc.Amd64
   ( Amd64Error (..),
     ObservedProgram (..),
-    buildLinkLayout,
     compileModule,
     compileObservedFunction,
     compileProgram,
@@ -59,7 +58,7 @@ tests =
                   grinFunctions = []
                 }
         assertEqual "linked primitive validation" (Left (Amd64UnsupportedPrimitive "unsupported#")) (validateProgramPrimitives program)
-        case compileModule (buildLinkLayout [program]) "_aihc_init_test" (expectGcGrin program) of
+        case compileModule [program] "_aihc_init_test" (expectGcGrin program) of
           Left err -> assertFailure ("relocatable module rejected a dormant primitive: " <> show err)
           Right assembly -> assertBool "module initializer" (".globl _aihc_init_test" `T.isInfixOf` assembly),
       testCase "adds Int# values with wrapping machine arithmetic" $ do
@@ -152,7 +151,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_narrow" (expectGcGrin program) of
+        case compileModule [program] "_aihc_init_narrow" (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "255 :: Int8# is stored as -1" ("mov rax, -1" `T.isInfixOf` assembly)
@@ -186,7 +185,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_addr" (expectGcGrin program) of
+        case compileModule [program] "_aihc_init_addr" (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "loads the static string address" ("lea rax, [rip + .Laihc_addr_0]" `T.isInfixOf` assembly)
@@ -214,7 +213,7 @@ tests =
                         }
                     ]
                 }
-        case compileModule (buildLinkLayout [program]) "_aihc_init_pair" (expectGcGrin program) of
+        case compileModule [program] "_aihc_init_pair" (expectGcGrin program) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "passes two values" ("mov rdx, 2" `T.isInfixOf` assembly)
@@ -222,19 +221,19 @@ tests =
             assertBool "does not call a C continuation adapter" (not ("aihc_continue_values" `T.isInfixOf` assembly)),
       testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
       testCase "case and apply never evaluate operands implicitly" $ do
-        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_explicit_eval" (expectGcGrin explicitEvaluationProgram) of
+        case compileModule [explicitEvaluationProgram] "_aihc_init_explicit_eval" (expectGcGrin explicitEvaluationProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly ->
             assertBool "generated case and apply contain no direct-style eval call" (not ("call aihc_eval\n" `T.isInfixOf` assembly))
         pure (),
       testCase "case dispatch preserves allocatable registers" $
-        case compileModule (buildLinkLayout [caseDispatchProgram]) "_aihc_init_case_dispatch" (expectGcGrin caseDispatchProgram) of
+        case compileModule [caseDispatchProgram] "_aihc_init_case_dispatch" (expectGcGrin caseDispatchProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool "uses the reserved scratch register" ("cmp r10, r11" `T.isInfixOf` assembly)
             assertBool "does not clobber allocatable r9" (not ("cmp r10, r9" `T.isInfixOf` assembly)),
       testCase "dynamic CPS transfers branch to runtime-selected entries" $ do
-        case compileModule (buildLinkLayout [explicitEvaluationProgram]) "_aihc_init_tail_dispatch" (expectGcGrin explicitEvaluationProgram) of
+        case compileModule [explicitEvaluationProgram] "_aihc_init_tail_dispatch" (expectGcGrin explicitEvaluationProgram) of
           Left err -> assertFailure ("native compilation failed: " <> show err)
           Right assembly -> do
             assertBool

@@ -1,18 +1,11 @@
 -- | Native AMD64 code generation for runtime-explicit GRIN.
 module Aihc.Amd64
   ( Amd64Error (..),
-    LinkLayout,
-    LinkInterface,
-    buildLinkLayout,
-    buildLinkLayoutFromInterfaces,
     compileModule,
     ObservedProgram (..),
     compileObservedFunction,
     compileProgram,
     compileProgramWithDependencies,
-    extendLinkLayout,
-    extendLinkLayoutWithInterface,
-    extractLinkInterface,
     snapshotSourcePath,
     targetTriple,
     validateProgramPrimitives,
@@ -31,14 +24,7 @@ import Aihc.Amd64.Codegen
     validateProgramPrimitives,
   )
 import Aihc.Native
-  ( LinkInterface,
-    LinkLayout,
-    NativeTarget (LinuxAmd64),
-    buildLinkLayout,
-    buildLinkLayoutFromInterfaces,
-    extendLinkLayout,
-    extendLinkLayoutWithInterface,
-    extractLinkInterface,
+  ( NativeTarget (LinuxAmd64),
     nativeTargetTriple,
     snapshotSourcePath,
   )

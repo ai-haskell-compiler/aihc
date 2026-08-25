@@ -34,7 +34,8 @@ data InstallV2Options = InstallV2Options
   { installV2PackageDirectory :: !FilePath,
     installV2StoreRoot :: !(Maybe FilePath),
     installV2KeepGrin :: !Bool,
-    installV2Verbose :: !Bool
+    installV2Verbose :: !Bool,
+    installV2Target :: !(Maybe NativeTarget)
   }
   deriving (Eq, Show)
 
@@ -141,3 +142,4 @@ installV2OptionsParser =
           <> OA.short 'v'
           <> OA.help "Print each installation step"
       )
+    <*> OA.optional nativeTargetOption

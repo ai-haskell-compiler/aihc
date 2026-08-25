@@ -5,18 +5,11 @@
 -- for the C runtime and foreign functions.
 module Aihc.Amd64.Codegen
   ( Amd64Error (..),
-    LinkLayout,
-    LinkInterface,
-    buildLinkLayout,
-    buildLinkLayoutFromInterfaces,
     compileModule,
     ObservedProgram (..),
     compileObservedFunction,
     compileProgram,
     compileProgramWithDependencies,
-    extendLinkLayout,
-    extendLinkLayoutWithInterface,
-    extractLinkInterface,
     supportedNativePrimitiveNames,
     validateProgramPrimitives,
     validatePrimitiveNames,
@@ -36,14 +29,7 @@ import Aihc.Grin.Gc
   )
 import Aihc.Grin.Syntax
 import Aihc.Native
-  ( LinkInterface,
-    LinkLayout (..),
-    buildAddrLiteralPool,
-    buildLinkLayout,
-    buildLinkLayoutFromInterfaces,
-    extendLinkLayout,
-    extendLinkLayoutWithInterface,
-    extractLinkInterface,
+  ( buildAddrLiteralPool,
     supportedNativePrimitiveNames,
   )
 import Control.Monad (forM)
@@ -53,9 +39,27 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
+data ProgramLayout = ProgramLayout
+  { layoutConstructors :: ![(Text, [[GrinRep]])],
+    layoutGlobalNames :: ![Text]
+  }
+
+buildProgramLayout :: [GrinProgram] -> ProgramLayout
+buildProgramLayout programs =
+  ProgramLayout
+    { layoutConstructors = Map.toAscList (Map.fromList (builtinConstructors <> concatMap grinConstructors programs)),
+      layoutGlobalNames = Set.toAscList (Set.fromList (builtinGlobals <> concatMap globals programs))
+    }
+  where
+    builtinGlobals = [name | (name, layouts) <- builtinConstructors, null layouts]
+    globals program =
+      [name | (name, layouts) <- grinConstructors program, null layouts]
+        <> map fst (grinGlobals program)
+        <> grinProgramGlobalReferences program
+
 compileProgram :: Text -> GcGrinProgram -> Either Amd64Error Text
 compileProgram entryName gcProgram =
-  compileProgramWithDependencies (buildLinkLayout [program]) [] entryName gcProgram
+  compileProgramWithDependencies [program] [] entryName gcProgram
   where
     program = gcGrinProgram gcProgram
 
@@ -113,9 +117,9 @@ compileObservedFunction entryName gcProgram = do
   pure ObservedProgram {observedAssembly = assembly, observedMetadataSource = metadata}
   where
     program = gcGrinProgram gcProgram
-    layout = buildLinkLayout [program]
+    layout = buildProgramLayout [program]
     compileEnv = (compileEnvironmentWith True (gcContinuationFrames gcProgram) layout program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
-    globalNames = linkGlobalNames layout
+    globalNames = layoutGlobalNames layout
     resultReps =
       maybe [] (runtimeRepComponents . grinFunctionResultRep) $
         findFunction entryName (grinFunctions program)
@@ -142,8 +146,8 @@ validatePrimitiveNames = mapM_ (validatePrimitiveName False)
 -- | Compile a library SCC to relocatable assembly. The exported initializer
 -- installs the unit's primitive, static, and CAF globals into the shared
 -- machine table. Constructors are installed once by the executable entry unit.
-compileModule :: LinkLayout -> Text -> GcGrinProgram -> Either Amd64Error Text
-compileModule layout initializerSymbol gcProgram = do
+compileModule :: [GrinProgram] -> Text -> GcGrinProgram -> Either Amd64Error Text
+compileModule linkedPrograms initializerSymbol gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   initLines <- compileInitializers compileEnv program
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
@@ -157,6 +161,7 @@ compileModule layout initializerSymbol gcProgram = do
       <> nonExecutableStack
   where
     program = gcGrinProgram gcProgram
+    layout = buildProgramLayout linkedPrograms
     compileEnv =
       (compileEnvironment (gcContinuationFrames gcProgram) layout program)
         { compileAllowUnsupportedPrimitives = True,
@@ -166,8 +171,8 @@ compileModule layout initializerSymbol gcProgram = do
 -- | Compile the user program entry unit against cached dependency modules.
 -- Dependency initializers are called after constructors are installed and
 -- before the user module's own globals are initialized.
-compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either Amd64Error Text
-compileProgramWithDependencies layout dependencyInitializers entryName gcProgram = do
+compileProgramWithDependencies :: [GrinProgram] -> [Text] -> Text -> GcGrinProgram -> Either Amd64Error Text
+compileProgramWithDependencies linkedPrograms dependencyInitializers entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   rootSlot <- maybe (Left (Amd64MissingEntry entryName)) Right (Map.lookup entryName globalSlots)
   constructorLines <- compileConstructorInitializers compileEnv
@@ -240,9 +245,10 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
       <> nonExecutableStack
   where
     program = gcGrinProgram gcProgram
+    layout = buildProgramLayout linkedPrograms
     compileEnv = (compileEnvironment (gcContinuationFrames gcProgram) layout program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
     globalSlots = compileGlobalSlots compileEnv
-    globalNames = linkGlobalNames layout
+    globalNames = layoutGlobalNames layout
     pointerRep = BoxedRep Lifted
     programRuntimeInfos updateLabel =
       continuationRuntimeInfos
@@ -334,15 +340,15 @@ renderCompiledSupport env functions runtimeInfos =
 nonExecutableStack :: [Text]
 nonExecutableStack = [".section .note.GNU-stack,\"\",@progbits"]
 
-compileEnvironment :: Map.Map FunctionName ContinuationFrameKind -> LinkLayout -> GrinProgram -> CompileEnv
+compileEnvironment :: Map.Map FunctionName ContinuationFrameKind -> ProgramLayout -> GrinProgram -> CompileEnv
 compileEnvironment = compileEnvironmentWith False
 
-compileEnvironmentWith :: Bool -> Map.Map FunctionName ContinuationFrameKind -> LinkLayout -> GrinProgram -> CompileEnv
+compileEnvironmentWith :: Bool -> Map.Map FunctionName ContinuationFrameKind -> ProgramLayout -> GrinProgram -> CompileEnv
 compileEnvironmentWith exposeAllFunctions continuationFrames layout program =
   CompileEnv
     { compileConstructorIds = Map.fromList (zip (map fst constructors) [1 ..]),
       compileConstructorArities = Map.fromList constructors,
-      compileGlobalSlots = Map.fromList (zip (linkGlobalNames layout) [0 ..]),
+      compileGlobalSlots = Map.fromList (zip (layoutGlobalNames layout) [0 ..]),
       compileFunctionLabels = functionLabelMap,
       compileAddrLiteralLabels =
         Map.fromList (buildAddrLiteralPool program),
@@ -353,7 +359,7 @@ compileEnvironmentWith exposeAllFunctions continuationFrames layout program =
       compileAllowUnsupportedPrimitives = False
     }
   where
-    constructorLayouts = linkConstructors layout
+    constructorLayouts = layoutConstructors layout
     constructors = [(name, length layouts) | (name, layouts) <- constructorLayouts]
     constructorIdentifiers = zip (map fst constructors) [1 ..]
     constructorInfoEntries =

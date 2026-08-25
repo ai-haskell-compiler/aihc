@@ -17,7 +17,7 @@ where
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
 import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
-import Aihc.Native (LinkLayout (..), NativeRuntimeCall (..), buildAddrLiteralPool, buildLinkLayout, nativeRuntimePrimitiveCall, supportedNativePrimitiveNames)
+import Aihc.Native (NativeRuntimeCall (..), buildAddrLiteralPool, nativeRuntimePrimitiveCall, supportedNativePrimitiveNames)
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
 import Data.Char (ord)
@@ -50,6 +50,24 @@ data CompileEnv = CompileEnv
     compileRuntimeInfos :: ![RuntimeInfo],
     compileAllowUnsupportedPrimitives :: !Bool
   }
+
+data ProgramLayout = ProgramLayout
+  { layoutConstructors :: ![(Text, [[GrinRep]])],
+    layoutGlobalNames :: ![Text]
+  }
+
+buildProgramLayout :: [GrinProgram] -> ProgramLayout
+buildProgramLayout programs =
+  ProgramLayout
+    { layoutConstructors = Map.toAscList (Map.fromList (builtinConstructors <> concatMap grinConstructors programs)),
+      layoutGlobalNames = Set.toAscList (Set.fromList (builtinGlobals <> concatMap globals programs))
+    }
+  where
+    builtinGlobals = [name | (name, layouts) <- builtinConstructors, null layouts]
+    globals program =
+      [name | (name, layouts) <- grinConstructors program, null layouts]
+        <> map fst (grinGlobals program)
+        <> grinProgramGlobalReferences program
 
 data ValueEnv = ValueEnv
   { valueCompileEnv :: !CompileEnv,
@@ -109,12 +127,12 @@ data CompilationUnit = ExecutableUnit | LibraryUnit
 
 compileProgram :: Text -> GcGrinProgram -> Either WasmError Text
 compileProgram entryName gcProgram =
-  compileProgramWithDependencies (buildLinkLayout [program]) [] entryName gcProgram
+  compileProgramWithDependencies [program] [] entryName gcProgram
   where
     program = gcGrinProgram gcProgram
 
-compileProgramWithDependencies :: LinkLayout -> [Text] -> Text -> GcGrinProgram -> Either WasmError Text
-compileProgramWithDependencies layout dependencyInitializers entryName gcProgram = do
+compileProgramWithDependencies :: [GrinProgram] -> [Text] -> Text -> GcGrinProgram -> Either WasmError Text
+compileProgramWithDependencies linkedPrograms dependencyInitializers entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   validateProgramPrimitives program
   rootSlot <- maybe (Left (WasmMissingEntry entryName)) Right (Map.lookup entryName (compileGlobalSlots env))
@@ -151,7 +169,7 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
           <> renderEntryAdapters runtimeInfos
           <> concatMap compiledFunctionLines functions
           <> renderSpecialFunctions
-          <> renderProgramInitializer (length (linkGlobalNames layout)) rootSlot dependencyInitializers constructorInit programInit
+          <> renderProgramInitializer (length (layoutGlobalNames layout)) rootSlot dependencyInitializers constructorInit programInit
           <> renderRuntimeSymbols
           <> renderAddrLiterals env
           <> renderRuntimeInfos runtimeInfos
@@ -159,11 +177,12 @@ compileProgramWithDependencies layout dependencyInitializers entryName gcProgram
           <> ["\t.no_dead_strip\t__indirect_function_table", ""]
   pure (T.unlines source)
   where
+    layout = buildProgramLayout linkedPrograms
     program = gcGrinProgram gcProgram
     env = compileEnvironment ExecutableUnit layout gcProgram
 
-compileModule :: LinkLayout -> Text -> GcGrinProgram -> Either WasmError Text
-compileModule layout initializerSymbol gcProgram = do
+compileModule :: [GrinProgram] -> Text -> GcGrinProgram -> Either WasmError Text
+compileModule linkedPrograms initializerSymbol gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction env) (grinFunctions program)
   programInit <- compileInitializers env program
@@ -178,6 +197,7 @@ compileModule layout initializerSymbol gcProgram = do
           <> ["\t.no_dead_strip\t__indirect_function_table", ""]
   pure (T.unlines source)
   where
+    layout = buildProgramLayout linkedPrograms
     program = gcGrinProgram gcProgram
     env = compileEnvironment LibraryUnit layout gcProgram
 
@@ -190,12 +210,12 @@ validatePrimitiveNames = mapM_ $ \name ->
     then Right ()
     else Left (WasmUnsupportedPrimitive name)
 
-compileEnvironment :: CompilationUnit -> LinkLayout -> GcGrinProgram -> CompileEnv
+compileEnvironment :: CompilationUnit -> ProgramLayout -> GcGrinProgram -> CompileEnv
 compileEnvironment unitKind layout gcProgram =
   CompileEnv
     { compileConstructorIds = Map.fromList constructorIds,
       compileConstructorArities = Map.fromList constructors,
-      compileGlobalSlots = Map.fromList (zip (linkGlobalNames layout) [0 ..]),
+      compileGlobalSlots = Map.fromList (zip (layoutGlobalNames layout) [0 ..]),
       compileFunctionLabels = functionLabels,
       compileFunctionArities = functionArities,
       compileAddrLiteralLabels = Map.fromList [(bytes, "aihc_wasm_addr_" <> tshow index) | (index, (bytes, _)) <- zip [0 :: Int ..] (buildAddrLiteralPool program)],
@@ -208,7 +228,7 @@ compileEnvironment unitKind layout gcProgram =
     }
   where
     program = gcGrinProgram gcProgram
-    constructors = [(name, length layouts) | (name, layouts) <- linkConstructors layout]
+    constructors = [(name, length layouts) | (name, layouts) <- layoutConstructors layout]
     constructorIds = zip (map fst constructors) [1 ..]
     functionLabels =
       Map.fromList
@@ -222,7 +242,7 @@ compileEnvironment unitKind layout gcProgram =
         ]
     constructorEntries =
       [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key))
-      | ((name, layouts), (_, identifier)) <- zip (linkConstructors layout) constructorIds,
+      | ((name, layouts), (_, identifier)) <- zip (layoutConstructors layout) constructorIds,
         let arity = length layouts,
         remaining <- [arity, arity - 1 .. 0],
         let key = ConstructorRuntimeInfo name remaining,

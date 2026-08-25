@@ -9,20 +9,15 @@ module Aihc.Native
     RuntimeGarbageCollector (..),
     RuntimePlan (..),
     backendCompiler,
-    LinkInterface (..),
-    LinkLayout (..),
-    buildLinkLayout,
-    buildLinkLayoutFromInterfaces,
     buildAddrLiteralPool,
-    extendLinkLayout,
-    extendLinkLayoutWithInterface,
-    extractLinkInterface,
     hostNativeTarget,
     nativeTargetTriple,
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
     parseNativeTarget,
     renderLinkedFunctionSymbol,
+    renderLinkedConstructorInfoSymbol,
+    renderLinkedGlobalSymbol,
     renderNativeTarget,
     runtimePlan,
     snapshotSourcePath,
@@ -104,6 +99,15 @@ renderLinkedFunctionSymbol logicalName =
     padByte [digit] = ['0', digit]
     padByte digits = digits
 
+-- | Render the object symbol for one static Haskell value.
+renderLinkedGlobalSymbol :: Text -> Text
+renderLinkedGlobalSymbol = renderLinkedFunctionSymbol
+
+-- | Render the object symbol for one constructor application stage.
+renderLinkedConstructorInfoSymbol :: Text -> Int -> Text
+renderLinkedConstructorInfoSymbol name remaining =
+  "aihc_constructor_" <> renderLinkedFunctionSymbol name <> "_" <> T.pack (show remaining)
+
 hostNativeTarget :: Maybe NativeTarget
 hostNativeTarget
   | System.os == "darwin" && System.arch `elem` ["aarch64", "arm64"] = Just AppleArm64
@@ -129,28 +133,6 @@ backendCompiler target =
   where
     nativeCompiler = pure ("clang", ["--target=" <> nativeTargetTriple target])
 
--- | The process-wide constructor tags and global table slots shared by all
--- compilation units in one executable.
-data LinkLayout = LinkLayout
-  { linkConstructors :: ![(Text, [[GrinRep]])],
-    linkGlobalNames :: ![Text]
-  }
-  deriving (Eq, Show)
-
--- | Constructor and global-table metadata exported by a compilation
--- unit. Code generation for another unit never needs its GRIN bodies.
-data LinkInterface = LinkInterface
-  { linkInterfaceConstructors :: ![(Text, [[GrinRep]])],
-    linkInterfaceGlobalNames :: ![Text]
-  }
-  deriving (Eq, Show, Read)
-
-buildLinkLayout :: [GrinProgram] -> LinkLayout
-buildLinkLayout = buildLinkLayoutFromInterfaces . map extractLinkInterface
-
-buildLinkLayoutFromInterfaces :: [LinkInterface] -> LinkLayout
-buildLinkLayoutFromInterfaces = foldl extendLinkLayoutWithInterface emptyLinkLayout
-
 -- | Deduplicate address literals and assign short, unit-local assembly labels.
 buildAddrLiteralPool :: GrinProgram -> [(ByteString, Text)]
 buildAddrLiteralPool program =
@@ -159,23 +141,6 @@ buildAddrLiteralPool program =
   ]
   where
     values = Set.toAscList (Set.fromList [value | GrinLitAddr value <- grinProgramLiterals program])
-
-extractLinkInterface :: GrinProgram -> LinkInterface
-extractLinkInterface program =
-  LinkInterface
-    { linkInterfaceConstructors = grinConstructors program,
-      linkInterfaceGlobalNames = programGlobalNames program
-    }
-
-extendLinkLayout :: LinkLayout -> GrinProgram -> LinkLayout
-extendLinkLayout layout = extendLinkLayoutWithInterface layout . extractLinkInterface
-
-extendLinkLayoutWithInterface :: LinkLayout -> LinkInterface -> LinkLayout
-extendLinkLayoutWithInterface layout interface =
-  LinkLayout
-    { linkConstructors = uniqueByName (linkConstructors layout <> linkInterfaceConstructors interface),
-      linkGlobalNames = uniqueTexts (linkGlobalNames layout <> linkInterfaceGlobalNames interface)
-    }
 
 runtimeSourcePath :: IO FilePath
 runtimeSourcePath = getDataFileName "runtime/aihc_runtime.c"
@@ -363,34 +328,3 @@ nativeRuntimePrimitiveCalls =
             nativeRuntimeCallResultCount = resultCount
           }
       )
-
-emptyLinkLayout :: LinkLayout
-emptyLinkLayout =
-  LinkLayout
-    { linkConstructors = builtinConstructors,
-      linkGlobalNames = [name | (name, layouts) <- builtinConstructors, null layouts]
-    }
-
-programGlobalNames :: GrinProgram -> [Text]
-programGlobalNames program =
-  [name | (name, arity) <- programConstructorArities program, arity == 0]
-    <> map fst (grinGlobals program)
-    <> grinProgramGlobalReferences program
-
-programConstructorArities :: GrinProgram -> [(Text, Int)]
-programConstructorArities program =
-  [(name, length fieldLayouts) | (name, fieldLayouts) <- grinConstructors program]
-
-uniqueTexts :: [Text] -> [Text]
-uniqueTexts = reverse . snd . foldl' step (Set.empty, [])
-  where
-    step (seen, values) value
-      | value `Set.member` seen = (seen, values)
-      | otherwise = (Set.insert value seen, value : values)
-
-uniqueByName :: [(Text, value)] -> [(Text, value)]
-uniqueByName values =
-  [ (name, arity)
-  | name <- uniqueTexts (map fst values),
-    Just arity <- [lookup name values]
-  ]

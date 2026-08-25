@@ -69,11 +69,11 @@ stream.
 ## Incremental compilation
 
 Incremental compilation is the default. Each dependency SCC is compiled with
-the shared `LinkLayout` into a relocatable Wasm object and a uniquely named
-initializer. Objects are cached in target-specific library archives. The main
-object allocates the shared global table, installs nullary constructors, calls
-the dependency initializers, and then initializes its own globals before
-starting the program.
+the complete linked program set. It produces a relocatable Wasm object and a
+unique initializer. Objects are cached in target-specific library archives.
+The main object allocates the shared global table. It installs nullary
+constructors and calls the dependency initializers. It then initializes its
+own globals before it starts the program.
 
 `--whole-program` remains available. It merges reachable dependency Core before
 GRIN lowering and emits one generated-code object. Both modes compile the C

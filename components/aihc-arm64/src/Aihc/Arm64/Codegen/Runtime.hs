@@ -18,11 +18,9 @@ module Aihc.Arm64.Codegen.Runtime
     applyContinuationRegister,
     applyFunctionRegister,
     applyStackBytes,
-    constructorId,
     constructorStageLabel,
     continuationRuntimeInfos,
     functionCodeLabel,
-    globalSlot,
     immediate,
     loadAt,
     loadByteOffset,
@@ -55,7 +53,6 @@ module Aihc.Arm64.Codegen.Runtime
     runtimeObjectNode,
     storeAt,
     storeByteOffset,
-    storeGlobal,
     storeLocation,
     tshow,
   )
@@ -63,6 +60,7 @@ where
 
 import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
 import Aihc.Grin.Syntax
+import Aihc.Native (renderLinkedConstructorInfoSymbol, renderLinkedGlobalSymbol)
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..))
 import Control.Monad (forM)
@@ -88,10 +86,7 @@ data Arm64Error
   deriving (Eq, Show)
 
 data CompileEnv = CompileEnv
-  { compileConstructorIds :: !(Map Text Int),
-    compileConstructorArities :: !(Map Text Int),
-    compileGlobalSlots :: !(Map Text Int),
-    compileFunctionLabels :: !(Map FunctionName Text),
+  { compileFunctionLabels :: !(Map FunctionName Text),
     compileAddrLiteralLabels :: !(Map BS.ByteString Text),
     compileNodeInfoLabels :: !(Map RuntimeInfoKey Text),
     compileRuntimeInfos :: ![RuntimeInfo],
@@ -154,6 +149,7 @@ data RuntimeInfoKey
 data NodeInfo
   = InfoImmediate !Int
   | InfoAddress !Text
+  | InfoConstructor !Text
 
 makeNodeLines :: NodeInfo -> [Text]
 makeNodeLines info =
@@ -166,6 +162,7 @@ makeNodeLines info =
       case nodeInfo of
         InfoImmediate integer -> immediate "x1" integer
         InfoAddress label -> address "x1" label
+        InfoConstructor label -> address "x1" label
 
 makeNodeUncheckedLines :: NodeInfo -> [Text]
 makeNodeUncheckedLines info =
@@ -268,6 +265,7 @@ renderRuntimeInfos infos = [".section __DATA,__const"] <> concatMap renderInfo i
   where
     renderInfo info =
       bitmapLines
+        <> [".globl " <> runtimeInfoLabel info | "_aihc_constructor_" `T.isPrefixOf` runtimeInfoLabel info]
         <> [ ".p2align 3",
              runtimeInfoLabel info <> ":",
              identityLine (runtimeInfoIdentity info),
@@ -294,10 +292,12 @@ renderRuntimeInfos infos = [".section __DATA,__const"] <> concatMap renderInfo i
       case nodeInfo of
         InfoImmediate integer -> "  .quad " <> tshow integer
         InfoAddress label -> "  .quad " <> label
+        InfoConstructor label -> "  .quad " <> label
     entryLine nodeInfo =
       case nodeInfo of
         InfoImmediate {} -> "  .quad 0"
         InfoAddress label -> "  .quad " <> label
+        InfoConstructor {} -> "  .quad 0"
 
 renderRuntimeSupport :: CompileEnv -> [RuntimeInfo] -> [Text]
 renderRuntimeSupport env extraInfos =
@@ -422,21 +422,13 @@ renderNativeControl =
     "  brk #0"
   ]
 
-globalSlot :: CompileEnv -> Text -> Either Arm64Error Int
-globalSlot env name =
-  maybe (Left (Arm64MissingGlobal name)) Right (Map.lookup name (compileGlobalSlots env))
-
-constructorId :: CompileEnv -> Text -> Either Arm64Error Int
-constructorId env name =
-  maybe (Left (Arm64MissingConstructor name)) Right (Map.lookup name (compileConstructorIds env))
-
 lookupRuntimeInfoLabel :: CompileEnv -> RuntimeInfoKey -> Either Arm64Error Text
 lookupRuntimeInfoLabel env key =
   case Map.lookup key (compileNodeInfoLabels env) of
     Just label -> Right label
     Nothing ->
       case key of
-        ConstructorRuntimeInfo name _ -> Left (Arm64MissingConstructor name)
+        ConstructorRuntimeInfo name remaining -> Right (constructorStageLabel name remaining)
         ClosureRuntimeInfo functionName _ _ -> Left (Arm64MissingFunction functionName)
         ThunkRuntimeInfo functionName _ -> Left (Arm64MissingFunction functionName)
 
@@ -444,9 +436,9 @@ functionCodeLabel :: CompileEnv -> FunctionName -> Either Arm64Error Text
 functionCodeLabel env name =
   maybe (Left (Arm64MissingFunction name)) Right (Map.lookup name (compileFunctionLabels env))
 
-constructorStageLabel :: Int -> Int -> Text
-constructorStageLabel identifier remaining =
-  ".Laihc_constructor_info_" <> tshow identifier <> "_remaining_" <> tshow remaining
+constructorStageLabel :: Text -> Int -> Text
+constructorStageLabel name remaining =
+  "_" <> renderLinkedConstructorInfoSymbol name remaining
 
 runtimeInfoKeyStages :: GrinNode -> [RuntimeInfoKey]
 runtimeInfoKeyStages node =
@@ -517,9 +509,6 @@ localFunctionLabelWith exposeAllFunctions index _function
   | exposeAllFunctions = "_aihc_snapshot_function_" <> tshow index
   | otherwise = functionLabel index
 
-storeGlobal :: Int -> [Text]
-storeGlobal slot = ["  ldr x9, [x22, #0]", storeAt "x0" "x9" slot]
-
 loadAt :: Text -> Text -> Int -> Text
 loadAt destination base slot = loadByteOffset destination base (slot * 8)
 
@@ -553,12 +542,8 @@ materializeValueTo env destination value =
     GrinVarValue var ->
       case Map.lookup var (valueLocations env) of
         Just location -> Right (loadLocation destination location)
-        Nothing -> do
-          slot <- globalSlot (valueCompileEnv env) (grinVarName var)
-          pure ["  ldr x9, [x22, #0]", loadAt destination "x9" slot]
-    GrinGlobalValue name -> do
-      slot <- globalSlot (valueCompileEnv env) name
-      pure ["  ldr x9, [x22, #0]", loadAt destination "x9" slot]
+        Nothing -> Right [address destination ("_" <> renderLinkedGlobalSymbol (grinVarName var))]
+    GrinGlobalValue name -> Right [address destination ("_" <> renderLinkedGlobalSymbol name)]
     GrinLitValue literal -> materializeLiteralTo destination (valueCompileEnv env) literal
 
 materializeLiteralTo :: Text -> CompileEnv -> GrinLiteral -> Either Arm64Error [Text]

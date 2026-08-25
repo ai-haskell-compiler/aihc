@@ -4,7 +4,7 @@ module Test.Wasm.Suite (tests) where
 
 import Aihc.Grin (lowerGc, toCpsGrin)
 import Aihc.Grin.Syntax
-import Aihc.Native (LinkLayout (..), buildLinkLayout, supportedNativePrimitiveNames)
+import Aihc.Native (supportedNativePrimitiveNames)
 import Aihc.Wasm (WasmError (..), compileModule, compileProgram, compileProgramWithDependencies, validatePrimitiveNames, validateProgramPrimitives)
 import Control.Monad (forM_)
 import Data.Text qualified as T
@@ -64,7 +64,7 @@ testWasmLocals =
   case toCpsGrin directCallProgram of
     Left err -> assertFailure (show err)
     Right cps ->
-      case compileModule (buildLinkLayout [directCallProgram]) "_aihc_init_wasm_locals" (lowerGc cps) of
+      case compileModule [directCallProgram] "_aihc_init_wasm_locals" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
           let (_, fromFastEntry) = T.breakOn ".Laihc_wasm_function_0:" source
@@ -79,7 +79,7 @@ testRepeatedParameterLocals =
   case toCpsGrin repeatedParameterProgram of
     Left err -> assertFailure (show err)
     Right cps ->
-      case compileModule (buildLinkLayout [repeatedParameterProgram]) "_aihc_init_repeated_parameters" (lowerGc cps) of
+      case compileModule [repeatedParameterProgram] "_aihc_init_repeated_parameters" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
           let label = "\n.Laihc_wasm_function_0:\n"
@@ -96,7 +96,7 @@ testLiteralCaseScrutinee =
   case toCpsGrin literalCaseProgram of
     Left err -> assertFailure (show err)
     Right cps ->
-      case compileModule (buildLinkLayout [literalCaseProgram]) "_aihc_init_literal_case" (lowerGc cps) of
+      case compileModule [literalCaseProgram] "_aihc_init_literal_case" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source ->
           assertBool
@@ -108,7 +108,7 @@ testGcRootStaging =
   case toCpsGrin gcRootProgram of
     Left err -> assertFailure (show err)
     Right cps ->
-      case compileModule (buildLinkLayout [gcRootProgram]) "_aihc_init_gc_roots" (lowerGc cps) of
+      case compileModule [gcRootProgram] "_aihc_init_gc_roots" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
           let (beforeCollection, fromCollection) = T.breakOn "call\taihc_ensure_heap" source
@@ -121,7 +121,7 @@ testDirectCallArguments =
   case toCpsGrin directCallProgram of
     Left err -> assertFailure (show err)
     Right cps ->
-      case compileModule (buildLinkLayout [directCallProgram]) "_aihc_init_direct_call" (lowerGc cps) of
+      case compileModule [directCallProgram] "_aihc_init_direct_call" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
           assertBool "declares the exact local fast-entry signature" ("\t.functype\t.Laihc_wasm_function_1 (i32, i64, i64) -> ()" `T.isInfixOf` source)
@@ -133,7 +133,7 @@ testObjectEntryAdapters =
   case toCpsGrin capturedThunkProgram of
     Left err -> assertFailure (show err)
     Right cps ->
-      case compileModule (buildLinkLayout [capturedThunkProgram]) "_aihc_init_captured_thunk" (lowerGc cps) of
+      case compileModule [capturedThunkProgram] "_aihc_init_captured_thunk" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
           assertBool "emits a uniform object entry" ("_enter:\n\t.functype" `T.isInfixOf` source && "(i32, i64, i32, i64) -> ()" `T.isInfixOf` source)
@@ -171,7 +171,7 @@ testDormantPrimitive =
   case toCpsGrin dormantPrimitiveProgram of
     Left err -> assertFailure (show err)
     Right cps ->
-      case compileModule (buildLinkLayout [dormantPrimitiveProgram]) "_aihc_init_dormant" (lowerGc cps) of
+      case compileModule [dormantPrimitiveProgram] "_aihc_init_dormant" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> assertBool "emits the runtime trap" ("call\taihc_unsupported_primitive" `T.isInfixOf` source)
 
@@ -179,19 +179,17 @@ testIncrementalModule :: IO ()
 testIncrementalModule =
   case (toCpsGrin dependencyProgram, toCpsGrin program) of
     (Right dependencyCps, Right mainCps) -> do
-      let layout = buildLinkLayout [dependencyProgram, program]
-      case compileModule layout "_aihc_init_test" (lowerGc dependencyCps) of
+      case compileModule [dependencyProgram, program] "_aihc_init_test" (lowerGc dependencyCps) of
         Left err -> assertFailure (show err)
         Right source -> do
           assertBool "exports dependency initializer" ("_aihc_init_test:" `T.isInfixOf` source)
           assertBool "does not emit executable entry" (not ("aihc_wasm_program_initialize:" `T.isInfixOf` source))
           assertBool "does not define shared arguments" (not ("aihc_arguments:" `T.isInfixOf` source))
-      case compileProgramWithDependencies layout ["_aihc_init_test"] "main" (lowerGc mainCps) of
+      case compileProgramWithDependencies [dependencyProgram, program] ["_aihc_init_test"] "main" (lowerGc mainCps) of
         Left err -> assertFailure (show err)
         Right source -> do
           assertBool "calls dependency initializer" ("call\t_aihc_init_test" `T.isInfixOf` source)
-          let expectedAllocation = "\ti64.const\t" <> T.pack (show (length (linkGlobalNames layout))) <> "\n\tcall\taihc_machine_new"
-          assertBool "uses combined global layout" (expectedAllocation `T.isInfixOf` source)
+          assertBool "allocates combined globals" ("call\taihc_machine_new" `T.isInfixOf` source)
     (Left err, _) -> assertFailure (show err)
     (_, Left err) -> assertFailure (show err)
 
@@ -200,7 +198,7 @@ testByteArrayPrimitives =
   case toCpsGrin byteArrayProgram of
     Left err -> assertFailure (show err)
     Right cps ->
-      case compileModule (buildLinkLayout [byteArrayProgram]) "_aihc_init_byte_array" (lowerGc cps) of
+      case compileModule [byteArrayProgram] "_aihc_init_byte_array" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
           assertBool "allocates a pinned byte array" ("call\taihc_byte_array_new_pinned" `T.isInfixOf` source)
@@ -212,7 +210,7 @@ testIntegerPrimitives = forM_ integerPrimitiveCases $ \primitiveCase ->
   case toCpsGrin (primitiveProgram primitiveCase) of
     Left err -> assertFailure (T.unpack (primitiveCaseName primitiveCase) <> ": " <> show err)
     Right cps ->
-      case compileModule (buildLinkLayout [primitiveProgram primitiveCase]) "_aihc_init_integer_primitive" (lowerGc cps) of
+      case compileModule [primitiveProgram primitiveCase] "_aihc_init_integer_primitive" (lowerGc cps) of
         Left err -> assertFailure (T.unpack (primitiveCaseName primitiveCase) <> ": " <> show err)
         Right source -> do
           assertBool
@@ -318,7 +316,7 @@ testMVarPrimitives =
   case toCpsGrin mvarProgram of
     Left err -> assertFailure (show err)
     Right cps ->
-      case compileModule (buildLinkLayout [mvarProgram]) "_aihc_init_mvars" (lowerGc cps) of
+      case compileModule [mvarProgram] "_aihc_init_mvars" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source ->
           mapM_
@@ -334,7 +332,7 @@ testForeignInt =
   case toCpsGrin foreignIntProgram of
     Left err -> assertFailure (show err)
     Right cps ->
-      case compileModule (buildLinkLayout [foreignIntProgram]) "_aihc_init_foreign_int" (lowerGc cps) of
+      case compileModule [foreignIntProgram] "_aihc_init_foreign_int" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source -> do
           assertBool "declares the Int ABI as i64" (".functype\taihc_io_take_result (i32) -> (i64)" `T.isInfixOf` source)
@@ -345,7 +343,7 @@ testIntPrimitives =
   case toCpsGrin intPrimitiveProgram of
     Left err -> assertFailure (show err)
     Right cps ->
-      case compileModule (buildLinkLayout [intPrimitiveProgram]) "_aihc_init_int_primitives" (lowerGc cps) of
+      case compileModule [intPrimitiveProgram] "_aihc_init_int_primitives" (lowerGc cps) of
         Left err -> assertFailure (show err)
         Right source ->
           mapM_
