@@ -8,6 +8,7 @@ module Aihc.Native
     NativeTarget (..),
     RuntimeGarbageCollector (..),
     RuntimePlan (..),
+    backendArchiver,
     backendCompiler,
     buildAddrLiteralPool,
     hostNativeTarget,
@@ -30,12 +31,15 @@ import Aihc.Grin.Syntax
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Char (chr)
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as Text
 import Numeric (showHex)
 import Paths_aihc_native (getDataFileName)
+import System.Directory (findExecutable)
+import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory)
 import System.Info qualified as System
 
@@ -137,11 +141,29 @@ backendCompiler :: NativeTarget -> IO (FilePath, [String])
 backendCompiler target =
   case target of
     Llvm -> pure ("clang", ["-Wno-override-module", "-O2"])
-    Wasm32Wasip3 -> pure ("clang", ["--target=wasm32-unknown-unknown", "-mtail-call"])
+    Wasm32Wasip3 -> do
+      compiler <- fromMaybe "clang" <$> lookupEnv "AIHC_WASM_CLANG"
+      pure (compiler, ["--target=wasm32-unknown-unknown", "-mtail-call"])
     AppleArm64 -> nativeCompiler
     LinuxAmd64 -> nativeCompiler
   where
     nativeCompiler = pure ("clang", ["--target=" <> nativeTargetTriple target])
+
+-- | Select an archive tool that keeps object files for the selected target.
+backendArchiver :: NativeTarget -> IO FilePath
+backendArchiver target = do
+  override <- lookupEnv "AIHC_LLVM_AR"
+  case override of
+    Just archiver -> pure archiver
+    Nothing -> do
+      llvmArchiver <- findExecutable "llvm-ar"
+      case llvmArchiver of
+        Just archiver -> pure archiver
+        Nothing -> do
+          archiver <- fromMaybe "ar" <$> findExecutable "ar"
+          if System.os == "darwin" && target `elem` [LinuxAmd64, Wasm32Wasip3] && archiver == "/usr/bin/ar"
+            then ioError (userError "The selected target requires LLVM ar. Set AIHC_LLVM_AR to its path.")
+            else pure archiver
 
 -- | Deduplicate address literals and assign short, unit-local assembly labels.
 buildAddrLiteralPool :: GrinProgram -> [(ByteString, Text)]

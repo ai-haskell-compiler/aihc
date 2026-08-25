@@ -29,7 +29,7 @@ import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Llvm qualified as Llvm
-import Aihc.Native (NativeTarget (..), backendCompiler, nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), backendArchiver, backendCompiler, nativeTargetStoreDirectory)
 import Aihc.Parser.Syntax (ImportDecl (..), Module, Name (..), SourceSpan (..), moduleName)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve
@@ -485,7 +485,7 @@ nativeSourceExtension target =
     _ -> ".s"
 
 buildLibraryArchive :: NativeTarget -> (String -> IO ()) -> FilePath -> Text -> [SourceModule] -> IO ()
-buildLibraryArchive _target verbose storePath packageNameText sources = do
+buildLibraryArchive target verbose storePath packageNameText sources = do
   let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
       objects =
         [ storePath </> moduleDirectory modu </> T.unpack (fromMaybe "Main" (moduleName modu)) <> ".o"
@@ -495,7 +495,8 @@ buildLibraryArchive _target verbose storePath packageNameText sources = do
   createDirectoryIfMissing True (takeDirectory archive)
   archiveExists <- doesFileExist archive
   when archiveExists (removeFile archive)
-  runTool "ar" (["rcs", archive] <> objects)
+  archiver <- backendArchiver target
+  runTool archiver (["rcs", archive] <> objects)
   verbose ("Write archive: " <> archive)
 
 runTool :: FilePath -> [String] -> IO ()
