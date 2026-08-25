@@ -60,7 +60,7 @@ jobs:
         if: needs.select-runner.outputs.use_self_hosted == 'true'
         run: |
           disk_use="$(df --output=pcent /nix/store | tail -n 1 | tr -dc '0-9')"
-          if (( disk_use >= 90 )); then
+          if (( disk_use >= 80 )); then
             nix store gc
           else
             echo "Nix store disk use is ${disk_use}%. Skip garbage collection."
