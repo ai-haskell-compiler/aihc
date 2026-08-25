@@ -367,10 +367,7 @@ coercion =
     ]
 
 literal :: Parser Literal
-literal = hashedLiteral
-
-hashedLiteral :: Parser Literal
-hashedLiteral =
+literal =
   MP.choice
     [ flip LitInt <$> integerLiteral <*> (MPC.char '#' *> representationType),
       flip LitChar <$> charLiteral <*> (MPC.char '#' *> representationType),
