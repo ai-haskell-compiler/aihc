@@ -8,7 +8,7 @@ module Aihc.Cli.Store
   )
 where
 
-import Aihc.Native (NativeTarget, RuntimeGarbageCollector (..), renderNativeTarget)
+import Aihc.Native (NativeTarget, RuntimeGarbageCollector (..), nativeTargetStoreDirectory)
 import System.Directory (XdgDirectory (XdgCache), getXdgDirectory)
 import System.FilePath ((</>))
 
@@ -27,7 +27,7 @@ installedRuntimeArchivePath :: FilePath -> NativeTarget -> RuntimeGarbageCollect
 installedRuntimeArchivePath storeRoot target garbageCollector =
   storeRoot
     </> "runtimes"
-    </> renderNativeTarget target
+    </> nativeTargetStoreDirectory target
     </> renderGarbageCollector garbageCollector
     </> "runtime.a"
 

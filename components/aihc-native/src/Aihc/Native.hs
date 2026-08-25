@@ -12,6 +12,7 @@ module Aihc.Native
     buildAddrLiteralPool,
     hostNativeTarget,
     nativeTargetTriple,
+    nativeTargetStoreDirectory,
     nativeCpsPrimitiveCall,
     nativeRuntimePrimitiveCall,
     parseNativeTarget,
@@ -122,12 +123,21 @@ nativeTargetTriple target =
     Llvm -> "llvm"
     Wasm32Wasip3 -> "wasm32-unknown-unknown"
 
+-- | Render the stable store directory for one compilation target.
+nativeTargetStoreDirectory :: NativeTarget -> FilePath
+nativeTargetStoreDirectory target =
+  case target of
+    AppleArm64 -> "arm64-macos-apple"
+    LinuxAmd64 -> "amd64-linux-gnu"
+    Llvm -> "llvm"
+    Wasm32Wasip3 -> "wasm32-wasip3"
+
 -- | Select the compiler driver and target arguments.
 backendCompiler :: NativeTarget -> IO (FilePath, [String])
 backendCompiler target =
   case target of
     Llvm -> pure ("clang", ["-Wno-override-module", "-O2"])
-    Wasm32Wasip3 -> pure ("clang", ["--target=wasm32-unknown-unknown"])
+    Wasm32Wasip3 -> pure ("clang", ["--target=wasm32-unknown-unknown", "-mtail-call"])
     AppleArm64 -> nativeCompiler
     LinuxAmd64 -> nativeCompiler
   where

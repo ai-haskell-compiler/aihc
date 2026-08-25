@@ -5,6 +5,7 @@ module Aihc.Cli.InstallV2
   )
 where
 
+import Aihc.Amd64 qualified as Amd64
 import Aihc.Arm64 qualified as Arm64
 import Aihc.Cli.Install
   ( DependencyResolver (..),
@@ -27,7 +28,8 @@ import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
 import Aihc.Hackage.Util qualified as HackageUtil
 import Aihc.Hackage.VersionResolver (getLatestVersion)
-import Aihc.Native (NativeTarget (..), backendCompiler, renderNativeTarget)
+import Aihc.Llvm qualified as Llvm
+import Aihc.Native (NativeTarget (..), backendCompiler, nativeTargetStoreDirectory)
 import Aihc.Parser.Syntax (ImportDecl (..), Module, Name (..), SourceSpan (..), moduleName)
 import Aihc.Parser.Syntax qualified as Syntax
 import Aihc.Resolve
@@ -62,6 +64,7 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Types (tyConModuleName, tyConNamespace, tyConPackageId)
+import Aihc.Wasm qualified as Wasm
 import Control.Exception (IOException, try)
 import Control.Monad (foldM, unless, when)
 import Data.Bits (xor)
@@ -117,13 +120,15 @@ runInstallV2 options = do
 installV2 :: InstallV2Options -> IO InstallV2Result
 installV2 options = do
   storeRoot <- maybe defaultStoreRoot pure (installV2StoreRoot options)
+  let target = installV2Target options
+      targetStoreRoot = storeRoot </> nativeTargetStoreDirectory target
   let root = installV2PackageDirectory options
       verbose message = when (installV2Verbose options) (putStrLn message)
       fallbackResolver = networkDependencyResolver
       resolver = localDependencyResolverWithFallback fallbackResolver root
   spec <- packageSpecFromSource root
-  plan <- buildPackagePlanWithResolver resolver storeRoot spec
-  installedV2Result <$> installPackagePlanV2 (installV2KeepGrin options) (installV2Target options) verbose storeRoot plan
+  plan <- buildPackagePlanWithResolver resolver targetStoreRoot spec
+  installedV2Result <$> installPackagePlanV2 (installV2KeepGrin options) target verbose targetStoreRoot plan
 
 networkDependencyResolver :: DependencyResolver
 networkDependencyResolver =
@@ -159,8 +164,7 @@ installPackageV2 keepGrin target verbose storeRoot dependencies root = do
   verbose ("Parse " <> show (length files) <> " library modules")
   parsed <- mapM (parseSource root) files
   let dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
-      targetIdentity = T.pack (renderNativeTarget target)
-      packageHash = stableHash (map TE.encodeUtf8 ("aihc-dependencies-v2" : targetIdentity : dependencyIdentities))
+      packageHash = stableHash (map TE.encodeUtf8 ("aihc-dependencies-v2" : dependencyIdentities))
       packageDirectory = T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash
       storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId (T.pack packageDirectory))
@@ -186,7 +190,7 @@ installPackageV2 keepGrin target verbose storeRoot dependencies root = do
       (installUnit keepGrin target verbose storePath resolvePackage primIdentity root)
       (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty)
       units
-  buildLibraryArchive verbose storePath packageNameText parsed
+  buildLibraryArchive target verbose storePath packageNameText parsed
   let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
       ownExports =
         Map.filterWithKey
@@ -454,7 +458,7 @@ writeCoreV2Files writeCore keepGrin target verbose currentPackage primIdentity i
       unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
       assembly <- compileNativeModule selectedTarget gcProgram
       let path = objectPath modu
-          assemblyPath = path <> ".s"
+          assemblyPath = path <> nativeSourceExtension selectedTarget
       createDirectoryIfMissing True (takeDirectory path)
       TIO.writeFile assemblyPath assembly
       (compiler, compilerArguments) <- backendCompiler selectedTarget
@@ -470,10 +474,18 @@ compileNativeModule :: NativeTarget -> Grin.GcGrinProgram -> IO Text
 compileNativeModule target gcProgram =
   case target of
     AppleArm64 -> either (ioError . userError . ("Apple ARM64 generation failed: " <>) . show) pure (Arm64.compileModule gcProgram)
-    _ -> ioError (userError ("install-v2 object generation does not support target " <> renderNativeTarget target))
+    LinuxAmd64 -> either (ioError . userError . ("Linux AMD64 generation failed: " <>) . show) pure (Amd64.compileModule gcProgram)
+    Llvm -> either (ioError . userError . ("LLVM generation failed: " <>) . show) pure (Llvm.compileModule gcProgram)
+    Wasm32Wasip3 -> either (ioError . userError . ("WebAssembly generation failed: " <>) . show) pure (Wasm.compileModule gcProgram)
 
-buildLibraryArchive :: (String -> IO ()) -> FilePath -> Text -> [SourceModule] -> IO ()
-buildLibraryArchive verbose storePath packageNameText sources = do
+nativeSourceExtension :: NativeTarget -> String
+nativeSourceExtension target =
+  case target of
+    Llvm -> ".ll"
+    _ -> ".s"
+
+buildLibraryArchive :: NativeTarget -> (String -> IO ()) -> FilePath -> Text -> [SourceModule] -> IO ()
+buildLibraryArchive _target verbose storePath packageNameText sources = do
   let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
       objects =
         [ storePath </> moduleDirectory modu </> T.unpack (fromMaybe "Main" (moduleName modu)) <> ".o"

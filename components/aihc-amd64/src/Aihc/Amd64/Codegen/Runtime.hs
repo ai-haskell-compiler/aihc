@@ -21,10 +21,8 @@ module Aihc.Amd64.Codegen.Runtime
     applyFunctionRegister,
     applyStackBytes,
     continuationRuntimeInfos,
-    constructorId,
     constructorStageLabel,
     functionCodeLabel,
-    globalSlot,
     immediate,
     initializeNodeFields,
     loadAt,
@@ -56,7 +54,6 @@ module Aihc.Amd64.Codegen.Runtime
     runtimeObjectNode,
     storeAt,
     storeByteOffset,
-    storeGlobal,
     storeLocation,
     tshow,
   )
@@ -64,6 +61,7 @@ where
 
 import Aihc.Grin.Cps (ContinuationFrameKind, continuationFrameKindCode)
 import Aihc.Grin.Syntax
+import Aihc.Native (renderLinkedConstructorInfoSymbol, renderLinkedGlobalSymbol)
 import Aihc.Native.BlockLayout qualified as BlockLayout
 import Aihc.Native.RegisterAllocate (Location (..))
 import Control.Monad (forM)
@@ -89,10 +87,7 @@ data Amd64Error
   deriving (Eq, Show)
 
 data CompileEnv = CompileEnv
-  { compileConstructorIds :: !(Map Text Int),
-    compileConstructorArities :: !(Map Text Int),
-    compileGlobalSlots :: !(Map Text Int),
-    compileFunctionLabels :: !(Map FunctionName Text),
+  { compileFunctionLabels :: !(Map FunctionName Text),
     compileAddrLiteralLabels :: !(Map BS.ByteString Text),
     compileNodeInfoLabels :: !(Map RuntimeInfoKey Text),
     compileRuntimeInfos :: ![RuntimeInfo],
@@ -183,12 +178,8 @@ materializeValueTo env destination value =
     GrinVarValue var ->
       case Map.lookup var (valueLocations env) of
         Just location -> Right (loadLocation destination location)
-        Nothing -> do
-          slot <- globalSlot (valueCompileEnv env) (grinVarName var)
-          pure [loadByteOffset "r11" "r15" 0, loadAt destination "r11" slot]
-    GrinGlobalValue name -> do
-      slot <- globalSlot (valueCompileEnv env) name
-      pure [loadByteOffset "r11" "r15" 0, loadAt destination "r11" slot]
+        Nothing -> Right [address destination (renderLinkedGlobalSymbol (grinVarName var))]
+    GrinGlobalValue name -> Right [address destination (renderLinkedGlobalSymbol name)]
     GrinLitValue literal -> materializeLiteralTo destination (valueCompileEnv env) literal
 
 materializeLiteralTo :: Text -> CompileEnv -> GrinLiteral -> Either Amd64Error [Text]
@@ -293,6 +284,7 @@ nodeHeader env node =
 data NodeInfo
   = InfoImmediate !Int
   | InfoAddress !Text
+  | InfoConstructor !Text
 
 makeNodeLines :: NodeInfo -> [Text]
 makeNodeLines info =
@@ -305,6 +297,7 @@ makeNodeLines info =
       case nodeInfo of
         InfoImmediate integer -> immediate "rsi" integer
         InfoAddress label -> address "rsi" label
+        InfoConstructor label -> address "rsi" label
 
 makeNodeUncheckedLines :: NodeInfo -> [Text]
 makeNodeUncheckedLines info =
@@ -383,6 +376,7 @@ renderRuntimeInfos infos =
   where
     renderInfo info =
       bitmapLines
+        <> [".globl " <> runtimeInfoLabel info | "aihc_constructor_" `T.isPrefixOf` runtimeInfoLabel info]
         <> [ ".p2align 3",
              runtimeInfoLabel info <> ":",
              identityLine (runtimeInfoIdentity info),
@@ -409,10 +403,12 @@ renderRuntimeInfos infos =
       case nodeInfo of
         InfoImmediate integer -> "  .quad " <> tshow integer
         InfoAddress label -> "  .quad " <> label
+        InfoConstructor label -> "  .quad " <> label
     entryLine nodeInfo =
       case nodeInfo of
         InfoImmediate {} -> "  .quad 0"
         InfoAddress label -> "  .quad " <> label
+        InfoConstructor {} -> "  .quad 0"
 
 renderRuntimeSupport :: CompileEnv -> [RuntimeInfo] -> [Text]
 renderRuntimeSupport env extraInfos =
@@ -546,21 +542,13 @@ renderNativeControl =
     "  ud2"
   ]
 
-globalSlot :: CompileEnv -> Text -> Either Amd64Error Int
-globalSlot env name =
-  maybe (Left (Amd64MissingGlobal name)) Right (Map.lookup name (compileGlobalSlots env))
-
-constructorId :: CompileEnv -> Text -> Either Amd64Error Int
-constructorId env name =
-  maybe (Left (Amd64MissingConstructor name)) Right (Map.lookup name (compileConstructorIds env))
-
 lookupRuntimeInfoLabel :: CompileEnv -> RuntimeInfoKey -> Either Amd64Error Text
 lookupRuntimeInfoLabel env key =
   case Map.lookup key (compileNodeInfoLabels env) of
     Just label -> Right label
     Nothing ->
       case key of
-        ConstructorRuntimeInfo name _ -> Left (Amd64MissingConstructor name)
+        ConstructorRuntimeInfo name remaining -> Right (constructorStageLabel name remaining)
         ClosureRuntimeInfo functionName _ _ -> Left (Amd64MissingFunction functionName)
         ThunkRuntimeInfo functionName _ -> Left (Amd64MissingFunction functionName)
 
@@ -568,9 +556,8 @@ functionCodeLabel :: CompileEnv -> FunctionName -> Either Amd64Error Text
 functionCodeLabel env name =
   maybe (Left (Amd64MissingFunction name)) Right (Map.lookup name (compileFunctionLabels env))
 
-constructorStageLabel :: Int -> Int -> Text
-constructorStageLabel identifier remaining =
-  ".Laihc_constructor_info_" <> tshow identifier <> "_remaining_" <> tshow remaining
+constructorStageLabel :: Text -> Int -> Text
+constructorStageLabel = renderLinkedConstructorInfoSymbol
 
 runtimeInfoKeyStages :: GrinNode -> [RuntimeInfoKey]
 runtimeInfoKeyStages node =
@@ -642,12 +629,6 @@ localFunctionLabelWith :: Bool -> Int -> GrinFunction -> Text
 localFunctionLabelWith exposeAllFunctions index _function
   | exposeAllFunctions = "aihc_snapshot_function_" <> tshow index
   | otherwise = functionLabel index
-
-storeGlobal :: Int -> [Text]
-storeGlobal slot =
-  [ loadByteOffset "r11" "r15" 0,
-    storeAt "rax" "r11" slot
-  ]
 
 loadAt :: Text -> Text -> Int -> Text
 loadAt destination base slot = loadByteOffset destination base (slot * 8)

@@ -5,7 +5,6 @@ module Aihc.Amd64
     ObservedProgram (..),
     compileObservedFunction,
     compileProgram,
-    compileProgramWithDependencies,
     snapshotSourcePath,
     targetTriple,
     validateProgramPrimitives,
@@ -19,7 +18,6 @@ import Aihc.Amd64.Codegen
     compileModule,
     compileObservedFunction,
     compileProgram,
-    compileProgramWithDependencies,
     validatePrimitiveNames,
     validateProgramPrimitives,
   )

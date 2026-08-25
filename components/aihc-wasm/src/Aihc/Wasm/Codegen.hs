@@ -8,7 +8,6 @@ module Aihc.Wasm.Codegen
   ( WasmError (..),
     compileModule,
     compileProgram,
-    compileProgramWithDependencies,
     validatePrimitiveNames,
     validateProgramPrimitives,
   )
@@ -17,7 +16,14 @@ where
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
 import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
-import Aihc.Native (NativeRuntimeCall (..), buildAddrLiteralPool, nativeRuntimePrimitiveCall, supportedNativePrimitiveNames)
+import Aihc.Native
+  ( NativeRuntimeCall (..),
+    buildAddrLiteralPool,
+    nativeRuntimePrimitiveCall,
+    renderLinkedConstructorInfoSymbol,
+    renderLinkedGlobalSymbol,
+    supportedNativePrimitiveNames,
+  )
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
 import Data.Char (ord)
@@ -40,34 +46,13 @@ data WasmError
   deriving (Eq, Show)
 
 data CompileEnv = CompileEnv
-  { compileConstructorIds :: !(Map Text Int),
-    compileConstructorArities :: !(Map Text Int),
-    compileGlobalSlots :: !(Map Text Int),
-    compileFunctionLabels :: !(Map FunctionName Text),
+  { compileFunctionLabels :: !(Map FunctionName Text),
     compileFunctionArities :: !(Map FunctionName Int),
     compileAddrLiteralLabels :: !(Map BS.ByteString Text),
     compileNodeInfoLabels :: !(Map RuntimeInfoKey Text),
     compileRuntimeInfos :: ![RuntimeInfo],
     compileAllowUnsupportedPrimitives :: !Bool
   }
-
-data ProgramLayout = ProgramLayout
-  { layoutConstructors :: ![(Text, [[GrinRep]])],
-    layoutGlobalNames :: ![Text]
-  }
-
-buildProgramLayout :: [GrinProgram] -> ProgramLayout
-buildProgramLayout programs =
-  ProgramLayout
-    { layoutConstructors = Map.toAscList (Map.fromList (builtinConstructors <> concatMap grinConstructors programs)),
-      layoutGlobalNames = Set.toAscList (Set.fromList (builtinGlobals <> concatMap globals programs))
-    }
-  where
-    builtinGlobals = [name | (name, layouts) <- builtinConstructors, null layouts]
-    globals program =
-      [name | (name, layouts) <- grinConstructors program, null layouts]
-        <> map fst (grinGlobals program)
-        <> grinProgramGlobalReferences program
 
 data ValueEnv = ValueEnv
   { valueCompileEnv :: !CompileEnv,
@@ -89,7 +74,7 @@ data RuntimeEnter = RuntimeEnter
 
 data RuntimeInfo = RuntimeInfo
   { runtimeInfoLabel :: !Text,
-    runtimeInfoIdentity :: !(Maybe Int),
+    runtimeInfoIdentity :: !(Maybe Text),
     runtimeInfoEntry :: !(Maybe Text),
     runtimeInfoFields :: ![GrinRep],
     runtimeInfoRemainingArity :: !Int,
@@ -105,17 +90,6 @@ data RuntimeInfoKey
   | ThunkRuntimeInfo !FunctionName ![GrinRep]
   deriving (Eq, Ord, Show)
 
-data InitialValue
-  = InitialGlobal !Int
-  | InitialInteger !Integer
-  | InitialAddress !Text
-
-data InitialNode = InitialNode
-  { initialNodeSlot :: !Int,
-    initialNodeInfo :: !Text,
-    initialNodeFields :: ![InitialValue]
-  }
-
 data CompiledFunction = CompiledFunction
   { compiledFunctionScratchSlots :: !Int,
     compiledFunctionLines :: ![Text]
@@ -126,21 +100,14 @@ type Instructions = [Text]
 data CompilationUnit = ExecutableUnit | LibraryUnit
 
 compileProgram :: Text -> GcGrinProgram -> Either WasmError Text
-compileProgram entryName gcProgram =
-  compileProgramWithDependencies [program] [] entryName gcProgram
-  where
-    program = gcGrinProgram gcProgram
-
-compileProgramWithDependencies :: [GrinProgram] -> [Text] -> Text -> GcGrinProgram -> Either WasmError Text
-compileProgramWithDependencies linkedPrograms dependencyInitializers entryName gcProgram = do
+compileProgram entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   validateProgramPrimitives program
-  rootSlot <- maybe (Left (WasmMissingEntry entryName)) Right (Map.lookup entryName (compileGlobalSlots env))
+  if entryName `elem` map fst (grinGlobals program) then pure () else Left (WasmMissingEntry entryName)
   updateLabel <- functionCodeLabel env (gcUpdateFunction gcProgram)
   updateArity <- functionArity env (gcUpdateFunction gcProgram)
   functions <- mapM (compileFunction env) (grinFunctions program)
-  constructorInit <- compileConstructorInitializers env
-  programInit <- compileInitializers env program
+  staticGlobals <- renderStaticGlobals True env program
   let specialInfo label entry fields remaining next frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next Nothing (Just frameKind) runtimeObjectClosure
       updateInfo label fields remaining next enter =
         RuntimeInfo
@@ -165,41 +132,40 @@ compileProgramWithDependencies linkedPrograms dependencyInitializers entryName g
         ]
       runtimeInfos = compileRuntimeInfos env <> specialInfos
       source =
-        moduleHeader env dependencyInitializers program
+        moduleHeader env program
           <> renderEntryAdapters runtimeInfos
           <> concatMap compiledFunctionLines functions
           <> renderSpecialFunctions
-          <> renderProgramInitializer (length (layoutGlobalNames layout)) rootSlot dependencyInitializers constructorInit programInit
+          <> renderProgramInitializer entryName
           <> renderRuntimeSymbols
           <> renderAddrLiterals env
           <> renderRuntimeInfos runtimeInfos
+          <> staticGlobals
           <> renderScratch functions
           <> ["\t.no_dead_strip\t__indirect_function_table", ""]
   pure (T.unlines source)
   where
-    layout = buildProgramLayout linkedPrograms
     program = gcGrinProgram gcProgram
-    env = compileEnvironment ExecutableUnit layout gcProgram
+    env = compileEnvironment ExecutableUnit gcProgram
 
-compileModule :: [GrinProgram] -> Text -> GcGrinProgram -> Either WasmError Text
-compileModule linkedPrograms initializerSymbol gcProgram = do
+compileModule :: GcGrinProgram -> Either WasmError Text
+compileModule gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction env) (grinFunctions program)
-  programInit <- compileInitializers env program
+  staticGlobals <- renderStaticGlobals False env program
   let source =
-        moduleHeader env [] program
+        moduleHeader env program
           <> renderEntryAdapters (compileRuntimeInfos env)
           <> concatMap compiledFunctionLines functions
-          <> renderModuleInitializer initializerSymbol programInit
           <> renderAddrLiterals env
           <> renderRuntimeInfos (compileRuntimeInfos env)
+          <> staticGlobals
           <> renderScratch functions
           <> ["\t.no_dead_strip\t__indirect_function_table", ""]
   pure (T.unlines source)
   where
-    layout = buildProgramLayout linkedPrograms
     program = gcGrinProgram gcProgram
-    env = compileEnvironment LibraryUnit layout gcProgram
+    env = compileEnvironment LibraryUnit gcProgram
 
 validateProgramPrimitives :: GrinProgram -> Either WasmError ()
 validateProgramPrimitives = validatePrimitiveNames . map (grinVarName . fst) . grinPrimitives
@@ -210,13 +176,10 @@ validatePrimitiveNames = mapM_ $ \name ->
     then Right ()
     else Left (WasmUnsupportedPrimitive name)
 
-compileEnvironment :: CompilationUnit -> ProgramLayout -> GcGrinProgram -> CompileEnv
-compileEnvironment unitKind layout gcProgram =
+compileEnvironment :: CompilationUnit -> GcGrinProgram -> CompileEnv
+compileEnvironment unitKind gcProgram =
   CompileEnv
-    { compileConstructorIds = Map.fromList constructorIds,
-      compileConstructorArities = Map.fromList constructors,
-      compileGlobalSlots = Map.fromList (zip (layoutGlobalNames layout) [0 ..]),
-      compileFunctionLabels = functionLabels,
+    { compileFunctionLabels = functionLabels,
       compileFunctionArities = functionArities,
       compileAddrLiteralLabels = Map.fromList [(bytes, "aihc_wasm_addr_" <> tshow index) | (index, (bytes, _)) <- zip [0 :: Int ..] (buildAddrLiteralPool program)],
       compileNodeInfoLabels = Map.fromList [(key, label) | (key, label, _) <- constructorEntries <> functionEntries],
@@ -228,8 +191,10 @@ compileEnvironment unitKind layout gcProgram =
     }
   where
     program = gcGrinProgram gcProgram
-    constructors = [(name, length layouts) | (name, layouts) <- layoutConstructors layout]
-    constructorIds = zip (map fst constructors) [1 ..]
+    constructorLayouts = (if isExecutable then builtinConstructors else []) <> grinConstructors program
+    isExecutable = case unitKind of
+      ExecutableUnit -> True
+      LibraryUnit -> False
     functionLabels =
       Map.fromList
         [ (grinFunctionName function, localFunctionLabel index function)
@@ -241,25 +206,15 @@ compileEnvironment unitKind layout gcProgram =
         | function <- grinFunctions program
         ]
     constructorEntries =
-      [ (key, label, RuntimeInfo label (Just identifier) Nothing fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key))
-      | ((name, layouts), (_, identifier)) <- zip (layoutConstructors layout) constructorIds,
+      [ (key, label, RuntimeInfo label (Just (renderLinkedConstructorInfoSymbol name 0)) Nothing fields remaining next Nothing Nothing (runtimeInfoKeyObjectKind key))
+      | (name, layouts) <- constructorLayouts,
         let arity = length layouts,
         remaining <- [arity, arity - 1 .. 0],
         let key = ConstructorRuntimeInfo name remaining,
-        key `Set.member` requiredConstructorInfos,
-        let label = "aihc_wasm_constructor_info_" <> tshow identifier <> "_remaining_" <> tshow remaining
+        let label = renderLinkedConstructorInfoSymbol name remaining
             fields = concat (take (arity - remaining) layouts)
-            next = if remaining == 0 then Nothing else Just ("aihc_wasm_constructor_info_" <> tshow identifier <> "_remaining_" <> tshow (remaining - 1))
+            next = if remaining == 0 then Nothing else Just (renderLinkedConstructorInfoSymbol name (remaining - 1))
       ]
-    requiredConstructorInfos =
-      Set.fromList
-        ( executableConstructorInfos
-            <> concatMap requiredNodeConstructorInfos (programNodes program)
-        )
-    executableConstructorInfos =
-      case unitKind of
-        ExecutableUnit -> [ConstructorRuntimeInfo name 0 | (name, arity) <- constructors, arity == 0]
-        LibraryUnit -> []
     infoKeys =
       [ key
       | key <- Set.toAscList (Set.fromList (concatMap runtimeInfoKeyStages (programNodes program))),
@@ -294,8 +249,8 @@ compileEnvironment unitKind layout gcProgram =
       ]
     third (_, _, value) = value
 
-moduleHeader :: CompileEnv -> [Text] -> GrinProgram -> [Text]
-moduleHeader env dependencyInitializers program =
+moduleHeader :: CompileEnv -> GrinProgram -> [Text]
+moduleHeader env program =
   [ "# Direct GRIN-to-WebAssembly backend output. No C or LLVM IR is generated.",
     "\t.text"
   ]
@@ -304,7 +259,6 @@ moduleHeader env dependencyInitializers program =
        | (functionName, label) <- Map.toAscList (compileFunctionLabels env),
          let arity = Map.findWithDefault 0 functionName (compileFunctionArities env)
        ]
-    <> map (renderFunctionType . (,([], []))) dependencyInitializers
     <> map renderForeignType (grinForeignCalls program)
     <> [""]
   where
@@ -728,8 +682,12 @@ compileCase env scrutinee binder alternatives = do
         condition <- case constructor of
           GrinDataAlt name
             | pointer -> do
-                identifier <- constructorId (valueCompileEnv env) name
-                pure (["local.get\t" <> caseLocal] <> call "aihc_wasm_value_info" <> i64Const (tshow identifier) <> ["i64.eq"])
+                pure
+                  ( ["local.get\t" <> caseLocal]
+                      <> call "aihc_wasm_value_info"
+                      <> i32Symbol (renderLinkedConstructorInfoSymbol name 0)
+                      <> ["i64.extend_i32_u", "i64.eq"]
+                  )
           GrinDataAlt {} -> Left (WasmUnsupportedExpression "constructor case on unboxed value")
           GrinLitAlt literal
             | pointer -> Left (WasmUnsupportedExpression "literal case on lifted value")
@@ -750,7 +708,7 @@ compileCase env scrutinee binder alternatives = do
 allocateNodeInto :: ValueEnv -> Bool -> GrinVar -> GrinNode -> Either WasmError Instructions
 allocateNodeInto env unchecked var node = do
   info <- nodeHeader (valueCompileEnv env) node
-  let allocation = machine <> i32Data info <> call (if unchecked then "aihc_wasm_make_node_unchecked" else "aihc_wasm_make_node")
+  let allocation = machine <> i32RuntimeData info <> call (if unchecked then "aihc_wasm_make_node_unchecked" else "aihc_wasm_make_node")
   fields <- initializeNodeFields env (localGet env var) node
   pure (localSetFor env var allocation <> fields)
 
@@ -766,18 +724,15 @@ materializeValue env value = case value of
   GrinVarValue var ->
     case Map.lookup var (valueLocals env) of
       Just wasmLocal -> getWasmLocal wasmLocal
-      Nothing -> case Map.lookup (grinVarName var) (compileGlobalSlots (valueCompileEnv env)) of
-        Just slot -> machine <> i64Const (tshow slot) <> call "aihc_wasm_global_get"
-        Nothing -> call "aihc_no_match" <> ["unreachable", "i64.const\t0"]
-  GrinGlobalValue name ->
-    case Map.lookup name (compileGlobalSlots (valueCompileEnv env)) of
-      Just slot -> machine <> i64Const (tshow slot) <> call "aihc_wasm_global_get"
-      Nothing -> call "aihc_no_match" <> ["unreachable", "i64.const\t0"]
+      Nothing -> linkedGlobalValue (grinVarName var)
+  GrinGlobalValue name -> linkedGlobalValue name
   GrinLitValue literal -> case literal of
     GrinLitAddr bytes -> case Map.lookup bytes (compileAddrLiteralLabels (valueCompileEnv env)) of
       Just label -> i32Data label <> ["i64.extend_i32_u"]
       Nothing -> i64Const "0"
     _ -> maybe (i64Const "0") (i64Const . renderInteger) (normalizedLiteralInteger literal)
+  where
+    linkedGlobalValue name = i32Symbol (renderLinkedGlobalSymbol name) <> ["i64.extend_i32_u"]
 
 storeScratchValues :: ValueEnv -> [GrinValue] -> Either WasmError Instructions
 storeScratchValues env values =
@@ -818,11 +773,12 @@ storeSlot address index value = address <> value <> ["i64.store\t" <> tshow (ind
 machine :: Instructions
 machine = ["local.get\t0"]
 
-i32Const, i64Const, i32Symbol, i32Data, call :: Text -> Instructions
+i32Const, i64Const, i32Symbol, i32Data, i32RuntimeData, call :: Text -> Instructions
 i32Const value = ["i32.const\t" <> value]
 i64Const value = ["i64.const\t" <> value]
 i32Symbol = i32Const
 i32Data = i32Const . dataLabel
+i32RuntimeData = i32Const . runtimeDataLabel
 call function = ["call\t" <> function]
 
 functionStart :: Text -> [WasmValueType] -> [Text]
@@ -881,47 +837,17 @@ renderSpecialFunctions =
     <> indent (["i32.const\t0", "i32.load\taihc_machine"] <> i32Const "0" <> i64Const "0" <> i32Const "0" <> call "aihc_wasm_transfer_direct" <> ["return"])
     <> functionEnd
 
-compileConstructorInitializers :: CompileEnv -> Either WasmError [(Int, Text)]
-compileConstructorInitializers env = forM nullary $ \(name, _identifier) -> do
-  slot <- globalSlot env name
-  info <- lookupRuntimeInfoLabel env (ConstructorRuntimeInfo name 0)
-  pure (slot, info)
-  where
-    nullary =
-      [ (name, identifier)
-      | (name, identifier) <- Map.toAscList (compileConstructorIds env),
-        Map.lookup name (compileConstructorArities env) == Just 0
-      ]
-
-compileInitializers :: CompileEnv -> GrinProgram -> Either WasmError [InitialNode]
-compileInitializers env program = mapM withSlot (grinGlobals program)
-  where
-    withSlot (name, node) = do
-      slot <- globalSlot env name
-      info <- nodeHeader env node
-      fields <- mapM initialValue (grinNodeFields node)
-      pure (InitialNode slot info fields)
-    initialValue value = case value of
-      GrinVarValue var -> InitialGlobal <$> globalSlot env (grinVarName var)
-      GrinGlobalValue name -> InitialGlobal <$> globalSlot env name
-      GrinLitValue literal -> case literal of
-        GrinLitAddr bytes -> maybe (Left (WasmUnsupportedValue "unregistered initializer address")) (Right . InitialAddress) (Map.lookup bytes (compileAddrLiteralLabels env))
-        _ -> maybe (Left (WasmUnsupportedValue "unsupported initializer literal")) (Right . InitialInteger) (normalizedLiteralInteger literal)
-
-renderProgramInitializer :: Int -> Int -> [Text] -> [(Int, Text)] -> [InitialNode] -> [Text]
-renderProgramInitializer globalCount rootSlot dependencyInitializers constructors globals =
+renderProgramInitializer :: Text -> [Text]
+renderProgramInitializer entryName =
   functionStartNoArguments "aihc_wasm_program_initialize" [I32, I64, I64, I64, I64, I64]
     <> indent
-      ( i64Const (tshow globalCount)
+      ( i64Const "0"
           <> call "aihc_machine_new"
           <> ["local.set\t0", "i32.const\t0", "local.get\t0", "i32.store\taihc_machine"]
-          <> concatMap (uncurry (initializeGlobalNode machineValue 1)) constructors
-          <> concatMap call dependencyInitializers
-          <> concatMap (\node -> initializeGlobalNode machineValue 1 (initialNodeSlot node) (initialNodeInfo node)) globals
-          <> concatMap (initializeGlobalFields machineValue) globals
           <> initializeSpecials
           <> ["local.get\t0"]
-          <> globalGet rootSlot
+          <> i32Symbol (renderLinkedGlobalSymbol entryName)
+          <> ["i64.extend_i32_u"]
           <> specialGet 1
           <> specialGet 2
           <> specialGet 3
@@ -931,13 +857,11 @@ renderProgramInitializer globalCount rootSlot dependencyInitializers constructor
       )
     <> functionEnd
   where
-    machineValue = ["local.get\t0"]
-    globalGet = globalValue machineValue
     specialSet :: Int -> Instructions -> Instructions
     specialSet slot value = value <> ["local.set\t" <> tshow (slot + 2)]
     specialGet :: Int -> Instructions
     specialGet slot = ["local.get\t" <> tshow (slot + 2)]
-    makeSpecial info = ["local.get\t0"] <> i32Data info <> call "aihc_wasm_make_node"
+    makeSpecial info = ["local.get\t0"] <> i32RuntimeData info <> call "aihc_wasm_make_node"
     initializeSpecials =
       specialSet 0 (makeSpecial "aihc_wasm_final_info")
         <> specialSet 1 (makeSpecial "aihc_wasm_top_info")
@@ -952,7 +876,8 @@ renderProgramInitializer globalCount rootSlot dependencyInitializers constructor
         <> call "aihc_wasm_set_field"
         <> specialGet 2
         <> i64Const "1"
-        <> globalGet rootSlot
+        <> i32Symbol (renderLinkedGlobalSymbol entryName)
+        <> ["i64.extend_i32_u"]
         <> call "aihc_wasm_set_field"
         <> specialSet 3 (makeSpecial "aihc_wasm_thread_done_info")
         <> ["local.get\t0"]
@@ -960,18 +885,57 @@ renderProgramInitializer globalCount rootSlot dependencyInitializers constructor
         <> ["i32.wrap_i64"]
         <> call "aihc_set_thread_done_continuation"
 
-renderModuleInitializer :: Text -> [InitialNode] -> [Text]
-renderModuleInitializer initializerSymbol globals =
-  functionStartNoArguments initializerSymbol [I32, I64]
-    <> indent
-      ( ["i32.const\t0", "i32.load\taihc_machine", "local.set\t0"]
-          <> concatMap (\node -> initializeGlobalNode machineValue 1 (initialNodeSlot node) (initialNodeInfo node)) globals
-          <> concatMap (initializeGlobalFields machineValue) globals
-          <> ["return"]
-      )
-    <> functionEnd
+renderStaticGlobals :: Bool -> CompileEnv -> GrinProgram -> Either WasmError [Text]
+renderStaticGlobals includeBuiltins env program = fmap concat (mapM renderGlobal globals)
   where
-    machineValue = ["local.get\t0"]
+    declaredGlobals = grinGlobals program
+    declaredNames = map fst declaredGlobals
+    constructorLayouts = (if includeBuiltins then builtinConstructors else []) <> grinConstructors program
+    implicitConstructors =
+      [ (name, GrinNode (GrinConstructor name 0) [])
+      | (name, layouts) <- constructorLayouts,
+        null layouts,
+        name `notElem` declaredNames
+      ]
+    globals = declaredGlobals <> implicitConstructors
+    renderGlobal (name, node) = do
+      info <- nodeHeader env node
+      fields <- mapM renderStaticValue (grinNodeFields node)
+      let symbol = renderLinkedGlobalSymbol name
+          payload = if null fields && isThunk node then ["\t.int64\t0"] else fields
+          size = (1 + length payload) * 8
+      pure
+        ( [ "\t.type\t" <> symbol <> ",@object",
+            "\t.section\t.data." <> symbol <> ",\"\",@",
+            "\t.p2align\t3, 0x0",
+            "\t.hidden\t" <> symbol,
+            "\t.globl\t" <> symbol,
+            symbol <> ":",
+            "\t.int32\t" <> runtimeDataLabel info,
+            "\t.int32\t0"
+          ]
+            <> payload
+            <> [ "\t.size\t" <> symbol <> ", " <> tshow size,
+                 "\t.section\taihc_roots,\"\",@",
+                 "\t.p2align\t2, 0x0",
+                 "\t.int32\t" <> symbol,
+                 ""
+               ]
+        )
+    renderStaticValue value =
+      case value of
+        GrinVarValue var -> pure (linkedAddress (grinVarName var))
+        GrinGlobalValue name -> pure (linkedAddress name)
+        GrinLitValue literal ->
+          case literal of
+            GrinLitAddr bytes ->
+              maybe
+                (Left (WasmUnsupportedValue "unregistered initializer address"))
+                (pure . (<> "\n\t.int32\t0") . ("\t.int32\t" <>) . dataLabel)
+                (Map.lookup bytes (compileAddrLiteralLabels env))
+            _ -> maybe (Left (WasmUnsupportedValue "unsupported initializer literal")) (pure . ("\t.int64\t" <>) . renderInteger) (normalizedLiteralInteger literal)
+    linkedAddress name = "\t.int32\t" <> renderLinkedGlobalSymbol name <> "\n\t.int32\t0"
+    isThunk node = case grinNodeTag node of GrinThunk {} -> True; _ -> False
 
 renderScratch :: [CompiledFunction] -> [Text]
 renderScratch functions =
@@ -986,36 +950,6 @@ renderScratch functions =
   where
     size = max 1 (maximum (0 : map compiledFunctionScratchSlots functions)) * 8
     scratchLabel = "aihc_wasm_scratch"
-
-initializeGlobalNode :: Instructions -> Int -> Int -> Text -> Instructions
-initializeGlobalNode machineValue temporary slot info =
-  machineValue
-    <> i32Data info
-    <> call "aihc_wasm_make_node"
-    <> ["local.set\t" <> tshow temporary]
-    <> machineValue
-    <> i64Const (tshow slot)
-    <> ["local.get\t" <> tshow temporary]
-    <> call "aihc_wasm_global_set"
-
-initializeGlobalFields :: Instructions -> InitialNode -> Instructions
-initializeGlobalFields machineValue node =
-  concatMap initializeField (zip [0 :: Int ..] (initialNodeFields node))
-  where
-    initializeField (index, value) =
-      globalValue machineValue (initialNodeSlot node)
-        <> i64Const (tshow index)
-        <> initialGlobalValue machineValue value
-        <> call "aihc_wasm_set_field"
-
-initialGlobalValue :: Instructions -> InitialValue -> Instructions
-initialGlobalValue machineValue value = case value of
-  InitialGlobal slot -> globalValue machineValue slot
-  InitialInteger integer -> i64Const (renderInteger integer)
-  InitialAddress label -> i32Data label <> ["i64.extend_i32_u"]
-
-globalValue :: Instructions -> Int -> Instructions
-globalValue machineValue slot = machineValue <> i64Const (tshow slot) <> call "aihc_wasm_global_get"
 
 renderRuntimeSymbols :: [Text]
 renderRuntimeSymbols =
@@ -1079,32 +1013,41 @@ renderRuntimeInfos infos = concatMap renderBitmap infos <> concatMap renderInfo 
       | otherwise =
           objectStart (runtimeInfoLabel info <> "_bitmap") 0
             <> ["\t.int8\t" <> if isPointerRuntimeRep field then "1" else "0" | field <- runtimeInfoFields info]
-            <> [ "\t.size\t" <> dataLabel (runtimeInfoLabel info <> "_bitmap") <> ", " <> tshow (length (runtimeInfoFields info)),
+            <> [ "\t.size\t" <> runtimeDataLabel (runtimeInfoLabel info <> "_bitmap") <> ", " <> tshow (length (runtimeInfoFields info)),
                  ""
                ]
     renderInfo info =
       objectStart (runtimeInfoLabel info) 3
-        <> [ "\t.int32\t" <> maybe "0" tshow (runtimeInfoIdentity info),
+        <> [ "\t.int32\t" <> fromMaybe "0" (runtimeInfoIdentity info),
              "\t.int32\t" <> fromMaybe "0" (runtimeInfoEntry info),
              "\t.int64\t" <> tshow (length (runtimeInfoFields info)),
              "\t.int64\t" <> tshow (runtimeInfoRemainingArity info),
-             "\t.int32\t" <> if null (runtimeInfoFields info) then "0" else dataLabel (runtimeInfoLabel info <> "_bitmap"),
-             "\t.int32\t" <> maybe "0" dataLabel (runtimeInfoNext info),
+             "\t.int32\t" <> if null (runtimeInfoFields info) then "0" else runtimeDataLabel (runtimeInfoLabel info <> "_bitmap"),
+             "\t.int32\t" <> maybe "0" runtimeDataLabel (runtimeInfoNext info),
              "\t.int32\t" <> maybe "0" (const (objectEntryLabel info)) (runtimeInfoAdapter info >>= runtimeAdapterEnter),
              "\t.skip\t4",
              "\t.int64\t" <> tshow (continuationFrameKindCode (runtimeInfoFrameKind info)),
              "\t.int64\t" <> tshow (runtimeInfoObjectKind info),
-             "\t.size\t" <> dataLabel (runtimeInfoLabel info) <> ", 56",
+             "\t.size\t" <> runtimeDataLabel (runtimeInfoLabel info) <> ", 56",
              ""
            ]
 
 objectStart :: Text -> Int -> [Text]
 objectStart label alignment =
-  [ "\t.type\t" <> dataLabel label <> ",@object",
-    "\t.section\t.rodata." <> dataLabel label <> ",\"\",@"
+  [ "\t.type\t" <> runtimeDataLabel label <> ",@object",
+    "\t.section\t.rodata." <> runtimeDataLabel label <> ",\"\",@"
   ]
     <> ["\t.p2align\t" <> tshow alignment <> ", 0x0" | alignment /= 0]
-    <> [dataLabel label <> ":"]
+    <> (if isLinkedData label then ["\t.hidden\t" <> runtimeDataLabel label, "\t.globl\t" <> runtimeDataLabel label] else [])
+    <> [runtimeDataLabel label <> ":"]
+
+runtimeDataLabel :: Text -> Text
+runtimeDataLabel label
+  | isLinkedData label = label
+  | otherwise = dataLabel label
+
+isLinkedData :: Text -> Bool
+isLinkedData = T.isPrefixOf "aihc_constructor_"
 
 dataLabel :: Text -> Text
 dataLabel = (".L" <>)
@@ -1118,17 +1061,11 @@ nodeHeader env node = lookupRuntimeInfoLabel env key
       GrinClosure functionName layouts -> ClosureRuntimeInfo functionName fields layouts
       GrinThunk functionName -> ThunkRuntimeInfo functionName fields
 
-globalSlot :: CompileEnv -> Text -> Either WasmError Int
-globalSlot env name = maybe (Left (WasmMissingGlobal name)) Right (Map.lookup name (compileGlobalSlots env))
-
-constructorId :: CompileEnv -> Text -> Either WasmError Int
-constructorId env name = maybe (Left (WasmMissingConstructor name)) Right (Map.lookup name (compileConstructorIds env))
-
 lookupRuntimeInfoLabel :: CompileEnv -> RuntimeInfoKey -> Either WasmError Text
 lookupRuntimeInfoLabel env key = case Map.lookup key (compileNodeInfoLabels env) of
   Just label -> Right label
   Nothing -> case key of
-    ConstructorRuntimeInfo name _ -> Left (WasmMissingConstructor name)
+    ConstructorRuntimeInfo name remaining -> Right (renderLinkedConstructorInfoSymbol name remaining)
     ClosureRuntimeInfo functionName _ _ -> Left (WasmMissingFunction functionName)
     ThunkRuntimeInfo functionName _ -> Left (WasmMissingFunction functionName)
 
@@ -1137,11 +1074,6 @@ functionCodeLabel env name = maybe (Left (WasmMissingFunction name)) Right (Map.
 
 functionArity :: CompileEnv -> FunctionName -> Either WasmError Int
 functionArity env name = maybe (Left (WasmMissingFunction name)) Right (Map.lookup name (compileFunctionArities env))
-
-requiredNodeConstructorInfos :: GrinNode -> [RuntimeInfoKey]
-requiredNodeConstructorInfos node = case grinNodeTag node of
-  GrinConstructor name remaining -> [ConstructorRuntimeInfo name stage | stage <- [remaining, remaining - 1 .. 0]]
-  _ -> []
 
 runtimeInfoKeyStages :: GrinNode -> [RuntimeInfoKey]
 runtimeInfoKeyStages node = case grinNodeTag node of

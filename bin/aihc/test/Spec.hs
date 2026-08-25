@@ -6,10 +6,11 @@ import Aihc.Cli.InstallV2 (InstallV2Result (..), installV2)
 import Aihc.Cli.Options (InstallV2Options (..))
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc2 qualified as Fc2
-import Aihc.Native (NativeTarget (AppleArm64))
+import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
 import Control.Exception (IOException, bracket, try)
+import Control.Monad (forM)
 import Data.ByteString qualified as BS
 import Data.List (isPrefixOf, sort)
 import Data.Maybe (mapMaybe)
@@ -22,6 +23,7 @@ import System.Directory
     createDirectoryIfMissing,
     doesDirectoryExist,
     doesFileExist,
+    findExecutable,
     getCurrentDirectory,
     getTemporaryDirectory,
     listDirectory,
@@ -32,6 +34,7 @@ import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openTempFile)
 import System.IO.Error (ioeGetErrorString)
+import System.Info qualified as System
 import System.Process (readProcess)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
@@ -52,7 +55,7 @@ main =
           testCase "reports resolve errors with source locations" test_installV2ResolveError,
           testCase "writes Core-v2 for a ccall import" test_installV2Fc2Ccall,
           testCase "retains and repairs GRIN only with keep-grin" test_installV2KeepGrin,
-          testCase "writes Apple ARM64 objects and a library archive" test_installV2AppleArm64Archive,
+          testCase "writes target-specific objects and library archives" test_installV2TargetArchives,
           testCase "install-v2 writes core-v2 for aihc-prim and lints stored programs" test_installV2AihcPrim
         ],
       testProperty "Hedgehog options" prop_dummy
@@ -161,17 +164,51 @@ test_installV2KeepGrin = do
     assertEqual "GRIN repair keeps Core-v2" originalCore repairedCore
     assertEqual "GRIN repair writes the module" ["Demo"] (installV2WrittenModules repaired)
 
-test_installV2AppleArm64Archive :: Assertion
-test_installV2AppleArm64Archive = do
+test_installV2TargetArchives :: Assertion
+test_installV2TargetArchives = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/keep-grin"
-  withTempDir "aihc-install-v2-apple-arm64" $ \root -> do
-    result <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False False AppleArm64)
-    let objectPath = installV2StorePath result </> "Demo" </> "Demo.o"
-        archivePath = installV2StorePath result </> "lib" </> "libdemo.a"
-    assertFileExists objectPath
-    assertFileExists archivePath
-    members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
-    assertEqual "archive members" ["Demo.o"] members
+  wasmSupported <- clangSupportsWasm
+  foreignArchivesSupported <- arSupportsForeignObjects
+  withTempDir "aihc-install-v2-targets" $ \root -> do
+    let targets =
+          [ (AppleArm64, "arm64-macos-apple"),
+            (Llvm, "llvm")
+          ]
+            <> [(LinuxAmd64, "amd64-linux-gnu") | foreignArchivesSupported]
+            <> [(Wasm32Wasip3, "wasm32-wasip3") | wasmSupported && foreignArchivesSupported]
+    results <- forM targets $ \(target, directory) -> do
+      result <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False False target)
+      let objectPath = installV2StorePath result </> "Demo" </> "Demo.o"
+          archivePath = installV2StorePath result </> "lib" </> "libdemo.a"
+      assertEqual "target store directory" directory (takeFileName (takeDirectory (installV2StorePath result)))
+      assertFileExists objectPath
+      assertFileExists archivePath
+      members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
+      assertEqual ("archive members for " <> show target) ["Demo.o"] members
+      pure result
+    case results of
+      [] -> assertFailure "no target results"
+      first : rest ->
+        assertBool
+          "package identity is equal for all targets"
+          (all ((== takeFileName (installV2StorePath first)) . takeFileName . installV2StorePath) rest)
+
+clangSupportsWasm :: IO Bool
+clangSupportsWasm = do
+  result <- try (readProcess "clang" ["-print-targets"] "") :: IO (Either IOException String)
+  pure $ case result of
+    Left _ -> False
+    Right targets -> any isWasmTarget (lines targets)
+  where
+    isWasmTarget line =
+      case words line of
+        target : _ -> target == "wasm32"
+        [] -> False
+
+arSupportsForeignObjects :: IO Bool
+arSupportsForeignObjects = do
+  archiveTool <- findExecutable "ar"
+  pure (System.os /= "darwin" || archiveTool /= Just "/usr/bin/ar")
 
 assertCoreV2File :: FilePath -> Assertion
 assertCoreV2File path = do
@@ -213,6 +250,7 @@ test_installV2AihcPrim = do
   aihcPrimRoot <- findAihcPrimRoot
   withTempDir "aihc-install-v2-aihc-prim" $ \root -> do
     let storeRoot = root </> "store"
+        targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
         options = InstallV2Options aihcPrimRoot (Just storeRoot) True False AppleArm64
     createDirectoryIfMissing True storeRoot
     caught <- try (installV2 options) :: IO (Either IOException InstallV2Result)
@@ -229,7 +267,7 @@ test_installV2AihcPrim = do
       Right value -> pure value
     let packageDir = installV2StorePath result
         packageId = PackageId (T.pack (takeFileName packageDir))
-        loader = Fc2.storeModuleLoader storeRoot
+        loader = Fc2.storeModuleLoader targetStoreRoot
     mapM_ (assertModuleCoreV2 packageDir) aihcPrimLibraryModules
     coreV2Files <- listNamedFiles packageDir "core-v2"
     mapM_ assertCoreV2File coreV2Files
@@ -420,12 +458,13 @@ test_installV2LocalDependencies =
       )
     writeFile (sourceRoot </> "src" </> "Demo.hs") "module Demo where\nimport Dep\nresult = identity\n"
     _ <- installV2 options
-    storeEntries <- listDirectory storeRoot
+    let targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
+    storeEntries <- listDirectory targetStoreRoot
     let dependencyStores = filter ("dep-1.0.0-" `isPrefixOf`) storeEntries
     case dependencyStores of
       [dependencyStore] -> do
-        assertFileExists (storeRoot </> dependencyStore </> "Dep" </> "resolve.cbor")
-        assertFileExists (storeRoot </> dependencyStore </> "Dep" </> "type.cbor")
+        assertFileExists (targetStoreRoot </> dependencyStore </> "Dep" </> "resolve.cbor")
+        assertFileExists (targetStoreRoot </> dependencyStore </> "Dep" </> "type.cbor")
       _ -> assertFailure ("expected one installed dependency, got " <> show dependencyStores)
 
 test_installV2StaleTypeArtifact :: Assertion
