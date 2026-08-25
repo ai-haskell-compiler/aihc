@@ -708,7 +708,6 @@ literalOrigins literal =
   case literal of
     LitInt representation _ -> typeOrigins representation
     LitChar representation _ -> typeOrigins representation
-    LitString {} -> []
     LitAddr representation _ -> typeOrigins representation
 
 coercionOrigins :: Coercion -> [(PackageId, Text)]

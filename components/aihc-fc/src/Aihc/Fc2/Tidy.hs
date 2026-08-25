@@ -138,7 +138,6 @@ tidyLiteral env literal =
   case literal of
     LitInt representation value -> LitInt (tidyType env representation) value
     LitChar representation value -> LitChar (tidyType env representation) value
-    LitString value -> LitString value
     LitAddr representation value -> LitAddr (tidyType env representation) value
 
 tidyCoercion :: TidyEnv -> Coercion -> Coercion

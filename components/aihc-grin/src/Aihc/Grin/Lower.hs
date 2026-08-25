@@ -443,7 +443,6 @@ lowerLazySingle env hint expression continuation =
         Just [variable] -> continuation (GrinVarValue variable)
         Just _ -> throwLower ("GRIN expected one lazy local value: " <> show name)
         Nothing -> lookupGlobalName env name >>= continuation . GrinGlobalValue
-    Fc2.ExLit literal@Fc2.LitString {} -> lowerLiteral env literal >>= continuation . GrinLitValue
     Fc2.ExTyApp inner _ -> lowerLazySingle env hint inner continuation
     Fc2.ExCast inner _ -> lowerLazySingle env hint inner continuation
     _ -> do
@@ -755,7 +754,6 @@ literalRep env literal =
   case literal of
     Fc2.LitInt representation _ -> convertRep env representation
     Fc2.LitChar representation _ -> convertRep env representation
-    Fc2.LitString {} -> pure liftedGrinRep
     Fc2.LitAddr {} -> pure AddrRep
 
 lowerLiteral :: LowerEnv -> Fc2.Literal -> LowerM GrinLiteral
@@ -763,7 +761,6 @@ lowerLiteral env literal =
   case literal of
     Fc2.LitInt representation value -> GrinLitInt <$> convertRep env representation <*> pure value
     Fc2.LitChar representation value -> GrinLitChar <$> convertRep env representation <*> pure value
-    Fc2.LitString value -> pure (GrinLitString value)
     Fc2.LitAddr _ value -> pure (GrinLitAddr value)
 
 lowerForeignCall :: Fc2.Name -> Fc2.CCallSpec -> GrinForeignCall

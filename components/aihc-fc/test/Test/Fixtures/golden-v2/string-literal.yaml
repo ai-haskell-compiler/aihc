@@ -1,0 +1,32 @@
+---
+extensions:
+- MagicHash
+modules:
+- |
+  module Test where
+
+  import GHC.Prim (Char#)
+
+  data Char = C# Char#
+
+  text :: [Char]
+  text = "ab"
+
+  empty :: [Char]
+  empty = ""
+expected: |-
+  scope 1 = "" Test
+  scope 2 = "aihc-prim" GHC.Prim
+  scope 3 = "aihc-prim" GHC.Types
+
+  pub type 1.tChar :: 3.tType {
+      pub 1.vC# :: FUN @3.vWordRep @3.tLiftedRep 2.tChar# 1.tChar
+  }
+
+  pub val 1.vtext :: 3.t[] 1.tChar
+   = 3.v: @1.tChar (1.vC# 'a'#3.vWordRep) (3.v: @1.tChar (1.vC# 'b'#3.vWordRep) (3.v[] @1.tChar))
+
+  pub val 1.vempty :: 3.t[] 1.tChar
+   = 3.v[] @1.tChar
+status: pass
+reason: String literals desugar to boxed character lists.

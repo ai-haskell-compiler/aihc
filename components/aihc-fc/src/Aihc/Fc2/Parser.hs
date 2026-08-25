@@ -367,11 +367,7 @@ coercion =
     ]
 
 literal :: Parser Literal
-literal =
-  MP.choice
-    [ MP.try hashedLiteral,
-      LitString <$> stringLiteral
-    ]
+literal = hashedLiteral
 
 hashedLiteral :: Parser Literal
 hashedLiteral =
