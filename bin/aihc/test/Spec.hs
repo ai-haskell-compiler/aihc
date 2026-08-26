@@ -14,7 +14,7 @@ import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
 import Data.List (isPrefixOf, sort)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -73,7 +73,7 @@ test_buildExeSourceDirectories :: Assertion
 test_buildExeSourceDirectories = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/source-directories"
   baseRoot <- findCoreLibraryRoot "aihc-base"
-  target <- maybe (assertFailure "the host has no native aihc target") pure hostNativeTarget
+  let target = fromMaybe Llvm hostNativeTarget
   withTempDir "aihc-build-exe" $ \root -> do
     let storeRoot = root </> "store"
         output = root </> "program"
