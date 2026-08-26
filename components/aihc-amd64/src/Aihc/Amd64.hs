@@ -1,10 +1,10 @@
 -- | Native AMD64 code generation for runtime-explicit GRIN.
 module Aihc.Amd64
   ( Amd64Error (..),
+    compileEntry,
     compileModule,
     ObservedProgram (..),
     compileObservedFunction,
-    compileProgram,
     snapshotSourcePath,
     targetTriple,
     validateProgramPrimitives,
@@ -15,9 +15,9 @@ where
 import Aihc.Amd64.Codegen
   ( Amd64Error (..),
     ObservedProgram (..),
+    compileEntry,
     compileModule,
     compileObservedFunction,
-    compileProgram,
     validatePrimitiveNames,
     validateProgramPrimitives,
   )

@@ -8,9 +8,9 @@ where
 import Aihc.Amd64
   ( Amd64Error (..),
     ObservedProgram (..),
+    compileEntry,
     compileModule,
     compileObservedFunction,
-    compileProgram,
     snapshotSourcePath,
     targetTriple,
     validateProgramPrimitives,
@@ -20,13 +20,14 @@ import Aihc.Native
   ( NativeTarget (LinuxAmd64),
     RuntimeGarbageCollector (..),
     RuntimePlan (..),
+    executableEntryName,
     runtimePlan,
   )
 import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
 import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
-import Control.Monad (when)
+import Control.Monad (forM, when)
 import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -565,55 +566,43 @@ testNativeScheduler = do
   assertEqual "direct GRIN lint" [] (lintProgram schedulerProgram)
   let gc = expectGcGrin schedulerProgram
   assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
-  assembly <-
-    case compileProgram "main" gc of
-      Right value -> pure value
-      Left err -> assertFailure ("AMD64 scheduler lowering failed: " <> show err)
-  assertBool "captures argc and argv before machine startup" ("call aihc_program_arguments_initialize" `T.isInfixOf` assembly)
-  assertBool "emits fork state operation" ("call aihc_fork" `T.isInfixOf` assembly)
-  assertBool "emits yield state operation" ("call aihc_yield" `T.isInfixOf` assembly)
-  assertBool "emits child completion transfer" ("call aihc_thread_done" `T.isInfixOf` assembly)
-  let updateInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_update_info:") (T.lines assembly)))
-      finalInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_final_info:") (T.lines assembly)))
+  (moduleAssembly, entryAssembly) <- compileEntryTestUnits schedulerProgram
+  assertBool "captures argc and argv before machine startup" ("call aihc_program_arguments_initialize" `T.isInfixOf` entryAssembly)
+  assertBool "emits fork state operation" ("call aihc_fork" `T.isInfixOf` moduleAssembly)
+  assertBool "emits yield state operation" ("call aihc_yield" `T.isInfixOf` moduleAssembly)
+  assertBool "emits child completion transfer" ("call aihc_thread_done" `T.isInfixOf` entryAssembly)
+  let updateInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_update_info:") (T.lines entryAssembly)))
+      finalInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_final_info:") (T.lines entryAssembly)))
   assertBool "emits update continuation frame metadata" ("  .quad 3" `T.isSuffixOf` T.stripEnd updateInfo)
   assertBool "emits stop continuation frame metadata" ("  .quad 5" `T.isSuffixOf` T.stripEnd finalInfo)
-  assertAssemblyAccepted assembly
+  mapM_ assertAssemblyAccepted [moduleAssembly, entryAssembly]
   when (arch == "x86_64" && os == "linux") $
-    runSchedulerAssembly "PCAB" assembly
+    runSchedulerAssembly "PCAB" [moduleAssembly, entryAssembly]
 
 testNativeSynchronousException :: IO ()
 testNativeSynchronousException = do
-  let gc = expectGcGrin synchronousExceptionProgram
-  assembly <-
-    case compileProgram "main" gc of
-      Right value -> pure value
-      Left err -> assertFailure ("AMD64 exception lowering failed: " <> show err)
-  assertBool "emits the shared raise transfer" ("call aihc_raise" `T.isInfixOf` assembly)
-  assertAssemblyAccepted assembly
+  (moduleAssembly, entryAssembly) <- compileEntryTestUnits synchronousExceptionProgram
+  assertBool "emits the shared raise transfer" ("call aihc_raise" `T.isInfixOf` moduleAssembly)
+  mapM_ assertAssemblyAccepted [moduleAssembly, entryAssembly]
   when (arch == "x86_64" && os == "linux") $
-    runSchedulerAssembly "E" assembly
+    runSchedulerAssembly "E" [moduleAssembly, entryAssembly]
 
 testNativeBlackholeScheduler :: IO ()
 testNativeBlackholeScheduler = do
   assertEqual "direct GRIN lint" [] (lintProgram blackholeSchedulerProgram)
   let gc = expectGcGrin blackholeSchedulerProgram
   assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
-  assembly <-
-    case compileProgram "main" gc of
-      Right value -> pure value
-      Left err -> assertFailure ("AMD64 blackhole scheduler lowering failed: " <> show err)
+  (moduleAssembly, entryAssembly) <- compileEntryTestUnits blackholeSchedulerProgram
   when (arch == "x86_64" && os == "linux") $
-    runSchedulerAssembly "TA" assembly
+    runSchedulerAssembly "TA" [moduleAssembly, entryAssembly]
 
 testNativeStdioScheduler :: IO ()
 testNativeStdioScheduler = do
   assertEqual "direct GRIN lint" [] (lintProgram stdioSchedulerProgram)
   let gc = expectGcGrin stdioSchedulerProgram
   assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
-  assembly <-
-    case compileProgram "main" gc of
-      Right value -> pure value
-      Left err -> assertFailure ("AMD64 stdio scheduler lowering failed: " <> show err)
+  (moduleAssembly, entryAssembly) <- compileEntryTestUnits stdioSchedulerProgram
+  let assembly = moduleAssembly <> entryAssembly
   assertBool "emits generic IO suspension transfer" ("call aihc_await_io" `T.isInfixOf` assembly)
   assertBool "allocates a pinned byte array" ("call aihc_byte_array_new_pinned" `T.isInfixOf` assembly)
   assertBool "obtains the byte-array payload" ("call aihc_byte_array_contents" `T.isInfixOf` assembly)
@@ -623,15 +612,28 @@ testNativeStdioScheduler = do
   assertBool "submits a generic write through the runtime ABI" ("call aihc_io_submit_write" `T.isInfixOf` assembly)
   assertBool "consumes results through the runtime ABI" ("call aihc_io_take_result" `T.isInfixOf` assembly)
   assertBool "compiler has no operation-specific CPS transfer" (not ("aihc_read_stdin_cps" `T.isInfixOf` assembly || "aihc_write_stdout_cps" `T.isInfixOf` assembly))
-  assertAssemblyAccepted assembly
+  mapM_ assertAssemblyAccepted [moduleAssembly, entryAssembly]
   when (arch == "x86_64" && os == "linux") $
-    runStdioAssembly assembly
+    runStdioAssembly [moduleAssembly, entryAssembly]
 
 expectGcGrin :: GrinProgram -> GcGrinProgram
 expectGcGrin program =
   case toCpsGrin program of
     Right cpsProgram -> lowerGc cpsProgram
     Left err -> error ("test GRIN failed CPS conversion: " <> show err)
+
+compileEntryTestUnits :: GrinProgram -> IO (T.Text, T.Text)
+compileEntryTestUnits program = do
+  let linkedProgram =
+        program
+          { grinGlobals =
+              [ (if name == "main" then executableEntryName else name, node)
+              | (name, node) <- grinGlobals program
+              ]
+          }
+  moduleAssembly <- either (assertFailure . show) pure (compileModule (expectGcGrin linkedProgram))
+  entryAssembly <- either (assertFailure . show) pure compileEntry
+  pure (moduleAssembly, entryAssembly)
 
 assertAssemblyAccepted :: T.Text -> IO ()
 assertAssemblyAccepted assembly =
@@ -646,34 +648,38 @@ assertAssemblyAccepted assembly =
         ""
     assertEqual ("clang rejected Linux AMD64 assembly:\n" <> clangErr) ExitSuccess clangExit
 
-runSchedulerAssembly :: String -> T.Text -> IO ()
-runSchedulerAssembly expected assembly =
+runSchedulerAssembly :: String -> [T.Text] -> IO ()
+runSchedulerAssembly expected sources =
   withTempDirectory "aihc-amd64-scheduler" $ \directory -> do
     runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
-    let assemblyPath = directory </> "scheduler.s"
-        executablePath = directory </> "scheduler"
-    TIO.writeFile assemblyPath assembly
+    sourcePaths <- forM (zip [0 :: Int ..] sources) $ \(index, source) -> do
+      let sourcePath = directory </> "scheduler-" <> show index <> ".s"
+      TIO.writeFile sourcePath source
+      pure sourcePath
+    let executablePath = directory </> "scheduler"
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
-        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> [assemblyPath, "-o", executablePath])
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> sourcePaths <> ["-o", executablePath])
         ""
     assertEqual ("clang failed to assemble scheduler program:\n" <> clangErr) ExitSuccess clangExit
     (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
     assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
     assertEqual "scheduler stdout" expected programOut
 
-runStdioAssembly :: T.Text -> IO ()
-runStdioAssembly assembly =
+runStdioAssembly :: [T.Text] -> IO ()
+runStdioAssembly sources =
   withTempDirectory "aihc-amd64-stdio" $ \directory -> do
     runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
-    let assemblyPath = directory </> "stdio.s"
-        executablePath = directory </> "stdio"
-    TIO.writeFile assemblyPath assembly
+    sourcePaths <- forM (zip [0 :: Int ..] sources) $ \(index, source) -> do
+      let sourcePath = directory </> "stdio-" <> show index <> ".s"
+      TIO.writeFile sourcePath source
+      pure sourcePath
+    let executablePath = directory </> "stdio"
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
-        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> [assemblyPath, "-o", executablePath])
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> sourcePaths <> ["-o", executablePath])
         ""
     assertEqual ("clang failed to assemble async stdio program:\n" <> clangErr) ExitSuccess clangExit
     (Just childInput, Just childOutput, Just childError, processHandle) <-

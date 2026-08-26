@@ -3,6 +3,7 @@
 -- | Make post-CPS allocation safepoints and relocated roots explicit.
 module Aihc.Grin.Gc
   ( GcGrinProgram,
+    entryGcProgram,
     gcContinuationFrames,
     gcContinuationFunctions,
     gcFunctionContinuations,
@@ -13,7 +14,7 @@ module Aihc.Grin.Gc
 where
 
 import Aihc.Grin.Analysis (freeExprVars, freeNodeVars)
-import Aihc.Grin.Cps (ContinuationFrameKind, CpsGrinProgram (..))
+import Aihc.Grin.Cps (ContinuationFrameKind, CpsGrinError, CpsGrinProgram (..), toCpsGrin)
 import Aihc.Grin.Syntax
 import Control.Monad.Trans.State.Strict (State, evalState, get, put)
 import Data.Map.Strict (Map)
@@ -32,6 +33,19 @@ data GcGrinProgram = GcGrinProgram
     gcUpdateFunction :: !FunctionName
   }
   deriving (Eq, Show, Read)
+
+-- | Make the fixed GC-GRIN unit for the executable entry archive.
+entryGcProgram :: Either CpsGrinError GcGrinProgram
+entryGcProgram =
+  lowerGc
+    <$> toCpsGrin
+      GrinProgram
+        { grinConstructors = [],
+          grinPrimitives = [],
+          grinForeignCalls = [],
+          grinGlobals = [],
+          grinFunctions = []
+        }
 
 -- | Give explicit reservations their live roots and place a static reservation
 -- before every managed store. Each reservation returns fresh SSA names for

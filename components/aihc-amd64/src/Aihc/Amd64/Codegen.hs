@@ -5,10 +5,10 @@
 -- for the C runtime and foreign functions.
 module Aihc.Amd64.Codegen
   ( Amd64Error (..),
+    compileEntry,
     compileModule,
     ObservedProgram (..),
     compileObservedFunction,
-    compileProgram,
     supportedNativePrimitiveNames,
     validateProgramPrimitives,
     validatePrimitiveNames,
@@ -20,6 +20,7 @@ import Aihc.Amd64.Codegen.Runtime
 import Aihc.Grin.Cps (ContinuationFrameKind (..))
 import Aihc.Grin.Gc
   ( GcGrinProgram,
+    entryGcProgram,
     gcContinuationFrames,
     gcContinuationFunctions,
     gcFunctionContinuations,
@@ -29,6 +30,7 @@ import Aihc.Grin.Gc
 import Aihc.Grin.Syntax
 import Aihc.Native
   ( buildAddrLiteralPool,
+    executableEntryName,
     renderLinkedGlobalSymbol,
     supportedNativePrimitiveNames,
   )
@@ -38,8 +40,11 @@ import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 
-compileProgram :: Text -> GcGrinProgram -> Either Amd64Error Text
-compileProgram = compileExecutable
+-- | Compile the fixed executable entry unit.
+compileEntry :: Either Amd64Error Text
+compileEntry = do
+  gcProgram <- either (Left . Amd64UnsupportedExpression . T.pack . show) Right entryGcProgram
+  compileEntryUnit executableEntryName gcProgram
 
 -- | Compile a nullary function with a driver that snapshots its raw return
 -- values. The driver supports cooperative scheduling but exits when the
@@ -138,10 +143,9 @@ compileModule gcProgram = do
           compileContinuationFunctions = gcContinuationFunctions gcProgram
         }
 
-compileExecutable :: Text -> GcGrinProgram -> Either Amd64Error Text
-compileExecutable entryName gcProgram = do
+compileEntryUnit :: Text -> GcGrinProgram -> Either Amd64Error Text
+compileEntryUnit entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
-  if entryName `elem` map fst (grinGlobals program) then pure () else Left (Amd64MissingEntry entryName)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
   staticGlobals <- renderStaticGlobals compileEnv program
   updateLabel <- functionCodeLabel compileEnv (gcUpdateFunction gcProgram)

@@ -75,8 +75,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 
 data Arm64Error
-  = Arm64MissingEntry !Text
-  | Arm64MissingGlobal !Text
+  = Arm64MissingGlobal !Text
   | Arm64MissingFunction !FunctionName
   | Arm64MissingConstructor !Text
   | Arm64UnsupportedPrimitive !Text

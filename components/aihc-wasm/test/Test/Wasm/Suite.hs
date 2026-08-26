@@ -4,8 +4,8 @@ module Test.Wasm.Suite (tests) where
 
 import Aihc.Grin (lowerGc, toCpsGrin)
 import Aihc.Grin.Syntax
-import Aihc.Native (supportedNativePrimitiveNames)
-import Aihc.Wasm (WasmError (..), compileModule, compileProgram, validatePrimitiveNames, validateProgramPrimitives)
+import Aihc.Native (executableEntryName, renderLinkedGlobalSymbol, supportedNativePrimitiveNames)
+import Aihc.Wasm (WasmError (..), compileEntry, compileModule, validatePrimitiveNames, validateProgramPrimitives)
 import Control.Monad (forM_)
 import Data.Text qualified as T
 import Hedgehog (forAll, property, (===))
@@ -26,7 +26,6 @@ tests =
       testCase "passes known direct-call arguments through typed tail calls" testDirectCallArguments,
       testCase "loads captured values through object-entry adapters" testObjectEntryAdapters,
       testCase "lowers synchronous exception transfers" testSynchronousException,
-      testCase "rejects a missing entry point" testMissingEntry,
       testCase "rejects unsupported primitives" testUnsupportedPrimitive,
       testCase "traps dormant unsupported primitives in dependency modules" testDormantPrimitive,
       testCase "emits relocatable dependency modules" testIncrementalModule,
@@ -42,12 +41,14 @@ tests =
 
 testDirectModule :: IO ()
 testDirectModule =
-  case toCpsGrin program of
+  case toCpsGrin (withExecutableEntry program) of
     Left err -> assertFailure (show err)
     Right cps ->
-      case compileProgram "main" (lowerGc cps) of
-        Left err -> assertFailure (show err)
-        Right source -> do
+      case (compileModule (lowerGc cps), compileEntry) of
+        (Left err, _) -> assertFailure (show err)
+        (_, Left err) -> assertFailure (show err)
+        (Right moduleSource, Right entrySource) -> do
+          let source = moduleSource <> entrySource
           assertBool "WebAssembly instructions" ("\t.functype\t" `T.isInfixOf` source && "local.set\t" `T.isInfixOf` source)
           assertBool "generated entry" (".Laihc_wasm_function_0:" `T.isInfixOf` source)
           assertBool "generated entry is object-local" (not (".globl\t.Laihc_wasm_function_0" `T.isInfixOf` source))
@@ -142,20 +143,16 @@ testObjectEntryAdapters =
           assertBool "object entry tail-calls the typed fast entry" ("return_call\t.Laihc_wasm_function_0" `T.isInfixOf` source)
           assertBool "publishes the object entry in runtime info" ("_enter\n\t.skip\t4" `T.isInfixOf` source)
 
-testMissingEntry :: IO ()
-testMissingEntry =
-  case toCpsGrin program of
-    Left err -> assertFailure (show err)
-    Right cps -> assertEqual "missing entry" (Left (WasmMissingEntry "missing")) (compileProgram "missing" (lowerGc cps))
-
 testSynchronousException :: IO ()
 testSynchronousException =
-  case toCpsGrin exceptionProgram of
+  case toCpsGrin (withExecutableEntry exceptionProgram) of
     Left err -> assertFailure (show err)
     Right cps ->
-      case compileProgram "main" (lowerGc cps) of
-        Left err -> assertFailure (show err)
-        Right source -> do
+      case (compileModule (lowerGc cps), compileEntry) of
+        (Left err, _) -> assertFailure (show err)
+        (_, Left err) -> assertFailure (show err)
+        (Right moduleSource, Right entrySource) -> do
+          let source = moduleSource <> entrySource
           assertBool "calls the shared raise transfer" ("call\taihc_wasm_transfer_raise" `T.isInfixOf` source)
           assertBool "emits catch frame metadata" ("\t.int64\t2\n\t.int64\t1\n\t.size\t" `T.isInfixOf` source)
 
@@ -177,7 +174,7 @@ testDormantPrimitive =
 
 testIncrementalModule :: IO ()
 testIncrementalModule =
-  case (toCpsGrin dependencyProgram, toCpsGrin program) of
+  case (toCpsGrin dependencyProgram, toCpsGrin (withExecutableEntry program)) of
     (Right dependencyCps, Right mainCps) -> do
       case compileModule (lowerGc dependencyCps) of
         Left err -> assertFailure (show err)
@@ -185,13 +182,23 @@ testIncrementalModule =
           assertBool "exports dependency global" (".globl\taihc_entry_dependency" `T.isInfixOf` source)
           assertBool "does not emit executable entry" (not ("aihc_wasm_program_initialize:" `T.isInfixOf` source))
           assertBool "does not define shared arguments" (not ("aihc_arguments:" `T.isInfixOf` source))
-      case compileProgram "main" (lowerGc mainCps) of
-        Left err -> assertFailure (show err)
-        Right source -> do
-          assertBool "references entry global" ("i32.const\taihc_entry_main" `T.isInfixOf` source)
+      case (compileModule (lowerGc mainCps), compileEntry) of
+        (Left err, _) -> assertFailure (show err)
+        (_, Left err) -> assertFailure (show err)
+        (Right _, Right source) -> do
+          assertBool "references entry global" (("i32.const\t" <> renderLinkedGlobalSymbol executableEntryName) `T.isInfixOf` source)
           assertBool "allocates no global slots" ("i64.const\t0\n\tcall\taihc_machine_new" `T.isInfixOf` source)
     (Left err, _) -> assertFailure (show err)
     (_, Left err) -> assertFailure (show err)
+
+withExecutableEntry :: GrinProgram -> GrinProgram
+withExecutableEntry input =
+  input
+    { grinGlobals =
+        [ (if name == "main" then executableEntryName else name, node)
+        | (name, node) <- grinGlobals input
+        ]
+    }
 
 testByteArrayPrimitives :: IO ()
 testByteArrayPrimitives =

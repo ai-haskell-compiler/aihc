@@ -1,8 +1,8 @@
 -- | Direct WebAssembly code generation for runtime-explicit GRIN.
 module Aihc.Wasm
   ( WasmError (..),
+    compileEntry,
     compileModule,
-    compileProgram,
     validatePrimitiveNames,
     validateProgramPrimitives,
     wasip3RuntimeSourcePath,
