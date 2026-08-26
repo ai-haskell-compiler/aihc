@@ -2,11 +2,12 @@
 
 module Main (main) where
 
+import Aihc.Cli.BuildExe (runBuildExe)
 import Aihc.Cli.InstallV2 (InstallV2Result (..), installV2)
-import Aihc.Cli.Options (InstallV2Options (..))
+import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcCalloc), InstallV2Options (..))
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc2 qualified as Fc2
-import Aihc.Native (NativeTarget (..), nativeTargetStoreDirectory)
+import Aihc.Native (NativeTarget (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
 import Control.Exception (IOException, bracket, try)
@@ -31,11 +32,12 @@ import System.Directory
     removeFile,
   )
 import System.Environment (lookupEnv)
+import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, openTempFile)
 import System.IO.Error (ioeGetErrorString)
 import System.Info qualified as System
-import System.Process (readProcess)
+import System.Process (readProcess, readProcessWithExitCode)
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import Test.Tasty.Hedgehog (testProperty)
@@ -44,6 +46,9 @@ main :: IO ()
 main =
   defaultMain . testGroup "aihc" $
     [ testGroup
+        "build-exe"
+        [testCase "builds imported source modules and runs the executable" test_buildExeSourceDirectories],
+      testGroup
         "install-v2"
         [ testCase "writes no legacy Core files and reuses equal SCC inputs" test_installV2ResolveArtifacts,
           testCase "rebuilds a module when a predecessor resolve artifact changes" test_installV2ResolveDependencies,
@@ -63,6 +68,30 @@ main =
 
 prop_dummy :: Property
 prop_dummy = property success
+
+test_buildExeSourceDirectories :: Assertion
+test_buildExeSourceDirectories = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/source-directories"
+  baseRoot <- findCoreLibraryRoot "aihc-base"
+  target <- maybe (assertFailure "the host has no native aihc target") pure hostNativeTarget
+  withTempDir "aihc-build-exe" $ \root -> do
+    let storeRoot = root </> "store"
+        output = root </> "program"
+    _ <- installV2 (InstallV2Options baseRoot (Just storeRoot) False False target)
+    runBuildExe
+      BuildExeOptions
+        { buildExeSourceFile = fixtureRoot </> "Main.hs",
+          buildExeSourceDirectories = [fixtureRoot],
+          buildExePackageConstraints = ["aihc-base == 4.21.2.0"],
+          buildExeTarget = target,
+          buildExeGarbageCollector = GcCalloc,
+          buildExeStoreRoot = Just storeRoot,
+          buildExeOutputFile = Just output
+        }
+    (status, stdout, stderr) <- readProcessWithExitCode output [] ""
+    assertEqual "executable exit status" ExitSuccess status
+    assertEqual "executable stdout" "build-exe works\n" stdout
+    assertEqual "executable stderr" "" stderr
 
 test_installV2ResolveArtifacts :: Assertion
 test_installV2ResolveArtifacts =
@@ -321,6 +350,34 @@ findAihcPrimRoot = do
           let parent = takeDirectory dir
           if parent == dir
             then assertFailure ("could not find core-libs/aihc-prim from " <> dir)
+            else findUp parent
+
+findCoreLibraryRoot :: FilePath -> IO FilePath
+findCoreLibraryRoot name = do
+  configured <- lookupEnv (coreLibraryEnvironment name)
+  case configured of
+    Just root -> validate root
+    Nothing -> getCurrentDirectory >>= findUp
+  where
+    coreLibraryEnvironment library
+      | library == "aihc-base" = "AIHC_BASE_SRC"
+      | library == "aihc-prim" = "AIHC_PRIM_SRC"
+      | otherwise = "AIHC_CORE_LIBRARY_SRC"
+    validate root = do
+      exists <- doesFileExist (root </> name <> ".cabal")
+      if exists
+        then pure root
+        else assertFailure (coreLibraryEnvironment name <> " has no " <> name <> ".cabal: " <> root)
+    findUp directory = do
+      let candidate = directory </> "core-libs" </> name
+          cabalFile = candidate </> name <> ".cabal"
+      exists <- doesFileExist cabalFile
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory directory
+          if parent == directory
+            then assertFailure ("could not find core-libs/" <> name)
             else findUp parent
 
 moduleCoreV2Path :: FilePath -> Text -> FilePath

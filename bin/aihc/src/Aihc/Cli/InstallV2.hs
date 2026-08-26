@@ -17,6 +17,7 @@ import Aihc.Cli.Install
     parseInterfaceFile,
   )
 import Aihc.Cli.Options (InstallV2Options (..))
+import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeInterface)
@@ -191,6 +192,19 @@ installPackageV2 keepGrin target verbose storeRoot dependencies root = do
       (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty)
       units
   buildLibraryArchive target verbose storePath packageNameText parsed
+  writePackageManifest
+    (packageManifestPath storePath)
+    PackageManifest
+      { packageManifestName = packageNameText,
+        packageManifestVersion = packageVersionText,
+        packageManifestIdentity = T.pack packageDirectory,
+        packageManifestDependencies =
+          sortOn
+            id
+            [ T.pack (takeFileName (installV2StorePath (installedV2Result dependency)))
+            | dependency <- dependencies
+            ]
+      }
   let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
       ownExports =
         Map.filterWithKey

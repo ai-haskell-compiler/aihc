@@ -112,7 +112,6 @@
   nativeBackend = nativeBackendBySystem.${pkgs.stdenv.hostPlatform.system} or null;
   backends = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
   exampleToolchainTargets = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend ++ ["wasm32-wasip3"];
-  exampleToolchainTargetArguments = builtins.concatMap (target: ["--target" target]) exampleToolchainTargets;
   compilationMatrix = builtins.concatLists (
     map (
       backend:
@@ -171,7 +170,7 @@
     if [[ -f "$example_directory/exit" ]]; then
       expected_exit=$(<"$example_directory/exit")
     fi
-    if timeout --foreground --kill-after=5s 120s ${aihcExe} compile "$source" \
+    if timeout --foreground --kill-after=5s 120s ${aihcExe} build-exe "$source" \
       --target ${backend} \
       --gc ${gc} \
       --store ${exampleToolchain} \
@@ -249,7 +248,7 @@
     if [[ -f "$example_directory/exit.wasm32-wasip3" ]]; then
       expected_exit=$(<"$example_directory/exit.wasm32-wasip3")
     fi
-    if timeout --foreground --kill-after=5s 120s ${aihcExe} compile "$source" \
+    if timeout --foreground --kill-after=5s 120s ${aihcExe} build-exe "$source" \
       --target wasm32-wasip3 \
       --store ${exampleToolchain} \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
@@ -446,14 +445,13 @@
       ''}
       ${aihcExe} prepare-runtime --target wasm32-wasip3 --gc calloc --store "$out"
 
-      ${aihcExe} install core-libs/aihc-base \
-        --offline \
-        --store "$out" \
-        ${pkgs.lib.escapeShellArgs exampleToolchainTargetArguments}
+      ${pkgs.lib.concatMapStringsSep "\n" (target: ''
+          ${aihcExe} install-v2 core-libs/aihc-base --store "$out" --target ${target}
+        '')
+        exampleToolchainTargets}
 
-      test -f "$out/libraries/active"
-      test -n "$(find "$out/libraries" -type f -name 'interfaces.cache' -print -quit)"
-      test -n "$(find "$out/libraries" -type f -name 'libaihc-base.a' -print -quit)"
+      test -n "$(find "$out" -type f -name 'package.json' -print -quit)"
+      test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
     '';
 
   exampleTestInputs = [
