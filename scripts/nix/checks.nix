@@ -434,6 +434,8 @@
     } ''
       cd "$src"
       export GHCRTS=-N1
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       mkdir -p "$out"
 
