@@ -1,0 +1,29 @@
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+    import Data.Ord (Down(Down), getDown)
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : xs) = allTrue xs
+    allTrue (False : _) = False
+output: |
+  True
+expression: |
+  allTrue
+    [ getDown (Down True) == True,
+      Down False > Down True,
+      compare (Down False) (Down True) == GT,
+      min (Down False) (Down True) == Down True,
+      max (Down False) (Down True) == Down False,
+      minBound == Down False,
+      maxBound == Down True,
+      succ (Down False) == Down True,
+      pred (Down True) == Down False,
+      show (Down True) == "Down True",
+      (read "Down False" :: Down Bool) == Down False
+    ]
+status: pass
+reason: Data.Ord Down reverses ordering and supports its public wrapper instances
