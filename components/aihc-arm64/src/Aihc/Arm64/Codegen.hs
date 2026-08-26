@@ -394,7 +394,7 @@ threadDoneRuntimeInfos =
 renderCompiledSupport :: CompileEnv -> [CompiledFunction] -> [RuntimeInfo] -> [Text]
 renderCompiledSupport env functions runtimeInfos =
   renderNativeControl
-    <> concatMap compiledFunctionLines functions
+    <> concatMap (\function -> compiledFunctionLines function <> [".ltorg"]) functions
     <> renderRuntimeSupport env runtimeInfos
 
 -- | Reject primitives that reachable native code would not execute correctly.

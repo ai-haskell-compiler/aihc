@@ -1691,8 +1691,31 @@ desugarOverloadedInteger annotation resolution value = do
 desugarIntegerLiteral :: Integer -> ValueM Expr
 desugarIntegerLiteral value = do
   constructor <- uniqueConstructorName "IS"
-  representation <- convertRuntimeRep IntRep
-  pure (ExApp (ExVar constructor) (ExLit (LitInt representation value)))
+  intRepresentation <- convertRuntimeRep IntRep
+  wordRepresentation <- convertRuntimeRep WordRep
+  let small integer = ExApp (ExVar constructor) (ExLit (LitInt intRepresentation integer))
+      coreName text = Name text SortValue (nameOrigin constructor)
+      apply name = foldl ExApp (ExVar (coreName name))
+      word integer = ExLit (LitInt wordRepresentation integer)
+      positive integer
+        | integer <= maxInt = small integer
+        | integer <= maxWord =
+            apply "integerFromTwoWords#" [ExLit (LitInt intRepresentation 1), word 0, word integer]
+        | otherwise =
+            let (high, low) = integer `quotRem` wordBase
+                shifted = apply "integerShiftL#" [positive high, ExLit (LitInt intRepresentation 64)]
+             in apply "integerAdd" [shifted, positive low]
+      magnitude = positive (abs value)
+  pure
+    ( if value >= minInt && value <= maxInt
+        then small value
+        else if value < 0 then apply "integerNegate" [magnitude] else magnitude
+    )
+  where
+    wordBase = 18446744073709551616
+    maxWord = wordBase - 1
+    maxInt = 9223372036854775807
+    minInt = -9223372036854775808
 
 uniqueConstructorName :: Text -> ValueM Name
 uniqueConstructorName name = do

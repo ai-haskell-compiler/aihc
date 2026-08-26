@@ -671,4 +671,6 @@ in {
   c-format = cFormat;
   cabal-format = cabalFormat;
   core-libraries-install-v2 = coreLibrariesInstallV2;
+  examples-tests = examplesTests;
+  wasip3-example-test = wasip3ExampleTest;
 }

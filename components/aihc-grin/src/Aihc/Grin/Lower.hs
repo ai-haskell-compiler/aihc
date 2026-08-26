@@ -183,7 +183,8 @@ lowerPrimitiveBody resultRep name valueGroups =
     ("aihcExit#", (status : _) : _) -> pure (GrinExit status)
     ("unsafeCoerce#", values : _) -> pure (GrinConstant values)
     ("raise#", (exception : _) : _) -> pure (GrinThrow exception)
-    ("catch#", (action : _) : (handler : _) : state) -> pure (GrinCatch resultRep action handler (concat state))
+    ("catch#", (action : _) : (handler : _) : state) ->
+      lowerCatch resultRep action handler (concat state)
     ("seq", (first : _) : second : _) -> do
       evaluated <- freshVar "seq" liftedGrinRep
       pure (GrinBind [evaluated] (GrinEval liftedGrinRep first) (GrinConstant second))
@@ -417,13 +418,54 @@ lowerSpecialApplication env resultRep name arguments =
     ("catch#", action : handler : state : _) ->
       lowerLazySingle env "action" action $ \actionValue ->
         lowerLazySingle env "handler" handler $ \handlerValue ->
-          lowerArgument env state (pure . GrinCatch resultRep actionValue handlerValue)
+          lowerArgument env state (lowerCatch resultRep actionValue handlerValue)
     ("seq", first : second : _) ->
       lowerLazySingle env "seq_argument" first $ \firstValue -> do
         evaluated <- freshVar "seq" liftedGrinRep
         rest <- lowerArgument env second (pure . GrinConstant)
         pure (GrinBind [evaluated] (GrinEval liftedGrinRep firstValue) rest)
     _ -> throwLower ("GRIN cannot lower compiler primitive application: " <> T.unpack name)
+
+lowerCatch :: GrinRep -> GrinValue -> GrinValue -> [GrinValue] -> LowerM GrinExpr
+lowerCatch resultRep action handler stateValues = do
+  evaluatedHandler <- freshVar "catch_handler" liftedGrinRep
+  handlerCapture <- freshVar "catch_handler_capture" liftedGrinRep
+  stateCaptures <- mapM (freshVar "catch_state_capture" . grinValueRuntimeRep) stateValues
+  exception <- freshVar "catch_exception" liftedGrinRep
+  handlerAction <- freshVar "catch_handler_action" liftedGrinRep
+  evaluatedAction <- freshVar "catch_evaluated_action" liftedGrinRep
+  wrapper <- freshVar "catch_handler_wrapper" liftedGrinRep
+  functionName <- freshFunction "catch_handler"
+  emitFunction
+    GrinFunction
+      { grinFunctionName = functionName,
+        grinFunctionParameters = handlerCapture : stateCaptures <> [exception],
+        grinFunctionResultRep = resultRep,
+        grinFunctionBody =
+          GrinBind
+            [handlerAction]
+            (GrinApply liftedGrinRep (GrinVarValue handlerCapture) [GrinVarValue exception])
+            ( GrinBind
+                [evaluatedAction]
+                (GrinEval liftedGrinRep (GrinVarValue handlerAction))
+                (GrinApply resultRep (GrinVarValue evaluatedAction) (map GrinVarValue stateCaptures))
+            )
+      }
+  pure
+    ( GrinBind
+        [evaluatedHandler]
+        (GrinEval liftedGrinRep handler)
+        ( GrinBind
+            [wrapper]
+            ( GrinStore
+                ( GrinNode
+                    (GrinClosure functionName [[liftedGrinRep]])
+                    (GrinVarValue evaluatedHandler : stateValues)
+                )
+            )
+            (GrinCatch resultRep action (GrinVarValue wrapper) stateValues)
+        )
+    )
 
 lowerArgument :: LowerEnv -> Fc2.Expr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerArgument env expression continuation = do
