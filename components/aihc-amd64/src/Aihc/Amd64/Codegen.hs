@@ -58,7 +58,7 @@ compileObservedFunction entryName gcProgram = do
     _ -> Left (Amd64UnsupportedExpression "observed entry function must have only its CPS continuation")
   entryLabel <- functionCodeLabel compileEnv entryName
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
-  staticGlobals <- renderStaticGlobals True compileEnv program
+  staticGlobals <- renderStaticGlobals compileEnv program
   metadata <- renderObservedMetadata compileEnv program resultReps
   let resultCount = length resultReps
       assembly =
@@ -94,7 +94,7 @@ compileObservedFunction entryName gcProgram = do
   pure ObservedProgram {observedAssembly = assembly, observedMetadataSource = metadata}
   where
     program = gcGrinProgram gcProgram
-    compileEnv = (compileEnvironmentWith True True (gcContinuationFrames gcProgram) program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
+    compileEnv = (compileEnvironmentWith True (gcContinuationFrames gcProgram) program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
     resultReps =
       maybe [] (runtimeRepComponents . grinFunctionResultRep) $
         findFunction entryName (grinFunctions program)
@@ -123,7 +123,7 @@ compileModule :: GcGrinProgram -> Either Amd64Error Text
 compileModule gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
-  staticGlobals <- renderStaticGlobals False compileEnv program
+  staticGlobals <- renderStaticGlobals compileEnv program
   pure . T.unlines $
     [".intel_syntax noprefix"]
       <> staticGlobals
@@ -143,7 +143,7 @@ compileExecutable entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   if entryName `elem` map fst (grinGlobals program) then pure () else Left (Amd64MissingEntry entryName)
   functions <- mapM (compileFunction compileEnv) (grinFunctions program)
-  staticGlobals <- renderStaticGlobals True compileEnv program
+  staticGlobals <- renderStaticGlobals compileEnv program
   updateLabel <- functionCodeLabel compileEnv (gcUpdateFunction gcProgram)
   pure . T.unlines $
     mainPrologue 0
@@ -208,7 +208,7 @@ compileExecutable entryName gcProgram = do
       <> nonExecutableStack
   where
     program = gcGrinProgram gcProgram
-    compileEnv = (compileEnvironmentWith False True (gcContinuationFrames gcProgram) program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
+    compileEnv = (compileEnvironmentWith False (gcContinuationFrames gcProgram) program) {compileContinuationFunctions = gcContinuationFunctions gcProgram}
     pointerRep = BoxedRep Lifted
     programRuntimeInfos updateLabel =
       continuationRuntimeInfos
@@ -297,10 +297,10 @@ nonExecutableStack :: [Text]
 nonExecutableStack = [".section .note.GNU-stack,\"\",@progbits"]
 
 compileEnvironment :: Map.Map FunctionName ContinuationFrameKind -> GrinProgram -> CompileEnv
-compileEnvironment = compileEnvironmentWith False False
+compileEnvironment = compileEnvironmentWith False
 
-compileEnvironmentWith :: Bool -> Bool -> Map.Map FunctionName ContinuationFrameKind -> GrinProgram -> CompileEnv
-compileEnvironmentWith exposeAllFunctions includeBuiltins continuationFrames program =
+compileEnvironmentWith :: Bool -> Map.Map FunctionName ContinuationFrameKind -> GrinProgram -> CompileEnv
+compileEnvironmentWith exposeAllFunctions continuationFrames program =
   CompileEnv
     { compileFunctionLabels = functionLabelMap,
       compileAddrLiteralLabels =
@@ -312,7 +312,7 @@ compileEnvironmentWith exposeAllFunctions includeBuiltins continuationFrames pro
       compileAllowUnsupportedPrimitives = False
     }
   where
-    constructorLayouts = (if includeBuiltins then builtinConstructors else []) <> grinConstructors program
+    constructorLayouts = grinConstructors program
     constructorInfoEntries =
       [ ( key,
           label,
@@ -365,12 +365,12 @@ compileEnvironmentWith exposeAllFunctions includeBuiltins continuationFrames pro
       ]
     third (_, _, value) = value
 
-renderStaticGlobals :: Bool -> CompileEnv -> GrinProgram -> Either Amd64Error [Text]
-renderStaticGlobals includeBuiltins env program = fmap concat (mapM renderGlobal globals)
+renderStaticGlobals :: CompileEnv -> GrinProgram -> Either Amd64Error [Text]
+renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
   where
     declaredGlobals = grinGlobals program
     declaredNames = map fst declaredGlobals
-    constructorLayouts = (if includeBuiltins then builtinConstructors else []) <> grinConstructors program
+    constructorLayouts = grinConstructors program
     implicitConstructors =
       [ (name, GrinNode (GrinConstructor name 0) [])
       | (name, layouts) <- constructorLayouts,
@@ -576,10 +576,7 @@ renderObservedMetadata env program resultReps = do
          ]
   where
     layouts =
-      Map.fromList
-        ( builtinConstructorLayouts
-            <> [(name, concat argumentLayouts) | (name, argumentLayouts) <- grinConstructors program]
-        )
+      Map.fromList [(name, concat argumentLayouts) | (name, argumentLayouts) <- grinConstructors program]
     constructorEntries =
       [ (index, name, fields)
       | (index, (name, fields)) <- zip [0 :: Int ..] (Map.toAscList layouts)
