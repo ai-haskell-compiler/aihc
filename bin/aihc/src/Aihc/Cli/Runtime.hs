@@ -73,11 +73,13 @@ entrySource target =
 runPrepareRuntime :: PrepareRuntimeOptions -> IO ()
 runPrepareRuntime options = do
   storeRoot <- maybe defaultStoreRoot pure (prepareRuntimeStoreRoot options)
+  entry <- prepareEntryArchive storeRoot (prepareRuntimeTarget options)
   archive <-
     prepareRuntimeArchive
       storeRoot
       (prepareRuntimeTarget options)
       (prepareRuntimeGarbageCollector options)
+  putStrLn ("entry: " <> entry)
   putStrLn ("runtime: " <> archive)
 
 prepareRuntimeArchive :: FilePath -> NativeTarget -> GarbageCollector -> IO FilePath

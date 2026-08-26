@@ -432,6 +432,7 @@
 
       test -n "$(find "$out" -type f -name 'package.json' -print -quit)"
       test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
+      test -n "$(find "$out" -type f -name 'entry.a' -print -quit)"
     '';
 
   exampleTestInputs = [
