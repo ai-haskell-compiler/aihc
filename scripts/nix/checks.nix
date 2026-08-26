@@ -139,7 +139,7 @@
   exampleCompilationMatrix = exampleName:
     if exampleName == "hello-world"
     then compilationMatrix
-    else if exampleName == "exceptions-sync"
+    else if builtins.elem exampleName ["exceptions-sync" "green-threads"]
     then allBackendSmokeMatrix
     else smokeCompilationMatrix;
   wasip3CompilationModes = _exampleName: compilationModes;
