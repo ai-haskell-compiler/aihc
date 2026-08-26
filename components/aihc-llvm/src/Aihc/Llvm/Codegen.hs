@@ -111,7 +111,7 @@ compileProgram entryName gcProgram = do
   if entryName `elem` map fst (grinGlobals program) then pure () else Left (LlvmMissingEntry entryName)
   updateLabel <- functionCodeLabel env (gcUpdateFunction gcProgram)
   functions <- mapM (compileFunction env) (grinFunctions program)
-  staticGlobals <- renderStaticGlobals True env program
+  staticGlobals <- renderStaticGlobals env program
   let specialInfos =
         [ specialInfo "aihc_llvm_final_info" "aihc_llvm_final_continuation" [] 1 (Just "aihc_llvm_final_applied_info") (Just (continuationEnter "aihc_llvm_final_continuation" 0 1)) ContinuationFrameStop,
           specialInfo "aihc_llvm_final_applied_info" "aihc_llvm_final_continuation" [BoxedRep Lifted] 0 Nothing Nothing ContinuationFrameStop,
@@ -148,7 +148,7 @@ compileModule :: GcGrinProgram -> Either LlvmError Text
 compileModule gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction env) (grinFunctions program)
-  staticGlobals <- renderStaticGlobals False env program
+  staticGlobals <- renderStaticGlobals env program
   let source =
         llvmPreamble
           <> ["@aihc_machine = external global ptr", ""]
@@ -187,7 +187,7 @@ compileEnvironment unitKind continuationFunctions continuationFrames program =
       compileAllowUnsupportedPrimitives = unitKind == LibraryUnit
     }
   where
-    constructorLayouts = (if unitKind == ExecutableUnit then builtinConstructors else []) <> grinConstructors program
+    constructorLayouts = grinConstructors program
     constructors = [(name, length layouts) | (name, layouts) <- constructorLayouts]
     functionLabels =
       Map.fromList
@@ -1153,12 +1153,12 @@ nodeHeader env node = lookupRuntimeInfoLabel env key
         GrinClosure functionName layouts -> ClosureRuntimeInfo functionName fields layouts
         GrinThunk functionName -> ThunkRuntimeInfo functionName fields
 
-renderStaticGlobals :: Bool -> CompileEnv -> GrinProgram -> Either LlvmError [Text]
-renderStaticGlobals includeBuiltins env program = fmap concat (mapM renderGlobal globals)
+renderStaticGlobals :: CompileEnv -> GrinProgram -> Either LlvmError [Text]
+renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
   where
     declaredGlobals = grinGlobals program
     declaredNames = map fst declaredGlobals
-    constructorLayouts = (if includeBuiltins then builtinConstructors else []) <> grinConstructors program
+    constructorLayouts = grinConstructors program
     implicitConstructors =
       [ (name, GrinNode (GrinConstructor name 0) [])
       | (name, layouts) <- constructorLayouts,

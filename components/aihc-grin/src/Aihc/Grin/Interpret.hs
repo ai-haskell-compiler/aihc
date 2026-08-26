@@ -283,7 +283,7 @@ initialMachine program =
         [ Map.fromList (grinGlobals program),
           Map.fromList
             [ (constructor, GrinNode (GrinConstructor constructor 0) [])
-            | (constructor, layouts) <- builtinConstructors <> grinConstructors program,
+            | (constructor, layouts) <- grinConstructors program,
               null layouts
             ]
         ]

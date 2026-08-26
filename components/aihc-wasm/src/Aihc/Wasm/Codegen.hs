@@ -107,7 +107,7 @@ compileProgram entryName gcProgram = do
   updateLabel <- functionCodeLabel env (gcUpdateFunction gcProgram)
   updateArity <- functionArity env (gcUpdateFunction gcProgram)
   functions <- mapM (compileFunction env) (grinFunctions program)
-  staticGlobals <- renderStaticGlobals True env program
+  staticGlobals <- renderStaticGlobals env program
   let specialInfo label entry fields remaining next frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next Nothing (Just frameKind) runtimeObjectClosure
       updateInfo label fields remaining next enter =
         RuntimeInfo
@@ -152,7 +152,7 @@ compileModule :: GcGrinProgram -> Either WasmError Text
 compileModule gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
   functions <- mapM (compileFunction env) (grinFunctions program)
-  staticGlobals <- renderStaticGlobals False env program
+  staticGlobals <- renderStaticGlobals env program
   let source =
         moduleHeader env program
           <> renderEntryAdapters (compileRuntimeInfos env)
@@ -191,10 +191,7 @@ compileEnvironment unitKind gcProgram =
     }
   where
     program = gcGrinProgram gcProgram
-    constructorLayouts = (if isExecutable then builtinConstructors else []) <> grinConstructors program
-    isExecutable = case unitKind of
-      ExecutableUnit -> True
-      LibraryUnit -> False
+    constructorLayouts = grinConstructors program
     functionLabels =
       Map.fromList
         [ (grinFunctionName function, localFunctionLabel index function)
@@ -885,12 +882,12 @@ renderProgramInitializer entryName =
         <> ["i32.wrap_i64"]
         <> call "aihc_set_thread_done_continuation"
 
-renderStaticGlobals :: Bool -> CompileEnv -> GrinProgram -> Either WasmError [Text]
-renderStaticGlobals includeBuiltins env program = fmap concat (mapM renderGlobal globals)
+renderStaticGlobals :: CompileEnv -> GrinProgram -> Either WasmError [Text]
+renderStaticGlobals env program = fmap concat (mapM renderGlobal globals)
   where
     declaredGlobals = grinGlobals program
     declaredNames = map fst declaredGlobals
-    constructorLayouts = (if includeBuiltins then builtinConstructors else []) <> grinConstructors program
+    constructorLayouts = grinConstructors program
     implicitConstructors =
       [ (name, GrinNode (GrinConstructor name 0) [])
       | (name, layouts) <- constructorLayouts,
