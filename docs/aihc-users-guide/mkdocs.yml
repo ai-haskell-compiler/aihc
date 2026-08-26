@@ -30,4 +30,5 @@ markdown_extensions:
 
 nav:
   - User Guide: index.md
+  - Info tables: info-tables.md
   - API documentation: https://ai-haskell-compiler.github.io/aihc/api/
