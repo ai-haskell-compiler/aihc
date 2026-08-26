@@ -9,6 +9,8 @@
 module GHC.Types
   ( List (..),
     Int (..),
+    Float (..),
+    Double (..),
     Bool (..),
     Ordering (..),
     Constraint,
@@ -89,13 +91,17 @@ module GHC.Types
   )
 where
 
-import GHC.Prim (Int#)
+import GHC.Prim (Double#, Float#, Int#)
 
 data List a = [] | a : [a]
 
 infixr 5 :
 
 data Int = I# Int#
+
+data Float = F# Float#
+
+data Double = D# Double#
 
 data Bool = False | True
 
