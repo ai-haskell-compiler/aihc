@@ -112,7 +112,6 @@
   nativeBackend = nativeBackendBySystem.${pkgs.stdenv.hostPlatform.system} or null;
   backends = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend;
   exampleToolchainTargets = ["llvm"] ++ pkgs.lib.optional (nativeBackend != null) nativeBackend ++ ["wasm32-wasip3"];
-  exampleToolchainTargetArguments = builtins.concatMap (target: ["--target" target]) exampleToolchainTargets;
   compilationMatrix = builtins.concatLists (
     map (
       backend:
@@ -122,27 +121,7 @@
     )
     backends
   );
-  smokeCompilation = builtins.head compilationModes;
-  smokeCompilationMatrix = [
-    {
-      backend = "llvm";
-      compilation = smokeCompilation;
-      gc = "calloc";
-    }
-  ];
-  allBackendSmokeMatrix =
-    smokeCompilationMatrix
-    ++ pkgs.lib.optional (nativeBackend != null) {
-      backend = nativeBackend;
-      compilation = smokeCompilation;
-      gc = "calloc";
-    };
-  exampleCompilationMatrix = exampleName:
-    if exampleName == "hello-world"
-    then compilationMatrix
-    else if exampleName == "exceptions-sync"
-    then allBackendSmokeMatrix
-    else smokeCompilationMatrix;
+  exampleCompilationMatrix = _exampleName: compilationMatrix;
   wasip3CompilationModes = _exampleName: compilationModes;
 
   renderExampleTest = {
@@ -171,7 +150,7 @@
     if [[ -f "$example_directory/exit" ]]; then
       expected_exit=$(<"$example_directory/exit")
     fi
-    if timeout --foreground --kill-after=5s 120s ${aihcExe} compile "$source" \
+    if timeout --foreground --kill-after=5s 120s ${aihcExe} build-exe "$source" \
       --target ${backend} \
       --gc ${gc} \
       --store ${exampleToolchain} \
@@ -249,7 +228,7 @@
     if [[ -f "$example_directory/exit.wasm32-wasip3" ]]; then
       expected_exit=$(<"$example_directory/exit.wasm32-wasip3")
     fi
-    if timeout --foreground --kill-after=5s 120s ${aihcExe} compile "$source" \
+    if timeout --foreground --kill-after=5s 120s ${aihcExe} build-exe "$source" \
       --target wasm32-wasip3 \
       --store ${exampleToolchain} \
       ${pkgs.lib.escapeShellArgs compilation.flags} \
@@ -435,6 +414,8 @@
     } ''
       cd "$src"
       export GHCRTS=-N1
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       mkdir -p "$out"
 
@@ -444,14 +425,13 @@
       ''}
       ${aihcExe} prepare-runtime --target wasm32-wasip3 --gc calloc --store "$out"
 
-      ${aihcExe} install core-libs/aihc-base \
-        --offline \
-        --store "$out" \
-        ${pkgs.lib.escapeShellArgs exampleToolchainTargetArguments}
+      ${pkgs.lib.concatMapStringsSep "\n" (target: ''
+          ${aihcExe} install-v2 core-libs/aihc-base --store "$out" --target ${target}
+        '')
+        exampleToolchainTargets}
 
-      test -f "$out/libraries/active"
-      test -n "$(find "$out/libraries" -type f -name 'interfaces.cache' -print -quit)"
-      test -n "$(find "$out/libraries" -type f -name 'libaihc-base.a' -print -quit)"
+      test -n "$(find "$out" -type f -name 'package.json' -print -quit)"
+      test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
     '';
 
   exampleTestInputs = [
@@ -465,6 +445,8 @@
     mkSourceCheck "aihc-example-${exampleName}" (sources.exampleSrc exampleName pkgs) exampleTestInputs ''
       set -euo pipefail
       export GHCRTS=-N1
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
 
@@ -594,10 +576,9 @@
   ghcExampleTest = assert exampleNames != [];
     pkgs.linkFarm "aihc-ghc-example-test" ghcExampleCases;
 
-  # Every example gets one LLVM smoke test. The synchronous exception example
-  # also exercises the host-native backend, while Hello World carries the
-  # complete backend/GC matrix. Nix schedules independent examples in
-  # parallel against the immutable shared library and runtime artifacts.
+  # Every example uses LLVM and the available host-native backend. Nix
+  # schedules independent examples in parallel against the immutable shared
+  # library and runtime artifacts.
   examplesTests = assert exampleNames != [];
     pkgs.linkFarm "aihc-examples-tests" exampleCases;
 
@@ -617,6 +598,8 @@
     mkSourceCheck "aihc-wasip3-example-${exampleName}" (sources.exampleSrc exampleName pkgs) wasip3ExampleInputs ''
       set -euo pipefail
       export GHCRTS=-N1
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
       export AIHC_WASM_CLANG=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
       empty_stderr="$TMPDIR/empty-stderr"
       touch "$empty_stderr"
@@ -671,4 +654,6 @@ in {
   c-format = cFormat;
   cabal-format = cabalFormat;
   core-libraries-install-v2 = coreLibrariesInstallV2;
+  examples-tests = examplesTests;
+  wasip3-example-test = wasip3ExampleTest;
 }

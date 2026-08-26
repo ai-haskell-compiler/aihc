@@ -1,5 +1,6 @@
 module Aihc.Cli.Options
   ( Command (..),
+    BuildExeOptions (..),
     GarbageCollector (..),
     InstallErrorFormat (..),
     InstallV2Options (..),
@@ -14,13 +15,25 @@ import Aihc.Native (NativeTarget, parseNativeTarget)
 import Options.Applicative qualified as OA
 
 data Command
-  = CmdInstallV2 !InstallV2Options
+  = CmdBuildExe !BuildExeOptions
+  | CmdInstallV2 !InstallV2Options
   | CmdPrepareRuntime !PrepareRuntimeOptions
   deriving (Eq, Show)
 
 data GarbageCollector
   = GcCalloc
   | GcSemispace
+  deriving (Eq, Show)
+
+data BuildExeOptions = BuildExeOptions
+  { buildExeSourceFile :: !FilePath,
+    buildExeSourceDirectories :: ![FilePath],
+    buildExePackageConstraints :: ![String],
+    buildExeTarget :: !NativeTarget,
+    buildExeGarbageCollector :: !GarbageCollector,
+    buildExeStoreRoot :: !(Maybe FilePath),
+    buildExeOutputFile :: !(Maybe FilePath)
+  }
   deriving (Eq, Show)
 
 data PrepareRuntimeOptions = PrepareRuntimeOptions
@@ -69,11 +82,17 @@ commandParser :: OA.Parser Command
 commandParser =
   OA.subparser
     ( OA.command
-        "install-v2"
+        "build-exe"
         ( OA.info
-            (CmdInstallV2 <$> installV2OptionsParser OA.<**> OA.helper)
-            (OA.progDesc "Build and install one local Cabal library")
+            (CmdBuildExe <$> buildExeOptionsParser OA.<**> OA.helper)
+            (OA.progDesc "Build one Haskell executable")
         )
+        <> OA.command
+          "install-v2"
+          ( OA.info
+              (CmdInstallV2 <$> installV2OptionsParser OA.<**> OA.helper)
+              (OA.progDesc "Build and install one local Cabal library")
+          )
         <> OA.command
           "prepare-runtime"
           ( OA.info
@@ -81,6 +100,49 @@ commandParser =
               (OA.progDesc "Compile and install a runtime for one backend and garbage collector")
           )
     )
+
+buildExeOptionsParser :: OA.Parser BuildExeOptions
+buildExeOptionsParser =
+  BuildExeOptions
+    <$> OA.strArgument
+      ( OA.metavar "MODULE"
+          <> OA.help "Main Haskell module"
+      )
+    <*> sourceDirectoryOptions
+    <*> OA.many
+      ( OA.strOption
+          ( OA.long "package"
+              <> OA.short 'p'
+              <> OA.metavar "CONSTRAINT"
+              <> OA.help "Add an installed package constraint"
+          )
+      )
+    <*> nativeTargetOption
+    <*> garbageCollectorOption
+    <*> storeRootOption "Override the aihc store root"
+    <*> OA.optional
+      ( OA.strOption
+          ( OA.long "output"
+              <> OA.short 'o'
+              <> OA.metavar "FILE"
+              <> OA.help "Write the executable to FILE"
+          )
+      )
+
+sourceDirectoryOptions :: OA.Parser [FilePath]
+sourceDirectoryOptions =
+  defaultDirectory
+    <$> OA.many
+      ( OA.strOption
+          ( OA.long "source-dir"
+              <> OA.short 'i'
+              <> OA.metavar "DIR"
+              <> OA.help "Add a source directory. The default directory is ."
+          )
+      )
+  where
+    defaultDirectory [] = ["."]
+    defaultDirectory directories = directories
 
 parseGarbageCollector :: String -> Either String GarbageCollector
 parseGarbageCollector value =

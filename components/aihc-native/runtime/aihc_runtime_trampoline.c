@@ -109,6 +109,12 @@ AihcTrampolineTransfer aihc_trampoline_apply_cps(AihcMachine *machine,
   if (function == NULL) {
     aihc_fail("attempted to apply null");
   }
+  while (aihc_value_kind(function) == AIHC_OBJECT_INDIRECTION) {
+    function = (AihcValue *)(uintptr_t)function->fields[0];
+    if (function == NULL) {
+      aihc_fail("indirection points to null");
+    }
+  }
   if (aihc_value_kind(function) == AIHC_OBJECT_CLOSURE &&
       aihc_value_arity(function) == 1) {
     (void)aihc_next_application_info(aihc_value_info_table(function), count);

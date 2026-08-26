@@ -17,6 +17,7 @@ import Aihc.Cli.Install
     parseInterfaceFile,
   )
 import Aihc.Cli.Options (InstallV2Options (..))
+import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeInterface)
@@ -66,7 +67,7 @@ import Aihc.Tc
 import Aihc.Tc.Types (tyConModuleName, tyConNamespace, tyConPackageId)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (IOException, try)
-import Control.Monad (foldM, unless, when)
+import Control.Monad (foldM, forM, forM_, unless, when)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -85,7 +86,7 @@ import Distribution.PackageDescription (package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
 import Numeric (showHex)
-import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
+import System.Directory (createDirectoryIfMissing, createFileLink, doesFileExist, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
 import System.Process (readProcessWithExitCode)
@@ -190,7 +191,20 @@ installPackageV2 keepGrin keepNative target verbose storeRoot dependencies root 
       (installUnit keepGrin keepNative target verbose storePath resolvePackage primIdentity root)
       (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty)
       units
-  buildLibraryArchive target verbose storePath packageNameText parsed
+  buildLibraryArchive keepNative target verbose storePath packageNameText resolvePackage parsed
+  writePackageManifest
+    (packageManifestPath storePath)
+    PackageManifest
+      { packageManifestName = packageNameText,
+        packageManifestVersion = packageVersionText,
+        packageManifestIdentity = T.pack packageDirectory,
+        packageManifestDependencies =
+          sortOn
+            id
+            [ T.pack (takeFileName (installV2StorePath (installedV2Result dependency)))
+            | dependency <- dependencies
+            ]
+      }
   let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
       ownExports =
         Map.filterWithKey
@@ -486,19 +500,54 @@ nativeSourceExtension target =
     Llvm -> ".ll"
     _ -> ".s"
 
-buildLibraryArchive :: NativeTarget -> (String -> IO ()) -> FilePath -> Text -> [SourceModule] -> IO ()
-buildLibraryArchive target verbose storePath packageNameText sources = do
+buildLibraryArchive :: Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Text -> Package -> [SourceModule] -> IO ()
+buildLibraryArchive keepNative target verbose storePath packageNameText resolvePackage sources = do
   let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
-      objects =
+      moduleObjects =
         [ storePath </> moduleDirectory modu </> T.unpack (fromMaybe "Main" (moduleName modu)) <> ".o"
         | source <- sources,
           let modu = sourceModuleAst source
         ]
+      object = case moduleObjects of
+        [singleObject] -> singleObject
+        _ -> storePath </> "lib" </> T.unpack packageNameText <> ".o"
+      loader = Fc2.storeModuleLoader (takeDirectory storePath)
+      packageIdentity = packageId resolvePackage
+  ownPrograms <-
+    forM sources $ \source -> do
+      let name = fromMaybe "Main" (moduleName (sourceModuleAst source))
+      loaded <- loader packageIdentity name
+      maybe (ioError (userError ("Missing stored Core-v2 module: " <> T.unpack name))) pure loaded
+  loadedPrograms <- Fc2.loadScopeClosure loader ownPrograms
+  let typeEnv = Fc2Type.typeEnvFromPrograms loadedPrograms
+      combinedProgram =
+        Fc2.Program
+          { Fc2.programScopes = maybe Fc2.emptyScopeTable Fc2.programScopes (listToMaybe ownPrograms),
+            Fc2.programDecls = concatMap Fc2.programDecls ownPrograms
+          }
+  grin <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv combinedProgram)
+  cps <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin grin)
+  let gcProgram = Grin.lowerGc cps
+      gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
+  unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
+  assembly <- compileNativeModule target gcProgram
+  let assemblyPath = object <> nativeSourceExtension target
+  createDirectoryIfMissing True (takeDirectory object)
+  TIO.writeFile assemblyPath assembly
+  (compiler, compilerArguments) <- backendCompiler target
+  runTool compiler (compilerArguments <> ["-c", assemblyPath, "-o", object])
+  unless keepNative (removeFile assemblyPath)
+  forM_ moduleObjects $ \moduleObject ->
+    unless (moduleObject == object) $ do
+      createDirectoryIfMissing True (takeDirectory moduleObject)
+      exists <- doesFileExist moduleObject
+      when exists (removeFile moduleObject)
+      createFileLink object moduleObject
   createDirectoryIfMissing True (takeDirectory archive)
   archiveExists <- doesFileExist archive
   when archiveExists (removeFile archive)
   archiver <- backendArchiver target
-  runTool archiver (["rcs", archive] <> objects)
+  runTool archiver ["rcs", archive, object]
   verbose ("Write archive: " <> archive)
 
 runTool :: FilePath -> [String] -> IO ()
