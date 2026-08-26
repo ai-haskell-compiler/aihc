@@ -121,27 +121,7 @@
     )
     backends
   );
-  smokeCompilation = builtins.head compilationModes;
-  smokeCompilationMatrix = [
-    {
-      backend = "llvm";
-      compilation = smokeCompilation;
-      gc = "calloc";
-    }
-  ];
-  allBackendSmokeMatrix =
-    smokeCompilationMatrix
-    ++ pkgs.lib.optional (nativeBackend != null) {
-      backend = nativeBackend;
-      compilation = smokeCompilation;
-      gc = "calloc";
-    };
-  exampleCompilationMatrix = exampleName:
-    if exampleName == "hello-world"
-    then compilationMatrix
-    else if builtins.elem exampleName ["exceptions-sync" "green-threads"]
-    then allBackendSmokeMatrix
-    else smokeCompilationMatrix;
+  exampleCompilationMatrix = _exampleName: compilationMatrix;
   wasip3CompilationModes = _exampleName: compilationModes;
 
   renderExampleTest = {
@@ -596,10 +576,9 @@
   ghcExampleTest = assert exampleNames != [];
     pkgs.linkFarm "aihc-ghc-example-test" ghcExampleCases;
 
-  # Every example gets one LLVM smoke test. The synchronous exception example
-  # also exercises the host-native backend, while Hello World carries the
-  # complete backend/GC matrix. Nix schedules independent examples in
-  # parallel against the immutable shared library and runtime artifacts.
+  # Every example uses LLVM and the available host-native backend. Nix
+  # schedules independent examples in parallel against the immutable shared
+  # library and runtime artifacts.
   examplesTests = assert exampleNames != [];
     pkgs.linkFarm "aihc-examples-tests" exampleCases;
 
