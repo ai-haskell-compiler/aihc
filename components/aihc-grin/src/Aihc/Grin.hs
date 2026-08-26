@@ -14,6 +14,7 @@ module Aihc.Grin
     cpsUpdateFunction,
     toCpsGrin,
     GcGrinProgram,
+    entryGcProgram,
     gcContinuationFrames,
     gcContinuationFunctions,
     gcFunctionContinuations,
@@ -56,7 +57,7 @@ import Aihc.Grin.Cps
     cpsUpdateFunction,
     toCpsGrin,
   )
-import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, gcUpdateFunction, lowerGc)
+import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcFunctionContinuations, gcGrinProgram, gcUpdateFunction, lowerGc)
 import Aihc.Grin.Interpret (InterpretError (..), RuntimeValue (..), interpretProgramBinding, interpretProgramFunctionSnapshot, interpretProgramIoBinding)
 import Aihc.Grin.Lint (GrinLintError (..), lintProgram)
 import Aihc.Grin.Lower (lowerProgram)

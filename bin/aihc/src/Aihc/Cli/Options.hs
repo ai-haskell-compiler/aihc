@@ -97,7 +97,7 @@ commandParser =
           "prepare-runtime"
           ( OA.info
               (CmdPrepareRuntime <$> prepareRuntimeOptionsParser OA.<**> OA.helper)
-              (OA.progDesc "Compile and install a runtime for one backend and garbage collector")
+              (OA.progDesc "Compile and install target entry and runtime archives")
           )
     )
 
@@ -156,7 +156,7 @@ prepareRuntimeOptionsParser =
   PrepareRuntimeOptions
     <$> nativeTargetOption
     <*> garbageCollectorOption
-    <*> storeRootOption "Install the prepared runtime into DIR"
+    <*> storeRootOption "Install the prepared archives into DIR"
 
 nativeTargetOption :: OA.Parser NativeTarget
 nativeTargetOption =

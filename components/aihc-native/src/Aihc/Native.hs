@@ -11,6 +11,7 @@ module Aihc.Native
     backendArchiver,
     backendCompiler,
     buildAddrLiteralPool,
+    executableEntryName,
     hostNativeTarget,
     nativeTargetTriple,
     nativeTargetStoreDirectory,
@@ -42,6 +43,10 @@ import System.Directory (findExecutable)
 import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory)
 import System.Info qualified as System
+
+-- | The fixed linked global that starts each executable.
+executableEntryName :: Text
+executableEntryName = T.intercalate "\0" ["exe", "Aihc.Entry", "entry"]
 
 -- | A complete backend and executable target.
 data NativeTarget

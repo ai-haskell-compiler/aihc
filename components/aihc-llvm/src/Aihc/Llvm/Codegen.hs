@@ -9,19 +9,20 @@
 -- fields and perform another guaranteed tail transfer to the typed code entry.
 module Aihc.Llvm.Codegen
   ( LlvmError (..),
+    compileEntry,
     compileModule,
-    compileProgram,
     validatePrimitiveNames,
     validateProgramPrimitives,
   )
 where
 
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
-import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
+import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
 import Aihc.Native
   ( NativeRuntimeCall (..),
     buildAddrLiteralPool,
+    executableEntryName,
     nativeRuntimePrimitiveCall,
     renderLinkedConstructorInfoSymbol,
     renderLinkedGlobalSymbol,
@@ -41,8 +42,7 @@ import Data.Text qualified as T
 import System.Info qualified as System
 
 data LlvmError
-  = LlvmMissingEntry !Text
-  | LlvmMissingGlobal !Text
+  = LlvmMissingGlobal !Text
   | LlvmMissingFunction !FunctionName
   | LlvmMissingConstructor !Text
   | LlvmUnsupportedPrimitive !Text
@@ -52,7 +52,7 @@ data LlvmError
   deriving (Eq, Show)
 
 data CompilationUnit
-  = ExecutableUnit
+  = EntryUnit
   | LibraryUnit
   deriving (Eq)
 
@@ -104,11 +104,15 @@ data ValueEnv = ValueEnv
 
 type FunctionM = StateT FunctionState (Either LlvmError)
 
-compileProgram :: Text -> GcGrinProgram -> Either LlvmError Text
-compileProgram entryName gcProgram = do
+-- | Compile the fixed executable entry unit.
+compileEntry :: Either LlvmError Text
+compileEntry = do
+  gcProgram <- either (Left . LlvmUnsupportedExpression . T.pack . show) Right entryGcProgram
+  compileEntryUnit executableEntryName gcProgram
+
+compileEntryUnit :: Text -> GcGrinProgram -> Either LlvmError Text
+compileEntryUnit entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
-  validateProgramPrimitives program
-  if entryName `elem` map fst (grinGlobals program) then pure () else Left (LlvmMissingEntry entryName)
   updateLabel <- functionCodeLabel env (gcUpdateFunction gcProgram)
   functions <- mapM (compileFunction env) (grinFunctions program)
   staticGlobals <- renderStaticGlobals env program
@@ -124,7 +128,10 @@ compileProgram entryName gcProgram = do
         ]
       source =
         llvmPreamble
-          <> ["@aihc_machine = global ptr null, align 8", ""]
+          <> [ "@aihc_machine = global ptr null, align 8",
+               "@" <> renderLinkedGlobalSymbol entryName <> " = external global i8",
+               ""
+             ]
           <> renderRuntimeDeclarations
           <> renderForeignDeclarations program
           <> renderExternalFunctionDeclarations env program
@@ -140,7 +147,7 @@ compileProgram entryName gcProgram = do
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment ExecutableUnit (gcContinuationFunctions gcProgram) (gcContinuationFrames gcProgram) program
+    env = compileEnvironment EntryUnit (gcContinuationFunctions gcProgram) (gcContinuationFrames gcProgram) program
     specialInfo label entry fields remaining next enter frameKind = RuntimeInfo label Nothing (Just entry) fields remaining next enter (Just frameKind) runtimeObjectClosure
     continuationEnter target stored supplied = RuntimeEnter target stored supplied True
 
@@ -207,13 +214,11 @@ compileEnvironment unitKind continuationFunctions continuationFrames program =
       ]
     requiredConstructorInfos =
       Set.fromList
-        ( executableConstructorInfos
+        ( declaredConstructorInfos
             <> concatMap requiredNodeConstructorInfos (programNodes program)
         )
-    executableConstructorInfos =
-      case unitKind of
-        ExecutableUnit -> [ConstructorRuntimeInfo name 0 | (name, arity) <- constructors, arity == 0]
-        LibraryUnit -> []
+    declaredConstructorInfos =
+      [ConstructorRuntimeInfo name 0 | (name, arity) <- constructors, arity == 0]
     infoKeys =
       [ key
       | key <- Set.toAscList (Set.fromList (concatMap runtimeInfoKeyStages (programNodes program))),

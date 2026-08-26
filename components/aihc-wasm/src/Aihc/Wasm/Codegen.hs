@@ -6,19 +6,20 @@
 -- generated Haskell code never passes through C or LLVM IR.
 module Aihc.Wasm.Codegen
   ( WasmError (..),
+    compileEntry,
     compileModule,
-    compileProgram,
     validatePrimitiveNames,
     validateProgramPrimitives,
   )
 where
 
 import Aihc.Grin.Cps (ContinuationFrameKind (..), continuationFrameKindCode)
-import Aihc.Grin.Gc (GcGrinProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
+import Aihc.Grin.Gc (GcGrinProgram, entryGcProgram, gcContinuationFrames, gcContinuationFunctions, gcGrinProgram, gcUpdateFunction)
 import Aihc.Grin.Syntax
 import Aihc.Native
   ( NativeRuntimeCall (..),
     buildAddrLiteralPool,
+    executableEntryName,
     nativeRuntimePrimitiveCall,
     renderLinkedConstructorInfoSymbol,
     renderLinkedGlobalSymbol,
@@ -35,8 +36,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 
 data WasmError
-  = WasmMissingEntry !Text
-  | WasmMissingGlobal !Text
+  = WasmMissingGlobal !Text
   | WasmMissingFunction !FunctionName
   | WasmMissingConstructor !Text
   | WasmUnsupportedPrimitive !Text
@@ -97,13 +97,17 @@ data CompiledFunction = CompiledFunction
 
 type Instructions = [Text]
 
-data CompilationUnit = ExecutableUnit | LibraryUnit
+data CompilationUnit = EntryUnit | LibraryUnit
 
-compileProgram :: Text -> GcGrinProgram -> Either WasmError Text
-compileProgram entryName gcProgram = do
+-- | Compile the fixed executable entry unit.
+compileEntry :: Either WasmError Text
+compileEntry = do
+  gcProgram <- either (Left . WasmUnsupportedExpression . T.pack . show) Right entryGcProgram
+  compileEntryUnit executableEntryName gcProgram
+
+compileEntryUnit :: Text -> GcGrinProgram -> Either WasmError Text
+compileEntryUnit entryName gcProgram = do
   mapM_ validateRuntimeRep (programRuntimeReps program)
-  validateProgramPrimitives program
-  if entryName `elem` map fst (grinGlobals program) then pure () else Left (WasmMissingEntry entryName)
   updateLabel <- functionCodeLabel env (gcUpdateFunction gcProgram)
   updateArity <- functionArity env (gcUpdateFunction gcProgram)
   functions <- mapM (compileFunction env) (grinFunctions program)
@@ -146,7 +150,7 @@ compileProgram entryName gcProgram = do
   pure (T.unlines source)
   where
     program = gcGrinProgram gcProgram
-    env = compileEnvironment ExecutableUnit gcProgram
+    env = compileEnvironment EntryUnit gcProgram
 
 compileModule :: GcGrinProgram -> Either WasmError Text
 compileModule gcProgram = do
@@ -186,7 +190,7 @@ compileEnvironment unitKind gcProgram =
       compileRuntimeInfos = map third (constructorEntries <> functionEntries),
       compileAllowUnsupportedPrimitives =
         case unitKind of
-          ExecutableUnit -> False
+          EntryUnit -> False
           LibraryUnit -> True
     }
   where

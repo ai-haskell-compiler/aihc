@@ -5,11 +5,12 @@ module Test.Llvm.Suite (tests) where
 import Aihc.Grin (GcGrinProgram, lintProgram, lowerGc, toCpsGrin)
 import Aihc.Grin.Gc (gcGrinProgram)
 import Aihc.Grin.Syntax
-import Aihc.Llvm (compileModule, compileProgram, validatePrimitiveNames)
+import Aihc.Llvm (compileEntry, compileModule, validatePrimitiveNames)
 import Aihc.Native
   ( NativeTarget (Llvm),
     RuntimeGarbageCollector (RuntimeGcCalloc),
     RuntimePlan (..),
+    executableEntryName,
     runtimePlan,
     supportedNativePrimitiveNames,
   )
@@ -47,7 +48,8 @@ tests =
 
 testGuaranteedTailCalls :: IO ()
 testGuaranteedTailCalls = do
-  source <- compile schedulerProgram
+  sources <- compile schedulerProgram
+  let source = T.unlines sources
   forM_
     [ "define internal tailcc void",
       "define i32 @main(i32 %argc, ptr %argv)",
@@ -60,11 +62,12 @@ testGuaranteedTailCalls = do
     ]
     (\needle -> assertBool ("missing generated LLVM fragment: " <> T.unpack needle) (needle `T.isInfixOf` source))
   assertBool "LLVM backend does not use a global argument buffer" (not ("aihc_llvm_arguments" `T.isInfixOf` source))
-  verifyModule source
+  mapM_ verifyModule sources
 
 testByteArrayPrimitives :: IO ()
 testByteArrayPrimitives = do
-  source <- compile stdioSchedulerProgram
+  sources <- compile stdioSchedulerProgram
+  let source = T.unlines sources
   forM_
     [ "declare ptr @aihc_byte_array_new_pinned(i64)",
       "declare ptr @aihc_byte_array_contents(ptr)",
@@ -72,7 +75,7 @@ testByteArrayPrimitives = do
       "call ptr @aihc_byte_array_contents"
     ]
     (\needle -> assertBool ("missing generated LLVM fragment: " <> T.unpack needle) (needle `T.isInfixOf` source))
-  verifyModule source
+  mapM_ verifyModule sources
 
 testIntegerPrimitives :: IO ()
 testIntegerPrimitives = forM_ integerPrimitiveCases $ \primitiveCase -> do
@@ -388,7 +391,8 @@ labsCall =
 
 testProcessExit :: IO ()
 testProcessExit = do
-  source <- compile processExitProgram
+  sources <- compile processExitProgram
+  let source = T.unlines sources
   assertBool
     "LLVM exit lowering must call the non-returning host operation"
     ("call void @aihc_exit_process(i64 7)" `T.isInfixOf` source)
@@ -397,15 +401,20 @@ testProcessExit = do
     (not ("call i64 @aihc_get_exit_status" `T.isInfixOf` source))
   withTempDirectory "aihc-llvm-exit" $ \directory -> do
     runtimeArguments <- llvmRuntimeArguments
-    let sourcePath = directory </> "program.ll"
+    let modulePath = directory </> "program.ll"
+        entryPath = directory </> "entry.ll"
         executablePath = directory </> "program"
-    TIO.writeFile sourcePath source
+    case sources of
+      [moduleSource, entrySource] -> do
+        TIO.writeFile modulePath moduleSource
+        TIO.writeFile entryPath entrySource
+      _ -> assertFailure "LLVM compilation did not return two units"
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
         ( ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-override-module", "-O2"]
             <> runtimeArguments
-            <> [sourcePath, "-o", executablePath]
+            <> [modulePath, entryPath, "-o", executablePath]
         )
         ""
     assertEqual ("clang rejected generated LLVM IR:\n" <> clangErr) ExitSuccess clangExit
@@ -436,18 +445,23 @@ processExitProgram =
 
 testProgram :: String -> GrinProgram -> IO ()
 testProgram expected program = do
-  source <- compile program
+  sources <- compile program
   withTempDirectory "aihc-llvm" $ \directory -> do
     runtimeArguments <- llvmRuntimeArguments
-    let sourcePath = directory </> "program.ll"
+    let modulePath = directory </> "program.ll"
+        entryPath = directory </> "entry.ll"
         executablePath = directory </> "program"
-    TIO.writeFile sourcePath source
+    case sources of
+      [moduleSource, entrySource] -> do
+        TIO.writeFile modulePath moduleSource
+        TIO.writeFile entryPath entrySource
+      _ -> assertFailure "LLVM compilation did not return two units"
     (clangExit, _clangOut, clangErr) <-
       readProcessWithExitCode
         "clang"
         ( ["-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-override-module", "-O2"]
             <> runtimeArguments
-            <> [sourcePath, "-o", executablePath]
+            <> [modulePath, entryPath, "-o", executablePath]
         )
         ""
     assertEqual ("clang rejected generated LLVM IR:\n" <> clangErr) ExitSuccess clangExit
@@ -463,14 +477,21 @@ llvmRuntimeArguments = do
         <> runtimeSources plan
     )
 
-compile :: GrinProgram -> IO T.Text
+compile :: GrinProgram -> IO [T.Text]
 compile program = do
   assertEqual "direct GRIN lint" [] (lintProgram program)
-  let gcProgram = expectGcGrin program
+  let linkedProgram =
+        program
+          { grinGlobals =
+              [ (if name == "main" then executableEntryName else name, node)
+              | (name, node) <- grinGlobals program
+              ]
+          }
+      gcProgram = expectGcGrin linkedProgram
   assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gcProgram))
-  case compileProgram "main" gcProgram of
-    Right source -> pure source
-    Left err -> assertFailure ("LLVM lowering failed: " <> show err)
+  moduleSource <- either (assertFailure . show) pure (compileModule gcProgram)
+  entrySource <- either (assertFailure . show) pure compileEntry
+  pure [moduleSource, entrySource]
 
 expectGcGrin :: GrinProgram -> GcGrinProgram
 expectGcGrin program =

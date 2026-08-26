@@ -1,8 +1,8 @@
 -- | LLVM code generation with guaranteed tail calls.
 module Aihc.Llvm
   ( LlvmError (..),
+    compileEntry,
     compileModule,
-    compileProgram,
     validatePrimitiveNames,
     validateProgramPrimitives,
   )

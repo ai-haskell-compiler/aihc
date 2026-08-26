@@ -1,10 +1,10 @@
 -- | Native AArch64 code generation for runtime-explicit GRIN.
 module Aihc.Arm64
   ( Arm64Error (..),
+    compileEntry,
     compileModule,
     ObservedProgram (..),
     compileObservedFunction,
-    compileProgram,
     snapshotSourcePath,
     targetTriple,
     validateProgramPrimitives,
@@ -15,9 +15,9 @@ where
 import Aihc.Arm64.Codegen
   ( Arm64Error (..),
     ObservedProgram (..),
+    compileEntry,
     compileModule,
     compileObservedFunction,
-    compileProgram,
     validatePrimitiveNames,
     validateProgramPrimitives,
   )

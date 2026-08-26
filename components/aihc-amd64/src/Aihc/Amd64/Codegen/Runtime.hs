@@ -76,8 +76,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 
 data Amd64Error
-  = Amd64MissingEntry !Text
-  | Amd64MissingGlobal !Text
+  = Amd64MissingGlobal !Text
   | Amd64MissingFunction !FunctionName
   | Amd64MissingConstructor !Text
   | Amd64UnsupportedPrimitive !Text

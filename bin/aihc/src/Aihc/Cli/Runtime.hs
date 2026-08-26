@@ -1,9 +1,10 @@
 {-# LANGUAGE NamedFieldPuns #-}
 
--- | Build runtime archives once, install them in the aihc store, and let
+-- | Build support archives once, install them in the aihc store, and let
 -- ordinary program links consume those immutable artifacts.
 module Aihc.Cli.Runtime
-  ( prepareRuntimeArchive,
+  ( prepareEntryArchive,
+    prepareRuntimeArchive,
     readWasmClangProcessWithExitCode,
     runPrepareRuntime,
     runtimeGarbageCollector,
@@ -12,12 +13,16 @@ module Aihc.Cli.Runtime
   )
 where
 
+import Aihc.Amd64 qualified as Amd64
+import Aihc.Arm64 qualified as Arm64
 import Aihc.Cli.Options (GarbageCollector (..), PrepareRuntimeOptions (..))
-import Aihc.Cli.Store (defaultStoreRoot, installedRuntimeArchivePath)
+import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
+import Aihc.Llvm qualified as Llvm
 import Aihc.Native
   ( NativeTarget (..),
     RuntimeGarbageCollector (..),
     RuntimePlan (..),
+    backendArchiver,
     backendCompiler,
     nativeTargetTriple,
     runtimePlan,
@@ -26,6 +31,8 @@ import Aihc.Wasm qualified as Wasm
 import Control.Exception (bracket)
 import Control.Monad (forM)
 import Data.Maybe (fromMaybe)
+import Data.Text (Text)
+import Data.Text.IO qualified as TIO
 import System.Directory (createDirectory, createDirectoryIfMissing, removeDirectoryRecursive, removeFile, renameFile)
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
@@ -34,14 +41,45 @@ import System.IO (hClose, openTempFile)
 import System.IO.Error (tryIOError)
 import System.Process (readProcessWithExitCode)
 
+prepareEntryArchive :: FilePath -> NativeTarget -> IO FilePath
+prepareEntryArchive storeRoot target = do
+  let destination = installedEntryArchivePath storeRoot target
+      destinationDirectory = takeDirectory destination
+  createDirectoryIfMissing True destinationDirectory
+  withTemporaryDirectory destinationDirectory "entry-build" $ \directory -> do
+    source <- either (ioError . userError) pure (entrySource target)
+    let sourcePath = directory </> if target == Llvm then "entry.ll" else "entry.s"
+        object = directory </> "entry.o"
+        archive = directory </> "entry.a"
+    TIO.writeFile sourcePath source
+    (compiler, arguments) <- backendCompiler target
+    runTool compiler (arguments <> ["-c", sourcePath, "-o", object])
+    archiver <- backendArchiver target
+    runTool archiver ["rcs", archive, object]
+    renameFile archive destination
+  pure destination
+
+entrySource :: NativeTarget -> Either String Text
+entrySource target =
+  case target of
+    AppleArm64 -> firstBackend Arm64.compileEntry
+    LinuxAmd64 -> firstBackend Amd64.compileEntry
+    Llvm -> firstBackend Llvm.compileEntry
+    Wasm32Wasip3 -> firstBackend Wasm.compileEntry
+  where
+    firstBackend :: (Show error) => Either error Text -> Either String Text
+    firstBackend = either (Left . show) Right
+
 runPrepareRuntime :: PrepareRuntimeOptions -> IO ()
 runPrepareRuntime options = do
   storeRoot <- maybe defaultStoreRoot pure (prepareRuntimeStoreRoot options)
+  entry <- prepareEntryArchive storeRoot (prepareRuntimeTarget options)
   archive <-
     prepareRuntimeArchive
       storeRoot
       (prepareRuntimeTarget options)
       (prepareRuntimeGarbageCollector options)
+  putStrLn ("entry: " <> entry)
   putStrLn ("runtime: " <> archive)
 
 prepareRuntimeArchive :: FilePath -> NativeTarget -> GarbageCollector -> IO FilePath
