@@ -1,0 +1,17 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Numeric.Natural
+
+    result :: Natural
+    result = 3 - 5
+output: |
+  NaturalUnderflow
+expression: |
+  result
+status: pass
+reason: Natural subtraction throws an exception when its result is negative
