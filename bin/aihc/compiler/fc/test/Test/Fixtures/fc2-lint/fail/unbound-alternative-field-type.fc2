@@ -1,6 +1,24 @@
 scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
 
+import header 2.tLevity :: 2.tType
+
+import header 2.tLiftedRep :: 2.tRuntimeRep
+
+import header 2.tRuntimeRep :: 2.tType
+
+import header 2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType
+
+import header 2.tType :: 2.tType
+
+import header 2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep
+
+import header 2.vLifted :: 2.tLevity
+
+import synonym 2.tLiftedRep = 2.vBoxedRep 2.vLifted
+
+import synonym 2.tType = 2.tTYPE 2.tLiftedRep
+
 pub type 1.tMark :: 2.tType {
     pub 1.vMarked :: 1.tMark
 }
@@ -15,7 +33,7 @@ pub type 1.tBox :: 2.tType {
 
 pub val 1.vinspect :: 1.tBox 2.→ 1.tMark
  = λ(x : 1.tBox).
-    case x as (_scrut : 1.tBox) return (1.tMark) of {
-        1.vBox @(a : 2.tType) ($pattern_d0 : 1.t$Dict$Markable b) (value : b) →
-            1.vMarked
-    }
+  case x as (_scrut : 1.tBox) return (1.tMark) of {
+      1.vBox @(a : 2.tType) ($pattern_d0 : 1.t$Dict$Markable b) (value : b) →
+          1.vMarked
+  }

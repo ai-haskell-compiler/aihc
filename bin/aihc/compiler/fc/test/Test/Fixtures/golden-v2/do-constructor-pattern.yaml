@@ -15,6 +15,24 @@ expected: |-
   scope 1 = "" GHC.Base
   scope 2 = "aihc-prim" GHC.Types
 
+  import header 2.tLevity :: 2.tType
+
+  import header 2.tLiftedRep :: 2.tRuntimeRep
+
+  import header 2.tRuntimeRep :: 2.tType
+
+  import header 2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType
+
+  import header 2.tType :: 2.tType
+
+  import header 2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep
+
+  import header 2.vLifted :: 2.tLevity
+
+  import synonym 2.tLiftedRep = 2.vBoxedRep 2.vLifted
+
+  import synonym 2.tType = 2.tTYPE 2.tLiftedRep
+
   pub type 1.tBox (a : 2.tType) :: 2.tType {
       pub 1.vBox :: ∀(a : 2.tType). a 2.→ 1.tBox a
   }
@@ -31,6 +49,30 @@ expected: |-
   scope 1 = "" GHC.Base
   scope 2 = "" Test
   scope 3 = "aihc-prim" GHC.Types
+
+  import header 1.tBox :: ∀(a : 3.tType). 3.tType
+
+  import header 3.tLevity :: 3.tType
+
+  import header 3.tLiftedRep :: 3.tRuntimeRep
+
+  import header 3.tRuntimeRep :: 3.tType
+
+  import header 3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType
+
+  import header 3.tType :: 3.tType
+
+  import header 1.v>>= :: ∀(a : 3.tType) (b : 3.tType). 1.tBox a 3.→ (a 3.→ b) 3.→ b
+
+  import header 1.vBox :: ∀(a : 3.tType). a 3.→ 1.tBox a
+
+  import header 3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep
+
+  import header 3.vLifted :: 3.tLevity
+
+  import synonym 3.tLiftedRep = 3.vBoxedRep 3.vLifted
+
+  import synonym 3.tType = 3.tTYPE 3.tLiftedRep
 
   pub type 2.tPair (a : 3.tType) :: 3.tType {
       pub 2.vPair :: ∀(a : 3.tType). a 3.→ a 3.→ 2.tPair a

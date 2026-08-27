@@ -12,6 +12,32 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Tuple
   scope 3 = "aihc-prim" GHC.Types
 
+  import header 3.tLevity :: 3.tType
+
+  import header 3.tLiftedRep :: 3.tRuntimeRep
+
+  import header 3.tRuntimeRep :: 3.tType
+
+  import header 3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType
+
+  import header 2.tTuple2 :: ∀(a1 : 3.tType) (a2 : 3.tType). 3.tType
+
+  import header 3.tType :: 3.tType
+
+  import header 2.tUnit :: 3.tType
+
+  import header 2.v() :: 2.tUnit
+
+  import header 2.v(,) :: ∀(a1 : 3.tType) (a2 : 3.tType). a1 3.→ a2 3.→ 2.tTuple2 a1 a2
+
+  import header 3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep
+
+  import header 3.vLifted :: 3.tLevity
+
+  import synonym 3.tLiftedRep = 3.vBoxedRep 3.vLifted
+
+  import synonym 3.tType = 3.tTYPE 3.tLiftedRep
+
   pub type 1.tBool :: 3.tType {
       pub 1.vTrue :: 1.tBool;
       pub 1.vFalse :: 1.tBool

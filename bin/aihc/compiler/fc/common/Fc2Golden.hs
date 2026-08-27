@@ -8,12 +8,10 @@ module Fc2Golden
     fixtureRoot,
     loadFc2Cases,
     evaluateFc2Case,
-    primitivePrograms,
   )
 where
 
-import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), Program, desugarModuleFc2, lintProgram, parseProgram, renderParseError, renderProgram)
-import Aihc.Fc2.TypeOf (programWithImports)
+import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2, lintProgram, parseProgram, renderParseError, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -78,8 +76,7 @@ data Fc2Case = Fc2Case
 
 data PrimitiveSupport = PrimitiveSupport
   { supportScopes :: !ModuleExports,
-    supportTcInterface :: !TcInterface,
-    supportPrograms :: ![Program]
+    supportTcInterface :: !TcInterface
   }
 
 fixtureRoot :: FilePath
@@ -102,9 +99,6 @@ primitiveSupport = unsafePerformIO $ do
     Left errMsg -> fail errMsg
     Right support -> pure support
 {-# NOINLINE primitiveSupport #-}
-
-primitivePrograms :: [Program]
-primitivePrograms = supportPrograms primitiveSupport
 
 loadPrimitiveModules :: IO [(FilePath, Text)]
 loadPrimitiveModules = do
@@ -208,7 +202,7 @@ renderFc2Case tc =
                               (desugarModuleFc2 desugarConfig fixtureBindings tcInterface)
                               fixtureTcResults
                        in if all ds2Success fixtureResults
-                            then lintAndRenderResults (supportPrograms primitiveSupport <> map ds2Program fixtureResults) fixtureResults
+                            then lintAndRenderResults fixtureResults
                             else Left (unlines (concatMap ds2Errors fixtureResults))
                     else Left ("typecheck error: " <> unlines [show d | r <- fixtureTcResults, d <- tcModuleDiagnostics r])
             ResolveResult {resolveErrors} ->
@@ -216,11 +210,11 @@ renderFc2Case tc =
   where
     parseFixtureModule input =
       parseModuleText (T.unpack (T.takeWhile (/= '\n') input)) (caseExtensions tc) input
-    lintAndRenderResults programs fixtureResults =
+    lintAndRenderResults fixtureResults =
       case renderResults fixtureResults of
         Left renderError -> Left renderError
         Right rendered ->
-          case concatMap (lintResult programs) fixtureResults of
+          case concatMap (lintProgram . ds2Program) fixtureResults of
             [] -> Right rendered
             lintErrors ->
               Left
@@ -228,9 +222,6 @@ renderFc2Case tc =
                     <> "\nSystem FC 2 output:\n"
                     <> rendered
                 )
-    lintResult programs result =
-      let program = ds2Program result
-       in lintProgram (programWithImports (filter (/= program) programs) program)
     renderResults results =
       unlines <$> traverse renderResult results
     renderResult result =
@@ -261,8 +252,7 @@ preparePrimitiveSupport primitiveModules =
                           Right
                             PrimitiveSupport
                               { supportScopes = extractInterface resolved,
-                                supportTcInterface = tcInterface,
-                                supportPrograms = map ds2Program primitiveResults
+                                supportTcInterface = tcInterface
                               }
                         else Left (unlines (concatMap ds2Errors primitiveResults))
                 else Left ("typecheck error: " <> unlines [show (moduleName ast) <> ": " <> show diagnostic | (ast, result) <- zip primitiveAsts primitiveTcResults, diagnostic <- tcModuleDiagnostics result])

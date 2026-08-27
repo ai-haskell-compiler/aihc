@@ -70,6 +70,7 @@ library compiler
     Aihc.Fc2
     Aihc.Fc2.Convert
     Aihc.Fc2.Desugar
+    Aihc.Fc2.Imports
     Aihc.Fc2.Lint
     Aihc.Fc2.Name
     Aihc.Fc2.Parser

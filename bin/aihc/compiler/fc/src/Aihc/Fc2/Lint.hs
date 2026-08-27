@@ -10,6 +10,7 @@ module Aihc.Fc2.Lint
   )
 where
 
+import Aihc.Fc2.Imports (unusedImports)
 import Aihc.Fc2.Name
 import Aihc.Fc2.Parser (parseProgram, renderParseError)
 import Aihc.Fc2.Syntax
@@ -32,6 +33,7 @@ data LintError
   | TypeMismatch !String !Type !Type
   | KindMismatch !String !Type !Type
   | ShadowedBinder !Name
+  | UnusedImport !Name
   | LintFailure !String
   deriving (Eq, Show)
 
@@ -45,7 +47,9 @@ type ModuleLoader = PackageId -> Text -> IO (Maybe Program)
 lintProgram :: Program -> [LintError]
 lintProgram program =
   let env = registerProgram program
-   in concatMap (lintDeclHeaders env) (programDecls program)
+   in map UnusedImport (unusedImports program)
+        <> lintImportDeclarations env (programImports program)
+        <> concatMap (lintDeclHeaders env) (programDecls program)
         <> concatMap (lintDeclBodies env) (programDecls program)
 
 loadScopeClosure :: ModuleLoader -> [Program] -> IO [Program]
@@ -90,6 +94,13 @@ registerProgram program =
         { leTypes = types,
           leAxioms = teAxioms types
         }
+
+lintImportDeclarations :: LintEnv -> Imports -> [LintError]
+lintImportDeclarations env imports =
+  concatMap (eitherToList . lintType env) (Map.elems (importHeaders imports))
+    <> concatMap (eitherToList . lintType env) (Map.elems (importSynonyms imports))
+    <> concatMap (lintAxiomDecl env) (Map.elems (importAxioms imports))
+    <> concatMap (eitherToList . lintType env) (Map.elems (importBinders imports))
 
 lintDeclHeaders :: LintEnv -> Decl -> [LintError]
 lintDeclHeaders env decl =

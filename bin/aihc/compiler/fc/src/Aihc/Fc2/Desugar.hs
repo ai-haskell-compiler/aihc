@@ -12,6 +12,7 @@ where
 
 import Aihc.Fc2.Convert
 import Aihc.Fc2.Desugar.Value (desugarValues)
+import Aihc.Fc2.Imports (emptyImports, importsForProgram)
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Fc2.Tidy (tidyProgram)
@@ -250,12 +251,12 @@ desugarChecked config bindings interface checked = do
         (dsDecl env packageId currentModule dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings)
         (Syn.moduleDecls checked)
   valueDecls <- desugarValues env bindings interface moduleOrigin checked
+  available <- typeEnvFromTcInterface config interface
   let decls = typeDecls <> valueDecls
-      scopes = buildScopes moduleOrigin decls
-  pure (tidyProgram (Program scopes emptyImports decls))
-
-emptyImports :: Imports
-emptyImports = Imports Map.empty Map.empty Map.empty Map.empty
+      baseProgram = Program emptyScopeTable emptyImports decls
+      imports = importsForProgram available baseProgram
+      scopes = buildScopes moduleOrigin imports decls
+  pure (tidyProgram (Program scopes imports decls))
 
 axiomEntries :: PackageId -> Text -> [DataTypeInfo] -> [DataFamilyInstanceInfo] -> [TypeFamilyInstanceInfo] -> [(Text, Name)]
 axiomEntries package moduleName' dataTypes dataFamilyInstances typeFamilyInstances =
@@ -750,8 +751,8 @@ synonymResult env scheme params =
     dropParams remaining (KFun _ result) = dropParams (remaining - 1) result
     dropParams _ kind = kind
 
-buildScopes :: (PackageId, Text) -> [Decl] -> ScopeTable
-buildScopes moduleOrigin decls =
+buildScopes :: (PackageId, Text) -> Imports -> [Decl] -> ScopeTable
+buildScopes moduleOrigin imports decls =
   foldl
     ( \table (index, (package, moduleName')) ->
         insertScope index package moduleName' table
@@ -762,10 +763,24 @@ buildScopes moduleOrigin decls =
     origins =
       sort
         ( nub
-            ( moduleOrigin
-                : concatMap declOrigins decls
+            ( [moduleOrigin]
+                <> importsOrigins imports
+                <> concatMap declOrigins decls
             )
         )
+
+importsOrigins :: Imports -> [(PackageId, Text)]
+importsOrigins imports =
+  concatMap (\(name, ty) -> nameOriginPair name <> typeOrigins ty) (Map.toList (importHeaders imports))
+    <> concatMap (\(name, ty) -> nameOriginPair name <> typeOrigins ty) (Map.toList (importSynonyms imports))
+    <> concatMap (\(name, declaration) -> nameOriginPair name <> axiomOrigins declaration) (Map.toList (importAxioms imports))
+    <> concatMap (\(name, ty) -> nameOriginPair name <> typeOrigins ty) (Map.toList (importBinders imports))
+
+axiomOrigins :: AxiomDecl -> [(PackageId, Text)]
+axiomOrigins declaration =
+  concatMap binderOrigins (axiomBinders declaration)
+    <> typeOrigins (axiomLeft declaration)
+    <> typeOrigins (axiomRight declaration)
 
 declOrigins :: Decl -> [(PackageId, Text)]
 declOrigins decl =

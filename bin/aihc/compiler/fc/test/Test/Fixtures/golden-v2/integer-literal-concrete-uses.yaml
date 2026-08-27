@@ -38,6 +38,36 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import header 3.tBool :: 3.tType
+
+  import header 3.tInt :: 3.tType
+
+  import header 2.tInt# :: 3.tTYPE 3.vIntRep
+
+  import header 3.tLevity :: 3.tType
+
+  import header 3.tLiftedRep :: 3.tRuntimeRep
+
+  import header 3.tRuntimeRep :: 3.tType
+
+  import header 3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType
+
+  import header 3.tType :: 3.tType
+
+  import header 3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep
+
+  import header 3.vI# :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 3.tInt
+
+  import header 3.vIntRep :: 3.tRuntimeRep
+
+  import header 3.vLifted :: 3.tLevity
+
+  import header 3.vTrue :: 3.tBool
+
+  import synonym 3.tLiftedRep = 3.vBoxedRep 3.vLifted
+
+  import synonym 3.tType = 3.tTYPE 3.tLiftedRep
+
   pub type 1.t$Dict$Eq (a : 3.tType) :: 3.tType {
       pub 1.v$Dict$Eq :: ∀(a : 3.tType). (a 3.→ a 3.→ 3.tBool) 3.→ 1.t$Dict$Eq a
   }
@@ -63,6 +93,32 @@ expected: |-
   scope 1 = "" GHC.Num
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
+
+  import header 3.tInt :: 3.tType
+
+  import header 2.tInt# :: 3.tTYPE 3.vIntRep
+
+  import header 3.tLevity :: 3.tType
+
+  import header 3.tLiftedRep :: 3.tRuntimeRep
+
+  import header 3.tRuntimeRep :: 3.tType
+
+  import header 3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType
+
+  import header 3.tType :: 3.tType
+
+  import header 3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep
+
+  import header 3.vI# :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 3.tInt
+
+  import header 3.vIntRep :: 3.tRuntimeRep
+
+  import header 3.vLifted :: 3.tLevity
+
+  import synonym 3.tLiftedRep = 3.vBoxedRep 3.vLifted
+
+  import synonym 3.tType = 3.tTYPE 3.tLiftedRep
 
   pub type 1.tInteger :: 3.tType {
       pub 1.vIS :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 1.tInteger
@@ -94,25 +150,78 @@ expected: |-
   scope 1 = "" GHC.Classes
   scope 2 = "" GHC.Num
   scope 3 = "" Main
-  scope 4 = "aihc-prim" GHC.Tuple
-  scope 5 = "aihc-prim" GHC.Types
+  scope 4 = "aihc-prim" GHC.Prim
+  scope 5 = "aihc-prim" GHC.Tuple
+  scope 6 = "aihc-prim" GHC.Types
 
-  pub val 3.vasInt :: 5.tInt
-   = 2.vfromInteger @5.tInt 2.v$fNumInt (2.vIS 1#5.vIntRep)
+  import header 1.t$Dict$Eq :: ∀(a : 6.tType). 6.tType
+
+  import header 2.t$Dict$Num :: ∀(a : 6.tType). 6.tType
+
+  import header 6.tBool :: 6.tType
+
+  import header 6.tInt :: 6.tType
+
+  import header 4.tInt# :: 6.tTYPE 6.vIntRep
+
+  import header 2.tInteger :: 6.tType
+
+  import header 6.tLevity :: 6.tType
+
+  import header 6.tLiftedRep :: 6.tRuntimeRep
+
+  import header 6.tRuntimeRep :: 6.tType
+
+  import header 6.tTYPE :: ∀(rep : 6.tRuntimeRep). 6.tType
+
+  import header 6.tType :: 6.tType
+
+  import header 5.tUnit :: 6.tType
+
+  import header 1.v$fEqInt :: 1.t$Dict$Eq 6.tInt
+
+  import header 2.v$fNumInt :: 2.t$Dict$Num 6.tInt
+
+  import header 2.v$fNumInteger :: 2.t$Dict$Num 2.tInteger
+
+  import header 5.v() :: 5.tUnit
+
+  import header 1.v== :: ∀(a : 6.tType). 1.t$Dict$Eq a 6.→ a 6.→ a 6.→ 6.tBool
+
+  import header 6.vBoxedRep :: 6.tLevity 6.→ 6.tRuntimeRep
+
+  import header 6.vFalse :: 6.tBool
+
+  import header 2.vIS :: FUN @6.vIntRep @6.tLiftedRep 4.tInt# 2.tInteger
+
+  import header 6.vIntRep :: 6.tRuntimeRep
+
+  import header 6.vLifted :: 6.tLevity
+
+  import header 6.vTrue :: 6.tBool
+
+  import header 2.vfromInteger :: ∀(a : 6.tType). 2.t$Dict$Num a 6.→ 2.tInteger 6.→ a
+
+  import synonym 6.tLiftedRep = 6.vBoxedRep 6.vLifted
+
+  import synonym 6.tType = 6.tTYPE 6.tLiftedRep
+
+  pub val 3.vasInt :: 6.tInt
+   = 2.vfromInteger @6.tInt 2.v$fNumInt (2.vIS 1#6.vIntRep)
 
   pub val 3.vasInteger :: 2.tInteger
-   = 2.vfromInteger @2.tInteger 2.v$fNumInteger (2.vIS 1#5.vIntRep)
+   = 2.vfromInteger @2.tInteger 2.v$fNumInteger (2.vIS 1#6.vIntRep)
 
-  pub val 3.vcaseInt :: 4.tUnit
+  pub val 3.vcaseInt :: 5.tUnit
    = let {
-      _case : 5.tInt =
-          2.vfromInteger @5.tInt 2.v$fNumInt (2.vIS 1#5.vIntRep)
+      _case : 6.tInt =
+          2.vfromInteger @6.tInt 2.v$fNumInt (2.vIS 1#6.vIntRep)
   } in
-      case 1.v== @5.tInt 1.v$fEqInt _case (2.vfromInteger @5.tInt 2.v$fNumInt (2.vIS 1#5.vIntRep)) as (_case_guard : 5.tBool) return (4.tUnit) of {
-          5.vTrue →
-              4.v();
-          5.vFalse →
-              case _case as (_case_nomatch : 5.tInt) return (4.tUnit) of {
+      case 1.v== @6.tInt 1.v$fEqInt _case (2.vfromInteger @6.tInt 2.v$fNumInt (2.vIS 1#6.vIntRep)) as (_case_guard : 6.tBool) return (5.tUnit) of {
+          6.vTrue →
+              5.v();
+          6.vFalse →
+              case _case as (_case_nomatch : 6.tInt) return (5.tUnit) of {
 
               }
       }

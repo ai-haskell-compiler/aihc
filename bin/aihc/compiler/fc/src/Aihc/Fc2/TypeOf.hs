@@ -5,8 +5,6 @@ module Aihc.Fc2.TypeOf
     typeEnvFromProgram,
     typeEnvFromPrograms,
     extendTypeEnvWithPrograms,
-    importsFromTypeEnv,
-    programWithImports,
     typeOf,
     unfoldType,
     isLiftedRep,
@@ -81,34 +79,6 @@ addImports env imports =
       teSynonyms = importSynonyms imports `Map.union` teSynonyms env,
       teAxioms = importAxioms imports `Map.union` teAxioms env,
       teBinders = importBinders imports `Map.union` teBinders env
-    }
-
-importsFromTypeEnv :: TypeEnv -> Imports
-importsFromTypeEnv env =
-  Imports
-    { importHeaders = teHeaders env,
-      importSynonyms = teSynonyms env,
-      importAxioms = teAxioms env,
-      importBinders = teBinders env
-    }
-
-programWithImports :: [Program] -> Program -> Program
-programWithImports dependencies program =
-  program
-    { programScopes = mergedScopes,
-      programImports = mergeImports (programImports program) (importsFromTypeEnv (typeEnvFromPrograms dependencies))
-    }
-  where
-    origins = List.nub [(package, name) | dependency <- program : dependencies, (_, package, name) <- scopeEntries (programScopes dependency)]
-    mergedScopes = List.foldl' (\table (scopeId, (package, name)) -> insertScope scopeId package name table) emptyScopeTable (zip [0 ..] origins)
-
-mergeImports :: Imports -> Imports -> Imports
-mergeImports left right =
-  Imports
-    { importHeaders = importHeaders left `Map.union` importHeaders right,
-      importSynonyms = importSynonyms left `Map.union` importSynonyms right,
-      importAxioms = importAxioms left `Map.union` importAxioms right,
-      importBinders = importBinders left `Map.union` importBinders right
     }
 
 addDecl :: TypeEnv -> Decl -> TypeEnv
