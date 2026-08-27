@@ -4,90 +4,13 @@
 }: let
   checkedPackageNames = [
     "aihc"
-    "aihc-amd64"
-    "aihc-arm64"
-    "aihc-dev"
-    "aihc-fc"
     "aihc-fmt"
-    "aihc-grin"
-    "aihc-llvm"
-    "aihc-native"
     "aihc-resolve"
     "aihc-tc"
     "aihc-testing"
-    "aihc-wasm"
   ];
 
   componentSpecs = {
-    aihc-amd64 = {
-      src = sources.amd64Src;
-      cabal2nixOptions = {
-        extraCabal2nixOptions = "--subpath components/aihc-amd64";
-        srcModifier = src: src;
-      };
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
-    aihc-arm64 = {
-      src = sources.arm64Src;
-      cabal2nixOptions = {
-        extraCabal2nixOptions = "--subpath components/aihc-arm64";
-        srcModifier = src: src;
-      };
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
-    aihc-llvm = {
-      src = sources.llvmSrc;
-      cabal2nixOptions = {
-        extraCabal2nixOptions = "--subpath components/aihc-llvm";
-        srcModifier = src: src;
-      };
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
-    aihc-native = {
-      src = sources.nativeSrc;
-      disableProfiling = true;
-      optimizeForChecks = false;
-      supportsDocs = true;
-      supportsCoverage = true;
-    };
-    aihc-wasm = {
-      src = sources.wasmSrc;
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
-    aihc-fc = {
-      src = sources.fcSrc;
-      cabal2nixOptions = {
-        extraCabal2nixOptions = "--subpath components/aihc-fc";
-        srcModifier = src: src;
-      };
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
-    aihc-grin = {
-      src = sources.grinSrc;
-      cabal2nixOptions = {
-        extraCabal2nixOptions = "--flag fuzz --subpath components/aihc-grin";
-        srcModifier = src: src;
-      };
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
     aihc-resolve = {
       src = sources.resolveSrc;
       disableProfiling = true;
@@ -115,17 +38,6 @@
     };
     aihc-internal = {
       src = sources.internalSrc;
-      disableProfiling = true;
-      optimizeForChecks = true;
-      supportsDocs = false;
-      supportsCoverage = false;
-    };
-    aihc-dev = {
-      src = sources.devSrc;
-      cabal2nixOptions = {
-        extraCabal2nixOptions = "--subpath tooling/aihc-dev";
-        srcModifier = src: src;
-      };
       disableProfiling = true;
       optimizeForChecks = true;
       supportsDocs = false;

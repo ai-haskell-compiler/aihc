@@ -4,7 +4,7 @@ Status: complete.
 Date: 2026-08-18.
 
 This document records the System FC 2 design.
-The code lives in `components/aihc-fc/src/Aihc/Fc2/`.
+The code lives in `bin/aihc/compiler/fc/src/Aihc/Fc2/`.
 The old System FC 1 code is removed.
 
 System FC 2 is a Core language.
@@ -272,7 +272,7 @@ Do not invent type-family equations in Fc2.
 
 ## References
 
-- `components/aihc-fc/src/Aihc/Fc2/`
+- `bin/aihc/compiler/fc/src/Aihc/Fc2/`
 - `docs/compilation.md`
 - `docs/system-fc-primer.md`
 - `core-libs/aihc-prim/src/GHC/Types.hs`

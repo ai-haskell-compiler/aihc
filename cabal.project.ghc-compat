@@ -1,7 +1,6 @@
 packages:
   components/aihc-resolve
   components/aihc-tc
-  components/aihc-fc
 
 tests: False
 benchmarks: False
