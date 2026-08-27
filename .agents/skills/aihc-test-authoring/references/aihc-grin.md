@@ -25,5 +25,5 @@ Do not enable these tests until their FC2 dependencies exist.
 Run:
 
 ```bash
-cabal test -v0 aihc-grin:spec --test-options="--hide-successes"
+cabal test -v0 aihc:grin-spec --test-options="--hide-successes"
 ```

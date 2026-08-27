@@ -1,6 +1,6 @@
 ---
 name: aihc-test-authoring
-description: Choose, author, and validate tests for the AIHC repository. Use when Codex needs to add or update tests in components/aihc-cpp, components/aihc-parser, components/aihc-resolve, components/aihc-tc, components/aihc-fc, components/aihc-grin, or related compatibility/property suites, including unit tests, golden YAML fixtures, oracle fixtures, lexer fixtures, error-message fixtures, eval fixtures, and Hedgehog properties.
+description: Choose, author, and validate tests for the AIHC repository. Use when Codex needs to add or update compiler tests or related compatibility and property suites.
 ---
 
 # AIHC Test Authoring
