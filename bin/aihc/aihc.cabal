@@ -19,9 +19,6 @@ extra-source-files:
   compiler/grin/test/Test/Fixtures/grin/*.yaml
   test/Test/Fixtures/build-exe/source-directories/Main.hs
   test/Test/Fixtures/build-exe/source-directories/Message.hs
-  test/Test/Fixtures/install-v2/archive-modules/demo.cabal
-  test/Test/Fixtures/install-v2/archive-modules/src/Demo/A.hs
-  test/Test/Fixtures/install-v2/archive-modules/src/Demo/B.hs
   test/Test/Fixtures/install-v2/keep-grin/demo.cabal
   test/Test/Fixtures/install-v2/keep-grin/src/Demo.hs
   test/Test/Fixtures/install-v2/resolve-error/demo.cabal

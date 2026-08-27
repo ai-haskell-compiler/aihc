@@ -199,7 +199,7 @@ test_installV2KeepGrin = do
 
 test_installV2TargetArchives :: Assertion
 test_installV2TargetArchives = do
-  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/archive-modules"
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/keep-grin"
   wasmSupported <- clangSupportsWasm
   foreignArchivesSupported <- arSupportsForeignObjects
   withTempDir "aihc-install-v2-targets" $ \root -> do
@@ -211,23 +211,23 @@ test_installV2TargetArchives = do
             <> [(Wasm32Wasip3, "wasm32-wasip3", ".s") | wasmSupported && foreignArchivesSupported]
     results <- forM targets $ \(target, directory, nativeExtension) -> do
       result <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False target)
-      let objectPath = installV2StorePath result </> "Demo" </> "A" </> "Demo.A.o"
+      let objectPath = installV2StorePath result </> "Demo" </> "Demo.o"
           nativePath = objectPath <> nativeExtension
-          corePath = installV2StorePath result </> "Demo" </> "A" </> "core-v2"
+          corePath = installV2StorePath result </> "Demo" </> "core-v2"
           archivePath = installV2StorePath result </> "lib" </> "libdemo.a"
       assertEqual "target store directory" directory (takeFileName (takeDirectory (installV2StorePath result)))
       assertFileExists objectPath
       assertFileExists nativePath
       assertFileExists archivePath
       members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
-      assertEqual ("archive members for " <> show target) ["Demo.A.o", "Demo.B.o"] members
+      assertEqual ("archive members for " <> show target) ["Demo.o"] members
       originalCore <- readFile corePath
       removeFile nativePath
       repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False target)
       assertFileExists nativePath
       repairedCore <- readFile corePath
       assertEqual "native source repair keeps Core-v2" originalCore repairedCore
-      assertEqual "native source repair writes the module" ["Demo.A"] (installV2WrittenModules repaired)
+      assertEqual "native source repair writes the module" ["Demo"] (installV2WrittenModules repaired)
       pure result
     case results of
       [] -> assertFailure "no target results"
