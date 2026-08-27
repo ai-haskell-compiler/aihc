@@ -67,7 +67,7 @@ import Aihc.Tc
 import Aihc.Tc.Types (tyConModuleName, tyConNamespace, tyConPackageId)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (IOException, try)
-import Control.Monad (foldM, forM, forM_, unless, when)
+import Control.Monad (foldM, unless, when)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
@@ -86,7 +86,7 @@ import Distribution.PackageDescription (package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
 import Numeric (showHex)
-import System.Directory (createDirectoryIfMissing, createFileLink, doesFileExist, removeFile)
+import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
 import System.Process (readProcessWithExitCode)
@@ -191,7 +191,13 @@ installPackageV2 keepGrin keepNative target verbose storeRoot dependencies root 
       (installUnit keepGrin keepNative target verbose storePath resolvePackage primIdentity root)
       (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty)
       units
-  buildLibraryArchive keepNative target verbose storePath packageNameText resolvePackage parsed
+  let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
+      moduleObjects =
+        [ storePath </> moduleDirectory modu </> T.unpack (fromMaybe "Main" (moduleName modu)) <> ".o"
+        | source <- parsed,
+          let modu = sourceModuleAst source
+        ]
+  buildLibraryArchive target verbose archive moduleObjects
   writePackageManifest
     (packageManifestPath storePath)
     PackageManifest
@@ -500,54 +506,13 @@ nativeSourceExtension target =
     Llvm -> ".ll"
     _ -> ".s"
 
-buildLibraryArchive :: Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Text -> Package -> [SourceModule] -> IO ()
-buildLibraryArchive keepNative target verbose storePath packageNameText resolvePackage sources = do
-  let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
-      moduleObjects =
-        [ storePath </> moduleDirectory modu </> T.unpack (fromMaybe "Main" (moduleName modu)) <> ".o"
-        | source <- sources,
-          let modu = sourceModuleAst source
-        ]
-      object = case moduleObjects of
-        [singleObject] -> singleObject
-        _ -> storePath </> "lib" </> T.unpack packageNameText <> ".o"
-      loader = Fc.storeModuleLoader (takeDirectory storePath)
-      packageIdentity = packageId resolvePackage
-  ownPrograms <-
-    forM sources $ \source -> do
-      let name = fromMaybe "Main" (moduleName (sourceModuleAst source))
-      loaded <- loader packageIdentity name
-      maybe (ioError (userError ("Missing stored Core module: " <> T.unpack name))) pure loaded
-  loadedPrograms <- Fc.loadScopeClosure loader ownPrograms
-  let typeEnv = FcType.typeEnvFromPrograms loadedPrograms
-      combinedProgram =
-        Fc.Program
-          { Fc.programScopes = maybe Fc.emptyScopeTable Fc.programScopes (listToMaybe ownPrograms),
-            Fc.programDecls = concatMap Fc.programDecls ownPrograms
-          }
-  grin <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv combinedProgram)
-  cps <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin grin)
-  let gcProgram = Grin.lowerGc cps
-      gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
-  unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
-  assembly <- compileNativeModule target gcProgram
-  let assemblyPath = object <> nativeSourceExtension target
-  createDirectoryIfMissing True (takeDirectory object)
-  TIO.writeFile assemblyPath assembly
-  (compiler, compilerArguments) <- backendCompiler target
-  runTool compiler (compilerArguments <> ["-c", assemblyPath, "-o", object])
-  unless keepNative (removeFile assemblyPath)
-  forM_ moduleObjects $ \moduleObject ->
-    unless (moduleObject == object) $ do
-      createDirectoryIfMissing True (takeDirectory moduleObject)
-      exists <- doesFileExist moduleObject
-      when exists (removeFile moduleObject)
-      createFileLink object moduleObject
+buildLibraryArchive :: NativeTarget -> (String -> IO ()) -> FilePath -> [FilePath] -> IO ()
+buildLibraryArchive target verbose archive moduleObjects = do
   createDirectoryIfMissing True (takeDirectory archive)
   archiveExists <- doesFileExist archive
   when archiveExists (removeFile archive)
   archiver <- backendArchiver target
-  runTool archiver ["rcs", archive, object]
+  runTool archiver (["rcs", archive] <> moduleObjects)
   verbose ("Write archive: " <> archive)
 
 runTool :: FilePath -> [String] -> IO ()
