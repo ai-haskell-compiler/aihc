@@ -27,6 +27,7 @@ import System.Directory
     doesFileExist,
     findExecutable,
     getCurrentDirectory,
+    getModificationTime,
     getTemporaryDirectory,
     listDirectory,
     removeDirectoryRecursive,
@@ -61,6 +62,7 @@ main =
           testCase "reports resolve errors with source locations" test_installV2ResolveError,
           testCase "writes Core-v2 for a ccall import" test_installV2Fc2Ccall,
           testCase "retains and repairs GRIN only with keep-grin" test_installV2KeepGrin,
+          testCase "archives each module object without recompilation" test_installV2ArchiveModules,
           testCase "writes target-specific objects and library archives" test_installV2TargetArchives,
           testCase "install-v2 writes core-v2 for aihc-prim and lints stored programs" test_installV2AihcPrim
         ],
@@ -196,6 +198,24 @@ test_installV2KeepGrin = do
     repairedCore <- readFile corePath
     assertEqual "GRIN repair keeps Core-v2" originalCore repairedCore
     assertEqual "GRIN repair writes the module" ["Demo"] (installV2WrittenModules repaired)
+
+test_installV2ArchiveModules :: Assertion
+test_installV2ArchiveModules = do
+  fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/archive-modules"
+  withTempDir "aihc-install-v2-archive-modules" $ \root -> do
+    result <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False False False AppleArm64)
+    let archivePath = installV2StorePath result </> "lib" </> "libdemo.a"
+        objectPaths =
+          [ installV2StorePath result </> "Demo" </> "A" </> "Demo.A.o",
+            installV2StorePath result </> "Demo" </> "B" </> "Demo.B.o"
+          ]
+    members <- filter (not . ("__.SYMDEF" `isPrefixOf`)) . lines <$> readProcess "ar" ["-t", archivePath] ""
+    assertEqual "archive module objects" ["Demo.A.o", "Demo.B.o"] members
+    originalModificationTimes <- mapM getModificationTime objectPaths
+    reused <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False False False AppleArm64)
+    reusedModificationTimes <- mapM getModificationTime objectPaths
+    assertEqual "reused modules" ["Demo.A", "Demo.B"] (sort (installV2ReusedModules reused))
+    assertEqual "object modification times" originalModificationTimes reusedModificationTimes
 
 test_installV2TargetArchives :: Assertion
 test_installV2TargetArchives = do
