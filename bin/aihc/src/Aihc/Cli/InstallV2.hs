@@ -123,19 +123,19 @@ data ModuleOutputPaths = ModuleOutputPaths
   }
 
 data Fc2Module = Fc2Module
-  { fc2SourceModule :: !Module,
+  { fc2ModuleName :: !Text,
     fc2Program :: !Fc2.Program
   }
 
 data GrinModule = GrinModule
-  { grinSourceModule :: !Module,
+  { grinModuleName :: !Text,
     plainGrinProgram :: !Grin.GrinProgram,
     cpsGrinProgram :: !Grin.CpsGrinProgram,
     gcGrinProgram :: !Grin.GcGrinProgram
   }
 
 data NativeModule = NativeModule
-  { nativeSourceModule :: !Module,
+  { nativeModuleName :: !Text,
     nativeSource :: !Text
   }
 
@@ -219,9 +219,8 @@ installPackageV2 keepGrin keepNative target verbose storeRoot dependencies root 
       units
   let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
       moduleObjects =
-        [ outputObjectPath (moduleOutputPaths storePath target modu)
-        | source <- parsed,
-          let modu = sourceModuleAst source
+        [ outputObjectPath (moduleOutputPaths storePath target (sourceName source))
+        | source <- parsed
         ]
   buildLibraryArchive target verbose archive moduleObjects
   writePackageManifest
@@ -398,17 +397,17 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
       storedInterfaces <- readTypeArtifacts typeInputs typePath unit
       pure (storedInterfaces, True, Just checked)
   updatedTypeHashes <- updateTypeHashes typePath typeHashes unit
-  fc2Exists <- and <$> mapM (doesFileExist . outputFc2Path . outputPaths . sourceModuleAst) unit
+  fc2Exists <- and <$> mapM (doesFileExist . outputFc2Path . outputPaths . sourceName) unit
   grinStagesExist <-
     and
       <$> mapM
         ( \source -> do
-            let paths = outputPaths (sourceModuleAst source)
+            let paths = outputPaths (sourceName source)
             and <$> mapM doesFileExist [outputGrinPath paths, outputCpsGrinPath paths, outputGcGrinPath paths]
         )
         unit
-  objectExists <- and <$> mapM (doesFileExist . outputObjectPath . outputPaths . sourceModuleAst) unit
-  nativeExists <- and <$> mapM (doesFileExist . outputNativePath . outputPaths . sourceModuleAst) unit
+  objectExists <- and <$> mapM (doesFileExist . outputObjectPath . outputPaths . sourceName) unit
+  nativeExists <- and <$> mapM (doesFileExist . outputNativePath . outputPaths . sourceName) unit
   (fc2Changed, generatedOutputChanged) <-
     if typeChanged || not fc2Exists
       then do
@@ -440,15 +439,16 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
   where
     sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
 
-compileCheckedModules :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Module -> ModuleOutputPaths) -> [Module] -> IO ()
+compileCheckedModules :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
 compileCheckedModules writeFc2 keepGrin keepNative target verbose currentPackage primIdentity interface storeRoot outputPaths checkedModules = do
   let bindings = tcInterfaceBindings interface <> concatMap tcModuleBindings checkedModules
       config = DesugarConfig primIdentity
       desugarResults = map (desugarModuleFc2 config bindings interface) checkedModules
   unless (all ds2Success desugarResults) (ioError (userError ("FC2 generation failed: " <> unlines (concatMap ds2Errors desugarResults))))
-  let fc2Modules = zipWith Fc2Module checkedModules (map ds2Program desugarResults)
+  let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
+      fc2Modules = zipWith Fc2Module moduleNames (map ds2Program desugarResults)
       programs = map fc2Program fc2Modules
-      currentModules = Set.fromList (map (fromMaybe "Main" . moduleName) checkedModules)
+      currentModules = Set.fromList moduleNames
       storeLoader = Fc2.storeModuleLoader storeRoot
       dependencyLoader package name
         | package == currentPackage && name `Set.member` currentModules = pure Nothing
@@ -476,9 +476,8 @@ compileCheckedModules writeFc2 keepGrin keepNative target verbose currentPackage
   unless keepNative (mapM_ removeNativeSourceFile nativeModules)
   where
     writeFc2Module fc2Module = do
-      let modu = fc2SourceModule fc2Module
-          path = outputFc2Path (outputPaths modu)
-          name = fromMaybe "Main" (moduleName modu)
+      let name = fc2ModuleName fc2Module
+          path = outputFc2Path (outputPaths name)
       writeFc2File path (fc2Program fc2Module)
       verbose ("Write FC2: " <> T.unpack name)
 
@@ -497,22 +496,21 @@ compileCheckedModules writeFc2 keepGrin keepNative target verbose currentPackage
       unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
       pure
         GrinModule
-          { grinSourceModule = fc2SourceModule fc2Module,
+          { grinModuleName = fc2ModuleName fc2Module,
             plainGrinProgram = plainProgram,
             cpsGrinProgram = cpsProgram,
             gcGrinProgram = gcProgram
           }
 
     writeGrinModule grinModule = do
-      let modu = grinSourceModule grinModule
-          paths = outputPaths modu
-          name = T.unpack (fromMaybe "Main" (moduleName modu))
+      let name = grinModuleName grinModule
+          paths = outputPaths name
       writeGrinFile (outputGrinPath paths) (plainGrinProgram grinModule)
-      verbose ("Write GRIN: " <> name)
+      verbose ("Write GRIN: " <> T.unpack name)
       writeGrinFile (outputCpsGrinPath paths) (Grin.cpsGrinProgram (cpsGrinProgram grinModule))
-      verbose ("Write CPS-GRIN: " <> name)
+      verbose ("Write CPS-GRIN: " <> T.unpack name)
       writeGrinFile (outputGcGrinPath paths) (Grin.gcGrinProgram (gcGrinProgram grinModule))
-      verbose ("Write GC-GRIN: " <> name)
+      verbose ("Write GC-GRIN: " <> T.unpack name)
 
     writeGrinFile path program = do
       createDirectoryIfMissing True (takeDirectory path)
@@ -520,23 +518,23 @@ compileCheckedModules writeFc2 keepGrin keepNative target verbose currentPackage
 
     generateNativeModule selectedTarget grinModule = do
       source <- generateNativeCode selectedTarget (gcGrinProgram grinModule)
-      pure (NativeModule (grinSourceModule grinModule) source)
+      pure (NativeModule (grinModuleName grinModule) source)
 
     writeNativeSourceFile nativeModule = do
-      let modu = nativeSourceModule nativeModule
-          path = outputNativePath (outputPaths modu)
+      let name = nativeModuleName nativeModule
+          path = outputNativePath (outputPaths name)
       createDirectoryIfMissing True (takeDirectory path)
       TIO.writeFile path (nativeSource nativeModule)
-      verbose ("Write native source: " <> T.unpack (fromMaybe "Main" (moduleName modu)))
+      verbose ("Write native source: " <> T.unpack name)
 
     compileNativeSourceFile nativeModule = do
-      let modu = nativeSourceModule nativeModule
-          paths = outputPaths modu
+      let name = nativeModuleName nativeModule
+          paths = outputPaths name
       (compiler, compilerArguments) <- backendCompiler target
       runTool compiler (compilerArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
-      verbose ("Write object: " <> T.unpack (fromMaybe "Main" (moduleName modu)))
+      verbose ("Write object: " <> T.unpack name)
 
-    removeNativeSourceFile = removeFile . outputNativePath . outputPaths . nativeSourceModule
+    removeNativeSourceFile = removeFile . outputNativePath . outputPaths . nativeModuleName
 
 generateNativeCode :: NativeTarget -> Grin.GcGrinProgram -> IO Text
 generateNativeCode target gcProgram =
@@ -546,8 +544,8 @@ generateNativeCode target gcProgram =
     Llvm -> either (ioError . userError . ("LLVM generation failed: " <>) . show) pure (Llvm.compileModule gcProgram)
     Wasm32Wasip3 -> either (ioError . userError . ("WebAssembly generation failed: " <>) . show) pure (Wasm.compileModule gcProgram)
 
-moduleOutputPaths :: FilePath -> NativeTarget -> Module -> ModuleOutputPaths
-moduleOutputPaths storePath target modu =
+moduleOutputPaths :: FilePath -> NativeTarget -> Text -> ModuleOutputPaths
+moduleOutputPaths storePath target name =
   ModuleOutputPaths
     { outputFc2Path = directory </> "core-v2",
       outputGrinPath = directory </> "grin",
@@ -557,8 +555,8 @@ moduleOutputPaths storePath target modu =
       outputObjectPath = objectPath
     }
   where
-    directory = storePath </> moduleDirectory modu
-    objectPath = directory </> T.unpack (fromMaybe "Main" (moduleName modu)) <> ".o"
+    directory = storePath </> moduleNameDirectory name
+    objectPath = directory </> T.unpack name <> ".o"
 
 withFinalNewline :: String -> String
 withFinalNewline rendered
@@ -727,7 +725,10 @@ updateScopeHashes artifactPath previous unit = do
       pure (resolveArtifactModuleName artifact, T.pack (stableHash [scopeBytes]))
 
 moduleDirectory :: Module -> FilePath
-moduleDirectory = foldl' (</>) "" . map T.unpack . T.splitOn "." . fromMaybe "Main" . moduleName
+moduleDirectory = moduleNameDirectory . fromMaybe "Main" . moduleName
+
+moduleNameDirectory :: Text -> FilePath
+moduleNameDirectory = foldl' (</>) "" . map T.unpack . T.splitOn "."
 
 writeArtifact :: (String -> IO ()) -> [(Text, Text)] -> ModuleExports -> Package -> FilePath -> SourceModule -> IO ()
 writeArtifact verbose hashes exports package path source = do
