@@ -21,17 +21,21 @@ import Aihc.Llvm qualified as Llvm
 import Aihc.Native (NativeTarget (..), backendCompiler, nativeTargetStoreDirectory)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
-  ( Extension,
-    ImportDecl (..),
+  ( Extension (ImplicitPrelude),
     LanguageEdition (Haskell98Edition),
     Module,
+    SourceSpan,
     effectiveExtensions,
     headerExtensionSettings,
     headerLanguageEdition,
     moduleName,
   )
-import Aihc.Parser.Syntax qualified as Syntax
-import Aihc.Parser.Token (readModuleHeaderPragmas)
+import Aihc.Parser.Token
+  ( LexToken (..),
+    LexTokenKind (..),
+    lexModuleTokensWithSourceNameAndExtensions,
+    readModuleHeaderPragmas,
+  )
 import Aihc.Resolve
   ( ModuleExports,
     ModuleKey (..),
@@ -52,13 +56,14 @@ import Aihc.Tc
     typecheckModuleSccWithInterface,
   )
 import Aihc.Wasm qualified as Wasm
-import Control.Exception (bracket)
-import Control.Monad (filterM, foldM, forM, unless, zipWithM)
+import Control.DeepSeq (force)
+import Control.Exception (bracket, evaluate)
+import Control.Monad (filterM, foldM, forM, unless, when, zipWithM)
 import Data.ByteString qualified as BS
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (find, nub, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -78,7 +83,7 @@ import System.Directory
     removeFile,
   )
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, takeDirectory, (</>))
+import System.FilePath (dropExtension, makeRelative, splitDirectories, takeDirectory, (</>))
 import System.IO (hClose, openTempFile)
 import System.Process (readProcessWithExitCode)
 
@@ -95,14 +100,30 @@ data PackageConstraint = PackageConstraint
 
 data SourceModule = SourceModule
   { sourcePath :: !FilePath,
-    sourceAst :: !Module
+    sourceModuleName :: !Text,
+    sourceDependencies :: ![SourceDependency],
+    sourceParseResult :: ([(SourceSpan, Text)], Module)
   }
+
+data SourceDependency = SourceDependency
+  { sourceDependencyPackage :: !(Maybe Text),
+    sourceDependencyModule :: !Text
+  }
+  deriving (Eq, Ord, Show)
+
+data InstalledModule = InstalledModule
+  { installedModulePackage :: !InstalledPackage,
+    installedModuleName :: !Text
+  }
+
+type InstalledModuleIndex = Map.Map Text [InstalledModule]
 
 data CompileState = CompileState
   { compileExports :: !ModuleExports,
     compileTypes :: !TcInterface,
     compilePrograms :: !(Map.Map Text Fc2.Program),
-    compileObjects :: ![FilePath]
+    compileObjects :: ![FilePath],
+    compileLoadedModules :: !(Set.Set (PackageId, Text))
   }
 
 runBuildExe :: BuildExeOptions -> IO ()
@@ -116,14 +137,24 @@ runBuildExe options = do
   constraints <- mapM parsePackageConstraint (buildExePackageConstraints options)
   selected <- resolvePackages available (constraints <> map implicitConstraint ["aihc-base", "aihc-prim"])
   mapM_ requirePackageArchive selected
-  (dependencyExports, dependencyTypes) <- loadPackageInterfaces selected
-  sources <- discoverSources sourceDirectories dependencyExports (buildExeSourceFile options)
+  moduleIndex <- buildInstalledModuleIndex selected
+  sources <- discoverSources sourceDirectories moduleIndex (buildExeSourceFile options)
   runtime <- ensureRuntime storeRoot target (buildExeGarbageCollector options)
   entry <- ensureEntry storeRoot target
   withTemporaryDirectory "aihc-build-exe" $ \directory -> do
-    objects <- compileSources target targetStoreRoot directory dependencyExports dependencyTypes sources
+    objects <- compileSources target targetStoreRoot directory moduleIndex (installedPackageIdentity "aihc-prim" selected) (buildExeLint options) sources
     createDirectoryIfMissing True (takeDirectory output)
     linkExecutable target output objects (map packageArchive selected) entry runtime
+
+installedPackageIdentity :: Text -> [InstalledPackage] -> PackageId
+installedPackageIdentity wanted packages =
+  fromMaybe (PackageId wanted) $
+    case [ PackageId (packageManifestIdentity (installedManifest package))
+         | package <- packages,
+           packageManifestName (installedManifest package) == wanted
+         ] of
+      identity : _ -> Just identity
+      [] -> Nothing
 
 implicitConstraint :: Text -> PackageConstraint
 implicitConstraint name =
@@ -223,51 +254,56 @@ requirePackageArchive package = do
           )
       )
 
-loadPackageInterfaces :: [InstalledPackage] -> IO (ModuleExports, TcInterface)
-loadPackageInterfaces packages = do
-  loaded <- mapM loadOnePackageInterfaces packages
-  pure (Map.unions (map fst loaded), mconcat (map snd loaded))
+buildInstalledModuleIndex :: [InstalledPackage] -> IO InstalledModuleIndex
+buildInstalledModuleIndex packages = do
+  entries <- concat <$> mapM packageEntries packages
+  pure (Map.fromListWith (<>) [(installedModuleName entry, [entry]) | entry <- entries])
   where
-    loadOnePackageInterfaces package = do
-      resolvePaths <- listNamedFiles (installedRoot package) "resolve.cbor"
-      typePaths <- listNamedFiles (installedRoot package) "type.cbor"
-      scopes <- forM resolvePaths $ \path -> do
-        bytes <- BS.readFile path
-        artifact <- either (ioError . userError . (("Invalid resolve artifact " <> path <> ": ") <>)) pure (decodeResolveArtifact bytes)
-        let manifest = installedManifest package
-            key = ModuleKey (Package (packageManifestName manifest) (PackageId (packageManifestIdentity manifest))) (resolveArtifactModuleName artifact)
-        pure (key, resolveArtifactScope artifact)
-      interfaces <- forM typePaths $ \path -> do
-        bytes <- BS.readFile path
-        artifact <- either (ioError . userError . (("Invalid type artifact " <> path <> ": ") <>)) pure (decodeTypeArtifact bytes)
-        pure (typeArtifactInterface artifact)
-      pure (Map.fromList scopes, mconcat interfaces)
+    packageEntries package = do
+      names <- installedPackageModuleNames package
+      pure [InstalledModule package name | name <- names]
 
-discoverSources :: [FilePath] -> ModuleExports -> FilePath -> IO [SourceModule]
-discoverSources sourceDirectories dependencyExports mainPath = do
+installedPackageModuleNames :: InstalledPackage -> IO [Text]
+installedPackageModuleNames package =
+  case packageManifestModules (installedManifest package) of
+    [] -> do
+      paths <- listNamedFiles (installedRoot package) "resolve.cbor"
+      pure (map pathModuleName paths)
+    names -> pure names
+  where
+    pathModuleName path =
+      T.intercalate "." $
+        map T.pack $
+          splitDirectories $
+            makeRelative (installedRoot package) (takeDirectory path)
+
+discoverSources :: [FilePath] -> InstalledModuleIndex -> FilePath -> IO [SourceModule]
+discoverSources sourceDirectories moduleIndex mainPath = do
   mainSource <- parseSource mainPath
-  unless (sourceName mainSource == "Main") (ioError (userError ("The input file does not define module Main: " <> mainPath)))
+  unless (sourceModuleName mainSource == "Main") (ioError (userError ("The input file does not define module Main: " <> mainPath)))
   discovered <- visit Map.empty mainSource
   entrySource <- parseSourceText "<aihc-entry>" entryText
   pure (Map.elems discovered <> [entrySource])
   where
-    installedModules = Set.fromList (map moduleKeyName (Map.keys dependencyExports))
     visit found source = do
-      let name = sourceName source
+      let name = sourceModuleName source
       case Map.lookup name found of
         Just previous
           | sourcePath previous == sourcePath source -> pure found
           | otherwise -> ioError (userError ("More than one source file defines module " <> T.unpack name))
         Nothing -> do
           let found' = Map.insert name source found
-              imports = nub (map importDeclModule (Syntax.moduleImports (sourceAst source)))
-          foldM visitImport found' imports
-    visitImport found name
-      | name `Set.member` installedModules = pure found
+          foldM visitImport found' (sourceDependencies source)
+    visitImport found dependency
+      | not (isLocalSourceDependency dependency), Map.member name moduleIndex = pure found
+      | isNothing (sourceDependencyPackage dependency), Map.member name moduleIndex = pure found
       | Map.member name found = pure found
+      | not (isLocalSourceDependency dependency) = pure found
       | otherwise = do
           path <- findSourceFile sourceDirectories name
           parseSource path >>= visit found
+      where
+        name = sourceDependencyModule dependency
     entryText =
       T.unlines
         [ "{-# LANGUAGE NoImplicitPrelude #-}",
@@ -291,10 +327,105 @@ parseSource :: FilePath -> IO SourceModule
 parseSource path = TIO.readFile path >>= parseSourceText path
 
 parseSourceText :: FilePath -> Text -> IO SourceModule
-parseSourceText path source =
-  case parseModule (parserConfig path source) source of
-    ([], modu) -> pure (SourceModule path modu)
-    (errors, _) -> ioError (userError ("Failed to parse " <> path <> ": " <> show errors))
+parseSourceText path source = do
+  let extensions = sourceExtensions source
+      (name, imports) = scanModuleDependencies path extensions source
+      dependencies = nub (imports <> implicitSourceDependencies "exe" extensions)
+      parsed = parseModule (parserConfig path source) source
+  pure
+    SourceModule
+      { sourcePath = path,
+        sourceModuleName = name,
+        sourceDependencies = dependencies,
+        sourceParseResult = parsed
+      }
+
+scanModuleDependencies :: FilePath -> [Extension] -> Text -> (Text, [SourceDependency])
+scanModuleDependencies path extensions source =
+  (scanModuleName tokens, scanImports (dropModuleBodyOpen tokens))
+  where
+    tokens = lexModuleTokensWithSourceNameAndExtensions path extensions source
+
+scanModuleName :: [LexToken] -> Text
+scanModuleName tokens =
+  case dropWhile (isModulePreamble . lexTokenKind) tokens of
+    moduleToken : nameToken : _
+      | lexTokenKind moduleToken == TkKeywordModule -> fromMaybe "Main" (tokenModuleName nameToken)
+    _ -> "Main"
+  where
+    isModulePreamble kind =
+      case kind of
+        TkPragma {} -> True
+        TkLineComment -> True
+        TkBlockComment -> True
+        _ -> False
+
+dropModuleBodyOpen :: [LexToken] -> [LexToken]
+dropModuleBodyOpen tokens =
+  case dropWhile ((/= TkSpecialLBrace) . lexTokenKind) tokens of
+    _ : rest -> rest
+    [] -> []
+
+scanImports :: [LexToken] -> [SourceDependency]
+scanImports tokens =
+  case dropTopLevelSeparators tokens of
+    token : rest
+      | lexTokenKind token == TkKeywordImport ->
+          let (importTokens, remaining) = break (isTopLevelSeparator . lexTokenKind) rest
+           in maybe id (:) (scanImport importTokens) (scanImports remaining)
+    _ -> []
+
+dropTopLevelSeparators :: [LexToken] -> [LexToken]
+dropTopLevelSeparators = dropWhile (isIgnoredTopLevelToken . lexTokenKind)
+
+isIgnoredTopLevelToken :: LexTokenKind -> Bool
+isIgnoredTopLevelToken kind =
+  isTopLevelSeparator kind
+    || kind == TkLineComment
+    || kind == TkBlockComment
+
+isTopLevelSeparator :: LexTokenKind -> Bool
+isTopLevelSeparator kind = kind == TkSpecialSemicolon || kind == TkSpecialRBrace
+
+scanImport :: [LexToken] -> Maybe SourceDependency
+scanImport = go Nothing
+  where
+    go packageName (token : rest) =
+      case lexTokenKind token of
+        TkString name -> go (Just name) rest
+        _ ->
+          case tokenModuleName token of
+            Just name -> Just (SourceDependency packageName name)
+            Nothing -> go packageName rest
+    go _ [] = Nothing
+
+tokenModuleName :: LexToken -> Maybe Text
+tokenModuleName token =
+  case lexTokenKind token of
+    TkConId name -> Just name
+    TkQConId qualifier name -> Just (qualifier <> "." <> name)
+    _ -> Nothing
+
+implicitSourceDependencies :: Text -> [Extension] -> [SourceDependency]
+implicitSourceDependencies currentPackage extensions =
+  compilerDependencies
+    <> [ SourceDependency (Just "aihc-base") "Prelude"
+       | currentPackage /= "aihc-base",
+         ImplicitPrelude `elem` extensions
+       ]
+
+compilerDependencies :: [SourceDependency]
+compilerDependencies =
+  [ SourceDependency (Just "aihc-prim") "GHC.Types",
+    SourceDependency (Just "aihc-base") "GHC.Base",
+    SourceDependency (Just "aihc-prim") "GHC.Classes",
+    SourceDependency (Just "aihc-base") "GHC.Num"
+  ]
+
+isLocalSourceDependency :: SourceDependency -> Bool
+isLocalSourceDependency dependency =
+  isNothing (sourceDependencyPackage dependency)
+    || sourceDependencyPackage dependency == Just "this"
 
 parserConfig :: FilePath -> Text -> ParserConfig
 parserConfig path source =
@@ -309,75 +440,149 @@ sourceExtensions source = effectiveExtensions language (headerExtensionSettings 
     header = readModuleHeaderPragmas source
     language = fromMaybe Haskell98Edition (headerLanguageEdition header)
 
-sourceName :: SourceModule -> Text
-sourceName = fromMaybe "Main" . moduleName . sourceAst
+forceSourceAst :: SourceModule -> IO Module
+forceSourceAst source = do
+  (errors, modu) <- evaluate (force (sourceParseResult source))
+  unless (null errors) (ioError (userError ("Failed to parse " <> sourcePath source <> ": " <> show errors)))
+  let parsedName = fromMaybe "Main" (moduleName modu)
+  unless (parsedName == sourceModuleName source) $
+    ioError (userError ("The parsed module name changed for " <> sourcePath source))
+  pure modu
 
-compileSources :: NativeTarget -> FilePath -> FilePath -> ModuleExports -> TcInterface -> [SourceModule] -> IO [FilePath]
-compileSources target storeRoot buildRoot dependencyExports dependencyTypes sources = do
+compileSources :: NativeTarget -> FilePath -> FilePath -> InstalledModuleIndex -> PackageId -> Bool -> [SourceModule] -> IO [FilePath]
+compileSources target storeRoot buildRoot moduleIndex primIdentity lint sources = do
   final <- foldM compileUnit initial (moduleSccs sources)
   pure (compileObjects final)
   where
     executablePackage = Package "exe" (PackageId "exe")
-    initial = CompileState dependencyExports dependencyTypes Map.empty []
+    localNames = Set.fromList (map sourceModuleName sources)
+    initial = CompileState Map.empty mempty Map.empty [] Set.empty
     moduleSccs values = map flatten (stronglyConnComp (map node values))
       where
-        localNames = Set.fromList (map sourceName values)
         node source =
           ( source,
-            sourceName source,
-            filter (`Set.member` localNames) (map importDeclModule (Syntax.moduleImports (sourceAst source)))
+            sourceModuleName source,
+            [ sourceDependencyModule dependency
+            | dependency <- sourceDependencies source,
+              isLocalSourceDependency dependency,
+              sourceDependencyModule dependency `Set.member` localNames
+            ]
           )
         flatten (AcyclicSCC value) = [value]
         flatten (CyclicSCC members) = members
     compileUnit state unit = do
-      let packageModules = modulesInPackage executablePackage (map sourceAst unit)
-          resolved = resolveWithDeps (compileExports state) packageModules
+      modules <- mapM forceSourceAst unit
+      stateWithDependencies <- loadUnitDependencies state unit
+      let packageModules = modulesInPackage executablePackage modules
+          resolved = resolveWithDeps (compileExports stateWithDependencies) packageModules
       unless (null (resolveErrors resolved)) $
         ioError
           ( userError
               ( "Name resolution failed: "
                   <> show (resolveErrors resolved)
                   <> "\nAvailable library modules: "
-                  <> show (map moduleKeyName (Map.keys (compileExports state)))
+                  <> show (map moduleKeyName (Map.keys (compileExports stateWithDependencies)))
               )
           )
       let (checkedModules, completeInterface) =
             typecheckModuleSccWithInterface
-              (tcConfig (primPackageIdentity state))
-              (compileTypes state)
+              (tcConfig primIdentity)
+              (compileTypes stateWithDependencies)
               (map snd (resolvedModules resolved))
       unless (all tcModuleSuccess checkedModules) (ioError (userError ("Type check failed: " <> show (concatMap tcModuleDiagnostics checkedModules))))
       let bindings = tcInterfaceBindings completeInterface <> concatMap tcModuleBindings checkedModules
-          results = map (desugarModuleFc2 (DesugarConfig (primPackageIdentity state)) bindings completeInterface) checkedModules
+          results = map (desugarModuleFc2 (DesugarConfig primIdentity) bindings completeInterface) checkedModules
       unless (all ds2Success results) (ioError (userError ("Core-v2 generation failed: " <> unlines (concatMap ds2Errors results))))
       let programs = map ds2Program results
           unitPrograms = Map.fromList (zip (map (fromMaybe "Main" . moduleName) checkedModules) programs)
-          allPrograms = Map.union unitPrograms (compilePrograms state)
+          allPrograms = Map.union unitPrograms (compilePrograms stateWithDependencies)
           installedLoader = Fc2.storeModuleLoader storeRoot
           loader package name
             | package == PackageId "exe" = pure (Map.lookup name allPrograms)
             | otherwise = installedLoader package name
       loaded <- Fc2.loadScopeClosure loader programs
-      let lintErrors = Fc2.lintPrograms loaded
-      unless (null lintErrors) (ioError (userError ("Core-v2 lint failed: " <> show lintErrors)))
+      when lint $ do
+        let lintErrors = Fc2.lintPrograms loaded
+        unless (null lintErrors) (ioError (userError ("Core-v2 lint failed: " <> show lintErrors)))
       let typeEnv = Fc2Type.typeEnvFromPrograms loaded
       objects <- zipWithM (writeObject typeEnv) checkedModules programs
-      let localExports = extractInterfaceWithDeps (compileExports state) resolved `Map.union` compileExports state
+      let localExports = extractInterfaceWithDeps (compileExports stateWithDependencies) resolved `Map.union` compileExports stateWithDependencies
       pure
         CompileState
           { compileExports = localExports,
             compileTypes = completeInterface,
             compilePrograms = allPrograms,
-            compileObjects = compileObjects state <> objects
+            compileObjects = compileObjects stateWithDependencies <> objects,
+            compileLoadedModules = compileLoadedModules stateWithDependencies
           }
-    primPackageIdentity state =
-      fromMaybe (PackageId "aihc-prim") $
-        case [ packageId package
-             | ModuleKey package _ <- Map.keys (compileExports state),
-               packageName package == "aihc-prim"
-             ] of
-          identity : _ -> Just identity
-          [] -> Nothing
+    loadUnitDependencies state unit =
+      foldM loadDependency state $
+        nub
+          [ dependency
+          | source <- unit,
+            dependency <- sourceDependencies source,
+            not (isLocalSourceDependency dependency)
+              || sourceDependencyModule dependency `Set.notMember` localNames
+          ]
+    loadDependency state dependency = do
+      installedModules <- requireInstalledModules dependency
+      foldM loadInstalledModule state installedModules
+    requireInstalledModules dependency =
+      case selectedModules of
+        [] ->
+          ioError
+            ( userError
+                ( "Required installed module not found: "
+                    <> maybe "" ((<> ":") . T.unpack) requestedPackage
+                    <> T.unpack requestedName
+                )
+            )
+        modules -> pure modules
+      where
+        requestedName = sourceDependencyModule dependency
+        requestedPackage = sourceDependencyPackage dependency
+        candidates = Map.findWithDefault [] requestedName moduleIndex
+        selectedModules =
+          case requestedPackage of
+            Nothing -> candidates
+            Just packageName' ->
+              filter
+                ((== packageName') . packageManifestName . installedManifest . installedModulePackage)
+                candidates
+    loadInstalledModule state installedModule
+      | loadedKey `Set.member` compileLoadedModules state = pure state
+      | otherwise = do
+          resolveBytes <- BS.readFile resolvePath
+          resolveArtifact <-
+            either
+              (ioError . userError . (("Invalid resolve artifact " <> resolvePath <> ": ") <>))
+              pure
+              (decodeResolveArtifact resolveBytes)
+          unless (resolveArtifactModuleName resolveArtifact == installedModuleName installedModule) $
+            ioError (userError ("Resolve artifact module name does not match " <> resolvePath))
+          typeBytes <- BS.readFile typePath
+          typeArtifact <-
+            either
+              (ioError . userError . (("Invalid type artifact " <> typePath <> ": ") <>))
+              pure
+              (decodeTypeArtifact typeBytes)
+          unless (typeArtifactModuleName typeArtifact == installedModuleName installedModule) $
+            ioError (userError ("Type artifact module name does not match " <> typePath))
+          pure
+            state
+              { compileExports = Map.insert moduleKey (resolveArtifactScope resolveArtifact) (compileExports state),
+                compileTypes = compileTypes state <> typeArtifactInterface typeArtifact,
+                compileLoadedModules = Set.insert loadedKey (compileLoadedModules state)
+              }
+      where
+        installedPackage = installedModulePackage installedModule
+        manifest = installedManifest installedPackage
+        packageIdentity = PackageId (packageManifestIdentity manifest)
+        loadedKey = (packageIdentity, installedModuleName installedModule)
+        moduleKey = ModuleKey (Package (packageManifestName manifest) packageIdentity) (installedModuleName installedModule)
+        moduleRoot = installedRoot installedPackage </> moduleDirectoryText (installedModuleName installedModule)
+        resolvePath = moduleRoot </> "resolve.cbor"
+        typePath = moduleRoot </> "type.cbor"
     writeObject typeEnv modu program = do
       grin <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv program)
       cps <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin grin)
@@ -390,6 +595,9 @@ compileSources target storeRoot buildRoot dependencyExports dependencyTypes sour
       (compiler, arguments) <- backendCompiler target
       runTool compiler (arguments <> ["-c", source, "-o", object])
       pure object
+
+moduleDirectoryText :: Text -> FilePath
+moduleDirectoryText = foldl (</>) "" . map T.unpack . T.splitOn "."
 
 compileBackend :: NativeTarget -> Grin.GcGrinProgram -> IO Text
 compileBackend target program =

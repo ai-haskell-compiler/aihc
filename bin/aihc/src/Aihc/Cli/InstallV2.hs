@@ -129,7 +129,7 @@ installV2 options = do
       resolver = localDependencyResolverWithFallback fallbackResolver root
   spec <- packageSpecFromSource root
   plan <- buildPackagePlanWithResolver resolver targetStoreRoot spec
-  installedV2Result <$> installPackagePlanV2 (installV2KeepGrin options) (installV2KeepNative options) target verbose targetStoreRoot plan
+  installedV2Result <$> installPackagePlanV2 (installV2KeepGrin options) (installV2KeepNative options) (installV2Lint options) target verbose targetStoreRoot plan
 
 networkDependencyResolver :: DependencyResolver
 networkDependencyResolver =
@@ -142,13 +142,13 @@ networkDependencyResolver =
       result <- getLatestVersion Nothing name
       either (ioError . userError) pure result
 
-installPackagePlanV2 :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
-installPackagePlanV2 keepGrin keepNative target verbose storeRoot plan = do
-  dependencies <- mapM (installPackagePlanV2 keepGrin keepNative target verbose storeRoot) (planDependencyPlans plan)
-  installPackageV2 keepGrin keepNative target verbose storeRoot dependencies (planSourcePath plan)
+installPackagePlanV2 :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
+installPackagePlanV2 keepGrin keepNative lint target verbose storeRoot plan = do
+  dependencies <- mapM (installPackagePlanV2 keepGrin keepNative lint target verbose storeRoot) (planDependencyPlans plan)
+  installPackageV2 keepGrin keepNative lint target verbose storeRoot dependencies (planSourcePath plan)
 
-installPackageV2 :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
-installPackageV2 keepGrin keepNative target verbose storeRoot dependencies root = do
+installPackageV2 :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
+installPackageV2 keepGrin keepNative lint target verbose storeRoot dependencies root = do
   verbose ("Read Cabal package: " <> root)
   cabalFiles <- HackageUtil.findCabalFiles root
   cabalFile <- case cabalFiles of
@@ -188,10 +188,10 @@ installPackageV2 keepGrin keepNative target verbose storeRoot dependencies root 
   verbose ("Compute " <> show (length units) <> " SCC units")
   (allExports, allScopeHashes, _, allTypeHashes, written, reused) <-
     foldM
-      (installUnit keepGrin keepNative target verbose storePath resolvePackage primIdentity root)
+      (installUnit keepGrin keepNative lint target verbose storePath resolvePackage primIdentity root)
       (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty)
       units
-  buildLibraryArchive keepNative target verbose storePath packageNameText resolvePackage parsed
+  buildLibraryArchive keepNative lint target verbose storePath packageNameText resolvePackage parsed
   writePackageManifest
     (packageManifestPath storePath)
     PackageManifest
@@ -203,7 +203,8 @@ installPackageV2 keepGrin keepNative target verbose storeRoot dependencies root 
             id
             [ T.pack (takeFileName (installV2StorePath (installedV2Result dependency)))
             | dependency <- dependencies
-            ]
+            ],
+        packageManifestModules = sortOn id (HackageCabal.collectLibraryExposedModules gpd)
       }
   let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
       ownExports =
@@ -311,8 +312,8 @@ renderResolveExcerpt sourceLines sourceSpan =
                 <> replicate caretStart ' '
                 <> replicate caretWidth '^'
 
-installUnit :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
-installUnit keepGrin keepNative target verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
+installUnit :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
+installUnit keepGrin keepNative lint target verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
   let packageModules = modulesInPackage resolvePackage (map sourceModuleAst unit)
       unitNames = map sourceName unit
       importedNames = nub (concatMap (map importDeclModule . Syntax.moduleImports . sourceModuleAst) unit)
@@ -377,14 +378,14 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
     if typeChanged || not coreV2Exists
       then do
         (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
-        writeCoreV2Files True keepGrin keepNative target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path grinPath objectPath checkedModules
+        writeCoreV2Files True keepGrin keepNative lint target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path grinPath objectPath checkedModules
         pure (True, keepGrin)
       else
-        if (keepGrin && not grinExists) || (keepNative && not nativeExists) || not objectExists
+        if lint || repairRequired grinExists nativeExists objectExists
           then do
             (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
-            writeCoreV2Files False keepGrin keepNative target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path grinPath objectPath checkedModules
-            pure (False, True)
+            writeCoreV2Files False keepGrin keepNative lint target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path grinPath objectPath checkedModules
+            pure (False, repairRequired grinExists nativeExists objectExists)
           else do
             mapM_ (verbose . ("Reuse Core-v2: " <>) . T.unpack) unitNames
             pure (False, False)
@@ -403,9 +404,11 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
     )
   where
     sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
+    repairRequired grinExists nativeExists objectExists =
+      (keepGrin && not grinExists) || (keepNative && not nativeExists) || not objectExists
 
-writeCoreV2Files :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Module -> FilePath) -> (Module -> FilePath) -> (Module -> FilePath) -> [Module] -> IO ()
-writeCoreV2Files writeCore keepGrin keepNative target verbose currentPackage primIdentity interface storeRoot coreV2Path grinPath objectPath checkedModules = do
+writeCoreV2Files :: Bool -> Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Module -> FilePath) -> (Module -> FilePath) -> (Module -> FilePath) -> [Module] -> IO ()
+writeCoreV2Files writeCore keepGrin keepNative lint target verbose currentPackage primIdentity interface storeRoot coreV2Path grinPath objectPath checkedModules = do
   let bindings = tcInterfaceBindings interface <> concatMap tcModuleBindings checkedModules
       config = DesugarConfig primIdentity
       results2 = map (desugarModuleFc2 config bindings interface) checkedModules
@@ -416,18 +419,19 @@ writeCoreV2Files writeCore keepGrin keepNative target verbose currentPackage pri
         | otherwise = storeLoader package name
   unless (all ds2Success results2) (ioError (userError ("Core-v2 generation failed: " <> unlines (concatMap ds2Errors results2))))
   loadedFc2 <- Fc2.loadScopeClosure dependencyLoader (map ds2Program results2)
-  let fc2Errors = Fc2.lintPrograms loadedFc2
-      fc2Report = map (("    " <>) . show) fc2Errors
-  unless (null fc2Errors) $ do
-    mapM_ writeBadFc2 (zip checkedModules results2)
-    ioError
-      ( userError
-          ( unlines
-              ( ["Core-v2 lint failed:"]
-                  <> fc2Report
-              )
-          )
-      )
+  when lint $ do
+    let fc2Errors = Fc2.lintPrograms loadedFc2
+        fc2Report = map (("    " <>) . show) fc2Errors
+    unless (null fc2Errors) $ do
+      mapM_ writeBadFc2 (zip checkedModules results2)
+      ioError
+        ( userError
+            ( unlines
+                ( ["Core-v2 lint failed:"]
+                    <> fc2Report
+                )
+            )
+        )
   when writeCore (mapM_ writeCoreV2 (zip checkedModules results2))
   when keepGrin $ do
     let typeEnv = Fc2Type.typeEnvFromPrograms loadedFc2
@@ -457,8 +461,9 @@ writeCoreV2Files writeCore keepGrin keepNative target verbose currentPackage pri
 
     writeGrin typeEnv (modu, result2) = do
       program <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv (ds2Program result2))
-      let errors = Grin.lintProgram program
-      unless (null errors) (ioError (userError ("GRIN lint failed: " <> show errors)))
+      when lint $ do
+        let errors = Grin.lintProgram program
+        unless (null errors) (ioError (userError ("GRIN lint failed: " <> show errors)))
       let path = grinPath modu
           rendered = Grin.renderProgram program
           output = if "\n" `isSuffixOf` rendered then rendered else rendered <> "\n"
@@ -470,8 +475,9 @@ writeCoreV2Files writeCore keepGrin keepNative target verbose currentPackage pri
       program <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv (ds2Program result2))
       cps <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin program)
       let gcProgram = Grin.lowerGc cps
-          gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
-      unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
+      when lint $ do
+        let gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
+        unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
       assembly <- compileNativeModule selectedTarget gcProgram
       let path = objectPath modu
           assemblyPath = path <> nativeSourceExtension selectedTarget
@@ -500,8 +506,8 @@ nativeSourceExtension target =
     Llvm -> ".ll"
     _ -> ".s"
 
-buildLibraryArchive :: Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Text -> Package -> [SourceModule] -> IO ()
-buildLibraryArchive keepNative target verbose storePath packageNameText resolvePackage sources = do
+buildLibraryArchive :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Text -> Package -> [SourceModule] -> IO ()
+buildLibraryArchive keepNative lint target verbose storePath packageNameText resolvePackage sources = do
   let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
       moduleObjects =
         [ storePath </> moduleDirectory modu </> T.unpack (fromMaybe "Main" (moduleName modu)) <> ".o"
@@ -528,8 +534,9 @@ buildLibraryArchive keepNative target verbose storePath packageNameText resolveP
   grin <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv combinedProgram)
   cps <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin grin)
   let gcProgram = Grin.lowerGc cps
-      gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
-  unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
+  when lint $ do
+    let gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
+    unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
   assembly <- compileNativeModule target gcProgram
   let assemblyPath = object <> nativeSourceExtension target
   createDirectoryIfMissing True (takeDirectory object)
