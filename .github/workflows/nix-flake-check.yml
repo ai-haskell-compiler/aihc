@@ -67,4 +67,4 @@ jobs:
           fi
 
       - name: Run flake checks
-        run: nix flake check
+        run: nix flake check --max-jobs 2
