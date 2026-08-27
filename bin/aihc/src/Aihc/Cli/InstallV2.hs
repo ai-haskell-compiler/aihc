@@ -457,8 +457,7 @@ compileCheckedModules writeFc2 keepGrin keepNative target verbose currentPackage
   lintPrograms <- Fc2.loadScopeClosure dependencyLoader programs
   let fc2Errors = Fc2.lintPrograms lintPrograms
       fc2Report = map (("    " <>) . show) fc2Errors
-  unless (null fc2Errors) $ do
-    mapM_ writeBadFc2Module fc2Modules
+  unless (null fc2Errors) $
     ioError
       ( userError
           ( unlines
@@ -476,20 +475,10 @@ compileCheckedModules writeFc2 keepGrin keepNative target verbose currentPackage
   mapM_ compileNativeSourceFile nativeModules
   unless keepNative (mapM_ removeNativeSourceFile nativeModules)
   where
-    writeBadFc2Module fc2Module = do
-      let modu = fc2SourceModule fc2Module
-          path = outputFc2Path (outputPaths modu)
-          badPath = path <> ".bad"
-          name = fromMaybe "Main" (moduleName modu)
-      removeFileIfExists path
-      writeFc2File badPath (fc2Program fc2Module)
-      verbose ("Write bad FC2: " <> T.unpack name <> " -> " <> badPath)
-
     writeFc2Module fc2Module = do
       let modu = fc2SourceModule fc2Module
           path = outputFc2Path (outputPaths modu)
           name = fromMaybe "Main" (moduleName modu)
-      removeFileIfExists (path <> ".bad")
       writeFc2File path (fc2Program fc2Module)
       verbose ("Write FC2: " <> T.unpack name)
 
@@ -548,10 +537,6 @@ compileCheckedModules writeFc2 keepGrin keepNative target verbose currentPackage
       verbose ("Write object: " <> T.unpack (fromMaybe "Main" (moduleName modu)))
 
     removeNativeSourceFile = removeFile . outputNativePath . outputPaths . nativeSourceModule
-
-    removeFileIfExists path = do
-      exists <- doesFileExist path
-      when exists (removeFile path)
 
 generateNativeCode :: NativeTarget -> Grin.GcGrinProgram -> IO Text
 generateNativeCode target gcProgram =

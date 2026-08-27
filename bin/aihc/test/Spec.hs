@@ -307,15 +307,7 @@ test_installV2AihcPrim = do
     createDirectoryIfMissing True storeRoot
     caught <- try (installV2 options) :: IO (Either IOException InstallV2Result)
     result <- case caught of
-      Left err -> do
-        badFiles <- listNamedFiles storeRoot "core-v2.bad"
-        assertFailure
-          ( "install-v2 aihc-prim failed: "
-              <> show err
-              <> if null badFiles
-                then ""
-                else "\nbad core-v2 files:\n" <> unlines badFiles
-          )
+      Left err -> assertFailure ("install-v2 aihc-prim failed: " <> show err)
       Right value -> pure value
     let packageDir = installV2StorePath result
         packageId = PackageId (T.pack (takeFileName packageDir))
