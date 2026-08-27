@@ -8,7 +8,8 @@ module Test.Fc2.Suite
   )
 where
 
-import Aihc.Fc2 (LintError (..), Program, lintPrograms, loadScopeClosure, parseProgram, renderParseError, renderProgram, storeModuleLoader)
+import Aihc.Fc2 (LintError (..), Program, lintProgram, loadScopeClosure, parseProgram, renderParseError, renderProgram, storeModuleLoader)
+import Aihc.Fc2.TypeOf (programWithImports)
 import Control.Exception (IOException, try)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd, isInfixOf, sort)
@@ -70,7 +71,7 @@ lintFileTests label expectPass dir = do
 lintFileTest :: Bool -> FilePath -> TestTree
 lintFileTest expectPass path = testCase path $ do
   program <- loadFc2Program path
-  let errors = lintPrograms (primitivePrograms <> [program])
+  let errors = lintProgram (programWithImports primitivePrograms program)
   if expectPass
     then assertEqual (path <> " lint errors") [] errors
     else assertBool (path <> " expected lint errors") (matchesFail path errors)
@@ -81,16 +82,14 @@ mutualLintTests dir = do
   pure
     ( testGroup
         "mutual"
-        [ testCase "lint of all files together passes" $ do
-            programs <- mapM loadFc2Program files
-            assertEqual "mutual lint errors" [] (lintPrograms programs),
-          testCase "lint of one file without the other fails" $ do
+        [ testCase "each file with imports passes lint" $ do
             programs <- mapM loadFc2Program files
             mapM_
               ( \program ->
-                  assertBool
-                    "a single mutual file must fail lint"
-                    (not (null (lintPrograms [program])))
+                  assertEqual
+                    "single-file lint errors"
+                    []
+                    (lintProgram (programWithImports (filter (/= program) programs) program))
               )
               programs,
           scopeLoaderTest
@@ -112,7 +111,8 @@ scopeLoaderTest = testCase "loadScopeClosure loads a scoped module from the stor
   loaded <- loadScopeClosure (storeModuleLoader store) [seed]
   ignoreMissing (removeDirectoryRecursive store)
   assertEqual "loaded module count" 2 (length loaded)
-  assertEqual "closure lint errors" [] (lintPrograms loaded)
+  let standalone = programWithImports (filter (/= seed) loaded) seed
+  assertEqual "closure lint errors" [] (lintProgram standalone)
 
 ignoreMissing :: IO () -> IO ()
 ignoreMissing action = do

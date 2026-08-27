@@ -453,9 +453,12 @@ compileCheckedModules writeFc2 keepGrin keepNative target verbose currentPackage
       dependencyLoader package name
         | package == currentPackage && name `Set.member` currentModules = pure Nothing
         | otherwise = storeLoader package name
-  when writeFc2 (mapM_ writeFc2Module fc2Modules)
-  lintPrograms <- Fc2.loadScopeClosure dependencyLoader programs
-  let fc2Errors = Fc2.lintPrograms lintPrograms
+  loadedPrograms <- Fc2.loadScopeClosure dependencyLoader programs
+  let standaloneModules =
+        [ fc2Module {fc2Program = Fc2Type.programWithImports (filter (/= fc2Program fc2Module) loadedPrograms) (fc2Program fc2Module)}
+        | fc2Module <- fc2Modules
+        ]
+      fc2Errors = concatMap (Fc2.lintProgram . fc2Program) standaloneModules
       fc2Report = map (("    " <>) . show) fc2Errors
   unless (null fc2Errors) $
     ioError
@@ -466,9 +469,8 @@ compileCheckedModules writeFc2 keepGrin keepNative target verbose currentPackage
               )
           )
       )
-  interfaceTypes <- either (ioError . userError . ("FC2 type environment generation failed: " <>)) pure (Fc2.typeEnvFromTcInterface config interface)
-  let loweringTypes = Fc2Type.extendTypeEnvWithPrograms interfaceTypes programs
-  grinModules <- mapM (lowerGrinModule loweringTypes) fc2Modules
+  when writeFc2 (mapM_ writeFc2Module standaloneModules)
+  grinModules <- mapM lowerGrinModule standaloneModules
   when keepGrin (mapM_ writeGrinModule grinModules)
   nativeModules <- mapM (generateNativeModule target) grinModules
   mapM_ writeNativeSourceFile nativeModules
@@ -486,8 +488,8 @@ compileCheckedModules writeFc2 keepGrin keepNative target verbose currentPackage
       createDirectoryIfMissing True (takeDirectory path)
       writeFile path output
 
-    lowerGrinModule typeEnv fc2Module = do
-      plainProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv (fc2Program fc2Module))
+    lowerGrinModule fc2Module = do
+      plainProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fc2Program fc2Module))
       let plainErrors = Grin.lintProgram plainProgram
       unless (null plainErrors) (ioError (userError ("GRIN lint failed: " <> show plainErrors)))
       cpsProgram <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin plainProgram)

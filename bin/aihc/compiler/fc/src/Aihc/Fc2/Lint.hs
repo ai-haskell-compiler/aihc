@@ -2,7 +2,7 @@
 
 -- | Type-check System FC 2 terms and types. Kinds are types.
 module Aihc.Fc2.Lint
-  ( lintPrograms,
+  ( lintProgram,
     loadScopeClosure,
     ModuleLoader,
     storeModuleLoader,
@@ -42,11 +42,11 @@ data LintEnv = LintEnv
 
 type ModuleLoader = PackageId -> Text -> IO (Maybe Program)
 
-lintPrograms :: [Program] -> [LintError]
-lintPrograms programs =
-  let env = registerPrograms programs
-   in concatMap (lintDeclHeaders env) (allDecls programs)
-        <> concatMap (lintDeclBodies env) (allDecls programs)
+lintProgram :: Program -> [LintError]
+lintProgram program =
+  let env = registerProgram program
+   in concatMap (lintDeclHeaders env) (programDecls program)
+        <> concatMap (lintDeclBodies env) (programDecls program)
 
 loadScopeClosure :: ModuleLoader -> [Program] -> IO [Program]
 loadScopeClosure loader seeds = do
@@ -83,20 +83,13 @@ scopeKeys :: Program -> [(PackageId, Text)]
 scopeKeys program =
   [(package, name) | (_, package, name) <- scopeEntries (programScopes program)]
 
-allDecls :: [Program] -> [Decl]
-allDecls = concatMap programDecls
-
-registerPrograms :: [Program] -> LintEnv
-registerPrograms programs =
-  LintEnv
-    { leTypes = typeEnvFromPrograms programs,
-      leAxioms = List.foldl' addAxiom Map.empty (allDecls programs)
-    }
-  where
-    addAxiom axioms decl =
-      case decl of
-        DeclAxiom declaration -> Map.insert (axiomName declaration) declaration axioms
-        _ -> axioms
+registerProgram :: Program -> LintEnv
+registerProgram program =
+  let types = typeEnvFromProgram program
+   in LintEnv
+        { leTypes = types,
+          leAxioms = teAxioms types
+        }
 
 lintDeclHeaders :: LintEnv -> Decl -> [LintError]
 lintDeclHeaders env decl =

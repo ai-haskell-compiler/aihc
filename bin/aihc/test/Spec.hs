@@ -319,10 +319,8 @@ test_installV2AihcPrim = do
     assertEqual "one GRIN file for each Core-v2 file" (length coreV2Files) (length grinFiles)
     types <- loadStoredFc2 loader packageId "GHC.Types"
     prim <- loadStoredFc2 loader packageId "GHC.Prim"
-    assertBool "GHC.Types lint needs GHC.Prim" (not (null (Fc2.lintPrograms [types])))
-    assertBool "GHC.Prim lint needs GHC.Types" (not (null (Fc2.lintPrograms [prim])))
-    typesAndPrim <- Fc2.loadScopeClosure loader [types, prim]
-    assertEqual "GHC.Types and GHC.Prim closure lint errors" [] (Fc2.lintPrograms typesAndPrim)
+    assertEqual "GHC.Types lint errors" [] (Fc2.lintProgram types)
+    assertEqual "GHC.Prim lint errors" [] (Fc2.lintProgram prim)
     mapM_ (assertModuleClosureLints loader packageId) (filter (`notElem` ["GHC.Types", "GHC.Prim"]) aihcPrimLibraryModules)
 
 aihcPrimLibraryModules :: [Text]
@@ -413,11 +411,10 @@ loadStoredFc2 loader packageId moduleName = do
 assertModuleClosureLints :: Fc2.ModuleLoader -> PackageId -> Text -> Assertion
 assertModuleClosureLints loader packageId moduleName = do
   program <- loadStoredFc2 loader packageId moduleName
-  loaded <- Fc2.loadScopeClosure loader [program]
   assertEqual
-    (T.unpack moduleName <> " closure lint errors")
+    (T.unpack moduleName <> " lint errors")
     []
-    (Fc2.lintPrograms loaded)
+    (Fc2.lintProgram program)
 
 listNamedFiles :: FilePath -> FilePath -> IO [FilePath]
 listNamedFiles root name = do

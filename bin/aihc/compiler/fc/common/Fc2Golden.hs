@@ -12,7 +12,8 @@ module Fc2Golden
   )
 where
 
-import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), Program, desugarModuleFc2, lintPrograms, parseProgram, renderParseError, renderProgram)
+import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), Program, desugarModuleFc2, lintProgram, parseProgram, renderParseError, renderProgram)
+import Aihc.Fc2.TypeOf (programWithImports)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -219,7 +220,7 @@ renderFc2Case tc =
       case renderResults fixtureResults of
         Left renderError -> Left renderError
         Right rendered ->
-          case lintPrograms programs of
+          case concatMap (lintResult programs) fixtureResults of
             [] -> Right rendered
             lintErrors ->
               Left
@@ -227,6 +228,9 @@ renderFc2Case tc =
                     <> "\nSystem FC 2 output:\n"
                     <> rendered
                 )
+    lintResult programs result =
+      let program = ds2Program result
+       in lintProgram (programWithImports (filter (/= program) programs) program)
     renderResults results =
       unlines <$> traverse renderResult results
     renderResult result =

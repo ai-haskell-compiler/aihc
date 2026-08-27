@@ -358,10 +358,10 @@ compileSources target storeRoot buildRoot dependencyExports dependencyTypes sour
             | package == PackageId "exe" = pure (Map.lookup name allPrograms)
             | otherwise = installedLoader package name
       loaded <- Fc2.loadScopeClosure loader programs
-      let lintErrors = Fc2.lintPrograms loaded
+      let standalonePrograms = [Fc2Type.programWithImports (filter (/= program) loaded) program | program <- programs]
+          lintErrors = concatMap Fc2.lintProgram standalonePrograms
       unless (null lintErrors) (ioError (userError ("Core-v2 lint failed: " <> show lintErrors)))
-      let typeEnv = Fc2Type.typeEnvFromPrograms loaded
-      objects <- zipWithM (writeObject typeEnv) checkedModules programs
+      objects <- zipWithM writeObject checkedModules standalonePrograms
       let localExports = extractInterfaceWithDeps (compileExports state) resolved `Map.union` compileExports state
       pure
         CompileState
@@ -378,8 +378,8 @@ compileSources target storeRoot buildRoot dependencyExports dependencyTypes sour
              ] of
           identity : _ -> Just identity
           [] -> Nothing
-    writeObject typeEnv modu program = do
-      grin <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv program)
+    writeObject modu program = do
+      grin <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram program)
       cps <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin grin)
       let gcProgram = Grin.lowerGc cps
           name = fromMaybe "Main" (moduleName modu)

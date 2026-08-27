@@ -9,8 +9,9 @@ module GrinGolden
   )
 where
 
-import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), Program, desugarModuleFc2, lintPrograms)
-import Aihc.Fc2.TypeOf (typeEnvFromPrograms)
+import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), Program, desugarModuleFc2)
+import Aihc.Fc2 qualified as Fc2
+import Aihc.Fc2.TypeOf (programWithImports)
 import Aihc.Grin (lintProgram, lowerProgram, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -85,8 +86,8 @@ evaluateGrinCase fixture =
 renderCase :: GrinCase -> Either String String
 renderCase fixture = do
   (allPrograms, targetPrograms) <- buildFc2Programs (caseExtensions fixture) (caseModules fixture)
-  let types = typeEnvFromPrograms allPrograms
-  lowered <- traverse (lowerProgram types) targetPrograms
+  let standalone = [programWithImports (filter (/= program) allPrograms) program | program <- targetPrograms]
+  lowered <- traverse lowerProgram standalone
   case concatMap lintProgram lowered of
     [] -> pure (trim (unlines (map renderProgram lowered)))
     errors -> Left ("GRIN lint error: " <> show errors)
@@ -114,8 +115,9 @@ buildFc2Programs extensions sources = do
         else do
           let fixturePrograms = map ds2Program fixtureResults
               allPrograms = supportPrograms primitiveSupport <> fixturePrograms
-          case lintPrograms allPrograms of
-            [] -> Right (allPrograms, fixturePrograms)
+          let standalone = [programWithImports (filter (/= program) allPrograms) program | program <- fixturePrograms]
+          case concatMap Fc2.lintProgram standalone of
+            [] -> Right (allPrograms, standalone)
             errors -> Left (unlines ["System FC 2 lint error: " <> show errorValue | errorValue <- errors])
 
 parseFixtureModule :: [Extension] -> Text -> Either String Module

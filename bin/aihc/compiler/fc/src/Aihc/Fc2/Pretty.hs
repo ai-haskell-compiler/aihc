@@ -44,7 +44,21 @@ prettyProgram program =
       case scopeEntries scopes of
         [] -> []
         entries -> [prettyScopes entries]
-    documents = scopeDocuments <> map (prettyDecl env scopes) (programDecls program)
+    importDocuments = prettyImports env scopes (programImports program)
+    documents = scopeDocuments <> importDocuments <> map (prettyDecl env scopes) (programDecls program)
+
+prettyImports :: TypeEnv -> ScopeTable -> Imports -> [Doc ann]
+prettyImports env scopes imports =
+  map (\(name, ty) -> "import header" <+> prettyTopName scopes name <+> "::" <+> prettyTypeWith env scopes PrecForAll ty) (Map.toAscList (importHeaders imports))
+    <> map (\(name, ty) -> "import synonym" <+> prettyTopName scopes name <+> "=" <+> prettyTypeWith env scopes PrecForAll ty) (Map.toAscList (importSynonyms imports))
+    <> map (\(name, axiom) -> "import axiom" <+> prettyTopName scopes name <> prettyForAllBinders env scopes (axiomBinders axiom) <+> ":" <+> prettyTypeWith env scopes PrecEq (axiomLeft axiom) <+> prettyAxiomRole (axiomRole axiom) <+> prettyTypeWith env scopes PrecEq (axiomRight axiom)) (Map.toAscList (importAxioms imports))
+    <> map (\(name, ty) -> "import" <+> prettyBinderImportSort name <+> prettyName scopes name <+> "::" <+> prettyTypeWith env scopes PrecForAll ty) (Map.toAscList (importBinders imports))
+
+prettyBinderImportSort :: Name -> Doc ann
+prettyBinderImportSort name =
+  case nameSort name of
+    SortTypeVariable -> "type-binder"
+    _ -> "value-binder"
 
 prettyScopes :: [(Int, PackageId, Text)] -> Doc ann
 prettyScopes = vsep . map prettyScopeEntry

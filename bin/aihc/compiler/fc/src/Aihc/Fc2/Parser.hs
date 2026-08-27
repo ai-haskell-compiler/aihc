@@ -18,6 +18,7 @@ import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import Data.ByteString qualified as BS
 import Data.Char (chr, digitToInt, isAlpha, isAlphaNum, isHexDigit, ord)
 import Data.Functor (($>))
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Void (Void)
@@ -56,7 +57,52 @@ scopeDeclaration =
     <*> qualifiedModuleName
 
 program :: Parser Program
-program = Program <$> ask <*> MP.many declaration
+program = do
+  scopes <- ask
+  imports <- foldr ($) emptyImports <$> MP.many importDeclaration
+  Program scopes imports <$> MP.many declaration
+  where
+    emptyImports = Imports Map.empty Map.empty Map.empty Map.empty
+
+importDeclaration :: Parser (Imports -> Imports)
+importDeclaration = do
+  _ <- keyword "import"
+  MP.choice
+    [ do
+        _ <- keyword "header"
+        name <- importedHeaderName
+        ty <- symbol "::" *> fcType
+        pure (\imports -> imports {importHeaders = Map.insert name ty (importHeaders imports)}),
+      do
+        _ <- keyword "synonym"
+        name <- topName SortSynonym
+        ty <- symbol "=" *> fcType
+        pure (\imports -> imports {importSynonyms = Map.insert name ty (importSynonyms imports)}),
+      do
+        sort <- (keyword "type-binder" $> SortTypeVariable) <|> (keyword "value-binder" $> SortValue)
+        name <- localNameWithSort sort
+        ty <- symbol "::" *> fcType
+        pure (\imports -> imports {importBinders = Map.insert name ty (importBinders imports)}),
+      do
+        _ <- keyword "axiom"
+        name <- topName SortAxiom
+        binders <- MP.many openPiBinder
+        _ <- symbol ":"
+        left <- fcType
+        role <- parseAxiomRole
+        right <- fcType
+        let axiom = AxiomDecl Private name binders role left right
+        pure (\imports -> imports {importAxioms = Map.insert name axiom (importAxioms imports)})
+    ]
+
+importedHeaderName :: Parser Name
+importedHeaderName =
+  MP.choice
+    [ MP.try (topName SortTypeConstructor),
+      MP.try (topName SortDataConstructor),
+      MP.try (topName SortSynonym),
+      topName SortValue
+    ]
 
 declaration :: Parser Decl
 declaration =

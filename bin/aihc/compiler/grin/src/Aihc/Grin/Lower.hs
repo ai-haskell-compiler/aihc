@@ -61,9 +61,10 @@ instance Semigroup TopParts where
 instance Monoid TopParts where
   mempty = TopParts [] [] [] []
 
-lowerProgram :: TypeOf.TypeEnv -> Fc2.Program -> Either String GrinProgram
-lowerProgram types program = do
-  let globals = globalNameTable types
+lowerProgram :: Fc2.Program -> Either String GrinProgram
+lowerProgram program = do
+  let types = TypeOf.typeEnvFromProgram program
+      globals = globalNameTable types
       env = LowerEnv types Map.empty Map.empty globals
       initialState = LowerState (-1000000000) 0 []
   (parts, finalState) <- runStateT (foldMapM (lowerDecl env) (Fc2.programDecls program)) initialState

@@ -10,6 +10,7 @@ module Aihc.Fc2.Syntax
     Role (..),
     Coercion (..),
     Program (..),
+    Imports (..),
     Decl (..),
     TypeDecl (..),
     ConDecl (..),
@@ -26,6 +27,7 @@ where
 
 import Aihc.Fc2.Name
 import Data.ByteString (ByteString)
+import Data.Map.Strict (Map)
 import Data.Text (Text)
 
 -- | A type. Kinds are types.
@@ -102,7 +104,16 @@ data Coercion
 
 data Program = Program
   { programScopes :: ScopeTable,
+    programImports :: Imports,
     programDecls :: [Decl]
+  }
+  deriving (Eq, Ord, Show, Read)
+
+data Imports = Imports
+  { importHeaders :: Map Name Type,
+    importSynonyms :: Map Name Type,
+    importAxioms :: Map Name AxiomDecl,
+    importBinders :: Map Name Type
   }
   deriving (Eq, Ord, Show, Read)
 

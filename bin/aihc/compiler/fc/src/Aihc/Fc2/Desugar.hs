@@ -91,7 +91,7 @@ typeEnvFromTcInterface config interface = do
   termHeaders <- mapMaybeM (convertTermHeader conversionEnv) (tcInterfaceTerms interface)
   instanceHeaders <- mapM (convertInstanceHeader conversionEnv) (tcInterfaceInstances interface)
   defaultMethodHeaders <- concat <$> mapM (convertDefaultMethodHeaders conversionEnv) (tcInterfaceClasses interface)
-  let declarationEnv = TypeOf.typeEnvFromProgram (Program emptyScopeTable declarations)
+  let declarationEnv = TypeOf.typeEnvFromProgram (Program emptyScopeTable emptyImports declarations)
   pure
     declarationEnv
       { TypeOf.tePrimPackage = Just (primPackageId config),
@@ -210,14 +210,14 @@ desugarModuleFc2 config bindings interface checked =
   if not (tcModuleSuccess checked)
     then
       Fc2DesugarResult
-        { ds2Program = Program emptyScopeTable [],
+        { ds2Program = Program emptyScopeTable emptyImports [],
           ds2Success = False,
           ds2Errors = fmap show (tcModuleDiagnostics checked)
         }
     else case desugarChecked config bindings interface checked of
       Left errors ->
         Fc2DesugarResult
-          { ds2Program = Program emptyScopeTable [],
+          { ds2Program = Program emptyScopeTable emptyImports [],
             ds2Success = False,
             ds2Errors = [errors]
           }
@@ -252,7 +252,10 @@ desugarChecked config bindings interface checked = do
   valueDecls <- desugarValues env bindings interface moduleOrigin checked
   let decls = typeDecls <> valueDecls
       scopes = buildScopes moduleOrigin decls
-  pure (tidyProgram (Program scopes decls))
+  pure (tidyProgram (Program scopes emptyImports decls))
+
+emptyImports :: Imports
+emptyImports = Imports Map.empty Map.empty Map.empty Map.empty
 
 axiomEntries :: PackageId -> Text -> [DataTypeInfo] -> [DataFamilyInstanceInfo] -> [TypeFamilyInstanceInfo] -> [(Text, Name)]
 axiomEntries package moduleName' dataTypes dataFamilyInstances typeFamilyInstances =
