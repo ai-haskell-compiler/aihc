@@ -147,7 +147,7 @@ unfoldType env ty =
   case ty of
     TyCon name
       | Just body <- Map.lookup name (teSynonyms env) ->
-          unfoldType env (stripForAlls body)
+          unfoldType env body
       | otherwise -> ty
     _ -> ty
 
@@ -173,12 +173,6 @@ isLiftedRep env ty =
 extendBinder :: TypeEnv -> Binder -> TypeEnv
 extendBinder env binder =
   env {teBinders = Map.insert (binderName binder) (binderType binder) (teBinders env)}
-
-stripForAlls :: Type -> Type
-stripForAlls ty =
-  case ty of
-    TyForAll _ body -> stripForAlls body
-    _ -> ty
 
 substType :: Name -> Type -> Type -> Type
 substType target replacement = go
