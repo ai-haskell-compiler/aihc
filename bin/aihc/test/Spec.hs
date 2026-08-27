@@ -184,11 +184,17 @@ test_installV2KeepGrin = do
   withTempDir "aihc-install-v2-keep-grin" $ \root -> do
     withoutGrin <- installV2 (InstallV2Options fixtureRoot (Just (root </> "without")) False False False AppleArm64)
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "grin")
+    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "cps.grin")
+    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "gc.grin")
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "Demo.o.s")
     retained <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False AppleArm64)
     let corePath = installV2StorePath retained </> "Demo" </> "core-v2"
         grinPath = installV2StorePath retained </> "Demo" </> "grin"
+        cpsGrinPath = installV2StorePath retained </> "Demo" </> "cps.grin"
+        gcGrinPath = installV2StorePath retained </> "Demo" </> "gc.grin"
     assertFileExists grinPath
+    assertFileExists cpsGrinPath
+    assertFileExists gcGrinPath
     originalCore <- readFile corePath
     removeFile grinPath
     repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False AppleArm64)
@@ -196,6 +202,14 @@ test_installV2KeepGrin = do
     repairedCore <- readFile corePath
     assertEqual "GRIN repair keeps Core-v2" originalCore repairedCore
     assertEqual "GRIN repair writes the module" ["Demo"] (installV2WrittenModules repaired)
+    removeFile cpsGrinPath
+    repairedCps <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False AppleArm64)
+    assertFileExists cpsGrinPath
+    assertEqual "CPS-GRIN repair writes the module" ["Demo"] (installV2WrittenModules repairedCps)
+    removeFile gcGrinPath
+    repairedGc <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False AppleArm64)
+    assertFileExists gcGrinPath
+    assertEqual "GC-GRIN repair writes the module" ["Demo"] (installV2WrittenModules repairedGc)
 
 test_installV2TargetArchives :: Assertion
 test_installV2TargetArchives = do

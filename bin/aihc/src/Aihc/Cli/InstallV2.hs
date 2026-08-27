@@ -323,6 +323,8 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
       typePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "type.cbor"
       coreV2Path modu = storePath </> moduleDirectory modu </> "core-v2"
       grinPath modu = storePath </> moduleDirectory modu </> "grin"
+      cpsGrinPath modu = storePath </> moduleDirectory modu </> "cps.grin"
+      gcGrinPath modu = storePath </> moduleDirectory modu </> "gc.grin"
       objectPath modu = storePath </> moduleDirectory modu </> T.unpack (fromMaybe "Main" (moduleName modu)) <> ".o"
       nativePath modu = objectPath modu <> nativeSourceExtension target
   cachedExports <- tryReadUnitArtifacts hashes resolvePackage resolvePath unit
@@ -370,7 +372,16 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
       pure (storedInterfaces, True, Just checked)
   updatedTypeHashes <- updateTypeHashes typePath typeHashes unit
   coreV2Exists <- and <$> mapM (doesFileExist . coreV2Path . sourceModuleAst) unit
-  grinExists <- and <$> mapM (doesFileExist . grinPath . sourceModuleAst) unit
+  grinExists <-
+    and
+      <$> mapM
+        ( \source ->
+            and
+              <$> mapM
+                ($ sourceModuleAst source)
+                [doesFileExist . grinPath, doesFileExist . cpsGrinPath, doesFileExist . gcGrinPath]
+        )
+        unit
   objectExists <- and <$> mapM (doesFileExist . objectPath . sourceModuleAst) unit
   nativeExists <- and <$> mapM (doesFileExist . nativePath . sourceModuleAst) unit
   (coreChanged, grinChanged) <-
@@ -459,12 +470,21 @@ writeCoreV2Files writeCore keepGrin keepNative target verbose currentPackage pri
       program <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv (ds2Program result2))
       let errors = Grin.lintProgram program
       unless (null errors) (ioError (userError ("GRIN lint failed: " <> show errors)))
-      let path = grinPath modu
-          rendered = Grin.renderProgram program
-          output = if "\n" `isSuffixOf` rendered then rendered else rendered <> "\n"
-      createDirectoryIfMissing True (takeDirectory path)
-      writeFile path output
+      cps <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin program)
+      let gcProgram = Grin.lowerGc cps
+          gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
+          directory = takeDirectory (grinPath modu)
+      unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
+      createDirectoryIfMissing True directory
+      writeGrinFile (grinPath modu) program
+      writeGrinFile (directory </> "cps.grin") (Grin.cpsGrinProgram cps)
+      writeGrinFile (directory </> "gc.grin") (Grin.gcGrinProgram gcProgram)
       verbose ("Write GRIN: " <> T.unpack (fromMaybe "Main" (moduleName modu)))
+
+    writeGrinFile path program = do
+      let rendered = Grin.renderProgram program
+          output = if "\n" `isSuffixOf` rendered then rendered else rendered <> "\n"
+      writeFile path output
 
     writeObject selectedTarget typeEnv (modu, result2) = do
       program <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv (ds2Program result2))
