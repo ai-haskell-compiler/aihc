@@ -1,0 +1,52 @@
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Int (Int8, Int16, Int32, Int64)
+    import Data.Word (Word8, Word16, Word32, Word64)
+    import Foreign.C.Types
+
+    signedValues :: (CChar, CSChar, CShort, CInt, CLong, CLLong, CPtrdiff, CIntPtr, CIntMax, CSigAtomic, CClock, CTime, CUSeconds)
+    signedValues = (CChar signed8, CSChar signed8, CShort signed16, CInt signed32, CLong signed64, CLLong signed64, CPtrdiff signed64, CIntPtr signed64, CIntMax signed64, CSigAtomic signed32, CClock unsigned64, CTime signed64, CUSeconds unsigned32)
+
+    unsignedValues :: (CBool, CUChar, CUShort, CUInt, CULong, CULLong, CSize, CUIntPtr, CUIntMax, CSUSeconds)
+    unsignedValues = (CBool unsigned8, CUChar unsigned8, CUShort unsigned16, CUInt unsigned32, CULong unsigned64, CULLong unsigned64, CSize unsigned64, CUIntPtr unsigned64, CUIntMax unsigned64, CSUSeconds signed32)
+
+    floatingValues :: CFloat -> CDouble -> (CFloat, CDouble, CWchar)
+    floatingValues cFloat cDouble = (cFloat, cDouble, CWchar signed32)
+
+    opaqueValues :: CFile -> CFpos -> CJmpBuf -> CFile
+    opaqueValues file _ _ = file
+
+    signed8 :: Int8
+    signed8 = signed8
+
+    signed16 :: Int16
+    signed16 = signed16
+
+    signed32 :: Int32
+    signed32 = signed32
+
+    signed64 :: Int64
+    signed64 = signed64
+
+    unsigned8 :: Word8
+    unsigned8 = unsigned8
+
+    unsigned16 :: Word16
+    unsigned16 = unsigned16
+
+    unsigned32 :: Word32
+    unsigned32 = unsigned32
+
+    unsigned64 :: Word64
+    unsigned64 = unsigned64
+
+    results :: Bool
+    results = True
+output: "True"
+expression: results
+status: pass
+reason: Foreign.C.Types exposes all C wrappers with the target platform representations and keeps opaque C structures abstract
