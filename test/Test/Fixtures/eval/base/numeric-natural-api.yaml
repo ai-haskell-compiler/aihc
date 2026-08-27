@@ -1,0 +1,35 @@
+extensions: []
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Bits
+    import Numeric.Natural
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : values) = allTrue values
+    allTrue (False : _) = False
+
+    results :: Bool
+    results =
+      allTrue
+        [ (20 :: Natural) + 22 == 42,
+          (20 :: Natural) * 3 == 60,
+          (100 :: Natural) `quotRem` 9 == (11, 1),
+          minusNaturalMaybe 3 5 == Nothing,
+          minusNaturalMaybe 5 3 == Just 2,
+          show (123456789012345678901234567890 :: Natural) == "123456789012345678901234567890",
+          (reads "123456789012345678901234567890" :: [(Natural, String)]) == [(123456789012345678901234567890, "")],
+          ((bit 100 .|. bit 5) :: Natural) `testBit` 100,
+          popCount ((bit 100 .|. bit 5) :: Natural) == 2,
+          ([5, 3 .. 0] :: [Natural]) == [5, 3, 1]
+        ]
+output: |
+  True
+expression: |
+  results
+status: pass
+reason: Numeric.Natural supplies arithmetic, conversion, display, bit, enumeration, and checked subtraction operations
