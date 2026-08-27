@@ -6,6 +6,7 @@ module Aihc.Fc2.TypeOf
     emptyTypeEnv,
     typeEnvFromProgram,
     typeEnvFromPrograms,
+    extendTypeEnvWithPrograms,
     typeOf,
     unfoldType,
     isLiftedRep,
@@ -61,12 +62,16 @@ typeEnvFromProgram program =
 -- | Register every header from every program. Later programs replace equal names.
 typeEnvFromPrograms :: [Program] -> TypeEnv
 typeEnvFromPrograms programs =
-  List.foldl' addProgram baseEnv programs
+  extendTypeEnvWithPrograms baseEnv programs
   where
     baseEnv =
       emptyTypeEnv
         { tePrimPackage = listToMaybe (mapMaybe (primPackageFromScopes . programScopes) programs)
         }
+
+extendTypeEnvWithPrograms :: TypeEnv -> [Program] -> TypeEnv
+extendTypeEnvWithPrograms = List.foldl' addProgram
+  where
     addProgram env program = List.foldl' addDecl env (programDecls program)
 
 addDecl :: TypeEnv -> Decl -> TypeEnv
