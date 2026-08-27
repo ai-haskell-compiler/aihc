@@ -13,8 +13,8 @@ Use narrow commands while developing, then run the mandatory checks before commi
 - Deep parser fuzzing: `cabal test -v0 aihc-parser:spec --test-options="--pattern properties --hedgehog-tests 10000"`
 - Resolve golden: `cabal test -v0 aihc-resolve:spec --test-options="--pattern resolver-golden --hide-successes"`
 - Type checker annotated golden/unit/properties: `cabal test -v0 aihc-tc:spec --test-options="--hide-successes"`
-- FC2 golden/lint/property: `cabal test -v0 aihc-fc:spec --test-options="--hide-successes"`
-- GRIN property: `cabal test -v0 aihc-grin:spec --test-options="--hide-successes"`
+- FC2 golden/lint/property: `cabal test -v0 aihc:fc-spec --test-options="--hide-successes"`
+- GRIN property: `cabal test -v0 aihc:grin-spec --test-options="--hide-successes"`
 - CPP oracle/unit suite: `cabal test -v0 aihc-cpp:spec --test-options="--hide-successes"`
 
 ## Updating Golden Outputs

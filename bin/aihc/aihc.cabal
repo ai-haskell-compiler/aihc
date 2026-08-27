@@ -7,8 +7,16 @@ license-file: LICENSE
 author: David Himmelstrup
 maintainer: lemmih@gmail.com
 category: Development
-synopsis: Production command-line interface for the aihc compiler
+synopsis: The AIHC compiler and its command-line tools
+description: The AIHC package contains the compiler and its production and development command-line tools.
 extra-source-files:
+  compiler/fc/test/Test/Fixtures/fc2-lint/fail/*.fc2
+  compiler/fc/test/Test/Fixtures/fc2-lint/mutual/*.fc2
+  compiler/fc/test/Test/Fixtures/fc2-lint/pass/*.fc2
+  compiler/fc/test/Test/Fixtures/fc2/*.fc2
+  compiler/fc/test/Test/Fixtures/golden-v2/*.yaml
+  compiler/grin/test/Test/Fixtures/grin-snapshot/*.yaml
+  compiler/grin/test/Test/Fixtures/grin/*.yaml
   test/Test/Fixtures/build-exe/source-directories/Main.hs
   test/Test/Fixtures/build-exe/source-directories/Message.hs
   test/Test/Fixtures/install-v2/keep-grin/demo.cabal
@@ -17,8 +25,37 @@ extra-source-files:
   test/Test/Fixtures/install-v2/resolve-error/expected.txt
   test/Test/Fixtures/install-v2/resolve-error/src/Demo.hs
 
-library
+data-files:
+  compiler/native/runtime/aihc_gc_calloc.c
+  compiler/native/runtime/aihc_gc_semispace.c
+  compiler/native/runtime/aihc_host_posix.c
+  compiler/native/runtime/aihc_host_wasip3.c
+  compiler/native/runtime/aihc_runtime.c
+  compiler/native/runtime/aihc_runtime.h
+  compiler/native/runtime/aihc_runtime_internal.h
+  compiler/native/runtime/aihc_runtime_trampoline.c
+  compiler/native/runtime/aihc_runtime_trampoline.h
+  compiler/native/runtime/aihc_snapshot.c
+  compiler/native/runtime/aihc_snapshot.h
+  compiler/wasm/runtime/aihc_wasip3.c
+  compiler/wasm/runtime/aihc_wasm_adapter.c
+  compiler/wasm/runtime/aihc_wasm_internal.h
+  compiler/wasm/runtime/aihc_wasm_libc.c
+  compiler/wasm/runtime/include/stdlib.h
+  compiler/wasm/runtime/include/string.h
+  compiler/wasm/runtime/wit/command.wit
+  compiler/wasm/runtime/wit/deps/cli.wit
+  compiler/wasm/runtime/wit/deps/filesystem.wit
+
+library compiler
+  visibility: private
   exposed-modules:
+    Aihc.Amd64
+    Aihc.Amd64.Codegen
+    Aihc.Amd64.RegisterAllocate
+    Aihc.Arm64
+    Aihc.Arm64.Codegen
+    Aihc.Arm64.RegisterAllocate
     Aihc.Cli
     Aihc.Cli.BuildExe
     Aihc.Cli.Install
@@ -30,23 +67,64 @@ library
     Aihc.Cli.Runtime
     Aihc.Cli.Store
     Aihc.Cli.TypeArtifact
+    Aihc.Fc2
+    Aihc.Fc2.Convert
+    Aihc.Fc2.Desugar
+    Aihc.Fc2.Lint
+    Aihc.Fc2.Name
+    Aihc.Fc2.Parser
+    Aihc.Fc2.Pretty
+    Aihc.Fc2.Syntax
+    Aihc.Fc2.Tidy
+    Aihc.Fc2.TypeOf
+    Aihc.Fc2.Wired
+    Aihc.Grin
+    Aihc.Grin.Anf
+    Aihc.Grin.Cps
+    Aihc.Grin.Gc
+    Aihc.Grin.Interpret
+    Aihc.Grin.Lint
+    Aihc.Grin.Lower
+    Aihc.Grin.Parser
+    Aihc.Grin.Pretty
+    Aihc.Grin.Snapshot
+    Aihc.Grin.Syntax
+    Aihc.Llvm
+    Aihc.Llvm.Codegen
+    Aihc.Native
+    Aihc.Native.BlockLayout
+    Aihc.Native.RegisterAllocate
+    Aihc.Wasm
+    Aihc.Wasm.Codegen
 
-  hs-source-dirs: src
+  other-modules:
+    Aihc.Amd64.Codegen.Function
+    Aihc.Amd64.Codegen.Runtime
+    Aihc.Arm64.Codegen.Function
+    Aihc.Arm64.Codegen.Runtime
+    Aihc.Fc2.Desugar.Value
+    Aihc.Grin.Analysis
+    Paths_aihc
+
+  autogen-modules: Paths_aihc
+  hs-source-dirs:
+    src
+    compiler/amd64/src
+    compiler/arm64/src
+    compiler/fc/src
+    compiler/grin/src
+    compiler/llvm/src
+    compiler/native/src
+    compiler/wasm/src
+
   build-depends:
     Cabal-syntax >=3.14 && <3.17,
     aeson >=2.0 && <2.3,
-    aihc-amd64,
-    aihc-arm64,
     aihc-cpp,
-    aihc-fc,
-    aihc-grin,
     aihc-hackage,
-    aihc-llvm,
-    aihc-native,
     aihc-parser,
     aihc-resolve,
     aihc-tc,
-    aihc-wasm,
     base >=4.16 && <5,
     binary >=0.8 && <0.9,
     bytestring >=0.10.8 && <0.13,
@@ -54,10 +132,14 @@ library
     directory >=1.2.3 && <1.5,
     filepath >=1.3.0.1 && <1.6,
     haskeline >=0.8 && <0.9,
+    libffi >=0.2 && <0.3,
+    megaparsec >=9.0 && <10,
     optparse-applicative >=0.16 && <0.19,
     prettyprinter,
-    process,
+    process >=1.6 && <1.8,
     text >=2.1.4 && <2.2,
+    transformers,
+    unix >=2.7 && <2.9,
 
   default-extensions: OverloadedStrings
   ghc-options: -Wall
@@ -67,7 +149,7 @@ executable aihc
   main-is: Main.hs
   hs-source-dirs: exe
   build-depends:
-    aihc,
+    aihc:compiler,
     base >=4.16 && <5,
 
   ghc-options:
@@ -78,16 +160,91 @@ executable aihc
 
   default-language: GHC2021
 
+executable aihc-dev
+  main-is: Main.hs
+  hs-source-dirs:
+    dev/exe
+    dev/src
+    dev/app/resolve-stackage-progress
+    dev/app/tc-stackage-progress
+    compiler/grin/fuzz
+    compiler/grin/test
+
+  other-modules:
+    Aihc.Dev.ExtractHi
+    Aihc.Dev.ExtractHi.Compare
+    Aihc.Dev.ExtractHi.GhcSession
+    Aihc.Dev.ExtractHi.ToResolveIface
+    Aihc.Dev.ExtractHi.Types
+    Aihc.Dev.Fuzz
+    Aihc.Dev.Fuzz.CLI
+    Aihc.Dev.Fuzz.Registry
+    Aihc.Dev.Fuzz.TUI
+    Aihc.Grin.Fuzz
+    BootInterface
+    ResolvePackage
+    ResolveStackageProgress
+    TcStackageProgress
+    Test.Grin.Arbitrary
+
+  build-depends:
+    Cabal-syntax >=3.14 && <3.17,
+    aeson >=2.0 && <2.3,
+    aeson-pretty >=0.8 && <0.9,
+    aihc:compiler,
+    aihc-cpp,
+    aihc-hackage,
+    aihc-parser,
+    aihc-resolve,
+    aihc-tc,
+    aihc-tc:fuzz,
+    async,
+    base >=4.16 && <5,
+    bytestring >=0.10.8 && <0.13,
+    containers >=0.5 && <0.8,
+    deepseq,
+    directory >=1.2.3 && <1.5,
+    filepath >=1.3.0.1 && <1.6,
+    ghc >=9.12 && <9.13,
+    hedgehog >=1.4 && <1.6,
+    optparse-applicative >=0.16 && <0.19,
+    prettyprinter,
+    process >=1.6 && <1.8,
+    stm >=2.5 && <2.6,
+    tasty-hedgehog,
+    terminal-size >=0.3.2 && <0.4,
+    text >=1.2.3 && <2.2,
+    time,
+    unix >=2.7 && <2.9,
+    yaml >=0.11 && <0.12,
+
+  default-extensions: OverloadedStrings
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    -with-rtsopts=-N
+
+  default-language: GHC2021
+
+common test-options
+  ghc-options:
+    -Wall
+    -threaded
+    -rtsopts
+    "-with-rtsopts=-N -M10G"
+
+  default-language: GHC2021
+
 test-suite spec
+  import: test-options
   type: exitcode-stdio-1.0
   hs-source-dirs: test
   main-is: Spec.hs
   build-depends:
     aeson,
-    aihc,
-    aihc-fc,
+    aihc:compiler,
     aihc-hackage,
-    aihc-native,
     aihc-resolve,
     aihc-tc,
     base >=4.16 && <5,
@@ -104,10 +261,260 @@ test-suite spec
     text,
     time,
 
-  ghc-options:
-    -Wall
-    -threaded
-    -rtsopts
-    "-with-rtsopts=-N -M10G"
+test-suite fc-spec
+  import: test-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs:
+    compiler/fc/test
+    compiler/fc/common
 
-  default-language: GHC2021
+  main-is: Spec.hs
+  other-modules:
+    Fc2Golden
+    Test.Fc2.Properties
+    Test.Fc2.Suite
+
+  build-depends:
+    aeson,
+    aihc:compiler,
+    aihc-parser,
+    aihc-resolve,
+    aihc-tc,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    hedgehog,
+    libffi >=0.2 && <0.3,
+    tasty,
+    tasty-hedgehog,
+    tasty-hunit,
+    text,
+    unix,
+    yaml,
+
+test-suite grin-spec
+  import: test-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs: compiler/grin/test
+  main-is: Spec.hs
+  other-modules:
+    GrinGolden
+    Test.Grin.Arbitrary
+
+  build-depends:
+    aeson,
+    aihc:compiler,
+    aihc-parser,
+    aihc-resolve,
+    aihc-tc,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    directory,
+    filepath,
+    hedgehog,
+    tasty,
+    tasty-hedgehog,
+    tasty-hunit,
+    text,
+    yaml,
+
+test-suite native-spec
+  import: test-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs: compiler/native/test
+  main-is: Spec.hs
+  other-modules:
+    Test.Native.BlockLayout
+    Test.Native.Compiler
+    Test.Native.Primitive
+    Test.Native.RegisterAllocate
+    Test.Native.Runtime
+
+  build-depends:
+    aihc:compiler,
+    aihc-tc,
+    base >=4.16 && <5,
+    containers,
+    filepath,
+    hedgehog,
+    process,
+    tasty,
+    tasty-hedgehog,
+    tasty-hunit,
+    temporary,
+    text,
+
+test-suite amd64-spec
+  import: test-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs:
+    compiler/amd64/test
+    test-support
+
+  main-is: Spec.hs
+  other-modules:
+    Aihc.Testing.ExceptionProgram
+    Aihc.Testing.SchedulerProgram
+    Test.Amd64.Suite
+
+  build-depends:
+    aeson,
+    aihc:compiler,
+    aihc-tc,
+    base >=4.16 && <5,
+    containers,
+    directory,
+    filepath,
+    hedgehog,
+    process,
+    tasty,
+    tasty-hedgehog,
+    tasty-hunit,
+    text,
+    unix,
+    yaml,
+
+test-suite arm64-spec
+  import: test-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs:
+    compiler/arm64/test
+    test-support
+
+  main-is: Spec.hs
+  other-modules:
+    Aihc.Testing.ExceptionProgram
+    Aihc.Testing.SchedulerProgram
+    Test.Arm64.Suite
+
+  build-depends:
+    aeson,
+    aihc:compiler,
+    aihc-tc,
+    base >=4.16 && <5,
+    containers,
+    directory,
+    filepath,
+    hedgehog,
+    process,
+    tasty,
+    tasty-hedgehog,
+    tasty-hunit,
+    text,
+    unix,
+    yaml,
+
+test-suite llvm-spec
+  import: test-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs:
+    compiler/llvm/test
+    test-support
+
+  main-is: Spec.hs
+  other-modules:
+    Aihc.Testing.ExceptionProgram
+    Aihc.Testing.SchedulerProgram
+    Test.Llvm.Suite
+
+  build-depends:
+    aihc:compiler,
+    aihc-tc,
+    base >=4.16 && <5,
+    directory,
+    filepath,
+    hedgehog,
+    process,
+    tasty,
+    tasty-hedgehog,
+    tasty-hunit,
+    text,
+
+test-suite wasm-spec
+  import: test-options
+  type: exitcode-stdio-1.0
+  hs-source-dirs: compiler/wasm/test
+  main-is: Spec.hs
+  other-modules: Test.Wasm.Suite
+  build-depends:
+    aihc:compiler,
+    aihc-tc,
+    base >=4.16 && <5,
+    containers,
+    hedgehog,
+    tasty,
+    tasty-hedgehog,
+    tasty-hunit,
+    text,
+
+test-suite dev-spec
+  import: test-options
+  type: exitcode-stdio-1.0
+  default-extensions: OverloadedStrings
+  hs-source-dirs:
+    dev/test
+    dev/src
+    dev/app/resolve-stackage-progress
+    dev/app/tc-stackage-progress
+    compiler/grin/fuzz
+    compiler/grin/test
+
+  main-is: Spec.hs
+  other-modules:
+    Aihc.Dev.ExtractHi
+    Aihc.Dev.ExtractHi.Compare
+    Aihc.Dev.ExtractHi.GhcSession
+    Aihc.Dev.ExtractHi.ToResolveIface
+    Aihc.Dev.ExtractHi.Types
+    Aihc.Dev.Fuzz
+    Aihc.Dev.Fuzz.CLI
+    Aihc.Dev.Fuzz.Registry
+    Aihc.Dev.Fuzz.TUI
+    Aihc.Grin.Fuzz
+    BootInterface
+    ResolvePackage
+    ResolveStackageProgress
+    TcStackageProgress
+    Test.ExtractHiCompare
+    Test.Fuzz
+    Test.Grin.Arbitrary
+    Test.ResolvePackage
+    Test.ResolveStackageProgress.PathsModule
+    Test.TcStackageProgress
+
+  build-depends:
+    Cabal-syntax >=3.14 && <3.17,
+    aeson >=2.0 && <2.3,
+    aeson-pretty >=0.8 && <0.9,
+    aihc:compiler,
+    aihc-cpp,
+    aihc-hackage,
+    aihc-internal,
+    aihc-parser,
+    aihc-resolve,
+    aihc-tc,
+    aihc-tc:fuzz,
+    async,
+    base >=4.16 && <5,
+    bytestring,
+    containers,
+    deepseq,
+    directory,
+    filepath,
+    ghc >=9.12 && <9.13,
+    hedgehog,
+    optparse-applicative >=0.16 && <0.19,
+    prettyprinter,
+    process >=1.6 && <1.8,
+    stm >=2.5 && <2.6,
+    tasty,
+    tasty-hedgehog,
+    tasty-hunit,
+    terminal-size >=0.3.2 && <0.4,
+    text >=1.2.3 && <2.2,
+    time,
+    unix >=2.7 && <2.9,
+    yaml >=0.11 && <0.12,

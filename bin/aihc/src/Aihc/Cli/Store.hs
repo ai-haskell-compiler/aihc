@@ -4,6 +4,7 @@ module Aihc.Cli.Store
   ( defaultStoreRoot,
     installedLibrariesActivePath,
     installedLibrariesRoot,
+    installedEntryArchivePath,
     installedRuntimeArchivePath,
   )
 where
@@ -22,6 +23,13 @@ installedLibrariesRoot storeRoot = storeRoot </> "libraries"
 
 installedLibrariesActivePath :: FilePath -> FilePath
 installedLibrariesActivePath storeRoot = installedLibrariesRoot storeRoot </> "active"
+
+installedEntryArchivePath :: FilePath -> NativeTarget -> FilePath
+installedEntryArchivePath storeRoot target =
+  storeRoot
+    </> "targets"
+    </> nativeTargetStoreDirectory target
+    </> "entry.a"
 
 installedRuntimeArchivePath :: FilePath -> NativeTarget -> RuntimeGarbageCollector -> FilePath
 installedRuntimeArchivePath storeRoot target garbageCollector =
