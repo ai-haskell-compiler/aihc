@@ -5,27 +5,16 @@ packages:
   bin/aihc
   components/aihc-resolve
   components/aihc-tc
-  components/aihc-fc
-  components/aihc-grin
-  components/aihc-native
-  components/aihc-amd64
-  components/aihc-arm64
-  components/aihc-llvm
-  components/aihc-wasm
   bin/aihc-fmt
   tooling/aihc-hackage
   tooling/aihc-testing
   tooling/aihc-resolve-tooling-common
-  tooling/aihc-dev
 
 constraints:
   aihc-cpp ==1.0.0.2,
   aihc-parser ==1.0.0.5
 
 package aihc-tc
-  flags: +fuzz
-
-package aihc-grin
   flags: +fuzz
 
 tests: True

@@ -40,64 +40,6 @@
 in rec {
   # Source filtering: only include relevant files for each component.
   # This prevents rebuilds when unrelated files change.
-  fcSrc =
-    mkRootSubsetSrc [
-      "components/aihc-fc/"
-      "core-libs/aihc-prim/src/GHC/Prim.hs"
-      "core-libs/aihc-prim/src/GHC/Tuple.hs"
-      "core-libs/aihc-prim/src/GHC/Types.hs"
-      "test/support/"
-    ] [
-      ".hs"
-      ".cabal"
-      ".yaml"
-      ".yml"
-      ".fc2"
-    ];
-
-  arm64Src = mkRootSubsetSrc ["components/aihc-arm64/" "test/support/" "test/Test/Fixtures/grin-snapshot/"] [
-    ".hs"
-    ".cabal"
-    ".c"
-    ".h"
-    ".yaml"
-    ".yml"
-  ];
-
-  amd64Src = mkRootSubsetSrc ["components/aihc-amd64/" "test/support/" "test/Test/Fixtures/grin-snapshot/"] [
-    ".hs"
-    ".cabal"
-    ".c"
-    ".h"
-    ".yaml"
-    ".yml"
-  ];
-
-  llvmSrc = mkRootSubsetSrc ["components/aihc-llvm/" "test/support/"] [
-    ".hs"
-    ".cabal"
-  ];
-
-  nativeSrc = mkComponentSrc "/components/aihc-native" [
-    ".hs"
-    ".cabal"
-    ".c"
-    ".h"
-  ];
-
-  wasmSrc = mkComponentSrc "/components/aihc-wasm" [
-    ".hs"
-    ".cabal"
-    ".c"
-    ".h"
-    ".wit"
-  ];
-
-  grinSrc = mkRootSubsetSrc ["components/aihc-grin/" "test/support/"] [
-    ".hs"
-    ".cabal"
-  ];
-
   evalFixturesSrc = mkComponentSrc "/test/Test/Fixtures/eval" [
     ".yaml"
     ".yml"
@@ -156,20 +98,6 @@ in rec {
     ".cabal"
   ];
 
-  devSrc = pkgs:
-    pkgs.lib.cleanSourceWith {
-      src = root;
-      filter = path: type: let
-        baseName = baseNameOf path;
-        relPath = pkgs.lib.removePrefix ((toString root) + "/") (toString path);
-        inDev = pkgs.lib.hasPrefix "tooling/aihc-dev/" relPath;
-        inTcCommon = pkgs.lib.hasPrefix "components/aihc-tc/common/" relPath;
-        inResolveCommon = pkgs.lib.hasPrefix "components/aihc-resolve/common/" relPath;
-        matchesSourceSuffix = matchesSuffix pkgs [".hs" ".cabal" ".yaml" ".yml"] path;
-      in
-        type == "directory" || ((inDev || inTcCommon || inResolveCommon) && (matchesSourceSuffix || baseName == "LICENSE" || baseName == "CHANGELOG.md"));
-    };
-
   resolveToolingCommonSrc = pkgs:
     pkgs.lib.cleanSourceWith {
       src = root;
@@ -182,11 +110,23 @@ in rec {
         type == "directory" || ((inToolingCommon || inResolveCommon) && matchesSourceSuffix);
     };
 
-  aihcSrc = mkRootSubsetSrc ["bin/aihc/"] [
-    ".hs"
-    ".cabal"
-    "expected.txt"
-  ];
+  aihcSrc =
+    mkRootSubsetSrc [
+      "bin/aihc/"
+      "core-libs/aihc-prim/src/GHC/Prim.hs"
+      "core-libs/aihc-prim/src/GHC/Tuple.hs"
+      "core-libs/aihc-prim/src/GHC/Types.hs"
+    ] [
+      ".hs"
+      ".cabal"
+      ".c"
+      ".h"
+      ".wit"
+      ".yaml"
+      ".yml"
+      ".fc2"
+      "expected.txt"
+    ];
 
   examplesSrc = mkRootSubsetSrc ["examples/"] exampleSourceSuffixes;
 
@@ -229,9 +169,8 @@ in rec {
         inBin = pkgs.lib.hasInfix "/bin/" pathStr;
         inCoreLibs = pkgs.lib.hasInfix "/core-libs/" pathStr;
         inNixHaskell = pkgs.lib.hasInfix "/scripts/nix/ucd2haskell-aihc/" pathStr;
-        inTestSupport = pkgs.lib.hasInfix "/test/support/" pathStr;
       in
-        type == "directory" || isHlintConfig || ((inComponents || inTooling || inBin || inCoreLibs || inNixHaskell || inTestSupport) && (isCabal || (isHaskell && !isFixture)));
+        type == "directory" || isHlintConfig || ((inComponents || inTooling || inBin || inCoreLibs || inNixHaskell) && (isCabal || (isHaskell && !isFixture)));
     };
 
   # Cabal formatting should not be invalidated by ordinary Haskell changes.

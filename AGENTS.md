@@ -41,20 +41,20 @@ Do not put the same domain in two components.
 | --- | --- | --- | --- |
 | `aihc-resolve` | Parsed surface modules | The same surface AST with binding resolution, use resolution, exports, and resolve diagnostics | Name resolution only |
 | `aihc-tc` | Resolved surface AST | The same surface AST with types, kinds, evidence, and type diagnostics | Haskell type checks only |
-| `aihc-fc` | Type-checked surface AST | System FC program and System FC lint and evaluation diagnostics | Desugaring and System FC only |
-| `aihc-grin` | System FC program | Strict GRIN program and GRIN lint and interpreter diagnostics | Closure conversion, explicit runtime operations, and GRIN transformations only |
+| `aihc:compiler` FC modules | Type-checked surface AST | System FC program and System FC diagnostics | Desugaring and System FC only |
+| `aihc:compiler` GRIN modules | System FC program | Strict GRIN program and GRIN diagnostics | Closure conversion, runtime operations, and GRIN transformations only |
 
 Do not duplicate an upstream responsibility in a downstream component.
 Do not do name resolution in `aihc-tc`.
-Do not do Haskell type checks in `aihc-fc`.
-`aihc-fc` can lint types that are already in System FC.
+Do not do Haskell type checks in the FC modules.
+The FC modules can lint types that are already in System FC.
 
 If a downstream component needs upstream facts, change the upstream component.
 Then, use its output in the downstream component.
-For example, an `aihc-fc` feature can need new Haskell type information.
-In this case, change `aihc-tc` and do not add local type checks to `aihc-fc`.
+For example, an FC feature can need new Haskell type information.
+In this case, change `aihc-tc` and do not add local type checks to the FC modules.
 
-`aihc-grin` must keep the semantics that System FC gives.
+The GRIN modules must keep the semantics that System FC gives.
 It can remove types and coercions.
 It can validate GRIN structural invariants.
 It must not reconstruct Haskell type information.

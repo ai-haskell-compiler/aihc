@@ -1,0 +1,719 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+module Test.Amd64.Suite
+  ( tests,
+  )
+where
+
+import Aihc.Amd64
+  ( Amd64Error (..),
+    ObservedProgram (..),
+    compileEntry,
+    compileModule,
+    compileObservedFunction,
+    snapshotSourcePath,
+    targetTriple,
+    validateProgramPrimitives,
+  )
+import Aihc.Grin
+import Aihc.Native
+  ( NativeTarget (LinuxAmd64),
+    RuntimeGarbageCollector (..),
+    RuntimePlan (..),
+    executableEntryName,
+    runtimePlan,
+  )
+import Aihc.Testing.ExceptionProgram (synchronousExceptionProgram)
+import Aihc.Testing.SchedulerProgram (blackholeSchedulerProgram, schedulerProgram, stdioSchedulerProgram)
+import Control.Concurrent (threadDelay)
+import Control.Exception (bracket)
+import Control.Monad (forM, when)
+import Data.Aeson (FromJSON (..), withObject, (.:), (.:?))
+import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
+import Data.Word (Word64)
+import Data.Yaml qualified as Y
+import System.Directory (createDirectory, doesDirectoryExist, getCurrentDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
+import System.Exit (ExitCode (..))
+import System.FilePath (takeDirectory, (</>))
+import System.IO (hClose, hFlush, hPutStr, openTempFile)
+import System.Info (arch, os)
+import System.Process (CreateProcess (..), StdStream (..), createProcess, proc, readProcessWithExitCode, waitForProcess)
+import Test.Tasty (TestTree, testGroup)
+import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
+
+tests :: TestTree
+tests =
+  testGroup
+    "aihc-amd64"
+    [ testCase "keeps unsupported dormant primitives out of linked programs" $ do
+        let primitive = GrinVar "unsupported#" 1 (BoxedRep Lifted)
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [(primitive, 2)],
+                  grinForeignCalls = [],
+                  grinGlobals = [],
+                  grinFunctions = []
+                }
+        assertEqual "linked primitive validation" (Left (Amd64UnsupportedPrimitive "unsupported#")) (validateProgramPrimitives program)
+        case compileModule (expectGcGrin program) of
+          Left err -> assertFailure ("relocatable module rejected a dormant primitive: " <> show err)
+          Right assembly -> assertBool "linked locals section" ("aihc_locals" `T.isInfixOf` assembly),
+      testCase "adds Int# values with wrapping machine arithmetic" $ do
+        let entryName = FunctionName "int_add"
+            result = GrinVar "result" 2 IntRep
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [(GrinVar "+#" 1 IntRep, 2)],
+                  grinForeignCalls = [],
+                  grinGlobals = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = entryName,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = IntRep,
+                          grinFunctionBody =
+                            GrinBind
+                              [result]
+                              ( GrinPrimitiveCall
+                                  IntRep
+                                  "+#"
+                                  [ GrinLitValue (GrinLitInt IntRep 9223372036854775807),
+                                    GrinLitValue (GrinLitInt IntRep 1)
+                                  ]
+                              )
+                              (GrinConstant [GrinVarValue result])
+                        }
+                    ]
+                }
+        assertEqual "direct GRIN lint" [] (lintProgram program)
+        assertEqual "linked primitive validation" (Right ()) (validateProgramPrimitives program)
+        let gc = expectGcGrin program
+        assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
+        observed <-
+          case compileObservedFunction entryName gc of
+            Left err -> assertFailure ("native Int# addition compilation failed: " <> show err)
+            Right value -> pure value
+        assertBool "emits a wrapping 64-bit add" ("  add r10, rax" `T.isInfixOf` observedAssembly observed)
+        when (arch == "x86_64" && os == "linux") $ do
+          native <- runObservedProgram observed
+          assertEqual "native result" (Right "return: -9223372036854775808\nheap: []\nallocations: 0\n") native,
+      testCase "multiplies Word# values to a high/low pair" $ do
+        let entryName = FunctionName "word_mul_wide"
+            high = GrinVar "high" 2 WordRep
+            low = GrinVar "low" 3 WordRep
+            wordLiteral = GrinLitValue . GrinLitInt WordRep
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [(GrinVar "timesWord2#" 1 (TupleRep [WordRep, WordRep]), 2)],
+                  grinForeignCalls = [],
+                  grinGlobals = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = entryName,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = TupleRep [WordRep, WordRep],
+                          grinFunctionBody =
+                            GrinBind
+                              [high, low]
+                              (GrinPrimitiveCall (TupleRep [WordRep, WordRep]) "timesWord2#" [wordLiteral 0xffffffffffffffff, wordLiteral 2])
+                              (GrinConstant [GrinVarValue high, GrinVarValue low])
+                        }
+                    ]
+                }
+        observed <-
+          case compileObservedFunction entryName (expectGcGrin program) of
+            Left err -> assertFailure ("native timesWord2# compilation failed: " <> show err)
+            Right value -> pure value
+        assertBool "emits unsigned wide multiplication" ("  mul r10" `T.isInfixOf` observedAssembly observed),
+      testCase "emits boundary integer literals in machine-word slots" $ do
+        let functionName = FunctionName "narrow_code"
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [],
+                  grinForeignCalls = [],
+                  grinGlobals = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = functionName,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = TupleRep [Int8Rep, Word64Rep],
+                          grinFunctionBody =
+                            GrinConstant
+                              [ GrinLitValue (GrinLitInt Int8Rep 255),
+                                GrinLitValue (GrinLitInt Word64Rep 18446744073709551615)
+                              ]
+                        }
+                    ]
+                }
+        case compileModule (expectGcGrin program) of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly -> do
+            assertBool "255 :: Int8# is stored as -1" ("mov rax, -1" `T.isInfixOf` assembly)
+            assertBool "maxBound :: Word64# remains unsigned" ("mov rdi, 18446744073709551615" `T.isInfixOf` assembly)
+            assertAssemblyAccepted assembly,
+      testCase "passes static Addr# literals to native foreign calls" $ do
+        let functionName = FunctionName "puts_addr"
+            foreignCall =
+              GrinForeignCall
+                { grinForeignCallName = "$ffi$puts",
+                  grinForeignCallSymbol = "puts",
+                  grinForeignCallSignature =
+                    GrinForeignSignature
+                      { grinForeignArgumentTypes = [GrinForeignAddr],
+                        grinForeignResultType = GrinForeignInt32,
+                        grinForeignEffect = GrinForeignPure
+                      }
+                }
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [],
+                  grinForeignCalls = [foreignCall],
+                  grinGlobals = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = functionName,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = Int32Rep,
+                          grinFunctionBody = GrinForeignCallExpr foreignCall [GrinLitValue (GrinLitAddr "\xFF\0bar")]
+                        }
+                    ]
+                }
+        case compileModule (expectGcGrin program) of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly -> do
+            assertBool "loads the static string address" ("lea rax, [rip + .Laihc_addr_0]" `T.isInfixOf` assembly)
+            assertBool "emits NUL-terminated Latin-1" (".byte 255, 0, 98, 97, 114, 0" `T.isInfixOf` assembly)
+            assertBool "calls puts" ("call puts" `T.isInfixOf` assembly)
+            assertAssemblyAccepted assembly,
+      testCase "returns unboxed tuples as direct machine values" $ do
+        let functionName = FunctionName "pair_code"
+            program =
+              GrinProgram
+                { grinConstructors = [],
+                  grinPrimitives = [],
+                  grinForeignCalls = [],
+                  grinGlobals = [],
+                  grinFunctions =
+                    [ GrinFunction
+                        { grinFunctionName = functionName,
+                          grinFunctionParameters = [],
+                          grinFunctionResultRep = TupleRep [TupleRep [], IntRep, WordRep],
+                          grinFunctionBody =
+                            GrinConstant
+                              [ GrinLitValue (GrinLitInt IntRep 1),
+                                GrinLitValue (GrinLitInt WordRep 2)
+                              ]
+                        }
+                    ]
+                }
+        case compileModule (expectGcGrin program) of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly -> do
+            assertBool "passes two values" ("mov rdx, 2" `T.isInfixOf` assembly)
+            assertBool "enters the continuation through registers" ("jmp .Laihc_enter" `T.isInfixOf` assembly)
+            assertBool "does not call a C continuation adapter" (not ("aihc_continue_values" `T.isInfixOf` assembly)),
+      testGroup "raw GRIN heap snapshots" (map snapshotTest snapshotCases),
+      testCase "case and apply never evaluate operands implicitly" $ do
+        case compileModule (expectGcGrin explicitEvaluationProgram) of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly ->
+            assertBool "generated case and apply contain no direct-style eval call" (not ("call aihc_eval\n" `T.isInfixOf` assembly))
+        pure (),
+      testCase "case dispatch preserves allocatable registers" $
+        case compileModule (expectGcGrin caseDispatchProgram) of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly -> do
+            assertBool "uses the reserved scratch register" ("cmp r10, r11" `T.isInfixOf` assembly)
+            assertBool "does not clobber allocatable r9" (not ("cmp r10, r9" `T.isInfixOf` assembly)),
+      testCase "dynamic CPS transfers branch to runtime-selected entries" $ do
+        case compileModule (expectGcGrin explicitEvaluationProgram) of
+          Left err -> assertFailure ("native compilation failed: " <> show err)
+          Right assembly -> do
+            assertBool
+              "slow apply returns a value that is passed to the continuation in registers"
+              ("call aihc_apply_slow" `T.isInfixOf` assembly && "jmp .Laihc_enter" `T.isInfixOf` assembly)
+            assertBool
+              "generated code does not reload a scheduled entry"
+              (not ("mov r11, QWORD PTR [r15]\n  jmp r11" `T.isInfixOf` assembly))
+        pure (),
+      testCase "runtime object ABI compiles cleanly on the host C compiler" $
+        withTempDirectory "aihc-amd64-runtime" $ \directory -> do
+          runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
+          snapshotRuntime <- snapshotSourcePath
+          let executable = directory </> "runtime-check"
+          (compilerExit, _compilerOut, compilerErr) <-
+            readProcessWithExitCode
+              "cc"
+              ( ["-std=c11", "-Wall", "-Wextra", "-Werror"]
+                  <> runtimeArguments
+                  <> [snapshotRuntime, "-x", "c", "-", "-o", executable]
+              )
+              "int main(void) { return 0; }\n"
+          assertEqual ("C compiler runtime diagnostics:\n" <> compilerErr) ExitSuccess compilerExit,
+      testCase "runs fork# and yield# with FIFO scheduling" testNativeScheduler,
+      testCase "catches a synchronous exception" testNativeSynchronousException,
+      testCase "blocks and wakes threads that enter a shared blackhole" testNativeBlackholeScheduler,
+      testCase "waits for stdin and resumes an async stdio continuation" testNativeStdioScheduler
+    ]
+
+data SnapshotCase = SnapshotCase
+  { snapshotCaseName :: !String,
+    snapshotCaseProgram :: !GrinProgram,
+    snapshotCaseEntry :: !FunctionName,
+    snapshotCaseExpectation :: !SnapshotExpectation
+  }
+
+data SnapshotExpectation
+  = SnapshotSuccess !T.Text !Word64
+  | SnapshotFailure !T.Text
+
+data SnapshotFixture = SnapshotFixture
+  { snapshotFixtureEntry :: !T.Text,
+    snapshotFixtureProgram :: !T.Text,
+    snapshotFixtureReturn :: !(Maybe T.Text),
+    snapshotFixtureHeap :: !(Maybe T.Text),
+    snapshotFixtureError :: !(Maybe T.Text),
+    snapshotFixtureAllocations :: !(Maybe (Map.Map T.Text Word64)),
+    snapshotFixtureStatus :: !T.Text,
+    snapshotFixtureReason :: !T.Text
+  }
+
+instance FromJSON SnapshotFixture where
+  parseJSON =
+    withObject "GRIN snapshot fixture" $ \object ->
+      SnapshotFixture
+        <$> object .: "entry"
+        <*> object .: "program"
+        <*> object .:? "return"
+        <*> object .:? "heap"
+        <*> object .:? "error"
+        <*> object .:? "allocations"
+        <*> object .: "status"
+        <*> object .: "reason"
+
+snapshotCases :: [(String, FilePath)]
+snapshotCases =
+  [ ("stores one value", "store-one.yaml"),
+    ("preserves a suspended thunk", "store-suspended.yaml"),
+    ("stores linked values", "store-linked.yaml"),
+    ("stores a self-referential value", "store-self-referential.yaml"),
+    ("returns an unboxed value", "return-unboxed.yaml"),
+    ("loops ten million times", "loop-add.yaml"),
+    ("evaluates only through GrinEval", "eval.yaml"),
+    ("preserves WHNF pointers through GrinEval", "eval-whnf.yaml"),
+    ("rejects blackholed thunk re-entry", "eval-blackhole.yaml"),
+    ("saturates a partial constructor through C", "apply-constructor.yaml"),
+    ("allocates a multi-stage partial closure", "apply-multistage.yaml"),
+    ("saturates a partial closure through registers", "apply-partial.yaml"),
+    ("passes excess saturated arguments through the native stack", "apply-register-overflow.yaml"),
+    ("passes direct-call arguments through registers and the native stack", "call-register-overflow.yaml"),
+    ("applies a stored closure", "apply.yaml"),
+    ("snapshots the ThreadId# returned by fork#", "fork.yaml"),
+    ("snapshots child evaluation after yield#", "yield.yaml")
+  ]
+
+snapshotTest :: (String, FilePath) -> TestTree
+snapshotTest (name, fixtureName) =
+  testCase name $ do
+    snapshotCase <- loadSnapshotCase name fixtureName
+    let program = snapshotCaseProgram snapshotCase
+        entry = snapshotCaseEntry snapshotCase
+        expectation = snapshotCaseExpectation snapshotCase
+    assertEqual "direct GRIN lint" [] (lintProgram program)
+    interpreted <- interpretProgramFunctionSnapshot entry program
+    assertInterpretedExpectation expectation interpreted
+    let gc = expectGcGrin program
+    assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
+    observed <-
+      case compileObservedFunction entry gc of
+        Left err -> assertFailure ("native snapshot compilation failed: " <> show err)
+        Right value -> pure value
+    when (fixtureName == "apply-partial.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "dispatches through the info-table apply entry" ("mov r11, QWORD PTR [r11 + 48]" `T.isInfixOf` assembly)
+      assertBool
+        "loads captured and supplied arguments into registers"
+        ("mov rdi, rax\n  mov rax, QWORD PTR [r12 + 8]\n  jmp aihc_snapshot_function_0" `T.isInfixOf` assembly)
+      assertAssemblyAccepted assembly
+    when (fixtureName == "apply-register-overflow.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "spills supplied register overflow" ("sub rsp, 16" `T.isInfixOf` assembly)
+      assertBool "reloads supplied register overflow" ("mov r11, QWORD PTR [rsp + 0]" `T.isInfixOf` assembly)
+      assertAssemblyAccepted assembly
+    when (fixtureName == "call-register-overflow.yaml") $ do
+      let assembly = observedAssembly observed
+      assertBool "spills direct-call register overflow" ("sub rsp, 32" `T.isInfixOf` assembly)
+      assertBool "uses canonical direct-call entries" (not ("_register" `T.isInfixOf` assembly))
+      assertAssemblyAccepted assembly
+    when (fixtureName == "loop-add.yaml") $ do
+      let assembly = observedAssembly observed
+          loopAndRest = snd (T.breakOn "aihc_snapshot_function_0:" assembly)
+          loopAssembly = fst (T.breakOn "aihc_snapshot_function_1:" loopAndRest)
+      assertBool "keeps the loop's GRIN variables out of local spill storage" (not ("[r14" `T.isInfixOf` loopAssembly))
+      assertEqual "only the self-tail-call jumps to the allocated body" 1 (T.count "jmp aihc_snapshot_function_0_body" loopAssembly)
+      assertBool "merges case dispatch into the loop body" (not ("case_dispatch" `T.isInfixOf` loopAssembly))
+      assertBool "uses the canonical label as the register entry" (not ("_register" `T.isInfixOf` loopAssembly))
+    when (arch == "x86_64" && os == "linux") $ do
+      native <- runObservedProgram observed
+      assertNativeExpectation expectation native
+
+assertInterpretedExpectation :: SnapshotExpectation -> Either InterpretError HeapSnapshot -> IO ()
+assertInterpretedExpectation expectation interpreted =
+  case (expectation, interpreted) of
+    (SnapshotSuccess expected _, Right snapshot) ->
+      assertEqual "interpreter snapshot" (T.stripEnd expected) (T.stripEnd (renderHeapSnapshot snapshot))
+    (SnapshotFailure expected, Left err) ->
+      assertEqual "interpreter error" expected (renderInterpretFailure err)
+    (SnapshotSuccess _ _, Left err) ->
+      assertFailure ("GRIN interpreter failed: " <> show err)
+    (SnapshotFailure _, Right snapshot) ->
+      assertFailure ("GRIN interpreter unexpectedly succeeded:\n" <> T.unpack (renderHeapSnapshot snapshot))
+
+assertNativeExpectation :: SnapshotExpectation -> Either T.Text T.Text -> IO ()
+assertNativeExpectation expectation native =
+  case (expectation, native) of
+    (SnapshotSuccess expected expectedAllocations, Right snapshot) ->
+      assertEqual
+        "native snapshot"
+        (T.stripEnd expected <> "\nallocations: " <> T.pack (show expectedAllocations))
+        (T.stripEnd snapshot)
+    (SnapshotFailure expected, Left err) ->
+      assertEqual "native error" expected err
+    (SnapshotSuccess _ _, Left err) ->
+      assertFailure ("native snapshot failed: " <> T.unpack err)
+    (SnapshotFailure _, Right snapshot) ->
+      assertFailure ("native snapshot unexpectedly succeeded:\n" <> T.unpack snapshot)
+
+renderInterpretFailure :: InterpretError -> T.Text
+renderInterpretFailure err =
+  case err of
+    InterpretBlackhole _ -> "blackholed thunk re-entered"
+    _ -> T.pack (show err)
+
+loadSnapshotCase :: String -> FilePath -> IO SnapshotCase
+loadSnapshotCase name fixtureName = do
+  root <- snapshotFixtureRoot
+  result <- Y.decodeFileEither (root </> fixtureName)
+  fixture <-
+    case result of
+      Left err -> assertFailure ("invalid GRIN snapshot fixture: " <> Y.prettyPrintParseException err)
+      Right value -> pure value
+  assertEqual "fixture status" "pass" (snapshotFixtureStatus fixture)
+  assertBool "fixture reason is present" (not (T.null (T.strip (snapshotFixtureReason fixture))))
+  program <-
+    case parseProgram (snapshotFixtureProgram fixture) of
+      Left err -> assertFailure ("invalid GRIN program: " <> renderParseError err)
+      Right value -> pure value
+  expectation <-
+    case (snapshotFixtureReturn fixture, snapshotFixtureHeap fixture, snapshotFixtureError fixture) of
+      (Just returnValue, Just heapValue, Nothing) -> do
+        let heap = T.stripEnd heapValue
+            expected
+              | heap == "[]" = "return: " <> returnValue <> "\nheap: []"
+              | otherwise =
+                  "return: "
+                    <> returnValue
+                    <> "\nheap:\n"
+                    <> T.unlines (map ("  " <>) (T.lines heap))
+        allocations <-
+          case snapshotFixtureAllocations fixture >>= Map.lookup "linux-amd64" of
+            Just count -> pure count
+            Nothing -> assertFailure "successful snapshot fixture must define allocations.linux-amd64"
+        pure (SnapshotSuccess expected allocations)
+      (Nothing, Nothing, Just err)
+        | not (T.null (T.strip err)) -> do
+            assertEqual "failing snapshot allocations" Nothing (snapshotFixtureAllocations fixture)
+            pure (SnapshotFailure (T.strip err))
+      _ -> assertFailure "snapshot fixture must define either return and heap, or a non-empty error"
+  pure
+    SnapshotCase
+      { snapshotCaseName = name,
+        snapshotCaseProgram = program,
+        snapshotCaseEntry = FunctionName (snapshotFixtureEntry fixture),
+        snapshotCaseExpectation = expectation
+      }
+
+snapshotFixtureRoot :: IO FilePath
+snapshotFixtureRoot = getCurrentDirectory >>= findRoot
+  where
+    findRoot directory = do
+      let candidate = directory </> "compiler" </> "grin" </> "test" </> "Test" </> "Fixtures" </> "grin-snapshot"
+      exists <- doesDirectoryExist candidate
+      if exists
+        then pure candidate
+        else do
+          let parent = takeDirectory directory
+          if parent == directory
+            then assertFailure "GRIN snapshot fixture root is missing"
+            else findRoot parent
+
+runObservedProgram :: ObservedProgram -> IO (Either T.Text T.Text)
+runObservedProgram observed =
+  withTempDirectory "aihc-amd64-snapshot" $ \directory -> do
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
+    snapshotRuntime <- snapshotSourcePath
+    let assemblyPath = directory </> "snapshot.s"
+        metadataPath = directory </> "snapshot_metadata.c"
+        executablePath = directory </> "snapshot"
+    TIO.writeFile assemblyPath (observedAssembly observed)
+    TIO.writeFile metadataPath (observedMetadataSource observed)
+    (clangExit, _clangOut, clangErr) <-
+      readProcessWithExitCode
+        "clang"
+        ( ["--target=" <> targetTriple, "-std=c11", "-Wall", "-Wextra", "-Werror"]
+            <> runtimeArguments
+            <> [snapshotRuntime, metadataPath, assemblyPath, "-o", executablePath]
+        )
+        ""
+    case clangExit of
+      ExitSuccess -> pure ()
+      ExitFailure _ -> assertFailure ("clang failed to assemble observed GRIN:\n" <> clangErr)
+    (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
+    case programExit of
+      ExitSuccess -> do
+        assertEqual "native stderr" "" programErr
+        pure (Right (T.pack programOut))
+      ExitFailure _ -> do
+        assertEqual "native stdout" "" programOut
+        pure (Left (renderNativeFailure (T.pack programErr)))
+
+renderNativeFailure :: T.Text -> T.Text
+renderNativeFailure stderr =
+  let message = T.strip stderr
+   in fromMaybe message (T.stripPrefix "aihc runtime: " message)
+
+explicitEvaluationProgram :: GrinProgram
+explicitEvaluationProgram =
+  GrinProgram
+    { grinConstructors = [],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinGlobals = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "case_operand",
+              grinFunctionParameters = [caseOperand],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinCase
+                  (GrinVarValue caseOperand)
+                  caseBinder
+                  [GrinAlt GrinDefaultAlt [] (GrinConstant [GrinVarValue caseBinder])]
+            },
+          GrinFunction
+            { grinFunctionName = FunctionName "apply_operand",
+              grinFunctionParameters = [applyOperand],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody = GrinApply (BoxedRep Lifted) (GrinVarValue applyOperand) []
+            }
+        ]
+    }
+  where
+    caseOperand = GrinVar "case_operand" 201 (BoxedRep Lifted)
+    caseBinder = GrinVar "case_binder" 202 (BoxedRep Lifted)
+    applyOperand = GrinVar "apply_operand" 203 (BoxedRep Lifted)
+
+caseDispatchProgram :: GrinProgram
+caseDispatchProgram =
+  GrinProgram
+    { grinConstructors = [("CaseA", [[]]), ("CaseB", [[]])],
+      grinPrimitives = [],
+      grinForeignCalls = [],
+      grinGlobals = [],
+      grinFunctions =
+        [ GrinFunction
+            { grinFunctionName = FunctionName "data_case_dispatch",
+              grinFunctionParameters = [dataOperand],
+              grinFunctionResultRep = BoxedRep Lifted,
+              grinFunctionBody =
+                GrinCase
+                  (GrinVarValue dataOperand)
+                  dataBinder
+                  [ GrinAlt (GrinDataAlt "CaseA") [] (GrinConstant [GrinVarValue dataBinder]),
+                    GrinAlt GrinDefaultAlt [] (GrinConstant [GrinVarValue dataBinder])
+                  ]
+            },
+          GrinFunction
+            { grinFunctionName = FunctionName "literal_case_dispatch",
+              grinFunctionParameters = [literalOperand],
+              grinFunctionResultRep = IntRep,
+              grinFunctionBody =
+                GrinCase
+                  (GrinVarValue literalOperand)
+                  literalBinder
+                  [ GrinAlt (GrinLitAlt (GrinLitInt IntRep 7)) [] (GrinConstant [GrinVarValue literalBinder]),
+                    GrinAlt GrinDefaultAlt [] (GrinConstant [GrinVarValue literalBinder])
+                  ]
+            }
+        ]
+    }
+  where
+    dataOperand = GrinVar "data_operand" 204 (BoxedRep Lifted)
+    dataBinder = GrinVar "data_binder" 205 (BoxedRep Lifted)
+    literalOperand = GrinVar "literal_operand" 206 IntRep
+    literalBinder = GrinVar "literal_binder" 207 IntRep
+
+testNativeScheduler :: IO ()
+testNativeScheduler = do
+  assertEqual "direct GRIN lint" [] (lintProgram schedulerProgram)
+  let gc = expectGcGrin schedulerProgram
+  assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
+  (moduleAssembly, entryAssembly) <- compileEntryTestUnits schedulerProgram
+  assertBool "captures argc and argv before machine startup" ("call aihc_program_arguments_initialize" `T.isInfixOf` entryAssembly)
+  assertBool "emits fork state operation" ("call aihc_fork" `T.isInfixOf` moduleAssembly)
+  assertBool "emits yield state operation" ("call aihc_yield" `T.isInfixOf` moduleAssembly)
+  assertBool "emits child completion transfer" ("call aihc_thread_done" `T.isInfixOf` entryAssembly)
+  let updateInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_update_info:") (T.lines entryAssembly)))
+      finalInfo = T.unlines (take 9 (dropWhile (/= ".Laihc_final_info:") (T.lines entryAssembly)))
+  assertBool "emits update continuation frame metadata" ("  .quad 3" `T.isSuffixOf` T.stripEnd updateInfo)
+  assertBool "emits stop continuation frame metadata" ("  .quad 5" `T.isSuffixOf` T.stripEnd finalInfo)
+  mapM_ assertAssemblyAccepted [moduleAssembly, entryAssembly]
+  when (arch == "x86_64" && os == "linux") $
+    runSchedulerAssembly "PCAB" [moduleAssembly, entryAssembly]
+
+testNativeSynchronousException :: IO ()
+testNativeSynchronousException = do
+  (moduleAssembly, entryAssembly) <- compileEntryTestUnits synchronousExceptionProgram
+  assertBool "emits the shared raise transfer" ("call aihc_raise" `T.isInfixOf` moduleAssembly)
+  mapM_ assertAssemblyAccepted [moduleAssembly, entryAssembly]
+  when (arch == "x86_64" && os == "linux") $
+    runSchedulerAssembly "E" [moduleAssembly, entryAssembly]
+
+testNativeBlackholeScheduler :: IO ()
+testNativeBlackholeScheduler = do
+  assertEqual "direct GRIN lint" [] (lintProgram blackholeSchedulerProgram)
+  let gc = expectGcGrin blackholeSchedulerProgram
+  assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
+  (moduleAssembly, entryAssembly) <- compileEntryTestUnits blackholeSchedulerProgram
+  when (arch == "x86_64" && os == "linux") $
+    runSchedulerAssembly "TA" [moduleAssembly, entryAssembly]
+
+testNativeStdioScheduler :: IO ()
+testNativeStdioScheduler = do
+  assertEqual "direct GRIN lint" [] (lintProgram stdioSchedulerProgram)
+  let gc = expectGcGrin stdioSchedulerProgram
+  assertEqual "GC-GRIN lint" [] (lintProgram (gcGrinProgram gc))
+  (moduleAssembly, entryAssembly) <- compileEntryTestUnits stdioSchedulerProgram
+  let assembly = moduleAssembly <> entryAssembly
+  assertBool "emits generic IO suspension transfer" ("call aihc_await_io" `T.isInfixOf` assembly)
+  assertBool "allocates a pinned byte array" ("call aihc_byte_array_new_pinned" `T.isInfixOf` assembly)
+  assertBool "obtains the byte-array payload" ("call aihc_byte_array_contents" `T.isInfixOf` assembly)
+  assertBool "obtains stdin through the runtime ABI" ("call aihc_io_stdin" `T.isInfixOf` assembly)
+  assertBool "obtains stdout through the runtime ABI" ("call aihc_io_stdout" `T.isInfixOf` assembly)
+  assertBool "submits a generic read through the runtime ABI" ("call aihc_io_submit_read" `T.isInfixOf` assembly)
+  assertBool "submits a generic write through the runtime ABI" ("call aihc_io_submit_write" `T.isInfixOf` assembly)
+  assertBool "consumes results through the runtime ABI" ("call aihc_io_take_result" `T.isInfixOf` assembly)
+  assertBool "compiler has no operation-specific CPS transfer" (not ("aihc_read_stdin_cps" `T.isInfixOf` assembly || "aihc_write_stdout_cps" `T.isInfixOf` assembly))
+  mapM_ assertAssemblyAccepted [moduleAssembly, entryAssembly]
+  when (arch == "x86_64" && os == "linux") $
+    runStdioAssembly [moduleAssembly, entryAssembly]
+
+expectGcGrin :: GrinProgram -> GcGrinProgram
+expectGcGrin program =
+  case toCpsGrin program of
+    Right cpsProgram -> lowerGc cpsProgram
+    Left err -> error ("test GRIN failed CPS conversion: " <> show err)
+
+compileEntryTestUnits :: GrinProgram -> IO (T.Text, T.Text)
+compileEntryTestUnits program = do
+  let linkedProgram =
+        program
+          { grinGlobals =
+              [ (if name == "main" then executableEntryName else name, node)
+              | (name, node) <- grinGlobals program
+              ]
+          }
+  moduleAssembly <- either (assertFailure . show) pure (compileModule (expectGcGrin linkedProgram))
+  entryAssembly <- either (assertFailure . show) pure compileEntry
+  pure (moduleAssembly, entryAssembly)
+
+assertAssemblyAccepted :: T.Text -> IO ()
+assertAssemblyAccepted assembly =
+  withTempDirectory "aihc-amd64-assemble" $ \directory -> do
+    let assemblyPath = directory </> "program.s"
+        objectPath = directory </> "program.o"
+    TIO.writeFile assemblyPath assembly
+    (clangExit, _clangOut, clangErr) <-
+      readProcessWithExitCode
+        "clang"
+        ["--target=" <> targetTriple, "-c", assemblyPath, "-o", objectPath]
+        ""
+    assertEqual ("clang rejected Linux AMD64 assembly:\n" <> clangErr) ExitSuccess clangExit
+
+runSchedulerAssembly :: String -> [T.Text] -> IO ()
+runSchedulerAssembly expected sources =
+  withTempDirectory "aihc-amd64-scheduler" $ \directory -> do
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
+    sourcePaths <- forM (zip [0 :: Int ..] sources) $ \(index, source) -> do
+      let sourcePath = directory </> "scheduler-" <> show index <> ".s"
+      TIO.writeFile sourcePath source
+      pure sourcePath
+    let executablePath = directory </> "scheduler"
+    (clangExit, _clangOut, clangErr) <-
+      readProcessWithExitCode
+        "clang"
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> sourcePaths <> ["-o", executablePath])
+        ""
+    assertEqual ("clang failed to assemble scheduler program:\n" <> clangErr) ExitSuccess clangExit
+    (programExit, programOut, programErr) <- readProcessWithExitCode executablePath [] ""
+    assertEqual ("native stderr: " <> programErr) ExitSuccess programExit
+    assertEqual "scheduler stdout" expected programOut
+
+runStdioAssembly :: [T.Text] -> IO ()
+runStdioAssembly sources =
+  withTempDirectory "aihc-amd64-stdio" $ \directory -> do
+    runtimeArguments <- nativeRuntimeArguments RuntimeGcCalloc
+    sourcePaths <- forM (zip [0 :: Int ..] sources) $ \(index, source) -> do
+      let sourcePath = directory </> "stdio-" <> show index <> ".s"
+      TIO.writeFile sourcePath source
+      pure sourcePath
+    let executablePath = directory </> "stdio"
+    (clangExit, _clangOut, clangErr) <-
+      readProcessWithExitCode
+        "clang"
+        (["-std=c11", "-Wall", "-Wextra", "-Werror"] <> runtimeArguments <> sourcePaths <> ["-o", executablePath])
+        ""
+    assertEqual ("clang failed to assemble async stdio program:\n" <> clangErr) ExitSuccess clangExit
+    (Just childInput, Just childOutput, Just childError, processHandle) <-
+      createProcess
+        (proc executablePath [])
+          { std_in = CreatePipe,
+            std_out = CreatePipe,
+            std_err = CreatePipe
+          }
+    threadDelay 50000
+    hPutStr childInput "Buffered async IO\n"
+    hFlush childInput
+    hClose childInput
+    programOut <- TIO.hGetContents childOutput
+    programErr <- TIO.hGetContents childError
+    programExit <- waitForProcess processHandle
+    assertEqual ("native stderr: " <> T.unpack programErr) ExitSuccess programExit
+    assertEqual "async stdout" "Buffered async IO\n" programOut
+
+nativeRuntimeArguments :: RuntimeGarbageCollector -> IO [String]
+nativeRuntimeArguments garbageCollector = do
+  plan <- runtimePlan LinuxAmd64 garbageCollector
+  pure
+    ( ["-I" <> directory | directory <- runtimeIncludeDirectories plan]
+        <> runtimeSources plan
+    )
+
+withTempDirectory :: String -> (FilePath -> IO value) -> IO value
+withTempDirectory template = bracket acquire removeDirectoryRecursive
+  where
+    acquire = do
+      temporary <- getTemporaryDirectory
+      (path, handle) <- openTempFile temporary template
+      hClose handle
+      removeFile path
+      createDirectory path
+      pure path
