@@ -373,11 +373,11 @@
 
       ${aihcExe} install-v2 core-libs/aihc-prim --store "$store" --keep-grin --target apple-arm64
 
-      test -n "$(find "$store" -path '*/GHC/Prim/core-v2' -print -quit)"
+      test -n "$(find "$store" -path '*/GHC/Prim/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/GHC.Prim.o' -print -quit)"
       test -n "$(find "$store" -path '*/lib/libaihc-prim.a' -print -quit)"
-      test -z "$(find "$store" -type f -name 'core-v2.bad' -print -quit)"
+      test -z "$(find "$store" -type f -name 'core.bad' -print -quit)"
       touch "$out"
     '';
 

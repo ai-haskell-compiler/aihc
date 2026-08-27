@@ -21,9 +21,9 @@ import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, writ
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeInterface)
-import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2)
-import Aihc.Fc2 qualified as Fc2
-import Aihc.Fc2.TypeOf qualified as Fc2Type
+import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc)
+import Aihc.Fc qualified as Fc
+import Aihc.Fc.TypeOf qualified as FcType
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
@@ -321,7 +321,7 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
       hashes = sortOn fst (sourceHashes <> Map.toList dependencyHashes)
       resolvePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "resolve.cbor"
       typePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "type.cbor"
-      coreV2Path modu = storePath </> moduleDirectory modu </> "core-v2"
+      corePath modu = storePath </> moduleDirectory modu </> "core"
       grinPath modu = storePath </> moduleDirectory modu </> "grin"
       objectPath modu = storePath </> moduleDirectory modu </> T.unpack (fromMaybe "Main" (moduleName modu)) <> ".o"
       nativePath modu = objectPath modu <> nativeSourceExtension target
@@ -369,24 +369,24 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
       storedInterfaces <- readTypeArtifacts typeInputs typePath unit
       pure (storedInterfaces, True, Just checked)
   updatedTypeHashes <- updateTypeHashes typePath typeHashes unit
-  coreV2Exists <- and <$> mapM (doesFileExist . coreV2Path . sourceModuleAst) unit
+  coreExists <- and <$> mapM (doesFileExist . corePath . sourceModuleAst) unit
   grinExists <- and <$> mapM (doesFileExist . grinPath . sourceModuleAst) unit
   objectExists <- and <$> mapM (doesFileExist . objectPath . sourceModuleAst) unit
   nativeExists <- and <$> mapM (doesFileExist . nativePath . sourceModuleAst) unit
   (coreChanged, grinChanged) <-
-    if typeChanged || not coreV2Exists
+    if typeChanged || not coreExists
       then do
         (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
-        writeCoreV2Files True keepGrin keepNative target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path grinPath objectPath checkedModules
+        writeCoreFiles True keepGrin keepNative target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) corePath grinPath objectPath checkedModules
         pure (True, keepGrin)
       else
         if (keepGrin && not grinExists) || (keepNative && not nativeExists) || not objectExists
           then do
             (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
-            writeCoreV2Files False keepGrin keepNative target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) coreV2Path grinPath objectPath checkedModules
+            writeCoreFiles False keepGrin keepNative target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) corePath grinPath objectPath checkedModules
             pure (False, True)
           else do
-            mapM_ (verbose . ("Reuse Core-v2: " <>) . T.unpack) unitNames
+            mapM_ (verbose . ("Reuse Core: " <>) . T.unpack) unitNames
             pure (False, False)
   let changed = resolveChanged || typeChanged || coreChanged || grinChanged
       unitSet = Set.fromList unitNames
@@ -404,59 +404,59 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
   where
     sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
 
-writeCoreV2Files :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Module -> FilePath) -> (Module -> FilePath) -> (Module -> FilePath) -> [Module] -> IO ()
-writeCoreV2Files writeCore keepGrin keepNative target verbose currentPackage primIdentity interface storeRoot coreV2Path grinPath objectPath checkedModules = do
+writeCoreFiles :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Module -> FilePath) -> (Module -> FilePath) -> (Module -> FilePath) -> [Module] -> IO ()
+writeCoreFiles keepCore keepGrin keepNative target verbose currentPackage primIdentity interface storeRoot corePath grinPath objectPath checkedModules = do
   let bindings = tcInterfaceBindings interface <> concatMap tcModuleBindings checkedModules
       config = DesugarConfig primIdentity
-      results2 = map (desugarModuleFc2 config bindings interface) checkedModules
+      results = map (desugarModuleFc config bindings interface) checkedModules
       currentModules = Set.fromList (map (fromMaybe "Main" . moduleName) checkedModules)
-      storeLoader = Fc2.storeModuleLoader storeRoot
+      storeLoader = Fc.storeModuleLoader storeRoot
       dependencyLoader package name
         | package == currentPackage && name `Set.member` currentModules = pure Nothing
         | otherwise = storeLoader package name
-  unless (all ds2Success results2) (ioError (userError ("Core-v2 generation failed: " <> unlines (concatMap ds2Errors results2))))
-  loadedFc2 <- Fc2.loadScopeClosure dependencyLoader (map ds2Program results2)
-  let fc2Errors = Fc2.lintPrograms loadedFc2
-      fc2Report = map (("    " <>) . show) fc2Errors
-  unless (null fc2Errors) $ do
-    mapM_ writeBadFc2 (zip checkedModules results2)
+  unless (all dsSuccess results) (ioError (userError ("Core generation failed: " <> unlines (concatMap dsErrors results))))
+  loadedFc <- Fc.loadScopeClosure dependencyLoader (map dsProgram results)
+  let fcErrors = Fc.lintPrograms loadedFc
+      fcReport = map (("    " <>) . show) fcErrors
+  unless (null fcErrors) $ do
+    mapM_ writeBadFc (zip checkedModules results)
     ioError
       ( userError
           ( unlines
-              ( ["Core-v2 lint failed:"]
-                  <> fc2Report
+              ( ["Core lint failed:"]
+                  <> fcReport
               )
           )
       )
-  when writeCore (mapM_ writeCoreV2 (zip checkedModules results2))
+  when keepCore (mapM_ writeCore (zip checkedModules results))
   when keepGrin $ do
-    let typeEnv = Fc2Type.typeEnvFromPrograms loadedFc2
-    mapM_ (writeGrin typeEnv) (zip checkedModules results2)
-  let typeEnv = Fc2Type.typeEnvFromPrograms loadedFc2
-  mapM_ (writeObject target typeEnv) (zip checkedModules results2)
+    let typeEnv = FcType.typeEnvFromPrograms loadedFc
+    mapM_ (writeGrin typeEnv) (zip checkedModules results)
+  let typeEnv = FcType.typeEnvFromPrograms loadedFc
+  mapM_ (writeObject target typeEnv) (zip checkedModules results)
   where
-    writeBadFc2 (modu, result2) = do
-      let pathV2 = coreV2Path modu <> ".bad"
+    writeBadFc (modu, result) = do
+      let badPath = corePath modu <> ".bad"
           name = fromMaybe "Main" (moduleName modu)
-      removeFileIfExists (coreV2Path modu)
-      writeCoreV2File pathV2 result2
-      verbose ("Write bad Core-v2: " <> T.unpack name <> " -> " <> pathV2)
+      removeFileIfExists (corePath modu)
+      writeCoreFile badPath result
+      verbose ("Write bad Core: " <> T.unpack name <> " -> " <> badPath)
 
-    writeCoreV2 (modu, result2) = do
-      let pathV2 = coreV2Path modu
+    writeCore (modu, result) = do
+      let outputPath = corePath modu
           name = fromMaybe "Main" (moduleName modu)
-      removeFileIfExists (pathV2 <> ".bad")
-      writeCoreV2File pathV2 result2
-      verbose ("Write Core-v2: " <> T.unpack name)
+      removeFileIfExists (outputPath <> ".bad")
+      writeCoreFile outputPath result
+      verbose ("Write Core: " <> T.unpack name)
 
-    writeCoreV2File path result = do
-      let rendered = Fc2.renderProgram (ds2Program result)
+    writeCoreFile path result = do
+      let rendered = Fc.renderProgram (dsProgram result)
           output = if "\n" `isSuffixOf` rendered then rendered else rendered <> "\n"
       createDirectoryIfMissing True (takeDirectory path)
       writeFile path output
 
-    writeGrin typeEnv (modu, result2) = do
-      program <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv (ds2Program result2))
+    writeGrin typeEnv (modu, result) = do
+      program <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv (dsProgram result))
       let errors = Grin.lintProgram program
       unless (null errors) (ioError (userError ("GRIN lint failed: " <> show errors)))
       let path = grinPath modu
@@ -466,8 +466,8 @@ writeCoreV2Files writeCore keepGrin keepNative target verbose currentPackage pri
       writeFile path output
       verbose ("Write GRIN: " <> T.unpack (fromMaybe "Main" (moduleName modu)))
 
-    writeObject selectedTarget typeEnv (modu, result2) = do
-      program <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv (ds2Program result2))
+    writeObject selectedTarget typeEnv (modu, result) = do
+      program <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv (dsProgram result))
       cps <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin program)
       let gcProgram = Grin.lowerGc cps
           gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
@@ -511,19 +511,19 @@ buildLibraryArchive keepNative target verbose storePath packageNameText resolveP
       object = case moduleObjects of
         [singleObject] -> singleObject
         _ -> storePath </> "lib" </> T.unpack packageNameText <> ".o"
-      loader = Fc2.storeModuleLoader (takeDirectory storePath)
+      loader = Fc.storeModuleLoader (takeDirectory storePath)
       packageIdentity = packageId resolvePackage
   ownPrograms <-
     forM sources $ \source -> do
       let name = fromMaybe "Main" (moduleName (sourceModuleAst source))
       loaded <- loader packageIdentity name
-      maybe (ioError (userError ("Missing stored Core-v2 module: " <> T.unpack name))) pure loaded
-  loadedPrograms <- Fc2.loadScopeClosure loader ownPrograms
-  let typeEnv = Fc2Type.typeEnvFromPrograms loadedPrograms
+      maybe (ioError (userError ("Missing stored Core module: " <> T.unpack name))) pure loaded
+  loadedPrograms <- Fc.loadScopeClosure loader ownPrograms
+  let typeEnv = FcType.typeEnvFromPrograms loadedPrograms
       combinedProgram =
-        Fc2.Program
-          { Fc2.programScopes = maybe Fc2.emptyScopeTable Fc2.programScopes (listToMaybe ownPrograms),
-            Fc2.programDecls = concatMap Fc2.programDecls ownPrograms
+        Fc.Program
+          { Fc.programScopes = maybe Fc.emptyScopeTable Fc.programScopes (listToMaybe ownPrograms),
+            Fc.programDecls = concatMap Fc.programDecls ownPrograms
           }
   grin <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv combinedProgram)
   cps <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin grin)

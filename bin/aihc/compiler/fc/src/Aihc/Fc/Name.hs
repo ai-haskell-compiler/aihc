@@ -1,5 +1,5 @@
--- | Names, sorts, and scopes for System FC 2.
-module Aihc.Fc2.Name
+-- | Names, sorts, and scopes for System FC.
+module Aihc.Fc.Name
   ( Sort (..),
     NameClass (..),
     nameClass,

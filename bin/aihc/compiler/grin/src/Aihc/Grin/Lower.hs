@@ -1,15 +1,15 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Conservative lowering from System FC 2 to GRIN.
+-- | Conservative lowering from System FC to GRIN.
 module Aihc.Grin.Lower
   ( lowerProgram,
   )
 where
 
-import Aihc.Fc2 qualified as Fc2
-import Aihc.Fc2.TypeOf qualified as TypeOf
-import Aihc.Fc2.Wired qualified as Wired
+import Aihc.Fc qualified as Fc
+import Aihc.Fc.TypeOf qualified as TypeOf
+import Aihc.Fc.Wired qualified as Wired
 import Aihc.Grin.Anf (normalizeGrinProgram)
 import Aihc.Grin.Syntax
 import Aihc.Resolve (PackageId (..))
@@ -29,9 +29,9 @@ import Text.Read (readMaybe)
 
 data LowerEnv = LowerEnv
   { lowerTypes :: !TypeOf.TypeEnv,
-    lowerLocals :: !(Map Fc2.Name [GrinVar]),
-    lowerTypeSubstitution :: !(Map Fc2.Name Fc2.Type),
-    lowerGlobalNames :: !(Map Fc2.Name Text)
+    lowerLocals :: !(Map Fc.Name [GrinVar]),
+    lowerTypeSubstitution :: !(Map Fc.Name Fc.Type),
+    lowerGlobalNames :: !(Map Fc.Name Text)
   }
 
 data LowerState = LowerState
@@ -61,12 +61,12 @@ instance Semigroup TopParts where
 instance Monoid TopParts where
   mempty = TopParts [] [] [] []
 
-lowerProgram :: TypeOf.TypeEnv -> Fc2.Program -> Either String GrinProgram
+lowerProgram :: TypeOf.TypeEnv -> Fc.Program -> Either String GrinProgram
 lowerProgram types program = do
   let globals = globalNameTable types
       env = LowerEnv types Map.empty Map.empty globals
       initialState = LowerState (-1000000000) 0 []
-  (parts, finalState) <- runStateT (foldMapM (lowerDecl env) (Fc2.programDecls program)) initialState
+  (parts, finalState) <- runStateT (foldMapM (lowerDecl env) (Fc.programDecls program)) initialState
   pure
     ( normalizeGrinProgram
         GrinProgram
@@ -81,18 +81,18 @@ lowerProgram types program = do
 foldMapM :: (Monad monad, Monoid value) => (item -> monad value) -> [item] -> monad value
 foldMapM action = foldM (\result item -> (result <>) <$> action item) mempty
 
-lowerDecl :: LowerEnv -> Fc2.Decl -> LowerM TopParts
+lowerDecl :: LowerEnv -> Fc.Decl -> LowerM TopParts
 lowerDecl env declaration =
   case declaration of
-    Fc2.DeclType value -> lowerTypeDecl env value
-    Fc2.DeclVal value -> lowerValueDecl env value
-    Fc2.DeclForeignImport value -> lowerForeignDecl env value
-    Fc2.DeclSynonym {} -> pure mempty
-    Fc2.DeclAxiom {} -> pure mempty
+    Fc.DeclType value -> lowerTypeDecl env value
+    Fc.DeclVal value -> lowerValueDecl env value
+    Fc.DeclForeignImport value -> lowerForeignDecl env value
+    Fc.DeclSynonym {} -> pure mempty
+    Fc.DeclAxiom {} -> pure mempty
 
-lowerTypeDecl :: LowerEnv -> Fc2.TypeDecl -> LowerM TopParts
+lowerTypeDecl :: LowerEnv -> Fc.TypeDecl -> LowerM TopParts
 lowerTypeDecl env declaration = do
-  converted <- mapM lowerConstructor (Fc2.typeCons declaration)
+  converted <- mapM lowerConstructor (Fc.typeCons declaration)
   pure
     mempty
       { topConstructors = concatMap first converted,
@@ -102,10 +102,10 @@ lowerTypeDecl env declaration = do
     first (constructors, _) = constructors
     second (_, globals) = globals
     lowerConstructor constructor = do
-      let name = Fc2.conName constructor
-          (typeBinders, monotype) = splitForAlls (applySubstitution env (Fc2.conType constructor))
+      let name = Fc.conName constructor
+          (typeBinders, monotype) = splitForAlls (applySubstitution env (Fc.conType constructor))
           constructorEnv = foldl extendTypeBinder env typeBinders
-      if "(#" `T.isPrefixOf` Fc2.nameText name
+      if "(#" `T.isPrefixOf` Fc.nameText name
         then pure ([], [])
         else do
           fieldTypes <- liftEither (constructorArgumentTypes monotype)
@@ -119,20 +119,20 @@ lowerTypeDecl env declaration = do
               let tag = constructorTag name
               pure ([(tag, fieldLayouts)], [(globalName, GrinNode (GrinConstructor tag (length fieldTypes)) [])])
 
-lowerValueDecl :: LowerEnv -> Fc2.ValDecl -> LowerM TopParts
+lowerValueDecl :: LowerEnv -> Fc.ValDecl -> LowerM TopParts
 lowerValueDecl env declaration = do
-  representation <- runtimeRep env (Fc2.valType declaration)
+  representation <- runtimeRep env (Fc.valType declaration)
   if representation /= liftedGrinRep
-    then throwLower ("GRIN does not support an unlifted top-level value: " <> show (Fc2.valName declaration))
+    then throwLower ("GRIN does not support an unlifted top-level value: " <> show (Fc.valName declaration))
     else do
-      globalName <- lookupGlobalName env (Fc2.valName declaration)
-      node <- makeThunk env (Fc2.nameText (Fc2.valName declaration)) (Fc2.valBody declaration)
+      globalName <- lookupGlobalName env (Fc.valName declaration)
+      node <- makeThunk env (Fc.nameText (Fc.valName declaration)) (Fc.valBody declaration)
       pure mempty {topGlobals = [(globalName, node)]}
 
-lowerForeignDecl :: LowerEnv -> Fc2.ForeignImportDecl -> LowerM TopParts
+lowerForeignDecl :: LowerEnv -> Fc.ForeignImportDecl -> LowerM TopParts
 lowerForeignDecl env declaration = do
-  let name = Fc2.foreignImportName declaration
-      sourceType = applySubstitution env (Fc2.foreignImportType declaration)
+  let name = Fc.foreignImportName declaration
+      sourceType = applySubstitution env (Fc.foreignImportType declaration)
       (typeBinders, monotype) = splitForAlls sourceType
       foreignEnv = defaultRuntimeReps (foldl extendTypeBinder env typeBinders) typeBinders
   (argumentTypes, resultType) <- splitOperationalFunctionType foreignEnv monotype
@@ -141,22 +141,22 @@ lowerForeignDecl env declaration = do
       (\(index, argumentType) -> freshVarsForType foreignEnv ("foreign_argument_" <> T.pack (show index), argumentType))
       (zip [0 :: Int ..] argumentTypes)
   resultRep <- runtimeRep foreignEnv resultType
-  functionName <- freshFunction (Fc2.nameText name <> "_foreign")
+  functionName <- freshFunction (Fc.nameText name <> "_foreign")
   globalName <- lookupGlobalName env name
   let parameters = concat argumentGroups
       layouts = map (map grinVarRuntimeRep) argumentGroups
       valueGroups = map (map GrinVarValue) argumentGroups
       arity = length argumentTypes
   (body, primitives, foreignCalls) <-
-    case Fc2.foreignImportCallingConvention declaration of
-      Fc2.Prim -> do
-        expression <- lowerPrimitiveBody resultRep (Fc2.nameText name) valueGroups
+    case Fc.foreignImportCallingConvention declaration of
+      Fc.Prim -> do
+        expression <- lowerPrimitiveBody resultRep (Fc.nameText name) valueGroups
         let primitive =
-              [ (GrinVar (Fc2.nameText name) (-2000000000 + arity) resultRep, arity)
-              | Fc2.nameText name `notElem` compilerPrimitives
+              [ (GrinVar (Fc.nameText name) (-2000000000 + arity) resultRep, arity)
+              | Fc.nameText name `notElem` compilerPrimitives
               ]
         pure (expression, primitive, [])
-      Fc2.CCall specification -> do
+      Fc.CCall specification -> do
         let foreignCall = lowerForeignCall name specification
         expression <- lowerForeignBody foreignEnv foreignCall argumentTypes valueGroups resultType
         pure (expression, [], [foreignCall])
@@ -190,7 +190,7 @@ lowerPrimitiveBody resultRep name valueGroups =
       pure (GrinBind [evaluated] (GrinEval liftedGrinRep first) (GrinConstant second))
     _ -> pure (GrinPrimitiveCall resultRep name (concat valueGroups))
 
-lowerForeignBody :: LowerEnv -> GrinForeignCall -> [Fc2.Type] -> [[GrinValue]] -> Fc2.Type -> LowerM GrinExpr
+lowerForeignBody :: LowerEnv -> GrinForeignCall -> [Fc.Type] -> [[GrinValue]] -> Fc.Type -> LowerM GrinExpr
 lowerForeignBody env foreignCall argumentTypes valueGroups resultType = do
   operands <- concat <$> zipWithM (sourceValues env) argumentTypes valueGroups
   resultValues <- sourceValueTypes env resultType
@@ -205,14 +205,14 @@ lowerForeignBody env foreignCall argumentTypes valueGroups resultType = do
           adaptForeignResult env resultValueType resultValueRep foreignResultRep (GrinForeignCallExpr foreignCall values)
       _ -> throwLower ("GRIN foreign result does not match the C ABI: " <> T.unpack (grinForeignCallName foreignCall))
 
-sourceValues :: LowerEnv -> Fc2.Type -> [GrinValue] -> LowerM [(Fc2.Type, GrinValue)]
+sourceValues :: LowerEnv -> Fc.Type -> [GrinValue] -> LowerM [(Fc.Type, GrinValue)]
 sourceValues env sourceType values = do
   types <- sourceValueTypes env sourceType
   if length types == length values
     then pure (zip (map fst types) values)
     else throwLower ("GRIN cannot match source values to type: " <> show sourceType)
 
-sourceValueTypes :: LowerEnv -> Fc2.Type -> LowerM [(Fc2.Type, GrinRep)]
+sourceValueTypes :: LowerEnv -> Fc.Type -> LowerM [(Fc.Type, GrinRep)]
 sourceValueTypes env sourceType = do
   representation <- runtimeRep env sourceType
   case representation of
@@ -230,7 +230,7 @@ sourceValueTypes env sourceType = do
         [component] -> pure [(fieldType, component)]
         _ -> throwLower ("GRIN does not support a nested tuple foreign value: " <> show fieldType)
 
-adaptForeignOperands :: LowerEnv -> [((Fc2.Type, GrinValue), GrinRep)] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
+adaptForeignOperands :: LowerEnv -> [((Fc.Type, GrinValue), GrinRep)] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 adaptForeignOperands env operands continuation = go [] operands
   where
     go values [] = continuation (reverse values)
@@ -254,7 +254,7 @@ adaptForeignOperands env operands continuation = go [] operands
             )
       | otherwise = throwLower ("GRIN cannot adapt a foreign argument representation: " <> show sourceType)
 
-adaptForeignResult :: LowerEnv -> Fc2.Type -> GrinRep -> GrinRep -> GrinExpr -> LowerM GrinExpr
+adaptForeignResult :: LowerEnv -> Fc.Type -> GrinRep -> GrinRep -> GrinExpr -> LowerM GrinExpr
 adaptForeignResult env sourceType sourceRep foreignRep foreignExpression
   | sourceRep == foreignRep = pure foreignExpression
   | isLiftedRuntimeRep sourceRep = do
@@ -268,14 +268,14 @@ adaptForeignResult env sourceType sourceRep foreignRep foreignExpression
         )
   | otherwise = throwLower ("GRIN cannot adapt a foreign result representation: " <> show sourceType)
 
-findUnaryConstructor :: LowerEnv -> Fc2.Type -> GrinRep -> LowerM (Text, GrinRep)
+findUnaryConstructor :: LowerEnv -> Fc.Type -> GrinRep -> LowerM (Text, GrinRep)
 findUnaryConstructor env resultType expectedRep =
   case listToMaybe (mapMaybe matchConstructor (Map.toAscList (TypeOf.teHeaders (lowerTypes env)))) of
     Just result -> pure result
     Nothing -> throwLower ("GRIN cannot find a unary constructor adapter for type: " <> show resultType)
   where
     matchConstructor (name, constructorType)
-      | Fc2.nameSort name /= Fc2.SortDataConstructor = Nothing
+      | Fc.nameSort name /= Fc.SortDataConstructor = Nothing
       | otherwise = do
           fieldTypes <- instantiateConstructorFields env constructorType resultType
           case fieldTypes of
@@ -286,66 +286,66 @@ findUnaryConstructor env resultType expectedRep =
                 _ -> Nothing
             _ -> Nothing
 
-instantiateConstructorFields :: LowerEnv -> Fc2.Type -> Fc2.Type -> Maybe [Fc2.Type]
+instantiateConstructorFields :: LowerEnv -> Fc.Type -> Fc.Type -> Maybe [Fc.Type]
 instantiateConstructorFields env constructorType targetType = do
   let (binders, monotype) = splitForAlls constructorType
   (fieldTypes, constructorResult) <- either (const Nothing) Just (splitFunctionType monotype)
-  substitution <- matchTypeBinders env (Map.fromList [(Fc2.binderName binder, Nothing) | binder <- binders]) constructorResult targetType
+  substitution <- matchTypeBinders env (Map.fromList [(Fc.binderName binder, Nothing) | binder <- binders]) constructorResult targetType
   resolved <- sequenceA substitution
   pure (map (TypeOf.substTypes resolved) fieldTypes)
 
-matchTypeBinders :: LowerEnv -> Map Fc2.Name (Maybe Fc2.Type) -> Fc2.Type -> Fc2.Type -> Maybe (Map Fc2.Name (Maybe Fc2.Type))
+matchTypeBinders :: LowerEnv -> Map Fc.Name (Maybe Fc.Type) -> Fc.Type -> Fc.Type -> Maybe (Map Fc.Name (Maybe Fc.Type))
 matchTypeBinders env substitution patternType actualType =
   case (reduce env patternType, reduce env actualType) of
-    (Fc2.TyVar name, actual)
+    (Fc.TyVar name, actual)
       | Just current <- Map.lookup name substitution ->
           case current of
             Nothing -> Just (Map.insert name (Just actual) substitution)
             Just previous
               | TypeOf.typesEqual (lowerTypes env) previous actual -> Just substitution
               | otherwise -> Nothing
-    (Fc2.TyVar name, Fc2.TyVar actualName)
+    (Fc.TyVar name, Fc.TyVar actualName)
       | name == actualName -> Just substitution
-    (Fc2.TyCon name, Fc2.TyCon actualName)
+    (Fc.TyCon name, Fc.TyCon actualName)
       | name == actualName -> Just substitution
-    (Fc2.TyApp function argument, Fc2.TyApp actualFunction actualArgument) ->
+    (Fc.TyApp function argument, Fc.TyApp actualFunction actualArgument) ->
       matchTypeBinders env substitution function actualFunction
         >>= \next -> matchTypeBinders env next argument actualArgument
-    (Fc2.TyFun r1 r2 argument result, Fc2.TyFun actualR1 actualR2 actualArgument actualResult) ->
+    (Fc.TyFun r1 r2 argument result, Fc.TyFun actualR1 actualR2 actualArgument actualResult) ->
       matchTypeBinders env substitution r1 actualR1
         >>= \s1 ->
           matchTypeBinders env s1 r2 actualR2
             >>= \s2 ->
               matchTypeBinders env s2 argument actualArgument
                 >>= \s3 -> matchTypeBinders env s3 result actualResult
-    (Fc2.TyEq left right, Fc2.TyEq actualLeft actualRight) ->
+    (Fc.TyEq left right, Fc.TyEq actualLeft actualRight) ->
       matchTypeBinders env substitution left actualLeft
         >>= \next -> matchTypeBinders env next right actualRight
     _ -> Nothing
 
-collectTypeApplications :: Fc2.Type -> (Fc2.Type, [Fc2.Type])
+collectTypeApplications :: Fc.Type -> (Fc.Type, [Fc.Type])
 collectTypeApplications = go []
   where
-    go arguments (Fc2.TyApp function argument) = go (argument : arguments) function
+    go arguments (Fc.TyApp function argument) = go (argument : arguments) function
     go arguments function = (function, arguments)
 
-lowerExpr :: LowerEnv -> Fc2.Expr -> LowerM GrinExpr
+lowerExpr :: LowerEnv -> Fc.Expr -> LowerM GrinExpr
 lowerExpr env expression =
   case expression of
-    Fc2.ExVar name -> lowerVariable env name
-    Fc2.ExLit literal -> GrinConstant . pure . GrinLitValue <$> lowerLiteral env literal
-    Fc2.ExApp function argument -> lowerApplication env function argument
-    Fc2.ExTyApp (Fc2.ExTyLam binder body) argument ->
-      lowerExpr env {lowerTypeSubstitution = Map.insert (Fc2.binderName binder) (applySubstitution env argument) (lowerTypeSubstitution env)} body
-    Fc2.ExTyApp function _ -> lowerExpr env function
-    Fc2.ExLam {} -> GrinStore <$> makeClosure env expression
-    Fc2.ExTyLam binder body -> lowerExpr (extendTypeBinder env binder) body
-    Fc2.ExLet binding body -> lowerLet env binding body
-    Fc2.ExRec bindings body -> lowerRec env bindings body
-    Fc2.ExCase scrutinee binder resultType alternatives -> lowerCase env scrutinee binder resultType alternatives
-    Fc2.ExCast inner _ -> lowerExpr env inner
+    Fc.ExVar name -> lowerVariable env name
+    Fc.ExLit literal -> GrinConstant . pure . GrinLitValue <$> lowerLiteral env literal
+    Fc.ExApp function argument -> lowerApplication env function argument
+    Fc.ExTyApp (Fc.ExTyLam binder body) argument ->
+      lowerExpr env {lowerTypeSubstitution = Map.insert (Fc.binderName binder) (applySubstitution env argument) (lowerTypeSubstitution env)} body
+    Fc.ExTyApp function _ -> lowerExpr env function
+    Fc.ExLam {} -> GrinStore <$> makeClosure env expression
+    Fc.ExTyLam binder body -> lowerExpr (extendTypeBinder env binder) body
+    Fc.ExLet binding body -> lowerLet env binding body
+    Fc.ExRec bindings body -> lowerRec env bindings body
+    Fc.ExCase scrutinee binder resultType alternatives -> lowerCase env scrutinee binder resultType alternatives
+    Fc.ExCast inner _ -> lowerExpr env inner
 
-lowerVariable :: LowerEnv -> Fc2.Name -> LowerM GrinExpr
+lowerVariable :: LowerEnv -> Fc.Name -> LowerM GrinExpr
 lowerVariable env name = do
   ty <- lookupNameType env name
   representation <- runtimeRep env ty
@@ -364,18 +364,18 @@ lowerVariable env name = do
           pure (GrinEval representation (GrinGlobalValue globalName))
       | otherwise -> throwLower ("GRIN does not support an imported unlifted value: " <> show name)
 
-lowerApplication :: LowerEnv -> Fc2.Expr -> Fc2.Expr -> LowerM GrinExpr
+lowerApplication :: LowerEnv -> Fc.Expr -> Fc.Expr -> LowerM GrinExpr
 lowerApplication env function argument = do
-  let application = Fc2.ExApp function argument
+  let application = Fc.ExApp function argument
   resultType <- expressionType env application
   resultRep <- runtimeRep env resultType
   case (resultRep, collectApplications application) of
-    (_, (Fc2.ExVar name, arguments))
-      | Just arity <- Map.lookup (Fc2.nameText name) specialPrimitiveArities,
+    (_, (Fc.ExVar name, arguments))
+      | Just arity <- Map.lookup (Fc.nameText name) specialPrimitiveArities,
         length arguments == arity ->
-          lowerSpecialApplication env resultRep (Fc2.nameText name) arguments
-    (TupleRep {}, (Fc2.ExVar name, arguments))
-      | "(#" `T.isPrefixOf` Fc2.nameText name -> lowerTupleArguments env arguments
+          lowerSpecialApplication env resultRep (Fc.nameText name) arguments
+    (TupleRep {}, (Fc.ExVar name, arguments))
+      | "(#" `T.isPrefixOf` Fc.nameText name -> lowerTupleArguments env arguments
     _ ->
       lowerLazySingle env "function" function $ \functionValue -> do
         evaluated <- freshVar "function_whnf" liftedGrinRep
@@ -387,15 +387,15 @@ lowerApplication env function argument = do
                 (GrinApply resultRep (GrinVarValue evaluated) argumentValues)
             )
 
-collectApplications :: Fc2.Expr -> (Fc2.Expr, [Fc2.Expr])
+collectApplications :: Fc.Expr -> (Fc.Expr, [Fc.Expr])
 collectApplications expression = go expression []
   where
-    go (Fc2.ExApp function argument) arguments = go function (argument : arguments)
-    go (Fc2.ExTyApp function _) arguments = go function arguments
-    go (Fc2.ExCast function _) arguments = go function arguments
+    go (Fc.ExApp function argument) arguments = go function (argument : arguments)
+    go (Fc.ExTyApp function _) arguments = go function arguments
+    go (Fc.ExCast function _) arguments = go function arguments
     go function arguments = (function, arguments)
 
-lowerTupleArguments :: LowerEnv -> [Fc2.Expr] -> LowerM GrinExpr
+lowerTupleArguments :: LowerEnv -> [Fc.Expr] -> LowerM GrinExpr
 lowerTupleArguments env = go []
   where
     go values [] = pure (GrinConstant values)
@@ -405,7 +405,7 @@ lowerTupleArguments env = go []
 specialPrimitiveArities :: Map Text Int
 specialPrimitiveArities = Map.fromList [("aihcExit#", 2), ("unsafeCoerce#", 1), ("raise#", 1), ("catch#", 3), ("seq", 2)]
 
-lowerSpecialApplication :: LowerEnv -> GrinRep -> Text -> [Fc2.Expr] -> LowerM GrinExpr
+lowerSpecialApplication :: LowerEnv -> GrinRep -> Text -> [Fc.Expr] -> LowerM GrinExpr
 lowerSpecialApplication env resultRep name arguments =
   case (name, arguments) of
     ("aihcExit#", status : state : _) ->
@@ -467,7 +467,7 @@ lowerCatch resultRep action handler stateValues = do
         )
     )
 
-lowerArgument :: LowerEnv -> Fc2.Expr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerArgument :: LowerEnv -> Fc.Expr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerArgument env expression continuation = do
   representation <- expressionRuntimeRep env expression
   if null (runtimeRepComponents representation)
@@ -477,23 +477,23 @@ lowerArgument env expression continuation = do
         then lowerLazySingle env "argument" expression (continuation . (: []))
         else bindExpression env "argument" expression continuation
 
-lowerLazySingle :: LowerEnv -> Text -> Fc2.Expr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
+lowerLazySingle :: LowerEnv -> Text -> Fc.Expr -> (GrinValue -> LowerM GrinExpr) -> LowerM GrinExpr
 lowerLazySingle env hint expression continuation =
   case expression of
-    Fc2.ExVar name ->
+    Fc.ExVar name ->
       case Map.lookup name (lowerLocals env) of
         Just [variable] -> continuation (GrinVarValue variable)
         Just _ -> throwLower ("GRIN expected one lazy local value: " <> show name)
         Nothing -> lookupGlobalName env name >>= continuation . GrinGlobalValue
-    Fc2.ExTyApp inner _ -> lowerLazySingle env hint inner continuation
-    Fc2.ExCast inner _ -> lowerLazySingle env hint inner continuation
+    Fc.ExTyApp inner _ -> lowerLazySingle env hint inner continuation
+    Fc.ExCast inner _ -> lowerLazySingle env hint inner continuation
     _ -> do
       node <- makeThunk env hint expression
       pointer <- freshVar hint liftedGrinRep
       rest <- continuation (GrinVarValue pointer)
       pure (GrinBind [pointer] (GrinStore node) rest)
 
-bindExpression :: LowerEnv -> Text -> Fc2.Expr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
+bindExpression :: LowerEnv -> Text -> Fc.Expr -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
 bindExpression env hint expression continuation = do
   representation <- expressionRuntimeRep env expression
   variables <- freshVars hint representation
@@ -501,22 +501,22 @@ bindExpression env hint expression continuation = do
   rest <- continuation (map GrinVarValue variables)
   pure (bindIfNeeded variables valueExpression rest)
 
-lowerLet :: LowerEnv -> Fc2.Bind -> Fc2.Expr -> LowerM GrinExpr
+lowerLet :: LowerEnv -> Fc.Bind -> Fc.Expr -> LowerM GrinExpr
 lowerLet env binding body = do
-  let binder = Fc2.bindBinder binding
-  representation <- runtimeRep env (applySubstitution env (Fc2.binderType binder))
-  variables <- freshVars (Fc2.nameText (Fc2.binderName binder)) representation
+  let binder = Fc.bindBinder binding
+  representation <- runtimeRep env (applySubstitution env (Fc.binderType binder))
+  variables <- freshVars (Fc.nameText (Fc.binderName binder)) representation
   let bodyEnv = bindLocal env binder variables
   loweredBody <- lowerExpr bodyEnv body
   if isLiftedRuntimeRep representation
     then do
-      node <- makeThunk env (Fc2.nameText (Fc2.binderName binder)) (Fc2.bindRhs binding)
+      node <- makeThunk env (Fc.nameText (Fc.binderName binder)) (Fc.bindRhs binding)
       pure (GrinBind variables (GrinStore node) loweredBody)
     else do
-      loweredRhs <- lowerExpr env (Fc2.bindRhs binding)
+      loweredRhs <- lowerExpr env (Fc.bindRhs binding)
       pure (bindIfNeeded variables loweredRhs loweredBody)
 
-lowerRec :: LowerEnv -> [Fc2.Bind] -> Fc2.Expr -> LowerM GrinExpr
+lowerRec :: LowerEnv -> [Fc.Bind] -> Fc.Expr -> LowerM GrinExpr
 lowerRec env bindings body = do
   variables <- mapM makeVariables bindings
   let recursiveEnv = foldl bindOne env (zip bindings variables)
@@ -525,15 +525,15 @@ lowerRec env bindings body = do
   pure (GrinStoreRec (zip (concat variables) nodes) loweredBody)
   where
     makeVariables binding = do
-      let binder = Fc2.bindBinder binding
-      representation <- runtimeRep env (applySubstitution env (Fc2.binderType binder))
+      let binder = Fc.bindBinder binding
+      representation <- runtimeRep env (applySubstitution env (Fc.binderType binder))
       if isLiftedRuntimeRep representation
-        then (: []) <$> freshVar (Fc2.nameText (Fc2.binderName binder)) representation
-        else throwLower ("GRIN does not support an unlifted recursive binding: " <> show (Fc2.binderName binder))
-    bindOne current (binding, vars) = bindLocal current (Fc2.bindBinder binding) vars
-    makeBindingNode recursiveEnv binding = makeThunk recursiveEnv (Fc2.nameText (Fc2.binderName (Fc2.bindBinder binding))) (Fc2.bindRhs binding)
+        then (: []) <$> freshVar (Fc.nameText (Fc.binderName binder)) representation
+        else throwLower ("GRIN does not support an unlifted recursive binding: " <> show (Fc.binderName binder))
+    bindOne current (binding, vars) = bindLocal current (Fc.bindBinder binding) vars
+    makeBindingNode recursiveEnv binding = makeThunk recursiveEnv (Fc.nameText (Fc.binderName (Fc.bindBinder binding))) (Fc.bindRhs binding)
 
-lowerCase :: LowerEnv -> Fc2.Expr -> Fc2.Binder -> Fc2.Type -> [Fc2.Alt] -> LowerM GrinExpr
+lowerCase :: LowerEnv -> Fc.Expr -> Fc.Binder -> Fc.Type -> [Fc.Alt] -> LowerM GrinExpr
 lowerCase env scrutinee binder _ alternatives = do
   representation <- expressionRuntimeRep env scrutinee
   case representation of
@@ -541,35 +541,35 @@ lowerCase env scrutinee binder _ alternatives = do
     _ ->
       bindExpression env "case_value" scrutinee $ \case
         [value] -> do
-          caseBinder <- freshVar (Fc2.nameText (Fc2.binderName binder)) representation
+          caseBinder <- freshVar (Fc.nameText (Fc.binderName binder)) representation
           loweredAlternatives <- mapM (lowerAlt (bindLocal env binder [caseBinder])) alternatives
           pure (GrinCase value caseBinder loweredAlternatives)
         _ -> throwLower "GRIN case expected one scrutinee value"
 
-lowerTupleCase :: LowerEnv -> Fc2.Expr -> Fc2.Binder -> [GrinRep] -> [Fc2.Alt] -> LowerM GrinExpr
+lowerTupleCase :: LowerEnv -> Fc.Expr -> Fc.Binder -> [GrinRep] -> [Fc.Alt] -> LowerM GrinExpr
 lowerTupleCase env scrutinee binder _fields alternatives = do
   alternative <-
     case alternatives of
       first : _ -> pure first
       [] -> throwLower "GRIN cannot lower an empty unboxed tuple case"
-  let typeEnv = foldl extendTypeBinder env (Fc2.altTypeBinders alternative)
-  fieldVariables <- mapM (freshVarsForBinder typeEnv) (Fc2.altBinders alternative)
+  let typeEnv = foldl extendTypeBinder env (Fc.altTypeBinders alternative)
+  fieldVariables <- mapM (freshVarsForBinder typeEnv) (Fc.altBinders alternative)
   let values = concat fieldVariables
       binderEnv = bindLocal typeEnv binder values
-      alternativeEnv = foldl bindPair binderEnv (zip (Fc2.altBinders alternative) fieldVariables)
-  loweredRhs <- lowerExpr alternativeEnv (Fc2.altRhs alternative)
+      alternativeEnv = foldl bindPair binderEnv (zip (Fc.altBinders alternative) fieldVariables)
+  loweredRhs <- lowerExpr alternativeEnv (Fc.altRhs alternative)
   loweredScrutinee <- lowerExpr env scrutinee
   pure (bindIfNeeded values loweredScrutinee loweredRhs)
   where
     bindPair current (fieldBinder, vars) = bindLocal current fieldBinder vars
 
-lowerAlt :: LowerEnv -> Fc2.Alt -> LowerM GrinAlt
+lowerAlt :: LowerEnv -> Fc.Alt -> LowerM GrinAlt
 lowerAlt env alternative = do
-  let typeEnv = foldl extendTypeBinder env (Fc2.altTypeBinders alternative)
-  binderGroups <- mapM (freshVarsForBinder typeEnv) (Fc2.altBinders alternative)
-  let bodyEnv = foldl bindPair typeEnv (zip (Fc2.altBinders alternative) binderGroups)
-  body <- lowerExpr bodyEnv (Fc2.altRhs alternative)
-  alternativeConstructor <- lowerAltCon typeEnv (Fc2.altCon alternative)
+  let typeEnv = foldl extendTypeBinder env (Fc.altTypeBinders alternative)
+  binderGroups <- mapM (freshVarsForBinder typeEnv) (Fc.altBinders alternative)
+  let bodyEnv = foldl bindPair typeEnv (zip (Fc.altBinders alternative) binderGroups)
+  body <- lowerExpr bodyEnv (Fc.altRhs alternative)
+  alternativeConstructor <- lowerAltCon typeEnv (Fc.altCon alternative)
   pure
     GrinAlt
       { grinAltCon = alternativeConstructor,
@@ -579,14 +579,14 @@ lowerAlt env alternative = do
   where
     bindPair current (binder, vars) = bindLocal current binder vars
 
-lowerAltCon :: LowerEnv -> Fc2.AltCon -> LowerM GrinAltCon
+lowerAltCon :: LowerEnv -> Fc.AltCon -> LowerM GrinAltCon
 lowerAltCon env alternative =
   case alternative of
-    Fc2.AltData name -> pure (GrinDataAlt (constructorTag name))
-    Fc2.AltLit literal -> GrinLitAlt <$> lowerLiteral env literal
-    Fc2.AltDefault -> pure GrinDefaultAlt
+    Fc.AltData name -> pure (GrinDataAlt (constructorTag name))
+    Fc.AltLit literal -> GrinLitAlt <$> lowerLiteral env literal
+    Fc.AltDefault -> pure GrinDefaultAlt
 
-makeThunk :: LowerEnv -> Text -> Fc2.Expr -> LowerM GrinNode
+makeThunk :: LowerEnv -> Text -> Fc.Expr -> LowerM GrinNode
 makeThunk env hint expression = do
   representation <- expressionRuntimeRep env expression
   if not (isLiftedRuntimeRep representation)
@@ -604,7 +604,7 @@ makeThunk env hint expression = do
           }
       pure (GrinNode (GrinThunk functionName) (map GrinVarValue captures))
 
-makeClosure :: LowerEnv -> Fc2.Expr -> LowerM GrinNode
+makeClosure :: LowerEnv -> Fc.Expr -> LowerM GrinNode
 makeClosure env expression = do
   let (bodyEnv0, binders, body) = collectLambdas env expression
   captures <- capturedVariables env expression
@@ -628,16 +628,16 @@ makeClosure env expression = do
   where
     bindPair current (binder, vars) = bindLocal current binder vars
 
-collectLambdas :: LowerEnv -> Fc2.Expr -> (LowerEnv, [Fc2.Binder], Fc2.Expr)
+collectLambdas :: LowerEnv -> Fc.Expr -> (LowerEnv, [Fc.Binder], Fc.Expr)
 collectLambdas env expression =
   case expression of
-    Fc2.ExLam binder body ->
+    Fc.ExLam binder body ->
       let (bodyEnv, binders, result) = collectLambdas env body
        in (bodyEnv, binder : binders, result)
-    Fc2.ExTyLam binder body -> collectLambdas (extendTypeBinder env binder) body
+    Fc.ExTyLam binder body -> collectLambdas (extendTypeBinder env binder) body
     _ -> (env, [], expression)
 
-capturedVariables :: LowerEnv -> Fc2.Expr -> LowerM [GrinVar]
+capturedVariables :: LowerEnv -> Fc.Expr -> LowerM [GrinVar]
 capturedVariables env expression =
   pure
     ( concat
@@ -647,65 +647,65 @@ capturedVariables env expression =
         ]
     )
 
-freeVariables :: Fc2.Expr -> Set Fc2.Name
+freeVariables :: Fc.Expr -> Set Fc.Name
 freeVariables expression =
   case expression of
-    Fc2.ExVar name -> Set.singleton name
-    Fc2.ExLit {} -> Set.empty
-    Fc2.ExApp function argument -> freeVariables function <> freeVariables argument
-    Fc2.ExTyApp function _ -> freeVariables function
-    Fc2.ExLam binder body -> Set.delete (Fc2.binderName binder) (freeVariables body)
-    Fc2.ExTyLam _ body -> freeVariables body
-    Fc2.ExLet binding body -> freeVariables (Fc2.bindRhs binding) <> Set.delete (Fc2.binderName (Fc2.bindBinder binding)) (freeVariables body)
-    Fc2.ExRec bindings body ->
-      let names = Set.fromList (map (Fc2.binderName . Fc2.bindBinder) bindings)
-       in (foldMap (freeVariables . Fc2.bindRhs) bindings <> freeVariables body) `Set.difference` names
-    Fc2.ExCase scrutinee binder _ alternatives ->
+    Fc.ExVar name -> Set.singleton name
+    Fc.ExLit {} -> Set.empty
+    Fc.ExApp function argument -> freeVariables function <> freeVariables argument
+    Fc.ExTyApp function _ -> freeVariables function
+    Fc.ExLam binder body -> Set.delete (Fc.binderName binder) (freeVariables body)
+    Fc.ExTyLam _ body -> freeVariables body
+    Fc.ExLet binding body -> freeVariables (Fc.bindRhs binding) <> Set.delete (Fc.binderName (Fc.bindBinder binding)) (freeVariables body)
+    Fc.ExRec bindings body ->
+      let names = Set.fromList (map (Fc.binderName . Fc.bindBinder) bindings)
+       in (foldMap (freeVariables . Fc.bindRhs) bindings <> freeVariables body) `Set.difference` names
+    Fc.ExCase scrutinee binder _ alternatives ->
       freeVariables scrutinee
-        <> Set.delete (Fc2.binderName binder) (foldMap freeAltVariables alternatives)
-    Fc2.ExCast inner _ -> freeVariables inner
+        <> Set.delete (Fc.binderName binder) (foldMap freeAltVariables alternatives)
+    Fc.ExCast inner _ -> freeVariables inner
 
-freeAltVariables :: Fc2.Alt -> Set Fc2.Name
+freeAltVariables :: Fc.Alt -> Set Fc.Name
 freeAltVariables alternative =
-  freeVariables (Fc2.altRhs alternative)
-    `Set.difference` Set.fromList (map Fc2.binderName (Fc2.altBinders alternative))
+  freeVariables (Fc.altRhs alternative)
+    `Set.difference` Set.fromList (map Fc.binderName (Fc.altBinders alternative))
 
-expressionRuntimeRep :: LowerEnv -> Fc2.Expr -> LowerM GrinRep
+expressionRuntimeRep :: LowerEnv -> Fc.Expr -> LowerM GrinRep
 expressionRuntimeRep env expression =
   case expression of
-    Fc2.ExLit literal -> literalRep env literal
+    Fc.ExLit literal -> literalRep env literal
     _ -> expressionType env expression >>= runtimeRep env
 
-expressionType :: LowerEnv -> Fc2.Expr -> LowerM Fc2.Type
+expressionType :: LowerEnv -> Fc.Expr -> LowerM Fc.Type
 expressionType env expression =
   case expression of
-    Fc2.ExVar name -> lookupNameType env name
-    Fc2.ExLit {} -> throwLower "GRIN cannot infer a source type for this literal"
-    Fc2.ExApp function _ -> do
+    Fc.ExVar name -> lookupNameType env name
+    Fc.ExLit {} -> throwLower "GRIN cannot infer a source type for this literal"
+    Fc.ExApp function _ -> do
       functionType <- expressionType env function
       case reduce env functionType of
-        Fc2.TyFun _ _ _ result -> pure result
+        Fc.TyFun _ _ _ result -> pure result
         other -> throwLower ("GRIN application has a non-function type: " <> show other)
-    Fc2.ExTyApp function argument -> do
+    Fc.ExTyApp function argument -> do
       functionType <- expressionType env function
       case reduce env functionType of
-        Fc2.TyForAll binder body -> pure (TypeOf.substType (Fc2.binderName binder) (applySubstitution env argument) body)
+        Fc.TyForAll binder body -> pure (TypeOf.substType (Fc.binderName binder) (applySubstitution env argument) body)
         other -> throwLower ("GRIN type application has a non-forall type: " <> show other)
-    Fc2.ExLam binder body -> do
+    Fc.ExLam binder body -> do
       bodyType <- expressionType (extendTypeBinder env binder) body
-      argumentRep <- repType env (Fc2.binderType binder)
+      argumentRep <- repType env (Fc.binderType binder)
       resultRep <- repType env bodyType
-      pure (Fc2.TyFun argumentRep resultRep (applySubstitution env (Fc2.binderType binder)) bodyType)
-    Fc2.ExTyLam binder body -> Fc2.TyForAll binder <$> expressionType (extendTypeBinder env binder) body
-    Fc2.ExLet binding body -> expressionType (extendTermBinder (Fc2.bindBinder binding) env) body
-    Fc2.ExRec bindings body -> expressionType (foldl (flip (extendTermBinder . Fc2.bindBinder)) env bindings) body
-    Fc2.ExCase _ _ resultType _ -> pure (applySubstitution env resultType)
-    Fc2.ExCast _ coercion ->
+      pure (Fc.TyFun argumentRep resultRep (applySubstitution env (Fc.binderType binder)) bodyType)
+    Fc.ExTyLam binder body -> Fc.TyForAll binder <$> expressionType (extendTypeBinder env binder) body
+    Fc.ExLet binding body -> expressionType (extendTermBinder (Fc.bindBinder binding) env) body
+    Fc.ExRec bindings body -> expressionType (foldl (flip (extendTermBinder . Fc.bindBinder)) env bindings) body
+    Fc.ExCase _ _ resultType _ -> pure (applySubstitution env resultType)
+    Fc.ExCast _ coercion ->
       case TypeOf.coercionEndpoints (lowerTypes env) coercion of
         Just (_, target) -> pure (applySubstitution env target)
         Nothing -> throwLower ("GRIN cannot determine coercion endpoints: " <> show coercion)
 
-runtimeRep :: LowerEnv -> Fc2.Type -> LowerM GrinRep
+runtimeRep :: LowerEnv -> Fc.Type -> LowerM GrinRep
 runtimeRep env sourceType =
   case TypeOf.unwrapNewtype (lowerTypes env) appliedType of
     Just unwrapped
@@ -714,7 +714,7 @@ runtimeRep env sourceType =
   where
     appliedType = applySubstitution env sourceType
 
-directRuntimeRep :: LowerEnv -> Fc2.Type -> LowerM GrinRep
+directRuntimeRep :: LowerEnv -> Fc.Type -> LowerM GrinRep
 directRuntimeRep env sourceType = do
   representation <-
     maybe
@@ -723,28 +723,28 @@ directRuntimeRep env sourceType = do
       (TypeOf.repOf (lowerTypes env) sourceType)
   convertRep env representation
 
-repType :: LowerEnv -> Fc2.Type -> LowerM Fc2.Type
+repType :: LowerEnv -> Fc.Type -> LowerM Fc.Type
 repType env sourceType =
   maybe
     (throwLower ("GRIN cannot find a runtime representation type for: " <> show sourceType))
     pure
     (TypeOf.repOf (lowerTypes env) (applySubstitution env sourceType))
 
-runtimeComponents :: LowerEnv -> Fc2.Type -> LowerM [GrinRep]
+runtimeComponents :: LowerEnv -> Fc.Type -> LowerM [GrinRep]
 runtimeComponents env sourceType = runtimeRepComponents <$> runtimeRep env sourceType
 
-convertRep :: LowerEnv -> Fc2.Type -> LowerM GrinRep
+convertRep :: LowerEnv -> Fc.Type -> LowerM GrinRep
 convertRep env sourceRep =
   case reduce env sourceRep of
-    Fc2.TyVar name -> throwLower ("GRIN does not support a variable runtime representation: " <> show name)
-    Fc2.TyCon name -> simpleRep (Fc2.nameText name)
-    Fc2.TyApp (Fc2.TyCon name) levity
-      | Fc2.nameText name == "BoxedRep" -> BoxedRep <$> convertLevity levity
-    Fc2.TyApp (Fc2.TyCon name) fields
-      | Fc2.nameText name == "TupleRep" -> TupleRep <$> convertRepList env fields
-      | Fc2.nameText name == "SumRep" -> SumRep <$> convertRepList env fields
-    Fc2.TyApp (Fc2.TyApp (Fc2.TyCon name) count) element
-      | Fc2.nameText name == "VecRep" -> VecRep <$> readNamed "vector count" count <*> readNamed "vector element" element
+    Fc.TyVar name -> throwLower ("GRIN does not support a variable runtime representation: " <> show name)
+    Fc.TyCon name -> simpleRep (Fc.nameText name)
+    Fc.TyApp (Fc.TyCon name) levity
+      | Fc.nameText name == "BoxedRep" -> BoxedRep <$> convertLevity levity
+    Fc.TyApp (Fc.TyCon name) fields
+      | Fc.nameText name == "TupleRep" -> TupleRep <$> convertRepList env fields
+      | Fc.nameText name == "SumRep" -> SumRep <$> convertRepList env fields
+    Fc.TyApp (Fc.TyApp (Fc.TyCon name) count) element
+      | Fc.nameText name == "VecRep" -> VecRep <$> readNamed "vector count" count <*> readNamed "vector element" element
     other -> throwLower ("GRIN does not support runtime representation: " <> show other)
 
 simpleRep :: Text -> LowerM GrinRep
@@ -767,82 +767,82 @@ simpleRep name =
     "DoubleRep" -> pure DoubleRep
     _ -> throwLower ("GRIN does not know runtime representation: " <> T.unpack name)
 
-convertLevity :: Fc2.Type -> LowerM GrinLevity
+convertLevity :: Fc.Type -> LowerM GrinLevity
 convertLevity levity =
   case levity of
-    Fc2.TyCon name
-      | Fc2.nameText name == "Lifted" -> pure Lifted
-      | Fc2.nameText name == "Unlifted" -> pure Unlifted
+    Fc.TyCon name
+      | Fc.nameText name == "Lifted" -> pure Lifted
+      | Fc.nameText name == "Unlifted" -> pure Unlifted
     _ -> throwLower ("GRIN does not support levity: " <> show levity)
 
-convertRepList :: LowerEnv -> Fc2.Type -> LowerM [GrinRep]
+convertRepList :: LowerEnv -> Fc.Type -> LowerM [GrinRep]
 convertRepList env list =
   case reduce env list of
-    Fc2.TyApp (Fc2.TyCon name) _
-      | Fc2.nameText name == "[]" -> pure []
-    Fc2.TyApp (Fc2.TyApp (Fc2.TyApp (Fc2.TyCon name) _) item) rest
-      | Fc2.nameText name == ":" -> (:) <$> convertRep env item <*> convertRepList env rest
+    Fc.TyApp (Fc.TyCon name) _
+      | Fc.nameText name == "[]" -> pure []
+    Fc.TyApp (Fc.TyApp (Fc.TyApp (Fc.TyCon name) _) item) rest
+      | Fc.nameText name == ":" -> (:) <$> convertRep env item <*> convertRepList env rest
     other -> throwLower ("GRIN does not support this runtime representation list: " <> show other)
 
-readNamed :: (Read value) => String -> Fc2.Type -> LowerM value
+readNamed :: (Read value) => String -> Fc.Type -> LowerM value
 readNamed label ty =
   case ty of
-    Fc2.TyCon name ->
-      maybe (throwLower ("GRIN does not know " <> label <> ": " <> T.unpack (Fc2.nameText name))) pure (readMaybe (T.unpack (Fc2.nameText name)))
+    Fc.TyCon name ->
+      maybe (throwLower ("GRIN does not know " <> label <> ": " <> T.unpack (Fc.nameText name))) pure (readMaybe (T.unpack (Fc.nameText name)))
     _ -> throwLower ("GRIN does not support " <> label <> ": " <> show ty)
 
-literalRep :: LowerEnv -> Fc2.Literal -> LowerM GrinRep
+literalRep :: LowerEnv -> Fc.Literal -> LowerM GrinRep
 literalRep env literal =
   case literal of
-    Fc2.LitInt representation _ -> convertRep env representation
-    Fc2.LitChar representation _ -> convertRep env representation
-    Fc2.LitAddr {} -> pure AddrRep
+    Fc.LitInt representation _ -> convertRep env representation
+    Fc.LitChar representation _ -> convertRep env representation
+    Fc.LitAddr {} -> pure AddrRep
 
-lowerLiteral :: LowerEnv -> Fc2.Literal -> LowerM GrinLiteral
+lowerLiteral :: LowerEnv -> Fc.Literal -> LowerM GrinLiteral
 lowerLiteral env literal =
   case literal of
-    Fc2.LitInt representation value -> GrinLitInt <$> convertRep env representation <*> pure value
-    Fc2.LitChar representation value -> GrinLitChar <$> convertRep env representation <*> pure value
-    Fc2.LitAddr _ value -> pure (GrinLitAddr value)
+    Fc.LitInt representation value -> GrinLitInt <$> convertRep env representation <*> pure value
+    Fc.LitChar representation value -> GrinLitChar <$> convertRep env representation <*> pure value
+    Fc.LitAddr _ value -> pure (GrinLitAddr value)
 
-lowerForeignCall :: Fc2.Name -> Fc2.CCallSpec -> GrinForeignCall
+lowerForeignCall :: Fc.Name -> Fc.CCallSpec -> GrinForeignCall
 lowerForeignCall name specification =
   GrinForeignCall
-    { grinForeignCallName = Fc2.nameText name,
-      grinForeignCallSymbol = Fc2.ccallSymbol specification,
+    { grinForeignCallName = Fc.nameText name,
+      grinForeignCallSymbol = Fc.ccallSymbol specification,
       grinForeignCallSignature =
         GrinForeignSignature
-          { grinForeignArgumentTypes = map lowerForeignType (Fc2.ccallArgumentTypes specification),
-            grinForeignResultType = lowerForeignType (Fc2.ccallResultType specification),
+          { grinForeignArgumentTypes = map lowerForeignType (Fc.ccallArgumentTypes specification),
+            grinForeignResultType = lowerForeignType (Fc.ccallResultType specification),
             grinForeignEffect =
-              case Fc2.ccallEffect specification of
-                Fc2.ForeignPure -> GrinForeignPure
-                Fc2.ForeignRealWorld -> GrinForeignRealWorld
+              case Fc.ccallEffect specification of
+                Fc.ForeignPure -> GrinForeignPure
+                Fc.ForeignRealWorld -> GrinForeignRealWorld
           }
     }
 
-lowerForeignType :: Fc2.CAbiType -> GrinForeignType
+lowerForeignType :: Fc.CAbiType -> GrinForeignType
 lowerForeignType foreignType =
   case foreignType of
-    Fc2.CAbiInt -> GrinForeignInt
-    Fc2.CAbiInt32 -> GrinForeignInt32
-    Fc2.CAbiWord64 -> GrinForeignWord64
-    Fc2.CAbiAddr -> GrinForeignAddr
+    Fc.CAbiInt -> GrinForeignInt
+    Fc.CAbiInt32 -> GrinForeignInt32
+    Fc.CAbiWord64 -> GrinForeignWord64
+    Fc.CAbiAddr -> GrinForeignAddr
 
-splitFunctionType :: Fc2.Type -> Either String ([Fc2.Type], Fc2.Type)
+splitFunctionType :: Fc.Type -> Either String ([Fc.Type], Fc.Type)
 splitFunctionType sourceType =
   case sourceType of
-    Fc2.TyForAll _ body -> splitFunctionType body
-    Fc2.TyFun _ _ argument result -> do
+    Fc.TyForAll _ body -> splitFunctionType body
+    Fc.TyFun _ _ argument result -> do
       (arguments, finalResult) <- splitFunctionType result
       pure (argument : arguments, finalResult)
     _ -> pure ([], sourceType)
 
-splitOperationalFunctionType :: LowerEnv -> Fc2.Type -> LowerM ([Fc2.Type], Fc2.Type)
+splitOperationalFunctionType :: LowerEnv -> Fc.Type -> LowerM ([Fc.Type], Fc.Type)
 splitOperationalFunctionType env sourceType =
   case reduce env sourceType of
-    Fc2.TyForAll binder body -> splitOperationalFunctionType (extendTypeBinder env binder) body
-    Fc2.TyFun _ _ argument result -> do
+    Fc.TyForAll binder body -> splitOperationalFunctionType (extendTypeBinder env binder) body
+    Fc.TyFun _ _ argument result -> do
       (arguments, finalResult) <- splitOperationalFunctionType env result
       pure (argument : arguments, finalResult)
     other ->
@@ -851,91 +851,91 @@ splitOperationalFunctionType env sourceType =
           | not (TypeOf.typesEqual (lowerTypes env) other unwrapped) -> splitOperationalFunctionType env unwrapped
         _ -> pure ([], other)
 
-splitForAlls :: Fc2.Type -> ([Fc2.Binder], Fc2.Type)
+splitForAlls :: Fc.Type -> ([Fc.Binder], Fc.Type)
 splitForAlls sourceType =
   case sourceType of
-    Fc2.TyForAll binder body ->
+    Fc.TyForAll binder body ->
       let (binders, result) = splitForAlls body
        in (binder : binders, result)
     _ -> ([], sourceType)
 
-constructorArgumentTypes :: Fc2.Type -> Either String [Fc2.Type]
+constructorArgumentTypes :: Fc.Type -> Either String [Fc.Type]
 constructorArgumentTypes sourceType = fst <$> splitFunctionType sourceType
 
-constructorResultType :: Fc2.Type -> Either String Fc2.Type
+constructorResultType :: Fc.Type -> Either String Fc.Type
 constructorResultType sourceType = snd <$> splitFunctionType sourceType
 
-globalNameTable :: TypeOf.TypeEnv -> Map Fc2.Name Text
+globalNameTable :: TypeOf.TypeEnv -> Map Fc.Name Text
 globalNameTable types =
   Map.fromList
     [ (name, stableGlobalName name)
     | name <- Map.keys (TypeOf.teHeaders types),
-      Fc2.nameSort name `elem` [Fc2.SortValue, Fc2.SortDataConstructor]
+      Fc.nameSort name `elem` [Fc.SortValue, Fc.SortDataConstructor]
     ]
 
-stableGlobalName :: Fc2.Name -> Text
+stableGlobalName :: Fc.Name -> Text
 stableGlobalName name =
-  case Fc2.nameOrigin name of
-    Fc2.OriginTop (PackageId packageName) moduleName ->
-      T.intercalate "\0" [packageName, moduleName, Fc2.nameText name]
-    Fc2.OriginLocal (Unique unique) -> Fc2.nameText name <> "\0" <> T.pack (show unique)
+  case Fc.nameOrigin name of
+    Fc.OriginTop (PackageId packageName) moduleName ->
+      T.intercalate "\0" [packageName, moduleName, Fc.nameText name]
+    Fc.OriginLocal (Unique unique) -> Fc.nameText name <> "\0" <> T.pack (show unique)
 
-constructorTag :: Fc2.Name -> Text
+constructorTag :: Fc.Name -> Text
 constructorTag name =
-  case Fc2.nameOrigin name of
-    Fc2.OriginTop (PackageId packageName) moduleName ->
-      (if packageName == "" then "" else packageName <> ":") <> moduleName <> "." <> Fc2.nameText name
-    Fc2.OriginLocal {} -> Fc2.nameText name
+  case Fc.nameOrigin name of
+    Fc.OriginTop (PackageId packageName) moduleName ->
+      (if packageName == "" then "" else packageName <> ":") <> moduleName <> "." <> Fc.nameText name
+    Fc.OriginLocal {} -> Fc.nameText name
 
-lookupGlobalName :: LowerEnv -> Fc2.Name -> LowerM Text
+lookupGlobalName :: LowerEnv -> Fc.Name -> LowerM Text
 lookupGlobalName env name =
   maybe (throwLower ("GRIN has no global name for: " <> show name)) pure (Map.lookup name (lowerGlobalNames env))
 
-lookupNameType :: LowerEnv -> Fc2.Name -> LowerM Fc2.Type
+lookupNameType :: LowerEnv -> Fc.Name -> LowerM Fc.Type
 lookupNameType env name =
   case Map.lookup name (TypeOf.teBinders (lowerTypes env)) <|> TypeOf.lookupHeaderType (lowerTypes env) name of
     Just sourceType -> pure (applySubstitution env sourceType)
     Nothing -> throwLower ("GRIN has no type for: " <> show name)
 
-applySubstitution :: LowerEnv -> Fc2.Type -> Fc2.Type
+applySubstitution :: LowerEnv -> Fc.Type -> Fc.Type
 applySubstitution env = TypeOf.substTypes (lowerTypeSubstitution env)
 
-reduce :: LowerEnv -> Fc2.Type -> Fc2.Type
+reduce :: LowerEnv -> Fc.Type -> Fc.Type
 reduce env = TypeOf.reduceType (lowerTypes env) . applySubstitution env
 
-extendTypeBinder :: LowerEnv -> Fc2.Binder -> LowerEnv
+extendTypeBinder :: LowerEnv -> Fc.Binder -> LowerEnv
 extendTypeBinder env binder = env {lowerTypes = TypeOf.extendBinder (lowerTypes env) binder}
 
-defaultRuntimeReps :: LowerEnv -> [Fc2.Binder] -> LowerEnv
+defaultRuntimeReps :: LowerEnv -> [Fc.Binder] -> LowerEnv
 defaultRuntimeReps = foldl defaultOne
   where
     defaultOne env binder =
-      case reduce env (Fc2.binderType binder) of
-        Fc2.TyCon name
-          | Fc2.nameText name == "RuntimeRep",
+      case reduce env (Fc.binderType binder) of
+        Fc.TyCon name
+          | Fc.nameText name == "RuntimeRep",
             Just package <- TypeOf.tePrimPackage (lowerTypes env) ->
               env
                 { lowerTypeSubstitution =
                     Map.insert
-                      (Fc2.binderName binder)
-                      (Fc2.TyCon (Wired.liftedRepName package))
+                      (Fc.binderName binder)
+                      (Fc.TyCon (Wired.liftedRepName package))
                       (lowerTypeSubstitution env)
                 }
         _ -> env
 
-extendTermBinder :: Fc2.Binder -> LowerEnv -> LowerEnv
+extendTermBinder :: Fc.Binder -> LowerEnv -> LowerEnv
 extendTermBinder binder env = env {lowerTypes = TypeOf.extendBinder (lowerTypes env) binder}
 
-bindLocal :: LowerEnv -> Fc2.Binder -> [GrinVar] -> LowerEnv
+bindLocal :: LowerEnv -> Fc.Binder -> [GrinVar] -> LowerEnv
 bindLocal env binder variables =
   (extendTermBinder binder env)
-    { lowerLocals = Map.insert (Fc2.binderName binder) variables (lowerLocals env)
+    { lowerLocals = Map.insert (Fc.binderName binder) variables (lowerLocals env)
     }
 
-freshVarsForBinder :: LowerEnv -> Fc2.Binder -> LowerM [GrinVar]
-freshVarsForBinder env binder = freshVarsForType env (Fc2.nameText (Fc2.binderName binder), applySubstitution env (Fc2.binderType binder))
+freshVarsForBinder :: LowerEnv -> Fc.Binder -> LowerM [GrinVar]
+freshVarsForBinder env binder = freshVarsForType env (Fc.nameText (Fc.binderName binder), applySubstitution env (Fc.binderType binder))
 
-freshVarsForType :: LowerEnv -> (Text, Fc2.Type) -> LowerM [GrinVar]
+freshVarsForType :: LowerEnv -> (Text, Fc.Type) -> LowerM [GrinVar]
 freshVarsForType env (hint, sourceType) = runtimeRep env sourceType >>= freshVars hint
 
 freshVars :: Text -> GrinRep -> LowerM [GrinVar]

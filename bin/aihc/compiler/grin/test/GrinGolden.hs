@@ -9,8 +9,8 @@ module GrinGolden
   )
 where
 
-import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), Program, desugarModuleFc2, lintPrograms)
-import Aihc.Fc2.TypeOf (typeEnvFromPrograms)
+import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), Program, desugarModuleFc, lintPrograms)
+import Aihc.Fc.TypeOf (typeEnvFromPrograms)
 import Aihc.Grin (lintProgram, lowerProgram, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -84,15 +84,15 @@ evaluateGrinCase fixture =
 
 renderCase :: GrinCase -> Either String String
 renderCase fixture = do
-  (allPrograms, targetPrograms) <- buildFc2Programs (caseExtensions fixture) (caseModules fixture)
+  (allPrograms, targetPrograms) <- buildFcPrograms (caseExtensions fixture) (caseModules fixture)
   let types = typeEnvFromPrograms allPrograms
   lowered <- traverse (lowerProgram types) targetPrograms
   case concatMap lintProgram lowered of
     [] -> pure (trim (unlines (map renderProgram lowered)))
     errors -> Left ("GRIN lint error: " <> show errors)
 
-buildFc2Programs :: [Extension] -> [Text] -> Either String ([Program], [Program])
-buildFc2Programs extensions sources = do
+buildFcPrograms :: [Extension] -> [Text] -> Either String ([Program], [Program])
+buildFcPrograms extensions sources = do
   modules <- traverse (parseFixtureModule extensions) sources
   resolved <-
     case resolveWithDeps (supportScopes primitiveSupport) (modulesInPackage fixturePackage modules) of
@@ -108,15 +108,15 @@ buildFc2Programs extensions sources = do
     then Left ("typecheck error: " <> unlines [show diagnostic | result <- fixtureTcResults, diagnostic <- tcModuleDiagnostics result])
     else do
       let fixtureBindings = concatMap tcModuleBindings fixtureTcResults
-          fixtureResults = map (desugarModuleFc2 desugarConfig fixtureBindings tcInterface) fixtureTcResults
-      if not (all ds2Success fixtureResults)
-        then Left (unlines (concatMap ds2Errors fixtureResults))
+          fixtureResults = map (desugarModuleFc desugarConfig fixtureBindings tcInterface) fixtureTcResults
+      if not (all dsSuccess fixtureResults)
+        then Left (unlines (concatMap dsErrors fixtureResults))
         else do
-          let fixturePrograms = map ds2Program fixtureResults
+          let fixturePrograms = map dsProgram fixtureResults
               allPrograms = supportPrograms primitiveSupport <> fixturePrograms
           case lintPrograms allPrograms of
             [] -> Right (allPrograms, fixturePrograms)
-            errors -> Left (unlines ["System FC 2 lint error: " <> show errorValue | errorValue <- errors])
+            errors -> Left (unlines ["System FC lint error: " <> show errorValue | errorValue <- errors])
 
 parseFixtureModule :: [Extension] -> Text -> Either String Module
 parseFixtureModule extensions input =
@@ -180,16 +180,16 @@ preparePrimitiveSupport sources = do
         )
     else do
       let primitiveBindings = concatMap tcModuleBindings primitiveTcResults
-          primitiveResults = map (desugarModuleFc2 desugarConfig primitiveBindings tcInterface) primitiveTcResults
-      if all ds2Success primitiveResults
+          primitiveResults = map (desugarModuleFc desugarConfig primitiveBindings tcInterface) primitiveTcResults
+      if all dsSuccess primitiveResults
         then
           Right
             PrimitiveSupport
               { supportScopes = extractInterface resolved,
                 supportTcInterface = tcInterface,
-                supportPrograms = map ds2Program primitiveResults
+                supportPrograms = map dsProgram primitiveResults
               }
-        else Left (unlines (concatMap ds2Errors primitiveResults))
+        else Left (unlines (concatMap dsErrors primitiveResults))
 
 primitivePackage :: Package
 primitivePackage = Package "aihc-prim" (PackageId "aihc-prim")

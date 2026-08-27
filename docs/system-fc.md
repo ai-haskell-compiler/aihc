@@ -1,13 +1,13 @@
-# System FC 2
+# System FC
 
 Status: complete.
 Date: 2026-08-18.
 
-This document records the System FC 2 design.
-The code lives in `bin/aihc/compiler/fc/src/Aihc/Fc2/`.
+This document records the System FC design.
+The code lives in `bin/aihc/compiler/fc/src/Aihc/Fc/`.
 The old System FC 1 code is removed.
 
-System FC 2 is a Core language.
+System FC is a Core language.
 It is similar to Haskell.
 It has no sugar.
 It has no ambiguity.
@@ -33,7 +33,7 @@ It has no ambiguity.
 source
   -> aihc-resolve
   -> aihc-tc
-  -> Aihc.Fc2.Desugar    -> store .../core-v2
+  -> Aihc.Fc.Desugar    -> store .../core
 ```
 
 GRIN lowering is temporarily disabled.
@@ -185,9 +185,9 @@ axiom 1.$ax$Age : 1.tAge ~R 1.tInt
 ## Desugar
 
 Read checked facts from `aihc-tc`.
-Do not rebuild Haskell types in Fc2.
+Do not rebuild Haskell types in Fc.
 
-| Surface | Fc2 |
+| Surface | Fc |
 | --- | --- |
 | Data type | `type T { cons }` with full constructor types |
 | Type synonym | `type T :: k = rhs` |
@@ -199,14 +199,14 @@ Do not rebuild Haskell types in Fc2.
 | `foreign import prim` | `foreign import prim` |
 | `foreign import ccall` | fail the module |
 
-`desugarModuleFc2` already emits data types, synonyms, values, and `foreign import prim`.
+`desugarModuleFc` already emits data types, synonyms, values, and `foreign import prim`.
 
 ## Tests
 
 Use test-first development.
 
-Before desugar exists for a form, put Fc2 text in `test/Test/Fixtures/fc2/`.
-After desugar exists, put Haskell fixtures in `test/Test/Fixtures/golden-v2/`.
+Before desugar exists for a form, put Fc text in `test/Test/Fixtures/fc/`.
+After desugar exists, put Haskell fixtures in `test/Test/Fixtures/golden/`.
 
 Do not change `test/Test/Fixtures/golden/`.
 Hedgehog may build an AST.
@@ -217,36 +217,36 @@ Hedgehog checks `parseProgram . renderProgram = id` on self-contained programs.
 ## install-v2
 
 `install-v2` still writes `core`.
-It must also write `core-v2` next to it:
+It must also write `core` next to it:
 
 ```text
-{store}/{pkg}-{version}-{dephash}/{Module/Path}/core-v2
+{store}/{pkg}-{version}-{dephash}/{Module/Path}/core
 ```
 
-Example: `Demo/A/core-v2`.
+Example: `Demo/A/core`.
 
-If Fc2 desugar fails, the install fails.
-If Fc2 lint fails, the install fails.
-Write `core-v2.bad` when Fc2 lint fails.
-Do not write `core` without `core-v2`.
-`install-v2` does not parse the `core-v2` file that it writes.
-It may parse imported `core-v2` files through the store loader.
+If Fc desugar fails, the install fails.
+If Fc lint fails, the install fails.
+Write `core.bad` when Fc lint fails.
+Do not write `core` without `core`.
+`install-v2` does not parse the `core` file that it writes.
+It may parse imported `core` files through the store loader.
 
 ## PR plan
 
 | PR | Title | Status |
 | --- | --- | --- |
-| 1 | `feat(fc2): add System FC 2 AST, pretty printer, and parser` | done, #1488 |
-| 2 | `feat(fc2): desugar data types and synonyms to System FC 2` | done, #1489 |
-| 3 | `feat(fc2): desugar values, lambda, application, and case` | done, #1490 |
-| 4 | `feat(fc2): desugar classes to dictionary data types` | done, #1492 |
-| 5 | `feat(fc2): desugar newtypes to types, axioms, and casts` | done, #1492 |
-| 6 | `feat(fc2): desugar data families` | done, #1492 |
-| 7 | `feat(fc2): desugar type families` | done, #1492 |
-| 8 | `feat(fc2): accept foreign import prim and reject ccall` | done, #1493 |
-| 9 | `feat(fc2): write core-v2 from install-v2` | done |
-| 10 | `fix(fc2): correct System FC 2 output for aihc-prim` | done |
-| 11 | `feat(fc2): add System FC 2 type linter` | done |
+| 1 | `feat(fc): add System FC AST, pretty printer, and parser` | done, #1488 |
+| 2 | `feat(fc): desugar data types and synonyms to System FC` | done, #1489 |
+| 3 | `feat(fc): desugar values, lambda, application, and case` | done, #1490 |
+| 4 | `feat(fc): desugar classes to dictionary data types` | done, #1492 |
+| 5 | `feat(fc): desugar newtypes to types, axioms, and casts` | done, #1492 |
+| 6 | `feat(fc): desugar data families` | done, #1492 |
+| 7 | `feat(fc): desugar type families` | done, #1492 |
+| 8 | `feat(fc): accept foreign import prim and reject ccall` | done, #1493 |
+| 9 | `feat(fc): write core from install-v2` | done |
+| 10 | `fix(fc): correct System FC output for aihc-prim` | done |
+| 11 | `feat(fc): add System FC type linter` | done |
 
 PR 4 depends on PR 3.
 PR 5 depends on PR 3.
@@ -256,7 +256,7 @@ PR 8 depends on PR 3.
 PR 9 depends on PR 4, PR 5, PR 6, and PR 8.
 PR 10 depends on PR 9.
 
-Do not invent type-family equations in Fc2.
+Do not invent type-family equations in Fc.
 
 ## Defaults
 
@@ -267,12 +267,12 @@ Do not invent type-family equations in Fc2.
 | Data roles | All `Representational` until `aihc-tc` stores them |
 | Family roles | All `Nominal` |
 | `Constraint` | `GHC.Types.Constraint` with `primPackageId` |
-| Parser | Hand-written Megaparsec in `Aihc.Fc2.Parser` |
+| Parser | Hand-written Megaparsec in `Aihc.Fc.Parser` |
 | Lifted kind print | `Type` |
 
 ## References
 
-- `bin/aihc/compiler/fc/src/Aihc/Fc2/`
+- `bin/aihc/compiler/fc/src/Aihc/Fc/`
 - `docs/compilation.md`
 - `docs/system-fc-primer.md`
 - `core-libs/aihc-prim/src/GHC/Types.hs`

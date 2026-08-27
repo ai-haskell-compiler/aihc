@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | typeOf and unfold tables for implicit FUN representations.
-module Aihc.Fc2.TypeOf
+module Aihc.Fc.TypeOf
   ( TypeEnv (..),
     emptyTypeEnv,
     typeEnvFromProgram,
@@ -24,9 +24,9 @@ module Aihc.Fc2.TypeOf
   )
 where
 
-import Aihc.Fc2.Name
-import Aihc.Fc2.Syntax
-import Aihc.Fc2.Wired
+import Aihc.Fc.Name
+import Aihc.Fc.Syntax
+import Aihc.Fc.Wired
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types (Unique (..))
 import Data.List qualified as List

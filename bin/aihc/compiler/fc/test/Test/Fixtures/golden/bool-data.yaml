@@ -12,4 +12,4 @@ expected: |-
       pub 1.vTrue :: 1.tBool
   }
 status: pass
-reason: A local Bool type becomes a System FC 2 type declaration.
+reason: A local Bool type becomes a System FC type declaration.

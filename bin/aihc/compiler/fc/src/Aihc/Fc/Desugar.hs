@@ -1,19 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
--- | Convert a checked module into System FC 2 types, axioms, and values.
-module Aihc.Fc2.Desugar
-  ( desugarModuleFc2,
+-- | Convert a checked module into System FC types, axioms, and values.
+module Aihc.Fc.Desugar
+  ( desugarModuleFc,
     DesugarConfig (..),
-    Fc2DesugarResult (..),
+    FcDesugarResult (..),
   )
 where
 
-import Aihc.Fc2.Convert
-import Aihc.Fc2.Desugar.Value (desugarValues)
-import Aihc.Fc2.Name
-import Aihc.Fc2.Syntax
-import Aihc.Fc2.Tidy (tidyProgram)
+import Aihc.Fc.Convert
+import Aihc.Fc.Desugar.Value (desugarValues)
+import Aihc.Fc.Name
+import Aihc.Fc.Syntax
+import Aihc.Fc.Tidy (tidyProgram)
 import Aihc.Parser.Syntax
   ( DataDecl (..),
     Module (..),
@@ -67,10 +67,10 @@ import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
-data Fc2DesugarResult = Fc2DesugarResult
-  { ds2Program :: !Program,
-    ds2Success :: !Bool,
-    ds2Errors :: ![String]
+data FcDesugarResult = FcDesugarResult
+  { dsProgram :: !Program,
+    dsSuccess :: !Bool,
+    dsErrors :: ![String]
   }
   deriving (Show)
 
@@ -79,27 +79,27 @@ newtype DesugarConfig = DesugarConfig
   }
   deriving (Eq, Show)
 
-desugarModuleFc2 :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> Fc2DesugarResult
-desugarModuleFc2 config bindings interface checked =
+desugarModuleFc :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> FcDesugarResult
+desugarModuleFc config bindings interface checked =
   if not (tcModuleSuccess checked)
     then
-      Fc2DesugarResult
-        { ds2Program = Program emptyScopeTable [],
-          ds2Success = False,
-          ds2Errors = fmap show (tcModuleDiagnostics checked)
+      FcDesugarResult
+        { dsProgram = Program emptyScopeTable [],
+          dsSuccess = False,
+          dsErrors = fmap show (tcModuleDiagnostics checked)
         }
     else case desugarChecked config bindings interface checked of
       Left errors ->
-        Fc2DesugarResult
-          { ds2Program = Program emptyScopeTable [],
-            ds2Success = False,
-            ds2Errors = [errors]
+        FcDesugarResult
+          { dsProgram = Program emptyScopeTable [],
+            dsSuccess = False,
+            dsErrors = [errors]
           }
       Right program ->
-        Fc2DesugarResult
-          { ds2Program = program,
-            ds2Success = True,
-            ds2Errors = []
+        FcDesugarResult
+          { dsProgram = program,
+            dsSuccess = True,
+            dsErrors = []
           }
 
 desugarChecked :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> Either String Program
@@ -203,7 +203,7 @@ dsDecl env package moduleName' dataTypes tyCons classes dataFamilyInstances type
           case Syn.foreignCallConv foreignDecl of
             Syn.CPrim -> Right []
             Syn.CCall -> Right []
-            callConv -> Left ("unsupported System FC 2 foreign calling convention: " <> show callConv)
+            callConv -> Left ("unsupported System FC foreign calling convention: " <> show callConv)
         _ -> Right []
 
 lookupDataType :: TyConFlavor -> PackageId -> Text -> Text -> [DataTypeInfo] -> Either String DataTypeInfo
@@ -327,7 +327,7 @@ convertNewtype env info = do
         | [field] <- dciFields constructor ->
             convertType bindersEnv (dcfiType field)
       _ -> Left ("newtype " <> T.unpack (dtiName info) <> " does not have exactly one checked field")
-  let typeName = tyConNameFc2 env tyCon
+  let typeName = tyConNameFc env tyCon
       lhs = foldl TyApp (TyCon typeName) (map (TyVar . binderName) binders)
       axiomName = Name ("$ax$" <> dtiName info) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
   pure
@@ -366,7 +366,7 @@ convertEmptyFamily env paramNames roles info = do
     ( DeclType
         TypeDecl
           { typeVis = Pub,
-            typeName = tyConNameFc2 env tyCon,
+            typeName = tyConNameFc env tyCon,
             typeBinders = binders,
             typeResult = result,
             typeRoles = replicate (length binders) roles,
@@ -396,7 +396,7 @@ convertDataFamilyInst env package moduleName' bindings info = do
   let tyVars = dfiiTyVars info
       bindersEnv = withTyVars tyVars env
       representationTyCon = dfiiRepresentationTyCon info
-      representationName = tyConNameFc2 env representationTyCon
+      representationName = tyConNameFc env representationTyCon
   binders <- mapM (tyVarBinder bindersEnv) tyVars
   representationKind <- typeKindInEnv bindersEnv (TcTyCon representationTyCon (map TcTyVar tyVars))
   result <- convertKind bindersEnv representationKind
@@ -538,7 +538,7 @@ convertDataType env info = do
     ( DeclType
         TypeDecl
           { typeVis = Pub,
-            typeName = tyConNameFc2 env tyCon,
+            typeName = tyConNameFc env tyCon,
             typeBinders = binders,
             typeResult = result,
             typeRoles = replicate (length binders) Representational,

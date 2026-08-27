@@ -1,18 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Golden tests for System FC 2 desugaring.
-module Fc2Golden
+-- | Golden tests for System FC desugaring.
+module FcGolden
   ( ExpectedStatus (..),
     Outcome (..),
-    Fc2Case (..),
+    FcCase (..),
     fixtureRoot,
-    loadFc2Cases,
-    evaluateFc2Case,
+    loadFcCases,
+    evaluateFcCase,
     primitivePrograms,
   )
 where
 
-import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), Program, desugarModuleFc2, lintPrograms, parseProgram, renderParseError, renderProgram)
+import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), Program, desugarModuleFc, lintPrograms, parseProgram, renderParseError, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -64,7 +64,7 @@ data Outcome
   | OutcomeFail
   deriving (Eq, Show)
 
-data Fc2Case = Fc2Case
+data FcCase = FcCase
   { caseId :: !String,
     casePath :: !FilePath,
     caseExtensions :: ![Extension],
@@ -82,17 +82,17 @@ data PrimitiveSupport = PrimitiveSupport
   }
 
 fixtureRoot :: FilePath
-fixtureRoot = "compiler/fc/test/Test/Fixtures/golden-v2"
+fixtureRoot = "compiler/fc/test/Test/Fixtures/golden"
 
-loadFc2Cases :: IO [Fc2Case]
-loadFc2Cases = do
+loadFcCases :: IO [FcCase]
+loadFcCases = do
   exists <- doesDirectoryExist fixtureRoot
   if not exists
     then pure []
     else do
       primitiveSupport `seq` pure ()
       paths <- listFixtureFiles fixtureRoot
-      mapM loadFc2Case paths
+      mapM loadFcCase paths
 
 primitiveSupport :: PrimitiveSupport
 primitiveSupport = unsafePerformIO $ do
@@ -130,20 +130,20 @@ findPrimitiveSourceRoot = getCurrentDirectory >>= findUp
             then fail "Cannot find the aihc-prim source modules."
             else findUp parent
 
-loadFc2Case :: FilePath -> IO Fc2Case
-loadFc2Case path = do
+loadFcCase :: FilePath -> IO FcCase
+loadFcCase path = do
   raw <- Y.decodeFileEither path
   case raw of
     Left err -> fail ("Invalid YAML fixture " <> path <> ": " <> Y.prettyPrintParseException err)
-    Right value -> case parseFc2Fixture path value of
+    Right value -> case parseFcFixture path value of
       Left e -> fail e
       Right c -> pure c
 
-parseFc2Fixture :: FilePath -> Y.Value -> Either String Fc2Case
-parseFc2Fixture path value = do
+parseFcFixture :: FilePath -> Y.Value -> Either String FcCase
+parseFcFixture path value = do
   (extNames, modules, expectedText, statusText, reasonText) <-
     parseEither
-      ( withObject "fc2 fixture" $ \obj -> do
+      ( withObject "fc fixture" $ \obj -> do
           exts <- obj .: "extensions"
           mods <- obj .: "modules" >>= parseModules
           expected <- (obj .:? "expected" >>= traverse parseExpectedValue) .!= ""
@@ -158,7 +158,7 @@ parseFc2Fixture path value = do
       expected = trim (T.unpack expectedText)
       reason = trim (T.unpack reasonText)
   pure
-    Fc2Case
+    FcCase
       { caseId = relPath,
         casePath = relPath,
         caseExtensions = exts,
@@ -183,14 +183,14 @@ parseExpectedValue (Y.Array arr) = T.intercalate "\n" <$> mapM parseLine (foldr 
     parseLine _ = fail "each expected line must be a string"
 parseExpectedValue _ = fail "expected must be a string or list"
 
-evaluateFc2Case :: Fc2Case -> (Outcome, String)
-evaluateFc2Case tc =
-  case renderFc2Case tc of
+evaluateFcCase :: FcCase -> (Outcome, String)
+evaluateFcCase tc =
+  case renderFcCase tc of
     Left details -> classifyFailure tc details
     Right actual -> classifySuccess tc actual
 
-renderFc2Case :: Fc2Case -> Either String String
-renderFc2Case tc =
+renderFcCase :: FcCase -> Either String String
+renderFcCase tc =
   let parsedModules = map parseFixtureModule (caseModules tc)
    in case sequence parsedModules of
         Left errMsg -> Left ("parse error: " <> errMsg)
@@ -204,11 +204,11 @@ renderFc2Case tc =
                       let fixtureBindings = concatMap tcModuleBindings fixtureTcResults
                           fixtureResults =
                             map
-                              (desugarModuleFc2 desugarConfig fixtureBindings tcInterface)
+                              (desugarModuleFc desugarConfig fixtureBindings tcInterface)
                               fixtureTcResults
-                       in if all ds2Success fixtureResults
-                            then lintAndRenderResults (supportPrograms primitiveSupport <> map ds2Program fixtureResults) fixtureResults
-                            else Left (unlines (concatMap ds2Errors fixtureResults))
+                       in if all dsSuccess fixtureResults
+                            then lintAndRenderResults (supportPrograms primitiveSupport <> map dsProgram fixtureResults) fixtureResults
+                            else Left (unlines (concatMap dsErrors fixtureResults))
                     else Left ("typecheck error: " <> unlines [show d | r <- fixtureTcResults, d <- tcModuleDiagnostics r])
             ResolveResult {resolveErrors} ->
               Left ("resolve error: " <> show resolveErrors)
@@ -223,21 +223,21 @@ renderFc2Case tc =
             [] -> Right rendered
             lintErrors ->
               Left
-                ( unlines ["System FC 2 lint error: " <> show lintError | lintError <- lintErrors]
-                    <> "\nSystem FC 2 output:\n"
+                ( unlines ["System FC lint error: " <> show lintError | lintError <- lintErrors]
+                    <> "\nSystem FC output:\n"
                     <> rendered
                 )
     renderResults results =
       unlines <$> traverse renderResult results
     renderResult result =
-      let rendered = renderProgram (ds2Program result)
+      let rendered = renderProgram (dsProgram result)
        in case parseProgram (T.pack rendered) of
-            Left parseError -> Left ("System FC 2 round-trip parse error:\n" <> renderParseError parseError <> "\n" <> rendered)
+            Left parseError -> Left ("System FC round-trip parse error:\n" <> renderParseError parseError <> "\n" <> rendered)
             Right parsed ->
               let canonical = renderProgram parsed
                in if canonical == rendered
                     then Right rendered
-                    else Left ("System FC 2 round trip changed canonical syntax:\n" <> canonical <> "\noriginal:\n" <> rendered)
+                    else Left ("System FC round trip changed canonical syntax:\n" <> canonical <> "\noriginal:\n" <> rendered)
 
 preparePrimitiveSupport :: [(FilePath, Text)] -> Either String PrimitiveSupport
 preparePrimitiveSupport primitiveModules =
@@ -251,16 +251,16 @@ preparePrimitiveSupport primitiveModules =
            in if all tcModuleSuccess primitiveTcResults
                 then
                   let primitiveBindings = concatMap tcModuleBindings primitiveTcResults
-                      primitiveResults = map (desugarModuleFc2 desugarConfig primitiveBindings tcInterface) primitiveTcResults
-                   in if all ds2Success primitiveResults
+                      primitiveResults = map (desugarModuleFc desugarConfig primitiveBindings tcInterface) primitiveTcResults
+                   in if all dsSuccess primitiveResults
                         then
                           Right
                             PrimitiveSupport
                               { supportScopes = extractInterface resolved,
                                 supportTcInterface = tcInterface,
-                                supportPrograms = map ds2Program primitiveResults
+                                supportPrograms = map dsProgram primitiveResults
                               }
-                        else Left (unlines (concatMap ds2Errors primitiveResults))
+                        else Left (unlines (concatMap dsErrors primitiveResults))
                 else Left ("typecheck error: " <> unlines [show (moduleName ast) <> ": " <> show diagnostic | (ast, result) <- zip primitiveAsts primitiveTcResults, diagnostic <- tcModuleDiagnostics result])
         ResolveResult {resolveErrors} -> Left ("resolve error: " <> show resolveErrors)
 
@@ -297,7 +297,7 @@ primitiveExtensions source =
     defaultLanguage = fromMaybe Haskell98Edition (parseLanguageEdition "GHC2021")
     language = fromMaybe defaultLanguage (headerLanguageEdition header)
 
-classifySuccess :: Fc2Case -> String -> (Outcome, String)
+classifySuccess :: FcCase -> String -> (Outcome, String)
 classifySuccess tc actual =
   case caseStatus tc of
     StatusPass
@@ -314,7 +314,7 @@ classifySuccess tc actual =
       | trim actual == trim (caseExpected tc) -> (OutcomeXPass, "known bug still passes")
       | otherwise -> (OutcomeFail, "expected xpass output match but got: " <> trim actual)
 
-classifyFailure :: Fc2Case -> String -> (Outcome, String)
+classifyFailure :: FcCase -> String -> (Outcome, String)
 classifyFailure tc errDetails =
   case caseStatus tc of
     StatusPass -> (OutcomeFail, "expected success, got error: " <> errDetails)

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Wired GHC.Types names for System FC 2.
-module Aihc.Fc2.Wired
+-- | Wired GHC.Types names for System FC.
+module Aihc.Fc.Wired
   ( wiredGhcTypes,
     typeSynonym,
     typeConstructor,
@@ -19,8 +19,8 @@ module Aihc.Fc2.Wired
   )
 where
 
-import Aihc.Fc2.Name
-import Aihc.Fc2.Syntax
+import Aihc.Fc.Name
+import Aihc.Fc.Syntax
 import Aihc.Resolve (PackageId (..))
 import Data.Maybe (listToMaybe)
 import Data.Text (Text)

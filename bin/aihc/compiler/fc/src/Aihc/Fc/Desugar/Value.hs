@@ -1,15 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
--- | Direct value desugaring from checked source syntax to System FC 2.
-module Aihc.Fc2.Desugar.Value
+-- | Direct value desugaring from checked source syntax to System FC.
+module Aihc.Fc.Desugar.Value
   ( desugarValues,
   )
 where
 
-import Aihc.Fc2.Convert
-import Aihc.Fc2.Name
-import Aihc.Fc2.Syntax
+import Aihc.Fc.Convert
+import Aihc.Fc.Name
+import Aihc.Fc.Syntax
 import Aihc.Parser.Syntax qualified as Syn
 import Aihc.Resolve
   ( Identifier (..),
@@ -181,8 +181,8 @@ desugarForeign annotation foreignPlan foreignDecl =
   case Syn.foreignCallConv foreignDecl of
     Syn.CPrim -> (: []) <$> makeForeignImport Prim
     Syn.CCall -> do
-      unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC 2 does not accept foreign exports")
-      unless (Syn.foreignSafety foreignDecl == Just Syn.Unsafe) (failValue "System FC 2 accepts only unsafe foreign imports")
+      unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC does not accept foreign exports")
+      unless (Syn.foreignSafety foreignDecl == Just Syn.Unsafe) (failValue "System FC accepts only unsafe foreign imports")
       plan <- maybe (failValue "missing checked foreign import plan") pure foreignPlan
       symbol <- foreignSymbol foreignDecl
       let convention =
@@ -194,7 +194,7 @@ desugarForeign annotation foreignPlan foreignDecl =
                   ccallEffect = convertForeignEffect (tcForeignEffect plan)
                 }
       (: []) <$> makeForeignImport convention
-    callConv -> failValue ("unsupported System FC 2 foreign calling convention: " <> show callConv)
+    callConv -> failValue ("unsupported System FC foreign calling convention: " <> show callConv)
   where
     makeForeignImport convention = do
       _ <- freshUnique
@@ -217,7 +217,7 @@ foreignSymbol foreignDecl =
     Syn.ForeignEntityNamed name -> pure name
     Syn.ForeignEntityStatic (Just name) -> pure name
     Syn.ForeignEntityOmitted -> pure (Syn.unqualifiedNameText (Syn.foreignName foreignDecl))
-    _ -> failValue "System FC 2 accepts only statically named foreign imports"
+    _ -> failValue "System FC accepts only statically named foreign imports"
 
 convertCAbiType :: TcForeignAbiType -> CAbiType
 convertCAbiType abiType =
@@ -984,7 +984,7 @@ patternConstructor pattern' =
       | otherwise -> AltLit <$> patternLiteral literal
     Syn.PWildcard -> pure AltDefault
     Syn.PVar {} -> pure AltDefault
-    unsupported -> failValue ("unsupported System FC 2 pattern: " <> take 80 (show unsupported))
+    unsupported -> failValue ("unsupported System FC pattern: " <> take 80 (show unsupported))
 
 patternLiteral :: Syn.Literal -> ValueM Literal
 patternLiteral literal =
@@ -992,7 +992,7 @@ patternLiteral literal =
     Syn.LitInt value numericType _ -> LitInt <$> convertRuntimeRep (numericRepresentation numericType) <*> pure value
     Syn.LitChar value _ -> LitChar <$> convertRuntimeRep WordRep <*> pure value
     Syn.LitCharHash value _ -> LitChar <$> convertRuntimeRep WordRep <*> pure value
-    unsupported -> failValue ("unsupported System FC 2 pattern literal: " <> show unsupported)
+    unsupported -> failValue ("unsupported System FC pattern literal: " <> show unsupported)
 
 isBoxedCharacterLiteral :: Syn.Literal -> Bool
 isBoxedCharacterLiteral literal =
@@ -1107,7 +1107,7 @@ desugarExpr expression =
       desugarIf resultType condition thenExpression elseExpression
     Syn.ECase {} -> failValue "case expression does not have a checked result type"
     Syn.ELetDecls declarations body -> desugarLocalDecls declarations (desugarExpr body)
-    unsupported -> failValue ("unsupported System FC 2 expression: " <> take 80 (show unsupported))
+    unsupported -> failValue ("unsupported System FC expression: " <> take 80 (show unsupported))
 
 desugarAnnotatedExpr :: TcAnnotation -> Syn.Expr -> ValueM Expr
 desugarAnnotatedExpr annotation inner = do
@@ -1585,7 +1585,7 @@ desugarEvidence evidence =
         )
     Ev.EvCast inner coercion -> ExCast <$> desugarEvidence inner <*> convertCoercion coercion
     Ev.EvTypeable origin ty arguments -> desugarTypeableEvidence origin ty arguments
-    unsupported -> failValue ("unsupported System FC 2 evidence: " <> take 80 (show unsupported))
+    unsupported -> failValue ("unsupported System FC evidence: " <> take 80 (show unsupported))
 
 desugarTypeableEvidence :: Maybe (Text, Text) -> TcType -> [Ev.EvTerm] -> ValueM Expr
 desugarTypeableEvidence origin ty argumentEvidence = do
@@ -1734,7 +1734,7 @@ convertCoercion coercion =
     Ev.Trans left right -> CoTrans <$> convertCoercion left <*> convertCoercion right
     Ev.TyConAppCo tyCon arguments -> do
       env <- gets vsConvertEnv
-      CoTyConApp (tyConNameFc2 env tyCon) <$> mapM convertCoercion arguments
+      CoTyConApp (tyConNameFc env tyCon) <$> mapM convertCoercion arguments
     Ev.AxiomInstCo name arguments -> do
       env <- gets vsConvertEnv
       CoAxiom (lookupAxiomName env name) <$> mapM convertCheckedType arguments

@@ -7,7 +7,7 @@ import Aihc.Cli.InstallV2 (InstallV2Result (..), installV2)
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcCalloc), InstallV2Options (..))
 import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
-import Aihc.Fc2 qualified as Fc2
+import Aihc.Fc qualified as Fc
 import Aihc.Native (NativeTarget (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
@@ -51,7 +51,7 @@ main =
         [testCase "builds imported source modules and runs the executable" test_buildExeSourceDirectories],
       testGroup
         "install-v2"
-        [ testCase "writes no legacy Core files and reuses equal SCC inputs" test_installV2ResolveArtifacts,
+        [ testCase "writes Core files and reuses equal SCC inputs" test_installV2ResolveArtifacts,
           testCase "rebuilds a module when a predecessor resolve artifact changes" test_installV2ResolveDependencies,
           testCase "rebuilds a module when a predecessor type interface changes" test_installV2TypeDependencies,
           testCase "duplicates re-exported term signatures in type interfaces" test_installV2TypeReexports,
@@ -59,10 +59,10 @@ main =
           testCase "rebuilds stale type artifact schemas" test_installV2StaleTypeArtifact,
           testCase "stops invalidation when a rebuilt scope stays equal" test_installV2StopsAtEqualScope,
           testCase "reports resolve errors with source locations" test_installV2ResolveError,
-          testCase "writes Core-v2 for a ccall import" test_installV2Fc2Ccall,
+          testCase "writes Core for a ccall import" test_installV2FcCcall,
           testCase "retains and repairs GRIN only with keep-grin" test_installV2KeepGrin,
           testCase "writes target-specific objects and library archives" test_installV2TargetArchives,
-          testCase "install-v2 writes core-v2 for aihc-prim and lints stored programs" test_installV2AihcPrim
+          testCase "install-v2 writes core for aihc-prim and lints stored programs" test_installV2AihcPrim
         ],
       testProperty "Hedgehog options" prop_dummy
     ]
@@ -124,18 +124,16 @@ test_installV2ResolveArtifacts =
     assertFileExists (installV2StorePath first </> "Demo" </> "B" </> "resolve.cbor")
     assertFileExists (installV2StorePath first </> "Demo" </> "A" </> "type.cbor")
     assertFileExists (installV2StorePath first </> "Demo" </> "B" </> "type.cbor")
-    assertFileDoesNotExist (installV2StorePath first </> "Demo" </> "A" </> "core")
-    assertFileDoesNotExist (installV2StorePath first </> "Demo" </> "B" </> "core")
-    assertCoreV2File (installV2StorePath first </> "Demo" </> "A" </> "core-v2")
-    assertCoreV2File (installV2StorePath first </> "Demo" </> "B" </> "core-v2")
+    assertCoreFile (installV2StorePath first </> "Demo" </> "A" </> "core")
+    assertCoreFile (installV2StorePath first </> "Demo" </> "B" </> "core")
     second <- installV2 options
     assertEqual "reused modules" ["Demo.A", "Demo.B"] (sort (installV2ReusedModules second))
     assertEqual "stable package directory" (installV2StorePath first) (installV2StorePath second)
-    assertCoreV2File (installV2StorePath second </> "Demo" </> "A" </> "core-v2")
-    assertCoreV2File (installV2StorePath second </> "Demo" </> "B" </> "core-v2")
-    removeFile (installV2StorePath first </> "Demo" </> "A" </> "core-v2")
-    coreV2Repaired <- installV2 options
-    assertEqual "repairs the complete SCC when core-v2 is absent" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules coreV2Repaired))
+    assertCoreFile (installV2StorePath second </> "Demo" </> "A" </> "core")
+    assertCoreFile (installV2StorePath second </> "Demo" </> "B" </> "core")
+    removeFile (installV2StorePath first </> "Demo" </> "A" </> "core")
+    coreRepaired <- installV2 options
+    assertEqual "repairs the complete SCC when core is absent" ["Demo.A", "Demo.B"] (sort (installV2WrittenModules coreRepaired))
     writeFile (sourceDir </> "B.hs") "module Demo.B where\nimport Demo.A\nb x = (x)\n"
     changed <- installV2 options
     assertEqual "source changes keep the package directory" (installV2StorePath first) (installV2StorePath changed)
@@ -186,7 +184,7 @@ test_installV2KeepGrin = do
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "grin")
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "Demo.o.s")
     retained <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False AppleArm64)
-    let corePath = installV2StorePath retained </> "Demo" </> "core-v2"
+    let corePath = installV2StorePath retained </> "Demo" </> "core"
         grinPath = installV2StorePath retained </> "Demo" </> "grin"
     assertFileExists grinPath
     originalCore <- readFile corePath
@@ -194,7 +192,7 @@ test_installV2KeepGrin = do
     repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False AppleArm64)
     assertFileExists grinPath
     repairedCore <- readFile corePath
-    assertEqual "GRIN repair keeps Core-v2" originalCore repairedCore
+    assertEqual "GRIN repair keeps Core" originalCore repairedCore
     assertEqual "GRIN repair writes the module" ["Demo"] (installV2WrittenModules repaired)
 
 test_installV2TargetArchives :: Assertion
@@ -213,7 +211,7 @@ test_installV2TargetArchives = do
       result <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False target)
       let objectPath = installV2StorePath result </> "Demo" </> "Demo.o"
           nativePath = objectPath <> nativeExtension
-          corePath = installV2StorePath result </> "Demo" </> "core-v2"
+          corePath = installV2StorePath result </> "Demo" </> "core"
           archivePath = installV2StorePath result </> "lib" </> "libdemo.a"
       assertEqual "target store directory" directory (takeFileName (takeDirectory (installV2StorePath result)))
       assertFileExists objectPath
@@ -226,7 +224,7 @@ test_installV2TargetArchives = do
       repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False target)
       assertFileExists nativePath
       repairedCore <- readFile corePath
-      assertEqual "native source repair keeps Core-v2" originalCore repairedCore
+      assertEqual "native source repair keeps Core" originalCore repairedCore
       assertEqual "native source repair writes the module" ["Demo"] (installV2WrittenModules repaired)
       pure result
     case results of
@@ -253,17 +251,17 @@ arSupportsForeignObjects = do
   archiveTool <- findExecutable "ar"
   pure (System.os /= "darwin" || archiveTool /= Just "/usr/bin/ar")
 
-assertCoreV2File :: FilePath -> Assertion
-assertCoreV2File path = do
+assertCoreFile :: FilePath -> Assertion
+assertCoreFile path = do
   assertFileExists path
   core <- TIO.readFile path
-  case Fc2.parseProgram core of
-    Left parseError -> assertFailure ("invalid Core-v2 file " <> path <> ": " <> Fc2.renderParseError parseError)
+  case Fc.parseProgram core of
+    Left parseError -> assertFailure ("invalid Core file " <> path <> ": " <> Fc.renderParseError parseError)
     Right _ -> pure ()
 
-test_installV2Fc2Ccall :: Assertion
-test_installV2Fc2Ccall =
-  withTempDir "aihc-install-v2-fc2-ccall" $ \root -> do
+test_installV2FcCcall :: Assertion
+test_installV2FcCcall =
+  withTempDir "aihc-install-v2-fc-ccall" $ \root -> do
     let sourceRoot = root </> "source"
         storeRoot = root </> "store"
         sourceDir = sourceRoot </> "src"
@@ -286,7 +284,7 @@ test_installV2Fc2Ccall =
       (sourceDir </> "Demo.hs")
       "module Demo where\nimport GHC.Prim (Int#)\ndata Int = I# Int#\nforeign import ccall unsafe \"foo\" foo :: Int -> Int\n"
     result <- installV2 options
-    assertCoreV2File (installV2StorePath result </> "Demo" </> "core-v2")
+    assertCoreFile (installV2StorePath result </> "Demo" </> "core")
 
 test_installV2AihcPrim :: Assertion
 test_installV2AihcPrim = do
@@ -299,29 +297,29 @@ test_installV2AihcPrim = do
     caught <- try (installV2 options) :: IO (Either IOException InstallV2Result)
     result <- case caught of
       Left err -> do
-        badFiles <- listNamedFiles storeRoot "core-v2.bad"
+        badFiles <- listNamedFiles storeRoot "core.bad"
         assertFailure
           ( "install-v2 aihc-prim failed: "
               <> show err
               <> if null badFiles
                 then ""
-                else "\nbad core-v2 files:\n" <> unlines badFiles
+                else "\nbad core files:\n" <> unlines badFiles
           )
       Right value -> pure value
     let packageDir = installV2StorePath result
         packageId = PackageId (T.pack (takeFileName packageDir))
-        loader = Fc2.storeModuleLoader targetStoreRoot
-    mapM_ (assertModuleCoreV2 packageDir) aihcPrimLibraryModules
-    coreV2Files <- listNamedFiles packageDir "core-v2"
-    mapM_ assertCoreV2File coreV2Files
+        loader = Fc.storeModuleLoader targetStoreRoot
+    mapM_ (assertModuleCore packageDir) aihcPrimLibraryModules
+    coreFiles <- listNamedFiles packageDir "core"
+    mapM_ assertCoreFile coreFiles
     grinFiles <- listNamedFiles packageDir "grin"
-    assertEqual "one GRIN file for each Core-v2 file" (length coreV2Files) (length grinFiles)
-    types <- loadStoredFc2 loader packageId "GHC.Types"
-    prim <- loadStoredFc2 loader packageId "GHC.Prim"
-    assertBool "GHC.Types lint needs GHC.Prim" (not (null (Fc2.lintPrograms [types])))
-    assertBool "GHC.Prim lint needs GHC.Types" (not (null (Fc2.lintPrograms [prim])))
-    typesAndPrim <- Fc2.loadScopeClosure loader [types, prim]
-    assertEqual "GHC.Types and GHC.Prim closure lint errors" [] (Fc2.lintPrograms typesAndPrim)
+    assertEqual "one GRIN file for each Core file" (length coreFiles) (length grinFiles)
+    types <- loadStoredFc loader packageId "GHC.Types"
+    prim <- loadStoredFc loader packageId "GHC.Prim"
+    assertBool "GHC.Types lint needs GHC.Prim" (not (null (Fc.lintPrograms [types])))
+    assertBool "GHC.Prim lint needs GHC.Types" (not (null (Fc.lintPrograms [prim])))
+    typesAndPrim <- Fc.loadScopeClosure loader [types, prim]
+    assertEqual "GHC.Types and GHC.Prim closure lint errors" [] (Fc.lintPrograms typesAndPrim)
     mapM_ (assertModuleClosureLints loader packageId) (filter (`notElem` ["GHC.Types", "GHC.Prim"]) aihcPrimLibraryModules)
 
 aihcPrimLibraryModules :: [Text]
@@ -394,29 +392,29 @@ findCoreLibraryRoot name = do
             then assertFailure ("could not find core-libs/" <> name)
             else findUp parent
 
-moduleCoreV2Path :: FilePath -> Text -> FilePath
-moduleCoreV2Path packageDir moduleName =
-  foldl (</>) packageDir (map T.unpack (T.splitOn "." moduleName) ++ ["core-v2"])
+moduleCorePath :: FilePath -> Text -> FilePath
+moduleCorePath packageDir moduleName =
+  foldl (</>) packageDir (map T.unpack (T.splitOn "." moduleName) ++ ["core"])
 
-assertModuleCoreV2 :: FilePath -> Text -> Assertion
-assertModuleCoreV2 packageDir moduleName =
-  assertFileExists (moduleCoreV2Path packageDir moduleName)
+assertModuleCore :: FilePath -> Text -> Assertion
+assertModuleCore packageDir moduleName =
+  assertFileExists (moduleCorePath packageDir moduleName)
 
-loadStoredFc2 :: Fc2.ModuleLoader -> PackageId -> Text -> IO Fc2.Program
-loadStoredFc2 loader packageId moduleName = do
+loadStoredFc :: Fc.ModuleLoader -> PackageId -> Text -> IO Fc.Program
+loadStoredFc loader packageId moduleName = do
   loaded <- loader packageId moduleName
   case loaded of
     Nothing -> assertFailure ("store loader did not find " <> T.unpack moduleName)
     Just program -> pure program
 
-assertModuleClosureLints :: Fc2.ModuleLoader -> PackageId -> Text -> Assertion
+assertModuleClosureLints :: Fc.ModuleLoader -> PackageId -> Text -> Assertion
 assertModuleClosureLints loader packageId moduleName = do
-  program <- loadStoredFc2 loader packageId moduleName
-  loaded <- Fc2.loadScopeClosure loader [program]
+  program <- loadStoredFc loader packageId moduleName
+  loaded <- Fc.loadScopeClosure loader [program]
   assertEqual
     (T.unpack moduleName <> " closure lint errors")
     []
-    (Fc2.lintPrograms loaded)
+    (Fc.lintPrograms loaded)
 
 listNamedFiles :: FilePath -> FilePath -> IO [FilePath]
 listNamedFiles root name = do

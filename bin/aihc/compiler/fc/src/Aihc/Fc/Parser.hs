@@ -1,15 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Parse System FC 2 text.
-module Aihc.Fc2.Parser
-  ( Fc2ParseError,
+-- | Parse System FC text.
+module Aihc.Fc.Parser
+  ( FcParseError,
     parseProgram,
     renderParseError,
   )
 where
 
-import Aihc.Fc2.Name
-import Aihc.Fc2.Syntax
+import Aihc.Fc.Name
+import Aihc.Fc.Syntax
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Control.Applicative ((<|>))
@@ -29,21 +29,21 @@ import Text.Megaparsec.Char.Lexer qualified as L
 
 type Parser = ReaderT ScopeTable (Parsec Void Text)
 
-type Fc2ParseError = ParseErrorBundle Text Void
+type FcParseError = ParseErrorBundle Text Void
 
-parseProgram :: Text -> Either Fc2ParseError Program
+parseProgram :: Text -> Either FcParseError Program
 parseProgram input = do
   (scopes, body) <- parseScopeHeader input
-  parseWith scopes (space *> program <* MP.eof) "<system-fc2>" body
+  parseWith scopes (space *> program <* MP.eof) "<system-fc>" body
 
-renderParseError :: Fc2ParseError -> String
+renderParseError :: FcParseError -> String
 renderParseError = MP.errorBundlePretty
 
-parseWith :: ScopeTable -> Parser value -> String -> Text -> Either Fc2ParseError value
+parseWith :: ScopeTable -> Parser value -> String -> Text -> Either FcParseError value
 parseWith scopes parser = MP.parse (runReaderT parser scopes)
 
-parseScopeHeader :: Text -> Either Fc2ParseError (ScopeTable, Text)
-parseScopeHeader = MP.parse parser "<system-fc2-scope>"
+parseScopeHeader :: Text -> Either FcParseError (ScopeTable, Text)
+parseScopeHeader = MP.parse parser "<system-fc-scope>"
   where
     parser = ((,) . toScopeTable <$> runReaderT (MP.many scopeDeclaration) emptyScopeTable) <*> MP.takeRest
     toScopeTable = foldr (\(scopeId, package, moduleName) -> insertScope scopeId package moduleName) emptyScopeTable

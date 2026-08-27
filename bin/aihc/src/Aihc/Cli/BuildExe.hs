@@ -13,9 +13,9 @@ import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact)
 import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
 import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
-import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2)
-import Aihc.Fc2 qualified as Fc2
-import Aihc.Fc2.TypeOf qualified as Fc2Type
+import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc)
+import Aihc.Fc qualified as Fc
+import Aihc.Fc.TypeOf qualified as FcType
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
 import Aihc.Native (NativeTarget (..), backendCompiler, nativeTargetStoreDirectory)
@@ -101,7 +101,7 @@ data SourceModule = SourceModule
 data CompileState = CompileState
   { compileExports :: !ModuleExports,
     compileTypes :: !TcInterface,
-    compilePrograms :: !(Map.Map Text Fc2.Program),
+    compilePrograms :: !(Map.Map Text Fc.Program),
     compileObjects :: ![FilePath]
   }
 
@@ -348,19 +348,19 @@ compileSources target storeRoot buildRoot dependencyExports dependencyTypes sour
               (map snd (resolvedModules resolved))
       unless (all tcModuleSuccess checkedModules) (ioError (userError ("Type check failed: " <> show (concatMap tcModuleDiagnostics checkedModules))))
       let bindings = tcInterfaceBindings completeInterface <> concatMap tcModuleBindings checkedModules
-          results = map (desugarModuleFc2 (DesugarConfig (primPackageIdentity state)) bindings completeInterface) checkedModules
-      unless (all ds2Success results) (ioError (userError ("Core-v2 generation failed: " <> unlines (concatMap ds2Errors results))))
-      let programs = map ds2Program results
+          results = map (desugarModuleFc (DesugarConfig (primPackageIdentity state)) bindings completeInterface) checkedModules
+      unless (all dsSuccess results) (ioError (userError ("Core generation failed: " <> unlines (concatMap dsErrors results))))
+      let programs = map dsProgram results
           unitPrograms = Map.fromList (zip (map (fromMaybe "Main" . moduleName) checkedModules) programs)
           allPrograms = Map.union unitPrograms (compilePrograms state)
-          installedLoader = Fc2.storeModuleLoader storeRoot
+          installedLoader = Fc.storeModuleLoader storeRoot
           loader package name
             | package == PackageId "exe" = pure (Map.lookup name allPrograms)
             | otherwise = installedLoader package name
-      loaded <- Fc2.loadScopeClosure loader programs
-      let lintErrors = Fc2.lintPrograms loaded
-      unless (null lintErrors) (ioError (userError ("Core-v2 lint failed: " <> show lintErrors)))
-      let typeEnv = Fc2Type.typeEnvFromPrograms loaded
+      loaded <- Fc.loadScopeClosure loader programs
+      let lintErrors = Fc.lintPrograms loaded
+      unless (null lintErrors) (ioError (userError ("Core lint failed: " <> show lintErrors)))
+      let typeEnv = FcType.typeEnvFromPrograms loaded
       objects <- zipWithM (writeObject typeEnv) checkedModules programs
       let localExports = extractInterfaceWithDeps (compileExports state) resolved `Map.union` compileExports state
       pure

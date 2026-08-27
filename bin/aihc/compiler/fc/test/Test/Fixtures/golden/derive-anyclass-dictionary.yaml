@@ -38,4 +38,4 @@ modules:
   useAny = anyValue
 expected: ''
 status: xfail
-reason: FC2 desugaring does not emit the derived Any dictionary $fAnyWrappeda.
+reason: FC desugaring does not emit the derived Any dictionary $fAnyWrappeda.

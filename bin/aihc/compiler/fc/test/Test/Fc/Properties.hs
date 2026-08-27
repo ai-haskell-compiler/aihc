@@ -1,11 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Test.Fc2.Properties
-  ( fc2PropertyTests,
+module Test.Fc.Properties
+  ( fcPropertyTests,
   )
 where
 
-import Aihc.Fc2
+import Aihc.Fc
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
 import Data.Text (Text)
@@ -16,10 +16,10 @@ import Hedgehog.Range qualified as Range
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.Hedgehog (testProperty)
 
-fc2PropertyTests :: TestTree
-fc2PropertyTests =
+fcPropertyTests :: TestTree
+fcPropertyTests =
   testGroup
-    "SystemFC2 properties"
+    "SystemFC properties"
     [ testProperty "parseProgram . renderProgram = id" prop_programRoundTrip,
       testProperty "tidyProgram is idempotent" prop_tidyIdempotent,
       testProperty "tidyProgram output round trips" prop_tidyRoundTrip,

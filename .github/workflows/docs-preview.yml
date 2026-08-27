@@ -47,7 +47,7 @@ jobs:
           cp -rL user-guide-result user-guide-preview
 
       - name: Publish preview
-        uses: rossjrw/pr-preview-action@ffa7509e91a3ec8dfc2e5536c4d5c1acdf7a6de9 # v1.8.1
+        uses: rossjrw/pr-preview-action@ffa7509e91a3ec8dfce5536c4d5c1acdf7a6de9 # v1.8.1
         with:
           source-dir: user-guide-preview
           preview-branch: gh-pages
