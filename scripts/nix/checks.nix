@@ -285,25 +285,9 @@
 
   aihcExe = pkgs.lib.getExe' hsPkgs.aihc "aihc";
 
-  amd64Tests = mkEvalPackageTest (
-    pkgs.haskell.lib.overrideCabal hsPkgs.aihc-amd64 (old: {
-      testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
-    })
-  );
-  arm64Tests = mkEvalPackageTest hsPkgs.aihc-arm64;
-  llvmTests = mkEvalPackageTest (
-    pkgs.haskell.lib.overrideCabal hsPkgs.aihc-llvm (old: {
-      testToolDepends = (old.testToolDepends or []) ++ [pkgs.llvmPackages.clang];
-    })
-  );
-  nativeTests = mkPackageTest hsPkgs.aihc-native;
-  wasmTests = mkPackageTest hsPkgs.aihc-wasm;
-  fcTests = mkEvalPackageTest hsPkgs.aihc-fc;
-  grinTests = mkEvalPackageTest hsPkgs.aihc-grin;
   resolveTests = mkPackageTest hsPkgs.aihc-resolve;
   tcTests = mkPackageTest hsPkgs.aihc-tc;
   testingTests = mkPackageTest hsPkgs.aihc-testing;
-  devTests = mkPackageTest hsPkgs.aihc-dev;
   aihcTests = mkAihcPackageTest hsPkgs.aihc;
   fmtTests = mkPackageTest hsPkgs.aihc-fmt;
   unicode = import ./unicode.nix {inherit pkgs;};
@@ -343,15 +327,15 @@
   cLint = mkSourceCheck "aihc-c-lint" (sources.cSrc pkgs) [pkgs.clang-tools pkgs.findutils pkgs.wit-bindgen] ''
     bindings_directory="$TMPDIR/aihc-wasip3-bindings"
     mkdir -p "$bindings_directory"
-    wit-bindgen c --world command --out-dir "$bindings_directory" components/aihc-wasm/runtime/wit
+    wit-bindgen c --world command --out-dir "$bindings_directory" bin/aihc/compiler/wasm/runtime/wit
     while IFS= read -r -d "" file; do
-      if [[ "$file" == *components/aihc-wasm/runtime/*.c || "$file" == *aihc_host_wasip3.c ]]; then
+      if [[ "$file" == *bin/aihc/compiler/wasm/runtime/*.c || "$file" == *aihc_host_wasip3.c ]]; then
         clang-tidy-unwrapped --quiet "$file" -- \
           --target=wasm32-unknown-unknown \
           -std=c11 -ffreestanding -Wall -Wextra -Wpedantic \
-          -Icomponents/aihc-wasm/runtime/include \
-          -Icomponents/aihc-wasm/runtime \
-          -Icomponents/aihc-native/runtime \
+          -Ibin/aihc/compiler/wasm/runtime/include \
+          -Ibin/aihc/compiler/wasm/runtime \
+          -Ibin/aihc/compiler/native/runtime \
           -isystem "$bindings_directory"
       else
         clang-tidy --quiet "$file" -- ${pkgs.lib.escapeShellArgs cTidyCompilerFlags}
@@ -432,6 +416,7 @@
 
       test -n "$(find "$out" -type f -name 'package.json' -print -quit)"
       test -n "$(find "$out" -type f -name 'libaihc-base.a' -print -quit)"
+      test -n "$(find "$out" -type f -name 'entry.a' -print -quit)"
     '';
 
   exampleTestInputs = [
@@ -632,17 +617,9 @@
   wasip3ExampleTest = assert exampleNames != [];
     pkgs.linkFarm "aihc-wasip3-example-test" wasip3ExampleCases;
 in {
-  amd64-tests = amd64Tests;
-  arm64-tests = arm64Tests;
-  llvm-tests = llvmTests;
-  native-tests = nativeTests;
-  wasm-tests = wasmTests;
-  fc-tests = fcTests;
-  grin-tests = grinTests;
   resolve-tests = resolveTests;
   tc-tests = tcTests;
   testing-tests = testingTests;
-  dev-tests = devTests;
   aihc-tests = aihcTests;
   fmt-tests = fmtTests;
   unicode-generated = unicodeGenerated;

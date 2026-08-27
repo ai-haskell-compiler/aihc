@@ -10,8 +10,8 @@ import Aihc.Arm64 qualified as Arm64
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector)
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact)
-import Aihc.Cli.Runtime (prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
-import Aihc.Cli.Store (defaultStoreRoot, installedRuntimeArchivePath)
+import Aihc.Cli.Runtime (prepareEntryArchive, prepareRuntimeArchive, readWasmClangProcessWithExitCode, runtimeGarbageCollector)
+import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRuntimeArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2)
 import Aihc.Fc2 qualified as Fc2
@@ -119,10 +119,11 @@ runBuildExe options = do
   (dependencyExports, dependencyTypes) <- loadPackageInterfaces selected
   sources <- discoverSources sourceDirectories dependencyExports (buildExeSourceFile options)
   runtime <- ensureRuntime storeRoot target (buildExeGarbageCollector options)
+  entry <- ensureEntry storeRoot target
   withTemporaryDirectory "aihc-build-exe" $ \directory -> do
     objects <- compileSources target targetStoreRoot directory dependencyExports dependencyTypes sources
     createDirectoryIfMissing True (takeDirectory output)
-    linkExecutable target output objects (map packageArchive selected) runtime
+    linkExecutable target output objects (map packageArchive selected) entry runtime
 
 implicitConstraint :: Text -> PackageConstraint
 implicitConstraint name =
@@ -384,28 +385,29 @@ compileSources target storeRoot buildRoot dependencyExports dependencyTypes sour
           name = fromMaybe "Main" (moduleName modu)
           object = buildRoot </> T.unpack (T.replace "." "-" name) <> ".o"
           source = object <> if target == Llvm then ".ll" else ".s"
-      assembly <- compileBackend target (name == "Aihc.Entry") gcProgram
+      assembly <- compileBackend target gcProgram
       TIO.writeFile source assembly
       (compiler, arguments) <- backendCompiler target
       runTool compiler (arguments <> ["-c", source, "-o", object])
       pure object
 
-compileBackend :: NativeTarget -> Bool -> Grin.GcGrinProgram -> IO Text
-compileBackend target executable program =
+compileBackend :: NativeTarget -> Grin.GcGrinProgram -> IO Text
+compileBackend target program =
   either (ioError . userError . show) pure $
-    case (target, executable) of
-      (AppleArm64, False) -> firstBackend (Arm64.compileModule program)
-      (AppleArm64, True) -> firstBackend (Arm64.compileProgram entryName program)
-      (LinuxAmd64, False) -> firstBackend (Amd64.compileModule program)
-      (LinuxAmd64, True) -> firstBackend (Amd64.compileProgram entryName program)
-      (Llvm, False) -> firstBackend (Llvm.compileModule program)
-      (Llvm, True) -> firstBackend (Llvm.compileProgram entryName program)
-      (Wasm32Wasip3, False) -> firstBackend (Wasm.compileModule program)
-      (Wasm32Wasip3, True) -> firstBackend (Wasm.compileProgram entryName program)
+    case target of
+      AppleArm64 -> firstBackend (Arm64.compileModule program)
+      LinuxAmd64 -> firstBackend (Amd64.compileModule program)
+      Llvm -> firstBackend (Llvm.compileModule program)
+      Wasm32Wasip3 -> firstBackend (Wasm.compileModule program)
   where
-    entryName = T.intercalate "\0" ["exe", "Aihc.Entry", "entry"]
     firstBackend :: (Show error) => Either error Text -> Either String Text
     firstBackend = either (Left . show) Right
+
+ensureEntry :: FilePath -> NativeTarget -> IO FilePath
+ensureEntry storeRoot target = do
+  let entry = installedEntryArchivePath storeRoot target
+  exists <- doesFileExist entry
+  if exists then pure entry else prepareEntryArchive storeRoot target
 
 ensureRuntime :: FilePath -> NativeTarget -> GarbageCollector -> IO FilePath
 ensureRuntime storeRoot target garbageCollector = do
@@ -413,8 +415,8 @@ ensureRuntime storeRoot target garbageCollector = do
   exists <- doesFileExist runtime
   if exists then pure runtime else prepareRuntimeArchive storeRoot target garbageCollector
 
-linkExecutable :: NativeTarget -> FilePath -> [FilePath] -> [FilePath] -> FilePath -> IO ()
-linkExecutable Wasm32Wasip3 output objects archives runtime =
+linkExecutable :: NativeTarget -> FilePath -> [FilePath] -> [FilePath] -> FilePath -> FilePath -> IO ()
+linkExecutable Wasm32Wasip3 output objects archives entry runtime =
   withTemporaryDirectory "aihc-wasm-link" $ \directory -> do
     let coreModule = directory </> "program.wasm"
     runTool
@@ -422,13 +424,13 @@ linkExecutable Wasm32Wasip3 output objects archives runtime =
       ( ["--no-entry", "--export-memory", "--allow-undefined"]
           <> objects
           <> archives
-          <> ["--whole-archive", runtime, "--no-whole-archive", "-o", coreModule]
+          <> ["--whole-archive", entry, runtime, "--no-whole-archive", "-o", coreModule]
       )
     runTool "wasm-tools" ["component", "new", coreModule, "-o", output]
     runTool "wasm-tools" ["validate", output]
-linkExecutable target output objects archives runtime = do
+linkExecutable target output objects archives entry runtime = do
   (compiler, arguments) <- backendCompiler target
-  runTool compiler (arguments <> objects <> archives <> [runtime, "-o", output])
+  runTool compiler (arguments <> objects <> archives <> [entry, runtime, "-o", output])
 
 listNamedFiles :: FilePath -> FilePath -> IO [FilePath]
 listNamedFiles root name = do

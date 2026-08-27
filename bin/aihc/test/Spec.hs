@@ -5,6 +5,7 @@ module Main (main) where
 import Aihc.Cli.BuildExe (runBuildExe)
 import Aihc.Cli.InstallV2 (InstallV2Result (..), installV2)
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcCalloc), InstallV2Options (..))
+import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc2 qualified as Fc2
 import Aihc.Native (NativeTarget (..), hostNativeTarget, nativeTargetStoreDirectory)
@@ -88,6 +89,8 @@ test_buildExeSourceDirectories = do
           buildExeStoreRoot = Just storeRoot,
           buildExeOutputFile = Just output
         }
+    entryExists <- doesFileExist (installedEntryArchivePath storeRoot target)
+    assertBool "target entry archive exists" entryExists
     (status, stdout, stderr) <- readProcessWithExitCode output [] ""
     assertEqual "executable exit status" ExitSuccess status
     assertEqual "executable stdout" "build-exe works\n" stdout

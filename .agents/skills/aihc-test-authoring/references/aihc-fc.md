@@ -11,7 +11,7 @@ Use `aihc-fc` tests for System FC 2 desugaring, text output, lint checks, and pr
 
 ## Golden Fixtures
 
-Root: `components/aihc-fc/test/Test/Fixtures/golden-v2`.
+Root: `bin/aihc/compiler/fc/test/Test/Fixtures/golden-v2`.
 
 Fixture shape:
 
@@ -36,8 +36,8 @@ Always give a reason for `xfail`.
 
 ## Text And Lint Fixtures
 
-Use `components/aihc-fc/test/Test/Fixtures/fc2` for parse and print tests.
-Use `components/aihc-fc/test/Test/Fixtures/fc2-lint` for lint tests.
+Use `bin/aihc/compiler/fc/test/Test/Fixtures/fc2` for parse and print tests.
+Use `bin/aihc/compiler/fc/test/Test/Fixtures/fc2-lint` for lint tests.
 
 Put accepted lint fixtures in `pass`.
 Put rejected lint fixtures in `fail`.
@@ -53,5 +53,5 @@ No test must use `test/Test/Fixtures/eval` until an FC2 evaluator exists.
 Run:
 
 ```bash
-cabal test -v0 aihc-fc:spec --test-options="--hide-successes"
+cabal test -v0 aihc:fc-spec --test-options="--hide-successes"
 ```
