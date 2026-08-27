@@ -184,15 +184,24 @@ test_installV2KeepGrin = do
   withTempDir "aihc-install-v2-keep-grin" $ \root -> do
     withoutGrin <- installV2 (InstallV2Options fixtureRoot (Just (root </> "without")) False False False AppleArm64)
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "grin")
+    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "cps.grin")
+    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "gc.grin")
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "Demo.o.s")
     retained <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False AppleArm64)
     let corePath = installV2StorePath retained </> "Demo" </> "core-v2"
         grinPath = installV2StorePath retained </> "Demo" </> "grin"
+        cpsGrinPath = installV2StorePath retained </> "Demo" </> "cps.grin"
+        gcGrinPath = installV2StorePath retained </> "Demo" </> "gc.grin"
     assertFileExists grinPath
+    assertFileExists cpsGrinPath
+    assertFileExists gcGrinPath
     originalCore <- readFile corePath
-    removeFile grinPath
+    removeFile cpsGrinPath
+    removeFile gcGrinPath
     repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False AppleArm64)
     assertFileExists grinPath
+    assertFileExists cpsGrinPath
+    assertFileExists gcGrinPath
     repairedCore <- readFile corePath
     assertEqual "GRIN repair keeps Core-v2" originalCore repairedCore
     assertEqual "GRIN repair writes the module" ["Demo"] (installV2WrittenModules repaired)
@@ -298,15 +307,7 @@ test_installV2AihcPrim = do
     createDirectoryIfMissing True storeRoot
     caught <- try (installV2 options) :: IO (Either IOException InstallV2Result)
     result <- case caught of
-      Left err -> do
-        badFiles <- listNamedFiles storeRoot "core-v2.bad"
-        assertFailure
-          ( "install-v2 aihc-prim failed: "
-              <> show err
-              <> if null badFiles
-                then ""
-                else "\nbad core-v2 files:\n" <> unlines badFiles
-          )
+      Left err -> assertFailure ("install-v2 aihc-prim failed: " <> show err)
       Right value -> pure value
     let packageDir = installV2StorePath result
         packageId = PackageId (T.pack (takeFileName packageDir))

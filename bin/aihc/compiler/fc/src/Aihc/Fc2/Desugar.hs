@@ -4,6 +4,7 @@
 -- | Convert a checked module into System FC 2 types, axioms, and values.
 module Aihc.Fc2.Desugar
   ( desugarModuleFc2,
+    typeEnvFromTcInterface,
     DesugarConfig (..),
     Fc2DesugarResult (..),
   )
@@ -14,6 +15,7 @@ import Aihc.Fc2.Desugar.Value (desugarValues)
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Fc2.Tidy (tidyProgram)
+import Aihc.Fc2.TypeOf qualified as TypeOf
 import Aihc.Parser.Syntax
   ( DataDecl (..),
     Module (..),
@@ -37,11 +39,14 @@ import Aihc.Tc
     DataConInfo (..),
     DataFamilyInstanceInfo (..),
     DataTypeInfo (..),
+    InstanceInfo (..),
     TcBindingResult (..),
     TcInterface (..),
+    TcTermKey (..),
     TyConFlavor (..),
     TyConInfo (..),
     TypeFamilyInstanceInfo (..),
+    tcInterfaceBindings,
     tcModuleDiagnostics,
     tcModuleSuccess,
   )
@@ -63,7 +68,7 @@ import Aihc.Tc.Types
 import Control.Monad (zipWithM)
 import Data.List (nub, sort)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -78,6 +83,127 @@ newtype DesugarConfig = DesugarConfig
   { primPackageId :: PackageId
   }
   deriving (Eq, Show)
+
+typeEnvFromTcInterface :: DesugarConfig -> TcInterface -> Either String TypeOf.TypeEnv
+typeEnvFromTcInterface config interface = do
+  declarations <- interfaceTypeDeclarations conversionEnv interface
+  typeHeaders <- mapM (convertTyConHeader conversionEnv) (tcInterfaceTyCons interface)
+  termHeaders <- mapMaybeM (convertTermHeader conversionEnv) (tcInterfaceTerms interface)
+  instanceHeaders <- mapM (convertInstanceHeader conversionEnv) (tcInterfaceInstances interface)
+  defaultMethodHeaders <- concat <$> mapM (convertDefaultMethodHeaders conversionEnv) (tcInterfaceClasses interface)
+  let declarationEnv = TypeOf.typeEnvFromProgram (Program emptyScopeTable declarations)
+  pure
+    declarationEnv
+      { TypeOf.tePrimPackage = Just (primPackageId config),
+        TypeOf.teHeaders = TypeOf.teHeaders declarationEnv <> Map.fromList (typeHeaders <> termHeaders <> instanceHeaders <> defaultMethodHeaders)
+      }
+  where
+    conversionEnv = interfaceConvertEnv config interface
+
+interfaceConvertEnv :: DesugarConfig -> TcInterface -> ConvertEnv
+interfaceConvertEnv config interface =
+  withAxioms
+    (axiomEntriesFromInterface interface)
+    ( withKindEnv
+        (Map.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tcInterfaceTyCons interface])
+        (withClassTyCons (map (tyConKey . ciTyCon) (tcInterfaceClasses interface)) (emptyConvertEnv (primPackageId config)))
+    )
+
+axiomEntriesFromInterface :: TcInterface -> [(Text, Name)]
+axiomEntriesFromInterface interface =
+  concatMap newtypeEntry (tcInterfaceDataTypes interface)
+    <> concatMap dataFamilyEntry (tcInterfaceDataFamilyInstances interface)
+  where
+    newtypeEntry info
+      | dtiFlavor info == NewtypeTyCon =
+          let tyCon = dtiTyCon info
+              name = Name ("$ax$" <> dtiName info) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
+           in [(dtiName info, name), ("$ax$" <> dtiName info, name)]
+      | otherwise = []
+    dataFamilyEntry info =
+      let tyCon = dfiiRepresentationTyCon info
+          origin = OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)
+          familyName = Name (dfiiAxiomName info) SortAxiom origin
+          representationName = tyConName tyCon
+          representationAxiom = Name ("$ax$" <> T.drop 1 representationName) SortAxiom origin
+       in [ (dfiiAxiomName info, familyName),
+            (representationName, representationAxiom),
+            ("$ax$" <> T.drop 1 representationName, representationAxiom)
+          ]
+
+interfaceTypeDeclarations :: ConvertEnv -> TcInterface -> Either String [Decl]
+interfaceTypeDeclarations env interface = do
+  dataDeclarations <- concat <$> mapM convertDataDeclaration (tcInterfaceDataTypes interface)
+  synonymDeclarations <- mapM (convertSynonym env) (filter ((== SynonymTyCon) . tciFlavor) (tcInterfaceTyCons interface))
+  classDeclarations <- mapM (convertClass env) (tcInterfaceClasses interface)
+  dataFamilyDeclarations <- concat <$> mapM convertDataFamilyDeclaration (tcInterfaceDataFamilyInstances interface)
+  pure (dataDeclarations <> synonymDeclarations <> classDeclarations <> dataFamilyDeclarations)
+  where
+    convertDataDeclaration info =
+      case dtiFlavor info of
+        DataTyCon -> (: []) <$> convertDataType env info
+        NewtypeTyCon -> convertNewtype env info
+        _ -> pure []
+    convertDataFamilyDeclaration info =
+      let tyCon = dfiiRepresentationTyCon info
+       in convertDataFamilyInst env (tyConPackageId tyCon) (tyConModuleName tyCon) (tcInterfaceBindings interface) info
+
+convertTyConHeader :: ConvertEnv -> TyConInfo -> Either String (Name, Type)
+convertTyConHeader env info = do
+  converted <- convertKindScheme env (tciKindScheme info)
+  pure (tyConNameFc2 env (tciTyCon info), converted)
+
+convertTermHeader :: ConvertEnv -> (TcTermKey, TypeScheme) -> Either String (Maybe (Name, Type))
+convertTermHeader env (key, scheme) =
+  case key of
+    TcTermGlobal package moduleName' identifier -> do
+      converted <- convertTypeScheme env scheme
+      pure (Just (Name identifier SortValue (OriginTop package moduleName'), converted))
+    TcTermLocal {} -> pure Nothing
+
+convertInstanceHeader :: ConvertEnv -> InstanceInfo -> Either String (Name, Type)
+convertInstanceHeader env info = do
+  converted <- convertType env (iiDictType info)
+  let (package, moduleName') = iiDictOrigin info
+  pure (Name (iiDictName info) SortValue (OriginTop (PackageId package) moduleName'), converted)
+
+convertDefaultMethodHeaders :: ConvertEnv -> ClassInfo -> Either String [(Name, Type)]
+convertDefaultMethodHeaders env info =
+  case ciOrigin info of
+    Nothing -> pure []
+    Just (package, moduleName') -> mapM (convertDefaultMethod package moduleName') methods
+  where
+    methods =
+      [ (methodName, maybe methodScheme (defaultWorkerScheme methodScheme) (lookup methodName (ciDefaultSignatures info)))
+      | methodName <- ciDefaultMethods info,
+        Just methodScheme <- [lookup methodName (ciMethods info)]
+      ]
+    convertDefaultMethod package moduleName' (methodName, scheme) = do
+      converted <- convertTypeScheme env scheme
+      pure (Name ("$dm" <> methodName) SortValue (OriginTop (PackageId package) moduleName'), converted)
+    defaultWorkerScheme ordinaryScheme (ForAll variables predicates body) =
+      case ordinaryScheme of
+        ForAll _ (classPredicate : _) _ -> ForAll variables (classPredicate : predicates) body
+        _ -> ForAll variables predicates body
+
+convertKindScheme :: ConvertEnv -> TypeScheme -> Either String Type
+convertKindScheme env (ForAll tyVars predicates body) = do
+  let bindersEnv = withTyVars tyVars env
+  binders <- mapM (tyVarBinder bindersEnv) tyVars
+  convertedPredicates <- mapM (convertPred bindersEnv) predicates
+  convertedBody <- convertKind bindersEnv body
+  pure (foldr TyForAll (foldr (funType bindersEnv) convertedBody convertedPredicates) binders)
+
+convertTypeScheme :: ConvertEnv -> TypeScheme -> Either String Type
+convertTypeScheme env (ForAll tyVars predicates body) = do
+  let bindersEnv = withTyVars tyVars env
+  binders <- mapM (tyVarBinder bindersEnv) tyVars
+  convertedPredicates <- mapM (convertPred bindersEnv) predicates
+  convertedBody <- convertType bindersEnv body
+  pure (foldr TyForAll (foldr (funType bindersEnv) convertedBody convertedPredicates) binders)
+
+mapMaybeM :: (value -> Either String (Maybe result)) -> [value] -> Either String [result]
+mapMaybeM action values = catMaybes <$> mapM action values
 
 desugarModuleFc2 :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> Fc2DesugarResult
 desugarModuleFc2 config bindings interface checked =
