@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Select and check the facts that a System FC 2 program imports.
 module Aihc.Fc2.Imports
   ( emptyImports,
@@ -11,12 +9,9 @@ where
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Fc2.TypeOf
-import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.Text (Text)
 
 newtype References = References
   { referenceNames :: Set Name
@@ -37,13 +32,11 @@ importsForProgram available program = select Set.empty initialNames (programImpo
   where
     localProgram = program {programImports = emptyImports}
     localNames = namesInTypeEnv (typeEnvFromProgram localProgram)
-    lookupEnv = extendTypeEnvWithPrograms available [localProgram]
     directReferences = foldMap declReferences (programDecls program)
     importedReferences = referencesFromImports (programImports program)
     initialNames =
       ( referenceNames directReferences
           <> referenceNames importedReferences
-          <> foreignAdapterConstructorNames lookupEnv (programDecls program)
       )
         `Set.difference` localNames
 
@@ -55,9 +48,8 @@ importsForProgram available program = select Set.empty initialNames (programImpo
                 then select visited rest imports
                 else
                   let (selected, selectedReferences) = selectName available name imports
-                      axiomNames = supportingAxiomNames available name
                       next =
-                        (rest <> referenceNames selectedReferences <> axiomNames)
+                        (rest <> referenceNames selectedReferences)
                           `Set.difference` localNames
                           `Set.difference` Set.insert name visited
                    in select (Set.insert name visited) next selected
@@ -70,11 +62,9 @@ unusedImports program =
     imports = programImports program
     directReferences = foldMap declReferences (programDecls program)
     importReferences = referencesFromImports imports
-    baseNames =
+    usedNames =
       referenceNames directReferences
         <> referenceNames importReferences
-        <> foreignAdapterConstructorNames (typeEnvFromProgram program) (programDecls program)
-    usedNames = baseNames <> implicitlyUsedAxiomNames imports baseNames
     importNames =
       Map.keys (importHeaders imports)
         <> Map.keys (importSynonyms imports)
@@ -107,109 +97,6 @@ selectName available name imports =
         Nothing -> selected
         Just value -> Map.insert name value selected
 
-supportingAxiomNames :: TypeEnv -> Name -> Set Name
-supportingAxiomNames available name =
-  Set.fromList
-    [ axiomName declaration
-    | declaration <- Map.elems (teAxioms available),
-      axiomRole declaration == Representational,
-      typeHeadName (axiomLeft declaration) == Just name
-    ]
-
-implicitlyUsedAxiomNames :: Imports -> Set Name -> Set Name
-implicitlyUsedAxiomNames imports names =
-  Set.fromList
-    [ axiomName declaration
-    | declaration <- Map.elems (importAxioms imports),
-      axiomRole declaration == Representational,
-      maybe False (`Set.member` names) (typeHeadName (axiomLeft declaration))
-    ]
-
-typeHeadName :: Type -> Maybe Name
-typeHeadName ty =
-  case ty of
-    TyCon name -> Just name
-    TyApp function _ -> typeHeadName function
-    _ -> Nothing
-
-foreignAdapterConstructorNames :: TypeEnv -> [Decl] -> Set Name
-foreignAdapterConstructorNames env declarations =
-  Set.fromList
-    [ constructor
-    | declaration <- declarations,
-      (sourceType, abiType) <- foreignTypes declaration,
-      isLiftedSourceType env sourceType,
-      Just constructor <- [adapterConstructorName env sourceType abiType]
-    ]
-  where
-    foreignTypes declaration =
-      case declaration of
-        DeclForeignImport ForeignImportDecl {foreignImportCallingConvention = CCall specification, foreignImportType = sourceType} ->
-          case splitOperationalType env sourceType of
-            Nothing -> []
-            Just (arguments, result) ->
-              zip arguments (ccallArgumentTypes specification)
-                <> [(result, ccallResultType specification)]
-        _ -> []
-
-isLiftedSourceType :: TypeEnv -> Type -> Bool
-isLiftedSourceType env sourceType =
-  maybe False (isLiftedRep env) (repOf env sourceType)
-
-adapterConstructorName :: TypeEnv -> Type -> CAbiType -> Maybe Name
-adapterConstructorName env sourceType abiType =
-  listToMaybe
-    [ name
-    | (name, constructorType) <- Map.toAscList (teHeaders env),
-      nameSort name == SortDataConstructor,
-      let (binders, fields, result) = constructorShape constructorType,
-      typeHeadName (reduceType env result) == typeHeadName (reduceType env sourceType),
-      [field] <- [fields],
-      fieldHasAbiRepresentation (List.foldl' extendBinder env binders) abiType field
-    ]
-
-constructorShape :: Type -> ([Binder], [Type], Type)
-constructorShape ty =
-  case ty of
-    TyForAll binder body ->
-      let (binders, fields, result) = constructorShape body
-       in (binder : binders, fields, result)
-    TyFun _ _ argument result ->
-      let (binders, fields, finalResult) = constructorShape result
-       in (binders, argument : fields, finalResult)
-    _ -> ([], [], ty)
-
-fieldHasAbiRepresentation :: TypeEnv -> CAbiType -> Type -> Bool
-fieldHasAbiRepresentation env abiType fieldType =
-  case reduceType env <$> repOf env fieldType of
-    Just (TyCon name) -> nameText name == abiRepresentationName abiType
-    _ -> False
-
-abiRepresentationName :: CAbiType -> Text
-abiRepresentationName abiType =
-  case abiType of
-    CAbiInt -> "IntRep"
-    CAbiInt32 -> "Int32Rep"
-    CAbiWord64 -> "Word64Rep"
-    CAbiAddr -> "AddrRep"
-
-splitOperationalType :: TypeEnv -> Type -> Maybe ([Type], Type)
-splitOperationalType env = go Set.empty
-  where
-    go visited sourceType =
-      case reduceType env sourceType of
-        TyForAll _ body -> go visited body
-        TyFun _ _ argument result -> do
-          (arguments, finalResult) <- go visited result
-          pure (argument : arguments, finalResult)
-        reduced
-          | reduced `Set.member` visited -> Just ([], reduced)
-          | otherwise ->
-              case unwrapNewtype env reduced of
-                Just unwrapped
-                  | not (typesEqual env reduced unwrapped) -> go (Set.insert reduced visited) unwrapped
-                _ -> Just ([], reduced)
-
 referencesFromImports :: Imports -> References
 referencesFromImports imports =
   foldMap (uncurry entryTypeReferences) (Map.toList (importHeaders imports))
@@ -240,7 +127,15 @@ declReferences decl =
         <> typeReferences (synBody declaration)
     DeclAxiom declaration -> axiomReferences declaration
     DeclVal declaration -> typeReferences (valType declaration) <> exprReferences (valBody declaration)
-    DeclForeignImport declaration -> typeReferences (foreignImportType declaration)
+    DeclForeignImport declaration ->
+      typeReferences (foreignImportType declaration)
+        <> foldMap foreignImportDependencyReferences (foreignImportDependencies declaration)
+
+foreignImportDependencyReferences :: ForeignImportDependency -> References
+foreignImportDependencyReferences dependency =
+  case dependency of
+    ForeignAxiom name -> nameReference name
+    ForeignConstructor name -> nameReference name
 
 axiomReferences :: AxiomDecl -> References
 axiomReferences declaration =

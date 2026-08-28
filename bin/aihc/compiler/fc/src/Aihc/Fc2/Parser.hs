@@ -168,9 +168,25 @@ foreignImportDeclaration = do
   _ <- keyword "foreign"
   _ <- keyword "import"
   convention <- callingConvention
+  dependencies <- MP.option [] parseForeignImportDependencies
   name <- topName SortValue
   _ <- symbol "::"
-  DeclForeignImport . ForeignImportDecl vis name convention <$> fcType
+  DeclForeignImport . ForeignImportDecl vis name convention dependencies <$> fcType
+
+parseForeignImportDependencies :: Parser [ForeignImportDependency]
+parseForeignImportDependencies =
+  keyword "using"
+    *> MP.between
+      (symbol "[")
+      (symbol "]")
+      (foreignImportDependency `MP.sepBy1` symbol ",")
+
+foreignImportDependency :: Parser ForeignImportDependency
+foreignImportDependency =
+  MP.choice
+    [ ForeignAxiom <$> (keyword "axiom" *> topName SortAxiom),
+      ForeignConstructor <$> (keyword "constructor" *> topName SortDataConstructor)
+    ]
 
 callingConvention :: Parser CallingConvention
 callingConvention =

@@ -185,9 +185,22 @@ prettyForeignImportDecl env scopes declaration =
   prettyVis (foreignImportVis declaration)
     <> "foreign import "
     <> prettyCallingConvention (foreignImportCallingConvention declaration)
+    <> prettyForeignImportDependencies scopes (foreignImportDependencies declaration)
     <> prettyTopName scopes (foreignImportName declaration)
     <> " :: "
     <> prettyTypeWith env scopes PrecForAll (foreignImportType declaration)
+
+prettyForeignImportDependencies :: ScopeTable -> [ForeignImportDependency] -> Doc ann
+prettyForeignImportDependencies _ [] = mempty
+prettyForeignImportDependencies scopes dependencies =
+  "using ["
+    <> hsep (punctuate "," (map prettyDependency dependencies))
+    <> "] "
+  where
+    prettyDependency dependency =
+      case dependency of
+        ForeignAxiom name -> "axiom" <+> prettyTopName scopes name
+        ForeignConstructor name -> "constructor" <+> prettyTopName scopes name
 
 prettyCallingConvention :: CallingConvention -> Doc ann
 prettyCallingConvention convention =

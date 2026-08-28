@@ -109,7 +109,15 @@ lintDeclHeaders env decl =
     DeclSynonym declaration -> lintSynonymDecl env declaration
     DeclAxiom declaration -> lintAxiomDecl env declaration
     DeclVal declaration -> eitherToList (lintType env (valType declaration))
-    DeclForeignImport declaration -> eitherToList (lintType env (foreignImportType declaration))
+    DeclForeignImport declaration ->
+      eitherToList (lintType env (foreignImportType declaration))
+        <> concatMap (lintForeignImportDependency env) (foreignImportDependencies declaration)
+
+lintForeignImportDependency :: LintEnv -> ForeignImportDependency -> [LintError]
+lintForeignImportDependency env dependency =
+  case dependency of
+    ForeignAxiom name -> [UnboundName name | Map.notMember name (leAxioms env)]
+    ForeignConstructor name -> [UnboundName name | Map.notMember name (teHeaders (leTypes env))]
 
 lintDeclBodies :: LintEnv -> Decl -> [LintError]
 lintDeclBodies env decl =

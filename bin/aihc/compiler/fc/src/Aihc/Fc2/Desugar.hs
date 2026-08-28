@@ -806,7 +806,14 @@ declOrigins decl =
         <> exprOrigins (valBody valDecl)
     DeclForeignImport foreignImportDecl ->
       nameOriginPair (foreignImportName foreignImportDecl)
+        <> concatMap foreignImportDependencyOrigins (foreignImportDependencies foreignImportDecl)
         <> typeOrigins (foreignImportType foreignImportDecl)
+
+foreignImportDependencyOrigins :: ForeignImportDependency -> [(PackageId, Text)]
+foreignImportDependencyOrigins dependency =
+  case dependency of
+    ForeignAxiom name -> nameOriginPair name
+    ForeignConstructor name -> nameOriginPair name
 
 conOrigins :: ConDecl -> [(PackageId, Text)]
 conOrigins constructor =

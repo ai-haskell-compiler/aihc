@@ -136,7 +136,9 @@ lowerForeignDecl env declaration = do
       sourceType = applySubstitution env (Fc2.foreignImportType declaration)
       (typeBinders, monotype) = splitForAlls sourceType
       foreignEnv = defaultRuntimeReps (foldl extendTypeBinder env typeBinders) typeBinders
-  (argumentTypes, resultType) <- splitOperationalFunctionType foreignEnv monotype
+  axioms <- foreignAxiomDeclarations foreignEnv declaration
+  let constructors = foreignConstructorNames declaration
+  (argumentTypes, resultType) <- splitOperationalFunctionType foreignEnv axioms monotype
   argumentGroups <-
     mapM
       (\(index, argumentType) -> freshVarsForType foreignEnv ("foreign_argument_" <> T.pack (show index), argumentType))
@@ -159,7 +161,7 @@ lowerForeignDecl env declaration = do
         pure (expression, primitive, [])
       Fc2.CCall specification -> do
         let foreignCall = lowerForeignCall name specification
-        expression <- lowerForeignBody foreignEnv foreignCall argumentTypes valueGroups resultType
+        expression <- lowerForeignBody foreignEnv axioms constructors foreignCall argumentTypes valueGroups resultType
         pure (expression, [], [foreignCall])
   emitFunction
     GrinFunction
@@ -174,6 +176,19 @@ lowerForeignDecl env declaration = do
         topForeignCalls = foreignCalls,
         topGlobals = [(globalName, GrinNode (GrinClosure functionName layouts) [])]
       }
+
+foreignAxiomDeclarations :: LowerEnv -> Fc2.ForeignImportDecl -> LowerM [Fc2.AxiomDecl]
+foreignAxiomDeclarations env declaration =
+  mapM lookupAxiom [name | Fc2.ForeignAxiom name <- Fc2.foreignImportDependencies declaration]
+  where
+    lookupAxiom name =
+      case Map.lookup name (TypeOf.teAxioms (lowerTypes env)) of
+        Just axiom -> pure axiom
+        Nothing -> throwLower ("GRIN cannot find an explicit foreign axiom: " <> show name)
+
+foreignConstructorNames :: Fc2.ForeignImportDecl -> [Fc2.Name]
+foreignConstructorNames declaration =
+  [name | Fc2.ForeignConstructor name <- Fc2.foreignImportDependencies declaration]
 
 compilerPrimitives :: [Text]
 compilerPrimitives = ["aihcExit#", "unsafeCoerce#", "raise#", "catch#", "seq"]
@@ -191,8 +206,8 @@ lowerPrimitiveBody resultRep name valueGroups =
       pure (GrinBind [evaluated] (GrinEval liftedGrinRep first) (GrinConstant second))
     _ -> pure (GrinPrimitiveCall resultRep name (concat valueGroups))
 
-lowerForeignBody :: LowerEnv -> GrinForeignCall -> [Fc2.Type] -> [[GrinValue]] -> Fc2.Type -> LowerM GrinExpr
-lowerForeignBody env foreignCall argumentTypes valueGroups resultType = do
+lowerForeignBody :: LowerEnv -> [Fc2.AxiomDecl] -> [Fc2.Name] -> GrinForeignCall -> [Fc2.Type] -> [[GrinValue]] -> Fc2.Type -> LowerM GrinExpr
+lowerForeignBody env axioms constructors foreignCall argumentTypes valueGroups resultType = do
   operands <- concat <$> zipWithM (sourceValues env) argumentTypes valueGroups
   resultValues <- sourceValueTypes env resultType
   let signature = grinForeignCallSignature foreignCall
@@ -202,8 +217,8 @@ lowerForeignBody env foreignCall argumentTypes valueGroups resultType = do
     then throwLower ("GRIN foreign source arguments do not match the C ABI: " <> T.unpack (grinForeignCallName foreignCall))
     else case (resultValues, resultReps) of
       ([(resultValueType, resultValueRep)], [foreignResultRep]) ->
-        adaptForeignOperands env (zip operands expectedOperands) $ \values ->
-          adaptForeignResult env resultValueType resultValueRep foreignResultRep (GrinForeignCallExpr foreignCall values)
+        adaptForeignOperands env axioms constructors (zip operands expectedOperands) $ \values ->
+          adaptForeignResult env axioms constructors resultValueType resultValueRep foreignResultRep (GrinForeignCallExpr foreignCall values)
       _ -> throwLower ("GRIN foreign result does not match the C ABI: " <> T.unpack (grinForeignCallName foreignCall))
 
 sourceValues :: LowerEnv -> Fc2.Type -> [GrinValue] -> LowerM [(Fc2.Type, GrinValue)]
@@ -231,14 +246,14 @@ sourceValueTypes env sourceType = do
         [component] -> pure [(fieldType, component)]
         _ -> throwLower ("GRIN does not support a nested tuple foreign value: " <> show fieldType)
 
-adaptForeignOperands :: LowerEnv -> [((Fc2.Type, GrinValue), GrinRep)] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
-adaptForeignOperands env operands continuation = go [] operands
+adaptForeignOperands :: LowerEnv -> [Fc2.AxiomDecl] -> [Fc2.Name] -> [((Fc2.Type, GrinValue), GrinRep)] -> ([GrinValue] -> LowerM GrinExpr) -> LowerM GrinExpr
+adaptForeignOperands env axioms constructors operands continuation = go [] operands
   where
     go values [] = continuation (reverse values)
     go values (((sourceType, value), expectedRep) : rest)
       | grinValueRuntimeRep value == expectedRep = go (value : values) rest
       | isLiftedRuntimeRep (grinValueRuntimeRep value) = do
-          (tag, fieldRep) <- findUnaryConstructor env sourceType expectedRep
+          (tag, fieldRep) <- findUnaryConstructor env axioms constructors sourceType expectedRep
           evaluated <- freshVar "foreign_box" liftedGrinRep
           caseBinder <- freshVar "foreign_box_case" liftedGrinRep
           field <- freshVar "foreign_field" fieldRep
@@ -255,11 +270,11 @@ adaptForeignOperands env operands continuation = go [] operands
             )
       | otherwise = throwLower ("GRIN cannot adapt a foreign argument representation: " <> show sourceType)
 
-adaptForeignResult :: LowerEnv -> Fc2.Type -> GrinRep -> GrinRep -> GrinExpr -> LowerM GrinExpr
-adaptForeignResult env sourceType sourceRep foreignRep foreignExpression
+adaptForeignResult :: LowerEnv -> [Fc2.AxiomDecl] -> [Fc2.Name] -> Fc2.Type -> GrinRep -> GrinRep -> GrinExpr -> LowerM GrinExpr
+adaptForeignResult env axioms constructors sourceType sourceRep foreignRep foreignExpression
   | sourceRep == foreignRep = pure foreignExpression
   | isLiftedRuntimeRep sourceRep = do
-      (tag, fieldRep) <- findUnaryConstructor env sourceType foreignRep
+      (tag, fieldRep) <- findUnaryConstructor env axioms constructors sourceType foreignRep
       result <- freshVar "foreign_result" fieldRep
       pure
         ( GrinBind
@@ -269,16 +284,21 @@ adaptForeignResult env sourceType sourceRep foreignRep foreignExpression
         )
   | otherwise = throwLower ("GRIN cannot adapt a foreign result representation: " <> show sourceType)
 
-findUnaryConstructor :: LowerEnv -> Fc2.Type -> GrinRep -> LowerM (Text, GrinRep)
-findUnaryConstructor env resultType expectedRep =
-  case listToMaybe (mapMaybe matchConstructor (Map.toAscList (TypeOf.teHeaders (lowerTypes env)))) of
+findUnaryConstructor :: LowerEnv -> [Fc2.AxiomDecl] -> [Fc2.Name] -> Fc2.Type -> GrinRep -> LowerM (Text, GrinRep)
+findUnaryConstructor env axioms constructors resultType expectedRep =
+  case listToMaybe (mapMaybe matchConstructor constructorEntries) of
     Just result -> pure result
     Nothing -> throwLower ("GRIN cannot find a unary constructor adapter for type: " <> show resultType)
   where
+    constructorEntries =
+      [ (name, constructorType)
+      | name <- constructors,
+        Just constructorType <- [Map.lookup name (TypeOf.teHeaders (lowerTypes env))]
+      ]
     matchConstructor (name, constructorType)
       | Fc2.nameSort name /= Fc2.SortDataConstructor = Nothing
       | otherwise = do
-          fieldTypes <- instantiateConstructorFields env constructorType resultType
+          fieldTypes <- instantiateConstructorFields env axioms constructorType resultType
           case fieldTypes of
             [fieldType] ->
               case runStateT (runtimeRep env fieldType) (LowerState 0 0 []) of
@@ -287,11 +307,11 @@ findUnaryConstructor env resultType expectedRep =
                 _ -> Nothing
             _ -> Nothing
 
-instantiateConstructorFields :: LowerEnv -> Fc2.Type -> Fc2.Type -> Maybe [Fc2.Type]
-instantiateConstructorFields env constructorType targetType = do
+instantiateConstructorFields :: LowerEnv -> [Fc2.AxiomDecl] -> Fc2.Type -> Fc2.Type -> Maybe [Fc2.Type]
+instantiateConstructorFields env axioms constructorType targetType = do
   let (binders, monotype) = splitForAlls constructorType
   (fieldTypes, constructorResult) <- either (const Nothing) Just (splitFunctionType monotype)
-  substitution <- matchTypeBinders env (Map.fromList [(Fc2.binderName binder, Nothing) | binder <- binders]) constructorResult targetType
+  substitution <- matchTypeBinders env (Map.fromList [(Fc2.binderName binder, Nothing) | binder <- binders]) constructorResult (applyForeignAxioms env axioms targetType)
   resolved <- sequenceA substitution
   pure (map (TypeOf.substTypes resolved) fieldTypes)
 
@@ -707,11 +727,7 @@ expressionType env expression =
         Nothing -> throwLower ("GRIN cannot determine coercion endpoints: " <> show coercion)
 
 runtimeRep :: LowerEnv -> Fc2.Type -> LowerM GrinRep
-runtimeRep env sourceType =
-  case TypeOf.unwrapNewtype (lowerTypes env) appliedType of
-    Just unwrapped
-      | not (TypeOf.typesEqual (lowerTypes env) appliedType unwrapped) -> runtimeRep env unwrapped
-    _ -> directRuntimeRep env appliedType
+runtimeRep env sourceType = directRuntimeRep env appliedType
   where
     appliedType = applySubstitution env sourceType
 
@@ -839,18 +855,28 @@ splitFunctionType sourceType =
       pure (argument : arguments, finalResult)
     _ -> pure ([], sourceType)
 
-splitOperationalFunctionType :: LowerEnv -> Fc2.Type -> LowerM ([Fc2.Type], Fc2.Type)
-splitOperationalFunctionType env sourceType =
+splitOperationalFunctionType :: LowerEnv -> [Fc2.AxiomDecl] -> Fc2.Type -> LowerM ([Fc2.Type], Fc2.Type)
+splitOperationalFunctionType env axioms sourceType =
   case reduce env sourceType of
-    Fc2.TyForAll binder body -> splitOperationalFunctionType (extendTypeBinder env binder) body
+    Fc2.TyForAll binder body -> splitOperationalFunctionType (extendTypeBinder env binder) axioms body
     Fc2.TyFun _ _ argument result -> do
-      (arguments, finalResult) <- splitOperationalFunctionType env result
+      (arguments, finalResult) <- splitOperationalFunctionType env axioms result
       pure (argument : arguments, finalResult)
     other ->
-      case TypeOf.unwrapNewtype (lowerTypes env) other of
-        Just unwrapped
-          | not (TypeOf.typesEqual (lowerTypes env) other unwrapped) -> splitOperationalFunctionType env unwrapped
-        _ -> pure ([], other)
+      let unwrapped = applyForeignAxioms env axioms other
+       in if TypeOf.typesEqual (lowerTypes env) other unwrapped
+            then pure ([], other)
+            else splitOperationalFunctionType env axioms unwrapped
+
+applyForeignAxioms :: LowerEnv -> [Fc2.AxiomDecl] -> Fc2.Type -> Fc2.Type
+applyForeignAxioms env axioms = go Set.empty
+  where
+    go visited sourceType
+      | sourceType `Set.member` visited = sourceType
+      | otherwise =
+          case listToMaybe (mapMaybe (\axiom -> TypeOf.applyRepresentationalAxiom (lowerTypes env) axiom sourceType) axioms) of
+            Just target -> go (Set.insert sourceType visited) target
+            Nothing -> sourceType
 
 splitForAlls :: Fc2.Type -> ([Fc2.Binder], Fc2.Type)
 splitForAlls sourceType =

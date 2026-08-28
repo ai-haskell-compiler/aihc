@@ -18,6 +18,7 @@ module Aihc.Fc2.Syntax
     AxiomDecl (..),
     ValDecl (..),
     ForeignImportDecl (..),
+    ForeignImportDependency (..),
     CallingConvention (..),
     CCallSpec (..),
     CAbiType (..),
@@ -173,8 +174,14 @@ data ForeignImportDecl = ForeignImportDecl
   { foreignImportVis :: Vis,
     foreignImportName :: Name,
     foreignImportCallingConvention :: CallingConvention,
+    foreignImportDependencies :: [ForeignImportDependency],
     foreignImportType :: Type
   }
+  deriving (Eq, Ord, Show, Read)
+
+data ForeignImportDependency
+  = ForeignAxiom Name
+  | ForeignConstructor Name
   deriving (Eq, Ord, Show, Read)
 
 data CallingConvention

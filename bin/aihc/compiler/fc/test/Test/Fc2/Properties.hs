@@ -249,7 +249,15 @@ genForeignImportDecl =
     <$> genVis
     <*> (valueNameTop . ("foreign" <>) <$> genSuffix)
     <*> genCallingConvention
+    <*> Gen.list (Range.linear 0 4) genForeignImportDependency
     <*> genType
+
+genForeignImportDependency :: Gen ForeignImportDependency
+genForeignImportDependency =
+  Gen.choice
+    [ ForeignAxiom . axiomNameTop . ("foreignAxiom" <>) <$> genSuffix,
+      ForeignConstructor . dataNameTop . ("ForeignConstructor" <>) <$> genSuffix
+    ]
 
 genCallingConvention :: Gen CallingConvention
 genCallingConvention =
