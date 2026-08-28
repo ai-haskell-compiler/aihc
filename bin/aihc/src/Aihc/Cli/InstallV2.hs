@@ -48,12 +48,18 @@ import Aihc.Resolve
   )
 import Aihc.Tc
   ( ClassInfo (..),
+    DataConFieldInfo (..),
+    DataConInfo (..),
+    DataFamilyInstanceInfo (..),
+    DataTypeInfo (..),
+    InstanceInfo (..),
     Pred (..),
     TcInterface (..),
     TcTermKey (..),
     TcType (..),
     TyCon,
     TyConInfo (..),
+    TypeFamilyInstanceInfo (..),
     TypeScheme (..),
     dataTypeKey,
     tcConfig,
@@ -63,6 +69,7 @@ import Aihc.Tc
     tcModuleSuccess,
     typecheckModuleSccWithInterface,
   )
+import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types (tyConModuleName, tyConNamespace, tyConPackageId)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (IOException, try)
@@ -154,7 +161,7 @@ installV2 options = do
       resolver = localDependencyResolverWithFallback fallbackResolver root
   spec <- packageSpecFromSource root
   plan <- buildPackagePlanWithResolver resolver targetStoreRoot spec
-  installedV2Result <$> installPackagePlanV2 (installV2KeepGrin options) (installV2KeepNative options) target verbose targetStoreRoot plan
+  installedV2Result <$> installPackagePlanV2 (installV2KeepGrin options) (installV2KeepNative options) (installV2Lint options) target verbose targetStoreRoot plan
 
 networkDependencyResolver :: DependencyResolver
 networkDependencyResolver =
@@ -167,13 +174,13 @@ networkDependencyResolver =
       result <- getLatestVersion Nothing name
       either (ioError . userError) pure result
 
-installPackagePlanV2 :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
-installPackagePlanV2 keepGrin keepNative target verbose storeRoot plan = do
-  dependencies <- mapM (installPackagePlanV2 keepGrin keepNative target verbose storeRoot) (planDependencyPlans plan)
-  installPackageV2 keepGrin keepNative target verbose storeRoot dependencies (planSourcePath plan)
+installPackagePlanV2 :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
+installPackagePlanV2 keepGrin keepNative lint target verbose storeRoot plan = do
+  dependencies <- mapM (installPackagePlanV2 keepGrin keepNative lint target verbose storeRoot) (planDependencyPlans plan)
+  installPackageV2 keepGrin keepNative lint target verbose storeRoot dependencies (planSourcePath plan)
 
-installPackageV2 :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
-installPackageV2 keepGrin keepNative target verbose storeRoot dependencies root = do
+installPackageV2 :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
+installPackageV2 keepGrin keepNative lint target verbose storeRoot dependencies root = do
   verbose ("Read Cabal package: " <> root)
   cabalFiles <- HackageUtil.findCabalFiles root
   cabalFile <- case cabalFiles of
@@ -213,7 +220,7 @@ installPackageV2 keepGrin keepNative target verbose storeRoot dependencies root 
   verbose ("Compute " <> show (length units) <> " SCC units")
   (allExports, allScopeHashes, _, allTypeHashes, written, reused) <-
     foldM
-      (installUnit keepGrin keepNative target verbose storePath resolvePackage primIdentity root)
+      (installUnit keepGrin keepNative lint target verbose storePath resolvePackage primIdentity root)
       (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty)
       units
   let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
@@ -233,7 +240,8 @@ installPackageV2 keepGrin keepNative target verbose storeRoot dependencies root 
             id
             [ T.pack (takeFileName (installV2StorePath (installedV2Result dependency)))
             | dependency <- dependencies
-            ]
+            ],
+        packageManifestModules = sortOn id (HackageCabal.collectLibraryExposedModules gpd)
       }
   let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
       ownExports =
@@ -341,8 +349,8 @@ renderResolveExcerpt sourceLines sourceSpan =
                 <> replicate caretStart ' '
                 <> replicate caretWidth '^'
 
-installUnit :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
-installUnit keepGrin keepNative target verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
+installUnit :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
+installUnit keepGrin keepNative lint target verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
   let packageModules = modulesInPackage resolvePackage (map sourceModuleAst unit)
       unitNames = map sourceName unit
       importedNames = nub (concatMap (map importDeclModule . Syntax.moduleImports . sourceModuleAst) unit)
@@ -411,14 +419,14 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
     if typeChanged || not fc2Exists
       then do
         (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
-        compileCheckedModules True keepGrin keepNative target verbose primIdentity completeInterface outputPaths checkedModules
+        compileCheckedModules True keepGrin keepNative lint target verbose primIdentity completeInterface outputPaths checkedModules
         pure (True, keepGrin)
       else
-        if (keepGrin && not grinStagesExist) || (keepNative && not nativeExists) || not objectExists
+        if lint || repairRequired grinStagesExist nativeExists objectExists
           then do
             (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
-            compileCheckedModules False keepGrin keepNative target verbose primIdentity completeInterface outputPaths checkedModules
-            pure (False, True)
+            compileCheckedModules False keepGrin keepNative lint target verbose primIdentity completeInterface outputPaths checkedModules
+            pure (False, repairRequired grinStagesExist nativeExists objectExists)
           else do
             mapM_ (verbose . ("Reuse FC2: " <>) . T.unpack) unitNames
             pure (False, False)
@@ -437,9 +445,11 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
     )
   where
     sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
+    repairRequired grinStagesExist nativeExists objectExists =
+      (keepGrin && not grinStagesExist) || (keepNative && not nativeExists) || not objectExists
 
-compileCheckedModules :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
-compileCheckedModules writeFc2 keepGrin keepNative target verbose primIdentity interface outputPaths checkedModules = do
+compileCheckedModules :: Bool -> Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
+compileCheckedModules writeFc2 keepGrin keepNative lint target verbose primIdentity interface outputPaths checkedModules = do
   let bindings = tcInterfaceBindings interface <> concatMap tcModuleBindings checkedModules
       config = DesugarConfig primIdentity
       desugarResults = map (desugarModuleFc2 config bindings interface) checkedModules
@@ -448,15 +458,16 @@ compileCheckedModules writeFc2 keepGrin keepNative target verbose primIdentity i
       fc2Modules = zipWith Fc2Module moduleNames (map ds2Program desugarResults)
       fc2Errors = concatMap (Fc2.lintProgram . fc2Program) fc2Modules
       fc2Report = map (("    " <>) . show) fc2Errors
-  unless (null fc2Errors) $
-    ioError
-      ( userError
-          ( unlines
-              ( ["FC2 lint failed:"]
-                  <> fc2Report
-              )
-          )
-      )
+  when lint $
+    unless (null fc2Errors) $
+      ioError
+        ( userError
+            ( unlines
+                ( ["FC2 lint failed:"]
+                    <> fc2Report
+                )
+            )
+        )
   when writeFc2 (mapM_ writeFc2Module fc2Modules)
   grinModules <- mapM lowerGrinModule fc2Modules
   when keepGrin (mapM_ writeGrinModule grinModules)
@@ -478,12 +489,14 @@ compileCheckedModules writeFc2 keepGrin keepNative target verbose primIdentity i
 
     lowerGrinModule fc2Module = do
       plainProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fc2Program fc2Module))
-      let plainErrors = Grin.lintProgram plainProgram
-      unless (null plainErrors) (ioError (userError ("GRIN lint failed: " <> show plainErrors)))
+      when lint $ do
+        let plainErrors = Grin.lintProgram plainProgram
+        unless (null plainErrors) (ioError (userError ("GRIN lint failed: " <> show plainErrors)))
       cpsProgram <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin plainProgram)
       let gcProgram = Grin.lowerGc cpsProgram
-          gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
-      unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
+      when lint $ do
+        let gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
+        unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
       pure
         GrinModule
           { grinModuleName = fc2ModuleName fc2Module,
@@ -586,7 +599,7 @@ runTool executable arguments = do
 
 moduleTypeInterface :: ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
 moduleTypeInterface exports package interface source =
-  addReferencedTyCons
+  addReferencedFacts
     interface
     interface
       { tcInterfaceTerms = filter visibleTerm (tcInterfaceTerms interface),
@@ -627,30 +640,94 @@ moduleTypeInterface exports package interface source =
       ResolvedTopLevel packageId' resolvedName -> Just (packageId', fromMaybe name (nameQualifier resolvedName), nameText resolvedName)
       _ -> Nothing
 
-addReferencedTyCons :: TcInterface -> TcInterface -> TcInterface
-addReferencedTyCons complete interface =
-  interface {tcInterfaceTyCons = Map.elems (existing <> support)}
+addReferencedFacts :: TcInterface -> TcInterface -> TcInterface
+addReferencedFacts complete interface =
+  interface
+    { tcInterfaceTerms = tcInterfaceTerms interface,
+      tcInterfaceTyCons = Map.elems (existingTyCons <> supportTyCons),
+      tcInterfaceDataTypes = tcInterfaceDataTypes interface <> supportDataTypes,
+      tcInterfaceClasses = tcInterfaceClasses interface <> supportClasses
+    }
   where
-    existing = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons interface]
-    available = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons complete]
+    existingTyCons = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons interface]
+    availableTyCons = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons complete]
+    existingDataTypes = Set.fromList (map dtiTyCon (tcInterfaceDataTypes interface))
+    availableDataTypes = Map.fromList [(dtiTyCon info, info) | info <- tcInterfaceDataTypes complete]
+    existingClasses = Set.fromList (map ciTyCon (tcInterfaceClasses interface))
+    availableClasses = Map.fromList [(ciTyCon info, info) | info <- tcInterfaceClasses complete]
     referenced =
       Set.fromList
         ( concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface)
-            <> concatMap (typeSchemeTyCons . tciKindScheme) (tcInterfaceTyCons interface)
+            <> concatMap tyConInfoTyCons (tcInterfaceTyCons interface)
+            <> concatMap dataTypeInfoTyCons (tcInterfaceDataTypes interface)
+            <> concatMap classInfoTyCons (tcInterfaceClasses interface)
+            <> concatMap instanceInfoTyCons (tcInterfaceInstances interface)
+            <> concatMap dataFamilyInstanceInfoTyCons (tcInterfaceDataFamilyInstances interface)
+            <> concatMap typeFamilyInstanceInfoTyCons (tcInterfaceTypeFamilyInstances interface)
         )
     reachable = closeTyCons Set.empty referenced
-    support = Map.restrictKeys available (reachable `Set.difference` Map.keysSet existing)
+    supportTyCons = Map.restrictKeys availableTyCons (reachable `Set.difference` Map.keysSet existingTyCons)
+    supportDataTypes =
+      [ info
+      | info <- tcInterfaceDataTypes complete,
+        dtiTyCon info `Set.member` reachable,
+        dtiTyCon info `Set.notMember` existingDataTypes
+      ]
+    supportClasses =
+      [ info
+      | info <- tcInterfaceClasses complete,
+        ciTyCon info `Set.member` reachable,
+        ciTyCon info `Set.notMember` existingClasses
+      ]
     closeTyCons found pending
       | Set.null pending = found
       | otherwise =
           let (tyCon, pending') = Set.deleteFindMin pending
               dependencies =
-                maybe
-                  Set.empty
-                  (Set.fromList . typeSchemeTyCons . tciKindScheme)
-                  (Map.lookup tyCon available)
+                Set.fromList
+                  ( maybe [] tyConInfoTyCons (Map.lookup tyCon availableTyCons)
+                      <> maybe [] dataTypeInfoTyCons (Map.lookup tyCon availableDataTypes)
+                      <> maybe [] classInfoTyCons (Map.lookup tyCon availableClasses)
+                  )
               found' = Set.insert tyCon found
            in closeTyCons found' (pending' <> (dependencies `Set.difference` found'))
+
+tyConInfoTyCons :: TyConInfo -> [TyCon]
+tyConInfoTyCons info =
+  typeSchemeTyCons (tciKindScheme info)
+    <> maybe [] (maybe [] typeTyCons . tsiBody) (tciTypeSynonym info)
+
+dataTypeInfoTyCons :: DataTypeInfo -> [TyCon]
+dataTypeInfoTyCons info =
+  dtiTyCon info
+    : typeTyCons (dtiResultKind info)
+      <> concatMap dataConInfoTyCons (dtiConstructors info)
+
+dataConInfoTyCons :: DataConInfo -> [TyCon]
+dataConInfoTyCons info =
+  concatMap predTyCons (dciTheta info)
+    <> concatMap (typeTyCons . dcfiType) (dciFields info)
+    <> typeTyCons (dciResTy info)
+
+classInfoTyCons :: ClassInfo -> [TyCon]
+classInfoTyCons info =
+  ciTyCon info
+    : concatMap typeTyCons (ciSuperClassTypes info)
+      <> concatMap (typeSchemeTyCons . snd) (ciMethods info)
+      <> concatMap (typeSchemeTyCons . snd) (ciDefaultSignatures info)
+
+instanceInfoTyCons :: InstanceInfo -> [TyCon]
+instanceInfoTyCons info =
+  typeTyCons (iiDictType info)
+    <> concatMap predTyCons (iiContext info)
+    <> concatMap typeTyCons (iiHead info)
+
+dataFamilyInstanceInfoTyCons :: DataFamilyInstanceInfo -> [TyCon]
+dataFamilyInstanceInfoTyCons info =
+  dfiiRepresentationTyCon info : typeTyCons (dfiiFamilyType info)
+
+typeFamilyInstanceInfoTyCons :: TypeFamilyInstanceInfo -> [TyCon]
+typeFamilyInstanceInfoTyCons info = typeTyCons (tfiiLeft info) <> typeTyCons (tfiiRight info)
 
 typeSchemeTyCons :: TypeScheme -> [TyCon]
 typeSchemeTyCons (ForAll _ predicates body) = concatMap predTyCons predicates <> typeTyCons body

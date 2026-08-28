@@ -32,6 +32,7 @@ data BuildExeOptions = BuildExeOptions
     buildExeTarget :: !NativeTarget,
     buildExeGarbageCollector :: !GarbageCollector,
     buildExeStoreRoot :: !(Maybe FilePath),
+    buildExeLint :: !Bool,
     buildExeOutputFile :: !(Maybe FilePath)
   }
   deriving (Eq, Show)
@@ -48,6 +49,7 @@ data InstallV2Options = InstallV2Options
     installV2StoreRoot :: !(Maybe FilePath),
     installV2KeepGrin :: !Bool,
     installV2KeepNative :: !Bool,
+    installV2Lint :: !Bool,
     installV2Verbose :: !Bool,
     installV2Target :: !NativeTarget
   }
@@ -120,6 +122,7 @@ buildExeOptionsParser =
     <*> nativeTargetOption
     <*> garbageCollectorOption
     <*> storeRootOption "Override the aihc store root"
+    <*> lintOption
     <*> OA.optional
       ( OA.strOption
           ( OA.long "output"
@@ -143,6 +146,13 @@ sourceDirectoryOptions =
   where
     defaultDirectory [] = ["."]
     defaultDirectory directories = directories
+
+lintOption :: OA.Parser Bool
+lintOption =
+  OA.switch
+    ( OA.long "lint"
+        <> OA.help "Run compiler intermediate-language lint checks"
+    )
 
 parseGarbageCollector :: String -> Either String GarbageCollector
 parseGarbageCollector value =
@@ -204,6 +214,7 @@ installV2OptionsParser =
       ( OA.long "keep-native"
           <> OA.help "Retain native source files"
       )
+    <*> lintOption
     <*> OA.switch
       ( OA.long "verbose"
           <> OA.short 'v'
