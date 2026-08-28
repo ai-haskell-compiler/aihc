@@ -1,0 +1,29 @@
+extensions:
+- ForeignFunctionInterface
+- MagicHash
+- UnboxedTuples
+source: |
+  module Test where
+  import GHC.Prim (Int#, RealWorld, State#)
+  data Int = I# Int#
+  newtype IO a = IO (State# RealWorld -> (# State# RealWorld, a #))
+  foreign import ccall unsafe "identity_int" identityInt :: Int -> IO Int
+expected: |-
+  constructor Test.I# [IntRep]
+
+  foreign identityInt = "identity_int" :: (int) -> int ! real-world
+
+  global "\NULTest\NULI#" = (CTest.I#/1)
+
+  global "\NULTest\NULidentityInt" = (P$grin_identityInt_foreign_0/[[BoxedRep Lifted], []])
+
+  $grin_identityInt_foreign_0 (foreign_argument_0%-1000000000 :: BoxedRep Lifted) -> TupleRep [TupleRep [],BoxedRep Lifted] =
+    foreign_box%-1000000001 :: BoxedRep Lifted <-
+      eval @(BoxedRep Lifted) (foreign_argument_0%-1000000000 :: BoxedRep Lifted)
+    case (foreign_box%-1000000001 :: BoxedRep Lifted) as foreign_box_case%-1000000002 :: BoxedRep Lifted of
+      data Test.I# (foreign_field%-1000000003 :: IntRep) ->
+        foreign_result%-1000000004 :: IntRep <-
+          foreign-call identityInt = "identity_int" :: (int) -> int ! real-world with (foreign_field%-1000000003 :: IntRep)
+        store (CTest.I# (foreign_result%-1000000004 :: IntRep))
+reason: uses only the adapters named by the System FC foreign declaration
+status: pass

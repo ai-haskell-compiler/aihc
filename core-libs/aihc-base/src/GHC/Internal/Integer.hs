@@ -10,6 +10,7 @@ module GHC.Internal.Integer
     integerAnd,
     integerBit#,
     integerComplement,
+    integerFromTwoWords#,
     integerMul,
     integerNegate,
     integerQuotRem,
