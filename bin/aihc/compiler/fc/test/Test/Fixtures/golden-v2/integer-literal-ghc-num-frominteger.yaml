@@ -16,27 +16,20 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
-  import header 2.tInt# :: 3.tTYPE 3.vIntRep
+  import headers
+    2.tInt# :: 3.tTYPE 3.vIntRep;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vIntRep :: 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity
 
-  import header 3.tLevity :: 3.tType
-
-  import header 3.tLiftedRep :: 3.tRuntimeRep
-
-  import header 3.tRuntimeRep :: 3.tType
-
-  import header 3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType
-
-  import header 3.tType :: 3.tType
-
-  import header 3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep
-
-  import header 3.vIntRep :: 3.tRuntimeRep
-
-  import header 3.vLifted :: 3.tLevity
-
-  import synonym 3.tLiftedRep = 3.vBoxedRep 3.vLifted
-
-  import synonym 3.tType = 3.tTYPE 3.tLiftedRep
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
 
   pub type 1.tInteger :: 3.tType {
       pub 1.vIS :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 1.tInteger
@@ -58,35 +51,24 @@ expected: |-
   scope 3 = "aihc-prim" GHC.Prim
   scope 4 = "aihc-prim" GHC.Types
 
-  import header 1.t$Dict$Num :: ∀(a : 4.tType). 4.tType
+  import headers
+    1.t$Dict$Num :: ∀(a : 4.tType). 4.tType;
+    3.tInt# :: 4.tTYPE 4.vIntRep;
+    1.tInteger :: 4.tType;
+    4.tLevity :: 4.tType;
+    4.tLiftedRep :: 4.tRuntimeRep;
+    4.tRuntimeRep :: 4.tType;
+    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType;
+    4.tType :: 4.tType;
+    4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
+    1.vIS :: FUN @4.vIntRep @4.tLiftedRep 3.tInt# 1.tInteger;
+    4.vIntRep :: 4.tRuntimeRep;
+    4.vLifted :: 4.tLevity;
+    1.vfromInteger :: ∀(a : 4.tType). 1.t$Dict$Num a 4.→ 1.tInteger 4.→ a
 
-  import header 3.tInt# :: 4.tTYPE 4.vIntRep
-
-  import header 1.tInteger :: 4.tType
-
-  import header 4.tLevity :: 4.tType
-
-  import header 4.tLiftedRep :: 4.tRuntimeRep
-
-  import header 4.tRuntimeRep :: 4.tType
-
-  import header 4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType
-
-  import header 4.tType :: 4.tType
-
-  import header 4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep
-
-  import header 1.vIS :: FUN @4.vIntRep @4.tLiftedRep 3.tInt# 1.tInteger
-
-  import header 4.vIntRep :: 4.tRuntimeRep
-
-  import header 4.vLifted :: 4.tLevity
-
-  import header 1.vfromInteger :: ∀(a : 4.tType). 1.t$Dict$Num a 4.→ 1.tInteger 4.→ a
-
-  import synonym 4.tLiftedRep = 4.vBoxedRep 4.vLifted
-
-  import synonym 4.tType = 4.tTYPE 4.tLiftedRep
+  import synonyms
+    4.tLiftedRep = 4.vBoxedRep 4.vLifted;
+    4.tType = 4.tTYPE 4.tLiftedRep
 
   pub val 2.vone :: ∀(a : 4.tType). 1.t$Dict$Num a 4.→ a
    = Λ(a : 4.tType).

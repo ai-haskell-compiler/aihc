@@ -59,41 +59,53 @@ scopeDeclaration =
 program :: Parser Program
 program = do
   scopes <- ask
-  imports <- foldr ($) emptyImports <$> MP.many importDeclaration
+  imports <- foldr ($) emptyImports . concat <$> MP.many importGroup
   Program scopes imports <$> MP.many declaration
   where
     emptyImports = Imports Map.empty Map.empty Map.empty Map.empty
 
-importDeclaration :: Parser (Imports -> Imports)
-importDeclaration = do
+importGroup :: Parser [Imports -> Imports]
+importGroup = do
   _ <- keyword "import"
   MP.choice
-    [ do
-        _ <- keyword "header"
-        name <- importedHeaderName
-        ty <- symbol "::" *> fcType
-        pure (\imports -> imports {importHeaders = Map.insert name ty (importHeaders imports)}),
-      do
-        _ <- keyword "synonym"
-        name <- topName SortSynonym
-        ty <- symbol "=" *> fcType
-        pure (\imports -> imports {importSynonyms = Map.insert name ty (importSynonyms imports)}),
-      do
-        sort <- (keyword "type-binder" $> SortTypeVariable) <|> (keyword "value-binder" $> SortValue)
-        name <- localNameWithSort sort
-        ty <- symbol "::" *> fcType
-        pure (\imports -> imports {importBinders = Map.insert name ty (importBinders imports)}),
-      do
-        _ <- keyword "axiom"
-        name <- topName SortAxiom
-        binders <- MP.many openPiBinder
-        _ <- symbol ":"
-        left <- fcType
-        role <- parseAxiomRole
-        right <- fcType
-        let axiom = AxiomDecl Private name binders role left right
-        pure (\imports -> imports {importAxioms = Map.insert name axiom (importAxioms imports)})
+    [ keyword "headers" *> importEntries importedHeader,
+      keyword "synonyms" *> importEntries importedSynonym,
+      keyword "axioms" *> importEntries importedAxiom,
+      keyword "type-binders" *> importEntries (importedBinder SortTypeVariable),
+      keyword "value-binders" *> importEntries (importedBinder SortValue)
     ]
+
+importEntries :: Parser (Imports -> Imports) -> Parser [Imports -> Imports]
+importEntries entry = entry `MP.sepBy1` symbol ";"
+
+importedHeader :: Parser (Imports -> Imports)
+importedHeader = do
+  name <- importedHeaderName
+  ty <- symbol "::" *> fcType
+  pure (\imports -> imports {importHeaders = Map.insert name ty (importHeaders imports)})
+
+importedSynonym :: Parser (Imports -> Imports)
+importedSynonym = do
+  name <- topName SortSynonym
+  ty <- symbol "=" *> fcType
+  pure (\imports -> imports {importSynonyms = Map.insert name ty (importSynonyms imports)})
+
+importedBinder :: Sort -> Parser (Imports -> Imports)
+importedBinder sort = do
+  name <- localNameWithSort sort
+  ty <- symbol "::" *> fcType
+  pure (\imports -> imports {importBinders = Map.insert name ty (importBinders imports)})
+
+importedAxiom :: Parser (Imports -> Imports)
+importedAxiom = do
+  name <- topName SortAxiom
+  binders <- MP.many openPiBinder
+  _ <- symbol ":"
+  left <- fcType
+  role <- parseAxiomRole
+  right <- fcType
+  let axiom = AxiomDecl Private name binders role left right
+  pure (\imports -> imports {importAxioms = Map.insert name axiom (importAxioms imports)})
 
 importedHeaderName :: Parser Name
 importedHeaderName =

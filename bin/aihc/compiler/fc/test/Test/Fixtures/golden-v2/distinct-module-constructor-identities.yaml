@@ -26,23 +26,18 @@ expected: |-
   scope 1 = "" First
   scope 2 = "aihc-prim" GHC.Types
 
-  import header 2.tLevity :: 2.tType
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
 
-  import header 2.tLiftedRep :: 2.tRuntimeRep
-
-  import header 2.tRuntimeRep :: 2.tType
-
-  import header 2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType
-
-  import header 2.tType :: 2.tType
-
-  import header 2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep
-
-  import header 2.vLifted :: 2.tLevity
-
-  import synonym 2.tLiftedRep = 2.vBoxedRep 2.vLifted
-
-  import synonym 2.tType = 2.tTYPE 2.tLiftedRep
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
 
   pub type 1.tItem :: 2.tType {
       pub 1.vFirstItem :: 1.tItem
@@ -54,23 +49,18 @@ expected: |-
   scope 1 = "" Second
   scope 2 = "aihc-prim" GHC.Types
 
-  import header 2.tLevity :: 2.tType
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity
 
-  import header 2.tLiftedRep :: 2.tRuntimeRep
-
-  import header 2.tRuntimeRep :: 2.tType
-
-  import header 2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType
-
-  import header 2.tType :: 2.tType
-
-  import header 2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep
-
-  import header 2.vLifted :: 2.tLevity
-
-  import synonym 2.tLiftedRep = 2.vBoxedRep 2.vLifted
-
-  import synonym 2.tType = 2.tTYPE 2.tLiftedRep
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep
 
   pub type 1.tItem :: 2.tType {
       pub 1.vSecondItem :: 1.tItem
@@ -84,35 +74,24 @@ expected: |-
   scope 3 = "" Test
   scope 4 = "aihc-prim" GHC.Types
 
-  import header 1.tItem :: 4.tType
+  import headers
+    1.tItem :: 4.tType;
+    2.tItem :: 4.tType;
+    4.tLevity :: 4.tType;
+    4.tLiftedRep :: 4.tRuntimeRep;
+    4.tRuntimeRep :: 4.tType;
+    4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType;
+    4.tType :: 4.tType;
+    1.tValue :: 4.tType;
+    2.tValue :: 4.tType;
+    4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep;
+    4.vLifted :: 4.tLevity;
+    1.vShared :: 1.tItem 4.→ 1.tValue;
+    2.vShared :: 2.tItem 4.→ 2.tValue
 
-  import header 2.tItem :: 4.tType
-
-  import header 4.tLevity :: 4.tType
-
-  import header 4.tLiftedRep :: 4.tRuntimeRep
-
-  import header 4.tRuntimeRep :: 4.tType
-
-  import header 4.tTYPE :: ∀(rep : 4.tRuntimeRep). 4.tType
-
-  import header 4.tType :: 4.tType
-
-  import header 1.tValue :: 4.tType
-
-  import header 2.tValue :: 4.tType
-
-  import header 4.vBoxedRep :: 4.tLevity 4.→ 4.tRuntimeRep
-
-  import header 4.vLifted :: 4.tLevity
-
-  import header 1.vShared :: 1.tItem 4.→ 1.tValue
-
-  import header 2.vShared :: 2.tItem 4.→ 2.tValue
-
-  import synonym 4.tLiftedRep = 4.vBoxedRep 4.vLifted
-
-  import synonym 4.tType = 4.tTYPE 4.tLiftedRep
+  import synonyms
+    4.tLiftedRep = 4.vBoxedRep 4.vLifted;
+    4.tType = 4.tTYPE 4.tLiftedRep
 
   pub val 3.vfirst :: 1.tValue 4.→ 1.tItem
    = λ(x : 1.tValue).

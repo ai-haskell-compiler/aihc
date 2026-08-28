@@ -49,16 +49,27 @@ prettyProgram program =
 
 prettyImports :: TypeEnv -> ScopeTable -> Imports -> [Doc ann]
 prettyImports env scopes imports =
-  map (\(name, ty) -> "import header" <+> prettyTopName scopes name <+> "::" <+> prettyTypeWith env scopes PrecForAll ty) (Map.toAscList (importHeaders imports))
-    <> map (\(name, ty) -> "import synonym" <+> prettyTopName scopes name <+> "=" <+> prettyTypeWith env scopes PrecForAll ty) (Map.toAscList (importSynonyms imports))
-    <> map (\(name, axiom) -> "import axiom" <+> prettyTopName scopes name <> prettyForAllBinders env scopes (axiomBinders axiom) <+> ":" <+> prettyTypeWith env scopes PrecEq (axiomLeft axiom) <+> prettyAxiomRole (axiomRole axiom) <+> prettyTypeWith env scopes PrecEq (axiomRight axiom)) (Map.toAscList (importAxioms imports))
-    <> map (\(name, ty) -> "import" <+> prettyBinderImportSort name <+> prettyName scopes name <+> "::" <+> prettyTypeWith env scopes PrecForAll ty) (Map.toAscList (importBinders imports))
+  prettyImportGroup "headers" headerEntries
+    <> prettyImportGroup "synonyms" synonymEntries
+    <> prettyImportGroup "axioms" axiomEntries
+    <> prettyImportGroup "type-binders" typeBinderEntries
+    <> prettyImportGroup "value-binders" valueBinderEntries
+  where
+    headerEntries =
+      map (\(name, ty) -> prettyTopName scopes name <+> "::" <+> prettyTypeWith env scopes PrecForAll ty) (Map.toAscList (importHeaders imports))
+    synonymEntries =
+      map (\(name, ty) -> prettyTopName scopes name <+> "=" <+> prettyTypeWith env scopes PrecForAll ty) (Map.toAscList (importSynonyms imports))
+    axiomEntries =
+      map (\(name, axiom) -> prettyTopName scopes name <> prettyForAllBinders env scopes (axiomBinders axiom) <+> ":" <+> prettyTypeWith env scopes PrecEq (axiomLeft axiom) <+> prettyAxiomRole (axiomRole axiom) <+> prettyTypeWith env scopes PrecEq (axiomRight axiom)) (Map.toAscList (importAxioms imports))
+    typeBinderEntries = map prettyBinderEntry (filter ((== SortTypeVariable) . nameSort . fst) binderEntries)
+    valueBinderEntries = map prettyBinderEntry (filter ((/= SortTypeVariable) . nameSort . fst) binderEntries)
+    binderEntries = Map.toAscList (importBinders imports)
+    prettyBinderEntry (name, ty) = prettyName scopes name <+> "::" <+> prettyTypeWith env scopes PrecForAll ty
 
-prettyBinderImportSort :: Name -> Doc ann
-prettyBinderImportSort name =
-  case nameSort name of
-    SortTypeVariable -> "type-binder"
-    _ -> "value-binder"
+prettyImportGroup :: Doc ann -> [Doc ann] -> [Doc ann]
+prettyImportGroup _ [] = []
+prettyImportGroup group entries =
+  ["import" <+> group <> hardline <> indent 2 (vsep (punctuate ";" entries))]
 
 prettyScopes :: [(Int, PackageId, Text)] -> Doc ann
 prettyScopes = vsep . map prettyScopeEntry

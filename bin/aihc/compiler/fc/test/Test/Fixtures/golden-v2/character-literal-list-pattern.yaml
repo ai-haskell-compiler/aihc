@@ -21,33 +21,23 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
-  import header 2.tChar# :: 3.tTYPE 3.vWordRep
+  import headers
+    2.tChar# :: 3.tTYPE 3.vWordRep;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.t[] :: ∀(a : 3.tType). 3.tType;
+    3.v: :: ∀(a : 3.tType). a 3.→ 3.t[] a 3.→ 3.t[] a;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity;
+    3.vWordRep :: 3.tRuntimeRep;
+    3.v[] :: ∀(a : 3.tType). 3.t[] a
 
-  import header 3.tLevity :: 3.tType
-
-  import header 3.tLiftedRep :: 3.tRuntimeRep
-
-  import header 3.tRuntimeRep :: 3.tType
-
-  import header 3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType
-
-  import header 3.tType :: 3.tType
-
-  import header 3.t[] :: ∀(a : 3.tType). 3.tType
-
-  import header 3.v: :: ∀(a : 3.tType). a 3.→ 3.t[] a 3.→ 3.t[] a
-
-  import header 3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep
-
-  import header 3.vLifted :: 3.tLevity
-
-  import header 3.vWordRep :: 3.tRuntimeRep
-
-  import header 3.v[] :: ∀(a : 3.tType). 3.t[] a
-
-  import synonym 3.tLiftedRep = 3.vBoxedRep 3.vLifted
-
-  import synonym 3.tType = 3.tTYPE 3.tLiftedRep
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
 
   pub type 1.tChar :: 3.tType {
       pub 1.vC# :: FUN @3.vWordRep @3.tLiftedRep 2.tChar# 1.tChar
