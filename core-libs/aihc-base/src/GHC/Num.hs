@@ -2,6 +2,10 @@
 
 module GHC.Num
   ( Num (..),
+    integerAdd,
+    integerFromTwoWords#,
+    integerNegate,
+    integerShiftL#,
   )
 where
 
@@ -10,8 +14,10 @@ import GHC.Internal.Integer
   ( Integer,
     integerAbs,
     integerAdd,
+    integerFromTwoWords#,
     integerMul,
     integerNegate,
+    integerShiftL#,
     integerSignum,
     integerSub,
     integerToInt#,

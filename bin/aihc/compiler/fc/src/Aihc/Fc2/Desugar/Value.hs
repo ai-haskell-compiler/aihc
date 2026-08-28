@@ -4,7 +4,6 @@
 -- | Direct value desugaring from checked source syntax to System FC 2.
 module Aihc.Fc2.Desugar.Value
   ( desugarValues,
-    valueDesugarSupportTerms,
   )
 where
 
@@ -81,20 +80,6 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
-
-valueDesugarSupportTerms :: TyCon -> [(PackageId, Text, Text)]
-valueDesugarSupportTerms tyCon
-  | moduleName == "GHC.Internal.Integer",
-    tyConName tyCon == "Integer" =
-      map term ["integerAdd", "integerFromTwoWords#", "integerNegate", "integerShiftL#"]
-  | moduleName == "Type.Reflection",
-    tyConName tyCon == "Typeable" =
-      [term "typeRep"]
-  | otherwise = []
-  where
-    package = tyConPackageId tyCon
-    moduleName = tyConModuleName tyCon
-    term name = (package, moduleName, name)
 
 data ValueState = ValueState
   { vsNextUnique :: !Int,
