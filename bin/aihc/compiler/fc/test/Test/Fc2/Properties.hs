@@ -8,6 +8,7 @@ where
 import Aihc.Fc2
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc.Types (Unique (..))
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Hedgehog (Gen, Property, annotate, failure, forAll, property, (===))
@@ -121,6 +122,7 @@ identityProgram :: Program
 identityProgram =
   Program
     { programScopes = scopes,
+      programImports = Imports mempty mempty mempty mempty,
       programDecls =
         [ DeclType
             TypeDecl
@@ -159,7 +161,30 @@ identityProgram =
     }
 
 genProgram :: Gen Program
-genProgram = Program scopes <$> Gen.list (Range.linear 0 10) genDecl
+genProgram = Program scopes <$> genImports <*> Gen.list (Range.linear 0 10) genDecl
+
+genImports :: Gen Imports
+genImports = do
+  headers <- genMap genHeaderName genType
+  synonyms <- genMap (synonymNameTop . ("ImportedS" <>) <$> genSuffix) genType
+  axioms <- Map.fromList <$> Gen.list (Range.linear 0 5) genImportedAxiom
+  binders <- genMap genLocalName genType
+  pure (Imports headers synonyms axioms binders)
+  where
+    genMap makeName makeValue = Map.fromList <$> Gen.list (Range.linear 0 5) ((,) <$> makeName <*> makeValue)
+    genHeaderName = do
+      suffix <- genSuffix
+      Gen.element
+        [ typeNameTop ("ImportedT" <> suffix),
+          dataNameTop ("ImportedC" <> suffix),
+          synonymNameTop ("ImportedS" <> suffix),
+          valueNameTop ("importedV" <> suffix)
+        ]
+    genLocalName = Gen.choice [genLocalTypeName, genLocalValueName]
+    genImportedAxiom = do
+      name <- axiomNameTop . ("importedAxiom" <>) <$> genSuffix
+      declaration <- AxiomDecl Private name <$> Gen.list (Range.linear 0 3) genTypeBinder <*> genRole <*> genType <*> genType
+      pure (name, declaration)
 
 genDecl :: Gen Decl
 genDecl =
@@ -224,7 +249,15 @@ genForeignImportDecl =
     <$> genVis
     <*> (valueNameTop . ("foreign" <>) <$> genSuffix)
     <*> genCallingConvention
+    <*> Gen.list (Range.linear 0 4) genForeignImportDependency
     <*> genType
+
+genForeignImportDependency :: Gen ForeignImportDependency
+genForeignImportDependency =
+  Gen.choice
+    [ ForeignAxiom . axiomNameTop . ("foreignAxiom" <>) <$> genSuffix,
+      ForeignConstructor . dataNameTop . ("ForeignConstructor" <>) <$> genSuffix
+    ]
 
 genCallingConvention :: Gen CallingConvention
 genCallingConvention =
@@ -321,6 +354,7 @@ genTidyProgram = do
   pure
     Program
       { programScopes = scopes,
+        programImports = Imports mempty mempty mempty mempty,
         programDecls =
           [ DeclVal
               ValDecl

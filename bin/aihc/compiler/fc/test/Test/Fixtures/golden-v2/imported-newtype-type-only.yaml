@@ -2,12 +2,13 @@ extensions: []
 modules:
   - |
     module Base where
-    newtype Box a = Box a
+    data Payload = Payload
+    newtype Token = Token Payload
   - |
     module Test where
-    import Base (Box(..))
-    unbox :: Box a -> a
-    unbox (Box value) = value
+    import Base (Token)
+    keep :: Token -> Token
+    keep value = value
 expected: |-
   scope 1 = "" Base
   scope 2 = "aihc-prim" GHC.Types
@@ -25,19 +26,23 @@ expected: |-
     2.tLiftedRep = 2.vBoxedRep 2.vLifted;
     2.tType = 2.tTYPE 2.tLiftedRep
 
-  pub type 1.tBox (a : 2.tType) :: 2.tType {}
+  pub type 1.tPayload :: 2.tType {
+      pub 1.vPayload :: 1.tPayload
+  }
 
-  axiom 1.$ax$Box (a : 2.tType) : 1.tBox a ~R a
+  pub type 1.tToken :: 2.tType {}
+
+  axiom 1.$ax$Token : 1.tToken ~R 1.tPayload
   scope 1 = "" Base
   scope 2 = "" Test
   scope 3 = "aihc-prim" GHC.Types
 
   import headers
-    1.tBox :: ∀(a : 3.tType). 3.tType;
     3.tLevity :: 3.tType;
     3.tLiftedRep :: 3.tRuntimeRep;
     3.tRuntimeRep :: 3.tType;
     3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    1.tToken :: 3.tType;
     3.tType :: 3.tType;
     3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
     3.vLifted :: 3.tLevity
@@ -46,16 +51,8 @@ expected: |-
     3.tLiftedRep = 3.vBoxedRep 3.vLifted;
     3.tType = 3.tTYPE 3.tLiftedRep
 
-  import axioms
-    1.$ax$Box (a : 3.tType) : 1.tBox a ~R a
-
-  pub val 2.vunbox :: ∀(a : 3.tType). 1.tBox a 3.→ a
-   = Λ(a : 3.tType).
-    λ(x : 1.tBox a).
-      let {
-          value : a =
-              x ▷ axiom-co 1.$ax$Box @a
-      } in
-          value
+  pub val 2.vkeep :: 1.tToken 3.→ 1.tToken
+   = λ(x : 1.tToken).
+    x
 status: pass
-reason: ''
+reason: A type-only reference does not import its representational axiom.

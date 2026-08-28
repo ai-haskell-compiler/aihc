@@ -17,6 +17,23 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import headers
+    2.tAddr# :: 3.tTYPE 3.vAddrRep;
+    2.tInt# :: 3.tTYPE 3.vIntRep;
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    3.tRuntimeRep :: 3.tType;
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tType :: 3.tType;
+    3.vAddrRep :: 3.tRuntimeRep;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vIntRep :: 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep
+
   pub type 1.tBoxInt :: 3.tType {
       pub 1.vBoxInt :: FUN @3.vIntRep @3.tLiftedRep 2.tInt# 1.tBoxInt
   }

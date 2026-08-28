@@ -1,7 +1,9 @@
 scope 1 = "" Test
 scope 2 = "aihc-prim" GHC.Types
+scope 3 = "dependency" Dependency
 
 import headers
+  3.tExternal :: 2.tType;
   2.tLevity :: 2.tType;
   2.tLiftedRep :: 2.tRuntimeRep;
   2.tRuntimeRep :: 2.tType;
@@ -14,10 +16,4 @@ import synonyms
   2.tLiftedRep = 2.vBoxedRep 2.vLifted;
   2.tType = 2.tTYPE 2.tLiftedRep
 
-foreign import prim 1.vraise# :: ∀(a : 2.tType) (b : 2.tType). a 2.→ b
-
-val 1.vboom :: ∀(a : 2.tType) (b : 2.tType). a 2.→ b
- = Λ(a : 2.tType).
-  Λ(b : 2.tType).
-    λ(x : a).
-      1.vraise# @a @b x
+pub type 1.tLocal :: 2.tType {}

@@ -15,7 +15,6 @@ import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRun
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2)
 import Aihc.Fc2 qualified as Fc2
-import Aihc.Fc2.TypeOf qualified as Fc2Type
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
 import Aihc.Native (NativeTarget (..), backendCompiler, nativeTargetStoreDirectory)
@@ -101,7 +100,6 @@ data SourceModule = SourceModule
 data CompileState = CompileState
   { compileExports :: !ModuleExports,
     compileTypes :: !TcInterface,
-    compilePrograms :: !(Map.Map Text Fc2.Program),
     compileObjects :: ![FilePath]
   }
 
@@ -121,7 +119,7 @@ runBuildExe options = do
   runtime <- ensureRuntime storeRoot target (buildExeGarbageCollector options)
   entry <- ensureEntry storeRoot target
   withTemporaryDirectory "aihc-build-exe" $ \directory -> do
-    objects <- compileSources target targetStoreRoot directory dependencyExports dependencyTypes sources
+    objects <- compileSources target directory dependencyExports dependencyTypes sources
     createDirectoryIfMissing True (takeDirectory output)
     linkExecutable target output objects (map packageArchive selected) entry runtime
 
@@ -312,13 +310,13 @@ sourceExtensions source = effectiveExtensions language (headerExtensionSettings 
 sourceName :: SourceModule -> Text
 sourceName = fromMaybe "Main" . moduleName . sourceAst
 
-compileSources :: NativeTarget -> FilePath -> FilePath -> ModuleExports -> TcInterface -> [SourceModule] -> IO [FilePath]
-compileSources target storeRoot buildRoot dependencyExports dependencyTypes sources = do
+compileSources :: NativeTarget -> FilePath -> ModuleExports -> TcInterface -> [SourceModule] -> IO [FilePath]
+compileSources target buildRoot dependencyExports dependencyTypes sources = do
   final <- foldM compileUnit initial (moduleSccs sources)
   pure (compileObjects final)
   where
     executablePackage = Package "exe" (PackageId "exe")
-    initial = CompileState dependencyExports dependencyTypes Map.empty []
+    initial = CompileState dependencyExports dependencyTypes []
     moduleSccs values = map flatten (stronglyConnComp (map node values))
       where
         localNames = Set.fromList (map sourceName values)
@@ -351,23 +349,14 @@ compileSources target storeRoot buildRoot dependencyExports dependencyTypes sour
           results = map (desugarModuleFc2 (DesugarConfig (primPackageIdentity state)) bindings completeInterface) checkedModules
       unless (all ds2Success results) (ioError (userError ("Core-v2 generation failed: " <> unlines (concatMap ds2Errors results))))
       let programs = map ds2Program results
-          unitPrograms = Map.fromList (zip (map (fromMaybe "Main" . moduleName) checkedModules) programs)
-          allPrograms = Map.union unitPrograms (compilePrograms state)
-          installedLoader = Fc2.storeModuleLoader storeRoot
-          loader package name
-            | package == PackageId "exe" = pure (Map.lookup name allPrograms)
-            | otherwise = installedLoader package name
-      loaded <- Fc2.loadScopeClosure loader programs
-      let lintErrors = Fc2.lintPrograms loaded
+          lintErrors = concatMap Fc2.lintProgram programs
       unless (null lintErrors) (ioError (userError ("Core-v2 lint failed: " <> show lintErrors)))
-      let typeEnv = Fc2Type.typeEnvFromPrograms loaded
-      objects <- zipWithM (writeObject typeEnv) checkedModules programs
+      objects <- zipWithM writeObject checkedModules programs
       let localExports = extractInterfaceWithDeps (compileExports state) resolved `Map.union` compileExports state
       pure
         CompileState
           { compileExports = localExports,
             compileTypes = completeInterface,
-            compilePrograms = allPrograms,
             compileObjects = compileObjects state <> objects
           }
     primPackageIdentity state =
@@ -378,8 +367,8 @@ compileSources target storeRoot buildRoot dependencyExports dependencyTypes sour
              ] of
           identity : _ -> Just identity
           [] -> Nothing
-    writeObject typeEnv modu program = do
-      grin <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv program)
+    writeObject modu program = do
+      grin <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram program)
       cps <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin grin)
       let gcProgram = Grin.lowerGc cps
           name = fromMaybe "Main" (moduleName modu)
