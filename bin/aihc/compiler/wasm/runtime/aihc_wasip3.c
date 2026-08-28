@@ -82,7 +82,7 @@ static void aihc_wasi_initialize_arguments(void) {
       buffer[offset++] = 0;
     }
   }
-  if (aihc_program_arguments_replace(buffer, (int64_t)length) != 0) {
+  if (aihc_runtime_arguments_initialize(buffer, (int64_t)length) != 0) {
     free(buffer);
     command_list_string_free(&arguments);
     abort();

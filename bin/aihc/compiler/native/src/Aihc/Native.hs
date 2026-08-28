@@ -185,6 +185,7 @@ runtimeSourcePath = getDataFileName "compiler/native/runtime/aihc_runtime.c"
 runtimePlan :: NativeTarget -> RuntimeGarbageCollector -> IO RuntimePlan
 runtimePlan target garbageCollector = do
   core <- runtimeSourcePath
+  rts <- getDataFileName "compiler/native/runtime/aihc_rts.c"
   collector <-
     getDataFileName $ case garbageCollector of
       RuntimeGcCalloc -> "compiler/native/runtime/aihc_gc_calloc.c"
@@ -197,7 +198,7 @@ runtimePlan target garbageCollector = do
   pure
     RuntimePlan
       { runtimeSources =
-          [core, collector, host]
+          [core, rts, collector, host]
             <> [trampoline | target == Wasm32Wasip3],
         runtimeIncludeDirectories = [takeDirectory core]
       }
