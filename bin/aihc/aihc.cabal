@@ -22,11 +22,11 @@ extra-source-files:
   test/Test/Fixtures/build-exe/source-directories/Cycle.hs
   test/Test/Fixtures/build-exe/source-directories/Main.hs
   test/Test/Fixtures/build-exe/source-directories/Message.hs
-  test/Test/Fixtures/install-v2/keep-grin/demo.cabal
-  test/Test/Fixtures/install-v2/keep-grin/src/Demo.hs
-  test/Test/Fixtures/install-v2/resolve-error/demo.cabal
-  test/Test/Fixtures/install-v2/resolve-error/expected.txt
-  test/Test/Fixtures/install-v2/resolve-error/src/Demo.hs
+  test/Test/Fixtures/install/keep-grin/demo.cabal
+  test/Test/Fixtures/install/keep-grin/src/Demo.hs
+  test/Test/Fixtures/install/resolve-error/demo.cabal
+  test/Test/Fixtures/install/resolve-error/expected.txt
+  test/Test/Fixtures/install/resolve-error/src/Demo.hs
 
 data-files:
   compiler/native/runtime/aihc_gc_calloc.c
@@ -62,10 +62,10 @@ library compiler
     Aihc.Cli
     Aihc.Cli.BuildExe
     Aihc.Cli.Install
-    Aihc.Cli.InstallV2
     Aihc.Cli.Options
     Aihc.Cli.PackageInterface
     Aihc.Cli.PackageManifest
+    Aihc.Cli.PackagePlan
     Aihc.Cli.ResolveArtifact
     Aihc.Cli.Runtime
     Aihc.Cli.Store

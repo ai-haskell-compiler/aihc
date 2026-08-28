@@ -5,7 +5,7 @@ module Test.TcStackageProgress
   )
 where
 
-import Aihc.Cli.Install (DependencyResolver (..), newPackageCheckCache, newPackagePlanCache)
+import Aihc.Cli.PackagePlan (DependencyResolver (..), newPackageCheckCache, newPackagePlanCache)
 import Aihc.Hackage.Cabal (FileInfo (..))
 import Aihc.Hackage.Types (PackageSpec (..))
 import Control.Exception (bracket)

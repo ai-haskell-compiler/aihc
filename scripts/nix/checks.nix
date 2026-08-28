@@ -356,8 +356,8 @@
     test "$failed" -eq 0
   '';
 
-  coreLibrariesInstallV2 =
-    pkgs.runCommand "aihc-core-libraries-install-v2" {
+  coreLibrariesInstall =
+    pkgs.runCommand "aihc-core-libraries-install" {
       src = sources.coreLibrariesSrc pkgs;
       nativeBuildInputs = [
         pkgs.findutils
@@ -371,7 +371,7 @@
       store="$TMPDIR/store"
       mkdir -p "$store"
 
-      ${aihcExe} install-v2 core-libs/aihc-prim --store "$store" --keep-grin --target apple-arm64
+      ${aihcExe} install core-libs/aihc-prim --store "$store" --keep-grin --target apple-arm64
 
       test -n "$(find "$store" -path '*/GHC/Prim/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
@@ -410,7 +410,7 @@
       ${aihcExe} prepare-runtime --target wasm32-wasip3 --gc calloc --store "$out"
 
       ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          ${aihcExe} install-v2 core-libs/aihc-base --store "$out" --target ${target}
+          ${aihcExe} install core-libs/aihc-base --store "$out" --target ${target}
         '')
         exampleToolchainTargets}
 
@@ -630,7 +630,7 @@ in {
   c-lint = cLint;
   c-format = cFormat;
   cabal-format = cabalFormat;
-  core-libraries-install-v2 = coreLibrariesInstallV2;
+  core-libraries-install = coreLibrariesInstall;
   examples-tests = examplesTests;
   wasip3-example-test = wasip3ExampleTest;
 }

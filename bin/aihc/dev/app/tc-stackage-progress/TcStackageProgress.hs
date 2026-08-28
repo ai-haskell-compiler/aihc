@@ -12,7 +12,7 @@ module TcStackageProgress
   )
 where
 
-import Aihc.Cli.Install
+import Aihc.Cli.PackagePlan
   ( DependencyResolver (..),
     PackageCheckCache,
     PackagePlan (..),
