@@ -131,25 +131,26 @@ runBuildExe options = do
   available <- readInstalledPackages targetStoreRoot
   constraints <- mapM parsePackageConstraint (buildExePackageConstraints options)
   selected <- resolvePackages available (constraints <> map implicitConstraint ["aihc-base", "aihc-prim"])
+  primIdentity <- requireInstalledPackageIdentity "aihc-prim" selected
   mapM_ requirePackageArchive selected
   let moduleIndex = buildInstalledModuleIndex selected
   sources <- discoverSources sourceDirectories moduleIndex (buildExeSourceFile options)
   runtime <- ensureRuntime storeRoot target (buildExeGarbageCollector options)
   entry <- ensureEntry storeRoot target
   withTemporaryDirectory "aihc-build-exe" $ \directory -> do
-    objects <- compileSources target directory moduleIndex (installedPackageIdentity "aihc-prim" selected) (buildExeLint options) sources
+    objects <- compileSources target directory moduleIndex primIdentity (buildExeLint options) sources
     createDirectoryIfMissing True (takeDirectory output)
     linkExecutable target output objects (map packageArchive selected) entry runtime
 
-installedPackageIdentity :: Text -> [InstalledPackage] -> PackageId
-installedPackageIdentity wanted packages =
-  fromMaybe (PackageId wanted) $
-    case [ PackageId (packageManifestIdentity (installedManifest package))
-         | package <- packages,
-           packageManifestName (installedManifest package) == wanted
-         ] of
-      identity : _ -> Just identity
-      [] -> Nothing
+requireInstalledPackageIdentity :: Text -> [InstalledPackage] -> IO PackageId
+requireInstalledPackageIdentity wanted packages =
+  case [ PackageId (packageManifestIdentity (installedManifest package))
+       | package <- packages,
+         packageManifestName (installedManifest package) == wanted
+       ] of
+    [identity] -> pure identity
+    [] -> ioError (userError ("The dependency plan does not include " <> T.unpack wanted))
+    _ -> ioError (userError ("The dependency plan selects more than one build of " <> T.unpack wanted))
 
 implicitConstraint :: Text -> PackageConstraint
 implicitConstraint name =
@@ -188,6 +189,7 @@ resolvePackages :: [InstalledPackage] -> [PackageConstraint] -> IO [InstalledPac
 resolvePackages available constraints = do
   roots <- mapM select grouped
   closure <- foldM addPackage [] roots
+  validateSelectedPackageNames closure
   validateSelectedConstraints closure grouped
   pure closure
   where
@@ -202,7 +204,10 @@ resolvePackages available constraints = do
     select (name, ranges) =
       case sortOn installedVersion (filter (matches name ranges) available) of
         [] -> ioError (userError ("No compiled library fulfills the constraint for " <> T.unpack name))
-        matches' -> pure (last matches')
+        matches' ->
+          case filter ((== installedVersion (last matches')) . installedVersion) matches' of
+            [package] -> pure package
+            _ -> ioError (userError ("More than one compiled build fulfills the constraint for " <> T.unpack name))
     matches name ranges package =
       packageManifestName (installedManifest package) == name
         && all (installedVersion package `withinRange`) ranges
@@ -217,6 +222,17 @@ resolvePackages available constraints = do
         pure
         (find ((== wanted) . identity) available)
     identity = packageManifestIdentity . installedManifest
+    validateSelectedPackageNames selected =
+      mapM_ validateName (Map.toList packagesByName)
+      where
+        packagesByName =
+          Map.fromListWith
+            (<>)
+            [ (packageManifestName (installedManifest package), [package])
+            | package <- selected
+            ]
+        validateName (_, [_]) = pure ()
+        validateName (name, _) = ioError (userError ("The dependency plan selects more than one build of " <> T.unpack name))
     validateSelectedConstraints selected =
       mapM_ $ \(name, ranges) ->
         case filter ((== name) . packageManifestName . installedManifest) selected of
@@ -264,6 +280,7 @@ discoverSources sourceDirectories moduleIndex mainPath = do
   mainSource <- parseSource mainPath
   unless (sourceModuleName mainSource == "Main") (ioError (userError ("The input file does not define module Main: " <> mainPath)))
   discovered <- visit Map.empty mainSource
+  when (Map.member "Aihc.Entry" discovered) (ioError (userError "Source module conflicts with generated module Aihc.Entry"))
   entrySource <- parseSourceText "<aihc-entry>" entryText
   pure (Map.elems discovered <> [entrySource])
   where
@@ -434,19 +451,18 @@ compileSources target buildRoot moduleIndex primIdentity lint sources = do
             compileObjects = compileObjects stateWithDependencies <> objects,
             compileLoadedModules = compileLoadedModules stateWithDependencies
           }
-    loadUnitDependencies state unit =
-      foldM loadDependency state $
-        nub
-          [ dependency
-          | source <- unit,
-            dependency <- sourceDependencies source,
-            not (isLocalSourceDependency dependency)
-              || sourceDependencyModule dependency `Set.notMember` localNames
-          ]
-    loadDependency state dependency = do
-      installedModules <- requireInstalledModules dependency
+    loadUnitDependencies state unit = do
+      installedModules <- mapM requireInstalledModule (installedDependencies unit)
       foldM loadInstalledModule state installedModules
-    requireInstalledModules dependency =
+    installedDependencies unit =
+      nub
+        [ dependency
+        | source <- unit,
+          dependency <- sourceDependencies source,
+          not (isLocalSourceDependency dependency)
+            || sourceDependencyModule dependency `Set.notMember` localNames
+        ]
+    requireInstalledModule dependency =
       case selectedModules of
         [] ->
           ioError
@@ -456,7 +472,8 @@ compileSources target buildRoot moduleIndex primIdentity lint sources = do
                     <> T.unpack requestedName
                 )
             )
-        modules -> pure modules
+        [installedModule] -> pure installedModule
+        _ -> ioError (userError ("Ambiguous installed module: " <> T.unpack requestedName))
       where
         requestedName = sourceDependencyModule dependency
         requestedPackage = sourceDependencyPackage dependency
@@ -504,11 +521,17 @@ compileSources target buildRoot moduleIndex primIdentity lint sources = do
         typePath = moduleRoot </> "type.cbor"
     writeObject modu program = do
       grin <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram program)
+      when lint $ do
+        let grinErrors = Grin.lintProgram grin
+        unless (null grinErrors) (ioError (userError ("GRIN lint failed: " <> show grinErrors)))
       cps <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin grin)
       let gcProgram = Grin.lowerGc cps
           name = fromMaybe "Main" (moduleName modu)
           object = buildRoot </> T.unpack (T.replace "." "-" name) <> ".o"
           source = object <> if target == Llvm then ".ll" else ".s"
+      when lint $ do
+        let gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
+        unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
       assembly <- compileBackend target gcProgram
       TIO.writeFile source assembly
       (compiler, arguments) <- backendCompiler target

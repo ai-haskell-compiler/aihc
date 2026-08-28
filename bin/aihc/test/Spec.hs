@@ -5,7 +5,7 @@ module Main (main) where
 import Aihc.Cli.BuildExe (runBuildExe)
 import Aihc.Cli.InstallV2 (InstallV2Result (..), installV2)
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcCalloc), InstallV2Options (..))
-import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest)
+import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc2 qualified as Fc2
@@ -15,7 +15,7 @@ import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
-import Data.List (isPrefixOf, sort)
+import Data.List (isInfixOf, isPrefixOf, sort)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -74,6 +74,7 @@ prop_dummy = property success
 test_buildExeSourceDirectories :: Assertion
 test_buildExeSourceDirectories = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/source-directories"
+  entryCollisionRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/generated-entry-collision"
   baseRoot <- findCoreLibraryRoot "aihc-base"
   let target = fromMaybe Llvm hostNativeTarget
   withTempDir "aihc-build-exe" $ \root -> do
@@ -109,12 +110,79 @@ test_buildExeSourceDirectories = do
     BS.writeFile requiredFc2 "invalid required System FC"
     runBuildExe options {buildExeLint = True}
     BS.writeFile requiredFc2 fc2Bytes
+    writeCachedPackage storeRoot target "duplicate-1.0.0-a" "duplicate" "1.0.0" [] ["System.IO"]
+    ambiguousModule <-
+      try
+        ( runBuildExe
+            options
+              { buildExePackageConstraints = buildExePackageConstraints options <> ["duplicate == 1.0.0"]
+              }
+        ) ::
+        IO (Either IOException ())
+    case ambiguousModule of
+      Left err -> assertBool "reports the ambiguous installed module" ("Ambiguous installed module: System.IO" `isInfixOf` ioeGetErrorString err)
+      Right () -> assertFailure "expected the installed module import to be ambiguous"
+    writeCachedPackage storeRoot target "duplicate-1.0.0-b" "duplicate" "1.0.0" [] []
+    ambiguousPackage <-
+      try
+        ( runBuildExe
+            options
+              { buildExePackageConstraints = buildExePackageConstraints options <> ["duplicate == 1.0.0"]
+              }
+        ) ::
+        IO (Either IOException ())
+    case ambiguousPackage of
+      Left err -> assertBool "reports ambiguous package builds" ("More than one compiled build fulfills the constraint for duplicate" `isInfixOf` ioeGetErrorString err)
+      Right () -> assertFailure "expected the compiled package build to be ambiguous"
+    writeCachedPackage storeRoot target "shared-1.0.0-a" "shared" "1.0.0" [] []
+    writeCachedPackage storeRoot target "shared-1.0.0-b" "shared" "1.0.0" [] []
+    writeCachedPackage storeRoot target "root-a-1.0.0" "root-a" "1.0.0" ["shared-1.0.0-a"] []
+    writeCachedPackage storeRoot target "root-b-1.0.0" "root-b" "1.0.0" ["shared-1.0.0-b"] []
+    conflictingClosure <-
+      try
+        ( runBuildExe
+            options
+              { buildExePackageConstraints = buildExePackageConstraints options <> ["root-a == 1.0.0", "root-b == 1.0.0"]
+              }
+        ) ::
+        IO (Either IOException ())
+    case conflictingClosure of
+      Left err -> assertBool "reports conflicting dependency builds" ("The dependency plan selects more than one build of shared" `isInfixOf` ioeGetErrorString err)
+      Right () -> assertFailure "expected the dependency builds to conflict"
+    entryCollision <-
+      try
+        ( runBuildExe
+            options
+              { buildExeSourceFile = entryCollisionRoot </> "Main.hs",
+                buildExeSourceDirectories = [entryCollisionRoot]
+              }
+        ) ::
+        IO (Either IOException ())
+    case entryCollision of
+      Left err -> assertBool "reports the generated entry collision" ("Source module conflicts with generated module Aihc.Entry" `isInfixOf` ioeGetErrorString err)
+      Right () -> assertFailure "expected the generated entry module to conflict"
     entryExists <- doesFileExist (installedEntryArchivePath storeRoot target)
     assertBool "target entry archive exists" entryExists
     (status, stdout, stderr) <- readProcessWithExitCode output [] ""
     assertEqual "executable exit status" ExitSuccess status
     assertEqual "executable stdout" "build-exe works\n" stdout
     assertEqual "executable stderr" "" stderr
+
+writeCachedPackage :: FilePath -> NativeTarget -> FilePath -> Text -> Text -> [Text] -> [Text] -> IO ()
+writeCachedPackage storeRoot target identity name version dependencies modules = do
+  let packageRoot = storeRoot </> nativeTargetStoreDirectory target </> identity
+      archive = packageRoot </> "lib" </> "lib" <> T.unpack name <> ".a"
+  createDirectoryIfMissing True (takeDirectory archive)
+  writePackageManifest
+    (packageManifestPath packageRoot)
+    PackageManifest
+      { packageManifestName = name,
+        packageManifestVersion = version,
+        packageManifestIdentity = T.pack identity,
+        packageManifestDependencies = dependencies,
+        packageManifestModules = modules
+      }
+  BS.writeFile archive ""
 
 test_installV2ResolveArtifacts :: Assertion
 test_installV2ResolveArtifacts =

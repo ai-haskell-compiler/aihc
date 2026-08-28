@@ -17,6 +17,8 @@ extra-source-files:
   compiler/fc/test/Test/Fixtures/golden-v2/*.yaml
   compiler/grin/test/Test/Fixtures/grin-snapshot/*.yaml
   compiler/grin/test/Test/Fixtures/grin/*.yaml
+  test/Test/Fixtures/build-exe/generated-entry-collision/Aihc/Entry.hs
+  test/Test/Fixtures/build-exe/generated-entry-collision/Main.hs
   test/Test/Fixtures/build-exe/source-directories/Cycle.hs
   test/Test/Fixtures/build-exe/source-directories/Main.hs
   test/Test/Fixtures/build-exe/source-directories/Message.hs
