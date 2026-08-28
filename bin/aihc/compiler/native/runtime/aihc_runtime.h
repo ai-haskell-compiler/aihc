@@ -93,6 +93,9 @@ struct AihcMachine {
   uint8_t *heap_start;
   uint8_t *other_space;
   uint64_t semispace_bytes;
+  uint64_t heap_max_bytes;
+  uint64_t heap_allocated_bytes;
+  uint8_t heap_limit_enabled;
   AihcValue *thread_done_continuation;
   AihcThread *current_thread;
   AihcThread *run_queue_head;
@@ -159,10 +162,10 @@ AihcSlot *aihc_alloc_locals(AihcMachine *machine, uint64_t count);
 AihcSlot *aihc_alloc_linked_locals(AihcMachine *machine);
 void aihc_no_match(void);
 void aihc_unsupported_primitive(void);
-/* The complete process argument vector is copied before the Haskell machine
-   starts. argv[0] is retained because getProgName and withProgName share the
-   same mutable vector as getArgs and withArgs. */
+/* The runtime removes RTS options before the Haskell machine starts. argv[0]
+   stays because getProgName and withProgName use the same mutable vector. */
 void aihc_program_arguments_initialize(int argc, char *const argv[]);
+int64_t aihc_runtime_arguments_initialize(const void *buffer, int64_t length);
 int64_t aihc_program_arguments_size(void);
 int64_t aihc_program_arguments_copy(void *buffer, int64_t capacity);
 int64_t aihc_program_arguments_replace(const void *buffer, int64_t length);

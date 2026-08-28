@@ -92,6 +92,9 @@ static void aihc_collect(AihcMachine *machine, uint64_t required_words,
 }
 
 void aihc_gc_init(AihcMachine *machine) {
+  if (machine->heap_limit_enabled) {
+    aihc_fail("heap limit is not supported by the semispace collector");
+  }
   machine->semispace_bytes = AIHC_SEMISPACE_BYTES;
   machine->heap_start =
       aihc_allocate_auxiliary(machine, machine->semispace_bytes);

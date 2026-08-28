@@ -36,6 +36,7 @@ data-files:
   compiler/native/runtime/aihc_runtime.c
   compiler/native/runtime/aihc_runtime.h
   compiler/native/runtime/aihc_runtime_internal.h
+  compiler/native/runtime/aihc_runtime_options.c
   compiler/native/runtime/aihc_runtime_trampoline.c
   compiler/native/runtime/aihc_runtime_trampoline.h
   compiler/native/runtime/aihc_snapshot.c
