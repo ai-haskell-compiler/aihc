@@ -15,6 +15,22 @@ expected: |-
   scope 1 = "" GHC.Prim
   scope 2 = "aihc-prim" GHC.Types
 
+  import headers
+    2.tLevity :: 2.tType;
+    2.tLiftedRep :: 2.tRuntimeRep;
+    2.tRuntimeRep :: 2.tType;
+    2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+    2.tType :: 2.tType;
+    2.tUnliftedRep :: 2.tRuntimeRep;
+    2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+    2.vLifted :: 2.tLevity;
+    2.vUnlifted :: 2.tLevity
+
+  import synonyms
+    2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+    2.tType = 2.tTYPE 2.tLiftedRep;
+    2.tUnliftedRep = 2.vBoxedRep 2.vUnlifted
+
   pub type 1.tMutVar# (d : 2.tType) (a : 2.tType) :: 2.tTYPE 2.tUnliftedRep {}
 status: pass
 reason: keeps checked parameters and the checked result kind for data declarations without constructors

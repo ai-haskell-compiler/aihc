@@ -1,0 +1,37 @@
+scope 1 = "" Test
+scope 2 = "aihc-prim" GHC.Types
+
+import headers
+  2.tLevity :: 2.tType;
+  2.tLiftedRep :: 2.tRuntimeRep;
+  2.tRuntimeRep :: 2.tType;
+  2.tTYPE :: ∀(rep : 2.tRuntimeRep). 2.tType;
+  2.tType :: 2.tType;
+  2.vBoxedRep :: 2.tLevity 2.→ 2.tRuntimeRep;
+  2.vLifted :: 2.tLevity
+
+import synonyms
+  2.tLiftedRep = 2.vBoxedRep 2.vLifted;
+  2.tType = 2.tTYPE 2.tLiftedRep
+
+pub type 1.tIntRep :: 2.tRuntimeRep {}
+
+pub type 1.tSecret# :: 2.tTYPE 1.tIntRep {}
+
+val 1.vsecret :: 1.tSecret#
+ = 1#1.tIntRep
+
+val 1.vmakeSecret :: FUN @1.tIntRep @1.tIntRep 1.tSecret# 1.tSecret#
+ = λ(value : 1.tSecret#).
+  1#1.tIntRep
+
+val 1.vapplySecret :: 1.tSecret#
+ = 1.vmakeSecret 1#1.tIntRep
+
+val 1.vcaseSecret :: 1.tSecret#
+ = case 1#1.tIntRep as (value : 1.tSecret#) return (1.tSecret#) of {
+    1#1.tIntRep →
+        1#1.tIntRep;
+    _ →
+        1#1.tIntRep
+}

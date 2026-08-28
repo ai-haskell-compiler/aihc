@@ -18,6 +18,7 @@ import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT)
 import Data.ByteString qualified as BS
 import Data.Char (chr, digitToInt, isAlpha, isAlphaNum, isHexDigit, ord)
 import Data.Functor (($>))
+import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Void (Void)
@@ -56,7 +57,64 @@ scopeDeclaration =
     <*> qualifiedModuleName
 
 program :: Parser Program
-program = Program <$> ask <*> MP.many declaration
+program = do
+  scopes <- ask
+  imports <- foldr ($) emptyImports . concat <$> MP.many importGroup
+  Program scopes imports <$> MP.many declaration
+  where
+    emptyImports = Imports Map.empty Map.empty Map.empty Map.empty
+
+importGroup :: Parser [Imports -> Imports]
+importGroup = do
+  _ <- keyword "import"
+  MP.choice
+    [ keyword "headers" *> importEntries importedHeader,
+      keyword "synonyms" *> importEntries importedSynonym,
+      keyword "axioms" *> importEntries importedAxiom,
+      keyword "type-binders" *> importEntries (importedBinder SortTypeVariable),
+      keyword "value-binders" *> importEntries (importedBinder SortValue)
+    ]
+
+importEntries :: Parser (Imports -> Imports) -> Parser [Imports -> Imports]
+importEntries entry = entry `MP.sepBy1` symbol ";"
+
+importedHeader :: Parser (Imports -> Imports)
+importedHeader = do
+  name <- importedHeaderName
+  ty <- symbol "::" *> fcType
+  pure (\imports -> imports {importHeaders = Map.insert name ty (importHeaders imports)})
+
+importedSynonym :: Parser (Imports -> Imports)
+importedSynonym = do
+  name <- topName SortSynonym
+  ty <- symbol "=" *> fcType
+  pure (\imports -> imports {importSynonyms = Map.insert name ty (importSynonyms imports)})
+
+importedBinder :: Sort -> Parser (Imports -> Imports)
+importedBinder sort = do
+  name <- localNameWithSort sort
+  ty <- symbol "::" *> fcType
+  pure (\imports -> imports {importBinders = Map.insert name ty (importBinders imports)})
+
+importedAxiom :: Parser (Imports -> Imports)
+importedAxiom = do
+  name <- topName SortAxiom
+  binders <- MP.many openPiBinder
+  _ <- symbol ":"
+  left <- fcType
+  role <- parseAxiomRole
+  right <- fcType
+  let axiom = AxiomDecl Private name binders role left right
+  pure (\imports -> imports {importAxioms = Map.insert name axiom (importAxioms imports)})
+
+importedHeaderName :: Parser Name
+importedHeaderName =
+  MP.choice
+    [ MP.try (topName SortTypeConstructor),
+      MP.try (topName SortDataConstructor),
+      MP.try (topName SortSynonym),
+      topName SortValue
+    ]
 
 declaration :: Parser Decl
 declaration =
@@ -110,9 +168,25 @@ foreignImportDeclaration = do
   _ <- keyword "foreign"
   _ <- keyword "import"
   convention <- callingConvention
+  dependencies <- MP.option [] parseForeignImportDependencies
   name <- topName SortValue
   _ <- symbol "::"
-  DeclForeignImport . ForeignImportDecl vis name convention <$> fcType
+  DeclForeignImport . ForeignImportDecl vis name convention dependencies <$> fcType
+
+parseForeignImportDependencies :: Parser [ForeignImportDependency]
+parseForeignImportDependencies =
+  keyword "using"
+    *> MP.between
+      (symbol "[")
+      (symbol "]")
+      (foreignImportDependency `MP.sepBy1` symbol ",")
+
+foreignImportDependency :: Parser ForeignImportDependency
+foreignImportDependency =
+  MP.choice
+    [ ForeignAxiom <$> (keyword "axiom" *> topName SortAxiom),
+      ForeignConstructor <$> (keyword "constructor" *> topName SortDataConstructor)
+    ]
 
 callingConvention :: Parser CallingConvention
 callingConvention =

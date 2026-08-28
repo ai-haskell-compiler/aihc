@@ -9,8 +9,8 @@ module GrinGolden
   )
 where
 
-import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), Program, desugarModuleFc, lintPrograms)
-import Aihc.Fc.TypeOf (typeEnvFromPrograms)
+import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc)
+import Aihc.Fc qualified as Fc
 import Aihc.Grin (lintProgram, lowerProgram, renderProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
@@ -66,8 +66,7 @@ data GrinCase = GrinCase
 
 data PrimitiveSupport = PrimitiveSupport
   { supportScopes :: !ModuleExports,
-    supportTcInterface :: !TcInterface,
-    supportPrograms :: ![Program]
+    supportTcInterface :: !TcInterface
   }
 
 loadGrinCases :: IO [GrinCase]
@@ -84,14 +83,13 @@ evaluateGrinCase fixture =
 
 renderCase :: GrinCase -> Either String String
 renderCase fixture = do
-  (allPrograms, targetPrograms) <- buildFcPrograms (caseExtensions fixture) (caseModules fixture)
-  let types = typeEnvFromPrograms allPrograms
-  lowered <- traverse (lowerProgram types) targetPrograms
+  programs <- buildFcPrograms (caseExtensions fixture) (caseModules fixture)
+  lowered <- traverse lowerProgram programs
   case concatMap lintProgram lowered of
     [] -> pure (trim (unlines (map renderProgram lowered)))
     errors -> Left ("GRIN lint error: " <> show errors)
 
-buildFcPrograms :: [Extension] -> [Text] -> Either String ([Program], [Program])
+buildFcPrograms :: [Extension] -> [Text] -> Either String [Fc.Program]
 buildFcPrograms extensions sources = do
   modules <- traverse (parseFixtureModule extensions) sources
   resolved <-
@@ -113,9 +111,8 @@ buildFcPrograms extensions sources = do
         then Left (unlines (concatMap dsErrors fixtureResults))
         else do
           let fixturePrograms = map dsProgram fixtureResults
-              allPrograms = supportPrograms primitiveSupport <> fixturePrograms
-          case lintPrograms allPrograms of
-            [] -> Right (allPrograms, fixturePrograms)
+          case concatMap Fc.lintProgram fixturePrograms of
+            [] -> Right fixturePrograms
             errors -> Left (unlines ["System FC lint error: " <> show errorValue | errorValue <- errors])
 
 parseFixtureModule :: [Extension] -> Text -> Either String Module
@@ -186,8 +183,7 @@ preparePrimitiveSupport sources = do
           Right
             PrimitiveSupport
               { supportScopes = extractInterface resolved,
-                supportTcInterface = tcInterface,
-                supportPrograms = map dsProgram primitiveResults
+                supportTcInterface = tcInterface
               }
         else Left (unlines (concatMap dsErrors primitiveResults))
 

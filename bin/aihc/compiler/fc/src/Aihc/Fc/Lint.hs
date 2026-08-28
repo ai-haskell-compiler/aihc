@@ -2,7 +2,7 @@
 
 -- | Type-check System FC terms and types. Kinds are types.
 module Aihc.Fc.Lint
-  ( lintPrograms,
+  ( lintProgram,
     loadScopeClosure,
     ModuleLoader,
     storeModuleLoader,
@@ -10,6 +10,7 @@ module Aihc.Fc.Lint
   )
 where
 
+import Aihc.Fc.Imports (unusedImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Parser (parseProgram, renderParseError)
 import Aihc.Fc.Syntax
@@ -20,7 +21,7 @@ import Control.Monad (foldM, unless, when)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, listToMaybe)
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
@@ -32,6 +33,7 @@ data LintError
   | TypeMismatch !String !Type !Type
   | KindMismatch !String !Type !Type
   | ShadowedBinder !Name
+  | UnusedImport !Name
   | LintFailure !String
   deriving (Eq, Show)
 
@@ -42,11 +44,13 @@ data LintEnv = LintEnv
 
 type ModuleLoader = PackageId -> Text -> IO (Maybe Program)
 
-lintPrograms :: [Program] -> [LintError]
-lintPrograms programs =
-  let env = registerPrograms programs
-   in concatMap (lintDeclHeaders env) (allDecls programs)
-        <> concatMap (lintDeclBodies env) (allDecls programs)
+lintProgram :: Program -> [LintError]
+lintProgram program =
+  let env = registerProgram program
+   in map UnusedImport (unusedImports program)
+        <> lintImportDeclarations env (programImports program)
+        <> concatMap (lintDeclHeaders env) (programDecls program)
+        <> concatMap (lintDeclBodies env) (programDecls program)
 
 loadScopeClosure :: ModuleLoader -> [Program] -> IO [Program]
 loadScopeClosure loader seeds = do
@@ -83,20 +87,20 @@ scopeKeys :: Program -> [(PackageId, Text)]
 scopeKeys program =
   [(package, name) | (_, package, name) <- scopeEntries (programScopes program)]
 
-allDecls :: [Program] -> [Decl]
-allDecls = concatMap programDecls
+registerProgram :: Program -> LintEnv
+registerProgram program =
+  let types = typeEnvFromProgram program
+   in LintEnv
+        { leTypes = types,
+          leAxioms = teAxioms types
+        }
 
-registerPrograms :: [Program] -> LintEnv
-registerPrograms programs =
-  LintEnv
-    { leTypes = typeEnvFromPrograms programs,
-      leAxioms = List.foldl' addAxiom Map.empty (allDecls programs)
-    }
-  where
-    addAxiom axioms decl =
-      case decl of
-        DeclAxiom declaration -> Map.insert (axiomName declaration) declaration axioms
-        _ -> axioms
+lintImportDeclarations :: LintEnv -> Imports -> [LintError]
+lintImportDeclarations env imports =
+  concatMap (eitherToList . lintType env) (Map.elems (importHeaders imports))
+    <> concatMap (eitherToList . lintType env) (Map.elems (importSynonyms imports))
+    <> concatMap (lintAxiomDecl env) (Map.elems (importAxioms imports))
+    <> concatMap (eitherToList . lintType env) (Map.elems (importBinders imports))
 
 lintDeclHeaders :: LintEnv -> Decl -> [LintError]
 lintDeclHeaders env decl =
@@ -105,16 +109,20 @@ lintDeclHeaders env decl =
     DeclSynonym declaration -> lintSynonymDecl env declaration
     DeclAxiom declaration -> lintAxiomDecl env declaration
     DeclVal declaration -> eitherToList (lintType env (valType declaration))
-    DeclForeignImport declaration -> eitherToList (lintType env (foreignImportType declaration))
+    DeclForeignImport declaration ->
+      eitherToList (lintType env (foreignImportType declaration))
+        <> concatMap (lintForeignImportDependency env) (foreignImportDependencies declaration)
+
+lintForeignImportDependency :: LintEnv -> ForeignImportDependency -> [LintError]
+lintForeignImportDependency env dependency =
+  case dependency of
+    ForeignAxiom name -> [UnboundName name | Map.notMember name (leAxioms env)]
+    ForeignConstructor name -> [UnboundName name | Map.notMember name (teHeaders (leTypes env))]
 
 lintDeclBodies :: LintEnv -> Decl -> [LintError]
 lintDeclBodies env decl =
   case decl of
-    DeclVal declaration ->
-      case lintExpr env (valBody declaration) of
-        Left err -> [err]
-        Right actual ->
-          [TypeMismatch "val body" (valType declaration) actual | not (typesEqual (leTypes env) (valType declaration) actual)]
+    DeclVal declaration -> eitherToList (checkExpr env "val body" (valType declaration) (valBody declaration))
     _ -> []
 
 lintTypeDecl :: LintEnv -> TypeDecl -> [LintError]
@@ -295,17 +303,107 @@ typeAppRep env representation =
     Nothing -> representation
     Just package -> TyApp (TyCon (typeConstructor package)) representation
 
+checkExpr :: LintEnv -> String -> Type -> Expr -> Either LintError ()
+checkExpr env context expected expr =
+  case expr of
+    ExLit literal -> checkLiteral env expected literal
+    ExLam binder body ->
+      case viewFun env expected of
+        Just (_, _, argument, result) -> do
+          unless (typesEqual (leTypes env) argument (binderType binder)) (Left (TypeMismatch "lambda binder" argument (binderType binder)))
+          binderEnv <- bindLocal env binder
+          checkExpr binderEnv "lambda body" result body
+        Nothing -> inferAndCompare
+    ExTyLam binder body ->
+      case viewForAll env expected of
+        Just (expectedBinder, expectedBody) -> do
+          unless (typesEqual (leTypes env) (binderType expectedBinder) (binderType binder)) (Left (KindMismatch "type lambda binder" (binderType expectedBinder) (binderType binder)))
+          binderEnv <- bindLocal env binder
+          let bodyType = substType (binderName expectedBinder) (TyVar (binderName binder)) expectedBody
+          checkExpr binderEnv "type lambda body" bodyType body
+        Nothing -> inferAndCompare
+    ExLet binding body -> do
+      bindEnv <- lintNonRecBind env binding
+      checkExpr bindEnv context expected body
+    ExRec bindings body -> do
+      recEnv <- foldM bindLocal env (map bindBinder bindings)
+      mapM_ (lintRecRhs recEnv) bindings
+      checkExpr recEnv context expected body
+    ExCase scrutinee binder resultType alts -> do
+      unless (typesEqual (leTypes env) expected resultType) (Left (TypeMismatch "case result" expected resultType))
+      _ <- lintCase env scrutinee binder resultType alts
+      Right ()
+    ExCast body coercion -> do
+      (source, target) <- coercionEndpoints env coercion
+      unless (typesEqual (leTypes env) expected target) (Left (TypeMismatch "cast target" expected target))
+      checkExpr env "cast source" source body
+    ExApp function argument
+      | ExLam binder _ <- function -> do
+          r1 <- representationOf env (binderType binder)
+          r2 <- representationOf env expected
+          checkExpr env "application function" (TyFun r1 r2 (binderType binder) expected) function
+          checkExpr env "application argument" (binderType binder) argument
+    _ -> inferAndCompare
+  where
+    inferAndCompare = do
+      actual <- lintExpr env expr
+      unless (typesEqual (leTypes env) expected actual) (Left (TypeMismatch context expected actual))
+
+checkLiteral :: LintEnv -> Type -> Literal -> Either LintError ()
+checkLiteral env expected literal = do
+  let representation = literalRepresentation literal
+  representationKind <- lintType env representation
+  expectedRepresentationKind <- runtimeRepKind env
+  unless (typesEqual (leTypes env) expectedRepresentationKind representationKind) (Left (KindMismatch "literal representation" expectedRepresentationKind representationKind))
+  checkLiteralRepresentation literal
+  expectedRepresentation <- representationOf env expected
+  unless (typesEqual (leTypes env) expectedRepresentation representation) (Left (TypeMismatch "literal representation" expectedRepresentation representation))
+
+literalRepresentation :: Literal -> Type
+literalRepresentation literal =
+  case literal of
+    LitInt representation _ -> representation
+    LitChar representation _ -> representation
+    LitAddr representation _ -> representation
+
+checkLiteralRepresentation :: Literal -> Either LintError ()
+checkLiteralRepresentation literal =
+  case literal of
+    LitInt (TyCon name) _
+      | nameText name `elem` integerRepresentations -> Right ()
+    LitInt {} -> Left (LintFailure "integer literal has an invalid representation")
+    LitChar (TyCon name) _
+      | nameText name == "WordRep" -> Right ()
+    LitChar {} -> Left (LintFailure "character literal has an invalid representation")
+    LitAddr (TyCon name) _
+      | nameText name == "AddrRep" -> Right ()
+    LitAddr {} -> Left (LintFailure "address literal has an invalid representation")
+  where
+    integerRepresentations =
+      [ "IntRep",
+        "WordRep",
+        "Int8Rep",
+        "Int16Rep",
+        "Int32Rep",
+        "Int64Rep",
+        "Word8Rep",
+        "Word16Rep",
+        "Word32Rep",
+        "Word64Rep",
+        "FloatRep",
+        "DoubleRep"
+      ]
+
 lintExpr :: LintEnv -> Expr -> Either LintError Type
 lintExpr env expr =
   case expr of
     ExVar name -> lookupTerm env name
-    ExLit literal -> lintLiteral env literal
+    ExLit {} -> Left (LintFailure "literal expression needs an expected type")
     ExApp function argument -> do
       functionType <- lintExpr env function
-      argumentType <- lintExpr env argument
       case viewFun env functionType of
         Just (_, _, expected, result) -> do
-          unless (typesEqual (leTypes env) expected argumentType) (Left (TypeMismatch "application argument" expected argumentType))
+          checkExpr env "application argument" expected argument
           Right result
         Nothing -> Left (LintFailure ("application to a non-FUN type: " <> show functionType))
     ExTyApp function argument -> do
@@ -335,82 +433,9 @@ lintExpr env expr =
       lintExpr recEnv body
     ExCase scrutinee binder resultType alts -> lintCase env scrutinee binder resultType alts
     ExCast body coercion -> do
-      bodyType <- lintExpr env body
       (source, target) <- coercionEndpoints env coercion
-      unless (typesEqual (leTypes env) bodyType source) (Left (TypeMismatch "cast source" source bodyType))
+      checkExpr env "cast source" source body
       Right target
-
-lintLiteral :: LintEnv -> Literal -> Either LintError Type
-lintLiteral env literal =
-  case literal of
-    LitInt representation _ ->
-      case intLiteralPrimitiveName representation of
-        Just primitiveName -> unboxedLiteralType env primitiveName representation
-        Nothing -> typedKind representation
-    LitChar representation _ -> unboxedLiteralType env "Char#" representation
-    LitAddr representation _ -> unboxedLiteralType env "Addr#" representation
-  where
-    typedKind representation = do
-      _ <- lintType env representation
-      Right (typeAppRep env representation)
-
--- | An unboxed literal inhabits the primitive type for r. It does not inhabit TYPE r.
-unboxedLiteralType :: LintEnv -> Text -> Type -> Either LintError Type
-unboxedLiteralType env primitiveName representation = do
-  _ <- lintType env representation
-  case namedType env [primitiveName] of
-    Nothing -> Left (UnboundName (missingPrimitiveName env primitiveName))
-    Just name -> do
-      let expectedKind = typeAppRep env representation
-      case lookupHeaderType (leTypes env) name of
-        Nothing -> Left (UnboundName name)
-        Just actualKind -> do
-          unless (typesEqual (leTypes env) expectedKind actualKind) (Left (KindMismatch "unboxed literal type" expectedKind actualKind))
-          Right (TyCon name)
-
-intLiteralPrimitiveName :: Type -> Maybe Text
-intLiteralPrimitiveName ty =
-  case ty of
-    TyCon name ->
-      lookup
-        (nameText name)
-        [ ("IntRep", "Int#"),
-          ("WordRep", "Word#"),
-          ("Int8Rep", "Int8#"),
-          ("Int16Rep", "Int16#"),
-          ("Int32Rep", "Int32#"),
-          ("Int64Rep", "Int64#"),
-          ("Word8Rep", "Word8#"),
-          ("Word16Rep", "Word16#"),
-          ("Word32Rep", "Word32#"),
-          ("Word64Rep", "Word64#"),
-          ("FloatRep", "Float#"),
-          ("DoubleRep", "Double#")
-        ]
-    _ -> Nothing
-
-missingPrimitiveName :: LintEnv -> Text -> Name
-missingPrimitiveName env text =
-  case tePrimPackage (leTypes env) of
-    Just package -> Name text SortTypeConstructor (OriginTop package "GHC.Prim")
-    Nothing -> Name text SortTypeConstructor (OriginTop (PackageId "") "GHC.Prim")
-
-namedType :: LintEnv -> [Text] -> Maybe Name
-namedType env candidates =
-  listToMaybe (ghcTypesNames <> otherNames)
-  where
-    matches =
-      [ name
-      | name <- Map.keys (teHeaders (leTypes env)),
-        nameText name `elem` candidates,
-        nameClass (nameSort name) == NameClassType
-      ]
-    fromGhcTypes name =
-      case tePrimPackage (leTypes env) of
-        Just package -> isGhcTypesOrigin package name
-        Nothing -> False
-    ghcTypesNames = filter fromGhcTypes matches
-    otherNames = filter (not . fromGhcTypes) matches
 
 lookupTerm :: LintEnv -> Name -> Either LintError Type
 lookupTerm env name =
@@ -424,41 +449,35 @@ lookupTerm env name =
 lintNonRecBind :: LintEnv -> Bind -> Either LintError LintEnv
 lintNonRecBind env bind = do
   _ <- lintType env (binderType (bindBinder bind))
-  rhsType <- lintExpr env (bindRhs bind)
-  unless (typesEqual (leTypes env) (binderType (bindBinder bind)) rhsType) (Left (TypeMismatch "let binding" (binderType (bindBinder bind)) rhsType))
+  checkExpr env "let binding" (binderType (bindBinder bind)) (bindRhs bind)
   bindLocal env (bindBinder bind)
 
 lintRecRhs :: LintEnv -> Bind -> Either LintError ()
-lintRecRhs env bind = do
-  rhsType <- lintExpr env (bindRhs bind)
-  unless (typesEqual (leTypes env) (binderType (bindBinder bind)) rhsType) (Left (TypeMismatch "rec binding" (binderType (bindBinder bind)) rhsType))
+lintRecRhs env bind = checkExpr env "rec binding" (binderType (bindBinder bind)) (bindRhs bind)
 
 lintCase :: LintEnv -> Expr -> Binder -> Type -> [Alt] -> Either LintError Type
 lintCase env scrutinee binder resultType alts = do
-  scrutType <- lintExpr env scrutinee
-  unless (typesEqual (leTypes env) scrutType (binderType binder)) (Left (TypeMismatch "case binder" scrutType (binderType binder)))
+  checkExpr env "case binder" (binderType binder) scrutinee
   caseEnv <- bindLocal env binder
   _ <- representationOf env resultType
-  mapM_ (lintAltExpected caseEnv scrutType resultType) alts
+  mapM_ (lintAltExpected caseEnv (binderType binder) resultType) alts
   Right resultType
 
 lintAltExpected :: LintEnv -> Type -> Type -> Alt -> Either LintError ()
-lintAltExpected env scrutType expected alt = do
-  actual <- lintAlt env scrutType alt
-  unless (typesEqual (leTypes env) expected actual) (Left (TypeMismatch "case alternative" expected actual))
+lintAltExpected = lintAlt
 
-lintAlt :: LintEnv -> Type -> Alt -> Either LintError Type
-lintAlt env scrutType alt =
+lintAlt :: LintEnv -> Type -> Type -> Alt -> Either LintError ()
+lintAlt env scrutType expected alt =
   case altCon alt of
     AltDefault -> do
       unless (null (altTypeBinders alt)) (Left (LintFailure "default alternative has type binders"))
       unless (null (altBinders alt)) (Left (LintFailure "default alternative has field binders"))
-      lintExpr env (altRhs alt)
+      checkExpr env "case alternative" expected (altRhs alt)
     AltLit literal -> do
       unless (null (altTypeBinders alt)) (Left (LintFailure "literal alternative has type binders"))
       unless (null (altBinders alt)) (Left (LintFailure "literal alternative has field binders"))
       matchLiteralAlternative env scrutType literal
-      lintExpr env (altRhs alt)
+      checkExpr env "case alternative" expected (altRhs alt)
     AltData name ->
       case lookupHeaderType (leTypes env) name of
         Nothing -> Left (UnboundName name)
@@ -470,12 +489,10 @@ lintAlt env scrutType alt =
           unless (length fields == length (altBinders alt)) (Left (LintFailure ("case alternative binder count does not match constructor: " <> show name)))
           (envEx, substitution) <- foldM (bindExistential name) (env, Map.empty) (zip existentials (altTypeBinders alt))
           envFields <- foldM (bindField name) envEx (zip (map (applySubst substitution) fields) (altBinders alt))
-          lintExpr envFields (altRhs alt)
+          checkExpr envFields "case alternative" expected (altRhs alt)
 
 matchLiteralAlternative :: LintEnv -> Type -> Literal -> Either LintError ()
-matchLiteralAlternative env scrutType literal = do
-  literalType <- lintLiteral env literal
-  unless (typesEqual (leTypes env) scrutType literalType) (Left (TypeMismatch "literal alternative" scrutType literalType))
+matchLiteralAlternative = checkLiteral
 
 bindField :: Name -> LintEnv -> (Type, Binder) -> Either LintError LintEnv
 bindField constructorName env (expected, binder) = do

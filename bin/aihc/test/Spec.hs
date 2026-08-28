@@ -5,6 +5,7 @@ module Main (main) where
 import Aihc.Cli.BuildExe (runBuildExe)
 import Aihc.Cli.InstallV2 (InstallV2Result (..), installV2)
 import Aihc.Cli.Options (BuildExeOptions (..), GarbageCollector (GcCalloc), InstallV2Options (..))
+import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, readPackageManifest, writePackageManifest)
 import Aihc.Cli.Store (installedEntryArchivePath)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc qualified as Fc
@@ -14,7 +15,7 @@ import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
-import Data.List (isPrefixOf, sort)
+import Data.List (isInfixOf, isPrefixOf, sort)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -73,22 +74,93 @@ prop_dummy = property success
 test_buildExeSourceDirectories :: Assertion
 test_buildExeSourceDirectories = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/source-directories"
+  entryCollisionRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/build-exe/generated-entry-collision"
   baseRoot <- findCoreLibraryRoot "aihc-base"
   let target = fromMaybe Llvm hostNativeTarget
   withTempDir "aihc-build-exe" $ \root -> do
     let storeRoot = root </> "store"
         output = root </> "program"
-    _ <- installV2 (InstallV2Options baseRoot (Just storeRoot) False False False target)
-    runBuildExe
-      BuildExeOptions
-        { buildExeSourceFile = fixtureRoot </> "Main.hs",
-          buildExeSourceDirectories = [fixtureRoot],
-          buildExePackageConstraints = ["aihc-base == 4.21.2.0"],
-          buildExeTarget = target,
-          buildExeGarbageCollector = GcCalloc,
-          buildExeStoreRoot = Just storeRoot,
-          buildExeOutputFile = Just output
-        }
+    installed <- installV2 (InstallV2Options baseRoot (Just storeRoot) False False False False target)
+    manifestResult <- readPackageManifest (packageManifestPath (installV2StorePath installed))
+    manifest <- either assertFailure pure manifestResult
+    assertBool "package manifest contains Prelude" ("Prelude" `elem` packageManifestModules manifest)
+    let options =
+          BuildExeOptions
+            { buildExeSourceFile = fixtureRoot </> "Main.hs",
+              buildExeSourceDirectories = [fixtureRoot],
+              buildExePackageConstraints = ["aihc-base == 4.21.2.0"],
+              buildExeTarget = target,
+              buildExeGarbageCollector = GcCalloc,
+              buildExeStoreRoot = Just storeRoot,
+              buildExeLint = False,
+              buildExeOutputFile = Just output
+            }
+        unusedResolve = installV2StorePath installed </> "Data" </> "Bool" </> "resolve.cbor"
+        unusedType = installV2StorePath installed </> "Data" </> "Bool" </> "type.cbor"
+        requiredFc = installV2StorePath installed </> "GHC" </> "Base" </> "core"
+    resolveBytes <- BS.readFile unusedResolve
+    BS.writeFile unusedResolve "invalid unused resolve interface"
+    runBuildExe options
+    BS.writeFile unusedResolve resolveBytes
+    typeBytes <- BS.readFile unusedType
+    BS.writeFile unusedType "invalid unused type interface"
+    runBuildExe options
+    BS.writeFile unusedType typeBytes
+    fcBytes <- BS.readFile requiredFc
+    BS.writeFile requiredFc "invalid required System FC"
+    runBuildExe options {buildExeLint = True}
+    BS.writeFile requiredFc fcBytes
+    writeCachedPackage storeRoot target "duplicate-1.0.0-a" "duplicate" "1.0.0" [] ["System.IO"]
+    ambiguousModule <-
+      try
+        ( runBuildExe
+            options
+              { buildExePackageConstraints = buildExePackageConstraints options <> ["duplicate == 1.0.0"]
+              }
+        ) ::
+        IO (Either IOException ())
+    case ambiguousModule of
+      Left err -> assertBool "reports the ambiguous installed module" ("Ambiguous installed module: System.IO" `isInfixOf` ioeGetErrorString err)
+      Right () -> assertFailure "expected the installed module import to be ambiguous"
+    writeCachedPackage storeRoot target "duplicate-1.0.0-b" "duplicate" "1.0.0" [] []
+    ambiguousPackage <-
+      try
+        ( runBuildExe
+            options
+              { buildExePackageConstraints = buildExePackageConstraints options <> ["duplicate == 1.0.0"]
+              }
+        ) ::
+        IO (Either IOException ())
+    case ambiguousPackage of
+      Left err -> assertBool "reports ambiguous package builds" ("More than one compiled build fulfills the constraint for duplicate" `isInfixOf` ioeGetErrorString err)
+      Right () -> assertFailure "expected the compiled package build to be ambiguous"
+    writeCachedPackage storeRoot target "shared-1.0.0-a" "shared" "1.0.0" [] []
+    writeCachedPackage storeRoot target "shared-1.0.0-b" "shared" "1.0.0" [] []
+    writeCachedPackage storeRoot target "root-a-1.0.0" "root-a" "1.0.0" ["shared-1.0.0-a"] []
+    writeCachedPackage storeRoot target "root-b-1.0.0" "root-b" "1.0.0" ["shared-1.0.0-b"] []
+    conflictingClosure <-
+      try
+        ( runBuildExe
+            options
+              { buildExePackageConstraints = buildExePackageConstraints options <> ["root-a == 1.0.0", "root-b == 1.0.0"]
+              }
+        ) ::
+        IO (Either IOException ())
+    case conflictingClosure of
+      Left err -> assertBool "reports conflicting dependency builds" ("The dependency plan selects more than one build of shared" `isInfixOf` ioeGetErrorString err)
+      Right () -> assertFailure "expected the dependency builds to conflict"
+    entryCollision <-
+      try
+        ( runBuildExe
+            options
+              { buildExeSourceFile = entryCollisionRoot </> "Main.hs",
+                buildExeSourceDirectories = [entryCollisionRoot]
+              }
+        ) ::
+        IO (Either IOException ())
+    case entryCollision of
+      Left err -> assertBool "reports the generated entry collision" ("Source module conflicts with generated module Aihc.Entry" `isInfixOf` ioeGetErrorString err)
+      Right () -> assertFailure "expected the generated entry module to conflict"
     entryExists <- doesFileExist (installedEntryArchivePath storeRoot target)
     assertBool "target entry archive exists" entryExists
     (status, stdout, stderr) <- readProcessWithExitCode output [] ""
@@ -96,13 +168,29 @@ test_buildExeSourceDirectories = do
     assertEqual "executable stdout" "build-exe works\n" stdout
     assertEqual "executable stderr" "" stderr
 
+writeCachedPackage :: FilePath -> NativeTarget -> FilePath -> Text -> Text -> [Text] -> [Text] -> IO ()
+writeCachedPackage storeRoot target identity name version dependencies modules = do
+  let packageRoot = storeRoot </> nativeTargetStoreDirectory target </> identity
+      archive = packageRoot </> "lib" </> "lib" <> T.unpack name <> ".a"
+  createDirectoryIfMissing True (takeDirectory archive)
+  writePackageManifest
+    (packageManifestPath packageRoot)
+    PackageManifest
+      { packageManifestName = name,
+        packageManifestVersion = version,
+        packageManifestIdentity = T.pack identity,
+        packageManifestDependencies = dependencies,
+        packageManifestModules = modules
+      }
+  BS.writeFile archive ""
+
 test_installV2ResolveArtifacts :: Assertion
 test_installV2ResolveArtifacts =
   withTempDir "aihc-install-v2" $ \root -> do
     let sourceRoot = root </> "source"
         storeRoot = root </> "store"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just storeRoot) False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just storeRoot) False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -150,7 +238,7 @@ test_installV2ResolveError = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/resolve-error"
   expected <- readFile (fixtureRoot </> "expected.txt")
   withTempDir "aihc-install-v2-resolve-error" $ \root -> do
-    let options = InstallV2Options fixtureRoot (Just (root </> "store")) False False False AppleArm64
+    let options = InstallV2Options fixtureRoot (Just (root </> "store")) False False False False AppleArm64
     result <- try (installV2 options) :: IO (Either IOException InstallV2Result)
     case result of
       Right _ -> assertFailure "expected name resolution to fail"
@@ -180,17 +268,26 @@ test_installV2KeepGrin :: Assertion
 test_installV2KeepGrin = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/keep-grin"
   withTempDir "aihc-install-v2-keep-grin" $ \root -> do
-    withoutGrin <- installV2 (InstallV2Options fixtureRoot (Just (root </> "without")) False False False AppleArm64)
+    withoutGrin <- installV2 (InstallV2Options fixtureRoot (Just (root </> "without")) False False False False AppleArm64)
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "grin")
+    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "cps.grin")
+    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "gc.grin")
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "Demo.o.s")
-    retained <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False AppleArm64)
+    retained <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False False AppleArm64)
     let corePath = installV2StorePath retained </> "Demo" </> "core"
         grinPath = installV2StorePath retained </> "Demo" </> "grin"
+        cpsGrinPath = installV2StorePath retained </> "Demo" </> "cps.grin"
+        gcGrinPath = installV2StorePath retained </> "Demo" </> "gc.grin"
     assertFileExists grinPath
+    assertFileExists cpsGrinPath
+    assertFileExists gcGrinPath
     originalCore <- readFile corePath
-    removeFile grinPath
-    repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False AppleArm64)
+    removeFile cpsGrinPath
+    removeFile gcGrinPath
+    repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False False AppleArm64)
     assertFileExists grinPath
+    assertFileExists cpsGrinPath
+    assertFileExists gcGrinPath
     repairedCore <- readFile corePath
     assertEqual "GRIN repair keeps Core" originalCore repairedCore
     assertEqual "GRIN repair writes the module" ["Demo"] (installV2WrittenModules repaired)
@@ -208,7 +305,7 @@ test_installV2TargetArchives = do
             <> [(LinuxAmd64, "amd64-linux-gnu", ".s") | foreignArchivesSupported]
             <> [(Wasm32Wasip3, "wasm32-wasip3", ".s") | wasmSupported && foreignArchivesSupported]
     results <- forM targets $ \(target, directory, nativeExtension) -> do
-      result <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False target)
+      result <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False False target)
       let objectPath = installV2StorePath result </> "Demo" </> "Demo.o"
           nativePath = objectPath <> nativeExtension
           corePath = installV2StorePath result </> "Demo" </> "core"
@@ -221,7 +318,7 @@ test_installV2TargetArchives = do
       assertEqual ("archive members for " <> show target) ["Demo.o"] members
       originalCore <- readFile corePath
       removeFile nativePath
-      repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False target)
+      repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "store")) False True False False target)
       assertFileExists nativePath
       repairedCore <- readFile corePath
       assertEqual "native source repair keeps Core" originalCore repairedCore
@@ -265,7 +362,7 @@ test_installV2FcCcall =
     let sourceRoot = root </> "source"
         storeRoot = root </> "store"
         sourceDir = sourceRoot </> "src"
-        options = InstallV2Options sourceRoot (Just storeRoot) False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just storeRoot) False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -292,19 +389,11 @@ test_installV2AihcPrim = do
   withTempDir "aihc-install-v2-aihc-prim" $ \root -> do
     let storeRoot = root </> "store"
         targetStoreRoot = storeRoot </> nativeTargetStoreDirectory AppleArm64
-        options = InstallV2Options aihcPrimRoot (Just storeRoot) True False False AppleArm64
+        options = InstallV2Options aihcPrimRoot (Just storeRoot) True False True False AppleArm64
     createDirectoryIfMissing True storeRoot
     caught <- try (installV2 options) :: IO (Either IOException InstallV2Result)
     result <- case caught of
-      Left err -> do
-        badFiles <- listNamedFiles storeRoot "core.bad"
-        assertFailure
-          ( "install-v2 aihc-prim failed: "
-              <> show err
-              <> if null badFiles
-                then ""
-                else "\nbad core files:\n" <> unlines badFiles
-          )
+      Left err -> assertFailure ("install-v2 aihc-prim failed: " <> show err)
       Right value -> pure value
     let packageDir = installV2StorePath result
         packageId = PackageId (T.pack (takeFileName packageDir))
@@ -316,10 +405,8 @@ test_installV2AihcPrim = do
     assertEqual "one GRIN file for each Core file" (length coreFiles) (length grinFiles)
     types <- loadStoredFc loader packageId "GHC.Types"
     prim <- loadStoredFc loader packageId "GHC.Prim"
-    assertBool "GHC.Types lint needs GHC.Prim" (not (null (Fc.lintPrograms [types])))
-    assertBool "GHC.Prim lint needs GHC.Types" (not (null (Fc.lintPrograms [prim])))
-    typesAndPrim <- Fc.loadScopeClosure loader [types, prim]
-    assertEqual "GHC.Types and GHC.Prim closure lint errors" [] (Fc.lintPrograms typesAndPrim)
+    assertEqual "GHC.Types lint errors" [] (Fc.lintProgram types)
+    assertEqual "GHC.Prim lint errors" [] (Fc.lintProgram prim)
     mapM_ (assertModuleClosureLints loader packageId) (filter (`notElem` ["GHC.Types", "GHC.Prim"]) aihcPrimLibraryModules)
 
 aihcPrimLibraryModules :: [Text]
@@ -410,11 +497,10 @@ loadStoredFc loader packageId moduleName = do
 assertModuleClosureLints :: Fc.ModuleLoader -> PackageId -> Text -> Assertion
 assertModuleClosureLints loader packageId moduleName = do
   program <- loadStoredFc loader packageId moduleName
-  loaded <- Fc.loadScopeClosure loader [program]
   assertEqual
-    (T.unpack moduleName <> " closure lint errors")
+    (T.unpack moduleName <> " lint errors")
     []
-    (Fc.lintPrograms loaded)
+    (Fc.lintProgram program)
 
 listNamedFiles :: FilePath -> FilePath -> IO [FilePath]
 listNamedFiles root name = do
@@ -439,7 +525,7 @@ test_installV2TypeDependencies =
   withTempDir "aihc-install-v2-type-dependencies" $ \root -> do
     let sourceRoot = root </> "source"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -466,7 +552,7 @@ test_installV2TypeReexports =
   withTempDir "aihc-install-v2-type-reexports" $ \root -> do
     let sourceRoot = root </> "source"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -496,7 +582,7 @@ test_installV2LocalDependencies =
     let sourceRoot = root </> "demo"
         dependencyRoot = root </> "dep"
         storeRoot = root </> "store"
-        options = InstallV2Options sourceRoot (Just storeRoot) False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just storeRoot) False False False False AppleArm64
     createDirectoryIfMissing True (sourceRoot </> "src")
     createDirectoryIfMissing True (dependencyRoot </> "src")
     writeFile
@@ -541,7 +627,7 @@ test_installV2StaleTypeArtifact =
   withTempDir "aihc-install-v2-stale-type" $ \root -> do
     let sourceRoot = root </> "source"
         sourceDir = sourceRoot </> "src"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -568,7 +654,7 @@ test_installV2ResolveDependencies =
   withTempDir "aihc-install-v2-dependencies" $ \root -> do
     let sourceRoot = root </> "source"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")
@@ -599,7 +685,7 @@ test_installV2StopsAtEqualScope =
   withTempDir "aihc-install-v2-scope-boundary" $ \root -> do
     let sourceRoot = root </> "source"
         sourceDir = sourceRoot </> "src" </> "Demo"
-        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False AppleArm64
+        options = InstallV2Options sourceRoot (Just (root </> "store")) False False False False AppleArm64
     createDirectoryIfMissing True sourceDir
     writeFile
       (sourceRoot </> "demo.cabal")

@@ -23,7 +23,6 @@ import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeInterface)
 import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc)
 import Aihc.Fc qualified as Fc
-import Aihc.Fc.TypeOf qualified as FcType
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
@@ -49,12 +48,18 @@ import Aihc.Resolve
   )
 import Aihc.Tc
   ( ClassInfo (..),
+    DataConFieldInfo (..),
+    DataConInfo (..),
+    DataFamilyInstanceInfo (..),
+    DataTypeInfo (..),
+    InstanceInfo (..),
     Pred (..),
     TcInterface (..),
     TcTermKey (..),
     TcType (..),
     TyCon,
     TyConInfo (..),
+    TypeFamilyInstanceInfo (..),
     TypeScheme (..),
     dataTypeKey,
     tcConfig,
@@ -64,6 +69,7 @@ import Aihc.Tc
     tcModuleSuccess,
     typecheckModuleSccWithInterface,
   )
+import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types (tyConModuleName, tyConNamespace, tyConPackageId)
 import Aihc.Wasm qualified as Wasm
 import Control.Exception (IOException, try)
@@ -113,6 +119,32 @@ data InstalledV2Package = InstalledV2Package
     installedV2TypeHashes :: !(Map.Map Text Text)
   }
 
+data ModuleOutputPaths = ModuleOutputPaths
+  { outputFcPath :: !FilePath,
+    outputGrinPath :: !FilePath,
+    outputCpsGrinPath :: !FilePath,
+    outputGcGrinPath :: !FilePath,
+    outputNativePath :: !FilePath,
+    outputObjectPath :: !FilePath
+  }
+
+data FcModule = FcModule
+  { fcModuleName :: !Text,
+    fcProgram :: !Fc.Program
+  }
+
+data GrinModule = GrinModule
+  { grinModuleName :: !Text,
+    plainGrinProgram :: !Grin.GrinProgram,
+    cpsGrinProgram :: !Grin.CpsGrinProgram,
+    gcGrinProgram :: !Grin.GcGrinProgram
+  }
+
+data NativeModule = NativeModule
+  { nativeModuleName :: !Text,
+    nativeSource :: !Text
+  }
+
 runInstallV2 :: InstallV2Options -> IO ()
 runInstallV2 options = do
   result <- installV2 options
@@ -129,7 +161,7 @@ installV2 options = do
       resolver = localDependencyResolverWithFallback fallbackResolver root
   spec <- packageSpecFromSource root
   plan <- buildPackagePlanWithResolver resolver targetStoreRoot spec
-  installedV2Result <$> installPackagePlanV2 (installV2KeepGrin options) (installV2KeepNative options) target verbose targetStoreRoot plan
+  installedV2Result <$> installPackagePlanV2 (installV2KeepGrin options) (installV2KeepNative options) (installV2Lint options) target verbose targetStoreRoot plan
 
 networkDependencyResolver :: DependencyResolver
 networkDependencyResolver =
@@ -142,13 +174,13 @@ networkDependencyResolver =
       result <- getLatestVersion Nothing name
       either (ioError . userError) pure result
 
-installPackagePlanV2 :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
-installPackagePlanV2 keepGrin keepNative target verbose storeRoot plan = do
-  dependencies <- mapM (installPackagePlanV2 keepGrin keepNative target verbose storeRoot) (planDependencyPlans plan)
-  installPackageV2 keepGrin keepNative target verbose storeRoot dependencies (planSourcePath plan)
+installPackagePlanV2 :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> PackagePlan -> IO InstalledV2Package
+installPackagePlanV2 keepGrin keepNative lint target verbose storeRoot plan = do
+  dependencies <- mapM (installPackagePlanV2 keepGrin keepNative lint target verbose storeRoot) (planDependencyPlans plan)
+  installPackageV2 keepGrin keepNative lint target verbose storeRoot dependencies (planSourcePath plan)
 
-installPackageV2 :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
-installPackageV2 keepGrin keepNative target verbose storeRoot dependencies root = do
+installPackageV2 :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> [InstalledV2Package] -> FilePath -> IO InstalledV2Package
+installPackageV2 keepGrin keepNative lint target verbose storeRoot dependencies root = do
   verbose ("Read Cabal package: " <> root)
   cabalFiles <- HackageUtil.findCabalFiles root
   cabalFile <- case cabalFiles of
@@ -188,14 +220,13 @@ installPackageV2 keepGrin keepNative target verbose storeRoot dependencies root 
   verbose ("Compute " <> show (length units) <> " SCC units")
   (allExports, allScopeHashes, _, allTypeHashes, written, reused) <-
     foldM
-      (installUnit keepGrin keepNative target verbose storePath resolvePackage primIdentity root)
+      (installUnit keepGrin keepNative lint target verbose storePath resolvePackage primIdentity root)
       (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty)
       units
   let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
       moduleObjects =
-        [ storePath </> moduleDirectory modu </> T.unpack (fromMaybe "Main" (moduleName modu)) <> ".o"
-        | source <- parsed,
-          let modu = sourceModuleAst source
+        [ outputObjectPath (moduleOutputPaths storePath target (sourceName source))
+        | source <- parsed
         ]
   buildLibraryArchive target verbose archive moduleObjects
   writePackageManifest
@@ -209,7 +240,8 @@ installPackageV2 keepGrin keepNative target verbose storeRoot dependencies root 
             id
             [ T.pack (takeFileName (installV2StorePath (installedV2Result dependency)))
             | dependency <- dependencies
-            ]
+            ],
+        packageManifestModules = sortOn id (HackageCabal.collectLibraryExposedModules gpd)
       }
   let exposedNames = Set.fromList (HackageCabal.collectLibraryExposedModules gpd)
       ownExports =
@@ -317,8 +349,8 @@ renderResolveExcerpt sourceLines sourceSpan =
                 <> replicate caretStart ' '
                 <> replicate caretWidth '^'
 
-installUnit :: Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
-installUnit keepGrin keepNative target verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
+installUnit :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> FilePath -> Package -> PackageId -> FilePath -> (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text) -> [SourceModule] -> IO (ModuleExports, Map.Map Text Text, TcInterface, Map.Map Text Text, Set.Set Text, Set.Set Text)
+installUnit keepGrin keepNative lint target verbose storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused) unit = do
   let packageModules = modulesInPackage resolvePackage (map sourceModuleAst unit)
       unitNames = map sourceName unit
       importedNames = nub (concatMap (map importDeclModule . Syntax.moduleImports . sourceModuleAst) unit)
@@ -327,10 +359,7 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
       hashes = sortOn fst (sourceHashes <> Map.toList dependencyHashes)
       resolvePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "resolve.cbor"
       typePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "type.cbor"
-      corePath modu = storePath </> moduleDirectory modu </> "core"
-      grinPath modu = storePath </> moduleDirectory modu </> "grin"
-      objectPath modu = storePath </> moduleDirectory modu </> T.unpack (fromMaybe "Main" (moduleName modu)) <> ".o"
-      nativePath modu = objectPath modu <> nativeSourceExtension target
+      outputPaths = moduleOutputPaths storePath target
   cachedExports <- tryReadUnitArtifacts hashes resolvePackage resolvePath unit
   (diskExports, resolveResult, resolveChanged) <- case cachedExports of
     Just exports -> do
@@ -375,26 +404,33 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
       storedInterfaces <- readTypeArtifacts typeInputs typePath unit
       pure (storedInterfaces, True, Just checked)
   updatedTypeHashes <- updateTypeHashes typePath typeHashes unit
-  coreExists <- and <$> mapM (doesFileExist . corePath . sourceModuleAst) unit
-  grinExists <- and <$> mapM (doesFileExist . grinPath . sourceModuleAst) unit
-  objectExists <- and <$> mapM (doesFileExist . objectPath . sourceModuleAst) unit
-  nativeExists <- and <$> mapM (doesFileExist . nativePath . sourceModuleAst) unit
-  (coreChanged, grinChanged) <-
-    if typeChanged || not coreExists
+  fcExists <- and <$> mapM (doesFileExist . outputFcPath . outputPaths . sourceName) unit
+  grinStagesExist <-
+    and
+      <$> mapM
+        ( \source -> do
+            let paths = outputPaths (sourceName source)
+            and <$> mapM doesFileExist [outputGrinPath paths, outputCpsGrinPath paths, outputGcGrinPath paths]
+        )
+        unit
+  objectExists <- and <$> mapM (doesFileExist . outputObjectPath . outputPaths . sourceName) unit
+  nativeExists <- and <$> mapM (doesFileExist . outputNativePath . outputPaths . sourceName) unit
+  (fcChanged, generatedOutputChanged) <-
+    if typeChanged || not fcExists
       then do
         (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
-        writeCoreFiles True keepGrin keepNative target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) corePath grinPath objectPath checkedModules
+        compileCheckedModules True keepGrin keepNative lint target verbose primIdentity completeInterface outputPaths checkedModules
         pure (True, keepGrin)
       else
-        if (keepGrin && not grinExists) || (keepNative && not nativeExists) || not objectExists
+        if lint || repairRequired grinStagesExist nativeExists objectExists
           then do
             (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
-            writeCoreFiles False keepGrin keepNative target verbose (packageId resolvePackage) primIdentity completeInterface (takeDirectory storePath) corePath grinPath objectPath checkedModules
-            pure (False, True)
+            compileCheckedModules False keepGrin keepNative lint target verbose primIdentity completeInterface outputPaths checkedModules
+            pure (False, repairRequired grinStagesExist nativeExists objectExists)
           else do
-            mapM_ (verbose . ("Reuse Core: " <>) . T.unpack) unitNames
+            mapM_ (verbose . ("Reuse FC: " <>) . T.unpack) unitNames
             pure (False, False)
-  let changed = resolveChanged || typeChanged || coreChanged || grinChanged
+  let changed = resolveChanged || typeChanged || fcChanged || generatedOutputChanged
       unitSet = Set.fromList unitNames
       localUnitTypes = mconcat unitTypes
       written' = if changed then written <> unitSet else written
@@ -409,96 +445,126 @@ installUnit keepGrin keepNative target verbose storePath resolvePackage primIden
     )
   where
     sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
+    repairRequired grinStagesExist nativeExists objectExists =
+      (keepGrin && not grinStagesExist) || (keepNative && not nativeExists) || not objectExists
 
-writeCoreFiles :: Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> PackageId -> TcInterface -> FilePath -> (Module -> FilePath) -> (Module -> FilePath) -> (Module -> FilePath) -> [Module] -> IO ()
-writeCoreFiles keepCore keepGrin keepNative target verbose currentPackage primIdentity interface storeRoot corePath grinPath objectPath checkedModules = do
+compileCheckedModules :: Bool -> Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
+compileCheckedModules writeFc keepGrin keepNative lint target verbose primIdentity interface outputPaths checkedModules = do
   let bindings = tcInterfaceBindings interface <> concatMap tcModuleBindings checkedModules
       config = DesugarConfig primIdentity
-      results = map (desugarModuleFc config bindings interface) checkedModules
-      currentModules = Set.fromList (map (fromMaybe "Main" . moduleName) checkedModules)
-      storeLoader = Fc.storeModuleLoader storeRoot
-      dependencyLoader package name
-        | package == currentPackage && name `Set.member` currentModules = pure Nothing
-        | otherwise = storeLoader package name
-  unless (all dsSuccess results) (ioError (userError ("Core generation failed: " <> unlines (concatMap dsErrors results))))
-  loadedFc <- Fc.loadScopeClosure dependencyLoader (map dsProgram results)
-  let fcErrors = Fc.lintPrograms loadedFc
+      desugarResults = map (desugarModuleFc config bindings interface) checkedModules
+  unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines (concatMap dsErrors desugarResults))))
+  let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
+      fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)
+      fcErrors = concatMap (Fc.lintProgram . fcProgram) fcModules
       fcReport = map (("    " <>) . show) fcErrors
-  unless (null fcErrors) $ do
-    mapM_ writeBadFc (zip checkedModules results)
-    ioError
-      ( userError
-          ( unlines
-              ( ["Core lint failed:"]
-                  <> fcReport
-              )
-          )
-      )
-  when keepCore (mapM_ writeCore (zip checkedModules results))
-  when keepGrin $ do
-    let typeEnv = FcType.typeEnvFromPrograms loadedFc
-    mapM_ (writeGrin typeEnv) (zip checkedModules results)
-  let typeEnv = FcType.typeEnvFromPrograms loadedFc
-  mapM_ (writeObject target typeEnv) (zip checkedModules results)
+  when lint $
+    unless (null fcErrors) $
+      ioError
+        ( userError
+            ( unlines
+                ( ["FC lint failed:"]
+                    <> fcReport
+                )
+            )
+        )
+  when writeFc (mapM_ writeFcModule fcModules)
+  grinModules <- mapM lowerGrinModule fcModules
+  when keepGrin (mapM_ writeGrinModule grinModules)
+  nativeModules <- mapM (generateNativeModule target) grinModules
+  mapM_ writeNativeSourceFile nativeModules
+  mapM_ compileNativeSourceFile nativeModules
+  unless keepNative (mapM_ removeNativeSourceFile nativeModules)
   where
-    writeBadFc (modu, result) = do
-      let badPath = corePath modu <> ".bad"
-          name = fromMaybe "Main" (moduleName modu)
-      removeFileIfExists (corePath modu)
-      writeCoreFile badPath result
-      verbose ("Write bad Core: " <> T.unpack name <> " -> " <> badPath)
+    writeFcModule fcModule = do
+      let name = fcModuleName fcModule
+          path = outputFcPath (outputPaths name)
+      writeFcFile path (fcProgram fcModule)
+      verbose ("Write FC: " <> T.unpack name)
 
-    writeCore (modu, result) = do
-      let outputPath = corePath modu
-          name = fromMaybe "Main" (moduleName modu)
-      removeFileIfExists (outputPath <> ".bad")
-      writeCoreFile outputPath result
-      verbose ("Write Core: " <> T.unpack name)
-
-    writeCoreFile path result = do
-      let rendered = Fc.renderProgram (dsProgram result)
-          output = if "\n" `isSuffixOf` rendered then rendered else rendered <> "\n"
+    writeFcFile path program = do
+      let output = withFinalNewline (Fc.renderProgram program)
       createDirectoryIfMissing True (takeDirectory path)
       writeFile path output
 
-    writeGrin typeEnv (modu, result) = do
-      program <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv (dsProgram result))
-      let errors = Grin.lintProgram program
-      unless (null errors) (ioError (userError ("GRIN lint failed: " <> show errors)))
-      let path = grinPath modu
-          rendered = Grin.renderProgram program
-          output = if "\n" `isSuffixOf` rendered then rendered else rendered <> "\n"
+    lowerGrinModule fcModule = do
+      plainProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fcProgram fcModule))
+      when lint $ do
+        let plainErrors = Grin.lintProgram plainProgram
+        unless (null plainErrors) (ioError (userError ("GRIN lint failed: " <> show plainErrors)))
+      cpsProgram <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin plainProgram)
+      let gcProgram = Grin.lowerGc cpsProgram
+      when lint $ do
+        let gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
+        unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
+      pure
+        GrinModule
+          { grinModuleName = fcModuleName fcModule,
+            plainGrinProgram = plainProgram,
+            cpsGrinProgram = cpsProgram,
+            gcGrinProgram = gcProgram
+          }
+
+    writeGrinModule grinModule = do
+      let name = grinModuleName grinModule
+          paths = outputPaths name
+      writeGrinFile (outputGrinPath paths) (plainGrinProgram grinModule)
+      verbose ("Write GRIN: " <> T.unpack name)
+      writeGrinFile (outputCpsGrinPath paths) (Grin.cpsGrinProgram (cpsGrinProgram grinModule))
+      verbose ("Write CPS-GRIN: " <> T.unpack name)
+      writeGrinFile (outputGcGrinPath paths) (Grin.gcGrinProgram (gcGrinProgram grinModule))
+      verbose ("Write GC-GRIN: " <> T.unpack name)
+
+    writeGrinFile path program = do
       createDirectoryIfMissing True (takeDirectory path)
-      writeFile path output
-      verbose ("Write GRIN: " <> T.unpack (fromMaybe "Main" (moduleName modu)))
+      writeFile path (withFinalNewline (Grin.renderProgram program))
 
-    writeObject selectedTarget typeEnv (modu, result) = do
-      program <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv (dsProgram result))
-      cps <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin program)
-      let gcProgram = Grin.lowerGc cps
-          gcErrors = Grin.lintProgram (Grin.gcGrinProgram gcProgram)
-      unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
-      assembly <- compileNativeModule selectedTarget gcProgram
-      let path = objectPath modu
-          assemblyPath = path <> nativeSourceExtension selectedTarget
+    generateNativeModule selectedTarget grinModule = do
+      source <- generateNativeCode selectedTarget (gcGrinProgram grinModule)
+      pure (NativeModule (grinModuleName grinModule) source)
+
+    writeNativeSourceFile nativeModule = do
+      let name = nativeModuleName nativeModule
+          path = outputNativePath (outputPaths name)
       createDirectoryIfMissing True (takeDirectory path)
-      TIO.writeFile assemblyPath assembly
-      (compiler, compilerArguments) <- backendCompiler selectedTarget
-      runTool compiler (compilerArguments <> ["-c", assemblyPath, "-o", path])
-      unless keepNative (removeFile assemblyPath)
-      verbose ("Write object: " <> T.unpack (fromMaybe "Main" (moduleName modu)))
+      TIO.writeFile path (nativeSource nativeModule)
+      verbose ("Write native source: " <> T.unpack name)
 
-    removeFileIfExists path = do
-      exists <- doesFileExist path
-      when exists (removeFile path)
+    compileNativeSourceFile nativeModule = do
+      let name = nativeModuleName nativeModule
+          paths = outputPaths name
+      (compiler, compilerArguments) <- backendCompiler target
+      runTool compiler (compilerArguments <> ["-c", outputNativePath paths, "-o", outputObjectPath paths])
+      verbose ("Write object: " <> T.unpack name)
 
-compileNativeModule :: NativeTarget -> Grin.GcGrinProgram -> IO Text
-compileNativeModule target gcProgram =
+    removeNativeSourceFile = removeFile . outputNativePath . outputPaths . nativeModuleName
+
+generateNativeCode :: NativeTarget -> Grin.GcGrinProgram -> IO Text
+generateNativeCode target gcProgram =
   case target of
     AppleArm64 -> either (ioError . userError . ("Apple ARM64 generation failed: " <>) . show) pure (Arm64.compileModule gcProgram)
     LinuxAmd64 -> either (ioError . userError . ("Linux AMD64 generation failed: " <>) . show) pure (Amd64.compileModule gcProgram)
     Llvm -> either (ioError . userError . ("LLVM generation failed: " <>) . show) pure (Llvm.compileModule gcProgram)
     Wasm32Wasip3 -> either (ioError . userError . ("WebAssembly generation failed: " <>) . show) pure (Wasm.compileModule gcProgram)
+
+moduleOutputPaths :: FilePath -> NativeTarget -> Text -> ModuleOutputPaths
+moduleOutputPaths storePath target name =
+  ModuleOutputPaths
+    { outputFcPath = directory </> "core",
+      outputGrinPath = directory </> "grin",
+      outputCpsGrinPath = directory </> "cps.grin",
+      outputGcGrinPath = directory </> "gc.grin",
+      outputNativePath = objectPath <> nativeSourceExtension target,
+      outputObjectPath = objectPath
+    }
+  where
+    directory = storePath </> moduleNameDirectory name
+    objectPath = directory </> T.unpack name <> ".o"
+
+withFinalNewline :: String -> String
+withFinalNewline rendered
+  | "\n" `isSuffixOf` rendered = rendered
+  | otherwise = rendered <> "\n"
 
 nativeSourceExtension :: NativeTarget -> String
 nativeSourceExtension target =
@@ -533,7 +599,7 @@ runTool executable arguments = do
 
 moduleTypeInterface :: ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
 moduleTypeInterface exports package interface source =
-  addReferencedTyCons
+  addReferencedFacts
     interface
     interface
       { tcInterfaceTerms = filter visibleTerm (tcInterfaceTerms interface),
@@ -574,30 +640,94 @@ moduleTypeInterface exports package interface source =
       ResolvedTopLevel packageId' resolvedName -> Just (packageId', fromMaybe name (nameQualifier resolvedName), nameText resolvedName)
       _ -> Nothing
 
-addReferencedTyCons :: TcInterface -> TcInterface -> TcInterface
-addReferencedTyCons complete interface =
-  interface {tcInterfaceTyCons = Map.elems (existing <> support)}
+addReferencedFacts :: TcInterface -> TcInterface -> TcInterface
+addReferencedFacts complete interface =
+  interface
+    { tcInterfaceTerms = tcInterfaceTerms interface,
+      tcInterfaceTyCons = Map.elems (existingTyCons <> supportTyCons),
+      tcInterfaceDataTypes = tcInterfaceDataTypes interface <> supportDataTypes,
+      tcInterfaceClasses = tcInterfaceClasses interface <> supportClasses
+    }
   where
-    existing = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons interface]
-    available = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons complete]
+    existingTyCons = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons interface]
+    availableTyCons = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons complete]
+    existingDataTypes = Set.fromList (map dtiTyCon (tcInterfaceDataTypes interface))
+    availableDataTypes = Map.fromList [(dtiTyCon info, info) | info <- tcInterfaceDataTypes complete]
+    existingClasses = Set.fromList (map ciTyCon (tcInterfaceClasses interface))
+    availableClasses = Map.fromList [(ciTyCon info, info) | info <- tcInterfaceClasses complete]
     referenced =
       Set.fromList
         ( concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface)
-            <> concatMap (typeSchemeTyCons . tciKindScheme) (tcInterfaceTyCons interface)
+            <> concatMap tyConInfoTyCons (tcInterfaceTyCons interface)
+            <> concatMap dataTypeInfoTyCons (tcInterfaceDataTypes interface)
+            <> concatMap classInfoTyCons (tcInterfaceClasses interface)
+            <> concatMap instanceInfoTyCons (tcInterfaceInstances interface)
+            <> concatMap dataFamilyInstanceInfoTyCons (tcInterfaceDataFamilyInstances interface)
+            <> concatMap typeFamilyInstanceInfoTyCons (tcInterfaceTypeFamilyInstances interface)
         )
     reachable = closeTyCons Set.empty referenced
-    support = Map.restrictKeys available (reachable `Set.difference` Map.keysSet existing)
+    supportTyCons = Map.restrictKeys availableTyCons (reachable `Set.difference` Map.keysSet existingTyCons)
+    supportDataTypes =
+      [ info
+      | info <- tcInterfaceDataTypes complete,
+        dtiTyCon info `Set.member` reachable,
+        dtiTyCon info `Set.notMember` existingDataTypes
+      ]
+    supportClasses =
+      [ info
+      | info <- tcInterfaceClasses complete,
+        ciTyCon info `Set.member` reachable,
+        ciTyCon info `Set.notMember` existingClasses
+      ]
     closeTyCons found pending
       | Set.null pending = found
       | otherwise =
           let (tyCon, pending') = Set.deleteFindMin pending
               dependencies =
-                maybe
-                  Set.empty
-                  (Set.fromList . typeSchemeTyCons . tciKindScheme)
-                  (Map.lookup tyCon available)
+                Set.fromList
+                  ( maybe [] tyConInfoTyCons (Map.lookup tyCon availableTyCons)
+                      <> maybe [] dataTypeInfoTyCons (Map.lookup tyCon availableDataTypes)
+                      <> maybe [] classInfoTyCons (Map.lookup tyCon availableClasses)
+                  )
               found' = Set.insert tyCon found
            in closeTyCons found' (pending' <> (dependencies `Set.difference` found'))
+
+tyConInfoTyCons :: TyConInfo -> [TyCon]
+tyConInfoTyCons info =
+  typeSchemeTyCons (tciKindScheme info)
+    <> maybe [] (maybe [] typeTyCons . tsiBody) (tciTypeSynonym info)
+
+dataTypeInfoTyCons :: DataTypeInfo -> [TyCon]
+dataTypeInfoTyCons info =
+  dtiTyCon info
+    : typeTyCons (dtiResultKind info)
+      <> concatMap dataConInfoTyCons (dtiConstructors info)
+
+dataConInfoTyCons :: DataConInfo -> [TyCon]
+dataConInfoTyCons info =
+  concatMap predTyCons (dciTheta info)
+    <> concatMap (typeTyCons . dcfiType) (dciFields info)
+    <> typeTyCons (dciResTy info)
+
+classInfoTyCons :: ClassInfo -> [TyCon]
+classInfoTyCons info =
+  ciTyCon info
+    : concatMap typeTyCons (ciSuperClassTypes info)
+      <> concatMap (typeSchemeTyCons . snd) (ciMethods info)
+      <> concatMap (typeSchemeTyCons . snd) (ciDefaultSignatures info)
+
+instanceInfoTyCons :: InstanceInfo -> [TyCon]
+instanceInfoTyCons info =
+  typeTyCons (iiDictType info)
+    <> concatMap predTyCons (iiContext info)
+    <> concatMap typeTyCons (iiHead info)
+
+dataFamilyInstanceInfoTyCons :: DataFamilyInstanceInfo -> [TyCon]
+dataFamilyInstanceInfoTyCons info =
+  dfiiRepresentationTyCon info : typeTyCons (dfiiFamilyType info)
+
+typeFamilyInstanceInfoTyCons :: TypeFamilyInstanceInfo -> [TyCon]
+typeFamilyInstanceInfoTyCons info = typeTyCons (tfiiLeft info) <> typeTyCons (tfiiRight info)
 
 typeSchemeTyCons :: TypeScheme -> [TyCon]
 typeSchemeTyCons (ForAll _ predicates body) = concatMap predTyCons predicates <> typeTyCons body
@@ -662,7 +792,10 @@ updateScopeHashes artifactPath previous unit = do
       pure (resolveArtifactModuleName artifact, T.pack (stableHash [scopeBytes]))
 
 moduleDirectory :: Module -> FilePath
-moduleDirectory = foldl' (</>) "" . map T.unpack . T.splitOn "." . fromMaybe "Main" . moduleName
+moduleDirectory = moduleNameDirectory . fromMaybe "Main" . moduleName
+
+moduleNameDirectory :: Text -> FilePath
+moduleNameDirectory = foldl' (</>) "" . map T.unpack . T.splitOn "."
 
 writeArtifact :: (String -> IO ()) -> [(Text, Text)] -> ModuleExports -> Package -> FilePath -> SourceModule -> IO ()
 writeArtifact verbose hashes exports package path source = do

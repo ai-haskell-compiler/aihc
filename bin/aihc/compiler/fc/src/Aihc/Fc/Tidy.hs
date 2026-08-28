@@ -26,7 +26,19 @@ emptyTidyEnv = TidyEnv Map.empty Map.empty
 -- | Give each local name the lowest number that its lexical scope permits.
 tidyProgram :: Program -> Program
 tidyProgram program =
-  program {programDecls = map tidyDecl (programDecls program)}
+  program
+    { programImports = tidyImports (programImports program),
+      programDecls = map tidyDecl (programDecls program)
+    }
+
+tidyImports :: Imports -> Imports
+tidyImports imports =
+  imports
+    { importHeaders = Map.map (tidyType emptyTidyEnv) (importHeaders imports),
+      importSynonyms = Map.map (tidyType emptyTidyEnv) (importSynonyms imports),
+      importAxioms = Map.map tidyAxiomDecl (importAxioms imports),
+      importBinders = Map.map (tidyType emptyTidyEnv) (importBinders imports)
+    }
 
 tidyDecl :: Decl -> Decl
 tidyDecl decl =
@@ -47,14 +59,7 @@ tidyDecl decl =
                 synResult = tidyType env (synResult declaration),
                 synBody = tidyType env (synBody declaration)
               }
-    DeclAxiom declaration ->
-      let (binders, env) = tidyBinders emptyTidyEnv (axiomBinders declaration)
-       in DeclAxiom
-            declaration
-              { axiomBinders = binders,
-                axiomLeft = tidyType env (axiomLeft declaration),
-                axiomRight = tidyType env (axiomRight declaration)
-              }
+    DeclAxiom declaration -> DeclAxiom (tidyAxiomDecl declaration)
     DeclVal declaration ->
       DeclVal
         declaration
@@ -67,6 +72,15 @@ tidyDecl decl =
 tidyConDecl :: ConDecl -> ConDecl
 tidyConDecl declaration =
   declaration {conType = tidyType emptyTidyEnv (conType declaration)}
+
+tidyAxiomDecl :: AxiomDecl -> AxiomDecl
+tidyAxiomDecl declaration =
+  let (binders, env) = tidyBinders emptyTidyEnv (axiomBinders declaration)
+   in declaration
+        { axiomBinders = binders,
+          axiomLeft = tidyType env (axiomLeft declaration),
+          axiomRight = tidyType env (axiomRight declaration)
+        }
 
 tidyType :: TidyEnv -> Type -> Type
 tidyType env ty =

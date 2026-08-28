@@ -4,6 +4,7 @@ module Aihc.Fc.TypeOf
     emptyTypeEnv,
     typeEnvFromProgram,
     typeEnvFromPrograms,
+    extendTypeEnvWithPrograms,
     typeOf,
     unfoldType,
     isLiftedRep,
@@ -18,7 +19,7 @@ module Aihc.Fc.TypeOf
     reduceType,
     typesEqual,
     coercionEndpoints,
-    unwrapNewtype,
+    applyRepresentationalAxiom,
   )
 where
 
@@ -59,13 +60,26 @@ typeEnvFromProgram program =
 -- | Register every header from every program. Later programs replace equal names.
 typeEnvFromPrograms :: [Program] -> TypeEnv
 typeEnvFromPrograms programs =
-  List.foldl' addProgram baseEnv programs
+  extendTypeEnvWithPrograms baseEnv programs
   where
     baseEnv =
       emptyTypeEnv
         { tePrimPackage = listToMaybe (mapMaybe (primPackageFromScopes . programScopes) programs)
         }
-    addProgram env program = List.foldl' addDecl env (programDecls program)
+
+extendTypeEnvWithPrograms :: TypeEnv -> [Program] -> TypeEnv
+extendTypeEnvWithPrograms = List.foldl' addProgram
+  where
+    addProgram env program = List.foldl' addDecl (addImports env (programImports program)) (programDecls program)
+
+addImports :: TypeEnv -> Imports -> TypeEnv
+addImports env imports =
+  env
+    { teHeaders = importHeaders imports `Map.union` teHeaders env,
+      teSynonyms = importSynonyms imports `Map.union` teSynonyms env,
+      teAxioms = importAxioms imports `Map.union` teAxioms env,
+      teBinders = importBinders imports `Map.union` teBinders env
+    }
 
 addDecl :: TypeEnv -> Decl -> TypeEnv
 addDecl env decl =
@@ -263,16 +277,15 @@ coercionEndpoints env coercion =
   where
     swap (left, right) = (right, left)
 
-unwrapNewtype :: TypeEnv -> Type -> Maybe Type
-unwrapNewtype env source = listToMaybe (mapMaybe unwrap (Map.elems (teAxioms env)))
+applyRepresentationalAxiom :: TypeEnv -> AxiomDecl -> Type -> Maybe Type
+applyRepresentationalAxiom env declaration source
+  | axiomRole declaration /= Representational = Nothing
+  | otherwise = do
+      substitution <- matchTypes (Map.fromList [(binderName binder, Nothing) | binder <- axiomBinders declaration]) (reduceType env (axiomLeft declaration)) source'
+      resolved <- sequenceA substitution
+      pure (substTypes resolved (axiomRight declaration))
   where
     source' = reduceType env source
-    unwrap declaration
-      | axiomRole declaration /= Representational = Nothing
-      | otherwise = do
-          substitution <- matchTypes (Map.fromList [(binderName binder, Nothing) | binder <- axiomBinders declaration]) (reduceType env (axiomLeft declaration)) source'
-          resolved <- sequenceA substitution
-          pure (substTypes resolved (axiomRight declaration))
 
     matchTypes substitution patternType actualType =
       case patternType of

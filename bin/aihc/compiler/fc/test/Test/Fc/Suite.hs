@@ -8,14 +8,14 @@ module Test.Fc.Suite
   )
 where
 
-import Aihc.Fc (LintError (..), Program, lintPrograms, loadScopeClosure, parseProgram, renderParseError, renderProgram, storeModuleLoader)
+import Aihc.Fc (LintError (..), Program, lintProgram, loadScopeClosure, parseProgram, renderParseError, renderProgram, storeModuleLoader)
 import Control.Exception (IOException, try)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd, isInfixOf, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import FcGolden (FcCase (..), Outcome (..), evaluateFcCase, loadFcCases, primitivePrograms)
+import FcGolden (FcCase (..), Outcome (..), evaluateFcCase, loadFcCases)
 import System.Directory (copyFile, createDirectoryIfMissing, doesDirectoryExist, getTemporaryDirectory, listDirectory, removeDirectoryRecursive)
 import System.FilePath (takeExtension, takeFileName, (</>))
 import Test.Tasty (TestTree, testGroup)
@@ -70,7 +70,7 @@ lintFileTests label expectPass dir = do
 lintFileTest :: Bool -> FilePath -> TestTree
 lintFileTest expectPass path = testCase path $ do
   program <- loadFcProgram path
-  let errors = lintPrograms (primitivePrograms <> [program])
+  let errors = lintProgram program
   if expectPass
     then assertEqual (path <> " lint errors") [] errors
     else assertBool (path <> " expected lint errors") (matchesFail path errors)
@@ -81,17 +81,10 @@ mutualLintTests dir = do
   pure
     ( testGroup
         "mutual"
-        [ testCase "lint of all files together passes" $ do
-            programs <- mapM loadFcProgram files
-            assertEqual "mutual lint errors" [] (lintPrograms programs),
-          testCase "lint of one file without the other fails" $ do
+        [ testCase "each file passes lint" $ do
             programs <- mapM loadFcProgram files
             mapM_
-              ( \program ->
-                  assertBool
-                    "a single mutual file must fail lint"
-                    (not (null (lintPrograms [program])))
-              )
+              (assertEqual "single-file lint errors" [] . lintProgram)
               programs,
           scopeLoaderTest
         ]
@@ -112,7 +105,7 @@ scopeLoaderTest = testCase "loadScopeClosure loads a scoped module from the stor
   loaded <- loadScopeClosure (storeModuleLoader store) [seed]
   ignoreMissing (removeDirectoryRecursive store)
   assertEqual "loaded module count" 2 (length loaded)
-  assertEqual "closure lint errors" [] (lintPrograms loaded)
+  assertEqual "seed lint errors" [] (lintProgram seed)
 
 ignoreMissing :: IO () -> IO ()
 ignoreMissing action = do
@@ -135,8 +128,9 @@ failClass name
   | "tyapp-kind" `isInfixOf` name = Just isKindMismatch
   | "cast-source" `isInfixOf` name = Just isTypeMismatch
   | "shadowed" `isInfixOf` name = Just isShadowedBinder
+  | "unused-import" `isInfixOf` name = Just isUnusedImport
+  | "lit-alt-lifted" `isInfixOf` name = Just isLintFailure
   | "lit-alt" `isInfixOf` name = Just isTypeMismatch
-  | "lit-secret" `isInfixOf` name = Just isTypeMismatch
   | "tycon-co-arity" `isInfixOf` name = Just isLintFailure
   | otherwise = Nothing
 
@@ -155,6 +149,10 @@ isKindMismatch _ = False
 isShadowedBinder :: LintError -> Bool
 isShadowedBinder ShadowedBinder {} = True
 isShadowedBinder _ = False
+
+isUnusedImport :: LintError -> Bool
+isUnusedImport UnusedImport {} = True
+isUnusedImport _ = False
 
 isLintFailure :: LintError -> Bool
 isLintFailure LintFailure {} = True

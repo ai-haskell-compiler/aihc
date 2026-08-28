@@ -18,31 +18,34 @@ data PackageManifest = PackageManifest
   { packageManifestName :: !Text,
     packageManifestVersion :: !Text,
     packageManifestIdentity :: !Text,
-    packageManifestDependencies :: ![Text]
+    packageManifestDependencies :: ![Text],
+    packageManifestModules :: ![Text]
   }
   deriving (Eq, Show)
 
 instance Aeson.ToJSON PackageManifest where
   toJSON manifest =
     Aeson.object
-      [ "schemaVersion" .= (1 :: Int),
+      [ "schemaVersion" .= (2 :: Int),
         "name" .= packageManifestName manifest,
         "version" .= packageManifestVersion manifest,
         "identity" .= packageManifestIdentity manifest,
-        "dependencies" .= packageManifestDependencies manifest
+        "dependencies" .= packageManifestDependencies manifest,
+        "modules" .= packageManifestModules manifest
       ]
 
 instance Aeson.FromJSON PackageManifest where
   parseJSON = Aeson.withObject "PackageManifest" $ \object -> do
     schemaVersion <- object .: "schemaVersion"
-    if schemaVersion /= (1 :: Int)
-      then fail "unsupported package manifest schema"
-      else
+    case schemaVersion :: Int of
+      2 ->
         PackageManifest
           <$> object .: "name"
           <*> object .: "version"
           <*> object .: "identity"
           <*> object .: "dependencies"
+          <*> object .: "modules"
+      _ -> fail "unsupported package manifest schema"
 
 packageManifestPath :: FilePath -> FilePath
 packageManifestPath packageRoot = packageRoot </> "package.json"

@@ -227,7 +227,7 @@ Example: `Demo/A/core`.
 
 If Fc desugar fails, the install fails.
 If Fc lint fails, the install fails.
-Write `core.bad` when Fc lint fails.
+Keep the `core` file at its normal path when Fc lint fails.
 Do not write `core` without `core`.
 `install-v2` does not parse the `core` file that it writes.
 It may parse imported `core` files through the store loader.
