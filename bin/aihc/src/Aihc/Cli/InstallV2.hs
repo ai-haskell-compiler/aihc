@@ -599,7 +599,7 @@ runTool executable arguments = do
 
 moduleTypeInterface :: ModuleExports -> Package -> TcInterface -> SourceModule -> TcInterface
 moduleTypeInterface exports package interface source =
-  addReferencedTyCons
+  addReferencedFacts
     interface
     interface
       { tcInterfaceTerms = filter visibleTerm (tcInterfaceTerms interface),
@@ -640,12 +640,17 @@ moduleTypeInterface exports package interface source =
       ResolvedTopLevel packageId' resolvedName -> Just (packageId', fromMaybe name (nameQualifier resolvedName), nameText resolvedName)
       _ -> Nothing
 
-addReferencedTyCons :: TcInterface -> TcInterface -> TcInterface
-addReferencedTyCons complete interface =
-  interface {tcInterfaceTyCons = Map.elems (existing <> support)}
+addReferencedFacts :: TcInterface -> TcInterface -> TcInterface
+addReferencedFacts complete interface =
+  interface
+    { tcInterfaceTyCons = Map.elems (existingTyCons <> supportTyCons),
+      tcInterfaceClasses = tcInterfaceClasses interface <> supportClasses
+    }
   where
-    existing = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons interface]
-    available = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons complete]
+    existingTyCons = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons interface]
+    availableTyCons = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons complete]
+    existingClasses = Set.fromList (map ciTyCon (tcInterfaceClasses interface))
+    availableClasses = Map.fromList [(ciTyCon info, info) | info <- tcInterfaceClasses complete]
     referenced =
       Set.fromList
         ( concatMap (typeSchemeTyCons . snd) (tcInterfaceTerms interface)
@@ -657,16 +662,22 @@ addReferencedTyCons complete interface =
             <> concatMap typeFamilyInstanceInfoTyCons (tcInterfaceTypeFamilyInstances interface)
         )
     reachable = closeTyCons Set.empty referenced
-    support = Map.restrictKeys available (reachable `Set.difference` Map.keysSet existing)
+    supportTyCons = Map.restrictKeys availableTyCons (reachable `Set.difference` Map.keysSet existingTyCons)
+    supportClasses =
+      [ info
+      | info <- tcInterfaceClasses complete,
+        ciTyCon info `Set.member` reachable,
+        ciTyCon info `Set.notMember` existingClasses
+      ]
     closeTyCons found pending
       | Set.null pending = found
       | otherwise =
           let (tyCon, pending') = Set.deleteFindMin pending
               dependencies =
-                maybe
-                  Set.empty
-                  (Set.fromList . typeSchemeTyCons . tciKindScheme)
-                  (Map.lookup tyCon available)
+                Set.fromList
+                  ( maybe [] tyConInfoTyCons (Map.lookup tyCon availableTyCons)
+                      <> maybe [] classInfoTyCons (Map.lookup tyCon availableClasses)
+                  )
               found' = Set.insert tyCon found
            in closeTyCons found' (pending' <> (dependencies `Set.difference` found'))
 
