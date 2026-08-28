@@ -11,7 +11,6 @@ where
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax
 import Aihc.Fc2.TypeOf
-import Aihc.Fc2.Wired (isGhcTypesOrigin)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe)
@@ -19,20 +18,15 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 
-data References = References
-  { referenceNames :: !(Set Name),
-    referencePrimitiveTypes :: !(Set Text)
+newtype References = References
+  { referenceNames :: Set Name
   }
 
 instance Semigroup References where
-  left <> right =
-    References
-      { referenceNames = referenceNames left <> referenceNames right,
-        referencePrimitiveTypes = referencePrimitiveTypes left <> referencePrimitiveTypes right
-      }
+  left <> right = References (referenceNames left <> referenceNames right)
 
 instance Monoid References where
-  mempty = References Set.empty Set.empty
+  mempty = References Set.empty
 
 emptyImports :: Imports
 emptyImports = Imports Map.empty Map.empty Map.empty Map.empty
@@ -49,7 +43,6 @@ importsForProgram available program = select Set.empty initialNames (programImpo
     initialNames =
       ( referenceNames directReferences
           <> referenceNames importedReferences
-          <> implicitHeaderNames lookupEnv directReferences
           <> foreignAdapterConstructorNames lookupEnv (programDecls program)
       )
         `Set.difference` localNames
@@ -80,7 +73,6 @@ unusedImports program =
     baseNames =
       referenceNames directReferences
         <> referenceNames importReferences
-        <> implicitHeaderNames (typeEnvFromProgram program) directReferences
         <> foreignAdapterConstructorNames (typeEnvFromProgram program) (programDecls program)
     usedNames = baseNames <> implicitlyUsedAxiomNames imports baseNames
     importNames =
@@ -139,27 +131,6 @@ typeHeadName ty =
     TyCon name -> Just name
     TyApp function _ -> typeHeadName function
     _ -> Nothing
-
-implicitHeaderNames :: TypeEnv -> References -> Set Name
-implicitHeaderNames env references =
-  Set.fromList
-    [ name
-    | text <- Set.toList (referencePrimitiveTypes references),
-      Just name <- [namedType env text]
-    ]
-
-namedType :: TypeEnv -> Text -> Maybe Name
-namedType env text = listToMaybe (ghcTypesNames <> otherNames)
-  where
-    matches =
-      [ name
-      | name <- Map.keys (teHeaders env),
-        nameText name == text,
-        nameClass (nameSort name) == NameClassType
-      ]
-    fromGhcTypes name = maybe False (`isGhcTypesOrigin` name) (tePrimPackage env)
-    ghcTypesNames = filter fromGhcTypes matches
-    otherNames = filter (not . fromGhcTypes) matches
 
 foreignAdapterConstructorNames :: TypeEnv -> [Decl] -> Set Name
 foreignAdapterConstructorNames env declarations =
@@ -328,32 +299,9 @@ altConReferences altCon =
 literalReferences :: Literal -> References
 literalReferences literal =
   case literal of
-    LitInt representation _ ->
-      typeReferences representation
-        <> maybe mempty primitiveTypeReference (intLiteralPrimitiveName representation)
-    LitChar representation _ -> typeReferences representation <> primitiveTypeReference "Char#"
-    LitAddr representation _ -> typeReferences representation <> primitiveTypeReference "Addr#"
-
-intLiteralPrimitiveName :: Type -> Maybe Text
-intLiteralPrimitiveName ty =
-  case ty of
-    TyCon name ->
-      List.lookup
-        (nameText name)
-        [ ("IntRep", "Int#"),
-          ("WordRep", "Word#"),
-          ("Int8Rep", "Int8#"),
-          ("Int16Rep", "Int16#"),
-          ("Int32Rep", "Int32#"),
-          ("Int64Rep", "Int64#"),
-          ("Word8Rep", "Word8#"),
-          ("Word16Rep", "Word16#"),
-          ("Word32Rep", "Word32#"),
-          ("Word64Rep", "Word64#"),
-          ("FloatRep", "Float#"),
-          ("DoubleRep", "Double#")
-        ]
-    _ -> Nothing
+    LitInt representation _ -> typeReferences representation
+    LitChar representation _ -> typeReferences representation
+    LitAddr representation _ -> typeReferences representation
 
 coercionReferences :: Coercion -> References
 coercionReferences coercion =
@@ -366,7 +314,4 @@ coercionReferences coercion =
     CoAxiom name arguments -> nameReference name <> foldMap typeReferences arguments
 
 nameReference :: Name -> References
-nameReference name = mempty {referenceNames = Set.singleton name}
-
-primitiveTypeReference :: Text -> References
-primitiveTypeReference text = mempty {referencePrimitiveTypes = Set.singleton text}
+nameReference name = References (Set.singleton name)

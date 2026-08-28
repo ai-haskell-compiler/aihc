@@ -129,8 +129,8 @@ failClass name
   | "cast-source" `isInfixOf` name = Just isTypeMismatch
   | "shadowed" `isInfixOf` name = Just isShadowedBinder
   | "unused-import" `isInfixOf` name = Just isUnusedImport
+  | "lit-alt-lifted" `isInfixOf` name = Just isLintFailure
   | "lit-alt" `isInfixOf` name = Just isTypeMismatch
-  | "lit-secret" `isInfixOf` name = Just isTypeMismatch
   | "tycon-co-arity" `isInfixOf` name = Just isLintFailure
   | otherwise = Nothing
 
