@@ -1,20 +1,15 @@
 -- | Human-readable GRIN rendering for diagnostics and golden tests.
 module Aihc.Grin.Pretty
-  ( renderProgram,
-    renderExpr,
+  ( prettyProgram,
+    prettyExpr,
   )
 where
 
 import Aihc.Grin.Syntax
 import Data.ByteString qualified as BS
 import Data.Char (chr, isPrint, isSpace)
-import Data.List (dropWhileEnd)
 import Data.Text qualified as T
-import Prettyprinter (Doc, comma, defaultLayoutOptions, hardline, hsep, indent, layoutPretty, parens, pretty, punctuate, space, vsep, (<+>))
-import Prettyprinter.Render.String (renderString)
-
-renderProgram :: GrinProgram -> String
-renderProgram = renderDocument . prettyProgram
+import Prettyprinter (Doc, comma, hardline, hsep, indent, parens, pretty, punctuate, space, vsep, (<+>))
 
 prettyProgram :: GrinProgram -> Doc ann
 prettyProgram program =
@@ -57,9 +52,6 @@ prettyFunction function =
     <+> "="
     <> hardline
     <> indent 2 (prettyExpr (grinFunctionBody function))
-
-renderExpr :: GrinExpr -> String
-renderExpr = renderDocument . prettyExpr
 
 prettyExpr :: GrinExpr -> Doc ann
 prettyExpr expr =
@@ -140,7 +132,9 @@ prettyExpr expr =
         <+> prettyVar binder
         <+> "of"
         <> hardline
-        <> indent 2 (vsep (map prettyAlt alternatives))
+        <> case alternatives of
+          [] -> mempty
+          _ -> indent 2 (vsep (map prettyAlt alternatives))
     GrinThrow exception -> "throw" <+> prettyValue exception
     GrinCatch runtimeRep action handler state ->
       "catch"
@@ -298,9 +292,6 @@ prettyName name
       isPrint character
         && not (isSpace character)
         && character `notElem` ['"', '(', ')', '[', ']', ',', '=', '/', '%']
-
-renderDocument :: Doc ann -> String
-renderDocument = dropWhileEnd (== ' ') . renderString . layoutPretty defaultLayoutOptions
 
 prettyShow :: (Show value) => value -> Doc ann
 prettyShow = pretty . show

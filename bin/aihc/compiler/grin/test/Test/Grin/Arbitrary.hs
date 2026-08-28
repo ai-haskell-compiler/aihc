@@ -6,7 +6,7 @@ module Test.Grin.Arbitrary
 where
 
 import Aihc.Grin.Parser (parseProgram, renderParseError)
-import Aihc.Grin.Pretty (renderProgram)
+import Aihc.Grin.Pretty (prettyProgram)
 import Aihc.Grin.Syntax
 import Data.ByteString qualified as BS
 import Data.Text (Text)
@@ -14,11 +14,13 @@ import Data.Text qualified as T
 import Hedgehog (Gen, Property, annotate, failure, forAll, property, (===))
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
+import Prettyprinter (defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.String (renderString)
 
 prop_grinPrettyRoundTrip :: Property
 prop_grinPrettyRoundTrip = property $ do
   program <- forAll genGrinProgram
-  let rendered = T.pack (renderProgram program)
+  let rendered = T.pack (renderString (layoutPretty defaultLayoutOptions (prettyProgram program)))
   case parseProgram rendered of
     Left err -> do
       annotate ("failed to parse generated GRIN:\n" <> T.unpack rendered <> "\n\n" <> renderParseError err)

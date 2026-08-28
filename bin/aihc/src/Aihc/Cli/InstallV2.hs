@@ -92,6 +92,8 @@ import Distribution.PackageDescription (package, packageDescription)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
 import Numeric (showHex)
+import Prettyprinter (defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.String (renderString)
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (makeRelative, takeDirectory, takeFileName, (</>))
@@ -517,7 +519,7 @@ compileCheckedModules writeFc keepGrin keepNative lint target verbose primIdenti
 
     writeGrinFile path program = do
       createDirectoryIfMissing True (takeDirectory path)
-      writeFile path (withFinalNewline (Grin.renderProgram program))
+      writeFile path (withFinalNewline (renderString (layoutPretty defaultLayoutOptions (Grin.prettyProgram program))))
 
     generateNativeModule selectedTarget grinModule = do
       source <- generateNativeCode selectedTarget (gcGrinProgram grinModule)

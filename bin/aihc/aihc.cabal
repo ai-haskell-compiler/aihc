@@ -321,6 +321,7 @@ test-suite grin-spec
     directory,
     filepath,
     hedgehog,
+    prettyprinter,
     tasty,
     tasty-hedgehog,
     tasty-hunit,
