@@ -1,11 +1,11 @@
--- | Make System FC 2 local names easier to read.
-module Aihc.Fc2.Tidy
+-- | Make System FC local names easier to read.
+module Aihc.Fc.Tidy
   ( tidyProgram,
   )
 where
 
-import Aihc.Fc2.Name
-import Aihc.Fc2.Syntax
+import Aihc.Fc.Name
+import Aihc.Fc.Syntax
 import Aihc.Tc.Types (Unique (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map

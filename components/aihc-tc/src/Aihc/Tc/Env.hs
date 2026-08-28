@@ -226,7 +226,7 @@ dataFamilyAxiomName :: Text -> Text -> Text
 dataFamilyAxiomName familyName firstConstructor =
   "$ax$" <> familyName <> "$" <> firstConstructor
 
--- | A checked type-family equation. Fc2 prints this as a named axiom.
+-- | A checked type-family equation. Fc prints this as a named axiom.
 -- Do not invent equations in a later phase.
 data TypeFamilyInstanceInfo = TypeFamilyInstanceInfo
   { tfiiFamilyName :: !Text,

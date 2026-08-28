@@ -21,8 +21,8 @@ import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, writ
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeInterface)
-import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2)
-import Aihc.Fc2 qualified as Fc2
+import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc)
+import Aihc.Fc qualified as Fc
 import Aihc.Grin qualified as Grin
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Download qualified as HackageDownload
@@ -120,7 +120,7 @@ data InstalledV2Package = InstalledV2Package
   }
 
 data ModuleOutputPaths = ModuleOutputPaths
-  { outputFc2Path :: !FilePath,
+  { outputFcPath :: !FilePath,
     outputGrinPath :: !FilePath,
     outputCpsGrinPath :: !FilePath,
     outputGcGrinPath :: !FilePath,
@@ -128,9 +128,9 @@ data ModuleOutputPaths = ModuleOutputPaths
     outputObjectPath :: !FilePath
   }
 
-data Fc2Module = Fc2Module
-  { fc2ModuleName :: !Text,
-    fc2Program :: !Fc2.Program
+data FcModule = FcModule
+  { fcModuleName :: !Text,
+    fcProgram :: !Fc.Program
   }
 
 data GrinModule = GrinModule
@@ -404,7 +404,7 @@ installUnit keepGrin keepNative lint target verbose storePath resolvePackage pri
       storedInterfaces <- readTypeArtifacts typeInputs typePath unit
       pure (storedInterfaces, True, Just checked)
   updatedTypeHashes <- updateTypeHashes typePath typeHashes unit
-  fc2Exists <- and <$> mapM (doesFileExist . outputFc2Path . outputPaths . sourceName) unit
+  fcExists <- and <$> mapM (doesFileExist . outputFcPath . outputPaths . sourceName) unit
   grinStagesExist <-
     and
       <$> mapM
@@ -415,8 +415,8 @@ installUnit keepGrin keepNative lint target verbose storePath resolvePackage pri
         unit
   objectExists <- and <$> mapM (doesFileExist . outputObjectPath . outputPaths . sourceName) unit
   nativeExists <- and <$> mapM (doesFileExist . outputNativePath . outputPaths . sourceName) unit
-  (fc2Changed, generatedOutputChanged) <-
-    if typeChanged || not fc2Exists
+  (fcChanged, generatedOutputChanged) <-
+    if typeChanged || not fcExists
       then do
         (checkedModules, completeInterface) <- maybe checkUnit pure checkedResult
         compileCheckedModules True keepGrin keepNative lint target verbose primIdentity completeInterface outputPaths checkedModules
@@ -428,9 +428,9 @@ installUnit keepGrin keepNative lint target verbose storePath resolvePackage pri
             compileCheckedModules False keepGrin keepNative lint target verbose primIdentity completeInterface outputPaths checkedModules
             pure (False, repairRequired grinStagesExist nativeExists objectExists)
           else do
-            mapM_ (verbose . ("Reuse FC2: " <>) . T.unpack) unitNames
+            mapM_ (verbose . ("Reuse FC: " <>) . T.unpack) unitNames
             pure (False, False)
-  let changed = resolveChanged || typeChanged || fc2Changed || generatedOutputChanged
+  let changed = resolveChanged || typeChanged || fcChanged || generatedOutputChanged
       unitSet = Set.fromList unitNames
       localUnitTypes = mconcat unitTypes
       written' = if changed then written <> unitSet else written
@@ -449,46 +449,46 @@ installUnit keepGrin keepNative lint target verbose storePath resolvePackage pri
       (keepGrin && not grinStagesExist) || (keepNative && not nativeExists) || not objectExists
 
 compileCheckedModules :: Bool -> Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
-compileCheckedModules writeFc2 keepGrin keepNative lint target verbose primIdentity interface outputPaths checkedModules = do
+compileCheckedModules writeFc keepGrin keepNative lint target verbose primIdentity interface outputPaths checkedModules = do
   let bindings = tcInterfaceBindings interface <> concatMap tcModuleBindings checkedModules
       config = DesugarConfig primIdentity
-      desugarResults = map (desugarModuleFc2 config bindings interface) checkedModules
-  unless (all ds2Success desugarResults) (ioError (userError ("FC2 generation failed: " <> unlines (concatMap ds2Errors desugarResults))))
+      desugarResults = map (desugarModuleFc config bindings interface) checkedModules
+  unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines (concatMap dsErrors desugarResults))))
   let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
-      fc2Modules = zipWith Fc2Module moduleNames (map ds2Program desugarResults)
-      fc2Errors = concatMap (Fc2.lintProgram . fc2Program) fc2Modules
-      fc2Report = map (("    " <>) . show) fc2Errors
+      fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)
+      fcErrors = concatMap (Fc.lintProgram . fcProgram) fcModules
+      fcReport = map (("    " <>) . show) fcErrors
   when lint $
-    unless (null fc2Errors) $
+    unless (null fcErrors) $
       ioError
         ( userError
             ( unlines
-                ( ["FC2 lint failed:"]
-                    <> fc2Report
+                ( ["FC lint failed:"]
+                    <> fcReport
                 )
             )
         )
-  when writeFc2 (mapM_ writeFc2Module fc2Modules)
-  grinModules <- mapM lowerGrinModule fc2Modules
+  when writeFc (mapM_ writeFcModule fcModules)
+  grinModules <- mapM lowerGrinModule fcModules
   when keepGrin (mapM_ writeGrinModule grinModules)
   nativeModules <- mapM (generateNativeModule target) grinModules
   mapM_ writeNativeSourceFile nativeModules
   mapM_ compileNativeSourceFile nativeModules
   unless keepNative (mapM_ removeNativeSourceFile nativeModules)
   where
-    writeFc2Module fc2Module = do
-      let name = fc2ModuleName fc2Module
-          path = outputFc2Path (outputPaths name)
-      writeFc2File path (fc2Program fc2Module)
-      verbose ("Write FC2: " <> T.unpack name)
+    writeFcModule fcModule = do
+      let name = fcModuleName fcModule
+          path = outputFcPath (outputPaths name)
+      writeFcFile path (fcProgram fcModule)
+      verbose ("Write FC: " <> T.unpack name)
 
-    writeFc2File path program = do
-      let output = withFinalNewline (Fc2.renderProgram program)
+    writeFcFile path program = do
+      let output = withFinalNewline (Fc.renderProgram program)
       createDirectoryIfMissing True (takeDirectory path)
       writeFile path output
 
-    lowerGrinModule fc2Module = do
-      plainProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fc2Program fc2Module))
+    lowerGrinModule fcModule = do
+      plainProgram <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram (fcProgram fcModule))
       when lint $ do
         let plainErrors = Grin.lintProgram plainProgram
         unless (null plainErrors) (ioError (userError ("GRIN lint failed: " <> show plainErrors)))
@@ -499,7 +499,7 @@ compileCheckedModules writeFc2 keepGrin keepNative lint target verbose primIdent
         unless (null gcErrors) (ioError (userError ("GC-GRIN lint failed: " <> show gcErrors)))
       pure
         GrinModule
-          { grinModuleName = fc2ModuleName fc2Module,
+          { grinModuleName = fcModuleName fcModule,
             plainGrinProgram = plainProgram,
             cpsGrinProgram = cpsProgram,
             gcGrinProgram = gcProgram
@@ -550,7 +550,7 @@ generateNativeCode target gcProgram =
 moduleOutputPaths :: FilePath -> NativeTarget -> Text -> ModuleOutputPaths
 moduleOutputPaths storePath target name =
   ModuleOutputPaths
-    { outputFc2Path = directory </> "core-v2",
+    { outputFcPath = directory </> "core",
       outputGrinPath = directory </> "grin",
       outputCpsGrinPath = directory </> "cps.grin",
       outputGcGrinPath = directory </> "gc.grin",

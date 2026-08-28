@@ -1,16 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Human-readable System FC 2 text.
-module Aihc.Fc2.Pretty
+-- | Human-readable System FC text.
+module Aihc.Fc.Pretty
   ( renderProgram,
     renderType,
     renderExpr,
   )
 where
 
-import Aihc.Fc2.Name
-import Aihc.Fc2.Syntax
-import Aihc.Fc2.TypeOf
+import Aihc.Fc.Name
+import Aihc.Fc.Syntax
+import Aihc.Fc.TypeOf
 import Aihc.Resolve (PackageId (..), packageIdText)
 import Aihc.Tc.Types (Unique (..))
 import Data.ByteString qualified as BS
@@ -474,7 +474,7 @@ prettyScopePrefix :: ScopeTable -> PackageId -> Text -> Doc ann
 prettyScopePrefix scopes package moduleName =
   case lookupScopeId scopes package moduleName of
     Just scopeId -> pretty scopeId <> "."
-    Nothing -> error ("missing System FC 2 scope for " <> show (packageIdText package, moduleName))
+    Nothing -> error ("missing System FC scope for " <> show (packageIdText package, moduleName))
 
 lookupScopeId :: ScopeTable -> PackageId -> Text -> Maybe Int
 lookupScopeId table package moduleName =

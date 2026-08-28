@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Type-check System FC 2 terms and types. Kinds are types.
-module Aihc.Fc2.Lint
+-- | Type-check System FC terms and types. Kinds are types.
+module Aihc.Fc.Lint
   ( lintProgram,
     loadScopeClosure,
     ModuleLoader,
@@ -10,12 +10,12 @@ module Aihc.Fc2.Lint
   )
 where
 
-import Aihc.Fc2.Imports (unusedImports)
-import Aihc.Fc2.Name
-import Aihc.Fc2.Parser (parseProgram, renderParseError)
-import Aihc.Fc2.Syntax
-import Aihc.Fc2.TypeOf hiding (coercionEndpoints)
-import Aihc.Fc2.Wired
+import Aihc.Fc.Imports (unusedImports)
+import Aihc.Fc.Name
+import Aihc.Fc.Parser (parseProgram, renderParseError)
+import Aihc.Fc.Syntax
+import Aihc.Fc.TypeOf hiding (coercionEndpoints)
+import Aihc.Fc.Wired
 import Aihc.Resolve (PackageId (..), packageIdText)
 import Control.Monad (foldM, unless, when)
 import Data.List qualified as List
@@ -69,14 +69,14 @@ loadScopeClosure loader seeds = do
 
 storeModuleLoader :: FilePath -> ModuleLoader
 storeModuleLoader storeRoot package moduleName = do
-  let path = storeRoot </> T.unpack (packageIdText package) </> moduleDirectoryText moduleName </> "core-v2"
+  let path = storeRoot </> T.unpack (packageIdText package) </> moduleDirectoryText moduleName </> "core"
   exists <- doesFileExist path
   if not exists
     then pure Nothing
     else do
       source <- TIO.readFile path
       case parseProgram source of
-        Left parseError -> fail ("Invalid core-v2 file " <> path <> ": " <> renderParseError parseError)
+        Left parseError -> fail ("Invalid core file " <> path <> ": " <> renderParseError parseError)
         Right program -> pure (Just program)
 
 moduleDirectoryText :: Text -> FilePath

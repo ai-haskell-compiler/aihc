@@ -490,7 +490,7 @@ The type checker must produce one type interface for each module. A file must no
 
 ## System FC artifacts
 
-The System FC 2 plan is in `docs/system-fc2.md`.
+The System FC plan is in `docs/system-fc.md`.
 
 ### Per-module form
 

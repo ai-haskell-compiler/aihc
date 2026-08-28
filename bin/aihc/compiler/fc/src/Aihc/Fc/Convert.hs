@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
--- | Convert checked kinds and types into System FC 2 types.
-module Aihc.Fc2.Convert
+-- | Convert checked kinds and types into System FC types.
+module Aihc.Fc.Convert
   ( ConvertEnv (..),
     emptyConvertEnv,
     withTyVar,
@@ -15,7 +15,7 @@ module Aihc.Fc2.Convert
     convertType,
     convertPred,
     tyVarBinder,
-    tyConNameFc2,
+    tyConNameFc,
     classDictTypeName,
     classDictConName,
     lookupAxiomName,
@@ -27,9 +27,9 @@ module Aihc.Fc2.Convert
   )
 where
 
-import Aihc.Fc2.Name
-import Aihc.Fc2.Syntax
-import Aihc.Fc2.Wired
+import Aihc.Fc.Name
+import Aihc.Fc.Syntax
+import Aihc.Fc.Wired
 import Aihc.Resolve (PackageId, ResolutionNamespace (..))
 import Aihc.Tc.Types
   ( Pred (..),
@@ -213,7 +213,7 @@ convertTypeWithExpectedKind env expectedKind ty =
       kindArgs <- invisibleKindArgs env tyCon arguments expectedKind
       argumentKinds <- visibleArgumentKinds env tyCon arguments expectedKind
       converted <- zipWithM (convertTypeWithExpectedKind env) (map Just argumentKinds <> repeat Nothing) arguments
-      pure (foldl TyApp (TyCon (tyConNameFc2 env tyCon)) (kindArgs <> converted))
+      pure (foldl TyApp (TyCon (tyConNameFc env tyCon)) (kindArgs <> converted))
     TcFunTy argument result -> do
       convertedArgument <- convertType env argument
       convertedResult <- convertType env result
@@ -271,8 +271,8 @@ tyVarName tyVar =
 tyVarType :: TyVarId -> Type
 tyVarType tyVar = TyVar (tyVarName tyVar)
 
-tyConNameFc2 :: ConvertEnv -> TyCon -> Name
-tyConNameFc2 env tyCon =
+tyConNameFc :: ConvertEnv -> TyCon -> Name
+tyConNameFc env tyCon =
   if Set.member (tyConKey tyCon) (ceClassTyCons env)
     then classDictTypeName tyCon
     else

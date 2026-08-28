@@ -14,11 +14,11 @@ Add a property when the GRIN syntax requirement is broad or algebraic.
 
 ## Disabled Tests
 
-GRIN lowering tests need an FC2 lowerer.
-GRIN interpreter tests need FC2-generated programs.
-The shared evaluation fixtures need an FC2 evaluator.
+GRIN lowering tests need an FC lowerer.
+GRIN interpreter tests need FC-generated programs.
+The shared evaluation fixtures need an FC evaluator.
 
-Do not enable these tests until their FC2 dependencies exist.
+Do not enable these tests until their FC dependencies exist.
 
 ## Validation
 

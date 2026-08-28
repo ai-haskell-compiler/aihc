@@ -124,7 +124,7 @@ in rec {
       ".wit"
       ".yaml"
       ".yml"
-      ".fc2"
+      ".fc"
       "expected.txt"
     ];
 

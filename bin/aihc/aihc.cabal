@@ -10,11 +10,11 @@ category: Development
 synopsis: The AIHC compiler and its command-line tools
 description: The AIHC package contains the compiler and its production and development command-line tools.
 extra-source-files:
-  compiler/fc/test/Test/Fixtures/fc2-lint/fail/*.fc2
-  compiler/fc/test/Test/Fixtures/fc2-lint/mutual/*.fc2
-  compiler/fc/test/Test/Fixtures/fc2-lint/pass/*.fc2
-  compiler/fc/test/Test/Fixtures/fc2/*.fc2
-  compiler/fc/test/Test/Fixtures/golden-v2/*.yaml
+  compiler/fc/test/Test/Fixtures/fc-lint/fail/*.fc
+  compiler/fc/test/Test/Fixtures/fc-lint/mutual/*.fc
+  compiler/fc/test/Test/Fixtures/fc-lint/pass/*.fc
+  compiler/fc/test/Test/Fixtures/fc/*.fc
+  compiler/fc/test/Test/Fixtures/golden/*.yaml
   compiler/grin/test/Test/Fixtures/grin-snapshot/*.yaml
   compiler/grin/test/Test/Fixtures/grin/*.yaml
   test/Test/Fixtures/build-exe/generated-entry-collision/Aihc/Entry.hs
@@ -70,18 +70,18 @@ library compiler
     Aihc.Cli.Runtime
     Aihc.Cli.Store
     Aihc.Cli.TypeArtifact
-    Aihc.Fc2
-    Aihc.Fc2.Convert
-    Aihc.Fc2.Desugar
-    Aihc.Fc2.Imports
-    Aihc.Fc2.Lint
-    Aihc.Fc2.Name
-    Aihc.Fc2.Parser
-    Aihc.Fc2.Pretty
-    Aihc.Fc2.Syntax
-    Aihc.Fc2.Tidy
-    Aihc.Fc2.TypeOf
-    Aihc.Fc2.Wired
+    Aihc.Fc
+    Aihc.Fc.Convert
+    Aihc.Fc.Desugar
+    Aihc.Fc.Imports
+    Aihc.Fc.Lint
+    Aihc.Fc.Name
+    Aihc.Fc.Parser
+    Aihc.Fc.Pretty
+    Aihc.Fc.Syntax
+    Aihc.Fc.Tidy
+    Aihc.Fc.TypeOf
+    Aihc.Fc.Wired
     Aihc.Grin
     Aihc.Grin.Anf
     Aihc.Grin.Cps
@@ -106,7 +106,7 @@ library compiler
     Aihc.Amd64.Codegen.Runtime
     Aihc.Arm64.Codegen.Function
     Aihc.Arm64.Codegen.Runtime
-    Aihc.Fc2.Desugar.Value
+    Aihc.Fc.Desugar.Value
     Aihc.Grin.Analysis
     Paths_aihc
 
@@ -275,9 +275,9 @@ test-suite fc-spec
 
   main-is: Spec.hs
   other-modules:
-    Fc2Golden
-    Test.Fc2.Properties
-    Test.Fc2.Suite
+    FcGolden
+    Test.Fc.Properties
+    Test.Fc.Suite
 
   build-depends:
     aeson,

@@ -50,7 +50,7 @@ import Aihc.Cli.PackageInterface
   )
 import Aihc.Cli.Store (defaultStoreRoot)
 import Aihc.Cpp qualified as Cpp
-import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2, renderProgram)
+import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc, renderProgram)
 import Aihc.Hackage.Cabal qualified as HackageCabal
 import Aihc.Hackage.Cache (sanitizeName)
 import Aihc.Hackage.Cpp (cppMacrosFromOptions, injectSyntheticCppMacros, minVersionMacroNamesFromDeps)
@@ -1192,7 +1192,7 @@ generatePackageInterface depExports importedTcInterface importedBindings plan = 
       resolvedModuleAsts = map snd (resolvedModules resolveResult)
       fcResults =
         map
-          (desugarModuleFc2 (DesugarConfig {primPackageId = primIdentity}) allBindings tcInterface)
+          (desugarModuleFc (DesugarConfig {primPackageId = primIdentity}) allBindings tcInterface)
           checkedModules
       fcModules = zipWith fcModuleValue resolvedModuleAsts fcResults
       fcDiagnostics = concatMap fcModuleDiagnosticValues fcModules
@@ -1504,19 +1504,19 @@ tcModuleValue modu result =
 tcModuleDiagnosticValues :: PackageInterfaceTcModule -> [Aeson.Value]
 tcModuleDiagnosticValues = packageInterfaceTcModuleDiagnostics
 
-fcModuleValue :: Module -> Fc2DesugarResult -> Aeson.Value
+fcModuleValue :: Module -> FcDesugarResult -> Aeson.Value
 fcModuleValue modu result =
   object
     [ "module" .= moduleDisplayName modu,
-      "success" .= ds2Success result,
-      "program" .= renderProgram (ds2Program result),
+      "success" .= dsSuccess result,
+      "program" .= renderProgram (dsProgram result),
       "diagnostics"
         .= [ object
                [ "module" .= moduleDisplayName modu,
                  "severity" .= ("error" :: String),
                  "message" .= err
                ]
-           | err <- ds2Errors result
+           | err <- dsErrors result
            ]
     ]
 

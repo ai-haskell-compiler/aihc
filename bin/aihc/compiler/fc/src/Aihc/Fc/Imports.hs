@@ -1,14 +1,14 @@
--- | Select and check the facts that a System FC 2 program imports.
-module Aihc.Fc2.Imports
+-- | Select and check the facts that a System FC program imports.
+module Aihc.Fc.Imports
   ( emptyImports,
     importsForProgram,
     unusedImports,
   )
 where
 
-import Aihc.Fc2.Name
-import Aihc.Fc2.Syntax
-import Aihc.Fc2.TypeOf
+import Aihc.Fc.Name
+import Aihc.Fc.Syntax
+import Aihc.Fc.TypeOf
 import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set

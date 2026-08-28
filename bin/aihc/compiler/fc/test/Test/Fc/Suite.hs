@@ -1,38 +1,38 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Fixture tests for System FC 2 text.
-module Test.Fc2.Suite
-  ( fc2FixtureTests,
-    fc2GoldenTests,
-    fc2LintTests,
+-- | Fixture tests for System FC text.
+module Test.Fc.Suite
+  ( fcFixtureTests,
+    fcGoldenTests,
+    fcLintTests,
   )
 where
 
-import Aihc.Fc2 (LintError (..), Program, lintProgram, loadScopeClosure, parseProgram, renderParseError, renderProgram, storeModuleLoader)
+import Aihc.Fc (LintError (..), Program, lintProgram, loadScopeClosure, parseProgram, renderParseError, renderProgram, storeModuleLoader)
 import Control.Exception (IOException, try)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd, isInfixOf, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Fc2Golden (Fc2Case (..), Outcome (..), evaluateFc2Case, loadFc2Cases)
+import FcGolden (FcCase (..), Outcome (..), evaluateFcCase, loadFcCases)
 import System.Directory (copyFile, createDirectoryIfMissing, doesDirectoryExist, getTemporaryDirectory, listDirectory, removeDirectoryRecursive)
 import System.FilePath (takeExtension, takeFileName, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
 fixtureRoot :: FilePath
-fixtureRoot = "compiler/fc/test/Test/Fixtures/fc2"
+fixtureRoot = "compiler/fc/test/Test/Fixtures/fc"
 
-fc2FixtureTests :: IO TestTree
-fc2FixtureTests = do
+fcFixtureTests :: IO TestTree
+fcFixtureTests = do
   exists <- doesDirectoryExist fixtureRoot
   if not exists
-    then pure (testGroup "SystemFC2 fixtures" [])
+    then pure (testGroup "SystemFC fixtures" [])
     else do
       names <- listDirectory fixtureRoot
-      let files = [fixtureRoot </> name | name <- names, takeExtension name == ".fc2"]
-      pure (testGroup "SystemFC2 fixtures" (map fixtureTest files))
+      let files = [fixtureRoot </> name | name <- names, takeExtension name == ".fc"]
+      pure (testGroup "SystemFC fixtures" (map fixtureTest files))
 
 fixtureTest :: FilePath -> TestTree
 fixtureTest path = testCase path $ do
@@ -53,23 +53,23 @@ normalize = T.pack . trim . T.unpack
     trim = dropWhileEnd isSpace . dropWhile isSpace
 
 lintRoot :: FilePath
-lintRoot = "compiler/fc/test/Test/Fixtures/fc2-lint"
+lintRoot = "compiler/fc/test/Test/Fixtures/fc-lint"
 
-fc2LintTests :: IO TestTree
-fc2LintTests = do
+fcLintTests :: IO TestTree
+fcLintTests = do
   pass <- lintFileTests "pass" True (lintRoot </> "pass")
   failCases <- lintFileTests "fail" False (lintRoot </> "fail")
   mutual <- mutualLintTests (lintRoot </> "mutual")
-  pure (testGroup "SystemFC2 lint" [pass, failCases, mutual])
+  pure (testGroup "SystemFC lint" [pass, failCases, mutual])
 
 lintFileTests :: String -> Bool -> FilePath -> IO TestTree
 lintFileTests label expectPass dir = do
-  files <- listFc2Files dir
+  files <- listFcFiles dir
   pure (testGroup label (map (lintFileTest expectPass) files))
 
 lintFileTest :: Bool -> FilePath -> TestTree
 lintFileTest expectPass path = testCase path $ do
-  program <- loadFc2Program path
+  program <- loadFcProgram path
   let errors = lintProgram program
   if expectPass
     then assertEqual (path <> " lint errors") [] errors
@@ -77,12 +77,12 @@ lintFileTest expectPass path = testCase path $ do
 
 mutualLintTests :: FilePath -> IO TestTree
 mutualLintTests dir = do
-  files <- listFc2Files dir
+  files <- listFcFiles dir
   pure
     ( testGroup
         "mutual"
         [ testCase "each file passes lint" $ do
-            programs <- mapM loadFc2Program files
+            programs <- mapM loadFcProgram files
             mapM_
               (assertEqual "single-file lint errors" [] . lintProgram)
               programs,
@@ -93,15 +93,15 @@ mutualLintTests dir = do
 scopeLoaderTest :: TestTree
 scopeLoaderTest = testCase "loadScopeClosure loads a scoped module from the store" $ do
   tmp <- getTemporaryDirectory
-  let store = tmp </> "aihc-fc2-lint-scope"
+  let store = tmp </> "aihc-fc-lint-scope"
       typesDir = store </> "aihc-prim" </> "GHC" </> "Types"
       primDir = store </> "aihc-prim" </> "GHC" </> "Prim"
   ignoreMissing (removeDirectoryRecursive store)
   createDirectoryIfMissing True typesDir
   createDirectoryIfMissing True primDir
-  copyFile (lintRoot </> "mutual" </> "GHC.Types.fc2") (typesDir </> "core-v2")
-  copyFile (lintRoot </> "mutual" </> "GHC.Prim.fc2") (primDir </> "core-v2")
-  seed <- loadFc2Program (lintRoot </> "mutual" </> "GHC.Types.fc2")
+  copyFile (lintRoot </> "mutual" </> "GHC.Types.fc") (typesDir </> "core")
+  copyFile (lintRoot </> "mutual" </> "GHC.Prim.fc") (primDir </> "core")
+  seed <- loadFcProgram (lintRoot </> "mutual" </> "GHC.Types.fc")
   loaded <- loadScopeClosure (storeModuleLoader store) [seed]
   ignoreMissing (removeDirectoryRecursive store)
   assertEqual "loaded module count" 2 (length loaded)
@@ -158,28 +158,28 @@ isLintFailure :: LintError -> Bool
 isLintFailure LintFailure {} = True
 isLintFailure _ = False
 
-listFc2Files :: FilePath -> IO [FilePath]
-listFc2Files dir = do
+listFcFiles :: FilePath -> IO [FilePath]
+listFcFiles dir = do
   exists <- doesDirectoryExist dir
   if not exists
     then pure []
     else do
       names <- sort <$> listDirectory dir
-      pure [dir </> name | name <- names, takeExtension name == ".fc2"]
+      pure [dir </> name | name <- names, takeExtension name == ".fc"]
 
-loadFc2Program :: FilePath -> IO Program
-loadFc2Program path = do
+loadFcProgram :: FilePath -> IO Program
+loadFcProgram path = do
   source <- TIO.readFile path
   case parseProgram source of
     Left parseError -> assertFailure (path <> ": " <> renderParseError parseError)
     Right program -> pure program
 
-fc2GoldenTests :: IO TestTree
-fc2GoldenTests = testGroup "SystemFC2 goldens" . map mkGolden <$> loadFc2Cases
+fcGoldenTests :: IO TestTree
+fcGoldenTests = testGroup "SystemFC goldens" . map mkGolden <$> loadFcCases
 
-mkGolden :: Fc2Case -> TestTree
+mkGolden :: FcCase -> TestTree
 mkGolden tc = testCase (caseId tc) $ do
-  let (outcome, details) = evaluateFc2Case tc
+  let (outcome, details) = evaluateFcCase tc
   case outcome of
     OutcomePass -> pure ()
     OutcomeXFail -> pure ()

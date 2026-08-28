@@ -49,5 +49,5 @@ modules:
   useFunction = identity caf
   useCaf :: Box
   useCaf = caf
-reason: uses the shared FC2 type environment without dependency program access
+reason: uses the shared FC type environment without dependency program access
 status: pass

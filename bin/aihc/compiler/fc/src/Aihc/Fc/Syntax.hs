@@ -1,5 +1,5 @@
--- | System FC 2 abstract syntax.
-module Aihc.Fc2.Syntax
+-- | System FC abstract syntax.
+module Aihc.Fc.Syntax
   ( Type (..),
     Binder (..),
     Expr (..),
@@ -26,7 +26,7 @@ module Aihc.Fc2.Syntax
   )
 where
 
-import Aihc.Fc2.Name
+import Aihc.Fc.Name
 import Data.ByteString (ByteString)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
