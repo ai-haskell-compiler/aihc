@@ -1,0 +1,21 @@
+scope 1 = "" Test
+scope 2 = "dependency" Dependency
+
+import headers
+  2.tExternal :: 2.tExternal;
+  2.vexternal :: 2.tExternal
+
+import synonyms
+  2.tAlias = 2.tExternal
+
+import axioms
+  2.$ax$External : 2.tExternal ~R 2.tExternal
+
+import type-binders
+  a :: 2.tExternal
+
+import value-binders
+  x :: 2.tExternal
+
+val 1.vuse :: 2.tExternal
+ = 2.vexternal

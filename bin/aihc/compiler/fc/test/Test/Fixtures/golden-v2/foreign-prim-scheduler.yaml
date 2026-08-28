@@ -31,6 +31,29 @@ expected: |-
   scope 2 = "aihc-prim" GHC.Prim
   scope 3 = "aihc-prim" GHC.Types
 
+  import headers
+    3.tLevity :: 3.tType;
+    3.tLiftedRep :: 3.tRuntimeRep;
+    2.tRealWorld :: 3.tType;
+    3.tRuntimeRep :: 3.tType;
+    2.tState# :: ∀(s : 3.tType). 3.tTYPE (3.vTupleRep (3.v[] 3.tRuntimeRep));
+    3.tTYPE :: ∀(rep : 3.tRuntimeRep). 3.tType;
+    3.tTuple2# :: ∀(r1 : 3.tRuntimeRep) (r2 : 3.tRuntimeRep) (a1 : 3.tTYPE r1) (a2 : 3.tTYPE r2). 3.tTYPE (3.vTupleRep (3.v: 3.tRuntimeRep r1 (3.v: 3.tRuntimeRep r2 (3.v[] 3.tRuntimeRep))));
+    3.tType :: 3.tType;
+    3.tUnliftedRep :: 3.tRuntimeRep;
+    3.t[] :: ∀(a : 3.tType). 3.tType;
+    3.v: :: ∀(a : 3.tType). a 3.→ 3.t[] a 3.→ 3.t[] a;
+    3.vBoxedRep :: 3.tLevity 3.→ 3.tRuntimeRep;
+    3.vLifted :: 3.tLevity;
+    3.vTupleRep :: 3.t[] 3.tRuntimeRep 3.→ 3.tRuntimeRep;
+    3.vUnlifted :: 3.tLevity;
+    3.v[] :: ∀(a : 3.tType). 3.t[] a
+
+  import synonyms
+    3.tLiftedRep = 3.vBoxedRep 3.vLifted;
+    3.tType = 3.tTYPE 3.tLiftedRep;
+    3.tUnliftedRep = 3.vBoxedRep 3.vUnlifted
+
   pub type 1.tThreadId# :: 3.tTYPE 3.tUnliftedRep {}
 
   pub foreign import prim 1.vfork# :: ∀(a : 3.tType). (FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tLiftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# 2.tRealWorld) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tLiftedRep (2.tState# 2.tRealWorld) a)) 3.→ FUN @(3.vTupleRep (3.v[] 3.tRuntimeRep)) @(3.vTupleRep (3.v: 3.tRuntimeRep (3.vTupleRep (3.v[] 3.tRuntimeRep)) (3.v: 3.tRuntimeRep 3.tUnliftedRep (3.v[] 3.tRuntimeRep)))) (2.tState# 2.tRealWorld) (3.tTuple2# (3.vTupleRep (3.v[] 3.tRuntimeRep)) 3.tUnliftedRep (2.tState# 2.tRealWorld) 1.tThreadId#)

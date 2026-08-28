@@ -227,7 +227,7 @@ Example: `Demo/A/core-v2`.
 
 If Fc2 desugar fails, the install fails.
 If Fc2 lint fails, the install fails.
-Write `core-v2.bad` when Fc2 lint fails.
+Keep the `core-v2` file at its normal path when Fc2 lint fails.
 Do not write `core` without `core-v2`.
 `install-v2` does not parse the `core-v2` file that it writes.
 It may parse imported `core-v2` files through the store loader.

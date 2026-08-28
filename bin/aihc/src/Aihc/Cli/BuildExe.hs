@@ -15,7 +15,6 @@ import Aihc.Cli.Store (defaultStoreRoot, installedEntryArchivePath, installedRun
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact)
 import Aihc.Fc2 (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2)
 import Aihc.Fc2 qualified as Fc2
-import Aihc.Fc2.TypeOf qualified as Fc2Type
 import Aihc.Grin qualified as Grin
 import Aihc.Llvm qualified as Llvm
 import Aihc.Native (NativeTarget (..), backendCompiler, nativeTargetStoreDirectory)
@@ -121,7 +120,6 @@ type InstalledModuleIndex = Map.Map Text [InstalledModule]
 data CompileState = CompileState
   { compileExports :: !ModuleExports,
     compileTypes :: !TcInterface,
-    compilePrograms :: !(Map.Map Text Fc2.Program),
     compileObjects :: ![FilePath],
     compileLoadedModules :: !(Set.Set (PackageId, Text))
   }
@@ -142,7 +140,7 @@ runBuildExe options = do
   runtime <- ensureRuntime storeRoot target (buildExeGarbageCollector options)
   entry <- ensureEntry storeRoot target
   withTemporaryDirectory "aihc-build-exe" $ \directory -> do
-    objects <- compileSources target targetStoreRoot directory moduleIndex (installedPackageIdentity "aihc-prim" selected) (buildExeLint options) sources
+    objects <- compileSources target directory moduleIndex (installedPackageIdentity "aihc-prim" selected) (buildExeLint options) sources
     createDirectoryIfMissing True (takeDirectory output)
     linkExecutable target output objects (map packageArchive selected) entry runtime
 
@@ -449,14 +447,14 @@ forceSourceAst source = do
     ioError (userError ("The parsed module name changed for " <> sourcePath source))
   pure modu
 
-compileSources :: NativeTarget -> FilePath -> FilePath -> InstalledModuleIndex -> PackageId -> Bool -> [SourceModule] -> IO [FilePath]
-compileSources target storeRoot buildRoot moduleIndex primIdentity lint sources = do
+compileSources :: NativeTarget -> FilePath -> InstalledModuleIndex -> PackageId -> Bool -> [SourceModule] -> IO [FilePath]
+compileSources target buildRoot moduleIndex primIdentity lint sources = do
   final <- foldM compileUnit initial (moduleSccs sources)
   pure (compileObjects final)
   where
     executablePackage = Package "exe" (PackageId "exe")
     localNames = Set.fromList (map sourceModuleName sources)
-    initial = CompileState Map.empty mempty Map.empty [] Set.empty
+    initial = CompileState Map.empty mempty [] Set.empty
     moduleSccs values = map flatten (stronglyConnComp (map node values))
       where
         node source =
@@ -494,24 +492,15 @@ compileSources target storeRoot buildRoot moduleIndex primIdentity lint sources 
           results = map (desugarModuleFc2 (DesugarConfig primIdentity) bindings completeInterface) checkedModules
       unless (all ds2Success results) (ioError (userError ("Core-v2 generation failed: " <> unlines (concatMap ds2Errors results))))
       let programs = map ds2Program results
-          unitPrograms = Map.fromList (zip (map (fromMaybe "Main" . moduleName) checkedModules) programs)
-          allPrograms = Map.union unitPrograms (compilePrograms stateWithDependencies)
-          installedLoader = Fc2.storeModuleLoader storeRoot
-          loader package name
-            | package == PackageId "exe" = pure (Map.lookup name allPrograms)
-            | otherwise = installedLoader package name
-      loaded <- Fc2.loadScopeClosure loader programs
       when lint $ do
-        let lintErrors = Fc2.lintPrograms loaded
+        let lintErrors = concatMap Fc2.lintProgram programs
         unless (null lintErrors) (ioError (userError ("Core-v2 lint failed: " <> show lintErrors)))
-      let typeEnv = Fc2Type.typeEnvFromPrograms loaded
-      objects <- zipWithM (writeObject typeEnv) checkedModules programs
+      objects <- zipWithM writeObject checkedModules programs
       let localExports = extractInterfaceWithDeps (compileExports stateWithDependencies) resolved `Map.union` compileExports stateWithDependencies
       pure
         CompileState
           { compileExports = localExports,
             compileTypes = completeInterface,
-            compilePrograms = allPrograms,
             compileObjects = compileObjects stateWithDependencies <> objects,
             compileLoadedModules = compileLoadedModules stateWithDependencies
           }
@@ -583,8 +572,8 @@ compileSources target storeRoot buildRoot moduleIndex primIdentity lint sources 
         moduleRoot = installedRoot installedPackage </> moduleDirectoryText (installedModuleName installedModule)
         resolvePath = moduleRoot </> "resolve.cbor"
         typePath = moduleRoot </> "type.cbor"
-    writeObject typeEnv modu program = do
-      grin <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram typeEnv program)
+    writeObject modu program = do
+      grin <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram program)
       cps <- either (ioError . userError . ("CPS-GRIN generation failed: " <>) . show) pure (Grin.toCpsGrin grin)
       let gcProgram = Grin.lowerGc cps
           name = fromMaybe "Main" (moduleName modu)

@@ -1,11 +1,10 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | typeOf and unfold tables for implicit FUN representations.
 module Aihc.Fc2.TypeOf
   ( TypeEnv (..),
     emptyTypeEnv,
     typeEnvFromProgram,
     typeEnvFromPrograms,
+    extendTypeEnvWithPrograms,
     typeOf,
     unfoldType,
     isLiftedRep,
@@ -20,7 +19,7 @@ module Aihc.Fc2.TypeOf
     reduceType,
     typesEqual,
     coercionEndpoints,
-    unwrapNewtype,
+    applyRepresentationalAxiom,
   )
 where
 
@@ -61,13 +60,26 @@ typeEnvFromProgram program =
 -- | Register every header from every program. Later programs replace equal names.
 typeEnvFromPrograms :: [Program] -> TypeEnv
 typeEnvFromPrograms programs =
-  List.foldl' addProgram baseEnv programs
+  extendTypeEnvWithPrograms baseEnv programs
   where
     baseEnv =
       emptyTypeEnv
         { tePrimPackage = listToMaybe (mapMaybe (primPackageFromScopes . programScopes) programs)
         }
-    addProgram env program = List.foldl' addDecl env (programDecls program)
+
+extendTypeEnvWithPrograms :: TypeEnv -> [Program] -> TypeEnv
+extendTypeEnvWithPrograms = List.foldl' addProgram
+  where
+    addProgram env program = List.foldl' addDecl (addImports env (programImports program)) (programDecls program)
+
+addImports :: TypeEnv -> Imports -> TypeEnv
+addImports env imports =
+  env
+    { teHeaders = importHeaders imports `Map.union` teHeaders env,
+      teSynonyms = importSynonyms imports `Map.union` teSynonyms env,
+      teAxioms = importAxioms imports `Map.union` teAxioms env,
+      teBinders = importBinders imports `Map.union` teBinders env
+    }
 
 addDecl :: TypeEnv -> Decl -> TypeEnv
 addDecl env decl =
@@ -102,9 +114,7 @@ typeOf env ty =
     TyVar name ->
       Map.lookup name (teBinders env)
     TyCon name ->
-      case listDataConstructorType env name of
-        Just constructorType -> Just constructorType
-        Nothing -> lookupHeaderType env name
+      lookupHeaderType env name
     TyApp function argument ->
       do
         functionType <- typeOf env function
@@ -115,22 +125,6 @@ typeOf env ty =
       typeOf (extendBinder env binder) body
     TyEq {} ->
       TyCon . constraintName <$> tePrimPackage env
-
-listDataConstructorType :: TypeEnv -> Name -> Maybe Type
-listDataConstructorType env name = do
-  package <- tePrimPackage env
-  let kindName = Name "k" SortTypeVariable (OriginLocal (Unique (-1000)))
-      kindVariable = TyVar kindName
-      kindBinder = Binder kindName (typeSynonym package)
-      listName = Name "[]" SortTypeConstructor (OriginTop package "GHC.Types")
-      listKind = TyApp (TyCon listName) kindVariable
-      lifted = TyCon (liftedRepName package)
-  if nameSort name /= SortDataConstructor || not (isGhcTypesOrigin package name)
-    then Nothing
-    else case nameText name of
-      "[]" -> Just (TyForAll kindBinder listKind)
-      ":" -> Just (TyForAll kindBinder (TyFun lifted lifted kindVariable (TyFun lifted lifted listKind listKind)))
-      _ -> Nothing
 
 applyType :: Type -> Type -> Maybe Type
 applyType function argument =
@@ -147,7 +141,7 @@ unfoldType env ty =
   case ty of
     TyCon name
       | Just body <- Map.lookup name (teSynonyms env) ->
-          unfoldType env (stripForAlls body)
+          unfoldType env body
       | otherwise -> ty
     _ -> ty
 
@@ -173,12 +167,6 @@ isLiftedRep env ty =
 extendBinder :: TypeEnv -> Binder -> TypeEnv
 extendBinder env binder =
   env {teBinders = Map.insert (binderName binder) (binderType binder) (teBinders env)}
-
-stripForAlls :: Type -> Type
-stripForAlls ty =
-  case ty of
-    TyForAll _ body -> stripForAlls body
-    _ -> ty
 
 substType :: Name -> Type -> Type -> Type
 substType target replacement = go
@@ -289,16 +277,15 @@ coercionEndpoints env coercion =
   where
     swap (left, right) = (right, left)
 
-unwrapNewtype :: TypeEnv -> Type -> Maybe Type
-unwrapNewtype env source = listToMaybe (mapMaybe unwrap (Map.elems (teAxioms env)))
+applyRepresentationalAxiom :: TypeEnv -> AxiomDecl -> Type -> Maybe Type
+applyRepresentationalAxiom env declaration source
+  | axiomRole declaration /= Representational = Nothing
+  | otherwise = do
+      substitution <- matchTypes (Map.fromList [(binderName binder, Nothing) | binder <- axiomBinders declaration]) (reduceType env (axiomLeft declaration)) source'
+      resolved <- sequenceA substitution
+      pure (substTypes resolved (axiomRight declaration))
   where
     source' = reduceType env source
-    unwrap declaration
-      | axiomRole declaration /= Representational = Nothing
-      | otherwise = do
-          substitution <- matchTypes (Map.fromList [(binderName binder, Nothing) | binder <- axiomBinders declaration]) (reduceType env (axiomLeft declaration)) source'
-          resolved <- sequenceA substitution
-          pure (substTypes resolved (axiomRight declaration))
 
     matchTypes substitution patternType actualType =
       case patternType of

@@ -21,7 +21,8 @@ import Aihc.Resolve
     packageIdText,
   )
 import Aihc.Tc
-  ( DataConInfo (..),
+  ( DataConFieldInfo (..),
+    DataConInfo (..),
     DataTypeInfo (..),
     TcBindingResult (..),
     TcInterface (..),
@@ -47,6 +48,7 @@ import Aihc.Tc.Types
     TyCon,
     TyVarId,
     Unique (..),
+    applySubst,
     applySubstPred,
     runtimeRepOfTypeInEnv,
     tvUnique,
@@ -87,6 +89,7 @@ data ValueState = ValueState
     vsLocals :: !(Map Text (Binder, TcType)),
     vsDictionaries :: !(Map Text Binder),
     vsConstructors :: !(Map Text [Name]),
+    vsConstructorInfos :: !(Map Text [DataConInfo]),
     vsNewtypeConstructors :: !(Map (PackageId, Text, Text) DataTypeInfo)
   }
 
@@ -118,6 +121,13 @@ desugarValues convertEnv bindings interface moduleOrigin checked = do
             constructor <- dtiConstructors dataType,
             let (package, moduleName') = dciOrigin constructor
           ]
+      constructorInfos =
+        Map.fromListWith
+          (<>)
+          [ (dciName constructor, [constructor])
+          | dataType <- tcInterfaceDataTypes interface,
+            constructor <- dtiConstructors dataType
+          ]
       newtypes =
         Map.fromList
           [ ((package, moduleName', dciName constructor), dataType)
@@ -135,6 +145,7 @@ desugarValues convertEnv bindings interface moduleOrigin checked = do
             vsLocals = Map.empty,
             vsDictionaries = Map.empty,
             vsConstructors = constructors,
+            vsConstructorInfos = constructorInfos,
             vsNewtypeConstructors = newtypes
           }
   fst <$> runStateT (desugarModuleValues checked) initialState
@@ -179,12 +190,13 @@ annotatedForeignDecl = go Nothing Nothing
 desugarForeign :: TcAnnotation -> Maybe TcForeignImportAnnotation -> Syn.ForeignDecl -> ValueM [Decl]
 desugarForeign annotation foreignPlan foreignDecl =
   case Syn.foreignCallConv foreignDecl of
-    Syn.CPrim -> (: []) <$> makeForeignImport Prim
+    Syn.CPrim -> (: []) <$> makeForeignImport Prim []
     Syn.CCall -> do
       unless (Syn.foreignDirection foreignDecl == Syn.ForeignImport) (failValue "System FC 2 does not accept foreign exports")
       unless (Syn.foreignSafety foreignDecl == Just Syn.Unsafe) (failValue "System FC 2 accepts only unsafe foreign imports")
       plan <- maybe (failValue "missing checked foreign import plan") pure foreignPlan
       symbol <- foreignSymbol foreignDecl
+      dependencies <- foreignImportPlanDependencies annotation plan
       let convention =
             CCall
               CCallSpec
@@ -193,10 +205,10 @@ desugarForeign annotation foreignPlan foreignDecl =
                   ccallResultType = convertCAbiType (tcForeignAbiType (tcForeignResult plan)),
                   ccallEffect = convertForeignEffect (tcForeignEffect plan)
                 }
-      (: []) <$> makeForeignImport convention
+      (: []) <$> makeForeignImport convention dependencies
     callConv -> failValue ("unsupported System FC 2 foreign calling convention: " <> show callConv)
   where
-    makeForeignImport convention = do
+    makeForeignImport convention dependencies = do
       _ <- freshUnique
       moduleOrigin <- gets vsModuleOrigin
       ty <- convertCheckedType (tcAnnType annotation)
@@ -207,9 +219,65 @@ desugarForeign annotation foreignPlan foreignDecl =
               { foreignImportVis = Pub,
                 foreignImportName = topName moduleOrigin valueName,
                 foreignImportCallingConvention = convention,
+                foreignImportDependencies = dependencies,
                 foreignImportType = ty
               }
         )
+
+foreignImportPlanDependencies :: TcAnnotation -> TcForeignImportAnnotation -> ValueM [ForeignImportDependency]
+foreignImportPlanDependencies annotation plan = do
+  typeDependencies <- foreignTypeNewtypeDependencies (tcAnnType annotation)
+  marshalDependencies <- concat <$> mapM foreignMarshalDependencies (tcForeignArguments plan <> [tcForeignResult plan])
+  pure (List.nub (typeDependencies <> marshalDependencies))
+
+foreignTypeNewtypeDependencies :: TcType -> ValueM [ForeignImportDependency]
+foreignTypeNewtypeDependencies ty = do
+  newtypes <- List.nub . Map.elems <$> gets vsNewtypeConstructors
+  pure (go newtypes ty)
+  where
+    go newtypes current =
+      case current of
+        TcTyVar {} -> []
+        TcMetaTv {} -> []
+        TcTyCon tyCon arguments ->
+          [foreignNewtypeDependency dataType | dataType <- newtypes, dtiTyCon dataType == tyCon]
+            <> concatMap (go newtypes) arguments
+        TcFunTy argument result -> go newtypes argument <> go newtypes result
+        TcForAllTy _ body -> go newtypes body
+        TcQualTy _ body -> go newtypes body
+        TcAppTy function argument -> go newtypes function <> go newtypes argument
+
+foreignMarshalDependencies :: TcForeignMarshal -> ValueM [ForeignImportDependency]
+foreignMarshalDependencies marshal = go (tcForeignSourceType marshal) (tcForeignConstructors marshal)
+  where
+    go _ [] = pure []
+    go sourceType (constructorName : rest) = do
+      newtypes <- List.nub . Map.elems <$> gets vsNewtypeConstructors
+      constructors <- Map.findWithDefault [] constructorName <$> gets vsConstructorInfos
+      case [(dataType, constructor, fieldType) | dataType <- newtypes, constructor <- dtiConstructors dataType, dciName constructor == constructorName, Just fieldType <- [foreignConstructorField sourceType constructor]] of
+        [(dataType, _, fieldType)] ->
+          (foreignNewtypeDependency dataType :) <$> go fieldType rest
+        [] ->
+          case [(constructor, fieldType) | constructor <- constructors, Just fieldType <- [foreignConstructorField sourceType constructor]] of
+            [(constructor, fieldType)] ->
+              let (package, moduleName) = dciOrigin constructor
+                  dependency = ForeignConstructor (Name constructorName SortDataConstructor (OriginTop package moduleName))
+               in (dependency :) <$> go fieldType rest
+            [] -> failValue ("missing checked foreign constructor " <> T.unpack constructorName)
+            _ -> failValue ("ambiguous checked foreign constructor " <> T.unpack constructorName)
+        _ -> failValue ("ambiguous checked foreign newtype constructor " <> T.unpack constructorName)
+
+foreignConstructorField :: TcType -> DataConInfo -> Maybe TcType
+foreignConstructorField sourceType constructor = do
+  substitution <- matchTypes [dciResTy constructor] [sourceType]
+  case dciFields constructor of
+    [field] -> pure (applySubst substitution (dcfiType field))
+    _ -> Nothing
+
+foreignNewtypeDependency :: DataTypeInfo -> ForeignImportDependency
+foreignNewtypeDependency dataType =
+  let tyCon = dtiTyCon dataType
+   in ForeignAxiom (Name ("$ax$" <> dtiName dataType) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon)))
 
 foreignSymbol :: Syn.ForeignDecl -> ValueM Text
 foreignSymbol foreignDecl =

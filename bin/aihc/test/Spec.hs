@@ -96,6 +96,7 @@ test_buildExeSourceDirectories = do
             }
         unusedResolve = installV2StorePath installed </> "Data" </> "Bool" </> "resolve.cbor"
         unusedType = installV2StorePath installed </> "Data" </> "Bool" </> "type.cbor"
+        requiredFc2 = installV2StorePath installed </> "GHC" </> "Base" </> "core-v2"
     resolveBytes <- BS.readFile unusedResolve
     BS.writeFile unusedResolve "invalid unused resolve interface"
     runBuildExe options
@@ -104,6 +105,10 @@ test_buildExeSourceDirectories = do
     BS.writeFile unusedType "invalid unused type interface"
     runBuildExe options
     BS.writeFile unusedType typeBytes
+    fc2Bytes <- BS.readFile requiredFc2
+    BS.writeFile requiredFc2 "invalid required System FC"
+    runBuildExe options {buildExeLint = True}
+    BS.writeFile requiredFc2 fc2Bytes
     entryExists <- doesFileExist (installedEntryArchivePath storeRoot target)
     assertBool "target entry archive exists" entryExists
     (status, stdout, stderr) <- readProcessWithExitCode output [] ""
@@ -199,15 +204,24 @@ test_installV2KeepGrin = do
   withTempDir "aihc-install-v2-keep-grin" $ \root -> do
     withoutGrin <- installV2 (InstallV2Options fixtureRoot (Just (root </> "without")) False False False False AppleArm64)
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "grin")
+    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "cps.grin")
+    assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "gc.grin")
     assertFileDoesNotExist (installV2StorePath withoutGrin </> "Demo" </> "Demo.o.s")
     retained <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False False AppleArm64)
     let corePath = installV2StorePath retained </> "Demo" </> "core-v2"
         grinPath = installV2StorePath retained </> "Demo" </> "grin"
+        cpsGrinPath = installV2StorePath retained </> "Demo" </> "cps.grin"
+        gcGrinPath = installV2StorePath retained </> "Demo" </> "gc.grin"
     assertFileExists grinPath
+    assertFileExists cpsGrinPath
+    assertFileExists gcGrinPath
     originalCore <- readFile corePath
-    removeFile grinPath
+    removeFile cpsGrinPath
+    removeFile gcGrinPath
     repaired <- installV2 (InstallV2Options fixtureRoot (Just (root </> "with")) True False False False AppleArm64)
     assertFileExists grinPath
+    assertFileExists cpsGrinPath
+    assertFileExists gcGrinPath
     repairedCore <- readFile corePath
     assertEqual "GRIN repair keeps Core-v2" originalCore repairedCore
     assertEqual "GRIN repair writes the module" ["Demo"] (installV2WrittenModules repaired)
@@ -313,15 +327,7 @@ test_installV2AihcPrim = do
     createDirectoryIfMissing True storeRoot
     caught <- try (installV2 options) :: IO (Either IOException InstallV2Result)
     result <- case caught of
-      Left err -> do
-        badFiles <- listNamedFiles storeRoot "core-v2.bad"
-        assertFailure
-          ( "install-v2 aihc-prim failed: "
-              <> show err
-              <> if null badFiles
-                then ""
-                else "\nbad core-v2 files:\n" <> unlines badFiles
-          )
+      Left err -> assertFailure ("install-v2 aihc-prim failed: " <> show err)
       Right value -> pure value
     let packageDir = installV2StorePath result
         packageId = PackageId (T.pack (takeFileName packageDir))
@@ -333,10 +339,8 @@ test_installV2AihcPrim = do
     assertEqual "one GRIN file for each Core-v2 file" (length coreV2Files) (length grinFiles)
     types <- loadStoredFc2 loader packageId "GHC.Types"
     prim <- loadStoredFc2 loader packageId "GHC.Prim"
-    assertBool "GHC.Types lint needs GHC.Prim" (not (null (Fc2.lintPrograms [types])))
-    assertBool "GHC.Prim lint needs GHC.Types" (not (null (Fc2.lintPrograms [prim])))
-    typesAndPrim <- Fc2.loadScopeClosure loader [types, prim]
-    assertEqual "GHC.Types and GHC.Prim closure lint errors" [] (Fc2.lintPrograms typesAndPrim)
+    assertEqual "GHC.Types lint errors" [] (Fc2.lintProgram types)
+    assertEqual "GHC.Prim lint errors" [] (Fc2.lintProgram prim)
     mapM_ (assertModuleClosureLints loader packageId) (filter (`notElem` ["GHC.Types", "GHC.Prim"]) aihcPrimLibraryModules)
 
 aihcPrimLibraryModules :: [Text]
@@ -427,11 +431,10 @@ loadStoredFc2 loader packageId moduleName = do
 assertModuleClosureLints :: Fc2.ModuleLoader -> PackageId -> Text -> Assertion
 assertModuleClosureLints loader packageId moduleName = do
   program <- loadStoredFc2 loader packageId moduleName
-  loaded <- Fc2.loadScopeClosure loader [program]
   assertEqual
-    (T.unpack moduleName <> " closure lint errors")
+    (T.unpack moduleName <> " lint errors")
     []
-    (Fc2.lintPrograms loaded)
+    (Fc2.lintProgram program)
 
 listNamedFiles :: FilePath -> FilePath -> IO [FilePath]
 listNamedFiles root name = do

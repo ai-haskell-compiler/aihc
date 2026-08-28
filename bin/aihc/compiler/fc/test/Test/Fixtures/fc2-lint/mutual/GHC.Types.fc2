@@ -1,13 +1,20 @@
 scope 1 = "aihc-prim" GHC.Types
 scope 2 = "aihc-prim" GHC.Prim
 
+import headers
+  2.tInt# :: 1.tTYPE 1.vIntRep
+
 pub type 1.tType :: 1.tType {}
 
 pub type 1.tRuntimeRep :: 1.tType {
-    pub 1.vIntRep :: 1.tRuntimeRep
+    pub 1.vIntRep :: 1.tRuntimeRep;
+    pub 1.v[] :: 1.tRuntimeRep
 }
 
 pub type 1.tTYPE (r : 1.tRuntimeRep) :: 1.tType {}
 
 pub type 1.tInt :: 1.tTYPE 1.vIntRep =
-  2.tInt#
+ 2.tInt#
+
+val 1.vnil :: 1.tRuntimeRep
+ = 1.v[]

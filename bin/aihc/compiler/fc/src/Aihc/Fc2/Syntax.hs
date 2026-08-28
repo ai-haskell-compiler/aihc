@@ -10,6 +10,7 @@ module Aihc.Fc2.Syntax
     Role (..),
     Coercion (..),
     Program (..),
+    Imports (..),
     Decl (..),
     TypeDecl (..),
     ConDecl (..),
@@ -17,6 +18,7 @@ module Aihc.Fc2.Syntax
     AxiomDecl (..),
     ValDecl (..),
     ForeignImportDecl (..),
+    ForeignImportDependency (..),
     CallingConvention (..),
     CCallSpec (..),
     CAbiType (..),
@@ -26,6 +28,7 @@ where
 
 import Aihc.Fc2.Name
 import Data.ByteString (ByteString)
+import Data.Map.Strict (Map)
 import Data.Text (Text)
 
 -- | A type. Kinds are types.
@@ -102,7 +105,16 @@ data Coercion
 
 data Program = Program
   { programScopes :: ScopeTable,
+    programImports :: Imports,
     programDecls :: [Decl]
+  }
+  deriving (Eq, Ord, Show, Read)
+
+data Imports = Imports
+  { importHeaders :: Map Name Type,
+    importSynonyms :: Map Name Type,
+    importAxioms :: Map Name AxiomDecl,
+    importBinders :: Map Name Type
   }
   deriving (Eq, Ord, Show, Read)
 
@@ -162,8 +174,14 @@ data ForeignImportDecl = ForeignImportDecl
   { foreignImportVis :: Vis,
     foreignImportName :: Name,
     foreignImportCallingConvention :: CallingConvention,
+    foreignImportDependencies :: [ForeignImportDependency],
     foreignImportType :: Type
   }
+  deriving (Eq, Ord, Show, Read)
+
+data ForeignImportDependency
+  = ForeignAxiom Name
+  | ForeignConstructor Name
   deriving (Eq, Ord, Show, Read)
 
 data CallingConvention
