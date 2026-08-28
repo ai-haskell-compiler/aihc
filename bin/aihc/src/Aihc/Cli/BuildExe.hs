@@ -21,6 +21,7 @@ import Aihc.Native (NativeTarget (..), backendCompiler, nativeTargetStoreDirecto
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
+    ImportDecl (..),
     LanguageEdition (Haskell98Edition),
     Module,
     SourceSpan,
@@ -29,12 +30,8 @@ import Aihc.Parser.Syntax
     headerLanguageEdition,
     moduleName,
   )
-import Aihc.Parser.Token
-  ( LexToken (..),
-    LexTokenKind (..),
-    lexModuleTokensWithSourceNameAndExtensions,
-    readModuleHeaderPragmas,
-  )
+import Aihc.Parser.Syntax qualified as Syntax
+import Aihc.Parser.Token (readModuleHeaderPragmas)
 import Aihc.Resolve
   ( ModuleExports,
     ModuleKey (..),
@@ -327,9 +324,14 @@ parseSource path = TIO.readFile path >>= parseSourceText path
 parseSourceText :: FilePath -> Text -> IO SourceModule
 parseSourceText path source = do
   let extensions = sourceExtensions source
-      (name, imports) = scanModuleDependencies path extensions source
-      dependencies = nub (imports <> implicitSourceDependencies "exe" extensions)
       parsed = parseModule (parserConfig path source) source
+      modu = snd parsed
+      name = fromMaybe "Main" (moduleName modu)
+      dependencies =
+        nub
+          ( map importDependency (Syntax.moduleImports modu)
+              <> implicitSourceDependencies "exe" extensions
+          )
   pure
     SourceModule
       { sourcePath = path,
@@ -338,71 +340,12 @@ parseSourceText path source = do
         sourceParseResult = parsed
       }
 
-scanModuleDependencies :: FilePath -> [Extension] -> Text -> (Text, [SourceDependency])
-scanModuleDependencies path extensions source =
-  (scanModuleName tokens, scanImports (dropModuleBodyOpen tokens))
-  where
-    tokens = lexModuleTokensWithSourceNameAndExtensions path extensions source
-
-scanModuleName :: [LexToken] -> Text
-scanModuleName tokens =
-  case dropWhile (isModulePreamble . lexTokenKind) tokens of
-    moduleToken : nameToken : _
-      | lexTokenKind moduleToken == TkKeywordModule -> fromMaybe "Main" (tokenModuleName nameToken)
-    _ -> "Main"
-  where
-    isModulePreamble kind =
-      case kind of
-        TkPragma {} -> True
-        TkLineComment -> True
-        TkBlockComment -> True
-        _ -> False
-
-dropModuleBodyOpen :: [LexToken] -> [LexToken]
-dropModuleBodyOpen tokens =
-  case dropWhile ((/= TkSpecialLBrace) . lexTokenKind) tokens of
-    _ : rest -> rest
-    [] -> []
-
-scanImports :: [LexToken] -> [SourceDependency]
-scanImports tokens =
-  case dropTopLevelSeparators tokens of
-    token : rest
-      | lexTokenKind token == TkKeywordImport ->
-          let (importTokens, remaining) = break (isTopLevelSeparator . lexTokenKind) rest
-           in maybe id (:) (scanImport importTokens) (scanImports remaining)
-    _ -> []
-
-dropTopLevelSeparators :: [LexToken] -> [LexToken]
-dropTopLevelSeparators = dropWhile (isIgnoredTopLevelToken . lexTokenKind)
-
-isIgnoredTopLevelToken :: LexTokenKind -> Bool
-isIgnoredTopLevelToken kind =
-  isTopLevelSeparator kind
-    || kind == TkLineComment
-    || kind == TkBlockComment
-
-isTopLevelSeparator :: LexTokenKind -> Bool
-isTopLevelSeparator kind = kind == TkSpecialSemicolon || kind == TkSpecialRBrace
-
-scanImport :: [LexToken] -> Maybe SourceDependency
-scanImport = go Nothing
-  where
-    go packageName (token : rest) =
-      case lexTokenKind token of
-        TkString name -> go (Just name) rest
-        _ ->
-          case tokenModuleName token of
-            Just name -> Just (SourceDependency packageName name)
-            Nothing -> go packageName rest
-    go _ [] = Nothing
-
-tokenModuleName :: LexToken -> Maybe Text
-tokenModuleName token =
-  case lexTokenKind token of
-    TkConId name -> Just name
-    TkQConId qualifier name -> Just (qualifier <> "." <> name)
-    _ -> Nothing
+importDependency :: ImportDecl -> SourceDependency
+importDependency importDecl =
+  SourceDependency
+    { sourceDependencyPackage = importDeclPackage importDecl,
+      sourceDependencyModule = importDeclModule importDecl
+    }
 
 implicitSourceDependencies :: Text -> [Extension] -> [SourceDependency]
 implicitSourceDependencies currentPackage extensions =
