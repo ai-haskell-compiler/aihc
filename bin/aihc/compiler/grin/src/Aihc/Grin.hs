@@ -28,8 +28,8 @@ module Aihc.Grin
     parseProgram,
     parseExpr,
     renderParseError,
-    renderProgram,
-    renderExpr,
+    prettyProgram,
+    prettyExpr,
     interpretProgramBinding,
     interpretProgramIoBinding,
     interpretProgramFunctionSnapshot,
@@ -62,6 +62,6 @@ import Aihc.Grin.Interpret (InterpretError (..), RuntimeValue (..), interpretPro
 import Aihc.Grin.Lint (GrinLintError (..), lintProgram)
 import Aihc.Grin.Lower (lowerProgram)
 import Aihc.Grin.Parser (GrinParseError, parseExpr, parseProgram, renderParseError)
-import Aihc.Grin.Pretty (renderExpr, renderProgram)
+import Aihc.Grin.Pretty (prettyExpr, prettyProgram)
 import Aihc.Grin.Snapshot
 import Aihc.Grin.Syntax
