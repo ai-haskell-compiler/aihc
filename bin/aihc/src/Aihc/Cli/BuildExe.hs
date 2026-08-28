@@ -79,7 +79,7 @@ import System.Directory
     removeFile,
   )
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, makeRelative, splitDirectories, takeDirectory, (</>))
+import System.FilePath (dropExtension, takeDirectory, (</>))
 import System.IO (hClose, openTempFile)
 import System.Process (readProcessWithExitCode)
 
@@ -132,7 +132,7 @@ runBuildExe options = do
   constraints <- mapM parsePackageConstraint (buildExePackageConstraints options)
   selected <- resolvePackages available (constraints <> map implicitConstraint ["aihc-base", "aihc-prim"])
   mapM_ requirePackageArchive selected
-  moduleIndex <- buildInstalledModuleIndex selected
+  let moduleIndex = buildInstalledModuleIndex selected
   sources <- discoverSources sourceDirectories moduleIndex (buildExeSourceFile options)
   runtime <- ensureRuntime storeRoot target (buildExeGarbageCollector options)
   entry <- ensureEntry storeRoot target
@@ -249,28 +249,15 @@ requirePackageArchive package = do
           )
       )
 
-buildInstalledModuleIndex :: [InstalledPackage] -> IO InstalledModuleIndex
-buildInstalledModuleIndex packages = do
-  entries <- concat <$> mapM packageEntries packages
-  pure (Map.fromListWith (<>) [(installedModuleName entry, [entry]) | entry <- entries])
+buildInstalledModuleIndex :: [InstalledPackage] -> InstalledModuleIndex
+buildInstalledModuleIndex packages =
+  Map.fromListWith (<>) [(installedModuleName entry, [entry]) | entry <- entries]
   where
-    packageEntries package = do
-      names <- installedPackageModuleNames package
-      pure [InstalledModule package name | name <- names]
-
-installedPackageModuleNames :: InstalledPackage -> IO [Text]
-installedPackageModuleNames package =
-  case packageManifestModules (installedManifest package) of
-    [] -> do
-      paths <- listNamedFiles (installedRoot package) "resolve.cbor"
-      pure (map pathModuleName paths)
-    names -> pure names
-  where
-    pathModuleName path =
-      T.intercalate "." $
-        map T.pack $
-          splitDirectories $
-            makeRelative (installedRoot package) (takeDirectory path)
+    entries =
+      [ InstalledModule package name
+      | package <- packages,
+        name <- packageManifestModules (installedManifest package)
+      ]
 
 discoverSources :: [FilePath] -> InstalledModuleIndex -> FilePath -> IO [SourceModule]
 discoverSources sourceDirectories moduleIndex mainPath = do
@@ -571,18 +558,6 @@ linkExecutable Wasm32Wasip3 output objects archives entry runtime =
 linkExecutable target output objects archives entry runtime = do
   (compiler, arguments) <- backendCompiler target
   runTool compiler (arguments <> objects <> archives <> [entry, runtime, "-o", output])
-
-listNamedFiles :: FilePath -> FilePath -> IO [FilePath]
-listNamedFiles root name = do
-  entries <- listDirectory root
-  concat <$> mapM visit entries
-  where
-    visit entry = do
-      let path = root </> entry
-      directory <- doesDirectoryExist path
-      if directory
-        then listNamedFiles path name
-        else pure [path | entry == name]
 
 runTool :: FilePath -> [String] -> IO ()
 runTool tool arguments = do

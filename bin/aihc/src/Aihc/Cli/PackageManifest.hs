@@ -37,23 +37,15 @@ instance Aeson.ToJSON PackageManifest where
 instance Aeson.FromJSON PackageManifest where
   parseJSON = Aeson.withObject "PackageManifest" $ \object -> do
     schemaVersion <- object .: "schemaVersion"
-    name <- object .: "name"
-    version <- object .: "version"
-    identity <- object .: "identity"
-    dependencies <- object .: "dependencies"
-    modules <-
-      case schemaVersion :: Int of
-        1 -> pure []
-        2 -> object .: "modules"
-        _ -> fail "unsupported package manifest schema"
-    pure
-      PackageManifest
-        { packageManifestName = name,
-          packageManifestVersion = version,
-          packageManifestIdentity = identity,
-          packageManifestDependencies = dependencies,
-          packageManifestModules = modules
-        }
+    case schemaVersion :: Int of
+      2 ->
+        PackageManifest
+          <$> object .: "name"
+          <*> object .: "version"
+          <*> object .: "identity"
+          <*> object .: "dependencies"
+          <*> object .: "modules"
+      _ -> fail "unsupported package manifest schema"
 
 packageManifestPath :: FilePath -> FilePath
 packageManifestPath packageRoot = packageRoot </> "package.json"
