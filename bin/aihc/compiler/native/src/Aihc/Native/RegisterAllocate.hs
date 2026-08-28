@@ -125,7 +125,12 @@ analyzeExpr expression =
           survivors = bodyLive `Set.difference` boundSet
           expressionUses = grinExprFreeVariables valueExpression
           liveBefore = expressionUses <> survivors
-          simultaneousResults = clique (boundSet <> survivors)
+          simultaneousResults =
+            clique
+              ( boundSet
+                  <> survivors
+                  <> if length bound > 1 then expressionUses else Set.empty
+              )
           callCrossing =
             if exprCallsC valueExpression
               then recordCallCrossing survivors
@@ -176,7 +181,7 @@ analyzeStoreRec bindings body =
       <> recordLive liveBefore
       <> recordLive bodyLive
       <> recordCallCrossing (bound <> nodeUses <> survivors)
-      <> clique (bound <> survivors)
+      <> clique (bound <> nodeUses <> survivors)
   )
   where
     (bodyLive, bodyAnalysis) = analyzeExpr body
