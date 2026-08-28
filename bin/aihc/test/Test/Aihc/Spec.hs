@@ -20,7 +20,6 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Hedgehog (Property, property, success)
 import System.Directory
   ( createDirectory,
     createDirectoryIfMissing,
@@ -42,7 +41,6 @@ import System.Info qualified as System
 import System.Process (readProcess, readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import Test.Tasty.Hedgehog (testProperty)
 
 tests :: TestTree
 tests =
@@ -65,12 +63,8 @@ tests =
           testCase "retains and repairs GRIN only with keep-grin" test_installV2KeepGrin,
           testCase "writes target-specific objects and library archives" test_installV2TargetArchives,
           testCase "install-v2 writes core for aihc-prim and lints stored programs" test_installV2AihcPrim
-        ],
-      testProperty "Hedgehog options" prop_dummy
+        ]
     ]
-
-prop_dummy :: Property
-prop_dummy = property success
 
 test_buildExeSourceDirectories :: Assertion
 test_buildExeSourceDirectories = do
