@@ -13,46 +13,64 @@ import Data.Map.Strict qualified as Map
 import Data.Set (Set)
 import Data.Set qualified as Set
 
-newtype References = References
-  { referenceNames :: Set Name
-  }
-
-instance Semigroup References where
-  left <> right = References (referenceNames left <> referenceNames right)
-
-instance Monoid References where
-  mempty = References Set.empty
+type References = Set Name
 
 emptyImports :: Imports
 emptyImports = Imports Map.empty Map.empty Map.empty Map.empty
 
 -- | Select the transitive import closure from the type-check interface.
 importsForProgram :: TypeEnv -> Program -> Imports
-importsForProgram available program = select Set.empty initialNames (programImports program)
+importsForProgram available program = mergeImports selectedImports existingImports
   where
+    existingImports = programImports program
     localProgram = program {programImports = emptyImports}
     localNames = namesInTypeEnv (typeEnvFromProgram localProgram)
-    directReferences = foldMap declReferences (programDecls program)
-    importedReferences = referencesFromImports (programImports program)
-    initialNames =
-      ( referenceNames directReferences
-          <> referenceNames importedReferences
+    roots =
+      ( foldMap declReferences (programDecls program)
+          <> referencesFromImports existingImports
       )
         `Set.difference` localNames
+    selectedNames = reachableNames available localNames roots
+    selectedImports = importsForNames available selectedNames
 
-    select visited pending imports
-      | Set.null pending = imports
-      | otherwise =
-          let (name, rest) = Set.deleteFindMin pending
-           in if name `Set.member` visited
-                then select visited rest imports
-                else
-                  let (selected, selectedReferences) = selectName available name imports
-                      next =
-                        (rest <> referenceNames selectedReferences)
-                          `Set.difference` localNames
-                          `Set.difference` Set.insert name visited
-                   in select (Set.insert name visited) next selected
+reachableNames :: TypeEnv -> Set Name -> Set Name -> Set Name
+reachableNames available localNames = go Set.empty
+  where
+    go visited pending =
+      case Set.minView pending of
+        Nothing -> visited
+        Just (name, rest) ->
+          let visited' = Set.insert name visited
+              newNames =
+                referencesForName available name
+                  `Set.difference` localNames
+                  `Set.difference` visited'
+           in go visited' (rest <> newNames)
+
+referencesForName :: TypeEnv -> Name -> References
+referencesForName available name =
+  foldMap typeReferences (Map.lookup name (teHeaders available))
+    <> foldMap typeReferences (Map.lookup name (teSynonyms available))
+    <> foldMap axiomReferences (Map.lookup name (teAxioms available))
+    <> foldMap typeReferences (Map.lookup name (teBinders available))
+
+importsForNames :: TypeEnv -> Set Name -> Imports
+importsForNames available names =
+  Imports
+    { importHeaders = Map.restrictKeys (teHeaders available) names,
+      importSynonyms = Map.restrictKeys (teSynonyms available) names,
+      importAxioms = Map.restrictKeys (teAxioms available) names,
+      importBinders = Map.restrictKeys (teBinders available) names
+    }
+
+mergeImports :: Imports -> Imports -> Imports
+mergeImports preferred fallback =
+  Imports
+    { importHeaders = Map.union (importHeaders preferred) (importHeaders fallback),
+      importSynonyms = Map.union (importSynonyms preferred) (importSynonyms fallback),
+      importAxioms = Map.union (importAxioms preferred) (importAxioms fallback),
+      importBinders = Map.union (importBinders preferred) (importBinders fallback)
+    }
 
 -- | Return one entry for each import declaration that has no use.
 unusedImports :: Program -> [Name]
@@ -62,9 +80,7 @@ unusedImports program =
     imports = programImports program
     directReferences = foldMap declReferences (programDecls program)
     importReferences = referencesFromImports imports
-    usedNames =
-      referenceNames directReferences
-        <> referenceNames importReferences
+    usedNames = directReferences <> importReferences
     importNames =
       Map.keys (importHeaders imports)
         <> Map.keys (importSynonyms imports)
@@ -77,25 +93,6 @@ namesInTypeEnv env =
     <> Map.keysSet (teSynonyms env)
     <> Map.keysSet (teAxioms env)
     <> Map.keysSet (teBinders env)
-
-selectName :: TypeEnv -> Name -> Imports -> (Imports, References)
-selectName available name imports =
-  ( imports
-      { importHeaders = insertFound (teHeaders available) (importHeaders imports),
-        importSynonyms = insertFound (teSynonyms available) (importSynonyms imports),
-        importAxioms = insertFound (teAxioms available) (importAxioms imports),
-        importBinders = insertFound (teBinders available) (importBinders imports)
-      },
-    foldMap typeReferences (Map.lookup name (teHeaders available))
-      <> foldMap typeReferences (Map.lookup name (teSynonyms available))
-      <> foldMap axiomReferences (Map.lookup name (teAxioms available))
-      <> foldMap typeReferences (Map.lookup name (teBinders available))
-  )
-  where
-    insertFound availableMap selected =
-      case Map.lookup name availableMap of
-        Nothing -> selected
-        Just value -> Map.insert name value selected
 
 referencesFromImports :: Imports -> References
 referencesFromImports imports =
@@ -111,8 +108,7 @@ entryAxiomReferences :: Name -> AxiomDecl -> References
 entryAxiomReferences name = deleteReference name . axiomReferences
 
 deleteReference :: Name -> References -> References
-deleteReference name references =
-  references {referenceNames = Set.delete name (referenceNames references)}
+deleteReference = Set.delete
 
 declReferences :: Decl -> References
 declReferences decl =
@@ -209,4 +205,4 @@ coercionReferences coercion =
     CoAxiom name arguments -> nameReference name <> foldMap typeReferences arguments
 
 nameReference :: Name -> References
-nameReference name = References (Set.singleton name)
+nameReference = Set.singleton
