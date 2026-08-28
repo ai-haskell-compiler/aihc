@@ -9,12 +9,15 @@
   '';
   examplesSource = sources.examplesSrc pkgs;
   exampleEntries = builtins.readDir "${examplesSource}/examples";
-  exampleNames = builtins.filter (
+  allExampleNames = builtins.filter (
     name:
       exampleEntries.${name}
       == "directory"
       && builtins.pathExists "${examplesSource}/examples/${name}/Main.hs"
   ) (builtins.attrNames exampleEntries);
+  # This example uses more than the temporary 100 MB heap limit.
+  disabledExampleNames = ["unboxed-tail-recursion"];
+  exampleNames = builtins.filter (name: !builtins.elem name disabledExampleNames) allExampleNames;
   cTidyCompilerFlags =
     ["-std=c11" "-Wall" "-Wextra" "-Wpedantic"]
     ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
@@ -168,7 +171,7 @@
     fi
     mkdir -p "$run_directory"
     if timeout --foreground --kill-after=5s 10s \
-      bash -c 'run_directory=$1; executable=$2; stderr=$3; argv0=$4; shift 4; cd "$run_directory"; exec -a "$argv0" "$executable" "$@" 2> "$stderr"' \
+      bash -c 'run_directory=$1; executable=$2; stderr=$3; argv0=$4; shift 4; cd "$run_directory"; exec -a "$argv0" "$executable" +RTS -M100M -RTS "$@" 2> "$stderr"' \
       bash "$run_directory" "$executable" "$actual_stderr" "$example_name" "''${example_args[@]}" \
       < "$stdin_file" > "$actual_stdout" 2> "$timeout_stderr"; then
       actual_exit=0
@@ -247,7 +250,7 @@
     if timeout --foreground --kill-after=5s 30s wasmtime run -C cache=n -S cli \
       --dir "$run_directory::." \
       --argv0 "$example_name" \
-      "$executable" "''${example_args[@]}" \
+      "$executable" +RTS -M100M -RTS "''${example_args[@]}" \
       < "$stdin_file" > "$actual_stdout" 2> "$actual_stderr"; then
       actual_exit=0
     else
