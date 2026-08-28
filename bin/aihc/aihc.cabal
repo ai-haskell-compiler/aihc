@@ -245,12 +245,50 @@ common test-options
 test-suite spec
   import: test-options
   type: exitcode-stdio-1.0
-  hs-source-dirs: test
+  hs-source-dirs:
+    test
+    compiler/fc/test
+    compiler/fc/common
+    compiler/grin/test
+    compiler/native/test
+    compiler/amd64/test
+    compiler/arm64/test
+    compiler/llvm/test
+    compiler/wasm/test
+    test-support
+
   main-is: Spec.hs
+  other-modules:
+    Aihc.Testing.ExceptionProgram
+    Aihc.Testing.SchedulerProgram
+    FcGolden
+    GrinGolden
+    Test.Aihc.Spec
+    Test.Amd64.Spec
+    Test.Amd64.Suite
+    Test.Arm64.Spec
+    Test.Arm64.Suite
+    Test.Fc.Properties
+    Test.Fc.Spec
+    Test.Fc.Suite
+    Test.Grin.Arbitrary
+    Test.Grin.Spec
+    Test.Llvm.Spec
+    Test.Llvm.Suite
+    Test.Native.BlockLayout
+    Test.Native.Compiler
+    Test.Native.Primitive
+    Test.Native.RegisterAllocate
+    Test.Native.Runtime
+    Test.Native.Spec
+    Test.Wasm.Spec
+    Test.Wasm.Suite
+
   build-depends:
     aeson,
     aihc:compiler,
     aihc-hackage,
+    aihc-parser,
     aihc-resolve,
     aihc-tc,
     base >=4.16 && <5,
@@ -260,201 +298,16 @@ test-suite spec
     filepath,
     haskeline,
     hedgehog,
-    process,
-    tasty,
-    tasty-hedgehog,
-    tasty-hunit,
-    text,
-    time,
-
-test-suite fc-spec
-  import: test-options
-  type: exitcode-stdio-1.0
-  hs-source-dirs:
-    compiler/fc/test
-    compiler/fc/common
-
-  main-is: Spec.hs
-  other-modules:
-    FcGolden
-    Test.Fc.Properties
-    Test.Fc.Suite
-
-  build-depends:
-    aeson,
-    aihc:compiler,
-    aihc-parser,
-    aihc-resolve,
-    aihc-tc,
-    base >=4.16 && <5,
-    bytestring,
-    containers,
-    directory,
-    filepath,
-    hedgehog,
     libffi >=0.2 && <0.3,
-    tasty,
-    tasty-hedgehog,
-    tasty-hunit,
-    text,
-    unix,
-    yaml,
-
-test-suite grin-spec
-  import: test-options
-  type: exitcode-stdio-1.0
-  hs-source-dirs: compiler/grin/test
-  main-is: Spec.hs
-  other-modules:
-    GrinGolden
-    Test.Grin.Arbitrary
-
-  build-depends:
-    aeson,
-    aihc:compiler,
-    aihc-parser,
-    aihc-resolve,
-    aihc-tc,
-    base >=4.16 && <5,
-    bytestring,
-    containers,
-    directory,
-    filepath,
-    hedgehog,
-    tasty,
-    tasty-hedgehog,
-    tasty-hunit,
-    text,
-    yaml,
-
-test-suite native-spec
-  import: test-options
-  type: exitcode-stdio-1.0
-  hs-source-dirs: compiler/native/test
-  main-is: Spec.hs
-  other-modules:
-    Test.Native.BlockLayout
-    Test.Native.Compiler
-    Test.Native.Primitive
-    Test.Native.RegisterAllocate
-    Test.Native.Runtime
-
-  build-depends:
-    aihc:compiler,
-    aihc-tc,
-    base >=4.16 && <5,
-    containers,
-    filepath,
-    hedgehog,
     process,
     tasty,
     tasty-hedgehog,
     tasty-hunit,
     temporary,
     text,
-
-test-suite amd64-spec
-  import: test-options
-  type: exitcode-stdio-1.0
-  hs-source-dirs:
-    compiler/amd64/test
-    test-support
-
-  main-is: Spec.hs
-  other-modules:
-    Aihc.Testing.ExceptionProgram
-    Aihc.Testing.SchedulerProgram
-    Test.Amd64.Suite
-
-  build-depends:
-    aeson,
-    aihc:compiler,
-    aihc-tc,
-    base >=4.16 && <5,
-    containers,
-    directory,
-    filepath,
-    hedgehog,
-    process,
-    tasty,
-    tasty-hedgehog,
-    tasty-hunit,
-    text,
+    time,
     unix,
     yaml,
-
-test-suite arm64-spec
-  import: test-options
-  type: exitcode-stdio-1.0
-  hs-source-dirs:
-    compiler/arm64/test
-    test-support
-
-  main-is: Spec.hs
-  other-modules:
-    Aihc.Testing.ExceptionProgram
-    Aihc.Testing.SchedulerProgram
-    Test.Arm64.Suite
-
-  build-depends:
-    aeson,
-    aihc:compiler,
-    aihc-tc,
-    base >=4.16 && <5,
-    containers,
-    directory,
-    filepath,
-    hedgehog,
-    process,
-    tasty,
-    tasty-hedgehog,
-    tasty-hunit,
-    text,
-    unix,
-    yaml,
-
-test-suite llvm-spec
-  import: test-options
-  type: exitcode-stdio-1.0
-  hs-source-dirs:
-    compiler/llvm/test
-    test-support
-
-  main-is: Spec.hs
-  other-modules:
-    Aihc.Testing.ExceptionProgram
-    Aihc.Testing.SchedulerProgram
-    Test.Llvm.Suite
-
-  build-depends:
-    aihc:compiler,
-    aihc-tc,
-    base >=4.16 && <5,
-    directory,
-    filepath,
-    hedgehog,
-    process,
-    tasty,
-    tasty-hedgehog,
-    tasty-hunit,
-    text,
-
-test-suite wasm-spec
-  import: test-options
-  type: exitcode-stdio-1.0
-  hs-source-dirs: compiler/wasm/test
-  main-is: Spec.hs
-  other-modules: Test.Wasm.Suite
-  build-depends:
-    aihc:compiler,
-    aihc-tc,
-    base >=4.16 && <5,
-    containers,
-    hedgehog,
-    tasty,
-    tasty-hedgehog,
-    tasty-hunit,
-    text,
 
 test-suite dev-spec
   import: test-options
