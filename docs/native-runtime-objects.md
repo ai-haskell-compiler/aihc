@@ -17,6 +17,22 @@ The selected LLVM target triple is passed to Clang for dependency objects, the
 shared runtime, and the final executable. Cross-linking therefore requires a
 Clang installation with the corresponding target linker and sysroot.
 
+## RTS options
+
+Compiled programs accept RTS options between `+RTS` and `-RTS` arguments.
+The runtime removes these arguments before `getArgs` reads the argument vector.
+Use `--RTS` to stop RTS option processing for all subsequent arguments.
+
+The `-M<size>` option sets the maximum managed heap size in bytes.
+The size accepts an optional `K`, `M`, `G`, or `T` binary unit.
+Lower-case units have the same meaning.
+The default heap size is unlimited.
+
+The `calloc` collector stops the program when an allocation exceeds this limit.
+It counts managed heap objects because it does not release these objects.
+It does not count auxiliary runtime allocations or static objects.
+The semispace collector reports that it does not support this option.
+
 Native heap objects use a one-word tagged header followed by shape-specific
 payload words. The low three header bits are the physical tag. The remaining
 bits point to an aligned, statically emitted info table.

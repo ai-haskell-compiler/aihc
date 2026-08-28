@@ -54,9 +54,6 @@ static const AihcInfo aihc_array_info = {
     .object_kind = AIHC_OBJECT_ARRAY,
 };
 
-static uint8_t *aihc_program_arguments;
-static size_t aihc_program_arguments_length;
-
 #if defined(__APPLE__)
 extern AihcValue *
     aihc_static_roots_start[] __asm("section$start$__DATA$__aihc_roots")
@@ -112,75 +109,6 @@ static const uint64_t *aihc_linked_local_end(void) {
 #else
   return aihc_elf_linked_locals_end;
 #endif
-}
-
-static void aihc_program_arguments_install(uint8_t *arguments, size_t length) {
-  free(aihc_program_arguments);
-  aihc_program_arguments = arguments;
-  aihc_program_arguments_length = length;
-}
-
-void aihc_program_arguments_initialize(int argc, char *const argv[]) {
-  if (argc < 0 || (argc != 0 && argv == NULL)) {
-    aihc_fail("invalid initial program arguments");
-  }
-  size_t length = 0;
-  for (int index = 0; index < argc; ++index) {
-    if (argv[index] == NULL) {
-      aihc_fail("null initial program argument");
-    }
-    size_t argument_length = strlen(argv[index]);
-    if ((uint64_t)argument_length >= (uint64_t)INT64_MAX - (uint64_t)length) {
-      aihc_fail("program arguments are too large");
-    }
-    length += argument_length + 1;
-  }
-  uint8_t *arguments = NULL;
-  if (length != 0) {
-    arguments = aihc_allocate_zeroed(length);
-    size_t offset = 0;
-    for (int index = 0; index < argc; ++index) {
-      size_t argument_length = strlen(argv[index]);
-      memcpy(arguments + offset, argv[index], argument_length);
-      offset += argument_length + 1;
-    }
-  }
-  aihc_program_arguments_install(arguments, length);
-}
-
-int64_t aihc_program_arguments_size(void) {
-  return (int64_t)aihc_program_arguments_length;
-}
-
-int64_t aihc_program_arguments_copy(void *opaque_buffer, int64_t capacity) {
-  int64_t required = aihc_program_arguments_size();
-  if (capacity < 0 || (capacity != 0 && opaque_buffer == NULL)) {
-    return -1;
-  }
-  if (capacity >= required && required != 0) {
-    memcpy(opaque_buffer, aihc_program_arguments, (size_t)required);
-  }
-  return required;
-}
-
-int64_t aihc_program_arguments_replace(const void *opaque_buffer,
-                                       int64_t requested_length) {
-  if (requested_length < 0 ||
-      (requested_length != 0 && opaque_buffer == NULL)) {
-    return -1;
-  }
-  size_t length = (size_t)requested_length;
-  const uint8_t *buffer = opaque_buffer;
-  if (length != 0 && buffer[length - 1] != 0) {
-    return -1;
-  }
-  uint8_t *arguments = NULL;
-  if (length != 0) {
-    arguments = aihc_allocate_zeroed(length);
-    memcpy(arguments, buffer, length);
-  }
-  aihc_program_arguments_install(arguments, length);
-  return 0;
 }
 
 void aihc_unsupported_primitive(void) {
@@ -644,7 +572,10 @@ int64_t aihc_get_exit_status(const AihcMachine *machine) {
 
 AihcMachine *aihc_machine_new(uint64_t global_count) {
   AihcMachine *machine = aihc_allocate_zeroed(sizeof(*machine));
+  const AihcRtsConfig *rts_config = aihc_rts_config();
   machine->allocation_count = 1;
+  machine->heap_max_bytes = rts_config->heap_max_bytes;
+  machine->heap_limit_enabled = rts_config->heap_limit_enabled;
   machine->global_count = global_count;
   machine->globals = aihc_allocate_auxiliary(
       machine,

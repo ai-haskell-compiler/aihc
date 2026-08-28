@@ -167,6 +167,26 @@ test_buildExeSourceDirectories = do
     assertEqual "executable exit status" ExitSuccess status
     assertEqual "executable stdout" "build-exe works\n" stdout
     assertEqual "executable stderr" "" stderr
+    (rtsStatus, rtsStdout, rtsStderr) <-
+      readProcessWithExitCode output ["first", "+RTS", "-M1G", "-RTS", "second"] ""
+    assertEqual "RTS executable exit status" ExitSuccess rtsStatus
+    assertEqual "RTS options are absent from program arguments" "first\nsecond\n" rtsStdout
+    assertEqual "RTS executable stderr" "" rtsStderr
+    (plainStatus, plainStdout, plainStderr) <-
+      readProcessWithExitCode output ["-M1G", "second"] ""
+    assertEqual "plain option executable exit status" ExitSuccess plainStatus
+    assertEqual "plain option remains a program argument" "-M1G\nsecond\n" plainStdout
+    assertEqual "plain option executable stderr" "" plainStderr
+    (limitStatus, limitStdout, limitStderr) <-
+      readProcessWithExitCode output ["+RTS", "-M1", "-RTS"] ""
+    assertBool "heap limit terminates the executable" (limitStatus /= ExitSuccess)
+    assertEqual "heap limit stdout" "" limitStdout
+    assertEqual "heap limit diagnostic" "aihc runtime: heap limit exceeded\n" limitStderr
+    (invalidStatus, invalidStdout, invalidStderr) <-
+      readProcessWithExitCode output ["+RTS", "-M1X", "-RTS"] ""
+    assertBool "invalid heap size terminates the executable" (invalidStatus /= ExitSuccess)
+    assertEqual "invalid heap size stdout" "" invalidStdout
+    assertEqual "invalid heap size diagnostic" "aihc runtime: invalid size for RTS option -M\n" invalidStderr
 
 writeCachedPackage :: FilePath -> NativeTarget -> FilePath -> Text -> Text -> [Text] -> [Text] -> IO ()
 writeCachedPackage storeRoot target identity name version dependencies modules = do

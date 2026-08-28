@@ -127,10 +127,16 @@ struct AihcIoBackend {
 
 typedef AihcSlot (*AihcRootVisitor)(AihcSlot root, void *context);
 
+typedef struct {
+  uint64_t heap_max_bytes;
+  uint8_t heap_limit_enabled;
+} AihcRtsConfig;
+
 _Noreturn void aihc_fail(const char *message);
 void aihc_record_allocation(AihcMachine *machine);
 void *aihc_allocate_zeroed(size_t bytes);
 void *aihc_allocate_auxiliary(AihcMachine *machine, size_t bytes);
+const AihcRtsConfig *aihc_rts_config(void);
 AihcSlot *aihc_reserve_slots(AihcMachine *machine, AihcSlot **slots,
                              uint64_t *capacity, uint64_t count);
 uint64_t aihc_object_words(const AihcInfo *info);
