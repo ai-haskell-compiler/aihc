@@ -5,13 +5,14 @@
 module Aihc.Fc2.Desugar
   ( desugarModuleFc2,
     typeEnvFromTcInterface,
+    valueDesugarSupportTerms,
     DesugarConfig (..),
     Fc2DesugarResult (..),
   )
 where
 
 import Aihc.Fc2.Convert
-import Aihc.Fc2.Desugar.Value (desugarValues)
+import Aihc.Fc2.Desugar.Value (desugarValues, valueDesugarSupportTerms)
 import Aihc.Fc2.Imports (emptyImports, importsForProgram)
 import Aihc.Fc2.Name
 import Aihc.Fc2.Syntax

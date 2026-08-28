@@ -11,6 +11,7 @@ module Aihc.Fc2
     tidyProgram,
     desugarModuleFc2,
     typeEnvFromTcInterface,
+    valueDesugarSupportTerms,
     DesugarConfig (..),
     Fc2DesugarResult (..),
     lintProgram,
@@ -21,7 +22,7 @@ module Aihc.Fc2
   )
 where
 
-import Aihc.Fc2.Desugar (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2, typeEnvFromTcInterface)
+import Aihc.Fc2.Desugar (DesugarConfig (..), Fc2DesugarResult (..), desugarModuleFc2, typeEnvFromTcInterface, valueDesugarSupportTerms)
 import Aihc.Fc2.Lint (LintError (..), ModuleLoader, lintProgram, loadScopeClosure, storeModuleLoader)
 import Aihc.Fc2.Name
 import Aihc.Fc2.Parser (Fc2ParseError, parseProgram, renderParseError)

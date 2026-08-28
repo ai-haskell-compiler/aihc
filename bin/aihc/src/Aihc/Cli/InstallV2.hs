@@ -643,12 +643,23 @@ moduleTypeInterface exports package interface source =
 addReferencedFacts :: TcInterface -> TcInterface -> TcInterface
 addReferencedFacts complete interface =
   interface
-    { tcInterfaceTyCons = Map.elems (existingTyCons <> supportTyCons),
+    { tcInterfaceTerms = tcInterfaceTerms interface <> supportTerms,
+      tcInterfaceTyCons = Map.elems (existingTyCons <> supportTyCons),
+      tcInterfaceDataTypes = tcInterfaceDataTypes interface <> supportDataTypes,
       tcInterfaceClasses = tcInterfaceClasses interface <> supportClasses
     }
   where
     existingTyCons = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons interface]
     availableTyCons = Map.fromList [(tciTyCon info, info) | info <- tcInterfaceTyCons complete]
+    existingTerms = Set.fromList (mapMaybe (termIdentity . fst) (tcInterfaceTerms interface))
+    availableTerms =
+      Map.fromList
+        [ (identity, scheme)
+        | (key, scheme) <- tcInterfaceTerms complete,
+          Just identity <- [termIdentity key]
+        ]
+    existingDataTypes = Set.fromList (map dtiTyCon (tcInterfaceDataTypes interface))
+    availableDataTypes = Map.fromList [(dtiTyCon info, info) | info <- tcInterfaceDataTypes complete]
     existingClasses = Set.fromList (map ciTyCon (tcInterfaceClasses interface))
     availableClasses = Map.fromList [(ciTyCon info, info) | info <- tcInterfaceClasses complete]
     referenced =
@@ -662,7 +673,21 @@ addReferencedFacts complete interface =
             <> concatMap typeFamilyInstanceInfoTyCons (tcInterfaceTypeFamilyInstances interface)
         )
     reachable = closeTyCons Set.empty referenced
+    supportTermIdentities = Set.fromList (concatMap Fc2.valueDesugarSupportTerms (Set.toList reachable))
+    supportTerms =
+      [ entry
+      | entry@(key, _) <- tcInterfaceTerms complete,
+        Just identity <- [termIdentity key],
+        identity `Set.member` supportTermIdentities,
+        identity `Set.notMember` existingTerms
+      ]
     supportTyCons = Map.restrictKeys availableTyCons (reachable `Set.difference` Map.keysSet existingTyCons)
+    supportDataTypes =
+      [ info
+      | info <- tcInterfaceDataTypes complete,
+        dtiTyCon info `Set.member` reachable,
+        dtiTyCon info `Set.notMember` existingDataTypes
+      ]
     supportClasses =
       [ info
       | info <- tcInterfaceClasses complete,
@@ -676,10 +701,18 @@ addReferencedFacts complete interface =
               dependencies =
                 Set.fromList
                   ( maybe [] tyConInfoTyCons (Map.lookup tyCon availableTyCons)
+                      <> maybe [] dataTypeInfoTyCons (Map.lookup tyCon availableDataTypes)
                       <> maybe [] classInfoTyCons (Map.lookup tyCon availableClasses)
+                      <> concatMap
+                        (maybe [] typeSchemeTyCons . (`Map.lookup` availableTerms))
+                        (Fc2.valueDesugarSupportTerms tyCon)
                   )
               found' = Set.insert tyCon found
            in closeTyCons found' (pending' <> (dependencies `Set.difference` found'))
+    termIdentity key =
+      case key of
+        TcTermGlobal package moduleName' identifier -> Just (package, moduleName', identifier)
+        TcTermLocal {} -> Nothing
 
 tyConInfoTyCons :: TyConInfo -> [TyCon]
 tyConInfoTyCons info =
