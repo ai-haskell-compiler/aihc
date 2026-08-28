@@ -1,0 +1,59 @@
+extensions:
+  - MagicHash
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Word (Word64(W64#))
+    import GHC.Fingerprint.Type (Fingerprint(Fingerprint))
+    import GHC.Prim (Addr#, indexWord64OffAddr#)
+
+    allTrue :: [Bool] -> Bool
+    allTrue [] = True
+    allTrue (True : values) = allTrue values
+    allTrue (False : _) = False
+
+    first :: Fingerprint -> Word64
+    first (Fingerprint value _) = value
+
+    word64At :: Addr# -> Word64
+    word64At address = W64# (indexWord64OffAddr# address 0#)
+
+    zero :: Word64
+    zero = word64At "\0\0\0\0\0\0\0\0"#
+
+    one :: Word64
+    one = word64At "\1\0\0\0\0\0\0\0"#
+
+    two :: Word64
+    two = word64At "\2\0\0\0\0\0\0\0"#
+
+    fifteen :: Word64
+    fifteen = word64At "\15\0\0\0\0\0\0\0"#
+
+    sixteen :: Word64
+    sixteen = word64At "\16\0\0\0\0\0\0\0"#
+
+    maximum :: Word64
+    maximum = word64At "\255\255\255\255\255\255\255\255"#
+
+    results :: Bool
+    results =
+      allTrue
+        [ first (Fingerprint one two) == one,
+          Fingerprint one two == Fingerprint one two,
+          Fingerprint one two /= Fingerprint one sixteen,
+          Fingerprint one two < Fingerprint two zero,
+          Fingerprint one two < Fingerprint one sixteen,
+          show (Fingerprint zero zero) == "00000000000000000000000000000000",
+          show (Fingerprint fifteen sixteen) == "000000000000000f0000000000000010",
+          show (Fingerprint maximum one) == "ffffffffffffffff0000000000000001"
+        ]
+output: |
+  True
+expression: |
+  results
+status: pass
+reason: GHC.Fingerprint.Type exports the fingerprint constructor with standard equality, ordering, and hexadecimal display behavior
