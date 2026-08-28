@@ -73,14 +73,23 @@ static void aihc_parse_rts_option(const char *argument) {
   aihc_fail("unknown RTS option");
 }
 
+static int aihc_argument_is(const char *argument, const char *expected) {
+  while (*argument != 0 && *argument == *expected) {
+    ++argument;
+    ++expected;
+  }
+  return *argument == *expected;
+}
+
 static int aihc_argument_end(const uint8_t *buffer, size_t length,
                              size_t offset, size_t *end) {
-  const uint8_t *terminator = memchr(buffer + offset, 0, length - offset);
-  if (terminator == NULL) {
-    return 0;
+  for (size_t index = offset; index < length; ++index) {
+    if (buffer[index] == 0) {
+      *end = index;
+      return 1;
+    }
   }
-  *end = (size_t)(terminator - buffer);
-  return 1;
+  return 0;
 }
 
 int64_t aihc_runtime_arguments_initialize(const void *opaque_buffer,
@@ -111,11 +120,11 @@ int64_t aihc_runtime_arguments_initialize(const void *opaque_buffer,
     size_t argument_length = end - input + 1;
     int keep = index == 0;
     if (index != 0 && !rts_options_disabled) {
-      if (!in_rts_options && strcmp(argument, "+RTS") == 0) {
+      if (!in_rts_options && aihc_argument_is(argument, "+RTS")) {
         in_rts_options = 1;
-      } else if (!in_rts_options && strcmp(argument, "--RTS") == 0) {
+      } else if (!in_rts_options && aihc_argument_is(argument, "--RTS")) {
         rts_options_disabled = 1;
-      } else if (in_rts_options && strcmp(argument, "-RTS") == 0) {
+      } else if (in_rts_options && aihc_argument_is(argument, "-RTS")) {
         in_rts_options = 0;
       } else if (in_rts_options) {
         aihc_parse_rts_option(argument);
