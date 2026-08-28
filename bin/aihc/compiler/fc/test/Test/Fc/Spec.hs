@@ -1,12 +1,12 @@
-module Main (main) where
+module Test.Fc.Spec (tests) where
 
 import Test.Fc.Properties (fcPropertyTests)
 import Test.Fc.Suite (fcFixtureTests, fcGoldenTests, fcLintTests)
-import Test.Tasty (defaultMain, testGroup)
+import Test.Tasty (TestTree, testGroup)
 
-main :: IO ()
-main = do
+tests :: IO TestTree
+tests = do
   fc <- fcFixtureTests
   fcLint <- fcLintTests
   fcGolden <- fcGoldenTests
-  defaultMain (testGroup "aihc-fc" [fc, fcLint, fcGolden, fcPropertyTests])
+  pure (testGroup "aihc-fc" [fc, fcLint, fcGolden, fcPropertyTests])
