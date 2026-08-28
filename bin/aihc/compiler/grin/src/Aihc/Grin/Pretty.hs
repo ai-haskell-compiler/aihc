@@ -8,314 +8,299 @@ where
 import Aihc.Grin.Syntax
 import Data.ByteString qualified as BS
 import Data.Char (chr, isPrint, isSpace)
-import Data.List (intercalate)
+import Data.List (dropWhileEnd)
 import Data.Text qualified as T
+import Prettyprinter (Doc, comma, defaultLayoutOptions, hardline, hsep, indent, layoutPretty, parens, pretty, punctuate, space, vsep, (<+>))
+import Prettyprinter.Render.String (renderString)
 
 renderProgram :: GrinProgram -> String
-renderProgram program =
-  intercalate
-    "\n\n"
-    ( map renderConstructor (grinConstructors program)
-        <> map renderPrimitive (grinPrimitives program)
-        <> map renderForeign (grinForeignCalls program)
-        <> map renderGlobal (grinGlobals program)
-        <> map renderFunction (grinFunctions program)
-    )
+renderProgram = renderDocument . prettyProgram
 
-renderConstructor :: (T.Text, [[GrinRep]]) -> String
-renderConstructor (name, fieldLayouts) =
-  "constructor "
-    <> renderName name
-    <> " ["
-    <> intercalate ", " (map renderLayout fieldLayouts)
-    <> "]"
+prettyProgram :: GrinProgram -> Doc ann
+prettyProgram program =
+  vsep (punctuate hardline documents)
   where
-    renderLayout layout =
+    documents =
+      map prettyConstructor (grinConstructors program)
+        <> map prettyPrimitive (grinPrimitives program)
+        <> map prettyForeign (grinForeignCalls program)
+        <> map prettyGlobal (grinGlobals program)
+        <> map prettyFunction (grinFunctions program)
+
+prettyConstructor :: (T.Text, [[GrinRep]]) -> Doc ann
+prettyConstructor (name, fieldLayouts) =
+  "constructor" <+> prettyName name <+> "[" <> hsep (punctuate comma (map prettyLayout fieldLayouts)) <> "]"
+  where
+    prettyLayout layout =
       case layout of
-        [runtimeRep] -> show runtimeRep
-        _ -> "[" <> intercalate ", " (map show layout) <> "]"
+        [runtimeRep] -> prettyShow runtimeRep
+        _ -> "[" <> hsep (punctuate comma (map prettyShow layout)) <> "]"
 
-renderPrimitive :: (GrinVar, Int) -> String
-renderPrimitive (var, arity) =
-  "primitive " <> renderVar var <> "/" <> show arity
+prettyPrimitive :: (GrinVar, Int) -> Doc ann
+prettyPrimitive (var, arity) =
+  "primitive" <+> prettyVar var <> "/" <> pretty arity
 
-renderForeign :: GrinForeignCall -> String
-renderForeign foreignCall =
-  "foreign " <> renderForeignCall foreignCall
+prettyForeign :: GrinForeignCall -> Doc ann
+prettyForeign foreignCall =
+  "foreign" <+> prettyForeignCall foreignCall
 
-renderGlobal :: (T.Text, GrinNode) -> String
-renderGlobal (name, node) =
-  "global " <> renderName name <> " = " <> renderNode node
+prettyGlobal :: (T.Text, GrinNode) -> Doc ann
+prettyGlobal (name, node) =
+  "global" <+> prettyName name <+> "=" <+> prettyNode node
 
-renderFunction :: GrinFunction -> String
-renderFunction function =
-  renderFunctionName (grinFunctionName function)
-    <> concatMap ((" " <>) . renderVarAtom) (grinFunctionParameters function)
-    <> " -> "
-    <> show (grinFunctionResultRep function)
-    <> " =\n"
-    <> renderExprIndented 2 (grinFunctionBody function)
+prettyFunction :: GrinFunction -> Doc ann
+prettyFunction function =
+  prettyFunctionName (grinFunctionName function)
+    <> foldMap ((space <>) . prettyVarAtom) (grinFunctionParameters function)
+    <+> "->"
+    <+> prettyShow (grinFunctionResultRep function)
+    <+> "="
+    <> hardline
+    <> indent 2 (prettyExpr (grinFunctionBody function))
 
 renderExpr :: GrinExpr -> String
-renderExpr = renderExprIndented 0
+renderExpr = renderDocument . prettyExpr
 
-renderExprIndented :: Int -> GrinExpr -> String
-renderExprIndented indentation expr =
+prettyExpr :: GrinExpr -> Doc ann
+prettyExpr expr =
   case expr of
-    GrinConstant values -> indent indentation <> "constant" <> renderValues values
+    GrinConstant values -> "constant" <> prettyValues values
     GrinBind vars valueExpr body ->
-      indent indentation
-        <> renderBinders vars
-        <> " <-\n"
-        <> renderExprIndented (indentation + 2) valueExpr
-        <> "\n"
-        <> renderExprIndented indentation body
-    GrinStore node -> indent indentation <> "store " <> renderNode node
+      prettyBinders vars
+        <+> "<-"
+        <> hardline
+        <> indent 2 (prettyExpr valueExpr)
+        <> hardline
+        <> prettyExpr body
+    GrinStore node -> "store" <+> prettyNode node
     GrinEnsureHeap requiredWords roots ->
-      indent indentation
-        <> "ensure-heap "
-        <> renderValue requiredWords
-        <> renderValues roots
-    GrinStoreUnchecked node -> indent indentation <> "store-unchecked " <> renderNode node
+      "ensure-heap" <+> prettyValue requiredWords <> prettyValues roots
+    GrinStoreUnchecked node -> "store-unchecked" <+> prettyNode node
     GrinStoreRec bindings body ->
-      renderStoreRec indentation "store-rec" bindings body
+      prettyStoreRec "store-rec" bindings body
     GrinStoreRecUnchecked bindings body ->
-      renderStoreRec indentation "store-rec-unchecked" bindings body
+      prettyStoreRec "store-rec-unchecked" bindings body
     GrinFetch runtimeRep pointer ->
-      indent indentation <> "fetch @" <> renderRuntimeRepArgument runtimeRep <> " " <> renderValue pointer
+      "fetch" <+> "@" <> prettyRuntimeRepArgument runtimeRep <+> prettyValue pointer
     GrinUpdate pointer value ->
-      indent indentation <> "update " <> renderValue pointer <> " " <> renderValue value
+      "update" <+> prettyValue pointer <+> prettyValue value
     GrinUpdateBlackhole pointer value ->
-      indent indentation <> "update-blackhole " <> renderValue pointer <> " " <> renderValue value
+      "update-blackhole" <+> prettyValue pointer <+> prettyValue value
     GrinEval runtimeRep value ->
-      indent indentation <> "eval @" <> renderRuntimeRepArgument runtimeRep <> " " <> renderValue value
+      "eval" <+> "@" <> prettyRuntimeRepArgument runtimeRep <+> prettyValue value
     GrinCpsEval runtimeRep value continuation updateContinuation ->
-      indent indentation
-        <> "cps-eval @"
-        <> renderRuntimeRepArgument runtimeRep
-        <> " "
-        <> unwords (map renderValue [value, continuation, updateContinuation])
+      "cps-eval"
+        <+> "@"
+        <> prettyRuntimeRepArgument runtimeRep
+        <+> hsep (map prettyValue [value, continuation, updateContinuation])
     GrinCall runtimeRep functionName arguments ->
-      indent indentation
-        <> "call @"
-        <> renderRuntimeRepArgument runtimeRep
-        <> " "
-        <> renderFunctionName functionName
-        <> renderValues arguments
+      "call"
+        <+> "@"
+        <> prettyRuntimeRepArgument runtimeRep
+        <+> prettyFunctionName functionName
+        <> prettyValues arguments
     GrinPrimitiveCall runtimeRep name arguments ->
-      indent indentation
-        <> "primitive-call @"
-        <> renderRuntimeRepArgument runtimeRep
-        <> " "
-        <> renderName name
-        <> renderValues arguments
+      "primitive-call"
+        <+> "@"
+        <> prettyRuntimeRepArgument runtimeRep
+        <+> prettyName name
+        <> prettyValues arguments
     GrinCpsPrimitiveCall runtimeRep name arguments continuation ->
-      indent indentation
-        <> "cps-primitive-call @"
-        <> renderRuntimeRepArgument runtimeRep
-        <> " "
-        <> renderName name
-        <> renderValues arguments
-        <> " -> "
-        <> renderValue continuation
+      "cps-primitive-call"
+        <+> "@"
+        <> prettyRuntimeRepArgument runtimeRep
+        <+> prettyName name
+        <> prettyValues arguments
+        <+> "->"
+        <+> prettyValue continuation
     GrinApply runtimeRep function arguments ->
-      indent indentation
-        <> "apply @"
-        <> renderRuntimeRepArgument runtimeRep
-        <> " "
-        <> renderValue function
-        <> renderArgument arguments
+      "apply"
+        <+> "@"
+        <> prettyRuntimeRepArgument runtimeRep
+        <+> prettyValue function
+        <> prettyArgument arguments
     GrinCpsApply runtimeRep function arguments continuation ->
-      indent indentation
-        <> "cps-apply @"
-        <> renderRuntimeRepArgument runtimeRep
-        <> " "
-        <> renderValue function
-        <> renderArgument arguments
-        <> " -> "
-        <> renderValue continuation
+      "cps-apply"
+        <+> "@"
+        <> prettyRuntimeRepArgument runtimeRep
+        <+> prettyValue function
+        <> prettyArgument arguments
+        <+> "->"
+        <+> prettyValue continuation
     GrinContinue continuation values ->
-      indent indentation
-        <> "continue "
-        <> renderValue continuation
-        <> renderArgument values
+      "continue" <+> prettyValue continuation <> prettyArgument values
     GrinCpsRaise exception continuation ->
-      indent indentation
-        <> "raise-cps "
-        <> renderValue exception
-        <> " "
-        <> renderValue continuation
-    GrinHalt values -> indent indentation <> "halt" <> renderValues values
-    GrinExit status -> indent indentation <> "exit " <> renderValue status
+      "raise-cps" <+> prettyValue exception <+> prettyValue continuation
+    GrinHalt values -> "halt" <> prettyValues values
+    GrinExit status -> "exit" <+> prettyValue status
     GrinCase scrutinee binder alternatives ->
-      indent indentation
-        <> "case "
-        <> renderValue scrutinee
-        <> " as "
-        <> renderVar binder
-        <> " of\n"
-        <> intercalate "\n" (map (renderAlt (indentation + 2)) alternatives)
-    GrinThrow exception -> indent indentation <> "throw " <> renderValue exception
+      "case"
+        <+> prettyValue scrutinee
+        <+> "as"
+        <+> prettyVar binder
+        <+> "of"
+        <> hardline
+        <> indent 2 (vsep (map prettyAlt alternatives))
+    GrinThrow exception -> "throw" <+> prettyValue exception
     GrinCatch runtimeRep action handler state ->
-      indent indentation
-        <> "catch @"
-        <> renderRuntimeRepArgument runtimeRep
-        <> " "
-        <> unwords (map renderValue [action, handler])
-        <> renderValues state
+      "catch"
+        <+> "@"
+        <> prettyRuntimeRepArgument runtimeRep
+        <+> hsep (map prettyValue [action, handler])
+        <> prettyValues state
     GrinForeignCallExpr foreignCall arguments ->
-      indent indentation
-        <> "foreign-call "
-        <> renderForeignCall foreignCall
-        <> " with"
-        <> renderValues arguments
+      "foreign-call"
+        <+> prettyForeignCall foreignCall
+        <+> "with"
+        <> prettyValues arguments
 
-renderStoreRec :: Int -> String -> [(GrinVar, GrinNode)] -> GrinExpr -> String
-renderStoreRec indentation name bindings body =
-  indent indentation
-    <> name
-    <> "\n"
-    <> intercalate
-      "\n"
-      [ indent (indentation + 2) <> renderVar var <> " = " <> renderNode node
-      | (var, node) <- bindings
-      ]
-    <> "\n"
-    <> renderExprIndented indentation body
+prettyStoreRec :: Doc ann -> [(GrinVar, GrinNode)] -> GrinExpr -> Doc ann
+prettyStoreRec name bindings body =
+  name
+    <> hardline
+    <> indent 2 (vsep (map prettyBinding bindings))
+    <> hardline
+    <> prettyExpr body
+  where
+    prettyBinding (var, node) = prettyVar var <+> "=" <+> prettyNode node
 
-renderValues :: [GrinValue] -> String
-renderValues = concatMap ((" " <>) . renderValue)
+prettyValues :: [GrinValue] -> Doc ann
+prettyValues = foldMap ((space <>) . prettyValue)
 
-renderArgument :: [GrinValue] -> String
-renderArgument values =
-  case values of
-    [] -> " ()"
-    [value] -> " " <> renderValue value
-    _ -> " (" <> unwords (map renderValue values) <> ")"
+prettyArgument :: [GrinValue] -> Doc ann
+prettyArgument values =
+  space
+    <> case values of
+      [] -> "()"
+      [value] -> prettyValue value
+      _ -> parens (hsep (map prettyValue values))
 
-renderBinders :: [GrinVar] -> String
-renderBinders vars =
+prettyBinders :: [GrinVar] -> Doc ann
+prettyBinders vars =
   case vars of
     [] -> "()"
-    _ -> intercalate ", " (map renderVar vars)
+    _ -> hsep (punctuate comma (map prettyVar vars))
 
-renderAlt :: Int -> GrinAlt -> String
-renderAlt indentation alt =
-  indent indentation
-    <> renderAltCon (grinAltCon alt)
-    <> concatMap ((" " <>) . renderVarAtom) (grinAltBinders alt)
-    <> " ->\n"
-    <> renderExprIndented (indentation + 2) (grinAltRhs alt)
+prettyAlt :: GrinAlt -> Doc ann
+prettyAlt alt =
+  prettyAltCon (grinAltCon alt)
+    <> foldMap ((space <>) . prettyVarAtom) (grinAltBinders alt)
+    <+> "->"
+    <> hardline
+    <> indent 2 (prettyExpr (grinAltRhs alt))
 
-renderAltCon :: GrinAltCon -> String
-renderAltCon altCon =
+prettyAltCon :: GrinAltCon -> Doc ann
+prettyAltCon altCon =
   case altCon of
-    GrinDataAlt name -> "data " <> renderName name
-    GrinLitAlt literal -> renderLiteral literal
+    GrinDataAlt name -> "data" <+> prettyName name
+    GrinLitAlt literal -> prettyLiteral literal
     GrinDefaultAlt -> "_"
 
-renderValue :: GrinValue -> String
-renderValue value =
+prettyValue :: GrinValue -> Doc ann
+prettyValue value =
   case value of
-    GrinVarValue var -> renderVarAtom var
-    GrinGlobalValue name -> "global-ref " <> renderName name
-    GrinLitValue literal -> renderLiteral literal
+    GrinVarValue var -> prettyVarAtom var
+    GrinGlobalValue name -> "global-ref" <+> prettyName name
+    GrinLitValue literal -> prettyLiteral literal
 
-renderNode :: GrinNode -> String
-renderNode node =
-  "("
-    <> renderNodeTag (grinNodeTag node)
-    <> concatMap ((" " <>) . renderValue) (grinNodeFields node)
-    <> ")"
+prettyNode :: GrinNode -> Doc ann
+prettyNode node =
+  parens
+    ( prettyNodeTag (grinNodeTag node)
+        <> foldMap ((space <>) . prettyValue) (grinNodeFields node)
+    )
 
-renderNodeTag :: GrinNodeTag -> String
-renderNodeTag nodeTag =
+prettyNodeTag :: GrinNodeTag -> Doc ann
+prettyNodeTag nodeTag =
   case nodeTag of
     GrinConstructor name remaining ->
-      "C" <> renderName name <> if remaining == 0 then "" else "/" <> show remaining
+      "C" <> prettyName name <> if remaining == 0 then mempty else "/" <> pretty remaining
     GrinClosure functionName argumentLayouts ->
       "P"
-        <> renderFunctionName functionName
+        <> prettyFunctionName functionName
         <> "/"
         <> if all (== [BoxedRep Lifted]) argumentLayouts
-          then show (length argumentLayouts)
-          else renderLayouts argumentLayouts
-    GrinThunk functionName -> "F" <> renderFunctionName functionName
+          then pretty (length argumentLayouts)
+          else prettyLayouts argumentLayouts
+    GrinThunk functionName -> "F" <> prettyFunctionName functionName
 
-renderLiteral :: GrinLiteral -> String
-renderLiteral literal =
+prettyLiteral :: GrinLiteral -> Doc ann
+prettyLiteral literal =
   case literal of
-    GrinLitInt runtimeRep value -> "(" <> show value <> " :: " <> show runtimeRep <> ")"
-    GrinLitChar runtimeRep value -> "(" <> show value <> " :: " <> show runtimeRep <> ")"
-    GrinLitString value -> show (T.unpack value)
-    GrinLitAddr value -> show (map (chr . fromIntegral) (BS.unpack value)) <> "#"
+    GrinLitInt runtimeRep value -> parens (pretty value <+> "::" <+> prettyShow runtimeRep)
+    GrinLitChar runtimeRep value -> parens (pretty (show value) <+> "::" <+> prettyShow runtimeRep)
+    GrinLitString value -> pretty (show (T.unpack value))
+    GrinLitAddr value -> pretty (show (map (chr . fromIntegral) (BS.unpack value))) <> "#"
 
-renderVar :: GrinVar -> String
-renderVar var =
-  renderName (grinVarName var)
+prettyVar :: GrinVar -> Doc ann
+prettyVar var =
+  prettyName (grinVarName var)
     <> "%"
-    <> show (grinVarUnique var)
-    <> " :: "
-    <> show (grinVarRuntimeRep var)
+    <> pretty (grinVarUnique var)
+    <+> "::"
+    <+> prettyShow (grinVarRuntimeRep var)
 
-renderVarAtom :: GrinVar -> String
-renderVarAtom var = "(" <> renderVar var <> ")"
+prettyVarAtom :: GrinVar -> Doc ann
+prettyVarAtom = parens . prettyVar
 
-renderRuntimeRepArgument :: GrinRep -> String
-renderRuntimeRepArgument runtimeRep =
+prettyRuntimeRepArgument :: GrinRep -> Doc ann
+prettyRuntimeRepArgument runtimeRep =
   case runtimeRep of
     VecRep {} -> parenthesized
     TupleRep {} -> parenthesized
     SumRep {} -> parenthesized
     BoxedRep {} -> parenthesized
-    _ -> show runtimeRep
+    _ -> prettyShow runtimeRep
   where
-    parenthesized = "(" <> show runtimeRep <> ")"
+    parenthesized = parens (prettyShow runtimeRep)
 
-renderLayouts :: [[GrinRep]] -> String
-renderLayouts layouts = "[" <> intercalate ", " (map renderLayout layouts) <> "]"
+prettyLayouts :: [[GrinRep]] -> Doc ann
+prettyLayouts layouts =
+  "[" <> hsep (punctuate comma (map prettyLayout layouts)) <> "]"
   where
-    renderLayout layout = "[" <> intercalate ", " (map show layout) <> "]"
+    prettyLayout layout = "[" <> hsep (punctuate comma (map prettyShow layout)) <> "]"
 
-renderForeignCall :: GrinForeignCall -> String
-renderForeignCall foreignCall =
-  renderName (grinForeignCallName foreignCall)
-    <> " = "
-    <> show (T.unpack (grinForeignCallSymbol foreignCall))
-    <> " :: "
-    <> renderForeignSignature (grinForeignCallSignature foreignCall)
+prettyForeignCall :: GrinForeignCall -> Doc ann
+prettyForeignCall foreignCall =
+  prettyName (grinForeignCallName foreignCall)
+    <+> "="
+    <+> pretty (show (T.unpack (grinForeignCallSymbol foreignCall)))
+    <+> "::"
+    <+> prettyForeignSignature (grinForeignCallSignature foreignCall)
 
-renderForeignSignature :: GrinForeignSignature -> String
-renderForeignSignature signature =
-  "("
-    <> intercalate ", " (map renderForeignType (grinForeignArgumentTypes signature))
-    <> ") -> "
-    <> renderForeignType (grinForeignResultType signature)
-    <> " ! "
-    <> case grinForeignEffect signature of
+prettyForeignSignature :: GrinForeignSignature -> Doc ann
+prettyForeignSignature signature =
+  parens (hsep (punctuate comma (map prettyForeignType (grinForeignArgumentTypes signature))))
+    <+> "->"
+    <+> prettyForeignType (grinForeignResultType signature)
+    <+> "!"
+    <+> case grinForeignEffect signature of
       GrinForeignPure -> "pure"
       GrinForeignRealWorld -> "real-world"
 
-renderForeignType :: GrinForeignType -> String
-renderForeignType foreignType =
+prettyForeignType :: GrinForeignType -> Doc ann
+prettyForeignType foreignType =
   case foreignType of
     GrinForeignInt -> "int"
     GrinForeignInt32 -> "int32"
     GrinForeignWord64 -> "word64"
     GrinForeignAddr -> "addr"
 
-renderFunctionName :: FunctionName -> String
-renderFunctionName = renderName . unFunctionName
+prettyFunctionName :: FunctionName -> Doc ann
+prettyFunctionName = prettyName . unFunctionName
 
-renderName :: T.Text -> String
-renderName name
-  | not (T.null name) && T.all isBareNameCharacter name = T.unpack name
-  | otherwise = show (T.unpack name)
+prettyName :: T.Text -> Doc ann
+prettyName name
+  | not (T.null name) && T.all isBareNameCharacter name = pretty name
+  | otherwise = pretty (show (T.unpack name))
   where
     isBareNameCharacter character =
       isPrint character
         && not (isSpace character)
         && character `notElem` ['"', '(', ')', '[', ']', ',', '=', '/', '%']
 
-indent :: Int -> String
-indent count = replicate count ' '
+renderDocument :: Doc ann -> String
+renderDocument = dropWhileEnd (== ' ') . renderString . layoutPretty defaultLayoutOptions
+
+prettyShow :: (Show value) => value -> Doc ann
+prettyShow = pretty . show
