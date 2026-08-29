@@ -127,6 +127,7 @@ expected: |-
    = 1.v$Dict$Num @1.tInteger (λ(x : 1.tInteger).
     x)
   scope 1 = "" Prelude
+  scope 2 = "aihc-prim" GHC.Types
   scope 1 = "" GHC.Classes
   scope 2 = "" GHC.Num
   scope 3 = "" Main

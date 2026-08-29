@@ -39,7 +39,7 @@ importsForProgramPrepared prepared program = mergeImports selectedImports existi
     available = preparedAvailable prepared
     existingImports = programImports program
     localProgram = program {programImports = emptyImports}
-    localNames = namesInTypeEnv (typeEnvFromProgram localProgram)
+    localNames = namesInTypeEnv (typeEnvFromProgram (tePrimPackage available) localProgram)
     roots =
       ( foldMap declReferences (programDecls program)
           <> referencesFromImports existingImports

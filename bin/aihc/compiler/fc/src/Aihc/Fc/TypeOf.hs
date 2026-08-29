@@ -31,11 +31,10 @@ import Aihc.Tc.Types (Unique (..))
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (listToMaybe, mapMaybe)
 
 -- | Local headers, synonym bodies, and binder types used by typeOf.
 data TypeEnv = TypeEnv
-  { tePrimPackage :: Maybe PackageId,
+  { tePrimPackage :: PackageId,
     teHeaders :: Map Name Type,
     teSynonyms :: Map Name Type,
     teAxioms :: Map Name AxiomDecl,
@@ -43,29 +42,24 @@ data TypeEnv = TypeEnv
   }
   deriving (Eq, Show)
 
-emptyTypeEnv :: TypeEnv
-emptyTypeEnv =
+emptyTypeEnv :: PackageId -> TypeEnv
+emptyTypeEnv primPackage =
   TypeEnv
-    { tePrimPackage = Nothing,
+    { tePrimPackage = primPackage,
       teHeaders = Map.empty,
       teSynonyms = Map.empty,
       teAxioms = Map.empty,
       teBinders = Map.empty
     }
 
-typeEnvFromProgram :: Program -> TypeEnv
-typeEnvFromProgram program =
-  typeEnvFromPrograms [program]
+typeEnvFromProgram :: PackageId -> Program -> TypeEnv
+typeEnvFromProgram primPackage program =
+  typeEnvFromPrograms primPackage [program]
 
 -- | Register every header from every program. Later programs replace equal names.
-typeEnvFromPrograms :: [Program] -> TypeEnv
-typeEnvFromPrograms programs =
-  extendTypeEnvWithPrograms baseEnv programs
-  where
-    baseEnv =
-      emptyTypeEnv
-        { tePrimPackage = listToMaybe (mapMaybe (primPackageFromScopes . programScopes) programs)
-        }
+typeEnvFromPrograms :: PackageId -> [Program] -> TypeEnv
+typeEnvFromPrograms primPackage =
+  extendTypeEnvWithPrograms (emptyTypeEnv primPackage)
 
 extendTypeEnvWithPrograms :: TypeEnv -> [Program] -> TypeEnv
 extendTypeEnvWithPrograms = List.foldl' addProgram
@@ -120,11 +114,11 @@ typeOf env ty =
         functionType <- typeOf env function
         applyType functionType argument
     TyFun {} ->
-      typeSynonym <$> tePrimPackage env
+      Just (typeSynonym (tePrimPackage env))
     TyForAll binder body ->
       typeOf (extendBinder env binder) body
     TyEq {} ->
-      TyCon . constraintName <$> tePrimPackage env
+      Just (TyCon (constraintName (tePrimPackage env)))
 
 applyType :: Type -> Type -> Maybe Type
 applyType function argument =
@@ -148,19 +142,18 @@ unfoldType env ty =
 repOf :: TypeEnv -> Type -> Maybe Type
 repOf env ty = do
   kind <- typeOf env ty
-  package <- tePrimPackage env
   case unfoldType env kind of
     TyApp (TyCon name) representation
-      | name == typeConstructor package -> Just representation
+      | name == typeConstructor (tePrimPackage env) -> Just representation
     _ -> Nothing
 
 -- | True when a stored FUN representation is lifted.
 isLiftedRep :: TypeEnv -> Type -> Bool
 isLiftedRep env ty =
-  case (tePrimPackage env, unfoldType env ty) of
-    (Just package, TyApp (TyCon boxed) (TyCon levity))
-      | boxed == boxedRepName package,
-        levity == liftedName package ->
+  case unfoldType env ty of
+    TyApp (TyCon boxed) (TyCon levity)
+      | boxed == boxedRepName (tePrimPackage env),
+        levity == liftedName (tePrimPackage env) ->
           True
     _ -> False
 
