@@ -1,15 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Global and class environments.
+-- | Type constructor, data constructor, class, and instance information.
 --
--- These are built once per module from the parsed declarations and carry
--- type constructor info, data constructor info, class info, and instances.
+-- The type checker state stores this information during the type check.
 module Aihc.Tc.Env
-  ( -- * Global environment
-    GlobalEnv (..),
-    emptyGlobalEnv,
-
-    -- * Type constructor info
+  ( -- * Type constructor info
     TyConFlavor (..),
     TyConInfo (..),
     TypeSynonymInfo (..),
@@ -43,29 +38,8 @@ where
 
 import Aihc.Resolve (PackageId)
 import Aihc.Tc.Types
-import Data.Map.Strict (Map)
-import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as T
-
--- | Global environment, built from module declarations.
-data GlobalEnv = GlobalEnv
-  { geTyCons :: !(Map Text TyConInfo),
-    geDataCons :: !(Map Text DataConInfo),
-    geClasses :: !(Map Text ClassInfo),
-    geInstances :: ![InstanceInfo]
-  }
-  deriving (Show)
-
--- | An empty global environment.
-emptyGlobalEnv :: GlobalEnv
-emptyGlobalEnv =
-  GlobalEnv
-    { geTyCons = Map.empty,
-      geDataCons = Map.empty,
-      geClasses = Map.empty,
-      geInstances = []
-    }
 
 -- | Information about a type constructor.
 data TyConFlavor
