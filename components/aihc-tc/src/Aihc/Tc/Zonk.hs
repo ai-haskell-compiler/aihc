@@ -15,7 +15,7 @@ module Aihc.Tc.Zonk
 where
 
 import Aihc.Tc.Kind (defaultKindMetas, zonkKind)
-import Aihc.Tc.Monad (TcM, configuredTyCon, readMetaTv)
+import Aihc.Tc.Monad (TcM, configuredTyCon, readMetaTv, writeMetaTv)
 import Aihc.Tc.Types
 
 -- | Zonk a type: chase meta-variable solutions to their final values.
@@ -25,7 +25,10 @@ zonkType ty = case ty of
     mSol <- readMetaTv u
     case mSol of
       Nothing -> pure ty
-      Just sol -> zonkType sol
+      Just sol -> do
+        zonked <- zonkType sol
+        writeMetaTv u zonked
+        pure zonked
   TcTyVar tv -> TcTyVar <$> zonkTyVar tv
   TcTyCon tc args -> TcTyCon <$> configuredTyCon tc <*> mapM zonkType args
   TcFunTy a b -> TcFunTy <$> zonkType a <*> zonkType b

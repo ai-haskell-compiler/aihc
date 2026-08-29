@@ -1,11 +1,14 @@
 -- | Make System FC local names easier to read.
 module Aihc.Fc.Tidy
   ( tidyProgram,
+    tidyProgramWithTidiedImports,
+    tidyTypeEnv,
   )
 where
 
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
+import Aihc.Fc.TypeOf (TypeEnv (..))
 import Aihc.Tc.Types (Unique (..))
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -29,6 +32,19 @@ tidyProgram program =
   program
     { programImports = tidyImports (programImports program),
       programDecls = map tidyDecl (programDecls program)
+    }
+
+tidyProgramWithTidiedImports :: Program -> Program
+tidyProgramWithTidiedImports program =
+  program {programDecls = map tidyDecl (programDecls program)}
+
+tidyTypeEnv :: TypeEnv -> TypeEnv
+tidyTypeEnv env =
+  env
+    { teHeaders = Map.map (tidyType emptyTidyEnv) (teHeaders env),
+      teSynonyms = Map.map (tidyType emptyTidyEnv) (teSynonyms env),
+      teAxioms = Map.map tidyAxiomDecl (teAxioms env),
+      teBinders = Map.map (tidyType emptyTidyEnv) (teBinders env)
     }
 
 tidyImports :: Imports -> Imports

@@ -130,6 +130,7 @@ library compiler
     aihc-parser,
     aihc-resolve,
     aihc-tc,
+    async,
     base >=4.16 && <5,
     binary >=0.8 && <0.9,
     bytestring >=0.10.8 && <0.13,
@@ -162,7 +163,7 @@ executable aihc
     -Wall
     -threaded
     -rtsopts
-    "-with-rtsopts=-N -M10G"
+    "-with-rtsopts=-N -M10G -A64m -AL256m"
 
   default-language: GHC2021
 

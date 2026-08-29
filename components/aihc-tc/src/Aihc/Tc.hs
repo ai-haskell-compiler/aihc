@@ -37,6 +37,7 @@ module Aihc.Tc
     tcTermKeyIdentifier,
     TcInterface (..),
     emptyTcInterface,
+    mergeTcInterfaces,
     tcInterfaceBindings,
 
     -- * Module result projections
@@ -182,19 +183,22 @@ emptyTcInterface =
     }
 
 instance Semigroup TcInterface where
-  left <> right =
-    TcInterface
-      { tcInterfaceTerms = mergeInterfaceEntries "term interface" fst (tcInterfaceTerms left <> tcInterfaceTerms right),
-        tcInterfaceTyCons = mergeTyConInfos (tcInterfaceTyCons left <> tcInterfaceTyCons right),
-        tcInterfaceDataTypes = mergeInterfaceEntries "data type interface" dataTypeKey (tcInterfaceDataTypes left <> tcInterfaceDataTypes right),
-        tcInterfaceClasses = mergeInterfaceEntries "class interface" ciName (tcInterfaceClasses left <> tcInterfaceClasses right),
-        tcInterfaceInstances = mergeInterfaceEntries "instance interface" instanceInfoKey (tcInterfaceInstances left <> tcInterfaceInstances right),
-        tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance interface" dfiiAxiomName (tcInterfaceDataFamilyInstances left <> tcInterfaceDataFamilyInstances right),
-        tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance interface" tfiiAxiomName (tcInterfaceTypeFamilyInstances left <> tcInterfaceTypeFamilyInstances right)
-      }
+  left <> right = mergeTcInterfaces [left, right]
 
 instance Monoid TcInterface where
   mempty = emptyTcInterface
+
+mergeTcInterfaces :: [TcInterface] -> TcInterface
+mergeTcInterfaces interfaces =
+  TcInterface
+    { tcInterfaceTerms = mergeInterfaceEntries "term interface" fst (concatMap tcInterfaceTerms interfaces),
+      tcInterfaceTyCons = mergeTyConInfos (concatMap tcInterfaceTyCons interfaces),
+      tcInterfaceDataTypes = mergeInterfaceEntries "data type interface" dataTypeKey (concatMap tcInterfaceDataTypes interfaces),
+      tcInterfaceClasses = mergeInterfaceEntries "class interface" ciName (concatMap tcInterfaceClasses interfaces),
+      tcInterfaceInstances = mergeInterfaceEntries "instance interface" instanceInfoKey (concatMap tcInterfaceInstances interfaces),
+      tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance interface" dfiiAxiomName (concatMap tcInterfaceDataFamilyInstances interfaces),
+      tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance interface" tfiiAxiomName (concatMap tcInterfaceTypeFamilyInstances interfaces)
+    }
 
 mergeInterfaceEntries :: (Ord key, Show key, Eq value) => String -> (value -> key) -> [value] -> [value]
 mergeInterfaceEntries label key values = reverse ordered
@@ -475,7 +479,7 @@ initialTcState imported =
           <> tcsGlobalTerms initTcState,
       tcsGlobalTyCons =
         Map.fromList
-          [ (tciTyCon tyCon, tyCon)
+          [ (tyConKey (tciTyCon tyCon), tyCon)
           | tyCon <- mergeTyConInfos (tcInterfaceTyCons imported)
           ]
           <> tcsGlobalTyCons initTcState,
@@ -532,7 +536,7 @@ typecheckModuleSccWithState config st modules =
           nextState =
             st'
               { tcsDiagnostics = [],
-                tcsMetaSolutions = Map.empty,
+                tcsMetaSolutions = mempty,
                 tcsTrackedKindMetas = mempty,
                 tcsEvBinds = Map.empty
               }
@@ -580,7 +584,7 @@ typecheckModuleWithState config st m =
           nextState =
             st'
               { tcsDiagnostics = [],
-                tcsMetaSolutions = Map.empty,
+                tcsMetaSolutions = mempty,
                 tcsTrackedKindMetas = mempty,
                 tcsEvBinds = Map.empty
               }

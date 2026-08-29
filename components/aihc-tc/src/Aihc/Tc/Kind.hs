@@ -500,17 +500,22 @@ zonkKind kind =
       solution <- readMetaTv unique
       case solution of
         Nothing -> pure kind
-        Just solved -> zonkKind solved
+        Just solved -> do
+          zonked <- zonkKind solved
+          writeMetaTv unique zonked
+          pure zonked
     TcTyVar tyVar -> do
       kind' <- zonkKind (tvKind tyVar)
       pure (TcTyVar (setTyVarKind kind' tyVar))
     TcTyCon tyCon arguments -> do
       tyCon' <- configuredTyCon tyCon
-      let original = TcTyCon tyCon' arguments
-      expanded <- expandTcTypeSynonyms Set.empty original
-      if expanded == original
-        then TcTyCon tyCon' <$> mapM zonkKind arguments
-        else zonkKind expanded
+      maybeInfo <- lookupTyConByIdentity tyCon'
+      case maybeInfo >>= tciTypeSynonym of
+        Just synonym
+          | Just {} <- tsiBody synonym,
+            length arguments >= length (tsiParams synonym) ->
+              zonkKind =<< expandTcTypeSynonyms Set.empty (TcTyCon tyCon' arguments)
+        _ -> TcTyCon tyCon' <$> mapM zonkKind arguments
     TcFunTy argument result -> TcFunTy <$> zonkKind argument <*> zonkKind result
     TcForAllTy tyVar body -> do
       kind' <- zonkKind (tvKind tyVar)
@@ -533,9 +538,12 @@ defaultKindMetas kind =
           solved' <- zonkKind solved
           tracked <- isTrackedKindMeta unique
           incomplete <- containsUnsolvedMeta solved'
-          if tracked && incomplete
-            then unifyKinds solved' KType >> pure KType
-            else defaultKindMetas solved'
+          defaulted <-
+            if tracked && incomplete
+              then unifyKinds solved' KType >> pure KType
+              else defaultKindMetas solved'
+          writeMetaTv unique defaulted
+          pure defaulted
         Nothing -> do
           tracked <- isTrackedKindMeta unique
           if tracked

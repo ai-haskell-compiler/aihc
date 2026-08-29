@@ -504,10 +504,11 @@ compileSources target buildRoot moduleIndex primIdentity lint sources = do
               (decodeTypeArtifact typeBytes)
           unless (typeArtifactModuleName typeArtifact == installedModuleName installedModule) $
             ioError (userError ("Type artifact module name does not match " <> typePath))
+          packageInstances <- readPackageInstances packageInstancesPath
           pure
             state
               { compileExports = Map.insert moduleKey (resolveArtifactScope resolveArtifact) (compileExports state),
-                compileTypes = compileTypes state <> typeArtifactInterface typeArtifact,
+                compileTypes = compileTypes state <> packageInstances <> typeArtifactInterface typeArtifact,
                 compileLoadedModules = Set.insert loadedKey (compileLoadedModules state)
               }
       where
@@ -519,6 +520,22 @@ compileSources target buildRoot moduleIndex primIdentity lint sources = do
         moduleRoot = installedRoot installedPackage </> moduleDirectoryText (installedModuleName installedModule)
         resolvePath = moduleRoot </> "resolve.cbor"
         typePath = moduleRoot </> "type.cbor"
+        packageInstancesPath = installedRoot installedPackage </> "instances.cbor"
+
+    readPackageInstances path = do
+      exists <- doesFileExist path
+      if not exists
+        then pure mempty
+        else do
+          bytes <- BS.readFile path
+          artifact <-
+            either
+              (ioError . userError . (("Invalid package instance artifact " <> path <> ": ") <>))
+              pure
+              (decodeTypeArtifact bytes)
+          unless (typeArtifactModuleName artifact == "$package-instances") $
+            ioError (userError ("Package instance artifact name does not match " <> path))
+          pure (typeArtifactInterface artifact)
     writeObject modu program = do
       grin <- either (ioError . userError . ("GRIN generation failed: " <>)) pure (Grin.lowerProgram program)
       when lint $ do

@@ -4,6 +4,9 @@
 -- | Convert a checked module into System FC types, axioms, and values.
 module Aihc.Fc.Desugar
   ( desugarModuleFc,
+    desugarModuleFcPrepared,
+    prepareDesugar,
+    PreparedDesugar,
     typeEnvFromTcInterface,
     DesugarConfig (..),
     FcDesugarResult (..),
@@ -11,11 +14,11 @@ module Aihc.Fc.Desugar
 where
 
 import Aihc.Fc.Convert
-import Aihc.Fc.Desugar.Value (desugarValues)
-import Aihc.Fc.Imports (emptyImports, importsForProgram)
+import Aihc.Fc.Desugar.Value (PreparedValueInterface, desugarValues, prepareValueInterface)
+import Aihc.Fc.Imports (PreparedImports, emptyImports, importsForProgramPrepared, prepareImports)
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
-import Aihc.Fc.Tidy (tidyProgram)
+import Aihc.Fc.Tidy (tidyProgramWithTidiedImports, tidyTypeEnv)
 import Aihc.Fc.TypeOf qualified as TypeOf
 import Aihc.Parser.Syntax
   ( DataDecl (..),
@@ -79,6 +82,15 @@ data FcDesugarResult = FcDesugarResult
     dsErrors :: ![String]
   }
   deriving (Show)
+
+data PreparedDesugar = PreparedDesugar
+  { preparedConfig :: !DesugarConfig,
+    preparedInterface :: !TcInterface,
+    preparedImports :: !PreparedImports,
+    preparedBindings :: ![TcBindingResult],
+    preparedValues :: !PreparedValueInterface,
+    preparedConversion :: !ConvertEnv
+  }
 
 newtype DesugarConfig = DesugarConfig
   { primPackageId :: PackageId
@@ -208,20 +220,38 @@ mapMaybeM action values = catMaybes <$> mapM action values
 
 desugarModuleFc :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> FcDesugarResult
 desugarModuleFc config bindings interface checked =
+  case prepareDesugar config interface of
+    Left message -> failedDesugar [message]
+    Right prepared -> desugarModuleFcPrepared prepared bindings checked
+
+prepareDesugar :: DesugarConfig -> TcInterface -> Either String PreparedDesugar
+prepareDesugar config interface = do
+  available <- tidyTypeEnv <$> typeEnvFromTcInterface config interface
+  let bindings = tcInterfaceBindings interface
+  pure
+    PreparedDesugar
+      { preparedConfig = config,
+        preparedInterface = interface,
+        preparedImports = prepareImports available,
+        preparedBindings = bindings,
+        preparedValues = prepareValueInterface bindings interface,
+        preparedConversion = interfaceConvertEnv config interface
+      }
+
+desugarModuleFcPrepared :: PreparedDesugar -> [TcBindingResult] -> Module -> FcDesugarResult
+desugarModuleFcPrepared prepared bindings checked =
   if not (tcModuleSuccess checked)
-    then
-      FcDesugarResult
-        { dsProgram = Program emptyScopeTable emptyImports [],
-          dsSuccess = False,
-          dsErrors = fmap show (tcModuleDiagnostics checked)
-        }
-    else case desugarChecked config bindings interface checked of
-      Left errors ->
-        FcDesugarResult
-          { dsProgram = Program emptyScopeTable emptyImports [],
-            dsSuccess = False,
-            dsErrors = [errors]
-          }
+    then failedDesugar (map show (tcModuleDiagnostics checked))
+    else case desugarCheckedWithAvailable
+      (preparedConfig prepared)
+      (preparedBindings prepared)
+      bindings
+      (preparedInterface prepared)
+      (preparedImports prepared)
+      (preparedValues prepared)
+      (preparedConversion prepared)
+      checked of
+      Left message -> failedDesugar [message]
       Right program ->
         FcDesugarResult
           { dsProgram = program,
@@ -229,58 +259,36 @@ desugarModuleFc config bindings interface checked =
             dsErrors = []
           }
 
-desugarChecked :: DesugarConfig -> [TcBindingResult] -> TcInterface -> Module -> Either String Program
-desugarChecked config bindings interface checked = do
+failedDesugar :: [String] -> FcDesugarResult
+failedDesugar messages =
+  FcDesugarResult
+    { dsProgram = Program emptyScopeTable emptyImports [],
+      dsSuccess = False,
+      dsErrors = messages
+    }
+
+desugarCheckedWithAvailable :: DesugarConfig -> [TcBindingResult] -> [TcBindingResult] -> TcInterface -> PreparedImports -> PreparedValueInterface -> ConvertEnv -> Module -> Either String Program
+desugarCheckedWithAvailable _config interfaceBindings moduleBindings interface preparedImports preparedValues env checked = do
   let (packageId, currentModule) = resolvedModuleOrigin checked
       moduleOrigin = (packageId, currentModule)
-      dataTypes = tcInterfaceDataTypes interface
-      tyCons = tcInterfaceTyCons interface
-      classes = tcInterfaceClasses interface
-      dataFamilyInstances = tcInterfaceDataFamilyInstances interface
+      localTyCon tyCon = tyConPackageId tyCon == packageId && tyConModuleName tyCon == currentModule
+      dataTypes = filter (localTyCon . dtiTyCon) (tcInterfaceDataTypes interface)
+      tyCons = filter (localTyCon . tciTyCon) (tcInterfaceTyCons interface)
+      classes = filter (localTyCon . ciTyCon) (tcInterfaceClasses interface)
+      dataFamilyInstances = filter (localTyCon . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstances interface)
       typeFamilyInstances = tcInterfaceTypeFamilyInstances interface
-      env =
-        withAxioms
-          (axiomEntries packageId currentModule dataTypes dataFamilyInstances typeFamilyInstances)
-          ( withKindEnv
-              (Map.fromList [(tyConKey (tciTyCon info), tciKindScheme info) | info <- tyCons])
-              (withClassTyCons (map (tyConKey . ciTyCon) classes) (emptyConvertEnv (primPackageId config)))
-          )
+      bindings = interfaceBindings <> moduleBindings
   typeDecls <-
     concat
       <$> mapM
         (dsDecl env packageId currentModule dataTypes tyCons classes dataFamilyInstances typeFamilyInstances bindings)
         (Syn.moduleDecls checked)
-  valueDecls <- desugarValues env bindings interface moduleOrigin checked
-  available <- typeEnvFromTcInterface config interface
+  valueDecls <- desugarValues env moduleBindings preparedValues moduleOrigin checked
   let decls = typeDecls <> valueDecls
       baseProgram = Program emptyScopeTable emptyImports decls
-      imports = importsForProgram available baseProgram
+      imports = importsForProgramPrepared preparedImports baseProgram
       scopes = buildScopes moduleOrigin imports decls
-  pure (tidyProgram (Program scopes imports decls))
-
-axiomEntries :: PackageId -> Text -> [DataTypeInfo] -> [DataFamilyInstanceInfo] -> [TypeFamilyInstanceInfo] -> [(Text, Name)]
-axiomEntries package moduleName' dataTypes dataFamilyInstances typeFamilyInstances =
-  concatMap newtypeAxiom dataTypes
-    <> concatMap (dataFamilyAxiom package moduleName') dataFamilyInstances
-    <> map (typeFamilyAxiom package moduleName') typeFamilyInstances
-  where
-    newtypeAxiom info
-      | dtiFlavor info == NewtypeTyCon =
-          let tyCon = dtiTyCon info
-              axiomName = Name ("$ax$" <> dtiName info) SortAxiom (OriginTop (tyConPackageId tyCon) (tyConModuleName tyCon))
-           in [(dtiName info, axiomName), ("$ax$" <> dtiName info, axiomName)]
-      | otherwise = []
-    dataFamilyAxiom currentPackage currentModule info =
-      let axiomName = Name (dfiiAxiomName info) SortAxiom (OriginTop currentPackage currentModule)
-          representationName = tyConName (dfiiRepresentationTyCon info)
-          representationAxiom =
-            Name ("$ax$" <> T.drop 1 representationName) SortAxiom (OriginTop currentPackage currentModule)
-       in [ (dfiiAxiomName info, axiomName),
-            (representationName, representationAxiom),
-            ("$ax$" <> T.drop 1 representationName, representationAxiom)
-          ]
-    typeFamilyAxiom currentPackage currentModule info =
-      (tfiiAxiomName info, Name (tfiiAxiomName info) SortAxiom (OriginTop currentPackage currentModule))
+  pure (tidyProgramWithTidiedImports (Program scopes imports decls))
 
 dsDecl ::
   ConvertEnv ->

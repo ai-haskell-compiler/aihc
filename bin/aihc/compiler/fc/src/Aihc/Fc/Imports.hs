@@ -2,6 +2,9 @@
 module Aihc.Fc.Imports
   ( emptyImports,
     importsForProgram,
+    importsForProgramPrepared,
+    prepareImports,
+    PreparedImports,
     unusedImports,
   )
 where
@@ -15,13 +18,25 @@ import Data.Set qualified as Set
 
 type References = Set Name
 
+data PreparedImports = PreparedImports
+  { preparedAvailable :: !TypeEnv,
+    preparedAvailableNames :: !(Set Name)
+  }
+
 emptyImports :: Imports
 emptyImports = Imports Map.empty Map.empty Map.empty Map.empty
 
 -- | Select the transitive import closure from the type-check interface.
 importsForProgram :: TypeEnv -> Program -> Imports
-importsForProgram available program = mergeImports selectedImports existingImports
+importsForProgram available = importsForProgramPrepared (prepareImports available)
+
+prepareImports :: TypeEnv -> PreparedImports
+prepareImports available = PreparedImports available (namesInTypeEnv available)
+
+importsForProgramPrepared :: PreparedImports -> Program -> Imports
+importsForProgramPrepared prepared program = mergeImports selectedImports existingImports
   where
+    available = preparedAvailable prepared
     existingImports = programImports program
     localProgram = program {programImports = emptyImports}
     localNames = namesInTypeEnv (typeEnvFromProgram localProgram)
@@ -30,7 +45,7 @@ importsForProgram available program = mergeImports selectedImports existingImpor
           <> referencesFromImports existingImports
       )
         `Set.difference` localNames
-    selectedNames = reachableNames available localNames roots
+    selectedNames = reachableNames available localNames (roots `Set.intersection` preparedAvailableNames prepared)
     selectedImports = importsForNames available selectedNames
 
 reachableNames :: TypeEnv -> Set Name -> Set Name -> Set Name
