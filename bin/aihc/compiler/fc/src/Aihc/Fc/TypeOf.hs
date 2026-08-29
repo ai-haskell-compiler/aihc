@@ -7,7 +7,6 @@ module Aihc.Fc.TypeOf
     extendTypeEnvWithPrograms,
     typeOf,
     unfoldType,
-    isLiftedRep,
     repOf,
     headerType,
     applyType,
@@ -146,16 +145,6 @@ repOf env ty = do
     TyApp (TyCon name) representation
       | name == typeConstructor (tePrimPackage env) -> Just representation
     _ -> Nothing
-
--- | True when a stored FUN representation is lifted.
-isLiftedRep :: TypeEnv -> Type -> Bool
-isLiftedRep env ty =
-  case unfoldType env ty of
-    TyApp (TyCon boxed) (TyCon levity)
-      | boxed == boxedRepName (tePrimPackage env),
-        levity == liftedName (tePrimPackage env) ->
-          True
-    _ -> False
 
 extendBinder :: TypeEnv -> Binder -> TypeEnv
 extendBinder env binder =
