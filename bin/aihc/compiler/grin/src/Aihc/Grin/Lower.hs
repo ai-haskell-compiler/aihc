@@ -530,13 +530,13 @@ lowerLet env binding body = do
   variables <- freshVars (Fc.nameText (Fc.binderName binder)) representation
   let bodyEnv = bindLocal env binder variables
   loweredBody <- lowerExpr bodyEnv body
-    if isLiftedRuntimeRep representation
-      then do
-        node <- makeThunk env (Fc.nameText (Fc.binderName binder)) (Fc.bindRhs binding)
-        pure (GrinBind variables (GrinStore node) loweredBody)
-      else do
-        loweredRhs <- lowerExpr env (Fc.bindRhs binding)
-        pure (GrinBind variables loweredRhs loweredBody)
+  if isLiftedRuntimeRep representation
+    then do
+      node <- makeThunk env (Fc.nameText (Fc.binderName binder)) (Fc.bindRhs binding)
+      pure (GrinBind variables (GrinStore node) loweredBody)
+    else do
+      loweredRhs <- lowerExpr env (Fc.bindRhs binding)
+      pure (GrinBind variables loweredRhs loweredBody)
 
 lowerRec :: LowerEnv -> [Fc.Bind] -> Fc.Expr -> LowerM GrinExpr
 lowerRec env bindings body = do
@@ -984,6 +984,7 @@ freshFunction hint = do
 
 emitFunction :: GrinFunction -> LowerM ()
 emitFunction function = modify' (\state -> state {lowerFunctionsRev = function : lowerFunctionsRev state})
+
 liftEither :: Either String value -> LowerM value
 liftEither = either throwLower pure
 
