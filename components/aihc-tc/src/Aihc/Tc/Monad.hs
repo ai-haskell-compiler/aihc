@@ -109,6 +109,10 @@ import Control.Monad (foldM, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, asks, local, runReaderT)
 import Control.Monad.Trans.State.Strict (StateT, get, gets, modify', runStateT)
+import Data.IntMap.Strict (IntMap)
+import Data.IntMap.Strict qualified as IntMap
+import Data.IntSet (IntSet)
+import Data.IntSet qualified as IntSet
 import Data.List (find)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -181,7 +185,7 @@ mkKnownTyConInNamespace namespace moduleName name arity kind = do
     Just info -> pure (tciTyCon info)
     Nothing -> do
       let info = TyConInfo name arity tyCon (ForAll [] [] kind) DataTyCon Nothing
-      lift $ modify' $ \state -> state {tcsGlobalTyCons = Map.insert tyCon info (tcsGlobalTyCons state)}
+      lift $ modify' $ \state -> state {tcsGlobalTyCons = Map.insert (tyConKey tyCon) info (tcsGlobalTyCons state)}
       pure tyCon
 
 configuredTyCon :: TyCon -> TcM TyCon
@@ -237,11 +241,11 @@ data TcState = TcState
   { -- | Next unique identifier to allocate.
     tcsNextUnique :: !Int,
     -- | Solutions for meta (unification) variables.
-    tcsMetaSolutions :: !(Map Unique TcType),
+    tcsMetaSolutions :: !(IntMap TcType),
     -- | Meta-variables that can default to 'Type' at a kind boundary.
-    tcsTrackedKindMetas :: !(Set Unique),
+    tcsTrackedKindMetas :: !IntSet,
     -- | Declared kinds of representation-polymorphic meta-variables.
-    tcsMetaKinds :: !(Map Unique TcType),
+    tcsMetaKinds :: !(IntMap TcType),
     -- | Evidence bindings accumulated during solving.
     tcsEvBinds :: !(Map Unique EvTerm),
     -- | Diagnostics (errors and warnings) collected.
@@ -253,7 +257,7 @@ data TcState = TcState
     -- @aihc-resolve@.
     tcsGlobalTerms :: !(Map TcTermKey TcBinder),
     -- | Global type constructors accumulated by top-level declarations.
-    tcsGlobalTyCons :: !(Map TyCon TyConInfo),
+    tcsGlobalTyCons :: !(Map TcTypeKey TyConInfo),
     -- | Checked constructor layouts for data and newtype declarations.
     tcsDataTypes :: !(Map TcTypeKey DataTypeInfo),
     -- | Type classes in scope, including their superclass layouts and defaults.
@@ -274,9 +278,9 @@ initTcState :: TcState
 initTcState =
   TcState
     { tcsNextUnique = 0,
-      tcsMetaSolutions = Map.empty,
-      tcsTrackedKindMetas = Set.empty,
-      tcsMetaKinds = Map.empty,
+      tcsMetaSolutions = IntMap.empty,
+      tcsTrackedKindMetas = IntSet.empty,
+      tcsMetaKinds = IntMap.empty,
       tcsEvBinds = Map.empty,
       tcsDiagnostics = [],
       tcsGlobalTerms = Map.empty,
@@ -300,19 +304,19 @@ freshUnique = lift $ do
 -- | Allocate a fresh meta (unification) type variable.
 freshMetaTv :: TcM TcType
 freshMetaTv = do
-  kindUnique <- freshUnique
+  kindUnique@(Unique kindKey) <- freshUnique
   lift $ modify' $ \state ->
     state
-      { tcsMetaKinds = Map.insert kindUnique typeKindType (tcsMetaKinds state),
-        tcsTrackedKindMetas = Set.insert kindUnique (tcsTrackedKindMetas state)
+      { tcsMetaKinds = IntMap.insert kindKey typeKindType (tcsMetaKinds state),
+        tcsTrackedKindMetas = IntSet.insert kindKey (tcsTrackedKindMetas state)
       }
   freshMetaTvOfKind (TcMetaTv kindUnique)
 
 freshMetaTvOfKind :: TcType -> TcM TcType
 freshMetaTvOfKind kind = do
-  unique <- freshUnique
+  unique@(Unique key) <- freshUnique
   lift $ modify' $ \state ->
-    state {tcsMetaKinds = Map.insert unique kind (tcsMetaKinds state)}
+    state {tcsMetaKinds = IntMap.insert key kind (tcsMetaKinds state)}
   pure (TcMetaTv unique)
 
 -- | Allocate a fresh skolem (rigid) type variable.
@@ -332,26 +336,26 @@ getUniqueBoundary = Unique <$> lift (gets tcsNextUnique)
 
 -- | Record the solution for a meta-variable.
 writeMetaTv :: Unique -> TcType -> TcM ()
-writeMetaTv u ty = lift $ modify' $ \s ->
-  s {tcsMetaSolutions = Map.insert u ty (tcsMetaSolutions s)}
+writeMetaTv (Unique key) ty = lift $ modify' $ \s ->
+  s {tcsMetaSolutions = IntMap.insert key ty (tcsMetaSolutions s)}
 
 -- | Look up the current solution for a meta-variable.
 readMetaTv :: Unique -> TcM (Maybe TcType)
-readMetaTv u = lift $ gets $ \s ->
-  Map.lookup u (tcsMetaSolutions s)
+readMetaTv (Unique key) = lift $ gets $ \s ->
+  IntMap.lookup key (tcsMetaSolutions s)
 
 readMetaTvKind :: Unique -> TcM TcType
-readMetaTvKind unique =
-  lift $ gets $ Map.findWithDefault typeKindType unique . tcsMetaKinds
+readMetaTvKind (Unique key) =
+  lift $ gets $ IntMap.findWithDefault typeKindType key . tcsMetaKinds
 
 trackKindMeta :: Unique -> TcM ()
-trackKindMeta unique =
+trackKindMeta (Unique key) =
   lift $ modify' $ \state ->
-    state {tcsTrackedKindMetas = Set.insert unique (tcsTrackedKindMetas state)}
+    state {tcsTrackedKindMetas = IntSet.insert key (tcsTrackedKindMetas state)}
 
 isTrackedKindMeta :: Unique -> TcM Bool
-isTrackedKindMeta unique =
-  lift $ gets $ Set.member unique . tcsTrackedKindMetas
+isTrackedKindMeta (Unique key) =
+  lift $ gets $ IntSet.member key . tcsTrackedKindMetas
 
 -- | Bind an evidence variable to an evidence term.
 bindEvidence :: EvVar -> EvTerm -> TcM ()
@@ -572,18 +576,11 @@ lookupDeclaredTyCon name =
     _ -> lookupTyCon (unqualifiedNameText name)
 
 lookupTyConByIdentity :: TyCon -> TcM (Maybe TyConInfo)
-lookupTyConByIdentity tyCon = lift $ gets $ Map.lookup tyCon . tcsGlobalTyCons
+lookupTyConByIdentity tyCon = lift $ gets $ Map.lookup (tyConKey tyCon) . tcsGlobalTyCons
 
 lookupTyConOrigin :: ResolutionNamespace -> PackageId -> Text -> Text -> TcM (Maybe TyConInfo)
 lookupTyConOrigin namespace packageId moduleName name =
-  lift $ gets $ find matches . Map.elems . tcsGlobalTyCons
-  where
-    matches info =
-      let tyCon = tciTyCon info
-       in tyConNamespace tyCon == namespace
-            && tyConPackageId tyCon == packageId
-            && tyConModuleName tyCon == moduleName
-            && tyConName tyCon == name
+  lift $ gets $ Map.lookup (packageId, moduleName, namespace, name) . tcsGlobalTyCons
 
 typeResolution :: [Annotation] -> Maybe ResolutionAnnotation
 typeResolution =
@@ -596,18 +593,18 @@ typeUseResolution =
     . mapMaybe fromAnnotation
 
 getTyConEnv :: TcM (Map TyCon TyConInfo)
-getTyConEnv = lift $ gets tcsGlobalTyCons
+getTyConEnv = lift $ gets $ Map.fromList . map (\info -> (tciTyCon info, info)) . Map.elems . tcsGlobalTyCons
 
 extendTyConEnvPermanent :: TyConInfo -> TcM ()
 extendTyConEnvPermanent info = do
   tyCons <- lift $ gets tcsGlobalTyCons
-  tyCons' <- insertNewMap "global type constructor environment" (tciTyCon info) info tyCons
+  tyCons' <- insertNewMap "global type constructor environment" (tyConKey (tciTyCon info)) info tyCons
   lift $ modify' $ \state -> state {tcsGlobalTyCons = tyCons'}
 
 replaceTyConEnvPermanent :: TyConInfo -> TcM ()
 replaceTyConEnvPermanent info = do
   tyCons <- lift $ gets tcsGlobalTyCons
-  tyCons' <- replaceMapEntry "global type constructor environment" (tciTyCon info) info tyCons
+  tyCons' <- replaceMapEntry "global type constructor environment" (tyConKey (tciTyCon info)) info tyCons
   lift $ modify' $ \state -> state {tcsGlobalTyCons = tyCons'}
 
 addDataType :: DataTypeInfo -> TcM ()

@@ -4,6 +4,8 @@
 -- | Direct value desugaring from checked source syntax to System FC.
 module Aihc.Fc.Desugar.Value
   ( desugarValues,
+    prepareValueInterface,
+    PreparedValueInterface,
   )
 where
 
@@ -93,6 +95,13 @@ data ValueState = ValueState
     vsNewtypeConstructors :: !(Map (PackageId, Text, Text) DataTypeInfo)
   }
 
+data PreparedValueInterface = PreparedValueInterface
+  { preparedTypes :: !(Map Text TcType),
+    preparedConstructors :: !(Map Text [Name]),
+    preparedConstructorInfos :: !(Map Text [DataConInfo]),
+    preparedNewtypeConstructors :: !(Map (PackageId, Text, Text) DataTypeInfo)
+  }
+
 type ValueM = StateT ValueState (Either String)
 
 data ValueGroup
@@ -110,32 +119,42 @@ data Dictionary = Dictionary
     dictionaryBinder :: !Binder
   }
 
-desugarValues :: ConvertEnv -> [TcBindingResult] -> TcInterface -> (PackageId, Text) -> Syn.Module -> Either String [Decl]
+prepareValueInterface :: [TcBindingResult] -> TcInterface -> PreparedValueInterface
+prepareValueInterface bindings interface =
+  PreparedValueInterface
+    { preparedTypes = Map.fromList [(tbName binding, tbType binding) | binding <- bindings],
+      preparedConstructors = constructors,
+      preparedConstructorInfos = constructorInfos,
+      preparedNewtypeConstructors = newtypes
+    }
+  where
+    constructors =
+      Map.fromListWith
+        (<>)
+        [ (dciName constructor, [Name (dciName constructor) SortDataConstructor (OriginTop package moduleName')])
+        | dataType <- tcInterfaceDataTypes interface,
+          constructor <- dtiConstructors dataType,
+          let (package, moduleName') = dciOrigin constructor
+        ]
+    constructorInfos =
+      Map.fromListWith
+        (<>)
+        [ (dciName constructor, [constructor])
+        | dataType <- tcInterfaceDataTypes interface,
+          constructor <- dtiConstructors dataType
+        ]
+    newtypes =
+      Map.fromList
+        [ ((package, moduleName', dciName constructor), dataType)
+        | dataType <- tcInterfaceDataTypes interface,
+          dtiFlavor dataType == NewtypeTyCon,
+          constructor <- dtiConstructors dataType,
+          let (package, moduleName') = dciOrigin constructor
+        ]
+
+desugarValues :: ConvertEnv -> [TcBindingResult] -> PreparedValueInterface -> (PackageId, Text) -> Syn.Module -> Either String [Decl]
 desugarValues convertEnv bindings interface moduleOrigin checked = do
-  let typeEntries = Map.fromList [(tbName binding, tbType binding) | binding <- bindings]
-      constructors =
-        Map.fromListWith
-          (<>)
-          [ (dciName constructor, [Name (dciName constructor) SortDataConstructor (OriginTop package moduleName')])
-          | dataType <- tcInterfaceDataTypes interface,
-            constructor <- dtiConstructors dataType,
-            let (package, moduleName') = dciOrigin constructor
-          ]
-      constructorInfos =
-        Map.fromListWith
-          (<>)
-          [ (dciName constructor, [constructor])
-          | dataType <- tcInterfaceDataTypes interface,
-            constructor <- dtiConstructors dataType
-          ]
-      newtypes =
-        Map.fromList
-          [ ((package, moduleName', dciName constructor), dataType)
-          | dataType <- tcInterfaceDataTypes interface,
-            dtiFlavor dataType == NewtypeTyCon,
-            constructor <- dtiConstructors dataType,
-            let (package, moduleName') = dciOrigin constructor
-          ]
+  let typeEntries = Map.fromList [(tbName binding, tbType binding) | binding <- bindings] `Map.union` preparedTypes interface
       initialState =
         ValueState
           { vsNextUnique = 1000,
@@ -144,9 +163,9 @@ desugarValues convertEnv bindings interface moduleOrigin checked = do
             vsTypes = typeEntries,
             vsLocals = Map.empty,
             vsDictionaries = Map.empty,
-            vsConstructors = constructors,
-            vsConstructorInfos = constructorInfos,
-            vsNewtypeConstructors = newtypes
+            vsConstructors = preparedConstructors interface,
+            vsConstructorInfos = preparedConstructorInfos interface,
+            vsNewtypeConstructors = preparedNewtypeConstructors interface
           }
   fst <$> runStateT (desugarModuleValues checked) initialState
 

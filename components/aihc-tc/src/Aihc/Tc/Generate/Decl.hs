@@ -95,7 +95,7 @@ import Aihc.Tc.Annotations
 import Aihc.Tc.Constraint
 import Aihc.Tc.Deriving (annotateAttachedDerivingTc, annotateStandaloneDerivingTc)
 import Aihc.Tc.Deriving.Context (derivingPlanInstanceInfo, finalizeDerivingModulesTc)
-import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, typeFamilyAxiomName)
+import Aihc.Tc.Env (ClassInfo (..), DataConFieldInfo (..), DataConFieldUnpack (..), DataConInfo (..), DataConSourceForm (..), DataFamilyInstanceInfo (..), DataTypeInfo (..), InstanceInfo (..), TyConFlavor (..), TyConInfo (..), TypeFamilyInstanceInfo (..), TypeSynonymInfo (..), dataConArgTypes, dataFamilyAxiomName, dataFamilyRepresentationName, instanceInfoKey, typeFamilyAxiomName)
 import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Evidence (EvTerm (..))
 import Aihc.Tc.Finalize (finalizeModuleTc)
@@ -467,6 +467,7 @@ tcModule m = do
 -- in another member of the same import cycle.
 tcModuleScc :: [Module] -> TcM [Module]
 tcModuleScc modules = do
+  initialKeys <- globalStateKeys <$> lift get
   -- Phase 1: register type constructor headers before expanding synonym
   -- bodies, then register value-level declarations against those expanded
   -- types. This permits forward references from synonyms to data types while
@@ -484,7 +485,8 @@ tcModuleScc modules = do
   -- class, and explicit-instance information. Finalize the entire SCC as one
   -- batch before checking signatures and bodies so sibling derived instances
   -- are mutually visible and ordinary values can use them.
-  defaultGlobalKindMetas
+  defaultGlobalKindMetas initialKeys
+  structuralKeys <- globalStateKeys <$> lift get
   derivingAnnotated <- mapM annotateModuleDerivingTc modules
   derivingFinalized <- finalizeDerivingModulesTc (map resolvedModuleOrigin modules) derivingAnnotated
   -- Phase 2: collect type signatures and convert them to schemes.
@@ -493,7 +495,7 @@ tcModuleScc modules = do
   mapM_ (uncurry registerCheckedSig) (concatMap Map.toList schemes)
   pending <- zipWithM tcModuleBody schemes derivingFinalized
   -- No module interface in the SCC may retain state-local kind metavariables.
-  defaultGlobalKindMetas
+  defaultGlobalKindMetas structuralKeys
   annotated <- mapM annotatePendingModule pending
   mapM finalizeModuleTc annotated
 
@@ -544,16 +546,38 @@ annotatePendingModule pending = do
   -- they must not be rendered as successful inferred types.
   annotateModuleTc (Map.fromList [(tbName result, tbType result) | result <- pendingValueResults pending]) (pendingSyntax pending)
 
-defaultGlobalKindMetas :: TcM ()
-defaultGlobalKindMetas = do
+data GlobalStateKeys = GlobalStateKeys
+  { globalTermKeys :: !(Set.Set TcTermKey),
+    globalTyConKeys :: !(Set.Set TcTypeKey),
+    globalDataTypeKeys :: !(Set.Set TcTypeKey),
+    globalClassKeys :: !(Set.Set Text),
+    globalInstanceKeys :: !(Set.Set ((Text, Text), Text)),
+    globalDataFamilyInstanceKeys :: !(Set.Set Text),
+    globalTypeFamilyInstanceKeys :: !(Set.Set Text)
+  }
+
+globalStateKeys :: TcState -> GlobalStateKeys
+globalStateKeys state =
+  GlobalStateKeys
+    { globalTermKeys = Map.keysSet (tcsGlobalTerms state),
+      globalTyConKeys = Map.keysSet (tcsGlobalTyCons state),
+      globalDataTypeKeys = Map.keysSet (tcsDataTypes state),
+      globalClassKeys = Map.keysSet (tcsClasses state),
+      globalInstanceKeys = Set.fromList (map instanceInfoKey (tcsInstances state)),
+      globalDataFamilyInstanceKeys = Set.fromList (map dfiiAxiomName (tcsDataFamilyInstances state)),
+      globalTypeFamilyInstanceKeys = Set.fromList (map tfiiAxiomName (tcsTypeFamilyInstances state))
+    }
+
+defaultGlobalKindMetas :: GlobalStateKeys -> TcM ()
+defaultGlobalKindMetas initialKeys = do
   state <- lift get
-  terms <- traverse defaultBinderKinds (tcsGlobalTerms state)
-  tyCons <- traverse defaultTyConInfoKinds (tcsGlobalTyCons state)
-  dataTypes <- traverse defaultDataTypeKinds (tcsDataTypes state)
-  classes <- traverse defaultClassKinds (tcsClasses state)
-  instances <- mapM defaultInstanceKinds (tcsInstances state)
-  dataFamilyInstances <- mapM defaultDataFamilyInstanceKinds (tcsDataFamilyInstances state)
-  typeFamilyInstances <- mapM defaultTypeFamilyInstanceKinds (tcsTypeFamilyInstances state)
+  terms <- traverseNewMap globalTermKeys defaultBinderKinds (tcsGlobalTerms state)
+  tyCons <- traverseNewMap globalTyConKeys defaultTyConInfoKinds (tcsGlobalTyCons state)
+  dataTypes <- traverseNewMap globalDataTypeKeys defaultDataTypeKinds (tcsDataTypes state)
+  classes <- traverseNewMap globalClassKeys defaultClassKinds (tcsClasses state)
+  instances <- mapM (traverseNewList globalInstanceKeys instanceInfoKey defaultInstanceKinds) (tcsInstances state)
+  dataFamilyInstances <- mapM (traverseNewList globalDataFamilyInstanceKeys dfiiAxiomName defaultDataFamilyInstanceKinds) (tcsDataFamilyInstances state)
+  typeFamilyInstances <- mapM (traverseNewList globalTypeFamilyInstanceKeys tfiiAxiomName defaultTypeFamilyInstanceKinds) (tcsTypeFamilyInstances state)
   lift $
     modify' $ \current ->
       current
@@ -566,6 +590,14 @@ defaultGlobalKindMetas = do
           tcsTypeFamilyInstances = typeFamilyInstances
         }
   where
+    traverseNewMap selectKeys transform =
+      Map.traverseWithKey $ \key value ->
+        if key `Set.member` selectKeys initialKeys
+          then pure value
+          else transform value
+    traverseNewList selectKeys key transform value
+      | key value `Set.member` selectKeys initialKeys = pure value
+      | otherwise = transform value
     defaultBinderKinds binder =
       case binder of
         TcIdBinder scheme closedness -> TcIdBinder <$> defaultTypeSchemeKinds scheme <*> pure closedness
