@@ -47,11 +47,8 @@ typeRepArgs (TypeRep (SomeTypeRep _ arguments)) = arguments
 tyConName :: TyCon -> String
 tyConName (TyCon name) = name
 
-toSomeTypeRep :: TypeRep a -> SomeTypeRep
-toSomeTypeRep (TypeRep representation) = representation
-
 eqTypeRep :: TypeRep a -> TypeRep b -> Bool
-eqTypeRep left right = eqSomeTypeRep (toSomeTypeRep left) (toSomeTypeRep right)
+eqTypeRep (TypeRep left) (TypeRep right) = eqSomeTypeRep left right
 
 eqSomeTypeRep :: SomeTypeRep -> SomeTypeRep -> Bool
 eqSomeTypeRep (SomeTypeRep leftTyCon leftArgs) (SomeTypeRep rightTyCon rightArgs) =

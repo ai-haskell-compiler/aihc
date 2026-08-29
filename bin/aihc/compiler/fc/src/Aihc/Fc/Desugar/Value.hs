@@ -1697,11 +1697,28 @@ desugarTypeableArgument origin ty evidence = do
   dictionary <- desugarEvidence evidence
   convertedType <- convertCheckedType ty
   selector <- typeableName origin "Type.Reflection" "typeRep" SortValue
-  toSome <- typeableName origin "Type.Reflection" "toSomeTypeRep" SortValue
+  typeRepName <- typeableName origin "Type.Reflection" "TypeRep" SortTypeConstructor
+  typeRepConstructor <- typeableName origin "Type.Reflection" "TypeRep" SortDataConstructor
+  someTypeRepName <- typeableName origin "Type.Reflection" "SomeTypeRep" SortTypeConstructor
   proxyConstructor <- typeableName origin "Data.Proxy" "Proxy" SortDataConstructor
   let proxy = ExTyApp (ExVar proxyConstructor) convertedType
+      typeRepType = TyApp (TyCon typeRepName) convertedType
+      someTypeRepType = TyCon someTypeRepName
       typeRepValue = ExApp (ExApp (ExTyApp (ExVar selector) convertedType) dictionary) proxy
-  pure (ExApp (ExTyApp (ExVar toSome) convertedType) typeRepValue)
+  typeRepBinder <- freshBinderFromType "$type_rep" typeRepType
+  someBinder <- freshBinderFromType "$some_type_rep" someTypeRepType
+  pure
+    ( ExCase
+        typeRepValue
+        typeRepBinder
+        someTypeRepType
+        [ Alt
+            (AltData typeRepConstructor)
+            []
+            [someBinder]
+            (ExVar (binderName someBinder))
+        ]
+    )
 
 desugarTypeRepresentation :: Maybe (Text, Text) -> TcType -> [Expr] -> ValueM Expr
 desugarTypeRepresentation origin ty arguments = do
