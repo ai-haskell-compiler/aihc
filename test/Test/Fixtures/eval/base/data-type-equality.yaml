@@ -1,0 +1,70 @@
+extensions:
+  - TypeOperators
+dependencies:
+  - aihc-base
+modules:
+  - |
+    {-# LANGUAGE TypeOperators #-}
+    module Test where
+
+    import Data.Type.Equality ((:~:) (..), (:~~:) (..))
+
+    class NFData a where
+      rnf :: a -> ()
+
+    rwhnf :: a -> ()
+    rwhnf value = seq value ()
+
+    instance NFData (a :~: b) where
+      rnf = rwhnf
+
+    instance NFData (a :~~: b) where
+      rnf = rwhnf
+
+    class NFData1 f where
+      liftRnf :: (a -> ()) -> f a -> ()
+
+    instance NFData1 ((:~:) a) where
+      liftRnf _ = rwhnf
+
+    instance NFData1 ((:~~:) a) where
+      liftRnf _ = rwhnf
+
+    class NFData2 p where
+      liftRnf2 :: (a -> ()) -> (b -> ()) -> p a b -> ()
+
+    instance NFData2 (:~:) where
+      liftRnf2 _ _ = rwhnf
+
+    instance NFData2 (:~~:) where
+      liftRnf2 _ _ = rwhnf
+
+    sameBool :: Bool :~: Bool
+    sameBool = Refl
+
+    sameInt :: Int :~~: Int
+    sameInt = HRefl
+
+    prefixSame :: (:~:) Bool Bool
+    prefixSame = Refl
+
+    isRefl :: a :~: b -> Bool
+    isRefl Refl = True
+
+    isHRefl :: a :~~: b -> Bool
+    isHRefl HRefl = True
+
+    result :: Bool
+    result =
+      isRefl sameBool
+        && isHRefl sameInt
+        && isRefl prefixSame
+        && case rnf sameBool of
+          () ->
+            case rnf sameInt of
+              () -> True
+output: |
+  True
+expression: result
+status: pass
+reason: Data.Type.Equality exports :~: and :~~: for deepseq NFData instances and constructor proofs

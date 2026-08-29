@@ -1,0 +1,27 @@
+annotated:
+- |-
+  module Test where
+  data Bool = True | False
+       │      │      └─ type: Bool
+       │      └─ type: Bool
+       └─ type: Type
+  data a :~: b where
+         └─ type: Type → Type → Type
+    Refl :: a :~: a
+    └─ type: ∀ a. :~: a a
+  proof :: Bool :~: Bool
+  proof = Refl
+  │       └─ type: :~: Bool Bool; type-args: Bool
+  └─ type: :~: Bool Bool
+extensions:
+  - TypeOperators
+modules:
+- |
+  module Test where
+  data Bool = True | False
+  data a :~: b where
+    Refl :: a :~: a
+  proof :: Bool :~: Bool
+  proof = Refl
+status: pass
+reason: an infix equality GADT accepts Refl at equal type arguments
