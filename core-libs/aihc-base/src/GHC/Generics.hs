@@ -13,11 +13,6 @@ module GHC.Generics
     (:*:) (..),
     (:.:) (..),
     URec (..),
-    Rec0,
-    Par0,
-    D1,
-    C1,
-    S1,
     D,
     C,
     S,
@@ -57,16 +52,6 @@ infixr 7 :.:
 newtype (:.:) (f :: Type -> Type) (g :: Type -> Type) p = Comp1 {unComp1 :: f (g p)}
 
 data family URec a p
-
-type Rec0 = K1 R
-
-type Par0 = K1 P
-
-type D1 = M1 D
-
-type C1 = M1 C
-
-type S1 = M1 S
 
 data D
 
