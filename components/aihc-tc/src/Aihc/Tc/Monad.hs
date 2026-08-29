@@ -125,12 +125,12 @@ import Data.Text (Text)
 --
 -- Uses 'ReaderT' for the local environment and 'StateT' for mutable state
 -- (fresh name supply, meta-variable solutions, evidence bindings, diagnostics).
-type TcM a = ReaderT TcEnv (StateT TcState Identity) a
+type TcM a = ReaderT TcEnv (StateT TcState TcResult) a
 
--- | Strict identity, used as the base monad.
+-- | Type-checker result, used as the base monad.
 -- (We avoid IO/ST for the MVP; the Map-based meta-variable store is
 -- functionally equivalent to STRef and can be migrated later.)
-type Identity = Either TcAbort
+type TcResult = Either TcAbort
 
 -- | Fatal abort (internal error, not a user-facing diagnostic).
 newtype TcAbort = TcAbort String
