@@ -12,6 +12,8 @@ module Aihc.Fc
     desugarModuleFc,
     desugarModuleFcPrepared,
     prepareDesugar,
+    prepareDesugarIncremental,
+    prepareDesugarIncrementalWithAvailable,
     PreparedDesugar,
     typeEnvFromTcInterface,
     DesugarConfig (..),
@@ -24,7 +26,7 @@ module Aihc.Fc
   )
 where
 
-import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), PreparedDesugar, desugarModuleFc, desugarModuleFcPrepared, prepareDesugar, typeEnvFromTcInterface)
+import Aihc.Fc.Desugar (DesugarConfig (..), FcDesugarResult (..), PreparedDesugar, desugarModuleFc, desugarModuleFcPrepared, prepareDesugar, prepareDesugarIncremental, prepareDesugarIncrementalWithAvailable, typeEnvFromTcInterface)
 import Aihc.Fc.Lint (LintError (..), ModuleLoader, lintProgram, loadScopeClosure, storeModuleLoader)
 import Aihc.Fc.Name
 import Aihc.Fc.Parser (FcParseError, parseProgram, renderParseError)

@@ -1,4 +1,19 @@
+Parse failed:
+<PACKAGE>/src/ParseZulu.hs:3:6: error: unexpected end of input
+expecting expression
+context: while parsing equation right-hand side
+
+<PACKAGE>/src/ParseAlpha.hs:5:7: error: unexpected end of input
+expecting expression
+context: while parsing equation right-hand side
+
 Name resolution failed:
-<PACKAGE>/src/Demo.hs:3:16: error: unbound type name ‘MissingType’
-  3 | data Box = Box MissingType
-    |                ^^^^^^^^^^^
+<PACKAGE>/src/Zulu.hs:3:24: error: unbound type name ‘ZuluMissing’
+  3 | data ZuluBox = ZuluBox ZuluMissing
+    |                        ^^^^^^^^^^^
+
+<PACKAGE>/src/Alpha.hs:5:26: error: unbound type name ‘AlphaMissing’
+  5 | data AlphaBox = AlphaBox AlphaMissing
+    |                          ^^^^^^^^^^^^
+
+Type check failed: [TcDiagnostic {diagLoc = Just SourceSpan 5 9 5 15, diagSeverity = TcError, diagKind = OtherError "visible type application requires a polymorphic expression"},TcDiagnostic {diagLoc = Nothing, diagSeverity = TcError, diagKind = OtherError "internal type checker abort: internal type annotation error: unzonked meta-variable ?3 in finalized type annotation"},TcDiagnostic {diagLoc = Nothing, diagSeverity = TcError, diagKind = OtherError "internal type checker abort: internal type annotation error: unzonked meta-variable ?3 in finalized type annotation"}]

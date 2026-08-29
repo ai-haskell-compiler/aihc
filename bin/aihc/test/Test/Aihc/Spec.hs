@@ -12,6 +12,7 @@ import Aihc.Fc qualified as Fc
 import Aihc.Native (NativeTarget (..), hostNativeTarget, nativeTargetStoreDirectory)
 import Aihc.Resolve (PackageId (..))
 import Aihc.Tc (TcInterface (..), tcTermKeyIdentifier)
+import Control.Concurrent (getNumCapabilities, setNumCapabilities)
 import Control.Exception (IOException, bracket, try)
 import Control.Monad (forM)
 import Data.ByteString qualified as BS
@@ -58,7 +59,7 @@ tests =
           testCase "installs direct local dependencies" test_installV2LocalDependencies,
           testCase "rebuilds stale type artifact schemas" test_installV2StaleTypeArtifact,
           testCase "stops invalidation when a rebuilt scope stays equal" test_installV2StopsAtEqualScope,
-          testCase "reports resolve errors with source locations" test_installV2ResolveError,
+          testCase "reports all frontend errors in stable dependency order" test_installV2ResolveError,
           testCase "writes Core for a ccall import" test_installV2FcCcall,
           testCase "retains and repairs GRIN only with keep-grin" test_installV2KeepGrin,
           testCase "writes target-specific objects and library archives" test_installV2TargetArchives,
@@ -258,15 +259,17 @@ test_installV2ResolveError = do
   fixtureRoot <- findFixtureRoot "bin/aihc/test/Test/Fixtures/install-v2/resolve-error"
   expected <- readFile (fixtureRoot </> "expected.txt")
   withTempDir "aihc-install-v2-resolve-error" $ \root -> do
-    let options = InstallV2Options fixtureRoot (Just (root </> "store")) False False False False False False AppleArm64
-    result <- try (installV2 options) :: IO (Either IOException InstallV2Result)
-    case result of
-      Right _ -> assertFailure "expected name resolution to fail"
-      Left err ->
-        assertEqual
-          "formatted name resolution error"
-          expected
-          (T.unpack (T.replace (T.pack fixtureRoot) "<PACKAGE>" (T.pack (ioeGetErrorString err))))
+    actual <-
+      bracket getNumCapabilities setNumCapabilities $ \_ ->
+        forM [1, 2, 4] $ \workers -> do
+          setNumCapabilities workers
+          let options = InstallV2Options fixtureRoot (Just (root </> "store-" <> show workers)) False False False False False False AppleArm64
+          result <- try (installV2 options) :: IO (Either IOException InstallV2Result)
+          case result of
+            Right _ -> assertFailure "expected frontend compilation to fail"
+            Left err ->
+              pure (T.unpack (T.replace (T.pack fixtureRoot) "<PACKAGE>" (T.pack (ioeGetErrorString err))))
+    mapM_ (assertEqual "formatted frontend errors" expected) actual
 
 findFixtureRoot :: FilePath -> IO FilePath
 findFixtureRoot fixture = do

@@ -28,6 +28,7 @@ module Aihc.Tc
     TcInterface (..),
     emptyTcInterface,
     mergeTcInterfaces,
+    restrictTcInterfaceToModules,
     tcInterfaceBindings,
 
     -- * Module result projections
@@ -188,6 +189,46 @@ mergeTcInterfaces interfaces =
       tcInterfaceDataFamilyInstances = mergeInterfaceEntries "data family instance interface" dfiiAxiomName (concatMap tcInterfaceDataFamilyInstances interfaces),
       tcInterfaceTypeFamilyInstances = mergeInterfaceEntries "type family instance interface" tfiiAxiomName (concatMap tcInterfaceTypeFamilyInstances interfaces)
     }
+
+-- | Keep only facts that the selected modules define.
+restrictTcInterfaceToModules :: PackageId -> [Text] -> TcInterface -> TcInterface
+restrictTcInterfaceToModules package names interface =
+  TcInterface
+    { tcInterfaceTerms = filter localTerm (tcInterfaceTerms interface),
+      tcInterfaceTyCons = filter (localTyCon . tciTyCon) (tcInterfaceTyCons interface),
+      tcInterfaceDataTypes = filter (localTyCon . dtiTyCon) (tcInterfaceDataTypes interface),
+      tcInterfaceClasses = filter (localTyCon . ciTyCon) (tcInterfaceClasses interface),
+      tcInterfaceInstances = filter localInstance (tcInterfaceInstances interface),
+      tcInterfaceDataFamilyInstances = filter (localTyCon . dfiiRepresentationTyCon) (tcInterfaceDataFamilyInstances interface),
+      tcInterfaceTypeFamilyInstances = filter localTypeFamilyInstance (tcInterfaceTypeFamilyInstances interface)
+    }
+  where
+    selected = Map.fromList [(name, ()) | name <- names]
+    localModule moduleName' = Map.member moduleName' selected
+    localTyCon tyCon = tyConPackageId tyCon == package && localModule (tyConModuleName tyCon)
+    localTerm (key, _) =
+      case key of
+        TcTermGlobal package' moduleName' _ -> package' == package && localModule moduleName'
+        TcTermLocal {} -> False
+    localInstance info =
+      let (packageName, moduleName') = iiDictOrigin info
+       in packageName == packageIdText package && localModule moduleName'
+    localTypeFamilyInstance info = any localTyCon (typeTyCons (tfiiLeft info) <> typeTyCons (tfiiRight info))
+
+    typeTyCons ty =
+      case ty of
+        TcTyVar {} -> []
+        TcMetaTv {} -> []
+        TcTyCon tyCon arguments -> tyCon : concatMap typeTyCons arguments
+        TcFunTy argument result -> typeTyCons argument <> typeTyCons result
+        TcForAllTy _ body -> typeTyCons body
+        TcQualTy predicates body -> concatMap predicateTyCons predicates <> typeTyCons body
+        TcAppTy function argument -> typeTyCons function <> typeTyCons argument
+
+    predicateTyCons predicate =
+      case predicate of
+        ClassPred tyCon arguments -> tyCon : concatMap typeTyCons arguments
+        EqPred left right -> typeTyCons left <> typeTyCons right
 
 mergeInterfaceEntries :: (Ord key, Show key, Eq value) => String -> (value -> key) -> [value] -> [value]
 mergeInterfaceEntries label key values = reverse ordered

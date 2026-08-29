@@ -11,16 +11,25 @@ import Aihc.Cli.ArtifactCache (ArtifactCache, artifactCache, loadArtifact)
 import Aihc.Cli.Install
   ( DependencyResolver (..),
     PackagePlan (..),
-    ParsedInterfaceFile (..),
+    ParsedInterfaceFile (ParsedInterfaceFile),
     buildPackagePlanWithResolver,
     localDependencyResolverWithFallback,
     packageSpecFromSource,
     parseInterfaceFile,
+    renderHumanDiagnostic,
   )
 import Aihc.Cli.Options (InstallV2Options (..))
 import Aihc.Cli.PackageManifest (PackageManifest (..), packageManifestPath, writePackageManifest)
 import Aihc.Cli.ResolveArtifact (ResolveArtifact (..), decodeResolveArtifact, encodeResolveArtifact, encodeResolveScope)
 import Aihc.Cli.Store (defaultStoreRoot)
+import Aihc.Cli.TaskGraph
+  ( Task (..),
+    TaskId (..),
+    TaskKind (..),
+    TaskTiming,
+    renderTaskTimeline,
+    runTaskGraph,
+  )
 import Aihc.Cli.TypeArtifact (TypeArtifact (..), decodeTypeArtifact, encodeTypeArtifact, encodeTypeInterface)
 import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..))
 import Aihc.Fc qualified as Fc
@@ -55,6 +64,7 @@ import Aihc.Tc
     DataTypeInfo (..),
     InstanceInfo (..),
     Pred (..),
+    TcDiagnostic (..),
     TcInterface (..),
     TcTermKey (..),
     TcType (..),
@@ -64,29 +74,28 @@ import Aihc.Tc
     TypeScheme (..),
     dataTypeKey,
     mergeTcInterfaces,
+    restrictTcInterfaceToModules,
     tcConfig,
     tcModuleBindings,
     tcModuleDiagnostics,
-    tcModuleSuccess,
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Env (TypeSynonymInfo (..))
 import Aihc.Tc.Types (tyConModuleName, tyConNamespace, tyConPackageId)
 import Aihc.Wasm qualified as Wasm
 import Control.Concurrent (getNumCapabilities)
-import Control.Concurrent.Async (mapConcurrently)
-import Control.Concurrent.QSem (newQSem, signalQSem, waitQSem)
-import Control.Exception (SomeException, bracket, bracket_, throwIO, try)
-import Control.Monad (filterM, foldM, unless, when)
+import Control.Concurrent.STM (TMVar, atomically, newEmptyTMVarIO, putTMVar, readTMVar)
+import Control.DeepSeq (rnf)
+import Control.Exception (bracket, evaluate)
+import Control.Monad (filterM, forM, unless, when)
+import Data.Aeson (Value)
 import Data.Bits (xor)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BL
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (intercalate, isSuffixOf, nub, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
-import Data.Ord (Down (..))
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -117,8 +126,9 @@ data SourceModule = SourceModule
   { sourceModulePath :: !FilePath,
     sourceModuleSize :: !Int,
     sourceModuleHash :: !Text,
-    sourceModuleAst :: !Module,
-    sourceModuleSourceLines :: !(Map.Map FilePath (Map.Map Int Text))
+    sourceModuleAst :: Module,
+    sourceModuleSourceLines :: !(Map.Map FilePath (Map.Map Int Text)),
+    sourceModuleParseDiagnostics :: [Value]
   }
 
 data InstalledV2Package = InstalledV2Package
@@ -157,8 +167,46 @@ data NativeModule = NativeModule
 
 data PendingCompile = PendingCompile
   { pendingWriteFc :: !Bool,
-    pendingSourceSize :: !Int,
     pendingModules :: ![Module]
+  }
+
+newtype UnitId = UnitId Int
+  deriving (Eq, Ord, Show)
+
+data SourceUnit = SourceUnit
+  { sourceUnitId :: !UnitId,
+    sourceUnitOrder :: !Int,
+    sourceUnitSources :: ![SourceModule],
+    sourceUnitDependencies :: ![UnitId]
+  }
+
+data ResolveUnitResult = ResolveUnitResult
+  { resolveUnitExports :: !ModuleExports,
+    resolveUnitScopeHashes :: !(Map.Map Text Text),
+    resolveUnitResolved :: !(Maybe ResolveResult),
+    resolveUnitErrors :: ![ResolveError],
+    resolveUnitChanged :: !Bool,
+    resolveUnitSuccess :: !Bool
+  }
+
+data TypeUnitResult = TypeUnitResult
+  { typeUnitTypes :: !(Map.Map Text TcInterface),
+    typeUnitHashes :: !(Map.Map Text Text),
+    typeUnitComplete :: !TcInterface,
+    typeUnitLocalInterface :: !TcInterface,
+    typeUnitBackendInterface :: !TcInterface,
+    typeUnitDiagnostics :: ![TcDiagnostic],
+    typeUnitWritten :: !(Set.Set Text),
+    typeUnitReused :: !(Set.Set Text),
+    typeUnitPendingCompile :: !(Maybe PendingCompile),
+    typeUnitSuccess :: !Bool
+  }
+
+data UnitRuntime = UnitRuntime
+  { runtimeUnit :: !SourceUnit,
+    runtimeResolveResult :: !(TMVar ResolveUnitResult),
+    runtimeTypeResult :: !(TMVar TypeUnitResult),
+    runtimePreparedDesugar :: !(TMVar (Maybe Fc.PreparedDesugar))
   }
 
 data InstallConfig = InstallConfig
@@ -171,16 +219,18 @@ data InstallConfig = InstallConfig
     installArtifactCache :: !ArtifactCache
   }
 
-type InstallUnitState =
-  ( ModuleExports,
-    Map.Map Text Text,
-    Map.Map Text TcInterface,
-    Map.Map Text Text,
-    Set.Set Text,
-    Set.Set Text,
-    [PendingCompile],
-    TcInterface
-  )
+data PackageTaskContext = PackageTaskContext
+  { taskInstallConfig :: !InstallConfig,
+    taskStorePath :: !FilePath,
+    taskResolvePackage :: !Package,
+    taskPrimIdentity :: !PackageId,
+    taskPackageRoot :: !FilePath,
+    taskDependencyExports :: !ModuleExports,
+    taskDependencyScopeHashes :: !(Map.Map Text Text),
+    taskDependencyTypes :: !(Map.Map Text TcInterface),
+    taskDependencyTypeHashes :: !(Map.Map Text Text),
+    taskDependencyPreparedDesugar :: !Fc.PreparedDesugar
+  }
 
 runInstallV2 :: InstallV2Options -> IO ()
 runInstallV2 options = do
@@ -244,18 +294,18 @@ installPackageV2 config storeRoot dependencies root = do
       packageNameText = T.pack (CabalPackage.unPackageName (CabalPackage.packageName packageId))
       packageVersionText = T.pack (prettyShow (CabalPackage.packageVersion packageId))
   verbose ("Parse " <> show (length files) <> " library modules")
-  parsed <- mapM (parseSource root) files
+  capabilities <- getNumCapabilities
+  (parsed, importTimings) <- loadSourceModules (max 1 capabilities) root files
   let dependencyIdentities = sortOn id (map (T.pack . takeFileName . installV2StorePath . installedV2Result) dependencies)
       packageHash = stableHash (map TE.encodeUtf8 ("aihc-dependencies-v2" : dependencyIdentities))
       packageDirectory = T.unpack packageNameText <> "-" <> T.unpack packageVersionText <> "-" <> packageHash
       storePath = storeRoot </> packageDirectory
       resolvePackage = Package packageNameText (PackageId (T.pack packageDirectory))
-      units = sourceModuleSccs parsed
+      units = sourceModuleUnits parsed
       dependencyExports = Map.unions (map installedV2Exports dependencies)
       dependencyTypes = Map.unions (map installedV2Types dependencies)
       dependencyScopeHashes = Map.unions (map installedV2ScopeHashes dependencies)
       dependencyTypeHashes = Map.unions (map installedV2TypeHashes dependencies)
-      dependencyInstances = mergeTypeInterfaces (map instanceFacts (Map.elems dependencyTypes))
       primIdentity =
         fromMaybe (PackageId "aihc-prim") $
           if packageName resolvePackage == "aihc-prim"
@@ -267,16 +317,52 @@ installPackageV2 config storeRoot dependencies root = do
                   dependencyName == "aihc-prim"
                 ]
       resolvePackageIdentity = case resolvePackage of Package _ identity -> identity
+  dependencyPreparedDesugar <-
+    either (ioError . userError . ("FC environment generation failed: " <>)) pure $
+      Fc.prepareDesugar
+        (DesugarConfig primIdentity)
+        (if installNoCode config then mempty else mergeTypeInterfaces (Map.elems dependencyTypes))
+  let taskContext =
+        PackageTaskContext
+          { taskInstallConfig = config,
+            taskStorePath = storePath,
+            taskResolvePackage = resolvePackage,
+            taskPrimIdentity = primIdentity,
+            taskPackageRoot = root,
+            taskDependencyExports = dependencyExports,
+            taskDependencyScopeHashes = dependencyScopeHashes,
+            taskDependencyTypes = dependencyTypes,
+            taskDependencyTypeHashes = dependencyTypeHashes,
+            taskDependencyPreparedDesugar = dependencyPreparedDesugar
+          }
   verbose ("Compute " <> show (length units) <> " SCC units")
-  (allExports, allScopeHashes, allTypes, allTypeHashes, written, reused, pendingCompiles, packageInstances) <-
-    foldM
-      (installUnit config storePath resolvePackage primIdentity root)
-      (dependencyExports, dependencyScopeHashes, dependencyTypes, dependencyTypeHashes, Set.empty, Set.empty, [], dependencyInstances)
+  (runtimes, taskTimings) <-
+    runPackageTasks
+      taskContext
+      (max 1 capabilities)
       units
-  let completeTypes = mergeTypeInterfaces (Map.elems allTypes)
+  resolveResults <- mapM (atomically . readTMVar . runtimeResolveResult) runtimes
+  verbose (renderTaskTimeline (importTimings <> taskTimings))
+  typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
+  let parseDiagnostics = concatMap (concatMap sourceModuleParseDiagnostics . sourceUnitSources . runtimeUnit) runtimes
+      resolveDiagnostics = concatMap resolveUnitErrors resolveResults
+      typeDiagnostics = concatMap typeUnitDiagnostics typeResults
+      frontendFailure = renderFrontendFailure parsed parseDiagnostics resolveDiagnostics typeDiagnostics
+  unless (null frontendFailure) (ioError (userError frontendFailure))
+  let localExports = Map.unions (map resolveUnitExports resolveResults)
+      localScopeHashes = Map.unions (map resolveUnitScopeHashes resolveResults)
+      localTypes = Map.unions (map typeUnitTypes typeResults)
+      localTypeHashes = Map.unions (map typeUnitHashes typeResults)
+      allExports = localExports `Map.union` dependencyExports
+      allScopeHashes = localScopeHashes `Map.union` dependencyScopeHashes
+      allTypes = localTypes `Map.union` dependencyTypes
+      allTypeHashes = localTypeHashes `Map.union` dependencyTypeHashes
+      written = Set.unions (map typeUnitWritten typeResults)
+      reused = Set.unions (map typeUnitReused typeResults)
+      completeTypes = mergeTypeInterfaces (Map.elems allTypes)
+      packageInstances = mergeTypeInterfaces (map (instanceFacts . typeUnitComplete) typeResults)
   writePackageInstanceArtifact verbose storePath allTypeHashes completeTypes (ownInstanceFacts resolvePackage packageInstances)
   unless (installNoCode config) $ do
-    compilePendingModules config primIdentity completeTypes (moduleOutputPaths storePath target) pendingCompiles
     let archive = storePath </> "lib" </> "lib" <> T.unpack packageNameText <> ".a"
         moduleObjects =
           sortOn
@@ -312,27 +398,93 @@ installPackageV2 config storeRoot dependencies root = do
         installedV2ScopeHashes = Map.restrictKeys allScopeHashes exposedNames,
         installedV2TypeHashes = Map.restrictKeys allTypeHashes exposedNames
       }
-  where
-    sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
 
 parseSource :: FilePath -> HackageCabal.FileInfo -> IO SourceModule
 parseSource root fileInfo = do
   bytes <- BS.readFile (HackageCabal.fileInfoPath fileInfo)
-  parsed <- parseInterfaceFile root fileInfo
-  case parsed of
-    ParsedFileOk path modu sourceLines _ -> pure (SourceModule path (BS.length bytes) (T.pack (stableHash [bytes])) modu sourceLines)
-    ParsedFileFailed path _ _ _ -> ioError (userError ("Failed to parse " <> path))
+  ParsedInterfaceFile path modu sourceLines parseDiagnostics _ <- parseInterfaceFile root fileInfo
+  pure (SourceModule path (BS.length bytes) (T.pack (stableHash [bytes])) modu sourceLines parseDiagnostics)
 
-sourceModuleSccs :: [SourceModule] -> [[SourceModule]]
-sourceModuleSccs = map flatten . stronglyConnComp . map node
+loadSourceModules :: Int -> FilePath -> [HackageCabal.FileInfo] -> IO ([SourceModule], [TaskTiming])
+loadSourceModules workers root files = do
+  results <- mapM (const newEmptyTMVarIO) files
+  let tasks = zipWith3 loadTask [0 ..] files results
+  timings <- runTaskGraph workers tasks
+  sources <- mapM (atomically . readTMVar) results
+  pure (sources, timings)
+  where
+    loadTask order fileInfo result =
+      Task
+        { taskId = TaskId ("imports:" <> HackageCabal.fileInfoPath fileInfo),
+          taskKind = TaskParse,
+          taskOrder = order,
+          taskDependencies = Set.empty,
+          taskAction = do
+            source <- parseSource root fileInfo
+            let ast = sourceModuleAst source
+                imports = map importDeclModule (Syntax.moduleImports ast)
+            _ <- evaluate (rnf (moduleName ast, imports))
+            atomically (putTMVar result source)
+        }
+
+sourceModuleUnits :: [SourceModule] -> [SourceUnit]
+sourceModuleUnits sources = zipWith makeUnit [0 ..] orderedComponents
   where
     node source = (source, sourceName source, moduleDependencies source)
-    sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
     moduleImportsOf = Syntax.moduleImports . sourceModuleAst
     moduleDependencies source =
       nub (filter (/= sourceName source) wiredTypeModules <> map importDeclModule (moduleImportsOf source))
     flatten (AcyclicSCC value) = [value]
     flatten (CyclicSCC values) = values
+    components = map (sortOn sourceName . flatten) (stronglyConnComp (map node sources))
+    componentNames = Map.fromList [(sourceName source, index) | (index, component) <- zip [0 ..] components, source <- component]
+    dependenciesFor component =
+      Set.toAscList $
+        Set.fromList
+          [ dependencyIndex
+          | source <- component,
+            dependency <- moduleDependencies source,
+            Just dependencyIndex <- [Map.lookup dependency componentNames],
+            dependencyIndex /= fromMaybe (-1) (Map.lookup (sourceName source) componentNames)
+          ]
+    componentDependencies = Map.fromList [(index, dependenciesFor component) | (index, component) <- zip [0 ..] components]
+    componentLabel component = minimum (map sourceName component)
+    orderedIndices = canonicalTopologicalOrder components componentDependencies componentLabel
+    orderedComponents = [components !! index | index <- orderedIndices]
+    orderedIdByOldIndex = Map.fromList [(oldIndex, UnitId order) | (order, oldIndex) <- zip [0 ..] orderedIndices]
+    makeUnit order component =
+      let oldIndex =
+            fromMaybe (error "missing source component") $
+              listToMaybe component >>= (\source -> Map.lookup (sourceName source) componentNames)
+       in SourceUnit
+            { sourceUnitId = UnitId order,
+              sourceUnitOrder = order,
+              sourceUnitSources = component,
+              sourceUnitDependencies =
+                sortOn
+                  id
+                  [ dependencyId
+                  | dependencyIndex <- Map.findWithDefault [] oldIndex componentDependencies,
+                    Just dependencyId <- [Map.lookup dependencyIndex orderedIdByOldIndex]
+                  ]
+            }
+
+canonicalTopologicalOrder :: [[SourceModule]] -> Map.Map Int [Int] -> ([SourceModule] -> Text) -> [Int]
+canonicalTopologicalOrder components dependencies label = go Set.empty []
+  where
+    componentCount = length components
+    go complete ordered
+      | Set.size complete == componentCount = reverse ordered
+      | otherwise =
+          case sortOn
+            (label . (components !!))
+            [ index
+            | index <- [0 .. componentCount - 1],
+              index `Set.notMember` complete,
+              all (`Set.member` complete) (Map.findWithDefault [] index dependencies)
+            ] of
+            [] -> error "source component graph is cyclic"
+            index : _ -> go (Set.insert index complete) (index : ordered)
 
 renderResolveErrors :: [SourceModule] -> [ResolveError] -> String
 renderResolveErrors sources errors =
@@ -356,8 +508,8 @@ renderResolveLocation :: SourceSpan -> String
 renderResolveLocation sourceSpan =
   case sourceSpan of
     NoSourceSpan -> "<unknown location>"
-    SourceSpan sourceName startLine startColumn _ _ _ _ ->
-      sourceName <> ":" <> show startLine <> ":" <> show startColumn
+    SourceSpan sourcePath startLine startColumn _ _ _ _ ->
+      sourcePath <> ":" <> show startLine <> ":" <> show startColumn
 
 renderResolveMessage :: String -> Text -> ResolutionNamespace -> String
 renderResolveMessage message name namespace
@@ -375,8 +527,8 @@ renderResolveExcerpt :: Map.Map FilePath (Map.Map Int Text) -> SourceSpan -> Str
 renderResolveExcerpt sourceLines sourceSpan =
   case sourceSpan of
     NoSourceSpan -> ""
-    SourceSpan sourceName startLine startColumn endLine endColumn _ _ ->
-      case Map.lookup sourceName sourceLines >>= Map.lookup startLine of
+    SourceSpan sourcePath startLine startColumn endLine endColumn _ _ ->
+      case Map.lookup sourcePath sourceLines >>= Map.lookup startLine of
         Nothing -> ""
         Just sourceLine ->
           let lineNumber = show startLine
@@ -395,83 +547,281 @@ renderResolveExcerpt sourceLines sourceSpan =
                 <> replicate caretStart ' '
                 <> replicate caretWidth '^'
 
-installUnit :: InstallConfig -> FilePath -> Package -> PackageId -> FilePath -> InstallUnitState -> [SourceModule] -> IO InstallUnitState
-installUnit config storePath resolvePackage primIdentity root (dependencyExports, scopeHashes, dependencyTypes, typeHashes, written, reused, pendingCompiles, globalInstances) unit = do
-  let target = installTarget config
+renderFrontendFailure :: [SourceModule] -> [Value] -> [ResolveError] -> [TcDiagnostic] -> String
+renderFrontendFailure sources parseDiagnostics resolveDiagnostics typeDiagnostics =
+  case sections of
+    [] -> ""
+    _ -> intercalate "\n\n" (map dropFinalNewlines sections) <> "\n"
+  where
+    sections =
+      [renderParseDiagnostics parseDiagnostics | not (null parseDiagnostics)]
+        <> [renderResolveErrors sources resolveDiagnostics | not (null resolveDiagnostics)]
+        <> ["Type check failed: " <> show typeDiagnostics | not (null typeDiagnostics)]
+
+    dropFinalNewlines = reverse . dropWhile (== '\n') . reverse
+
+renderParseDiagnostics :: [Value] -> String
+renderParseDiagnostics diagnostics =
+  "Parse failed:\n" <> intercalate "\n" (map (renderHumanDiagnostic "parse") diagnostics)
+
+runPackageTasks :: PackageTaskContext -> Int -> [SourceUnit] -> IO ([UnitRuntime], [TaskTiming])
+runPackageTasks context workers units = do
+  runtimes <-
+    forM units $ \unit ->
+      UnitRuntime unit <$> newEmptyTMVarIO <*> newEmptyTMVarIO <*> newEmptyTMVarIO
+  let runtimeMap = Map.fromList [(sourceUnitId (runtimeUnit runtime), runtime) | runtime <- runtimes]
+      tasks = concatMap (unitTasks runtimeMap) runtimes
+  timings <- runTaskGraph workers tasks
+  pure (runtimes, timings)
+  where
+    unitTasks runtimeMap runtime =
+      map (parseTask runtime) (sourceUnitSources unit)
+        <> [resolveTask runtimeMap runtime, typeTask runtimeMap runtime]
+        <> if installNoCode config
+          then []
+          else [prepareTask runtimeMap runtime, backendTask runtime]
+      where
+        unit = runtimeUnit runtime
+
+    parseTask runtime source =
+      Task
+        { taskId = parseTaskId source,
+          taskKind = TaskParse,
+          taskOrder = sourceUnitOrder (runtimeUnit runtime),
+          taskDependencies = Set.empty,
+          taskAction = evaluate (rnf (sourceModuleAst source, sourceModuleParseDiagnostics source))
+        }
+
+    resolveTask runtimeMap runtime =
+      Task
+        { taskId = resolveTaskId (runtimeUnit runtime),
+          taskKind = TaskResolve,
+          taskOrder = sourceUnitOrder (runtimeUnit runtime),
+          taskDependencies =
+            Set.fromList
+              ( map parseTaskId (sourceUnitSources (runtimeUnit runtime))
+                  <> map (resolveTaskId . runtimeUnit . lookupRuntime runtimeMap) (sourceUnitDependencies (runtimeUnit runtime))
+              ),
+          taskAction =
+            runResolveUnit
+              context
+              runtimeMap
+              runtime
+        }
+
+    typeTask runtimeMap runtime =
+      Task
+        { taskId = typeTaskId (runtimeUnit runtime),
+          taskKind = TaskTypeCheck,
+          taskOrder = sourceUnitOrder (runtimeUnit runtime),
+          taskDependencies =
+            Set.fromList
+              ( resolveTaskId (runtimeUnit runtime)
+                  : map (typeTaskId . runtimeUnit . lookupRuntime runtimeMap) (sourceUnitDependencies (runtimeUnit runtime))
+              ),
+          taskAction =
+            runTypeUnit
+              context
+              runtimeMap
+              runtime
+        }
+
+    backendTask runtime =
+      Task
+        { taskId = backendTaskId (runtimeUnit runtime),
+          taskKind = TaskBackend,
+          taskOrder = negate (sum (map sourceModuleSize (sourceUnitSources (runtimeUnit runtime)))),
+          taskDependencies = Set.singleton (prepareTaskId (runtimeUnit runtime)),
+          taskAction = runBackendUnit context runtime
+        }
+
+    prepareTask runtimeMap runtime =
+      Task
+        { taskId = prepareTaskId (runtimeUnit runtime),
+          taskKind = TaskBackend,
+          taskOrder = sourceUnitOrder (runtimeUnit runtime),
+          taskDependencies =
+            Set.fromList
+              ( typeTaskId (runtimeUnit runtime)
+                  : map (prepareTaskId . runtimeUnit . lookupRuntime runtimeMap) (sourceUnitDependencies (runtimeUnit runtime))
+              ),
+          taskAction = runPrepareUnit context runtimeMap runtime
+        }
+    config = taskInstallConfig context
+
+parseTaskId :: SourceModule -> TaskId
+parseTaskId = TaskId . ("parse:" <>) . sourceModulePath
+
+resolveTaskId :: SourceUnit -> TaskId
+resolveTaskId = TaskId . ("resolve:" <>) . T.unpack . unitLabel
+
+typeTaskId :: SourceUnit -> TaskId
+typeTaskId = TaskId . ("type-check:" <>) . T.unpack . unitLabel
+
+prepareTaskId :: SourceUnit -> TaskId
+prepareTaskId = TaskId . ("prepare-fc:" <>) . T.unpack . unitLabel
+
+backendTaskId :: SourceUnit -> TaskId
+backendTaskId = TaskId . ("backend:" <>) . T.unpack . unitLabel
+
+unitLabel :: SourceUnit -> Text
+unitLabel = T.intercalate "+" . map sourceName . sourceUnitSources
+
+sourceName :: SourceModule -> Text
+sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
+
+lookupRuntime :: Map.Map UnitId UnitRuntime -> UnitId -> UnitRuntime
+lookupRuntime runtimes identifier =
+  fromMaybe (error "missing unit runtime") (Map.lookup identifier runtimes)
+
+readDependencyResults :: (UnitRuntime -> TMVar value) -> Map.Map UnitId UnitRuntime -> [UnitId] -> IO [value]
+readDependencyResults select runtimes =
+  mapM (atomically . readTMVar . select . lookupRuntime runtimes)
+
+runResolveUnit :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> UnitRuntime -> IO ()
+runResolveUnit context runtimes runtime = do
+  dependencyResults <- readDependencyResults runtimeResolveResult runtimes (sourceUnitDependencies unit)
+  let storePath = taskStorePath context
+      resolvePackage = taskResolvePackage context
+      root = taskPackageRoot context
+      dependencyExports = taskDependencyExports context
+      dependencyScopeHashes = taskDependencyScopeHashes context
       verbose = installVerbose config
       cache = installArtifactCache config
-      packageModules = modulesInPackage resolvePackage (map sourceModuleAst unit)
-      unitNames = map sourceName unit
-      importedNames = nub (concatMap (map importDeclModule . Syntax.moduleImports . sourceModuleAst) unit)
+      sources = sourceUnitSources unit
+      packageModules = modulesInPackage resolvePackage (map sourceModuleAst sources)
+      unitNames = map sourceName sources
+      importedNames = nub (concatMap (map importDeclModule . Syntax.moduleImports . sourceModuleAst) sources)
       dependencyNames = nub (importedNames <> wiredTypeModules)
+      availableExports = Map.unions (map resolveUnitExports dependencyResults) `Map.union` dependencyExports
+      availableScopeHashes = Map.unions (map resolveUnitScopeHashes dependencyResults) `Map.union` dependencyScopeHashes
       dependencyHashes = Map.fromList [("scope:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name scopeHashes]]
-      sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- unit]
+      scopeHashes = availableScopeHashes
+      sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
       hashes = sortOn fst (sourceHashes <> Map.toList dependencyHashes)
       resolvePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "resolve.cbor"
+      parseSuccess = all (null . sourceModuleParseDiagnostics) sources
+      dependenciesSucceeded = all resolveUnitSuccess dependencyResults
+  cachedExports <- readUnitArtifacts cache hashes resolvePackage resolvePath sources
+  (unitExports, resolved, errors, changed) <- case cachedExports of
+    Just exports -> do
+      mapM_ (verbose . ("Reuse resolve context: " <>) . T.unpack) unitNames
+      pure (exports, Nothing, [], False)
+    Nothing -> do
+      let result = resolveWithDeps availableExports packageModules
+          resultErrors = resolveErrors result
+          exports = extractInterfaceWithDeps availableExports result
+          success = parseSuccess && dependenciesSucceeded && null resultErrors
+      when success (mapM_ (\source -> writeArtifact verbose hashes exports resolvePackage (resolvePath source) source) sources)
+      pure (exports, Just result, resultErrors, True)
+  let ownScopeHashes = updateScopeHashes resolvePackage unitExports Map.empty sources
+      success = parseSuccess && dependenciesSucceeded && null errors
+  atomically $
+    putTMVar
+      (runtimeResolveResult runtime)
+      ResolveUnitResult
+        { resolveUnitExports = unitExports,
+          resolveUnitScopeHashes = ownScopeHashes,
+          resolveUnitResolved = resolved,
+          resolveUnitErrors = errors,
+          resolveUnitChanged = changed,
+          resolveUnitSuccess = success
+        }
+  where
+    config = taskInstallConfig context
+    unit = runtimeUnit runtime
+
+runTypeUnit :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> UnitRuntime -> IO ()
+runTypeUnit context runtimes runtime = do
+  resolvedOutput <- atomically (readTMVar (runtimeResolveResult runtime))
+  dependencyResults <- readDependencyResults runtimeTypeResult runtimes (sourceUnitDependencies unit)
+  dependencyResolveResults <- readDependencyResults runtimeResolveResult runtimes (sourceUnitDependencies unit)
+  let storePath = taskStorePath context
+      resolvePackage = taskResolvePackage context
+      primIdentity = taskPrimIdentity context
+      root = taskPackageRoot context
+      dependencyExports = taskDependencyExports context
+      dependencyScopeHashes = taskDependencyScopeHashes context
+      dependencyTypes = taskDependencyTypes context
+      dependencyTypeHashes = taskDependencyTypeHashes context
+      target = installTarget config
+      verbose = installVerbose config
+      cache = installArtifactCache config
+      sources = sourceUnitSources unit
+      unitNames = map sourceName sources
+      importedNames = nub (concatMap (map importDeclModule . Syntax.moduleImports . sourceModuleAst) sources)
+      dependencyNames = nub (importedNames <> wiredTypeModules)
+      availableTypes = Map.unions (map typeUnitTypes dependencyResults) `Map.union` dependencyTypes
+      availableTypeHashes = Map.unions (map typeUnitHashes dependencyResults) `Map.union` dependencyTypeHashes
+      availableExports = Map.unions (map resolveUnitExports dependencyResolveResults) `Map.union` dependencyExports
+      availableScopeHashes = Map.unions (map resolveUnitScopeHashes dependencyResolveResults) `Map.union` dependencyScopeHashes
+      sourceHashes = [("source:" <> T.pack (makeRelative root (sourceModulePath source)), sourceModuleHash source) | source <- sources]
+      scopeInputs =
+        [("scope:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableScopeHashes]]
+      typeInputs =
+        sortOn fst $
+          sourceHashes
+            <> scopeInputs
+            <> [("type:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name availableTypeHashes]]
       typePath source = storePath </> moduleDirectory (sourceModuleAst source) </> "type.cbor"
       outputPaths = moduleOutputPaths storePath target
+      importedInstances =
+        mergeTypeInterfaces
+          ( instanceFacts (mergeTypeInterfaces (Map.elems dependencyTypes))
+              : map (instanceFacts . typeUnitComplete) dependencyResults
+          )
       importedTypes =
         applyInstanceFacts
-          globalInstances
+          importedInstances
           ( mergeTypeInterfaces
               [ interface
               | name <- dependencyNames,
                 name `notElem` unitNames,
-                Just interface <- [Map.lookup name dependencyTypes]
+                Just interface <- [Map.lookup name availableTypes]
               ]
           )
-  cachedExports <- readUnitArtifacts cache hashes resolvePackage resolvePath unit
-  (diskExports, resolveResult, resolveChanged) <- case cachedExports of
-    Just exports -> do
-      mapM_ (verbose . ("Reuse resolve context: " <>) . T.unpack) unitNames
-      pure (exports, Nothing, False)
-    Nothing -> do
-      let result = resolveWithDeps dependencyExports packageModules
-      unless (null (resolveErrors result)) (ioError (userError (renderResolveErrors unit (resolveErrors result))))
-      let exports = extractInterfaceWithDeps dependencyExports result
-      mapM_ (\source -> writeArtifact verbose hashes exports resolvePackage (resolvePath source) source) unit
-      pure (exports, Just result, True)
-  let updatedScopeHashes = updateScopeHashes resolvePackage diskExports scopeHashes unit
-  let typeInputs =
-        sortOn fst $
-          sourceHashes
-            <> Map.toList dependencyHashes
-            <> [("type:" <> name, digest) | name <- dependencyNames, name `notElem` unitNames, Just digest <- [Map.lookup name typeHashes]]
       checkUnit = do
-        resolved <- case resolveResult of
-          Just result -> pure result
-          Nothing -> do
-            let result = resolveWithDeps dependencyExports packageModules
-            unless (null (resolveErrors result)) (ioError (userError (renderResolveErrors unit (resolveErrors result))))
-            pure result
-        let checked@(checkedModules, _) =
+        resolved <-
+          case resolveUnitResolved resolvedOutput of
+            Just result -> pure result
+            Nothing -> pure (resolveWithDeps availableExports (modulesInPackage resolvePackage (map sourceModuleAst sources)))
+        let checked =
               typecheckModuleSccWithInterface
                 (tcConfig primIdentity)
                 importedTypes
                 (map snd (resolvedModules resolved))
-        unless (all tcModuleSuccess checkedModules) (ioError (userError ("Type check failed: " <> show (concatMap tcModuleDiagnostics checkedModules))))
+        _ <- evaluate (sum (map (length . tcModuleDiagnostics) (fst checked)))
         pure checked
-  cachedTypes <- readTypeArtifacts cache typeInputs typePath unit
-  (unitTypes, typeChanged, checkedResult) <- case cachedTypes of
+      dependencySuccess = all typeUnitSuccess dependencyResults
+      resolveSuccess = resolveUnitSuccess resolvedOutput
+  cachedTypes <-
+    if resolveSuccess && dependencySuccess
+      then readTypeArtifacts cache typeInputs typePath sources
+      else pure Nothing
+  (unitTypes, typeChanged, initialChecked) <- case cachedTypes of
     Just interfaces -> do
       mapM_ (verbose . ("Reuse type interface: " <>) . T.unpack) unitNames
       pure (interfaces, False, Nothing)
     Nothing -> do
       checked@(_, completeInterface) <- checkUnit
-      let interfaces = map (moduleTypeInterface diskExports resolvePackage completeInterface) unit
-      mapM_ (uncurry (writeTypeArtifact verbose typeInputs typePath)) (zip unit interfaces)
+      let interfaces = map (moduleTypeInterface (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
       pure (interfaces, True, Just checked)
-  let updatedTypeHashes = updateTypeHashes typeHashes (zip unitNames unitTypes)
+  let diagnostics = maybe [] (concatMap tcModuleDiagnostics . fst) initialChecked
+      typeSuccess = null diagnostics
+      success = resolveSuccess && dependencySuccess && typeSuccess
+  when (typeChanged && success) $
+    mapM_ (uncurry (writeTypeArtifact verbose typeInputs typePath)) (zip sources unitTypes)
+  let ownTypeHashes = updateTypeHashes Map.empty (zip unitNames unitTypes)
   (fcChanged, generatedOutputChanged, pendingCompile) <-
-    if installNoCode config
+    if installNoCode config || not success
       then pure (False, False, Nothing)
       else do
         if typeChanged
           then do
-            (checkedModules, _) <- maybe checkUnit pure checkedResult
-            pure (True, installKeepGrin config, Just (PendingCompile True unitSourceSize checkedModules))
+            (checkedModules, _) <- maybe checkUnit pure initialChecked
+            pure (True, installKeepGrin config, Just (PendingCompile True checkedModules))
           else do
-            fcExists <- and <$> mapM (doesFileExist . outputFcPath . outputPaths . sourceName) unit
+            fcExists <- and <$> mapM (doesFileExist . outputFcPath . outputPaths . sourceName) sources
             grinStagesExist <-
               and
                 <$> mapM
@@ -479,41 +829,90 @@ installUnit config storePath resolvePackage primIdentity root (dependencyExports
                       let paths = outputPaths (sourceName source)
                       and <$> mapM doesFileExist [outputGrinPath paths, outputCpsGrinPath paths, outputGcGrinPath paths]
                   )
-                  unit
-            objectExists <- and <$> mapM (doesFileExist . outputObjectPath . outputPaths . sourceName) unit
-            nativeExists <- and <$> mapM (doesFileExist . outputNativePath . outputPaths . sourceName) unit
+                  sources
+            objectExists <- and <$> mapM (doesFileExist . outputObjectPath . outputPaths . sourceName) sources
+            nativeExists <- and <$> mapM (doesFileExist . outputNativePath . outputPaths . sourceName) sources
             if not fcExists || installLint config || repairRequired grinStagesExist nativeExists objectExists
               then do
-                (checkedModules, _) <- maybe checkUnit pure checkedResult
-                pure (not fcExists, repairRequired grinStagesExist nativeExists objectExists, Just (PendingCompile (not fcExists) unitSourceSize checkedModules))
+                (checkedModules, _) <- maybe checkUnit pure initialChecked
+                pure (not fcExists, repairRequired grinStagesExist nativeExists objectExists, Just (PendingCompile (not fcExists) checkedModules))
               else do
                 mapM_ (verbose . ("Reuse FC: " <>) . T.unpack) unitNames
                 pure (False, False, Nothing)
-  let changed = resolveChanged || typeChanged || fcChanged || generatedOutputChanged
+  let completeInterface = maybe (mergeTypeInterfaces unitTypes) snd initialChecked
+      localInterface = restrictTcInterfaceToModules (packageId resolvePackage) unitNames completeInterface
+      availableBackendFacts =
+        mergeTypeInterfaces
+          (completeInterface : Map.elems availableTypes <> map typeUnitBackendInterface dependencyResults)
+      backendInterface = addReferencedFacts availableBackendFacts completeInterface
+      changed = resolveUnitChanged resolvedOutput || typeChanged || fcChanged || generatedOutputChanged
       unitSet = Set.fromList unitNames
-      localUnitTypes = Map.fromList (zip unitNames unitTypes)
-      nextTypes = localUnitTypes `Map.union` dependencyTypes
-      nextInstances =
-        case checkedResult of
-          Just (_, completeInterface) -> instanceFacts completeInterface
-          Nothing -> globalInstances <> instanceFacts (mergeTypeInterfaces unitTypes)
       written' = if changed then written <> unitSet else written
       reused' = if changed then reused else reused <> unitSet
-  pure
-    ( diskExports `Map.union` dependencyExports,
-      updatedScopeHashes,
-      nextTypes,
-      updatedTypeHashes,
-      written',
-      reused',
-      maybe pendingCompiles (: pendingCompiles) pendingCompile,
-      nextInstances
-    )
+      written = Set.empty
+      reused = Set.empty
+  atomically $
+    putTMVar
+      (runtimeTypeResult runtime)
+      TypeUnitResult
+        { typeUnitTypes = Map.fromList (zip unitNames unitTypes),
+          typeUnitHashes = ownTypeHashes,
+          typeUnitComplete = completeInterface,
+          typeUnitLocalInterface = localInterface,
+          typeUnitBackendInterface = backendInterface,
+          typeUnitDiagnostics = diagnostics,
+          typeUnitWritten = written',
+          typeUnitReused = reused',
+          typeUnitPendingCompile = pendingCompile,
+          typeUnitSuccess = success
+        }
   where
-    sourceName = fromMaybe "Main" . moduleName . sourceModuleAst
-    unitSourceSize = sum (map sourceModuleSize unit)
+    config = taskInstallConfig context
+    unit = runtimeUnit runtime
     repairRequired grinStagesExist nativeExists objectExists =
       (installKeepGrin config && not grinStagesExist) || (installKeepNative config && not nativeExists) || not objectExists
+
+runPrepareUnit :: PackageTaskContext -> Map.Map UnitId UnitRuntime -> UnitRuntime -> IO ()
+runPrepareUnit context runtimes runtime = do
+  result <- atomically (readTMVar (runtimeTypeResult runtime))
+  dependencyResults <- readDependencyResults runtimePreparedDesugar runtimes (sourceUnitDependencies (runtimeUnit runtime))
+  prepared <-
+    if typeUnitSuccess result
+      then do
+        let availableDependencies = catMaybes dependencyResults
+            dependencies =
+              if null availableDependencies
+                then [taskDependencyPreparedDesugar context]
+                else availableDependencies
+        Just
+          <$> either
+            (ioError . userError . ("FC environment generation failed: " <>))
+            pure
+            ( Fc.prepareDesugarIncrementalWithAvailable
+                (DesugarConfig (taskPrimIdentity context))
+                dependencies
+                (typeUnitLocalInterface result)
+                (typeUnitBackendInterface result)
+            )
+      else pure Nothing
+  atomically (putTMVar (runtimePreparedDesugar runtime) prepared)
+
+runBackendUnit :: PackageTaskContext -> UnitRuntime -> IO ()
+runBackendUnit context runtime = do
+  result <- atomically (readTMVar (runtimeTypeResult runtime))
+  prepared <- atomically (readTMVar (runtimePreparedDesugar runtime))
+  case (typeUnitPendingCompile result, prepared) of
+    (Just pending, Just preparedDesugar) -> do
+      let config = taskInstallConfig context
+          storePath = taskStorePath context
+      compileCheckedModules
+        config
+        (pendingWriteFc pending)
+        (installVerbose config)
+        preparedDesugar
+        (moduleOutputPaths storePath (installTarget config))
+        (pendingModules pending)
+    _ -> pure ()
 
 mergeTypeInterfaces :: [TcInterface] -> TcInterface
 mergeTypeInterfaces = mergeTcInterfaces
@@ -556,35 +955,6 @@ writePackageInstanceArtifact verbose storePath typeHashes complete interface = d
 
 wiredTypeModules :: [Text]
 wiredTypeModules = ["GHC.Base", "GHC.Classes", "GHC.Num", "GHC.Prim", "GHC.Tuple", "GHC.Types"]
-
-compilePendingModules :: InstallConfig -> PackageId -> TcInterface -> (Text -> ModuleOutputPaths) -> [PendingCompile] -> IO ()
-compilePendingModules config primIdentity interface outputPaths pending = do
-  prepared <- either (ioError . userError . ("FC environment generation failed: " <>)) pure (Fc.prepareDesugar (DesugarConfig primIdentity) interface)
-  capabilities <- getNumCapabilities
-  semaphore <- newQSem (max 1 (capabilities * 3))
-  results <- mapConcurrently (runCompile semaphore prepared) scheduled
-  mapM_ (report . snd) (sortOn fst results)
-  where
-    scheduled = sortOn scheduleKey pending
-    pendingNames = map (fromMaybe "Main" . moduleName) . pendingModules
-    scheduleKey item = (Down (pendingSourceSize item), pendingNames item)
-    runCompile semaphore prepared item = do
-      messages <- newIORef []
-      let saveMessage message = modifyIORef' messages (message :)
-          action =
-            compileCheckedModules
-              config
-              (pendingWriteFc item)
-              saveMessage
-              prepared
-              outputPaths
-              (pendingModules item)
-      result <- try (bracket_ (waitQSem semaphore) (signalQSem semaphore) action)
-      saved <- reverse <$> readIORef messages
-      pure (pendingNames item, (result :: Either SomeException (), saved))
-    report (result, messages) = do
-      mapM_ (installVerbose config) messages
-      either throwIO pure result
 
 compileCheckedModules :: InstallConfig -> Bool -> (String -> IO ()) -> Fc.PreparedDesugar -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
 compileCheckedModules config writeFc verbose prepared outputPaths checkedModules = do
