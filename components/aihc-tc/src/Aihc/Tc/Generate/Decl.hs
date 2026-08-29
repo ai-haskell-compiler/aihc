@@ -530,7 +530,7 @@ tcModuleBody schemes m = do
   -- value bindings, but their occurrences still need the same instantiation
   -- and evidence records as ordinary expressions.
   classDecls <- mapM tcClassDeclBodies (moduleDecls valueAnnotatedModule)
-  instanceHeaders <- mapM annotateInstanceHeaderTc classDecls
+  instanceHeaders <- mapM (annotateInstanceHeaderTc (resolvedModuleOrigin m)) classDecls
   instanceDecls <- mapM tcInstanceDeclBodies instanceHeaders
   let pendingModule = valueAnnotatedModule {moduleDecls = instanceDecls}
   -- Phase 5: reject source top-level values whose finalized types are
@@ -720,7 +720,7 @@ renderCheckedGroup checkedGroups (groupId, group) =
 annotateModuleTc :: Map Text TcType -> Module -> TcM Module
 annotateModuleTc checkedValueTypes m = do
   let classMethods = collectClassMethodNames (moduleDecls m)
-  decls <- mapM (annotateDeclTc classMethods checkedValueTypes) (moduleDecls m)
+  decls <- mapM (annotateDeclTc (resolvedModuleOrigin m) classMethods checkedValueTypes) (moduleDecls m)
   pure (m {moduleDecls = decls})
 
 annotateModuleDerivingTc :: Module -> TcM Module
@@ -746,12 +746,12 @@ moduleEnabledExtensions modu =
   applyImpliedExtensions $
     foldr applyExtensionSetting [] (moduleLanguagePragmas modu)
 
-annotateDeclTc :: Map Text [Text] -> Map Text TcType -> Decl -> TcM Decl
-annotateDeclTc classMethods checkedValueTypes decl =
+annotateDeclTc :: (Text, Text) -> Map Text [Text] -> Map Text TcType -> Decl -> TcM Decl
+annotateDeclTc origin classMethods checkedValueTypes decl =
   case decl of
     DeclAnn ann _
       | Just _ <- fromAnnotation @TcInstanceAnnotation ann -> pure decl
-    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc classMethods checkedValueTypes inner
+    DeclAnn ann inner -> DeclAnn ann <$> annotateDeclTc origin classMethods checkedValueTypes inner
     DeclValue valueDecl
       | valueDeclWasChecked checkedValueTypes valueDecl -> do
           (ty, valueDecl') <- annotateValueDeclTc checkedValueTypes valueDecl
@@ -767,15 +767,15 @@ annotateDeclTc classMethods checkedValueTypes decl =
     DeclForeign foreignDecl
       | isForeignImport foreignDecl -> annotateForeignDeclTc foreignDecl
     DeclClass classDecl -> annotateClassDeclTc classDecl
-    DeclInstance instanceDecl -> annotateInstanceDeclTc instanceDecl
+    DeclInstance instanceDecl -> annotateInstanceDeclTc origin instanceDecl
     DeclStandaloneDeriving {} -> pure decl
     _ -> pure decl
 
-annotateInstanceHeaderTc :: Decl -> TcM Decl
-annotateInstanceHeaderTc decl =
+annotateInstanceHeaderTc :: (Text, Text) -> Decl -> TcM Decl
+annotateInstanceHeaderTc origin decl =
   case decl of
-    DeclAnn ann inner -> DeclAnn ann <$> annotateInstanceHeaderTc inner
-    DeclInstance instanceDecl -> annotateInstanceDeclTc instanceDecl
+    DeclAnn ann inner -> DeclAnn ann <$> annotateInstanceHeaderTc origin inner
+    DeclInstance instanceDecl -> annotateInstanceDeclTc origin instanceDecl
     _ -> pure decl
 
 valueDeclWasChecked :: Map Text TcType -> ValueDecl -> Bool
@@ -1083,8 +1083,8 @@ annotateValueDeclTc checkedValueTypes valueDecl =
     checkedBindingType name =
       maybe (bindingType name) pure (Map.lookup name checkedValueTypes)
 
-annotateInstanceDeclTc :: InstanceDecl -> TcM Decl
-annotateInstanceDeclTc instanceDecl =
+annotateInstanceDeclTc :: (Text, Text) -> InstanceDecl -> TcM Decl
+annotateInstanceDeclTc origin instanceDecl =
   case (instanceHeadName (instanceDeclHead instanceDecl), instanceHeadTypes (instanceDeclHead instanceDecl)) of
     (_, []) -> pure (DeclInstance instanceDecl)
     (Nothing, _) -> pure (DeclInstance instanceDecl)
@@ -1096,7 +1096,7 @@ annotateInstanceDeclTc instanceDecl =
       tvIds <- mapM defaultTyVarKinds rawTvIds
       headTys <- mapM defaultTypeKinds rawHeadTys
       context <- mapM defaultPredKinds rawContext
-      let dictName = instanceDictName classNameText headTys
+      dictName <- lookupInstanceDictName origin classNameText headTys
       classInfo <- lookupClass classNameText
       info <- maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure classInfo
       let classSubstitution =
@@ -2207,7 +2207,7 @@ registerInstanceDecl origin instanceDecl =
       (tvIds, tvEnv) <- makeInstanceTyVarEnv instanceDecl headArgs
       let classNameText = nameText className
       headTys <- checkInstanceHeadTypes classNameText tvEnv headArgs
-      let dictName = instanceDictName classNameText headTys
+      dictName <- allocateInstanceDictName origin classNameText headTys
       context <- mapM (surfacePredToPred tvEnv) (instanceDeclContext instanceDecl)
       classInfo <- lookupClass classNameText >>= maybe (missingTypeInfo ("class " <> T.unpack classNameText)) pure
       let dictTy = foldr TcForAllTy (TcQualTy context (TcTyCon (ciTyCon classInfo) headTys)) tvIds
@@ -2240,6 +2240,57 @@ typeSuffix ty =
     TcTyCon (TyCon "[]" _) [_] -> "List"
     TcTyCon tc args -> tyConName tc <> T.concat (map typeSuffix args)
     _ -> "T"
+
+instanceHeadIdentity :: [TcType] -> Text
+instanceHeadIdentity = T.concat . map typeIdentity
+
+typeIdentity :: TcType -> Text
+typeIdentity ty =
+  case ty of
+    TcTyVar tv -> tvName tv
+    TcTyCon tc [] -> tyConIdentity tc
+    TcTyCon (TyCon "[]" _) [_] -> "List"
+    TcTyCon tc args -> tyConIdentity tc <> T.concat (map typeIdentity args)
+    TcFunTy argument result -> typeIdentity argument <> "->" <> typeIdentity result
+    _ -> "T"
+
+tyConIdentity :: TyCon -> Text
+tyConIdentity tyCon =
+  packageIdText (tyConPackageId tyCon) <> "." <> tyConModuleName tyCon <> "." <> tyConName tyCon
+
+allocateInstanceDictName :: (Text, Text) -> Text -> [TcType] -> TcM Text
+allocateInstanceDictName origin className headTys = do
+  instances <- getInstances
+  let taken = Set.fromList [iiDictName info | info <- instances, iiDictOrigin info == origin]
+      shortName = instanceDictName className headTys
+      modules = nub (mapMaybe typeConstructorModule headTys)
+      qualifiedName = shortName <> T.concat (map ("$" <>) modules)
+  pure
+    ( if shortName `Set.notMember` taken
+        then shortName
+        else
+          if qualifiedName `Set.notMember` taken && qualifiedName /= shortName
+            then qualifiedName
+            else shortName <> "$" <> T.pack (show (Set.size taken))
+    )
+
+lookupInstanceDictName :: (Text, Text) -> Text -> [TcType] -> TcM Text
+lookupInstanceDictName origin className headTys = do
+  instances <- getInstances
+  let identity = instanceHeadIdentity headTys
+      matches info =
+        iiDictOrigin info == origin
+          && iiClassName info == className
+          && instanceHeadIdentity (iiHead info) == identity
+  case find matches instances of
+    Just info -> pure (iiDictName info)
+    Nothing -> allocateInstanceDictName origin className headTys
+
+typeConstructorModule :: TcType -> Maybe Text
+typeConstructorModule ty =
+  case ty of
+    TcTyCon tyCon _ -> Just (tyConModuleName tyCon)
+    _ -> Nothing
 
 registerDataFamilyDeclHeader :: Maybe TypeScheme -> DataFamilyDecl -> TcM [TcBindingResult]
 registerDataFamilyDeclHeader maybeKindScheme familyDecl = do
