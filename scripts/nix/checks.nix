@@ -374,7 +374,7 @@
       store="$TMPDIR/store"
       mkdir -p "$store"
 
-      ${aihcExe} install-v2 core-libs/aihc-prim --store "$store" --keep-grin --target apple-arm64
+      ${aihcExe} install-v2 core-libs/aihc-prim --store "$store" --keep-grin --lint --target apple-arm64
 
       test -n "$(find "$store" -path '*/GHC/Prim/core' -print -quit)"
       test -n "$(find "$store" -path '*/GHC/Prim/grin' -print -quit)"
@@ -413,7 +413,7 @@
       ${aihcExe} prepare-runtime --target wasm32-wasip3 --gc calloc --store "$out"
 
       ${pkgs.lib.concatMapStringsSep "\n" (target: ''
-          ${aihcExe} install-v2 core-libs/aihc-base --store "$out" --target ${target}
+          ${aihcExe} install-v2 core-libs/aihc-base --store "$out" --lint --target ${target}
         '')
         exampleToolchainTargets}
 

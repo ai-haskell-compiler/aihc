@@ -11,7 +11,7 @@ where
 
 import Aihc.Fc (DesugarConfig (..), FcDesugarResult (..), desugarModuleFc)
 import Aihc.Fc qualified as Fc
-import Aihc.Grin (lintProgram, lowerProgram, renderProgram)
+import Aihc.Grin (lintProgram, lowerProgram, prettyProgram)
 import Aihc.Parser (ParserConfig (..), defaultConfig, parseModule)
 import Aihc.Parser.Syntax
   ( Extension (ImplicitPrelude),
@@ -45,6 +45,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Data.Yaml qualified as Y
+import Prettyprinter (defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.String (renderString)
 import System.Directory (doesDirectoryExist, doesFileExist, getCurrentDirectory, listDirectory)
 import System.FilePath (makeRelative, takeDirectory, takeExtension, (</>))
 import System.IO.Unsafe (unsafePerformIO)
@@ -86,7 +88,7 @@ renderCase fixture = do
   programs <- buildFcPrograms (caseExtensions fixture) (caseModules fixture)
   lowered <- traverse lowerProgram programs
   case concatMap lintProgram lowered of
-    [] -> pure (trim (unlines (map renderProgram lowered)))
+    [] -> pure (trim (unlines (map (renderString . layoutPretty defaultLayoutOptions . prettyProgram) lowered)))
     errors -> Left ("GRIN lint error: " <> show errors)
 
 buildFcPrograms :: [Extension] -> [Text] -> Either String [Fc.Program]
