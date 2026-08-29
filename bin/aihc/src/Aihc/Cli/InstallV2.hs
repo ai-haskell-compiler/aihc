@@ -65,7 +65,9 @@ import Aihc.Tc
     InstanceInfo (..),
     Pred (..),
     TcDiagnostic (..),
+    TcErrorKind (..),
     TcInterface (..),
+    TcSeverity (..),
     TcTermKey (..),
     TcType (..),
     TyCon,
@@ -74,10 +76,13 @@ import Aihc.Tc
     TypeScheme (..),
     dataTypeKey,
     mergeTcInterfaces,
+    renderPred,
+    renderTcType,
     restrictTcInterfaceToModules,
     tcConfig,
     tcModuleBindings,
     tcModuleDiagnostics,
+    tcModuleSuccess,
     typecheckModuleSccWithInterface,
   )
 import Aihc.Tc.Env (TypeSynonymInfo (..))
@@ -346,7 +351,7 @@ installPackageV2 config storeRoot dependencies root = do
   typeResults <- mapM (atomically . readTMVar . runtimeTypeResult) runtimes
   let parseDiagnostics = concatMap (concatMap sourceModuleParseDiagnostics . sourceUnitSources . runtimeUnit) runtimes
       resolveDiagnostics = concatMap resolveUnitErrors resolveResults
-      typeDiagnostics = concatMap typeUnitDiagnostics typeResults
+      typeDiagnostics = concatMap (filter ((== TcError) . diagSeverity) . typeUnitDiagnostics) typeResults
       frontendFailure = renderFrontendFailure parsed parseDiagnostics resolveDiagnostics typeDiagnostics
   unless (null frontendFailure) (ioError (userError frontendFailure))
   let localExports = Map.unions (map resolveUnitExports resolveResults)
@@ -556,13 +561,47 @@ renderFrontendFailure sources parseDiagnostics resolveDiagnostics typeDiagnostic
     sections =
       [renderParseDiagnostics parseDiagnostics | not (null parseDiagnostics)]
         <> [renderResolveErrors sources resolveDiagnostics | not (null resolveDiagnostics)]
-        <> ["Type check failed: " <> show typeDiagnostics | not (null typeDiagnostics)]
+        <> [renderTypeErrors sources typeDiagnostics | not (null typeDiagnostics)]
 
     dropFinalNewlines = reverse . dropWhile (== '\n') . reverse
 
 renderParseDiagnostics :: [Value] -> String
 renderParseDiagnostics diagnostics =
   "Parse failed:\n" <> intercalate "\n" (map (renderHumanDiagnostic "parse") diagnostics)
+
+renderTypeErrors :: [SourceModule] -> [TcDiagnostic] -> String
+renderTypeErrors sources diagnostics =
+  "Type check failed:\n"
+    <> intercalate "\n\n" (map renderTypeError diagnostics)
+    <> "\n"
+  where
+    sourceLines = Map.unions (map sourceModuleSourceLines sources)
+    renderTypeError diagnostic =
+      case diagLoc diagnostic of
+        Nothing -> "<unknown location>: error: " <> renderTypeErrorKind (diagKind diagnostic)
+        Just sourceSpan ->
+          renderResolveLocation sourceSpan
+            <> ": error: "
+            <> renderTypeErrorKind (diagKind diagnostic)
+            <> renderResolveExcerpt sourceLines sourceSpan
+
+renderTypeErrorKind :: TcErrorKind -> String
+renderTypeErrorKind kind =
+  case kind of
+    UnificationError left right _ _ ->
+      "could not match " <> renderTcType left <> " with " <> renderTcType right
+    OccursCheckError unique ty ->
+      "occurs check failed: " <> show unique <> " occurs in " <> renderTcType ty
+    UnboundVariable name ->
+      "unbound variable " <> name
+    KindMismatch expected actual ->
+      "kind mismatch: expected " <> renderTcType expected <> ", got " <> renderTcType actual
+    UnsolvedWanted pred' _ ->
+      "unsolved constraint " <> renderPred pred'
+    TopLevelUnliftedBinding name ty ->
+      "top-level binding " <> T.unpack name <> " has unlifted type " <> renderTcType ty
+    OtherError message ->
+      message
 
 runPackageTasks :: PackageTaskContext -> Int -> [SourceUnit] -> IO ([UnitRuntime], [TaskTiming])
 runPackageTasks context workers units = do
@@ -807,7 +846,7 @@ runTypeUnit context runtimes runtime = do
       let interfaces = map (moduleTypeInterface (resolveUnitExports resolvedOutput) resolvePackage completeInterface) sources
       pure (interfaces, True, Just checked)
   let diagnostics = maybe [] (concatMap tcModuleDiagnostics . fst) initialChecked
-      typeSuccess = null diagnostics
+      typeSuccess = maybe True (all tcModuleSuccess . fst) initialChecked
       success = resolveSuccess && dependencySuccess && typeSuccess
   when (typeChanged && success) $
     mapM_ (uncurry (writeTypeArtifact verbose typeInputs typePath)) (zip sources unitTypes)
@@ -839,7 +878,9 @@ runTypeUnit context runtimes runtime = do
               else do
                 mapM_ (verbose . ("Reuse FC: " <>) . T.unpack) unitNames
                 pure (False, False, Nothing)
-  let completeInterface = maybe (mergeTypeInterfaces unitTypes) snd initialChecked
+  let cachedInterface = mergeTypeInterfaces unitTypes
+      cachedInstances = mergeTypeInterfaces [importedInstances, instanceFacts cachedInterface]
+      completeInterface = maybe (applyInstanceFacts cachedInstances cachedInterface) snd initialChecked
       localInterface = restrictTcInterfaceToModules (packageId resolvePackage) unitNames completeInterface
       availableBackendFacts =
         mergeTypeInterfaces

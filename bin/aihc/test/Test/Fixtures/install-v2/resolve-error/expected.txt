@@ -16,4 +16,11 @@ Name resolution failed:
   5 | data AlphaBox = AlphaBox AlphaMissing
     |                          ^^^^^^^^^^^^
 
-Type check failed: [TcDiagnostic {diagLoc = Just SourceSpan 5 9 5 15, diagSeverity = TcError, diagKind = OtherError "visible type application requires a polymorphic expression"},TcDiagnostic {diagLoc = Nothing, diagSeverity = TcError, diagKind = OtherError "internal type checker abort: internal type annotation error: unzonked meta-variable ?3 in finalized type annotation"},TcDiagnostic {diagLoc = Nothing, diagSeverity = TcError, diagKind = OtherError "internal type checker abort: internal type annotation error: unzonked meta-variable ?3 in finalized type annotation"}]
+Type check failed:
+<PACKAGE>/src/Aardvark.hs:5:9: error: visible type application requires a polymorphic expression
+  5 | value = () @()
+    |         ^^^^^^
+
+<unknown location>: error: internal type checker abort: internal type annotation error: unzonked meta-variable ?3 in finalized type annotation
+
+<unknown location>: error: internal type checker abort: internal type annotation error: unzonked meta-variable ?3 in finalized type annotation
