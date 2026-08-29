@@ -20,6 +20,7 @@ import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.Tidy (tidyProgramWithTidiedImports, tidyTypeEnv)
 import Aihc.Fc.TypeOf qualified as TypeOf
+import Aihc.Fc.Wired (ghcTypesModule)
 import Aihc.Parser.Syntax
   ( DataDecl (..),
     Module (..),
@@ -104,11 +105,10 @@ typeEnvFromTcInterface config interface = do
   termHeaders <- mapMaybeM (convertTermHeader conversionEnv) (tcInterfaceTerms interface)
   instanceHeaders <- mapM (convertInstanceHeader conversionEnv) (tcInterfaceInstances interface)
   defaultMethodHeaders <- concat <$> mapM (convertDefaultMethodHeaders conversionEnv) (tcInterfaceClasses interface)
-  let declarationEnv = TypeOf.typeEnvFromProgram (Program emptyScopeTable emptyImports declarations)
+  let declarationEnv = TypeOf.typeEnvFromProgram (primPackageId config) (Program emptyScopeTable emptyImports declarations)
   pure
     declarationEnv
-      { TypeOf.tePrimPackage = Just (primPackageId config),
-        TypeOf.teHeaders = TypeOf.teHeaders declarationEnv <> Map.fromList (typeHeaders <> termHeaders <> instanceHeaders <> defaultMethodHeaders)
+      { TypeOf.teHeaders = TypeOf.teHeaders declarationEnv <> Map.fromList (typeHeaders <> termHeaders <> instanceHeaders <> defaultMethodHeaders)
       }
   where
     conversionEnv = interfaceConvertEnv config interface
@@ -268,7 +268,7 @@ failedDesugar messages =
     }
 
 desugarCheckedWithAvailable :: DesugarConfig -> [TcBindingResult] -> [TcBindingResult] -> TcInterface -> PreparedImports -> PreparedValueInterface -> ConvertEnv -> Module -> Either String Program
-desugarCheckedWithAvailable _config interfaceBindings moduleBindings interface preparedImports preparedValues env checked = do
+desugarCheckedWithAvailable config interfaceBindings moduleBindings interface preparedImports preparedValues env checked = do
   let (packageId, currentModule) = resolvedModuleOrigin checked
       moduleOrigin = (packageId, currentModule)
       localTyCon tyCon = tyConPackageId tyCon == packageId && tyConModuleName tyCon == currentModule
@@ -287,7 +287,7 @@ desugarCheckedWithAvailable _config interfaceBindings moduleBindings interface p
   let decls = typeDecls <> valueDecls
       baseProgram = Program emptyScopeTable emptyImports decls
       imports = importsForProgramPrepared preparedImports baseProgram
-      scopes = buildScopes moduleOrigin imports decls
+      scopes = buildScopes (primPackageId config) moduleOrigin imports decls
   pure (tidyProgramWithTidiedImports (Program scopes imports decls))
 
 dsDecl ::
@@ -759,8 +759,8 @@ synonymResult env scheme params =
     dropParams remaining (KFun _ result) = dropParams (remaining - 1) result
     dropParams _ kind = kind
 
-buildScopes :: (PackageId, Text) -> Imports -> [Decl] -> ScopeTable
-buildScopes moduleOrigin imports decls =
+buildScopes :: PackageId -> (PackageId, Text) -> Imports -> [Decl] -> ScopeTable
+buildScopes primPackage moduleOrigin imports decls =
   foldl
     ( \table (index, (package, moduleName')) ->
         insertScope index package moduleName' table
@@ -772,6 +772,7 @@ buildScopes moduleOrigin imports decls =
       sort
         ( nub
             ( [moduleOrigin]
+                <> [(primPackage, ghcTypesModule)]
                 <> importsOrigins imports
                 <> concatMap declOrigins decls
             )

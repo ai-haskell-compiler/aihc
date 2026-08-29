@@ -1,4 +1,5 @@
 scope 1 = "" Test
+scope 2 = "aihc-prim" GHC.Types
 
 val 1.vbytes :: 1.tBytes
  = "A"#1.vByteRep

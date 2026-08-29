@@ -563,15 +563,7 @@ compilePendingModules keepGrin keepNative lint target verbose primIdentity inter
 compileCheckedModules :: Bool -> Bool -> Bool -> Bool -> NativeTarget -> (String -> IO ()) -> Fc.PreparedDesugar -> (Text -> ModuleOutputPaths) -> [Module] -> IO ()
 compileCheckedModules writeFc keepGrin keepNative lint target verbose prepared outputPaths checkedModules = do
   let bindings = concatMap tcModuleBindings checkedModules
-      desugarResults = map desugar checkedModules
-      desugar checked
-        | null (Syntax.moduleDecls checked) =
-            FcDesugarResult
-              { dsProgram = Fc.Program Fc.emptyScopeTable (Fc.Imports Map.empty Map.empty Map.empty Map.empty) [],
-                dsSuccess = True,
-                dsErrors = []
-              }
-        | otherwise = Fc.desugarModuleFcPrepared prepared bindings checked
+      desugarResults = map (Fc.desugarModuleFcPrepared prepared bindings) checkedModules
   unless (all dsSuccess desugarResults) (ioError (userError ("FC generation failed: " <> unlines (concatMap dsErrors desugarResults))))
   let moduleNames = map (fromMaybe "Main" . moduleName) checkedModules
       fcModules = zipWith FcModule moduleNames (map dsProgram desugarResults)

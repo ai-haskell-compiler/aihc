@@ -63,7 +63,8 @@ instance Monoid TopParts where
 
 lowerProgram :: Fc.Program -> Either String GrinProgram
 lowerProgram program = do
-  let types = TypeOf.typeEnvFromProgram program
+  primPackage <- maybe (Left "System FC program needs a GHC.Types scope") Right (Wired.primPackageFromScopes (Fc.programScopes program))
+  let types = TypeOf.typeEnvFromProgram primPackage program
       globals = globalNameTable types
       env = LowerEnv types Map.empty Map.empty globals
       initialState = LowerState (-1000000000) 0 []
@@ -939,13 +940,12 @@ defaultRuntimeReps = foldl defaultOne
     defaultOne env binder =
       case reduce env (Fc.binderType binder) of
         Fc.TyCon name
-          | Fc.nameText name == "RuntimeRep",
-            Just package <- TypeOf.tePrimPackage (lowerTypes env) ->
+          | Fc.nameText name == "RuntimeRep" ->
               env
                 { lowerTypeSubstitution =
                     Map.insert
                       (Fc.binderName binder)
-                      (Fc.TyCon (Wired.liftedRepName package))
+                      (Fc.TyCon (Wired.liftedRepName (TypeOf.tePrimPackage (lowerTypes env))))
                       (lowerTypeSubstitution env)
                 }
         _ -> env

@@ -1,5 +1,6 @@
 scope 1 = "" Test
 scope 2 = "dependency" Dependency
+scope 3 = "aihc-prim" GHC.Types
 
 import headers
   2.tExternal :: 2.tExternal;

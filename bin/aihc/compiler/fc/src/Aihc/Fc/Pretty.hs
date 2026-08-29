@@ -11,11 +11,13 @@ where
 import Aihc.Fc.Name
 import Aihc.Fc.Syntax
 import Aihc.Fc.TypeOf
+import Aihc.Fc.Wired (primPackageFromScopes)
 import Aihc.Resolve (PackageId (..), packageIdText)
 import Aihc.Tc.Types (Unique (..))
 import Data.ByteString qualified as BS
 import Data.Char (chr, isAscii, isPrint, ord)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Word (Word8)
@@ -39,7 +41,7 @@ prettyProgram program =
   vsep (punctuate hardline documents)
   where
     scopes = programScopes program
-    env = typeEnvFromProgram program
+    env = typeEnvFromProgram (primPackage program) program
     scopeDocuments =
       case scopeEntries scopes of
         [] -> []
@@ -233,7 +235,7 @@ prettyForeignEffect effect =
 
 renderType :: Program -> Type -> String
 renderType program =
-  renderDocument . prettyTypeWith (typeEnvFromProgram program) (programScopes program) PrecForAll
+  renderDocument . prettyTypeWith (typeEnvFromProgram (primPackage program) program) (programScopes program) PrecForAll
 
 prettyTypeWith :: TypeEnv -> ScopeTable -> Prec -> Type -> Doc ann
 prettyTypeWith env scopes prec ty =
@@ -304,7 +306,10 @@ headerBinderEnv = foldl (\env binder -> env {teBinders = Map.insert (binderName 
 
 renderExpr :: Program -> Expr -> String
 renderExpr program =
-  renderDocument . prettyExprWith (typeEnvFromProgram program) (programScopes program)
+  renderDocument . prettyExprWith (typeEnvFromProgram (primPackage program) program) (programScopes program)
+
+primPackage :: Program -> PackageId
+primPackage = fromMaybe (error "System FC program needs a GHC.Types scope") . primPackageFromScopes . programScopes
 
 prettyExprWith :: TypeEnv -> ScopeTable -> Expr -> Doc ann
 prettyExprWith env scopes expr =

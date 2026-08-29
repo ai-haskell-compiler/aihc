@@ -46,11 +46,14 @@ type ModuleLoader = PackageId -> Text -> IO (Maybe Program)
 
 lintProgram :: Program -> [LintError]
 lintProgram program =
-  let env = registerProgram program
-   in map UnusedImport (unusedImports program)
-        <> lintImportDeclarations env (programImports program)
-        <> concatMap (lintDeclHeaders env) (programDecls program)
-        <> concatMap (lintDeclBodies env) (programDecls program)
+  case primPackageFromScopes (programScopes program) of
+    Nothing -> [LintFailure "program needs a GHC.Types scope"]
+    Just primPackage ->
+      let env = registerProgram primPackage program
+       in map UnusedImport (unusedImports program)
+            <> lintImportDeclarations env (programImports program)
+            <> concatMap (lintDeclHeaders env) (programDecls program)
+            <> concatMap (lintDeclBodies env) (programDecls program)
 
 loadScopeClosure :: ModuleLoader -> [Program] -> IO [Program]
 loadScopeClosure loader seeds = do
@@ -87,9 +90,9 @@ scopeKeys :: Program -> [(PackageId, Text)]
 scopeKeys program =
   [(package, name) | (_, package, name) <- scopeEntries (programScopes program)]
 
-registerProgram :: Program -> LintEnv
-registerProgram program =
-  let types = typeEnvFromProgram program
+registerProgram :: PackageId -> Program -> LintEnv
+registerProgram primPackage program =
+  let types = typeEnvFromProgram primPackage program
    in LintEnv
         { leTypes = types,
           leAxioms = teAxioms types
@@ -186,9 +189,7 @@ lintType env ty =
       leftKind <- lintType env left
       rightKind <- lintType env right
       unless (typesEqual (leTypes env) leftKind rightKind) (Left (KindMismatch "equality" leftKind rightKind))
-      case constraintKind env of
-        Nothing -> Left (LintFailure "equality needs GHC.Types.Constraint")
-        Just kind -> Right kind
+      Right (constraintKind env)
 
 lintFun :: LintEnv -> Type -> Type -> Type -> Type -> Either LintError Type
 lintFun env r1 r2 argument result = do
@@ -196,8 +197,8 @@ lintFun env r1 r2 argument result = do
   r2Kind <- lintType env r2
   argumentKind <- lintType env argument
   resultKind <- lintType env result
-  runtimeRep <- runtimeRepKind env
-  typeKind <- typeKindType env
+  let runtimeRep = runtimeRepKind env
+      typeKind = typeKindType env
   unless (typesEqual (leTypes env) r1Kind runtimeRep) (Left (KindMismatch "FUN r1" runtimeRep r1Kind))
   unless (typesEqual (leTypes env) r2Kind runtimeRep) (Left (KindMismatch "FUN r2" runtimeRep r2Kind))
   unless (typesEqual (leTypes env) argumentKind (typeAppRep env r1)) (Left (KindMismatch "FUN argument" (typeAppRep env r1) argumentKind))
@@ -253,21 +254,15 @@ typeUsesName target ty =
 
 isTYPEName :: LintEnv -> Type -> Bool
 isTYPEName env ty =
-  case (tePrimPackage (leTypes env), ty) of
-    (Just package, TyCon name) -> name == typeConstructor package
+  case ty of
+    TyCon name -> name == typeConstructor (tePrimPackage (leTypes env))
     _ -> False
 
 isTypeKind :: LintEnv -> Type -> Bool
-isTypeKind env ty =
-  case typeKindType env of
-    Right expected -> typesEqual (leTypes env) expected ty
-    Left _ -> False
+isTypeKind env = typesEqual (leTypes env) (typeKindType env)
 
 isRuntimeRepKind :: LintEnv -> Type -> Bool
-isRuntimeRepKind env ty =
-  case runtimeRepKind env of
-    Right expected -> typesEqual (leTypes env) expected ty
-    Left _ -> False
+isRuntimeRepKind env = typesEqual (leTypes env) (runtimeRepKind env)
 
 viewForAll :: LintEnv -> Type -> Maybe (Binder, Type)
 viewForAll env ty =
@@ -281,27 +276,18 @@ viewFun env ty =
     TyFun r1 r2 argument result -> Just (r1, r2, argument, result)
     _ -> Nothing
 
-typeKindType :: LintEnv -> Either LintError Type
-typeKindType env =
-  case tePrimPackage (leTypes env) of
-    Nothing -> Left (LintFailure "FUN needs a GHC.Types scope")
-    Just package -> Right (typeSynonym package)
+typeKindType :: LintEnv -> Type
+typeKindType env = typeSynonym (tePrimPackage (leTypes env))
 
-runtimeRepKind :: LintEnv -> Either LintError Type
-runtimeRepKind env =
-  case tePrimPackage (leTypes env) of
-    Nothing -> Left (LintFailure "RuntimeRep needs a GHC.Types scope")
-    Just package -> Right (TyCon (runtimeRepConstructor package))
+runtimeRepKind :: LintEnv -> Type
+runtimeRepKind env = TyCon (runtimeRepConstructor (tePrimPackage (leTypes env)))
 
-constraintKind :: LintEnv -> Maybe Type
-constraintKind env =
-  TyCon . constraintName <$> tePrimPackage (leTypes env)
+constraintKind :: LintEnv -> Type
+constraintKind env = TyCon (constraintName (tePrimPackage (leTypes env)))
 
 typeAppRep :: LintEnv -> Type -> Type
-typeAppRep env representation =
-  case tePrimPackage (leTypes env) of
-    Nothing -> representation
-    Just package -> TyApp (TyCon (typeConstructor package)) representation
+typeAppRep env =
+  TyApp (TyCon (typeConstructor (tePrimPackage (leTypes env))))
 
 checkExpr :: LintEnv -> String -> Type -> Expr -> Either LintError ()
 checkExpr env context expected expr =
@@ -353,7 +339,7 @@ checkLiteral :: LintEnv -> Type -> Literal -> Either LintError ()
 checkLiteral env expected literal = do
   let representation = literalRepresentation literal
   representationKind <- lintType env representation
-  expectedRepresentationKind <- runtimeRepKind env
+  let expectedRepresentationKind = runtimeRepKind env
   unless (typesEqual (leTypes env) expectedRepresentationKind representationKind) (Left (KindMismatch "literal representation" expectedRepresentationKind representationKind))
   checkLiteralRepresentation literal
   expectedRepresentation <- representationOf env expected
@@ -645,10 +631,10 @@ checkCoercionArgumentKind env expected left right = do
 representationOf :: LintEnv -> Type -> Either LintError Type
 representationOf env ty = do
   kind <- lintType env ty
-  case (tePrimPackage (leTypes env), reduceType (leTypes env) kind) of
-    (Just package, TyApp (TyCon name) representation)
-      | name == typeConstructor package -> Right representation
-    (_, other) -> Left (LintFailure ("term type does not have a TYPE representation: " <> show other))
+  case reduceType (leTypes env) kind of
+    TyApp (TyCon name) representation
+      | name == typeConstructor (tePrimPackage (leTypes env)) -> Right representation
+    other -> Left (LintFailure ("term type does not have a TYPE representation: " <> show other))
 
 eitherToList :: Either LintError a -> [LintError]
 eitherToList = either pure (const [])
