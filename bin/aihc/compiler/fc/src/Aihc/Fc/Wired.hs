@@ -10,11 +10,7 @@ module Aihc.Fc.Wired
     constraintName,
     liftedRepName,
     unliftedRepName,
-    boxedRepName,
-    liftedName,
-    unliftedName,
     ghcTypesModule,
-    isGhcTypesOrigin,
     primPackageFromScopes,
   )
 where
@@ -59,25 +55,6 @@ liftedRepName package =
 unliftedRepName :: PackageId -> Name
 unliftedRepName package =
   wiredGhcTypes package "UnliftedRep" SortSynonym
-
-boxedRepName :: PackageId -> Name
-boxedRepName package =
-  wiredGhcTypes package "BoxedRep" SortDataConstructor
-
-liftedName :: PackageId -> Name
-liftedName package =
-  wiredGhcTypes package "Lifted" SortDataConstructor
-
-unliftedName :: PackageId -> Name
-unliftedName package =
-  wiredGhcTypes package "Unlifted" SortDataConstructor
-
-isGhcTypesOrigin :: PackageId -> Name -> Bool
-isGhcTypesOrigin package name =
-  case nameOrigin name of
-    OriginTop originPackage moduleName ->
-      originPackage == package && moduleName == ghcTypesModule
-    OriginLocal {} -> False
 
 -- | The package identity of the GHC.Types scope, if the table has one.
 primPackageFromScopes :: ScopeTable -> Maybe PackageId
