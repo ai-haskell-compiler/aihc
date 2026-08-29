@@ -1,10 +1,11 @@
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE MagicHash #-}
 
 {-# HLINT ignore "Use newtype instead of data" #-}
 
 module Type.Reflection
   ( Typeable (..),
-    TypeRep (..),
+    TypeRep,
     SomeTypeRep (..),
     TyCon (..),
     Module (..),
@@ -28,9 +29,9 @@ newtype TyCon = TyCon String
 
 data Module = Module String String
 
-data SomeTypeRep = SomeTypeRep TyCon [SomeTypeRep]
+data TypeRep a = TypeRep TyCon [SomeTypeRep]
 
-data TypeRep a = TypeRep SomeTypeRep
+data SomeTypeRep = forall a. SomeTypeRep (TypeRep a)
 
 class Typeable a where
   -- Both projections are compiler supplied until imported class selectors
@@ -39,20 +40,20 @@ class Typeable a where
   typeOf :: a -> TypeRep a
 
 typeRepTyCon :: TypeRep a -> TyCon
-typeRepTyCon (TypeRep (SomeTypeRep tyCon _)) = tyCon
+typeRepTyCon (TypeRep tyCon _) = tyCon
 
 typeRepArgs :: TypeRep a -> [SomeTypeRep]
-typeRepArgs (TypeRep (SomeTypeRep _ arguments)) = arguments
+typeRepArgs (TypeRep _ arguments) = arguments
 
 tyConName :: TyCon -> String
 tyConName (TyCon name) = name
 
 eqTypeRep :: TypeRep a -> TypeRep b -> Bool
-eqTypeRep (TypeRep left) (TypeRep right) = eqSomeTypeRep left right
+eqTypeRep (TypeRep leftTyCon leftArgs) (TypeRep rightTyCon rightArgs) =
+  eqTyCon leftTyCon rightTyCon && sameTypeReps leftArgs rightArgs
 
 eqSomeTypeRep :: SomeTypeRep -> SomeTypeRep -> Bool
-eqSomeTypeRep (SomeTypeRep leftTyCon leftArgs) (SomeTypeRep rightTyCon rightArgs) =
-  eqTyCon leftTyCon rightTyCon && sameTypeReps leftArgs rightArgs
+eqSomeTypeRep (SomeTypeRep left) (SomeTypeRep right) = eqTypeRep left right
 
 eqTyCon :: TyCon -> TyCon -> Bool
 eqTyCon (TyCon leftName) (TyCon rightName) = sameString leftName rightName
@@ -83,10 +84,10 @@ rnfModule :: Module -> ()
 rnfModule (Module package name) = rnfString package `seq` rnfString name
 
 rnfSomeTypeRep :: SomeTypeRep -> ()
-rnfSomeTypeRep (SomeTypeRep tyCon arguments) = rnfTyCon tyCon `seq` rnfSomeTypeRepList arguments
+rnfSomeTypeRep (SomeTypeRep representation) = rnfTypeRep representation
 
 rnfTypeRep :: TypeRep a -> ()
-rnfTypeRep (TypeRep representation) = rnfSomeTypeRep representation
+rnfTypeRep (TypeRep tyCon arguments) = rnfTyCon tyCon `seq` rnfSomeTypeRepList arguments
 
 rnfSomeTypeRepList :: [SomeTypeRep] -> ()
 rnfSomeTypeRepList = foldr (seq . rnfSomeTypeRep) ()

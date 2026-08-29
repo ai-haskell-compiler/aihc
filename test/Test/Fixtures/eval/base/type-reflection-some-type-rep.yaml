@@ -1,0 +1,26 @@
+dependencies:
+  - aihc-base
+modules:
+  - |
+    module Test where
+
+    import Data.Proxy (Proxy (..))
+    import Type.Reflection (SomeTypeRep (..), TypeRep, eqTypeRep, rnfSomeTypeRep, typeRep)
+
+    boolRep :: TypeRep Bool
+    boolRep = typeRep (Proxy :: Proxy Bool)
+
+    someBool :: SomeTypeRep
+    someBool = SomeTypeRep boolRep
+
+    result :: Bool
+    result =
+      case rnfSomeTypeRep someBool of
+        () ->
+          case someBool of
+            SomeTypeRep representation -> eqTypeRep representation boolRep
+output: |
+  True
+expression: result
+status: pass
+reason: Type.Reflection SomeTypeRep wraps TypeRep a like GHC
